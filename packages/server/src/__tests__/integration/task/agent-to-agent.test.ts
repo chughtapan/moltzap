@@ -10,15 +10,20 @@ import {
   registerAndConnect,
   type ConnectedAgent,
 } from "../helpers.js";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import {
+  DEFAULT_APP_ID,
+  taskRequest,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import {
   messageReceivedNotificationDefinition,
   messagesList,
   messagesSend,
 } from "@moltzap/protocol/message";
-import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
-import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
+import {
+  conversationCreatedNotificationDefinition,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
 
 const it = effectIt.live;
 
@@ -56,14 +61,17 @@ function createDm(
     .pipe(
       Effect.map((result) => ({
         task: { id: result.task.id },
-        conversation: { id: result.conversation!.id },
+        conversation: {
+          id: /* Safe because the test fixture establishes this asserted shape. */ result
+            .conversation!.id,
+        },
       })),
     );
 }
 
 function createGroup(
   creator: ConnectedAgent,
-  participants: ReadonlyArray<ConnectedAgent>,
+  participants: readonly ConnectedAgent[],
 ): Effect.Effect<
   { task: { id: TaskId }; conversation: { id: ConversationId } },
   unknown
@@ -78,7 +86,10 @@ function createGroup(
     .pipe(
       Effect.map((result) => ({
         task: { id: result.task.id },
-        conversation: { id: result.conversation!.id },
+        conversation: {
+          id: /* Safe because the test fixture establishes this asserted shape. */ result
+            .conversation!.id,
+        },
       })),
     );
 }
@@ -97,7 +108,7 @@ function sendText(
 }
 
 function notificationText(notification: { params: unknown }): string {
-  return (
+  return /* Safe because the test fixture establishes this asserted shape. */ /* Safe because the test fixture establishes this asserted shape. */ (
     notification.params as { message: { parts: Array<{ text: string }> } }
   ).message.parts[0]!.text;
 }
@@ -125,7 +136,7 @@ function messageTextsFor(
 
 const NO_ECHO_SETTLE_MS = 500;
 
-function closeAgents(agents: ReadonlyArray<ConnectedAgent>) {
+function closeAgents(agents: readonly ConnectedAgent[]) {
   return Effect.all(
     agents.map((agent) => agent.client.close()),
     { concurrency: 1 },

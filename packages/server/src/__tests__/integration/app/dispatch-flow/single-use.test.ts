@@ -41,7 +41,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   hooks: MODERATED_HOOKS,
 };
 
-const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
+const fixture = createDispatchFlowFixture();
 
 beforeAll(startDispatchFlowServer, 60_000);
 
@@ -55,7 +55,7 @@ function requestPendingModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ kind: "never-reply" });
-    yield* attachDispatchAuthorizeHook(alice, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const binding = yield* createConversationOnApp(
       alice,
       bob,
@@ -78,7 +78,7 @@ function requestGrantedModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ decision: "grant" });
-    yield* attachDispatchAuthorizeHook(alice, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const binding = yield* createConversationOnApp(
       alice,
       bob,

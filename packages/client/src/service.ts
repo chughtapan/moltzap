@@ -1,5 +1,3 @@
-import { FileSystem, Path } from "@effect/platform";
-import { NodeContext } from "@effect/platform-node";
 import {
   agentId as AgentIdSchema,
   AgentNotFoundError,
@@ -18,6 +16,7 @@ import type { HelloOk } from "@moltzap/protocol/network";
 import type {
   AnyAgentCallableRpcDefinition,
   AnyNotificationDefinition,
+  agentCallableGroup,
 } from "@moltzap/protocol/socket/catalog";
 import type {
   ClientDefinitionPayload,
@@ -31,13 +30,15 @@ import {
   conversationArchivedNotificationDefinition,
   conversationUnarchivedNotificationDefinition,
   conversationList,
-} from "@moltzap/protocol/conversation";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
-import {
   ConversationArchivedError,
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
+import {
+  DEFAULT_APP_ID,
+  taskRequest,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import {
   type Message,
   type MessageReceivedNotification,
@@ -47,7 +48,7 @@ import {
 } from "@moltzap/protocol/message";
 import {
   NotConnectedError,
-  RpcTimeoutError,
+  type RpcTimeoutError,
   isNotificationDeliveryFor,
   type NotificationDelivery,
   type NotificationParamsOf,
@@ -57,13 +58,9 @@ import {
   type ResultOf,
   type SuccessForTag,
 } from "@moltzap/protocol/rpc";
-import { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
 import type { RpcGroup, Rpc } from "@effect/rpc";
-import type { TaskId } from "@moltzap/protocol/task";
 import { BoundedMap } from "@moltzap/protocol/bounded-map";
 import {
-  Config,
-  ConfigProvider,
   Effect,
   Exit,
   HashMap,
@@ -84,7 +81,7 @@ import {
   getMoltZapAgentServiceSocketPath,
   getMoltZapServiceSocketPath,
 } from "./local-paths.js";
-import { type LocalDaemonHandlers } from "./local-daemon-rpc.js";
+import type { LocalDaemonHandlers } from "./local-daemon-rpc.js";
 import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
 import {
   startLocalSocketServer,
@@ -110,6 +107,7 @@ import {
   purgeLastNotified,
   purgeLastRead,
 } from "./service-archive-purge.js";
+import { appendClientEventTrace } from "./service-event-trace.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
@@ -120,47 +118,6 @@ const AGENT_LOOKUP_MAX_PAGES = 20;
 const REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE = 50;
 const REUSABLE_CONVERSATION_LOOKUP_MAX_PAGES = 20;
 const decodeAgentId = Schema.decodeUnknownOption(AgentIdSchema);
-
-const ClientEventLogDir = Config.option(
-  Config.string("MOLTZAP_CLIENT_EVENT_LOG_DIR"),
-);
-
-const getClientEventLogDir = (): string | undefined =>
-  Option.getOrUndefined(
-    Effect.runSync(
-      ClientEventLogDir.pipe(
-        Effect.withConfigProvider(ConfigProvider.fromEnv()),
-      ),
-    ),
-  );
-
-function appendClientEventTrace(
-  record: Record<string, unknown>,
-): Effect.Effect<void, never> {
-  const dir = getClientEventLogDir();
-  if (!dir) return Effect.void;
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const agentId =
-      typeof record["agentId"] === "string" ? record["agentId"] : "unknown";
-    const safeAgentId = /^[A-Za-z0-9_-]+$/.test(agentId) ? agentId : "unknown";
-    yield* Effect.zipRight(
-      fileSystem.makeDirectory(dir, { recursive: true }),
-      fileSystem.writeFileString(
-        path.join(dir, `client-events-${safeAgentId}.jsonl`),
-        JSON.stringify(record) + "\n",
-        { flag: "a" },
-      ),
-    );
-  }).pipe(
-    Effect.withSpan("appendClientEventTrace"),
-    Effect.provide(NodeContext.layer),
-    Effect.catchAll((err) =>
-      Effect.logWarning("moltzap client event trace write failed", err),
-    ),
-  );
-}
 
 /** The agent group's member `Rpc`s — the tag-keyed surface the service drives. */
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
@@ -186,6 +143,7 @@ const agentNotFound = (agentName: string): AgentNotFoundError =>
     data: { agentName },
   });
 
+/** Describes conversation meta. */
 export interface ConversationMeta {
   id: string;
   type: string;
@@ -193,6 +151,7 @@ export interface ConversationMeta {
   participants: string[];
 }
 
+/** Configures context. */
 export interface ContextOptions {
   type: "cross-conversation";
   maxConversations?: number;
@@ -210,7 +169,11 @@ export interface CrossConversationEntry {
   count: number;
 }
 
-/** Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block. */
+/**
+ * Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block.
+ * @param s Value supplied to the operation.
+ * @returns The sanitize for system reminder result.
+ */
 export function sanitizeForSystemReminder(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -219,12 +182,18 @@ export function sanitizeForSystemReminder(s: string): string {
  * Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
  * that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
  * share this formatter so sanitization and line shape stay in one place.
+ * @param entries Value supplied to the operation.
+ * @param opts Value supplied to the operation.
+ * @param opts.header Value supplied to the operation.
+ * @returns The format cross conversation block result.
  */
 function formatCrossConversationBlock(
   entries: CrossConversationEntry[],
   opts: { header: string },
 ): string | null {
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    return null;
+  }
   const lines = entries.map((e) => {
     const safeSender = sanitizeForSystemReminder(e.senderName);
     const safeText = sanitizeForSystemReminder(
@@ -256,8 +225,7 @@ interface ServiceHandlerPayloads {
    * such as `conversationArchived`.
    */
   readonly rawNotification: ClientNotificationDelivery;
-  readonly disconnect: void;
-  readonly reconnect: HelloOk;
+  readonly disconnect: undefined;
   readonly conversationArchived: ConversationArchivedNotification;
   readonly conversationUnarchived: ConversationUnarchivedNotification;
   readonly dispatchRelease: NotificationParamsOf<typeof dispatchRelease>;
@@ -299,6 +267,8 @@ const DEDUP_WINDOW_PER_CONV = 1000;
 /**
  * Invoke every handler with `arg`, isolating throws so one bad handler
  * doesn't abort the remaining fanout.
+ * @param handlers Value supplied to the operation.
+ * @param arg Value supplied to the operation.
  */
 function fanout<T>(
   handlers: ReadonlyArray<NotificationHandler<T>>,
@@ -324,7 +294,7 @@ function fanout<T>(
  */
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
-  private _connected = false;
+  private connectedValue = false;
 
   /**
    * Service-owned scope. Opened in `connect()`, owns the
@@ -340,8 +310,8 @@ export class MoltZapService {
     HashMap.HashMap<string, ConversationMeta>
   > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationMeta>()));
   private readonly messagesRef: Ref.Ref<
-    HashMap.HashMap<string, ReadonlyArray<Message>>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, ReadonlyArray<Message>>()));
+    HashMap.HashMap<string, readonly Message[]>
+  > = Effect.runSync(Ref.make(HashMap.empty<string, readonly Message[]>()));
   private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
     Effect.runSync(Ref.make(HashMap.empty<string, string>()));
   private readonly agentConversationCacheRef: Ref.Ref<
@@ -387,7 +357,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    reconnect: [],
     conversationArchived: [],
     conversationUnarchived: [],
     dispatchRelease: [],
@@ -395,12 +364,15 @@ export class MoltZapService {
     dispatchLeaseExpired: [],
   };
 
-  private _ownAgentId: AgentId;
+  private readonly ownAgentIdValue: AgentId;
 
-  protected constructor(private opts: ServiceOptions) {
+  private readonly opts: ServiceOptions;
+
+  protected constructor(opts: ServiceOptions) {
+    this.opts = opts;
     // The empty HelloOk carries no identity; `ownAgentId` is the client's
     // registered/stored id, available before the handshake.
-    this._ownAgentId = opts.agentId;
+    this.ownAgentIdValue = opts.agentId;
   }
 
   static fromConfig(config: MoltzapServiceConfig): MoltZapService {
@@ -411,16 +383,13 @@ export class MoltZapService {
     profileName: string,
   ): Effect.Effect<MoltZapService, ServiceConfigError> {
     return loadServiceConfig(profileName).pipe(
-      Effect.map(MoltZapService.fromConfig),
+      Effect.map((config) => MoltZapService.fromConfig(config)),
     );
   }
 
   static startDaemon(
     profileName: string,
-  ): Effect.Effect<
-    MoltZapService,
-    ServiceConfigError | ServiceRpcError | unknown
-  > {
+  ): Effect.Effect<MoltZapService, unknown> {
     return Effect.gen(function* () {
       const service = yield* MoltZapService.make(profileName);
       yield* service.connect();
@@ -430,16 +399,19 @@ export class MoltZapService {
   }
 
   get connected(): boolean {
-    return this._connected;
+    return this.connectedValue;
   }
 
   get ownAgentId(): AgentId | undefined {
-    return this._ownAgentId;
+    return this.ownAgentIdValue;
   }
 
-  /** Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`. */
+  /**
+   * Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`.
+   * @returns The client result.
+   */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapService) {
       const client = new MoltZapAgentClient({
         serverUrl: this.opts.serverUrl,
         agentKey: this.opts.agentKey,
@@ -447,12 +419,8 @@ export class MoltZapService {
         // kept explicit so a future disconnect-handler chain can plumb
         // code/reason through.
         onDisconnect: () => {
-          this._connected = false;
+          this.connectedValue = false;
           fanout(this.handlers.disconnect, undefined);
-        },
-        onReconnect: (helloOk) => {
-          this._connected = true;
-          fanout(this.handlers.reconnect, helloOk);
         },
       });
       this.client = client;
@@ -471,7 +439,9 @@ export class MoltZapService {
       this.serviceScope = serviceScope;
       const fanoutEffect = client.subscribeAll().pipe(
         Stream.runForEach((notification) =>
-          Effect.sync(() => this.handleNotification(notification)),
+          Effect.sync(() => {
+            this.handleNotification(notification);
+          }),
         ),
         Effect.catchAll((cause) =>
           Effect.logWarning(
@@ -484,7 +454,7 @@ export class MoltZapService {
       yield* Effect.forkIn(fanoutEffect, serviceScope);
 
       const helloOk = yield* client.connect();
-      this._connected = true;
+      this.connectedValue = true;
       return helloOk;
     });
   }
@@ -496,7 +466,7 @@ export class MoltZapService {
    * shutdown.
    */
   close(): void {
-    this._connected = false;
+    this.connectedValue = false;
     Effect.runFork(this.stopSocketServer());
     const scopeToClose = this.serviceScope;
     const clientToClose = this.client;
@@ -521,10 +491,9 @@ export class MoltZapService {
     );
     this.archivedConversationIds.clear();
     this.seenMessageIds.clear();
-    // Handlers are preserved across close()/connect() cycles. MoltZapChannelCore
-    // subscribes once in its constructor; clearing handlers here would silently
-    // drop inbound/reconnect dispatch on any subsequent reconnect of the same
-    // service instance.
+    // Handlers are preserved across explicit close()/connect() cycles.
+    // MoltZapChannelCore subscribes once in its constructor; clearing handlers
+    // here would silently drop inbound dispatch after the next connect.
   }
 
   // --- Socket Server ---
@@ -540,19 +509,24 @@ export class MoltZapService {
    * compromised or malicious server returns an id containing `..` or a
    * path separator, a naive `path.join(... , agentId)` escapes `~/.moltzap`.
    * Reject anything that isn't a safe identifier.
+   * @param id Value supplied to the operation.
+   * @returns The id result.
    */
   private static safeAgentIdSegment(id: string): string {
     return /^[A-Za-z0-9_-]+$/.test(id) ? id : "default";
   }
 
-  /** Per-instance socket path based on connected agentId. */
+  /**
+   * Per-instance socket path based on connected agentId.
+   * @returns The id result.
+   */
   get socketPath(): string {
     const id = MoltZapService.safeAgentIdSegment(this.ownAgentId ?? "default");
     return getMoltZapAgentServiceSocketPath(id);
   }
 
-  startSocketServer(): Effect.Effect<void, unknown, never> {
-    return Effect.gen(this, function* () {
+  startSocketServer(): Effect.Effect<void, unknown> {
+    return Effect.gen(this, function* (this: MoltZapService) {
       const previous = this.resetSocketServerState();
       yield* stopLocalSocketServer({
         socketScope: previous.socketScope,
@@ -580,7 +554,7 @@ export class MoltZapService {
     return { socketScope, sockPath };
   }
 
-  private stopSocketServer(): Effect.Effect<void, never> {
+  private stopSocketServer(): Effect.Effect<void> {
     const { socketScope, sockPath } = this.resetSocketServerState();
     return stopLocalSocketServer({
       socketScope,
@@ -591,8 +565,8 @@ export class MoltZapService {
 
   private localDaemonHandlers(): LocalDaemonHandlers {
     return makeLocalDaemonHandlers({
-      ownAgentId: this._ownAgentId,
-      connected: this._connected,
+      ownAgentId: this.ownAgentIdValue,
+      connected: this.connectedValue,
       conversationCount: () => this.getConversations().length,
       call: this.call.bind(this),
       handleHistoryRequest: (request) => this.handleHistoryRequest(request),
@@ -602,7 +576,7 @@ export class MoltZapService {
   private handleHistoryRequest(
     request: HistoryRequest,
   ): Effect.Effect<HistoryResponse, ServiceRpcError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapService) {
       const result = yield* this.call(messagesList.name, {
         taskId: request.taskId,
         conversationId: request.conversationId,
@@ -634,9 +608,9 @@ export class MoltZapService {
 
   private loadHistorySupportData(
     convId: ConversationId,
-    messages: ReadonlyArray<Message>,
+    messages: readonly Message[],
   ) {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapService) {
       const [, convMeta] = yield* Effect.all(
         [
           this.refreshHistoryAgentNames(messages),
@@ -651,14 +625,16 @@ export class MoltZapService {
   }
 
   private refreshHistoryAgentNames(
-    messages: ReadonlyArray<Message>,
-  ): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    messages: readonly Message[],
+  ): Effect.Effect<void> {
+    return Effect.gen(this, function* (this: MoltZapService) {
       const knownNames = yield* Ref.get(this.agentNamesRef);
       const unknownAgentIds = [
         ...new Set(messages.map((message) => message.senderId)),
       ].filter((id) => !HashMap.has(knownNames, id));
-      if (unknownAgentIds.length === 0) return;
+      if (unknownAgentIds.length === 0) {
+        return;
+      }
       yield* this.cacheVisibleAgentNamesForIds(new Set(unknownAgentIds)).pipe(
         Effect.asVoid,
         Effect.catchAll(() => Effect.void),
@@ -682,7 +658,7 @@ export class MoltZapService {
 
   private advanceHistoryLastRead(
     request: HistoryRequest,
-    messages: ReadonlyArray<Message>,
+    messages: readonly Message[],
   ): Effect.Effect<void> {
     if (request.sessionKey === undefined || messages.length === 0) {
       return Effect.void;
@@ -695,9 +671,12 @@ export class MoltZapService {
       const existing = getOr(
         perSession,
         conversationId,
-        () => new Set<string>() as ReadonlySet<string>,
+        () =>
+          /* Safe because the surrounding invariant establishes this asserted shape. */ new Set<string>() as ReadonlySet<string>,
       );
-      if (messages.every((message) => existing.has(message.id))) return outer;
+      if (messages.every((message) => existing.has(message.id))) {
+        return outer;
+      }
       const nextSet = new Set(existing);
       for (const message of messages) {
         nextSet.add(message.id);
@@ -732,7 +711,7 @@ export class MoltZapService {
     const msgs = getOr(
       snapshot(this.messagesRef),
       convId,
-      () => [] as ReadonlyArray<Message>,
+      (): readonly Message[] => [],
     );
     return limit ? msgs.slice(-limit) : [...msgs];
   }
@@ -750,16 +729,22 @@ export class MoltZapService {
    * when the RPC errors or the server has no record. The error path logs
    * so ops can see repeated lookup failures; the empty-response path is
    * silent (a cold agent is an expected transient state).
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @returns The decoded d agent id.
    */
-  resolveAgentName(agentId: string): Effect.Effect<string, never> {
-    return Effect.gen(this, function* () {
+  resolveAgentName(agentId: string): Effect.Effect<string> {
+    return Effect.gen(this, function* (this: MoltZapService) {
       const decodedAgentId = Option.getOrUndefined(decodeAgentId(agentId));
-      if (decodedAgentId === undefined) return agentId;
+      if (decodedAgentId === undefined) {
+        return agentId;
+      }
 
       const cached = Option.getOrUndefined(
         HashMap.get(snapshot(this.agentNamesRef), agentId),
       );
-      if (cached !== undefined) return cached;
+      if (cached !== undefined) {
+        return cached;
+      }
 
       return yield* this.cacheVisibleAgentNamesForIds(
         new Set([decodedAgentId]),
@@ -813,6 +798,13 @@ export class MoltZapService {
    * params frame. The server marks the lease consumed, blocking the
    * app authorization timeout sweep. `MoltZapChannelCore.sendReply` forwards
    * `leaseIdInFlight` automatically when the caller omits it.
+   * @param taskId Value supplied to the operation.
+   * @param conversationId Value supplied to the operation.
+   * @param text Text to process.
+   * @param opts Value supplied to the operation.
+   * @param opts.replyTo Value supplied to the operation.
+   * @param opts.dispatchLeaseId Value supplied to the operation.
+   * @returns The send result.
    */
   send(
     taskId: TaskId,
@@ -842,6 +834,8 @@ export class MoltZapService {
    * Issue `agent/dispatch/request`. The server returns the ack
    * `{leaseId, dispatchId}` immediately; the recipient observes the
    * verdict asynchronously via the `dispatchRelease` event.
+   * @param params Request payload to process.
+   * @returns The cache result.
    */
   requestDispatch(
     params: ParamsOf<typeof dispatchRequest>,
@@ -854,7 +848,7 @@ export class MoltZapService {
     text: string,
     opts?: { replyTo?: MessageId },
   ): Effect.Effect<void, ServiceRpcError | AgentNotFoundError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapService) {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
       let entry = Option.getOrUndefined(HashMap.get(cache, agentName));
       if (entry === undefined) {
@@ -892,7 +886,7 @@ export class MoltZapService {
     taskId: TaskId,
     agentName: string,
   ): Effect.Effect<ConversationId, ServiceRpcError | AgentNotFoundError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapService) {
       let cursor: string | undefined = undefined;
       for (
         let page = 0;
@@ -902,25 +896,31 @@ export class MoltZapService {
         const params: { limit: number; cursor?: string } = {
           limit: REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE,
         };
-        if (cursor !== undefined) params.cursor = cursor;
+        if (cursor !== undefined) {
+          params.cursor = cursor;
+        }
         const result = yield* this.call(conversationList.name, params);
         const hit = result.items.find(
           (item) =>
             item.taskId === taskId &&
             item.conversation.archivedAt === undefined,
         );
-        if (hit !== undefined) return hit.conversation.id;
-        if (result.nextCursor === undefined) break;
+        if (hit !== undefined) {
+          return hit.conversation.id;
+        }
+        if (result.nextCursor === undefined) {
+          break;
+        }
         cursor = result.nextCursor;
       }
       return yield* Effect.fail(agentNotFound(agentName));
     });
   }
 
-  private cacheAgentNames(
-    agents: ReadonlyArray<AgentCard>,
-  ): Effect.Effect<void> {
-    if (agents.length === 0) return Effect.void;
+  private cacheAgentNames(agents: readonly AgentCard[]): Effect.Effect<void> {
+    if (agents.length === 0) {
+      return Effect.void;
+    }
     return Ref.update(this.agentNamesRef, (names) => {
       let next = names;
       for (const agent of agents) {
@@ -930,9 +930,7 @@ export class MoltZapService {
     });
   }
 
-  private agentListParams(
-    cursor: ListCursor | undefined,
-  ): ParamsOf<typeof agentsList> {
+  private agentListParams(cursor?: ListCursor): ParamsOf<typeof agentsList> {
     return cursor === undefined
       ? { limit: AGENT_LOOKUP_PAGE_SIZE }
       : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
@@ -941,15 +939,19 @@ export class MoltZapService {
   private cacheVisibleAgentNamesForIds(
     agentIds: ReadonlySet<string>,
   ): Effect.Effect<void, ServiceRpcError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapService) {
       const missing = new Set(agentIds);
       let cursor: ListCursor | undefined = undefined;
       for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
         const params = this.agentListParams(cursor);
         const result = yield* this.call(agentsList.name, params);
         yield* this.cacheAgentNames(result.agents);
-        for (const agent of result.agents) missing.delete(agent.id);
-        if (missing.size === 0 || result.nextCursor === undefined) return;
+        for (const agent of result.agents) {
+          missing.delete(agent.id);
+        }
+        if (missing.size === 0 || result.nextCursor === undefined) {
+          return;
+        }
         cursor = result.nextCursor;
       }
     });
@@ -958,14 +960,16 @@ export class MoltZapService {
   private findVisibleAgentByName(
     agentName: string,
   ): Effect.Effect<AgentCard | undefined, ServiceRpcError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapService) {
       let cursor: ListCursor | undefined = undefined;
       for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
         const params = this.agentListParams(cursor);
         const result = yield* this.call(agentsList.name, params);
         yield* this.cacheAgentNames(result.agents);
         const hit = result.agents.find((agent) => agent.name === agentName);
-        if (hit !== undefined || result.nextCursor === undefined) return hit;
+        if (hit !== undefined || result.nextCursor === undefined) {
+          return hit;
+        }
         cursor = result.nextCursor;
       }
       return undefined;
@@ -978,6 +982,9 @@ export class MoltZapService {
    * Generate a system reminder with updates from other conversations.
    * Each conversation has its own view of what's "new" — markers are tracked
    * per viewing conversation and advanced after notification.
+   * @param currentConvId Value supplied to the operation.
+   * @param opts Value supplied to the operation.
+   * @returns The context options result.
    */
   getContext(currentConvId: string, opts?: ContextOptions): string | null {
     const contextOptions = opts ?? {};
@@ -985,7 +992,9 @@ export class MoltZapService {
       currentConvId,
       contextOptions,
     );
-    if (entries.length === 0) return null;
+    if (entries.length === 0) {
+      return null;
+    }
     commit();
     return formatCrossConversationBlock(entries, {
       header: `Recent updates (you are in conv:${currentConvId}):`,
@@ -997,6 +1006,11 @@ export class MoltZapService {
    * Call `commit()` on the result to mark the returned messages as seen so
    * subsequent peeks return only what's new. A caller that reads without
    * committing can re-peek idempotently.
+   * @param currentConvId Value supplied to the operation.
+   * @param opts Value supplied to the operation.
+   * @param opts.maxConversations Value supplied to the operation.
+   * @param opts.maxMessagesPerConv Value supplied to the operation.
+   * @returns The max convs result.
    */
   peekContextEntries(
     currentConvId: string,
@@ -1016,7 +1030,9 @@ export class MoltZapService {
 
     return {
       entries,
-      commit: () => this.advanceLastNotified(currentConvId, pendingAdvances),
+      commit: () => {
+        this.advanceLastNotified(currentConvId, pendingAdvances);
+      },
     };
   }
 
@@ -1024,6 +1040,8 @@ export class MoltZapService {
    * Return all new messages from all other conversations as full transcripts,
    * sorted chronologically. Uses the same lastNotified markers as
    * peekContextEntries. Call commit() to advance markers.
+   * @param currentConvId Value supplied to the operation.
+   * @returns The all messages result.
    */
   peekFullMessages(currentConvId: string): {
     messages: CrossConvMessage[];
@@ -1055,14 +1073,21 @@ export class MoltZapService {
         });
       }
 
-      pendingAdvances.push([convId, newMsgs[newMsgs.length - 1]!.id]);
+      pendingAdvances.push([
+        convId,
+        /* Safe because the surrounding invariant establishes this asserted shape. */ newMsgs[
+          newMsgs.length - 1
+        ]!.id,
+      ]);
     }
 
     allMessages.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
     return {
       messages: allMessages,
-      commit: () => this.advanceLastNotified(currentConvId, pendingAdvances),
+      commit: () => {
+        this.advanceLastNotified(currentConvId, pendingAdvances);
+      },
     };
   }
 
@@ -1095,10 +1120,10 @@ export class MoltZapService {
   }
 
   private *iterNewMessagesByConv(
-    messagesMap: HashMap.HashMap<string, ReadonlyArray<Message>>,
+    messagesMap: HashMap.HashMap<string, readonly Message[]>,
     viewMarkers: HashMap.HashMap<string, string>,
     currentConvId: string,
-  ): Iterable<[string, ReadonlyArray<Message>]> {
+  ): Iterable<[string, readonly Message[]]> {
     for (const [convId, msgs] of messagesMap) {
       const newMsgs = newMessagesForConversation(
         convId,
@@ -1106,7 +1131,9 @@ export class MoltZapService {
         viewMarkers,
         currentConvId,
       );
-      if (newMsgs.length > 0) yield [convId, newMsgs];
+      if (newMsgs.length > 0) {
+        yield [convId, newMsgs];
+      }
     }
   }
 
@@ -1114,7 +1141,9 @@ export class MoltZapService {
     currentConvId: string,
     pendingAdvances: ReadonlyArray<readonly [string, string]>,
   ): void {
-    if (pendingAdvances.length === 0) return;
+    if (pendingAdvances.length === 0) {
+      return;
+    }
     Effect.runSync(
       Ref.update(this.lastNotifiedRef, (outer) => {
         let markers = getOr(outer, currentConvId, () =>
@@ -1143,6 +1172,10 @@ export class MoltZapService {
    * Outbound RPC, typed per method — delegates to the agent client's typed
    * `call`. `call("agent/identity/agents/list", payload)` recovers the result and that
    * method's tagged-error union; an app-only method does not typecheck.
+   * @param tag Value supplied to the operation.
+   * @param payload Value supplied to the operation.
+   * @param opts Value supplied to the operation.
+   * @returns The client result.
    */
   call<Tag extends AgentCallableTag>(
     tag: Tag,
@@ -1185,7 +1218,7 @@ export class MoltZapService {
   ): void {
     Effect.runFork(
       appendClientEventTrace(
-        notificationTraceRecord(notification, this._ownAgentId),
+        notificationTraceRecord(notification, this.ownAgentIdValue),
       ),
     );
   }
@@ -1193,8 +1226,12 @@ export class MoltZapService {
   private dispatchTypedNotification(
     notification: ClientNotificationDelivery,
   ): void {
-    if (this.dispatchMessageNotification(notification)) return;
-    if (this.dispatchConversationNotification(notification)) return;
+    if (this.dispatchMessageNotification(notification)) {
+      return;
+    }
+    if (this.dispatchConversationNotification(notification)) {
+      return;
+    }
     this.dispatchAppNotification(notification);
   }
 
@@ -1273,6 +1310,9 @@ export class MoltZapService {
    * replay, dual subscription) is suppressed to one
    * `on("message", ...)` event. `agent/message/list` returns raw history
    * unfiltered; consumers that combine both feeds dedup themselves.
+   * @param convId Value supplied to the operation.
+   * @param msgId Value supplied to the operation.
+   * @returns The dedup window result.
    */
   private recordMessageIdIfNew(
     convId: ConversationId,
@@ -1306,7 +1346,7 @@ export class MoltZapService {
     // Name resolution is driven lazily by channel-core's serialized consumer
     // via resolveAgentName(), which populates agentNamesRef on first miss and
     // hits the cache on every subsequent message.
-    if (msg.senderId !== this._ownAgentId) {
+    if (msg.senderId !== this.ownAgentIdValue) {
       fanout(this.handlers.message, {
         taskId: notification.taskId,
         message: msg,
@@ -1375,7 +1415,7 @@ export class MoltZapService {
         const existing = getOr(
           m,
           msg.conversationId,
-          () => [] as ReadonlyArray<Message>,
+          (): readonly Message[] => [],
         );
         const appended = [...existing, msg];
         const capped =

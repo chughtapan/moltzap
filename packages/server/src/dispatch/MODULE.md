@@ -8,7 +8,7 @@ Dispatch-domain service barrel.
 
 ## Public surface
 
-### [`DispatchAdmissionConversations`](./admission.service.ts#L100)
+### [`DispatchAdmissionConversations`](./admission.service.ts#L109)
 
 _Interface_
 
@@ -21,7 +21,9 @@ export interface DispatchAdmissionConversations {
 }
 ```
 
-### [`DispatchAdmissionResult`](./admission.service.ts#L69)
+Describes dispatch admission conversations.
+
+### [`DispatchAdmissionResult`](./admission.service.ts#L76)
 
 _TypeAlias_
 
@@ -35,18 +37,30 @@ export type DispatchAdmissionResult =
     }
 ```
 
-### [`DispatchAdmissionService`](./admission.service.ts#L148)
+Represents the result of dispatch admission.
+
+### [`DispatchAdmissionService`](./admission.service.ts#L162)
 
 _Class_
 
 ```ts
 export class DispatchAdmissionService {
+  private readonly db: Db;
+  private readonly apps: AppEndpointRegistry;
+  private readonly registry: LeaseRegistry;
+  private readonly conversations: DispatchAdmissionConversations;
+
   constructor(
-    private readonly db: Db,
-    private readonly apps: AppEndpointRegistry,
-    private readonly registry: LeaseRegistry,
-    private readonly conversations: DispatchAdmissionConversations,
-  ) {}
+    db: Db,
+    apps: AppEndpointRegistry,
+    registry: LeaseRegistry,
+    conversations: DispatchAdmissionConversations,
+  ) {
+    this.db = db;
+    this.apps = apps;
+    this.registry = registry;
+    this.conversations = conversations;
+  }
 
   enqueue(
     args: EnqueueDispatchRequestArgs,
@@ -65,7 +79,7 @@ export class DispatchAdmissionService {
     SqlError,
     NetworkSendServiceTag
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: DispatchAdmissionService) {
       const lookup = yield* lookupAppBoundForConversation(
         this.db,
         args.conversationId,
@@ -90,7 +104,7 @@ export class DispatchAdmissionService {
   private dispatchLeaseBindingForLookup(
     args: EnqueueDispatchRequestArgs,
     lookup: AppBoundConversationLookup,
-  ): Effect.Effect<ModeratorBoundLeaseBinding, never> {
+  ): Effect.Effect<ModeratorBoundLeaseBinding> {
     const entry = this.apps.lookupApp(lookup.appId);
     if (entry === undefined) {
       return Effect.die(
@@ -117,7 +131,7 @@ export class DispatchAdmissionService {
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: DispatchAdmissionService) {
       const fiber = yield* Effect.forkDaemon(
         this.runForkedDispatchRoundTrip(leaseId, lookup, params),
       );
@@ -147,27 +161,19 @@ export class DispatchAdmissionService {
       });
     }
 
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: DispatchAdmissionService) {
       const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
       const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
-      yield* this.resolveLease(leaseId, dispatchVerdictToLeaseVerdict(verdict));
-      yield* this.removeDeniedParticipant(verdict, params);
-    });
-  }
-
-  private dispatchAuthorizeContext(
-    lookup: AppBoundConversationLookup,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<DispatchAuthorizeContext, SqlError> {
-    return Effect.gen(this, function* () {
 ```
 
-### [`DispatchAdmissionServiceLive`](./layer.ts#L42)
+Implements dispatch admission service.
+
+### [`dispatchAdmissionServiceLive`](./layer.ts#L46)
 
 _Variable_
 
 ```ts
-export const DispatchAdmissionServiceLive = Layer.effect(
+export const dispatchAdmissionServiceLive = Layer.effect(
   DispatchAdmissionServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -184,7 +190,9 @@ export const DispatchAdmissionServiceLive = Layer.effect(
 )
 ```
 
-### [`DispatchAdmissionServiceTag`](./layer.ts#L25)
+Provides the dispatch admission service live runtime value.
+
+### [`DispatchAdmissionServiceTag`](./layer.ts#L27)
 
 _Class_
 
@@ -194,7 +202,9 @@ export class DispatchAdmissionServiceTag extends Context.Tag(
 )<DispatchAdmissionServiceTag, DispatchAdmissionService>() {}
 ```
 
-### [`DispatchAuthorizeContext`](./admission.service.ts#L25)
+Implements dispatch admission service tag.
+
+### [`DispatchAuthorizeContext`](./admission.service.ts#L28)
 
 _TypeAlias_
 
@@ -202,7 +212,9 @@ _TypeAlias_
 export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 ```
 
-### [`dispatchLeaseGet`](./handlers.ts#L75)
+Represents dispatch authorize context values.
+
+### [`dispatchLeaseGet`](./handlers.ts#L83)
 
 _Variable_
 
@@ -212,7 +224,11 @@ export const dispatchLeaseGet: ServerHandler<
 > = (params)
 ```
 
-### [`dispatchRequest`](./handlers.ts#L68)
+Provides the dispatch lease get runtime value.
+
+**Returns:** The dispatch lease get result.
+
+### [`dispatchRequest`](./handlers.ts#L71)
 
 _Variable_
 
@@ -222,7 +238,11 @@ export const dispatchRequest: ServerHandler<
 > = (params)
 ```
 
-### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L88)
+Provides the dispatch request runtime value.
+
+**Returns:** The dispatch request result.
+
+### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L96)
 
 _Interface_
 
@@ -233,14 +253,16 @@ export interface EnqueueDispatchRequestArgs {
   readonly recipientConnectionId: ConnectionId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  readonly parts?: ReadonlyArray<Part>;
+  readonly parts?: MessageParts;
   readonly attempt?: number;
   readonly receivedAt?: string;
-  readonly pending?: ReadonlyArray<PendingDispatchMessage>;
+  readonly pending?: readonly PendingDispatchMessage[];
 }
 ```
 
-### [`LeaseInvalidError`](./lease-registry.ts#L170)
+Describes enqueue dispatch request args.
+
+### [`LeaseInvalidError`](./lease-registry.ts#L167)
 
 _Class_
 
@@ -248,7 +270,7 @@ _Class_
 export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
   readonly leaseId: LeaseId;
   readonly state: LeaseState;
-  readonly expected: ReadonlyArray<LeaseState>;
+  readonly expected: readonly LeaseState[];
   readonly operation: "resolve" | "claim" | "finalize" | "rollback" | "read";
 }> {
   override get message(): string {
@@ -259,11 +281,11 @@ export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
 
 Tagged error channel for the registry's transition-rejecting paths.
 The `state` carries the lease's CURRENT state (so callers can
-surface a precise wire-error code, e.g. typed-CONSUMED /
+surface a precise wire-error code, e.g. Typed-CONSUMED /
 typed-EXPIRED) and `expected` carries the set of states the
 operation would have accepted.
 
-### [`LeaseRecord`](./lease-registry.ts#L139)
+### [`LeaseRecord`](./lease-registry.ts#L136)
 
 _Interface_
 
@@ -287,7 +309,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L526)
+### [`leaseRecordToWire`](./lease-registry.ts#L535)
 
 _Function_
 
@@ -298,7 +320,9 @@ export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire
 Translation point between the in-process nested `LeaseRecord` and the wire
 `LeaseRecordSchema` shape.
 
-### [`LeaseRegistry`](./lease-registry.ts#L288)
+**Returns:** The lease record to wire result.
+
+### [`LeaseRegistry`](./lease-registry.ts#L291)
 
 _Interface_
 
@@ -312,9 +336,7 @@ export interface LeaseRegistry {
    * Both ids are minted via `crypto.randomUUID()`; the brand on
    * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
    */
-  mint(
-    binding: ModeratorBoundLeaseBinding,
-  ): Effect.Effect<LeaseMintResult, never, never>;
+  mint(binding: ModeratorBoundLeaseBinding): Effect.Effect<LeaseMintResult>;
 
   /**
    * Settle a PENDING lease into a terminal-or-near-terminal state via
@@ -327,7 +349,7 @@ export interface LeaseRegistry {
   resolve(
     leaseId: LeaseId,
     verdict: LeaseVerdict,
-  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
+  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError>;
 
   /**
    * Atomic GRANTED → CLAIMED. Called from the messages handler
@@ -342,7 +364,7 @@ export interface LeaseRegistry {
    */
   claim(
     leaseId: LeaseId,
-  ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never>;
+  ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError>;
 
   /**
    * Snapshot read for `app/dispatch/lease/get`. Includes the live `leaseId` —
@@ -361,7 +383,7 @@ export interface LeaseRegistry {
           readonly _tag: "dispatchId";
           readonly value: DispatchId;
         },
-  ): Effect.Effect<LeaseRecord, LeaseNotFoundError, never>;
+  ): Effect.Effect<LeaseRecord, LeaseNotFoundError>;
 
   /**
    * Connection-close cleanup. Called from the WS disconnect-hook chain
@@ -392,7 +414,7 @@ export interface LeaseRegistry {
    * failures are absorbed so disconnect cleanup always completes; the public
    * error channel is `never`.
    */
-  abandon(connId: ConnectionId): Effect.Effect<void, never, never>;
+  abandon(connId: ConnectionId): Effect.Effect<void>;
 
   /**
    * Internal — record the forked moderator round-trip fiber so
@@ -407,7 +429,7 @@ export interface LeaseRegistry {
   attachRoundTripFiber(
     leaseId: LeaseId,
     fiber: Fiber.RuntimeFiber<unknown, unknown>,
-  ): Effect.Effect<void, never, never>;
+  ): Effect.Effect<void>;
 
   /**
    * Deterministic shutdown drain — invoked by `CoreApp.close`
@@ -421,7 +443,7 @@ export interface LeaseRegistry {
    * Idempotent; safe to call when no leases are live. Error channel `never` —
    * shutdown is best-effort.
    */
-  shutdown(): Effect.Effect<void, never, never>;
+  shutdown(): Effect.Effect<void>;
 }
 ```
 
@@ -431,7 +453,7 @@ shared by dispatch admission and message send. Backed by an in-process
 flag — no DB row. State transitions are atomic via `Ref.modify`.
 
 Lease state machine (eight states; `LeaseState` in this file is the
-normative enumeration):
+normative enumeration):.
 
 ```mermaid
 stateDiagram-v2
@@ -471,7 +493,13 @@ sequenceDiagram
   LR->>Recv: agent/dispatch/released {verdict}
   Recv->>MS: agent/message/send with dispatchLeaseId
   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
-  Note over MS: Effect.acquireUseRelease — use sendInsert returns carrier — release on Exit success claim.finalize CLAIMED → CONSUMED, on Exit failure claim.rollback CLAIMED → GRANTED
+  Note over MS: Effect.acquireUseRelease owns the claim
+  MS->>MS: sendInsert
+  alt insert succeeds
+    MS->>LR: finalize(messageId), CLAIMED to CONSUMED
+  else insert fails
+    MS->>LR: rollback, CLAIMED to GRANTED
+  end
   MS->>MS: sendCommit — post-insert side effects
 ```
 
@@ -490,7 +518,7 @@ the immutable record version that created it, so a stale pre-rollback timer
 cannot expire a newer GRANTED epoch. The timeout comes from the grant
 verdict's `leaseTimeoutMs`.
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L428)
+### [`LeaseRegistryDeps`](./lease-registry.ts#L429)
 
 _Interface_
 
@@ -520,12 +548,12 @@ Constructor dependencies for the lease registry.
   `network/presence → LeaseTransitionObserver` for the call shape; the
   per-transition contract lives in `network/presence → PresenceService`.
 
-### [`LeaseRegistryLive`](./layer.ts#L29)
+### [`leaseRegistryLive`](./layer.ts#L32)
 
 _Variable_
 
 ```ts
-export const LeaseRegistryLive = Layer.effect(
+export const leaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
@@ -539,7 +567,9 @@ export const LeaseRegistryLive = Layer.effect(
 )
 ```
 
-### [`LeaseRegistryTag`](./layer.ts#L20)
+Provides the lease registry live runtime value.
+
+### [`LeaseRegistryTag`](./layer.ts#L21)
 
 _Class_
 
@@ -550,7 +580,9 @@ export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
 >() {}
 ```
 
-### [`LeaseState`](./lease-registry.ts#L118)
+Implements lease registry tag.
+
+### [`LeaseState`](./lease-registry.ts#L115)
 
 _TypeAlias_
 
@@ -570,7 +602,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L129)
+### [`LeaseVerdict`](./lease-registry.ts#L126)
 
 _TypeAlias_
 
@@ -581,14 +613,14 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1346)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1389)
 
 _Function_
 
 ```ts
 export function makeLeaseRegistry(
   deps: LeaseRegistryDeps,
-): Effect.Effect<LeaseRegistry, never, never>
+): Effect.Effect<LeaseRegistry>
 ```
 
 Construct the registry. The constructor is the only public factory
@@ -600,7 +632,9 @@ commit with its presence observer callback; network notifications and fiber
 interruption run after that critical section. A shared shutdown signal
 cancels parked notification and retention effects.
 
-### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L103)
+**Returns:** The created lease registry.
+
+### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L100)
 
 _Interface_
 

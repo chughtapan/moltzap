@@ -87,7 +87,7 @@ export const DEFAULT_APP_ID = Schema.decodeSync(appId)(
 
 Validates and decodes default app id values.
 
-### [`manifestPolicyCanaries`](./manifest-policy.types-check.ts#L107)
+### [`manifestPolicyCanaries`](./manifest-policy.types-check.ts#L88)
 
 _Variable_
 
@@ -95,7 +95,7 @@ _Variable_
 export const manifestPolicyCanaries =
 ```
 
-Aggregate so each binding is referenced (no unused-variable lint).
+Aggregate whose annotation retains every compile-time policy proof.
 
 ### [`validateAppManifest`](./manifest.ts#L154)
 

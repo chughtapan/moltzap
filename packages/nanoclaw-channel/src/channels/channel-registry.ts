@@ -7,6 +7,11 @@ import type { ChannelRegistration } from "./adapter.js";
 // safer-arch-ignore no-trivial-sink-file: This host-substitution seam mirrors Nanoclaw's registry contract so the channel source binds to the real runtime registry when installed and to this smoke-test stub in isolation.
 const registrations = new Map<string, ChannelRegistration>();
 
+/**
+ * Registers channel adapter.
+ * @param name Name of the operation.
+ * @param registration Value supplied to the operation.
+ */
 export function registerChannelAdapter(
   name: string,
   registration: ChannelRegistration,
@@ -16,7 +21,9 @@ export function registerChannelAdapter(
 
 /**
  * Test hook; the real nanoclaw registry has richer accessors.
+ * @param name Name of the operation.
  * @internal
+ * @returns The get registered channel adapter result.
  */
 export function getRegisteredChannelAdapter(
   name: string,

@@ -41,7 +41,8 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
             undefined,
             TIMEOUT_RELEASE_WAIT_MS,
           );
-          const params = release.params as ReleaseFrameView;
+          const params =
+            /* Safe because waitForRelease filters for the released-notification descriptor. */ release.params as ReleaseFrameView;
           if (params.verdict.decision !== "deny") {
             return yield* Effect.fail(
               dispatchAdmissionViolation(

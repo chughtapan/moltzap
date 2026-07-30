@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { messagesAuthorize } from "@moltzap/protocol/message";
-import { taskCreate } from "@moltzap/protocol/task";
+import type { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import type { messagesAuthorize } from "@moltzap/protocol/message";
+import type { taskCreate } from "@moltzap/protocol/task";
 import type {
   ReverseCallError,
   ReverseCallbackError,
@@ -45,6 +45,12 @@ export function callAppRpc(
   ReverseCallbackSuccess<typeof taskCreate>,
   ReverseCallbackError<typeof taskCreate> | ReverseCallError
 >;
+/**
+ * Executes the call app rpc operation.
+ * @param entry Value supplied to the operation.
+ * @param request Value supplied to the operation.
+ * @returns The call app rpc result.
+ */
 export function callAppRpc(
   entry: AppRegistration,
   request: ReverseCallbackRequest,
@@ -52,6 +58,19 @@ export function callAppRpc(
   return sendRpcToClient(entry.endpoint.originator, request);
 }
 
+/**
+ * Executes the wrap hook effect with envelope operation.
+ * @param opts Value supplied to the operation.
+ * @param opts.raw Value supplied to the operation.
+ * @param opts.timeoutMs Value supplied to the operation.
+ * @param opts.timeoutLogMessage Value supplied to the operation.
+ * @param opts.timeoutLogContext Value supplied to the operation.
+ * @param opts.errorLogMessage Value supplied to the operation.
+ * @param opts.errorLogContext Value supplied to the operation.
+ * @param opts.onTimeout Value supplied to the operation.
+ * @param opts.onError Value supplied to the operation.
+ * @returns The wrap hook effect with envelope result.
+ */
 export function wrapHookEffectWithEnvelope<Verdict, E = never>(opts: {
   readonly raw: Effect.Effect<Verdict, E>;
   readonly timeoutMs: number;
@@ -61,7 +80,7 @@ export function wrapHookEffectWithEnvelope<Verdict, E = never>(opts: {
   readonly errorLogContext: Record<string, unknown>;
   readonly onTimeout: () => Verdict;
   readonly onError: () => Verdict;
-}): Effect.Effect<Verdict, never> {
+}): Effect.Effect<Verdict> {
   return opts.raw.pipe(
     Effect.timeout(`${opts.timeoutMs} millis`),
     Effect.catchTag("TimeoutException", () =>

@@ -3,7 +3,7 @@
   "constants": [
     {
       "name": "PROTOCOL_VERSION",
-      "value": "2026.726.0",
+      "value": "2026.729.0",
       "kind": "string",
       "sourcePath": "packages/protocol/package.json",
       "note": "Current wire-protocol version sent by clients and checked by the server during connect."

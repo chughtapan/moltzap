@@ -68,6 +68,7 @@ function makeInertParser(op: string): RpcSerialization.Parser {
  * Build the inert {@link AppEndpoint} for the default app. Every policy
  * is a static arm resolved in-process, so the originator is never
  * invoked and every method defects.
+ * @returns The created default app endpoint.
  */
 function makeDefaultAppEndpoint(): AppEndpoint {
   const originator: Originator = {
@@ -96,6 +97,7 @@ function makeDefaultAppEndpoint(): AppEndpoint {
  * the default app — its endpoint is a server-minted inert endpoint, not
  * a connected HTTP-registered app.
  *
+ * @param appEndpointRegistry Value supplied to the operation.
  */
 export function installDefaultApp(
   appEndpointRegistry: AppEndpointRegistry,

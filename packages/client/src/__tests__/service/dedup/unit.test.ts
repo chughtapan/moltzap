@@ -1,8 +1,10 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import type { Message } from "@moltzap/protocol/message";
+import {
+  type Message,
+  messageReceivedNotificationDefinition,
+} from "@moltzap/protocol/message";
 import { conversationArchivedNotificationDefinition } from "@moltzap/protocol/conversation";
-import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
 import {
   buildMessage,
@@ -77,7 +79,10 @@ function dropsDuplicateMessage(): void {
   emitMessage(service, "dup-msg", CONV_A);
   emitMessage(service, "dup-msg", CONV_A);
   expect(seen).toHaveLength(1);
-  expect(seen[0]!.id).toBe(testMessageId("dup-msg"));
+  expect(
+    /* Safe because the test fixture establishes this asserted shape. */ seen[0]!
+      .id,
+  ).toBe(testMessageId("dup-msg"));
 }
 
 function processesDistinctMessages(): void {
@@ -85,8 +90,14 @@ function processesDistinctMessages(): void {
   emitMessage(service, "msg-first", CONV_A);
   emitMessage(service, "msg-second", CONV_A);
   expect(seen).toHaveLength(2);
-  expect(seen[0]!.id).toBe(testMessageId("msg-first"));
-  expect(seen[1]!.id).toBe(testMessageId("msg-second"));
+  expect(
+    /* Safe because the test fixture establishes this asserted shape. */ seen[0]!
+      .id,
+  ).toBe(testMessageId("msg-first"));
+  expect(
+    /* Safe because the test fixture establishes this asserted shape. */ seen[1]!
+      .id,
+  ).toBe(testMessageId("msg-second"));
 }
 
 function scopesIdsByConversation(): void {

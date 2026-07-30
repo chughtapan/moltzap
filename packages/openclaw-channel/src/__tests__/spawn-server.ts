@@ -26,14 +26,15 @@ const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000;
 class SpawnedServerError extends Error {
   override readonly name = "SpawnedServerError";
 
-  constructor(
-    message: string,
-    override readonly cause?: unknown,
-  ) {
+  override readonly cause?: unknown;
+
+  constructor(message: string, cause?: unknown) {
     super(message);
+    this.cause = cause;
   }
 }
 
+/** Describes spawned server. */
 export interface SpawnedServer {
   baseUrl: string;
   wsUrl: string;
@@ -94,7 +95,9 @@ function findFreePort() {
         return;
       }
       const port = addr.port;
-      server.close(() => resolve(port));
+      server.close(() => {
+        resolve(port);
+      });
     });
     server.on("error", reject);
   });
@@ -115,7 +118,9 @@ function pollHealth(
         Effect.map((res) => res.ok),
         Effect.catchAll(() => Effect.succeed(false)),
       );
-      if (healthy) return;
+      if (healthy) {
+        return;
+      }
       yield* Effect.sleep(`${HEALTH_POLL_INTERVAL_MS} millis`);
     }
     return yield* Effect.fail(
@@ -161,22 +166,19 @@ function closeAdminPool(pool: AdminPool) {
 }
 
 function waitForProcessExitOrKill(process: ChildProcess, timeoutMs: number) {
-  return new Promise<void>((resolve) => {
-    const cleanup = () => {
-      clearTimeout(timer);
-      process.off("exit", onExit);
-    };
-    const onExit = () => {
-      cleanup();
-      resolve();
-    };
+  return new Promise<undefined>((resolve) => {
     const timer = setTimeout(() => {
       if (process.exitCode === null) {
         process.kill("SIGKILL");
       }
-      cleanup();
-      resolve();
+      clearTimeout(timer);
+      resolve(undefined);
     }, timeoutMs);
+    const onExit = () => {
+      clearTimeout(timer);
+      process.off("exit", onExit);
+      resolve(undefined);
+    };
     process.once("exit", onExit);
   });
 }
@@ -185,7 +187,8 @@ function unexpectedExitPromise(
   child: ChildProcess,
   readLogs: () => { readonly stdout: string; readonly stderr: string },
 ) {
-  return new Promise<never>((_, reject) => {
+  return new Promise<never>((...args) => {
+    const reject = args[1];
     child.on("exit", (code) => {
       const logs = readLogs();
       reject(
@@ -345,12 +348,23 @@ function startSpawnedServer(pgHost: string, pgPort: number) {
   });
 }
 
+/**
+ * Executes the spawn test server operation.
+ * @param pgHost Value supplied to the operation.
+ * @param pgPort Value supplied to the operation.
+ * @returns The spawn test server result.
+ */
 export function spawnTestServer(pgHost: string, pgPort: number) {
   return Effect.runPromise(
     startSpawnedServer(pgHost, pgPort).pipe(Effect.withSpan("spawnTestServer")),
   );
 }
 
+/**
+ * Executes the stop spawned server operation.
+ * @param server Value supplied to the operation.
+ * @returns The stop spawned server result.
+ */
 export function stopSpawnedServer(server: SpawnedServer) {
   return Effect.runPromise(
     Effect.gen(function* () {

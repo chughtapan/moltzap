@@ -4,13 +4,24 @@ import { Effect } from "effect";
 
 import { moltzapChannelPlugin } from "./openclaw-entry.js";
 
-const looksLikeId = moltzapChannelPlugin.messaging.targetResolver.looksLikeId;
+const looksLikeId =
+  moltzapChannelPlugin.messaging.targetResolver.looksLikeId.bind(
+    moltzapChannelPlugin.messaging.targetResolver,
+  );
 const resolveMessagingTarget =
-  moltzapChannelPlugin.messaging.targetResolver.resolveTarget;
-const resolveOutboundTarget = moltzapChannelPlugin.outbound.resolveTarget;
-const resolveAccount = moltzapChannelPlugin.config.resolveAccount;
-const isConfiguredAccount = moltzapChannelPlugin.config.isConfigured;
-const cfg = {} as Parameters<typeof resolveMessagingTarget>[0]["cfg"];
+  moltzapChannelPlugin.messaging.targetResolver.resolveTarget.bind(
+    moltzapChannelPlugin.messaging.targetResolver,
+  );
+const resolveOutboundTarget = moltzapChannelPlugin.outbound.resolveTarget.bind(
+  moltzapChannelPlugin.outbound,
+);
+const resolveAccount = moltzapChannelPlugin.config.resolveAccount.bind(
+  moltzapChannelPlugin.config,
+);
+const isConfiguredAccount = moltzapChannelPlugin.config.isConfigured.bind(
+  moltzapChannelPlugin.config,
+);
+const cfg: Parameters<typeof resolveMessagingTarget>[0]["cfg"] = {};
 
 const AGENT_BOB = "agent:bob";
 const AGENT_MULTI_WORD = "agent:multi-word-name";

@@ -3,8 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Redacted } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 
 interface TestServiceConfig {
   readonly agentId: AgentId;
@@ -18,6 +17,12 @@ const ENV_SERVER_URL = "MOLTZAP_SERVER_URL";
 const ENV_CONFIG_HOME = "MOLTZAP_CONFIG_HOME";
 const CONFIG_FILE_NAME = "config.json";
 
+/**
+ * Executes the with test service config operation.
+ * @param config Documentation generation configuration.
+ * @param effect Effect to execute.
+ * @returns The with test service config result.
+ */
 export function withTestServiceConfig<A, E, R>(
   config: TestServiceConfig,
   effect: Effect.Effect<A, E, R>,
@@ -62,10 +67,12 @@ export function withTestServiceConfig<A, E, R>(
   );
 }
 
-function restoreEnv(key: string, value: string | undefined): void {
+function restoreEnv(key: string, value?: string): void {
   if (value === undefined) {
-    delete process.env[key];
+    Reflect.deleteProperty(process.env, key);
   } else {
     process.env[key] = value;
   }
 }
+
+/* eslint-enable agent-code-guard/acquire-release-requires-scope, agent-code-guard/no-process-env-at-runtime, agent-code-guard/prefer-effect-platform -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. */

@@ -8,25 +8,32 @@ App identity and endpoint registration barrel.
 
 ## Public surface
 
-### [`AppAuthService`](./auth.service.ts#L34)
+### [`AppAuthService`](./auth.service.ts#L37)
 
 _Class_
 
 ```ts
 export class AppAuthService {
-  constructor(private readonly db: Db) {}
+  private readonly db: Db;
+
+  constructor(db: Db) {
+    this.db = db;
+  }
 
   /**
    * INSERT a fresh app row. `app_id` is server-issued via the column
    * default (`gen_random_uuid()`), so the client never controls the
    * identity. Returns the plaintext `appKey` exactly once; only the
    * derived `keyId` + `secretHash` persist.
+   * @param params Request payload to process.
+   * @param params.manifest Value supplied to the operation.
+   * @returns The register app result.
    */
   registerApp(params: {
     readonly manifest: AppManifest;
-  }): Effect.Effect<{ appId: AppId; appKey: AppKey }, never> {
+  }): Effect.Effect<{ appId: AppId; appKey: AppKey }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AppAuthService) {
         const { appKey, keyId, secretHash } = generateAppKey();
 
         const { app_id: appId } = yield* takeFirstOrFail(
@@ -61,6 +68,8 @@ export class AppAuthService {
    * is an environmental failure (storage corruption) the operator can fix
    * by re-registering, so it surfaces as a 401 with an actionable
    * `reason: "manifest_corrupted"` rather than a 500 defect.
+   * @param apiKey Value supplied to the operation.
+   * @returns The decoded d.
    */
   authenticateApp(
     apiKey: AppKey,
@@ -69,9 +78,11 @@ export class AppAuthService {
     UnauthorizedError
   > {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AppAuthService) {
         const parsed = parseAppKey(apiKey);
-        if (!parsed) return null;
+        if (!parsed) {
+          return null;
+        }
 
         const rows = yield* this.db
           .selectFrom("apps")
@@ -79,7 +90,9 @@ export class AppAuthService {
           .where("api_key_id", "=", parsed.keyId);
 
         const row = rows[0];
-        if (row === undefined) return null;
+        if (row === undefined) {
+          return null;
+        }
         if (!safeEqual(hashSecret(parsed.secret), row.api_key_secret_hash)) {
           return null;
         }
@@ -110,29 +123,16 @@ export class AppAuthService {
    * and `manifest_json` corruption surfaces at {@link authenticateApp}'s
    * `UnauthorizedError` channel. The `Effect.die` sites catch the
    * contract violation if the invariant is ever broken upstream.
+   * @param appId Value supplied to the operation.
+   * @returns The rows result.
    */
-  getManifest(appId: AppId): Effect.Effect<AppManifest, never> {
+  getManifest(appId: AppId): Effect.Effect<AppManifest> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AppAuthService) {
         const rows = yield* this.db
           .selectFrom("apps")
           .select(["manifest_json"])
           .where("app_id", "=", appId);
-
-        const row = rows[0];
-        if (row === undefined) {
-          return yield* Effect.die(
-            new Error("getManifest: app row missing for known-valid appId"),
-          );
-        }
-
-        return yield* Either.match(validateAppManifest(row.manifest_json), {
-          onLeft: () =>
-            Effect.die(
-              new Error(
-                "getManifest: manifest_json decode failure for known-valid appId",
-              ),
-            ),
 ```
 
 SQL-backed app authentication — the App-principal sibling of
@@ -153,12 +153,12 @@ every body — a bare `never` channel would be a type lie while Kysely's
 `SqlError` can propagate, so the conversion is applied at each method's
 edge rather than implied by the signature.
 
-### [`AppAuthServiceLive`](./layer.ts#L19)
+### [`appAuthServiceLive`](./layer.ts#L23)
 
 _Variable_
 
 ```ts
-export const AppAuthServiceLive = Layer.effect(
+export const appAuthServiceLive = Layer.effect(
   AppAuthServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -167,7 +167,9 @@ export const AppAuthServiceLive = Layer.effect(
 )
 ```
 
-### [`AppAuthServiceTag`](./layer.ts#L10)
+Provides the app auth service live runtime value.
+
+### [`AppAuthServiceTag`](./layer.ts#L12)
 
 _Class_
 
@@ -178,7 +180,9 @@ export class AppAuthServiceTag extends Context.Tag("moltzap/AppAuthService")<
 >() {}
 ```
 
-### [`AppEndpoint`](./registry.ts#L16)
+Implements app auth service tag.
+
+### [`AppEndpoint`](./registry.ts#L15)
 
 _Interface_
 
@@ -198,7 +202,7 @@ The boot-installed default app carries an inert endpoint
 manifest declares only static policies, so domain callback services never
 invoke that endpoint.
 
-### [`AppEndpointRegistry`](./endpoint-registry.ts#L11)
+### [`AppEndpointRegistry`](./endpoint-registry.ts#L12)
 
 _Class_
 
@@ -252,18 +256,22 @@ export class AppEndpointRegistry {
 }
 ```
 
-### [`AppEndpointRegistryLive`](./layer.ts#L27)
+Implements app endpoint registry.
+
+### [`appEndpointRegistryLive`](./layer.ts#L32)
 
 _Variable_
 
 ```ts
-export const AppEndpointRegistryLive = Layer.sync(
+export const appEndpointRegistryLive = Layer.sync(
   AppEndpointRegistryTag,
   () => new AppEndpointRegistry(),
 )
 ```
 
-### [`AppEndpointRegistryTag`](./layer.ts#L15)
+Provides the app endpoint registry live runtime value.
+
+### [`AppEndpointRegistryTag`](./layer.ts#L18)
 
 _Class_
 
@@ -273,7 +281,9 @@ export class AppEndpointRegistryTag extends Context.Tag(
 )<AppEndpointRegistryTag, AppEndpointRegistry>() {}
 ```
 
-### [`AppRegistration`](./registry.ts#L31)
+Implements app endpoint registry tag.
+
+### [`AppRegistration`](./registry.ts#L30)
 
 _Interface_
 
@@ -294,13 +304,13 @@ the default app holds an inert endpoint (see
 policies. Domain callback services only call the endpoint for a
 `kind: "hook"` policy. AppEndpointRegistry sees one registration shape regardless.
 
-### [`AppRegistry`](./registry.ts#L46)
+### [`AppRegistry`](./registry.ts#L45)
 
 _Class_
 
 ```ts
 export class AppRegistry {
-  private entries = new Map<AppId, AppRegistration>();
+  private readonly entries = new Map<AppId, AppRegistration>();
 
   /**
    * Returns true if the registration was installed, false if `appId`
@@ -313,13 +323,19 @@ export class AppRegistry {
    * the manifest's `appId` field does not participate in routing.
    * `agent/task/request` targets the appId the registrant received from
    * `/api/v1/apps/register`, which is this same server-minted identity.
+   * @param appId Value supplied to the operation.
+   * @param manifest Value supplied to the operation.
+   * @param endpoint Value supplied to the operation.
+   * @returns The register result.
    */
   register(
     appId: AppId,
     manifest: AppManifest,
     endpoint: AppEndpoint,
   ): boolean {
-    if (this.entries.has(appId)) return false;
+    if (this.entries.has(appId)) {
+      return false;
+    }
     this.entries.set(appId, { appId, manifest, endpoint });
     return true;
   }
@@ -332,6 +348,7 @@ export class AppRegistry {
    * Drop every entry whose connection matches `connectionId`. Used
    * by the WS-close path to clean up any apps the closing connection
    * registered.
+   * @param connectionId Value supplied to the operation.
    */
   unregisterByConnection(connectionId: ConnectionId): void {
     for (const [appId, entry] of this.entries) {
@@ -376,7 +393,11 @@ export function callAppRpc(
 >
 ```
 
-### [`installDefaultApp`](./default-app.ts#L100)
+Executes the call app rpc operation.
+
+**Returns:** The call app rpc result.
+
+### [`installDefaultApp`](./default-app.ts#L102)
 
 _Function_
 
@@ -394,7 +415,7 @@ App-admin RPCs remain unreachable on
 the default app — its endpoint is a server-minted inert endpoint, not
 a connected HTTP-registered app.
 
-### [`wrapHookEffectWithEnvelope`](./callback-rpc.ts#L55)
+### [`wrapHookEffectWithEnvelope`](./callback-rpc.ts#L74)
 
 _Function_
 
@@ -408,8 +429,12 @@ export function wrapHookEffectWithEnvelope<Verdict, E = never>(opts: {
   readonly errorLogContext: Record<string, unknown>;
   readonly onTimeout: () => Verdict;
   readonly onError: () => Verdict;
-}): Effect.Effect<Verdict, never>
+}): Effect.Effect<Verdict>
 ```
+
+Executes the wrap hook effect with envelope operation.
+
+**Returns:** The wrap hook effect with envelope result.
 
 ## Files
 

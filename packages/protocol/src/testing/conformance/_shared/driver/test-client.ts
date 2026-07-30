@@ -35,7 +35,7 @@ import {
   type ClientDefinitionSuccess,
   type CloseInfo,
 } from "#socket";
-import { serverBaseUrl } from "#network";
+import { httpBaseUrl, serverBaseUrl } from "#network";
 import {
   NotConnectedError,
   RpcTimeoutError as ProtocolRpcTimeoutError,
@@ -296,7 +296,11 @@ function openAppTestClient(
           ),
       onAppCallback: (definition, handler) =>
         Ref.update(handlersRef, (handlers) =>
-          HashMap.set(handlers, definition, handler as CallbackHandler),
+          HashMap.set(
+            handlers,
+            definition,
+            /* Safe because the descriptor key preserves the erased handler's parameter/result correlation. */ handler as CallbackHandler,
+          ),
         ),
       awaitServerRequest: (definition, predicate, timeoutMs) =>
         awaitServerRequest(awaitersRef, definition, predicate, timeoutMs),
@@ -347,7 +351,7 @@ function rpcCallOptions(
 // Conformance fixtures hand out the server's socket endpoint; the client
 // takes the base and dials the route itself.
 function clientBaseUrl(url: string): string {
-  return serverBaseUrl(url).replace(/^ws/, "http");
+  return httpBaseUrl(serverBaseUrl(url));
 }
 
 function makeDynamicAppHandlers(
@@ -386,10 +390,13 @@ function runAppCallback<D extends ServerRpcDefinition>(
     if (handler === undefined) {
       return yield* Effect.never;
     }
-    return (yield* handler(params, {
-      requestId: SYNTHETIC_REQUEST_ID,
-      definition,
-    })) as ServerRpcResult<D>;
+    return /* Safe because the handler was retrieved with the same descriptor key D used for params. */ (yield* handler(
+      params,
+      {
+        requestId: SYNTHETIC_REQUEST_ID,
+        definition,
+      },
+    )) as ServerRpcResult<D>;
   });
 }
 
@@ -406,7 +413,10 @@ function awaitServerRequest<D extends ServerRpcDefinition>(
         ? { deferred }
         : {
             deferred,
-            predicate: (params) => predicate(params as ServerRpcParams<D>),
+            predicate: (params) =>
+              predicate(
+                /* Safe because this awaiter is stored and retrieved under definition D. */ params as ServerRpcParams<D>,
+              ),
           };
     yield* Ref.update(awaitersRef, (awaiters) =>
       appendAwaiter(awaiters, definition, entry),
@@ -427,7 +437,7 @@ function awaitServerRequest<D extends ServerRpcDefinition>(
         ),
       ),
     );
-    return result as ServerRpcParams<D>;
+    return /* Safe because only notifications keyed by definition D complete this deferred. */ result as ServerRpcParams<D>;
   });
 }
 
@@ -485,7 +495,10 @@ function takeMatchingAwaiter(
   if (index < 0) {
     return [undefined, awaiters];
   }
-  const entry = existing[index]!;
+  const entry = existing[index];
+  if (entry === undefined) {
+    return [undefined, awaiters];
+  }
   const next = [...existing.slice(0, index), ...existing.slice(index + 1)];
   return [
     entry,
@@ -520,12 +533,24 @@ function normalizeRpcError(method: string, error: unknown): SendRpcError {
 }
 
 function closeErrorFromUnknown(error: unknown): TransportClosedError {
-  const close = error as Partial<CloseInfo> & { readonly message?: unknown };
+  const rawCode = readUnknownProperty(error, "code");
+  const rawReason = readUnknownProperty(error, "reason");
+  const close: Partial<CloseInfo> & { readonly message?: unknown } = {
+    code: typeof rawCode === "number" ? rawCode : undefined,
+    reason: typeof rawReason === "string" ? rawReason : undefined,
+    message: readUnknownProperty(error, "message"),
+  };
   return new TransportClosedError({
     direction: "inbound",
     code: typeof close.code === "number" ? close.code : CLOSE_CODE_ABNORMAL,
     reason: closeReason(error, close),
   });
+}
+
+function readUnknownProperty(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null
+    ? Reflect.get(value, key)
+    : undefined;
 }
 
 function closeReason(
@@ -546,13 +571,16 @@ function taggedError(value: unknown): {
   readonly message?: unknown;
   readonly data?: unknown;
 } | null {
-  return value !== null &&
-    typeof value === "object" &&
-    typeof (value as { readonly _tag?: unknown })._tag === "string"
-    ? (value as {
-        readonly _tag: string;
-        readonly message?: unknown;
-        readonly data?: unknown;
-      })
-    : null;
+  if (value === null || typeof value !== "object") {
+    return null;
+  }
+  const tag: unknown = Reflect.get(value, "_tag");
+  if (typeof tag !== "string") {
+    return null;
+  }
+  return {
+    _tag: tag,
+    message: Reflect.get(value, "message"),
+    data: Reflect.get(value, "data"),
+  };
 }

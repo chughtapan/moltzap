@@ -36,7 +36,9 @@ it("connection survives idle period and still delivers messages", () =>
       initialConversation: { participants: [bob.agentId] },
     });
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     // Wait 5 seconds of idle time
     yield* Effect.sleep(DEFAULT_NOTIFICATION_TIMEOUT_MS);

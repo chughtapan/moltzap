@@ -32,7 +32,9 @@ it("message listing returns bounded newest messages in ascending order", () =>
       initialConversation: { participants: [bob.agentId] },
     });
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     // Send enough messages to exceed the bounded result window.
     for (let i = 1; i <= TOTAL_MESSAGES_TO_SEND; i++) {
@@ -53,7 +55,7 @@ it("message listing returns bounded newest messages in ascending order", () =>
 
     // Messages are returned in ascending order (oldest first in page)
     const texts = page1.messages.map((m) => {
-      const part = m.parts[0]!;
+      const part = m.parts[0];
       return part.type === "text" ? part.text : "";
     });
     // Newest 10 = Message 6 through Message 15

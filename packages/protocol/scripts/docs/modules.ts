@@ -6,7 +6,7 @@
  * stable section order.
  */
 import { FileSystem, Path } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   folderOf,
   ReflectionKind,
@@ -48,7 +48,7 @@ interface MissingJsDoc {
   readonly folder: string;
 }
 
-const MissingJsDoc = (folder: string): MissingJsDoc => ({
+const makeMissingJsDoc = (folder: string): MissingJsDoc => ({
   _tag: "MissingJsDoc",
   folder,
 });
@@ -107,12 +107,12 @@ export const generateModuleDocs = (
  * @param path Path to process.
  * @returns The prune orphans result.
  */
-const pruneOrphans = (
+function pruneOrphans(
   rendered: readonly ModuleRenderResult[],
   config: ModuleRenderConfig,
   path: Path.Path,
-): Effect.Effect<void, never, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const liveSlugs = new Set(rendered.map((r) => r.pageSlug));
     const liveFolders = new Set(rendered.map((r) => r.folder));
@@ -144,20 +144,24 @@ const pruneOrphans = (
       process.stdout.write(`  pruned orphan MODULE.md: ${folder}\n`);
     }
   });
+}
 
-const listFilesWithSuffix = (
+function listFilesWithSuffix(
   fs: FileSystem.FileSystem,
   root: string,
   suffix: string,
-): Effect.Effect<readonly string[]> =>
-  Effect.gen(function* () {
+): Effect.Effect<readonly string[]> {
+  return Effect.gen(function* () {
     const out: string[] = [];
     const stack = [root];
     while (stack.length > 0) {
-      const dir = stack.pop()!;
+      const dir = stack.pop();
+      if (dir === undefined) {
+        break;
+      }
       const entries = yield* fs
         .readDirectory(dir)
-        .pipe(Effect.catchAll(() => Effect.succeed([] as readonly string[])));
+        .pipe(Effect.catchAll(() => Effect.succeed([])));
       for (const name of entries) {
         if (name === "node_modules" || name === "dist") {
           continue;
@@ -178,9 +182,10 @@ const listFilesWithSuffix = (
     }
     return out;
   });
+}
 
-const emitWarnings = (folders: readonly string[]): Effect.Effect<void> =>
-  Effect.sync(() => {
+function emitWarnings(folders: readonly string[]): Effect.Effect<void> {
+  return Effect.sync(() => {
     process.stderr.write(
       `\nMODULE generation skipped ${folders.length} folder(s) without file-level JSDoc on index.ts:\n`,
     );
@@ -191,12 +196,13 @@ const emitWarnings = (folders: readonly string[]): Effect.Effect<void> =>
     }
     process.stderr.write("\n");
   });
+}
 
-const discoverFolders = (
+function discoverFolders(
   cache: TypeDocCache,
   config: ModuleRenderConfig,
-): Effect.Effect<readonly string[], never, FileSystem.FileSystem | Path.Path> =>
-  Effect.gen(function* () {
+): Effect.Effect<readonly string[], never, FileSystem.FileSystem | Path.Path> {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const seen = new Set<string>();
@@ -225,8 +231,9 @@ const discoverFolders = (
       }
       seen.add(folder);
     }
-    return [...seen].sort();
+    return [...seen].sort((left, right) => left.localeCompare(right));
   });
+}
 
 /**
  * `packages/&lt;pkg&gt;/src` is the package root. Sub-folders below `src/`
@@ -261,13 +268,13 @@ function isInternalModuleSource(source: string): boolean {
   return purpose !== null && /(^|\s)@internal(\s|$)/.test(purpose);
 }
 
-const renderFolder = (
+function renderFolder(
   folder: string,
   cache: TypeDocCache,
   config: ModuleRenderConfig,
   path: Path.Path,
-): Effect.Effect<ModuleRenderResult, MissingJsDoc, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
+): Effect.Effect<ModuleRenderResult, MissingJsDoc, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const indexPath = path.resolve(config.workspaceRoot, folder, "index.ts");
     const indexSource = yield* fs
@@ -275,9 +282,17 @@ const renderFolder = (
       .pipe(Effect.catchAll(() => Effect.succeed("")));
     const purpose = readLeadingJsDoc(indexSource);
     if (purpose === null) {
-      return yield* Effect.fail(MissingJsDoc(folder));
+      return yield* Effect.fail(makeMissingJsDoc(folder));
     }
-    const exports = (cache.byFolder.get(folder) ?? []).filter(isBehavioral);
+    const packageRoot = isPackageRoot(folder, path);
+    const exports = (
+      packageRoot
+        ? exportsForPackageRoot(
+            cache,
+            yield* readPackageName(folder, config, fs, path),
+          )
+        : exportsForModuleFolder(cache, folder)
+    ).filter(isBehavioral);
     const enriched = yield* enrichWithSignatures(exports, fs, path, config);
     const pkg = packageSlugFor(folder, path);
     const pageSlug = `${pkg}/${pathFromPackageSrc(folder, path) || path.basename(folder)}`;
@@ -312,14 +327,65 @@ const renderFolder = (
     );
     return { folder, h1, pageSlug };
   });
+}
 
-const enrichWithSignatures = (
+/**
+ * A package-root module documents its entry point, so it owns every public
+ * symbol TypeDoc associates with that package even when the declaration lives
+ * in a nested capability folder. Nested module pages continue to own symbols
+ * by declaration folder.
+ * @param cache Loaded TypeDoc reflection cache.
+ * @param packageName Value supplied to the operation.
+ * @returns The exports for package root result.
+ */
+export function exportsForPackageRoot(
+  cache: TypeDocCache,
+  packageName: string,
+): readonly TypeDocExport[] {
+  return cache.byPackageEntrypoint.get(packageName) ?? [];
+}
+
+/**
+ * Executes the exports for module folder operation.
+ * @param cache Loaded TypeDoc reflection cache.
+ * @param folder Module folder to process.
+ * @returns The exports for module folder result.
+ */
+export function exportsForModuleFolder(
+  cache: TypeDocCache,
+  folder: string,
+): readonly TypeDocExport[] {
+  return cache.byFolder.get(folder) ?? [];
+}
+
+const packageManifest = Schema.parseJson(
+  Schema.Struct({ name: Schema.NonEmptyString }),
+);
+
+function readPackageName(
+  folder: string,
+  config: ModuleRenderConfig,
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+): Effect.Effect<string> {
+  return fs
+    .readFileString(
+      path.resolve(config.workspaceRoot, folder, "..", "package.json"),
+    )
+    .pipe(
+      Effect.flatMap(Schema.decodeUnknown(packageManifest)),
+      Effect.map((manifest) => manifest.name),
+      Effect.orDie,
+    );
+}
+
+function enrichWithSignatures(
   exports: readonly TypeDocExport[],
   fs: FileSystem.FileSystem,
   path: Path.Path,
   config: ModuleRenderConfig,
-): Effect.Effect<readonly EnrichedExport[]> =>
-  Effect.gen(function* () {
+): Effect.Effect<readonly EnrichedExport[]> {
+  return Effect.gen(function* () {
     const fileCache = new Map<string, string>();
     const enriched: EnrichedExport[] = [];
     for (const ex of exports) {
@@ -343,13 +409,14 @@ const enrichWithSignatures = (
     }
     return enriched;
   });
+}
 
-const writeAtomic = (
+function writeAtomic(
   fs: FileSystem.FileSystem,
   absolutePath: string,
   content: string,
-): Effect.Effect<void> =>
-  Effect.gen(function* () {
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
     const dir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
     yield* fs
       .makeDirectory(dir, { recursive: true })
@@ -362,6 +429,7 @@ const writeAtomic = (
       .rename(tmp, absolutePath)
       .pipe(Effect.catchAll(() => Effect.void));
   });
+}
 
 interface RenderArgs {
   readonly h1: string;
@@ -523,7 +591,7 @@ function renderFilesSection(
     ...new Set(exports.flatMap((e) => e.sources.map((s) => s.fileName))),
   ]
     .filter((f) => f.startsWith(`${folder}/`))
-    .sort();
+    .sort((left, right) => left.localeCompare(right));
   if (files.length === 0) {
     lines.push("_No source files tracked under this folder by TypeDoc._");
   } else {
@@ -633,7 +701,7 @@ function isBehavioral(ex: TypeDocExport): boolean {
 function firstSentence(text: string): string {
   const trimmed = text.trim();
   const m = /^(.+?[.!?])(\s|$)/s.exec(trimmed);
-  return m ? m[1]!.trim() : trimmed.split("\n")[0]!.trim();
+  return m?.[1]?.trim() ?? trimmed.split("\n")[0]?.trim() ?? "";
 }
 
 function renderFrontmatter(args: {

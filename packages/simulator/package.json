@@ -1,0 +1,132 @@
+{
+  "name": "@moltzap/simulator",
+  "version": "2026.729.0",
+  "description": "Code-first simulator for agentic societies connected over MoltZap",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chughtapan/moltzap.git"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "type": "module",
+  "files": [
+    "dist",
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.types-check.ts",
+    "!src/**/__tests__/**",
+    "scripts/build-server-image.mjs",
+    "server-image",
+    "!dist/tsconfig.tsbuildinfo"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./network": {
+      "types": "./dist/network.d.ts",
+      "import": "./dist/network.js"
+    },
+    "./ledger": {
+      "types": "./dist/ledger.d.ts",
+      "import": "./dist/ledger.js"
+    }
+  },
+  "scripts": {
+    "build": "nx run @moltzap/simulator:build",
+    "lint": "nx run @moltzap/simulator:lint",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.mjs",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts",
+          "{projectRoot}/nanoclaw-assets/*"
+        ],
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "node scripts/clean-dist.mjs && tsc -b && node scripts/copy-nanoclaw-assets.mjs"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "eslint . --cache --max-warnings=0"
+        }
+      },
+      "test": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "vitest run"
+        }
+      },
+      "test:integration": {
+        "dependsOn": [
+          "build"
+        ],
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "env": "MOLTZAP_NANOCLAW_ITEST"
+          },
+          {
+            "env": "MOLTZAP_OPENCLAW_ITEST"
+          },
+          {
+            "env": "MOLTZAP_SIM_ITEST"
+          }
+        ]
+      },
+      "typecheck:tests": {
+        "dependsOn": [
+          "build"
+        ],
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "tsc -p tsconfig.test.json"
+        }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "safer-architecture-lsp check ."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@effect/platform": "^0.97.0",
+    "@effect/platform-node": "^0.108.0",
+    "@effect/sql": "^0.52.0",
+    "@electric-sql/pglite": "0.4.4",
+    "@moltzap/client": "workspace:^",
+    "@moltzap/openclaw-channel": "workspace:^",
+    "@moltzap/protocol": "workspace:^",
+    "@moltzap/server-core": "workspace:*",
+    "effect": "3.22.0",
+    "openclaw": "2026.6.33"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^0.30.0",
+    "@types/node": "^25.5.0",
+    "eslint": "^9",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  }
+}

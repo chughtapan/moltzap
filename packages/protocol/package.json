@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/protocol",
-  "version": "2026.726.0",
+  "version": "2026.729.0",
   "description": "Protocol types and validators for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -91,7 +91,7 @@
   },
   "scripts": {
     "build": "nx run @moltzap/protocol:build",
-    "lint": "tsc --build && eslint . --cache --max-warnings=0",
+    "lint": "nx run @moltzap/protocol:lint",
     "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -115,7 +115,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/protocol",
-          "command": "pnpm lint"
+          "command": "eslint . --cache --max-warnings=0"
         }
       },
       "arch:check": {

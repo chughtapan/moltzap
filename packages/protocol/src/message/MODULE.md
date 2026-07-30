@@ -18,7 +18,7 @@ export const agentCallableDispatchRpcMethods = [dispatchRequest] as const
 
 Lists the agent callable dispatch rpc methods in dispatch order.
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L152)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L161)
 
 _Variable_
 
@@ -41,28 +41,28 @@ export const appCallableDispatchRpcMethods = [dispatchLeaseGet] as const
 
 Lists the app callable dispatch rpc methods in dispatch order.
 
-### [`decodeMessageParts`](./parts.ts#L61)
+### [`decodeMessageParts`](./parts.ts#L65)
 
 _Function_
 
 ```ts
 export function decodeMessageParts(
   value: unknown,
-): Effect.Effect<readonly Part[]>
+): Effect.Effect<MessageParts>
 ```
 
 Decode a message-parts payload and die on malformed persisted data.
 
 **Returns:** The decoded message parts.
 
-### [`decodeMessagePartsText`](./parts.ts#L74)
+### [`decodeMessagePartsText`](./parts.ts#L78)
 
 _Function_
 
 ```ts
 export function decodeMessagePartsText(
   value: string,
-): Effect.Effect<readonly Part[]>
+): Effect.Effect<MessageParts>
 ```
 
 Decode persisted plaintext message parts and die on malformed persisted data.
@@ -107,17 +107,29 @@ export const dispatchCallbackMethods = [dispatchAuthorize] as const
 
 Lists the dispatch callback methods in dispatch order.
 
-### [`DispatchDecision`](./messages.ts#L80)
+### [`DispatchDecision`](./messages.ts#L81)
 
 _TypeAlias_
 
 ```ts
 export type DispatchDecision = Schema.Schema.Type<
-  typeof dispatchDecisionSchema
+  typeof dispatchDecisionSchemaValue
 >;
 ```
 
 Per-message dispatch authorization decision persisted with the message.
+
+### [`dispatchDecisionSchema`](./messages.ts#L89)
+
+_Function_
+
+```ts
+export function dispatchDecisionSchema(): typeof dispatchDecisionSchemaValue
+```
+
+Return the canonical persisted dispatch-authorization schema.
+
+**Returns:** A schema shared by storage and wire validation.
 
 ### [`dispatchId`](./dispatch.ts#L32)
 
@@ -298,7 +310,7 @@ export type LeaseId = string & Brand.Brand<"LeaseId">;
 
 Represents lease id values.
 
-### [`Message`](./messages.ts#L62)
+### [`Message`](./messages.ts#L63)
 
 _TypeAlias_
 
@@ -308,7 +320,7 @@ export type Message = Schema.Schema.Type<typeof messageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](./messages.ts#L193)
+### [`messageCallbackMethods`](./messages.ts#L202)
 
 _Variable_
 
@@ -318,7 +330,7 @@ export const messageCallbackMethods = [messagesAuthorize] as const
 
 Message callback RPC catalog.
 
-### [`MessageNotFoundError`](./messages.ts#L43)
+### [`MessageNotFoundError`](./messages.ts#L44)
 
 _Class_
 
@@ -333,7 +345,7 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 
 The referenced message does not exist, such as a missing reply target.
 
-### [`messageNotifications`](./messages.ts#L215)
+### [`messageNotifications`](./messages.ts#L224)
 
 _Variable_
 
@@ -345,7 +357,32 @@ export const messageNotifications = [
 
 Message notification catalog.
 
-### [`MessageReceivedNotification`](./messages.ts#L201)
+### [`MessageParts`](./parts.ts#L53)
+
+_TypeAlias_
+
+```ts
+export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
+```
+
+Nonempty protocol message content.
+
+### [`messagePartsSchema`](./parts.ts#L48)
+
+_Function_
+
+```ts
+export function messagePartsSchema(): typeof messagePartsSchemaValue
+```
+
+Return the canonical message-parts schema.
+
+Recording and other protocol-adjacent boundaries compose this schema
+directly so persisted bodies cannot drift from the wire contract.
+
+**Returns:** The nonempty schema shared by all message boundaries.
+
+### [`MessageReceivedNotification`](./messages.ts#L210)
 
 _TypeAlias_
 
@@ -357,7 +394,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`messageReceivedNotificationDefinition`](./messages.ts#L209)
+### [`messageReceivedNotificationDefinition`](./messages.ts#L218)
 
 _Variable_
 
@@ -370,7 +407,7 @@ export const messageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`messagesAuthorize`](./messages.ts#L184)
+### [`messagesAuthorize`](./messages.ts#L193)
 
 _Variable_
 
@@ -386,7 +423,7 @@ export const messagesAuthorize = defineRpc({
 
 Server callback asking an app for the per-message fan-out verdict.
 
-### [`messagesList`](./messages.ts#L143)
+### [`messagesList`](./messages.ts#L152)
 
 _Variable_
 
@@ -402,7 +439,7 @@ export const messagesList = defineRpc({
 
 List the newest visible messages in a conversation, returned oldest-first.
 
-### [`messagesSend`](./messages.ts#L109)
+### [`messagesSend`](./messages.ts#L118)
 
 _Variable_
 
@@ -440,19 +477,19 @@ export type Part = Schema.Schema.Type<typeof partSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](./messages.ts#L85)
+### [`validateDispatchDecision`](./messages.ts#L94)
 
 _Variable_
 
 ```ts
 export const validateDispatchDecision = closedStructGuard(
-  dispatchDecisionSchema,
+  dispatchDecisionSchemaValue,
 )
 ```
 
 Return true when a value is a closed dispatch decision.
 
-### [`validateMessage`](./messages.ts#L65)
+### [`validateMessage`](./messages.ts#L66)
 
 _Variable_
 
@@ -462,7 +499,7 @@ export const validateMessage = closedStructGuard(messageSchema)
 
 Return true when the value is a closed message row.
 
-### [`validateTextPart`](./parts.ts#L83)
+### [`validateTextPart`](./parts.ts#L87)
 
 _Variable_
 

@@ -115,7 +115,9 @@ it("agent/message/send preserves replyToId on the persisted message", () =>
       initialConversation: { participants: [bob.agentId] },
     });
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     const sent = yield* alice.client.sendRpc(messagesSend, {
       taskId,
@@ -147,7 +149,9 @@ it("agent/message/send rejects replyToId that points to an unknown message", () 
     const exit = yield* Effect.exit(
       alice.client.sendRpc(messagesSend, {
         taskId: conv.task.id,
-        conversationId: conv.conversation!.id,
+        conversationId:
+          /* Safe because the test fixture establishes this asserted shape. */ conv
+            .conversation!.id,
         replyToId: UNKNOWN_MESSAGE_ID,
         parts: [{ type: "text", text: ORPHAN_REPLY_TEXT }],
       }),
@@ -158,3 +162,5 @@ it("agent/message/send rejects replyToId that points to an unknown message", () 
 function expectExitFailure<A, E>(exit: Exit.Exit<A, E>): void {
   expect(exit).toSatisfy(Exit.isFailure);
 }
+
+/* eslint-enable agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

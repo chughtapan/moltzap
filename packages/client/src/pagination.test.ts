@@ -3,7 +3,11 @@ import { describe, expect } from "vitest";
 import { Effect, Schema } from "effect";
 
 const it = effectIt.effect;
-import { agentId, agentsList } from "@moltzap/protocol/identity";
+import {
+  agentId,
+  agentName as agentNameSchema,
+  agentsList,
+} from "@moltzap/protocol/identity";
 import { listCursorSchema } from "@moltzap/protocol/rpc";
 import type { ClientDefinitionSuccess } from "@moltzap/protocol/socket";
 import {
@@ -23,20 +27,20 @@ const TOTAL = 5;
 const EXPECTED_PAGE_CALLS = Math.ceil(TOTAL / PAGE_SIZE);
 const decodeCursor = Schema.decodeSync(listCursorSchema());
 const decodeAgentId = Schema.decodeSync(agentId);
+const decodeAgentName = Schema.decodeSync(agentNameSchema);
 const CONSTANT_CURSOR = decodeCursor("stuck-cursor");
 
 type AgentListPage = ClientDefinitionSuccess<typeof agentsList>;
 type FakeAgent = AgentListPage["agents"][number];
 type AgentListCursor = NonNullable<AgentListPage["nextCursor"]>;
 
-const ALL_AGENTS: ReadonlyArray<FakeAgent> = Array.from(
-  { length: TOTAL },
-  (_unused, i) => ({
-    id: decodeAgentId(`00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
-    name: `agent-${i}`,
-    status: "active",
-  }),
-);
+const ALL_AGENTS: readonly FakeAgent[] = [
+  ...Array.from({ length: TOTAL }).keys(),
+].map((i) => ({
+  id: decodeAgentId(`00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
+  name: decodeAgentName(`agent-${i}`),
+  status: "active",
+}));
 
 // Keyset paging over an opaque cursor: the cursor encodes the index of
 // the first row of the NEXT page. `nextCursor` present iff more rows
@@ -46,7 +50,7 @@ function pagingSendRpc(): {
   callCount: () => number;
 } {
   let calls = 0;
-  const send: SendRpcFn<never, typeof agentsList> = (_definition, params) => {
+  const send: SendRpcFn<never, typeof agentsList> = (...[, params]) => {
     calls++;
     const cursor = params.cursor;
     const start = cursor === undefined ? 0 : Number(cursor);
@@ -83,11 +87,11 @@ function agentName(agent: FakeAgent): string {
   return agent.name;
 }
 
-function agentListParams(cursor: AgentListCursor | undefined) {
+function agentListParams(cursor?: AgentListCursor) {
   return cursor === undefined ? {} : { cursor };
 }
 
-function agentRows(page: AgentListPage): ReadonlyArray<FakeAgent> {
+function agentRows(page: AgentListPage): readonly FakeAgent[] {
   return page.agents;
 }
 

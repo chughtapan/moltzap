@@ -1,34 +1,38 @@
-import { Cause, Effect, Option } from "effect";
+import { type Cause, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
-import type { AppId } from "@moltzap/protocol/identity";
-import type { Task, TaskParticipant, TaskStatus } from "@moltzap/protocol/task";
-import type { Conversation } from "@moltzap/protocol/conversation";
-import type { ListCursor } from "@moltzap/protocol/rpc";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
-import type { Db } from "#db";
-import type { Database } from "#db";
+import type { AppId, AgentId } from "@moltzap/protocol/identity";
 import {
+  type Task,
+  type TaskParticipant,
+  type TaskStatus,
+  type TaskId,
+  TaskNotFoundError,
+} from "@moltzap/protocol/task";
+import {
+  type Conversation,
+  type ConversationId,
+  ConversationNotFoundError,
+  ParticipantNotAdmittedError,
+} from "@moltzap/protocol/conversation";
+import {
+  type ListCursor,
+  DEFAULT_PAGE_LIMIT,
+  ForbiddenError,
+} from "@moltzap/protocol/rpc";
+import {
+  type Db,
+  type Database,
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
-} from "#db";
-import {
   decodeListCursor,
   keysetWhere,
   paginate,
   sortKeyExpr,
   type InvalidCursorError,
+  type Transaction,
 } from "#db";
-import type { Transaction } from "#db";
-import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
-import { TaskNotFoundError } from "@moltzap/protocol/task";
-import {
-  ConversationNotFoundError,
-  ParticipantNotAdmittedError,
-} from "@moltzap/protocol/conversation";
 import type { ConversationService } from "#conversation";
 import type { MessageService } from "#message";
 const ERR_NOT_FOUND = "Task not found";
@@ -100,11 +104,11 @@ interface TaskListPage {
 interface TaskCloseLifecycle {
   readonly task: Task;
   readonly participantAgentIds: readonly AgentId[];
-  readonly archivedConversations: readonly {
+  readonly archivedConversations: ReadonlyArray<{
     readonly conversationId: ConversationId;
     readonly archivedAt: string;
     readonly participantAgentIds: readonly AgentId[];
-  }[];
+  }>;
 }
 
 /**
@@ -113,28 +117,30 @@ interface TaskCloseLifecycle {
  * `TaskClosedNotificationDefinition` when `closedTask` is non-null.
  */
 interface TaskLeaveResult {
-  readonly leftConversationIds: ReadonlyArray<ConversationId>;
+  readonly leftConversationIds: readonly ConversationId[];
   readonly closedTask: Task | null;
 }
 
 type TaskTransaction = Transaction<Database>;
-type ArchivedConversationRow = {
+interface ArchivedConversationRow {
   readonly id: ConversationId;
   readonly archived_at: Date | null;
-};
-type ConversationParticipantRow = {
+}
+interface ConversationParticipantRow {
   readonly conversation_id: ConversationId;
   readonly agent_id: AgentId;
-};
-type AgentIdRow = {
+}
+interface AgentIdRow {
   readonly agent_id: AgentId;
-};
+}
 
 function conversationIdsFromRows(
   rows: readonly ArchivedConversationRow[],
 ): ConversationId[] {
   const ids: ConversationId[] = [];
-  for (const row of rows) ids.push(row.id);
+  for (const row of rows) {
+    ids.push(row.id);
+  }
   return ids;
 }
 
@@ -152,7 +158,9 @@ function participantMapFromRows(
 
 function agentIdsFromRows(rows: readonly AgentIdRow[]): AgentId[] {
   const agentIds: AgentId[] = [];
-  for (const row of rows) agentIds.push(row.agent_id);
+  for (const row of rows) {
+    agentIds.push(row.agent_id);
+  }
   return agentIds;
 }
 
@@ -166,24 +174,31 @@ function archivedConversationsFromRows(
   for (const row of rows) {
     archivedConversations.push({
       conversationId: row.id,
-      archivedAt: row.archived_at!.toISOString(),
+      archivedAt:
+        /* Safe because the surrounding invariant establishes this asserted shape. */ row.archived_at!.toISOString(),
       participantAgentIds: participantsByConversation.get(row.id) ?? [],
     });
   }
   return archivedConversations;
 }
 
+/** Implements task service. */
 export class TaskService {
-  constructor(
-    private readonly db: Db,
-    private readonly conversations: ConversationService,
-    private readonly messages: MessageService,
-  ) {}
+  private readonly db: Db;
+  private readonly conversations: ConversationService;
+  private readonly messages: MessageService;
 
-  create(
-    initiator: AgentId,
-    input: TaskCreateInput,
-  ): Effect.Effect<Task, never> {
+  constructor(
+    db: Db,
+    conversations: ConversationService,
+    messages: MessageService,
+  ) {
+    this.db = db;
+    this.conversations = conversations;
+    this.messages = messages;
+  }
+
+  create(initiator: AgentId, input: TaskCreateInput): Effect.Effect<Task> {
     return catchSqlErrorAsDefect(
       transaction(this.db, (trx) =>
         Effect.gen(function* () {
@@ -240,13 +255,13 @@ export class TaskService {
    * Returns the updated row so the handler can fan out
    * `agent/task/created { task }` or `task/failed { taskId, reason }`
    * without a second SELECT.
+   * @param id Value supplied to the operation.
+   * @param status Value supplied to the operation.
+   * @returns The row result.
    */
-  setStatus(
-    id: TaskId,
-    status: "active" | "failed",
-  ): Effect.Effect<Task, never> {
+  setStatus(id: TaskId, status: "active" | "failed"): Effect.Effect<Task> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: TaskService) {
         const row = yield* takeFirstOrFail(
           this.db
             .updateTable("tasks")
@@ -267,7 +282,7 @@ export class TaskService {
     { task: Task; participants: TaskParticipant[] },
     TaskNotFoundError | ForbiddenError
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const task = yield* this.loadTaskWithReadAccess(id, caller);
       const rows = yield* catchSqlErrorAsDefect(
         this.db
@@ -287,13 +302,13 @@ export class TaskService {
     input: TaskListInput,
   ): Effect.Effect<TaskListPage, InvalidCursorError> {
     const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const pos =
         input.cursor === undefined
           ? undefined
           : yield* decodeListCursor(input.cursor);
       return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
+        Effect.gen(this, function* (this: TaskService) {
           let query = this.db
             .selectFrom("tasks")
             .innerJoin(
@@ -320,7 +335,7 @@ export class TaskService {
             .orderBy("tasks.id", "asc")
             .limit(limit + 1);
           const { page, nextCursor } = paginate(
-            rows as readonly TaskRow[],
+            /* Safe because the surrounding invariant establishes this asserted shape. */ rows as readonly TaskRow[],
             limit,
             positionOfTaskRow,
           );
@@ -333,13 +348,13 @@ export class TaskService {
     });
   }
 
-  close(id: TaskId): Effect.Effect<Task, never> {
+  close(id: TaskId): Effect.Effect<Task> {
     return this.closeWithLifecycle(id).pipe(
       Effect.map((closed) => closed.task),
     );
   }
 
-  closeWithLifecycle(id: TaskId): Effect.Effect<TaskCloseLifecycle, never> {
+  closeWithLifecycle(id: TaskId): Effect.Effect<TaskCloseLifecycle> {
     // App-ownership (`assertAppOwnsTask`) is enforced by the app-arm
     // handler before this call; this body assumes authority is proven.
     return catchSqlErrorAsDefect(
@@ -348,7 +363,7 @@ export class TaskService {
   }
 
   private closeLifecycleTransaction(trx: TaskTransaction, id: TaskId) {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const closedAt = new Date();
       const taskRow = yield* this.closeTaskRow(trx, id, closedAt);
       const archivedRows = yield* this.archiveOpenConversations(
@@ -425,11 +440,13 @@ export class TaskService {
    * `ForbiddenError`. Authority is the obtain helper's
    * responsibility: this body performs no auth check, only the
    * existence + status gate.
+   * @param id Value supplied to the operation.
+   * @returns The task result.
    */
   loadOpenTask(
     id: TaskId,
   ): Effect.Effect<Task, TaskNotFoundError | ForbiddenError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const task = yield* this.fetchTask(id);
       switch (task.status) {
         case "waiting":
@@ -450,9 +467,11 @@ export class TaskService {
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<Task, TaskNotFoundError | ForbiddenError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const task = yield* this.fetchTask(id);
-      if (task.initiatorAgentId === caller) return task;
+      if (task.initiatorAgentId === caller) {
+        return task;
+      }
       // Pending invites (admitted_at IS NULL) are NOT read access.
       const participant = yield* catchSqlErrorAsDefect(
         takeFirstOption(
@@ -473,12 +492,9 @@ export class TaskService {
     });
   }
 
-  addParticipant(
-    id: TaskId,
-    target: AgentId,
-  ): Effect.Effect<TaskParticipant, never> {
+  addParticipant(id: TaskId, target: AgentId): Effect.Effect<TaskParticipant> {
     // App-ownership asserted by the handler before this call.
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const row = yield* catchSqlErrorAsDefect(
         takeFirstOrFail(
           this.db
@@ -500,7 +516,7 @@ export class TaskService {
     });
   }
 
-  removeParticipant(id: TaskId, target: AgentId): Effect.Effect<void, never> {
+  removeParticipant(id: TaskId, target: AgentId): Effect.Effect<void> {
     // App-ownership asserted by the handler before this call.
     return catchSqlErrorAsDefect(
       this.db
@@ -513,11 +529,13 @@ export class TaskService {
   /**
    * Fetch helper consumed by `obtainMessageSendPermission` to populate
    * the composite `MessageSendPermission.task` payload field.
+   * @param id Value supplied to the operation.
    * @internal
+   * @returns The opt result.
    */
   fetchTask(id: TaskId): Effect.Effect<Task, TaskNotFoundError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: TaskService) {
         const opt = yield* takeFirstOption(
           this.db.selectFrom("tasks").selectAll().where("id", "=", id),
         );
@@ -533,13 +551,16 @@ export class TaskService {
 
   /**
    * Relationship check consumed by `obtainConversationInTask`.
+   * @param id Value supplied to the operation.
+   * @param conversationId Value supplied to the operation.
    * @internal
+   * @returns The linked opt result.
    */
   assertConversationInTask(
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<void, ConversationNotFoundError | ForbiddenError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const linkedOpt = yield* catchSqlErrorAsDefect(
         takeFirstOption(
           this.db
@@ -565,14 +586,17 @@ export class TaskService {
    * Helper consumed by `obtainAgentInTaskParticipants`. Fails closed
    * with `ForbiddenError` when the agent is absent or pending
    * (`admitted_at IS NULL`).
+   * @param id Value supplied to the operation.
+   * @param agentId Identifier of the agent targeted by the operation.
    * @internal
+   * @returns The row opt result.
    */
   assertAgentInTaskParticipants(
     id: TaskId,
     agentId: AgentId,
   ): Effect.Effect<void, ForbiddenError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: TaskService) {
         const rowOpt = yield* takeFirstOption(
           this.db
             .selectFrom("task_participants")
@@ -603,15 +627,20 @@ export class TaskService {
    * "invalid agent id shape" (`InvalidParamsError`) from "agent exists
    * but is not admitted to this task" (this tag) without parsing
    * messages. `SqlError` is caught defectively.
+   * @param id Value supplied to the operation.
+   * @param agentIds Value supplied to the operation.
    * @internal
+   * @returns The rows result.
    */
   requireAgentsAreInTaskParticipants(
     id: TaskId,
-    agentIds: ReadonlyArray<AgentId>,
+    agentIds: readonly AgentId[],
   ): Effect.Effect<void, ParticipantNotAdmittedError> {
-    if (agentIds.length === 0) return Effect.void;
+    if (agentIds.length === 0) {
+      return Effect.void;
+    }
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: TaskService) {
         const rows = yield* this.db
           .selectFrom("task_participants")
           .select("agent_id")
@@ -648,13 +677,16 @@ export class TaskService {
    * Idempotent: returns `{ leftConversationIds: [], closedTask: null }`
    * when the caller is not in `task_participants` for the task.
    * Fails with `TaskNotFoundError` when the task does not exist.
+   * @param id Value supplied to the operation.
+   * @param caller Value supplied to the operation.
    * @internal
+   * @returns The leave task result.
    */
   leaveTask(
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<TaskLeaveResult, TaskNotFoundError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       // Existence probe outside the transaction so `not_found` surfaces
       // before any write attempt.
       yield* this.fetchTask(id);
@@ -671,7 +703,7 @@ export class TaskService {
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<TaskLeaveResult, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       // Row-level lock on the task BEFORE any participant read.
       // Without `FOR UPDATE`, two concurrent `leaveTask` callers can
       // each see the other under read-committed isolation, each skip
@@ -710,7 +742,7 @@ export class TaskService {
     trx: TaskTransaction,
     id: TaskId,
     caller: AgentId,
-  ): Effect.Effect<ReadonlyArray<ConversationId>, SqlError> {
+  ): Effect.Effect<readonly ConversationId[], SqlError> {
     return Effect.gen(function* () {
       const conversationRows = yield* trx
         .selectFrom("conversation_participants as cp")
@@ -733,13 +765,15 @@ export class TaskService {
     trx: TaskTransaction,
     id: TaskId,
   ): Effect.Effect<Task | null, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const remaining = yield* trx
         .selectFrom("task_participants")
         .select("agent_id")
         .where("task_id", "=", id)
         .limit(1);
-      if (remaining.length > 0) return null;
+      if (remaining.length > 0) {
+        return null;
+      }
       const closedRow = yield* takeFirstOrFail(
         trx
           .updateTable("tasks")
@@ -759,19 +793,21 @@ export class TaskService {
    * (`assertAppOwnsTask`) is asserted by the
    * app-arm handler before this call, so this body assumes authority is
    * proven. `ConversationInTask` is enforced by requirement middleware.
+   * @param id Value supplied to the operation.
+   * @param conversationId Value supplied to the operation.
    * @internal
+   * @returns The archived at result.
    */
   archiveConversation(
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<
     { conversation: Conversation; archivedAt: string },
-    ConversationNotFoundError | ForbiddenError,
-    never
+    ConversationNotFoundError | ForbiddenError
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
+        Effect.gen(this, function* (this: TaskService) {
           const archivedAt = new Date();
           // Idempotent: if already archived, re-read to surface the
           // existing `archivedAt` rather than overwriting.
@@ -811,19 +847,21 @@ export class TaskService {
    * `app/conversation/update` body. Idempotent (no-op when the
    * conversation is not archived). Returns the updated `Conversation`
    * (with `archivedAt` cleared).
+   * @param id Value supplied to the operation.
+   * @param conversationId Value supplied to the operation.
    * @internal
+   * @returns The conversation result.
    */
   unarchiveConversation(
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<
     { conversation: Conversation },
-    ConversationNotFoundError | ForbiddenError,
-    never
+    ConversationNotFoundError | ForbiddenError
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
+        Effect.gen(this, function* (this: TaskService) {
           yield* this.db
             .updateTable("conversations")
             .set({ archived_at: null })
@@ -848,20 +886,21 @@ export class TaskService {
    * `requireAgentsAreInTaskParticipants` in the handler before this
    * call; the conversation-in-task relationship is enforced by the
    * `ConversationInTask` requirement.
+   * @param conversationId Value supplied to the operation.
+   * @param agentId Identifier of the agent targeted by the operation.
    * @internal
+   * @returns The rows result.
    */
   addConversationParticipant(
-    id: TaskId,
     conversationId: ConversationId,
     agentId: AgentId,
   ): Effect.Effect<
-    { postMutationParticipants: ReadonlyArray<AgentId> },
-    ForbiddenError,
-    never
+    { postMutationParticipants: readonly AgentId[] },
+    ForbiddenError
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
+        Effect.gen(this, function* (this: TaskService) {
           yield* this.db
             .insertInto("conversation_participants")
             .values({ conversation_id: conversationId, agent_id: agentId })
@@ -871,9 +910,7 @@ export class TaskService {
             .select("agent_id")
             .where("conversation_id", "=", conversationId);
           return {
-            postMutationParticipants: rows.map(
-              (row) => row.agent_id,
-            ) as ReadonlyArray<AgentId>,
+            postMutationParticipants: rows.map((row) => row.agent_id),
           };
         }),
       );
@@ -889,30 +926,32 @@ export class TaskService {
    * Idempotent: no-op when the agent is not currently in the
    * conversation. The conversation is NOT auto-archived when its
    * `conversation_participants` becomes empty.
+   * @param conversationId Value supplied to the operation.
+   * @param agentId Identifier of the agent targeted by the operation.
    * @internal
+   * @returns The pre rows result.
    */
   removeConversationParticipant(
-    id: TaskId,
     conversationId: ConversationId,
     agentId: AgentId,
   ): Effect.Effect<
     {
-      preMutationParticipants: ReadonlyArray<AgentId>;
+      preMutationParticipants: readonly AgentId[];
       wasParticipant: boolean;
     },
-    ForbiddenError,
-    never
+    ForbiddenError
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
+        Effect.gen(this, function* (this: TaskService) {
           const preRows = yield* this.db
             .selectFrom("conversation_participants")
             .select("agent_id")
             .where("conversation_id", "=", conversationId);
-          const preMutationParticipants = preRows.map(
-            (row) => row.agent_id,
-          ) as ReadonlyArray<AgentId>;
+          const preMutationParticipants =
+            /* Safe because the surrounding invariant establishes this asserted shape. */ preRows.map(
+              (row) => row.agent_id,
+            ) as readonly AgentId[];
           const wasParticipant = preMutationParticipants.includes(agentId);
           if (!wasParticipant) {
             return { preMutationParticipants, wasParticipant };

@@ -23,8 +23,9 @@ interface OpenClawContextLogEntry {
   readonly crossConversationMessages: readonly CrossConvMessage[];
 }
 
+/** Describes open claw context log input. */
 export interface OpenClawContextLogInput {
-  readonly logDir: string | undefined;
+  readonly logDir?: string;
   readonly accountId: string;
   readonly accountAgentName?: string;
   readonly ownAgentId?: string;
@@ -43,12 +44,12 @@ function sanitizePathPart(value: string): string {
   return sanitized.length > 0 ? sanitized : "unknown";
 }
 
-const OpenClawStateDir = Config.option(Config.string("OPENCLAW_STATE_DIR"));
+const openClawStateDir = Config.option(Config.string("OPENCLAW_STATE_DIR"));
 
 const getOpenClawStateDir = (): string | undefined =>
   Option.getOrUndefined(
     Effect.runSync(
-      OpenClawStateDir.pipe(
+      openClawStateDir.pipe(
         Effect.withConfigProvider(ConfigProvider.fromEnv()),
       ),
     ),
@@ -56,7 +57,7 @@ const getOpenClawStateDir = (): string | undefined =>
 
 function contextLogPath(
   logDir: string,
-  accountAgentName: string | undefined,
+  accountAgentName?: string,
 ): Effect.Effect<string, never, Path.Path> {
   const stateDir = getOpenClawStateDir();
   const agentName = accountAgentName ?? "agent";
@@ -73,11 +74,18 @@ function contextLogPath(
   );
 }
 
+/**
+ * Writes open claw context log.
+ * @param input Input value to process.
+ * @returns The write open claw context log result.
+ */
 export function writeOpenClawContextLog(
   input: OpenClawContextLogInput,
-): Effect.Effect<void, unknown, never> {
+): Effect.Effect<void, unknown> {
   const logDir = input.logDir;
-  if (!logDir) return Effect.void;
+  if (!logDir) {
+    return Effect.void;
+  }
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const stateDir = getOpenClawStateDir();

@@ -31,10 +31,11 @@ import { messagePartsSchema } from "./parts.js";
 export {
   decodeMessageParts,
   decodeMessagePartsText,
+  messagePartsSchema,
   validateTextPart,
 } from "./parts.js";
 /** Re-exports the public API from `./parts.js`. */
-export type { Part } from "./parts.js";
+export type { MessageParts, Part } from "./parts.js";
 
 const dateTimeString = dateTimeStringSchema();
 const messageParts = messagePartsSchema();
@@ -64,7 +65,7 @@ export type Message = Schema.Schema.Type<typeof messageSchema>;
 /** Return true when the value is a closed message row. */
 export const validateMessage = closedStructGuard(messageSchema);
 
-const dispatchDecisionSchema = Schema.Union(
+const dispatchDecisionSchemaValue = Schema.Union(
   Schema.Struct({ tag: Schema.Literal("pending") }),
   Schema.Struct({
     tag: Schema.Literal("forward"),
@@ -78,12 +79,20 @@ const dispatchDecisionSchema = Schema.Union(
 
 /** Per-message dispatch authorization decision persisted with the message. */
 export type DispatchDecision = Schema.Schema.Type<
-  typeof dispatchDecisionSchema
+  typeof dispatchDecisionSchemaValue
 >;
+
+/**
+ * Return the canonical persisted dispatch-authorization schema.
+ * @returns A schema shared by storage and wire validation.
+ */
+export function dispatchDecisionSchema(): typeof dispatchDecisionSchemaValue {
+  return dispatchDecisionSchemaValue;
+}
 
 /** Return true when a value is a closed dispatch decision. */
 export const validateDispatchDecision = closedStructGuard(
-  dispatchDecisionSchema,
+  dispatchDecisionSchemaValue,
 );
 
 const messagesSendParams = Schema.Struct({

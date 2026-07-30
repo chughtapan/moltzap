@@ -1,40 +1,46 @@
+// safer-arch-ignore no-cross-domain-sibling-import: The connection handshake is an adapter boundary that authenticates principals and registers their domain services atomically.
 import { Effect, Match, Option } from "effect";
 import {
-  agentConnect,
-  appConnect,
+  type agentConnect,
+  type appConnect,
   PROTOCOL_VERSION,
   checkProtocolRange,
+  type HelloOk,
 } from "@moltzap/protocol/network";
-import { UnauthorizedError } from "@moltzap/protocol/rpc";
-import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
-import type { AppManifest } from "@moltzap/protocol/identity";
-import type { HelloOk } from "@moltzap/protocol/network";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
+import {
+  UnauthorizedError,
+  type ParamsOf,
+  InvalidParamsError,
+} from "@moltzap/protocol/rpc";
+import type { AgentKey, AppKey, AppManifest } from "@moltzap/protocol/identity";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import {
   agentContextFrom,
-  AgentContext,
-  AppContext,
+  type AgentContext,
+  type AppContext,
   ConnectionManagerTag,
   ConnectionTag,
+  type Connection,
+  type ConnectionManager,
+  type Originator,
 } from "#socket";
-import { ConnectionHooksTag } from "#core";
-import { DbTag } from "#db";
-import { AuthServiceTag } from "#identity/agents";
-import { AppAuthServiceTag, AppEndpointRegistryTag } from "#identity/apps";
-import { ConversationServiceTag } from "#conversation";
+import { ConnectionHooksTag } from "../core/hooks.js";
+import { DbTag, catchSqlErrorAsDefect } from "#db";
+import { AuthServiceTag } from "../identity/agents/layer.js";
+import type { AuthService } from "../identity/agents/auth.service.js";
+import {
+  AppAuthServiceTag,
+  AppEndpointRegistryTag,
+} from "../identity/apps/layer.js";
+import type { AppAuthService } from "../identity/apps/auth.service.js";
+import type { AppEndpointRegistry } from "../identity/apps/endpoint-registry.js";
+import { ConversationServiceTag } from "../conversation/layer.js";
+import type { ConversationService } from "../conversation/conversation.service.js";
 import { AgentEndpointResolverTag } from "./layer.js";
-import { PresenceServiceTag } from "#network/presence";
+import { PresenceServiceTag } from "./presence/layer.js";
+import type { PresenceService } from "./presence/presence.service.js";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
-import type { AuthService } from "#identity/agents";
-import type { AppAuthService } from "#identity/apps";
-import type { PresenceService } from "#network/presence";
-import type { ConversationService } from "#conversation";
-import { InvalidParamsError } from "@moltzap/protocol/rpc";
-import { catchSqlErrorAsDefect } from "#db";
-import type { Connection, ConnectionManager, Originator } from "#socket";
-import type { AppEndpointRegistry } from "#identity/apps";
 
 type AgentConnectParams = ParamsOf<typeof agentConnect>;
 type AppConnectParams = ParamsOf<typeof appConnect>;
@@ -43,7 +49,12 @@ type ConnectParams = AgentConnectParams | AppConnectParams;
 /** The empty HelloOk — success is the only payload. */
 const HELLO_OK: HelloOk = {};
 
-/** Agent API-key path — mints the closed-union `AgentContext` arm directly. */
+/**
+ * Agent API-key path — mints the closed-union `AgentContext` arm directly.
+ * @param agentKey Value supplied to the operation.
+ * @param authService Value supplied to the operation.
+ * @returns The authenticate agent key result.
+ */
 function authenticateAgentKey(
   agentKey: AgentKey,
   authService: AuthService,
@@ -68,6 +79,10 @@ function authenticateAgentKey(
  * `onAgentConnect(agentId, connId)` threads `connId` for the fast-reconnect
  * race guard. The handshake carries no agent identity back — the client already
  * holds its registered `agentId`.
+ * @param ctx Context for the operation.
+ * @param connId Value supplied to the operation.
+ * @param presenceService Value supplied to the operation.
+ * @returns The created hello ok.
  */
 function buildHelloOk(
   ctx: AgentContext,
@@ -88,6 +103,9 @@ function buildHelloOk(
  * `authenticateApp`) surfaces a uniform `UnauthorizedError`; a corrupted
  * manifest on a hash-matching row carries `UnauthorizedError`'s
  * `manifest_corrupted` reason (set inside `authenticateApp`).
+ * @param appKey Value supplied to the operation.
+ * @param appAuthService Value supplied to the operation.
+ * @returns The authenticate app key result.
  */
 function authenticateAppKey(
   appKey: AppKey,
@@ -120,6 +138,15 @@ function authenticateAppKey(
  *   2. A close that raced between the transition and the registration
  *      leaves a stale registry entry; undo it via
  *      `unregisterAppsForConnection` before interrupting the closed request.
+ * @param args Value supplied to the operation.
+ * @param args.connections Value supplied to the operation.
+ * @param args.appEndpointRegistry Value supplied to the operation.
+ * @param args.appId Value supplied to the operation.
+ * @param args.manifest Value supplied to the operation.
+ * @param args.authed Value supplied to the operation.
+ * @param args.authed.connId Value supplied to the operation.
+ * @param args.authed.originator Value supplied to the operation.
+ * @returns The register app endpoint result.
  */
 function registerAppEndpoint(args: {
   readonly connections: ConnectionManager;
@@ -174,6 +201,13 @@ function registerAppEndpoint(args: {
  * is impossible here (we pass an `AppContext`) — `Effect.die`;
  * `already-connected` is the re-auth no-op (HelloOk re-emitted upstream);
  * `not-connected` is a benign close race.
+ * @param args Value supplied to the operation.
+ * @param args.connections Value supplied to the operation.
+ * @param args.appEndpointRegistry Value supplied to the operation.
+ * @param args.connId Value supplied to the operation.
+ * @param args.auth Value supplied to the operation.
+ * @param args.manifest Value supplied to the operation.
+ * @returns The register app arm transition result.
  */
 function registerAppArmTransition(args: {
   readonly connections: ConnectionManager;
@@ -245,6 +279,10 @@ function registerEndpointIfStillConnected(
  * straight to `authenticate`. All `TransitionOutcome` arms are matched
  * exhaustively. `not-connected` is a benign race (the close handler removed the
  * entry); `already-connected` is the re-auth no-op (a fresh `HelloOk`).
+ * @param connections Value supplied to the operation.
+ * @param connId Value supplied to the operation.
+ * @param auth Value supplied to the operation.
+ * @returns The mirror agent arm transition result.
  */
 function mirrorAgentArmTransition(
   connections: ConnectionManager,
@@ -270,6 +308,9 @@ function mirrorAgentArmTransition(
  * the conversation-id subscription set + agent-endpoint registration, then
  * emits the empty `HelloOk`. Reached only for the agent-prefixed credential
  * (the app-prefixed credential returns early in {@link handleConnect}).
+ * @param credential Value supplied to the operation.
+ * @param connId Value supplied to the operation.
+ * @returns The complete agent connect result.
  */
 function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
   return Effect.gen(function* () {
@@ -306,11 +347,16 @@ function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
  * Hooks carry `agentId`, the agent's display name (DB lookup, falling back to
  * the id), `ownerUserId`, and `connId`. Each runs with a 2-second timeout;
  * a throw or timeout is logged and does not fail the Connect.
+ * @param auth Value supplied to the operation.
+ * @param connId Value supplied to the operation.
+ * @returns The fire connection hooks result.
  */
 function fireConnectionHooks(auth: AgentContext, connId: ConnectionId) {
   return Effect.gen(function* () {
     const hooks = yield* ConnectionHooksTag;
-    if (hooks.connectionHooks.length === 0) return;
+    if (hooks.connectionHooks.length === 0) {
+      return;
+    }
     const db = yield* DbTag;
     const row = yield* Effect.tryPromise(() =>
       db
@@ -389,6 +435,8 @@ function reemitHelloIfAuthenticated(
  * then re-emit `HelloOk` for an already-authenticated arm (idempotent re-auth).
  * Returns the live connection plus `Some(helloOk)` when the caller short-
  * circuits, `None` when it should run its principal-specific auth.
+ * @param params Request payload to process.
+ * @returns The connect preamble result.
  */
 function connectPreamble(params: ConnectParams) {
   return Effect.gen(function* () {
@@ -445,9 +493,19 @@ function handleAppConnect(params: AppConnectParams) {
 // `agent/network/connect` and `app/network/connect` are the unauthenticated methods. The
 // method tag selects the principal kind; the body only unwraps the redacted
 // key at the auth-service boundary.
+/**
+ * Provides the connect agent runtime value.
+ * @param params Request payload to process.
+ * @returns The connect agent result.
+ */
 export const connectAgent: ServerHandler<typeof agentConnect> = (params) =>
   handleAgentConnect(params).pipe(Effect.withSpan("connect.agent"));
 
+/**
+ * Provides the connect app runtime value.
+ * @param params Request payload to process.
+ * @returns The connect app result.
+ */
 export const connectApp: ServerHandler<typeof appConnect> = (params) =>
   handleAppConnect(params).pipe(Effect.withSpan("connect.app"));
 

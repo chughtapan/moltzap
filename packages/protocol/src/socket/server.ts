@@ -385,7 +385,6 @@ export class MoltZapServer<
         socket,
         { server: serverSink, client: session.originator.sink },
         disconnects,
-        session.write,
       );
       yield* runSocketReader(reader, session);
     }).pipe(Effect.withSpan("MoltZapServer.openSocketSession"));

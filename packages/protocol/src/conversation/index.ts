@@ -21,6 +21,8 @@ export type {
   ConversationParticipant,
   ConversationSummary,
 } from "./types.js";
+/** Re-exports the public API from `./name.js`. */
+export { conversationNameSchema } from "./name.js";
 
 /** Re-exports the public API from `./requirements/index.js`. */
 export {

@@ -108,7 +108,7 @@ Executes the dispatch admission violation operation.
 
 **Returns:** The dispatch admission violation result.
 
-### [`DispatchTestDriver`](./_driver.ts#L268)
+### [`DispatchTestDriver`](./_driver.ts#L273)
 
 _Interface_
 
@@ -269,7 +269,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L927)
+### [`makeDispatchTestDriver`](./_driver.ts#L938)
 
 _Function_
 
@@ -289,7 +289,7 @@ exact failure mode the per-property scope prevents.
 
 **Returns:** The created dispatch test driver.
 
-### [`ModeratorHandle`](./_driver.ts#L195)
+### [`ModeratorHandle`](./_driver.ts#L200)
 
 _Interface_
 
@@ -440,14 +440,7 @@ export interface RecipientHandle {
     readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
     readonly leaseId: Schema.Schema.Type<typeof leaseId>;
     readonly text: string;
-  }) => Effect.Effect<
-    {
-      readonly messageId: Schema.Schema.Type<typeof messageId>;
-      readonly errorTag?: string;
-      readonly errorState?: string;
-    },
-    PropertyFailure
-  >;
+  }) => Effect.Effect<SendWithLeaseResult, PropertyFailure>;
 
   /**
    * Disconnect the recipient's WS without graceful shutdown.

@@ -20,7 +20,12 @@ it("on('message') skips own agent's messages", () =>
     service.on("message", (msg) => received.push(msg));
 
     // Send from the service (own agent) — should NOT fire on("message")
-    yield* service.send(conv.task.id, conv.conversation!.id, "Self message");
+    yield* service.send(
+      conv.task.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
+      "Self message",
+    );
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     expect(received.length).toBe(0);
@@ -50,17 +55,22 @@ it("getHistory() stores received messages", () =>
     yield* H.sendAndSettle(
       regSender.client,
       conv.task.id,
-      conv.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
       "msg 1",
     );
     yield* H.sendAndSettle(
       regSender.client,
       conv.task.id,
-      conv.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
       "msg 2",
     );
 
-    const history = service.getHistory(conv.conversation!.id);
+    const history = service.getHistory(
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
+    );
     expect(history.length).toBe(2);
 
     service.close();

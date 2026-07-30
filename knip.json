@@ -12,26 +12,26 @@
         "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
         "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/nanoclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
         "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/openclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.integration.test.ts",
         "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/protocol": {
       "entry": [
@@ -39,17 +39,23 @@
         "src/**/*.types-check.ts",
         "src/testing/conformance/**/*.ts",
         "scripts/check-mermaid.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
-    "packages/testbed": {
+    "packages/evals": {
+      "entry": ["src/**/*.test.ts", "src/**/*.types-check.ts"],
+      "project": ["src/**/*.ts", "*.mjs"]
+    },
+    "packages/simulator": {
       "entry": [
-        "src/trace-capture-harness.ts",
         "src/**/*.test.ts",
-        "vitest*.config.ts"
+        "src/**/*.integration.test.ts",
+        "src/**/*.types-check.ts",
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"],
+      "ignoreDependencies": ["@moltzap/server-core"]
     },
     "packages/server": {
       "entry": [
@@ -57,9 +63,34 @@
         "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
         "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
+    },
+    "v2/transport": {
+      "ignoreDependencies": ["@moltzap/v2-identity"]
+    },
+    "v2/transcript": {
+      "ignoreDependencies": ["@moltzap/v2-identity", "@moltzap/v2-transport"]
+    },
+    "v2/endpoint": {
+      "ignoreDependencies": [
+        "@moltzap/v2-identity",
+        "@moltzap/v2-transcript",
+        "@moltzap/v2-transport"
+      ]
+    },
+    "v2/simulator": {
+      "ignoreDependencies": ["@moltzap/v2-endpoint", "@moltzap/v2-identity"]
+    },
+    "v2/testbed": {
+      "ignoreDependencies": [
+        "@moltzap/v2-endpoint",
+        "@moltzap/v2-identity",
+        "@moltzap/v2-simulator",
+        "@moltzap/v2-transcript",
+        "@moltzap/v2-transport"
+      ]
     }
   }
 }

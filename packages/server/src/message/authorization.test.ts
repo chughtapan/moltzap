@@ -1,9 +1,8 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentId, AppManifest } from "@moltzap/protocol/identity";
 import { connectionIdSchema } from "@moltzap/protocol/socket";
-import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize } from "@moltzap/protocol/message";

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
@@ -107,7 +107,7 @@ function assertExpiredNeverFires(
         timeoutMs: NEGATIVE_OBSERVABILITY_WINDOW_MS,
       }),
     );
-    if (expired._tag === "Success") {
+    if (Exit.isSuccess(expired)) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,

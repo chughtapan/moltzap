@@ -160,7 +160,10 @@ it("agent/identity/contacts/accept fans contact/accepted to the requester", () =
     const bobAccepted = yield* Fiber.join(bobAcceptedFiber);
     expect(aliceAccepted).toHaveLength(1);
     expect(bobAccepted).toHaveLength(0);
-    expect(aliceAccepted[0]!.contact.contactUserId).toBe(BOB_USER_ID);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ aliceAccepted[0]!
+        .contact.contactUserId,
+    ).toBe(BOB_USER_ID);
   }));
 
 it("agent/identity/contacts/accept is idempotent", () =>

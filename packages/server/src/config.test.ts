@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import { describe, expect } from "vitest";
+import { describe, expect, vi } from "vitest";
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
@@ -87,7 +87,9 @@ function testEnv(env: Record<string, string | undefined> = {}) {
 }
 
 function expectFailureValue(exit: Exit.Exit<unknown, unknown>): unknown {
-  if (!Exit.isFailure(exit)) throw new Error("expected failure");
+  if (!Exit.isFailure(exit)) {
+    throw new Error("expected failure");
+  }
   const failure = Cause.failureOption(exit.cause);
   if (Option.isNone(failure)) {
     throw new Error(`expected typed failure in cause, got ${exit.cause}`);
@@ -127,7 +129,11 @@ function encryptionSurfaces() {
       ENCRYPTION_MASTER_SECRET: SECRET,
     });
     expect(result.encryptionMasterSecret).not.toBeUndefined();
-    expect(Redacted.value(result.encryptionMasterSecret!)).toBe(SECRET);
+    expect(
+      Redacted.value(
+        /* Safe because the test fixture establishes this asserted shape. */ result.encryptionMasterSecret!,
+      ),
+    ).toBe(SECRET);
   });
 }
 
@@ -192,12 +198,23 @@ function rejectsInvalidPort() {
       expect(err).toBeInstanceOf(ConfigLoadError);
       // port: -1 is rejected by structural validation (TypeBox, minimum: 1)
       // before the Effect Config decode, so it surfaces as kind "validation".
-      expect((err as ConfigLoadError).kind).toBe(VALIDATION_ERROR_KIND);
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ (
+          err as ConfigLoadError
+        ).kind,
+      ).toBe(VALIDATION_ERROR_KIND);
     }),
   );
 }
 
 const INTERPOLATION_YAML = `registration:\n  secret: \${MY_SECRET}\n`;
+const ENV_BACKED_REGISTRATION_YAML = `admin_user_id: ${ADMIN_USER_ID}
+server:
+  cors_origins:
+    - ${APP_ORIGIN}
+registration:
+  secret: \${MOLTZAP_REGISTRATION_SECRET}
+`;
 
 function envInterpolation() {
   return withTempConfig(INTERPOLATION_YAML, (configPath) =>
@@ -210,8 +227,33 @@ function envInterpolation() {
         }),
       });
       expect(result.registrationSecret).not.toBeUndefined();
-      expect(Redacted.value(result.registrationSecret!)).toBe(INTERPOLATED);
+      expect(
+        Redacted.value(
+          /* Safe because the test fixture establishes this asserted shape. */ result.registrationSecret!,
+        ),
+      ).toBe(INTERPOLATED);
     }),
+  );
+}
+
+function envBackedRegistrationInterpolation() {
+  vi.stubEnv("MOLTZAP_REGISTRATION_SECRET", INTERPOLATED);
+  return withTempConfig(ENV_BACKED_REGISTRATION_YAML, (configPath) =>
+    Effect.gen(function* () {
+      const result = yield* loadStandaloneConfig({ configPath });
+      expect(result.registrationSecret).not.toBeUndefined();
+      expect(
+        Redacted.value(
+          /* Safe because the test fixture establishes this asserted shape. */ result.registrationSecret!,
+        ),
+      ).toBe(INTERPOLATED);
+    }),
+  ).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        vi.unstubAllEnvs();
+      }),
+    ),
   );
 }
 
@@ -244,7 +286,11 @@ function doesNotMutateReusedEnv() {
       const beforeKeys = Object.keys(processEnv).length;
       const result = yield* loadStandaloneConfig({ configPath, processEnv });
       expect(result.registrationSecret).not.toBeUndefined();
-      expect(Redacted.value(result.registrationSecret!)).toBe(REUSED_ENV_VALUE);
+      expect(
+        Redacted.value(
+          /* Safe because the test fixture establishes this asserted shape. */ result.registrationSecret!,
+        ),
+      ).toBe(REUSED_ENV_VALUE);
       expect(processEnv[REUSED_ENV_KEY]).toBe(REUSED_ENV_VALUE);
       expect(Object.keys(processEnv).length).toBe(beforeKeys);
     }),
@@ -263,7 +309,11 @@ function expectValidationRejection(body: string) {
       );
       const err = expectFailureValue(exit);
       expect(err).toBeInstanceOf(ConfigLoadError);
-      expect((err as ConfigLoadError).kind).toBe(VALIDATION_ERROR_KIND);
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ (
+          err as ConfigLoadError
+        ).kind,
+      ).toBe(VALIDATION_ERROR_KIND);
     }),
   );
 }
@@ -317,6 +367,10 @@ describe("loadStandaloneConfig YAML", () => {
   it("rejects an out-of-range port with a validation ConfigLoadError", () =>
     rejectsInvalidPort());
   it("env interpolation: ${VAR} resolves against processEnv", envInterpolation);
+  it(
+    "loads the registration secret used by env-backed YAML interpolation",
+    envBackedRegistrationInterpolation,
+  );
   it("apps[] passes through to bootPlan", appsPassthrough);
   it(
     "services.contacts: webhook produces contactWebhook binding",

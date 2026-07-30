@@ -53,14 +53,12 @@ import {
 import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
+  type NotificationDelivery,
+  type NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
 import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { taskFailedNotificationDefinition } from "@moltzap/protocol/task";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import type {
-  NotificationDelivery,
-  NotificationParamsOf,
-} from "@moltzap/protocol/rpc";
 import { buildMessage, testTaskId } from "../../test-utils/index.js";
 import { subscribe, subscribeAll } from "../stream.js";
 
@@ -71,8 +69,8 @@ type TaskFailedParams = NotificationParamsOf<
   typeof taskFailedNotificationDefinition
 >;
 
-const taskIds = Array.from({ length: PROP_TEST_FRAME_COUNT }, (_, seq) =>
-  testTaskId(`task-${seq}`),
+const taskIds = [...Array.from({ length: PROP_TEST_FRAME_COUNT }).keys()].map(
+  (sequence) => testTaskId(`task-${sequence}`),
 );
 
 const taskIndex = new Map(taskIds.map((taskId, seq) => [taskId, seq] as const));
@@ -124,8 +122,8 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
-        const observerSeen = yield* Ref.make<ReadonlyArray<number>>([]);
-        const targetSeen = yield* Ref.make<ReadonlyArray<number>>([]);
+        const observerSeen = yield* Ref.make<readonly number[]>([]);
+        const targetSeen = yield* Ref.make<readonly number[]>([]);
 
         const observerFiber = yield* Effect.fork(
           subscribe(registry, taskFailedNotificationDefinition).pipe(
@@ -201,7 +199,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // exercised by the "in-flight dispatch is NOT interrupted by an
         // unregister that commits during frame N" test below.
         const registry = yield* makeSubscriberRegistry();
-        const receivedByS2 = yield* Ref.make<ReadonlyArray<number>>([]);
+        const receivedByS2 = yield* Ref.make<readonly number[]>([]);
 
         const s1Fiber = yield* Effect.fork(
           subscribe(registry, taskFailedNotificationDefinition).pipe(
@@ -273,9 +271,9 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // Stream API tests cover end-to-end subscription behavior; this case
         // uses the registry directly to control dispatch ordering.
         const registry = yield* makeSubscriberRegistry();
-        const enteredS1 = yield* Deferred.make<void>();
-        const releaseS1 = yield* Deferred.make<void>();
-        const s2Received = yield* Ref.make<ReadonlyArray<number>>([]);
+        const enteredS1 = yield* Deferred.make<undefined>();
+        const releaseS1 = yield* Deferred.make<undefined>();
+        const s2Received = yield* Ref.make<readonly number[]>([]);
 
         yield* registry.register(taskFailedNotificationDefinition, {
           onFrame: () =>
@@ -364,15 +362,12 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
-        const observed = yield* Ref.make<ReadonlyArray<string>>([]);
+        const observed = yield* Ref.make<readonly string[]>([]);
 
         const fiber = yield* Effect.fork(
           subscribeAll(registry).pipe(
             Stream.runForEach((frame) =>
-              Ref.update(observed, (xs) => [
-                ...xs,
-                (frame.definition as AnyNotificationDefinition).name,
-              ]),
+              Ref.update(observed, (xs) => [...xs, frame.definition.name]),
             ),
             Effect.catchAll(() => Effect.void),
           ),
@@ -398,3 +393,5 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
       }),
     ));
 });
+
+/* eslint-enable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. */

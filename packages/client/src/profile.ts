@@ -7,8 +7,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Data, Effect, Either, Schema } from "effect";
-import { agentId } from "@moltzap/protocol/identity";
-import { agentKey } from "@moltzap/protocol/identity";
+import { agentId, agentKey } from "@moltzap/protocol/identity";
 import { getMoltZapConfigDir, getMoltZapConfigPath } from "./local-paths.js";
 
 // ─── Branded names ─────────────────────────────────────────────────────────
@@ -25,7 +24,8 @@ const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 
 // ─── Records ───────────────────────────────────────────────────────────────
 
-export const ProfileName = Schema.String.pipe(
+/** Validates and decodes profile name values. */
+export const profileName = Schema.String.pipe(
   Schema.pattern(NAME_PATTERN),
   Schema.brand("ProfileName"),
 );
@@ -33,27 +33,27 @@ export const ProfileName = Schema.String.pipe(
 /**
  * Branded profile name shared by profile lookup and CLI registration.
  */
-export type ProfileName = Schema.Schema.Type<typeof ProfileName>;
+export type ProfileName = Schema.Schema.Type<typeof profileName>;
 
-const ProfileRecordSchema = Schema.Struct({
+const profileRecordSchema = Schema.Struct({
   agentId: agentId,
   apiKey: agentKey,
   agentName: Schema.String,
 });
 
 /** One profile's persisted auth record. */
-export type ProfileRecord = Schema.Schema.Type<typeof ProfileRecordSchema>;
+export type ProfileRecord = Schema.Schema.Type<typeof profileRecordSchema>;
 
-const ProfileMapSchema = Schema.Record({
-  key: ProfileName,
-  value: ProfileRecordSchema,
+const profileMapSchema = Schema.Record({
+  key: profileName,
+  value: profileRecordSchema,
 });
 
-const ProfileFileSchema = Schema.Struct({
-  profiles: Schema.optional(ProfileMapSchema),
+const profileFileSchema = Schema.Struct({
+  profiles: Schema.optional(profileMapSchema),
 });
-type ProfileFile = Schema.Schema.Type<typeof ProfileFileSchema>;
-const ProfileFileTextSchema = Schema.parseJson(ProfileFileSchema, {
+type ProfileFile = Schema.Schema.Type<typeof profileFileSchema>;
+const profileFileTextSchema = Schema.parseJson(profileFileSchema, {
   space: JSON_INDENT_SPACES,
 });
 
@@ -71,12 +71,14 @@ export type ProfileError =
   | ProfileConfigReadError
   | ProfileConfigWriteError;
 
+/** Reports profile not found failures. */
 export class ProfileNotFoundError extends Data.TaggedError(
   "ProfileNotFoundError",
 )<{
   readonly name: string;
 }> {}
 
+/** Reports profile invalid name failures. */
 export class ProfileInvalidNameError extends Data.TaggedError(
   "ProfileInvalidNameError",
 )<{
@@ -84,6 +86,7 @@ export class ProfileInvalidNameError extends Data.TaggedError(
   readonly reason: string;
 }> {}
 
+/** Reports profile config read failures. */
 export class ProfileConfigReadError extends Data.TaggedError(
   "ProfileConfigReadError",
 )<{
@@ -91,6 +94,7 @@ export class ProfileConfigReadError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+/** Reports profile config write failures. */
 export class ProfileConfigWriteError extends Data.TaggedError(
   "ProfileConfigWriteError",
 )<{
@@ -103,11 +107,13 @@ export class ProfileConfigWriteError extends Data.TaggedError(
 /**
  * Parse and brand a raw profile name. Rejects the empty string and any
  * string that fails NAME_PATTERN.
+ * @param raw Value supplied to the operation.
+ * @returns The decoded profile name.
  */
 export const parseProfileName = (
   raw: string,
 ): Effect.Effect<ProfileName, ProfileInvalidNameError> => {
-  return Schema.decodeUnknown(ProfileName)(raw).pipe(
+  return Schema.decodeUnknown(profileName)(raw).pipe(
     Effect.catchTag("ParseError", () =>
       Effect.fail(
         new ProfileInvalidNameError({
@@ -150,7 +156,7 @@ const decodeProfileFileText = (
   text: string,
 ): Effect.Effect<ProfileFile, ProfileConfigReadError> =>
   Schema.decodeUnknown(
-    ProfileFileTextSchema,
+    profileFileTextSchema,
     STRICT_PARSE_OPTIONS,
   )(text).pipe(
     Effect.either,
@@ -179,7 +185,9 @@ const readProfileFile = (): Effect.Effect<
 
 function profilesFromFile(file: ProfileFile): Map<ProfileName, ProfileRecord> {
   return new Map(
-    Object.entries(file.profiles ?? {}) as Array<[ProfileName, ProfileRecord]>,
+    /* Safe because the surrounding invariant establishes this asserted shape. */ Object.entries(
+      file.profiles ?? {},
+    ) as Array<[ProfileName, ProfileRecord]>,
   );
 }
 
@@ -204,6 +212,8 @@ export const loadLayeredConfig: Effect.Effect<
 /**
  * Resolve a named profile record. CLI transport selection uses only
  * `agentId`; daemon startup consumes the redacted `apiKey`.
+ * @param name Name of the operation.
+ * @returns The next profile file result.
  */
 export const resolveProfileRecord = (
   name: ProfileName,
@@ -238,7 +248,7 @@ const encodeProfileFileText = (
   file: ProfileFile,
 ): Effect.Effect<string, ProfileConfigWriteError> =>
   Schema.encode(
-    ProfileFileTextSchema,
+    profileFileTextSchema,
     STRICT_PARSE_OPTIONS,
   )(file).pipe(
     Effect.either,
@@ -284,6 +294,9 @@ const writeProfileFile = (
 
 /**
  * Persist a new profile record under `profiles.&lt;name>`.
+ * @param name Name of the operation.
+ * @param record Value supplied to the operation.
+ * @returns The write profile result.
  */
 export const writeProfile = (
   name: ProfileName,
@@ -305,8 +318,10 @@ export const writeProfile = (
  *
  * The register command pipes the returned record through the printer,
  * which writes non-secret registration details to stdout.
+ * @param record Value supplied to the operation.
+ * @returns The emit no persist result.
  */
 export const emitNoPersist = (
   record: ProfileRecord,
-): Effect.Effect<{ readonly record: ProfileRecord }, never> =>
+): Effect.Effect<{ readonly record: ProfileRecord }> =>
   Effect.succeed({ record });

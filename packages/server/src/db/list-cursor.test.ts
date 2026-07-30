@@ -22,7 +22,9 @@ const identityPosition = (pos: ListCursorPosition): ListCursorPosition => pos;
 // the assertion structural.
 function decodeFailure(token: string): InvalidCursorError | undefined {
   const exit = Effect.runSyncExit(decodeListCursor(token));
-  if (!Exit.isFailure(exit)) return undefined;
+  if (!Exit.isFailure(exit)) {
+    return undefined;
+  }
   return Option.getOrUndefined(Cause.failureOption(exit.cause));
 }
 
@@ -72,7 +74,11 @@ function paginateNextCursorPointsAtLimitRow(
   fc.pre(rows.length > limit);
   const { nextCursor } = paginate(rows, limit, identityPosition);
   expect(nextCursor).toBeDefined();
-  const decoded = Effect.runSync(decodeListCursor(nextCursor!));
+  const decoded = Effect.runSync(
+    decodeListCursor(
+      /* Safe because the test fixture establishes this asserted shape. */ nextCursor!,
+    ),
+  );
   expect(decoded).toEqual(rows[limit - 1]);
 }
 

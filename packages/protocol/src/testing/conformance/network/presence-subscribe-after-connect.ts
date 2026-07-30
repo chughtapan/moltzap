@@ -27,41 +27,53 @@ export function registerSubscribeAfterConnect(
     PRESENCE_CATEGORY,
     name,
     "subscribing AFTER an agent connects ⇒ snapshot reflects status: online",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const a = yield* registerAgent(ctx, name, "p6-a");
-        yield* acquireCloseableClient(ctx, name, a, "p6-a-client");
+    subscribeAfterConnectBody(ctx, name),
+  );
+}
 
-        const sub = yield* acquireClient(ctx, name, "p6-sub");
-        const result = yield* sub.client
-          .sendRpc(agentPresenceSubscribe, { agentIds: [a.agentId] })
-          .pipe(
-            Effect.mapError((e) =>
-              presenceViolation(
-                name,
-                `network/presence/subscribe failed: ${String(e)}`,
-              ),
-            ),
-          );
-        const statuses: readonly PresenceStatusEntry[] = result.statuses;
-        if (statuses.length !== 1) {
-          return yield* Effect.fail(
+function subscribeAfterConnectBody(ctx: ConformanceRunContext, name: string) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const a = yield* registerAgent(ctx, name, "p6-a");
+      yield* acquireCloseableClient(ctx, name, a, "p6-a-client");
+
+      const sub = yield* acquireClient(ctx, name, "p6-sub");
+      const result = yield* sub.client
+        .sendRpc(agentPresenceSubscribe, { agentIds: [a.agentId] })
+        .pipe(
+          Effect.mapError((e) =>
             presenceViolation(
               name,
-              `expected 1 status entry, got ${statuses.length}`,
+              `network/presence/subscribe failed: ${String(e)}`,
             ),
-          );
-        }
-        const entry = statuses[0]!;
-        if (entry.agentId !== a.agentId || entry.status !== "online") {
-          return yield* Effect.fail(
-            presenceViolation(
-              name,
-              `expected { agentId: ${a.agentId}, status: online }, got ${JSON.stringify(entry)}`,
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerSubscribeAfterConnect")),
-    ),
+          ),
+        );
+      const statuses: readonly PresenceStatusEntry[] = result.statuses;
+      if (statuses.length !== 1) {
+        return yield* Effect.fail(
+          presenceViolation(
+            name,
+            `expected 1 status entry, got ${statuses.length}`,
+          ),
+        );
+      }
+      const entry = statuses.at(0);
+      if (entry === undefined) {
+        return yield* Effect.fail(
+          presenceViolation(
+            name,
+            "status entry disappeared after length check",
+          ),
+        );
+      }
+      if (entry.agentId !== a.agentId || entry.status !== "online") {
+        return yield* Effect.fail(
+          presenceViolation(
+            name,
+            `expected { agentId: ${a.agentId}, status: online }, got ${JSON.stringify(entry)}`,
+          ),
+        );
+      }
+    }).pipe(Effect.withSpan("registerSubscribeAfterConnect")),
   );
 }

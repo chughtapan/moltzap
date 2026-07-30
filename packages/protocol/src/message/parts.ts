@@ -33,20 +33,24 @@ const partSchema = Schema.Union(
 /** User-authored message content part. */
 export type Part = Schema.Schema.Type<typeof partSchema>;
 
-const messagePartsSchemaValue = Schema.Array(partSchema).pipe(
-  Schema.minItems(1),
+const messagePartsSchemaValue = Schema.NonEmptyArray(partSchema).pipe(
   Schema.maxItems(10),
 );
 const messagePartsTextSchema = Schema.parseJson(messagePartsSchemaValue);
 
 /**
  * Return the canonical message-parts schema.
- * @internal
- * @returns The message parts schema result.
+ *
+ * Recording and other protocol-adjacent boundaries compose this schema
+ * directly so persisted bodies cannot drift from the wire contract.
+ * @returns The nonempty schema shared by all message boundaries.
  */
 export function messagePartsSchema(): typeof messagePartsSchemaValue {
   return messagePartsSchemaValue;
 }
+
+/** Nonempty protocol message content. */
+export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 
 const decodeMessagePartsEffect = Schema.decodeUnknown(messagePartsSchemaValue);
 const decodeMessagePartsTextEffect = Schema.decodeUnknown(
@@ -60,7 +64,7 @@ const decodeMessagePartsTextEffect = Schema.decodeUnknown(
  */
 export function decodeMessageParts(
   value: unknown,
-): Effect.Effect<readonly Part[]> {
+): Effect.Effect<MessageParts> {
   return decodeMessagePartsEffect(value, {
     onExcessProperty: "error",
   }).pipe(Effect.orDie);
@@ -73,7 +77,7 @@ export function decodeMessageParts(
  */
 export function decodeMessagePartsText(
   value: string,
-): Effect.Effect<readonly Part[]> {
+): Effect.Effect<MessageParts> {
   return decodeMessagePartsTextEffect(value, {
     onExcessProperty: "error",
   }).pipe(Effect.orDie);

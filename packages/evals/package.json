@@ -1,0 +1,40 @@
+{
+  "name": "@moltzap/evals",
+  "version": "0.0.0",
+  "description": "Code-first behavioral evaluations for the MoltZap society simulator",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "nx run @moltzap/evals:build",
+    "lint": "nx run @moltzap/evals:lint",
+    "test": "vitest run",
+    "measure:live": "nx run @moltzap/evals:measure:live",
+    "measure:roster": "nx run @moltzap/evals:measure:roster",
+    "measure:behavior": "nx run @moltzap/evals:measure:behavior",
+    "measure:conversation": "nx run @moltzap/evals:measure:conversation",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@moltzap/protocol": "workspace:*",
+    "@moltzap/simulator": "workspace:*",
+    "effect": "3.22.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^0.30.0",
+    "eslint": "^9",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  }
+}

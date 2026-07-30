@@ -5,15 +5,15 @@
  */
 
 import http from "node:http";
-import type {
-  ChatCompletion,
-  ChatCompletionChunk,
-  ChatCompletionCreateParams,
-  ChatCompletionContentPartText,
-} from "./openai-shapes.js";
+import type { ChatCompletion, ChatCompletionChunk } from "./openai-shapes.js";
 
-export type EchoServer = { port: number; close: () => void };
+/** Describes echo server. */
+export interface EchoServer {
+  port: number;
+  close: () => void;
+}
 
+/** Configures echo server. */
 export interface EchoServerOptions {
   readonly debug?: boolean;
 }
@@ -94,25 +94,60 @@ function writeModelList(res: http.ServerResponse): void {
   });
 }
 
-function extractUserText(params: ChatCompletionCreateParams): string {
+interface EchoChatMessage {
+  readonly role: unknown;
+  readonly content: unknown;
+}
+
+interface EchoChatBody {
+  readonly messages: readonly EchoChatMessage[];
+  readonly stream?: unknown;
+}
+
+function isEchoChatBody(value: unknown): value is EchoChatBody {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "messages" in value &&
+    Array.isArray(value.messages)
+  );
+}
+
+function isTextContentPart(
+  value: unknown,
+): value is { readonly type: "text"; readonly text: string } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (!("type" in value) || value.type !== "text") {
+    return false;
+  }
+  return "text" in value && typeof value.text === "string";
+}
+
+function extractUserText(params: EchoChatBody): string {
   const lastUserMsg = [...params.messages]
     .reverse()
     .find((m) => m.role === "user");
-  if (!lastUserMsg) return "";
+  if (!lastUserMsg) {
+    return "";
+  }
 
   const rawContent = lastUserMsg.content;
-  if (typeof rawContent === "string") return rawContent;
-  if (!Array.isArray(rawContent)) return "";
+  if (typeof rawContent === "string") {
+    return rawContent;
+  }
+  if (!Array.isArray(rawContent)) {
+    return "";
+  }
 
   return rawContent
-    .filter(
-      (part): part is ChatCompletionContentPartText => part.type === "text",
-    )
+    .filter(isTextContentPart)
     .map((part) => part.text)
     .join("");
 }
 
-function formatDebugUserMessages(params: ChatCompletionCreateParams): string[] {
+function formatDebugUserMessages(params: EchoChatBody): string[] {
   return params.messages
     .filter((m) => m.role === "user")
     .map((m) => {
@@ -198,7 +233,7 @@ function writeStreamingCompletion(
 
 function writeChatCompletion(
   res: http.ServerResponse,
-  body: ChatCompletionCreateParams,
+  body: EchoChatBody,
   debug: boolean,
 ): void {
   const userText = extractUserText(body);
@@ -212,7 +247,7 @@ function writeChatCompletion(
     );
   }
 
-  if (body.stream) {
+  if (body.stream === true) {
     writeStreamingCompletion(res, { id: completionId, content });
     return;
   }
@@ -237,19 +272,25 @@ function logMalformedBody(debug: boolean, cause: unknown): void {
 }
 
 type ParsedChatBody =
-  | { readonly _tag: "Body"; readonly body: ChatCompletionCreateParams }
+  | { readonly _tag: "Body"; readonly body: EchoChatBody }
   | { readonly _tag: "Malformed"; readonly cause: unknown };
 
 function parseChatBody(rawBody: string): ParsedChatBody {
   try {
-    return { _tag: "Body", body: JSON.parse(rawBody) };
+    const body: unknown = JSON.parse(rawBody);
+    return isEchoChatBody(body)
+      ? { _tag: "Body", body }
+      : {
+          _tag: "Malformed",
+          cause: new TypeError("Chat completion body has no messages array"),
+        };
   } catch (cause) {
     return { _tag: "Malformed", cause };
   }
 }
 
-function hasMessages(body: ChatCompletionCreateParams): boolean {
-  return Array.isArray(body.messages) && body.messages.length > 0;
+function hasMessages(body: EchoChatBody): boolean {
+  return body.messages.length > 0;
 }
 
 function handleChatCompletionRequest(
@@ -293,6 +334,11 @@ function handleRequest(
   writeJsonError(res, HTTP_NOT_FOUND, JSON_ERROR_NOT_FOUND);
 }
 
+/**
+ * Executes the start echo server operation.
+ * @param options Options that control the operation.
+ * @returns The start echo server result.
+ */
 export function startEchoServer(options: EchoServerOptions = {}) {
   const debug = options.debug ?? false;
   return new Promise<EchoServer>((resolve, reject) => {

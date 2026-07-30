@@ -1,6 +1,7 @@
 /**
  * @file Conversation RPC descriptors and notifications.
  */
+// safer-arch-ignore no-cross-domain-sibling-import: Conversation descriptors carry task identifiers and task-not-found failures as part of their public wire contract.
 
 import { Schema } from "effect";
 import { agentId, AgentNotFoundError } from "#identity/agents";
@@ -15,7 +16,7 @@ import {
 } from "#transport";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import { ConversationInTask } from "#conversation/requirements";
-import { taskId, TaskNotFoundError } from "#task";
+import { taskId, TaskNotFoundError } from "../task/ids.js";
 import {
   ConversationFullError,
   conversationId,
@@ -23,6 +24,7 @@ import {
   ConversationNotFoundError,
   ParticipantNotAdmittedError,
 } from "./types.js";
+import { conversationNameSchema } from "./name.js";
 
 const dateTimeString = dateTimeStringSchema();
 const conversationSchemaValue = conversationSchema();
@@ -52,9 +54,7 @@ export const conversationCreate = defineRpc({
   name: "app/conversation/create",
   params: Schema.Struct({
     taskId: taskId,
-    name: Schema.optional(
-      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
-    ),
+    name: Schema.optional(conversationNameSchema),
     participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
   }),
   result: Schema.Struct({ conversation: conversationSchemaValue }),

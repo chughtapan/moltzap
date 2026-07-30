@@ -1,6 +1,9 @@
 {
   "name": "moltzap",
   "private": true,
+  "engines": {
+    "node": ">=22.19.0 <25"
+  },
   "packageManager": "pnpm@10.6.2",
   "scripts": {
     "build": "nx run-many -t build",
@@ -17,33 +20,35 @@
     "check": "pnpm lint && pnpm format:check",
     "test:conformance:toxiproxy": "bash scripts/conformance-toxiproxy.sh",
     "test:conformance:stress": "CONFORMANCE_STRESS=1 bash scripts/conformance-toxiproxy.sh",
-    "docs": "cd docs && mint dev",
+    "docs:dev": "cd docs && mint dev --no-open",
+    "docs:open": "cd docs && mint dev",
     "docs:generate": "pnpm --filter @moltzap/protocol docs:generate && pnpm --filter @moltzap/client docs:generate && pnpm --filter @moltzap/server-core exec tsx ../../scripts/generate-constants-snippets.ts",
     "docs:check": "cd docs && mint broken-links",
     "docs:check:drift": "pnpm docs:generate && git diff --exit-code docs/ 'packages/**/MODULE.md' README.md && pnpm docs:check:no-hardcoded-constants && pnpm docs:check:doc-imports-resolve",
-    "docs:check:mermaid": "pnpm --filter @moltzap/protocol exec tsx scripts/check-mermaid.ts",
+    "docs:check:mermaid": "puppeteer browsers install chrome-headless-shell && pnpm --filter @moltzap/protocol exec tsx scripts/check-mermaid.ts",
     "docs:check:no-hardcoded-constants": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts",
     "docs:check:doc-imports-resolve": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts",
     "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
+    "simulator:example": "pnpm simulator:example:check && node --experimental-strip-types examples/simulator/hello.ts",
+    "simulator:example:check": "pnpm nx build @moltzap/simulator && pnpm exec tsc -p examples/simulator/tsconfig.json",
+    "test:pack:simulator": "pnpm nx build @moltzap/simulator && node scripts/test-simulator-packages.mjs",
     "prepare": "husky",
     "effect:source": "./scripts/prepare-effect.sh",
-    "test:affected": "nx affected -t test",
-    "evals": "pnpm build && cc-judge run packages/evals/scenarios --results ./eval-results"
+    "test:affected": "nx affected -t test"
   },
   "devDependencies": {
     "@chughtapan/safer-architecture-lsp": "0.2.0",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
     "@mermaid-js/mermaid-cli": "^11.15.0",
-    "@moltzap/cc-judge": "0.0.3",
     "@types/node": "^25.5.0",
-    "@typescript-eslint/parser": "^8.65.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.16",
     "husky": "^9.0.0",
-    "mint": "^4.0.0",
+    "mint": "4.2.749",
     "nx": "^22.7.5",
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.0",
+    "puppeteer": "24.43.1",
     "typedoc": "^0.28.19",
     "typescript": "^5"
   }

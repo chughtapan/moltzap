@@ -1,7 +1,11 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect, Either, Exit } from "effect";
-import type { Message } from "@moltzap/protocol/message";
+import { Effect, Either, Exit, Schema } from "effect";
+import {
+  type Message,
+  messageReceivedNotificationDefinition,
+  messagesSend,
+} from "@moltzap/protocol/message";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   conversationArchivedNotificationDefinition,
@@ -10,10 +14,6 @@ import {
   conversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import { dispatchRequest } from "@moltzap/protocol/message/dispatch";
-import {
-  messageReceivedNotificationDefinition,
-  messagesSend,
-} from "@moltzap/protocol/message";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 import {
@@ -24,7 +24,7 @@ import {
   testTaskId,
 } from "./test-utils/index.js";
 
-import { agentsList } from "@moltzap/protocol/identity";
+import { agentName, agentsList } from "@moltzap/protocol/identity";
 import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 
 const effectTest = effectIt.effect;
@@ -55,8 +55,9 @@ const MESSAGE_TWO_ID = testMessageId("m-2");
 const MESSAGE_THREE_ID = testMessageId("m-3");
 const DISPATCH_LEASE_ID = testAgentId("lease-1");
 const DISPATCH_ID = testAgentId("dispatch-1");
-const SEND_TO_AGENT_NAME = "alice";
-const BOB_AGENT_NAME = "bob";
+const decodeAgentName = Schema.decodeSync(agentName);
+const SEND_TO_AGENT_NAME = decodeAgentName("alice");
+const BOB_AGENT_NAME = decodeAgentName("bob");
 const ALICE_DISPLAY_NAME = "Alice";
 const BOB_DISPLAY_NAME = "Bob";
 const ARCHIVED_DISPLAY_NAME = "Archived";
@@ -272,15 +273,20 @@ function sendToAgentCachesPerAgentName() {
       (call) => call.method === messagesSend.name,
     );
     expect(sendCalls).toHaveLength(2);
-    const [firstSend, secondSend] = sendCalls as [
-      (typeof sendCalls)[number],
-      (typeof sendCalls)[number],
-    ];
+    const [firstSend, secondSend] =
+      /* Safe because the test fixture establishes this asserted shape. */ sendCalls as [
+        (typeof sendCalls)[number],
+        (typeof sendCalls)[number],
+      ];
     expect(
-      (firstSend.params as { conversationId: string }).conversationId,
+      /* Safe because the test fixture establishes this asserted shape. */ (
+        firstSend.params as { conversationId: string }
+      ).conversationId,
     ).toBe(CONVERSATION_ALICE_ID);
     expect(
-      (secondSend.params as { conversationId: string }).conversationId,
+      /* Safe because the test fixture establishes this asserted shape. */ (
+        secondSend.params as { conversationId: string }
+      ).conversationId,
     ).toBe(CONVERSATION_BOB_ID);
   });
 }
@@ -712,7 +718,9 @@ function peekContextCommitIsIdempotent() {
 
   const { commit } = service.peekContextEntries(CONVERSATION_SELF_ID);
   commit();
-  expect(() => commit()).not.toThrow();
+  expect(() => {
+    commit();
+  }).not.toThrow();
   expect(service.peekContextEntries(CONVERSATION_SELF_ID).entries).toHaveLength(
     0,
   );
@@ -1074,11 +1082,12 @@ function expectArchivedSendFailure(
   result: Either.Either<unknown, unknown>,
 ): void {
   Either.match(result, {
-    onLeft: (error) =>
+    onLeft: (error) => {
       expect(error).toMatchObject({
         _tag: "ConversationArchived",
         message: CONVERSATION_ARCHIVED_MESSAGE,
-      }),
+      });
+    },
     onRight: () =>
       expect.fail("archived conversation send unexpectedly succeeded"),
   });
@@ -1152,8 +1161,8 @@ describe("MoltZapService.fanout — message handlers", () => {
     service.on("message", () => {
       throw new Error("first handler boom");
     });
-    service.on("message", ({ message: m }) => {
-      seen.push(m);
+    service.on("message", (eventValue) => {
+      seen.push(eventValue.message);
     });
 
     const msg: Message = buildMessage({

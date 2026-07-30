@@ -55,7 +55,7 @@ export function arbitraryCallFor(
   const def = methodByName.get(method);
   if (def === undefined) {
     throw new RpcArbitraryInvariantError({
-      message: `arbitraryCallFor: unknown method ${String(method)}`,
+      message: `arbitraryCallFor: unknown method ${method}`,
     });
   }
   return arbitraryFromSchema(def.paramsSchema).map(

@@ -1,13 +1,11 @@
-import type { AgentContext } from "#socket";
-import {
+import { type AgentContext, ConnectionTag } from "#socket";
+import type {
   dispatchRequest as dispatchRequestDefinition,
   dispatchLeaseGet as dispatchLeaseGetDefinition,
 } from "@moltzap/protocol/message/dispatch";
-import { ForbiddenError } from "@moltzap/protocol/rpc";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
+import { ForbiddenError, type ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { Effect } from "effect";
-import { ConnectionTag } from "#socket";
 import { DispatchAdmissionServiceTag, LeaseRegistryTag } from "./layer.js";
 import { leaseRecordToWire } from "./lease-registry.js";
 import { agentArm } from "#moltzap/runtime";
@@ -65,6 +63,11 @@ function dispatchLeaseGetBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
+/**
+ * Provides the dispatch request runtime value.
+ * @param params Request payload to process.
+ * @returns The dispatch request result.
+ */
 export const dispatchRequest: ServerHandler<
   typeof dispatchRequestDefinition
 > = (params) =>
@@ -72,6 +75,11 @@ export const dispatchRequest: ServerHandler<
     return yield* dispatchRequestBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("dispatchRequest"));
 
+/**
+ * Provides the dispatch lease get runtime value.
+ * @param params Request payload to process.
+ * @returns The dispatch lease get result.
+ */
 export const dispatchLeaseGet: ServerHandler<
   typeof dispatchLeaseGetDefinition
 > = (params) =>

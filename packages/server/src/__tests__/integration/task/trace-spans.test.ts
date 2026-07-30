@@ -18,6 +18,7 @@ import {
   DEFAULT_APP_ID,
   taskCreate,
   taskRequest,
+  type AppId,
 } from "@moltzap/protocol/task";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
@@ -30,11 +31,11 @@ import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppId } from "@moltzap/protocol/task";
 import type { AppManifest } from "@moltzap/protocol/identity";
 
 let tracePort: CoreTestSpanExporterPort;
-const TRACE_APP_ID = "00000000-0000-4000-8000-000000010006" as AppId;
+const TRACE_APP_ID =
+  /* Safe because the test fixture establishes this asserted shape. */ "00000000-0000-4000-8000-000000010006" as AppId;
 const TRACE_BLOCK_REASON = "trace-block";
 const TRACE_BLOCKED_TEXT = "blocked trace span";
 const TRACE_APP_MANIFEST: AppManifest = {
@@ -69,7 +70,9 @@ beforeEach(() =>
   Effect.runPromise(
     Effect.gen(function* () {
       yield* resetTestDbEffect();
-      yield* Effect.sync(() => tracePort.reset());
+      yield* Effect.sync(() => {
+        tracePort.reset();
+      });
     }),
   ),
 );
@@ -91,8 +94,8 @@ function parseArrayAttribute(value: unknown): unknown {
 // (stringified to catch JSON-encoded arrays/objects too). The redaction
 // contract: spans carry message-shape metadata, never body content.
 function expectNoPlaintext(
-  attributes: Record<string, unknown> | undefined,
   plaintext: string,
+  attributes?: Record<string, unknown>,
 ): void {
   const serialized = JSON.stringify(attributes ?? {});
   expect(serialized).not.toContain(plaintext);
@@ -101,9 +104,11 @@ function expectNoPlaintext(
 function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
   Either.match(outcome, {
     onLeft: (error) => {
-      expect((error as { _tag?: string })._tag).toBe(
-        WIRE_ERROR_TAG.HookBlocked,
-      );
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ (
+          error as { _tag?: string }
+        )._tag,
+      ).toBe(WIRE_ERROR_TAG.HookBlocked);
     },
     onRight: () => expect.fail("expected HookBlockedError"),
   });
@@ -140,7 +145,9 @@ function emitDeliveredMessageSpan() {
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
     });
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     const messageText = "hello from trace span test";
     const bobEventFiber = yield* Effect.fork(
@@ -175,7 +182,7 @@ function emitDeliveredMessageSpan() {
     ]);
     // Redaction guarantee: no span attribute carries message body text.
     expect(attributes?.["moltzap.message.text_parts"]).toBeUndefined();
-    expectNoPlaintext(attributes, messageText);
+    expectNoPlaintext(messageText, attributes);
 
     yield* alice.client.close();
     yield* bob.client.close();
@@ -233,7 +240,7 @@ function emitBlockedHookSpan() {
     expect(attributes?.["moltzap.message.created_at"]).toBeDefined();
     // Redaction guarantee: no span attribute carries message body text.
     expect(attributes?.["moltzap.message.text_parts"]).toBeUndefined();
-    expectNoPlaintext(attributes, TRACE_BLOCKED_TEXT);
+    expectNoPlaintext(TRACE_BLOCKED_TEXT, attributes);
 
     yield* alice.client.close();
     yield* bob.client.close();

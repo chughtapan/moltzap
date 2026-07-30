@@ -24,15 +24,14 @@ import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { it as effectIt } from "@effect/vitest";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize } from "@moltzap/protocol/message";
-import { taskCreate, taskRequest } from "@moltzap/protocol/task";
+import { taskCreate, taskRequest, type AppId } from "@moltzap/protocol/task";
 import { conversationCreate } from "@moltzap/protocol/conversation";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppId } from "@moltzap/protocol/task";
 import type { AppManifest } from "@moltzap/protocol/identity";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   connectAppClient,
@@ -67,16 +66,24 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): string | null {
-  if (Exit.isSuccess(exit)) return null;
+  if (Exit.isSuccess(exit)) {
+    return null;
+  }
   const failure = Cause.failureOption(exit.cause);
-  if (failure._tag === "None") return null;
-  const err = failure.value as { readonly _tag?: string };
+  if (Option.isNone(failure)) {
+    return null;
+  }
+  const err =
+    /* Safe because the test fixture establishes this asserted shape. */ failure.value as {
+      readonly _tag?: string;
+    };
   return typeof err._tag === "string" ? err._tag : null;
 }
 
 /**
  * Register an app (HTTP), open its `AppConnection`, wire an auto-accept
  * `app/task/create` callback, and return the live app client + DB-minted appId.
+ * @returns The setup owning app result.
  */
 function setupOwningApp(): Effect.Effect<
   { appClient: TestAppClient; appId: AppId },

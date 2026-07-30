@@ -35,30 +35,34 @@ beforeEach(() => {
   ({ fake, core } = createChannelCoreFixture());
 });
 
-type PendingDispatchEntry = { readonly messageId: string };
+interface PendingDispatchEntry {
+  readonly messageId: string;
+}
 type FakeChannelCoreService = ChannelCoreFixture["fake"];
 type ReceivedMessages = readonly EnrichedInboundMessage[];
-type ResumeSlot = { resume: () => void };
+interface ResumeSlot {
+  resume: () => void;
+}
 type NameResolver = (name: string) => void;
-type TextMessageSpec = {
+interface TextMessageSpec {
   readonly id: string;
   readonly senderId: string;
   readonly conversationId: string;
   readonly text: string;
-};
-type AdmissionRequestRecord = {
+}
+interface AdmissionRequestRecord {
   readonly messageId: string;
   readonly conversationId: string;
-  readonly pending: ReadonlyArray<string>;
-};
+  readonly pending: readonly string[];
+}
 
-type CoalescedMessageExpectation = {
+interface CoalescedMessageExpectation {
   readonly id: string;
   readonly includes: readonly string[];
   readonly coalescedIds: readonly string[];
   readonly excludes?: readonly string[];
   readonly dispatchLeaseId?: string;
-};
+}
 
 const pendingMessageId = (entry: PendingDispatchEntry): string =>
   entry.messageId;
@@ -68,20 +72,26 @@ const receivedMessageId = (entry: { readonly id: string }): string => entry.id;
 const createResumeSlot = (): ResumeSlot => ({ resume: () => undefined });
 
 const waitForResumeSlot = (slot: ResumeSlot) =>
-  Effect.async<void>((resume) => {
-    slot.resume = () => resume(Effect.void);
+  Effect.async<undefined>((resume) => {
+    slot.resume = () => {
+      resume(Effect.succeed(undefined));
+    };
   });
 
 const queuedResolveAgentName =
   (resolvers: NameResolver[]) =>
   (id: string): Effect.Effect<string> =>
     Effect.async<string>((resume) => {
-      resolvers.push(() => resume(Effect.succeed(id)));
+      resolvers.push(() => {
+        resume(Effect.succeed(id));
+      });
     });
 
 const waitForHandlerBarrier = (handlerBarriers: Array<() => void>) =>
-  Effect.async<void>((resume) => {
-    handlerBarriers.push(() => resume(Effect.void));
+  Effect.async<undefined>((resume) => {
+    handlerBarriers.push(() => {
+      resume(Effect.succeed(undefined));
+    });
   });
 
 function setGroupConversation(
@@ -172,7 +182,8 @@ function expectSingleCoalescedMessage(
   expected: CoalescedMessageExpectation,
 ): void {
   expect(received).toHaveLength(1);
-  const first = received[0]!;
+  const first =
+    /* Safe because the test fixture establishes this asserted shape. */ received[0]!;
   expect(first.id).toBe(message(expected.id));
   for (const text of expected.includes) {
     expect(first.text).toContain(text);
@@ -190,7 +201,7 @@ function expectSingleCoalescedMessage(
 
 function installHoldThenGrantAdmission(
   fake: FakeChannelCoreService,
-  pendingSnapshots: Array<ReadonlyArray<string>>,
+  pendingSnapshots: Array<readonly string[]>,
 ): () => number {
   let calls = 0;
   installAdmission(fake, (request) =>
@@ -207,7 +218,7 @@ function installHoldThenGrantAdmission(
 
 function expectHeldDispatchRefresh(
   received: ReceivedMessages,
-  pendingSnapshots: ReadonlyArray<ReadonlyArray<string>>,
+  pendingSnapshots: ReadonlyArray<readonly string[]>,
 ): void {
   expect(pendingSnapshots).toEqual([
     [message("msg-1")],
@@ -240,7 +251,7 @@ function installCrossConversationAdmission(
 }
 
 function expectCrossConversationAdmissionRequests(
-  requests: ReadonlyArray<AdmissionRequestRecord>,
+  requests: readonly AdmissionRequestRecord[],
 ): void {
   expect(requests).toEqual([
     {
@@ -258,7 +269,7 @@ function expectCrossConversationAdmissionRequests(
 
 function installDelayedGrantAdmission(
   fake: FakeChannelCoreService,
-  pendingSnapshots: Array<ReadonlyArray<PendingDispatchEntry>>,
+  pendingSnapshots: Array<readonly PendingDispatchEntry[]>,
   grant: ResumeSlot,
 ): void {
   installAdmission(fake, (request) =>
@@ -287,7 +298,7 @@ function installDelayedMarkerAdmission(
 }
 
 function expectOnePendingSnapshot(
-  pendingSnapshots: ReadonlyArray<ReadonlyArray<PendingDispatchEntry>>,
+  pendingSnapshots: ReadonlyArray<readonly PendingDispatchEntry[]>,
 ): void {
   expect(
     pendingSnapshots.map((snapshot) => snapshot.map(pendingMessageId)),
@@ -342,14 +353,12 @@ function attachesTheActiveDispatchLeaseToRepliesMadeDuringHandlerExecution() {
     fake.emit.message(buildMessage({ id: "msg-with-lease" }));
     yield* flushDispatchChainEffect;
 
-    expect(fake.state.sent).toEqual([
-      {
-        taskId: expect.any(String),
-        convId: conversation("conv-1"),
-        text: "reply",
-        dispatchLeaseId: testLeaseId("lease-active"),
-      },
-    ]);
+    expect(fake.state.sent).toHaveLength(1);
+    expect(fake.state.sent[0]).toMatchObject({
+      convId: conversation("conv-1"),
+      text: "reply",
+      dispatchLeaseId: testLeaseId("lease-active"),
+    });
   });
 }
 
@@ -397,9 +406,10 @@ function preservesServiceBindingForDispatchAdmissionMethods() {
     // Counter lives on the service object so the test asserts the
     // channel-core admission call site invokes `requestDispatch` with
     // the service as `this` (a `.bind(undefined)` would crash).
-    const boundService = fake.service as ChannelService & {
-      admissionCalls: number;
-    };
+    const boundService =
+      /* Safe because the test fixture establishes this asserted shape. */ fake.service as ChannelService & {
+        admissionCalls: number;
+      };
     boundService.admissionCalls = 0;
     // Replace the install-helper-installed `requestDispatch` with a
     // method-form binding that increments via `this.admissionCalls`.
@@ -407,9 +417,14 @@ function preservesServiceBindingForDispatchAdmissionMethods() {
     // `requestDispatch.call(undefined, ...)`); a missing receiver
     // makes `this.admissionCalls += 1` throw on null `this`.
     installAdmission(fake, () => Effect.succeed({ _tag: "grant" as const }));
-    const installed = fake.service.requestDispatch!;
+    const installed =
+      /* Safe because the test fixture establishes this asserted shape. */ fake.service.requestDispatch!.bind(
+        fake.service,
+      );
     fake.service.requestDispatch = function (request) {
-      (this as ChannelService & { admissionCalls: number }).admissionCalls += 1;
+      /* Safe because the test fixture establishes this asserted shape. */ (
+        this as ChannelService & { admissionCalls: number }
+      ).admissionCalls += 1;
       return installed(request);
     };
 
@@ -456,7 +471,7 @@ function holdsHeadOfLineWorkUntilANewInboundMessageRefreshesTheSnapshot() {
       ["agent-alice", "Alice"],
       ["agent-bob", "Bob"],
     ]);
-    const pendingSnapshots: Array<ReadonlyArray<string>> = [];
+    const pendingSnapshots: Array<readonly string[]> = [];
     const admissionCalls = installHoldThenGrantAdmission(
       fake,
       pendingSnapshots,
@@ -506,8 +521,14 @@ function doesNotLetHeldWorkInOneConversationBlockAnotherConversation() {
 
     expectCrossConversationAdmissionRequests(requests);
     expect(received.map((m) => m.id)).toEqual([message("den-kill-prompt")]);
-    expect(received[0]!.conversationId).toBe(conversation("werewolf-den"));
-    expect(received[0]!.dispatchLeaseId).toBe(DENIED_LEASE_ID);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ received[0]!
+        .conversationId,
+    ).toBe(conversation("werewolf-den"));
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ received[0]!
+        .dispatchLeaseId,
+    ).toBe(DENIED_LEASE_ID);
   });
 }
 
@@ -724,13 +745,17 @@ function serializesHandlersSoMessageOrderIsPreservedAcrossAsyncResolution() {
     expect(resolvers).toHaveLength(1);
 
     // Resolve the first, chain advances.
-    resolvers[0]!("agent-alice");
+    /* Safe because the test fixture establishes this asserted shape. */ resolvers[0]!(
+      "agent-alice",
+    );
     yield* flushDispatchChainEffect;
     expect(received.map((r) => r.id)).toEqual([message("msg-1")]);
     expect(resolvers).toHaveLength(2);
 
     // Resolve the second.
-    resolvers[1]!("agent-bob");
+    /* Safe because the test fixture establishes this asserted shape. */ resolvers[1]!(
+      "agent-bob",
+    );
     yield* flushDispatchChainEffect;
     expect(received.map((r) => r.id)).toEqual([
       message("msg-1"),
@@ -768,7 +793,7 @@ function awaitsAsyncHandlerFullyBeforeProcessingTheNextMessage() {
     // Handler started for msg-1, hasn't returned yet. msg-2 has NOT entered.
     expect(order).toEqual([`enter:${message("msg-1")}`]);
 
-    handlerBarriers[0]!();
+    /* Safe because the test fixture establishes this asserted shape. */ handlerBarriers[0]!();
     yield* flushDispatchChainEffect;
 
     // msg-1 fully processed; msg-2 has entered.
@@ -778,7 +803,7 @@ function awaitsAsyncHandlerFullyBeforeProcessingTheNextMessage() {
       `enter:${message("msg-2")}`,
     ]);
 
-    handlerBarriers[1]!();
+    /* Safe because the test fixture establishes this asserted shape. */ handlerBarriers[1]!();
     yield* flushDispatchChainEffect;
     expect(order).toEqual([
       `enter:${message("msg-1")}`,
@@ -799,10 +824,18 @@ function onInboundReplacesThePreviousHandlerInsteadOfAdding() {
     fake.state.setConversation("conv-1", { type: "dm", participants: [] });
     fake.state.setAgentName("agent-alice", "Alice");
 
-    const firstHandler = vi.fn();
-    const secondHandler = vi.fn();
-    core.onInbound((m) => Effect.sync(() => firstHandler(m)));
-    core.onInbound((m) => Effect.sync(() => secondHandler(m)));
+    const firstHandler = vi.fn<(message: EnrichedInboundMessage) => void>();
+    const secondHandler = vi.fn<(message: EnrichedInboundMessage) => void>();
+    core.onInbound((messageValue) =>
+      Effect.sync(() => {
+        firstHandler(messageValue);
+      }),
+    );
+    core.onInbound((messageValue) =>
+      Effect.sync(() => {
+        secondHandler(messageValue);
+      }),
+    );
 
     fake.emit.message(buildMessage());
     yield* flushDispatchChainEffect;

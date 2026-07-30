@@ -405,8 +405,13 @@ export function notificationSubscribe<
       registry.register(
         definition,
         {
-          onFrame: (params) => Effect.promise(() => emit.single(params)),
-          onClose: (cause) => Effect.promise(() => emit.fail(cause)),
+          onFrame: (params) =>
+            Effect.tryPromise({
+              try: () => emit.single(params),
+              catch: (cause) => cause,
+            }).pipe(Effect.orDie),
+          onClose: (cause) =>
+            Effect.sync(() => emit.fail(cause)).pipe(Effect.asVoid),
         },
         refinement,
       ),
@@ -432,8 +437,13 @@ export function notificationSubscribeAll<
     const handle = Effect.runSync(
       registry.registerAll(
         {
-          onFrame: (delivery) => Effect.promise(() => emit.single(delivery)),
-          onClose: (cause) => Effect.promise(() => emit.fail(cause)),
+          onFrame: (delivery) =>
+            Effect.tryPromise({
+              try: () => emit.single(delivery),
+              catch: (cause) => cause,
+            }).pipe(Effect.orDie),
+          onClose: (cause) =>
+            Effect.sync(() => emit.fail(cause)).pipe(Effect.asVoid),
         },
         refinement,
       ),

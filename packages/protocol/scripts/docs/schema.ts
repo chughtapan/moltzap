@@ -31,10 +31,16 @@ const RPC_DEFINITION_FIELDS: readonly RpcDefinitionField[] = [
  * @returns The protocol rpc definitions result.
  */
 export function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
-  const ordered = [
+  const discoveredDefinitions: AnyRpcDocDefinition[] = [];
+  for (const candidate of Object.values(protocolSchema)) {
+    if (isRpcDefinition(candidate)) {
+      discoveredDefinitions.push(candidate);
+    }
+  }
+  const ordered: readonly AnyRpcDocDefinition[] = [
     ...serverInboundMethods,
     ...appCallbackMethods,
-    ...Object.values(protocolSchema).filter(isRpcDefinition),
+    ...discoveredDefinitions,
   ];
   const byName = new Map<string, AnyRpcDocDefinition>();
   for (const definition of ordered) {
@@ -122,7 +128,14 @@ function getTypeName(node: JsonSchemaNode): string {
     return "union";
   }
   if (node.const !== undefined) {
-    return String(node.const);
+    if (
+      typeof node.const === "string" ||
+      typeof node.const === "number" ||
+      typeof node.const === "boolean"
+    ) {
+      return String(node.const);
+    }
+    return JSON.stringify(node.const) ?? "unknown";
   }
   if (node.enum && node.type !== "string") {
     return node.enum.join(" | ");
@@ -226,9 +239,10 @@ function extractUnionProperties(node: JsonSchemaNode): SchemaPropertyDoc[] {
 export function extractProperties(
   schema: Schema.Schema.AnyNoContext,
 ): SchemaPropertyDoc[] {
-  // `JSONSchema.make` emits a draft-07 root; read it through the structural
-  // `JsonSchemaNode` reader interface (the shapes overlap, no `unknown`).
-  const node = JSONSchema.make(schema) as JsonSchemaNode;
+  const node =
+    /* Safe because JSONSchema.make emits the documented draft-07 structure. */ JSONSchema.make(
+      schema,
+    ) as JsonSchemaNode;
   if (node.anyOf) {
     return extractUnionProperties(node);
   }

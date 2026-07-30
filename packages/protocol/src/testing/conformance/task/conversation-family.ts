@@ -72,7 +72,7 @@ const sendOrViolate = <A>(
     Effect.either,
     Effect.flatMap((res) =>
       requireRight(res, (e) =>
-        deliveryViolation(property, `${label}: ${e._tag ?? String(e)}`),
+        deliveryViolation(property, `${label}: ${e._tag ?? "untagged error"}`),
       ),
     ),
   );
@@ -165,8 +165,8 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
   );
 }
 
-const awaitTaskCreated = (actor: Actor, property: string) =>
-  awaitOneNotification(
+function awaitTaskCreated(actor: Actor, property: string) {
+  return awaitOneNotification(
     actor.notifications,
     taskCreatedNotificationDefinition,
     DELIVERY_DEFAULT_TIMEOUT_MS,
@@ -175,6 +175,7 @@ const awaitTaskCreated = (actor: Actor, property: string) =>
       deliveryViolation(property, `agent/task/created missing: ${reason}`),
     ),
   );
+}
 
 // ─── TaskRequest — app reject path ───────────────────────────────────
 
@@ -222,7 +223,10 @@ const assertTaskRequestFailed = (
     // non-vacuous: any-Left would also pass for an unrelated transport
     // failure, which would not prove the app-reject path.
     onLeft: (error) => {
-      const tag = (error as { readonly tag?: unknown }).tag;
+      const tag: unknown =
+        typeof error === "object" && error !== null
+          ? Reflect.get(error, "tag")
+          : undefined;
       return tag === "TaskRejected"
         ? Effect.void
         : Effect.fail(

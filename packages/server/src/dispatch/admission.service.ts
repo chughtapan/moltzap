@@ -1,8 +1,11 @@
 import { Data, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
-import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import type { DispatchId, LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { Part } from "@moltzap/protocol/message";
+import {
+  dispatchAuthorize,
+  type DispatchId,
+  type LeaseId,
+} from "@moltzap/protocol/message/dispatch";
+import type { MessageParts } from "@moltzap/protocol/message";
 import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
@@ -14,14 +17,14 @@ import {
   type AppEndpointRegistry,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
-import type { Db } from "#db";
-import { catchSqlErrorAsDefect, takeFirstOption } from "#db";
+import { type Db, catchSqlErrorAsDefect, takeFirstOption } from "#db";
 import type {
   LeaseRegistry,
   LeaseVerdict,
   ModeratorBoundLeaseBinding,
 } from "./lease-registry.js";
 
+/** Represents dispatch authorize context values. */
 export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 
 interface AppBoundConversationLookup {
@@ -34,11 +37,14 @@ interface AppBoundConversationLookup {
  * Dispatch admission is only defined for app-bound, non-archived
  * conversations. The success type has no non-app-bound arm, so downstream
  * lease minting cannot accidentally handle one as a lease binding.
+ * @param db Value supplied to the operation.
+ * @param conversationId Value supplied to the operation.
+ * @returns The lookup app bound for conversation result.
  */
 function lookupAppBoundForConversation(
   db: Db,
   conversationId: ConversationId,
-): Effect.Effect<AppBoundConversationLookup, never, never> {
+): Effect.Effect<AppBoundConversationLookup> {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const rowOpt = yield* takeFirstOption(
@@ -66,6 +72,7 @@ function lookupAppBoundForConversation(
   );
 }
 
+/** Represents the result of dispatch admission. */
 export type DispatchAdmissionResult =
   | {
       readonly decision: "grant";
@@ -82,21 +89,23 @@ type PendingDispatchMessage = Readonly<{
   senderAgentId: AgentId;
   createdAt: string;
   receivedAt: string;
-  parts?: ReadonlyArray<Part>;
+  parts?: MessageParts;
 }>;
 
+/** Describes enqueue dispatch request args. */
 export interface EnqueueDispatchRequestArgs {
   readonly conversationId: ConversationId;
   readonly recipientAgentId: AgentId;
   readonly recipientConnectionId: ConnectionId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  readonly parts?: ReadonlyArray<Part>;
+  readonly parts?: MessageParts;
   readonly attempt?: number;
   readonly receivedAt?: string;
-  readonly pending?: ReadonlyArray<PendingDispatchMessage>;
+  readonly pending?: readonly PendingDispatchMessage[];
 }
 
+/** Describes dispatch admission conversations. */
 export interface DispatchAdmissionConversations {
   removeParticipant(
     conversationId: ConversationId,
@@ -109,10 +118,10 @@ interface DispatchRoundTripParams {
   readonly recipientAgentId: AgentId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  readonly parts?: ReadonlyArray<Part>;
+  readonly parts?: MessageParts;
   readonly attempt?: number;
   readonly receivedAt?: string;
-  readonly pending?: ReadonlyArray<PendingDispatchMessage>;
+  readonly pending?: readonly PendingDispatchMessage[];
 }
 
 class DispatchAppUnavailableError extends Data.TaggedError(
@@ -142,16 +151,31 @@ function dispatchVerdictToLeaseVerdict(
       return verdict.reason === undefined
         ? { _tag: "hold" }
         : { _tag: "hold", reason: verdict.reason };
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
   }
 }
 
+/** Implements dispatch admission service. */
 export class DispatchAdmissionService {
+  private readonly db: Db;
+  private readonly apps: AppEndpointRegistry;
+  private readonly registry: LeaseRegistry;
+  private readonly conversations: DispatchAdmissionConversations;
+
   constructor(
-    private readonly db: Db,
-    private readonly apps: AppEndpointRegistry,
-    private readonly registry: LeaseRegistry,
-    private readonly conversations: DispatchAdmissionConversations,
-  ) {}
+    db: Db,
+    apps: AppEndpointRegistry,
+    registry: LeaseRegistry,
+    conversations: DispatchAdmissionConversations,
+  ) {
+    this.db = db;
+    this.apps = apps;
+    this.registry = registry;
+    this.conversations = conversations;
+  }
 
   enqueue(
     args: EnqueueDispatchRequestArgs,
@@ -170,7 +194,7 @@ export class DispatchAdmissionService {
     SqlError,
     NetworkSendServiceTag
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: DispatchAdmissionService) {
       const lookup = yield* lookupAppBoundForConversation(
         this.db,
         args.conversationId,
@@ -195,7 +219,7 @@ export class DispatchAdmissionService {
   private dispatchLeaseBindingForLookup(
     args: EnqueueDispatchRequestArgs,
     lookup: AppBoundConversationLookup,
-  ): Effect.Effect<ModeratorBoundLeaseBinding, never> {
+  ): Effect.Effect<ModeratorBoundLeaseBinding> {
     const entry = this.apps.lookupApp(lookup.appId);
     if (entry === undefined) {
       return Effect.die(
@@ -222,7 +246,7 @@ export class DispatchAdmissionService {
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: DispatchAdmissionService) {
       const fiber = yield* Effect.forkDaemon(
         this.runForkedDispatchRoundTrip(leaseId, lookup, params),
       );
@@ -252,7 +276,7 @@ export class DispatchAdmissionService {
       });
     }
 
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: DispatchAdmissionService) {
       const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
       const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
       yield* this.resolveLease(leaseId, dispatchVerdictToLeaseVerdict(verdict));
@@ -264,7 +288,7 @@ export class DispatchAdmissionService {
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<DispatchAuthorizeContext, SqlError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: DispatchAdmissionService) {
       const ownerUserId = yield* this.recipientOwnerId(params.recipientAgentId);
       return {
         conversationId: params.conversationId,
@@ -303,7 +327,7 @@ export class DispatchAdmissionService {
   private resolveLease(
     leaseId: LeaseId,
     verdict: LeaseVerdict,
-  ): Effect.Effect<void, never> {
+  ): Effect.Effect<void> {
     return this.registry.resolve(leaseId, verdict).pipe(Effect.ignore);
   }
 
@@ -311,7 +335,9 @@ export class DispatchAdmissionService {
     verdict: DispatchAdmissionResult,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    if (verdict.decision !== "deny") return Effect.void;
+    if (verdict.decision !== "deny") {
+      return Effect.void;
+    }
     return this.conversations
       .removeParticipant(params.conversationId, params.recipientAgentId)
       .pipe(
@@ -330,7 +356,7 @@ export class DispatchAdmissionService {
   private dispatchAuthorize(
     appId: AppId,
     ctx: DispatchAuthorizeContext,
-  ): Effect.Effect<DispatchAdmissionResult, never> {
+  ): Effect.Effect<DispatchAdmissionResult> {
     const entry = this.apps.lookupApp(appId);
     if (entry === undefined) {
       return Effect.succeed({
@@ -369,6 +395,10 @@ export class DispatchAdmissionService {
             reason: "app/dispatch/authorize error",
           }),
         });
+      }
+      default: {
+        const exhaustive: never = policy;
+        return exhaustive;
       }
     }
   }

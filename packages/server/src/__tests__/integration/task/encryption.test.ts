@@ -11,10 +11,13 @@ import {
   getEncryptionEnvelope,
   type ConnectedAgent,
 } from "../helpers.js";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import {
+  DEFAULT_APP_ID,
+  taskRequest,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 import { rotateKek } from "#db/crypto";
 
 const it = effectIt.live;
@@ -74,7 +77,9 @@ function createEncryptedFixture(
       sender,
       peer,
       taskId: result.task.id,
-      conversationId: result.conversation!.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ result
+          .conversation!.id,
     };
   });
 }
@@ -152,10 +157,11 @@ function rotateLiveKek() {
 }
 
 function assertInitialConversationKey(
-  rows: ReadonlyArray<ConversationKeySnapshot>,
+  rows: readonly ConversationKeySnapshot[],
 ): ConversationKeySnapshot {
   expect(rows).toHaveLength(1);
-  const row = rows[0]!;
+  const row =
+    /* Safe because the test fixture establishes this asserted shape. */ rows[0]!;
 
   expect(row.dek_version).toBe(INITIAL_KEK_VERSION);
   expect(row.kek_version).toBe(INITIAL_KEK_VERSION);
@@ -163,20 +169,19 @@ function assertInitialConversationKey(
 }
 
 function assertRotatedConversationKey(
-  rows: ReadonlyArray<ConversationKeySnapshot>,
+  rows: readonly ConversationKeySnapshot[],
   before: ConversationKeySnapshot,
 ) {
   expect(rows).toHaveLength(1);
-  const row = rows[0]!;
+  const row =
+    /* Safe because the test fixture establishes this asserted shape. */ rows[0]!;
 
   expect(row.dek_version).toBe(before.dek_version);
   expect(row.kek_version).toBe(ROTATED_KEK_VERSION);
   expect(row.wrapped_dek).not.toBe(before.wrapped_dek);
 }
 
-function assertEncryptionKeysRotated(
-  rows: ReadonlyArray<EncryptionKeySnapshot>,
-) {
+function assertEncryptionKeysRotated(rows: readonly EncryptionKeySnapshot[]) {
   expect(rows).toHaveLength(1);
   expect(rows.map(({ version, status }) => ({ version, status }))).toEqual([
     { version: ROTATED_KEK_VERSION, status: ACTIVE_KEY_STATUS },
@@ -189,9 +194,9 @@ function messagePartsAreEncryptedInDb() {
     const msg = yield* sendEncryptedProbe(fixture);
     const row = yield* readMessageCryptoRow(msg.message.id);
 
-    const encrypted = row.parts_encrypted as Buffer;
-    const iv = row.parts_iv as Buffer;
-    const tag = row.parts_tag as Buffer;
+    const encrypted = row.parts_encrypted;
+    const iv = row.parts_iv;
+    const tag = row.parts_tag;
 
     expect(iv.length).toBe(AES_GCM_IV_BYTES);
     expect(tag.length).toBe(AES_GCM_AUTH_TAG_BYTES);

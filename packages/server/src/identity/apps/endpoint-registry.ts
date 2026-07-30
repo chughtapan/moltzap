@@ -8,6 +8,7 @@ import {
   type AppRegistration,
 } from "./registry.js";
 
+/** Implements app endpoint registry. */
 export class AppEndpointRegistry {
   private readonly apps = new AppRegistry();
   private contactService: ContactService | null = null;

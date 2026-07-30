@@ -17,9 +17,13 @@
  * the engine's `ResponseDefect`.
  */
 import { Effect } from "effect";
-import { ConnectionManagerTag, ConnectionTag } from "#socket";
+import {
+  ConnectionManagerTag,
+  ConnectionTag,
+  type AgentContext,
+  type AppContext,
+} from "#socket";
 import { peekLiveArm } from "./principal-gate.js";
-import type { AgentContext, AppContext } from "#socket";
 
 /**
  * Read the LIVE connection arm for this request. `ConnectionTag` is a per-socket

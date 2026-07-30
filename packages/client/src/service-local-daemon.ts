@@ -7,14 +7,17 @@ import {
   contactsList,
   type AgentId,
 } from "@moltzap/protocol/identity";
-import { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
-import { conversationList } from "@moltzap/protocol/conversation";
+import type { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
+import {
+  conversationList,
+  type ConversationId,
+  type MessageId,
+} from "@moltzap/protocol/conversation";
 import {
   DEFAULT_APP_ID,
   taskRequest,
   type TaskId,
 } from "@moltzap/protocol/task";
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 import type {
   ListCursor,
@@ -26,7 +29,7 @@ import type { RpcCallOptions } from "./agent-client.js";
 import type { ServiceRpcError } from "./service.js";
 import type { HistoryRequest, HistoryResponse } from "./local-history.js";
 import {
-  LocalDaemonCommands,
+  localDaemonCommands,
   ServiceInputError,
   StartTaskPartialFailure,
   StartTaskUsageError,
@@ -182,7 +185,9 @@ function resolveStartParticipants(
     if (names.length > 0) {
       const result = yield* lookupAgentsByNames(call, names);
       for (const agent of result.agents) {
-        if (!byName.has(agent.name)) byName.set(agent.name, agent.id);
+        if (!byName.has(agent.name)) {
+          byName.set(agent.name, agent.id);
+        }
       }
     }
     return yield* resolveStartParticipantIds(participants, byName);
@@ -207,8 +212,12 @@ function findReusableStartConversation(
         (item) =>
           item.taskId === taskId && item.conversation.archivedAt === undefined,
       );
-      if (hit !== undefined) return hit.conversation.id;
-      if (result.nextCursor === undefined) return null;
+      if (hit !== undefined) {
+        return hit.conversation.id;
+      }
+      if (result.nextCursor === undefined) {
+        return null;
+      }
       cursor = result.nextCursor;
     }
     return null;
@@ -259,7 +268,9 @@ function sendOptionalStartMessage({
   MessageId | undefined,
   StartTaskPartialFailure | ServiceRpcError
 > {
-  if (params.message === undefined) return Effect.succeed(undefined);
+  if (params.message === undefined) {
+    return Effect.succeed(undefined);
+  }
   return sendStartMessage({
     call,
     taskId,
@@ -320,6 +331,16 @@ function handleStartTaskCommand(
   }).pipe(Effect.withSpan("MoltZapService.handleStartTaskCommand"));
 }
 
+/**
+ * Creates local daemon handlers.
+ * @param root0 Value supplied to the operation.
+ * @param root0.handleHistoryRequest Value supplied to the operation.
+ * @param root0.call Value supplied to the operation.
+ * @param root0.conversationCount Value supplied to the operation.
+ * @param root0.connected Value supplied to the operation.
+ * @param root0.ownAgentId Value supplied to the operation.
+ * @returns The created local daemon handlers.
+ */
 export function makeLocalDaemonHandlers({
   ownAgentId,
   connected,
@@ -328,33 +349,33 @@ export function makeLocalDaemonHandlers({
   handleHistoryRequest,
 }: LocalDaemonHandlerOptions): LocalDaemonHandlers {
   return {
-    [LocalDaemonCommands.status]: () =>
+    [localDaemonCommands.status]: () =>
       Effect.succeed({
         agentId: ownAgentId,
         connected,
         conversations: conversationCount(),
       }),
-    [LocalDaemonCommands.history]: handleHistoryRequest,
-    [LocalDaemonCommands.agentsList]: (params) =>
+    [localDaemonCommands.history]: handleHistoryRequest,
+    [localDaemonCommands.agentsList]: (params) =>
       call(
         agentsList.name,
         params.limit === undefined ? {} : { limit: params.limit },
       ),
-    [LocalDaemonCommands.agentsSearch]: (params) =>
+    [localDaemonCommands.agentsSearch]: (params) =>
       lookupAgentsByNames(call, params.names),
-    [LocalDaemonCommands.contactsList]: () => call(contactsList.name, {}),
-    [LocalDaemonCommands.contactsAdd]: (params) =>
+    [localDaemonCommands.contactsList]: () => call(contactsList.name, {}),
+    [localDaemonCommands.contactsAdd]: (params) =>
       call(contactsAdd.name, { contactUserId: params.userId }),
-    [LocalDaemonCommands.contactsAccept]: (params) =>
+    [localDaemonCommands.contactsAccept]: (params) =>
       call(contactsAccept.name, { contactId: params.contactId }),
-    [LocalDaemonCommands.messagesList]: (params) =>
+    [localDaemonCommands.messagesList]: (params) =>
       call(messagesList.name, {
         taskId: params.taskId,
         conversationId: params.conversationId,
         ...(params.limit === undefined ? {} : { limit: params.limit }),
       }),
-    [LocalDaemonCommands.send]: (params) => handleSendCommand(call, params),
-    [LocalDaemonCommands.startTask]: (params) =>
+    [localDaemonCommands.send]: (params) => handleSendCommand(call, params),
+    [localDaemonCommands.startTask]: (params) =>
       handleStartTaskCommand(call, params),
   };
 }

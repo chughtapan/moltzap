@@ -31,7 +31,7 @@ export const appCallableConversationRpcMethods = [
 
 App-callable conversation RPC catalog.
 
-### [`Conversation`](./types.ts#L133)
+### [`Conversation`](./types.ts#L107)
 
 _TypeAlias_
 
@@ -81,7 +81,7 @@ export const conversationArchivedNotificationDefinition = defineNotification({
 
 Pushed when a task conversation is archived.
 
-### [`conversationCreate`](./conversations.ts#L51)
+### [`conversationCreate`](./conversations.ts#L53)
 
 _Variable_
 
@@ -90,9 +90,7 @@ export const conversationCreate = defineRpc({
   name: "app/conversation/create",
   params: Schema.Struct({
     taskId: taskId,
-    name: Schema.optional(
-      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
-    ),
+    name: Schema.optional(conversationNameSchema),
     participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
   }),
   result: Schema.Struct({ conversation: conversationSchemaValue }),
@@ -220,6 +218,19 @@ export type ConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `agent/conversation/list`.
 
+### [`conversationNameSchema`](./name.ts#L5)
+
+_Variable_
+
+```ts
+export const conversationNameSchema = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(100),
+)
+```
+
+Display name accepted when a conversation is created.
+
 ### [`ConversationNotFoundError`](./types.ts#L41)
 
 _Class_
@@ -251,14 +262,19 @@ export const conversationNotifications = [
 
 Conversation notification catalog.
 
-### [`ConversationParticipant`](./types.ts#L136)
+### [`ConversationParticipant`](./types.ts#L110)
 
-_TypeAlias_
+_Interface_
 
 ```ts
-export type ConversationParticipant = Schema.Schema.Type<
-  typeof conversationParticipantSchema
->;
+export interface ConversationParticipant {
+  readonly conversationId: ConversationId;
+  readonly participant: { readonly type: "agent"; readonly id: string };
+  readonly joinedAt: string;
+  readonly lastReadMessageId?: MessageId;
+  readonly agentName?: string;
+  readonly agentDisplayName?: string;
+}
 ```
 
 Participant row for a conversation.
@@ -289,23 +305,6 @@ export const conversationParticipantsAddedNotificationDefinition =
 
 Pushed when a participant is added to a task conversation.
 
-### [`conversationParticipantSchema`](./types.ts#L112)
-
-_Variable_
-
-```ts
-export const conversationParticipantSchema = Schema.Struct({
-  conversationId: conversationId,
-  participant: agentParticipantRefSchema,
-  joinedAt: dateTimeString,
-  lastReadMessageId: Schema.optional(messageId),
-  agentName: Schema.optional(Schema.String),
-  agentDisplayName: Schema.optional(Schema.String),
-})
-```
-
-Schema for a participant row attached to a conversation.
-
 ### [`ConversationParticipantsRemovedNotification`](./conversations.ts#L225)
 
 _TypeAlias_
@@ -332,7 +331,7 @@ export const conversationParticipantsRemovedNotificationDefinition =
 
 Pushed when a participant is removed from a task conversation.
 
-### [`conversationSchema`](./types.ts#L149)
+### [`conversationSchema`](./types.ts#L137)
 
 _Function_
 
@@ -344,35 +343,26 @@ Return the canonical conversation schema.
 
 **Returns:** The canonical conversation schema.
 
-### [`ConversationSummary`](./types.ts#L141)
+### [`ConversationSummary`](./types.ts#L120)
 
-_TypeAlias_
+_Interface_
 
 ```ts
-export type ConversationSummary = Schema.Schema.Type<
-  typeof conversationSummarySchema
->;
+export interface ConversationSummary {
+  readonly id: ConversationId;
+  readonly name?: string;
+  readonly lastMessagePreview?: string;
+  readonly lastMessageTimestamp?: string;
+  readonly unreadCount: number;
+  readonly metadata?: Schema.Schema.Type<typeof conversationMetadataSchema>;
+  readonly participants?: ReadonlyArray<{
+    readonly type: "agent";
+    readonly id: string;
+  }>;
+}
 ```
 
 Conversation summary row used by list surfaces.
-
-### [`conversationSummarySchema`](./types.ts#L122)
-
-_Variable_
-
-```ts
-export const conversationSummarySchema = Schema.Struct({
-  id: conversationId,
-  name: Schema.optional(Schema.String),
-  lastMessagePreview: Schema.optional(Schema.String),
-  lastMessageTimestamp: Schema.optional(dateTimeString),
-  unreadCount: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
-  metadata: Schema.optional(conversationMetadataSchema),
-  participants: Schema.optional(Schema.Array(agentParticipantRefSchema)),
-})
-```
-
-Schema for the compact conversation summary returned by list surfaces.
 
 ### [`ConversationUnarchivedNotification`](./conversations.ts#L215)
 
@@ -498,4 +488,5 @@ the conversation.
 ## Files
 
 - `conversations.ts`
+- `name.ts`
 - `types.ts`

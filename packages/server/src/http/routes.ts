@@ -4,7 +4,7 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "@effect/platform";
-import * as Socket from "@effect/platform/Socket";
+import type * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import {
@@ -39,9 +39,11 @@ const decodeHttpBody =
 const decodeRegisterBody = decodeHttpBody(register.paramsSchema);
 
 const optionalSecretValue = <A>(
-  value: Redacted.Redacted<A> | undefined,
+  value?: Redacted.Redacted<A>,
 ): A | undefined => {
-  if (value === undefined) return undefined;
+  if (value === undefined) {
+    return undefined;
+  }
   return Redacted.value(value);
 };
 
@@ -80,6 +82,8 @@ interface RegisterAgentSuccess {
  * checks use `safeEqual`
  * (constant-time) to compare `inviteCode` against
  * `registrationSecret`.
+ * @param options Options that control the operation.
+ * @returns The created core http app.
  */
 export function makeCoreHttpApp(options: CoreHttpAppOptions) {
   const healthRoute = makeHealthRoute(options.connections);
@@ -136,6 +140,8 @@ function makeRegisterRoute(options: CoreHttpAppOptions) {
  * (`connect.handlers.ts → handleConnect`'s `appKey` branch), where implicit
  * registration binds the live `AppConnection` as the app's moderator
  * endpoint.
+ * @param options Options that control the operation.
+ * @returns The created apps register route.
  */
 function makeAppsRegisterRoute(options: CoreHttpAppOptions) {
   return HttpRouter.post(
@@ -144,7 +150,7 @@ function makeAppsRegisterRoute(options: CoreHttpAppOptions) {
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const body = yield* readJsonRecord(request);
-        const manifest = yield* validateManifestBody(body["manifest"]);
+        const manifest = yield* validateManifestBody(body.manifest);
         yield* authorizeInviteCode(
           extractInviteCode(body),
           options.config.registrationSecret,
@@ -165,7 +171,7 @@ function validateManifestBody(
 }
 
 function extractInviteCode(body: Record<string, unknown>): string | undefined {
-  const raw = body["inviteCode"];
+  const raw = body.inviteCode;
   return typeof raw === "string" ? raw : undefined;
 }
 
@@ -273,7 +279,9 @@ function registerAgent(body: RegisterParams, options: CoreHttpAppOptions) {
     const exit = yield* Effect.exit(
       options.authService.registerAgent(body, options.config.adminUserId),
     );
-    if (Exit.isSuccess(exit)) return registerSuccessResponse(exit.value);
+    if (Exit.isSuccess(exit)) {
+      return registerSuccessResponse(exit.value);
+    }
     yield* Effect.logError("Registration failed").pipe(
       Effect.annotateLogs({ cause: Cause.pretty(exit.cause) }),
     );
@@ -282,13 +290,18 @@ function registerAgent(body: RegisterParams, options: CoreHttpAppOptions) {
 }
 
 function authorizeInviteCode(
-  inviteCode: string | undefined,
-  secret: RegistrationSecret | undefined,
+  inviteCode?: string,
+  secret?: RegistrationSecret,
 ): Effect.Effect<void, HttpEarlyResponse> {
-  if (secret === undefined) return Effect.void;
-  if (inviteCode === undefined)
+  if (secret === undefined) {
+    return Effect.void;
+  }
+  if (inviteCode === undefined) {
     return failResponse(invalidInviteCodeResponse());
-  if (safeEqual(inviteCode, Redacted.value(secret))) return Effect.void;
+  }
+  if (safeEqual(inviteCode, Redacted.value(secret))) {
+    return Effect.void;
+  }
   return failResponse(invalidInviteCodeResponse());
 }
 
@@ -305,8 +318,12 @@ function registerSuccessResponse(result: RegisterAgentSuccess) {
 
 function makeAllowedOriginsPredicate(corsOrigins: readonly string[]) {
   return (origin: string): boolean => {
-    if (corsOrigins.includes("*")) return true;
-    if (corsOrigins.includes(origin)) return true;
+    if (corsOrigins.includes("*")) {
+      return true;
+    }
+    if (corsOrigins.includes(origin)) {
+      return true;
+    }
     Effect.runFork(
       Effect.logWarning("CORS origin rejected").pipe(
         Effect.annotateLogs({ origin }),

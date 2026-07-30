@@ -1,8 +1,7 @@
 import { Effect } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentId, AgentNotFoundError } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "../layer.js";
 import { catchSqlErrorAsDefect } from "#db";
-import type { AgentNotFoundError } from "@moltzap/protocol/identity";
 import type { ConversationFullError } from "@moltzap/protocol/conversation";
 
 /**
@@ -13,9 +12,11 @@ import type { ConversationFullError } from "@moltzap/protocol/conversation";
  * handler, so the creator contact-policy basis does NOT apply. Only the
  * group-capacity check runs. Loading owners still validates every target
  * exists.
+ * @param agentIds Value supplied to the operation.
+ * @returns The authorize conversation create capacity only result.
  */
 export const authorizeConversationCreateCapacityOnly = (
-  agentIds: ReadonlyArray<AgentId>,
+  agentIds: readonly AgentId[],
 ): Effect.Effect<
   void,
   AgentNotFoundError | ConversationFullError,

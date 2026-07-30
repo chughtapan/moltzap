@@ -8,8 +8,17 @@
  */
 import { serverBaseUrl, webSocketUrl } from "./server-url.js";
 
-// @ts-expect-error a plain string is not proven path-free
-webSocketUrl("ws://127.0.0.1:32821/ws");
+type ExpectFalse<T extends false> = T;
+type WebSocketUrlInput = Parameters<typeof webSocketUrl>[0];
+type PlainStringIsRejected = ExpectFalse<
+  string extends WebSocketUrlInput ? true : false
+>;
 
 // Positive control: the same address routed through the constructor compiles.
-webSocketUrl(serverBaseUrl("ws://127.0.0.1:32821/ws"));
+const routedUrl = webSocketUrl(serverBaseUrl("ws://127.0.0.1:32821/ws"));
+
+/** Retains both the runtime positive control and compile-time negative proof. */
+export const serverUrlTypeCanaries: {
+  readonly routedUrl: string;
+  readonly plainStringIsRejected: PlainStringIsRejected;
+} = { routedUrl, plainStringIsRejected: false };

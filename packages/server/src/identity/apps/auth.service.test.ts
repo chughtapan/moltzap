@@ -43,7 +43,14 @@ function setupHarness() {
   );
 }
 
-/** Direct-insert an app row with a hand-crafted manifest_json blob. */
+/**
+ * Direct-insert an app row with a hand-crafted manifest_json blob.
+ * @param args Value supplied to the operation.
+ * @param args.manifestJson Value supplied to the operation.
+ * @param args.keyId Value supplied to the operation.
+ * @param args.secretHash Value supplied to the operation.
+ * @returns The insert app row result.
+ */
 function insertAppRow(args: {
   readonly manifestJson: unknown;
   readonly keyId: string;
@@ -96,7 +103,9 @@ function roundTripsAppCredential() {
     const { appId, appKey } = yield* svc.registerApp({ manifest: MANIFEST });
 
     const result = yield* svc.authenticateApp(appKey);
-    if (result === null) throw new Error("unreachable");
+    if (result === null) {
+      throw new Error("unreachable");
+    }
     expect(result.auth).toBeInstanceOf(AppContext);
     expect(result.auth.appId).toBe(appId);
     expect(result.manifest.name).toBe(MANIFEST_NAME);
@@ -111,6 +120,7 @@ function roundTripsAppCredential() {
  *
  * `fc.sample` draws the generated inputs synchronously so the DB-bound
  * body stays Effect-native (no raw `async`/`Promise`).
+ * @returns The register authenticate roundtrip property result.
  */
 function registerAuthenticateRoundtripProperty() {
   return Effect.gen(function* () {
@@ -124,7 +134,9 @@ function registerAuthenticateRoundtripProperty() {
       } satisfies AppManifest;
       const reg = yield* svc.registerApp({ manifest });
       const back = yield* svc.authenticateApp(reg.appKey);
-      if (back === null) throw new Error("unreachable");
+      if (back === null) {
+        throw new Error("unreachable");
+      }
       expect(back.auth.appId).toBe(reg.appId);
       expect(back.manifest.name).toBe(name);
     }
@@ -142,7 +154,9 @@ function returnsNullOnHashMiss() {
     const svc = new AppAuthService(harness.db);
     const { appKey } = yield* svc.registerApp({ manifest: MANIFEST });
     const parsed = parseAppKey(appKey);
-    if (parsed === null) throw new Error("unreachable");
+    if (parsed === null) {
+      throw new Error("unreachable");
+    }
     const forged = redactedAppKey(
       `moltzap_app_${parsed.keyId}_${"0".repeat(48)}`,
     );
@@ -191,7 +205,9 @@ function installInsertsThenAuthenticates() {
     yield* svc.installDefaultApp(DEFAULT_APP_ID, MANIFEST, appKey);
 
     const result = yield* svc.authenticateApp(appKey);
-    if (result === null) throw new Error("unreachable");
+    if (result === null) {
+      throw new Error("unreachable");
+    }
     expect(result.auth.appId).toBe(DEFAULT_APP_ID);
   });
 }
@@ -237,7 +253,9 @@ function getManifestDiesOnAbsentRow() {
     const exit = yield* svc.getManifest(DEFAULT_APP_ID).pipe(Effect.exit);
     // Impossible-state violations route to a defect, not the error channel.
     expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) throw new Error("unreachable");
+    if (!Exit.isFailure(exit)) {
+      throw new Error("unreachable");
+    }
     expect(Cause.isDie(exit.cause)).toBe(true);
   });
 }

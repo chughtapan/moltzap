@@ -15,18 +15,7 @@ const TEST_GROUP_NAME = "Test Group";
 const FIRST_MESSAGE_TEXT = "Message 1";
 const THIRD_MESSAGE_TEXT = "Message 3";
 
-let _baseUrl: string;
-let _wsUrl: string;
-
-beforeAll(() =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const server = yield* startTestServerEffect();
-      _baseUrl = server.baseUrl;
-      _wsUrl = server.wsUrl;
-    }),
-  ),
-);
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
@@ -48,10 +37,15 @@ it("create group, send messages, verify seq monotonicity", () =>
       },
     });
 
-    expect(conv.conversation!.name).toBe(TEST_GROUP_NAME);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.name,
+    ).toBe(TEST_GROUP_NAME);
 
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     // Alice sends multiple messages
     for (let i = 0; i < 3; i++) {
@@ -69,8 +63,12 @@ it("create group, send messages, verify seq monotonicity", () =>
     });
 
     expect(messages.messages).toHaveLength(3);
-    const firstPart = messages.messages[0]!.parts[0]!;
-    const thirdPart = messages.messages[2]!.parts[0]!;
+    const firstPart =
+      /* Safe because the test fixture establishes this asserted shape. */ messages
+        .messages[0]!.parts[0];
+    const thirdPart =
+      /* Safe because the test fixture establishes this asserted shape. */ messages
+        .messages[2]!.parts[0];
     expect(firstPart.type === "text" ? firstPart.text : "").toBe(
       FIRST_MESSAGE_TEXT,
     );

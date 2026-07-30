@@ -20,7 +20,7 @@ it("status returns connection info", () =>
     // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
     yield* Effect.gen(function* () {
       const result = yield* H.requestDaemonCommand(
-        H.LocalDaemonCommands.status,
+        H.localDaemonCommands.status,
         {},
       );
       expect(result.agentId).toBe(reg.agentId);
@@ -41,12 +41,17 @@ it("send command works via socket", () =>
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
       });
-      expect(conv.conversation!.id).toBeDefined();
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
+      ).toBeDefined();
 
-      const msg = yield* H.requestDaemonCommand(H.LocalDaemonCommands.send, {
+      const msg = yield* H.requestDaemonCommand(H.localDaemonCommands.send, {
         target: {
           taskId: conv.task.id,
-          conversationId: conv.conversation!.id,
+          conversationId:
+            /* Safe because the test fixture establishes this asserted shape. */ conv
+              .conversation!.id,
         },
         message: "via socket",
       });
@@ -61,7 +66,7 @@ it("command preserves protocol error tag over socket", () =>
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
       const result = yield* Effect.either(
-        H.requestDaemonCommand(H.LocalDaemonCommands.messagesList, {
+        H.requestDaemonCommand(H.localDaemonCommands.messagesList, {
           taskId: makeTaskId("00000000-0000-4000-8000-00000000f001"),
           conversationId: makeConversationId(
             "00000000-0000-4000-8000-00000000f002",
@@ -69,7 +74,9 @@ it("command preserves protocol error tag over socket", () =>
         }),
       );
       Either.match(result, {
-        onLeft: (error) => expect(error._tag).toBe(TASK_NOT_FOUND_TAG),
+        onLeft: (error) => {
+          expect(error._tag).toBe(TASK_NOT_FOUND_TAG);
+        },
         onRight: () => expect.fail(),
       });
     }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));

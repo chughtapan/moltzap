@@ -35,7 +35,7 @@ export const defaultToxicProfile:
 
 Provides the default toxic profile runtime value.
 
-### [`makeToxiproxyClient`](./client.ts#L267)
+### [`makeToxiproxyClient`](./client.ts#L280)
 
 _Function_
 

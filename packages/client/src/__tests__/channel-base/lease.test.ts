@@ -114,7 +114,9 @@ describe("catchLeaseInvalid Effect-pipe wrapper", () => {
           ),
         );
         Either.match(result, {
-          onLeft: (err) => expect(err).toBe(wire),
+          onLeft: (err) => {
+            expect(err).toBe(wire);
+          },
           onRight: () => {
             throw new Error(
               "expected generic wire error on the failure channel",

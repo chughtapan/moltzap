@@ -19,15 +19,20 @@ it("buffer stores all messages without eviction", () =>
     const convC = yield* H.createDm(service, regC.agentId);
 
     for (let i = 0; i < H.HISTORY_MESSAGE_COUNT; i++) {
-      yield* regC.client.call(H.MessagesSend.name, {
+      yield* regC.client.call(H.messagesSend.name, {
         taskId: convC.task.id,
-        conversationId: convC.conversation!.id,
+        conversationId:
+          /* Safe because the test fixture establishes this asserted shape. */ convC
+            .conversation!.id,
         parts: [{ type: "text", text: `msg-${i}` }],
       });
     }
     yield* Effect.sleep(`${H.HISTORY_SETTLE_MS} millis`);
 
-    const history = service.getHistory(convC.conversation!.id);
+    const history = service.getHistory(
+      /* Safe because the test fixture establishes this asserted shape. */ convC
+        .conversation!.id,
+    );
     expect(history.length).toBe(H.HISTORY_MESSAGE_COUNT);
 
     const texts = history.map(H.textContent);

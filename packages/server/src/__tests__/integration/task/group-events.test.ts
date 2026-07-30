@@ -7,8 +7,8 @@ import {
   stopTestServerEffect,
   resetTestDbEffect,
   setupAgentGroup,
+  type ConnectedAgent,
 } from "../helpers.js";
-import type { ConnectedAgent } from "../helpers.js";
 
 import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
@@ -24,11 +24,12 @@ beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 it("group creation notifies all participants with app/conversation/created event", () =>
   Effect.gen(function* () {
     const { agents } = yield* setupAgentGroup(3);
-    const [alice, bob, eve] = agents as [
-      ConnectedAgent,
-      ConnectedAgent,
-      ConnectedAgent,
-    ];
+    const [alice, bob, eve] =
+      /* Safe because the test fixture establishes this asserted shape. */ agents as [
+        ConnectedAgent,
+        ConnectedAgent,
+        ConnectedAgent,
+      ];
 
     const bobCreatedFiber = yield* Effect.fork(
       awaitOneNotification(
@@ -52,11 +53,20 @@ it("group creation notifies all participants with app/conversation/created event
       },
     });
 
-    expect(conv.conversation!.name).toBe(GROUP_NAME);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.name,
+    ).toBe(GROUP_NAME);
 
     const bobCreated = yield* Fiber.join(bobCreatedFiber);
     const eveCreated = yield* Fiber.join(eveCreatedFiber);
 
-    expect(bobCreated.params.conversationId).toBe(conv.conversation!.id);
-    expect(eveCreated.params.conversationId).toBe(conv.conversation!.id);
+    expect(bobCreated.params.conversationId).toBe(
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
+    );
+    expect(eveCreated.params.conversationId).toBe(
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
+    );
   }));

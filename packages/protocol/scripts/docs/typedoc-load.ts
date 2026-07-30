@@ -8,7 +8,8 @@
  * an `Effect` so callers compose with the rest of the Effect-based
  * pipeline.
  */
-import { FileSystem, type PlatformError } from "@effect/platform";
+import { FileSystem } from "@effect/platform";
+import type { PlatformError } from "@effect/platform/Error";
 import { Data, Effect } from "effect";
 import { dirname } from "node:path";
 import { ReflectionKind } from "typedoc";
@@ -48,6 +49,7 @@ export interface TypeDocExport {
 export interface TypeDocCache {
   readonly all: readonly TypeDocExport[];
   readonly byPackage: ReadonlyMap<string, readonly TypeDocExport[]>;
+  readonly byPackageEntrypoint: ReadonlyMap<string, readonly TypeDocExport[]>;
   readonly byFolder: ReadonlyMap<string, readonly TypeDocExport[]>;
 }
 
@@ -86,6 +88,7 @@ interface RawReflection {
   readonly name?: string;
   readonly kind?: number;
   readonly variant?: string;
+  readonly target?: number;
   readonly children?: readonly RawReflection[];
   readonly signatures?: ReadonlyArray<{
     readonly comment?: RawComment;
@@ -114,9 +117,7 @@ export const loadTypeDoc = (
   cachePath: string,
 ): Effect.Effect<
   TypeDocCache,
-  | TypeDocCacheMissingError
-  | TypeDocCacheMalformedError
-  | PlatformError.PlatformError,
+  TypeDocCacheMissingError | TypeDocCacheMalformedError | PlatformError,
   FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
@@ -131,7 +132,11 @@ export const loadTypeDoc = (
     }
     const text = yield* fs.readFileString(cachePath);
     const raw = yield* Effect.try({
-      try: () => JSON.parse(text) as RawReflection,
+      try: () => {
+        return /* Safe because TypeDoc generated this cache and all reflection fields are optional. */ JSON.parse(
+          text,
+        ) as RawReflection;
+      },
       catch: (e) =>
         new TypeDocCacheMalformedError({
           path: cachePath,
@@ -142,6 +147,7 @@ export const loadTypeDoc = (
     return {
       all,
       byPackage: indexBy(all, (e) => e.packageName),
+      byPackageEntrypoint: collectPackageEntrypointExports(raw),
       byFolder: indexBy(all, (e) => folderOf(e)),
     };
   }).pipe(Effect.withSpan("loadTypeDoc"));
@@ -168,6 +174,83 @@ function collectExports(root: RawReflection): readonly TypeDocExport[] {
     walk(pkg, packageName, out);
   }
   return out;
+}
+
+/**
+ * TypeDoc represents package entrypoints in two shapes. A focused entrypoint
+ * contributes declarations directly beneath the package project, while an
+ * expanded package contributes an `index` module whose children are references
+ * to declarations elsewhere in the project. Normalize both shapes into the
+ * exact public surface owned by the package root.
+ * @param root Value supplied to the operation.
+ * @returns The collect package entrypoint exports result.
+ */
+function collectPackageEntrypointExports(
+  root: RawReflection,
+): ReadonlyMap<string, readonly TypeDocExport[]> {
+  const reflectionsById = indexReflectionsById(root);
+  const entries = new Map<string, readonly TypeDocExport[]>();
+  for (const pkg of root.children ?? []) {
+    const packageName = pkg.name ?? "<unknown>";
+    const children = pkg.children ?? [];
+    const indexModule = children.find(
+      (child) => child.kind === ReflectionKind.Module && child.name === "index",
+    );
+    const owned = indexModule
+      ? (indexModule.children ?? [])
+      : children.filter((child) => child.kind !== ReflectionKind.Module);
+    entries.set(
+      packageName,
+      owned.flatMap((child) => {
+        const declaration = resolveReference(child, reflectionsById);
+        return declaration !== null && shouldEmit(declaration)
+          ? [toExport(declaration, packageName)]
+          : [];
+      }),
+    );
+  }
+  return entries;
+}
+
+function indexReflectionsById(
+  root: RawReflection,
+): ReadonlyMap<number, RawReflection> {
+  const reflections = new Map<number, RawReflection>();
+  const pending = [root];
+  while (pending.length > 0) {
+    const reflection = pending.pop();
+    if (reflection === undefined) {
+      continue;
+    }
+    if (reflection.id !== undefined) {
+      reflections.set(reflection.id, reflection);
+    }
+    pending.push(...(reflection.children ?? []));
+  }
+  return reflections;
+}
+
+function resolveReference(
+  reflection: RawReflection,
+  reflectionsById: ReadonlyMap<number, RawReflection>,
+): RawReflection | null {
+  const visited = new Set<number>();
+  let current = reflection;
+  while (
+    current.kind === ReflectionKind.Reference &&
+    current.target !== undefined
+  ) {
+    if (visited.has(current.target)) {
+      return null;
+    }
+    visited.add(current.target);
+    const target = reflectionsById.get(current.target);
+    if (target === undefined) {
+      return null;
+    }
+    current = target;
+  }
+  return current;
 }
 
 function walk(

@@ -18,29 +18,38 @@ it("messages/list returns both own and other agent messages", () =>
     const conv = yield* H.createDm(service, regB.agentId);
 
     // A sends a message
-    yield* service.send(conv.task.id, conv.conversation!.id, "Hello from A");
+    yield* service.send(
+      conv.task.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
+      "Hello from A",
+    );
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     // B sends a message
     yield* H.sendAndSettle(
       regB.client,
       conv.task.id,
-      conv.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
       "Hello from B",
     );
 
     // A sends another message
     yield* service.send(
       conv.task.id,
-      conv.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
       "Follow up from A",
     );
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     // Fetch history via RPC (same as CLI moltzap history would do)
-    const result = yield* service.call(H.MessagesList.name, {
+    const result = yield* service.call(H.messagesList.name, {
       taskId: conv.task.id,
-      conversationId: conv.conversation!.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
       limit: 10,
     });
 
@@ -87,7 +96,9 @@ it("group conversation history shows all participants", () =>
       },
     });
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     // Each agent sends a message
     yield* service.send(taskId, conversationId, "Agent A here");
@@ -96,7 +107,7 @@ it("group conversation history shows all participants", () =>
     yield* H.sendAndSettle(regC.client, taskId, conversationId, "Agent C here");
 
     // Fetch history
-    const result = yield* service.call(H.MessagesList.name, {
+    const result = yield* service.call(H.messagesList.name, {
       taskId,
       conversationId,
       limit: 10,

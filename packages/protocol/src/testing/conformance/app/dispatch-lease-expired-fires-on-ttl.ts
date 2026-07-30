@@ -48,7 +48,8 @@ export function registerDispatchLeaseExpiredFiresOnTtl(
           "expired",
           { dispatchId: ack.dispatchId, timeoutMs: 2_000 },
         );
-        const params = expired.params as LeaseIdOnlyView;
+        const params =
+          /* Safe because the "expired" observability queue contains only lease-expired deliveries. */ expired.params as LeaseIdOnlyView;
         if (params.leaseId !== ack.leaseId) {
           return yield* Effect.fail(
             dispatchAdmissionViolation(

@@ -16,7 +16,6 @@ type DispatchReleaseHandler = (frame: DispatchReleaseFrame) => void;
 type ServiceEvent =
   | "message"
   | "disconnect"
-  | "reconnect"
   | "conversationArchived"
   | "conversationUnarchived"
   | "dispatchRelease";
@@ -39,8 +38,8 @@ interface SendFixtureReplyInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly text: string;
-  readonly replyTo: MessageId | undefined;
-  readonly dispatchLeaseId: string | undefined;
+  readonly replyTo?: MessageId;
+  readonly dispatchLeaseId?: string;
 }
 
 interface FixtureConversationMeta {
@@ -52,7 +51,6 @@ interface FixtureConversationMeta {
 interface ChannelServiceFixtureStore {
   readonly messageHandlers: MessageHandler[];
   readonly disconnectHandlers: VoidHandler[];
-  readonly reconnectHandlers: VoidHandler[];
   readonly conversationArchivedHandlers: ConversationArchivedHandler[];
   readonly conversationUnarchivedHandlers: ConversationUnarchivedHandler[];
   readonly dispatchReleaseHandlers: DispatchReleaseHandler[];
@@ -67,7 +65,7 @@ interface ChannelServiceFixtureStore {
   readonly connectCalls: { count: number };
   readonly closeCalls: { count: number };
   connectResult: unknown;
-  ownAgentId: string | undefined;
+  ownAgentId?: string;
   fallbackTaskId: TaskId;
 }
 
@@ -76,7 +74,9 @@ const conversationKey = (id: string): string => testConversationId(id);
 
 function participantKey(participant: string): string {
   const separatorIndex = participant.indexOf(":");
-  if (separatorIndex === -1) return participant;
+  if (separatorIndex === -1) {
+    return participant;
+  }
   const type = participant.slice(0, separatorIndex);
   const id = participant.slice(separatorIndex + ":".length);
   return type === "agent" ? `${type}:${agentKey(id)}` : participant;
@@ -86,12 +86,12 @@ function participantKey(participant: string): string {
 export interface ChannelServiceEmit {
   message(msg: Message, taskId?: TaskId): void;
   disconnect(): void;
-  reconnect(): void;
   conversationArchived(data: { conversationId: string }): void;
   conversationUnarchived(data: { conversationId: string }): void;
   dispatchRelease(frame: DispatchReleaseFrame): void;
 }
 
+/** Describes channel service state. */
 export interface ChannelServiceState {
   setConversation(id: string, meta: FixtureConversationMeta): void;
   setAgentName(id: string, name: string): void;
@@ -113,12 +113,14 @@ export interface ChannelServiceState {
   resolveAgentNameCallCount(agentId: string): number;
 }
 
+/** Describes fake channel service. */
 export interface FakeChannelService {
   service: ChannelService;
   emit: ChannelServiceEmit;
   state: ChannelServiceState;
 }
 
+/** Configures create fake channel service. */
 export interface CreateFakeChannelServiceOptions {
   ownAgentId?: string;
 }
@@ -131,7 +133,6 @@ function createFixtureStore(
   return {
     messageHandlers: [],
     disconnectHandlers: [],
-    reconnectHandlers: [],
     conversationArchivedHandlers: [],
     conversationUnarchivedHandlers: [],
     dispatchReleaseHandlers: [],
@@ -157,21 +158,25 @@ function registerServiceHandler(
   handler: ServiceHandler,
 ): void {
   if (event === "message") {
-    store.messageHandlers.push(handler as MessageHandler);
+    store.messageHandlers.push(
+      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as MessageHandler,
+    );
   } else if (event === "disconnect") {
-    store.disconnectHandlers.push(handler as VoidHandler);
-  } else if (event === "reconnect") {
-    store.reconnectHandlers.push(handler as VoidHandler);
+    store.disconnectHandlers.push(
+      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as VoidHandler,
+    );
   } else if (event === "conversationArchived") {
     store.conversationArchivedHandlers.push(
-      handler as ConversationArchivedHandler,
+      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as ConversationArchivedHandler,
     );
   } else if (event === "conversationUnarchived") {
     store.conversationUnarchivedHandlers.push(
-      handler as ConversationUnarchivedHandler,
+      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as ConversationUnarchivedHandler,
     );
   } else if (event === "dispatchRelease") {
-    store.dispatchReleaseHandlers.push(handler as DispatchReleaseHandler);
+    store.dispatchReleaseHandlers.push(
+      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as DispatchReleaseHandler,
+    );
   }
 }
 
@@ -222,18 +227,22 @@ function getFixtureConversation(
   convId: string,
 ): FixtureConversationMeta | undefined {
   const meta = store.conversations.get(convId);
-  if (!meta) return undefined;
+  if (!meta) {
+    return undefined;
+  }
   return { type: meta.type, name: meta.name, participants: meta.participants };
 }
 
 function resolveFixtureAgentName(
   store: ChannelServiceFixtureStore,
   agentId: string,
-): Effect.Effect<string, never> {
+): Effect.Effect<string> {
   return Effect.suspend(() => {
     store.resolveCalls.push(agentId);
     const failure = store.resolveFailures.get(agentId);
-    if (failure) return Effect.succeed(agentId);
+    if (failure) {
+      return Effect.succeed(agentId);
+    }
     return Effect.succeed(store.agentNames.get(agentId) ?? agentId);
   });
 }
@@ -297,30 +306,36 @@ function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
     message(msg, taskId) {
       const fallback = store.fallbackTaskId;
       const tid = taskId ?? fallback;
-      for (const h of store.messageHandlers) h({ taskId: tid, message: msg });
+      for (const h of store.messageHandlers) {
+        h({ taskId: tid, message: msg });
+      }
     },
     disconnect() {
-      for (const h of store.disconnectHandlers) h();
-    },
-    reconnect() {
-      for (const h of store.reconnectHandlers) h();
+      for (const h of store.disconnectHandlers) {
+        h();
+      }
     },
     conversationArchived(data) {
       const conversationId = conversationKey(data.conversationId);
       store.archivedConversationIds.add(conversationId);
       store.conversations.delete(conversationId);
-      for (const h of store.conversationArchivedHandlers) h({ conversationId });
+      for (const h of store.conversationArchivedHandlers) {
+        h({ conversationId });
+      }
     },
     conversationUnarchived(data) {
       const conversationId = conversationKey(data.conversationId);
       store.archivedConversationIds.delete(conversationId);
-      for (const h of store.conversationUnarchivedHandlers)
+      for (const h of store.conversationUnarchivedHandlers) {
         h({
           conversationId,
         });
+      }
     },
     dispatchRelease(frame) {
-      for (const h of store.dispatchReleaseHandlers) h(frame);
+      for (const h of store.dispatchReleaseHandlers) {
+        h(frame);
+      }
     },
   };
   return emit;
@@ -361,6 +376,11 @@ function makeState(store: ChannelServiceFixtureStore): ChannelServiceState {
   return state;
 }
 
+/**
+ * Creates fake channel service.
+ * @param opts Value supplied to the operation.
+ * @returns The created fake channel service.
+ */
 export function createFakeChannelService(
   opts: CreateFakeChannelServiceOptions = {},
 ): FakeChannelService {

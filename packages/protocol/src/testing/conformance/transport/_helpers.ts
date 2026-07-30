@@ -286,11 +286,7 @@ export function createOneOnOneConversation(
           ),
         ),
       );
-    const typed = create as {
-      task: { id: string };
-      conversation: { id: string } | null;
-    };
-    const cid = typed.conversation?.id;
+    const cid = create.conversation?.id;
     if (typeof cid !== "string" || cid.length === 0) {
       return yield* Effect.fail(
         adversityViolation(
@@ -300,7 +296,7 @@ export function createOneOnOneConversation(
       );
     }
     return {
-      taskId: taskId(typed.task.id),
+      taskId: taskId(create.task.id),
       conversationId: conversationId(cid),
     };
   }).pipe(Effect.withSpan("createOneOnOneConversation"));

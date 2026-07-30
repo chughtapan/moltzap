@@ -30,7 +30,9 @@ const kebabCase = (value: string): string =>
     .replace(/^-/, "");
 
 const withoutUndefined = (ast: SchemaAST.AST): SchemaAST.AST => {
-  if (!SchemaAST.isUnion(ast)) return ast;
+  if (!SchemaAST.isUnion(ast)) {
+    return ast;
+  }
   const members = ast.types.filter(
     (member) => !SchemaAST.isUndefinedKeyword(member),
   );
@@ -46,8 +48,12 @@ const hasIntegerRefinement = (ast: SchemaAST.AST): boolean => {
       ) || hasIntegerRefinement(ast.from)
     );
   }
-  if (SchemaAST.isUnion(ast)) return ast.types.some(hasIntegerRefinement);
-  if (SchemaAST.isTransformation(ast)) return hasIntegerRefinement(ast.to);
+  if (SchemaAST.isUnion(ast)) {
+    return ast.types.some(hasIntegerRefinement);
+  }
+  if (SchemaAST.isTransformation(ast)) {
+    return hasIntegerRefinement(ast.to);
+  }
   return false;
 };
 
@@ -63,7 +69,7 @@ const propertyName = (property: SchemaAST.PropertySignature): string =>
 const closedProperties = (
   ast: SchemaAST.AST,
   side: "encoded" | "type",
-): ReadonlyArray<SchemaAST.PropertySignature> => {
+): readonly SchemaAST.PropertySignature[] => {
   if (!SchemaAST.isTypeLiteral(ast) || ast.indexSignatures.length > 0) {
     return unsupported(
       "<root>",
@@ -80,7 +86,9 @@ const scalarOption = (
   encodedAst: SchemaAST.AST,
   validationAst: SchemaAST.AST,
 ): Options.Options<unknown> => {
-  if (SchemaAST.isStringKeyword(encodedAst)) return Options.text(name);
+  if (SchemaAST.isStringKeyword(encodedAst)) {
+    return Options.text(name);
+  }
   if (SchemaAST.isNumberKeyword(encodedAst)) {
     return hasIntegerRefinement(validationAst)
       ? Options.integer(name)
@@ -140,12 +148,15 @@ const fragmentForProperty = (
  * Generates scalar named CLI options from a closed Effect Struct schema.
  * The assembled encoded object is decoded once through the complete schema,
  * keeping brands, transformations, refinements, and defaults authoritative.
+ * @param schema Value supplied to the operation.
+ * @param presentations Value supplied to the operation.
+ * @returns The options from schema result.
  */
 export const optionsFromSchema = <
   A extends Readonly<Record<string, unknown>>,
   I extends Readonly<Record<string, unknown>>,
 >(
-  schema: Schema.Schema<A, I, never>,
+  schema: Schema.Schema<A, I>,
   presentations: SchemaOptionPresentations<I> = {},
 ): Options.Options<A> => {
   const properties = closedProperties(

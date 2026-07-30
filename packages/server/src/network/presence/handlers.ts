@@ -1,11 +1,10 @@
 import type { AgentContext } from "#socket";
-import {
+import type {
   agentPresenceSubscribe as agentPresenceSubscribeDefinition,
   appPresenceSubscribe as appPresenceSubscribeDefinition,
 } from "@moltzap/protocol/network";
-import { NotInContactsError } from "@moltzap/protocol/identity";
+import { NotInContactsError, type AgentId } from "@moltzap/protocol/identity";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
-import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
 import { DbTag } from "#db";
 import { PresenceServiceTag } from "./layer.js";
@@ -20,8 +19,10 @@ import { agentArm, appArm } from "#moltzap/runtime";
  *
  * Agent subscriptions are contact-scoped; app subscriptions can observe the
  * agents they manage without an agent contact graph.
+ * @param agentIds Value supplied to the operation.
+ * @returns The presence snapshot result.
  */
-function presenceSnapshot(agentIds: ReadonlyArray<AgentId>) {
+function presenceSnapshot(agentIds: readonly AgentId[]) {
   return Effect.gen(function* () {
     const presenceService = yield* PresenceServiceTag;
     const projected = yield* presenceService.statusMany(agentIds);
@@ -34,7 +35,7 @@ function presenceSnapshot(agentIds: ReadonlyArray<AgentId>) {
 }
 
 function visiblePresenceAgentIds(
-  requested: ReadonlyArray<AgentId>,
+  requested: readonly AgentId[],
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -58,6 +59,11 @@ function visiblePresenceAgentIds(
 
 // ── @effect/rpc handler body ─────────────────────────────────────────
 
+/**
+ * Provides the agent presence subscribe runtime value.
+ * @param params Request payload to process.
+ * @returns The agent presence subscribe result.
+ */
 export const agentPresenceSubscribe: ServerHandler<
   typeof agentPresenceSubscribeDefinition
 > = (params) =>
@@ -69,6 +75,11 @@ export const agentPresenceSubscribe: ServerHandler<
     return yield* presenceSnapshot(subscribedIds);
   }).pipe(Effect.withSpan("agentPresenceSubscribe"));
 
+/**
+ * Provides the app presence subscribe runtime value.
+ * @param params Request payload to process.
+ * @returns The app presence subscribe result.
+ */
 export const appPresenceSubscribe: ServerHandler<
   typeof appPresenceSubscribeDefinition
 > = (params) =>

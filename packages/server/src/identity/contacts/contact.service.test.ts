@@ -1,6 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import { userId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import {
   makePgliteHarness,
@@ -31,12 +31,21 @@ function freshDb(): Effect.Effect<void, unknown> {
 }
 
 function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
-  if (Exit.isSuccess(exit)) return null;
+  if (Exit.isSuccess(exit)) {
+    return null;
+  }
   const failure = Cause.failureOption(exit.cause);
-  if (failure._tag === "None") return null;
+  if (Option.isNone(failure)) {
+    return null;
+  }
   const value = failure.value;
-  if (typeof value !== "object" || value === null) return null;
-  const tag = (value as { readonly _tag?: unknown })._tag;
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const tag =
+    /* Safe because the test fixture establishes this asserted shape. */ (
+      value as { readonly _tag?: unknown }
+    )._tag;
   return typeof tag === "string" ? tag : null;
 }
 
@@ -81,7 +90,10 @@ function rejectsUnknownContactAccept() {
   return Effect.gen(function* () {
     const svc = new ContactsService(db);
     const exit = yield* Effect.exit(
-      svc.accept(BOB, "00000000-0000-4000-8000-000000000404" as never),
+      svc.accept(
+        BOB,
+        /* Safe because the test fixture establishes this asserted shape. */ "00000000-0000-4000-8000-000000000404" as never,
+      ),
     );
     expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.ContactNotFound);
   });
@@ -114,8 +126,8 @@ function acceptsConcurrentlyOnce() {
       { concurrency: 2 },
     );
     const transitioned = [a.transitioned, b.transitioned];
-    expect(transitioned.filter((t) => t === true)).toHaveLength(1);
-    expect(transitioned.filter((t) => t === false)).toHaveLength(1);
+    expect(transitioned.filter((t) => t)).toHaveLength(1);
+    expect(transitioned.filter((t) => !t)).toHaveLength(1);
     expect(a.requesterUserId).toBe(ALICE);
     expect(b.requesterUserId).toBe(ALICE);
   });
@@ -159,9 +171,11 @@ function listsOnlyCallerRows() {
     yield* svc.add(BOB, { contactUserId: CAROL });
     const aliceList = yield* svc.list(ALICE, {});
     const bobList = yield* svc.list(BOB, {});
-    expect(aliceList.contacts.map((c) => c.contactUserId).sort()).toEqual(
-      [BOB, CAROL].sort(),
-    );
+    expect(
+      aliceList.contacts
+        .map((contact) => contact.contactUserId)
+        .sort((left, right) => left.localeCompare(right)),
+    ).toEqual([BOB, CAROL].sort((left, right) => left.localeCompare(right)));
     expect(bobList.contacts.map((c) => c.contactUserId)).toEqual([CAROL]);
   });
 }
@@ -177,7 +191,10 @@ function roundTripsRelationship() {
     });
     expect(created.relationship).toBe(COLLEAGUE_RELATIONSHIP);
     const list = yield* svc.list(ALICE, {});
-    expect(list.contacts[0]!.relationship).toBe(COLLEAGUE_RELATIONSHIP);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ list
+        .contacts[0]!.relationship,
+    ).toBe(COLLEAGUE_RELATIONSHIP);
   });
 }
 

@@ -8,7 +8,7 @@ Agent identity server internals.
 
 ## Public surface
 
-### [`agentsList`](./handlers.ts#L133)
+### [`agentsList`](./handlers.ts#L148)
 
 _Variable_
 
@@ -18,13 +18,21 @@ export const agentsList: ServerHandler<typeof agentsListDefinition> = (
 )
 ```
 
-### [`AuthService`](./auth.service.ts#L16)
+Provides the agents list runtime value.
+
+**Returns:** The agents list result.
+
+### [`AuthService`](./auth.service.ts#L24)
 
 _Class_
 
 ```ts
 export class AuthService {
-  constructor(private db: Db) {}
+  private readonly db: Db;
+
+  constructor(db: Db) {
+    this.db = db;
+  }
 
   registerAgent(
     params: RegisterParams,
@@ -34,9 +42,9 @@ export class AuthService {
      * upstream — this argument is treated as trusted.
      */
     ownerUserId: UserId,
-  ): Effect.Effect<{ agentId: AgentId; apiKey: AgentKey }, never> {
+  ): Effect.Effect<{ agentId: AgentId; apiKey: AgentKey }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AuthService) {
         const { apiKey, keyId, secretHash } = generateApiKey();
 
         const result = yield* takeFirstOrFail(
@@ -65,11 +73,9 @@ export class AuthService {
     );
   }
 
-  agentsForOwner(
-    ownerUserId: UserId,
-  ): Effect.Effect<ReadonlyArray<AgentId>, never> {
+  agentsForOwner(ownerUserId: UserId): Effect.Effect<readonly AgentId[]> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AuthService) {
         const rows = yield* this.db
           .selectFrom("agents")
           .select(["id"])
@@ -80,18 +86,17 @@ export class AuthService {
     );
   }
 
-  authenticateAgent(apiKey: AgentKey): Effect.Effect<
-    {
-      agentId: AgentId;
-      status: string;
-      ownerUserId: UserId;
-    } | null,
-    never
-  > {
+  authenticateAgent(apiKey: AgentKey): Effect.Effect<{
+    agentId: AgentId;
+    status: string;
+    ownerUserId: UserId;
+  } | null> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AuthService) {
         const parsed = parseApiKey(apiKey);
-        if (!parsed) return null;
+        if (!parsed) {
+          return null;
+        }
 
         const rowOpt = yield* takeFirstOption(
           this.db
@@ -101,9 +106,13 @@ export class AuthService {
             .where("status", "!=", "suspended"),
         );
 
-        if (Option.isNone(rowOpt)) return null;
+        if (Option.isNone(rowOpt)) {
+          return null;
+        }
         const row = rowOpt.value;
-        if (hashSecret(parsed.secret) !== row.api_key_secret_hash) return null;
+        if (hashSecret(parsed.secret) !== row.api_key_secret_hash) {
+          return null;
+        }
 
         return {
           agentId: row.id,
@@ -116,12 +125,14 @@ export class AuthService {
 }
 ```
 
-### [`AuthServiceLive`](./layer.ts#L14)
+Implements auth service.
+
+### [`authServiceLive`](./layer.ts#L16)
 
 _Variable_
 
 ```ts
-export const AuthServiceLive = Layer.effect(
+export const authServiceLive = Layer.effect(
   AuthServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -130,7 +141,9 @@ export const AuthServiceLive = Layer.effect(
 )
 ```
 
-### [`AuthServiceTag`](./layer.ts#L9)
+Provides the auth service live runtime value.
+
+### [`AuthServiceTag`](./layer.ts#L10)
 
 _Class_
 
@@ -141,15 +154,21 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
 >() {}
 ```
 
-### [`visibleAgentIds`](./visibility.service.ts#L22)
+Implements auth service tag.
+
+### [`visibleAgentIds`](./visibility.service.ts#L27)
 
 _Function_
 
 ```ts
 export function visibleAgentIds(
   req: VisibleAgentIdsRequest,
-): Effect.Effect<ReadonlyArray<AgentId>, never>
+): Effect.Effect<readonly AgentId[]>
 ```
+
+Executes the visible agent ids operation.
+
+**Returns:** The visible agent ids result.
 
 ### [`VisibleAgentIdsRequest`](./visibility.service.ts#L14)
 
@@ -161,9 +180,11 @@ export interface VisibleAgentIdsRequest {
   readonly callerAgentId: AgentId;
   readonly callerOwnerUserId: UserId;
   /** When set, intersect the visible set with these IDs. */
-  readonly restrictTo?: ReadonlyArray<AgentId>;
+  readonly restrictTo?: readonly AgentId[];
 }
 ```
+
+Describes visible agent ids request.
 
 ## Files
 

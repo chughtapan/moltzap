@@ -2,8 +2,11 @@ import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Option, Redacted, Schema } from "effect";
-import { agentId as agentIdSchema, register } from "@moltzap/protocol/identity";
-import { agentKey } from "@moltzap/protocol/identity";
+import {
+  agentId as agentIdSchema,
+  type register,
+  agentKey,
+} from "@moltzap/protocol/identity";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   agentId,
@@ -25,7 +28,7 @@ const API_KEY = redactedAgentKey(agentKeyString(11));
 
 type RegisterResult = ResultOf<typeof register>;
 
-const MoltzapConfigText = Schema.parseJson(
+const moltzapConfigText = Schema.parseJson(
   Schema.Struct({
     profiles: Schema.Record({
       key: Schema.String,
@@ -37,7 +40,7 @@ const MoltzapConfigText = Schema.parseJson(
     }),
   }),
 );
-const decodeMoltzapConfig = Schema.decodeUnknown(MoltzapConfigText);
+const decodeMoltzapConfig = Schema.decodeUnknown(moltzapConfigText);
 
 const mockRegisterAgent =
   vi.fn<
@@ -54,7 +57,9 @@ vi.mock("../../auth.js", () => ({
     name: string,
     opts?: { readonly inviteCode?: string; readonly description?: string },
   ) => {
-    if (opts === undefined) return mockRegisterAgent(baseUrl, name);
+    if (opts === undefined) {
+      return mockRegisterAgent(baseUrl, name);
+    }
     return mockRegisterAgent(baseUrl, name, opts);
   },
 }));
@@ -107,7 +112,12 @@ function persistsSharedProfileConfig() {
       const profile = moltzapConfig.profiles[AGENT_NAME];
       expect(profile).toBeDefined();
       expect(profile?.agentId).toBe(AGENT_ID);
-      expect(Redacted.value(profile!.apiKey)).toBe(Redacted.value(API_KEY));
+      expect(
+        Redacted.value(
+          /* Safe because the test fixture establishes this asserted shape. */ profile!
+            .apiKey,
+        ),
+      ).toBe(Redacted.value(API_KEY));
       expect(profile?.agentName).toBe(AGENT_NAME);
     }),
   );

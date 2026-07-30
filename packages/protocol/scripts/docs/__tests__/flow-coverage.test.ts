@@ -21,6 +21,7 @@ function makeCache(exports: ReadonlyArray<TypeDocExport>): TypeDocCache {
   return {
     all: exports,
     byPackage: new Map(),
+    byPackageEntrypoint: new Map(),
     byFolder: new Map(),
   };
 }

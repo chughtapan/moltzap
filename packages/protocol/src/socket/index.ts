@@ -5,6 +5,7 @@
  * connection identifiers, close-info extraction, and socket-local lifecycle
  * helpers used by testing and server wiring.
  */
+// safer-arch-ignore no-large-public-surface: Socket is the stable compatibility facade for clients, server lifecycle, close semantics, and reverse callbacks.
 
 /** Re-exports the public API from `./agent-client.js`. */
 export { MoltZapAgentClient } from "./agent-client.js";

@@ -60,7 +60,7 @@ function runTimeoutSurface(
 }
 
 interface TimeoutResult {
-  readonly error: unknown | null;
+  readonly error: unknown;
   readonly elapsed: number;
 }
 
@@ -83,7 +83,7 @@ function measureTimeoutOutcome(
   );
 }
 
-function assertTimeoutError(error: unknown | null) {
+function assertTimeoutError(error: unknown) {
   if (error === null) {
     return Effect.fail(
       adversityViolation(
@@ -92,14 +92,16 @@ function assertTimeoutError(error: unknown | null) {
       ),
     );
   }
-  return error instanceof RpcTimeoutError
-    ? Effect.void
-    : Effect.fail(
-        adversityViolation(
-          TIMEOUT_SURFACE_PROPERTY,
-          `expected RpcTimeoutError, got ${String(error)}`,
-        ),
-      );
+  if (error instanceof RpcTimeoutError) {
+    return Effect.void;
+  }
+  const errorKind = error instanceof Error ? error.name : typeof error;
+  return Effect.fail(
+    adversityViolation(
+      TIMEOUT_SURFACE_PROPERTY,
+      `expected RpcTimeoutError, got ${errorKind}`,
+    ),
+  );
 }
 
 function assertTimeoutBudget(elapsed: number) {
