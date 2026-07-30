@@ -42,7 +42,7 @@
     "@mermaid-js/mermaid-cli": "^11.15.0",
     "@types/node": "^25.5.0",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.18",
+    "eslint-plugin-agent-code-guard": "0.0.20",
     "husky": "^9.0.0",
     "mint": "4.2.749",
     "nx": "^22.7.5",

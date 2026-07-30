@@ -24,8 +24,8 @@ importers:
         specifier: ^9
         version: 9.39.4(jiti@1.21.7)
       eslint-plugin-agent-code-guard:
-        specifier: 0.0.18
-        version: 0.0.18(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
+        specifier: 0.0.20
+        version: 0.0.20(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
       husky:
         specifier: ^9.0.0
         version: 9.1.7
@@ -5124,8 +5124,8 @@ packages:
       eslint-plugin-import-x:
         optional: true
 
-  eslint-plugin-agent-code-guard@0.0.18:
-    resolution: {integrity: sha512-D3Ch3tDLr9rhh/07tnt4xsWhocyX1LBVzbO+qbZdYPZ71ZphEK43n4grFx5rvkWyX1luZicV5U9iiLPgzuDKIw==}
+  eslint-plugin-agent-code-guard@0.0.20:
+    resolution: {integrity: sha512-mzlJ4tI8BJ3oxrGYn4tATgM9UXiN+W7/chiidyfGxIiASsOlEEL/4/ehg/S0SmXXGeN3MgDNOKQ/KORKFbUJdA==}
     hasBin: true
     peerDependencies:
       eslint: '>=9'
@@ -14552,7 +14552,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-agent-code-guard@0.0.18(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3):
+  eslint-plugin-agent-code-guard@0.0.20(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3):
     dependencies:
       '@eslint-community/eslint-plugin-eslint-comments': 4.7.2(eslint@9.39.4(jiti@1.21.7))
       '@typescript-eslint/utils': 8.65.0(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)

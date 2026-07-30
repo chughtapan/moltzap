@@ -270,8 +270,8 @@ export function customSetup(): {
  * @param fake Value supplied to the operation.
  */
 export function forceResolveAgentNamePath(fake: FakeChannelService): void {
+  /* Safe because the surrounding invariant establishes this asserted shape. */
   (
-    /* Safe because the surrounding invariant establishes this asserted shape. */
     fake.service as { getAgentName: (id: string) => string | undefined }
   ).getAgentName = () => undefined;
 }
