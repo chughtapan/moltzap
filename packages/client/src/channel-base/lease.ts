@@ -51,10 +51,9 @@ function isLeaseInvalidData(data: unknown): boolean {
   if (typeof data !== "object" || data === null) {
     return false;
   }
-  const reason = (
+  const reason =
     /* Safe because the surrounding invariant establishes this asserted shape. */
-    data as { readonly reason?: unknown }
-  ).reason;
+    (data as { readonly reason?: unknown }).reason;
   return reason === "LeaseInvalid";
 }
 

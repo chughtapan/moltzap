@@ -83,10 +83,8 @@ function commitViaExecute(this: {
  */
 function patchPrototype(prototype: object): void {
   Object.assign(prototype, Effectable.CommitPrototype);
-  (
-    /* Safe because the surrounding invariant establishes this asserted shape. */
-    prototype as { commit: unknown }
-  ).commit = commitViaExecute;
+  /* Safe because the surrounding invariant establishes this asserted shape. */
+  (prototype as { commit: unknown }).commit = commitViaExecute;
 }
 
 // Patch all compilable builder prototypes at module load. `SelectQueryBuilder`
@@ -236,10 +234,8 @@ export const transaction = <A, DB>(
 ): Effect.Effect<A, SqlError> =>
   Effect.tryPromise({
     try: () =>
-      (
-        /* Safe because the surrounding invariant establishes this asserted shape. */
-        db as Kysely<DB>
-      )
+      /* Safe because the surrounding invariant establishes this asserted shape. */
+      (db as Kysely<DB>)
         .transaction()
         .execute((trx) => Effect.runPromise(fn(trx))),
     catch: (cause) =>

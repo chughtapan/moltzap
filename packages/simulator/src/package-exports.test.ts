@@ -57,7 +57,7 @@ describe("@moltzap/simulator package exports", () => {
     expect(ledgerApi).not.toHaveProperty("makeRunLedger");
   });
 
-  it("exposes one definition constructor through Simulator", () => {
+  it("exposes one definition constructor through simulator", () => {
     expect(customerApi).not.toHaveProperty("defineSimulator");
     expect(customerApi.simulator).toHaveProperty("define");
   });
