@@ -1,92 +1,80 @@
 #!/usr/bin/env node
-/** @file Effect CLI for live evaluation sweeps, judging, publication, and probes. */
+/** @file Effect CLI for evaluation execution, resume, calibration, and publication. */
 
 import { Command as CliCommand, Options } from "@effect/cli";
-import { Command, FileSystem, Path } from "@effect/platform";
+import { Command, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import {
-  type LedgerReceipt,
-  ProgramFinished,
-  Simulator,
-  nanoclawRuntime,
-  openClawRuntime,
-  runtimeConfigurationProjection,
   simulatorLayer,
+  type CompletedLedgerReceipt,
 } from "@moltzap/simulator";
-import type { LedgerRef, LedgerStorageError } from "@moltzap/simulator/ledger";
+import { DateTime, Duration, Either, Effect, Option, Schema } from "effect";
+import type { NonEmptyReadonlyArray } from "effect/Array";
 import {
-  Cause,
-  DateTime,
-  Duration,
-  Effect,
-  Exit,
-  Option,
-  Schema,
-} from "effect";
-import {
-  ConditionId,
-  EvaluationCaseId,
-  EvaluationCases,
-  JudgePolicyId,
-  type EvaluationCaseDefinition,
+  evaluationCase,
+  evaluationCases,
+  type BundledEvaluationCase,
+  type EvaluationCaseMetadata,
 } from "./cases.js";
-import { TARGET_AGENT_NAME } from "./episodes.js";
 import {
-  EvaluationEvents,
-  participantAssignmentsForEpisode,
-  readRuntimeTerminationEvidence,
-  RuntimeTerminationEvidence,
-  selectEvaluationResponse,
-  type RuntimeEvidenceLedger,
-  type RuntimeTerminationEvidenceReadOutcome,
-  waitForRuntimeTerminationEvidence,
-} from "./events.js";
+  behavioralEvaluation,
+  EvaluationExecutionFailed,
+  nanoclawEvaluationCondition,
+  openClawEvaluationCondition,
+  type EvaluationCondition,
+  type EvaluationExecutionResult,
+} from "./execution.js";
 import {
   GradeCompleted,
   GradingRefused,
   OPENAI_SEMANTIC_JUDGE_MODEL,
   OPENAI_SEMANTIC_JUDGE_TIMEOUT_MILLIS,
   SemanticJudgeOpenAi,
-  type EvaluationLedgerView,
   gradeTranscript,
   runSemanticJudgeCalibration,
   transcriptFromLedger,
+  type EvaluationTranscript,
 } from "./grading.js";
-import { PhoenixPublisher, PhoenixPublisherLive } from "./phoenix.js";
-import { SharedProbeFailed, runSharedConversationProbe } from "./probes.js";
+import { decodeJudgePolicyId, type JudgePolicyId } from "./model.js";
+import { PhoenixPublisher, phoenixPublisherLive } from "./phoenix.js";
+import {
+  createStoredEvaluationReport,
+  evaluationResultPath,
+  evaluationResultStoreLayer,
+  loadEvaluationReport,
+  resumeStoredEvaluationReport,
+  runEvaluationSweep,
+} from "./results.js";
 import {
   CompletedEvaluationReport,
   EvaluationCasePlan,
   EvaluationConditionPlan,
-  EvaluationReportId,
   EvaluationReportPlan,
   EvidenceRejectedAttempt,
   JudgePolicySnapshot,
   LedgerAllocationFailedAttempt,
   RunFailedAttempt,
-  checkpointEvaluationReport,
-  createEvaluationReport,
+  decodeEvaluationReportId,
   ensureSweepOperationallyComplete,
-  evaluationReportPath,
-  loadEvaluationReport,
+  evaluationReportId,
   makeAssessedAttempt,
   makeJudgingUnavailableAttempt,
-  resumeEvaluationReport,
-  runEvaluationSweep,
+  type EvaluationReportId,
   type EvaluationSweepCell,
+  type TerminalAttempt,
 } from "./sweep.js";
 
 const CLI_VERSION = "0.0.0";
 const RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
 const ROUTER_STARTUP_TIMEOUT = Duration.minutes(10);
-const EVALUATION_TIMEOUT = Duration.minutes(20);
-const PositiveInteger = Schema.Int.pipe(Schema.positive());
+const PEER_OBSERVATION_TIMEOUT = Duration.minutes(5);
+const CASE_TIMEOUT = Duration.minutes(20);
 const LEDGER_DIRECTORY = [".moltzap", "evals", "ledgers"] as const;
-const OPENCLAW_CONDITION = Schema.decodeSync(ConditionId)("openclaw/v1");
-const NANOCLAW_CONDITION = Schema.decodeSync(ConditionId)("nanoclaw/v1");
-const JUDGE_POLICY = Schema.decodeSync(JudgePolicyId)("openai-gpt-5.6-sol/v1");
+const JUDGE_POLICY: JudgePolicyId = decodeJudgePolicyId(
+  "openai-gpt-5.6-sol/v1",
+);
 
-/** The checked-out source cannot identify an exact reproducible report plan. */
+/** The checked-out source cannot identify one reproducible report plan. */
 class EvaluationSourceStateError extends Schema.TaggedError<EvaluationSourceStateError>()(
   "EvaluationSourceStateError",
   {
@@ -94,15 +82,7 @@ class EvaluationSourceStateError extends Schema.TaggedError<EvaluationSourceStat
   },
 ) {}
 
-/** A new sweep never replaces an existing durable report. */
-class EvaluationReportAlreadyExists extends Schema.TaggedError<EvaluationReportAlreadyExists>()(
-  "EvaluationReportAlreadyExists",
-  {
-    path: Schema.NonEmptyString,
-  },
-) {}
-
-/** A decoded report cell cannot be bound to the current code-valued plan. */
+/** A durable matrix cell cannot bind to the current code catalog. */
 class EvaluationPlanBindingError extends Schema.TaggedError<EvaluationPlanBindingError>()(
   "EvaluationPlanBindingError",
   {
@@ -110,24 +90,7 @@ class EvaluationPlanBindingError extends Schema.TaggedError<EvaluationPlanBindin
   },
 ) {}
 
-/** A bounded case did not complete before its customer-owned deadline. */
-class EvaluationEpisodeTimedOut extends Schema.TaggedError<EvaluationEpisodeTimedOut>()(
-  "EvaluationEpisodeTimedOut",
-  {
-    caseId: EvaluationCaseId,
-    timeoutMillis: PositiveInteger,
-  },
-) {}
-
-/** Evaluation policy stops when its only autonomous target terminates. */
-class EvaluationRuntimeTerminated extends Schema.TaggedError<EvaluationRuntimeTerminated>()(
-  "EvaluationRuntimeTerminated",
-  {
-    observation: RuntimeTerminationEvidence,
-  },
-) {}
-
-/** Calibration completed, but at least one fixture was not established. */
+/** Calibration ran, but one or more fixtures were not established. */
 class SemanticJudgeCalibrationFailed extends Schema.TaggedError<SemanticJudgeCalibrationFailed>()(
   "SemanticJudgeCalibrationFailed",
   {
@@ -140,96 +103,23 @@ interface RuntimeOptions {
   readonly nanoclawModel: string;
 }
 
-type OpenClawRuntime = ReturnType<typeof openClawRuntime>;
-type NanoClawRuntime = ReturnType<typeof nanoclawRuntime>;
-
-interface LiveCondition {
-  readonly id: ConditionId;
-  readonly runtime: OpenClawRuntime | NanoClawRuntime;
+interface AttemptContext {
+  readonly cell: EvaluationSweepCell;
+  readonly definition: BundledEvaluationCase;
+  readonly startedAt: DateTime.Utc;
 }
-
-type EvaluationLedgerOpener<Failure, Requirements> = (
-  ref: LedgerRef,
-) => Effect.Effect<EvaluationLedgerView, Failure, Requirements>;
 
 function describeUnknown(cause: unknown): string {
-  if (cause instanceof Error && cause.message.length > 0) {
-    return cause.message;
+  if (cause instanceof Error && cause.message.trim().length > 0) {
+    return cause.message.trim();
   }
-  const detail = String(cause);
-  return detail.length > 0 ? detail : "unknown failure";
+  const detail = String(cause).trim();
+  return detail.length > 0 ? detail : "operation failed without a diagnostic";
 }
 
-function causeDetail(cause: Cause.Cause<unknown>): string {
-  const detail = Cause.pretty(cause).trim();
-  return detail.length > 0 ? detail : "execution failed without a diagnostic";
-}
-
-function baselineConditions(
-  options: RuntimeOptions,
-): ReadonlyArray<LiveCondition> {
-  return [
-    {
-      id: OPENCLAW_CONDITION,
-      runtime: openClawRuntime({
-        installMode: "workspace",
-        startupTimeout: RUNTIME_STARTUP_TIMEOUT,
-        modelId: options.openclawModel,
-      }),
-    },
-    {
-      id: NANOCLAW_CONDITION,
-      runtime: nanoclawRuntime({
-        installMode: "workspace",
-        autoRegisterConversations: true,
-        startupTimeout: RUNTIME_STARTUP_TIMEOUT,
-        modelId: options.nanoclawModel,
-      }),
-    },
-  ];
-}
-
-function sourceCommand(...args: ReadonlyArray<string>) {
+function sourceCommand(...args: readonly string[]) {
   return Command.make("git", ...args).pipe(Command.stderr("inherit"));
 }
-
-const exactSource = Effect.fn("evals.exactSource")(function* () {
-  const status = yield* Command.string(
-    sourceCommand("status", "--porcelain=v1", "--untracked-files=normal"),
-  ).pipe(
-    Effect.mapError((cause) =>
-      EvaluationSourceStateError.make({
-        detail: `unable to inspect source state: ${describeUnknown(cause)}`,
-      }),
-    ),
-  );
-  if (status.trim().length > 0) {
-    return yield* Effect.fail(
-      EvaluationSourceStateError.make({
-        detail:
-          "the worktree is dirty; commit the exact source before starting or resuming a live report",
-      }),
-    );
-  }
-  const revision = yield* Command.string(
-    sourceCommand("rev-parse", "HEAD"),
-  ).pipe(
-    Effect.mapError((cause) =>
-      EvaluationSourceStateError.make({
-        detail: `unable to resolve source revision: ${describeUnknown(cause)}`,
-      }),
-    ),
-  );
-  const normalized = revision.trim();
-  if (!/^[\da-f]{40,64}$/u.test(normalized)) {
-    return yield* Effect.fail(
-      EvaluationSourceStateError.make({
-        detail: "git returned an invalid source revision",
-      }),
-    );
-  }
-  return normalized;
-});
 
 const workspaceRoot = Effect.fn("evals.workspaceRoot")(function* () {
   const root = yield* Command.string(
@@ -252,6 +142,74 @@ const workspaceRoot = Effect.fn("evals.workspaceRoot")(function* () {
   return normalized;
 });
 
+const exactSourceRevision = Effect.fn("evals.exactSourceRevision")(
+  function* () {
+    const status = yield* Command.string(
+      sourceCommand("status", "--porcelain=v1", "--untracked-files=normal"),
+    ).pipe(
+      Effect.mapError((cause) =>
+        EvaluationSourceStateError.make({
+          detail: `unable to inspect source state: ${describeUnknown(cause)}`,
+        }),
+      ),
+    );
+    if (status.trim().length > 0) {
+      return yield* Effect.fail(
+        EvaluationSourceStateError.make({
+          detail:
+            "the worktree is dirty; commit the exact source before starting or resuming a report",
+        }),
+      );
+    }
+    const revision = yield* Command.string(
+      sourceCommand("rev-parse", "HEAD"),
+    ).pipe(
+      Effect.mapError((cause) =>
+        EvaluationSourceStateError.make({
+          detail: `unable to resolve source revision: ${describeUnknown(cause)}`,
+        }),
+      ),
+    );
+    const normalized = revision.trim();
+    if (!/^[\da-f]{40,64}$/u.test(normalized)) {
+      return yield* Effect.fail(
+        EvaluationSourceStateError.make({
+          detail: "git returned an invalid source revision",
+        }),
+      );
+    }
+    return normalized;
+  },
+);
+
+function evaluationConditions(
+  options: RuntimeOptions,
+): readonly [EvaluationCondition, EvaluationCondition] {
+  const execution = {
+    peerObservationTimeout: PEER_OBSERVATION_TIMEOUT,
+    caseTimeout: CASE_TIMEOUT,
+  } as const;
+  return [
+    openClawEvaluationCondition({
+      runtime: {
+        installMode: "workspace",
+        startupTimeout: RUNTIME_STARTUP_TIMEOUT,
+        modelId: options.openclawModel,
+      },
+      execution,
+    }),
+    nanoclawEvaluationCondition({
+      runtime: {
+        installMode: "workspace",
+        autoRegisterConversations: true,
+        startupTimeout: RUNTIME_STARTUP_TIMEOUT,
+        modelId: options.nanoclawModel,
+      },
+      execution,
+    }),
+  ];
+}
+
 function judgePolicySnapshot(): JudgePolicySnapshot {
   return JudgePolicySnapshot.make({
     id: JUDGE_POLICY,
@@ -265,55 +223,54 @@ function judgePolicySnapshot(): JudgePolicySnapshot {
   });
 }
 
-const reportPlan = Effect.fn("evals.reportPlan")(function* (
-  sourceRevision: string,
-  conditions: ReadonlyArray<LiveCondition>,
-) {
-  const casePlans = EvaluationCases.map((definition) => {
-    const [firstCriterion, ...remainingCriteria] = definition.criteria;
-    return EvaluationCasePlan.make({
-      id: definition.id,
-      definitionId: definition.definitionId,
-      name: definition.name,
-      description: definition.description,
-      rubric: definition.rubric,
-      criterionIds: [
-        firstCriterion.criterion.id,
-        ...remainingCriteria.map(({ criterion }) => criterion.id),
-      ],
-      slices: definition.slices,
-    });
+function casePlan(definition: EvaluationCaseMetadata): EvaluationCasePlan {
+  const [firstCriterion, ...remainingCriteria] = definition.criteria;
+  return EvaluationCasePlan.make({
+    id: definition.id,
+    definitionId: definition.definitionId,
+    name: definition.name,
+    description: definition.description,
+    rubric: definition.rubric,
+    criterionIds: [
+      firstCriterion.criterion.id,
+      ...remainingCriteria.map(({ criterion }) => criterion.id),
+    ],
+    slices: definition.slices,
   });
-  const [firstCase, ...remainingCases] = casePlans;
-  const [firstCondition, ...remainingConditions] = conditions.map((condition) =>
-    EvaluationConditionPlan.make({
-      id: condition.id,
-      runtimeName: condition.runtime.name,
-      runtimeConfiguration: runtimeConfigurationProjection(condition.runtime),
-    }),
-  );
-  if (firstCase === undefined || firstCondition === undefined) {
-    return yield* Effect.fail(
-      EvaluationPlanBindingError.make({
-        detail: "the fixed evaluation matrix is empty",
-      }),
-    );
-  }
+}
+
+function conditionPlan(
+  condition: EvaluationCondition,
+): EvaluationConditionPlan {
+  return EvaluationConditionPlan.make({
+    id: condition.id,
+    runtimeName: condition.runtimeName,
+    runtimeConfiguration: condition.runtimeConfiguration,
+  });
+}
+
+function reportPlan(
+  sourceRevision: string,
+  conditions: NonEmptyReadonlyArray<EvaluationCondition>,
+): EvaluationReportPlan {
+  const [firstCase, ...remainingCases] = evaluationCases;
+  const [firstCondition, ...remainingConditions] = conditions;
   return EvaluationReportPlan.make({
     sourceRevision,
-    cases: [firstCase, ...remainingCases],
-    conditions: [firstCondition, ...remainingConditions],
+    cases: [casePlan(firstCase), ...remainingCases.map(casePlan)],
+    conditions: [
+      conditionPlan(firstCondition),
+      ...remainingConditions.map(conditionPlan),
+    ],
     judgePolicy: judgePolicySnapshot(),
     samplesPerCell: 1,
   });
-});
+}
 
-function caseFor(
+function bindCase(
   cell: EvaluationSweepCell,
-): Effect.Effect<EvaluationCaseDefinition, EvaluationPlanBindingError> {
-  const definition = EvaluationCases.find(
-    (candidate) => candidate.id === cell.casePlan.id,
-  );
+): Effect.Effect<BundledEvaluationCase, EvaluationPlanBindingError> {
+  const definition = evaluationCase(cell.casePlan.id);
   return definition === undefined
     ? Effect.fail(
         EvaluationPlanBindingError.make({
@@ -323,269 +280,160 @@ function caseFor(
     : Effect.succeed(definition);
 }
 
-function conditionFor(
-  conditions: ReadonlyArray<LiveCondition>,
+function bindCondition(
+  conditions: readonly EvaluationCondition[],
   cell: EvaluationSweepCell,
-): Effect.Effect<LiveCondition, EvaluationPlanBindingError> {
+): Effect.Effect<EvaluationCondition, EvaluationPlanBindingError> {
   const condition = conditions.find(
     (candidate) => candidate.id === cell.conditionPlan.id,
   );
   return condition === undefined
     ? Effect.fail(
         EvaluationPlanBindingError.make({
-          detail: `unknown runtime condition ${cell.conditionPlan.id}`,
+          detail: `unknown evaluation condition ${cell.conditionPlan.id}`,
         }),
       )
     : Effect.succeed(condition);
 }
 
-function episodeProgram(
-  definition: EvaluationCaseDefinition,
-  target: Parameters<EvaluationCaseDefinition["episode"]>[0],
-  emit: (
-    event:
-      | ReturnType<typeof participantAssignmentsForEpisode>[number]
-      | ReturnType<typeof selectEvaluationResponse>,
-  ) => Effect.Effect<unknown, unknown>,
-) {
-  return Effect.gen(function* () {
-    const result = yield* definition.episode(target);
-    const assignments = participantAssignmentsForEpisode(definition.id, result);
-    yield* Effect.forEach(assignments, (assignment) => emit(assignment), {
-      concurrency: 1,
-      discard: true,
-    });
-    yield* Effect.forEach(
-      result.selectedResponses,
-      (response) => emit(selectEvaluationResponse(definition.id, response)),
-      { concurrency: 1, discard: true },
-    );
-  }).pipe(
-    Effect.timeoutFail({
-      duration: EVALUATION_TIMEOUT,
-      onTimeout: () =>
-        EvaluationEpisodeTimedOut.make({
-          caseId: definition.id,
-          timeoutMillis: Duration.toMillis(EVALUATION_TIMEOUT),
-        }),
-    }),
-  );
-}
-
-function attemptFields(
-  cell: EvaluationSweepCell,
-  startedAt: DateTime.Utc,
-  completedAt: DateTime.Utc,
-) {
+function terminalFields(context: AttemptContext, completedAt: DateTime.Utc) {
   return {
-    attemptId: cell.attemptId,
-    caseId: cell.casePlan.id,
-    conditionId: cell.conditionPlan.id,
-    sample: cell.sample,
-    startedAt,
+    attemptId: context.cell.attemptId,
+    caseId: context.cell.casePlan.id,
+    conditionId: context.cell.conditionPlan.id,
+    sample: context.cell.sample,
+    startedAt: context.startedAt,
     completedAt,
   } as const;
 }
 
-function evidenceRejected(
-  common: ReturnType<typeof attemptFields>,
-  receipt: ProgramFinished<unknown, unknown>["receipt"],
+function rejectEvidence(
+  context: AttemptContext,
+  receipt: CompletedLedgerReceipt,
   detail: string,
-) {
-  return EvidenceRejectedAttempt.make({
-    ...common,
-    receipt,
-    detail,
-  });
-}
-
-function runFailed(
-  common: ReturnType<typeof attemptFields>,
-  receipt: LedgerReceipt,
-  cause: Cause.Cause<unknown>,
-  runtimeEvidence: RuntimeTerminationEvidenceReadOutcome,
-) {
-  return RunFailedAttempt.make({
-    ...common,
-    receipt,
-    detail: causeDetail(cause),
-    runtimeEvidence,
-  });
-}
-
-function gradeEvidence(
-  definition: EvaluationCaseDefinition,
-  common: ReturnType<typeof attemptFields>,
-  receipt: ProgramFinished<unknown, unknown>["receipt"],
-  transcript: Parameters<typeof gradeTranscript>[1],
-) {
-  return gradeTranscript(definition, transcript, JUDGE_POLICY).pipe(
-    Effect.matchEffect({
-      onFailure: (failure) =>
-        Effect.succeed(evidenceRejected(common, receipt, failure.detail)),
-      onSuccess: (graded) =>
-        Effect.gen(function* () {
-          return graded instanceof GradeCompleted
-            ? yield* makeAssessedAttempt({
-                ...common,
-                receipt,
-                transcript,
-                grade: graded.report,
-              })
-            : yield* makeJudgingUnavailableAttempt({
-                ...common,
-                receipt,
-                transcript,
-                codeAssessments: graded.codeAssessments,
-                pendingCriterionIds: graded.pendingCriterionIds,
-                error: graded.error,
-              });
-        }),
-    }),
-  );
-}
-
-function openAndGrade<E, R>(
-  definition: EvaluationCaseDefinition,
-  common: ReturnType<typeof attemptFields>,
-  receipt: ProgramFinished<unknown, unknown>["receipt"],
-  open: Effect.Effect<Parameters<typeof transcriptFromLedger>[0], E, R>,
-) {
-  return open.pipe(
-    Effect.flatMap((ledger) =>
-      transcriptFromLedger(ledger, definition, TARGET_AGENT_NAME),
-    ),
-    Effect.matchEffect({
-      onFailure: (failure) =>
-        Effect.succeed(
-          evidenceRejected(
-            common,
-            receipt,
-            failure instanceof GradingRefused
-              ? failure.detail
-              : describeUnknown(failure),
-          ),
-        ),
-      onSuccess: (transcript) =>
-        gradeEvidence(definition, common, receipt, transcript),
-    }),
-  );
-}
-
-function allocationFailed(
-  cell: EvaluationSweepCell,
-  startedAt: DateTime.Utc,
-  failure: LedgerStorageError,
 ) {
   return DateTime.now.pipe(
     Effect.map((completedAt) =>
-      LedgerAllocationFailedAttempt.make({
-        ...attemptFields(cell, startedAt, completedAt),
-        failure,
+      EvidenceRejectedAttempt.make({
+        ...terminalFields(context, completedAt),
+        receipt,
+        detail,
       }),
     ),
   );
 }
 
-function completeAllocatedRun<OpenFailure, OpenRequirements>(
-  definition: EvaluationCaseDefinition,
-  common: ReturnType<typeof attemptFields>,
-  outcome:
-    | ProgramFinished<unknown, unknown>
-    | {
-        readonly cause: Cause.Cause<unknown>;
-        readonly receipt: LedgerReceipt;
-      },
-  openLedger: EvaluationLedgerOpener<OpenFailure, OpenRequirements>,
+function persistGrade(
+  context: AttemptContext,
+  receipt: CompletedLedgerReceipt,
+  transcript: EvaluationTranscript,
 ) {
-  return Effect.gen(function* () {
-    if (!(outcome instanceof ProgramFinished)) {
-      const runtimeEvidence = yield* readRuntimeTerminationEvidence(
-        outcome.receipt,
-        openLedger,
-      );
-      return runFailed(common, outcome.receipt, outcome.cause, runtimeEvidence);
-    }
-    if (Exit.isFailure(outcome.exit)) {
-      const cause = outcome.exit.cause;
-      const runtimeEvidence = yield* readRuntimeTerminationEvidence(
-        outcome.receipt,
-        openLedger,
-      );
-      return runFailed(common, outcome.receipt, cause, runtimeEvidence);
-    }
-    return yield* openAndGrade(
-      definition,
-      common,
-      outcome.receipt,
-      openLedger(outcome.receipt.ledger),
-    );
-  });
-}
-
-function failOnRuntimeTermination<Failure>(
-  ledger: RuntimeEvidenceLedger<Failure>,
-) {
-  return waitForRuntimeTerminationEvidence(ledger).pipe(
-    Effect.flatMap((observation) =>
-      Effect.fail(EvaluationRuntimeTerminated.make({ observation })),
-    ),
+  return gradeTranscript(context.definition, transcript, JUDGE_POLICY).pipe(
+    Effect.matchEffect({
+      onFailure: (failure) => rejectEvidence(context, receipt, failure.detail),
+      onSuccess: (outcome) =>
+        Effect.gen(function* () {
+          const fields = terminalFields(context, yield* DateTime.now);
+          if (outcome instanceof GradeCompleted) {
+            return yield* makeAssessedAttempt({
+              ...fields,
+              receipt,
+              transcript,
+              grade: outcome.report,
+            });
+          }
+          return yield* makeJudgingUnavailableAttempt({
+            ...fields,
+            receipt,
+            transcript,
+            codeAssessments: outcome.codeAssessments,
+            pendingCriterionIds: outcome.pendingCriterionIds,
+            error: outcome.error,
+          });
+        }),
+    }),
   );
 }
 
+function assessExecution(
+  context: AttemptContext,
+  receipt: CompletedLedgerReceipt,
+) {
+  return behavioralEvaluation.openLedger(receipt.ledger).pipe(
+    Effect.flatMap((ledger) =>
+      transcriptFromLedger(ledger, context.definition),
+    ),
+    Effect.matchEffect({
+      onFailure: (failure) =>
+        rejectEvidence(
+          context,
+          receipt,
+          failure instanceof GradingRefused
+            ? failure.detail
+            : describeUnknown(failure),
+        ),
+      onSuccess: (transcript) => persistGrade(context, receipt, transcript),
+    }),
+  );
+}
+
+function completeExecution(
+  context: AttemptContext,
+  outcome: EvaluationExecutionResult,
+) {
+  return Effect.gen(function* () {
+    if (outcome instanceof EvaluationExecutionFailed) {
+      return RunFailedAttempt.make({
+        ...terminalFields(context, yield* DateTime.now),
+        receipt: outcome.receipt,
+        detail: outcome.detail,
+      });
+    }
+    return yield* assessExecution(context, outcome.receipt);
+  });
+}
+
 function executeCell(
-  conditions: ReadonlyArray<LiveCondition>,
+  conditions: readonly EvaluationCondition[],
   cell: EvaluationSweepCell,
 ) {
   return Effect.gen(function* () {
-    const definition = yield* caseFor(cell);
-    const condition = yield* conditionFor(conditions, cell);
-    const society = Simulator.define(definition.definitionId, EvaluationEvents);
-    const roster = society.agents({
-      [TARGET_AGENT_NAME]: condition.runtime,
-    });
-    const startedAt = yield* DateTime.now;
-    const program = Effect.gen(function* () {
-      const agents = yield* roster.Agents;
-      const events = yield* society.Events;
-      const ledger = yield* society.Ledger;
-      const episode = episodeProgram(
-        definition,
-        agents[TARGET_AGENT_NAME],
-        (event) => events.emit(event),
-      );
-      yield* Effect.raceFirst(episode, failOnRuntimeTermination(ledger));
-    });
-    return yield* society
-      .run(roster, program, {
-        provenance: {
-          evaluationCase: definition.id,
-          evaluationCondition: condition.id,
-        },
+    const definition = yield* bindCase(cell);
+    const condition = yield* bindCondition(conditions, cell);
+    const context: AttemptContext = {
+      cell,
+      definition,
+      startedAt: yield* DateTime.now,
+    };
+    const execution = yield* definition
+      .withDefinition({
+        execute: (exact) =>
+          condition.execute(exact, { attemptId: cell.attemptId }),
       })
-      .pipe(
-        Effect.matchEffect({
-          onFailure: (failure) => allocationFailed(cell, startedAt, failure),
-          onSuccess: (outcome) =>
-            DateTime.now.pipe(
-              Effect.flatMap((completedAt) =>
-                completeAllocatedRun(
-                  definition,
-                  attemptFields(cell, startedAt, completedAt),
-                  outcome,
-                  society.openLedger,
-                ),
-              ),
-            ),
-        }),
-      );
+      .pipe(Effect.either);
+    return yield* Either.match(execution, {
+      onLeft: (failure) =>
+        DateTime.now.pipe(
+          Effect.map(
+            (completedAt): TerminalAttempt =>
+              LedgerAllocationFailedAttempt.make({
+                ...terminalFields(context, completedAt),
+                failure,
+              }),
+          ),
+        ),
+      onRight: (outcome) =>
+        completeExecution(context, outcome).pipe(
+          Effect.map((attempt): TerminalAttempt => attempt),
+        ),
+    });
   }).pipe(Effect.withSpan("evals.executeCell"));
 }
 
 function reportLocation(root: string, reportId: EvaluationReportId) {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
-    const relative = yield* evaluationReportPath(reportId);
+    const relative = yield* evaluationResultPath(reportId);
     return path.join(root, relative);
   });
 }
@@ -593,18 +441,10 @@ function reportLocation(root: string, reportId: EvaluationReportId) {
 function reportIdNow() {
   return DateTime.now.pipe(
     Effect.map((now) =>
-      DateTime.formatIso(now).toLowerCase().replaceAll(":", "-"),
+      decodeEvaluationReportId(
+        DateTime.formatIso(now).toLowerCase().replaceAll(":", "-"),
+      ),
     ),
-    Effect.flatMap(Schema.decodeUnknown(EvaluationReportId)),
-  );
-}
-
-function logReport(report: CompletedEvaluationReport, path: string) {
-  const assessed = report.attempts.filter(
-    (attempt) => attempt._tag === "AssessedAttempt",
-  ).length;
-  return Effect.logInfo(
-    `evaluation report ${report.reportId}: ${String(assessed)}/${String(report.attempts.length)} assessed; ${path}`,
   );
 }
 
@@ -617,43 +457,69 @@ function simulatorPlatform(ledgerDirectory: string) {
 
 function executeReport(
   ledgerDirectory: string,
-  path: string,
-  report: Parameters<typeof runEvaluationSweep>[1],
-  conditions: ReadonlyArray<LiveCondition>,
+  conditions: readonly EvaluationCondition[],
 ) {
-  return runEvaluationSweep(path, report, (cell) =>
-    executeCell(conditions, cell),
-  ).pipe(
+  return runEvaluationSweep((cell) => executeCell(conditions, cell)).pipe(
     Effect.provide(SemanticJudgeOpenAi),
     Effect.provide(simulatorPlatform(ledgerDirectory)),
   );
 }
 
+function logReport(report: CompletedEvaluationReport, path: string) {
+  const assessed = report.attempts.filter(
+    (attempt) => attempt._tag === "AssessedAttempt",
+  ).length;
+  return Effect.logInfo(
+    `evaluation report ${report.reportId}: ${String(assessed)}/${String(report.attempts.length)} assessed attempts; ${path}`,
+  );
+}
+
 const reportIdOption = Options.text("report-id").pipe(
-  Options.withSchema(EvaluationReportId),
+  Options.withSchema(evaluationReportId),
   Options.withDescription("Durable local report identity."),
 );
-
 const optionalReportIdOption = reportIdOption.pipe(Options.optional);
-
 const openclawModelOption = Options.text("openclaw-model").pipe(
   Options.withSchema(Schema.NonEmptyString),
-  Options.withDescription(
-    "Exact OpenClaw model ID to bind into execution provenance.",
-  ),
+  Options.withDescription("Exact OpenClaw model ID."),
 );
-
 const nanoclawModelOption = Options.text("nanoclaw-model").pipe(
   Options.withSchema(Schema.NonEmptyString),
-  Options.withDescription(
-    "Exact NanoClaw model ID to bind into execution provenance.",
-  ),
+  Options.withDescription("Exact NanoClaw model ID."),
 );
-
 const runtimeOptions = {
   openclawModel: openclawModelOption,
   nanoclawModel: nanoclawModelOption,
 } as const;
+
+function runOrResume(
+  mode: "run" | "resume",
+  reportId: Option.Option<EvaluationReportId>,
+  options: RuntimeOptions,
+) {
+  return Effect.gen(function* () {
+    const root = yield* workspaceRoot();
+    const sourceRevision = yield* exactSourceRevision();
+    const conditions = evaluationConditions(options);
+    const plan = reportPlan(sourceRevision, conditions);
+    const resolvedId = Option.isSome(reportId)
+      ? reportId.value
+      : yield* reportIdNow();
+    const databasePath = yield* reportLocation(root, resolvedId);
+    const path = yield* Path.Path;
+    const ledgerDirectory = path.join(root, ...LEDGER_DIRECTORY);
+    return yield* Effect.gen(function* () {
+      if (mode === "run") {
+        yield* createStoredEvaluationReport(resolvedId, plan);
+      } else {
+        yield* resumeStoredEvaluationReport(plan);
+      }
+      const completed = yield* executeReport(ledgerDirectory, conditions);
+      yield* logReport(completed, databasePath);
+      return yield* ensureSweepOperationallyComplete(completed);
+    }).pipe(Effect.provide(evaluationResultStoreLayer(databasePath)));
+  });
+}
 
 const runCommand = CliCommand.make(
   "run",
@@ -661,36 +527,10 @@ const runCommand = CliCommand.make(
     reportId: optionalReportIdOption,
     ...runtimeOptions,
   },
-  ({ reportId, ...options }) =>
-    Effect.gen(function* () {
-      const root = yield* workspaceRoot();
-      const sourceRevision = yield* exactSource();
-      const conditions = baselineConditions(options);
-      const plan = yield* reportPlan(sourceRevision, conditions);
-      const resolvedId = Option.isSome(reportId)
-        ? reportId.value
-        : yield* reportIdNow();
-      const path = yield* reportLocation(root, resolvedId);
-      const platformPath = yield* Path.Path;
-      const ledgerDirectory = platformPath.join(root, ...LEDGER_DIRECTORY);
-      const fileSystem = yield* FileSystem.FileSystem;
-      if (yield* fileSystem.exists(path)) {
-        return yield* Effect.fail(EvaluationReportAlreadyExists.make({ path }));
-      }
-      const initial = yield* createEvaluationReport(resolvedId, plan);
-      yield* checkpointEvaluationReport(path, initial);
-      const completed = yield* executeReport(
-        ledgerDirectory,
-        path,
-        initial,
-        conditions,
-      );
-      yield* logReport(completed, path);
-      return yield* ensureSweepOperationallyComplete(completed);
-    }),
+  ({ reportId, ...options }) => runOrResume("run", reportId, options),
 ).pipe(
   CliCommand.withDescription(
-    "Run the full OpenClaw and NanoClaw matrix sequentially.",
+    "Run the complete OpenClaw and NanoClaw evaluation matrix.",
   ),
 );
 
@@ -701,53 +541,10 @@ const resumeCommand = CliCommand.make(
     ...runtimeOptions,
   },
   ({ reportId, ...options }) =>
-    Effect.gen(function* () {
-      const root = yield* workspaceRoot();
-      const sourceRevision = yield* exactSource();
-      const conditions = baselineConditions(options);
-      const plan = yield* reportPlan(sourceRevision, conditions);
-      const path = yield* reportLocation(root, reportId);
-      const platformPath = yield* Path.Path;
-      const ledgerDirectory = platformPath.join(root, ...LEDGER_DIRECTORY);
-      const report = yield* resumeEvaluationReport(path, plan);
-      const completed = yield* executeReport(
-        ledgerDirectory,
-        path,
-        report,
-        conditions,
-      );
-      yield* logReport(completed, path);
-      return yield* ensureSweepOperationallyComplete(completed);
-    }),
+    runOrResume("resume", Option.some(reportId), options),
 ).pipe(
   CliCommand.withDescription(
-    "Validate a report plan and execute only missing matrix cells.",
-  ),
-);
-
-const publishCommand = CliCommand.make(
-  "publish",
-  { reportId: reportIdOption },
-  ({ reportId }) =>
-    Effect.gen(function* () {
-      const root = yield* workspaceRoot();
-      const path = yield* reportLocation(root, reportId);
-      const report = yield* loadEvaluationReport(path);
-      if (!(report instanceof CompletedEvaluationReport)) {
-        return yield* Effect.fail(
-          EvaluationSourceStateError.make({
-            detail: `report ${reportId} is not complete`,
-          }),
-        );
-      }
-      const publisher = yield* PhoenixPublisher;
-      const publication = yield* publisher.publish(report);
-      yield* Effect.logInfo(JSON.stringify(publication));
-      return publication;
-    }).pipe(Effect.provide(PhoenixPublisherLive)),
-).pipe(
-  CliCommand.withDescription(
-    "Idempotently publish one completed report to external Phoenix.",
+    "Validate the immutable plan and execute missing matrix cells.",
   ),
 );
 
@@ -770,28 +567,35 @@ const calibrateCommand = CliCommand.make("calibrate", {}, () =>
   }).pipe(Effect.provide(SemanticJudgeOpenAi)),
 ).pipe(
   CliCommand.withDescription(
-    "Run the fixed semantic-judge calibration corpus sequentially.",
+    "Run the fixed semantic-judge calibration corpus.",
   ),
 );
 
-const probeCommand = CliCommand.make("probe", runtimeOptions, (options) =>
-  Effect.gen(function* () {
-    const root = yield* workspaceRoot();
-    const path = yield* Path.Path;
-    const ledgerDirectory = path.join(root, ...LEDGER_DIRECTORY);
-    const outcome = yield* runSharedConversationProbe({
-      openClawModel: options.openclawModel,
-      nanoClawModel: options.nanoclawModel,
-    }).pipe(Effect.provide(simulatorPlatform(ledgerDirectory)));
-    yield* Effect.logInfo(JSON.stringify(outcome));
-    if (outcome instanceof SharedProbeFailed) {
-      return yield* Effect.fail(outcome);
-    }
-    return outcome;
-  }),
+const publishCommand = CliCommand.make(
+  "publish",
+  { reportId: reportIdOption },
+  ({ reportId }) =>
+    Effect.gen(function* () {
+      const root = yield* workspaceRoot();
+      const databasePath = yield* reportLocation(root, reportId);
+      const report = yield* loadEvaluationReport().pipe(
+        Effect.provide(evaluationResultStoreLayer(databasePath)),
+      );
+      if (!(report instanceof CompletedEvaluationReport)) {
+        return yield* Effect.fail(
+          EvaluationSourceStateError.make({
+            detail: `report ${reportId} is not complete`,
+          }),
+        );
+      }
+      const publisher = yield* PhoenixPublisher;
+      const publication = yield* publisher.publish(report);
+      yield* Effect.logInfo(JSON.stringify(publication));
+      return publication;
+    }).pipe(Effect.provide(phoenixPublisherLive)),
 ).pipe(
   CliCommand.withDescription(
-    "Run one shared NanoClaw, Effect, and OpenClaw conversation.",
+    "Idempotently publish a completed report to Phoenix.",
   ),
 );
 
@@ -804,7 +608,6 @@ const evaluationCommand = CliCommand.make("moltzap-evals").pipe(
     resumeCommand,
     calibrateCommand,
     publishCommand,
-    probeCommand,
   ]),
 );
 

@@ -1,6 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- Mermaid blocks need literal `<br>` (HTML5) for renderer compatibility. */
 /** @file OpenClaw process configuration, resource acquisition, and supervision. */
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
@@ -19,6 +19,7 @@ import {
   Exit,
   Fiber,
   Inspectable,
+  Redacted,
   Scope,
 } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
@@ -26,6 +27,10 @@ import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import { httpBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type {
+  AgentDefaultsConfig,
+  ToolsConfig,
+} from "openclaw/plugin-sdk/config-types";
 
 import {
   type BaseChildEnvironment,
@@ -54,7 +59,9 @@ const OPENCLAW_KILL_WAIT_MS = 5_000;
 const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
-const TOKEN_RADIX = 36;
+const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
+const OPENCLAW_GATEWAY_TOKEN_REDACTION_MARKER =
+  "[REDACTED:openclaw-gateway-token]";
 const JSON_INDENT_SPACES = 2;
 const OPENCLAW_WORKSPACE_DIRNAME = "workspace";
 const OPENCLAW_ATTESTATION_DIRNAME = "workspace-attestations";
@@ -199,6 +206,12 @@ interface McpServerMount {
   readonly env: Readonly<Record<string, string>>;
 }
 
+/** Native OpenClaw tool exposure and execution configuration. */
+export type OpenClawToolsConfig = ToolsConfig;
+
+/** Native OpenClaw sandbox configuration for the runtime's default agent. */
+export type OpenClawSandboxConfig = NonNullable<AgentDefaultsConfig["sandbox"]>;
+
 /**
  * Immutable host configuration for one OpenClaw process.
  * @internal
@@ -235,6 +248,8 @@ export interface OpenClawProcessInput {
     readonly content: string;
   }>;
   readonly modelId?: string;
+  readonly tools?: OpenClawToolsConfig;
+  readonly sandbox?: OpenClawSandboxConfig;
 }
 
 /**
@@ -247,6 +262,8 @@ export interface OpenClawProcessSession {
     PlatformError.PlatformError
   >;
   readonly output: () => string;
+  readonly gatewayUrl: `ws://127.0.0.1:${number}`;
+  readonly gatewayToken: Redacted.Redacted;
 }
 
 interface SpawnedProcess {
@@ -283,6 +300,7 @@ interface OpenClawRuntimeHandle {
   readonly stateDir: string;
   readonly logBuffer: BoundedLogBuffer;
   readonly portClaim: OpenClawPortClaim;
+  readonly gatewayToken: Redacted.Redacted;
 }
 
 type LeasedOpenClawPortClaim = OpenClawPortClaim & {
@@ -321,7 +339,7 @@ interface OpenClawProcessPlan {
  * @internal
  * @returns The created open claw process plan.
  */
-function buildOpenClawProcessPlan(opts: {
+export function buildOpenClawProcessPlan(opts: {
   readonly openclawBin: string;
   readonly port: number;
   readonly stateDir: string;
@@ -343,6 +361,7 @@ function buildOpenClawProcessPlan(opts: {
     cwd: opts.stateDir,
     env: {
       ...opts.baseEnvironment,
+      HOME: opts.stateDir,
       OPENCLAW_STATE_DIR: opts.stateDir,
       OPENCLAW_CONFIG_PATH: join(opts.stateDir, "openclaw.json"),
       MOLTZAP_CONFIG_HOME: join(opts.stateDir, ".moltzap"),
@@ -435,9 +454,9 @@ function openClawWorkspaceDir(stateDir: string): string {
  * OpenClaw's guard refuses to reseed a workspace that was attested recently
  * and is now empty, which protects a durable operator workspace from silent
  * reseeding. A simulated agent's workspace is per-run, empty unless the
- * scenario declares files, and the agent may delete anything in it: one
+ * runtime policy declares files, and the agent may delete anything in it: one
  * create-then-delete otherwise leaves the guard throwing for the rest of the
- * episode, uncaught, and the run records that as agent silence.
+ * run, uncaught, and the ledger records that as agent silence.
  *
  * OpenClaw consults a third candidate under its legacy home state dir. That
  * path is the operator's rather than the run's, so it is left alone. Of the
@@ -484,6 +503,7 @@ function disarmOpenClawAttestationGuard(
  * @param deps Value supplied to the operation.
  * @param input Input value to process.
  * @param stateDir Value supplied to the operation.
+ * @param gatewayToken Private token shared with the scoped gateway client.
  * @internal
  * @returns The configure open claw state dir result.
  */
@@ -491,6 +511,7 @@ function configureOpenClawStateDir(
   deps: OpenClawProcessOptions,
   input: OpenClawProcessInput,
   stateDir: string,
+  gatewayToken: Redacted.Redacted,
 ): Effect.Effect<
   void,
   unknown,
@@ -506,6 +527,9 @@ function configureOpenClawStateDir(
         modelId: input.modelId,
         installMode: deps.installMode,
         mcpServers: deps.mcpServers,
+        tools: input.tools,
+        sandbox: input.sandbox,
+        gatewayToken,
       }),
       seedWorkspaceFiles(openClawWorkspaceDir(stateDir), input.workspaceFiles),
       seedModelAuthProfile(stateDir),
@@ -661,11 +685,14 @@ function acquireOpenClawRuntimeHandle(
           process: null,
           committed: false,
         };
+        const gatewayToken = yield* Effect.sync(makeOpenClawGatewayToken);
         const stateDir = yield* restore(allocateOpenClawStateDir(input));
         yield* Effect.addFinalizer(() =>
           lease.committed ? Effect.void : removeOpenClawStateDir(stateDir),
         );
-        yield* restore(configureOpenClawStateDir(deps, input, stateDir));
+        yield* restore(
+          configureOpenClawStateDir(deps, input, stateDir, gatewayToken),
+        );
 
         const logBuffer = new BoundedLogBuffer();
         const process = yield* restore(
@@ -682,19 +709,36 @@ function acquireOpenClawRuntimeHandle(
             () => releaseOpenClawSpawnLease(lease),
           ),
         );
-        yield* releasePortClaimWhenProcessEnds(process, portClaim);
-        yield* portClaim.transfer();
-        yield* Effect.sync(() => {
-          lease.committed = true;
-        });
-        return {
+        return yield* commitOpenClawRuntimeHandle(lease, {
           process,
           stateDir,
           logBuffer,
           portClaim,
-        } satisfies OpenClawRuntimeHandle;
+          gatewayToken,
+        });
       }),
     ),
+  );
+}
+
+function makeOpenClawGatewayToken(): Redacted.Redacted {
+  return Redacted.make(
+    randomBytes(OPENCLAW_GATEWAY_TOKEN_BYTES).toString("base64url"),
+  );
+}
+
+function commitOpenClawRuntimeHandle(
+  lease: OpenClawSpawnLease,
+  handle: OpenClawRuntimeHandle,
+): Effect.Effect<OpenClawRuntimeHandle> {
+  return releasePortClaimWhenProcessEnds(handle.process, handle.portClaim).pipe(
+    Effect.zipRight(handle.portClaim.transfer()),
+    Effect.zipRight(
+      Effect.sync(() => {
+        lease.committed = true;
+      }),
+    ),
+    Effect.as(handle),
   );
 }
 
@@ -710,6 +754,11 @@ function stopOpenClawRuntimeEffect(
     stopSpawnedOpenClawProcess(handle.process).pipe(
       Effect.ensuring(handle.portClaim.release()),
       Effect.ensuring(removeOpenClawStateDir(handle.stateDir)),
+      Effect.ensuring(
+        Effect.sync(() => {
+          Redacted.unsafeWipe(handle.gatewayToken);
+        }),
+      ),
     ),
   ).pipe(Effect.withSpan("stopOpenClawRuntimeEffect"));
 }
@@ -736,7 +785,12 @@ function openClawProcessSession(
 ): OpenClawProcessSession {
   return {
     exitCode: Fiber.join(handle.process.exitFiber),
-    output: () => handle.logBuffer.text,
+    output: () =>
+      handle.logBuffer.text
+        .split(Redacted.value(handle.gatewayToken))
+        .join(OPENCLAW_GATEWAY_TOKEN_REDACTION_MARKER),
+    gatewayUrl: `ws://127.0.0.1:${handle.portClaim.port}`,
+    gatewayToken: handle.gatewayToken,
   };
 }
 
@@ -903,6 +957,9 @@ function writeOpenClawConfig(opts: {
   modelId?: string;
   installMode: InstallMode;
   mcpServers?: readonly McpServerMount[];
+  tools?: OpenClawToolsConfig;
+  sandbox?: OpenClawSandboxConfig;
+  gatewayToken: Redacted.Redacted;
 }): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
@@ -956,12 +1013,29 @@ function mcpConfigSection(
   };
 }
 
-function buildOpenClawConfig(
+/**
+ * Builds the simulator-owned native OpenClaw configuration.
+ * @param opts Runtime and channel configuration.
+ * @param opts.agentName Stable roster identity presented to OpenClaw.
+ * @param opts.modelId Optional native model override.
+ * @param opts.installMode Package source selected for the channel plugin.
+ * @param opts.mcpServers Optional native MCP server definitions.
+ * @param opts.tools Optional native tool policy.
+ * @param opts.sandbox Optional native sandbox policy.
+ * @param opts.gatewayToken Secret used by the owner-local gateway.
+ * @param workspaceDir Isolated workspace for the OpenClaw agent.
+ * @internal
+ * @returns The complete native OpenClaw configuration.
+ */
+export function buildOpenClawConfig(
   opts: {
     readonly agentName: string;
     readonly modelId?: string;
     readonly installMode: InstallMode;
     readonly mcpServers?: readonly McpServerMount[];
+    readonly tools?: OpenClawToolsConfig;
+    readonly sandbox?: OpenClawSandboxConfig;
+    readonly gatewayToken: Redacted.Redacted;
   },
   workspaceDir: string,
 ): OpenClawConfig {
@@ -980,12 +1054,14 @@ function buildOpenClawConfig(
         model: { primary: opts.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
         workspace: workspaceDir,
         compaction: { mode: "safeguard" },
+        ...(opts.sandbox === undefined ? {} : { sandbox: opts.sandbox }),
         // Left unset, openclaw seeds BOOTSTRAP.md into the empty per-agent
         // workspace and runs its first-run onboarding ritual, whose scripted
         // opening line the agent sends in place of answering the step.
         skipBootstrap: true,
       },
     },
+    ...(opts.tools === undefined ? {} : { tools: opts.tools }),
     commands: { native: "auto", nativeSkills: "auto", restart: true },
     ...pluginTrust,
     messages: {
@@ -1007,11 +1083,19 @@ function buildOpenClawConfig(
         ],
       },
     },
+    ...openClawGatewayConfig(opts.gatewayToken),
+  };
+}
+
+function openClawGatewayConfig(
+  gatewayToken: Redacted.Redacted,
+): Pick<OpenClawConfig, "gateway"> {
+  return {
     gateway: {
       mode: "local",
       auth: {
         mode: "token",
-        token: `runtime-${Date.now().toString(TOKEN_RADIX)}`,
+        token: Redacted.value(gatewayToken),
       },
     },
   };

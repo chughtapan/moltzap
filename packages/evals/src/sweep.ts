@@ -1,104 +1,113 @@
-/** @file Durable evaluation reports and sequential matrix execution. */
-/* eslint-disable max-lines -- the locked report owner keeps its schemas, relational validation, atomic persistence, and sequential state transitions together. */
+/** @file Typed evaluation plans, attempts, reports, and state transitions. */
 
-import { FileSystem, Path } from "@effect/platform";
 import { CompletedLedgerReceipt, LedgerReceipt } from "@moltzap/simulator";
 import {
-  JsonValue,
+  jsonValue,
   LedgerStorageError,
-  type JsonValue as JsonValueType,
+  type JsonValue,
 } from "@moltzap/simulator/ledger";
 import { Data, DateTime, Effect, Encoding, Schema } from "effect";
 import {
-  ConditionId,
-  CriterionId,
-  EvaluationCaseId,
-  EvaluationSlice,
-  JudgePolicyId,
-} from "./cases.js";
-import { RuntimeTerminationEvidenceReadOutcome } from "./events.js";
+  conditionId,
+  criterionId,
+  evaluationCaseId,
+  evaluationSlice,
+  judgePolicyId,
+  type ConditionId,
+  type EvaluationCaseId,
+} from "./model.js";
 import {
   CodeAssessment,
-  CriterionAssessment,
   EvaluationTranscript,
   GradeReport,
-  JudgeError,
+  judgeError,
   validateAssessmentEvidence,
+  type CriterionAssessment,
 } from "./grading.js";
 
 const REPORT_FORMAT_VERSION = 2;
 const SAMPLE_NUMBER = 1;
-const JSON_INDENT_SPACES = 2;
-const REPORT_FILE_MODE = 0o600;
-const PositiveInteger = Schema.Int.pipe(Schema.positive());
+const positiveInteger = Schema.Int.pipe(Schema.positive());
 
 /** Filesystem-safe identity for one local evaluation report. */
-export const EvaluationReportId = Schema.String.pipe(
-  Schema.pattern(/^[a-z0-9][a-z0-9._-]*$/iu),
+export const evaluationReportId = Schema.String.pipe(
+  Schema.pattern(/^[a-z0-9][a-z0-9._-]*$/u),
   Schema.brand("EvaluationReportId"),
 );
-export type EvaluationReportId = typeof EvaluationReportId.Type;
+/** Filesystem-safe identity for one local evaluation report. */
+export type EvaluationReportId = typeof evaluationReportId.Type;
 
 /** Digest of the immutable execution plan validated during resume. */
-const EvaluationPlanDigest = Schema.String.pipe(
+export const evaluationPlanDigest = Schema.String.pipe(
   Schema.pattern(/^[\da-f]{64}$/u),
   Schema.brand("EvaluationPlanDigest"),
 );
-type EvaluationPlanDigest = typeof EvaluationPlanDigest.Type;
 
 /** Digest of one completed report used as its publication identity. */
-export const EvaluationReportDigest = Schema.String.pipe(
+export const evaluationReportDigest = Schema.String.pipe(
   Schema.pattern(/^[\da-f]{64}$/u),
   Schema.brand("EvaluationReportDigest"),
 );
-export type EvaluationReportDigest = typeof EvaluationReportDigest.Type;
+/** Digest of one completed report used as its publication identity. */
+export type EvaluationReportDigest = typeof evaluationReportDigest.Type;
 
 /** Digest binding graded evidence to its attempt identity and ledger receipt. */
-export const EvaluationEvidenceDigest = Schema.String.pipe(
+const evaluationEvidenceDigest = Schema.String.pipe(
   Schema.pattern(/^[\da-f]{64}$/u),
   Schema.brand("EvaluationEvidenceDigest"),
 );
-export type EvaluationEvidenceDigest = typeof EvaluationEvidenceDigest.Type;
+/** Digest binding graded evidence to its attempt identity and ledger receipt. */
+type EvaluationEvidenceDigest = typeof evaluationEvidenceDigest.Type;
 
 /** Stable identity of one case-condition sample attempt. */
-export const EvaluationAttemptId = Schema.NonEmptyString.pipe(
+const evaluationAttemptId = Schema.NonEmptyString.pipe(
   Schema.brand("EvaluationAttemptId"),
 );
-export type EvaluationAttemptId = typeof EvaluationAttemptId.Type;
+/** Stable identity of one case-condition sample attempt. */
+type EvaluationAttemptId = typeof evaluationAttemptId.Type;
+
+/** Decode a trusted local report identity. */
+export const decodeEvaluationReportId = Schema.decodeSync(evaluationReportId);
+/** Decode a completed report publication identity. */
+export const decodeEvaluationReportDigest = Schema.decodeSync(
+  evaluationReportDigest,
+);
+/** Decode a trusted local matrix-attempt identity. */
+export const decodeEvaluationAttemptId = Schema.decodeSync(evaluationAttemptId);
 
 /** Immutable case catalog entry persisted with the report. */
 export class EvaluationCasePlan extends Schema.Class<EvaluationCasePlan>(
   "EvaluationCasePlan",
 )({
-  id: EvaluationCaseId,
+  id: evaluationCaseId,
   definitionId: Schema.NonEmptyString,
   name: Schema.NonEmptyString,
   description: Schema.NonEmptyString,
   rubric: Schema.NonEmptyString,
-  criterionIds: Schema.NonEmptyArray(CriterionId),
-  slices: Schema.NonEmptyArray(EvaluationSlice),
+  criterionIds: Schema.NonEmptyArray(criterionId),
+  slices: Schema.NonEmptyArray(evaluationSlice),
 }) {}
 
 /** Native, sanitized runtime configuration for one sweep condition. */
 export class EvaluationConditionPlan extends Schema.Class<EvaluationConditionPlan>(
   "EvaluationConditionPlan",
 )({
-  id: ConditionId,
+  id: conditionId,
   runtimeName: Schema.NonEmptyString,
-  runtimeConfiguration: JsonValue,
+  runtimeConfiguration: jsonValue,
 }) {}
 
 /** Persisted semantic-judge configuration bound into the immutable plan. */
 export class JudgePolicySnapshot extends Schema.Class<JudgePolicySnapshot>(
   "JudgePolicySnapshot",
 )({
-  id: JudgePolicyId,
+  id: judgePolicyId,
   provider: Schema.NonEmptyString,
   model: Schema.NonEmptyString,
   reasoningEffort: Schema.Literal("medium"),
   structuredOutput: Schema.Literal(true),
   tools: Schema.Literal("none"),
-  timeoutMillis: PositiveInteger,
+  timeoutMillis: positiveInteger,
   maxRetries: Schema.Literal(2),
 }) {}
 
@@ -113,17 +122,17 @@ export class EvaluationReportPlan extends Schema.Class<EvaluationReportPlan>(
   samplesPerCell: Schema.Literal(SAMPLE_NUMBER),
 }) {}
 
-const EvaluationReportPlanValue = Schema.Struct(EvaluationReportPlan.fields);
-const EvaluationCasePlanValue = Schema.Struct(EvaluationCasePlan.fields);
-const EvaluationConditionPlanValue = Schema.Struct(
+const evaluationReportPlanValue = Schema.Struct(EvaluationReportPlan.fields);
+const evaluationCasePlanValue = Schema.Struct(EvaluationCasePlan.fields);
+const evaluationConditionPlanValue = Schema.Struct(
   EvaluationConditionPlan.fields,
 );
-const JudgePolicySnapshotValue = Schema.Struct(JudgePolicySnapshot.fields);
+const judgePolicySnapshotValue = Schema.Struct(JudgePolicySnapshot.fields);
 
-const TerminalAttemptFields = {
-  attemptId: EvaluationAttemptId,
-  caseId: EvaluationCaseId,
-  conditionId: ConditionId,
+const terminalAttemptFields = {
+  attemptId: evaluationAttemptId,
+  caseId: evaluationCaseId,
+  conditionId,
   sample: Schema.Literal(SAMPLE_NUMBER),
   startedAt: Schema.DateTimeUtc,
   completedAt: Schema.DateTimeUtc,
@@ -133,11 +142,11 @@ const TerminalAttemptFields = {
 export class AssessedAttempt extends Schema.TaggedClass<AssessedAttempt>()(
   "AssessedAttempt",
   {
-    ...TerminalAttemptFields,
+    ...terminalAttemptFields,
     receipt: CompletedLedgerReceipt,
     transcript: EvaluationTranscript,
     grade: GradeReport,
-    evidenceDigest: EvaluationEvidenceDigest,
+    evidenceDigest: evaluationEvidenceDigest,
   },
 ) {}
 
@@ -145,10 +154,9 @@ export class AssessedAttempt extends Schema.TaggedClass<AssessedAttempt>()(
 export class RunFailedAttempt extends Schema.TaggedClass<RunFailedAttempt>()(
   "RunFailedAttempt",
   {
-    ...TerminalAttemptFields,
+    ...terminalAttemptFields,
     receipt: LedgerReceipt,
     detail: Schema.NonEmptyString,
-    runtimeEvidence: RuntimeTerminationEvidenceReadOutcome,
   },
 ) {}
 
@@ -156,7 +164,7 @@ export class RunFailedAttempt extends Schema.TaggedClass<RunFailedAttempt>()(
 export class EvidenceRejectedAttempt extends Schema.TaggedClass<EvidenceRejectedAttempt>()(
   "EvidenceRejectedAttempt",
   {
-    ...TerminalAttemptFields,
+    ...terminalAttemptFields,
     receipt: CompletedLedgerReceipt,
     detail: Schema.NonEmptyString,
   },
@@ -166,50 +174,52 @@ export class EvidenceRejectedAttempt extends Schema.TaggedClass<EvidenceRejected
 export class JudgingUnavailableAttempt extends Schema.TaggedClass<JudgingUnavailableAttempt>()(
   "JudgingUnavailableAttempt",
   {
-    ...TerminalAttemptFields,
+    ...terminalAttemptFields,
     receipt: CompletedLedgerReceipt,
     transcript: EvaluationTranscript,
     codeAssessments: Schema.Array(CodeAssessment),
-    pendingCriterionIds: Schema.NonEmptyArray(CriterionId),
-    error: JudgeError,
-    evidenceDigest: EvaluationEvidenceDigest,
+    pendingCriterionIds: Schema.NonEmptyArray(criterionId),
+    error: judgeError,
+    evidenceDigest: evaluationEvidenceDigest,
   },
 ) {}
 
+/** Input whose evidence digest is derived by makeAssessedAttempt. */
 export type AssessedAttemptInput = Omit<
   AssessedAttempt,
   "_tag" | "evidenceDigest"
 >;
+/** Input whose evidence digest is derived by makeJudgingUnavailableAttempt. */
 export type JudgingUnavailableAttemptInput = Omit<
   JudgingUnavailableAttempt,
   "_tag" | "evidenceDigest"
 >;
 
-const AssessedEvidenceValue = Schema.Struct({
+const assessedEvidenceValue = Schema.Struct({
   kind: Schema.Literal("assessed"),
-  ...TerminalAttemptFields,
+  ...terminalAttemptFields,
   receipt: CompletedLedgerReceipt,
   transcript: EvaluationTranscript,
   grade: GradeReport,
 });
 
-const UnavailableJudgingEvidenceValue = Schema.Struct({
+const unavailableJudgingEvidenceValue = Schema.Struct({
   kind: Schema.Literal("judging-unavailable"),
-  ...TerminalAttemptFields,
+  ...terminalAttemptFields,
   receipt: CompletedLedgerReceipt,
   transcript: EvaluationTranscript,
   codeAssessments: Schema.Array(CodeAssessment),
-  pendingCriterionIds: Schema.NonEmptyArray(CriterionId),
-  error: JudgeError,
+  pendingCriterionIds: Schema.NonEmptyArray(criterionId),
+  error: judgeError,
 });
 
-const LedgerStorageErrorValue = Schema.Struct(LedgerStorageError.fields);
+const ledgerStorageErrorValueSchema = Schema.Struct(LedgerStorageError.fields);
 const makeLedgerStorageErrorValue =
-  Data.tagged<typeof LedgerStorageErrorValue.Type>("LedgerStorageError");
+  Data.tagged<typeof ledgerStorageErrorValueSchema.Type>("LedgerStorageError");
 
 function ledgerStorageErrorValue(
   failure: LedgerStorageError,
-): typeof LedgerStorageErrorValue.Type {
+): typeof ledgerStorageErrorValueSchema.Type {
   return makeLedgerStorageErrorValue({
     operation: failure.operation,
     detail: failure.detail,
@@ -218,8 +228,8 @@ function ledgerStorageErrorValue(
   });
 }
 
-const PersistedLedgerStorageError = Schema.transform(
-  LedgerStorageErrorValue,
+const persistedLedgerStorageError = Schema.transform(
+  ledgerStorageErrorValueSchema,
   Schema.instanceOf(LedgerStorageError),
   {
     strict: true,
@@ -230,7 +240,7 @@ const PersistedLedgerStorageError = Schema.transform(
         ref: failure.ref,
         artifact: failure.artifact,
       }),
-    encode: (_failure, instance) => ledgerStorageErrorValue(instance),
+    encode: (instance) => ledgerStorageErrorValue(instance),
   },
 ).annotations({ identifier: "PersistedLedgerStorageError" });
 
@@ -238,62 +248,60 @@ const PersistedLedgerStorageError = Schema.transform(
 export class LedgerAllocationFailedAttempt extends Schema.TaggedClass<LedgerAllocationFailedAttempt>()(
   "LedgerAllocationFailedAttempt",
   {
-    ...TerminalAttemptFields,
-    failure: PersistedLedgerStorageError,
+    ...terminalAttemptFields,
+    failure: persistedLedgerStorageError,
   },
 ) {}
 
 /** The complete serialized universe for one terminal matrix cell. */
 // eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Phoenix encodes the exact closed attempt schema at its publication boundary.
-export const TerminalAttempt = Schema.Union(
+export const terminalAttempt = Schema.Union(
   AssessedAttempt,
   RunFailedAttempt,
   EvidenceRejectedAttempt,
   JudgingUnavailableAttempt,
   LedgerAllocationFailedAttempt,
 );
-export type TerminalAttempt = typeof TerminalAttempt.Type;
+/** Complete terminal state for one matrix cell. */
+export type TerminalAttempt = typeof terminalAttempt.Type;
 
-const ReportFields = {
+const reportFields = {
   formatVersion: Schema.Literal(REPORT_FORMAT_VERSION),
-  reportId: EvaluationReportId,
-  planDigest: EvaluationPlanDigest,
+  reportId: evaluationReportId,
+  planDigest: evaluationPlanDigest,
   plan: EvaluationReportPlan,
   createdAt: Schema.DateTimeUtc,
   updatedAt: Schema.DateTimeUtc,
-  attempts: Schema.Array(TerminalAttempt),
+  attempts: Schema.Array(terminalAttempt),
 };
 
 /** Checkpoint state while one or more matrix cells remain missing. */
 export class InProgressEvaluationReport extends Schema.TaggedClass<InProgressEvaluationReport>()(
   "InProgressEvaluationReport",
-  ReportFields,
+  reportFields,
 ) {}
 
 /** Exact terminal matrix retained for publication. */
 export class CompletedEvaluationReport extends Schema.TaggedClass<CompletedEvaluationReport>()(
   "CompletedEvaluationReport",
   {
-    ...ReportFields,
+    ...reportFields,
     completedAt: Schema.DateTimeUtc,
   },
 ) {}
 
-const CompletedEvaluationReportValue = Schema.Struct(
+const completedEvaluationReportValue = Schema.Struct(
   CompletedEvaluationReport.fields,
 );
 
 /** The only two durable report states. */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- checkpoint decoding requires the exact closed report schema.
-export const EvaluationReport = Schema.Union(
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- SQL decoding and publication require the exact closed report schema.
+export const evaluationReport = Schema.Union(
   InProgressEvaluationReport,
   CompletedEvaluationReport,
 );
-export type EvaluationReport = typeof EvaluationReport.Type;
-
-const EvaluationReportText = Schema.parseJson(EvaluationReport, {
-  space: JSON_INDENT_SPACES,
-});
+/** Durable state of an evaluation report. */
+export type EvaluationReport = typeof evaluationReport.Type;
 
 /** One executable cell from the ordered report matrix. */
 export interface EvaluationSweepCell {
@@ -311,40 +319,23 @@ export class EvaluationReportValidationError extends Schema.TaggedError<Evaluati
   },
 ) {}
 
-/** Report filesystem read or decode failure. */
-class EvaluationReportReadError extends Schema.TaggedError<EvaluationReportReadError>()(
-  "EvaluationReportReadError",
-  {
-    path: Schema.NonEmptyString,
-    detail: Schema.NonEmptyString,
-  },
-) {}
-
-/** Atomic report encoding or checkpoint failure. */
-export class EvaluationReportWriteError extends Schema.TaggedError<EvaluationReportWriteError>()(
-  "EvaluationReportWriteError",
-  {
-    path: Schema.NonEmptyString,
-    detail: Schema.NonEmptyString,
-  },
-) {}
-
-const ResumeMismatchField = Schema.Literal(
+const resumeMismatchField = Schema.Literal(
   "sourceRevision",
   "caseCatalog",
   "judgePolicy",
   "runtimeConfigurations",
   "planDigest",
 );
-export type ResumeMismatchField = typeof ResumeMismatchField.Type;
+/** Immutable plan component reported by a resume mismatch. */
+export type ResumeMismatchField = typeof resumeMismatchField.Type;
 
 /** A resume request does not describe the report's immutable plan. */
 export class EvaluationResumeMismatch extends Schema.TaggedError<EvaluationResumeMismatch>()(
   "EvaluationResumeMismatch",
   {
-    field: ResumeMismatchField,
-    expectedDigest: EvaluationPlanDigest,
-    actualDigest: EvaluationPlanDigest,
+    field: resumeMismatchField,
+    expectedDigest: evaluationPlanDigest,
+    actualDigest: evaluationPlanDigest,
   },
 ) {}
 
@@ -352,8 +343,8 @@ export class EvaluationResumeMismatch extends Schema.TaggedError<EvaluationResum
 export class EvaluationSweepIncomplete extends Schema.TaggedError<EvaluationSweepIncomplete>()(
   "EvaluationSweepIncomplete",
   {
-    reportId: EvaluationReportId,
-    attemptIds: Schema.NonEmptyArray(EvaluationAttemptId),
+    reportId: evaluationReportId,
+    attemptIds: Schema.NonEmptyArray(evaluationAttemptId),
   },
 ) {}
 
@@ -374,23 +365,23 @@ function quote(value: string): string {
 }
 
 function isJsonArray(
-  value:
-    | ReadonlyArray<JsonValueType>
-    | { readonly [key: string]: JsonValueType },
-): value is ReadonlyArray<JsonValueType> {
+  value: readonly JsonValue[] | { readonly [key: string]: JsonValue },
+): value is readonly JsonValue[] {
   return Array.isArray(value);
 }
 
 function compareKeys(left: string, right: string): number {
-  if (left < right) return -1;
-  if (left > right) return 1;
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
   return 0;
 }
 
 function canonicalComposite(
-  value:
-    | ReadonlyArray<JsonValueType>
-    | { readonly [key: string]: JsonValueType },
+  value: readonly JsonValue[] | { readonly [key: string]: JsonValue },
 ): string {
   if (isJsonArray(value)) {
     return `[${value.map(canonicalJson).join(",")}]`;
@@ -401,19 +392,25 @@ function canonicalComposite(
   return `{${fields.join(",")}}`;
 }
 
-/** Canonical JSON used for plan, report, and Phoenix reconciliation digests. */
-export function canonicalJson(value: JsonValueType): string {
-  if (value === null) return "null";
-  switch (typeof value) {
-    case "boolean":
-      return value ? "true" : "false";
-    case "number":
-      return value === 0 ? "0" : String(value);
-    case "string":
-      return quote(value);
-    case "object":
-      return canonicalComposite(value);
+/**
+ * Canonical JSON used for plan, report, and Phoenix reconciliation digests.
+ * @param value JSON value to encode.
+ * @returns Deterministic JSON text with recursively sorted object keys.
+ */
+export function canonicalJson(value: JsonValue): string {
+  if (value === null) {
+    return "null";
   }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "number") {
+    return value === 0 ? "0" : String(value);
+  }
+  if (typeof value === "string") {
+    return quote(value);
+  }
+  return canonicalComposite(value);
 }
 
 function digestSchemaValue<S extends Schema.Schema.AnyNoContext>(
@@ -423,7 +420,7 @@ function digestSchemaValue<S extends Schema.Schema.AnyNoContext>(
   return Schema.encode(schema)(value, {
     onExcessProperty: "error",
   }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(JsonValue)),
+    Effect.flatMap(Schema.decodeUnknown(jsonValue)),
     Effect.map(canonicalJson),
     Effect.flatMap((text) =>
       Effect.tryPromise({
@@ -451,7 +448,7 @@ function digestSchemaValue<S extends Schema.Schema.AnyNoContext>(
 function decodeEvidenceDigest(
   digest: string,
 ): Effect.Effect<EvaluationEvidenceDigest, EvaluationReportValidationError> {
-  return Schema.decodeUnknown(EvaluationEvidenceDigest)(digest).pipe(
+  return Schema.decodeUnknown(evaluationEvidenceDigest)(digest).pipe(
     Effect.mapError((cause) =>
       validationError(`invalid evidence digest: ${cause.message}`),
     ),
@@ -461,7 +458,7 @@ function decodeEvidenceDigest(
 function digestAssessedEvidence(
   attempt: AssessedAttemptInput,
 ): Effect.Effect<EvaluationEvidenceDigest, EvaluationReportValidationError> {
-  return digestSchemaValue(AssessedEvidenceValue, {
+  return digestSchemaValue(assessedEvidenceValue, {
     kind: "assessed",
     attemptId: attempt.attemptId,
     caseId: attempt.caseId,
@@ -478,7 +475,7 @@ function digestAssessedEvidence(
 function digestUnavailableJudgingEvidence(
   attempt: JudgingUnavailableAttemptInput,
 ): Effect.Effect<EvaluationEvidenceDigest, EvaluationReportValidationError> {
-  return digestSchemaValue(UnavailableJudgingEvidenceValue, {
+  return digestSchemaValue(unavailableJudgingEvidenceValue, {
     kind: "judging-unavailable",
     attemptId: attempt.attemptId,
     caseId: attempt.caseId,
@@ -514,34 +511,20 @@ export const makeJudgingUnavailableAttempt = Effect.fn(
 const digestEvaluationPlan = Effect.fn("evals.digestEvaluationPlan")(function* (
   plan: EvaluationReportPlan,
 ) {
-  const digest = yield* digestSchemaValue(EvaluationReportPlanValue, plan);
-  return yield* Schema.decodeUnknown(EvaluationPlanDigest)(digest).pipe(
+  const digest = yield* digestSchemaValue(evaluationReportPlanValue, plan);
+  return yield* Schema.decodeUnknown(evaluationPlanDigest)(digest).pipe(
     Effect.mapError((cause) =>
       validationError(`invalid plan digest: ${cause.message}`),
     ),
   );
 });
 
-/** Compute the publication identity of a validated completed report. */
-export const digestEvaluationReport = Effect.fn("evals.digestEvaluationReport")(
-  function* (report: CompletedEvaluationReport) {
-    const validated = yield* validateCompletedEvaluationReport(report);
-    const digest = yield* digestSchemaValue(
-      CompletedEvaluationReportValue,
-      validated,
-    );
-    return yield* Schema.decodeUnknown(EvaluationReportDigest)(digest).pipe(
-      Effect.mapError((cause) =>
-        validationError(`invalid report digest: ${cause.message}`),
-      ),
-    );
-  },
-);
-
-function duplicate(values: ReadonlyArray<string>): string | undefined {
+function duplicate(values: readonly string[]): string | undefined {
   const seen = new Set<string>();
   for (const value of values) {
-    if (seen.has(value)) return value;
+    if (seen.has(value)) {
+      return value;
+    }
     seen.add(value);
   }
   return undefined;
@@ -580,30 +563,30 @@ const validateEvaluationPlan = Effect.fn("evals.validateEvaluationPlan")(
 
 function rawAttemptId(
   reportId: EvaluationReportId,
-  conditionId: typeof ConditionId.Type,
-  caseId: typeof EvaluationCaseId.Type,
+  condition: ConditionId,
+  evaluationCase: EvaluationCaseId,
 ): string {
-  return `${reportId}/${conditionId}/${caseId}/${String(SAMPLE_NUMBER).padStart(3, "0")}`;
+  return `${reportId}/${condition}/${evaluationCase}/${String(SAMPLE_NUMBER).padStart(3, "0")}`;
 }
 
 /** Construct the deterministic identity for the matrix's only sample. */
-export const makeEvaluationAttemptId = Effect.fn(
-  "evals.makeEvaluationAttemptId",
-)(function* (
-  reportId: EvaluationReportId,
-  conditionId: typeof ConditionId.Type,
-  caseId: typeof EvaluationCaseId.Type,
-) {
-  return yield* Schema.decodeUnknown(EvaluationAttemptId)(
-    rawAttemptId(reportId, conditionId, caseId),
-  ).pipe(
-    Effect.mapError((cause) =>
-      validationError(`invalid attempt identity: ${cause.message}`),
-    ),
-  );
-});
+const makeEvaluationAttemptId = Effect.fn("evals.makeEvaluationAttemptId")(
+  function* (
+    reportId: EvaluationReportId,
+    condition: ConditionId,
+    evaluationCase: EvaluationCaseId,
+  ) {
+    return yield* Schema.decodeUnknown(evaluationAttemptId)(
+      rawAttemptId(reportId, condition, evaluationCase),
+    ).pipe(
+      Effect.mapError((cause) =>
+        validationError(`invalid attempt identity: ${cause.message}`),
+      ),
+    );
+  },
+);
 
-function expectedAttemptIds(report: EvaluationReport): ReadonlyArray<string> {
+function expectedAttemptIds(report: EvaluationReport): readonly string[] {
   return report.plan.cases.flatMap((casePlan) =>
     report.plan.conditions.map((conditionPlan) =>
       rawAttemptId(report.reportId, conditionPlan.id, casePlan.id),
@@ -613,22 +596,19 @@ function expectedAttemptIds(report: EvaluationReport): ReadonlyArray<string> {
 
 function gradedCriterionIds(
   attempt: TerminalAttempt,
-): ReadonlyArray<string> | undefined {
-  switch (attempt._tag) {
-    case "AssessedAttempt":
-      return attempt.grade.assessments.map(
-        (assessment) => assessment.criterionId,
-      );
-    case "JudgingUnavailableAttempt":
-      return [
-        ...attempt.codeAssessments.map((assessment) => assessment.criterionId),
-        ...attempt.pendingCriterionIds,
-      ];
-    case "RunFailedAttempt":
-    case "EvidenceRejectedAttempt":
-    case "LedgerAllocationFailedAttempt":
-      return undefined;
+): readonly string[] | undefined {
+  if (attempt instanceof AssessedAttempt) {
+    return attempt.grade.assessments.map(
+      (assessment) => assessment.criterionId,
+    );
   }
+  if (attempt instanceof JudgingUnavailableAttempt) {
+    return [
+      ...attempt.codeAssessments.map((assessment) => assessment.criterionId),
+      ...attempt.pendingCriterionIds,
+    ];
+  }
+  return undefined;
 }
 
 function attemptTimeIssue(attempt: TerminalAttempt): string | undefined {
@@ -701,7 +681,7 @@ function validateGradedAttemptEvidence(
   ) {
     return Effect.void;
   }
-  const assessments: ReadonlyArray<CriterionAssessment> =
+  const assessments: readonly CriterionAssessment[] =
     attempt instanceof AssessedAttempt
       ? attempt.grade.assessments
       : attempt.codeAssessments;
@@ -713,11 +693,9 @@ function validateGradedAttemptEvidence(
         ),
       ),
     );
-    const transcriptMessageCount = attempt.transcript.conversations.reduce(
-      (count, conversation) => count + conversation.messages.length,
-      0,
-    );
-    if (attempt.receipt.completion.recordCount < transcriptMessageCount) {
+    if (
+      attempt.receipt.completion.recordCount < attempt.transcript.items.length
+    ) {
       return yield* Effect.fail(
         validationError(
           `attempt ${attempt.attemptId} transcript exceeds its ledger record count`,
@@ -766,20 +744,16 @@ function validateAttempt(
 
 function attemptOrderIssue(
   report: EvaluationReport,
-  expected: ReadonlyArray<string>,
+  expected: readonly string[],
 ): string | undefined {
   const actual = report.attempts.map((attempt) => attempt.attemptId);
-  const actualSet = new Set<string>(actual);
-  const relativeOrder = expected.filter((attemptId) =>
-    actualSet.has(attemptId),
-  );
-  if (relativeOrder.some((attemptId, index) => actual[index] !== attemptId)) {
-    return "terminal attempts are not in matrix order";
+  if (actual.some((attemptId, index) => expected[index] !== attemptId)) {
+    return "terminal attempts are not the completed prefix of the matrix";
   }
-  const completeMatrix =
-    actual.length === expected.length &&
-    expected.every((attemptId, index) => actual[index] === attemptId);
-  if (report._tag === "CompletedEvaluationReport" && !completeMatrix) {
+  if (
+    report._tag === "CompletedEvaluationReport" &&
+    actual.length !== expected.length
+  ) {
     return "completed report does not contain the exact matrix";
   }
   return undefined;
@@ -834,7 +808,23 @@ export const validateCompletedEvaluationReport = Effect.fn(
   return report;
 });
 
-/** Create an empty, validated report checkpoint for an immutable plan. */
+/** Compute the publication identity of a validated completed report. */
+export const digestEvaluationReport = Effect.fn("evals.digestEvaluationReport")(
+  function* (report: CompletedEvaluationReport) {
+    const validated = yield* validateCompletedEvaluationReport(report);
+    const digest = yield* digestSchemaValue(
+      completedEvaluationReportValue,
+      validated,
+    );
+    return yield* Schema.decodeUnknown(evaluationReportDigest)(digest).pipe(
+      Effect.mapError((cause) =>
+        validationError(`invalid report digest: ${cause.message}`),
+      ),
+    );
+  },
+);
+
+/** Create an empty, validated report for an immutable plan. */
 export const createEvaluationReport = Effect.fn("evals.createEvaluationReport")(
   function* (reportId: EvaluationReportId, plan: EvaluationReportPlan) {
     yield* validateEvaluationPlan(plan);
@@ -852,107 +842,6 @@ export const createEvaluationReport = Effect.fn("evals.createEvaluationReport")(
   },
 );
 
-/** Resolve the default local handoff path without exposing it as storage identity. */
-export const evaluationReportPath = Effect.fn("evals.evaluationReportPath")(
-  function* (reportId: EvaluationReportId) {
-    const path = yield* Path.Path;
-    return path.join(".moltzap", "evals", "reports", `${reportId}.json`);
-  },
-);
-
-function writeError(path: string, cause: unknown): EvaluationReportWriteError {
-  return EvaluationReportWriteError.make({
-    path,
-    detail: describeUnknown(cause),
-  });
-}
-
-/** Encode, sync, and atomically rename one report checkpoint in-place. */
-export const checkpointEvaluationReport = Effect.fn(
-  "evals.checkpointEvaluationReport",
-)(function* (reportPath: string, report: EvaluationReport) {
-  const validated = yield* validateEvaluationReport(report).pipe(
-    Effect.mapError((cause) => writeError(reportPath, cause)),
-  );
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const directory = path.dirname(reportPath);
-  const text = yield* Schema.encode(EvaluationReportText, {
-    onExcessProperty: "error",
-  })(validated).pipe(Effect.mapError((cause) => writeError(reportPath, cause)));
-  yield* fileSystem
-    .makeDirectory(directory, { recursive: true })
-    .pipe(Effect.mapError((cause) => writeError(reportPath, cause)));
-  const temporary = yield* fileSystem
-    .makeTempFile({
-      directory,
-      prefix: `.${path.basename(reportPath)}.`,
-      suffix: ".tmp",
-    })
-    .pipe(Effect.mapError((cause) => writeError(reportPath, cause)));
-  const publish = Effect.gen(function* () {
-    yield* fileSystem.writeFileString(temporary, `${text}\n`, {
-      mode: REPORT_FILE_MODE,
-    });
-    yield* Effect.scoped(
-      fileSystem
-        .open(temporary, { flag: "r" })
-        .pipe(Effect.flatMap((file) => file.sync)),
-    );
-    yield* fileSystem.rename(temporary, reportPath);
-  }).pipe(
-    Effect.withSpan("evals.checkpointEvaluationReport.publish"),
-    Effect.mapError((cause) => writeError(reportPath, cause)),
-    Effect.ensuring(
-      fileSystem.remove(temporary, { force: true }).pipe(Effect.ignore),
-    ),
-  );
-  yield* publish;
-  return validated;
-});
-
-/** Decode and validate one report before it can be resumed or published. */
-export const loadEvaluationReport = Effect.fn("evals.loadEvaluationReport")(
-  function* (reportPath: string) {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const exists = yield* fileSystem.exists(reportPath).pipe(
-      Effect.mapError((cause) =>
-        EvaluationReportReadError.make({
-          path: reportPath,
-          detail: describeUnknown(cause),
-        }),
-      ),
-    );
-    if (!exists) {
-      return yield* Effect.fail(
-        EvaluationReportReadError.make({
-          path: reportPath,
-          detail: "report does not exist",
-        }),
-      );
-    }
-    const text = yield* fileSystem.readFileString(reportPath).pipe(
-      Effect.mapError((cause) =>
-        EvaluationReportReadError.make({
-          path: reportPath,
-          detail: describeUnknown(cause),
-        }),
-      ),
-    );
-    const decoded = yield* Schema.decodeUnknown(EvaluationReportText)(text, {
-      onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError((cause) =>
-        EvaluationReportReadError.make({
-          path: reportPath,
-          detail: cause.message,
-        }),
-      ),
-    );
-    return yield* validateEvaluationReport(decoded);
-  },
-);
-
 function matchPlanComponent<S extends Schema.Schema.AnyNoContext>(
   field: ResumeMismatchField,
   schema: S,
@@ -964,7 +853,7 @@ function matchPlanComponent<S extends Schema.Schema.AnyNoContext>(
 > {
   return Effect.all({
     actual: digestSchemaValue(schema, actual).pipe(
-      Effect.flatMap(Schema.decodeUnknown(EvaluationPlanDigest)),
+      Effect.flatMap(Schema.decodeUnknown(evaluationPlanDigest)),
       Effect.mapError((cause) =>
         cause instanceof EvaluationReportValidationError
           ? cause
@@ -972,7 +861,7 @@ function matchPlanComponent<S extends Schema.Schema.AnyNoContext>(
       ),
     ),
     expected: digestSchemaValue(schema, expected).pipe(
-      Effect.flatMap(Schema.decodeUnknown(EvaluationPlanDigest)),
+      Effect.flatMap(Schema.decodeUnknown(evaluationPlanDigest)),
       Effect.mapError((cause) =>
         cause instanceof EvaluationReportValidationError
           ? cause
@@ -994,11 +883,11 @@ function matchPlanComponent<S extends Schema.Schema.AnyNoContext>(
   );
 }
 
-/** Load a report only when every immutable execution input still matches. */
+/** Accept a stored report only when every immutable execution input matches. */
 export const resumeEvaluationReport = Effect.fn("evals.resumeEvaluationReport")(
-  function* (reportPath: string, expectedPlan: EvaluationReportPlan) {
+  function* (report: EvaluationReport, expectedPlan: EvaluationReportPlan) {
     yield* validateEvaluationPlan(expectedPlan);
-    const report = yield* loadEvaluationReport(reportPath);
+    yield* validateEvaluationReport(report);
     yield* matchPlanComponent(
       "sourceRevision",
       Schema.String,
@@ -1007,19 +896,19 @@ export const resumeEvaluationReport = Effect.fn("evals.resumeEvaluationReport")(
     );
     yield* matchPlanComponent(
       "caseCatalog",
-      Schema.Array(EvaluationCasePlanValue),
+      Schema.Array(evaluationCasePlanValue),
       report.plan.cases,
       expectedPlan.cases,
     );
     yield* matchPlanComponent(
       "judgePolicy",
-      JudgePolicySnapshotValue,
+      judgePolicySnapshotValue,
       report.plan.judgePolicy,
       expectedPlan.judgePolicy,
     );
     yield* matchPlanComponent(
       "runtimeConfigurations",
-      Schema.Array(EvaluationConditionPlanValue),
+      Schema.Array(evaluationConditionPlanValue),
       report.plan.conditions,
       expectedPlan.conditions,
     );
@@ -1037,22 +926,11 @@ export const resumeEvaluationReport = Effect.fn("evals.resumeEvaluationReport")(
   },
 );
 
-function attemptIndex(
-  report: EvaluationReport,
-): ReadonlyMap<string, TerminalAttempt> {
-  return new Map(
-    report.attempts.map((attempt) => [attempt.attemptId, attempt]),
-  );
-}
-
-function matrixCells(
-  report: InProgressEvaluationReport,
-): Effect.Effect<
-  ReadonlyArray<EvaluationSweepCell>,
-  EvaluationReportValidationError
-> {
-  const attempts = attemptIndex(report);
-  return Effect.forEach(
+/** Return missing matrix cells in their canonical execution order. */
+export const remainingEvaluationCells = Effect.fn(
+  "evals.remainingEvaluationCells",
+)(function* (report: InProgressEvaluationReport) {
+  const cells = yield* Effect.forEach(
     report.plan.cases.flatMap((casePlan) =>
       report.plan.conditions.map((conditionPlan) => ({
         casePlan,
@@ -1075,65 +953,40 @@ function matrixCells(
         ),
       ),
     { concurrency: 1 },
-  ).pipe(
-    Effect.map((cells) =>
-      cells.filter((cell) => !attempts.has(cell.attemptId)),
-    ),
   );
-}
+  return cells.slice(report.attempts.length);
+});
 
-function appendAttempt(
-  report: InProgressEvaluationReport,
-  attempt: TerminalAttempt,
-): Effect.Effect<InProgressEvaluationReport, EvaluationReportValidationError> {
-  return Effect.gen(function* () {
-    if (
-      report.attempts.some(
-        (existing) => existing.attemptId === attempt.attemptId,
-      )
-    ) {
-      return yield* Effect.fail(
-        validationError(`attempt ${attempt.attemptId} is already terminal`),
-      );
-    }
-    const expected = expectedAttemptIds(report);
-    const nextAttempts = [...report.attempts, attempt].sort(
-      (left, right) =>
-        expected.indexOf(left.attemptId) - expected.indexOf(right.attemptId),
+/** Append one immutable terminal attempt to an in-progress report. */
+export const appendEvaluationAttempt = Effect.fn(
+  "evals.appendEvaluationAttempt",
+)(function* (report: InProgressEvaluationReport, attempt: TerminalAttempt) {
+  const expected = expectedAttemptIds(report);
+  const expectedNext = expected[report.attempts.length];
+  if (expectedNext === undefined) {
+    return yield* Effect.fail(
+      validationError("the report matrix is already terminal"),
     );
-    const next = InProgressEvaluationReport.make({
-      formatVersion: report.formatVersion,
-      reportId: report.reportId,
-      planDigest: report.planDigest,
-      plan: report.plan,
-      createdAt: report.createdAt,
-      updatedAt: attempt.completedAt,
-      attempts: nextAttempts,
-    });
-    yield* validateEvaluationReport(next);
-    return next;
+  }
+  if (attempt.attemptId !== expectedNext) {
+    return yield* Effect.fail(
+      validationError(
+        `attempt ${attempt.attemptId} is not the next matrix cell ${expectedNext}`,
+      ),
+    );
+  }
+  const next = InProgressEvaluationReport.make({
+    formatVersion: report.formatVersion,
+    reportId: report.reportId,
+    planDigest: report.planDigest,
+    plan: report.plan,
+    createdAt: report.createdAt,
+    updatedAt: attempt.completedAt,
+    attempts: [...report.attempts, attempt],
   });
-}
-
-function executeAndCheckpoint<E, R>(
-  reportPath: string,
-  report: InProgressEvaluationReport,
-  cell: EvaluationSweepCell,
-  execute: (cell: EvaluationSweepCell) => Effect.Effect<TerminalAttempt, E, R>,
-): Effect.Effect<
-  InProgressEvaluationReport,
-  E | EvaluationReportValidationError | EvaluationReportWriteError,
-  FileSystem.FileSystem | Path.Path | R
-> {
-  return Effect.uninterruptibleMask((restore) =>
-    Effect.gen(function* () {
-      const attempt = yield* restore(execute(cell));
-      const next = yield* appendAttempt(report, attempt);
-      yield* checkpointEvaluationReport(reportPath, next);
-      return next;
-    }),
-  );
-}
+  yield* validateEvaluationReport(next);
+  return next;
+});
 
 /** Transition an exact terminal matrix into its publication-only state. */
 export const completeEvaluationReport = Effect.fn(
@@ -1164,33 +1017,6 @@ export const completeEvaluationReport = Effect.fn(
   return yield* validateCompletedEvaluationReport(completed);
 });
 
-/**
- * Execute every missing cell sequentially and checkpoint after each terminal
- * attempt. A completed input is returned without retrying any terminal cell.
- */
-export const runEvaluationSweep = <E, R>(
-  reportPath: string,
-  report: EvaluationReport,
-  execute: (cell: EvaluationSweepCell) => Effect.Effect<TerminalAttempt, E, R>,
-): Effect.Effect<
-  CompletedEvaluationReport,
-  E | EvaluationReportValidationError | EvaluationReportWriteError,
-  FileSystem.FileSystem | Path.Path | R
-> => {
-  if (report._tag === "CompletedEvaluationReport") {
-    return validateCompletedEvaluationReport(report);
-  }
-  return Effect.gen(function* () {
-    const cells = yield* matrixCells(report);
-    const terminal = yield* Effect.reduce(cells, report, (current, cell) =>
-      executeAndCheckpoint(reportPath, current, cell, execute),
-    );
-    const completed = yield* completeEvaluationReport(terminal);
-    yield* checkpointEvaluationReport(reportPath, completed);
-    return completed;
-  }).pipe(Effect.withSpan("evals.runEvaluationSweep"));
-};
-
 /** Fail the CLI only for operational states, never behavioral verdict data. */
 export const ensureSweepOperationallyComplete = Effect.fn(
   "evals.ensureSweepOperationallyComplete",
@@ -1199,7 +1025,9 @@ export const ensureSweepOperationallyComplete = Effect.fn(
     (attempt) => attempt._tag !== "AssessedAttempt",
   );
   const [firstFailure, ...remainingFailures] = failures;
-  if (firstFailure === undefined) return report;
+  if (firstFailure === undefined) {
+    return report;
+  }
   return yield* Effect.fail(
     EvaluationSweepIncomplete.make({
       reportId: report.reportId,

@@ -61,12 +61,11 @@ class FlushDispatchChainError extends Data.TaggedError(
 
 type MessageFixtureOverrides = Omit<
   Partial<Message>,
-  "id" | "conversationId" | "senderId" | "replyToId" | "taggedEntities"
+  "id" | "conversationId" | "senderId" | "taggedEntities"
 > & {
   readonly id?: string;
   readonly conversationId?: string;
   readonly senderId?: string;
-  readonly replyToId?: string;
   readonly taggedEntities?: readonly string[];
 };
 
@@ -76,15 +75,13 @@ type MessageFixtureOverrides = Omit<
  * @returns A complete Message fixture.
  */
 export function buildMessage(overrides: MessageFixtureOverrides = {}): Message {
-  const { id, conversationId, senderId, replyToId, taggedEntities, ...rest } =
-    overrides;
+  const { id, conversationId, senderId, taggedEntities, ...rest } = overrides;
   return {
     id: testMessageId(id ?? "msg-1"),
     conversationId: testConversationId(conversationId ?? "conv-1"),
     senderId: testAgentId(senderId ?? "agent-alice"),
     parts: [{ type: "text", text: "hello" }],
     createdAt: "2026-04-10T12:00:00.000Z",
-    ...(replyToId !== undefined ? { replyToId: testMessageId(replyToId) } : {}),
     ...(taggedEntities !== undefined
       ? { taggedEntities: taggedEntities.map(testAgentId) }
       : {}),

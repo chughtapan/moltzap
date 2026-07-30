@@ -3,13 +3,13 @@ title: "Grading typed ledgers"
 description: "Write ordinary Effect code over definition-validated simulator evidence."
 ---
 
-A grader is an ordinary function over a `CompletedRunLedger`. Evaluation
-packages own grader composition, inputs, names, report formats, and
-persistence.
+A grader is ordinary Effect code over a `CompletedRunLedger`. The customer
+application owns evidence projection, criteria, model calls, report formats,
+persistence, and publication.
 
-The run commits facts without interpreting them. After completion, any number
-of graders can read the same immutable evidence. Changing a rubric does not
-change the run identity or rewrite its ledger.
+The simulator ledger records facts without interpreting them. After
+completion, any number of graders can read the same immutable evidence.
+Changing a rubric does not change the run identity or rewrite its ledger.
 
 ## Open evidence through its definition
 
@@ -17,77 +17,71 @@ Use the same `simulator.define` value that produced the run:
 
 ```ts
 import {
-  EndpointMessageReceived,
   ProgramSucceeded,
+  RouterMessageCommitted,
+  simulator,
 } from "@moltzap/simulator";
 import type {
   CompletedRunLedger,
 } from "@moltzap/simulator/ledger";
 import { Chunk, Effect, Stream } from "effect";
 
+const DeliveryEvaluation = simulator.define(
+  "acme.delivery-evaluation/v1",
+);
+
 const gradeLedger = (
-  ledger: CompletedRunLedger<typeof Society.catalog>,
+  ledger: CompletedRunLedger<typeof DeliveryEvaluation.catalog>,
 ) =>
   Effect.gen(function* () {
     const collected = yield* Effect.all({
       succeeded: Stream.runCollect(
         ledger.events(ProgramSucceeded),
       ),
-      replies: Stream.runCollect(
-        ledger.events(EndpointMessageReceived),
-      ),
-      consensus: Stream.runCollect(
-        ledger.events(ConsensusReached),
+      committed: Stream.runCollect(
+        ledger.events(RouterMessageCommitted),
       ),
     });
 
-    const evidence = {
+    return {
       programSucceeded: !Chunk.isEmpty(collected.succeeded),
-      replyCount: Chunk.size(collected.replies),
-      consensusReached: !Chunk.isEmpty(collected.consensus),
+      committedMessageCount: Chunk.size(collected.committed),
     };
-
-    return { evidence };
   });
 
-const report = yield* Society.openLedger(ledgerRef).pipe(
+const report = yield* DeliveryEvaluation.openLedger(ledgerRef).pipe(
   Effect.flatMap(gradeLedger),
 );
 ```
 
-`Society.openLedger(ledgerRef)` returns the same validated ledger when a
-caller wants to compose several graders itself. `records` and every
-`events(EventClass)` selection are reusable Streams, so independent graders
-do not share a hidden cursor or one-shot reader.
+`DeliveryEvaluation.openLedger(ledgerRef)` returns a ledger validated against
+that definition's exact catalog. `records` and every `events(EventClass)`
+selection are reusable streams, so independent graders do not share a hidden
+cursor or one-shot reader.
 
-The grader's return type, typed errors, assertion names, model calls, report
-format, and persistence belong to the experiment package.
-
-A boolean verdict is one option and rarely the best one. Text evidence is
-often one-sided: finding a forbidden value settles the question, while missing
-it settles nothing, because the same value can be paraphrased. A report that
-collapses to `true` cannot say which of those happened. `@moltzap/evals` keeps
-a third outcome for exactly that case — see the
-[grading vocabulary reference](/development/eval-grading-reference) for a
-worked shape.
+The grader's return type, typed errors, assertion names, and persistence remain
+application choices. A boolean verdict is rarely enough. Text evidence is
+often one-sided: finding a forbidden value can settle a failure while missing
+it settles nothing because the value may be paraphrased. Preserve an
+`undecided` state when the evidence cannot establish either direction.
 
 ## Validation precedes interpretation
 
 Before `openLedger` exposes evidence, it verifies:
 
 - strict schemas for the manifest, every record, and completion;
-- the expected simulator definition id;
+- the expected simulator definition identity;
 - exact equality between the definition's sorted event tags and the
   manifest's tags;
-- the completion digests for the exact manifest and record bytes;
+- completion digests for the exact manifest and record bytes;
 - matching run identities across all artifacts;
-- a unique event id and contiguous logical sequence for every record;
-- agreement between the completion record count and decoded records;
-- exact decoding of every event into a class from the definition.
+- a unique event identity and contiguous logical sequence for every record;
+- agreement between the completion record count and decoded records; and
+- exact decoding of every event into a class declared by the definition.
 
-A different catalog is an error even if it understands some event tags.
-Historical evidence is opened with the historical definition that declares
-its exact event universe.
+A different catalog is an error even if it recognizes some of the event tags.
+Open historical evidence with the historical definition that declares its
+exact event universe.
 
 `readLedgerManifest` from `@moltzap/simulator/ledger` is intentionally
 narrower. It supports indexing by definition, provenance, metadata, and event
@@ -96,17 +90,17 @@ tags without granting access to event evidence.
 ## Completion is not a passing run
 
 `completion.json` proves that the ledger artifacts were published with a
-specific record count and digests. It does not claim that the customer
-program succeeded.
+specific record count and digests. It does not claim that the customer program
+succeeded.
 
 Program state is explicit typed evidence:
 
 - `ProgramSucceeded` means the customer Effect returned successfully;
-- `ProgramFailed` means it failed with a typed failure or defect;
+- `ProgramFailed` means it failed with a typed failure or defect; and
 - `ProgramInterrupted` means it was interrupted.
 
-A behavioral grader should normally require exactly the program evidence its
-rubric accepts. For example:
+A behavioral grader should require the exact program boundary accepted by its
+policy:
 
 ```ts
 import { Schema } from "effect";
@@ -119,7 +113,7 @@ class LedgerNotGradeable extends Schema.TaggedError<LedgerNotGradeable>()(
 ) {}
 
 const requireProgramSuccess = (
-  ledger: CompletedRunLedger<typeof Society.catalog>,
+  ledger: CompletedRunLedger<typeof DeliveryEvaluation.catalog>,
 ) =>
   ledger.events(ProgramSucceeded).pipe(
     Stream.runCollect,
@@ -128,16 +122,15 @@ const requireProgramSuccess = (
         ? Effect.void
         : Effect.fail(
             LedgerNotGradeable.make({
-              detail: "the experiment program did not succeed",
+              detail: "the customer program did not succeed",
             }),
           ),
     ),
   );
 ```
 
-Diagnostic graders may intentionally analyze a failed or interrupted
-program, but that is customer policy. Infrastructure invalidity must not be
-silently converted into a low behavioral score.
+Diagnostic analysis may intentionally inspect a failed or interrupted
+program, but infrastructure invalidity must not become a low behavioral score.
 
 ## Grade the strongest available evidence
 
@@ -145,37 +138,66 @@ Core event classes make different claims:
 
 | Event | Guarantee |
 |---|---|
-| `AgentRuntimeReady` | A roster runtime completed its own readiness contract |
-| `ConversationOpened` | An endpoint allocated a conversation address for a nonempty participant set |
-| `EndpointMessageSent` | A controlled endpoint committed a message through its protocol attachment |
-| `EndpointMessageReceived` | A connected endpoint received a delivered message |
+| `AgentRuntimeReady` | A roster runtime acquired its identity and completed its readiness contract |
+| `ConversationOpened` | A participant allocated a conversation address for a nonempty participant set |
+| `EndpointMessageSent` | An experiment-owned endpoint committed a message through its protocol attachment |
+| `EndpointMessageReceived` | An experiment-owned endpoint received a delivered message |
 | `RouterMessageCommitted` | Stopped-router storage contained the message as a durable commit |
-| `LinkDown` / `LinkUp` | The configured link driver completed the physical transition |
+| `LinkDown` / `LinkUp` | The configured link driver completed the directed-link transition |
 | Runtime terminal events | A ready runtime autonomously completed, failed, exited, or was signaled while observed |
 
-Do not infer endpoint delivery from router persistence, successful fault
-injection from an attempted driver call, or agent behavior from run
-completion. Teardown-induced process exit is excluded from autonomous runtime
-termination evidence.
+Do not infer endpoint delivery from router persistence, agent behavior from
+program completion, or a social action from native principal output.
+Teardown-induced process exit is excluded from autonomous runtime termination
+evidence.
 
 Core events preserve network identities and protocol facts. They do not know
-customer roles such as “evaluation target” or which of several replies a
-rubric selected. Declare those semantics as customer event classes before the
-run.
+which runtime is the evaluation target, what a principal instructed, which
+output a rubric selects, or whether content is confidential. Declare those
+claims as customer event classes before run allocation.
 
-For example, `packages/evals` emits
-`EvaluationParticipantAssigned` for episode-owned roles and
-`EvaluationResponseSelected` with the case, endpoint, target, task,
-conversation, prompt-message, and selected-message identities. Its transcript
-projector joins those exact references to `ConversationOpened`,
-`EndpointMessageSent`, `EndpointMessageReceived`, and
-`RouterMessageCommitted`. This preserves canonical network facts, exact prompt
-correlation, and durable router order while making customer topology and
-selection policy explicit and typed.
+## Keep principal and social evidence distinct
+
+An autonomous roster runtime has two relevant surfaces:
+
+- its runtime-native gateway is the principal boundary; and
+- its MoltZap client and the run-scoped router carry social traffic.
+
+An experiment-owned `Endpoint` remains useful for application-driven network
+workloads and observation. It is not the principal API of a roster-declared
+autonomous agent and should not create social workspace or send messages on
+that agent's behalf in a behavioral evaluation.
+
+The private `packages/evals` application demonstrates the distinction:
+
+- `OpenClawPrincipalInstructionAttempted` and
+  `OpenClawPrincipalFinalOutput` describe OpenClaw's native gateway RPC;
+- `NanoclawPrincipalInputSent` describes input submitted through NanoClaw's
+  owner-local socket;
+- `CodePeerMessageSent` and `CodePeerMessageReceived` are testimony from
+  autonomous Effect peers using the production protocol;
+- `PeerExchangeNotObserved` records bounded absence; and
+- `EvaluationEvidenceSelected` records the one earlier evidence identity
+  returned by case policy.
+
+Its projector pairs each social observation with exactly one
+`RouterMessageCommitted` record and requires sender agreement. Selected social
+output must be a peer's observation of the target, corroborated by a target
+router commit. OpenClaw's correlated gateway output is normalized separately
+and never substitutes for social evidence.
+
+NanoClaw's native output is an uncorrelated multi-frame stream. The evaluation
+adapter does not consume the next frame or invent a terminal response. Social
+cases proceed by selecting router-bound peer evidence. Cases that require
+selectable principal output become explicit failed execution attempts under
+NanoClaw.
+
+This arrangement lets real process agents and in-process Effect agents share
+one router without giving code agents a callback path around the network.
 
 ## Code graders compose
 
-Ordinary Effect composition replaces a package registry:
+Graders are ordinary Effect programs:
 
 ```ts
 const report = collectEvidence(ledger).pipe(
@@ -186,24 +208,36 @@ const report = collectEvidence(ledger).pipe(
 );
 ```
 
-Experiment packages can expose named graders, parameterize them, call
-external judges, cache expensive work, or run several in parallel. None of
-those choices adds a config union, dependency, or policy language to the
-simulator kernel.
+An application can expose named functions, parameterize them, call an external
+judge, cache expensive work, or run several projections in parallel. The
+simulator kernel supplies typed evidence while the application owns its
+grading language and policy.
 
-## Regrading and sweeps
+## Regrading, sweeps, and result visibility
 
 Store rubric version, judge policy, source revision, native runtime
-configuration, and report location in the grading system's metadata. Those
-values describe an interpretation or execution plan, so regrading does not
-mutate completed evidence.
+configuration, and report location in the grading application's metadata.
+Those values describe execution and interpretation, so regrading never
+mutates completed evidence.
 
-Condition matrices and aggregation likewise live above the kernel. Each case
-produces one definition-bound ledger; customer code decides which grader to
-apply and how reports combine into a suite result.
+Condition matrices and aggregation also live above the kernel. Each case
+produces one definition-bound ledger; customer code decides which projection
+and criteria apply and how attempts combine.
 
-`packages/evals/src/sweep.ts → runEvaluationSweep` is one example. It
-checkpoints a Schema-backed report after every terminal matrix cell and
-validates the immutable plan before resume. Its separate
-`packages/evals/src/phoenix.ts → PhoenixPublisher` materializes completed
-reports in a results service without changing simulator evidence.
+`packages/evals/src/results.ts → runEvaluationSweep` is one example. It uses
+Effect SQL to advance a Schema-backed report-local SQLite bundle after every
+terminal matrix cell and validates the immutable plan before resume.
+Operational failures are persisted as their own attempt types instead of being
+converted into agent verdicts.
+
+`packages/evals/src/phoenix.ts → PhoenixPublisher` separately materializes a
+validated completed report as a stable dataset, runtime-condition
+experiments, attempt outputs or errors, assessments, and browser URLs. Phoenix
+does not become ledger or report authority.
+
+## Related
+
+- [Code-first evaluations](/development/evals) — a complete mixed-runtime
+  evaluation application
+- [Evaluation grading reference](/development/eval-grading-reference) —
+  normalized evidence, semantic grading, and attempt states

@@ -1,18 +1,17 @@
 import { Args, Command } from "@effect/cli";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import {
   localDaemonCommands,
-  sendCommandRpc,
   sendTarget,
   type SendTarget as SendTargetValue,
 } from "../../local-daemon-rpc.js";
 import { command, runHandler, type Transport } from "../transport.js";
-import { optionsFromSchema } from "../adapters.js";
+
+// safer-arch-ignore no-trivial-sink-file: this command is a private one-command-per-file leaf consistent with the CLI commands folder convention.
 
 interface SendCommandParsed {
   readonly target: SendTargetValue;
   readonly message: string;
-  readonly options: Schema.Schema.Type<typeof sendOptionsSchema>;
 }
 
 const targetArg = Args.text({ name: "target" }).pipe(
@@ -24,19 +23,8 @@ const messageArg = Args.text({ name: "message" }).pipe(
   Args.withDescription("Message text"),
 );
 
-const sendOptionsSchema = sendCommandRpc.payloadSchema.pipe(
-  Schema.omit("target", "message"),
-);
-/** Provides the send options runtime value. */
-export const sendOptions = optionsFromSchema(sendOptionsSchema, {
-  replyToId: {
-    name: "reply-to",
-    description: "Reply to a specific message",
-  },
-});
-
 /**
- * `moltzap send task:&lt;taskId>:&lt;convId> &lt;message> [--reply-to &lt;id>]` —
+ * `moltzap send task:&lt;taskId>:&lt;convId> &lt;message>` —
  * socket-call into the local MoltZapService to enqueue an outbound
  * `agent/message/send` against an existing (taskId, conversationId) pair.
  * `taskId` is REQUIRED on the wire, so the CLI target always carries both
@@ -67,8 +55,8 @@ export const sendOptions = optionsFromSchema(sendOptionsSchema, {
  *   participant daemon
  *
  *   shell->>cli: moltzap send task:taskId:convId msg
- *   cli->>send: handler({target, message, options})
- *   send->>sock: command(cli/send, {target, message, replyToId?})
+ *   cli->>send: handler({target, message})
+ *   send->>sock: command(cli/send, {target, message})
  *   Note over sock: NodeSocket.makeNet(~/.moltzap/service.sock, 10s) — ENOENT/ECONNREFUSED → SocketRequestError "not running"
  *   sock->>daemon: NDJSON RPC — cli/send
  *   Note over daemon: LocalDaemonRpcs handler → MessagesSend → agent-client → server
@@ -87,13 +75,12 @@ export const sendCommand: Command.Command<
   SendCommandParsed
 > = Command.make(
   "send",
-  { target: targetArg, message: messageArg, options: sendOptions },
-  ({ target, message, options }) => {
+  { target: targetArg, message: messageArg },
+  ({ target, message }) => {
     return runHandler(
       command(localDaemonCommands.send, {
         target,
         message,
-        ...options,
       }).pipe(
         Effect.flatMap((result) =>
           Effect.log(`Message sent (id: ${result.messageId})`),

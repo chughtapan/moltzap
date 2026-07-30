@@ -32,7 +32,3 @@ The deliver callback sends the response via `agent/message/send` to the
 originating conversation, reusing the `taskId` + `conversationId`
 captured from the inbound message. Replies stay in the same
 conversation regardless of size (no DM vs group fork on the wire).
-
-## Reply threading
-
-When replying to a specific message, the plugin sets `replyToId` on the outbound message to maintain threading context.

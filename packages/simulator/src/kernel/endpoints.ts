@@ -205,9 +205,6 @@ function runIngress<Name extends string>(
             conversationId: received.message.conversationId,
             messageId: received.message.id,
             senderId: received.message.senderId,
-            ...(received.message.replyToId === undefined
-              ? {}
-              : { replyToId: received.message.replyToId }),
             parts: received.message.parts,
           }),
         })
@@ -299,9 +296,6 @@ function send<Name extends string>(
               taskId,
               conversationId,
               messageId: message.id,
-              ...(message.replyToId === undefined
-                ? {}
-                : { replyToId: message.replyToId }),
               parts: message.parts,
             }),
           })

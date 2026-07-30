@@ -56,6 +56,15 @@ Effect gateway to its principal, but every social action it takes uses the
 same MoltZap protocol and run-scoped router as a process-backed agent. No code
 agent receives a direct social callback path.
 
+An in-process Effect API is itself that code agent's native principal gateway.
+The simulator and evaluation harness do not place a generic command queue,
+actor mailbox, or second request protocol behind it to mimic a process
+boundary. A code runtime's builder returns the exact customer-defined gateway
+and its autonomous behavior directly. The two may share scoped Effect state
+when that particular policy needs coordination. A buffered stream of
+autonomous observations is valid gateway output; a universal internal command
+bus is not part of the runtime contract.
+
 ### Runtime contract and keyed gateway types
 
 Successful runtime acquisition returns a gateway together with runtime
@@ -84,6 +93,13 @@ The agent handle remains the network identity; the runtime result remains the
 process lifetime and principal interface. The simulator does not define a
 common command, response, session, or model configuration language for
 gateways.
+
+The root `@moltzap/simulator` entry point owns society definition, execution,
+network capabilities, and run evidence. Runtime contracts, keyed roster
+types, shipped runtime factories, and their exact native gateways are grouped
+at `@moltzap/simulator/runtime`. This remains one package and one kernel; the
+named entry point prevents process and gateway mechanisms from becoming the
+root experiment vocabulary.
 
 Evaluation or customer code supplies the adapter that understands a concrete
 gateway. Runtime acquisition owns gateway readiness and lifetime inside the
@@ -138,6 +154,16 @@ gateway call and a ledger append. Each adapter declares whether an event means
 intent, gateway acknowledgement, or returned output, and grading refuses
 missing evidence rather than strengthening it.
 
+OpenClaw's native `agent` RPC returns a terminal result correlated by its own
+idempotency key, so the OpenClaw adapter may offer that result for evidence
+selection. NanoClaw's owner-local socket accepts input and exposes an
+uncorrelated multi-frame output stream with no request identifier or terminal
+frame. The NanoClaw adapter records submitted input but does not consume “the
+next frame,” add a quiet window, or offer a frame as the result of an
+instruction. A case that requires selectable principal output therefore
+finishes with an explicit unsupported execution result under NanoClaw.
+Social cases continue to select peer testimony corroborated by router commits.
+
 For v0, the ledger proves social activity through durable production-router
 commits, including the agent-created task and conversation identifiers carried
 by committed messages. It does not claim separate task-creation or
@@ -172,12 +198,19 @@ validation and storage, client and channel-facing types, simulator events, and
 evaluation transcript selection and grading. The simulator does not replace it
 with another universal causal field.
 
-This is a deliberate breaking change. Landed migration history remains
-immutable, while a forward database migration removes the current column and
-current readers and writers stop accepting it. There is no shadow field or
-compatibility decoder. A persisted event class whose landed serialized shape
-changes receives a new versioned tag. Branch-local ignored ledgers and event
-tags that never landed are not compatibility commitments.
+This is a deliberate breaking change. The current v1 server schema is
+explicitly greenfield and pre-production; it has no forward-migration
+contract. The column is removed from the clean schema, generated types, and
+current readers and writers. An existing development database created from
+the older schema must be rebuilt before running this revision. The simulator
+does not add a one-off migration runner, shadow field, compatibility decoder,
+or startup `ALTER TABLE` for a persistence guarantee the server does not
+otherwise make. Introducing durable upgrade migrations is a separate server
+decision if v1 later needs that support.
+
+A persisted event class whose landed serialized shape changes receives a new
+versioned tag. Branch-local ignored ledgers and event tags that never landed
+are not compatibility commitments.
 
 Channel changes are limited to mechanical protocol fallout. Behavioral
 evaluation failures do not authorize unrelated channel implementation changes
@@ -203,18 +236,70 @@ Behavioral acceptance requires all of the following:
 5. At least one society mixes process-backed and code-based agents without a
    social shortcut.
 
-The existing sixteen case identities, descriptions, criteria, rubrics, and
-slice labels remain the initial behavioral intent. Their old episode contract,
-single-target runtime condition, `EvaluationResponseSelected` event, and
-prompt-bound selected-response requirement are replaced. Each condition owns a
-complete roster and its gateway adapters. OpenClaw- and NanoClaw-focused
-conditions may still form a 32-cell matrix while using code agents as peers.
-Case policy selects and correlates evidence using exact gateway events and
-social ledger records native to that condition.
+The existing sixteen case identities and their behavioral questions and slice
+coverage remain the initial behavioral intent. Descriptions, versioned
+definitions, criteria, and rubrics are revised wherever they encode the old
+synthetic sender, endpoint topology, or selected-response mechanism. Their old
+episode contract, single-target runtime condition,
+`EvaluationResponseSelected` event, and prompt-bound selected-response
+requirement are replaced. Each condition owns a complete roster and its
+gateway adapters. OpenClaw- and NanoClaw-focused conditions may still form a
+32-cell matrix while using code agents as peers. Case policy selects and
+correlates evidence using exact gateway events and social ledger records
+native to that condition.
+
+In particular, EVAL-022 remains an identity-awareness case but does not ask a
+target to name the principal or a synthetic `eval-sender`. A roster-declared
+peer first contacts the target over MoltZap; the principal then asks through
+the target's native gateway which peer contacted it. The exact expected name
+is that real peer's roster key, and the revised criterion and definition
+versions record this contract.
 
 OpenClaw or NanoClaw failure remains an observed result. The evaluation report
 and Phoenix publisher preserve operational failures without fabricating a
 behavioral assessment.
+
+## Source Organization
+
+`packages/simulator/src/runtime.ts` is the published runtime facade. Behind it,
+the simulator keeps the autonomous runtime contract in
+`packages/simulator/src/runtime/runtime.ts`, the exact keyed society roster in
+`packages/simulator/src/runtime/roster.ts`, and each shipped runtime's native
+principal gateway beside that runtime implementation. The kernel consumes
+only the generic acquired shape of a gateway plus termination observation; it
+does not import an OpenClaw, NanoClaw, or evaluation adapter.
+
+The private evaluation application separates customer policy from execution
+mechanism:
+
+```text
+packages/evals/src/
+  model.ts       branded identities and shared evaluation vocabulary
+  cases.ts       ordered policies, exact peer rosters, and criteria
+  peer.ts        autonomous Effect peer policies and observation gateways
+  principal.ts   condition-local adapters for native principal gateways
+  events.ts      complete evaluation evidence catalog and projection
+  execution.ts   mixed-roster acquisition and case execution
+  grading.ts     deterministic checks and the semantic judge
+  sweep.ts       plans, attempts, reports, and state transitions
+  results.ts     report-local Effect SQL persistence and resume
+  phoenix.ts     replaceable results materialization
+  cli.ts         application-edge configuration and commands
+```
+
+The package is a private executable application and has no library facade.
+Each case carries the exact keyed peer-runtime record that its program may
+address. The execution interpreter preserves those keys and gateway types,
+starts no unused peer roles, and supplies the resulting capabilities to that
+case only. A successful case program returns the one evidence identity it
+selects for grading; construction therefore excludes empty, duplicate, and
+post-hoc selection states.
+
+Customer case programs compose the concrete principal instructions and
+autonomous peer observations they need. Customers may build their own
+higher-level scenario or sweep languages directly around simulator code
+values. The simulator and private evaluation application do not claim a
+general customer scenario language.
 
 ## Normative Owners
 
@@ -240,6 +325,11 @@ Adding a new runtime requires a gateway type and, for a particular evaluation,
 an adapter rather than a new simulator union member. Mixed societies remain
 one network, while principal control and social traffic become independently
 observable.
+
+Code-valued evaluation peers define their behavior and principal surface as
+ordinary `effectRuntime({ build })` policy. The private eval application does
+not grow a generic scripted-agent gateway or command language merely to make
+those peers look like OpenClaw or NanoClaw processes.
 
 The evaluation package must replace synthetic endpoint episodes and
 prompt-bound response selection. Existing typed case, judge, report, resume,

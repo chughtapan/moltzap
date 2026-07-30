@@ -22,10 +22,12 @@ import {
   Ref,
   Schema,
   Scope,
+  Stream,
 } from "effect";
 import { describe } from "vitest";
 import { RuntimeAcquisitionFailed } from "../process.js";
 import type { InstallMode } from "../packages.js";
+import type { NanoclawGatewaySession } from "./gateway.js";
 import {
   makeNanoclawRuntimeWith,
   type NanoclawProcessInput,
@@ -63,6 +65,16 @@ interface Fixture {
     typeof makeNanoclawRuntimeWith<FakeInstall, FakeHandle, ProcessWaitFailure>
   >;
   readonly processInput: Deferred.Deferred<NanoclawProcessInput>;
+  readonly gatewayAvailable: Deferred.Deferred<undefined>;
+  readonly gatewayWithin: Deferred.Deferred<Duration.Duration>;
+  readonly handle: FakeHandle;
+  readonly teardownCount: Ref.Ref<number>;
+}
+
+interface FakeDriverInput {
+  readonly processInput: Deferred.Deferred<NanoclawProcessInput>;
+  readonly gatewayAvailable: Deferred.Deferred<undefined>;
+  readonly gatewayWithin: Deferred.Deferred<Duration.Duration>;
   readonly handle: FakeHandle;
   readonly teardownCount: Ref.Ref<number>;
 }
@@ -78,40 +90,68 @@ function makeConnection(
   };
 }
 
+function makeFakeDriver(
+  input: FakeDriverInput,
+): NanoclawRuntimeDriver<FakeInstall, FakeHandle, ProcessWaitFailure> {
+  const gatewaySession: NanoclawGatewaySession = {
+    gateway: {
+      submit: () => Effect.void,
+      outputs: Stream.empty,
+    },
+    failure: Effect.never,
+  };
+  return {
+    resolveInstallMode: (requested) => Effect.succeed(requested ?? "workspace"),
+    install: (mode) => Effect.succeed({ mode }),
+    start: (process) =>
+      Deferred.succeed(input.processInput, process).pipe(
+        Effect.as(input.handle),
+      ),
+    stop: (running) =>
+      Ref.update(input.teardownCount, (count) => count + 1).pipe(
+        Effect.zipRight(Deferred.succeed(running.exitCode, processExitCode(0))),
+        Effect.asVoid,
+      ),
+    gateway: (running, within) =>
+      Effect.succeed(running).pipe(
+        Effect.zipRight(Deferred.succeed(input.gatewayWithin, within)),
+        Effect.zipRight(Deferred.await(input.gatewayAvailable)),
+        Effect.as(gatewaySession),
+      ),
+    exitCode: (running) => Deferred.await(running.exitCode),
+    output: (running) => running.output,
+  };
+}
+
 function makeFixture(
   options: NanoclawRuntimeOptions,
   output = "",
+  gatewayStartsReady = true,
 ): Effect.Effect<Fixture> {
   return Effect.gen(function* () {
     const processInput = yield* Deferred.make<NanoclawProcessInput>();
+    const gatewayAvailable = yield* Deferred.make<undefined>();
+    const gatewayWithin = yield* Deferred.make<Duration.Duration>();
+    if (gatewayStartsReady) {
+      yield* Deferred.succeed(gatewayAvailable, undefined);
+    }
     const handle: FakeHandle = {
       exitCode: yield* Deferred.make<ExitCode, ProcessWaitFailure>(),
       output,
     };
     const teardownCount = yield* Ref.make(0);
-    const driver: NanoclawRuntimeDriver<
-      FakeInstall,
-      FakeHandle,
-      ProcessWaitFailure
-    > = {
-      resolveInstallMode: (requested) =>
-        Effect.succeed(requested ?? "workspace"),
-      install: (mode) => Effect.succeed({ mode }),
-      start: (input) =>
-        Deferred.succeed(processInput, input).pipe(Effect.as(handle)),
-      stop: (running) =>
-        Ref.update(teardownCount, (count) => count + 1).pipe(
-          Effect.zipRight(
-            Deferred.succeed(running.exitCode, processExitCode(0)),
-          ),
-          Effect.asVoid,
-        ),
-      exitCode: (running) => Deferred.await(running.exitCode),
-      output: (running) => running.output,
-    };
+    const driver = makeFakeDriver({
+      processInput,
+      gatewayAvailable,
+      gatewayWithin,
+      handle,
+      teardownCount,
+    });
     return {
       runtime: makeNanoclawRuntimeWith(options, driver),
       processInput,
+      gatewayAvailable,
+      gatewayWithin,
       handle,
       teardownCount,
     };
@@ -172,10 +212,15 @@ function returnsAfterReadinessTest() {
     ).pipe(Effect.fork);
     const process = yield* Deferred.await(fixture.processInput);
     const readyWithin = yield* Deferred.await(readyEntered);
+    const gatewayWithin = yield* Deferred.await(fixture.gatewayWithin);
 
     assert.isTrue(Option.isNone(yield* Fiber.poll(acquired)));
     assert.strictEqual(
       Duration.toMillis(readyWithin),
+      Duration.toMillis(STARTUP_TIMEOUT),
+    );
+    assert.strictEqual(
+      Duration.toMillis(gatewayWithin),
       Duration.toMillis(STARTUP_TIMEOUT),
     );
     assertProcessInput(process);
@@ -214,13 +259,15 @@ function exitsBeforeReadinessTest() {
     const fixture = yield* makeFixture(
       {},
       `startup failed apiKey=${AGENT_KEY_TEXT}`,
+      false,
     );
     const acquiring = yield* Effect.scoped(
       fixture.runtime.acquire({
-        connection: makeConnection(() => Effect.never),
+        connection: makeConnection(() => Effect.void),
       }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.processInput);
+    yield* Deferred.await(fixture.gatewayWithin);
     yield* Deferred.succeed(
       fixture.handle.exitCode,
       processExitCode(PROCESS_EXIT_CODE),
@@ -232,6 +279,32 @@ function exitsBeforeReadinessTest() {
     assert.include(failure.detail, AGENT_KEY_REDACTION_MARKER);
     assert.notInclude(failure.detail, AGENT_KEY_TEXT);
     assert.include(failure.detail, "startup failed");
+    assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+  });
+}
+
+function waitsForGatewayAndRouterTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeFixture(
+      { startupTimeout: STARTUP_TIMEOUT },
+      "",
+      false,
+    );
+    const acquiring = yield* Effect.scoped(
+      fixture.runtime.acquire({
+        connection: makeConnection(() => Effect.void),
+      }),
+    ).pipe(Effect.fork);
+
+    const within = yield* Deferred.await(fixture.gatewayWithin);
+    assert.strictEqual(
+      Duration.toMillis(within),
+      Duration.toMillis(STARTUP_TIMEOUT),
+    );
+    assert.isTrue(Option.isNone(yield* Fiber.poll(acquiring)));
+
+    yield* Deferred.succeed(fixture.gatewayAvailable, undefined);
+    yield* Fiber.join(acquiring);
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
   });
 }
@@ -387,15 +460,19 @@ function sanitizedConfigurationTest() {
 // @agent-code-guard/regression-only: controlled handles expose process readiness, cancellation, teardown, and exact exit evidence deterministically
 describe("native NanoClaw runtime", () => {
   test(
-    "returns only after router-visible readiness",
+    "returns only after router and principal gateway readiness",
     returnsAfterReadinessTest,
+  );
+  test(
+    "does not treat router visibility as principal gateway readiness",
+    waitsForGatewayAndRouterTest,
   );
   test(
     "releases an interrupted process acquisition through its Scope",
     interruptedAcquisitionTest,
   );
   test(
-    "fails and releases when the process exits before readiness",
+    "fails and releases when the process exits while its gateway is connecting",
     exitsBeforeReadinessTest,
   );
   test(

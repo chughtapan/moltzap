@@ -3,9 +3,9 @@ import { Effect, Schema } from "effect";
 import { simulator, SimulatorDefinitionError } from "./definition.js";
 import { RuntimeCompleted, defineRuntime } from "./runtime/runtime.js";
 
-const TestRuntimeConfiguration = Schema.Struct({});
+const testRuntimeConfiguration = Schema.Struct({});
 const configuration = {
-  schema: TestRuntimeConfiguration,
+  schema: testRuntimeConfiguration,
   value: {},
 };
 
@@ -14,6 +14,7 @@ const runtime = defineRuntime({
   configuration,
   acquire: () =>
     Effect.succeed({
+      gateway: undefined,
       termination: Effect.succeed(RuntimeCompleted.make({})),
     }),
 });

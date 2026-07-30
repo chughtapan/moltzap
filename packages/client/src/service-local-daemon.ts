@@ -162,7 +162,6 @@ function handleSendCommand(
     taskId: params.target.taskId,
     conversationId: params.target.conversationId,
     parts: [{ type: "text", text: params.message }],
-    ...(params.replyToId === undefined ? {} : { replyToId: params.replyToId }),
   }).pipe(Effect.map((result) => ({ messageId: result.message.id })));
 }
 

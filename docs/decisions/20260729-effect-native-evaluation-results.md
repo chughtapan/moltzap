@@ -14,12 +14,15 @@ trajectory](../decision-evidence/20260729-effect-native-evaluation-results-traje
 
 Runtime provenance, total run outcomes, code-defined case and criterion
 catalogs, semantic judging, resumable reports, and Phoenix publication remain
-current. The initial sixteen case identities, descriptions, criteria, rubrics,
-and slice labels also remain current as behavioral intent. The
-controlled-endpoint episode model, single-target runtime condition,
-evaluation-created social workspace, `EvaluationResponseSelected`,
-prompt-bound selected-response requirement, `replyToId` correlation, and
-classification of synthetic-peer runs as behavioral acceptance are replaced by
+current. The initial sixteen case identities, behavioral questions, and slice
+coverage also remain current as behavioral intent. Descriptions, versioned
+definitions, criteria, and rubrics that encode a synthetic sender, endpoint
+topology, or selected-response mechanism are revised while preserving that
+intent. The controlled-endpoint episode model, single-target runtime
+condition, evaluation-created social workspace,
+`EvaluationResponseSelected`, prompt-bound selected-response requirement,
+`replyToId` correlation, and classification of synthetic-peer runs as
+behavioral acceptance are replaced by
 [`20260729-principal-io-uses-runtime-gateways.md`](20260729-principal-io-uses-runtime-gateways.md).
 The replacement record governs principal I/O, gateway evidence, autonomous
 agent social action, complete-roster conditions, native evidence selection,
@@ -150,13 +153,21 @@ The Effect CLI executes an ordered case-by-condition matrix. The first live
 baseline contains sixteen cases against OpenClaw and NanoClaw, one sample per
 cell, with concurrency one.
 
-One Schema-validated report under
-`.moltzap/evals/reports/<EvaluationReportId>.json` is the durable handoff
-between grading and publication. It records the immutable plan, native runtime
-configuration snapshots, judge policy, physical ledger receipts, and terminal
-attempts.
-The file is atomically checkpointed after every attempt using Effect Platform
-filesystem resources.
+One report-local SQLite bundle under
+`.moltzap/evals/results/<EvaluationReportId>.sqlite` is the durable handoff
+between grading and publication. Effect SQL owns its migrations, Schema-decoded
+queries, transactions, and SQLite client. The bundle records the immutable
+plan, native runtime configuration snapshots, judge policy, physical ledger
+receipts, and terminal attempts. JSON is an optional generated export, not
+mutable result authority.
+
+Each matrix cell holds the report's SQLite write transaction from selection
+through terminal-attempt commit. Earlier cells remain committed. A process
+failure or interruption rolls back the current cell and SQLite releases write
+ownership. This replaces host lock files, stale-owner recovery, heartbeat
+failure, temporary checkpoint files, and application-managed compare-and-swap
+logic with database guarantees. A separate SQLite bundle per report prevents a
+long real-agent cell from blocking unrelated reports.
 
 Resume validates the plan digest, source revision, case and criterion
 catalogs, judge policy, and runtime configurations, then executes only missing
@@ -167,7 +178,8 @@ are not automatically retried. Behavioral
 evidence, rejected evidence, and unavailable judging make the command
 nonzero after every attempted cell has been recorded.
 
-Reports and transcripts remain ignored local artifacts. Repository history
+Result bundles, exports, and transcripts remain ignored local artifacts.
+Repository history
 stores architecture and operating documentation. Reproducible product defects
 are recorded as GitHub issues.
 
@@ -246,6 +258,10 @@ offline-delivery guarantees remain outside v0.
 
 ## Source Organization
 
+This section records the package organization at the time of the original
+decision. The current organization and ownership boundaries live in
+[`20260729-principal-io-uses-runtime-gateways.md`](20260729-principal-io-uses-runtime-gateways.md#source-organization).
+
 The private evaluation package uses capability-sized modules:
 
 ```text
@@ -255,6 +271,7 @@ packages/evals/src/
   events.ts
   grading.ts
   sweep.ts
+  results.ts
   phoenix.ts
   probes.ts
   cli.ts
@@ -272,8 +289,8 @@ execution, resume, publication, and explicit network probes.
    Schema-backed grading model.
 3. Add the provider-neutral semantic judge, strict bundle/output schemas, and
    calibration corpus.
-4. Add the sequential sweep runner, atomic report checkpoint, and validated
-   resume path.
+4. Add the sequential sweep runner, Effect SQL result bundle, transactional
+   cell checkpoint, and validated resume path.
 5. Add the Phoenix publisher and explicit Effect CLI commands.
 6. Replace live Vitest application targets with CLI targets while retaining
    deterministic Effect tests and network probes.
@@ -301,7 +318,10 @@ execution, resume, publication, and explicit network probes.
 - Report decoding enforces mutually exclusive attempt states, exact matrix
   completion, closed slice values, and evidence digests bound to ledger
   receipts.
-- Resume preserves terminal attempts and runs only missing cells.
+- SQLite is the only mutable report authority; JSON exports cannot be resumed.
+- Resume preserves terminal attempts and runs only missing cells. A callback
+  failure, defect, interruption, or process death leaves no partial terminal
+  attempt or application lock to recover.
 - Phoenix publication exactly reconciles dataset, experiment, and run state;
   assessment publication is a stable-key upsert under Phoenix's write-only
   assessment API and preserves code, model, and error provenance.

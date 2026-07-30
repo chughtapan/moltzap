@@ -29,6 +29,7 @@ import {
   AgentRuntimeStartFailed,
   EndpointMessageSent,
   RouterMessageCommitted,
+  RouterStarted,
   RunStarted,
 } from "../events/core.js";
 import { EventCatalog } from "../events/catalog.js";
@@ -46,6 +47,7 @@ import {
 } from "../ledger/storage.js";
 import {
   Network,
+  NetworkFailure,
   RouterProvider,
   type RouterStopped,
   makeAgentHandle,
@@ -83,13 +85,13 @@ const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
 const OBSERVED_EXIT_CODE = 7;
 const PRIMARY_AGENT_NAME = "alice";
 const READY = () => Effect.void;
-const TestRuntimeConfiguration = Schema.Struct({
+const testRuntimeConfiguration = Schema.Struct({
   kind: Schema.String,
 });
 
 function configuration(kind: string) {
   return {
-    schema: TestRuntimeConfiguration,
+    schema: testRuntimeConfiguration,
     value: { kind },
   };
 }
@@ -279,6 +281,7 @@ const codeRuntime = defineRuntime({
   acquire: (input) =>
     input.connection.awaitReady(Duration.seconds(1)).pipe(
       Effect.as({
+        gateway: undefined,
         termination: Effect.succeed(RuntimeCompleted.make({})),
       }),
     ),
@@ -290,6 +293,7 @@ const processRuntime = defineRuntime({
   acquire: (input) =>
     input.connection.awaitReady(Duration.seconds(1)).pipe(
       Effect.as({
+        gateway: undefined,
         termination: Effect.succeed(RuntimeExited.make({ code: 0 })),
       }),
     ),
@@ -306,7 +310,7 @@ const ongoingRuntime = defineRuntime({
   acquire: (input) =>
     input.connection
       .awaitReady(Duration.seconds(1))
-      .pipe(Effect.as({ termination: Effect.never })),
+      .pipe(Effect.as({ gateway: undefined, termination: Effect.never })),
 });
 
 const ongoingRoster = society.agents({
@@ -325,7 +329,7 @@ test("runs mixed runtimes until customer policy completes", () => {
       .pipe(Stream.take(1), Stream.runDrain);
     yield* Effect.yieldNow();
     yield* events.emit(Observation.make({ value: "done" }));
-    return [agents.alice.name, agents.bob.name] as const;
+    return [agents.alice.agent.name, agents.bob.agent.name] as const;
   });
   return Effect.gen(function* () {
     const result = yield* society.run(roster, program);
@@ -445,9 +449,12 @@ test("records genuine runtime termination while policy remains active", () =>
       name: "observed-process",
       configuration: configuration("observed-process"),
       acquire: (input) =>
-        input.connection
-          .awaitReady(Duration.seconds(1))
-          .pipe(Effect.as({ termination: Deferred.await(termination) })),
+        input.connection.awaitReady(Duration.seconds(1)).pipe(
+          Effect.as({
+            gateway: undefined,
+            termination: Deferred.await(termination),
+          }),
+        ),
     });
     const observedRoster = society.agents({
       alice: observedRuntime,
@@ -487,6 +494,7 @@ test("records a defective termination observer as runtime failure", () =>
       acquire: (input) =>
         input.connection.awaitReady(Duration.seconds(1)).pipe(
           Effect.as({
+            gateway: undefined,
             termination: Effect.dieMessage("termination observer defect"),
           }),
         ),
@@ -529,7 +537,7 @@ test("fails the run ledger without making a committed endpoint send retryable", 
       const agents = yield* ongoingRoster.startedAgents;
       const network = yield* Network;
       const probe = yield* network.endpoint("probe");
-      const socket = yield* probe.open(agents.alice);
+      const socket = yield* probe.open(agents.alice.agent);
       yield* socket.send("request");
       return "sent";
     });
@@ -581,6 +589,40 @@ test("returns an incomplete receipt when the first post-allocation append fails"
     Effect.provideService(LedgerStorage, memoryStorage(RunStarted._tag)),
     Effect.provideService(RouterProvider, fakeRouterProvider()),
   ));
+
+test("retains router stop failure when started-event storage fails", () => {
+  const stopFailure = NetworkFailure.make({
+    operation: "stop-router",
+    detail: "router shutdown failed",
+  });
+  const router: Router = {
+    address: ROUTER_URL,
+    stopped: Effect.fail(stopFailure),
+    attachAgent: () => Effect.dieMessage("unused"),
+    attachEndpoint: () => Effect.dieMessage("unused"),
+  };
+  return Effect.gen(function* () {
+    const outcome = yield* society.run(society.agents({}), Effect.void);
+
+    assert.instanceOf(outcome, RunInfrastructureFailed);
+    if (outcome instanceof RunInfrastructureFailed) {
+      const failures = Array.from(Cause.failures(outcome.cause));
+      assert.isTrue(
+        failures.some(
+          (failure) =>
+            failure instanceof NetworkFailure &&
+            failure.operation === "stop-router" &&
+            failure.detail === stopFailure.detail,
+        ),
+      );
+    }
+  }).pipe(
+    Effect.provideService(LedgerStorage, memoryStorage(RouterStarted._tag)),
+    Effect.provideService(RouterProvider, {
+      acquire: Effect.succeed(router),
+    }),
+  );
+});
 
 test("keeps allocation failure in the Effect error channel", () =>
   Effect.gen(function* () {
@@ -752,9 +794,10 @@ test("peer acquisition cancellation is not a startup failure", () =>
   Effect.gen(function* () {
     const siblingStarted = yield* Deferred.make<undefined>();
     const primary = defineRuntime<
+      never,
       string,
       never,
-      typeof TestRuntimeConfiguration
+      typeof testRuntimeConfiguration
     >({
       name: "primary-failure",
       configuration: configuration("primary-failure"),
@@ -816,7 +859,7 @@ test("releases an acquired peer when parallel roster acquisition fails", () =>
         acquire: () =>
           Effect.acquireRelease(
             Deferred.succeed(peerAcquired, undefined).pipe(
-              Effect.as({ termination: Effect.never }),
+              Effect.as({ gateway: undefined, termination: Effect.never }),
             ),
             () => Ref.set(peerReleased, true),
           ),

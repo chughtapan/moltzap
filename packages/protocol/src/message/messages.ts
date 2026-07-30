@@ -20,7 +20,6 @@ import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
   listLimitSchema,
   closedStructGuard,
-  errorPayloadFields,
   ForbiddenError,
   dateTimeStringSchema,
 } from "#transport";
@@ -40,19 +39,10 @@ export type { MessageParts, Part } from "./parts.js";
 const dateTimeString = dateTimeStringSchema();
 const messageParts = messagePartsSchema();
 
-/** The referenced message does not exist, such as a missing reply target. */
-export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundError>()(
-  "MessageNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Message not found";
-}
-
 const messageSchema = Schema.Struct({
   id: messageId,
   conversationId: conversationId,
   senderId: agentId,
-  replyToId: Schema.optional(messageId),
   parts: messageParts,
   taggedEntities: Schema.optional(Schema.Array(agentId)),
   patchedBy: Schema.optional(Schema.String),
@@ -99,7 +89,6 @@ const messagesSendParams = Schema.Struct({
   taskId: taskId,
   conversationId: conversationId,
   parts: messageParts,
-  replyToId: Schema.optional(messageId),
   dispatchLeaseId: Schema.optional(leaseId),
 });
 
@@ -107,7 +96,6 @@ const messagesSendResult = Schema.Struct({ message: messageSchema });
 
 /**
  * Send a message to a conversation under a task.
- * @error MessageNotFoundError when the `replyToId` reply target is absent
  * @error DispatchNotFoundError when the dispatch lease is missing
  * @error ForbiddenError when the sender cannot post or the dispatch lease is consumed/invalid
  * @error TaskClosedError when the task is closed or failed
@@ -128,7 +116,6 @@ export const messagesSend = defineRpc({
   errors: [
     HookBlockedError,
     ForbiddenError,
-    MessageNotFoundError,
     DispatchNotFoundError,
     TaskClosedError,
     ConversationArchivedError,

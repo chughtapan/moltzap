@@ -60,16 +60,20 @@ source states without adding rationale.
    > AgentRuntime should expose its runtime-specific gateway after
    > acquisition:
    >
+   > ```ts
    > interface RunningAgent<Gateway> {
    >   readonly gateway: Gateway;
    >   readonly termination: Effect.Effect<RuntimeTermination>;
    > }
+   > ```
    >
    > The keyed roster preserves exact gateway types:
    >
+   > ```ts
    > agents.alice.gateway; // OpenClawGateway
    > agents.bob.gateway;   // NanoClawGateway
    > agents.carol.gateway; // EffectGateway
+   > ```
    >
    > There is no simulator-wide gateway union. Evaluation or customer code
    > supplies the adapter that knows how to drive each gateway.
@@ -161,11 +165,67 @@ source states without adding rationale.
 
    > don't worry about existing compatibility API -- lets clean that up too
 
-Repository effect at this candidate: the feature branch was first rebased onto
-`origin/main` revision `791d0f68` at the user's later request. The gateway
-decision, prior-record supersession, decision-log index, and this trajectory
-were then prepared before gateway or `replyToId` implementation changes. These
-are mechanical repository events, not quotations or independent rationale.
+9. **Stored user messages: evaluation result management.**
+
+   Source system: Codex. Source session:
+   `019fa613-7f9a-7103-99b0-a42fda0754de`. Native locator: enclosing turn
+   `019faf25-2a7a-7653-9c20-9a490d4fb829`, stored response-item message event
+   at `2026-07-29T18:48:36.467Z`, actor role `user`. The source supplies no
+   separate message id or parent locator.
+
+   > can I update the requierments: can we use some existing evals library to
+   > store and manage our bundles instead of doing that manually? I also want
+   > to be able to see the results. maybe look at braintrust or promptfoo or
+   > whatever else here is free or cheap or self-hostable like our nx cache
+
+   Source system: Codex. Source session: the same session. Native locator:
+   enclosing turn `019faf25-2a7a-7653-9c20-9a490d4fb829`, stored
+   response-item message event at `2026-07-29T18:53:51.758Z`, actor role
+   `user`. The source supplies no separate message id or parent locator.
+
+   > maybe also add genkit as a potential alternative? I think openclaw uses
+   > that for their own evals but I'm not sure if it's a goodfit
+
+   Source system: Codex. Source session: the same session. Native locator:
+   enclosing turn `019faa5d-9ead-7653-9e26-3097afe7cf33`, stored
+   response-item message event at `2026-07-28T20:14:50.841Z`, actor role
+   `user`. The source supplies no separate message id or parent locator.
+
+   > and use effect/sql
+
+   Source system: Codex. Source session: the same session. Native locator:
+   enclosing turn `019faa5d-aa6f-7af3-bfd5-db7ede6a9807`, stored
+   response-item message event at `2026-07-28T20:14:53.482Z`, actor role
+   `user`. The source supplies no separate message id or parent locator.
+
+   > not manual things
+
+10. **Stored user message: a code agent's Effect API is already its native
+    gateway.** Source system: Codex. Source session:
+    `019fa613-7f9a-7103-99b0-a42fda0754de`. Native locator: enclosing turn
+    `39d5505f-efa9-417d-b97f-14af5a270f73`, stored response-item message event
+    at `2026-07-30T03:58:24.275Z`, actor role `user`. The source supplies no
+    separate message id or parent locator.
+
+    The source quoted an implementation draft containing a
+    `Queue<CodeAgentCommand>` and asked:
+
+    > is this the right thing. I'm worried you are not getting it. OpenClaw and
+    > NanoClaw have existing gateways where they interact with their principals
+
+    The implementation consequence recorded in the ADR is that
+    `effectRuntime({ build })` returns a code agent's exact in-process
+    principal gateway directly. The eval harness does not add a generic
+    command queue or second request protocol to imitate a process transport.
+
+Repository effect at this candidate: the feature branch merged `origin/main`
+revision `e27a760f` in commit `e753682a`. The gateway decision, prior-record
+supersession, decision-log index, and this trajectory were prepared before
+gateway or `replyToId` implementation changes. The result-storage decision was
+narrowed from manually locked JSON checkpoints to report-local SQLite bundles
+using Effect SQL; JSON became export-only and Phoenix remained the visible
+materialized results service. These are mechanical repository events, not
+quotations or independent rationale.
 
 Source gaps, stated plainly:
 
@@ -189,6 +249,12 @@ Source gaps, stated plainly:
   those schemas.
 - It calls for `replyToId` removal and compatibility cleanup but does not
   prescribe a database migration mechanism or historical event-tag treatment.
+  The ADR follows the current server's explicit greenfield/rebuild persistence
+  contract and supplies the event-tag treatment as implementation policy.
+- It requests an existing evaluation-results library and explicitly requires
+  Effect SQL, but does not prescribe a relational schema or concurrency
+  mechanism. The ADR selects Effect SQL SQLite for local bundle authority and
+  retains Phoenix for managed datasets, comparison, and UI.
 - Irrelevant tool output, private system and developer instructions, hidden
   reasoning, and environment diagnostics are omitted. No credential values
   are retained.

@@ -2,37 +2,35 @@
 
 import { MoltZapAgentClient } from "@moltzap/client";
 import {
-  type AgentRuntime,
-  type AgentRuntimeInput,
-  RuntimeCompleted,
-  RuntimeFailed,
-  type RuntimeTermination,
-  defineRuntime,
-} from "./runtime.js";
-import type { AgentHandle } from "../network/participant.js";
-import {
   messageReceivedNotificationDefinition,
-  messagesSend,
-  type Message,
-  type MessageParts,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
 import { httpBaseUrl } from "@moltzap/protocol/network";
-import type { TaskId } from "@moltzap/protocol/task";
 import {
   Cause,
   Deferred,
   Duration,
   Effect,
+  Ref,
   Schema,
   type Scope,
-  Stream,
+  type Stream,
 } from "effect";
+import type { AgentHandle } from "../network/participant.js";
+import {
+  type AgentRuntime,
+  type AgentRuntimeInput,
+  RuntimeCompleted,
+  RuntimeFailed,
+  type RunningAgent,
+  type RuntimeTermination,
+  defineRuntime,
+} from "./runtime.js";
 
 const EFFECT_RUNTIME_NAME = "effect";
 const DEFAULT_STARTUP_TIMEOUT = Duration.seconds(10);
 
-/** Acquisition failed before an in-process agent became router-visible. */
+/** Acquisition failed before an in-process agent became ready. */
 export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeStartFailed>()(
   "EffectRuntimeStartFailed",
   {
@@ -45,36 +43,45 @@ export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeSt
   }
 }
 
-/** Message delivery context passed to ordinary Effect agent code. */
-export interface EffectMessageContext {
-  readonly agent: AgentHandle;
-  readonly taskId: TaskId;
-  readonly message: Message;
+/**
+ * Runtime-owned capabilities available while constructing an in-process agent.
+ * The message stream is registered before the client connects, so delivery
+ * cannot race construction. Social traffic still goes through `client`.
+ */
+export interface EffectRuntimeContext<Name extends string = string> {
+  readonly agent: AgentHandle<Name>;
+  readonly messages: Stream.Stream<MessageReceivedNotification, unknown>;
+  readonly client: MoltZapAgentClient;
 }
 
-/** A message handler reply containing text or structured parts. */
-export type EffectMessageReply = string | MessageParts;
+/** Principal gateway and autonomous behavior owned by an in-process agent. */
+export interface EffectAgent<Gateway, Requirements = never> {
+  readonly gateway: Gateway;
+  readonly behavior: Effect.Effect<void, unknown, Requirements>;
+}
 
 /** Construction options owned by one in-process runtime implementation. */
-export interface EffectRuntimeOptions<E = never, R = never> {
+export interface EffectRuntimeOptions<
+  Gateway,
+  BuilderRequirements = never,
+  BehaviorRequirements = never,
+> {
   readonly startupTimeout?: Duration.Duration;
-  readonly onMessage?: (
-    context: EffectMessageContext,
-  ) => Effect.Effect<EffectMessageReply | undefined, E, R>;
+  readonly build: <Name extends string>(
+    context: EffectRuntimeContext<Name>,
+  ) => Effect.Effect<
+    EffectAgent<Gateway, BehaviorRequirements>,
+    unknown,
+    BuilderRequirements
+  >;
 }
 
-/** Sanitized definition-time policy and defaults for an Effect runtime. */
+/** Sanitized definition-time configuration for an Effect runtime. */
 export class EffectRuntimeConfiguration extends Schema.Class<EffectRuntimeConfiguration>(
   "EffectRuntimeConfiguration",
 )({
   startupTimeout: Schema.DurationFromMillis,
-  messageHandlerPolicy: Schema.Literal("default", "custom"),
 }) {}
-
-interface EffectRuntimeState {
-  readonly client: MoltZapAgentClient;
-  readonly termination: Deferred.Deferred<RuntimeTermination>;
-}
 
 function startFailure(
   input: AgentRuntimeInput<string>,
@@ -86,124 +93,60 @@ function startFailure(
   });
 }
 
-function replyParts(reply: EffectMessageReply): MessageParts {
-  return typeof reply === "string" ? [{ type: "text", text: reply }] : reply;
-}
-
-function sendReply(
-  client: MoltZapAgentClient,
-  incoming: MessageReceivedNotification,
-  reply?: EffectMessageReply,
-) {
-  if (reply === undefined) {
-    return Effect.void;
-  }
-  const parts = replyParts(reply);
-  return client
-    .callDefinition(messagesSend, {
-      taskId: incoming.taskId,
-      conversationId: incoming.message.conversationId,
-      parts,
-      replyToId: incoming.message.id,
-    })
-    .pipe(Effect.asVoid);
-}
-
-function handleMessage<E, R>(
-  input: AgentRuntimeInput<string>,
-  client: MoltZapAgentClient,
-  onMessage: NonNullable<EffectRuntimeOptions<E, R>["onMessage"]>,
-  incoming: MessageReceivedNotification,
-) {
-  return onMessage({
-    agent: input.connection.agent,
-    taskId: incoming.taskId,
-    message: incoming.message,
-  }).pipe(Effect.flatMap((reply) => sendReply(client, incoming, reply)));
-}
-
 function completeTermination(
-  state: EffectRuntimeState,
-  termination: RuntimeTermination,
+  termination: Deferred.Deferred<RuntimeTermination>,
+  observed: RuntimeTermination,
 ): Effect.Effect<void> {
-  return Deferred.succeed(state.termination, termination).pipe(Effect.asVoid);
+  return Deferred.succeed(termination, observed).pipe(Effect.asVoid);
 }
 
-function receiverFailed(
-  state: EffectRuntimeState,
-  cause: Cause.Cause<unknown>,
-): Effect.Effect<void> {
-  if (Cause.isInterruptedOnly(cause)) {
-    return Effect.void;
-  }
-  return completeTermination(
-    state,
-    RuntimeFailed.make({ detail: Cause.pretty(cause) }),
-  ).pipe(Effect.zipRight(state.client.close()));
-}
-
-function receiverCompleted(state: EffectRuntimeState): Effect.Effect<void> {
-  return completeTermination(state, RuntimeCompleted.make({})).pipe(
-    Effect.zipRight(state.client.close()),
-  );
-}
-
-function receiveMessages<E, R>(
-  input: AgentRuntimeInput<string>,
-  state: EffectRuntimeState,
-  onMessage: NonNullable<EffectRuntimeOptions<E, R>["onMessage"]>,
-  received: Stream.Stream<MessageReceivedNotification, unknown>,
-): Effect.Effect<void, never, R> {
-  return received.pipe(
-    Stream.runForEach((incoming) =>
-      handleMessage(input, state.client, onMessage, incoming),
-    ),
+function observeBehavior<Failure, Requirements>(
+  behavior: Effect.Effect<void, Failure, Requirements>,
+  client: MoltZapAgentClient,
+  termination: Deferred.Deferred<RuntimeTermination>,
+  scopeClosing: Ref.Ref<boolean>,
+): Effect.Effect<void, never, Requirements> {
+  return behavior.pipe(
     Effect.matchCauseEffect({
-      onFailure: (cause) => receiverFailed(state, cause),
-      onSuccess: () => receiverCompleted(state),
+      onFailure: (cause) =>
+        Ref.get(scopeClosing).pipe(
+          Effect.flatMap((closing) =>
+            closing && Cause.isInterruptedOnly(cause)
+              ? Effect.void
+              : completeTermination(
+                  termination,
+                  RuntimeFailed.make({ detail: Cause.pretty(cause) }),
+                ).pipe(Effect.zipRight(client.close())),
+          ),
+        ),
+      onSuccess: () =>
+        completeTermination(termination, RuntimeCompleted.make({})).pipe(
+          Effect.zipRight(client.close()),
+        ),
     }),
   );
 }
 
-function startupEnded(
-  input: AgentRuntimeInput<string>,
-  termination: Deferred.Deferred<RuntimeTermination>,
-): Effect.Effect<never, EffectRuntimeStartFailed> {
-  return Deferred.await(termination).pipe(
-    Effect.flatMap((observed) =>
-      Effect.fail(
-        startFailure(
-          input,
-          `receiver terminated during startup (${observed._tag})`,
-        ),
-      ),
-    ),
-  );
-}
-
-function awaitStartup(
-  input: AgentRuntimeInput<string>,
-  state: EffectRuntimeState,
+function awaitStartup<Name extends string>(
+  input: AgentRuntimeInput<Name>,
+  client: MoltZapAgentClient,
   startupTimeout: Duration.Duration,
 ): Effect.Effect<void, EffectRuntimeStartFailed> {
-  const connectAndBecomeVisible = Effect.all(
-    [state.client.connect(), input.connection.awaitReady(startupTimeout)],
+  return Effect.all(
+    [client.connect(), input.connection.awaitReady(startupTimeout)],
     { concurrency: 2, discard: true },
   ).pipe(Effect.mapError((cause) => startFailure(input, cause)));
-  return Effect.raceFirst(
-    connectAndBecomeVisible,
-    startupEnded(input, state.termination),
-  );
 }
 
-function acquireEffectRuntime<E, R>(
-  options: EffectRuntimeOptions<E, R>,
-  input: AgentRuntimeInput<string>,
-): Effect.Effect<
-  { readonly termination: Effect.Effect<RuntimeTermination> },
-  EffectRuntimeStartFailed,
-  Scope.Scope | R
-> {
+interface ConnectedEffectClient {
+  readonly client: MoltZapAgentClient;
+  readonly messages: Stream.Stream<MessageReceivedNotification, unknown>;
+}
+
+function acquireClient<Name extends string>(
+  input: AgentRuntimeInput<Name>,
+  startupTimeout: Duration.Duration,
+): Effect.Effect<ConnectedEffectClient, EffectRuntimeStartFailed, Scope.Scope> {
   return Effect.gen(function* () {
     const client = yield* Effect.try({
       try: () =>
@@ -213,52 +156,108 @@ function acquireEffectRuntime<E, R>(
         }),
       catch: (cause) => startFailure(input, cause),
     });
-    const received = yield* client.subscribeScoped(
+    const messages = yield* client.subscribeScoped(
       messageReceivedNotificationDefinition,
     );
-    const state: EffectRuntimeState = {
-      client,
-      termination: yield* Deferred.make<RuntimeTermination>(),
-    };
     yield* Effect.addFinalizer(() => client.close());
-    const onMessage =
-      options.onMessage ?? (() => Effect.void.pipe(Effect.as(undefined)));
-    yield* receiveMessages(input, state, onMessage, received).pipe(
-      Effect.forkScoped,
-    );
-    yield* awaitStartup(
+    yield* awaitStartup(input, client, startupTimeout);
+    return { client, messages };
+  });
+}
+
+function startBehavior<Gateway, Requirements>(
+  built: EffectAgent<Gateway, Requirements>,
+  client: MoltZapAgentClient,
+): Effect.Effect<RunningAgent<Gateway>, never, Scope.Scope | Requirements> {
+  return Effect.gen(function* () {
+    const termination = yield* Deferred.make<RuntimeTermination>();
+    const scopeClosing = yield* Ref.make(false);
+    yield* observeBehavior(
+      built.behavior,
+      client,
+      termination,
+      scopeClosing,
+    ).pipe(Effect.forkScoped);
+    // `forkScoped` registers first. Scope finalizers run LIFO, so this marker
+    // distinguishes caller teardown from an agent that interrupts itself.
+    yield* Effect.addFinalizer(() => Ref.set(scopeClosing, true));
+    return {
+      gateway: built.gateway,
+      termination: Deferred.await(termination),
+    };
+  });
+}
+
+function acquireEffectRuntime<
+  Gateway,
+  BuilderRequirements,
+  BehaviorRequirements,
+  Name extends string,
+>(
+  options: EffectRuntimeOptions<
+    Gateway,
+    BuilderRequirements,
+    BehaviorRequirements
+  >,
+  input: AgentRuntimeInput<Name>,
+): Effect.Effect<
+  RunningAgent<Gateway>,
+  EffectRuntimeStartFailed,
+  Scope.Scope | BuilderRequirements | BehaviorRequirements
+> {
+  return Effect.gen(function* () {
+    const connected = yield* acquireClient(
       input,
-      state,
       options.startupTimeout ?? DEFAULT_STARTUP_TIMEOUT,
     );
-    return {
-      termination: Deferred.await(state.termination),
-    };
+    const built = yield* options
+      .build(
+        Object.freeze({
+          agent: input.connection.agent,
+          messages: connected.messages,
+          client: connected.client,
+        }),
+      )
+      .pipe(Effect.mapError((cause) => startFailure(input, cause)));
+    return yield* startBehavior(built, connected.client);
   }).pipe(Effect.withSpan("effectRuntime.acquire"));
 }
 
-function snapshotOptions<E, R>(
-  options: EffectRuntimeOptions<E, R>,
-): EffectRuntimeOptions<E, R> {
+function snapshotOptions<Gateway, BuilderRequirements, BehaviorRequirements>(
+  options: EffectRuntimeOptions<
+    Gateway,
+    BuilderRequirements,
+    BehaviorRequirements
+  >,
+): EffectRuntimeOptions<Gateway, BuilderRequirements, BehaviorRequirements> {
   const startupTimeout = options.startupTimeout;
-  const onMessage = options.onMessage;
+  const build = options.build;
   return Object.freeze({
+    build,
     ...(startupTimeout === undefined ? {} : { startupTimeout }),
-    ...(onMessage === undefined ? {} : { onMessage }),
   });
 }
 
 /**
- * Create a scoped in-process agent that communicates exclusively through the
- * production MoltZap protocol.
- * @param options Runtime-owned startup and message behavior.
- * @returns Autonomous runtime backed by in-process Effect behavior.
+ * Create a scoped in-process agent that communicates through the production
+ * MoltZap protocol.
+ * @param options Runtime-owned startup policy and customer agent builder.
+ * @returns An autonomous runtime with the builder's exact principal gateway.
  */
-export function effectRuntime<E = never, R = never>(
-  options: EffectRuntimeOptions<E, R> = {},
+export function effectRuntime<
+  Gateway,
+  BuilderRequirements = never,
+  BehaviorRequirements = never,
+>(
+  options: EffectRuntimeOptions<
+    Gateway,
+    BuilderRequirements,
+    BehaviorRequirements
+  >,
 ): AgentRuntime<
+  Gateway,
   EffectRuntimeStartFailed,
-  R,
+  BuilderRequirements | BehaviorRequirements,
   typeof EffectRuntimeConfiguration
 > {
   const capturedOptions = snapshotOptions(options);
@@ -269,8 +268,6 @@ export function effectRuntime<E = never, R = never>(
       value: EffectRuntimeConfiguration.make({
         startupTimeout:
           capturedOptions.startupTimeout ?? DEFAULT_STARTUP_TIMEOUT,
-        messageHandlerPolicy:
-          capturedOptions.onMessage === undefined ? "default" : "custom",
       }),
     },
     acquire: (input) => acquireEffectRuntime(capturedOptions, input),

@@ -389,9 +389,6 @@ function provisionNanoclawEvalAgent(
   runtimeDir: string,
   install: NanoclawRuntimeInstall,
 ) {
-  if (!opts.autoRegisterConversations) {
-    return Effect.void;
-  }
   return baseChildEnvironmentConfig.pipe(
     Effect.map((baseEnvironment) => {
       // One-shot provisioner: it writes sqlite and exits, so the inherited

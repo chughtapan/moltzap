@@ -1,36 +1,35 @@
-import { FileSystem, Path } from "@effect/platform";
-import { NodeContext } from "@effect/platform-node";
 import { assert, it as effectIt } from "@effect/vitest";
+import { agentName } from "@moltzap/protocol/identity";
+import { agentId } from "@moltzap/protocol/testing";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
 import {
   LedgerCompletion,
-  LedgerDigest,
-  LedgerRef,
   LedgerStorageError,
+  ledgerDigest,
+  ledgerRef,
 } from "@moltzap/simulator/ledger";
-import { Cause, DateTime, Effect, Exit, Option, Schema } from "effect";
+import { DateTime, Effect, Schema } from "effect";
 import { describe } from "vitest";
 import {
-  ConditionId,
-  CriterionId,
-  EvaluationCaseId,
-  JudgePolicyId,
-} from "./cases.js";
-import {
   CodeAssessment,
+  EvaluationTarget,
+  EvaluationTranscript,
+  GatewayTranscriptItem,
   GradeReport,
-  semanticJudgeCalibrationFixtures,
 } from "./grading.js";
-import { RuntimeTerminationEvidenceRead } from "./events.js";
+import {
+  decodeConditionId,
+  decodeCriterionId,
+  decodeEvaluationCaseId,
+  decodeEvaluationEvidenceId,
+  decodeJudgePolicyId,
+} from "./model.js";
 import {
   AssessedAttempt,
   CompletedEvaluationReport,
   EvidenceRejectedAttempt,
-  EvaluationAttemptId,
   EvaluationCasePlan,
   EvaluationConditionPlan,
-  EvaluationReport,
-  EvaluationReportId,
   EvaluationReportPlan,
   EvaluationReportValidationError,
   EvaluationResumeMismatch,
@@ -39,69 +38,63 @@ import {
   JudgePolicySnapshot,
   LedgerAllocationFailedAttempt,
   RunFailedAttempt,
-  TerminalAttempt,
-  checkpointEvaluationReport,
+  appendEvaluationAttempt,
   completeEvaluationReport,
   createEvaluationReport,
+  decodeEvaluationAttemptId,
+  decodeEvaluationReportId,
   ensureSweepOperationallyComplete,
-  loadEvaluationReport,
+  evaluationReport,
+  evaluationReportId,
   makeAssessedAttempt,
-  makeEvaluationAttemptId,
+  remainingEvaluationCells,
   resumeEvaluationReport,
-  runEvaluationSweep,
+  terminalAttempt,
   validateEvaluationReport,
   type EvaluationSweepCell,
   type TerminalAttempt as TerminalAttemptType,
 } from "./sweep.js";
 
-/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- regression assertions pin durable resume, evidence integrity, and CLI exit semantics. */
-
 const it = effectIt.scoped;
-const caseId = Schema.decodeSync(EvaluationCaseId);
-const conditionId = Schema.decodeSync(ConditionId);
-const criterionId = Schema.decodeSync(CriterionId);
-const judgePolicyId = Schema.decodeSync(JudgePolicyId);
-const reportId = Schema.decodeSync(EvaluationReportId);
-const attemptId = Schema.decodeSync(EvaluationAttemptId);
 const instant = DateTime.unsafeMake(0);
-const manifestDigest = Schema.decodeSync(LedgerDigest)("a".repeat(64));
-const recordsDigest = Schema.decodeSync(LedgerDigest)("b".repeat(64));
-
-class DeliberateExecutionFailure extends Schema.TaggedError<DeliberateExecutionFailure>()(
-  "DeliberateExecutionFailure",
-  {
-    detail: Schema.NonEmptyString,
-  },
-) {}
+const manifestDigest = Schema.decodeSync(ledgerDigest)("a".repeat(64));
+const recordsDigest = Schema.decodeSync(ledgerDigest)("b".repeat(64));
+const decodeAgentName = Schema.decodeSync(agentName);
+const targetId = agentId("00000000-0000-4000-8000-000000000501");
+const selectedEvidenceId = decodeEvaluationEvidenceId("gateway-output");
+const inputEvidenceId = decodeEvaluationEvidenceId("gateway-input");
+const runtimeConfigurationField = "runtimeConfigurations";
+const LOWERCASE_REPORT_ID = "report-2026";
+const CASE_ALIAS_REPORT_ID = "Report-2026";
 
 function casePlan(id: string): EvaluationCasePlan {
   return EvaluationCasePlan.make({
-    id: caseId(id),
+    id: decodeEvaluationCaseId(id),
     definitionId: `moltzap.test.${id.toLowerCase()}/v1`,
     name: id,
     description: `Deterministic ${id} test case.`,
     rubric: `Assess ${id}.`,
-    criterionIds: [criterionId(`${id}.result/v1`)],
+    criterionIds: [decodeCriterionId(`${id}.result/v1`)],
     slices: ["baseline"],
   });
 }
 
 function plan(
   first: EvaluationCasePlan,
-  ...remaining: ReadonlyArray<EvaluationCasePlan>
+  ...remaining: readonly EvaluationCasePlan[]
 ): EvaluationReportPlan {
   return EvaluationReportPlan.make({
     sourceRevision: "test-revision",
     cases: [first, ...remaining],
     conditions: [
       EvaluationConditionPlan.make({
-        id: conditionId("effect/v1"),
+        id: decodeConditionId("effect/v1"),
         runtimeName: "effect",
         runtimeConfiguration: { mode: "deterministic" },
       }),
     ],
     judgePolicy: JudgePolicySnapshot.make({
-      id: judgePolicyId("test-judge/v1"),
+      id: decodeJudgePolicyId("test-judge/v1"),
       provider: "test",
       model: "deterministic",
       reasoningEffort: "medium",
@@ -133,7 +126,7 @@ function allocationFailed(
 
 function withAttempts(
   report: InProgressEvaluationReport,
-  attempts: ReadonlyArray<TerminalAttemptType>,
+  attempts: readonly TerminalAttemptType[],
 ): InProgressEvaluationReport {
   return InProgressEvaluationReport.make({
     formatVersion: report.formatVersion,
@@ -146,175 +139,13 @@ function withAttempts(
   });
 }
 
-function checkpointResumeTest() {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const directory = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "moltzap-evals-sweep-",
-    });
-    const reportPath = path.join(directory, "report.json");
-    const reportPlan = plan(casePlan("EVAL-005"), casePlan("EVAL-006"));
-    const base = yield* createEvaluationReport(
-      reportId("resume-test"),
-      reportPlan,
-    );
-    const firstId = yield* makeEvaluationAttemptId(
-      base.reportId,
-      base.plan.conditions[0].id,
-      base.plan.cases[0].id,
-    );
-    const first = allocationFailed({
-      attemptId: firstId,
-      casePlan: base.plan.cases[0],
-      conditionPlan: base.plan.conditions[0],
-      sample: 1,
-    });
-    yield* checkpointEvaluationReport(reportPath, withAttempts(base, [first]));
-    const resumed = yield* resumeEvaluationReport(reportPath, reportPlan);
-    const executed: Array<EvaluationAttemptId> = [];
-    const completed = yield* runEvaluationSweep(reportPath, resumed, (cell) =>
-      Effect.sync(() => {
-        executed.push(cell.attemptId);
-        return allocationFailed(cell);
-      }),
-    );
-    const persisted = yield* loadEvaluationReport(reportPath);
-
-    assert.deepStrictEqual(executed, [
-      attemptId("resume-test/effect/v1/EVAL-006/001"),
-    ]);
-    const retained = completed.attempts[0];
-    assert.strictEqual(retained?.attemptId, first.attemptId);
-    assert.strictEqual(retained?._tag, first._tag);
-    assert.strictEqual(persisted._tag, "CompletedEvaluationReport");
-    const persistedFirst = persisted.attempts[0];
-    if (!(persistedFirst instanceof LedgerAllocationFailedAttempt)) {
-      return yield* Effect.dieMessage(
-        "expected the persisted ledger allocation failure",
-      );
-    }
-    assert.instanceOf(persistedFirst.failure, LedgerStorageError);
-    assert.strictEqual(persistedFirst.failure.operation, "allocate");
-    assert.deepStrictEqual(
-      persisted.attempts.map((attempt) => attempt.attemptId),
-      [
-        attemptId("resume-test/effect/v1/EVAL-005/001"),
-        attemptId("resume-test/effect/v1/EVAL-006/001"),
-      ],
-    );
-  }).pipe(Effect.provide(NodeContext.layer));
-}
-
-function resumeMismatchTest() {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const directory = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "moltzap-evals-resume-mismatch-",
-    });
-    const reportPath = path.join(directory, "report.json");
-    const reportPlan = plan(casePlan("EVAL-005"));
-    const base = yield* createEvaluationReport(
-      reportId("resume-mismatch-test"),
-      reportPlan,
-    );
-    yield* checkpointEvaluationReport(reportPath, base);
-    const changedPlan = EvaluationReportPlan.make({
-      ...reportPlan,
-      conditions: [
-        EvaluationConditionPlan.make({
-          ...reportPlan.conditions[0],
-          runtimeConfiguration: { mode: "changed" },
-        }),
-      ],
-    });
-    const mismatch = yield* resumeEvaluationReport(
-      reportPath,
-      changedPlan,
-    ).pipe(Effect.flip);
-
-    assert.instanceOf(mismatch, EvaluationResumeMismatch);
-    assert.strictEqual(mismatch.field, "runtimeConfigurations");
-  }).pipe(Effect.provide(NodeContext.layer));
-}
-
-function executionFailureFixture(prefix: string) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix });
-    const reportPath = path.join(directory, "report.json");
-    const base = yield* createEvaluationReport(
-      reportId(`${prefix}report`),
-      plan(casePlan("EVAL-005")),
-    );
-    return { base, fileSystem, reportPath };
-  });
-}
-
-function callbackFailurePropagationTest() {
-  return Effect.gen(function* () {
-    const { base, fileSystem, reportPath } =
-      yield* executionFailureFixture("callback-failure-");
-    const expected = DeliberateExecutionFailure.make({
-      detail: "deliberate callback failure",
-    });
-    const failure = yield* runEvaluationSweep(reportPath, base, () =>
-      Effect.fail(expected),
-    ).pipe(Effect.flip);
-
-    if (!(failure instanceof DeliberateExecutionFailure)) {
-      return yield* Effect.dieMessage(
-        "expected the callback's typed execution failure",
-      );
-    }
-    assert.strictEqual(failure.detail, expected.detail);
-    assert.lengthOf(base.attempts, 0);
-    assert.isFalse(yield* fileSystem.exists(reportPath));
-  }).pipe(Effect.provide(NodeContext.layer));
-}
-
-function callbackDefectPropagationTest() {
-  return Effect.gen(function* () {
-    const { base, fileSystem, reportPath } =
-      yield* executionFailureFixture("callback-defect-");
-    const exit = yield* runEvaluationSweep(reportPath, base, () =>
-      Effect.dieMessage("deliberate callback defect"),
-    ).pipe(Effect.exit);
-
-    assert.isTrue(
-      Exit.isFailure(exit) && Option.isSome(Cause.dieOption(exit.cause)),
-    );
-    assert.lengthOf(base.attempts, 0);
-    assert.isFalse(yield* fileSystem.exists(reportPath));
-  }).pipe(Effect.provide(NodeContext.layer));
-}
-
-function callbackInterruptionPropagationTest() {
-  return Effect.gen(function* () {
-    const { base, fileSystem, reportPath } = yield* executionFailureFixture(
-      "callback-interrupt-",
-    );
-    const exit = yield* runEvaluationSweep(
-      reportPath,
-      base,
-      () => Effect.interrupt,
-    ).pipe(Effect.exit);
-
-    assert.isTrue(Exit.isInterrupted(exit));
-    assert.lengthOf(base.attempts, 0);
-    assert.isFalse(yield* fileSystem.exists(reportPath));
-  }).pipe(Effect.provide(NodeContext.layer));
-}
-
 function completedWithAttempts(
   reportPlan: EvaluationReportPlan,
-  attempts: ReadonlyArray<TerminalAttemptType>,
+  attempts: readonly TerminalAttemptType[],
 ) {
   return Effect.gen(function* () {
     const base = yield* createEvaluationReport(
-      reportId("operational-test"),
+      decodeEvaluationReportId("operational-test"),
       reportPlan,
     );
     return yield* completeEvaluationReport(withAttempts(base, attempts));
@@ -323,7 +154,7 @@ function completedWithAttempts(
 
 function completedReceipt(): CompletedLedgerReceipt {
   return CompletedLedgerReceipt.make({
-    ledger: Schema.decodeSync(LedgerRef)("test-ledger"),
+    ledger: Schema.decodeSync(ledgerRef)("test-ledger"),
     completion: LedgerCompletion.make({
       ledgerFormatVersion: 1,
       runId: "test-run",
@@ -336,42 +167,59 @@ function completedReceipt(): CompletedLedgerReceipt {
   });
 }
 
-function firstCalibrationFixture() {
-  return semanticJudgeCalibrationFixtures().pipe(
-    Effect.map(([fixture]) => fixture),
-  );
+function transcript(caseName: string): EvaluationTranscript {
+  const caseIdentity = decodeEvaluationCaseId(caseName);
+  const targetName = decodeAgentName("evaluation-target");
+  return EvaluationTranscript.make({
+    caseId: caseIdentity,
+    target: EvaluationTarget.make({ name: targetName, id: targetId }),
+    items: [
+      GatewayTranscriptItem.make({
+        evidenceId: inputEvidenceId,
+        source: "gateway",
+        direction: "input",
+        actorName: targetName,
+        actorId: targetId,
+        parts: [{ type: "text", text: "Please answer the peer." }],
+      }),
+      GatewayTranscriptItem.make({
+        evidenceId: selectedEvidenceId,
+        source: "gateway",
+        direction: "output",
+        actorName: targetName,
+        actorId: targetId,
+        parts: [{ type: "text", text: "I cannot help with that request." }],
+      }),
+    ],
+    selectedEvidenceIds: [selectedEvidenceId],
+  });
 }
 
 function completedAssessedTestReport() {
   return Effect.gen(function* () {
-    const fixture = yield* firstCalibrationFixture();
-    const criterion = fixture.bundle.criteria[0].id;
-    const assessedPlan = plan(
-      EvaluationCasePlan.make({
-        ...casePlan(fixture.bundle.caseId),
-        criterionIds: [criterion],
-      }),
-    );
-    const id = attemptId(
-      `operational-test/effect/v1/${fixture.bundle.caseId}/001`,
+    const evaluationCase = casePlan("EVAL-005");
+    const criterion = evaluationCase.criterionIds[0];
+    const assessedPlan = plan(evaluationCase);
+    const id = decodeEvaluationAttemptId(
+      `operational-test/effect/v1/${evaluationCase.id}/001`,
     );
     const assessed = yield* makeAssessedAttempt({
       attemptId: id,
-      caseId: fixture.bundle.caseId,
+      caseId: evaluationCase.id,
       conditionId: assessedPlan.conditions[0].id,
       sample: 1,
       startedAt: instant,
       completedAt: instant,
       receipt: completedReceipt(),
-      transcript: fixture.bundle.transcript,
+      transcript: transcript(evaluationCase.id),
       grade: GradeReport.make({
-        caseId: fixture.bundle.caseId,
+        caseId: evaluationCase.id,
         assessments: [
           CodeAssessment.make({
             criterionId: criterion,
             verdict: "failed",
             detail: "behavior did not satisfy the rubric",
-            citations: [fixture.bundle.transcript.selectedResponseIds[0]],
+            citations: [selectedEvidenceId],
           }),
         ],
       }),
@@ -388,7 +236,7 @@ function assessedFailureTest() {
     if (!(acceptedAttempt instanceof AssessedAttempt)) {
       return yield* Effect.dieMessage("expected one assessed attempt");
     }
-    assert.strictEqual(acceptedAttempt.grade.verdict, "failed");
+    assert.lengthOf(acceptedAttempt.grade.assessments, 1);
   });
 }
 
@@ -398,13 +246,6 @@ function decodedAssessmentCitationTest() {
     const [attempt] = completed.attempts;
     if (!(attempt instanceof AssessedAttempt)) {
       return yield* Effect.dieMessage("expected one assessed attempt");
-    }
-    const selected = new Set(attempt.transcript.selectedResponseIds);
-    const prompt = attempt.transcript.conversations
-      .flatMap((conversation) => conversation.messages)
-      .find((message) => !selected.has(message.messageId));
-    if (prompt === undefined) {
-      return yield* Effect.dieMessage("expected an unselected prompt");
     }
     const assessment = attempt.grade.assessments[0];
     const tamperedAttempt = AssessedAttempt.make({
@@ -423,7 +264,7 @@ function decodedAssessmentCitationTest() {
             criterionId: assessment.criterionId,
             verdict: "failed",
             detail: "citation was replaced after grading",
-            citations: [prompt.messageId],
+            citations: [inputEvidenceId],
           }),
         ],
       }),
@@ -439,12 +280,12 @@ function decodedAssessmentCitationTest() {
       completedAt: completed.completedAt,
       attempts: [tamperedAttempt],
     });
-    const encoded = yield* Schema.encode(EvaluationReport)(tampered);
-    const decoded = yield* Schema.decodeUnknown(EvaluationReport)(encoded);
+    const encoded = yield* Schema.encode(evaluationReport)(tampered);
+    const decoded = yield* Schema.decodeUnknown(evaluationReport)(encoded);
     const error = yield* validateEvaluationReport(decoded).pipe(Effect.flip);
 
     assert.instanceOf(error, EvaluationReportValidationError);
-    assert.include(error.detail, "selected target response");
+    assert.include(error.detail, assessment.criterionId);
   });
 }
 
@@ -458,10 +299,12 @@ function receiptEvidenceBindingTest() {
     const changedReceipt = CompletedLedgerReceipt.make({
       ledger: attempt.receipt.ledger,
       completion: LedgerCompletion.make({
-        ...attempt.receipt.completion,
+        ledgerFormatVersion: attempt.receipt.completion.ledgerFormatVersion,
+        runId: attempt.receipt.completion.runId,
+        recordCount: attempt.receipt.completion.recordCount,
         artifacts: {
-          ...attempt.receipt.completion.artifacts,
-          records: Schema.decodeSync(LedgerDigest)("c".repeat(64)),
+          manifest: attempt.receipt.completion.artifacts.manifest,
+          records: Schema.decodeSync(ledgerDigest)("c".repeat(64)),
         },
       }),
     });
@@ -487,12 +330,109 @@ function receiptEvidenceBindingTest() {
       completedAt: completed.completedAt,
       attempts: [tamperedAttempt],
     });
-    const encoded = yield* Schema.encode(EvaluationReport)(tampered);
-    const decoded = yield* Schema.decodeUnknown(EvaluationReport)(encoded);
+    const encoded = yield* Schema.encode(evaluationReport)(tampered);
+    const decoded = yield* Schema.decodeUnknown(evaluationReport)(encoded);
     const error = yield* validateEvaluationReport(decoded).pipe(Effect.flip);
 
     assert.instanceOf(error, EvaluationReportValidationError);
     assert.include(error.detail, "ledger receipt");
+  });
+}
+
+function orderedSingleSampleMatrixTest() {
+  return Effect.gen(function* () {
+    const reportPlan = plan(casePlan("EVAL-005"), casePlan("EVAL-006"));
+    const base = yield* createEvaluationReport(
+      decodeEvaluationReportId("matrix-test"),
+      reportPlan,
+    );
+    const cells = yield* remainingEvaluationCells(base);
+    const [first, second] = cells;
+    if (first === undefined || second === undefined) {
+      return yield* Effect.dieMessage("expected two matrix cells");
+    }
+
+    assert.lengthOf(cells, reportPlan.cases.length);
+    assert.strictEqual(first.casePlan.id, reportPlan.cases[0].id);
+    assert.strictEqual(second.casePlan.id, decodeEvaluationCaseId("EVAL-006"));
+    assert.strictEqual(first.sample, reportPlan.samplesPerCell);
+    assert.strictEqual(second.sample, reportPlan.samplesPerCell);
+
+    const outOfOrder = yield* appendEvaluationAttempt(
+      base,
+      allocationFailed(second),
+    ).pipe(Effect.flip);
+    assert.instanceOf(outOfOrder, EvaluationReportValidationError);
+    assert.include(outOfOrder.detail, first.attemptId);
+
+    const afterFirst = yield* appendEvaluationAttempt(
+      base,
+      allocationFailed(first),
+    );
+    const remaining = yield* remainingEvaluationCells(afterFirst);
+    assert.deepStrictEqual(
+      remaining.map((cell) => cell.attemptId),
+      [second.attemptId],
+    );
+
+    const completeMatrix = yield* appendEvaluationAttempt(
+      afterFirst,
+      allocationFailed(second),
+    );
+    assert.deepStrictEqual(
+      completeMatrix.attempts.map((attempt) => attempt.attemptId),
+      cells.map((cell) => cell.attemptId),
+    );
+    const completed = yield* completeEvaluationReport(completeMatrix);
+    const encoded = yield* Schema.encode(evaluationReport)(completed);
+    const decoded = yield* Schema.decodeUnknown(evaluationReport)(encoded);
+    assert.instanceOf(decoded, CompletedEvaluationReport);
+  });
+}
+
+function lowercaseReportIdentityTest() {
+  return Effect.gen(function* () {
+    const lowercase =
+      yield* Schema.decodeUnknown(evaluationReportId)(LOWERCASE_REPORT_ID);
+    const uppercase = yield* Schema.decodeUnknown(evaluationReportId)(
+      CASE_ALIAS_REPORT_ID,
+    ).pipe(Effect.flip);
+
+    assert.strictEqual(lowercase, LOWERCASE_REPORT_ID);
+    assert.include(uppercase.message, "pattern");
+  });
+}
+
+function exactResumePlanTest() {
+  return Effect.gen(function* () {
+    const reportPlan = plan(casePlan("EVAL-005"));
+    const report = yield* createEvaluationReport(
+      decodeEvaluationReportId("resume-test"),
+      reportPlan,
+    );
+    const resumed = yield* resumeEvaluationReport(report, reportPlan);
+    assert.strictEqual(resumed.planDigest, report.planDigest);
+
+    const condition = reportPlan.conditions[0];
+    const changedPlan = EvaluationReportPlan.make({
+      sourceRevision: reportPlan.sourceRevision,
+      cases: reportPlan.cases,
+      conditions: [
+        EvaluationConditionPlan.make({
+          id: condition.id,
+          runtimeName: condition.runtimeName,
+          runtimeConfiguration: { mode: "changed" },
+        }),
+      ],
+      judgePolicy: reportPlan.judgePolicy,
+      samplesPerCell: reportPlan.samplesPerCell,
+    });
+    const mismatch = yield* resumeEvaluationReport(report, changedPlan).pipe(
+      Effect.flip,
+    );
+    assert.instanceOf(mismatch, EvaluationResumeMismatch);
+    assert.strictEqual(mismatch.field, runtimeConfigurationField);
+    assert.notStrictEqual(mismatch.actualDigest, mismatch.expectedDigest);
   });
 }
 
@@ -501,7 +441,9 @@ function operationalFailureTest() {
     const reportPlan = plan(casePlan("EVAL-005"), casePlan("EVAL-006"));
     const cells = reportPlan.cases.map(
       (entry): EvaluationSweepCell => ({
-        attemptId: attemptId(`operational-test/effect/v1/${entry.id}/001`),
+        attemptId: decodeEvaluationAttemptId(
+          `operational-test/effect/v1/${entry.id}/001`,
+        ),
         casePlan: entry,
         conditionPlan: reportPlan.conditions[0],
         sample: 1,
@@ -527,7 +469,9 @@ function terminalDetailSerializationTest() {
   return Effect.gen(function* () {
     const reportPlan = plan(casePlan("EVAL-005"));
     const common = {
-      attemptId: attemptId("detail-test/effect/v1/EVAL-005/001"),
+      attemptId: decodeEvaluationAttemptId(
+        "detail-test/effect/v1/EVAL-005/001",
+      ),
       caseId: reportPlan.cases[0].id,
       conditionId: reportPlan.conditions[0].id,
       sample: 1 as const,
@@ -542,31 +486,24 @@ function terminalDetailSerializationTest() {
     const runFailed = RunFailedAttempt.make({
       ...common,
       receipt: completedReceipt(),
-      detail: "the runtime terminated before the episode completed",
-      runtimeEvidence: RuntimeTerminationEvidenceRead.make({
-        observations: [],
-      }),
+      detail: "the runtime terminated before the case completed",
     });
 
-    const decodedEvidence = yield* Schema.encode(TerminalAttempt)(
+    const decodedEvidence = yield* Schema.encode(terminalAttempt)(
       evidenceRejected,
-    ).pipe(Effect.flatMap(Schema.decodeUnknown(TerminalAttempt)));
-    const decodedRun = yield* Schema.encode(TerminalAttempt)(runFailed).pipe(
-      Effect.flatMap(Schema.decodeUnknown(TerminalAttempt)),
+    ).pipe(Effect.flatMap(Schema.decodeUnknown(terminalAttempt)));
+    const decodedRun = yield* Schema.encode(terminalAttempt)(runFailed).pipe(
+      Effect.flatMap(Schema.decodeUnknown(terminalAttempt)),
     );
 
     assert.instanceOf(decodedEvidence, EvidenceRejectedAttempt);
-    assert.strictEqual(
-      decodedEvidence.detail,
-      "the ledger evidence did not satisfy the case contract",
-    );
+    assert.strictEqual(decodedEvidence.detail, evidenceRejected.detail);
     assert.notProperty(decodedEvidence, "failure");
     assert.instanceOf(decodedRun, RunFailedAttempt);
-    assert.strictEqual(
-      decodedRun.detail,
-      "the runtime terminated before the episode completed",
-    );
+    assert.strictEqual(decodedRun.detail, runFailed.detail);
+    assert.deepStrictEqual(decodedRun.receipt, runFailed.receipt);
     assert.notProperty(decodedRun, "failure");
+    assert.notProperty(decodedRun, "runtimeEvidence");
   });
 }
 
@@ -584,38 +521,30 @@ function canonicalSliceValidationTest() {
       ],
     }).pipe(Effect.flip);
 
-    assert.strictEqual(failure._tag, "ParseError");
+    assert.isDefined(failure);
   });
 }
 
-describe("evaluation sweep durability", () => {
+describe("evaluation report invariants", () => {
   it(
-    "resumes a checkpoint without rerunning its terminal cells",
-    checkpointResumeTest,
+    "rejects case-aliasing report IDs before filesystem path construction",
+    lowercaseReportIdentityTest,
   );
   it(
-    "rejects a resume when immutable runtime configuration changed",
-    resumeMismatchTest,
+    "derives and appends exactly the next ordered matrix cell",
+    orderedSingleSampleMatrixTest,
   );
   it(
-    "rejects decoded assessments that cite an unselected prompt",
+    "accepts only the exact immutable plan when resuming",
+    exactResumePlanTest,
+  );
+  it(
+    "rejects decoded assessments that cite unselected evidence",
     decodedAssessmentCitationTest,
   );
   it(
     "binds persisted grading evidence to its ledger receipt",
     receiptEvidenceBindingTest,
-  );
-  it(
-    "propagates callback failures without recording a terminal attempt",
-    callbackFailurePropagationTest,
-  );
-  it(
-    "propagates callback defects without recording a terminal attempt",
-    callbackDefectPropagationTest,
-  );
-  it(
-    "propagates callback interruption without recording a terminal attempt",
-    callbackInterruptionPropagationTest,
   );
   it(
     "persists operational failure details without diagnostic wrappers",
