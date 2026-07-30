@@ -46,3 +46,15 @@ The stored actor role identifies a `user` interaction only. It does not
 independently establish account control or replace the ADR `decision-makers`
 field. The event selects the Agent Sandbox backend; it does not state the
 implementation details in the ADRs.
+
+## Candidate identity
+
+| Field | Value |
+|---|---|
+| Frozen semantic commit | `a2b55f32e8b8cc688c8a290972267492a3dbfc0b` |
+| Frozen semantic tree | `09eccb18943db02ff2b4a5f248b1fda4f85cf9de` |
+| Content digest | SHA-256 `df6b49d1e937fe0c844cfc556203c2f381eeb09a257a823f23e19b2153048905` |
+| Digest command | `git archive --format=tar a2b55f32e8b8cc688c8a290972267492a3dbfc0b \| shasum -a 256` |
+
+This section is trace-only. It identifies the exact semantic candidate for the
+fresh blind review and does not add a design decision.
