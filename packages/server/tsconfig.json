@@ -4,88 +4,87 @@
     "outDir": "dist",
     "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "rootDir": "src",
-    "baseUrl": "./src",
     "paths": {
       "#core": [
-        "core/index.ts"
+        "./src/core/index.ts"
       ],
       "#moltzap": [
-        "moltzap/index.ts"
+        "./src/moltzap/index.ts"
       ],
       "#moltzap/runtime": [
-        "moltzap/runtime.ts"
+        "./src/moltzap/runtime.ts"
       ],
       "#socket": [
-        "socket/index.ts"
+        "./src/socket/index.ts"
       ],
       "#http": [
-        "http/index.ts"
+        "./src/http/index.ts"
       ],
       "#config": [
-        "config.ts"
+        "./src/config.ts"
       ],
       "#config/secrets": [
-        "config/secrets.ts"
+        "./src/config/secrets.ts"
       ],
       "#db": [
-        "db/barrel.ts"
+        "./src/db/barrel.ts"
       ],
       "#db/crypto": [
-        "db/crypto/barrel.ts"
+        "./src/db/crypto/barrel.ts"
       ],
       "#identity/agents": [
-        "identity/agents/index.ts"
+        "./src/identity/agents/index.ts"
       ],
       "#identity/apps": [
-        "identity/apps/index.ts"
+        "./src/identity/apps/index.ts"
       ],
       "#identity/credential-keys": [
-        "identity/credential-keys.ts"
+        "./src/identity/credential-keys.ts"
       ],
       "#identity/contacts/requirements": [
-        "identity/contacts/requirements/index.ts"
+        "./src/identity/contacts/requirements/index.ts"
       ],
       "#identity/contacts": [
-        "identity/contacts/index.ts"
+        "./src/identity/contacts/index.ts"
       ],
       "#network": [
-        "network/index.ts"
+        "./src/network/index.ts"
       ],
       "#network/presence": [
-        "network/presence/index.ts"
+        "./src/network/presence/index.ts"
       ],
       "#task": [
-        "task/index.ts"
+        "./src/task/index.ts"
       ],
       "#task/handlers": [
-        "task/handlers.ts"
+        "./src/task/handlers.ts"
       ],
       "#task/requirements": [
-        "task/requirements/index.ts"
+        "./src/task/requirements/index.ts"
       ],
       "#conversation": [
-        "conversation/index.ts"
+        "./src/conversation/index.ts"
       ],
       "#conversation/handlers": [
-        "conversation/handlers.ts"
+        "./src/conversation/handlers.ts"
       ],
       "#conversation/requirements": [
-        "conversation/requirements/index.ts"
+        "./src/conversation/requirements/index.ts"
       ],
       "#message": [
-        "message/index.ts"
+        "./src/message/index.ts"
       ],
       "#message/handlers": [
-        "message/handlers.ts"
+        "./src/message/handlers.ts"
       ],
       "#dispatch": [
-        "dispatch/index.ts"
+        "./src/dispatch/index.ts"
       ],
       "#dispatch/handlers": [
-        "dispatch/handlers.ts"
+        "./src/dispatch/handlers.ts"
       ],
       "#test-utils": [
-        "test-utils/index.ts"
+        "./src/test-utils/index.ts"
       ]
     }
   },

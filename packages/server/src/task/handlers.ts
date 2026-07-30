@@ -134,15 +134,13 @@ function handleReject(taskId: TaskId, recipients: AgentId[], reason?: string) {
     );
     // `reason` rides in the wire error's `data` arm (RpcErrorPayload),
     // so the requester can read why without parsing the message.
-    return yield* Effect.fail(
-      new TaskRejectedError({
-        data: {
-          taskId:
-            /* Safe because the surrounding invariant establishes this asserted shape. */ failedTask.id as string,
-          ...reasonField,
-        },
-      }),
-    );
+    return yield* new TaskRejectedError({
+      data: {
+        taskId:
+          /* Safe because the surrounding invariant establishes this asserted shape. */ failedTask.id as string,
+        ...reasonField,
+      },
+    });
   }).pipe(Effect.withSpan("task.request.reject"));
 }
 

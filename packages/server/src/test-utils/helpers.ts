@@ -232,7 +232,9 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent> {
   return Effect.gen(function* () {
     const authService = new AuthService(getCoreDb());
-    const agentName = Schema.decodeSync(agentNameSchema)(name);
+    const agentName = yield* Schema.decode(agentNameSchema)(name).pipe(
+      Effect.orDie,
+    );
     const params =
       opts?.description === undefined
         ? { name: agentName }
@@ -263,12 +265,10 @@ export function connectTestClient(opts: {
   apiKey: AgentKey;
   wsUrl?: string;
 }): Effect.Effect<TestAgentClient, Error> {
-  return Effect.gen(function* () {
-    return yield* makeTestAgentClient(opts.agentId, {
-      serverUrl: testClientServerUrl(opts.wsUrl ?? getWsUrl()),
-      agentKey: opts.apiKey,
-    }).pipe(Effect.mapError(toError));
-  }).pipe(Effect.withSpan("connectTestClient"));
+  return makeTestAgentClient(opts.agentId, {
+    serverUrl: testClientServerUrl(opts.wsUrl ?? getWsUrl()),
+    agentKey: opts.apiKey,
+  }).pipe(Effect.mapError(toError), Effect.withSpan("connectTestClient"));
 }
 
 // The harness hands out the server's socket endpoint; the client takes the
@@ -496,13 +496,11 @@ export function setupAgentGroup(
 > {
   return Effect.gen(function* () {
     if (count < MIN_AGENT_GROUP_SIZE) {
-      return yield* Effect.fail(
-        new AgentGroupSizeError({
-          message: `Agent group requires at least ${MIN_AGENT_GROUP_SIZE} agents`,
-          minimumAgents: MIN_AGENT_GROUP_SIZE,
-          requestedAgents: count,
-        }),
-      );
+      return yield* new AgentGroupSizeError({
+        message: `Agent group requires at least ${MIN_AGENT_GROUP_SIZE} agents`,
+        minimumAgents: MIN_AGENT_GROUP_SIZE,
+        requestedAgents: count,
+      });
     }
 
     const agents: ConnectedAgent[] = [];

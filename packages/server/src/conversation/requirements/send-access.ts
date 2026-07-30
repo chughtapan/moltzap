@@ -54,11 +54,9 @@ export const obtainConversationSendAccess = (input: {
         ),
     );
     if (input.taskId !== undefined && conv.task_id !== input.taskId) {
-      return yield* Effect.fail(
-        new ForbiddenError({
-          message: "Conversation does not belong to the specified task",
-        }),
-      );
+      return yield* new ForbiddenError({
+        message: "Conversation does not belong to the specified task",
+      });
     }
     return {
       conversationId: input.conversationId,

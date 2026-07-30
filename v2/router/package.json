@@ -109,9 +109,10 @@
   },
   "devDependencies": {
     "@effect/vitest": "0.30.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
     "fast-check": "3.23.2",
-    "typescript": "^5.7.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "3.2.4"
   }
 }

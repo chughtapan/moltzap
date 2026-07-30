@@ -235,7 +235,7 @@ function configureEncryption(
   opts: StartCoreTestServerOptions,
 ) {
   if (!opts.encryption) {
-    return Effect.succeed(undefined);
+    return Effect.void.pipe(Effect.as(undefined));
   }
   const masterSecret = randomBytes(ENCRYPTION_MASTER_SECRET_BYTES).toString(
     "base64",
