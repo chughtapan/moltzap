@@ -143,36 +143,43 @@ function renderNotificationOverviewRow(
     jsdocMap.get(name)?.description ??
     `Pushed as the \`${name}\` notification.`;
   const oneLine = description.replace(/\s+/g, " ").trim();
-  const summary = oneLine.split(". ")[0] + (oneLine.includes(". ") ? "." : "");
+  const firstSentence = oneLine.split(". ")[0] ?? "";
+  const summary = firstSentence + (oneLine.includes(". ") ? "." : "");
   return `| [\`${name}\`](/protocol/notifications/${slugify(name)}) | ${summary} |`;
 }
 
-const deleteStaleGeneratedPages = (
+function deleteStaleGeneratedPages(
   fs: FileSystem.FileSystem,
   path: Path.Path,
   dir: string,
   expectedFileNames: ReadonlySet<string>,
-): Effect.Effect<void, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
     const entries = yield* fs
       .readDirectory(dir)
-      .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)));
+      .pipe(Effect.catchAll(() => Effect.succeed([])));
     for (const name of entries) {
-      if (!name.endsWith(".mdx")) continue;
-      if (expectedFileNames.has(name)) continue;
+      if (!name.endsWith(".mdx")) {
+        continue;
+      }
+      if (expectedFileNames.has(name)) {
+        continue;
+      }
       yield* fs
         .remove(path.resolve(dir, name))
         .pipe(Effect.catchAll(() => Effect.void));
     }
   });
+}
 
-const writeGeneratedPage = (
+function writeGeneratedPage(
   fs: FileSystem.FileSystem,
   file: string,
   content: string,
-): Effect.Effect<void, never, never> =>
-  fs
+): Effect.Effect<void> {
+  return fs
     .writeFileString(file, `${content.trimEnd()}\n`)
     .pipe(Effect.catchAll(() => Effect.void));
+}
 
 NodeRuntime.runMain(program.pipe(Effect.provide(NodeContext.layer)));

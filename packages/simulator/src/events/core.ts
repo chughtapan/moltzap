@@ -1,13 +1,13 @@
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { AgentId, AgentName } from "@moltzap/protocol/identity";
+import { conversationId, messageId } from "@moltzap/protocol/conversation";
+import { agentId, agentName } from "@moltzap/protocol/identity";
 import { messagePartsSchema } from "@moltzap/protocol/message";
-import { ServerBaseUrl } from "@moltzap/protocol/network";
-import { TaskId } from "@moltzap/protocol/task";
+import { serverBaseUrlSchema } from "@moltzap/protocol/network";
+import { taskId } from "@moltzap/protocol/task";
 import { Schema } from "effect";
 import { EventCatalog } from "./catalog.js";
 import { CommittedRouterMessage } from "../network/router.js";
 
-const MessageParts = messagePartsSchema();
+const messageParts = messagePartsSchema();
 
 /** The run ledger is allocated and run-scoped acquisition has begun. */
 export class RunStarted extends Schema.TaggedClass<RunStarted>()(
@@ -21,7 +21,7 @@ export class RunStarted extends Schema.TaggedClass<RunStarted>()(
 export class RouterStarted extends Schema.TaggedClass<RouterStarted>()(
   "moltzap.router-started/v1",
   {
-    routerUrl: ServerBaseUrl,
+    routerUrl: serverBaseUrlSchema,
   },
 ) {}
 
@@ -45,8 +45,8 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
 export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
   "moltzap.agent-runtime-ready/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
   },
 ) {}
@@ -55,7 +55,7 @@ export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
 export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStartFailed>()(
   "moltzap.agent-runtime-start-failed/v1",
   {
-    agentName: AgentName,
+    agentName: agentName,
     runtime: Schema.NonEmptyString,
     cause: Schema.NonEmptyString,
   },
@@ -65,8 +65,8 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeCompleted>()(
   "moltzap.agent-runtime-completed/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
   },
 ) {}
@@ -75,8 +75,8 @@ export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeComple
 export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()(
   "moltzap.agent-runtime-failed/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     cause: Schema.NonEmptyString,
   },
@@ -86,8 +86,8 @@ export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()
 export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()(
   "moltzap.agent-process-exited/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     code: Schema.NonNegativeInt,
   },
@@ -97,8 +97,8 @@ export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()
 export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignaled>()(
   "moltzap.agent-process-signaled/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     signal: Schema.NonEmptyString,
   },
@@ -108,10 +108,10 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
 export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()(
   "moltzap.conversation-opened/v1",
   {
-    openedBy: AgentId,
-    taskId: TaskId,
-    conversationId: ConversationId,
-    participants: Schema.NonEmptyArray(AgentId),
+    openedBy: agentId,
+    taskId: taskId,
+    conversationId: conversationId,
+    participants: Schema.NonEmptyArray(agentId),
   },
 ) {}
 
@@ -119,11 +119,11 @@ export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()
 export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>()(
   "moltzap.endpoint-message-sent/v1",
   {
-    endpointId: AgentId,
-    taskId: TaskId,
-    conversationId: ConversationId,
-    messageId: MessageId,
-    parts: MessageParts,
+    endpointId: agentId,
+    taskId: taskId,
+    conversationId: conversationId,
+    messageId: messageId,
+    parts: messageParts,
   },
 ) {}
 
@@ -131,12 +131,12 @@ export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>
 export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageReceived>()(
   "moltzap.endpoint-message-received/v1",
   {
-    endpointId: AgentId,
-    taskId: TaskId,
-    conversationId: ConversationId,
-    messageId: MessageId,
-    senderId: AgentId,
-    parts: MessageParts,
+    endpointId: agentId,
+    taskId: taskId,
+    conversationId: conversationId,
+    messageId: messageId,
+    senderId: agentId,
+    parts: messageParts,
   },
 ) {}
 
@@ -155,15 +155,15 @@ export class RouterMessageCommitted extends Schema.TaggedClass<RouterMessageComm
 export class LinkDown extends Schema.TaggedClass<LinkDown>()(
   "moltzap.link-down/v1",
   {
-    from: AgentId,
-    to: AgentId,
+    from: agentId,
+    to: agentId,
   },
 ) {}
 
 /** A directed participant link transitioned from unavailable to available. */
 export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
-  from: AgentId,
-  to: AgentId,
+  from: agentId,
+  to: agentId,
 }) {}
 
 /** The customer program returned successfully. */
@@ -189,7 +189,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 ) {}
 
 /** Run lifecycle events emitted by the run kernel. */
-export const RunEvents = EventCatalog.make(
+export const runEvents = EventCatalog.make(
   RunStarted,
   ProgramSucceeded,
   ProgramFailed,
@@ -197,7 +197,7 @@ export const RunEvents = EventCatalog.make(
 );
 
 /** Router events emitted by the run-scoped router integration. */
-export const RouterEvents = EventCatalog.make(
+export const routerEvents = EventCatalog.make(
   RouterStarted,
   RouterStartFailed,
   RouterStopFailed,
@@ -205,7 +205,7 @@ export const RouterEvents = EventCatalog.make(
 );
 
 /** Runtime lifecycle events emitted by the roster supervisor. */
-export const RuntimeEvents = EventCatalog.make(
+export const runtimeEvents = EventCatalog.make(
   AgentRuntimeReady,
   AgentRuntimeStartFailed,
   AgentRuntimeCompleted,
@@ -215,20 +215,20 @@ export const RuntimeEvents = EventCatalog.make(
 );
 
 /** Data-plane events emitted by controlled endpoint operations. */
-export const EndpointEvents = EventCatalog.make(
+export const endpointEvents = EventCatalog.make(
   ConversationOpened,
   EndpointMessageSent,
   EndpointMessageReceived,
 );
 
 /** Directed-link state events emitted by the network controller. */
-export const LinkEvents = EventCatalog.make(LinkDown, LinkUp);
+export const linkEvents = EventCatalog.make(LinkDown, LinkUp);
 
 /** The exact event classes readable from every simulator run ledger. */
-export const CoreEvents = EventCatalog.merge(
-  RunEvents,
-  RouterEvents,
-  RuntimeEvents,
-  EndpointEvents,
-  LinkEvents,
+export const coreEvents = EventCatalog.merge(
+  runEvents,
+  routerEvents,
+  runtimeEvents,
+  endpointEvents,
+  linkEvents,
 );

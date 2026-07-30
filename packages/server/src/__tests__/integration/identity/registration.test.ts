@@ -11,7 +11,7 @@ import {
 import { getCoreDb } from "../../../test-utils/server.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
-import { ConversationList } from "@moltzap/protocol/conversation";
+import { conversationList } from "@moltzap/protocol/conversation";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -48,7 +48,7 @@ function registeredAgentCanUseMethods() {
       apiKey: reg.apiKey,
     });
 
-    const result = yield* client.sendRpc(ConversationList, {});
+    const result = yield* client.sendRpc(conversationList, {});
     expect(result.items).toEqual([]);
 
     yield* client.close();

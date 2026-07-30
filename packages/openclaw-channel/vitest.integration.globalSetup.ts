@@ -2,10 +2,10 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import { type RegisterResponse } from "@moltzap/client/auth";
+import type { RegisterResponse } from "@moltzap/client/auth";
 import { registerStandaloneAgentPair } from "@moltzap/client/test-utils";
 import { Data, Effect, Redacted } from "effect";
-import type { GlobalSetupContext } from "vitest/node";
+import type { TestProject } from "vitest/node";
 import {
   startEchoServer,
   type EchoServer,
@@ -46,11 +46,17 @@ class OpenClawIntegrationSetupError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export default function ({ provide }: GlobalSetupContext) {
+/**
+ * Boots the shared OpenClaw integration fixture.
+ * @param project Vitest project used to publish fixture values.
+ * @returns The integration fixture teardown callback.
+ */
+export function setup(project: TestProject) {
+  const { provide } = project;
   return Effect.runPromise(setupIntegrationTests(provide));
 }
 
-function setupIntegrationTests(provide: GlobalSetupContext["provide"]) {
+function setupIntegrationTests(provide: TestProject["provide"]) {
   return Effect.gen(function* () {
     const prerequisites = yield* startPrerequisites();
     pgContainer = prerequisites.pg;
@@ -120,7 +126,7 @@ function startSharedOpenClawContainer(input: {
   readonly slot: "shared-a" | "shared-b";
   readonly agentName: string;
   readonly agent: RegisterResponse;
-  readonly portRange?: readonly [number, number];
+  readonly portRange?: [number, number];
 }) {
   return startRawContainer(
     buildOpenClawConfig({
@@ -148,7 +154,9 @@ function startOpenClawContainers(
   agentA: RegisterResponse,
   agentB: RegisterResponse,
 ) {
-  if (!isImageAvailable()) return Effect.void;
+  if (!isImageAvailable()) {
+    return Effect.void;
+  }
   const model = echoModelConfig(echo.port);
   return Effect.gen(function* () {
     const [firstContainer, secondContainer] = yield* Effect.all(
@@ -191,7 +199,7 @@ function waitForContainer(
 }
 
 function provideIntegrationValues(
-  provide: GlobalSetupContext["provide"],
+  provide: TestProject["provide"],
   server: SpawnedServer,
   agentA: RegisterResponse,
   agentB: RegisterResponse,
@@ -210,22 +218,30 @@ function teardownIntegrationTests() {
   return Effect.gen(function* () {
     const firstContainer = containerA;
     containerA = null;
-    if (firstContainer !== null) yield* stopContainer(firstContainer);
+    if (firstContainer !== null) {
+      yield* stopContainer(firstContainer);
+    }
 
     const secondContainer = containerB;
     containerB = null;
-    if (secondContainer !== null) yield* stopContainer(secondContainer);
+    if (secondContainer !== null) {
+      yield* stopContainer(secondContainer);
+    }
 
     const server = spawnedServer;
     spawnedServer = null;
-    if (server !== null) yield* stopServer(server);
+    if (server !== null) {
+      yield* stopServer(server);
+    }
 
     echoServer?.close();
     echoServer = null;
 
     const postgres = pgContainer;
     pgContainer = null;
-    if (postgres !== null) yield* stopPostgres(postgres);
+    if (postgres !== null) {
+      yield* stopPostgres(postgres);
+    }
   });
 }
 

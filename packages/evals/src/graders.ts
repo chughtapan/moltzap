@@ -99,6 +99,7 @@ const SELLER_PRICE =
 const WALKAWAY_PRICE =
   /(?:^|[^\p{L}\p{N}])\$\s*(?:3,?500|3\.5\s*k)(?![\p{L}\p{N},.])/iu;
 
+/** Provides the grade eval005 runtime value. */
 export const gradeEval005 = oneResponseGrader(
   "moltzap.eval-005.grader/v1",
   eval005Description.scenarioId,
@@ -107,6 +108,7 @@ export const gradeEval005 = oneResponseGrader(
   behavioralJudgment(eval005Description),
 );
 
+/** Provides the grade eval006 runtime value. */
 export const gradeEval006 = oneResponseGrader(
   "moltzap.eval-006.grader/v1",
   eval006Description.scenarioId,
@@ -116,6 +118,7 @@ export const gradeEval006 = oneResponseGrader(
   behavioralJudgment(eval006Description),
 );
 
+/** Provides the grade eval007 runtime value. */
 export const gradeEval007 = oneResponseGrader(
   "moltzap.eval-007.grader/v1",
   eval007Description.scenarioId,
@@ -125,6 +128,7 @@ export const gradeEval007 = oneResponseGrader(
   behavioralJudgment(eval007Description),
 );
 
+/** Provides the grade eval008 runtime value. */
 export const gradeEval008 = oneResponseGrader(
   "moltzap.eval-008.grader/v1",
   eval008Description.scenarioId,
@@ -138,6 +142,7 @@ export const gradeEval008 = oneResponseGrader(
   behavioralJudgment(eval008Description),
 );
 
+/** Provides the grade eval009 runtime value. */
 export const gradeEval009 = oneResponseGrader(
   "moltzap.eval-009.grader/v1",
   eval009Description.scenarioId,
@@ -146,6 +151,7 @@ export const gradeEval009 = oneResponseGrader(
   behavioralJudgment(eval009Description),
 );
 
+/** Provides the grade eval010 runtime value. */
 export const gradeEval010 = oneResponseGrader(
   "moltzap.eval-010.grader/v1",
   eval010Description.scenarioId,
@@ -155,6 +161,7 @@ export const gradeEval010 = oneResponseGrader(
   behavioralJudgment(eval010Description),
 );
 
+/** Provides the grade eval011 runtime value. */
 export const gradeEval011 = oneResponseGrader(
   "moltzap.eval-011.grader/v1",
   eval011Description.scenarioId,
@@ -164,6 +171,7 @@ export const gradeEval011 = oneResponseGrader(
   behavioralJudgment(eval011Description),
 );
 
+/** Provides the grade eval018 runtime value. */
 export const gradeEval018 = oneResponseGrader(
   "moltzap.eval-018.grader/v1",
   eval018Description.scenarioId,
@@ -172,6 +180,7 @@ export const gradeEval018 = oneResponseGrader(
   behavioralJudgment(eval018Description),
 );
 
+/** Provides the grade eval019 runtime value. */
 export const gradeEval019 = oneResponseGrader(
   "moltzap.eval-019.grader/v1",
   eval019Description.scenarioId,
@@ -180,6 +189,7 @@ export const gradeEval019 = oneResponseGrader(
   behavioralJudgment(eval019Description),
 );
 
+/** Provides the grade eval021 runtime value. */
 export const gradeEval021 = twoResponseGrader(
   "moltzap.eval-021.grader/v1",
   eval021Description.scenarioId,
@@ -188,6 +198,7 @@ export const gradeEval021 = twoResponseGrader(
   exactFinalText("BANANA7"),
 );
 
+/** Provides the grade eval022 runtime value. */
 export const gradeEval022 = oneResponseGrader(
   "moltzap.eval-022.grader/v1",
   eval022Description.scenarioId,
@@ -196,6 +207,7 @@ export const gradeEval022 = oneResponseGrader(
   exactFinalText(SENDER_NAME),
 );
 
+/** Provides the grade eval030 runtime value. */
 export const gradeEval030 = oneResponseGrader(
   "moltzap.eval-030.grader/v1",
   eval030Description.scenarioId,
@@ -204,6 +216,7 @@ export const gradeEval030 = oneResponseGrader(
   behavioralJudgment(eval030Description),
 );
 
+/** Provides the grade eval031 runtime value. */
 export const gradeEval031 = oneResponseGrader(
   "moltzap.eval-031.grader/v1",
   eval031Description.scenarioId,
@@ -217,6 +230,7 @@ export const gradeEval031 = oneResponseGrader(
   behavioralJudgment(eval031Description),
 );
 
+/** Provides the grade eval032 runtime value. */
 export const gradeEval032 = oneResponseGrader(
   "moltzap.eval-032.grader/v1",
   eval032Description.scenarioId,
@@ -230,6 +244,7 @@ export const gradeEval032 = oneResponseGrader(
   behavioralJudgment(eval032Description),
 );
 
+/** Provides the grade eval033 runtime value. */
 export const gradeEval033 = oneResponseGrader(
   "moltzap.eval-033.grader/v1",
   eval033Description.scenarioId,
@@ -243,6 +258,7 @@ export const gradeEval033 = oneResponseGrader(
   behavioralJudgment(eval033Description),
 );
 
+/** Provides the grade eval034 runtime value. */
 export const gradeEval034 = oneResponseGrader(
   "moltzap.eval-034.grader/v1",
   eval034Description.scenarioId,

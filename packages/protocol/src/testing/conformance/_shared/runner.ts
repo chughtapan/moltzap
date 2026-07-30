@@ -15,15 +15,13 @@ import {
   type ToxiproxyClient,
   type ToxiproxyNetworkConfig,
 } from "../../toxics/client.js";
-import { RealServerAcquireError } from "./errors.js";
-import { ToxicControlError } from "../../toxics/errors.js";
+import type { RealServerAcquireError } from "./errors.js";
+import type { ToxicControlError } from "../../toxics/errors.js";
 import { conformanceNumRunsFromEnv } from "./env.js";
 
 const REPLAY_SEED_MASK = 0x7fffffff;
 
-const loadFastCheckSeed: Effect.Effect<number, never> = Config.integer(
-  "FC_SEED",
-).pipe(
+const loadFastCheckSeed: Effect.Effect<number> = Config.integer("FC_SEED").pipe(
   Effect.withConfigProvider(ConfigProvider.fromEnv()),
   Effect.orElseSucceed(() => Date.now() & REPLAY_SEED_MASK),
 );
@@ -41,6 +39,7 @@ export interface RealServerHandle {
   readonly close: Effect.Effect<void>;
 }
 
+/** Configures conformance run. */
 export interface ConformanceRunOptions {
   readonly tiers: ReadonlyArray<"A" | "B" | "C" | "D" | "E">;
   /** Supplier for the real server; invoked once per run. */
@@ -58,6 +57,7 @@ export interface ConformanceRunOptions {
   readonly artifactDir?: string;
 }
 
+/** Carries context for conformance run. */
 export interface ConformanceRunContext {
   readonly realServer: RealServerHandle;
   readonly toxiproxy: ToxiproxyClient | null;
@@ -69,6 +69,8 @@ export interface ConformanceRunContext {
 /**
  * Acquire the full context (real server + optional Toxiproxy) under one
  * Scope; Vitest's `beforeAll`/`afterAll` tick the scope.
+ * @param opts Value supplied to the operation.
+ * @returns The acquire run context result.
  */
 export function acquireRunContext(
   opts: ConformanceRunOptions,

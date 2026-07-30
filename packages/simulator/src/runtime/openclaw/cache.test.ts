@@ -26,6 +26,7 @@ const REGISTRY_CHANNEL_TARBALL =
   "https://registry.npmjs.org/@moltzap/openclaw-channel/-/openclaw-channel-1.2.3.tgz";
 const LOCAL_CHANNEL_TARBALL = "file:../openclaw-channel.tgz";
 const TEST_INTEGRITY = "sha512-test-integrity";
+const REGISTRY_BACKED_REASON = "registry-backed";
 
 const BASE_FINGERPRINT_INPUT = {
   channelVersion: CHANNEL_VERSION,
@@ -120,10 +121,7 @@ function rejectsLocalArtifacts() {
         CHANNEL_VERSION,
       ).pipe(Effect.flip);
 
-      expect(error).toMatchObject({
-        _tag: "OpenClawPluginCacheError",
-        reason: expect.stringContaining("registry-backed"),
-      });
+      expect(error.reason).toContain(REGISTRY_BACKED_REASON);
     }),
   );
 }
@@ -167,10 +165,7 @@ function rejectsMissingOpenClawPackage() {
         openclawPackageRoot: missingPackageRoot,
       }).pipe(Effect.flip);
 
-      expect(error).toMatchObject({
-        _tag: "OpenClawPluginCacheError",
-        reason: expect.stringContaining(missingPackageRoot),
-      });
+      expect(error.reason).toContain(missingPackageRoot);
     }),
   );
 }

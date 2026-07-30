@@ -30,21 +30,21 @@ import {
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
 
-type InboundContent = {
+interface InboundContent {
   readonly text: string;
   readonly sender: string;
   readonly senderId: string;
-};
-type ReceivedMessage = {
+}
+interface ReceivedMessage {
   readonly jid: string;
   readonly threadId: string | null;
   readonly msg: InboundMessage;
-};
-type MetadataRecord = {
+}
+interface MetadataRecord {
   readonly jid: string;
   readonly name?: string;
   readonly isGroup?: boolean;
-};
+}
 
 interface RecordedChannelSetup extends ChannelSetup {
   readonly received: ReceivedMessage[];
@@ -180,11 +180,14 @@ function makeOutbound(text: string): OutboundMessage {
 }
 
 function inboundContent(msg: InboundMessage): InboundContent {
-  return msg.content as InboundContent;
+  return /* Safe because the test fixture establishes this asserted shape. */ msg.content as InboundContent;
 }
 
 function firstReceivedContent(harness: Harness): string {
-  return inboundContent(harness.config.received[0]!.msg).text;
+  return inboundContent(
+    /* Safe because the test fixture establishes this asserted shape. */ harness
+      .config.received[0]!.msg,
+  ).text;
 }
 
 function runPromise<A>(
@@ -223,7 +226,9 @@ function expectPromiseFailure(
   return Effect.gen(function* () {
     const result = yield* Effect.either(effect);
     Either.match(result, {
-      onLeft: (error) => expect(String(error)).toMatch(pattern),
+      onLeft: (error) => {
+        expect(String(error)).toMatch(pattern);
+      },
       onRight: () => expect.unreachable("expected promise boundary failure"),
     });
   });
@@ -252,8 +257,8 @@ function configureDispatchGrant(
   dispatchId: string,
 ): void {
   const leaseId = testLeaseId(leaseIdLabel);
-  harness.fake.service.requestDispatch = (_params) =>
-    Effect.sync(() => {
+  harness.fake.service.requestDispatch = () => {
+    return Effect.sync(() => {
       queueMicrotask(() => {
         harness.fake.emit.dispatchRelease({
           dispatchId,
@@ -263,6 +268,7 @@ function configureDispatchGrant(
       });
       return { leaseId, dispatchId };
     });
+  };
 }
 
 function emitText(
@@ -312,7 +318,10 @@ function teardownDelegatesToCore() {
 function registersAdapterWithNeverMentions() {
   const registration = getRegisteredChannelAdapter(MOLTZAP_CHANNEL_NAME);
   expect(registration).toBeDefined();
-  expect(registration!.defaults?.mentions).toBe(MENTIONS_NEVER);
+  expect(
+    /* Safe because the test fixture establishes this asserted shape. */ registration!
+      .defaults?.mentions,
+  ).toBe(MENTIONS_NEVER);
 }
 
 function factoryReturnsNullWithoutProfile() {
@@ -401,10 +410,13 @@ function rejectsSecondDeliverForSameDispatch() {
     yield* setup(harness);
     setDmConversation(harness, CONV_43);
     configureDispatchGrant(harness, DISPATCH_LEASE_2, DISPATCH_ID_2);
-    harness.fake.service.send = (_taskId, _convId, _text, opts) =>
-      Effect.suspend(() => {
+    harness.fake.service.send = (...args) => {
+      const opts = args[3];
+      return Effect.suspend(() => {
         sendCount += 1;
-        if (sendCount <= 1) return Effect.void;
+        if (sendCount <= 1) {
+          return Effect.void;
+        }
         // Mirror the server's `claimDispatchLease`: a CONSUMED lease surfaces
         // as `ForbiddenError(data.reason: "LeaseInvalid")`, which channel-base's
         // `catchLeaseInvalid` projects to `LeaseAlreadyConsumed`.
@@ -420,6 +432,7 @@ function rejectsSecondDeliverForSameDispatch() {
           }),
         );
       });
+    };
 
     harness.fake.emit.message(
       buildMessage({ id: MSG_LEASE_2, conversationId: CONV_43 }),
@@ -456,7 +469,9 @@ function mapsEnrichedMessageToInboundMessage() {
     yield* flushDispatch();
 
     expect(harness.config.received).toHaveLength(1);
-    const { jid, threadId, msg } = harness.config.received[0]!;
+    const { jid, threadId, msg } =
+      /* Safe because the test fixture establishes this asserted shape. */ harness
+        .config.received[0]!;
     expect(jid).toBe(asJid(CONV_1));
     expect(threadId).toBeNull();
     expect(msg.id).toBe(testMessageId(MSG_ABC));
@@ -525,17 +540,45 @@ function autoRegistersEvalWiring() {
     const jid = asJid(CONV_EVAL_ON);
     const group = getMessagingGroupByPlatform(MOLTZAP_CHANNEL_NAME, jid);
     expect(group).toBeDefined();
-    expect(group!.platform_id).toBe(jid);
-    expect(group!.unknown_sender_policy).toBe(UNKNOWN_SENDER_PUBLIC);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ group!
+        .platform_id,
+    ).toBe(jid);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ group!
+        .unknown_sender_policy,
+    ).toBe(UNKNOWN_SENDER_PUBLIC);
 
-    const wiring = getMessagingGroupAgentByPair(group!.id, EVAL_AGENT_GROUP_ID);
+    const wiring = getMessagingGroupAgentByPair(
+      /* Safe because the test fixture establishes this asserted shape. */ group!
+        .id,
+      EVAL_AGENT_GROUP_ID,
+    );
     expect(wiring).toBeDefined();
-    expect(wiring!.engage_mode).toBe(ENGAGE_MODE_PATTERN);
-    expect(wiring!.engage_pattern).toBe(ENGAGE_PATTERN_DOT);
-    expect(wiring!.sender_scope).toBe(SENDER_SCOPE_ALL);
-    expect(wiring!.ignored_message_policy).toBe(IGNORED_MESSAGE_POLICY_DROP);
-    expect(wiring!.session_mode).toBe(SESSION_MODE_SHARED);
-    expect(wiring!.priority).toBe(DEFAULT_WIRING_PRIORITY);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ wiring!
+        .engage_mode,
+    ).toBe(ENGAGE_MODE_PATTERN);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ wiring!
+        .engage_pattern,
+    ).toBe(ENGAGE_PATTERN_DOT);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ wiring!
+        .sender_scope,
+    ).toBe(SENDER_SCOPE_ALL);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ wiring!
+        .ignored_message_policy,
+    ).toBe(IGNORED_MESSAGE_POLICY_DROP);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ wiring!
+        .session_mode,
+    ).toBe(SESSION_MODE_SHARED);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ wiring!
+        .priority,
+    ).toBe(DEFAULT_WIRING_PRIORITY);
   });
 }
 

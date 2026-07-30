@@ -3,5 +3,5 @@
  * @internal
  */
 
-export { makeMoltzapSocketHandler } from "./server-socket.js";
+/** Re-exports the public API from `./layer-tags.js`. */
 export type { AppTags } from "./layer-tags.js";

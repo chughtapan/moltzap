@@ -13,7 +13,7 @@ const PROFILE_CONFIG_FILE_NAME = "config.json";
 /** Profile selector shared by isolated runtime state directories. */
 export const SIMULATOR_PROFILE_NAME = "simulator-agent";
 
-const ChannelPackageManifest = Schema.parseJson(
+const channelPackageManifest = Schema.parseJson(
   Schema.Struct({
     dependencies: Schema.optionalWith(
       Schema.Record({ key: Schema.String, value: Schema.String }),
@@ -24,6 +24,11 @@ const ChannelPackageManifest = Schema.parseJson(
 
 /**
  * Serializes the per-agent MoltZap profile selected by external runtimes.
+ * @param profile Value supplied to the operation.
+ * @param profile.agentName Value supplied to the operation.
+ * @param profile.agentId Value supplied to the operation.
+ * @param profile.apiKey Value supplied to the operation.
+ * @returns The serialize molt zap profile config result.
  */
 export function serializeMoltZapProfileConfig(profile: {
   readonly agentName: string;
@@ -45,7 +50,15 @@ export function serializeMoltZapProfileConfig(profile: {
   );
 }
 
-/** Writes the credentials used by a runtime's isolated channel process. */
+/**
+ * Writes the credentials used by a runtime's isolated channel process.
+ * @param configHome Value supplied to the operation.
+ * @param profile Value supplied to the operation.
+ * @param profile.agentName Value supplied to the operation.
+ * @param profile.agentId Value supplied to the operation.
+ * @param profile.apiKey Value supplied to the operation.
+ * @returns The write molt zap profile config result.
+ */
 export function writeMoltZapProfileConfig(
   configHome: string,
   profile: {
@@ -76,6 +89,7 @@ class ChannelPluginInstallError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
+/** Describes install channel plugin opts. */
 export interface InstallChannelPluginOpts {
   readonly stateDir: string;
   readonly channelDistDir: string;
@@ -87,7 +101,7 @@ export interface InstallChannelPluginOpts {
    * installed extension dir. Each entry is a basename (e.g.
    * `openclaw.plugin.json`); silently skipped if not present.
    */
-  readonly extraPackageFiles?: ReadonlyArray<string>;
+  readonly extraPackageFiles?: readonly string[];
 }
 
 interface CopyDirectoryContext {
@@ -110,9 +124,11 @@ interface LinkChannelDependenciesContext {
  *   &lt;stateDir>/extensions/&lt;extName>/dist/...      ← copied from channelDistDir
  *   &lt;stateDir>/extensions/&lt;extName>/package.json  ← copied from channel pkg root
  *   &lt;stateDir>/extensions/&lt;extName>/node_modules/... → each declared channel dependency
- *   &lt;stateDir>/extensions/&lt;extName>/&lt;extraPackageFiles[i]>         (when present)
+ *   &lt;stateDir>/extensions/&lt;extName>/&lt;extraPackageFiles[i]>         (when present).
  *
  * Returns the absolute path to the installed extension dir.
+ * @param opts Value supplied to the operation.
+ * @returns The install channel plugin result.
  */
 export function installChannelPlugin(
   opts: InstallChannelPluginOpts,
@@ -158,7 +174,7 @@ function copyPackageFiles(input: {
   readonly path: Path.Path;
   readonly channelPackageDir: string;
   readonly extDir: string;
-  readonly extraPackageFiles: ReadonlyArray<string>;
+  readonly extraPackageFiles: readonly string[];
 }): Effect.Effect<void, PlatformError> {
   return Effect.gen(function* () {
     const packageJsonPath = input.path.join(
@@ -198,17 +214,14 @@ function linkChannelDependencies(
 
 function readChannelDependencyNames(
   context: LinkChannelDependenciesContext,
-): Effect.Effect<
-  ReadonlyArray<string>,
-  ChannelPluginInstallError | PlatformError
-> {
+): Effect.Effect<readonly string[], ChannelPluginInstallError | PlatformError> {
   return Effect.gen(function* () {
     const manifestPath = context.path.join(
       context.channelPackageDir,
       "package.json",
     );
     const source = yield* context.fileSystem.readFileString(manifestPath);
-    const manifest = yield* Schema.decodeUnknown(ChannelPackageManifest)(
+    const manifest = yield* Schema.decodeUnknown(channelPackageManifest)(
       source,
     ).pipe(
       Effect.catchTag("ParseError", (cause) =>
@@ -255,15 +268,21 @@ function linkChannelDependency(
   });
 }
 
+/** Describes workspace file. */
 export interface WorkspaceFile {
   readonly relativePath: string;
   readonly content: string;
 }
 
-/** Write caller-supplied files below an isolated agent workspace root. */
+/**
+ * Write caller-supplied files below an isolated agent workspace root.
+ * @param workspaceDir Value supplied to the operation.
+ * @param workspaceFiles Value supplied to the operation.
+ * @returns The seed workspace files result.
+ */
 export function seedWorkspaceFiles(
   workspaceDir: string,
-  workspaceFiles: ReadonlyArray<WorkspaceFile> | undefined,
+  workspaceFiles?: readonly WorkspaceFile[],
 ): Effect.Effect<
   void,
   PlatformError | ChannelPluginInstallError,
@@ -319,7 +338,12 @@ function resolveWorkspaceFileDestination(
   return destination;
 }
 
-/** Resolves a runtime dependency imported by the channel package. */
+/**
+ * Resolves a runtime dependency imported by the channel package.
+ * @param channelPackageDir Value supplied to the operation.
+ * @param packageName Value supplied to the operation.
+ * @returns The resolve channel dependency result.
+ */
 export function resolveChannelDependency(
   channelPackageDir: string,
   packageName: string,
@@ -365,7 +389,9 @@ function copyFileIfExists(
 ): Effect.Effect<void, PlatformError> {
   return Effect.gen(function* () {
     const exists = yield* fileSystem.exists(src);
-    if (!exists) return;
+    if (!exists) {
+      return;
+    }
     yield* fileSystem.copyFile(src, dest);
   });
 }

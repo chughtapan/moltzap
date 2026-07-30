@@ -1,8 +1,14 @@
 /** PGlite-based integration tests — no external Postgres needed. */
 
-import type { GlobalSetupContext } from "vitest/node";
+import type { TestProject } from "vitest/node";
 
-export default function ({ provide }: GlobalSetupContext) {
+/**
+ * Provides the in-process integration-test database marker.
+ * @param project Vitest project context.
+ * @param project.provide Vitest value provider.
+ * @returns A no-op teardown callback.
+ */
+export function setup({ provide }: TestProject) {
   // PGlite runs in-process — no container setup needed.
   // Signal to test-utils that we're using PGlite.
   provide("testPgHost", "pglite");

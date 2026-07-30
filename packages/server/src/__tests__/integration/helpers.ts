@@ -11,9 +11,12 @@ import {
   getBaseUrl,
 } from "../../test-utils/server.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import type { AgentKey } from "@moltzap/protocol/identity";
-import { UserId } from "@moltzap/protocol/identity";
-import type { AgentId } from "@moltzap/protocol/identity";
+import {
+  type AgentKey,
+  type UserId,
+  userId,
+  type AgentId,
+} from "@moltzap/protocol/identity";
 import type { Part } from "@moltzap/protocol/message";
 import type { TestAgentClient, TestAppClient } from "@moltzap/protocol/testing";
 import {
@@ -35,16 +38,26 @@ import { Effect, Either, Schema } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { inject } from "vitest";
 
+/** Provides the http ok runtime value. */
 export const HTTP_OK = 200;
+/** Provides the http created runtime value. */
 export const HTTP_CREATED = 201;
+/** Provides the http bad request runtime value. */
 export const HTTP_BAD_REQUEST = 400;
+/** Provides the http unauthorized runtime value. */
 export const HTTP_UNAUTHORIZED = 401;
+/** Provides the http forbidden runtime value. */
 export const HTTP_FORBIDDEN = 403;
+/** Provides the http conflict runtime value. */
 export const HTTP_CONFLICT = 409;
+/** Default value for notification timeout ms. */
 export const DEFAULT_NOTIFICATION_TIMEOUT_MS = 5_000;
+/** Provides the it runtime value. */
 export const it = effectIt.live;
 
+/** Re-exports the public API from `../../test-utils/helpers.js`. */
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
+/** Re-exports the public API from `current module`. */
 export {
   awaitOneNotification,
   connectAppClient,
@@ -59,24 +72,47 @@ export {
   setupAgentGroup,
   trackClient,
 };
+/** Re-exports the public API from `current module`. */
 export type { TestAgentClient, TestAppClient };
+
+class IntegrationTestHelperError extends Error {
+  override readonly name = "IntegrationTestHelperError";
+
+  override readonly cause?: unknown;
+
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.cause = cause;
+  }
+}
 
 /**
  * Read the text of a `text` part. Throws on a non-text variant — callers
  * assert on text payloads they just sent.
+ * @param part Value supplied to the operation.
+ * @returns The text of part result.
  */
-export function textOfPart(part: Part | undefined): string {
+export function textOfPart(part?: Part): string {
   if (part === undefined || part.type !== "text") {
     throw new IntegrationTestHelperError("Expected a text part in message.");
   }
   return part.text;
 }
 
-/** Text of the first part. See {@link textOfPart}. */
-export function firstTextPart(parts: ReadonlyArray<Part>): string {
+/**
+ * Text of the first part. See {@link textOfPart}.
+ * @param parts Value supplied to the operation.
+ * @returns The first text part result.
+ */
+export function firstTextPart(parts: readonly Part[]): string {
   return textOfPart(parts[0]);
 }
 
+/**
+ * Executes the expect either left operation.
+ * @param value Value to process.
+ * @returns The expect either left result.
+ */
 export function expectEitherLeft<A, E>(value: Either.Either<A, E>): E {
   return Either.match(value, {
     onLeft: (error) => error,
@@ -86,9 +122,9 @@ export function expectEitherLeft<A, E>(value: Either.Either<A, E>): E {
   });
 }
 
-let _coreApp: CoreApp | null = null;
+let coreAppValue: CoreApp | null = null;
 
-type StartTestServerOptions = {
+interface StartTestServerOptions {
   devMode?: boolean;
   encryption?: boolean;
 
@@ -98,25 +134,16 @@ type StartTestServerOptions = {
   /** Boot admin owner id used by the default registration route. */
   adminUserId?: UserId;
   spanProcessor?: SpanProcessor;
-};
-
-class IntegrationTestHelperError extends Error {
-  override readonly name = "IntegrationTestHelperError";
-
-  constructor(
-    message: string,
-    override readonly cause?: unknown,
-  ) {
-    super(message);
-  }
 }
 
+/** Describes test user. */
 export interface TestUser {
   readonly id: UserId;
   readonly supabaseUid: string;
   readonly displayName: string;
 }
 
+/** Describes owned agent registration. */
 export interface OwnedAgentRegistration {
   readonly agentId: AgentId;
   readonly apiKey: AgentKey;
@@ -134,9 +161,11 @@ interface RegisterOwnedAgentOptions {
 
 /**
  * Start the core test server using the shared Postgres from globalSetup.
+ * @param optsValue Value supplied to the operation.
+ * @returns The start test server effect result.
  */
-export function startTestServerEffect(_opts?: StartTestServerOptions) {
-  const opts = _opts ?? {};
+export function startTestServerEffect(optsValue?: StartTestServerOptions) {
+  const opts = optsValue ?? {};
   // Get pgHost/pgPort from vitest's globalSetup via inject()
   const pgHost = inject("testPgHost");
   const pgPort = inject("testPgPort");
@@ -156,7 +185,7 @@ export function startTestServerEffect(_opts?: StartTestServerOptions) {
   }).pipe(
     Effect.tap((server) =>
       Effect.sync(() => {
-        _coreApp = server.coreApp;
+        coreAppValue = server.coreApp;
       }),
     ),
     Effect.map((server) => ({
@@ -169,21 +198,35 @@ export function startTestServerEffect(_opts?: StartTestServerOptions) {
   );
 }
 
-export function startTestServer(_opts?: StartTestServerOptions) {
-  const opts = _opts ?? {};
+/**
+ * Executes the start test server operation.
+ * @param optsValue Value supplied to the operation.
+ * @returns The start test server result.
+ */
+export function startTestServer(optsValue?: StartTestServerOptions) {
+  const opts = optsValue ?? {};
   return Effect.runPromise(startTestServerEffect(opts));
 }
 
+/**
+ * Returns core app.
+ * @returns The get core app result.
+ */
 export function getCoreApp(): CoreApp {
-  if (!_coreApp)
+  if (!coreAppValue) {
     throw new IntegrationTestHelperError("Test server not running.");
-  return _coreApp;
+  }
+  return coreAppValue;
 }
 
+/**
+ * Executes the stop test server effect operation.
+ * @returns The stop test server effect result.
+ */
 export function stopTestServerEffect() {
   return Effect.gen(function* () {
     yield* closeAllClients();
-    _coreApp = null;
+    coreAppValue = null;
     yield* Effect.tryPromise({
       try: () => stopCoreTestServer(),
       catch: (cause) =>
@@ -195,10 +238,18 @@ export function stopTestServerEffect() {
   }).pipe(Effect.withSpan("stopTestServer"));
 }
 
+/**
+ * Executes the stop test server operation.
+ * @returns The stop test server result.
+ */
 export function stopTestServer() {
   return Effect.runPromise(stopTestServerEffect());
 }
 
+/**
+ * Executes the reset test db effect operation.
+ * @returns The reset test db effect result.
+ */
 export function resetTestDbEffect() {
   return Effect.gen(function* () {
     yield* closeAllClients();
@@ -210,10 +261,19 @@ export function resetTestDbEffect() {
   }).pipe(Effect.withSpan("resetTestDb"));
 }
 
+/**
+ * Executes the reset test db operation.
+ * @returns The reset test db result.
+ */
 export function resetTestDb() {
   return Effect.runPromise(resetTestDbEffect());
 }
 
+/**
+ * Registers owned agent.
+ * @param opts Value supplied to the operation.
+ * @returns The register owned agent result.
+ */
 export function registerOwnedAgent(opts: RegisterOwnedAgentOptions) {
   return Effect.gen(function* () {
     const reg = yield* createTestAgent(opts.name, {
@@ -229,29 +289,49 @@ export function registerOwnedAgent(opts: RegisterOwnedAgentOptions) {
   }).pipe(Effect.withSpan("registerOwnedAgent"));
 }
 
+/**
+ * Returns kysely db.
+ * @returns The get kysely db result.
+ */
 export function getKyselyDb(): ReturnType<typeof getCoreDb> {
   return getCoreDb();
 }
 
+/**
+ * Returns test core app.
+ * @returns The get test core app result.
+ */
 export function getTestCoreApp() {
   return getCoreApp();
 }
 
+/**
+ * Returns encryption envelope.
+ * @returns The get encryption envelope result.
+ */
 export function getEncryptionEnvelope() {
   return getCoreEncryptionEnvelope();
 }
 
-export function createTestUser(
-  displayName: string,
-  id: string = crypto.randomUUID(),
-) {
+/**
+ * Creates test user.
+ * @param displayName Value supplied to the operation.
+ * @param id Value supplied to the operation.
+ * @returns The created test user.
+ */
+export function createTestUser(displayName: string, id?: string) {
   return {
-    id: Schema.decodeUnknownSync(UserId)(id),
+    id: Schema.decodeUnknownSync(userId)(id ?? crypto.randomUUID()),
     supabaseUid: crypto.randomUUID(),
     displayName,
   };
 }
 
+/**
+ * Creates agent invite.
+ * @param inviterId Value supplied to the operation.
+ * @returns The created agent invite.
+ */
 export function createAgentInvite(inviterId: string) {
   return {
     token: "not-needed-in-core",

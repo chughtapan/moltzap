@@ -137,7 +137,7 @@ function interruptedOpenClawProcessAcquisitionFinishes() {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const commandStarted = yield* Deferred.make<void>();
+        const commandStarted = yield* Deferred.make<undefined>();
         const stalledCommandExecutor = CommandExecutor.makeExecutor(() =>
           Deferred.succeed(commandStarted, undefined).pipe(
             Effect.zipRight(Effect.never),
@@ -196,9 +196,9 @@ function expectOpenClawPortReleased(port: number) {
   );
 }
 
-function observeOpenClawPortCandidates(candidatePorts: ReadonlyArray<number>) {
+function observeOpenClawPortCandidates(candidatePorts: readonly number[]) {
   const candidates = [...candidatePorts];
-  const requested: Array<number> = [];
+  const requested: number[] = [];
   return Effect.scoped(
     leaseOpenClawPort({
       candidatePort: () => {

@@ -8,32 +8,32 @@ Public barrel for connect and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L28)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L32)
 
 _Variable_
 
 ```ts
 export const agentCallableNetworkRpcMethods = [
-  AgentConnect,
-  AgentPresenceSubscribe,
+  agentConnect,
+  agentPresenceSubscribe,
 ] as const
 ```
 
 Network RPCs callable by agent clients.
 
-### [`AgentConnect`](./connect.ts#L172)
+### [`agentConnect`](./connect.ts#L194)
 
 _Variable_
 
 ```ts
-export const AgentConnect = defineRpc({
+export const agentConnect = defineRpc({
   name: "agent/network/connect",
   params: Schema.Struct({
-    agentKey: AgentKey,
+    agentKey: agentKey,
     minProtocol: Schema.String,
     maxProtocol: Schema.String,
   }),
-  result: HelloOkSchema,
+  result: helloOkSchema,
   requires: [],
   errors: [
     InvalidParamsError,
@@ -55,46 +55,48 @@ new agent client connection.
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
-### [`AgentPresenceSubscribe`](./presence.ts#L35)
+### [`agentPresenceSubscribe`](./presence.ts#L36)
 
 _Variable_
 
 ```ts
-export const AgentPresenceSubscribe = defineRpc({
+export const agentPresenceSubscribe = defineRpc({
   name: "agent/network/presence/subscribe",
-  params: PresenceSubscribeParamsSchema,
-  result: PresenceSubscribeResultSchema,
+  params: presenceSubscribeParamsSchema,
+  result: presenceSubscribeResultSchema,
   requires: [AgentPrincipal],
   errors: [NotInContactsError],
 })
 ```
 
-### [`appCallableNetworkRpcMethods`](./index.ts#L34)
+Defines the `agent/network/presence/subscribe` RPC contract.
+
+### [`appCallableNetworkRpcMethods`](./index.ts#L38)
 
 _Variable_
 
 ```ts
 export const appCallableNetworkRpcMethods = [
-  AppConnect,
-  AppPresenceSubscribe,
+  appConnect,
+  appPresenceSubscribe,
 ] as const
 ```
 
 Network RPCs callable by app clients.
 
-### [`AppConnect`](./connect.ts#L204)
+### [`appConnect`](./connect.ts#L226)
 
 _Variable_
 
 ```ts
-export const AppConnect = defineRpc({
+export const appConnect = defineRpc({
   name: "app/network/connect",
   params: Schema.Struct({
-    appKey: AppKey,
+    appKey: appKey,
     minProtocol: Schema.String,
     maxProtocol: Schema.String,
   }),
-  result: HelloOkSchema,
+  result: helloOkSchema,
   requires: [],
   errors: [
     InvalidParamsError,
@@ -116,21 +118,23 @@ app client connection.
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
-### [`AppPresenceSubscribe`](./presence.ts#L43)
+### [`appPresenceSubscribe`](./presence.ts#L45)
 
 _Variable_
 
 ```ts
-export const AppPresenceSubscribe = defineRpc({
+export const appPresenceSubscribe = defineRpc({
   name: "app/network/presence/subscribe",
-  params: PresenceSubscribeParamsSchema,
-  result: PresenceSubscribeResultSchema,
+  params: presenceSubscribeParamsSchema,
+  result: presenceSubscribeResultSchema,
   requires: [AppPrincipal],
   errors: [],
 })
 ```
 
-### [`checkProtocolRange`](./connect.ts#L100)
+Defines the `app/network/presence/subscribe` RPC contract.
+
+### [`checkProtocolRange`](./connect.ts#L120)
 
 _Function_
 
@@ -141,7 +145,11 @@ export function checkProtocolRange(
 ): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError>
 ```
 
-### [`compareProtocolVersion`](./connect.ts#L87)
+Executes the check protocol range operation.
+
+**Returns:** The check protocol range result.
+
+### [`compareProtocolVersion`](./connect.ts#L95)
 
 _Function_
 
@@ -149,15 +157,21 @@ _Function_
 export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1
 ```
 
-### [`HelloOk`](./connect.ts#L27)
+Executes the compare protocol version operation.
+
+**Returns:** The compare protocol version result.
+
+### [`HelloOk`](./connect.ts#L28)
 
 _TypeAlias_
 
 ```ts
-export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
+export type HelloOk = Schema.Schema.Type<typeof helloOkSchema>;
 ```
 
-### [`httpBaseUrl`](./server-url.ts#L98)
+Represents hello ok values.
+
+### [`httpBaseUrl`](./server-url.ts#L112)
 
 _Function_
 
@@ -167,7 +181,9 @@ export const httpBaseUrl = (base: ServerBaseUrl): string
 
 The HTTP control-plane origin for the same server.
 
-### [`InvalidProtocolVersionError`](./connect.ts#L65)
+**Returns:** The http base url result.
+
+### [`InvalidProtocolVersionError`](./connect.ts#L67)
 
 _Class_
 
@@ -181,7 +197,9 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 }
 ```
 
-### [`networkNotifications`](./index.ts#L48)
+Reports invalid protocol version failures.
+
+### [`networkNotifications`](./index.ts#L52)
 
 _Variable_
 
@@ -191,16 +209,16 @@ export const networkNotifications = [] as const
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](./index.ts#L40)
+### [`networkRpcMethods`](./index.ts#L44)
 
 _Variable_
 
 ```ts
 export const networkRpcMethods = [
-  AgentConnect,
-  AppConnect,
-  AgentPresenceSubscribe,
-  AppPresenceSubscribe,
+  agentConnect,
+  appConnect,
+  agentPresenceSubscribe,
+  appPresenceSubscribe,
 ] as const
 ```
 
@@ -216,7 +234,7 @@ export const PROTOCOL_VERSION = packageJson.version
 
 The published package version is also the wire-protocol version.
 
-### [`ProtocolMismatchError`](./connect.ts#L47)
+### [`ProtocolMismatchError`](./connect.ts#L48)
 
 _Class_
 
@@ -247,7 +265,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](./connect.ts#L35)
+### [`ProtocolMismatchReason`](./connect.ts#L36)
 
 _TypeAlias_
 
@@ -262,12 +280,12 @@ Reason discriminant carried in `ProtocolMismatchError.data.reason`:
 `maxProtocol`; the client must update. `server-below-client-min` — the
 client is newer than the server supports.
 
-### [`serverBaseUrl`](./server-url.ts#L95)
+### [`serverBaseUrl`](./server-url.ts#L105)
 
 _Variable_
 
 ```ts
-export const serverBaseUrl = Schema.decodeSync(ServerBaseUrl)
+export const serverBaseUrl = Schema.decodeSync(serverBaseUrlSchema)
 ```
 
 Throwing constructor for addresses a caller already knows are well-formed,
@@ -275,7 +293,7 @@ such as one a locally started server just reported. Decode with
 `Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
 configuration or another package.
 
-### [`ServerBaseUrl`](./server-url.ts#L59)
+### [`ServerBaseUrl`](./server-url.ts#L69)
 
 _TypeAlias_
 
@@ -286,18 +304,50 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
 A MoltZap server address carrying no path, query, or fragment, over
 `http`, `https`, `ws`, or `wss`.
 
-### [`ServerBaseUrl`](./server-url.ts#L59)
+### [`serverBaseUrlSchema`](./server-url.ts#L75)
 
 _Variable_
 
 ```ts
-export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">
+export const serverBaseUrlSchema: Schema.Schema<ServerBaseUrl, string> =
+  Schema.transformOrFail(
+    Schema.String,
+    Schema.String.pipe(Schema.brand("ServerBaseUrl")),
+    {
+      strict: true,
+      decode: (...[value, , ast]) => {
+        const origin = toOrigin(value);
+        return origin === null
+          ? ParseResult.fail(
+              new ParseResult.Type(
+                ast,
+                value,
+                `Expected a MoltZap server base URL (scheme and host, no path), got ${JSON.stringify(value)}`,
+              ),
+            )
+          : ParseResult.succeed(origin);
+      },
+      encode: ParseResult.succeed,
+    },
+  ).pipe(
+    Schema.annotations({ description: "Path-free MoltZap server base URL" }),
+  )
 ```
 
 Decodes either address a caller is likely to hold — the base URL or the
 socket endpoint — into the path-free base. Any other path fails.
 
-### [`webSocketUrl`](./server-url.ts#L102)
+### [`serverUrlTypeCanaries`](./server-url.types-check.ts#L21)
+
+_Variable_
+
+```ts
+export const serverUrlTypeCanaries:
+```
+
+Retains both the runtime positive control and compile-time negative proof.
+
+### [`webSocketUrl`](./server-url.ts#L120)
 
 _Function_
 
@@ -307,9 +357,12 @@ export const webSocketUrl = (base: ServerBaseUrl): string
 
 The socket endpoint a client dials for the given server.
 
+**Returns:** The web socket url result.
+
 ## Files
 
 - `connect.ts`
 - `index.ts`
 - `presence.ts`
 - `server-url.ts`
+- `server-url.types-check.ts`

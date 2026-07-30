@@ -7,16 +7,16 @@ import {
   type Network,
   type NetworkFailure,
   ProgramSucceeded,
-  Simulator,
+  simulator as simulatorApi,
   type SimulatorDefinitionId,
   type SimulatorRunFailure,
   type SimulatorRunResult,
 } from "@moltzap/simulator";
 import type { RouterProvider } from "@moltzap/simulator/network";
-import {
-  type LedgerOpenError,
-  type LedgerRef,
-  type LedgerStorage,
+import type {
+  LedgerOpenError,
+  LedgerRef,
+  LedgerStorage,
 } from "@moltzap/simulator/ledger";
 import { Effect, type Scope } from "effect";
 import {
@@ -48,7 +48,7 @@ import {
   type EpisodeResponse,
 } from "./episodes.js";
 import {
-  EvaluationEvents,
+  evaluationEvents,
   EvaluationResponseSelected,
   selectEvaluationResponse,
 } from "./evaluation-events.js";
@@ -73,6 +73,7 @@ import {
 import type { EvaluationLedgerView, GradingRefused } from "./grading-model.js";
 import type { GradeReport } from "./grading-report.js";
 
+/** Describes evaluation run defaults. */
 export interface EvaluationRunDefaults {
   readonly provenance: {
     readonly evaluation: string;
@@ -81,12 +82,13 @@ export interface EvaluationRunDefaults {
   };
 }
 
+/** Describes code evaluation. */
 export interface CodeEvaluation<RuntimeAcquisitionError, RuntimeRequirements> {
   readonly description: EvaluationDescription;
   readonly definitionId: SimulatorDefinitionId;
   readonly defaults: EvaluationRunDefaults;
   readonly run: Effect.Effect<
-    SimulatorRunResult<void, NetworkFailure | LedgerFailure>,
+    SimulatorRunResult<undefined, NetworkFailure | LedgerFailure>,
     EvaluationRunFailure<RuntimeAcquisitionError, RuntimeRequirements>,
     RuntimeRequirements | RouterProvider | LedgerStorage
   >;
@@ -99,6 +101,7 @@ export interface CodeEvaluation<RuntimeAcquisitionError, RuntimeRequirements> {
   >;
 }
 
+/** Describes evaluation suite. */
 export interface EvaluationSuite<RuntimeAcquisitionError, RuntimeRequirements> {
   readonly eval005: CodeEvaluation<
     RuntimeAcquisitionError,
@@ -179,14 +182,14 @@ type EvaluationRunFailure<RuntimeAcquisitionError, RuntimeRequirements> =
 type EpisodeProgram = (
   target: AgentHandle,
 ) => Effect.Effect<
-  ReadonlyArray<EpisodeResponse>,
+  readonly EpisodeResponse[],
   NetworkFailure,
   Network | Scope.Scope
 >;
 
-interface CodeGrader {
-  (ledger: EvaluationLedgerView): Effect.Effect<GradeReport, GradingRefused>;
-}
+type CodeGrader = (
+  ledger: EvaluationLedgerView,
+) => Effect.Effect<GradeReport, GradingRefused>;
 
 interface EvaluationDefinition {
   readonly id: SimulatorDefinitionId;
@@ -242,7 +245,7 @@ function defineSingleAgentEvaluation<E, R>(
   runtime: AgentRuntime<E, R>,
   definition: EvaluationDefinition,
 ): CodeEvaluation<E, R> {
-  const simulator = Simulator.define(definition.id, EvaluationEvents);
+  const simulator = simulatorApi.define(definition.id, evaluationEvents);
   const agents = simulator.agents({
     [TARGET_AGENT_NAME]: runtime,
   });
@@ -252,9 +255,10 @@ function defineSingleAgentEvaluation<E, R>(
     definition.conditionSuffix,
   );
   const program = Effect.gen(function* () {
-    const started = yield* agents.Agents;
-    const events = yield* simulator.Events;
+    const started = yield* agents.startedAgents;
+    const events = yield* simulator.events;
     yield* executeEpisode(started[TARGET_AGENT_NAME], definition, events.emit);
+    return undefined;
   });
   return Object.freeze({
     description: definition.description,
@@ -524,6 +528,9 @@ function defineEval034<E, R>(runtime: EvaluationRuntime<E, R>, suffix: string) {
 /**
  * Build the suite around one code-valued runtime. Customer code owns model,
  * persona, and environment sweeps around this constructor.
+ * @param runtime Value supplied to the operation.
+ * @param conditionSuffix Value supplied to the operation.
+ * @returns The define evaluation suite result.
  */
 export function defineEvaluationSuite<E, R>(
   runtime: EvaluationRuntime<E, R>,

@@ -7,17 +7,19 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Fiber } from "effect";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  DEFAULT_APP_ID,
+  taskRequest,
+  type TaskId,
+} from "@moltzap/protocol/task";
+import {
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
+  type Message,
 } from "@moltzap/protocol/message";
-import type { AgentKey } from "@moltzap/protocol/identity";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey, AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { Message } from "@moltzap/protocol/message";
-import type { TaskId } from "@moltzap/protocol/task";
 import {
   awaitOneNotification,
   startTestServerEffect,
@@ -107,7 +109,7 @@ function setupGroupConversation(
   agents: ThreeAgents,
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
-    const created = yield* agents.tm.sendRpc(TaskRequest, {
+    const created = yield* agents.tm.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agents.senderAgentId, agents.recipientAgentId],
       initialConversation: {
@@ -116,7 +118,9 @@ function setupGroupConversation(
     });
     return {
       taskId: created.task.id,
-      conversationId: created.conversation!.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ created
+          .conversation!.id,
     };
   });
 }
@@ -138,7 +142,7 @@ function sendText(
   binding: GroupBinding,
   text: string,
 ) {
-  return client.sendRpc(MessagesSend, {
+  return client.sendRpc(messagesSend, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
@@ -168,7 +172,7 @@ function commitsWhenParticipantIsOffline() {
       agents.recipientAgentId,
       agents.recipientApiKey,
     );
-    const listed = yield* reconnectedRecipient.sendRpc(MessagesList, {
+    const listed = yield* reconnectedRecipient.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
@@ -183,7 +187,7 @@ function broadcastsWhenParticipantsAreOnline() {
     const receivedFiber = yield* Effect.fork(
       awaitOneNotification(
         agents.recipient,
-        MessageReceivedNotificationDefinition,
+        messageReceivedNotificationDefinition,
       ),
     );
     yield* Effect.sleep(SUBSCRIBE_SETTLE);
@@ -192,7 +196,10 @@ function broadcastsWhenParticipantsAreOnline() {
     expect(sent.message.parts).toEqual([{ type: "text", text: HAPPY_TEXT }]);
 
     const received = yield* Fiber.join(receivedFiber);
-    const receivedMsg = (received.params as { message: Message }).message;
+    const receivedMsg = (
+      /* Safe because the test fixture establishes this asserted shape. */
+      received.params as { message: Message }
+    ).message;
     expect(receivedMsg.id).toBe(sent.message.id);
 
     const rows = yield* messageRowsForConversation(binding.conversationId);

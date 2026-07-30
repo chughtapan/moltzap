@@ -1,11 +1,11 @@
 /** @file Nominal keyed runtime rosters and their exact Effect service. */
 
 import { Context, Schema } from "effect";
-import { AgentName } from "@moltzap/protocol/identity";
+import { agentName } from "@moltzap/protocol/identity";
 import type { AgentHandle } from "../network/participant.js";
 import type { AgentRuntime, AgentRuntimeLike } from "./runtime.js";
 
-const AgentRosterTypeId: unique symbol = Symbol(
+const agentRosterTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentRoster",
 );
 
@@ -15,20 +15,21 @@ let nextRosterServiceId = 0;
 
 interface ValidatedAgentDefinition {
   readonly name: string;
-  readonly agentName: typeof AgentName.Type;
+  readonly agentName: typeof agentName.Type;
   readonly runtime: AgentRuntimeLike;
 }
 
 type RuntimeAcquisitionErrorOf<Runtime> =
-  Runtime extends AgentRuntime<infer AcquisitionError, infer _Requirements>
+  Runtime extends AgentRuntime<infer AcquisitionError, unknown>
     ? AcquisitionError
     : never;
 
 type RuntimeRequirementsOf<Runtime> =
-  Runtime extends AgentRuntime<infer _AcquisitionError, infer Requirements>
+  Runtime extends AgentRuntime<unknown, infer Requirements>
     ? Requirements
     : never;
 
+/** Represents agent roster acquisition error conditions. */
 export type AgentRosterAcquisitionError<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = RuntimeAcquisitionErrorOf<Definitions[keyof Definitions]>;
@@ -45,6 +46,7 @@ export type StartedAgentHandles<
   [Name in Extract<keyof Definitions, string>]: AgentHandle<Name>;
 }>;
 
+/** Describes agents service. */
 export interface AgentsService<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
@@ -61,17 +63,30 @@ export class AgentRoster<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > {
-  readonly [AgentRosterTypeId] = AgentRosterTypeId;
+  readonly [agentRosterTypeId] = agentRosterTypeId;
+
+  readonly definitionId: Id;
+  readonly definitions: Definitions;
+  readonly validatedDefinitions: readonly ValidatedAgentDefinition[];
+  readonly startedAgents: Context.Tag<
+    AgentsService<Id, Definitions>,
+    StartedAgentHandles<Definitions>
+  >;
 
   private constructor(
-    readonly definitionId: Id,
-    readonly definitions: Definitions,
-    readonly validatedDefinitions: ReadonlyArray<ValidatedAgentDefinition>,
-    readonly Agents: Context.Tag<
+    definitionId: Id,
+    definitions: Definitions,
+    validatedDefinitions: readonly ValidatedAgentDefinition[],
+    startedAgents: Context.Tag<
       AgentsService<Id, Definitions>,
       StartedAgentHandles<Definitions>
     >,
-  ) {}
+  ) {
+    this.definitionId = definitionId;
+    this.definitions = definitions;
+    this.validatedDefinitions = validatedDefinitions;
+    this.startedAgents = startedAgents;
+  }
 
   static make<
     const Id extends string,
@@ -85,21 +100,27 @@ export class AgentRoster<
       entries.map(([name, runtime]) =>
         Object.freeze({
           name,
-          agentName: Schema.decodeUnknownSync(AgentName)(name),
+          agentName: Schema.decodeUnknownSync(agentName)(name),
           runtime,
         }),
       ),
     );
     nextRosterServiceId += 1;
-    const definitions = Object.freeze(
-      Object.fromEntries(entries),
-    ) as Definitions;
-    const Agents = Context.GenericTag<
+    const definitions =
+      /* Safe because the surrounding invariant establishes this asserted shape. */ Object.freeze(
+        Object.fromEntries(entries),
+      ) as Definitions;
+    const agentsValue = Context.GenericTag<
       AgentsService<Id, Definitions>,
       StartedAgentHandles<Definitions>
     >(`@moltzap/simulator/Agents/${definitionId}/${nextRosterServiceId}`);
     return Object.freeze(
-      new AgentRoster(definitionId, definitions, validatedDefinitions, Agents),
+      new AgentRoster(
+        definitionId,
+        definitions,
+        validatedDefinitions,
+        agentsValue,
+      ),
     );
   }
 }
@@ -114,6 +135,8 @@ type AgentRosterBuilder<Id extends string> = <
  * Construct the roster factory and ownership check for one definition value.
  * The shared token stays inside this closure so equal definition ids cannot
  * make independently constructed definitions interchangeable.
+ * @param definitionId Value supplied to the operation.
+ * @returns The created agent roster binding.
  */
 export function makeAgentRosterBinding<const Id extends string>(
   definitionId: Id,
@@ -135,7 +158,11 @@ export function makeAgentRosterBinding<const Id extends string>(
   return Object.freeze({ agents, owns });
 }
 
-/** Bind the roster constructor to one simulator definition. */
+/**
+ * Bind the roster constructor to one simulator definition.
+ * @param definitionId Value supplied to the operation.
+ * @returns The created agent roster builder.
+ */
 export function makeAgentRosterBuilder<const Id extends string>(
   definitionId: Id,
 ): AgentRosterBuilder<Id> {

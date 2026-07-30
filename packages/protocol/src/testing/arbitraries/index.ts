@@ -2,6 +2,7 @@
  * @file Public barrel for schema-derived protocol arbitraries used by tests.
  */
 export { arbitraryFromSchema } from "./schema-arbitrary.js";
+/** Re-exports the public API from `./rpc.js`. */
 export {
   arbitraryCallFor,
   arbitraryAnyCall,

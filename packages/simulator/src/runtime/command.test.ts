@@ -97,9 +97,9 @@ function removesOperatorEnvironment() {
     ).pipe(
       Effect.map(
         (output) =>
-          JSON.parse(output) as ReadonlyArray<
-            readonly [name: string, value: string]
-          >,
+          /* Safe because the test fixture establishes this asserted shape. */ JSON.parse(
+            output,
+          ) as ReadonlyArray<readonly [name: string, value: string]>,
       ),
       Effect.tap((environmentEntries) => {
         expect(
@@ -119,13 +119,13 @@ function preservesGracefulTermWindow() {
     Scope.make().pipe(
       Effect.flatMap((scope) =>
         Effect.gen(function* () {
-          const ready = yield* Deferred.make<void>();
+          const ready = yield* Deferred.make<undefined>();
           const supervised = yield* startSupervisedProcess(
             makeGracefulTermCommand(),
             scope,
             (chunk) => {
               if (chunk.includes(READY_MARKER)) {
-                Deferred.unsafeDone(ready, Effect.void);
+                Deferred.unsafeDone(ready, Effect.succeed(undefined));
               }
             },
             {
@@ -163,7 +163,7 @@ function preservesFragmentedOutput() {
       Effect.flatMap((scope) =>
         Effect.gen(function* () {
           let output = "";
-          const complete = yield* Deferred.make<void>();
+          const complete = yield* Deferred.make<undefined>();
           const supervised = yield* startSupervisedProcess(
             makeSplitUtf8Command(),
             scope,
@@ -173,7 +173,7 @@ function preservesFragmentedOutput() {
                 output.includes(SPLIT_STDOUT) &&
                 output.includes(SPLIT_STDERR)
               ) {
-                Deferred.unsafeDone(complete, Effect.void);
+                Deferred.unsafeDone(complete, Effect.succeed(undefined));
               }
             },
           );

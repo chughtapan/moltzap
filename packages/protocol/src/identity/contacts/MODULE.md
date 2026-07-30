@@ -8,18 +8,35 @@ Contact identity descriptors, RPC descriptors, and notifications.
 
 ## Public surface
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L86)
+### [`contactAcceptedNotificationDefinition`](./contacts.ts#L93)
 
 _Variable_
 
 ```ts
-export const ContactAcceptedNotificationDefinition = defineNotification({
+export const contactAcceptedNotificationDefinition = defineNotification({
   name: "agent/identity/contact-accepted",
-  params: Schema.Struct({ contact: ContactSchema }),
+  params: Schema.Struct({ contact: contactSchema }),
 })
 ```
 
-### [`ContactId`](./ids.ts#L5)
+Defines the `agent/identity/contact-accepted` notification contract.
+
+### [`contactId`](./ids.ts#L8)
+
+_Variable_
+
+```ts
+export const contactId: Schema.Schema<ContactId, string> = formatString(
+  "uuid",
+).pipe(
+  Schema.brand("ContactId"),
+  Schema.annotations({ description: "Branded ContactId" }),
+)
+```
+
+Validates and decodes contact id values.
+
+### [`ContactId`](./ids.ts#L6)
 
 _TypeAlias_
 
@@ -27,15 +44,9 @@ _TypeAlias_
 export type ContactId = string & Brand.Brand<"ContactId">;
 ```
 
-### [`ContactId`](./ids.ts#L5)
+Represents contact id values.
 
-_Variable_
-
-```ts
-export type ContactId = string & Brand.Brand<"ContactId">
-```
-
-### [`ContactNotFoundError`](./contacts.ts#L24)
+### [`ContactNotFoundError`](./contacts.ts#L26)
 
 _Class_
 
@@ -48,61 +59,69 @@ export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundErro
 }
 ```
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L81)
+Reports contact not found failures.
+
+### [`contactRequestNotificationDefinition`](./contacts.ts#L87)
 
 _Variable_
 
 ```ts
-export const ContactRequestNotificationDefinition = defineNotification({
+export const contactRequestNotificationDefinition = defineNotification({
   name: "agent/identity/contact-requested",
-  params: Schema.Struct({ contact: ContactSchema }),
+  params: Schema.Struct({ contact: contactSchema }),
 })
 ```
 
-### [`ContactsAccept`](./contacts.ts#L73)
+Defines the `agent/identity/contact-requested` notification contract.
+
+### [`contactsAccept`](./contacts.ts#L78)
 
 _Variable_
 
 ```ts
-export const ContactsAccept = defineRpc({
+export const contactsAccept = defineRpc({
   name: "agent/identity/contacts/accept",
-  params: Schema.Struct({ contactId: ContactId }),
-  result: Schema.Struct({ contact: ContactSchema }),
+  params: Schema.Struct({ contactId: contactId }),
+  result: Schema.Struct({ contact: contactSchema }),
   requires: [AgentPrincipal],
   errors: [ContactNotFoundError, ForbiddenError, UnauthorizedError],
 })
 ```
 
-### [`ContactsAdd`](./contacts.ts#L62)
+Defines the `agent/identity/contacts/accept` RPC contract.
+
+### [`contactsAdd`](./contacts.ts#L66)
 
 _Variable_
 
 ```ts
-export const ContactsAdd = defineRpc({
+export const contactsAdd = defineRpc({
   name: "agent/identity/contacts/add",
   params: Schema.Struct({
-    contactUserId: UserId,
-    relationship: Schema.optional(RelationshipType),
+    contactUserId: userId,
+    relationship: Schema.optional(relationshipType),
   }),
-  result: Schema.Struct({ contact: ContactSchema }),
+  result: Schema.Struct({ contact: contactSchema }),
   requires: [AgentPrincipal],
   errors: [ForbiddenError, ConflictError, UnauthorizedError],
 })
 ```
 
-### [`ContactsList`](./contacts.ts#L48)
+Defines the `agent/identity/contacts/add` RPC contract.
+
+### [`contactsList`](./contacts.ts#L51)
 
 _Variable_
 
 ```ts
-export const ContactsList = defineRpc({
+export const contactsList = defineRpc({
   name: "agent/identity/contacts/list",
   params: Schema.Struct({
-    limit: ListLimitSchema,
+    limit: listLimitSchema,
     cursor: Schema.optional(listCursorSchema()),
   }),
   result: Schema.Struct({
-    contacts: Schema.Array(ContactSchema),
+    contacts: Schema.Array(contactSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   requires: [AgentPrincipal],
@@ -110,7 +129,9 @@ export const ContactsList = defineRpc({
 })
 ```
 
-### [`NotInContactsError`](./contacts.ts#L17)
+Defines the `agent/identity/contacts/list` RPC contract.
+
+### [`NotInContactsError`](./contacts.ts#L18)
 
 _Class_
 
@@ -122,6 +143,8 @@ export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()
   static readonly message = "Recipient blocks unsolicited contacts";
 }
 ```
+
+Reports not in contacts failures.
 
 ## Files
 

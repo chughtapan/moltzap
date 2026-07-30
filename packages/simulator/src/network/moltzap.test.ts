@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- regression-only resource tests keep each acquisition and release timeline visible in one Effect program. */
 
 import { it as effectIt } from "@effect/vitest";
-import { AgentName } from "@moltzap/protocol/identity";
+import { agentName as agentNameSchema } from "@moltzap/protocol/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
@@ -32,7 +32,7 @@ const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43100");
 const TASK_ID = taskId("00000000-0000-4000-8000-000000000101");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
-const agentName = Schema.decodeSync(AgentName);
+const agentName = Schema.decodeSync(agentNameSchema);
 const ALICE = agentName("alice");
 const PROBE = agentName("probe");
 
@@ -52,17 +52,16 @@ const transport: EndpointTransport = {
 
 interface Harness {
   readonly acquire: MoltZapRouterDriverAcquirer;
-  readonly registrations: Array<string>;
-  readonly readyDurations: Array<Duration.Duration>;
-  readonly timeline: Array<string>;
+  readonly registrations: string[];
+  readonly readyDurations: Duration.Duration[];
+  readonly timeline: string[];
 }
 
-function harness(
-  awaitReady: Effect.Effect<void, unknown> = Effect.void,
-): Harness {
-  const registrations: Array<string> = [];
-  const readyDurations: Array<Duration.Duration> = [];
-  const timeline: Array<string> = [];
+function harness(awaitReadyInput?: Effect.Effect<void, unknown>): Harness {
+  const awaitReady = awaitReadyInput ?? Effect.void;
+  const registrations: string[] = [];
+  const readyDurations: Duration.Duration[] = [];
+  const timeline: string[] = [];
   const identities = new Map<string, number>();
   const stopped = makeRouterStopReport([
     {
@@ -82,7 +81,7 @@ function harness(
         identities.set(name, suffix);
         return { agentId: id(suffix), key: key(suffix) };
       }),
-    awaitAgentReady: (_agentId, within) =>
+    awaitAgentReady: (...[, within]) =>
       Effect.sync(() => {
         readyDurations.push(within);
       }).pipe(Effect.zipRight(awaitReady)),
@@ -296,3 +295,5 @@ describe("MoltZap router", () => {
       expect(stopped.detail).toContain("traffic collection failed");
     }));
 });
+
+/* eslint-enable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Restore strict defaults after the scoped file-level exception. */

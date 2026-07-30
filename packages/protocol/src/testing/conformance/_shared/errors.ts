@@ -1,3 +1,4 @@
+/** Re-exports the public API from `../../errors.js`. */
 export {
   RealServerAcquireError,
   RpcResponseError,

@@ -54,7 +54,7 @@ type SeedRow = readonly [
   sequence: number,
 ];
 
-const VALID_ROWS: ReadonlyArray<SeedRow> = [
+const VALID_ROWS: readonly SeedRow[] = [
   [MESSAGE_2, TASK_2, CONVERSATION_2, SENDER_2, 2],
   [MESSAGE_1, TASK_1, CONVERSATION_1, SENDER_1, 1],
 ];
@@ -78,8 +78,8 @@ const EXPECTED_MESSAGES = [
 
 async function seedMessages(
   dataDir: string,
-  rows: ReadonlyArray<SeedRow>,
-): Promise<void> {
+  rows: readonly SeedRow[],
+): Promise<undefined> {
   const db = new PGlite(dataDir);
   try {
     await db.exec(MESSAGES_DDL);
@@ -94,7 +94,7 @@ async function seedMessages(
   }
 }
 
-const readSeededMessages = (prefix: string, rows: ReadonlyArray<SeedRow>) =>
+const readSeededMessages = (prefix: string, rows: readonly SeedRow[]) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const volumePath = yield* fileSystem.makeTempDirectoryScoped({ prefix });
@@ -109,9 +109,9 @@ describe("committed-message projection", () => {
     () =>
       readSeededMessages("moltzap-pglite-", VALID_ROWS).pipe(
         Effect.tap((messages) =>
-          Effect.sync(() =>
-            assert.deepStrictEqual(messages, EXPECTED_MESSAGES),
-          ),
+          Effect.sync(() => {
+            assert.deepStrictEqual(messages, EXPECTED_MESSAGES);
+          }),
         ),
       ),
     PGLITE_TEST_TIMEOUT_MS,
@@ -125,11 +125,13 @@ describe("committed-message projection", () => {
       ]).pipe(
         Effect.flip,
         Effect.tap((failure) =>
-          Effect.sync(() =>
-            assert.match(String(failure), /RouterSequence|non-negative/u),
-          ),
+          Effect.sync(() => {
+            assert.match(String(failure), /RouterSequence|non-negative/u);
+          }),
         ),
       ),
     PGLITE_TEST_TIMEOUT_MS,
   );
 });
+
+/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/no-raw-sql, sonarjs/assertions-in-tests, max-nested-callbacks -- Restore strict defaults after the scoped file-level exception. */

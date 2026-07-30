@@ -1,4 +1,5 @@
 /** @file Code-first MoltZap behavioral evaluation suites and graders. */
+// safer-arch-ignore no-large-public-surface: The single evals entrypoint intentionally publishes the cohesive suite, report model, and grader vocabulary as one customer-facing API.
 
 import { effectRuntime, openClawRuntime } from "@moltzap/simulator";
 import { Effect } from "effect";
@@ -18,18 +19,22 @@ export const effectEvaluations = defineEvaluationSuite(
   EFFECT_CONDITION_SUFFIX,
 );
 
+/** Re-exports the public API from `./evaluations.js`. */
 export {
   defineEvaluationSuite,
   type CodeEvaluation,
   type EvaluationRunDefaults,
   type EvaluationSuite,
 } from "./evaluations.js";
+/** Re-exports the public API from `./grading-report.js`. */
 export {
-  CheckOutcome,
+  type CheckOutcome,
+  checkOutcome,
   type GradeCheckResult,
   type GradeReport,
   type GraderId,
 } from "./grading-report.js";
+/** Re-exports the public API from `./grading-model.js`. */
 export { GradingRefused, type EvaluationEvidence } from "./grading-model.js";
 
 /**

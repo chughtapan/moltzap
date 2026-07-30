@@ -5,9 +5,9 @@ import { Effect, Exit, Logger } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect } from "vitest";
 import { messagesListHandler } from "./messages.js";
-import { Transport } from "../transport.js";
+import { transportSchema } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
-import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
+import { localDaemonCommands } from "../../local-daemon-rpc.js";
 
 import {
   agentId as makeAgentId,
@@ -28,7 +28,7 @@ const SENDER_B = makeAgentId("00000000-0000-4000-8000-0000000000b1");
 const FIRST_CREATED_AT = "2026-04-24T00:00:00Z";
 const SECOND_CREATED_AT = "2026-04-24T00:00:01Z";
 const DEFAULT_LIMIT = 50;
-const SilentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
+const silentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 
 const messagesListSuccess = () => ({
   messages: [
@@ -66,8 +66,8 @@ function runMessagesList(
     conversationId: CONVERSATION_ID,
     ...(limit !== undefined ? { limit } : {}),
   }).pipe(
-    Effect.provideService(Transport, transport),
-    Effect.provide(SilentLogger),
+    Effect.provideService(transportSchema, transport),
+    Effect.provide(silentLogger),
   );
 }
 
@@ -79,11 +79,11 @@ describe("messages list", () => {
       // `senderName` is the CLI display fallback the handler reads; it is
       // not part of `MessageSchema` itself (see WireMessage in messages.ts).
       const { calls, transport } = makeFakeTransport({
-        [LocalDaemonCommands.MessagesList]: messagesListSuccess,
+        [localDaemonCommands.messagesList]: messagesListSuccess,
       });
       yield* runMessagesList(transport, DEFAULT_LIMIT);
       expect(calls[0]).toEqual({
-        method: LocalDaemonCommands.MessagesList,
+        method: localDaemonCommands.messagesList,
         params: {
           taskId: TASK_ID,
           conversationId: CONVERSATION_ID,
@@ -95,7 +95,7 @@ describe("messages list", () => {
   it("omits limit when absent", () =>
     Effect.gen(function* () {
       const { calls, transport } = makeFakeTransport({
-        [LocalDaemonCommands.MessagesList]: emptyMessagesList,
+        [localDaemonCommands.messagesList]: emptyMessagesList,
       });
       yield* runMessagesList(transport);
       expect(calls[0]?.params).toEqual({
@@ -107,7 +107,7 @@ describe("messages list", () => {
   it("surfaces TransportRpcError", () =>
     Effect.gen(function* () {
       const { transport } = makeFakeTransport({
-        [LocalDaemonCommands.MessagesList]: transportFailure,
+        [localDaemonCommands.messagesList]: transportFailure,
       });
       const result = yield* Effect.exit(runMessagesList(transport));
       expect(Exit.isFailure(result)).toBe(true);

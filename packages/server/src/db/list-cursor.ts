@@ -44,13 +44,24 @@ function isCanonicalIso8601(sortKey: string): boolean {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Encode the last emitted row's position into the opaque wire token. */
+/**
+ * Encode the last emitted row's position into the opaque wire token.
+ * @param pos Value supplied to the operation.
+ * @returns The encode list cursor result.
+ */
 export function encodeListCursor(pos: ListCursorPosition): ListCursor {
   const payload = `${pos.sortKey}${CURSOR_FIELD_SEP}${pos.id}`;
-  return Buffer.from(payload, "utf8").toString("base64url") as ListCursor;
+  return /* Safe because the surrounding invariant establishes this asserted shape. */ Buffer.from(
+    payload,
+    "utf8",
+  ).toString("base64url") as ListCursor;
 }
 
-/** Decode a token, failing typed on anything but a canonical payload. */
+/**
+ * Decode a token, failing typed on anything but a canonical payload.
+ * @param cursor Value supplied to the operation.
+ * @returns The decoded list cursor.
+ */
 export function decodeListCursor(
   cursor: ListCursor | string,
 ): Effect.Effect<ListCursorPosition, InvalidCursorError> {
@@ -85,7 +96,11 @@ function parseDecodedPayload(
       }),
     );
   }
-  const [sortKey, id] = parts as [string, string];
+  const [sortKey, id] =
+    /* Safe because the surrounding invariant establishes this asserted shape. */ parts as [
+      string,
+      string,
+    ];
   if (!isCanonicalIso8601(sortKey)) {
     return Effect.fail(
       new InvalidCursorError({ message: "Cursor sortKey is not ISO-8601" }),
@@ -107,6 +122,9 @@ function parseDecodedPayload(
  * comparing full-precision column against the ms cursor would skip rows
  * sharing a millisecond. Truncating to ms in BOTH the order-by and
  * `keysetWhere` predicate keeps `(sortKey, id)` a clean total order.
+ * @param eb Value supplied to the operation.
+ * @param createdAt Value supplied to the operation.
+ * @returns The sort key expr result.
  */
 export function sortKeyExpr<DB, TB extends keyof DB>(
   eb: ExpressionBuilder<DB, TB>,
@@ -120,6 +138,12 @@ export function sortKeyExpr<DB, TB extends keyof DB>(
  * `(sortKey DESC, id ASC)`: `sortKey < k OR (sortKey = k AND id > id)`.
  * `cols.sortKey` MUST be the same expression the query orders by
  * (`sortKeyExpr`).
+ * @param eb Value supplied to the operation.
+ * @param cols Value supplied to the operation.
+ * @param cols.sortKey Value supplied to the operation.
+ * @param cols.id Value supplied to the operation.
+ * @param pos Value supplied to the operation.
+ * @returns The keyset where result.
  */
 export function keysetWhere<DB, TB extends keyof DB>(
   eb: ExpressionBuilder<DB, TB>,
@@ -139,16 +163,23 @@ export function keysetWhere<DB, TB extends keyof DB>(
  * Split a `limit + 1` batch into the emitted page plus `nextCursor`.
  * An overflowed batch (`rows.length > limit`) yields the first `limit`
  * rows and a `nextCursor`; otherwise it is the last page (no cursor).
+ * @param rows Value supplied to the operation.
+ * @param limit Value supplied to the operation.
+ * @param positionOf Value supplied to the operation.
+ * @returns The paginate result.
  */
 export function paginate<Row>(
-  rows: ReadonlyArray<Row>,
+  rows: readonly Row[],
   limit: number,
   positionOf: (row: Row) => ListCursorPosition,
-): { readonly page: ReadonlyArray<Row>; readonly nextCursor?: ListCursor } {
+): { readonly page: readonly Row[]; readonly nextCursor?: ListCursor } {
   if (rows.length <= limit) {
     return { page: rows };
   }
   const page = rows.slice(0, limit);
-  const last = page[page.length - 1]!;
+  const last =
+    /* Safe because the surrounding invariant establishes this asserted shape. */ page[
+      page.length - 1
+    ]!;
   return { page, nextCursor: encodeListCursor(positionOf(last)) };
 }

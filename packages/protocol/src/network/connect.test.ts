@@ -1,7 +1,7 @@
 /* eslint-disable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- regression-only suite: each case names a specific contract case (lex vs numeric ordering, year boundary, wire-error reason discriminants). CalVer string literals are contractual values; making them imports would lose the regression intent. */
 
 import { describe, expect, it } from "vitest";
-import { Effect, Either, Exit } from "effect";
+import { Cause, Effect, Either, Exit } from "effect";
 import fc from "fast-check";
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -135,6 +135,9 @@ const expectInvalidVersion = (
  * defect (`Die` cause). The two acceptable outcomes are typed
  * `Right` (in-range) or typed `Left` (`ProtocolMismatchError` or
  * `InvalidProtocolVersionError`). Reused by the property test below.
+ * @param min Value supplied to the operation.
+ * @param max Value supplied to the operation.
+ * @returns The check input is not defect result.
  */
 const checkInputIsNotDefect = (min: string, max: string): boolean => {
   const exit = Effect.runSyncExit(
@@ -143,11 +146,13 @@ const checkInputIsNotDefect = (min: string, max: string): boolean => {
       PROTOCOL_VERSION,
     ),
   );
-  if (Exit.isSuccess(exit)) return true;
+  if (Exit.isSuccess(exit)) {
+    return true;
+  }
   // A `Die` cause means a sync throw escaped past the Effect.try
   // wrapper — the invariant we want to falsify if violated. `Fail`
   // (a typed E-channel error) is the desired shape.
-  return exit.cause._tag !== "Die";
+  return !Cause.isDieType(exit.cause);
 };
 
 // Regression-only: each case covers a specific reason discriminant:
@@ -266,3 +271,4 @@ describe("checkProtocolRange", () => {
     });
   });
 });
+/* eslint-enable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- regression-only suite ends here -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

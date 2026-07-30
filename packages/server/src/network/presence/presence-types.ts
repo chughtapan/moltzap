@@ -56,12 +56,16 @@ export interface AgentPresenceEntry {
  * connections. Single source of truth for the lease-count-to-status
  * mapping; walks `leasesByConn` and returns `working` for any non-zero
  * count, else `online`.
+ * @param entry Value supplied to the operation.
+ * @returns The derive entry status result.
  */
 export function deriveEntryStatus(
   entry: AgentPresenceEntry,
 ): Exclude<DerivedPresenceStatus, "offline"> {
   for (const leases of entry.leasesByConn.values()) {
-    if (leases.size > 0) return "working";
+    if (leases.size > 0) {
+      return "working";
+    }
   }
   return "online";
 }
@@ -162,12 +166,12 @@ export interface LeaseTransitionObserver {
     leaseId: LeaseId,
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
-  ) => Effect.Effect<void, never, never>;
+  ) => Effect.Effect<void>;
   readonly onLeaseActiveEnd: (
     leaseId: LeaseId,
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
-  ) => Effect.Effect<void, never, never>;
+  ) => Effect.Effect<void>;
 }
 
 /**

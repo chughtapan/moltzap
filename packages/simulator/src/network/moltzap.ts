@@ -2,12 +2,12 @@
 
 import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import { httpBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import { MoltZapAgentClient } from "@moltzap/protocol/socket";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
   type AgentConnection,
   type AttachedEndpoint,
@@ -20,14 +20,14 @@ import {
   type Router,
   RouterProvider,
   type RouterProviderService,
-  RouterStopped,
+  type RouterStopped,
   makeRouterStopReport,
 } from "./router.js";
 import { makeAgentHandle, makeParticipantHandle } from "./participant.js";
 import {
   Cause,
   Deferred,
-  Duration,
+  type Duration,
   Effect,
   Layer,
   Option,
@@ -35,8 +35,10 @@ import {
   type Scope,
   Stream,
 } from "effect";
-import type { MessageDatabasePath } from "./message-store.js";
-import { readCommittedRouterMessages } from "./message-store.js";
+import {
+  type MessageDatabasePath,
+  readCommittedRouterMessages,
+} from "./message-store.js";
 import {
   acquireMoltZapServer,
   type MoltZapServer,
@@ -110,7 +112,7 @@ function fail(operation: NetworkOperation, cause: unknown): NetworkFailure {
 
 function readCommittedMessages(
   databasePath: MessageDatabasePath,
-): Effect.Effect<ReadonlyArray<CommittedRouterMessage>, NetworkFailure> {
+): Effect.Effect<readonly CommittedRouterMessage[], NetworkFailure> {
   return readCommittedRouterMessages(databasePath).pipe(
     Effect.mapError((cause) => fail("stop-router", cause)),
   );
@@ -132,7 +134,7 @@ function endpointMessages(
   client: MoltZapAgentClient,
 ): Effect.Effect<EndpointTransport["received"], never, Scope.Scope> {
   return client
-    .subscribeScoped(MessageReceivedNotificationDefinition)
+    .subscribeScoped(messageReceivedNotificationDefinition)
     .pipe(
       Effect.map((received) =>
         received.pipe(Stream.mapError((cause) => fail("receive", cause))),
@@ -145,7 +147,7 @@ function openConversationWith(
 ): EndpointTransport["openConversation"] {
   return (participants: ParticipantIds) =>
     client
-      .callDefinition(TaskRequest, {
+      .callDefinition(taskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: participants,
         initialConversation: { participants },
@@ -171,7 +173,7 @@ function openConversationWith(
 function sendWith(client: MoltZapAgentClient): EndpointTransport["send"] {
   return (taskId, conversationId, parts) =>
     client
-      .callDefinition(MessagesSend, {
+      .callDefinition(messagesSend, {
         taskId,
         conversationId,
         parts,
@@ -354,7 +356,10 @@ function acquireRouter(
 
 /**
  * Construct the MoltZap router provider over an explicit driver acquirer.
+ * @param options Options that control the operation.
+ * @param acquireDriver Value supplied to the operation.
  * @internal
+ * @returns The created molt zap router provider with.
  */
 export function makeMoltZapRouterProviderWith(
   options: MoltZapRouterOptions,
@@ -365,7 +370,11 @@ export function makeMoltZapRouterProviderWith(
   };
 }
 
-/** Construct the MoltZap router service from host platform services. */
+/**
+ * Construct the MoltZap router service from host platform services.
+ * @param options Options that control the operation.
+ * @returns The created molt zap router provider.
+ */
 function makeMoltZapRouterProvider(
   options: MoltZapRouterOptions,
 ): Effect.Effect<RouterProviderService, never, MoltZapServerHost> {
@@ -378,7 +387,11 @@ function makeMoltZapRouterProvider(
   );
 }
 
-/** Provide the MoltZap router while leaving host services to the root layer. */
+/**
+ * Provide the MoltZap router while leaving host services to the root layer.
+ * @param options Options that control the operation.
+ * @returns The molt zap router layer result.
+ */
 export function moltZapRouterLayer(
   options: MoltZapRouterOptions,
 ): Layer.Layer<RouterProvider, never, MoltZapServerHost> {

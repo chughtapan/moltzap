@@ -1,13 +1,14 @@
 /** @file Network-domain utilities. */
 
+/** Re-exports the public API from `./agent-endpoint-resolver.js`. */
 export { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
-export {
-  AgentEndpointResolverLive,
-  AgentEndpointResolverTag,
-  NetworkSendServiceLive,
-  NetworkSendServiceTag,
-} from "./layer.js";
+/** Re-exports the public API from `./layer.js`. */
+export { AgentEndpointResolverTag, NetworkSendServiceTag } from "./layer.js";
+/** Re-exports the public API from `./connect.handlers.js`. */
 export { connectAgent, connectApp } from "./connect.handlers.js";
+/** Re-exports the public API from `./network-send.js`. */
 export { NetworkSendService } from "./network-send.js";
+/** Re-exports the public API from `./notification-broadcast.js`. */
 export { broadcastNotificationToAgents } from "./notification-broadcast.js";
+/** Re-exports the public API from `./outbound-webhook-cap.js`. */
 export { applyOutboundWebhookCap } from "./outbound-webhook-cap.js";

@@ -51,25 +51,33 @@ accounted-for.
 "offline" is represented by entry absence; presence state NEVER
 holds an entry whose `liveConns` is empty.
 
-### [`agentPresenceSubscribe`](./handlers.ts#L61)
+### [`agentPresenceSubscribe`](./handlers.ts#L67)
 
 _Variable_
 
 ```ts
 export const agentPresenceSubscribe: ServerHandler<
-  typeof AgentPresenceSubscribe
+  typeof agentPresenceSubscribeDefinition
 > = (params)
 ```
 
-### [`appPresenceSubscribe`](./handlers.ts#L72)
+Provides the agent presence subscribe runtime value.
+
+**Returns:** The agent presence subscribe result.
+
+### [`appPresenceSubscribe`](./handlers.ts#L83)
 
 _Variable_
 
 ```ts
 export const appPresenceSubscribe: ServerHandler<
-  typeof AppPresenceSubscribe
+  typeof appPresenceSubscribeDefinition
 > = (params)
 ```
+
+Provides the app presence subscribe runtime value.
+
+**Returns:** The app presence subscribe result.
 
 ### [`DerivedPresenceStatus`](./presence-types.ts#L14)
 
@@ -85,7 +93,7 @@ Derived presence status. Three-state set:
 - `working`  — connected, ≥1 lease in GRANTED or CLAIMED.
 - `offline`  — WS closed (no entry in presence state).
 
-### [`deriveEntryStatus`](./presence-types.ts#L60)
+### [`deriveEntryStatus`](./presence-types.ts#L62)
 
 _Function_
 
@@ -100,7 +108,9 @@ connections. Single source of truth for the lease-count-to-status
 mapping; walks `leasesByConn` and returns `working` for any non-zero
 count, else `online`.
 
-### [`LeaseTransitionObserver`](./presence-types.ts#L160)
+**Returns:** The derive entry status result.
+
+### [`LeaseTransitionObserver`](./presence-types.ts#L164)
 
 _Interface_
 
@@ -110,12 +120,12 @@ export interface LeaseTransitionObserver {
     leaseId: LeaseId,
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
-  ) => Effect.Effect<void, never, never>;
+  ) => Effect.Effect<void>;
   readonly onLeaseActiveEnd: (
     leaseId: LeaseId,
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
-  ) => Effect.Effect<void, never, never>;
+  ) => Effect.Effect<void>;
 }
 ```
 
@@ -150,7 +160,7 @@ ghost callbacks. The fast-reconnect race: agent A disconnects on
 threading, those callbacks would mutate against the surviving
 connection; the check makes them no-op audits instead.
 
-### [`noopLeaseTransitionObserver`](./presence-types.ts#L182)
+### [`noopLeaseTransitionObserver`](./presence-types.ts#L186)
 
 _Variable_
 
@@ -166,7 +176,7 @@ The default discipline (Principle 4) is to have a value that does the
 right thing rather than a `null` branch every call site has to
 remember to guard.
 
-### [`PresenceAuditEvent`](./presence-types.ts#L105)
+### [`PresenceAuditEvent`](./presence-types.ts#L109)
 
 _TypeAlias_
 
@@ -214,19 +224,38 @@ Audit events are emitted via `Effect.logDebug`. They do NOT go
 through `Effect.die`; the `never` E channel is preserved by
 construction.
 
-### [`PresenceService`](./presence.service.ts#L253)
+### [`PresenceEntryAbsenceCanaries`](./presence.service.types-check.ts#L114)
+
+_TypeAlias_
+
+```ts
+export type PresenceEntryAbsenceCanaries = [
+  EntryHasNoStoredStatus,
+  EntryHasNoSingleConnection,
+  EntryHasNoFlatLeaseSet,
+];
+```
+
+Compile-time assertions for fields intentionally absent from presence state.
+
+### [`PresenceService`](./presence.service.ts#L264)
 
 _Class_
 
 ```ts
 export class PresenceService implements LeaseTransitionObserver {
-  private constructor(private readonly entries: Ref.Ref<EntryMap>) {}
+  private readonly entries: Ref.Ref<EntryMap>;
+
+  private constructor(entries: Ref.Ref<EntryMap>) {
+    this.entries = entries;
+  }
 
   /**
    * Construct the service. One instance per server lifetime; wired into
    * `LeaseRegistryDeps.transitionObserver` at composition root.
+   * @returns The entries result.
    */
-  static make(): Effect.Effect<PresenceService, never, never> {
+  static make(): Effect.Effect<PresenceService> {
     return Effect.gen(function* () {
       const entries = yield* Ref.make<EntryMap>(new Map());
       return new PresenceService(entries);
@@ -239,11 +268,11 @@ export class PresenceService implements LeaseTransitionObserver {
    * WS connect: add `connId` to the agent's `liveConns`. A second
    * simultaneous connect ADDS to the set rather than replacing it.
    * Public error channel is `never` — runs inside the connect handler.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param connId Value supplied to the operation.
+   * @returns The on agent connect result.
    */
-  onAgentConnect(
-    agentId: AgentId,
-    connId: ConnectionId,
-  ): Effect.Effect<void, never, never> {
+  onAgentConnect(agentId: AgentId, connId: ConnectionId): Effect.Effect<void> {
     return Ref.update(this.entries, (entries) =>
       computeConnectTransition(entries, agentId, connId),
     );
@@ -255,11 +284,14 @@ export class PresenceService implements LeaseTransitionObserver {
    * `LeaseRegistry.abandon(connId)` from the WS-close finalizer, so the
    * subsequent abandon's `onLeaseActiveEnd` callbacks find `connId`
    * absent from `liveConns` and audit. Public error channel is `never`.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param connId Value supplied to the operation.
+   * @returns The on agent disconnect result.
    */
   onAgentDisconnect(
     agentId: AgentId,
     connId: ConnectionId,
-  ): Effect.Effect<void, never, never> {
+  ): Effect.Effect<void> {
     return Ref.update(this.entries, (entries) =>
       computeDisconnectTransition(entries, agentId, connId),
     );
@@ -269,7 +301,7 @@ export class PresenceService implements LeaseTransitionObserver {
     leaseId: LeaseId,
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
-  ): Effect.Effect<void, never, never> {
+  ): Effect.Effect<void> {
     return this.handleObserverTransition({
       kind: "begin",
       leaseId,
@@ -282,7 +314,7 @@ export class PresenceService implements LeaseTransitionObserver {
     leaseId: LeaseId,
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
-  ): Effect.Effect<void, never, never> {
+  ): Effect.Effect<void> {
     return this.handleObserverTransition({
       kind: "end",
       leaseId,
@@ -291,9 +323,7 @@ export class PresenceService implements LeaseTransitionObserver {
     });
   }
 
-  private handleObserverTransition(
-    cb: ObserverCallback,
-  ): Effect.Effect<void, never, never> {
+  private handleObserverTransition(cb: ObserverCallback): Effect.Effect<void> {
     return Ref.modify(this.entries, (entries) =>
       computeObserverTransition(entries, cb),
     ).pipe(
@@ -309,10 +339,10 @@ export class PresenceService implements LeaseTransitionObserver {
    * Read the agent's current status. Returns `"offline"` for an unknown
    * agent. Each call reads the `Ref` once; the result is a
    * point-in-time snapshot.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @returns The status of result.
    */
-  statusOf(
-    agentId: AgentId,
-  ): Effect.Effect<DerivedPresenceStatus, never, never> {
+  statusOf(agentId: AgentId): Effect.Effect<DerivedPresenceStatus> {
     return Ref.get(this.entries).pipe(
       Effect.map((entries) => statusForAgent(entries, agentId)),
     );
@@ -323,22 +353,16 @@ export class PresenceService implements LeaseTransitionObserver {
    * per requested `agentId` in input order; unknown agents resolve to
    * `"offline"`. One `Ref.get` at the start of the call; all entries
    * are read from the same snapshot.
+   * @param agentIds Value supplied to the operation.
+   * @returns The status many result.
    */
-  statusMany(agentIds: ReadonlyArray<AgentId>): Effect.Effect<
+  statusMany(agentIds: readonly AgentId[]): Effect.Effect<
     ReadonlyArray<{
       readonly agentId: AgentId;
       readonly status: DerivedPresenceStatus;
-    }>,
-    never,
-    never
+    }>
   > {
     return Ref.get(this.entries).pipe(
-      Effect.map((entries) =>
-        agentIds.map((agentId) => ({
-          agentId,
-          status: statusForAgent(entries, agentId),
-        })),
-      ),
 ```
 
 Presence service: lease-derived status engine.
@@ -368,7 +392,7 @@ Combined with the `recipientConnId ∈ liveConns` check, stale lease
 callbacks across reconnect / partial-disconnect boundaries neither mutate
 state nor re-create disconnected agents.
 
-Lease observer flow:
+Lease observer flow:.
 
 ```mermaid
 sequenceDiagram
@@ -385,22 +409,21 @@ sequenceDiagram
   end
 ```
 
-### [`PresenceServiceLive`](./layer.ts#L12)
+### [`presenceServiceLive`](./layer.ts#L15)
 
 _Variable_
 
 ```ts
-export const PresenceServiceLive: Layer.Layer<
-  PresenceServiceTag,
-  never,
-  never
-> = Layer.effect(
-  PresenceServiceTag,
-  PresenceService.make().pipe(Effect.withSpan("PresenceServiceLive")),
-)
+export const presenceServiceLive: Layer.Layer<PresenceServiceTag> =
+  Layer.effect(
+    PresenceServiceTag,
+    PresenceService.make().pipe(Effect.withSpan("PresenceServiceLive")),
+  )
 ```
 
-### [`PresenceServiceTag`](./layer.ts#L7)
+Provides the presence service live runtime value.
+
+### [`PresenceServiceTag`](./layer.ts#L9)
 
 _Class_
 
@@ -411,9 +434,12 @@ export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
 >() {}
 ```
 
+Implements presence service tag.
+
 ## Files
 
 - `handlers.ts`
 - `layer.ts`
 - `presence-types.ts`
 - `presence.service.ts`
+- `presence.service.types-check.ts`

@@ -12,19 +12,23 @@
 
 import { Clock, Effect, Option } from "effect";
 
+/** Implements lease guard. */
 export class LeaseGuard {
-  #consumedAt: number | null = null;
+  private consumedAtMillis: number | null = null;
 
   /**
    * Returns `true` on first call (transitions internal state from
    * "not-consumed" to "consumed-at-now"); returns `false` on every later
    * call. Reads `Clock.currentTimeMillis` inside the Effect on first call.
+   * @returns The ts result.
    */
-  consume(): Effect.Effect<boolean, never, never> {
-    return Effect.gen(this, function* () {
-      if (this.#consumedAt !== null) return false;
+  consume(): Effect.Effect<boolean> {
+    return Effect.gen(this, function* (this: LeaseGuard) {
+      if (this.consumedAtMillis !== null) {
+        return false;
+      }
       const ts = yield* Clock.currentTimeMillis;
-      this.#consumedAt = ts;
+      this.consumedAtMillis = ts;
       return true;
     });
   }
@@ -33,10 +37,13 @@ export class LeaseGuard {
    * `Option.none` before the first `consume`; `Option.some(epochMs)` after,
    * where `epochMs` is the value Clock returned at the first-consume moment.
    * Idempotent on second-and-later reads.
+   * @returns The consumed at result.
    */
-  get consumedAt(): Effect.Effect<Option.Option<number>, never, never> {
+  get consumedAt(): Effect.Effect<Option.Option<number>> {
     return Effect.sync(() =>
-      this.#consumedAt === null ? Option.none() : Option.some(this.#consumedAt),
+      this.consumedAtMillis === null
+        ? Option.none()
+        : Option.some(this.consumedAtMillis),
     );
   }
 }

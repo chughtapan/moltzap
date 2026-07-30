@@ -9,13 +9,16 @@ import type {
   StartCoreTestServerOptions,
 } from "./ports.js";
 
+/** Re-exports the public API from `./server.js`. */
 export {
   getBaseUrl,
   getWsUrl,
   resetCoreTestDb,
   stopCoreTestServer,
 } from "./server.js";
+/** Re-exports the public API from `./helpers.js`. */
 export { createTestAgent } from "./helpers.js";
+/** Re-exports the public API from `./ports.js`. */
 export type {
   CoreTestDatabasePort,
   CoreTestReadyOutcome,

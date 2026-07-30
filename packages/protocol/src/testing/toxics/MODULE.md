@@ -8,7 +8,7 @@ Public barrel for Toxiproxy toxic profiles and control helpers.
 
 ## Public surface
 
-### [`allToxicTags`](./profile.ts#L51)
+### [`allToxicTags`](./profile.ts#L52)
 
 _Variable_
 
@@ -25,7 +25,7 @@ export const allToxicTags = [
 
 All six toxic tags, enumerated for coverage assertions in Tier D.
 
-### [`defaultToxicProfile`](./defaults.ts#L24)
+### [`defaultToxicProfile`](./defaults.ts#L25)
 
 _Variable_
 
@@ -33,7 +33,9 @@ _Variable_
 export const defaultToxicProfile:
 ```
 
-### [`makeToxiproxyClient`](./client.ts#L255)
+Provides the default toxic profile runtime value.
+
+### [`makeToxiproxyClient`](./client.ts#L280)
 
 _Function_
 
@@ -42,6 +44,10 @@ export function makeToxiproxyClient(
   config: ToxiproxyConfig,
 ): Effect.Effect<ToxiproxyClient, ToxicControlError>
 ```
+
+Creates toxiproxy client.
+
+**Returns:** The created toxiproxy client.
 
 ### [`ToxicControlError`](./errors.ts#L8)
 
@@ -59,7 +65,7 @@ export class ToxicControlError extends Data.TaggedError(
 
 Toxiproxy HTTP API returned a non-2xx, or the control endpoint is down.
 
-### [`ToxicHandle`](./client.ts#L60)
+### [`ToxicHandle`](./client.ts#L62)
 
 _Interface_
 
@@ -75,7 +81,7 @@ releasing the scope removes it. Tier D properties acquire a
 `ToxicHandle` inside `Effect.scoped` so a crashed property still cleans
 up.
 
-### [`ToxicProfile`](./profile.ts#L14)
+### [`ToxicProfile`](./profile.ts#L15)
 
 _TypeAlias_
 
@@ -90,18 +96,9 @@ export type ToxicProfile =
     }
 ```
 
-Toxic profile DSL.
+Represents toxic profile values.
 
-Per D2 and Invariant I4, adversity is a parameter selected at suite
-invocation, not hardcoded case-by-case. A `ToxicProfile` is a named
-preset (one of the six toxics) plus its parameters; the Tier D runner
-picks the matching Tier C invariant and re-runs it with the toxic
-attached.
-
-Exhaustiveness: the `_tag` union covers every toxic named in §5 Tier D
-(D1–D6) so the implementer cannot forget a branch in the client dispatch.
-
-### [`ToxicTag`](./profile.ts#L60)
+### [`ToxicTag`](./profile.ts#L62)
 
 _TypeAlias_
 
@@ -109,7 +106,9 @@ _TypeAlias_
 export type ToxicTag = (typeof allToxicTags)[number];
 ```
 
-### [`ToxiproxyClient`](./client.ts#L81)
+Represents toxic tag values.
+
+### [`ToxiproxyClient`](./client.ts#L84)
 
 _Interface_
 
@@ -125,7 +124,9 @@ export interface ToxiproxyClient {
 }
 ```
 
-### [`ToxiproxyConfig`](./client.ts#L25)
+Describes toxiproxy client.
+
+### [`ToxiproxyConfig`](./client.ts#L26)
 
 _Interface_
 
@@ -137,7 +138,9 @@ export interface ToxiproxyConfig {
 }
 ```
 
-### [`ToxiproxyNetworkConfig`](./client.ts#L31)
+Describes toxiproxy config.
+
+### [`ToxiproxyNetworkConfig`](./client.ts#L33)
 
 _Interface_
 
@@ -154,7 +157,9 @@ export interface ToxiproxyNetworkConfig {
 }
 ```
 
-### [`ToxiproxyProxy`](./client.ts#L70)
+Describes toxiproxy network config.
+
+### [`ToxiproxyProxy`](./client.ts#L72)
 
 _Interface_
 

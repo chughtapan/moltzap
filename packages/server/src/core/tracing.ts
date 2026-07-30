@@ -37,6 +37,8 @@ interface TracingLayerInput {
  * Build a tracing Layer that wires the OTel SDK with the given span
  * processor. The processor controls how spans get exported (OTLP batch
  * in production; in-memory simple processor in tests).
+ * @param input Input value to process.
+ * @returns The created tracing layer.
  */
 export function makeTracingLayer(input: TracingLayerInput): Layer.Layer<never> {
   return NodeSdk.layer(() => ({
@@ -55,19 +57,33 @@ export function makeTracingLayer(input: TracingLayerInput): Layer.Layer<never> {
  * trace-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the full traces URL
  * and is used verbatim; the base `OTEL_EXPORTER_OTLP_ENDPOINT` is a signal
  * root that gets `/v1/traces` appended. Returns `null` when neither is set.
+ * @param value Value to process.
+ * @returns The strip trailing slashes result.
  */
 function stripTrailingSlashes(value: string): string {
   let end = value.length;
-  while (end > 0 && value.charCodeAt(end - 1) === SLASH_CHAR_CODE) end -= 1;
+  while (end > 0 && value.charCodeAt(end - 1) === SLASH_CHAR_CODE) {
+    end -= 1;
+  }
   return value.slice(0, end);
 }
 
+/**
+ * Resolves traces endpoint.
+ * @param tracesEndpoint Value supplied to the operation.
+ * @param baseEndpoint Value supplied to the operation.
+ * @returns The resolve traces endpoint result.
+ */
 export function resolveTracesEndpoint(
-  tracesEndpoint: string | undefined,
-  baseEndpoint: string | undefined,
+  tracesEndpoint?: string,
+  baseEndpoint?: string,
 ): string | null {
-  if (tracesEndpoint !== undefined) return tracesEndpoint;
-  if (baseEndpoint === undefined) return null;
+  if (tracesEndpoint !== undefined) {
+    return tracesEndpoint;
+  }
+  if (baseEndpoint === undefined) {
+    return null;
+  }
   // Normalize the join so a trailing slash on the base endpoint does not
   // produce `//v1/traces`. Linear scan, not a regex (avoids backtracking).
   return `${stripTrailingSlashes(baseEndpoint)}/v1/traces`;
@@ -83,23 +99,21 @@ export function resolveTracesEndpoint(
  * returns `null` — the caller falls through to a no-op tracing Layer (spans
  * stay in Effect's fiber context but are not exported).
  */
-export const readDefaultSpanProcessor: Effect.Effect<
-  SpanProcessor | null,
-  never
-> = Effect.all({
-  tracesEndpoint: Config.option(
-    Config.string("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
-  ),
-  baseEndpoint: Config.option(Config.string("OTEL_EXPORTER_OTLP_ENDPOINT")),
-}).pipe(
-  Effect.map(({ tracesEndpoint, baseEndpoint }) => {
-    const url = resolveTracesEndpoint(
-      Option.getOrUndefined(tracesEndpoint),
-      Option.getOrUndefined(baseEndpoint),
-    );
-    return url === null
-      ? null
-      : new BatchSpanProcessor(new OTLPTraceExporter({ url }));
-  }),
-  Effect.orElseSucceed(() => null),
-);
+export const readDefaultSpanProcessor: Effect.Effect<SpanProcessor | null> =
+  Effect.all({
+    tracesEndpoint: Config.option(
+      Config.string("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+    ),
+    baseEndpoint: Config.option(Config.string("OTEL_EXPORTER_OTLP_ENDPOINT")),
+  }).pipe(
+    Effect.map(({ tracesEndpoint, baseEndpoint }) => {
+      const url = resolveTracesEndpoint(
+        Option.getOrUndefined(tracesEndpoint),
+        Option.getOrUndefined(baseEndpoint),
+      );
+      return url === null
+        ? null
+        : new BatchSpanProcessor(new OTLPTraceExporter({ url }));
+    }),
+    Effect.orElseSucceed(() => null),
+  );

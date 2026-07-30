@@ -41,7 +41,7 @@
     "build": "nx run @moltzap/simulator:build",
     "lint": "nx run @moltzap/simulator:lint",
     "test": "vitest run --passWithNoTests",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -63,7 +63,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "eslint src *.ts --cache --max-warnings=0"
+          "command": "eslint . --cache --max-warnings=0"
         }
       },
       "test": {

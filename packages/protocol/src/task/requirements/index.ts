@@ -6,8 +6,11 @@
  * against server-side services live in `@moltzap/server-core`.
  */
 
+/** Re-exports the public API from `./task-read-access.js`. */
 export { TaskReadAccess } from "./task-read-access.js";
+/** Re-exports the public API from `./task-read-access.js`. */
 export type { TaskReadAccessValue } from "./task-read-access.js";
+/** Re-exports the public API from `./assert-requirement-matches-task.js`. */
 export {
   assertAppOwnsTask,
   assertTaskReadAccessMatchesTask,

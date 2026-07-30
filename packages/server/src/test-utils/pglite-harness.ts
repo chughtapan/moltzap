@@ -38,6 +38,7 @@ class PgliteCloseError extends Data.TaggedError("PgliteCloseError")<{
   readonly cause?: unknown;
 }> {}
 
+/** Represents pglite harness error conditions. */
 export type PgliteHarnessError =
   | CoreSchemaSqlLoadError
   | PgliteCreateError
@@ -50,6 +51,7 @@ function sqlPreview(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().slice(0, SQL_PREVIEW_MAX_CHARS);
 }
 
+/** Describes pglite harness. */
 export interface PgliteHarness {
   /** Effect-Kysely-wrapped client. Yieldable as Effect via the toolkit. */
   readonly db: EffectKysely<Database>;
@@ -64,7 +66,10 @@ export interface PgliteHarness {
   readonly close: Effect.Effect<void, PgliteCloseError>;
 }
 
-/** Spin up a fresh PGlite instance with the core schema loaded. */
+/**
+ * Spin up a fresh PGlite instance with the core schema loaded.
+ * @returns The created pglite harness.
+ */
 export function makePgliteHarness(): Effect.Effect<
   PgliteHarness,
   PgliteHarnessError

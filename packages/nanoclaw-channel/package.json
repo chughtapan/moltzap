@@ -24,8 +24,8 @@
     "build": "nx run @moltzap/nanoclaw-channel:build",
     "lint": "nx run @moltzap/nanoclaw-channel:lint",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:conformance": "vitest run -c vitest.conformance.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.mjs",
+    "test:conformance": "vitest run -c vitest.conformance.config.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -41,7 +41,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/nanoclaw-channel",
-          "command": "eslint src *.ts --cache --max-warnings=0"
+          "command": "eslint . --cache --max-warnings=0"
         }
       },
       "arch:check": {

@@ -16,7 +16,7 @@ import { MoltZapService } from "../service.js";
 import type { RpcGroup } from "@effect/rpc";
 import { getMoltZapAgentServiceSocketPath } from "../local-paths.js";
 import { requestDaemonCommand, SocketRequestError } from "./socket-client.js";
-import { type LocalDaemonError, LocalDaemonRpcs } from "../local-daemon-rpc.js";
+import type { LocalDaemonError, LocalDaemonRpcs } from "../local-daemon-rpc.js";
 import {
   resolveProfileRecord,
   type ProfileError,
@@ -88,7 +88,10 @@ export interface Transport {
   ) => Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, TransportError>;
 }
 
-export const Transport = Context.GenericTag<Transport>("moltzap/cli/Transport");
+/** Provides the transport runtime value. */
+export const transportSchema = Context.GenericTag<Transport>(
+  "moltzap/cli/Transport",
+);
 
 // ─── Layer construction ────────────────────────────────────────────────────
 
@@ -110,7 +113,9 @@ const tagDaemonError = (
   err: SocketRequestError | LocalDaemonError,
   socketPath: string,
 ): TransportError => {
-  if (!(err instanceof SocketRequestError)) return err;
+  if (!(err instanceof SocketRequestError)) {
+    return err;
+  }
   const msg = err.message;
   if (
     msg.includes("not running") ||
@@ -142,23 +147,30 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
     ),
 });
 
-/** Build the Layer that provides {@link Transport} for the current invocation. */
+/**
+ * Build the Layer that provides {@link Transport} for the current invocation.
+ * @param options Options that control the operation.
+ * @returns The created transport layer.
+ */
 export const makeTransportLayer = (
   options: TransportOptions,
 ): Layer.Layer<Transport> =>
-  Layer.succeed(Transport, makeDaemonTransport(options.socketPath));
+  Layer.succeed(transportSchema, makeDaemonTransport(options.socketPath));
 
 /**
  * Convenience for command handlers: pull the Transport tag and call a daemon
  * command.
  * Every subcommand routes through this helper; command handlers do not
  * import `socket-client` directly.
+ * @param tag Value supplied to the operation.
+ * @param payload Value supplied to the operation.
+ * @returns The command result.
  */
 export const command = <Tag extends DaemonCommand>(
   tag: Tag,
   payload: PayloadForTag<DaemonRpcs, Tag>,
 ): Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, TransportError, Transport> =>
-  Effect.flatMap(Transport, (t) => t.command(tag, payload));
+  Effect.flatMap(transportSchema, (t) => t.command(tag, payload));
 
 /**
  * Uniform error-to-exit adapter for subcommand handlers. Catches every error
@@ -169,6 +181,8 @@ export const command = <Tag extends DaemonCommand>(
  *
  * No forced `process.exit(0)` — that would truncate piped stdout on large
  * payloads.
+ * @param effect Effect to execute.
+ * @returns The run handler result.
  */
 export const runHandler = <
   E extends { readonly message?: string; readonly _tag?: string },
@@ -193,6 +207,9 @@ export const runHandler = <
  * transport layer. With `profileName` set, this resolves the named profile
  * into the profile agent's daemon socket; otherwise it uses the default
  * daemon socket.
+ * @param parsed Value supplied to the operation.
+ * @param parsed.profileName Value supplied to the operation.
+ * @returns The resolve transport inputs result.
  */
 export const resolveTransportInputs = (parsed: {
   readonly profileName?: ProfileName;

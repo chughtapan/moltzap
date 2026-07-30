@@ -11,36 +11,33 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  DEFAULT_APP_ID,
+  taskRequest,
+  type TaskId,
+} from "@moltzap/protocol/task";
+import {
+  messageReceivedNotificationDefinition,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 
-let _baseUrl: string;
-let _wsUrl: string;
 const EXTRA_EVENT_SETTLE_MS = 250;
 
-beforeAll(() =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const server = yield* startTestServerEffect();
-      _baseUrl = server.baseUrl;
-      _wsUrl = server.wsUrl;
-    }),
-  ),
-);
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-/** Fork a "drop the first frame, then collect any extras" collector. */
+/**
+ * Fork a "drop the first frame, then collect any extras" collector.
+ * @param receiver Value supplied to the operation.
+ * @returns The fork extra collector result.
+ */
 function forkExtraCollector(receiver: ConnectedAgent) {
   return receiver.client
-    .subscribe(MessageReceivedNotificationDefinition)
+    .subscribe(messageReceivedNotificationDefinition)
     .pipe(
       Stream.drop(1),
       Stream.interruptAfter(Duration.millis(EXTRA_EVENT_SETTLE_MS)),
@@ -57,13 +54,13 @@ interface DmConversation {
 
 function setupDmConversations(
   sender: ConnectedAgent,
-  receivers: ReadonlyArray<ConnectedAgent>,
-): Effect.Effect<ReadonlyArray<DmConversation>, unknown> {
+  receivers: readonly ConnectedAgent[],
+): Effect.Effect<readonly DmConversation[], unknown> {
   return Effect.forEach(
     receivers,
     (receiver, i) =>
       Effect.map(
-        sender.client.sendRpc(TaskRequest, {
+        sender.client.sendRpc(taskRequest, {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [receiver.agentId],
           initialConversation: {
@@ -72,7 +69,9 @@ function setupDmConversations(
         }),
         (result) => ({
           taskId: result.task.id,
-          conversationId: result.conversation!.id,
+          conversationId:
+            /* Safe because the test fixture establishes this asserted shape. */ result
+              .conversation!.id,
           receiverIdx: i,
         }),
       ),
@@ -82,11 +81,11 @@ function setupDmConversations(
 
 function sendToAll(
   sender: ConnectedAgent,
-  conversations: ReadonlyArray<DmConversation>,
+  conversations: readonly DmConversation[],
 ) {
   return Effect.all(
     conversations.map((conv, i) =>
-      sender.client.sendRpc(MessagesSend, {
+      sender.client.sendRpc(messagesSend, {
         taskId: conv.taskId,
         conversationId: conv.conversationId,
         parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
@@ -99,7 +98,8 @@ function sendToAll(
 it("multiple DMs receive messages simultaneously without cross-talk", () =>
   Effect.gen(function* () {
     const { agents } = yield* setupAgentGroup(5);
-    const sender = agents[0]!;
+    const sender =
+      /* Safe because the test fixture establishes this asserted shape. */ agents[0]!;
     const receivers = agents.slice(1);
 
     const conversations = yield* setupDmConversations(sender, receivers);
@@ -113,7 +113,7 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
         Effect.fork(
           awaitOneNotification(
             receiver.client,
-            MessageReceivedNotificationDefinition,
+            messageReceivedNotificationDefinition,
           ),
         ),
       ),
@@ -128,9 +128,16 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
     );
 
     for (let i = 0; i < events.length; i++) {
-      const message = events[i]!.params.message;
+      const message =
+        /* Safe because the test fixture establishes this asserted shape. */ events[
+          i
+        ]!.params.message;
 
-      expect(message.conversationId).toBe(conversations[i]!.conversationId);
+      expect(message.conversationId).toBe(
+        /* Safe because the test fixture establishes this asserted shape. */ conversations[
+          i
+        ]!.conversationId,
+      );
       expect(firstTextPart(message.parts)).toBe(`Hello receiver-${i + 1}`);
     }
 

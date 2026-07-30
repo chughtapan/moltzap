@@ -1,12 +1,12 @@
 import { Args, Command } from "@effect/cli";
 import { Effect, Schema } from "effect";
 import {
-  AppIdV4,
-  LocalDaemonCommands,
-  StartParticipant,
-  StartTaskPartialFailure,
-  StartTaskCommandRpc,
-  StartTaskUsageError,
+  type AppIdV4,
+  localDaemonCommands,
+  startParticipant,
+  type StartTaskPartialFailure,
+  startTaskCommandRpc,
+  type StartTaskUsageError,
   type StartParticipant as StartParticipantType,
   type StartTaskCommandResult,
 } from "../../local-daemon-rpc.js";
@@ -22,20 +22,21 @@ const EXIT_CODES = {
   USAGE_ERROR: 64,
 } as const;
 
+/** Describes start command args. */
 export interface StartCommandArgs {
   readonly name: string;
   readonly participants: readonly StartParticipantType[];
-  readonly message: string | undefined;
-  readonly appId: AppIdV4 | undefined;
+  readonly message?: string;
+  readonly appId?: AppIdV4;
 }
 
 type StartCommandError = TransportError;
 
-type StartCommandParsed = {
+interface StartCommandParsed {
   readonly name: string;
   readonly participants: StartParticipantType[];
-  readonly options: Schema.Schema.Type<typeof StartOptionsSchema>;
-};
+  readonly options: Schema.Schema.Type<typeof startOptionsSchema>;
+}
 
 const startMessage = (outcome: {
   readonly taskId: TaskId;
@@ -57,7 +58,7 @@ const logStartResult = (result: StartTaskCommandResult): Effect.Effect<void> =>
 const startCommandHandler = (
   args: StartCommandArgs,
 ): Effect.Effect<void, StartCommandError, Transport> =>
-  command(LocalDaemonCommands.StartTask, {
+  command(localDaemonCommands.startTask, {
     name: args.name,
     participants: args.participants,
     ...(args.message === undefined ? {} : { message: args.message }),
@@ -106,24 +107,31 @@ const nameArg = Args.text({ name: "name" }).pipe(
 );
 
 const participantsArg = Args.text({ name: "participant" }).pipe(
-  Args.withSchema(StartParticipant),
+  Args.withSchema(startParticipant),
   Args.withDescription("Participant token (for example agent:bob)."),
   Args.repeated,
 );
 
-const StartOptionsSchema = StartTaskCommandRpc.payloadSchema.pipe(
+const startOptionsSchema = startTaskCommandRpc.payloadSchema.pipe(
   Schema.omit("name", "participants"),
 );
-export const startOptions = optionsFromSchema(StartOptionsSchema, {
+/** Provides the start options runtime value. */
+export const startOptions = optionsFromSchema(startOptionsSchema, {
   message: { description: "First message body" },
   appId: { description: "App UUID v4. Defaults to the MoltZap app." },
 });
 
+/**
+ * Provides the run start handler runtime value.
+ * @param args Value supplied to the operation.
+ * @returns The run start handler result.
+ */
 export const runStartHandler = (
   args: StartCommandArgs,
 ): Effect.Effect<void, never, Transport> =>
   runStartCommand(startCommandHandler(args));
 
+/** Provides the start command runtime value. */
 export const startCommand: Command.Command<
   "start",
   Transport,

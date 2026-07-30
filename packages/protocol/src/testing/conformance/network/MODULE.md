@@ -19,7 +19,7 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L63)
+### [`acquireClient`](./_helpers.ts#L88)
 
 _Function_
 
@@ -31,7 +31,11 @@ export function acquireClient(
 ): Effect.Effect<PresenceActor, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`acquireCloseableClient`](./_helpers.ts#L86)
+Executes the acquire client operation.
+
+**Returns:** The acquire client result.
+
+### [`acquireCloseableClient`](./_helpers.ts#L119)
 
 _Function_
 
@@ -48,7 +52,11 @@ export function acquireCloseableClient(
 >
 ```
 
-### [`NETWORK_PROPERTIES`](./index.ts#L24)
+Executes the acquire closeable client operation.
+
+**Returns:** The acquire closeable client result.
+
+### [`NETWORK_PROPERTIES`](./index.ts#L25)
 
 _Variable_
 
@@ -60,15 +68,17 @@ export const NETWORK_PROPERTIES: ReadonlyArray<
 
 All network-layer property registrars, in suite walk order.
 
-### [`PRESENCE_CATEGORY`](./_helpers.ts#L17)
+### [`PRESENCE_CATEGORY`](./_helpers.ts#L18)
 
 _Variable_
 
 ```ts
-export const PRESENCE_CATEGORY = "presence" as const
+export const PRESENCE_CATEGORY = "presence"
 ```
 
-### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L18)
+Provides the presence category runtime value.
+
+### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L20)
 
 _Variable_
 
@@ -76,7 +86,9 @@ _Variable_
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`PresenceActor`](./_helpers.ts#L29)
+Provides the presence default timeout ms runtime value.
+
+### [`PresenceActor`](./_helpers.ts#L34)
 
 _Interface_
 
@@ -87,7 +99,9 @@ export interface PresenceActor {
 }
 ```
 
-### [`PresenceStatus`](./_helpers.ts#L22)
+Describes presence actor.
+
+### [`PresenceStatus`](./_helpers.ts#L25)
 
 _TypeAlias_
 
@@ -95,7 +109,9 @@ _TypeAlias_
 export type PresenceStatus = "online" | "working" | "offline";
 ```
 
-### [`PresenceStatusEntry`](./_helpers.ts#L24)
+Represents presence status values.
+
+### [`PresenceStatusEntry`](./_helpers.ts#L28)
 
 _Interface_
 
@@ -106,7 +122,9 @@ export interface PresenceStatusEntry {
 }
 ```
 
-### [`presenceViolation`](./_helpers.ts#L34)
+Describes presence status entry.
+
+### [`presenceViolation`](./_helpers.ts#L45)
 
 _Function_
 
@@ -117,7 +135,11 @@ export function presenceViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`registerAgent`](./_helpers.ts#L45)
+Executes the presence violation operation.
+
+**Returns:** The presence violation result.
+
+### [`registerAgent`](./_helpers.ts#L63)
 
 _Function_
 
@@ -129,7 +151,11 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, PropertyInvariantViolation>
 ```
 
-### [`registerSubscribeAfterConnect`](./presence-subscribe-after-connect.ts#L17)
+Registers agent.
+
+**Returns:** The register agent result.
+
+### [`registerSubscribeAfterConnect`](./presence-subscribe-after-connect.ts#L21)
 
 _Function_
 
@@ -138,6 +164,8 @@ export function registerSubscribeAfterConnect(
   ctx: ConformanceRunContext,
 ): void
 ```
+
+Registers subscribe after connect.
 
 ## Files
 

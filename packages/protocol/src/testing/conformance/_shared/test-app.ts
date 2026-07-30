@@ -8,11 +8,11 @@
  * `app/message/authorize`, but it does not know about tasks, leases, or
  * conversations beyond manifest defaults.
  */
-import { Duration, Effect, Ref, type Scope, Schema } from "effect";
+import { Duration, Effect, Ref, type Scope, type Schema } from "effect";
 import type { AppManifest } from "#identity/apps";
-import { MessagesAuthorize } from "#message";
-import { AppId, TaskCreate } from "#task";
-import { DispatchAuthorize } from "#message/dispatch";
+import { messagesAuthorize as messagesAuthorizeDefinition } from "#message";
+import { type appId as appIdSchema, taskCreate } from "#task";
+import { dispatchAuthorize as dispatchAuthorizeDefinition } from "#message/dispatch";
 import {
   makeAppTestClient,
   type AppTestClient,
@@ -40,6 +40,7 @@ const DEFAULT_CONVERSATIONS: NonNullable<AppManifest["conversations"]> = [
   { key: "main", name: "Main", participantFilter: "all" },
 ];
 
+/** Represents test app registration failure conditions. */
 export type TestAppRegistrationFailure =
   | TestAppHttpRegistrationError
   | RpcResponseError
@@ -47,6 +48,7 @@ export type TestAppRegistrationFailure =
   | TransportClosedError
   | TransportIoError;
 
+/** Configures test app manifest. */
 export interface TestAppManifestOptions {
   readonly appId?: string;
   readonly name?: string;
@@ -73,25 +75,32 @@ export interface RegisterTestAppOptions extends TestAppManifestOptions {
   readonly inviteCode?: string;
 }
 
+/** Describes test app callback handler. */
 export interface TestAppCallbackHandler<D extends ServerRpcDefinition> {
   readonly respondWith: ServerRpcResult<D>;
   readonly predicate?: (params: ServerRpcParams<D>) => boolean;
   readonly holdResponseFor?: number;
 }
 
+/** Describes test app callback script. */
 export interface TestAppCallbackScript<D extends ServerRpcDefinition> {
   readonly handle: (handler: TestAppCallbackHandler<D>) => Effect.Effect<void>;
   readonly silence: Effect.Effect<void>;
 }
 
+/** Describes test app. */
 export interface TestApp {
   /** Server-minted appId (the principal `agent/task/request` targets). */
-  readonly appId: Schema.Schema.Type<typeof AppId>;
+  readonly appId: Schema.Schema.Type<typeof appIdSchema>;
   readonly manifest: AppManifest;
   /** The app-principal `AppConnection` hosting the moderator callbacks. */
   readonly client: AppTestClient;
-  readonly dispatchAuthorize: TestAppCallbackScript<typeof DispatchAuthorize>;
-  readonly messagesAuthorize: TestAppCallbackScript<typeof MessagesAuthorize>;
+  readonly dispatchAuthorize: TestAppCallbackScript<
+    typeof dispatchAuthorizeDefinition
+  >;
+  readonly messagesAuthorize: TestAppCallbackScript<
+    typeof messagesAuthorizeDefinition
+  >;
 }
 
 interface CallbackState<D extends ServerRpcDefinition> {
@@ -99,6 +108,11 @@ interface CallbackState<D extends ServerRpcDefinition> {
   readonly silenced: boolean;
 }
 
+/**
+ * Creates test app manifest.
+ * @param options Options that control the operation.
+ * @returns The created test app manifest.
+ */
 export function makeTestAppManifest(
   options: TestAppManifestOptions = {},
 ): AppManifest {
@@ -115,6 +129,11 @@ export function makeTestAppManifest(
   };
 }
 
+/**
+ * Registers test app.
+ * @param options Options that control the operation.
+ * @returns The register test app result.
+ */
 export function registerTestApp(
   options: RegisterTestAppOptions,
 ): Effect.Effect<TestApp, TestAppRegistrationFailure, Scope.Scope> {
@@ -136,17 +155,17 @@ export function registerTestApp(
     });
     const dispatchAuthorize = yield* makeCallbackScript(
       client,
-      DispatchAuthorize,
+      dispatchAuthorizeDefinition,
     );
     const messagesAuthorize = yield* makeCallbackScript(
       client,
-      MessagesAuthorize,
+      messagesAuthorizeDefinition,
     );
     // agent/task/request fires app/task/create before the task
     // leaves `waiting`. Dispatch-admission properties don't gate task
     // creation, so the test app auto-accepts; the dispatch lifecycle
     // is what they exercise.
-    yield* client.onAppCallback(TaskCreate, () =>
+    yield* client.onAppCallback(taskCreate, () =>
       Effect.succeed({ verdict: { decision: "accept" as const } }),
     );
     return {
@@ -166,6 +185,8 @@ export function registerTestApp(
  * static policy (`grant` / `forwardAllExceptSender` / `accept`), which
  * the server resolves in-process to the same verdict the app's open
  * handler would return.
+ * @param options Options that control the operation.
+ * @returns The created manifest hooks.
  */
 function makeManifestHooks(
   options: TestAppManifestOptions,
@@ -215,11 +236,15 @@ function runScriptedCallback<D extends ServerRpcDefinition>(
 ): Effect.Effect<ServerRpcResult<D>> {
   return Effect.gen(function* () {
     const current = yield* Ref.get(state);
-    if (current.silenced) return yield* Effect.never;
+    if (current.silenced) {
+      return yield* Effect.never;
+    }
     const handler = current.handlers.find((candidate) =>
       matchesHandler(candidate, params),
     );
-    if (handler === undefined) return yield* Effect.never;
+    if (handler === undefined) {
+      return yield* Effect.never;
+    }
     const response = Effect.succeed(handler.respondWith);
     return yield* delayResponse(handler, response);
   });

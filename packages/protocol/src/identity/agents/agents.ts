@@ -4,20 +4,21 @@ import { AgentPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { defineRpc } from "#transport/descriptor";
 import {
-  ListLimitSchema,
+  listLimitSchema,
   listCursorSchema,
   InvalidParamsError,
 } from "#transport";
-import { AgentCardSchema } from "./types.js";
+import { agentCardSchema } from "./types.js";
 
-export const AgentsList = defineRpc({
+/** Defines the `agent/identity/agents/list` RPC contract. */
+export const agentsList = defineRpc({
   name: "agent/identity/agents/list",
   params: Schema.Struct({
-    limit: ListLimitSchema,
+    limit: listLimitSchema,
     cursor: Schema.optional(listCursorSchema()),
   }),
   result: Schema.Struct({
-    agents: Schema.Array(AgentCardSchema),
+    agents: Schema.Array(agentCardSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   requires: [AgentPrincipal, ActiveAgent],

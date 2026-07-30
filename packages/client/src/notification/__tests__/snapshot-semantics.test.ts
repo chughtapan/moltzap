@@ -53,14 +53,12 @@ import {
 import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
+  type NotificationDelivery,
+  type NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
-import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { TaskFailedNotificationDefinition } from "@moltzap/protocol/task";
+import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { taskFailedNotificationDefinition } from "@moltzap/protocol/task";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import type {
-  NotificationDelivery,
-  NotificationParamsOf,
-} from "@moltzap/protocol/rpc";
 import { buildMessage, testTaskId } from "../../test-utils/index.js";
 import { subscribe, subscribeAll } from "../stream.js";
 
@@ -68,11 +66,11 @@ const PROP_TEST_FRAME_COUNT = 6;
 const PROP_TEST_CANCEL_AT = 3;
 
 type TaskFailedParams = NotificationParamsOf<
-  typeof TaskFailedNotificationDefinition
+  typeof taskFailedNotificationDefinition
 >;
 
-const taskIds = Array.from({ length: PROP_TEST_FRAME_COUNT }, (_, seq) =>
-  testTaskId(`task-${seq}`),
+const taskIds = [...Array.from({ length: PROP_TEST_FRAME_COUNT }).keys()].map(
+  (sequence) => testTaskId(`task-${sequence}`),
 );
 
 const taskIndex = new Map(taskIds.map((taskId, seq) => [taskId, seq] as const));
@@ -92,10 +90,10 @@ const makeSubscriberRegistry = () =>
 
 function taskFailedDelivery(
   seq: number,
-): NotificationDelivery<typeof TaskFailedNotificationDefinition> {
+): NotificationDelivery<typeof taskFailedNotificationDefinition> {
   return {
-    definition: TaskFailedNotificationDefinition,
-    method: TaskFailedNotificationDefinition.name,
+    definition: taskFailedNotificationDefinition,
+    method: taskFailedNotificationDefinition.name,
     params: {
       taskId: taskIds[seq] ?? testTaskId(`task-${seq}`),
       reason: seq % 2 === 0 ? "even" : "odd",
@@ -104,11 +102,11 @@ function taskFailedDelivery(
 }
 
 function messageReceivedDelivery(): NotificationDelivery<
-  typeof MessageReceivedNotificationDefinition
+  typeof messageReceivedNotificationDefinition
 > {
   return {
-    definition: MessageReceivedNotificationDefinition,
-    method: MessageReceivedNotificationDefinition.name,
+    definition: messageReceivedNotificationDefinition,
+    method: messageReceivedNotificationDefinition.name,
     params: {
       taskId: testTaskId("task-1"),
       message: buildMessage({
@@ -124,11 +122,11 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
-        const observerSeen = yield* Ref.make<ReadonlyArray<number>>([]);
-        const targetSeen = yield* Ref.make<ReadonlyArray<number>>([]);
+        const observerSeen = yield* Ref.make<readonly number[]>([]);
+        const targetSeen = yield* Ref.make<readonly number[]>([]);
 
         const observerFiber = yield* Effect.fork(
-          subscribe(registry, TaskFailedNotificationDefinition).pipe(
+          subscribe(registry, taskFailedNotificationDefinition).pipe(
             Stream.runForEach((params) =>
               Ref.update(observerSeen, (xs) => [
                 ...xs,
@@ -141,7 +139,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const targetStream = subscribe(
           registry,
-          TaskFailedNotificationDefinition,
+          taskFailedNotificationDefinition,
         );
         const targetFiber = yield* Effect.fork(
           targetStream.pipe(
@@ -201,22 +199,22 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // exercised by the "in-flight dispatch is NOT interrupted by an
         // unregister that commits during frame N" test below.
         const registry = yield* makeSubscriberRegistry();
-        const receivedByS2 = yield* Ref.make<ReadonlyArray<number>>([]);
+        const receivedByS2 = yield* Ref.make<readonly number[]>([]);
 
         const s1Fiber = yield* Effect.fork(
-          subscribe(registry, TaskFailedNotificationDefinition).pipe(
+          subscribe(registry, taskFailedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
         const s3Fiber = yield* Effect.fork(
-          subscribe(registry, TaskFailedNotificationDefinition).pipe(
+          subscribe(registry, taskFailedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
 
-        const s2Stream = subscribe(registry, TaskFailedNotificationDefinition);
+        const s2Stream = subscribe(registry, taskFailedNotificationDefinition);
         const s2Fiber = yield* Effect.fork(
           s2Stream.pipe(
             Stream.runForEach((params) =>
@@ -273,11 +271,11 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // Stream API tests cover end-to-end subscription behavior; this case
         // uses the registry directly to control dispatch ordering.
         const registry = yield* makeSubscriberRegistry();
-        const enteredS1 = yield* Deferred.make<void>();
-        const releaseS1 = yield* Deferred.make<void>();
-        const s2Received = yield* Ref.make<ReadonlyArray<number>>([]);
+        const enteredS1 = yield* Deferred.make<undefined>();
+        const releaseS1 = yield* Deferred.make<undefined>();
+        const s2Received = yield* Ref.make<readonly number[]>([]);
 
-        yield* registry.register(TaskFailedNotificationDefinition, undefined, {
+        yield* registry.register(taskFailedNotificationDefinition, {
           onFrame: () =>
             Effect.gen(function* () {
               yield* Deferred.succeed(enteredS1, void 0);
@@ -286,8 +284,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
           onClose: () => Effect.void,
         });
         const s2Handle = yield* registry.register(
-          TaskFailedNotificationDefinition,
-          undefined,
+          taskFailedNotificationDefinition,
           {
             onFrame: (params) =>
               Ref.update(s2Received, (xs) => [
@@ -333,7 +330,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
         const fiber = yield* Effect.fork(
-          subscribe(registry, MessageReceivedNotificationDefinition).pipe(
+          subscribe(registry, messageReceivedNotificationDefinition).pipe(
             Stream.runDrain,
             // Catch nothing — we want the fiber to exit with the failure
             // so we can pattern-match on it.
@@ -365,15 +362,12 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
-        const observed = yield* Ref.make<ReadonlyArray<string>>([]);
+        const observed = yield* Ref.make<readonly string[]>([]);
 
         const fiber = yield* Effect.fork(
           subscribeAll(registry).pipe(
             Stream.runForEach((frame) =>
-              Ref.update(observed, (xs) => [
-                ...xs,
-                (frame.definition as AnyNotificationDefinition).name,
-              ]),
+              Ref.update(observed, (xs) => [...xs, frame.definition.name]),
             ),
             Effect.catchAll(() => Effect.void),
           ),
@@ -393,9 +387,11 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const names = yield* Ref.get(observed);
         expect(names).toEqual([
-          TaskFailedNotificationDefinition.name,
-          MessageReceivedNotificationDefinition.name,
+          taskFailedNotificationDefinition.name,
+          messageReceivedNotificationDefinition.name,
         ]);
       }),
     ));
 });
+
+/* eslint-enable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. */

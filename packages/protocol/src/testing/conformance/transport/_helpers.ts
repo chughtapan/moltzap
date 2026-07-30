@@ -9,24 +9,38 @@ import {
   makeAgentTestClient,
   type AgentTestClient,
 } from "../_shared/driver/test-client.js";
-import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
+import {
+  registerTestAgent,
+  type TestAgent,
+  conversationId,
+  taskId,
+} from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
-import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
-import type { TaskId } from "@moltzap/protocol/task";
+import {
+  taskRequest,
+  DEFAULT_APP_ID,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import { conversationId, taskId } from "../_shared/test-fixtures.js";
 
-export const ADVERSITY_CATEGORY = "adversity" as const;
+/** Provides the adversity category runtime value. */
+export const ADVERSITY_CATEGORY = "adversity";
 const RANDOM_SUFFIX_LENGTH = 6;
 const PROPERTY_BUDGET_MS = 15_000;
 
 type ToxicPropertyError = PropertyUnavailable | PropertyInvariantViolation;
 
+/**
+ * Executes the adversity violation operation.
+ * @param name Name of the operation.
+ * @param reason Value supplied to the operation.
+ * @returns The adversity violation result.
+ */
 export function adversityViolation(
   name: string,
   reason: string,
@@ -45,6 +59,12 @@ function randomIdSuffix(): string {
     .slice(0, RANDOM_SUFFIX_LENGTH);
 }
 
+/**
+ * Executes the proxy name operation.
+ * @param prefix Value supplied to the operation.
+ * @param seed Value supplied to the operation.
+ * @returns The proxy name result.
+ */
 export function proxyName(prefix: string, seed: number): string {
   return `${prefix}-${seed}-${randomIdSuffix()}`;
 }
@@ -53,7 +73,16 @@ function hostPortFromWebSocketUrl(wsUrl: string): string {
   return new URL(wsUrl).host;
 }
 
-/** Acquire an agent client that routes through the Toxiproxy proxy. */
+/**
+ * Acquire an agent client that routes through the Toxiproxy proxy.
+ * @param opts Value supplied to the operation.
+ * @param opts.ctx Value supplied to the operation.
+ * @param opts.proxy Value supplied to the operation.
+ * @param opts.name Value supplied to the operation.
+ * @param opts.defaultTimeoutMs Value supplied to the operation.
+ * @param opts.unavailable Value supplied to the operation.
+ * @returns The acquire proxied client result.
+ */
 export function acquireProxiedClient(opts: {
   readonly ctx: ConformanceRunContext;
   readonly proxy: ToxiproxyProxy;
@@ -89,7 +118,7 @@ export function acquireProxiedClient(opts: {
 
 /**
  * Body params — `attachToxic` attaches the toxic inside the caller's
- * scope. Nesting matters: the caller typically does
+ * scope. Nesting matters: the caller typically does.
  *
  * ```ts
  * Effect.scoped(gen(function* () {
@@ -101,21 +130,28 @@ export function acquireProxiedClient(opts: {
  * }))                                                // client close OK
  * ```
  *
- * so the toxic is removed BEFORE the agent client's socket close. Under
+ * So the toxic is removed BEFORE the agent client's socket close. Under
  * disruptive toxics (timeout, reset_peer), this lets the WS close
  * handshake flow cleanly instead of hanging on a black-holed channel.
  */
-export type ToxicBodyParams = {
+export interface ToxicBodyParams {
   readonly proxy: ToxiproxyProxy;
   readonly unavailable: (reason: string) => PropertyUnavailable;
   readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
-};
+}
 
 /**
  * Factory — wire a Toxiproxy proxy + attach the toxic; hand a body the
  * proxy. Hard-deadlines each property body so a hanging toxic can't
  * block the suite indefinitely; if the deadline fires, the property
  * reports `PropertyUnavailable` (not a pass, not a crash).
+ * @param opts Value supplied to the operation.
+ * @param opts.ctx Value supplied to the operation.
+ * @param opts.propertyName Value supplied to the operation.
+ * @param opts.description Value supplied to the operation.
+ * @param opts.proxyName Value supplied to the operation.
+ * @param opts.profile Value supplied to the operation.
+ * @param opts.body Value supplied to the operation.
  */
 export function withToxicProxy(opts: {
   readonly ctx: ConformanceRunContext;
@@ -213,6 +249,17 @@ function runWithToxiproxy(opts: {
   );
 }
 
+/**
+ * Creates one on one conversation.
+ * @param owner Value supplied to the operation.
+ * @param owner.agent Value supplied to the operation.
+ * @param owner.client Value supplied to the operation.
+ * @param participant Value supplied to the operation.
+ * @param participant.agent Value supplied to the operation.
+ * @param participant.client Value supplied to the operation.
+ * @param propertyName Value supplied to the operation.
+ * @returns The created one on one conversation.
+ */
 export function createOneOnOneConversation(
   owner: { agent: TestAgent; client: AgentTestClient },
   participant: { agent: TestAgent; client: AgentTestClient },
@@ -223,7 +270,7 @@ export function createOneOnOneConversation(
 > {
   return Effect.gen(function* () {
     const create = yield* owner.client
-      .sendRpc(TaskRequest, {
+      .sendRpc(taskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [participant.agent.agentId],
         initialConversation: {
@@ -239,11 +286,7 @@ export function createOneOnOneConversation(
           ),
         ),
       );
-    const typed = create as {
-      task: { id: string };
-      conversation: { id: string } | null;
-    };
-    const cid = typed.conversation?.id;
+    const cid = create.conversation?.id;
     if (typeof cid !== "string" || cid.length === 0) {
       return yield* Effect.fail(
         adversityViolation(
@@ -253,7 +296,7 @@ export function createOneOnOneConversation(
       );
     }
     return {
-      taskId: taskId(typed.task.id),
+      taskId: taskId(create.task.id),
       conversationId: conversationId(cid),
     };
   }).pipe(Effect.withSpan("createOneOnOneConversation"));

@@ -11,14 +11,18 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+/**
+ * Registers dispatch lease expired fires on ttl.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchLeaseExpiredFiresOnTtl(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-lease-expired-fires-on-ttl";
+  const name = "dispatch-lease-expired-fires-on-ttl";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "granted-but-unused lease emits app/dispatch/lease-expired to the moderator after leaseTimeoutMs elapses; lease state advances to EXPIRED",
     withDriver(ctx, (driver) =>
       Effect.gen(function* () {
@@ -44,11 +48,12 @@ export function registerDispatchLeaseExpiredFiresOnTtl(
           "expired",
           { dispatchId: ack.dispatchId, timeoutMs: 2_000 },
         );
-        const params = expired.params as LeaseIdOnlyView;
+        const params =
+          /* Safe because the "expired" observability queue contains only lease-expired deliveries. */ expired.params as LeaseIdOnlyView;
         if (params.leaseId !== ack.leaseId) {
           return yield* Effect.fail(
             dispatchAdmissionViolation(
-              NAME,
+              name,
               `app/dispatch/lease-expired leaseId ${params.leaseId} != ack ${ack.leaseId}`,
             ),
           );

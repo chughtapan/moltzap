@@ -1,3 +1,8 @@
 import { packageEslintConfig } from "../../eslint.shared.mjs";
 
-export default packageEslintConfig();
+export default [
+  {
+    ignores: ["nanoclaw-assets/**"],
+  },
+  ...packageEslintConfig({ tsconfigRootDir: import.meta.dirname }),
+];

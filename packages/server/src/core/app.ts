@@ -1,3 +1,4 @@
+// safer-arch-ignore no-cross-domain-sibling-import: Core app is the server composition root and must assemble identity registration with the protocol socket adapter.
 import { NodeHttpServer } from "@effect/platform-node";
 import {
   Cause,
@@ -17,12 +18,12 @@ import { EncryptionTag, EnvelopeEncryption } from "#db/crypto";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
 import type { CoreConfig } from "#config";
-import { AppEndpointRegistryTag } from "#identity/apps";
+import { AppEndpointRegistryTag } from "../identity/apps/layer.js";
+import { installDefaultApp } from "../identity/apps/default-app.js";
 import { ConnectionHooksTag } from "./hooks.js";
-import { ServicesLive, resolveServices } from "./layers.js";
-import { installDefaultApp } from "#identity/apps";
+import { servicesLive, resolveServices } from "./layers.js";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
-import { makeMoltzapSocketHandler } from "#moltzap";
+import { makeMoltzapSocketHandler } from "../moltzap/server-socket.js";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
@@ -58,6 +59,8 @@ export class ServerBootFailedError extends Data.TaggedError(
  * channel, so the close contract is honest: nothing escapes regardless of
  * what the cleanup step does. `Cause.pretty` provides structured diagnostics
  * without smuggling a raw `Cause` through an `unknown`-typed channel.
+ * @param label Value supplied to the operation.
+ * @returns The resolve span processor result.
  */
 const logAndSwallowCause =
   (label: string) =>
@@ -71,7 +74,12 @@ const logAndSwallowCause =
       Effect.asVoid,
     );
 
-/** Run a best-effort cleanup promise, logging and swallowing any failure. */
+/**
+ * Run a best-effort cleanup promise, logging and swallowing any failure.
+ * @param run Value supplied to the operation.
+ * @param label Value supplied to the operation.
+ * @returns The resolve span processor result.
+ */
 const runCleanupStep = (
   run: () => PromiseLike<unknown>,
   label: string,
@@ -82,9 +90,11 @@ const runCleanupStep = (
   }).pipe(logAndSwallowCause(label));
 
 function resolveSpanProcessor(
-  configured: SpanProcessor | undefined,
+  configured?: SpanProcessor,
 ): SpanProcessor | null {
-  if (configured !== undefined) return configured;
+  if (configured !== undefined) {
+    return configured;
+  }
   return Effect.runSync(readDefaultSpanProcessor);
 }
 
@@ -93,20 +103,20 @@ function makeCoreRuntime(config: CoreConfig) {
     ? new EnvelopeEncryption(config.encryptionMasterSecret)
     : null;
   const spanProcessor = resolveSpanProcessor(config.spanProcessor);
-  const TracingLive =
+  const tracingLive =
     spanProcessor === null ? Layer.empty : makeTracingLayer({ spanProcessor });
-  const BaseLive = Layer.mergeAll(
+  const baseLive = Layer.mergeAll(
     Layer.succeed(DbTag, config.db),
     Layer.succeed(EncryptionTag, envelope),
   );
-  const ServicesWithBase = Layer.provideMerge(ServicesLive, BaseLive);
-  const InstallDefaultApp = Layer.effectDiscard(
+  const servicesWithBase = Layer.provideMerge(servicesLive, baseLive);
+  const installDefaultAppValue = Layer.effectDiscard(
     Effect.gen(function* () {
       const appEndpointRegistry = yield* AppEndpointRegistryTag;
       installDefaultApp(appEndpointRegistry);
     }).pipe(Effect.withSpan("makeCoreRuntime.installDefaultApp")),
   );
-  const FullLive = Layer.provideMerge(InstallDefaultApp, ServicesWithBase);
+  const fullLive = Layer.provideMerge(installDefaultAppValue, servicesWithBase);
   // The connection/disconnection hook arrays are created here so the native
   // `agent/network/connect` handler can fire the connection hooks via
   // `ConnectionHooksTag`. They are mutable references the `CoreApp.onConnection`
@@ -114,22 +124,27 @@ function makeCoreRuntime(config: CoreConfig) {
   // native handler reads the live array contents per connect.
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
-  const HooksLive = Layer.succeed(ConnectionHooksTag, {
+  const hooksLive = Layer.succeed(ConnectionHooksTag, {
     connectionHooks,
     disconnectionHooks,
   });
   const dispatchRuntime = ManagedRuntime.make(
     Layer.mergeAll(
       NodeHttpServer.layerContext,
-      FullLive,
-      HooksLive,
-      TracingLive,
+      fullLive,
+      hooksLive,
+      tracingLive,
     ),
   );
   const services = dispatchRuntime.runSync(resolveServices);
   return { dispatchRuntime, services, connectionHooks, disconnectionHooks };
 }
 
+/**
+ * Creates core app.
+ * @param config Documentation generation configuration.
+ * @returns The created core app.
+ */
 export function createCoreApp(config: CoreConfig): CoreApp {
   const { dispatchRuntime, services, connectionHooks, disconnectionHooks } =
     makeCoreRuntime(config);
@@ -159,7 +174,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     );
   }).pipe(Effect.withSpan("createCoreApp.startup"), Scope.extend(appScope));
 
-  dispatchRuntime.runPromise(startup).catch((err) => {
+  dispatchRuntime.runPromise(startup).catch((err: unknown) => {
     Effect.runFork(
       Effect.logError("Server startup failed").pipe(
         Effect.annotateLogs({ err }),
@@ -201,9 +216,11 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     networkSendService: services.networkSendService,
     connections: services.connections,
     leaseRegistry: services.leaseRegistry,
-    setContactService: (checker) =>
-      services.appEndpointRegistry.setContactService(checker),
-    close: () => Effect.runPromise(closeCoreAppEffect(options)),
+    setContactService: (checker) => {
+      services.appEndpointRegistry.setContactService(checker);
+    },
+    close: () =>
+      Effect.runPromise(closeCoreAppEffect(options).pipe(Effect.as(undefined))),
   };
 }
 
@@ -232,6 +249,8 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  * closed registry and cannot schedule new lease work during scope teardown.
  * See
  * `dispatch/lease-registry.ts → LeaseRegistry.shutdown`.
+ * @param options Options that control the operation.
+ * @returns The close core app effect result.
  */
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;

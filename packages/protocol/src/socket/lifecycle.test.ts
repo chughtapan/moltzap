@@ -18,19 +18,24 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { AgentConnect, PROTOCOL_VERSION } from "#network";
-import { MessagesAuthorize } from "#message";
-import { DispatchAuthorize } from "#message/dispatch";
-import { TaskCreate } from "#task";
-import { MessageReceivedNotificationDefinition } from "#message";
-import { AgentCallableGroup } from "#socket/catalog";
+import { agentConnect, PROTOCOL_VERSION } from "#network";
+import {
+  messagesAuthorize,
+  messageReceivedNotificationDefinition,
+} from "#message";
+import { dispatchAuthorize } from "#message/dispatch";
+import { taskCreate } from "#task";
+import type { agentCallableGroup } from "#socket/catalog";
 import {
   type ClientLifecycleOptions,
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
 } from "./lifecycle.js";
-import type { NotificationParamsOf, TypedDispatchMap } from "#transport";
-import { NotConnectedError } from "#transport";
+import {
+  type NotificationParamsOf,
+  type TypedDispatchMap,
+  NotConnectedError,
+} from "#transport";
 import {
   agentId,
   conversationId,
@@ -40,8 +45,8 @@ import {
 } from "#testing";
 
 type TestRpc = Extract<
-  RpcGroup.Rpcs<typeof AgentCallableGroup>,
-  { readonly _tag: typeof AgentConnect.name }
+  RpcGroup.Rpcs<typeof agentCallableGroup>,
+  { readonly _tag: typeof agentConnect.name }
 >;
 type TestDispatch = TypedDispatchMap<TestRpc, RpcClientError>;
 type OpenSession = ClientLifecycleOptions<TestRpc, TestDispatch>["openSession"];
@@ -59,13 +64,15 @@ const AGENT_KEY = redactedAgentKey(
 const CLIENT_WARNING_MARKER = "client warning stream probe";
 
 const connectClient: TestDispatch = {
-  [AgentConnect.name]: () => Effect.succeed({}),
+  [agentConnect.name]: () => Effect.succeed({}),
 };
 
-type AuthCounter = { authCalls: number };
+interface AuthCounter {
+  authCalls: number;
+}
 
 const countingConnectClient = (counter: AuthCounter): TestDispatch => ({
-  [AgentConnect.name]: () =>
+  [agentConnect.name]: () =>
     Effect.sync(() => {
       counter.authCalls += 1;
       return {};
@@ -76,9 +83,9 @@ const callbackHandlers = (): ReverseCallbackHandlers => {
   const unexpected = (method: string) => () =>
     Effect.dieMessage(`test client received unexpected callback ${method}`);
   return {
-    [DispatchAuthorize.name]: unexpected(DispatchAuthorize.name),
-    [MessagesAuthorize.name]: unexpected(MessagesAuthorize.name),
-    [TaskCreate.name]: unexpected(TaskCreate.name),
+    [dispatchAuthorize.name]: unexpected(dispatchAuthorize.name),
+    [messagesAuthorize.name]: unexpected(messagesAuthorize.name),
+    [taskCreate.name]: unexpected(taskCreate.name),
   };
 };
 
@@ -91,7 +98,7 @@ class TestClient extends ProtocolClientLifecycle<TestRpc, TestDispatch> {
   ) {
     super({
       serverUrl: "http://127.0.0.1:1",
-      connectTag: AgentConnect.name,
+      connectTag: agentConnect.name,
       connectPayload: {
         agentKey: AGENT_KEY,
         minProtocol: PROTOCOL_VERSION,
@@ -104,16 +111,14 @@ class TestClient extends ProtocolClientLifecycle<TestRpc, TestDispatch> {
   }
 }
 
-type CloseControls = {
-  readonly scopeFinalizing: Deferred.Deferred<void>;
-  readonly releaseScope: Deferred.Deferred<void>;
+interface CloseControls {
+  readonly scopeFinalizing: Deferred.Deferred<undefined>;
+  readonly releaseScope: Deferred.Deferred<undefined>;
   finalizerRuns: number;
   writes: number;
-};
+}
 
-function closeGateFinalizer(
-  control: CloseControls,
-): Effect.Effect<void, never, never> {
+function closeGateFinalizer(control: CloseControls): Effect.Effect<void> {
   return Effect.sync(() => {
     control.finalizerRuns += 1;
   }).pipe(
@@ -122,9 +127,7 @@ function closeGateFinalizer(
   );
 }
 
-function recordWrite(
-  control: CloseControls,
-): Effect.Effect<void, never, never> {
+function recordWrite(control: CloseControls): Effect.Effect<void> {
   return Effect.sync(() => {
     control.writes += 1;
   });
@@ -144,12 +147,12 @@ function gatedSession(control: CloseControls): OpenSession {
     });
 }
 
-function awaitedCloseBody(): Effect.Effect<void, unknown, never> {
+function awaitedCloseBody(): Effect.Effect<void, unknown> {
   return Effect.scoped(
     Effect.gen(function* () {
-      const scopeFinalizing = yield* Deferred.make<void>();
-      const releaseScope = yield* Deferred.make<void>();
-      const subscriberEnded = yield* Deferred.make<void>();
+      const scopeFinalizing = yield* Deferred.make<undefined>();
+      const releaseScope = yield* Deferred.make<undefined>();
+      const subscriberEnded = yield* Deferred.make<undefined>();
       const control: CloseControls = {
         scopeFinalizing,
         releaseScope,
@@ -160,7 +163,7 @@ function awaitedCloseBody(): Effect.Effect<void, unknown, never> {
       yield* client.connect();
       yield* Effect.forkScoped(
         Stream.runDrain(
-          client.subscribe(MessageReceivedNotificationDefinition),
+          client.subscribe(messageReceivedNotificationDefinition),
         ).pipe(
           Effect.onExit(() =>
             Deferred.succeed(subscriberEnded, undefined).pipe(Effect.asVoid),
@@ -187,11 +190,11 @@ function awaitedCloseBody(): Effect.Effect<void, unknown, never> {
   );
 }
 
-function awaitedDisconnectBody(): Effect.Effect<void, unknown, never> {
+function awaitedDisconnectBody(): Effect.Effect<void, unknown> {
   return Effect.scoped(
     Effect.gen(function* () {
-      const scopeFinalizing = yield* Deferred.make<void>();
-      const releaseScope = yield* Deferred.make<void>();
+      const scopeFinalizing = yield* Deferred.make<undefined>();
+      const releaseScope = yield* Deferred.make<undefined>();
       const control: CloseControls = {
         scopeFinalizing,
         releaseScope,
@@ -217,16 +220,14 @@ function awaitedDisconnectBody(): Effect.Effect<void, unknown, never> {
   );
 }
 
-type ReaderExitControls = {
-  readonly endReader: Deferred.Deferred<void>;
-  readonly scopeClosed: Deferred.Deferred<void>;
-  readonly order: Array<string>;
+interface ReaderExitControls {
+  readonly endReader: Deferred.Deferred<undefined>;
+  readonly scopeClosed: Deferred.Deferred<undefined>;
+  readonly order: string[];
   opens: number;
-};
+}
 
-function recordScopeClosed(
-  control: ReaderExitControls,
-): Effect.Effect<void, never, never> {
+function recordScopeClosed(control: ReaderExitControls): Effect.Effect<void> {
   return Effect.sync(() => {
     control.order.push("scope");
   }).pipe(Effect.zipRight(Deferred.succeed(control.scopeClosed, undefined)));
@@ -255,7 +256,7 @@ function captureRegistrySession(
 }
 
 function receivedNotification(): NotificationParamsOf<
-  typeof MessageReceivedNotificationDefinition
+  typeof messageReceivedNotificationDefinition
 > {
   return {
     taskId: taskId("00000000-0000-0000-0000-000000000001"),
@@ -269,11 +270,7 @@ function receivedNotification(): NotificationParamsOf<
   };
 }
 
-function scopedSubscriptionAcquisitionBody(): Effect.Effect<
-  void,
-  unknown,
-  never
-> {
+function scopedSubscriptionAcquisitionBody(): Effect.Effect<void, unknown> {
   return Effect.scoped(
     Effect.gen(function* () {
       const registryReady = yield* Deferred.make<SubscriberRegistry>();
@@ -282,13 +279,13 @@ function scopedSubscriptionAcquisitionBody(): Effect.Effect<
       const registry = yield* Deferred.await(registryReady);
       const subscriptionScope = yield* Scope.make();
       const stream = yield* client
-        .subscribeScoped(MessageReceivedNotificationDefinition)
+        .subscribeScoped(messageReceivedNotificationDefinition)
         .pipe(Scope.extend(subscriptionScope));
       const notification = receivedNotification();
 
       yield* registry.dispatch({
-        definition: MessageReceivedNotificationDefinition,
-        method: MessageReceivedNotificationDefinition.name,
+        definition: messageReceivedNotificationDefinition,
+        method: messageReceivedNotificationDefinition.name,
         params: notification,
       });
 
@@ -321,11 +318,11 @@ function readerExitSession(control: ReaderExitControls): OpenSession {
     });
 }
 
-function readerExitOrderingBody(): Effect.Effect<void, unknown, never> {
+function readerExitOrderingBody(): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const endReader = yield* Deferred.make<void>();
-    const scopeClosed = yield* Deferred.make<void>();
-    const order: Array<string> = [];
+    const endReader = yield* Deferred.make<undefined>();
+    const scopeClosed = yield* Deferred.make<undefined>();
+    const order: string[] = [];
     const controls: ReaderExitControls = {
       endReader,
       scopeClosed,
@@ -346,14 +343,14 @@ function readerExitOrderingBody(): Effect.Effect<void, unknown, never> {
   });
 }
 
-type LateSessionControls = {
-  readonly closeRequest: Deferred.Deferred<Effect.Effect<void, never>>;
-  readonly closeStarted: Deferred.Deferred<void>;
-  readonly subscriberEnded: Deferred.Deferred<void>;
-  readonly scopeClosed: Deferred.Deferred<void>;
+interface LateSessionControls {
+  readonly closeRequest: Deferred.Deferred<Effect.Effect<void>>;
+  readonly closeStarted: Deferred.Deferred<undefined>;
+  readonly subscriberEnded: Deferred.Deferred<undefined>;
+  readonly scopeClosed: Deferred.Deferred<undefined>;
   readonly counter: AuthCounter;
   finalizerRuns: number;
-};
+}
 
 function sessionReturnedAfterClose(control: LateSessionControls): OpenSession {
   return (options) =>
@@ -385,13 +382,13 @@ function sessionReturnedAfterClose(control: LateSessionControls): OpenSession {
     );
 }
 
-function sessionReturnedAfterCloseBody(): Effect.Effect<void, unknown, never> {
+function sessionReturnedAfterCloseBody(): Effect.Effect<void, unknown> {
   return Effect.scoped(
     Effect.gen(function* () {
-      const closeRequest = yield* Deferred.make<Effect.Effect<void, never>>();
-      const closeStarted = yield* Deferred.make<void>();
-      const subscriberEnded = yield* Deferred.make<void>();
-      const scopeClosed = yield* Deferred.make<void>();
+      const closeRequest = yield* Deferred.make<Effect.Effect<void>>();
+      const closeStarted = yield* Deferred.make<undefined>();
+      const subscriberEnded = yield* Deferred.make<undefined>();
+      const scopeClosed = yield* Deferred.make<undefined>();
       const counter = { authCalls: 0 };
       const control: LateSessionControls = {
         closeRequest,
@@ -405,7 +402,7 @@ function sessionReturnedAfterCloseBody(): Effect.Effect<void, unknown, never> {
       yield* Deferred.succeed(closeRequest, client.close());
       yield* Effect.forkScoped(
         Stream.runDrain(
-          client.subscribe(MessageReceivedNotificationDefinition),
+          client.subscribe(messageReceivedNotificationDefinition),
         ).pipe(
           Effect.onExit(() =>
             Deferred.succeed(subscriberEnded, undefined).pipe(Effect.asVoid),
@@ -424,14 +421,14 @@ function sessionReturnedAfterCloseBody(): Effect.Effect<void, unknown, never> {
   );
 }
 
-type OpeningDisconnectControls = {
-  readonly sessionStarted: Deferred.Deferred<void>;
-  readonly releaseOpening: Deferred.Deferred<void>;
-  readonly scopeFinalizing: Deferred.Deferred<void>;
-  readonly releaseScope: Deferred.Deferred<void>;
+interface OpeningDisconnectControls {
+  readonly sessionStarted: Deferred.Deferred<undefined>;
+  readonly releaseOpening: Deferred.Deferred<undefined>;
+  readonly scopeFinalizing: Deferred.Deferred<undefined>;
+  readonly releaseScope: Deferred.Deferred<undefined>;
   readonly counter: AuthCounter;
   finalizerRuns: number;
-};
+}
 
 function interruptedOpening(control: OpeningDisconnectControls): OpenSession {
   return (options) =>
@@ -461,13 +458,13 @@ function interruptedOpening(control: OpeningDisconnectControls): OpenSession {
     );
 }
 
-function disconnectDuringOpeningBody(): Effect.Effect<void, unknown, never> {
+function disconnectDuringOpeningBody(): Effect.Effect<void, unknown> {
   return Effect.scoped(
     Effect.gen(function* () {
-      const sessionStarted = yield* Deferred.make<void>();
-      const releaseOpening = yield* Deferred.make<void>();
-      const scopeFinalizing = yield* Deferred.make<void>();
-      const releaseScope = yield* Deferred.make<void>();
+      const sessionStarted = yield* Deferred.make<undefined>();
+      const releaseOpening = yield* Deferred.make<undefined>();
+      const scopeFinalizing = yield* Deferred.make<undefined>();
+      const releaseScope = yield* Deferred.make<undefined>();
       const counter = { authCalls: 0 };
       const control: OpeningDisconnectControls = {
         sessionStarted,
@@ -499,11 +496,11 @@ function disconnectDuringOpeningBody(): Effect.Effect<void, unknown, never> {
   );
 }
 
-type FailureControls = {
-  readonly scopeFinalizing: Deferred.Deferred<void>;
-  readonly releaseScope: Deferred.Deferred<void>;
+interface FailureControls {
+  readonly scopeFinalizing: Deferred.Deferred<undefined>;
+  readonly releaseScope: Deferred.Deferred<undefined>;
   finalizerRuns: number;
-};
+}
 
 function failingOpening(control: FailureControls): OpenSession {
   return (options) =>
@@ -528,11 +525,11 @@ function failingOpening(control: FailureControls): OpenSession {
     );
 }
 
-function openingFailureCleanupBody(): Effect.Effect<void, unknown, never> {
+function openingFailureCleanupBody(): Effect.Effect<void, unknown> {
   return Effect.scoped(
     Effect.gen(function* () {
-      const scopeFinalizing = yield* Deferred.make<void>();
-      const releaseScope = yield* Deferred.make<void>();
+      const scopeFinalizing = yield* Deferred.make<undefined>();
+      const releaseScope = yield* Deferred.make<undefined>();
       const control: FailureControls = {
         scopeFinalizing,
         releaseScope,
@@ -553,12 +550,12 @@ function openingFailureCleanupBody(): Effect.Effect<void, unknown, never> {
   );
 }
 
-function readerWinsCloseRaceBody(): Effect.Effect<void, unknown, never> {
+function readerWinsCloseRaceBody(): Effect.Effect<void, unknown> {
   return Effect.scoped(
     Effect.gen(function* () {
-      const scopeFinalizing = yield* Deferred.make<void>();
-      const releaseScope = yield* Deferred.make<void>();
-      const endReader = yield* Deferred.make<void>();
+      const scopeFinalizing = yield* Deferred.make<undefined>();
+      const releaseScope = yield* Deferred.make<undefined>();
+      const endReader = yield* Deferred.make<undefined>();
       const control: CloseControls = {
         scopeFinalizing,
         releaseScope,
@@ -602,7 +599,7 @@ function warningSession(): OpenSession {
     );
 }
 
-function clientWarningsUseStderrBody(): Effect.Effect<void, unknown, never> {
+function clientWarningsUseStderrBody(): Effect.Effect<void, unknown> {
   return Effect.acquireUseRelease(
     Effect.sync(() => ({
       stdout: vi.spyOn(console, "log").mockImplementation(() => undefined),
@@ -626,10 +623,10 @@ function clientWarningsUseStderrBody(): Effect.Effect<void, unknown, never> {
   );
 }
 
-type SessionControls = {
+interface SessionControls {
   opens: number;
   finalizerRuns: number;
-};
+}
 
 function countedSession(control: SessionControls): OpenSession {
   return (options) =>
@@ -651,7 +648,7 @@ function countedSession(control: SessionControls): OpenSession {
     });
 }
 
-function terminalCloseBody(): Effect.Effect<void, unknown, never> {
+function terminalCloseBody(): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     const counter: SessionControls = { opens: 0, finalizerRuns: 0 };
     const client = new TestClient(countedSession(counter));
@@ -695,3 +692,4 @@ describe("ProtocolClientLifecycle", () => {
   it("routes client warnings away from stdout", () =>
     Effect.runPromise(clientWarningsUseStderrBody()));
 });
+/* eslint-enable sonarjs/no-nested-functions -- controlled lifecycle tests end here -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

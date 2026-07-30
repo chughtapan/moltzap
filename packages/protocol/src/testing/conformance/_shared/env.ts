@@ -1,5 +1,6 @@
 import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 
+/** Reports conformance env failures. */
 export class ConformanceEnvError extends Data.TaggedError(
   "ConformanceEnvError",
 )<{
@@ -7,23 +8,29 @@ export class ConformanceEnvError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-const ConformanceNumRuns = Config.option(Config.string("CONFORMANCE_NUM_RUNS"));
-const ConformanceArtifactDir = Config.all({
+const conformanceNumRuns = Config.option(Config.string("CONFORMANCE_NUM_RUNS"));
+const conformanceArtifactDirValue = Config.all({
   artifactDir: Config.option(Config.string("ARTIFACT_DIR")),
   conformanceArtifactDir: Config.option(
     Config.string("CONFORMANCE_ARTIFACT_DIR"),
   ),
 });
 
+/**
+ * Executes the conformance num runs from env operation.
+ * @returns The conformance num runs from env result.
+ */
 export function conformanceNumRunsFromEnv(): number | undefined {
   const raw = Option.getOrUndefined(
     Effect.runSync(
-      ConformanceNumRuns.pipe(
+      conformanceNumRuns.pipe(
         Effect.withConfigProvider(ConfigProvider.fromEnv()),
       ),
     ),
   );
-  if (raw === undefined || raw === "") return undefined;
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new ConformanceEnvError({
@@ -34,9 +41,13 @@ export function conformanceNumRunsFromEnv(): number | undefined {
   return parsed;
 }
 
+/**
+ * Executes the conformance artifact dir from env operation.
+ * @returns The conformance artifact dir from env result.
+ */
 export function conformanceArtifactDirFromEnv(): string | undefined {
   const env = Effect.runSync(
-    ConformanceArtifactDir.pipe(
+    conformanceArtifactDirValue.pipe(
       Effect.withConfigProvider(ConfigProvider.fromEnv()),
     ),
   );

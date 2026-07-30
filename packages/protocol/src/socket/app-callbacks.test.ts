@@ -9,9 +9,9 @@
  */
 import { describe, it, expect } from "vitest";
 import type { Schema } from "effect";
-import { DispatchAuthorize } from "#message/dispatch";
-import { MessagesAuthorize } from "#message";
-import { TaskCreate } from "#task";
+import { dispatchAuthorize } from "#message/dispatch";
+import { messagesAuthorize } from "#message";
+import { taskCreate } from "#task";
 import { appCallbackMethods } from "#socket/catalog";
 import { decodesStrictly } from "#transport";
 
@@ -28,9 +28,9 @@ const OWNER_USER_ID = "550e8400-e29b-41d4-a716-446655440005";
 
 const HOOK_AGENT = { agentId: AGENT_ID, ownerUserId: OWNER_USER_ID };
 
-const validateDispatchAuthorizeParams = DispatchAuthorize.validateParams;
+const validateDispatchAuthorizeParams = dispatchAuthorize.validateParams;
 const validateDispatchAuthorizeResult = (value: unknown): boolean =>
-  decodes(DispatchAuthorize.resultSchema, value);
+  decodes(dispatchAuthorize.resultSchema, value);
 const DISPATCH_AUTHORIZE_PARAMS = {
   taskId: TASK_ID,
   appId: APP_ID,
@@ -44,9 +44,9 @@ const DISPATCH_AUTHORIZE_PARAMS = {
   attempt: 0,
 };
 
-const validateMessagesAuthorizeParams = MessagesAuthorize.validateParams;
+const validateMessagesAuthorizeParams = messagesAuthorize.validateParams;
 const validateMessagesAuthorizeResult = (value: unknown): boolean =>
-  decodes(MessagesAuthorize.resultSchema, value);
+  decodes(messagesAuthorize.resultSchema, value);
 const MESSAGES_AUTHORIZE_PARAMS = {
   taskId: TASK_ID,
   appId: APP_ID,
@@ -66,9 +66,9 @@ describe("admission RPC registration", () => {
   it("registers every app-callback descriptor", () => {
     const appCallbackNames = appCallbackMethods.map((m) => m.name);
     expect(appCallbackNames).toEqual([
-      DispatchAuthorize.name,
-      MessagesAuthorize.name,
-      TaskCreate.name,
+      dispatchAuthorize.name,
+      messagesAuthorize.name,
+      taskCreate.name,
     ]);
   });
 });

@@ -1,16 +1,4 @@
-/**
- * @file Generic drainer for the cursor-paginated list RPCs.
- *
- * The list RPCs (`agent/identity/contacts/list`, `agent/identity/agents/list`, `agent/task/list`, ...) return a
- * bounded page plus an opaque `nextCursor`. A consumer that needs the
- * COMPLETE set must page through every cursor. {@link drainPaginatedList}
- * does exactly that for descriptor-based RPC calls, with the caller supplying
- * the descriptor-specific page params and row/cursor accessors.
- *
- * Lives in `@moltzap/client` because the logic is wire-generic: any
- * channel or CLI that drains a list RPC reuses it (openclaw's directory
- * is the first consumer).
- */
+/** @file Provides a generic drainer for cursor-paginated list RPCs. */
 import type {
   ClientDefinitionPayload,
   ClientDefinitionSuccess,
@@ -42,11 +30,13 @@ export class NonAdvancingCursorError extends Data.TaggedError(
  */
 type ClientDescriptor = ClientRpcDefinition & { readonly name: string };
 
+/** Represents send rpc fn values. */
 export type SendRpcFn<E, Definition extends ClientDescriptor> = (
   definition: Definition,
   params: ClientDefinitionPayload<Definition>,
 ) => Effect.Effect<ClientDefinitionSuccess<Definition>, E>;
 
+/** Configures drain paginated list. */
 export interface DrainPaginatedListOptions<
   E,
   D extends ClientDescriptor,
@@ -55,12 +45,8 @@ export interface DrainPaginatedListOptions<
 > {
   readonly sendRpc: SendRpcFn<E, D>;
   readonly definition: D;
-  readonly paramsForCursor: (
-    cursor: Cursor | undefined,
-  ) => ClientDefinitionPayload<D>;
-  readonly rowsForPage: (
-    page: ClientDefinitionSuccess<D>,
-  ) => ReadonlyArray<Row>;
+  readonly paramsForCursor: (cursor?: Cursor) => ClientDefinitionPayload<D>;
+  readonly rowsForPage: (page: ClientDefinitionSuccess<D>) => readonly Row[];
   readonly nextCursorForPage: (
     page: ClientDefinitionSuccess<D>,
   ) => Cursor | undefined;
@@ -71,6 +57,13 @@ export interface DrainPaginatedListOptions<
  * `nextCursor` back as the next page's `cursor`. Fails with
  * {@link NonAdvancingCursorError} if the server returns a cursor it already
  * emitted (cycle guard).
+ * @param root0 Value supplied to the operation.
+ * @param root0.sendRpc Value supplied to the operation.
+ * @param root0.definition Value supplied to the operation.
+ * @param root0.paramsForCursor Value supplied to the operation.
+ * @param root0.rowsForPage Value supplied to the operation.
+ * @param root0.nextCursorForPage Value supplied to the operation.
+ * @returns The drain paginated list result.
  */
 export function drainPaginatedList<
   E,
@@ -84,7 +77,7 @@ export function drainPaginatedList<
   rowsForPage,
   nextCursorForPage,
 }: DrainPaginatedListOptions<E, D, Row, Cursor>): Effect.Effect<
-  ReadonlyArray<Row>,
+  readonly Row[],
   E | NonAdvancingCursorError
 > {
   return Effect.gen(function* () {
@@ -104,7 +97,9 @@ export function drainPaginatedList<
           new NonAdvancingCursorError({ method: definition.name }),
         );
       }
-      if (nextCursor !== undefined) seenCursors.add(nextCursor);
+      if (nextCursor !== undefined) {
+        seenCursors.add(nextCursor);
+      }
       cursor = nextCursor;
       more = nextCursor !== undefined;
     }
