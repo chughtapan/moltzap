@@ -5,6 +5,7 @@ import { AgentProcessExited } from "@moltzap/simulator";
 import { Schema } from "effect";
 import {
   SharedProbeRuntimeTerminated,
+  hasFinalApprovalReceipt,
   sharedConversationProbePrompt,
 } from "./probes.js";
 
@@ -17,6 +18,16 @@ describe("shared conversation probe prompt", () => {
     assert.include(prompt, "PROPOSAL:");
     assert.include(prompt, "FINAL:");
     assert.include(prompt, "calculate 7 + 5");
+  });
+
+  it("binds the final response to the exact witness receipt", () => {
+    assert.isTrue(
+      hasFinalApprovalReceipt("FINAL:12:RECEIPT:123456789", "123456789"),
+    );
+    assert.isFalse(
+      hasFinalApprovalReceipt("FINAL:12:RECEIPT:987654321", "123456789"),
+    );
+    assert.isFalse(hasFinalApprovalReceipt("FINAL:12", "123456789"));
   });
 });
 

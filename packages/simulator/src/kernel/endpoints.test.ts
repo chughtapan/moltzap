@@ -82,6 +82,7 @@ function receivedMessage(id: MessageId, text: string): ReceivedMessage {
       id,
       conversationId: CONVERSATION_ID,
       senderId: TARGET_ID,
+      replyToId: SENT_ID,
       parts: [{ type: "text", text }],
       createdAt: "2026-07-28T00:00:00.000Z",
     },
@@ -102,6 +103,7 @@ function sendMessage(sends?: AttachmentCount): EndpointTransport["send"] {
         id: SENT_ID,
         conversationId,
         senderId: PROBE_ID,
+        replyToId: RECEIVED_ID,
         parts,
         createdAt: "2026-07-28T00:00:00.000Z",
       };
@@ -142,6 +144,28 @@ function router(
   };
 }
 
+function assertEndpointEvidence(events: ReadonlyArray<EndpointEvent>): void {
+  assert.deepStrictEqual(
+    events.map((event) => event._tag),
+    [
+      ConversationOpened._tag,
+      EndpointMessageReceived._tag,
+      EndpointMessageReceived._tag,
+      EndpointMessageSent._tag,
+    ],
+  );
+  const [, firstReceived, , sent] = events;
+  assert.instanceOf(firstReceived, EndpointMessageReceived);
+  assert.instanceOf(sent, EndpointMessageSent);
+  if (
+    firstReceived instanceof EndpointMessageReceived &&
+    sent instanceof EndpointMessageSent
+  ) {
+    assert.strictEqual(firstReceived.replyToId, SENT_ID);
+    assert.strictEqual(sent.replyToId, RECEIVED_ID);
+  }
+}
+
 function observedNetworkTest() {
   return Effect.gen(function* () {
     const deliveries = yield* PubSub.unbounded<ReceivedMessage>();
@@ -176,15 +200,7 @@ function observedNetworkTest() {
     assert.strictEqual(endpointMessages.length, 2);
     assert.strictEqual(first.message.id, RECEIVED_ID);
     assert.strictEqual(second.message.id, SECOND_RECEIVED_ID);
-    assert.deepStrictEqual(
-      events.map((event) => event._tag),
-      [
-        ConversationOpened._tag,
-        EndpointMessageReceived._tag,
-        EndpointMessageReceived._tag,
-        EndpointMessageSent._tag,
-      ],
-    );
+    assertEndpointEvidence(events);
   });
 }
 

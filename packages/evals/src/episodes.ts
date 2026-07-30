@@ -44,6 +44,7 @@ export interface EpisodeResponse {
   readonly endpointId: AgentId;
   readonly targetName: string;
   readonly targetId: AgentId;
+  readonly promptMessageId: MessageId;
   readonly received: ReceivedMessage;
 }
 
@@ -64,6 +65,7 @@ function responseAt(
     };
   },
   target: AgentHandle,
+  promptMessageId: MessageId,
   received: ReceivedMessage,
 ): EpisodeResponse {
   return {
@@ -71,6 +73,7 @@ function responseAt(
     endpointId: endpoint.participant.id,
     targetName: target.name,
     targetId: target.id,
+    promptMessageId,
     received,
   };
 }
@@ -99,19 +102,42 @@ function participant(
  * @param predicate Predicate used to select matching values.
  * @returns The receive where result.
  */
-function receiveWhere(
+function receiveTargetReply(
   socket: ConversationSocket,
-  predicate: (received: ReceivedMessage) => boolean,
+  targetId: AgentId,
+  promptMessageId: MessageId,
+  priorPromptIds: ReadonlySet<MessageId> = new Set(),
 ): Effect.Effect<ReceivedMessage, NetworkFailure> {
-  return socket
-    .receive()
-    .pipe(
-      Effect.flatMap((received) =>
-        predicate(received)
-          ? Effect.succeed(received)
-          : Effect.suspend(() => receiveWhere(socket, predicate)),
-      ),
-    );
+  return socket.receive().pipe(
+    Effect.flatMap((received) => {
+      if (received.message.senderId !== targetId) {
+        return Effect.suspend(() =>
+          receiveTargetReply(socket, targetId, promptMessageId, priorPromptIds),
+        );
+      }
+      if (received.message.replyToId === promptMessageId) {
+        return Effect.succeed(received);
+      }
+      if (
+        received.message.replyToId !== undefined &&
+        priorPromptIds.has(received.message.replyToId)
+      ) {
+        return Effect.suspend(() =>
+          receiveTargetReply(socket, targetId, promptMessageId, priorPromptIds),
+        );
+      }
+      const correlation =
+        received.message.replyToId === undefined
+          ? "no replyToId"
+          : `foreign replyToId ${received.message.replyToId}`;
+      return Effect.fail(
+        networkFailure(
+          "receive",
+          `target response ${received.message.id} has ${correlation}; expected a reply to prompt ${promptMessageId}`,
+        ),
+      );
+    }),
+  );
 }
 
 function receiveGradedGroupResponse(
@@ -159,6 +185,25 @@ function receiveGradedGroupResponse(
   );
 }
 
+function establishContext(
+  socket: ConversationSocket,
+  targetId: AgentId,
+  setup: string,
+  followUps: ReadonlyArray<string>,
+): Effect.Effect<void, NetworkFailure> {
+  return Effect.gen(function* () {
+    let prompt = yield* socket.send(setup);
+    yield* receiveTargetReply(socket, targetId, prompt.id);
+    const promptIds = new Set<MessageId>([prompt.id]);
+    for (const followUp of followUps) {
+      const priorPromptIds = new Set(promptIds);
+      prompt = yield* socket.send(followUp);
+      yield* receiveTargetReply(socket, targetId, prompt.id, priorPromptIds);
+      promptIds.add(prompt.id);
+    }
+  });
+}
+
 /**
  * One direct conversation and one target response.
  * @param target Value supplied to the operation.
@@ -173,16 +218,19 @@ export function directEpisode(
     const network = yield* Network;
     const sender = yield* network.endpoint(SENDER_NAME);
     const conversation = yield* sender.open(target);
-    yield* conversation.send(prompt);
-    const received = yield* receiveWhere(
+    const sent = yield* conversation.send(prompt);
+    const received = yield* receiveTargetReply(
       conversation,
-      (delivery) => delivery.message.senderId === target.id,
+      target.id,
+      sent.id,
     );
     const participants = [
       participant(sender.participant, "sender"),
       participant(target, "target"),
     ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
-    return episodeResult(participants, [responseAt(sender, target, received)]);
+    return episodeResult(participants, [
+      responseAt(sender, target, sent.id, received),
+    ]);
   }).pipe(Effect.withSpan("directEpisode"));
 }
 
@@ -206,28 +254,24 @@ export function directMultiTurnEpisode(
       participant(sender.participant, "sender"),
       participant(target, "target"),
     ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
-    yield* conversation.send(opening);
-    let latest = yield* receiveWhere(
-      conversation,
-      (delivery) => delivery.message.senderId === target.id,
-    );
-    const responses = new Set([latest.message.id]);
+    let prompt = yield* conversation.send(opening);
+    let latest = yield* receiveTargetReply(conversation, target.id, prompt.id);
+    const promptIds = new Set<MessageId>([prompt.id]);
     const selected: [EpisodeResponse, ...Array<EpisodeResponse>] = [
-      responseAt(sender, target, latest),
+      responseAt(sender, target, prompt.id, latest),
     ];
 
     for (const followUp of followUps) {
-      const previousId = latest.message.id;
-      yield* conversation.send(followUp);
-      latest = yield* receiveWhere(
+      const priorPromptIds = new Set(promptIds);
+      prompt = yield* conversation.send(followUp);
+      latest = yield* receiveTargetReply(
         conversation,
-        (delivery) =>
-          delivery.message.senderId === target.id &&
-          delivery.message.id !== previousId &&
-          !responses.has(delivery.message.id),
+        target.id,
+        prompt.id,
+        priorPromptIds,
       );
-      responses.add(latest.message.id);
-      selected.push(responseAt(sender, target, latest));
+      promptIds.add(prompt.id);
+      selected.push(responseAt(sender, target, prompt.id, latest));
     }
     return episodeResult(participants, selected);
   }).pipe(Effect.withSpan("directMultiTurnEpisode"));
@@ -267,7 +311,9 @@ export function speakingGroupEpisode(
       setupMessage.id,
       gradedPrompt.id,
     );
-    return episodeResult(participants, [responseAt(sender, target, received)]);
+    return episodeResult(participants, [
+      responseAt(sender, target, gradedPrompt.id, received),
+    ]);
   }).pipe(Effect.withSpan("speakingGroupEpisode"));
 }
 
@@ -297,12 +343,15 @@ export function silentGroupEpisode(
       participant(bystanderTwo.participant, "bystander"),
       participant(target, "target"),
     ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
-    yield* conversation.send(prompt);
-    const received = yield* receiveWhere(
+    const sent = yield* conversation.send(prompt);
+    const received = yield* receiveTargetReply(
       conversation,
-      (delivery) => delivery.message.senderId === target.id,
+      target.id,
+      sent.id,
     );
-    return episodeResult(participants, [responseAt(sender, target, received)]);
+    return episodeResult(participants, [
+      responseAt(sender, target, sent.id, received),
+    ]);
   }).pipe(Effect.withSpan("silentGroupEpisode"));
 }
 
@@ -333,34 +382,22 @@ export function crossConversationEpisode(options: {
       participant(probeSender.participant, "probe"),
       participant(options.target, "target"),
     ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
-    yield* setupConversation.send(options.setup);
-    let latestSetup = yield* receiveWhere(
+    yield* establishContext(
       setupConversation,
-      (delivery) => delivery.message.senderId === options.target.id,
+      options.target.id,
+      options.setup,
+      followUps,
     );
-    const responses = new Set([latestSetup.message.id]);
-
-    for (const followUp of followUps) {
-      const previousId = latestSetup.message.id;
-      yield* setupConversation.send(followUp);
-      latestSetup = yield* receiveWhere(
-        setupConversation,
-        (delivery) =>
-          delivery.message.senderId === options.target.id &&
-          delivery.message.id !== previousId &&
-          !responses.has(delivery.message.id),
-      );
-      responses.add(latestSetup.message.id);
-    }
 
     const probeConversation = yield* probeSender.open(options.target);
-    yield* probeConversation.send(options.probe);
-    const probeResponse = yield* receiveWhere(
+    const probePrompt = yield* probeConversation.send(options.probe);
+    const probeResponse = yield* receiveTargetReply(
       probeConversation,
-      (delivery) => delivery.message.senderId === options.target.id,
+      options.target.id,
+      probePrompt.id,
     );
     return episodeResult(participants, [
-      responseAt(probeSender, options.target, probeResponse),
+      responseAt(probeSender, options.target, probePrompt.id, probeResponse),
     ]);
   }).pipe(Effect.withSpan("crossConversationEpisode"));
 }

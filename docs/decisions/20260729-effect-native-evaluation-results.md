@@ -81,8 +81,12 @@ can compose around the same code values without a simulator-owned
 configuration language.
 
 Evaluation-owned events assign participant roles and identify rubric-selected
-responses. Grading projects complete ordered conversations, participant
-topology, and response selections from a validated completed ledger.
+responses together with the exact prompt each response answers. Controlled
+endpoint evidence retains reply correlation, while content-blind router
+commit evidence supplies the durable message order. Grading requires one
+matching router commit per observed message and projects complete ordered
+conversations, participant topology, and response selections from a validated
+completed ledger.
 
 Every persisted identity, report state, attempt state, assessment, and error is
 an Effect Schema class or branded schema. Tagged classes declare the complete

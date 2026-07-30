@@ -96,7 +96,7 @@ export const CriterionDecision = Schema.Union(CriterionDecided, NeedsJudge);
 export type CriterionDecision = typeof CriterionDecision.Type;
 
 /** Minimal ordered evidence exposed to deterministic criterion code. */
-export interface CriterionEvidenceMessage {
+interface CriterionEvidenceMessage {
   readonly messageId: MessageId;
   readonly parts: ReadonlyArray<Part>;
 }

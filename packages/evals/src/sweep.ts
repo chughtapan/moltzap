@@ -40,11 +40,11 @@ export const EvaluationReportId = Schema.String.pipe(
 export type EvaluationReportId = typeof EvaluationReportId.Type;
 
 /** Digest of the immutable execution plan validated during resume. */
-export const EvaluationPlanDigest = Schema.String.pipe(
+const EvaluationPlanDigest = Schema.String.pipe(
   Schema.pattern(/^[\da-f]{64}$/u),
   Schema.brand("EvaluationPlanDigest"),
 );
-export type EvaluationPlanDigest = typeof EvaluationPlanDigest.Type;
+type EvaluationPlanDigest = typeof EvaluationPlanDigest.Type;
 
 /** Digest of one completed report used as its publication identity. */
 export const EvaluationReportDigest = Schema.String.pipe(
@@ -88,7 +88,7 @@ export class EvaluationConditionPlan extends Schema.Class<EvaluationConditionPla
   runtimeConfiguration: JsonValue,
 }) {}
 
-/** Exact semantic-judge policy bound into the immutable plan. */
+/** Persisted semantic-judge configuration bound into the immutable plan. */
 export class JudgePolicySnapshot extends Schema.Class<JudgePolicySnapshot>(
   "JudgePolicySnapshot",
 )({
@@ -312,7 +312,7 @@ export class EvaluationReportValidationError extends Schema.TaggedError<Evaluati
 ) {}
 
 /** Report filesystem read or decode failure. */
-export class EvaluationReportReadError extends Schema.TaggedError<EvaluationReportReadError>()(
+class EvaluationReportReadError extends Schema.TaggedError<EvaluationReportReadError>()(
   "EvaluationReportReadError",
   {
     path: Schema.NonEmptyString,
@@ -511,16 +511,16 @@ export const makeJudgingUnavailableAttempt = Effect.fn(
 });
 
 /** Compute the digest that binds every immutable resume input. */
-export const digestEvaluationPlan = Effect.fn("evals.digestEvaluationPlan")(
-  function* (plan: EvaluationReportPlan) {
-    const digest = yield* digestSchemaValue(EvaluationReportPlanValue, plan);
-    return yield* Schema.decodeUnknown(EvaluationPlanDigest)(digest).pipe(
-      Effect.mapError((cause) =>
-        validationError(`invalid plan digest: ${cause.message}`),
-      ),
-    );
-  },
-);
+const digestEvaluationPlan = Effect.fn("evals.digestEvaluationPlan")(function* (
+  plan: EvaluationReportPlan,
+) {
+  const digest = yield* digestSchemaValue(EvaluationReportPlanValue, plan);
+  return yield* Schema.decodeUnknown(EvaluationPlanDigest)(digest).pipe(
+    Effect.mapError((cause) =>
+      validationError(`invalid plan digest: ${cause.message}`),
+    ),
+  );
+});
 
 /** Compute the publication identity of a validated completed report. */
 export const digestEvaluationReport = Effect.fn("evals.digestEvaluationReport")(
@@ -548,7 +548,7 @@ function duplicate(values: ReadonlyArray<string>): string | undefined {
 }
 
 /** Validate catalog uniqueness before any report can be created or resumed. */
-export const validateEvaluationPlan = Effect.fn("evals.validateEvaluationPlan")(
+const validateEvaluationPlan = Effect.fn("evals.validateEvaluationPlan")(
   function* (plan: EvaluationReportPlan) {
     const duplicateCase = duplicate(plan.cases.map((entry) => entry.id));
     if (duplicateCase !== undefined) {

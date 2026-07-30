@@ -35,9 +35,10 @@ Each definition contains a nonempty criterion set and slices such as
 
 `events.ts → EvaluationParticipantAssigned` records the episode-owned role of
 each network participant. `events.ts → EvaluationResponseSelected` references
-one canonical delivery by task, conversation, message, endpoint, and target
-identity. The transcript projector joins those references to core network
-events instead of accepting copied response content.
+one canonical delivery and its exact prompt by task, conversation, message,
+endpoint, and target identity. The transcript projector joins those references
+to endpoint observations and content-blind router commits instead of accepting
+copied response content.
 
 The event catalog is fixed before the simulator allocates a ledger. Adding a
 new interpretation requires a new typed event class and event version.
@@ -51,10 +52,16 @@ invariants fail:
 - the case identity differs;
 - roles, names, or network identities are duplicated or inconsistent;
 - a participant is absent from the declared conversation topology;
-- a selected response is not the target delivery at the case's graded
-  endpoint and conversation;
-- the selected set is incomplete or duplicated;
+- a message lacks exactly one matching durable router commit;
+- a selected response is not the target delivery replying to the exact prompt
+  at the case's graded endpoint and conversation;
+- the selected set is empty or contains duplicate deliveries;
 - any opened conversation lacks canonical message evidence.
+
+The projector validates a nonempty, unique set of supplied selections.
+Episode construction defines that set, and `cli.ts → episodeProgram`
+establishes that every returned selection is emitted before a successful
+customer program completes.
 
 Every criterion first receives the same ordered selected-response evidence.
 Mechanical exact-answer checks decide both directions. A literal detector may
@@ -79,9 +86,10 @@ concurrency one and checkpoints after each terminal attempt.
 The report under `.moltzap/evals/reports/` contains:
 
 - the exact Git revision;
-- the full case, criterion, and slice catalog;
+- each case's definition identity, name, description, rubric, criterion IDs,
+  and slices;
 - each runtime's native sanitized definition-time configuration;
-- the semantic judge policy;
+- the semantic judge configuration snapshot;
 - physical ledger receipts;
 - complete transcripts and assessments when evidence reached grading;
 - typed execution, evidence, and judge failure states.
@@ -138,10 +146,12 @@ PHOENIX_HOST=http://localhost:6006 \
 ```
 
 `phoenix.ts → PhoenixPublisher` reconciles stable dataset examples, one
-experiment per condition, attempt outputs/errors, and categorical
-assessments. Condition experiments expose the native sanitized runtime
-configuration and complete encoded judge policy as Phoenix metadata. Phoenix
-is managed outside this package.
+experiment per condition, and attempt outputs or errors. It submits
+categorical assessments through Phoenix's stable-key upsert endpoint because
+the client cannot read assessment values for conflict comparison. Condition
+experiments expose the native sanitized runtime configuration, source
+revision, and encoded judge configuration snapshot as Phoenix metadata.
+Phoenix is managed outside this package.
 
 Run the shared-conversation production proof independently:
 
@@ -152,8 +162,12 @@ mise x node@24.18.0 -- pnpm nx run @moltzap/evals:probe -- \
 ```
 
 This creates one conversation containing NanoClaw, an Effect witness, and
-OpenClaw. The witness must reference NanoClaw's actual proposal message, and
-OpenClaw must wait for that approval before finalizing.
+OpenClaw. The controller creates an unpredictable receipt for the run. The
+Effect witness includes it in the approval after observing NanoClaw's proposal,
+and the controller accepts OpenClaw's final only when it echoes that exact
+receipt after the approval. This proves a content dependency in
+controller-observed order; the transcript projector separately establishes
+durable router order and exact reply correlation for graded evaluations.
 
 ## Related
 

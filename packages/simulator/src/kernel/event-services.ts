@@ -19,7 +19,7 @@ type AnyEventCatalog = EventCatalog<CatalogSchema>;
 let nextDefinitionServicesId = 0;
 
 /** Causality metadata accepted from a customer event producer. */
-export interface EventMetadata {
+interface EventMetadata {
   readonly causationId?: string;
   readonly correlationId?: string;
 }

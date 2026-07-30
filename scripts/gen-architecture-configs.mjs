@@ -118,12 +118,22 @@ const packageDefinitions = {
   },
   evals: {
     beforeShared: {
-      maxPublicExports: 22,
+      maxPublicExports: 20,
       facadeFiles: [
         {
-          file: "grading-checks.ts",
+          file: "src/events.ts",
           reason:
-            "Published check vocabulary a customer grader composes; the grading reference cites each constructor by name",
+            "Closed evaluation event catalog shared by episodes, transcript projection, and the simulator definition",
+        },
+        {
+          file: "src/grading.ts",
+          reason:
+            "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary",
+        },
+        {
+          file: "src/sweep.ts",
+          reason:
+            "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher",
         },
       ],
     },

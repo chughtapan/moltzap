@@ -39,6 +39,7 @@ const TARGET_ID = agentId("00000000-0000-4000-8000-000000000002");
 const TASK_ID = taskId("00000000-0000-4000-8000-000000000003");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000004");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000005");
+const PROMPT_MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000007");
 const RUNTIME_AGENT_ID = agentId("00000000-0000-4000-8000-000000000006");
 const RUNTIME_AGENT_NAME = Schema.decodeSync(AgentName)("runtime-agent");
 const LEDGER_REF = Schema.decodeSync(LedgerRef)("runtime-evidence-ledger");
@@ -94,12 +95,14 @@ function response(): EpisodeResponse {
     endpointId: ENDPOINT_ID,
     targetName: "evaluation-target",
     targetId: TARGET_ID,
+    promptMessageId: PROMPT_MESSAGE_ID,
     received: {
       taskId: TASK_ID,
       message: {
         id: MESSAGE_ID,
         conversationId: CONVERSATION_ID,
         senderId: TARGET_ID,
+        replyToId: PROMPT_MESSAGE_ID,
         parts: [{ type: "text", text: "response" }],
         createdAt: "2026-07-29T00:00:00.000Z",
       },
@@ -115,10 +118,11 @@ it("retains the selected response conversation identity", () => {
   assert.strictEqual(
     selected._tag,
     // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- persisted event versions are exact compatibility contracts.
-    "moltzap.evaluation-response-selected/v3",
+    "moltzap.evaluation-response-selected/v4",
   );
   assert.strictEqual(selected.taskId, TASK_ID);
   assert.strictEqual(selected.conversationId, CONVERSATION_ID);
+  assert.strictEqual(selected.promptMessageId, PROMPT_MESSAGE_ID);
   assert.strictEqual(selected.messageId, MESSAGE_ID);
 });
 

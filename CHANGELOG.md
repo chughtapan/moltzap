@@ -19,16 +19,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   graders open and validate completed ledgers. Evaluation packages own their
   scenario vocabulary, completion policy, sweeps, and grader composition.
 - **Production-path architecture gate.** The mixed-runtime evaluation launches
-  the production server image and proves OpenClaw, NanoClaw, Effect,
-  and customer-defined participants can exchange messages in one run.
+  the production server image and proves OpenClaw, NanoClaw, and an in-process
+  Effect participant can exchange messages in one run.
 
-- **A grader vocabulary customers can reach.** `@moltzap/evals` now exports the
-  checks a grader composes — `detectsFailure`, `requiresJudgment`,
-  `exactFinalText`, `atMostWords`, `validMessages`, `responseText`, and
-  `defineCodeGrader` — alongside `CodeCheck`, `CodeGraderDefinition`, and
-  `EvaluationEvidence`. The package documented composing graders while the
-  checks stayed module-private. A reference page states every outcome, report
-  type, and constructor, and a how-to walks the files an evaluation touches.
+- **Effect-native evaluation reports.** The private `@moltzap/evals`
+  application now runs a resumable 16-case OpenClaw/NanoClaw matrix, validates
+  complete ledger transcripts, separates behavioral verdicts from operational
+  failures, and checkpoints one Schema-backed report after every terminal
+  attempt.
+- **Auditable semantic assessment.** Deterministic criteria settle only facts
+  code can establish; unresolved questions use a provider-neutral Effect
+  service with typed failures, strict citations, an untrusted-evidence
+  boundary, and a discrimination corpus for disclosure, group behavior,
+  injection resistance, and conversation awareness.
+- **Causal transcript evidence.** Selected responses bind to their exact
+  prompts, endpoint events retain reply correlation, and transcript order
+  comes from unique durable router commits rather than endpoint observation
+  timing.
+- **Visible experiment results.** Completed reports publish explicitly through
+  the Phoenix TypeScript client into versioned datasets, runtime-condition
+  experiments, categorical assessments, and comparison URLs. A separate
+  shared-conversation probe drives NanoClaw, an Effect agent, and OpenClaw
+  through one production-router conversation.
 
 ### Changed: explicit networking and lifecycle boundaries
 

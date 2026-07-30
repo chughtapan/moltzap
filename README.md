@@ -197,9 +197,11 @@ The experiment is an Effect program. It receives exact agent handles through
 `roster.Agents`, controls traffic through `Network`, emits customer events
 through `Society.Events`, and reads committed evidence through
 `Society.Ledger`.
-`Society.run` returns the program `Exit` and a durable ledger reference;
-customer code decides when the experiment is done and how the ledger is
-graded or swept.
+When the outer Effect completes after the kernel acquires an active ledger,
+`Society.run` returns either `ProgramFinished` or `RunInfrastructureFailed`.
+`ProgramFinished` carries the program `Exit`; both outcomes carry the durable
+ledger receipt retained during finalization. Customer code decides when the
+experiment is done and how the ledger is graded or swept.
 
 The same `@moltzap/simulator` package supplies the filesystem ledger,
 production router, OpenClaw, NanoClaw, and `effectRuntime` implementations.

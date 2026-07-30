@@ -48,6 +48,13 @@ const UNCORRELATED_RESPONSE_ID = messageId(
 const PROBE_RESPONSE_ID = messageId("00000000-0000-4000-8000-000000000013");
 const SECOND_RESPONSE_ID = messageId("00000000-0000-4000-8000-000000000014");
 const THIRD_RESPONSE_ID = messageId("00000000-0000-4000-8000-000000000015");
+const FOLLOW_UP_ONE_MESSAGE_ID = messageId(
+  "00000000-0000-4000-8000-000000000016",
+);
+const FOLLOW_UP_TWO_MESSAGE_ID = messageId(
+  "00000000-0000-4000-8000-000000000017",
+);
+const PROBE_MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000018");
 const MISSING_REPLY_DETAIL = "has no replyToId";
 const RECEIVE_OPERATION = "receive";
 
@@ -120,6 +127,11 @@ function transport(
   senderId: AgentId,
   sent: Array<SentMessage>,
 ): EndpointTransport {
+  const messageIds =
+    sender === SENDER_NAME
+      ? [SENDER_MESSAGE_ID, FOLLOW_UP_ONE_MESSAGE_ID, FOLLOW_UP_TWO_MESSAGE_ID]
+      : [BYSTANDER_MESSAGE_ID];
+  let nextMessage = 0;
   return {
     received: Stream.empty,
     openConversation: () =>
@@ -136,8 +148,13 @@ function transport(
             .map((part) => part.text)
             .join("\n"),
         });
+        const id = messageIds[nextMessage];
+        nextMessage += 1;
+        if (id === undefined) {
+          throw new Error(`no message identity remains for ${sender}`);
+        }
         return {
-          id: sender === SENDER_NAME ? SENDER_MESSAGE_ID : BYSTANDER_MESSAGE_ID,
+          id,
           conversationId: currentConversationId,
           senderId,
           parts,
@@ -168,52 +185,87 @@ function network(
   };
 }
 
-function crossConversationNetwork(): NetworkService {
+function queuedTransport(
+  name: string,
+  endpointId: AgentId,
+  currentConversationId: typeof CONVERSATION_ID,
+  messageIds: ReadonlyArray<MessageId>,
+): EndpointTransport {
+  let nextMessage = 0;
   return {
-    endpoint<const Name extends string>(name: Name) {
-      const probe = name === PROBE_SENDER_NAME;
-      const endpointId = probe ? PROBE_ID : SENDER_ID;
-      const currentConversationId = probe
-        ? PROBE_CONVERSATION_ID
-        : CONVERSATION_ID;
-      const responseId = probe ? PROBE_RESPONSE_ID : TARGET_RESPONSE_ID;
-      return Effect.succeed(
-        makeEndpoint(
-          {
-            participant: makeParticipantHandle(name, endpointId),
-            transport: {
-              received: Stream.empty,
-              openConversation: () =>
-                Effect.succeed({
-                  taskId: TASK_ID,
-                  conversationId: currentConversationId,
-                }),
-              send: (_taskId, conversationId, parts) =>
-                Effect.succeed({
-                  id: probe ? SENDER_MESSAGE_ID : BYSTANDER_MESSAGE_ID,
-                  conversationId,
-                  senderId: endpointId,
-                  parts,
-                  createdAt: "2026-07-29T00:00:00.000Z",
-                }),
-            },
-          },
-          inbox(true, [
-            {
-              taskId: TASK_ID,
-              message: {
-                id: responseId,
-                conversationId: currentConversationId,
-                senderId: TARGET_ID,
-                parts: [{ type: "text", text: "target response" }],
-                createdAt: "2026-07-29T00:00:00.000Z",
-              },
-            },
-          ]),
-        ),
-      );
-    },
+    received: Stream.empty,
+    openConversation: () =>
+      Effect.succeed({
+        taskId: TASK_ID,
+        conversationId: currentConversationId,
+      }),
+    send: (_taskId, conversationId, parts) =>
+      Effect.sync(() => {
+        const id = messageIds[nextMessage];
+        nextMessage += 1;
+        if (id === undefined) {
+          throw new Error(`no message identity remains for ${name}`);
+        }
+        return {
+          id,
+          conversationId,
+          senderId: endpointId,
+          parts,
+          createdAt: "2026-07-29T00:00:00.000Z",
+        };
+      }),
   };
+}
+
+function crossConversationEndpoint<const Name extends string>(name: Name) {
+  const probe = name === PROBE_SENDER_NAME;
+  const endpointId = probe ? PROBE_ID : SENDER_ID;
+  const currentConversationId = probe ? PROBE_CONVERSATION_ID : CONVERSATION_ID;
+  const responseId = probe ? PROBE_RESPONSE_ID : TARGET_RESPONSE_ID;
+  const promptId = probe ? PROBE_MESSAGE_ID : SENDER_MESSAGE_ID;
+  const messageIds = probe
+    ? [PROBE_MESSAGE_ID]
+    : [SENDER_MESSAGE_ID, FOLLOW_UP_ONE_MESSAGE_ID, FOLLOW_UP_TWO_MESSAGE_ID];
+  const delivery = targetResponse(responseId, "target response", promptId);
+  return Effect.succeed(
+    makeEndpoint(
+      {
+        participant: makeParticipantHandle(name, endpointId),
+        transport: queuedTransport(
+          name,
+          endpointId,
+          currentConversationId,
+          messageIds,
+        ),
+      },
+      inbox(true, [
+        {
+          ...delivery,
+          message: {
+            ...delivery.message,
+            conversationId: currentConversationId,
+          },
+        },
+      ]),
+    ),
+  );
+}
+
+function crossConversationNetwork(): NetworkService {
+  return { endpoint: crossConversationEndpoint };
+}
+
+function multiTurnDeliveries(): ReadonlyArray<ReceivedMessage> {
+  return [
+    targetResponse(TARGET_RESPONSE_ID, "first", SENDER_MESSAGE_ID),
+    targetResponse(
+      UNSOLICITED_RESPONSE_ID,
+      "another opening reply",
+      SENDER_MESSAGE_ID,
+    ),
+    targetResponse(SECOND_RESPONSE_ID, "second", FOLLOW_UP_ONE_MESSAGE_ID),
+    targetResponse(THIRD_RESPONSE_ID, "third", FOLLOW_UP_TWO_MESSAGE_ID),
+  ];
 }
 
 // @agent-code-guard/regression-only: a failing setup receive proves group setup cannot gate the graded prompt
@@ -250,6 +302,10 @@ test("commits group setup before the prompt and selects only the graded reply", 
     assert.strictEqual(
       result.selectedResponses[0].received.message.id,
       TARGET_RESPONSE_ID,
+    );
+    assert.strictEqual(
+      result.selectedResponses[0].promptMessageId,
+      SENDER_MESSAGE_ID,
     );
   }));
 
@@ -305,6 +361,10 @@ test("selects only the probe reply from a cross-conversation episode", () =>
       result.selectedResponses[0].received.message.id,
       PROBE_RESPONSE_ID,
     );
+    assert.strictEqual(
+      result.selectedResponses[0].promptMessageId,
+      PROBE_MESSAGE_ID,
+    );
   }));
 
 test("selects every graded turn from a direct multi-turn episode", () =>
@@ -315,22 +375,14 @@ test("selects every graded turn from a direct multi-turn episode", () =>
         "follow-up one",
         "follow-up two",
       ]),
-    ).pipe(
-      Effect.provideService(
-        Network,
-        network(
-          [],
-          [
-            targetResponse(TARGET_RESPONSE_ID, "first"),
-            targetResponse(SECOND_RESPONSE_ID, "second"),
-            targetResponse(THIRD_RESPONSE_ID, "third"),
-          ],
-        ),
-      ),
-    );
+    ).pipe(Effect.provideService(Network, network([], multiTurnDeliveries())));
 
     assert.deepStrictEqual(
       result.selectedResponses.map((response) => response.received.message.id),
       [TARGET_RESPONSE_ID, SECOND_RESPONSE_ID, THIRD_RESPONSE_ID],
+    );
+    assert.deepStrictEqual(
+      result.selectedResponses.map((response) => response.promptMessageId),
+      [SENDER_MESSAGE_ID, FOLLOW_UP_ONE_MESSAGE_ID, FOLLOW_UP_TWO_MESSAGE_ID],
     );
   }));
