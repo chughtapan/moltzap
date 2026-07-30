@@ -11,19 +11,21 @@ import {
   createTestUser,
   registerOwnedAgent,
 } from "../helpers.js";
-import type { AgentCard } from "@moltzap/protocol/identity";
-import { userId } from "@moltzap/protocol/testing";
-import type { UserId } from "@moltzap/protocol/identity";
-
 import {
-  AgentsList,
-  ContactsAccept,
-  ContactsAdd,
+  type AgentCard,
+  type UserId,
+  agentsList,
+  contactsAccept,
+  contactsAdd,
 } from "@moltzap/protocol/identity";
+import { userId } from "@moltzap/protocol/testing";
 
 const it = effectIt.live;
 
-type AgentsListResult = { agents: AgentCard[]; nextCursor?: string };
+interface AgentsListResult {
+  agents: AgentCard[];
+  nextCursor?: string;
+}
 
 // agent/identity/agents/list is contact-scoped; these fixtures bind explicit
 // owners so cross-owner visibility cases can be exercised.
@@ -86,22 +88,19 @@ function registerOwned(
 }
 
 function userForOwner(ownerUserId: UserId) {
-  if (ownerUserId === ALICE_USER_ID) return ALICE_USER;
-  if (ownerUserId === BOB_USER_ID) return BOB_USER;
+  if (ownerUserId === ALICE_USER_ID) {
+    return ALICE_USER;
+  }
+  if (ownerUserId === BOB_USER_ID) {
+    return BOB_USER;
+  }
   return CAROL_USER;
 }
 
 interface OwnedConnectedAgent {
   agentId: string;
   ownerUserId: UserId;
-  client: Awaited<
-    ReturnType<typeof connectTestClient> extends Effect.Effect<
-      infer A,
-      infer _E
-    >
-      ? A
-      : never
-  >;
+  client: Effect.Effect.Success<ReturnType<typeof connectTestClient>>;
 }
 
 function registerAndConnectOwned(opts: {
@@ -155,8 +154,8 @@ function connectCarol(name: string, description?: string) {
 }
 
 function listAgents(agent: OwnedConnectedAgent) {
-  return agent.client.sendRpc(
-    AgentsList,
+  return /* Safe because the test fixture establishes this asserted shape. */ agent.client.sendRpc(
+    agentsList,
     {},
   ) as Effect.Effect<AgentsListResult>;
 }
@@ -167,10 +166,10 @@ function acceptContact(
   contactUserId: UserId,
 ) {
   return Effect.gen(function* () {
-    const added = yield* requester.client.sendRpc(ContactsAdd, {
+    const added = yield* requester.client.sendRpc(contactsAdd, {
       contactUserId,
     });
-    yield* accepter.client.sendRpc(ContactsAccept, {
+    yield* accepter.client.sendRpc(contactsAccept, {
       contactId: added.contact.id,
     });
   });
@@ -252,7 +251,7 @@ function pendingContactDoesNotExposeAgents() {
     const alice = yield* connectAlice("alice-pending");
     const bob = yield* connectBob("bob-pending");
 
-    yield* alice.client.sendRpc(ContactsAdd, {
+    yield* alice.client.sendRpc(contactsAdd, {
       contactUserId: BOB_USER_ID,
     });
 
@@ -272,14 +271,26 @@ function returnsContactVisibleCardFields() {
     const result = yield* listAgents(alice);
     const card = cardForAgent(result, bob.agentId);
     expect(card).toBeDefined();
-    expect(card!.id).toBe(bob.agentId);
-    expect(card!.description).toBe(AGENT_DESCRIPTION);
-    expect(card!.status).toBe(AGENT_STATUS_ACTIVE);
-    expect(card!.ownerUserId).toBe(BOB_USER_ID);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ card!
+        .id,
+    ).toBe(bob.agentId);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ card!
+        .description,
+    ).toBe(AGENT_DESCRIPTION);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ card!
+        .status,
+    ).toBe(AGENT_STATUS_ACTIVE);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ card!
+        .ownerUserId,
+    ).toBe(BOB_USER_ID);
   });
 }
 
-describe(`${AgentsList.name} — owner visibility`, () => {
+describe(`${agentsList.name} — owner visibility`, () => {
   it(
     "returns own agents (siblings under same ownerUserId), without contacts setup",
     returnsOwnAgents,
@@ -296,7 +307,7 @@ describe(`${AgentsList.name} — owner visibility`, () => {
   );
 });
 
-describe(`${AgentsList.name} — contact metadata`, () => {
+describe(`${agentsList.name} — contact metadata`, () => {
   it(
     "pending contact request does NOT yet expose the requester's agents to the recipient (and vice versa)",
     pendingContactDoesNotExposeAgents,

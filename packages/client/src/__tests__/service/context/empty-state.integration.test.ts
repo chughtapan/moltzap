@@ -18,12 +18,16 @@ it("returns null with only one conversation active", () =>
     yield* H.sendAndSettle(
       regB.client,
       conv.task.id,
-      conv.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
       "Hello",
     );
 
     // Only one conversation — no "other" conversations to report
-    const ctx = service.getContext(conv.conversation!.id);
+    const ctx = service.getContext(
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
+    );
     expect(ctx).toBeNull();
 
     service.close();
@@ -49,11 +53,15 @@ it("returns null when other conversations have no messages", () =>
     yield* H.sendAndSettle(
       regB.client,
       convB.task.id,
-      convB.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convB
+        .conversation!.id,
       "msg in B",
     );
 
-    const ctx = service.getContext(convB.conversation!.id);
+    const ctx = service.getContext(
+      /* Safe because the test fixture establishes this asserted shape. */ convB
+        .conversation!.id,
+    );
     // Conv C has no messages → no context
     expect(ctx).toBeNull();
 
@@ -80,12 +88,16 @@ it("returns system-reminder with new messages from other conversation", () =>
     yield* H.sendAndSettle(
       regC.client,
       convC.task.id,
-      convC.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convC
+        .conversation!.id,
       H.HELLO_FROM_C,
     );
 
     // Get context from conv B's perspective — should see conv C's message
-    const ctx = service.getContext(convB.conversation!.id);
+    const ctx = service.getContext(
+      /* Safe because the test fixture establishes this asserted shape. */ convB
+        .conversation!.id,
+    );
     expect(ctx).not.toBeNull();
     expect(ctx).toContain(H.SYSTEM_REMINDER_OPEN);
     expect(ctx).toContain(H.SYSTEM_REMINDER_CLOSE);

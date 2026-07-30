@@ -1,13 +1,10 @@
 /** @file App identity and endpoint registration barrel. */
 
-export { AppAuthService } from "./auth.service.js";
-export {
-  AppAuthServiceLive,
-  AppAuthServiceTag,
-  AppEndpointRegistryLive,
-  AppEndpointRegistryTag,
-} from "./layer.js";
-export { installDefaultApp } from "./default-app.js";
+/** Re-exports the public API from `./layer.js`. */
+export { AppAuthServiceTag, AppEndpointRegistryTag } from "./layer.js";
+/** Re-exports the public API from `./endpoint-registry.js`. */
 export { AppEndpointRegistry } from "./endpoint-registry.js";
+/** Re-exports the public API from `./callback-rpc.js`. */
 export { callAppRpc, wrapHookEffectWithEnvelope } from "./callback-rpc.js";
+/** Re-exports the public API from `./registry.js`. */
 export type { AppEndpoint, AppRegistration } from "./registry.js";

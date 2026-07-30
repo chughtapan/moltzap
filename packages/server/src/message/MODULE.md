@@ -8,7 +8,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageAuthorizationConversations`](./authorization.ts#L22)
+### [`MessageAuthorizationConversations`](./authorization.ts#L25)
 
 _Interface_
 
@@ -20,21 +20,29 @@ export interface MessageAuthorizationConversations {
 }
 ```
 
-### [`MessageAuthorizationService`](./authorization.ts#L34)
+Describes message authorization conversations.
+
+### [`MessageAuthorizationService`](./authorization.ts#L38)
 
 _Class_
 
 ```ts
 export class MessageAuthorizationService {
+  private readonly apps: AppEndpointRegistry;
+  private readonly conversations: MessageAuthorizationConversations;
+
   constructor(
-    private readonly apps: AppEndpointRegistry,
-    private readonly conversations: MessageAuthorizationConversations,
-  ) {}
+    apps: AppEndpointRegistry,
+    conversations: MessageAuthorizationConversations,
+  ) {
+    this.apps = apps;
+    this.conversations = conversations;
+  }
 
   authorize(
     appId: AppId,
     ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult, never> {
+  ): Effect.Effect<MessageAuthorizeResult> {
     const entry = this.apps.lookupApp(appId);
     if (entry === undefined) {
       return Effect.succeed(APP_UNREACHABLE_BLOCK);
@@ -51,12 +59,16 @@ export class MessageAuthorizationService {
         });
       case "hook":
         return this.messageAuthorizeHook(entry, appId, ctx, policy.timeoutMs);
+      default: {
+        const exhaustive: never = policy;
+        return exhaustive;
+      }
     }
   }
 
   private forwardAllExceptSender(
     ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult, never> {
+  ): Effect.Effect<MessageAuthorizeResult> {
     return this.conversations.getParticipantAgentIds(ctx.conversationId).pipe(
       Effect.map(
         (participants): MessageAuthorizeResult => ({
@@ -75,11 +87,11 @@ export class MessageAuthorizationService {
     appId: AppId,
     ctx: MessageAuthorizeContext,
     timeoutMs: number,
-  ): Effect.Effect<MessageAuthorizeResult, never> {
+  ): Effect.Effect<MessageAuthorizeResult> {
     const taskId = ctx.taskId;
     return wrapHookEffectWithEnvelope({
       raw: callAppRpc(entry, {
-        definition: MessagesAuthorize,
+        definition: messagesAuthorize,
         params: this.messageAuthorizeParamsForWire(ctx),
       }).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
@@ -94,7 +106,7 @@ export class MessageAuthorizationService {
 
   private messageAuthorizeParamsForWire(
     ctx: MessageAuthorizeContext,
-  ): ParamsOf<typeof MessagesAuthorize> {
+  ): ParamsOf<typeof messagesAuthorize> {
     return {
       taskId: ctx.taskId,
       appId: ctx.appId,
@@ -112,12 +124,14 @@ export class MessageAuthorizationService {
 }
 ```
 
-### [`MessageAuthorizationServiceLive`](./layer.ts#L23)
+Implements message authorization service.
+
+### [`messageAuthorizationServiceLive`](./layer.ts#L26)
 
 _Variable_
 
 ```ts
-export const MessageAuthorizationServiceLive = Layer.effect(
+export const messageAuthorizationServiceLive = Layer.effect(
   MessageAuthorizationServiceTag,
   Effect.gen(function* () {
     const appEndpointRegistry = yield* AppEndpointRegistryTag;
@@ -127,7 +141,9 @@ export const MessageAuthorizationServiceLive = Layer.effect(
 )
 ```
 
-### [`MessageAuthorizationServiceTag`](./layer.ts#L14)
+Provides the message authorization service live runtime value.
+
+### [`MessageAuthorizationServiceTag`](./layer.ts#L15)
 
 _Class_
 
@@ -137,15 +153,19 @@ export class MessageAuthorizationServiceTag extends Context.Tag(
 )<MessageAuthorizationServiceTag, MessageAuthorizationService>() {}
 ```
 
-### [`MessageAuthorizeContext`](./authorization.ts#L13)
+Implements message authorization service tag.
+
+### [`MessageAuthorizeContext`](./authorization.ts#L14)
 
 _TypeAlias_
 
 ```ts
-export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
+export type MessageAuthorizeContext = ParamsOf<typeof messagesAuthorize>;
 ```
 
-### [`MessageAuthorizeResult`](./authorization.ts#L15)
+Represents message authorize context values.
+
+### [`MessageAuthorizeResult`](./authorization.ts#L17)
 
 _TypeAlias_
 
@@ -153,11 +173,13 @@ _TypeAlias_
 export type MessageAuthorizeResult =
   | {
       readonly decision: "Forward";
-      readonly recipients: ReadonlyArray<AgentId>;
+      readonly recipients: readonly AgentId[];
     }
 ```
 
-### [`MessageService`](./message.service.ts#L171)
+Represents the result of message authorize.
+
+### [`MessageService`](./message.service.ts#L182)
 
 _Class_
 
@@ -177,7 +199,7 @@ export class MessageService {
     this.messageAuthorization = deps.messageAuthorization;
   }
 
-  close(): Effect.Effect<void, never> {
+  close(): Effect.Effect<void> {
     return Effect.void;
   }
 
@@ -194,13 +216,16 @@ export class MessageService {
    * timeout-synthesized fallback) cannot both succeed: whichever
    * commits first wins, the loser sees `committed: false` and
    * skips the dependent broadcast.
+   * @param messageId Value supplied to the operation.
+   * @param verdict Value supplied to the operation.
+   * @returns The result result.
    */
   recordDispatchDecision(
     messageId: MessageId,
     verdict: DispatchDecision,
-  ): Effect.Effect<{ committed: boolean }, never> {
+  ): Effect.Effect<{ committed: boolean }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: MessageService) {
         // CAS predicate via JSONB containment (`@>`), which Postgres
         // binds as a query parameter. The UPDATE returns one row iff the
         // row was still `pending` at UPDATE time; concurrent transitions
@@ -229,14 +254,14 @@ export class MessageService {
     );
   }
 
-  sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult, never> {
+  sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult> {
     return catchSqlErrorAsDefect(this.sendInsertEffect(input));
   }
 
   private sendInsertEffect(
     input: SendInsertInput,
   ): Effect.Effect<SendInsertResult, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MessageService) {
       // `ConversationSendAccess` gates this method in the engine middleware
       // stack before the handler runs, so `send` requires no permission token in
       // its Env and trusts `input` (the handler's already-gated params).
@@ -262,7 +287,9 @@ export class MessageService {
    *
    * `app_id` is read by the verdict-routing consumer to identify the
    * authorizing app for the task.
+   * @param conversationId Value supplied to the operation.
    * @internal
+   * @returns The reply exists opt result.
    */
   readSendConversation(
     conversationId: ConversationId,
@@ -277,11 +304,6 @@ export class MessageService {
         .select([
           "c.archived_at",
           "c.task_id",
-          "t.app_id as app_id",
-          "t.status as task_status",
-        ])
-        .where("c.id", "=", conversationId),
-    );
 ```
 
 `agent/message/send` server entry point. The `send` method runs the
@@ -300,12 +322,12 @@ The `app/message/authorize` round-trip is the authorization gate:
 Forward, `network.send` broadcasts to `verdict.recipients`; on Block, the
 call fails with `HookBlocked`.
 
-### [`MessageServiceLive`](./layer.ts#L32)
+### [`messageServiceLive`](./layer.ts#L36)
 
 _Variable_
 
 ```ts
-export const MessageServiceLive = Layer.effect(
+export const messageServiceLive = Layer.effect(
   MessageServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -324,7 +346,9 @@ export const MessageServiceLive = Layer.effect(
 )
 ```
 
-### [`MessageServiceTag`](./layer.ts#L18)
+Provides the message service live runtime value.
+
+### [`MessageServiceTag`](./layer.ts#L20)
 
 _Class_
 
@@ -335,21 +359,35 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 >() {}
 ```
 
-### [`messagesList`](./handlers.ts#L163)
+Implements message service tag.
+
+### [`messagesList`](./handlers.ts#L184)
 
 _Variable_
 
 ```ts
-export const messagesList: ServerHandler<typeof MessagesList> = (params)
+export const messagesList: ServerHandler<typeof messagesListDefinition> = (
+  params,
+)
 ```
 
-### [`messagesSend`](./handlers.ts#L154)
+Provides the messages list runtime value.
+
+**Returns:** The messages list result.
+
+### [`messagesSend`](./handlers.ts#L168)
 
 _Variable_
 
 ```ts
-export const messagesSend: ServerHandler<typeof MessagesSend> = (params)
+export const messagesSend: ServerHandler<typeof messagesSendDefinition> = (
+  params,
+)
 ```
+
+Provides the messages send runtime value.
+
+**Returns:** The messages send result.
 
 ## Files
 

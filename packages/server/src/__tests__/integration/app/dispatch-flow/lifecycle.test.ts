@@ -40,7 +40,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   hooks: MODERATED_HOOKS,
 };
 
-const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
+const fixture = createDispatchFlowFixture();
 
 beforeAll(startDispatchFlowServer, 60_000);
 
@@ -55,7 +55,7 @@ function requestModeratedDispatch(
   text: string,
 ) {
   return Effect.gen(function* () {
-    yield* attachDispatchAuthorizeHook(alice, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const binding = yield* createConversationOnApp(alice, bob, manifest);
     const ack = yield* requestDispatch(
       bob,

@@ -5,7 +5,11 @@
 import type { ContainerModelConfig } from "../test-utils/container-core.js";
 import { Redacted } from "effect";
 
-/** Echo model config — no API key required. */
+/**
+ * Echo model config — no API key required.
+ * @param echoPort Value supplied to the operation.
+ * @returns The echo model config result.
+ */
 export function echoModelConfig(echoPort: number): ContainerModelConfig {
   return {
     modelString: "echo/echo-1",

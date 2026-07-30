@@ -1,6 +1,5 @@
-import type { AppManifest } from "@moltzap/protocol/identity";
+import type { AppManifest, AppId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { AppId } from "@moltzap/protocol/identity";
 import type { Originator } from "#socket";
 
 /**
@@ -44,7 +43,7 @@ export interface AppRegistration {
  * `ForbiddenError` for the connect path, an exception for boot.
  */
 export class AppRegistry {
-  private entries = new Map<AppId, AppRegistration>();
+  private readonly entries = new Map<AppId, AppRegistration>();
 
   /**
    * Returns true if the registration was installed, false if `appId`
@@ -57,13 +56,19 @@ export class AppRegistry {
    * the manifest's `appId` field does not participate in routing.
    * `agent/task/request` targets the appId the registrant received from
    * `/api/v1/apps/register`, which is this same server-minted identity.
+   * @param appId Value supplied to the operation.
+   * @param manifest Value supplied to the operation.
+   * @param endpoint Value supplied to the operation.
+   * @returns The register result.
    */
   register(
     appId: AppId,
     manifest: AppManifest,
     endpoint: AppEndpoint,
   ): boolean {
-    if (this.entries.has(appId)) return false;
+    if (this.entries.has(appId)) {
+      return false;
+    }
     this.entries.set(appId, { appId, manifest, endpoint });
     return true;
   }
@@ -76,6 +81,7 @@ export class AppRegistry {
    * Drop every entry whose connection matches `connectionId`. Used
    * by the WS-close path to clean up any apps the closing connection
    * registered.
+   * @param connectionId Value supplied to the operation.
    */
   unregisterByConnection(connectionId: ConnectionId): void {
     for (const [appId, entry] of this.entries) {

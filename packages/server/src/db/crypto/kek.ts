@@ -1,9 +1,10 @@
 import { SymmetricKeyMaterial } from "./key-material.js";
 
-const KekTypeId = Symbol("@moltzap/server/Kek");
+const kekTypeId = Symbol("@moltzap/server/Kek");
 
+/** Implements kek. */
 export class Kek extends SymmetricKeyMaterial {
-  readonly [KekTypeId] = KekTypeId;
+  readonly [kekTypeId] = kekTypeId;
 
   private constructor(bytes: Buffer) {
     super(bytes);

@@ -30,12 +30,12 @@ const REFRESHED_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ALPHA_REFRESHED_ENTRY,
   GAMMA_ENTRY,
 ];
-const EXPECTED_KEYS: ReadonlyArray<string> = [KEY_BETA, KEY_GAMMA];
-const EXPECTED_VALUES: ReadonlyArray<string> = [VALUE_BETA, VALUE_GAMMA];
+const EXPECTED_KEYS: readonly string[] = [KEY_BETA, KEY_GAMMA];
+const EXPECTED_VALUES: readonly string[] = [VALUE_BETA, VALUE_GAMMA];
 const INVALID_CAPACITY_MESSAGE =
   "BoundedMap capacity must be a positive safe integer";
 
-const INVALID_CAPACITIES: ReadonlyArray<number> = [
+const INVALID_CAPACITIES: readonly number[] = [
   0,
   -1,
   1.5,

@@ -1,19 +1,18 @@
 import { Effect } from "effect";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationCreate,
-  ConversationCreatedNotificationDefinition,
-  ConversationList,
-  ConversationParticipantsAddedNotificationDefinition,
-  ConversationParticipantsRemovedNotificationDefinition,
-  ConversationUpdate,
-  ConversationUnarchivedNotificationDefinition,
+  conversationArchivedNotificationDefinition,
+  type conversationCreate as conversationCreateDefinition,
+  conversationCreatedNotificationDefinition,
+  type conversationList as conversationListDefinition,
+  conversationParticipantsAddedNotificationDefinition,
+  conversationParticipantsRemovedNotificationDefinition,
+  type conversationUpdate as conversationUpdateDefinition,
+  conversationUnarchivedNotificationDefinition,
+  type Conversation,
+  type ConversationId,
+  type ConversationListItem,
 } from "@moltzap/protocol/conversation";
-import type {
-  Conversation,
-  ConversationId,
-  ConversationListItem,
-} from "@moltzap/protocol/conversation";
+
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
 import type {
@@ -28,7 +27,9 @@ import { authorizeConversationCreateCapacityOnly } from "#conversation/requireme
 import { broadcastNotificationToAgents } from "#network";
 import { assertCallerAppOwnsTask } from "#task/requirements";
 
-type ConversationUpdateParams = ParamsOf<typeof ConversationUpdate>;
+const EMPTY_AGENT_IDS: readonly AgentId[] = [];
+
+type ConversationUpdateParams = ParamsOf<typeof conversationUpdateDefinition>;
 type ConversationArchiveParams = Extract<
   ConversationUpdateParams,
   { action: "archive" }
@@ -49,9 +50,9 @@ type ConversationRemoveParticipantParams = Extract<
 function conversationCreateBody(
   appId: AppContext["appId"],
   params: {
-    readonly taskId: ParamsOf<typeof ConversationCreate>["taskId"];
+    readonly taskId: ParamsOf<typeof conversationCreateDefinition>["taskId"];
     readonly name?: string;
-    readonly participants: ReadonlyArray<AgentId>;
+    readonly participants: readonly AgentId[];
   },
 ) {
   return Effect.gen(function* () {
@@ -81,16 +82,16 @@ function conversationCreateBody(
 }
 
 interface ConversationCreateInput {
-  readonly taskId: ParamsOf<typeof ConversationCreate>["taskId"];
+  readonly taskId: ParamsOf<typeof conversationCreateDefinition>["taskId"];
   readonly conversation: Conversation;
-  readonly participants: ReadonlyArray<AgentId>;
+  readonly participants: readonly AgentId[];
   readonly name?: string;
 }
 
 function fanoutConversationCreate(input: ConversationCreateInput) {
   return broadcastNotificationToAgents(
     [...input.participants],
-    ConversationCreatedNotificationDefinition,
+    conversationCreatedNotificationDefinition,
     {
       taskId: input.taskId,
       conversationId: input.conversation.id,
@@ -110,6 +111,10 @@ interface ArchiveFanoutInput {
  * Broadcast a conversation-scoped notification to the current participant
  * set, tolerating a participant-lookup failure (empty fan-out) so the
  * mutation result is still returned to the caller.
+ * @param conversationId Value supplied to the operation.
+ * @param definition Protocol definition to process.
+ * @param params Request payload to process.
+ * @returns The fanout to conversation participants result.
  */
 function fanoutToConversationParticipants<D extends AnyNotificationDefinition>(
   conversationId: ConversationId,
@@ -120,7 +125,7 @@ function fanoutToConversationParticipants<D extends AnyNotificationDefinition>(
     const conversationService = yield* ConversationServiceTag;
     const recipientAgentIds = yield* conversationService
       .getParticipantAgentIds(conversationId)
-      .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
+      .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS));
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
       definition,
@@ -135,7 +140,7 @@ function fanoutToConversationParticipants<D extends AnyNotificationDefinition>(
 function fanoutArchive(input: ArchiveFanoutInput) {
   return fanoutToConversationParticipants(
     input.conversationId,
-    ConversationArchivedNotificationDefinition,
+    conversationArchivedNotificationDefinition,
     {
       taskId: input.taskId,
       conversationId: input.conversationId,
@@ -152,7 +157,7 @@ interface UnarchiveFanoutInput {
 function fanoutUnarchive(input: UnarchiveFanoutInput) {
   return fanoutToConversationParticipants(
     input.conversationId,
-    ConversationUnarchivedNotificationDefinition,
+    conversationUnarchivedNotificationDefinition,
     {
       taskId: input.taskId,
       conversationId: input.conversationId,
@@ -161,7 +166,7 @@ function fanoutUnarchive(input: UnarchiveFanoutInput) {
 }
 
 function conversationListBody(
-  params: ParamsOf<typeof ConversationList>,
+  params: ParamsOf<typeof conversationListDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -180,7 +185,7 @@ function conversationListBody(
         conversation: conversationService.loadById(summary.id),
         participants: conversationService
           .getParticipantAgentIds(summary.id)
-          .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[])),
+          .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS)),
         linkedTaskId: conversationService.taskIdForConversation(summary.id),
       });
       items.push({
@@ -244,13 +249,12 @@ function conversationAddParticipantBody(
     ]);
     const { postMutationParticipants } =
       yield* taskService.addConversationParticipant(
-        params.taskId,
         params.conversationId,
         params.agentId,
       );
     yield* broadcastNotificationToAgents(
       postMutationParticipants,
-      ConversationParticipantsAddedNotificationDefinition,
+      conversationParticipantsAddedNotificationDefinition,
       {
         taskId: params.taskId,
         conversationId: params.conversationId,
@@ -270,14 +274,15 @@ function conversationRemoveParticipantBody(
     const taskService = yield* TaskServiceTag;
     const { preMutationParticipants, wasParticipant } =
       yield* taskService.removeConversationParticipant(
-        params.taskId,
         params.conversationId,
         params.agentId,
       );
-    if (!wasParticipant) return {};
+    if (!wasParticipant) {
+      return {};
+    }
     yield* broadcastNotificationToAgents(
       preMutationParticipants,
-      ConversationParticipantsRemovedNotificationDefinition,
+      conversationParticipantsRemovedNotificationDefinition,
       {
         taskId: params.taskId,
         conversationId: params.conversationId,
@@ -302,26 +307,45 @@ function conversationUpdateBody(
       return conversationAddParticipantBody(params, ctx);
     case "remove-participant":
       return conversationRemoveParticipantBody(params, ctx);
+    default: {
+      const exhaustive: never = params;
+      return exhaustive;
+    }
   }
 }
 
-export const conversationList: ServerHandler<typeof ConversationList> = (
-  params,
-) =>
+/**
+ * Provides the conversation list runtime value.
+ * @param params Request payload to process.
+ * @returns The conversation list result.
+ */
+export const conversationList: ServerHandler<
+  typeof conversationListDefinition
+> = (params) =>
   Effect.gen(function* () {
     return yield* conversationListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("conversationList"));
 
-export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
-  params,
-) =>
+/**
+ * Provides the conversation create runtime value.
+ * @param params Request payload to process.
+ * @returns The conversation create result.
+ */
+export const conversationCreate: ServerHandler<
+  typeof conversationCreateDefinition
+> = (params) =>
   Effect.gen(function* () {
     return yield* conversationCreateBody((yield* appArm).appId, params);
   }).pipe(Effect.withSpan("conversationCreate"));
 
-export const conversationUpdate: ServerHandler<typeof ConversationUpdate> = (
-  params,
-) =>
+/**
+ * Provides the conversation update runtime value.
+ * @param params Request payload to process.
+ * @returns The conversation update result.
+ */
+export const conversationUpdate: ServerHandler<
+  typeof conversationUpdateDefinition
+> = (params) =>
   Effect.gen(function* () {
     return yield* conversationUpdateBody(params, yield* appArm);
   }).pipe(Effect.withSpan("conversationUpdate"));

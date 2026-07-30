@@ -4,7 +4,7 @@
  * `mmdc`, exits non-zero if any block fails to parse — or if any of them
  * could not be read in the first place.
  */
-import { FileSystem, Path } from "@effect/platform";
+import { FileSystem, Path, type CommandExecutor } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
 import { resolve, dirname } from "node:path";
@@ -41,26 +41,22 @@ const program = Effect.gen(function* () {
   yield* report(failures);
 }).pipe(Effect.catchTag("MermaidGateError", reportUninspectable));
 
-const announce = (
-  blocks: number,
-  files: number,
-): Effect.Effect<void, never, never> =>
-  Effect.sync(() =>
+function announce(blocks: number, files: number): Effect.Effect<void> {
+  return Effect.sync(() =>
     process.stdout.write(
       `Checking ${blocks} Mermaid block(s) across ${files} file(s)...\n`,
     ),
   );
+}
 
-const lintAll = (
-  blocks: ReadonlyArray<MermaidBlock>,
+function lintAll(
+  blocks: readonly MermaidBlock[],
 ): Effect.Effect<
-  ReadonlyArray<MermaidFailure>,
+  readonly MermaidFailure[],
   MermaidGateError,
-  | FileSystem.FileSystem
-  | Path.Path
-  | import("@effect/platform").Command.CommandExecutor
-> =>
-  Effect.gen(function* () {
+  FileSystem.FileSystem | Path.Path | CommandExecutor.CommandExecutor
+> {
+  return Effect.gen(function* () {
     const results = yield* Effect.forEach(
       blocks,
       (block) => lintBlock(block, TEMP_DIR),
@@ -68,11 +64,10 @@ const lintAll = (
     );
     return results.filter((r): r is MermaidFailure => r !== null);
   });
+}
 
-const report = (
-  failures: ReadonlyArray<MermaidFailure>,
-): Effect.Effect<void, never, never> =>
-  Effect.sync(() => {
+function report(failures: readonly MermaidFailure[]): Effect.Effect<void> {
+  return Effect.sync(() => {
     if (failures.length === 0) {
       process.stdout.write("Mermaid lint: PASS\n");
       return;
@@ -85,21 +80,22 @@ const report = (
     process.stderr.write(`Mermaid lint: FAIL (${failures.length})\n`);
     process.exit(1);
   });
+}
 
 /**
  * An input the run could not inspect is reported as its own outcome, never
  * folded into the block tally: "0 failures" would claim the input was
  * checked and clean.
+ * @param error Error to inspect.
+ * @returns The report uninspectable result.
  */
-function reportUninspectable(
-  error: MermaidGateError,
-): Effect.Effect<never, never, never> {
+function reportUninspectable(error: MermaidGateError): Effect.Effect<never> {
   return Effect.sync(() => {
     process.stderr.write(`Mermaid lint: ${error.reason}: ${error.path}\n`);
     process.stderr.write(`    ${String(error.cause)}\n`);
     process.stderr.write("Mermaid lint: FAIL (inputs left unchecked)\n");
     process.exit(1);
-  }) as Effect.Effect<never, never, never>;
+  });
 }
 
 NodeRuntime.runMain(program.pipe(Effect.provide(NodeContext.layer)));

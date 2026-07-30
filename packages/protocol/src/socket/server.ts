@@ -1,45 +1,44 @@
-import * as Socket from "@effect/platform/Socket";
-import { RpcClient, RpcGroup, RpcServer, type Rpc } from "@effect/rpc";
+import type * as Socket from "@effect/platform/Socket";
+import { RpcClient, type RpcGroup, RpcServer, type Rpc } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Cause, Deferred, Effect, Exit, Layer, Mailbox, Scope } from "effect";
-import { ConnectionId, newConnectionId } from "./connection.js";
+import { type ConnectionId, newConnectionId } from "./connection.js";
 import {
   isDispatchAuthorizeRequest,
   isMessagesAuthorizeRequest,
   isTaskCreateRequest,
 } from "./reverse-callbacks.js";
 import {
-  ReverseRpcGroup,
-  ServerInboundGroup,
+  reverseRpcGroup,
+  serverInboundGroup,
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
   type ServerHandlers,
 } from "#socket/catalog";
-import { MessagesAuthorize } from "#message";
-import { TaskCreate } from "#task";
-import { DispatchAuthorize } from "#message/dispatch";
+import { messagesAuthorize } from "#message";
+import { taskCreate } from "#task";
+import { dispatchAuthorize } from "#message/dispatch";
 import {
   makeClientChannelProtocol,
   runMuxReader,
   type ChannelSink,
   type WireWrite,
-} from "#transport";
-import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
-import {
   makeTypedTransportCall,
   type ErrorForTag,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
+  NotConnectedError,
+  type RpcTimeoutError,
+  type NotificationPayloadOf,
 } from "#transport";
-import { NotConnectedError, RpcTimeoutError } from "#transport";
+import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
 import type {
   AgentPrincipal,
   AppPrincipal,
   AuthenticatedPrincipal,
 } from "#identity/principals";
 import type { ActiveAgent } from "#identity/requirements";
-import type { NotificationPayloadOf } from "#transport";
 import type {
   ConversationInTask,
   ConversationSendAccess,
@@ -47,14 +46,16 @@ import type {
 import type { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
 import type { TaskReadAccess } from "#task/requirements";
 
+/** Represents server socket write values. */
 export type ServerSocketWrite = (
   raw: string,
 ) => Effect.Effect<void, Socket.SocketError>;
 
+/** Describes molt zap server session. */
 export interface MoltZapServerSession {
   readonly connId: ConnectionId;
   readonly write: ServerSocketWrite;
-  readonly closeRequested: Deferred.Deferred<void>;
+  readonly closeRequested: Deferred.Deferred<undefined>;
   readonly shutdown: Effect.Effect<void>;
   readonly originator: ReverseClient;
 }
@@ -65,6 +66,7 @@ interface ServerSocketLayerState {
   readonly sinkReady: Deferred.Deferred<ChannelSink>;
 }
 
+/** Configures molt zap server. */
 export interface MoltZapServerOptions<
   AuthRequires,
   ConnectionProvides,
@@ -97,7 +99,7 @@ type ServerRequirementMiddleware =
   | TaskReadAccess
   | ContactPolicyAllowsReach;
 
-const serverRpcLayer = RpcServer.layer(ServerInboundGroup);
+const serverRpcLayer = RpcServer.layer(serverInboundGroup);
 
 interface SocketRpcLayerOptions<
   AuthRequires,
@@ -129,7 +131,7 @@ const makeSocketRpcLayer = <
   >,
 ): Layer.Layer<never, never, AuthRequires | ConnectionRequires> =>
   serverRpcLayer.pipe(
-    Layer.provide(ServerInboundGroup.toLayer(options.handlers)),
+    Layer.provide(serverInboundGroup.toLayer(options.handlers)),
     Layer.provide(options.authLayer),
     Layer.provide(options.connectionLayer),
     Layer.provide(
@@ -141,32 +143,38 @@ const makeSocketRpcLayer = <
     ),
   );
 
+/** Represents reverse call error conditions. */
 export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
-type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
+type ReverseRpcs = RpcGroup.Rpcs<typeof reverseRpcGroup>;
 type ReverseTag = ReverseRpcs["_tag"];
+/** Represents reverse callback tag values. */
 export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
   D["clientRpc"]["_tag"],
   ReverseTag
 >;
+/** Represents reverse callback payload values. */
 export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
   Rpc.PayloadConstructor<D["clientRpc"]>;
+/** Represents reverse callback success values. */
 export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
   Rpc.Success<D["clientRpc"]>;
+/** Represents reverse callback error conditions. */
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
   Rpc.Error<D["clientRpc"]>;
+/** Represents reverse callback request values. */
 export type ReverseCallbackRequest =
   | {
-      readonly definition: typeof DispatchAuthorize;
-      readonly params: ReverseCallbackPayload<typeof DispatchAuthorize>;
+      readonly definition: typeof dispatchAuthorize;
+      readonly params: ReverseCallbackPayload<typeof dispatchAuthorize>;
     }
   | {
-      readonly definition: typeof MessagesAuthorize;
-      readonly params: ReverseCallbackPayload<typeof MessagesAuthorize>;
+      readonly definition: typeof messagesAuthorize;
+      readonly params: ReverseCallbackPayload<typeof messagesAuthorize>;
     }
   | {
-      readonly definition: typeof TaskCreate;
-      readonly params: ReverseCallbackPayload<typeof TaskCreate>;
+      readonly definition: typeof taskCreate;
+      readonly params: ReverseCallbackPayload<typeof taskCreate>;
     };
 type ReverseCallbackRequestDefinition = ReverseCallbackRequest["definition"];
 type ReverseCallbackRequestSuccess =
@@ -190,17 +198,18 @@ const makeReverseCallback =
   (call: ReverseTransportCall): ReverseClient["callback"] =>
   (request) => {
     if (isDispatchAuthorizeRequest(request)) {
-      return call(DispatchAuthorize.clientRpc._tag, request.params);
+      return call(dispatchAuthorize.clientRpc._tag, request.params);
     }
     if (isMessagesAuthorizeRequest(request)) {
-      return call(MessagesAuthorize.clientRpc._tag, request.params);
+      return call(messagesAuthorize.clientRpc._tag, request.params);
     }
     if (isTaskCreateRequest(request)) {
-      return call(TaskCreate.clientRpc._tag, request.params);
+      return call(taskCreate.clientRpc._tag, request.params);
     }
     return Effect.dieMessage("unknown reverse callback request");
   };
 
+/** Describes reverse client. */
 export interface ReverseClient {
   readonly call: <Tag extends ReverseTag>(
     tag: Tag,
@@ -225,7 +234,7 @@ export interface ReverseClient {
 interface AcceptedSocketSession {
   readonly connId: ConnectionId;
   readonly write: ServerSocketWrite;
-  readonly closeRequested: Deferred.Deferred<void>;
+  readonly closeRequested: Deferred.Deferred<undefined>;
 }
 
 const makeMoltZapServerSession = (
@@ -280,7 +289,7 @@ const buildReverseClient = (options: {
       sinkReady,
     });
     const client: TypedDispatchMap<ReverseRpcs, RpcClientError> =
-      yield* RpcClient.make(ReverseRpcGroup).pipe(
+      yield* RpcClient.make(reverseRpcGroup).pipe(
         Effect.provide(protocolLayer),
         Scope.extend(options.scope),
       );
@@ -297,20 +306,30 @@ const buildReverseClient = (options: {
     };
   }).pipe(Effect.withSpan("buildReverseClient"));
 
+/** Implements molt zap server. */
 export class MoltZapServer<
   AuthRequires,
   ConnectionProvides,
   ConnectionRequires,
   HookRequires = never,
 > {
+  private readonly options: MoltZapServerOptions<
+    AuthRequires,
+    ConnectionProvides,
+    ConnectionRequires,
+    HookRequires
+  >;
+
   constructor(
-    private readonly options: MoltZapServerOptions<
+    options: MoltZapServerOptions<
       AuthRequires,
       ConnectionProvides,
       ConnectionRequires,
       HookRequires
     >,
-  ) {}
+  ) {
+    this.options = options;
+  }
 
   handleSocket(
     socket: Socket.Socket,
@@ -333,7 +352,9 @@ export class MoltZapServer<
       HookRequires
     >
   > {
-    return Effect.gen(this, function* () {
+    const options = this.options;
+    const runSocketReader = this.runSocketReader.bind(this);
+    return Effect.gen(function* () {
       const accepted = yield* makeAcceptedSocketSession(socket);
       const scope = yield* Effect.scope;
       const originator = yield* buildReverseClient({
@@ -342,7 +363,7 @@ export class MoltZapServer<
       });
       const session = makeMoltZapServerSession(accepted, originator);
 
-      yield* this.options.onOpen(session);
+      yield* options.onOpen(session);
       yield* Effect.logInfo("WebSocket connected").pipe(
         Effect.annotateLogs({ connId: session.connId }),
       );
@@ -354,9 +375,9 @@ export class MoltZapServer<
           write: session.write,
           disconnects,
           sinkReady,
-          handlers: this.options.handlers,
-          authLayer: this.options.authLayer(session.connId),
-          connectionLayer: this.options.connectionLayer(session.connId),
+          handlers: options.handlers,
+          authLayer: options.authLayer(session.connId),
+          connectionLayer: options.connectionLayer(session.connId),
         }),
       );
       const serverSink = yield* Deferred.await(sinkReady);
@@ -365,7 +386,7 @@ export class MoltZapServer<
         { server: serverSink, client: session.originator.sink },
         disconnects,
       );
-      yield* this.runSocketReader(reader, session);
+      yield* runSocketReader(reader, session);
     }).pipe(Effect.withSpan("MoltZapServer.openSocketSession"));
   }
 
@@ -381,13 +402,14 @@ export class MoltZapServer<
     Socket.SocketError,
     ServerSocketRequirements<AuthRequires, ConnectionRequires, HookRequires>
   > {
+    const options = this.options;
     return Effect.raceFirst(
       reader,
       Deferred.await(session.closeRequested),
     ).pipe(
       Effect.onExit((exit) =>
-        Effect.gen(this, function* () {
-          yield* this.options.onClose(exit, session);
+        Effect.gen(function* () {
+          yield* options.onClose(exit, session);
           if (Exit.isFailure(exit)) {
             yield* Effect.logWarning("WebSocket error").pipe(
               Effect.annotateLogs({
@@ -411,7 +433,7 @@ function makeAcceptedSocketSession(
   return Effect.gen(function* () {
     const connId = newConnectionId();
     const writer = yield* socket.writer;
-    const closeRequested = yield* Deferred.make<void>();
+    const closeRequested = yield* Deferred.make<undefined>();
     const write: ServerSocketWrite = (raw) => writer(raw);
     return { connId, write, closeRequested };
   }).pipe(Effect.withSpan("MoltZapServer.makeAcceptedSocketSession"));

@@ -39,13 +39,13 @@ interface PackageJson {
 interface PackageJsonResolution {
   readonly rejectedRoots: ReadonlySet<string>;
   readonly root: string | null;
-  readonly unexpectedCause: unknown | null;
+  readonly unexpectedCause: unknown;
 }
 
 interface PackageJsonCandidateResolution {
   readonly rejectedRoot: string | null;
   readonly root: string | null;
-  readonly unexpectedCause: unknown | null;
+  readonly unexpectedCause: unknown;
 }
 
 interface OwningPackage {
@@ -53,6 +53,7 @@ interface OwningPackage {
   readonly root: string;
 }
 
+/** Describes installed package dependency. */
 export interface InstalledPackageDependency {
   readonly ownerPackageRoot: string;
   readonly declaredSpec: string;
@@ -126,7 +127,7 @@ function isExactPackageVersion(version: string): boolean {
 }
 
 function parsePackageJson(
-  requireFromAnchor: NodeRequire,
+  requireFromAnchor: NodeJS.Require,
   packageRoot: string,
   packageName: string,
 ): PackageJson {
@@ -194,7 +195,7 @@ function isExpectedResolutionFailure(cause: unknown): boolean {
 }
 
 function resolvePackageJsonCandidate(
-  requireFromAnchor: NodeRequire,
+  requireFromAnchor: NodeJS.Require,
   packageName: string,
   candidate: string,
 ): PackageJsonCandidateResolution {
@@ -228,7 +229,7 @@ function resolvePackageJsonCandidate(
 }
 
 function resolvePackageJson(
-  requireFromAnchor: NodeRequire,
+  requireFromAnchor: NodeJS.Require,
   packageName: string,
 ): PackageJsonResolution {
   const packageJsonCandidates = [
@@ -261,6 +262,9 @@ function resolvePackageJson(
  *
  * A package may hide `package.json` behind its exports map, so lookup-path
  * candidates precede recovery from the package's public entry point.
+ * @param anchor Value supplied to the operation.
+ * @param packageName Value supplied to the operation.
+ * @returns The resolve package root result.
  */
 export function resolvePackageRoot(
   anchor: string | URL,
@@ -287,7 +291,11 @@ export function resolvePackageRoot(
       throw cause;
     }
     if (packageJsonResolution.unexpectedCause !== null) {
-      throw packageJsonResolution.unexpectedCause;
+      throw new PackageResolutionFailed({
+        packageName,
+        cause: packageJsonResolution.unexpectedCause,
+        message: `Unable to resolve package metadata for ${packageName}`,
+      });
     }
     return null;
   }
@@ -307,8 +315,8 @@ function packageBinTarget(
   if (typeof bin === "string") {
     return join(packageRoot, bin);
   }
-  if (typeof bin === "object" && bin !== null && binName in bin) {
-    const target = Object.entries(bin).find(([name]) => name === binName)?.[1];
+  if (isPropertyRecord(bin)) {
+    const target = bin[binName];
     if (typeof target === "string") {
       return join(packageRoot, target);
     }
@@ -319,6 +327,12 @@ function packageBinTarget(
   });
 }
 
+/**
+ * Resolves installed package root.
+ * @param packageName Value supplied to the operation.
+ * @param anchor Value supplied to the operation.
+ * @returns The resolve installed package root result.
+ */
 export function resolveInstalledPackageRoot(
   packageName: string,
   anchor: string | URL = PACKAGE_RESOLUTION_ANCHOR,
@@ -398,7 +412,10 @@ function findOwningPackage(
  *
  * Runtime assets use package ownership rather than source-file depth, so
  * moving compiled modules cannot change which package artifact they read.
+ * @param ownerPackageName Value supplied to the operation.
+ * @param anchor Value supplied to the operation.
  * @internal
+ * @returns The resolve owning package root result.
  */
 export function resolveOwningPackageRoot(
   ownerPackageName: string,
@@ -445,6 +462,10 @@ function ownDependencySpec(
  *
  * Reading from the owner's manifest anchor prevents a nested caller path from
  * changing which installed dependency Node selects.
+ * @param ownerPackageName Value supplied to the operation.
+ * @param dependencyName Value supplied to the operation.
+ * @param anchor Value supplied to the operation.
+ * @returns The resolve installed package dependency result.
  */
 export function resolveInstalledPackageDependency(
   ownerPackageName: string,
@@ -491,6 +512,12 @@ export function resolveInstalledPackageDependency(
   };
 }
 
+/**
+ * Resolves installed package bin.
+ * @param packageName Value supplied to the operation.
+ * @param binName Value supplied to the operation.
+ * @returns The resolve installed package bin result.
+ */
 export function resolveInstalledPackageBin(
   packageName: string,
   binName: string,
@@ -502,6 +529,7 @@ export function resolveInstalledPackageBin(
   );
 }
 
+/** Represents install mode values. */
 export type InstallMode = "published" | "workspace";
 
 const CHANNEL_PACKAGE_NAME = "@moltzap/openclaw-channel";
@@ -531,7 +559,11 @@ const defaultResolverDeps: InstallModeResolverDeps = {
   workspacePackagesDir: findWorkspacePackagesDir(import.meta.url),
 };
 
-/** Build an install-mode resolver around explicit package-location seams. */
+/**
+ * Build an install-mode resolver around explicit package-location seams.
+ * @param deps Value supplied to the operation.
+ * @returns The created install mode resolver.
+ */
 export function makeInstallModeResolver(deps: InstallModeResolverDeps) {
   return (installMode?: InstallMode) =>
     Effect.try({
@@ -546,7 +578,11 @@ export function makeInstallModeResolver(deps: InstallModeResolverDeps) {
     );
 }
 
-/** Select workspace sources or exact installed packages for one runtime. */
+/**
+ * Select workspace sources or exact installed packages for one runtime.
+ * @param installMode Value supplied to the operation.
+ * @returns The resolve install mode result.
+ */
 export function resolveInstallMode(installMode?: InstallMode) {
   return makeInstallModeResolver(defaultResolverDeps)(installMode);
 }
@@ -588,7 +624,9 @@ function isWorkspacePackageRoot(
   packageRoot: string,
   workspacePackagesDir: string | null,
 ): boolean {
-  if (workspacePackagesDir === null) return false;
+  if (workspacePackagesDir === null) {
+    return false;
+  }
   const relativeRoot = relative(workspacePackagesDir, packageRoot);
   if (
     relativeRoot === "" ||
@@ -601,7 +639,11 @@ function isWorkspacePackageRoot(
   return !relativeRoot.split(sep).includes("node_modules");
 }
 
-/** Find the workspace package directory containing the simulator package. */
+/**
+ * Find the workspace package directory containing the simulator package.
+ * @param moduleUrl Value supplied to the operation.
+ * @returns The find workspace packages dir result.
+ */
 export function findWorkspacePackagesDir(
   moduleUrl: string | URL,
 ): string | null {

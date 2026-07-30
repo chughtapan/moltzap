@@ -15,13 +15,19 @@ import {
 } from "#config";
 import type { ServerEncryptionMasterSecret } from "#config/secrets";
 import { seedInitialKek, EnvelopeEncryption } from "#db/crypto";
-import { sql, makeEffectKysely, PostgresDialect } from "#db";
-import type { Database, Db } from "#db";
+import {
+  sql,
+  makeEffectKysely,
+  PostgresDialect,
+  type Database,
+  type Db,
+} from "#db";
 import { WebhookContactService } from "#identity/contacts";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const dirnameValue = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
 
+/** Implements standalone operation failed. */
 export class StandaloneOperationFailed extends Data.TaggedError(
   "StandaloneOperationFailed",
 )<{
@@ -30,6 +36,7 @@ export class StandaloneOperationFailed extends Data.TaggedError(
   readonly operation: string;
 }> {}
 
+/** Implements schema file not found. */
 export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
   readonly message: string;
 }> {}
@@ -53,20 +60,22 @@ const operationFailed = (
 
 interface DbHandle {
   db: Db;
-  cleanup: () => Effect.Effect<void, StandaloneOperationFailed, never>;
+  cleanup: () => Effect.Effect<void, StandaloneOperationFailed>;
   runMigrationSql: (
     sql: string,
-  ) => Effect.Effect<void, StandaloneOperationFailed, never>;
+  ) => Effect.Effect<void, StandaloneOperationFailed>;
 }
 
+/* eslint-disable @typescript-eslint/no-invalid-void-type -- PGlite's third-party close contract returns Promise<void>. */
 interface PgLiteClientHandle {
   readonly close: () => PromiseLike<void>;
   readonly exec: (sql: string) => PromiseLike<unknown>;
 }
+/* eslint-enable @typescript-eslint/no-invalid-void-type -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */
 
 function createPgLiteDb(
   dataDir?: string,
-): Effect.Effect<DbHandle, StandaloneOperationFailed, never> {
+): Effect.Effect<DbHandle, StandaloneOperationFailed> {
   return Effect.gen(function* () {
     const { KyselyPGlite } = yield* Effect.tryPromise({
       try: () => import("kysely-pglite"),
@@ -126,7 +135,7 @@ function runPgLiteMigrationSql(
 
 function createPostgresDb(
   url: string,
-): Effect.Effect<DbHandle, StandaloneOperationFailed, never> {
+): Effect.Effect<DbHandle, StandaloneOperationFailed> {
   return Effect.gen(function* () {
     const pg = yield* Effect.tryPromise({
       try: () => import("pg"),
@@ -162,21 +171,27 @@ function createPostgresDb(
 
 // ── Migration ───────────────────────────────────────────────────────
 
-function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound, never> {
+function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const exists = (candidate: string) =>
       fs.exists(candidate).pipe(Effect.catchAll(() => Effect.succeed(false)));
 
     // Docker: copied to package root
-    const dockerPath = join(__dirname, "..", "core-schema.sql");
-    if (yield* exists(dockerPath)) return dockerPath;
+    const dockerPath = join(dirnameValue, "..", "core-schema.sql");
+    if (yield* exists(dockerPath)) {
+      return dockerPath;
+    }
     // Dev (tsx): running from src/, schema in src/db/
-    const devPath = join(__dirname, "db", "core-schema.sql");
-    if (yield* exists(devPath)) return devPath;
+    const devPath = join(dirnameValue, "db", "core-schema.sql");
+    if (yield* exists(devPath)) {
+      return devPath;
+    }
     // Compiled (node dist/): schema in ../src/db/
-    const distPath = join(__dirname, "..", "src", "db", "core-schema.sql");
-    if (yield* exists(distPath)) return distPath;
+    const distPath = join(dirnameValue, "..", "src", "db", "core-schema.sql");
+    if (yield* exists(distPath)) {
+      return distPath;
+    }
     return yield* Effect.fail(
       new SchemaFileNotFound({
         message:
@@ -191,10 +206,13 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound, never> {
  * platform `FileSystem` service, seeds the KEK row inside an Effect, and
  * bridges to `handle.runMigrationSql` at the Kysely boundary (which still
  * exposes a Promise API for raw DDL).
+ * @param handle Value supplied to the operation.
+ * @param encryptionSecret Value supplied to the operation.
+ * @returns The auto migrate effect result.
  */
 function autoMigrateEffect(
   handle: DbHandle,
-  encryptionSecret: ServerEncryptionMasterSecret | undefined,
+  encryptionSecret?: ServerEncryptionMasterSecret,
 ): Effect.Effect<
   void,
   SchemaFileNotFound | StandaloneOperationFailed,
@@ -246,6 +264,11 @@ function autoMigrateEffect(
 
 // ── Main ────────────────────────────────────────────────────────────
 
+/**
+ * Executes the start server operation.
+ * @param configPath Value supplied to the operation.
+ * @returns The start server result.
+ */
 export function startServer(configPath?: string) {
   if (configPath === undefined) {
     return Effect.runPromise(startServerEffect());
@@ -266,7 +289,7 @@ interface StandaloneDatabase {
 
 function startServerEffect(
   configPath?: string,
-): Effect.Effect<StandaloneServerHandle, StandaloneServerError, never> {
+): Effect.Effect<StandaloneServerHandle, StandaloneServerError> {
   return Effect.gen(function* () {
     const bootPlan = yield* loadStandaloneConfig({ configPath });
     const database = yield* createStandaloneDatabase(bootPlan);
@@ -327,7 +350,9 @@ function createStandaloneDatabase(
 }
 
 function logDatabaseSelection(usePgLite: boolean): Effect.Effect<void> {
-  if (!usePgLite) return Effect.void;
+  if (!usePgLite) {
+    return Effect.void;
+  }
   return Effect.logInfo(
     "Using embedded PGlite database (no external Postgres needed)",
   );
@@ -349,7 +374,8 @@ function makeCoreConfig(options: {
   const { bootPlan, handle } = options;
   return {
     db: handle.db,
-    dbCleanup: () => Effect.runPromise(handle.cleanup()),
+    dbCleanup: () =>
+      Effect.runPromise(handle.cleanup().pipe(Effect.as(undefined))),
     encryptionMasterSecret: bootPlan.encryptionMasterSecret,
     port: bootPlan.port,
     corsOrigins: bootPlan.corsOrigins,
@@ -366,7 +392,9 @@ function installContactService(
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     const binding = bootPlan.contactWebhook;
-    if (binding === undefined) return;
+    if (binding === undefined) {
+      return;
+    }
     app.setContactService(
       new WebhookContactService(
         httpClient,
@@ -400,7 +428,7 @@ if (
   argv1?.endsWith("standalone.js") === true ||
   argv1?.endsWith("standalone.ts") === true
 ) {
-  startServer().catch((err) => {
+  startServer().catch((err: unknown) => {
     Effect.runFork(
       Effect.logError("Server startup failed").pipe(
         Effect.annotateLogs({ err }),

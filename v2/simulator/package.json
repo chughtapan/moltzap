@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/v2-simulator",
-  "version": "2026.729.0",
+  "version": "2026.729.1",
   "private": true,
   "description": "Portable code-first kernel, runtime roster, closed event catalog, run-evidence store, public StackProvider contract",
   "license": "Apache-2.0",
@@ -38,7 +38,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "v2/simulator",
-          "command": "eslint src --cache --max-warnings=0"
+          "command": "eslint . --cache --max-warnings=0"
         }
       }
     }

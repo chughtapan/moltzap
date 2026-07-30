@@ -13,7 +13,7 @@ Public barrel for Toxiproxy toxic profiles and control helpers.
 
 ## Public surface
 
-### [`allToxicTags`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L51)
+### [`allToxicTags`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L52)
 
 _Variable_
 
@@ -30,7 +30,7 @@ export const allToxicTags = [
 
 All six toxic tags, enumerated for coverage assertions in Tier D.
 
-### [`defaultToxicProfile`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/defaults.ts#L24)
+### [`defaultToxicProfile`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/defaults.ts#L25)
 
 _Variable_
 
@@ -38,7 +38,9 @@ _Variable_
 export const defaultToxicProfile:
 ```
 
-### [`makeToxiproxyClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L255)
+Provides the default toxic profile runtime value.
+
+### [`makeToxiproxyClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L280)
 
 _Function_
 
@@ -47,6 +49,10 @@ export function makeToxiproxyClient(
   config: ToxiproxyConfig,
 ): Effect.Effect<ToxiproxyClient, ToxicControlError>
 ```
+
+Creates toxiproxy client.
+
+**Returns:** The created toxiproxy client.
 
 ### [`ToxicControlError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/errors.ts#L8)
 
@@ -64,7 +70,7 @@ export class ToxicControlError extends Data.TaggedError(
 
 Toxiproxy HTTP API returned a non-2xx, or the control endpoint is down.
 
-### [`ToxicHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L60)
+### [`ToxicHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L62)
 
 _Interface_
 
@@ -80,7 +86,7 @@ releasing the scope removes it. Tier D properties acquire a
 `ToxicHandle` inside `Effect.scoped` so a crashed property still cleans
 up.
 
-### [`ToxicProfile`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L14)
+### [`ToxicProfile`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L15)
 
 _TypeAlias_
 
@@ -95,18 +101,9 @@ export type ToxicProfile =
     }
 ```
 
-Toxic profile DSL.
+Represents toxic profile values.
 
-Per D2 and Invariant I4, adversity is a parameter selected at suite
-invocation, not hardcoded case-by-case. A `ToxicProfile` is a named
-preset (one of the six toxics) plus its parameters; the Tier D runner
-picks the matching Tier C invariant and re-runs it with the toxic
-attached.
-
-Exhaustiveness: the `_tag` union covers every toxic named in §5 Tier D
-(D1–D6) so the implementer cannot forget a branch in the client dispatch.
-
-### [`ToxicTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L60)
+### [`ToxicTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L62)
 
 _TypeAlias_
 
@@ -114,7 +111,9 @@ _TypeAlias_
 export type ToxicTag = (typeof allToxicTags)[number];
 ```
 
-### [`ToxiproxyClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L81)
+Represents toxic tag values.
+
+### [`ToxiproxyClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L84)
 
 _Interface_
 
@@ -130,7 +129,9 @@ export interface ToxiproxyClient {
 }
 ```
 
-### [`ToxiproxyConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L25)
+Describes toxiproxy client.
+
+### [`ToxiproxyConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L26)
 
 _Interface_
 
@@ -142,7 +143,9 @@ export interface ToxiproxyConfig {
 }
 ```
 
-### [`ToxiproxyNetworkConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L31)
+Describes toxiproxy config.
+
+### [`ToxiproxyNetworkConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L33)
 
 _Interface_
 
@@ -159,7 +162,9 @@ export interface ToxiproxyNetworkConfig {
 }
 ```
 
-### [`ToxiproxyProxy`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L70)
+Describes toxiproxy network config.
+
+### [`ToxiproxyProxy`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L72)
 
 _Interface_
 

@@ -10,6 +10,7 @@ import { makeCommandHelpers } from "./command.js";
 
 // Install caches and runtime dirs can become Docker bind-mount sources. Keeping
 // the shared root under home makes those paths visible to VM-backed engines.
+/** Provides the moltzap simulator cache root runtime value. */
 export const MOLTZAP_SIMULATOR_CACHE_ROOT = join(
   homedir(),
   ".cache",
@@ -24,6 +25,7 @@ const STALE_BUILDING_CACHE_MAX_AGE_MS = 86_400_000;
 // Cold builds download, compile, and image-build multi-minute artifacts, so
 // every cache in this process takes turns rather than multiplying that cost
 // across concurrent agent spawns.
+/** Provides the cache build permit runtime value. */
 export const CACHE_BUILD_PERMIT = Effect.runSync(Effect.makeSemaphore(1));
 
 type ErrorFactory<E> = (reason: string, cause?: unknown) => E;
@@ -41,6 +43,7 @@ export interface SuccessMemo<Key, Value> {
  * Coalesces concurrent acquisitions and remembers only successful values.
  * Failed, defecting, and interrupted acquisitions leave the key empty, so the
  * next caller performs a fresh acquisition.
+ * @returns The created success memo.
  */
 export function makeSuccessMemo<Key, Value>(): Effect.Effect<
   SuccessMemo<Key, Value>
@@ -74,7 +77,9 @@ function getOrAcquireSuccess<Key, Value, E, R>(
 ) {
   return Effect.gen(function* () {
     const present = yield* peekSuccessMemo(values, key);
-    if (present !== null) return present;
+    if (present !== null) {
+      return present;
+    }
     return yield* permit.withPermits(1)(
       acquireSuccessAfterPermit(values, key, acquire),
     );
@@ -88,7 +93,9 @@ function acquireSuccessAfterPermit<Key, Value, E, R>(
 ) {
   return Effect.gen(function* () {
     const concurrent = yield* peekSuccessMemo(values, key);
-    if (concurrent !== null) return concurrent;
+    if (concurrent !== null) {
+      return concurrent;
+    }
     const value = yield* acquire;
     yield* Ref.update(values, (entries) => {
       const next = new Map(entries);
@@ -109,6 +116,9 @@ type FsEffect<E> = <A, R>(
 /**
  * Hashes one cache's field list into the key naming its generations. Callers
  * own every field, including host identity, so their tests can vary it.
+ * @param schemaVersion Value supplied to the operation.
+ * @param payload Value supplied to the operation.
+ * @returns The cache fingerprint result.
  */
 export function cacheFingerprint(
   schemaVersion: number,
@@ -123,6 +133,9 @@ export function cacheFingerprint(
  * Binds the filesystem lifecycle shared by immutable install caches to one
  * cache root. Each owner supplies its typed error factory while cleanup and
  * stale-cache sweeping remain best-effort operations.
+ * @param cacheRoot Value supplied to the operation.
+ * @param makeError Value supplied to the operation.
+ * @returns The created immutable cache.
  */
 export function makeImmutableCache<E>(
   cacheRoot: string,
@@ -151,7 +164,9 @@ function readReadyFingerprint<E>(readyMarker: string, fsEffect: FsEffect<E>) {
       "check immutable cache ready marker " + readyMarker,
       fileSystem.exists(readyMarker),
     );
-    if (!exists) return null;
+    if (!exists) {
+      return null;
+    }
     return yield* fileSystem
       .readFileString(readyMarker, "utf8")
       .pipe(
@@ -202,7 +217,9 @@ function sweepStaleBuildingCaches(cacheRoot: string, maxAgeMs: number) {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const exists = yield* fileSystem.exists(cacheRoot);
-    if (!exists) return;
+    if (!exists) {
+      return;
+    }
     const entries = yield* fileSystem.readDirectory(cacheRoot);
     const cutoff = Date.now() - maxAgeMs;
     const buildingDirs = entries
@@ -256,18 +273,24 @@ function findCacheGeneration<E>(
       "check immutable cache root " + cacheRoot,
       fileSystem.exists(cacheRoot),
     );
-    if (!exists) return null;
+    if (!exists) {
+      return null;
+    }
     const entries = yield* fsEffect(
       "list immutable cache generations " + cacheRoot,
       fileSystem.readDirectory(cacheRoot),
     );
-    for (const entry of entries.filter(isCacheGeneration).sort()) {
+    for (const entry of entries
+      .filter(isCacheGeneration)
+      .sort((left, right) => left.localeCompare(right))) {
       const generationDir = join(cacheRoot, entry);
       const readyFingerprint = yield* readReadyFingerprint(
         readyMarkerPath(generationDir),
         fsEffect,
       );
-      if (readyFingerprint === fingerprint) return generationDir;
+      if (readyFingerprint === fingerprint) {
+        return generationDir;
+      }
     }
     return null;
   }).pipe(Effect.withSpan("findCacheGeneration"));
@@ -306,8 +329,10 @@ function isCacheGeneration(entry: string): boolean {
 /**
  * Bind decoded manifest and lockfile guards to an owner's typed error.
  * Value guards throw only inside the caller's `Effect.try` decode boundary.
+ * @param makeError Value supplied to the operation.
+ * @returns The created json guards.
  */
-export function makeJsonGuards<E>(makeError: ErrorFactory<E>) {
+export function makeJsonGuards<E extends Error>(makeError: ErrorFactory<E>) {
   function requireRecord(
     value: unknown,
     label: string,
@@ -336,7 +361,7 @@ export function makeJsonGuards<E>(makeError: ErrorFactory<E>) {
   }
 
   function requireSoleEntry(
-    entries: ReadonlyArray<string>,
+    entries: readonly string[],
     label: string,
   ): Effect.Effect<string, E> {
     const [entry] = entries;

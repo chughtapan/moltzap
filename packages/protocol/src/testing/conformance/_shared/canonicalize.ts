@@ -20,14 +20,18 @@
  * Shallow: does NOT recurse into elements. Caller composes with
  * `sortObjectKeysDeep` per element if element-wise key-order stability
  * matters. Preserves input immutability (returns a fresh array).
+ * @param arr Value supplied to the operation.
+ * @returns The sort json array result.
  */
-export function sortJsonArray(
-  arr: ReadonlyArray<unknown>,
-): ReadonlyArray<unknown> {
+export function sortJsonArray(arr: readonly unknown[]): readonly unknown[] {
   const keyed = arr.map((el) => ({ el, key: canonicalJson(el) }));
   keyed.sort((a, b) => {
-    if (a.key < b.key) return -1;
-    if (a.key > b.key) return 1;
+    if (a.key < b.key) {
+      return -1;
+    }
+    if (a.key > b.key) {
+      return 1;
+    }
     return 0;
   });
   return keyed.map((k) => k.el);
@@ -37,13 +41,21 @@ export function sortJsonArray(
  * Deep key-sort on objects; array order preserved at every depth.
  * Use before final `JSON.stringify` so key-order noise does not break
  * byte-compare. Safe to apply over any payload.
+ * @param value Value to process.
+ * @returns The sort object keys deep result.
  */
 function sortObjectKeysDeep(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortObjectKeysDeep);
-  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    return value.map(sortObjectKeysDeep);
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
   const out: Record<string, unknown> = {};
-  for (const key of Object.keys(value).sort()) {
-    const v: unknown = (value as { readonly [k: string]: unknown })[key];
+  for (const key of Object.keys(value).sort((left, right) =>
+    left.localeCompare(right),
+  )) {
+    const v: unknown = Reflect.get(value, key);
     out[key] = sortObjectKeysDeep(v);
   }
   return out;
@@ -54,6 +66,8 @@ function sortObjectKeysDeep(value: unknown): unknown {
  * Intended as the last step after the property has applied whatever
  * array-scoped sorts its spec citation allows. Array order is
  * preserved; object key order is normalized.
+ * @param value Value to process.
+ * @returns Whether onical json.
  */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortObjectKeysDeep(value));

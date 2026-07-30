@@ -1,6 +1,10 @@
 import { assert, effect as test } from "@effect/vitest";
 import { DateTime, Effect, Schema, Stream } from "effect";
-import { LedgerManifest, LedgerRef, LedgerStorageError } from "../ledger.js";
+import {
+  LedgerManifest,
+  ledgerRef as ledgerRefSchema,
+  LedgerStorageError,
+} from "../ledger.js";
 import { EventCatalog } from "../events/catalog.js";
 import type { LedgerWriter, RunLedger } from "../ledger/live.js";
 import type { LedgerRecord } from "../ledger/model.js";
@@ -13,14 +17,14 @@ class Observation extends Schema.TaggedClass<Observation>()(
   },
 ) {}
 
-const CustomerEvents = EventCatalog.make(Observation);
+const customerEvents = EventCatalog.make(Observation);
 const PROGRAM_PRODUCER = "program";
 const VISIBLE_OBSERVATION = "visible";
 const services = makeDefinitionEventServices(
   "acme.service-test/v1",
-  CustomerEvents,
+  customerEvents,
 );
-const ledgerRef = Schema.decodeSync(LedgerRef)("service-test");
+const ledgerRef = Schema.decodeSync(ledgerRefSchema)("service-test");
 const manifest = LedgerManifest.make({
   ledgerFormatVersion: 1,
   definitionId: "acme.service-test/v1",
@@ -40,7 +44,7 @@ function emptyLedger(): RunLedger<typeof services.catalog> {
   };
 }
 
-function record(event: Observation): LedgerRecord<typeof CustomerEvents> {
+function record(event: Observation): LedgerRecord<typeof customerEvents> {
   return {
     runId: "service-test",
     eventId: "service-test:0",
@@ -53,11 +57,11 @@ function record(event: Observation): LedgerRecord<typeof CustomerEvents> {
 }
 
 test("provides customer emission through the definition tag", () => {
-  const writer: LedgerWriter<typeof CustomerEvents> = {
+  const writer: LedgerWriter<typeof customerEvents> = {
     write: ({ event }) => Effect.succeed(record(event)),
   };
   return Effect.gen(function* () {
-    const events = yield* services.Events;
+    const events = yield* services.events;
     const committed = yield* events.emit(
       Observation.make({ value: VISIBLE_OBSERVATION }),
     );
@@ -68,9 +72,9 @@ test("provides customer emission through the definition tag", () => {
 });
 
 test("omits empty causality metadata before it reaches the ledger", () => {
-  type Write = Parameters<LedgerWriter<typeof CustomerEvents>["write"]>[0];
+  type Write = Parameters<LedgerWriter<typeof customerEvents>["write"]>[0];
   let captured: Write | undefined;
-  const writer: LedgerWriter<typeof CustomerEvents> = {
+  const writer: LedgerWriter<typeof customerEvents> = {
     write: (input) =>
       Effect.sync(() => {
         captured = input;
@@ -78,7 +82,7 @@ test("omits empty causality metadata before it reaches the ledger", () => {
       }),
   };
   return Effect.gen(function* () {
-    const events = yield* services.Events;
+    const events = yield* services.events;
     yield* events.emit(Observation.make({ value: VISIBLE_OBSERVATION }), {
       causationId: "",
       correlationId: "",
@@ -95,11 +99,11 @@ test("preserves the precise ledger failure at the live service boundary", () => 
     operation: "append",
     detail: "disk unavailable",
   });
-  const writer: LedgerWriter<typeof CustomerEvents> = {
+  const writer: LedgerWriter<typeof customerEvents> = {
     write: () => Effect.fail(failure),
   };
   return Effect.gen(function* () {
-    const events = yield* services.Events;
+    const events = yield* services.events;
     const observed = yield* events
       .emit(Observation.make({ value: "uncommitted" }))
       .pipe(Effect.flip);

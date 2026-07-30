@@ -49,7 +49,9 @@ function hex32(input: string): string {
 }
 
 function uuidFor(namespace: string, label: string): string {
-  if (UUID_RE.test(label)) return label;
+  if (UUID_RE.test(label)) {
+    return label;
+  }
   const h = hex32(`${namespace}:${label}`);
   return [
     h.slice(0, UUID_FIRST_END),
@@ -60,17 +62,42 @@ function uuidFor(namespace: string, label: string): string {
   ].join("-");
 }
 
+/**
+ * Provides the test agent id runtime value.
+ * @param label Value supplied to the operation.
+ * @returns The test agent id result.
+ */
 export const testAgentId = (label: string): AgentId =>
   agentId(uuidFor("agent", label));
 
+/**
+ * Provides the test conversation id runtime value.
+ * @param label Value supplied to the operation.
+ * @returns The test conversation id result.
+ */
 export const testConversationId = (label: string): ConversationId =>
   conversationId(uuidFor("conversation", label));
 
+/**
+ * Provides the test message id runtime value.
+ * @param label Value supplied to the operation.
+ * @returns The test message id result.
+ */
 export const testMessageId = (label: string): MessageId =>
   messageId(uuidFor("message", label));
 
+/**
+ * Provides the test task id runtime value.
+ * @param label Value supplied to the operation.
+ * @returns The test task id result.
+ */
 export const testTaskId = (label: string): TaskId =>
   taskId(uuidFor("task", label));
 
+/**
+ * Provides the test lease id runtime value.
+ * @param label Value supplied to the operation.
+ * @returns The test lease id result.
+ */
 export const testLeaseId = (label: string): LeaseId =>
   leaseId(uuidFor("lease", label));

@@ -10,7 +10,7 @@ import {
   Ref,
   Scope,
 } from "effect";
-import { LinkDown, LinkEvents, LinkUp } from "../events/core.js";
+import { LinkDown, linkEvents, LinkUp } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import { LedgerStorageError } from "../ledger/storage.js";
 import {
@@ -23,7 +23,7 @@ import {
 } from "../network.js";
 import { makeLinkController } from "./links.js";
 
-type LinkEventWriter = LedgerWriter<typeof LinkEvents>;
+type LinkEventWriter = LedgerWriter<typeof linkEvents>;
 const aliceId = agentId("00000000-0000-4000-8000-000000000001");
 const bobId = agentId("00000000-0000-4000-8000-000000000002");
 const alice = makeParticipantHandle("alice", aliceId);
@@ -51,7 +51,7 @@ function eventWriter(events: Array<LinkDown | LinkUp>): LinkEventWriter {
   };
 }
 
-function driver(actions: Array<string>): LinkDriverService {
+function driver(actions: string[]): LinkDriverService {
   return {
     disable: (from, to) =>
       Effect.sync(() => {
@@ -92,7 +92,7 @@ function close(scope: Scope.CloseableScope) {
 test("shares one physical transition across overlapping disable scopes", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const actions: Array<string> = [];
+      const actions: string[] = [];
       const events: Array<LinkDown | LinkUp> = [];
       const controller = yield* makeLinkController(eventWriter(events));
       const first = yield* Scope.make();
@@ -125,15 +125,15 @@ test("shares one physical transition across overlapping disable scopes", () =>
           [aliceId, bobId],
         ],
       );
-      assert.isTrue(LinkEvents.hasEvent(events[0]));
+      assert.isTrue(linkEvents.hasEvent(events[0]));
     }),
   ));
 
 test("releases an overlapping link through the driver that disabled it", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const firstDriverActions: Array<string> = [];
-      const secondDriverActions: Array<string> = [];
+      const firstDriverActions: string[] = [];
+      const secondDriverActions: string[] = [];
       const controller = yield* makeLinkController(eventWriter([]));
       const first = yield* Scope.make();
       const second = yield* Scope.make();
@@ -166,7 +166,7 @@ test("interrupts a pending platform disable without installing a lease", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const events: Array<LinkDown | LinkUp> = [];
-      const started = yield* Deferred.make<void>();
+      const started = yield* Deferred.make<undefined>();
       const interrupted = yield* Ref.make(false);
       const controller = yield* makeLinkController(eventWriter(events));
       const scope = yield* Scope.make();
@@ -199,9 +199,9 @@ test("interrupts a pending platform disable without installing a lease", () =>
 test("rolls back when link-down evidence is interrupted", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const actions: Array<string> = [];
+      const actions: string[] = [];
       const events: Array<LinkDown | LinkUp> = [];
-      const writeStarted = yield* Deferred.make<void>();
+      const writeStarted = yield* Deferred.make<undefined>();
       const writeInterrupted = yield* Ref.make(false);
       const writer: LinkEventWriter = {
         write: () =>
@@ -262,7 +262,7 @@ test("returns only the real rollback failure after ledger evidence fails", () =>
 test("rolls back ledger evidence failure without fabricating a network failure", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const actions: Array<string> = [];
+      const actions: string[] = [];
       const controller = yield* makeLinkController(unavailableEventWriter());
       const scope = yield* Scope.make();
       const exit = yield* controller
@@ -285,10 +285,10 @@ test("rolls back ledger evidence failure without fabricating a network failure",
 test("awaits the platform enable before a disable scope closes", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const actions: Array<string> = [];
+      const actions: string[] = [];
       const events: Array<LinkDown | LinkUp> = [];
-      const enableStarted = yield* Deferred.make<void>();
-      const allowEnable = yield* Deferred.make<void>();
+      const enableStarted = yield* Deferred.make<undefined>();
+      const allowEnable = yield* Deferred.make<undefined>();
       const controller = yield* makeLinkController(eventWriter(events));
       const scope = yield* Scope.make();
       const delayedEnable: LinkDriverService = {
@@ -364,7 +364,7 @@ test("surfaces a platform enable failure from scoped cleanup", () =>
 test("rejects a self-link before consulting the platform driver", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const actions: Array<string> = [];
+      const actions: string[] = [];
       const controller = yield* makeLinkController(eventWriter([]));
       const failure = yield* controller
         .disable(alice, alice)

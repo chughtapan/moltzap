@@ -8,7 +8,7 @@ Narrow core wiring barrel for server-core internals.
 
 ## Public surface
 
-### [`ConnectionHook`](./types.ts#L8)
+### [`ConnectionHook`](./types.ts#L9)
 
 _TypeAlias_
 
@@ -19,10 +19,12 @@ export type ConnectionHook = (params: {
   /** Owner user ID resolved at agent/network/connect time. */
   ownerUserId: UserId;
   connId: ConnectionId;
-}) => PromiseLike<void> | void;
+}) => PromiseLike<undefined> | undefined;
 ```
 
-### [`ConnectionHooks`](./hooks.ts#L7)
+Represents connection hook values.
+
+### [`ConnectionHooks`](./hooks.ts#L8)
 
 _Interface_
 
@@ -33,7 +35,9 @@ export interface ConnectionHooks {
 }
 ```
 
-### [`ConnectionHooksTag`](./hooks.ts#L12)
+Describes connection hooks.
+
+### [`ConnectionHooksTag`](./hooks.ts#L14)
 
 _Class_
 
@@ -44,7 +48,9 @@ export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
 >() {}
 ```
 
-### [`CoreApp`](./types.ts#L22)
+Implements connection hooks tag.
+
+### [`CoreApp`](./types.ts#L25)
 
 _Interface_
 
@@ -94,11 +100,13 @@ export interface CoreApp {
    * consumers can read lease state directly via this handle.
    */
   readonly leaseRegistry: LeaseRegistry;
-  close: () => PromiseLike<void>;
+  close: () => PromiseLike<undefined>;
 }
 ```
 
-### [`createCoreApp`](./app.ts#L133)
+Describes core app.
+
+### [`createCoreApp`](./app.ts#L148)
 
 _Function_
 
@@ -106,7 +114,11 @@ _Function_
 export function createCoreApp(config: CoreConfig): CoreApp
 ```
 
-### [`DisconnectionHook`](./types.ts#L16)
+Creates core app.
+
+**Returns:** The created core app.
+
+### [`DisconnectionHook`](./types.ts#L18)
 
 _TypeAlias_
 
@@ -115,10 +127,12 @@ export type DisconnectionHook = (params: {
   agentId: AgentId;
   ownerUserId: UserId;
   connId: ConnectionId;
-}) => PromiseLike<void> | void;
+}) => PromiseLike<undefined> | undefined;
 ```
 
-### [`makeTracingLayer`](./tracing.ts#L41)
+Represents disconnection hook values.
+
+### [`makeTracingLayer`](./tracing.ts#L43)
 
 _Function_
 
@@ -130,31 +144,31 @@ Build a tracing Layer that wires the OTel SDK with the given span
 processor. The processor controls how spans get exported (OTLP batch
 in production; in-memory simple processor in tests).
 
-### [`readDefaultSpanProcessor`](./tracing.ts#L86)
+**Returns:** The created tracing layer.
+
+### [`readDefaultSpanProcessor`](./tracing.ts#L102)
 
 _Variable_
 
 ```ts
-export const readDefaultSpanProcessor: Effect.Effect<
-  SpanProcessor | null,
-  never
-> = Effect.all({
-  tracesEndpoint: Config.option(
-    Config.string("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
-  ),
-  baseEndpoint: Config.option(Config.string("OTEL_EXPORTER_OTLP_ENDPOINT")),
-}).pipe(
-  Effect.map(({ tracesEndpoint, baseEndpoint }) => {
-    const url = resolveTracesEndpoint(
-      Option.getOrUndefined(tracesEndpoint),
-      Option.getOrUndefined(baseEndpoint),
-    );
-    return url === null
-      ? null
-      : new BatchSpanProcessor(new OTLPTraceExporter({ url }));
-  }),
-  Effect.orElseSucceed(() => null),
-)
+export const readDefaultSpanProcessor: Effect.Effect<SpanProcessor | null> =
+  Effect.all({
+    tracesEndpoint: Config.option(
+      Config.string("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+    ),
+    baseEndpoint: Config.option(Config.string("OTEL_EXPORTER_OTLP_ENDPOINT")),
+  }).pipe(
+    Effect.map(({ tracesEndpoint, baseEndpoint }) => {
+      const url = resolveTracesEndpoint(
+        Option.getOrUndefined(tracesEndpoint),
+        Option.getOrUndefined(baseEndpoint),
+      );
+      return url === null
+        ? null
+        : new BatchSpanProcessor(new OTLPTraceExporter({ url }));
+    }),
+    Effect.orElseSucceed(() => null),
+  )
 ```
 
 Default span-processor factory for production boot.
@@ -166,7 +180,7 @@ precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
 returns `null` — the caller falls through to a no-op tracing Layer (spans
 stay in Effect's fiber context but are not exported).
 
-### [`ResolvedServices`](./layers.ts#L120)
+### [`ResolvedServices`](./layers.ts#L119)
 
 _Interface_
 
@@ -188,6 +202,8 @@ export interface ResolvedServices {
   readonly encryption: EnvelopeEncryption | null;
 }
 ```
+
+Describes resolved services.
 
 ### [`resolveServices`](./layers.ts#L137)
 
@@ -212,18 +228,24 @@ export const resolveServices = Effect.all({
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>
 ```
 
-### [`resolveTracesEndpoint`](./tracing.ts#L65)
+Provides the resolve services runtime value.
+
+### [`resolveTracesEndpoint`](./tracing.ts#L77)
 
 _Function_
 
 ```ts
 export function resolveTracesEndpoint(
-  tracesEndpoint: string | undefined,
-  baseEndpoint: string | undefined,
+  tracesEndpoint?: string,
+  baseEndpoint?: string,
 ): string | null
 ```
 
-### [`ServerBootFailedError`](./app.ts#L46)
+Resolves traces endpoint.
+
+**Returns:** The resolve traces endpoint result.
+
+### [`ServerBootFailedError`](./app.ts#L47)
 
 _Class_
 
@@ -247,16 +269,18 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`ServicesLive`](./layers.ts#L115)
+### [`servicesLive`](./layers.ts#L113)
 
 _Variable_
 
 ```ts
-export const ServicesLive = Layer.provideMerge(
-  TaskServiceLive,
-  MessageDomainLive,
+export const servicesLive = Layer.provideMerge(
+  taskServiceLive,
+  messageDomainLive,
 )
 ```
+
+Provides the services live runtime value.
 
 ## Files
 

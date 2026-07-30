@@ -2,7 +2,7 @@
  * Application-level snowflake ID generator for message ordering.
  *
  * Generates monotonically increasing 52-bit IDs:
- *   timestamp_ms (42 bits) | counter (10 bits)
+ *   timestamp_ms (42 bits) | counter (10 bits).
  *
  * 52 bits fits within Number.MAX_SAFE_INTEGER (2^53 - 1), so seq values
  * can be safely represented as JavaScript Numbers in JSON without precision loss.
@@ -15,6 +15,10 @@ let counter = 0;
 const COUNTER_BITS = 10;
 const MAX_COUNTER = (1 << COUNTER_BITS) - 1; // 1023
 
+/**
+ * Executes the next snowflake id operation.
+ * @returns The next snowflake id result.
+ */
 export function nextSnowflakeId(): bigint {
   const now = Date.now();
 
@@ -34,6 +38,11 @@ export function nextSnowflakeId(): bigint {
   return (BigInt(now) << BigInt(COUNTER_BITS)) | BigInt(counter);
 }
 
+/**
+ * Executes the snowflake to timestamp operation.
+ * @param id Value supplied to the operation.
+ * @returns The snowflake to timestamp result.
+ */
 export function snowflakeToTimestamp(id: bigint): Date {
   return new Date(Number(id >> BigInt(COUNTER_BITS)));
 }

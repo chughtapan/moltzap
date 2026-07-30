@@ -1,122 +1,121 @@
 /** @file Core service graph composition. */
+// safer-arch-ignore no-cross-domain-sibling-import: This file is the explicit composition root that wires every domain's service tags and live layers.
+// safer-arch-ignore file-implicit-boundary-module: Core layers is deliberately the named internal boundary for the complete server service graph.
 
 import { Effect, Layer } from "effect";
 
-import type { Db } from "#db";
-import type { EnvelopeEncryption } from "#db/crypto";
+import { type Db, DbTag } from "#db";
+import { type EnvelopeEncryption, EncryptionTag } from "#db/crypto";
 import {
-  ConnectionManagerLive,
+  connectionManagerLive,
   ConnectionManagerTag,
-  type ConnectionManager,
-} from "#socket";
+} from "../socket/layer.js";
+import type { ConnectionManager } from "../socket/connection.js";
 import {
-  AgentEndpointResolverLive,
+  agentEndpointResolverLive,
   AgentEndpointResolverTag,
-  NetworkSendServiceLive,
+  networkSendServiceLive,
   NetworkSendServiceTag,
-  type AgentEndpointResolver,
-  type NetworkSendService,
-} from "#network";
+} from "../network/layer.js";
+import type { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
+import type { NetworkSendService } from "../network/network-send.js";
+import { authServiceLive, AuthServiceTag } from "../identity/agents/layer.js";
+import type { AuthService } from "../identity/agents/auth.service.js";
 import {
-  AuthServiceLive,
-  AuthServiceTag,
-  type AuthService,
-} from "#identity/agents";
-import {
-  AppAuthServiceLive,
+  appAuthServiceLive,
   AppAuthServiceTag,
-  AppEndpointRegistryLive,
+  appEndpointRegistryLive,
   AppEndpointRegistryTag,
-  type AppAuthService,
-  type AppEndpointRegistry,
-} from "#identity/apps";
+} from "../identity/apps/layer.js";
+import type { AppAuthService } from "../identity/apps/auth.service.js";
+import type { AppEndpointRegistry } from "../identity/apps/endpoint-registry.js";
 import {
-  ContactsServiceLive,
+  contactsServiceLive,
   ContactsServiceTag,
-  type ContactsService,
-} from "#identity/contacts";
+} from "../identity/contacts/layer.js";
+import type { ContactsService } from "../identity/contacts/contact.service.js";
 import {
-  ConversationServiceLive,
+  conversationServiceLive,
   ConversationServiceTag,
-  type ConversationService,
-} from "#conversation";
+} from "../conversation/layer.js";
+import type { ConversationService } from "../conversation/conversation.service.js";
 import {
-  PresenceServiceLive,
+  presenceServiceLive,
   PresenceServiceTag,
-  type PresenceService,
-} from "#network/presence";
+} from "../network/presence/layer.js";
+import type { PresenceService } from "../network/presence/presence.service.js";
 import {
-  DispatchAdmissionServiceLive,
-  LeaseRegistryLive,
+  dispatchAdmissionServiceLive,
+  leaseRegistryLive,
   LeaseRegistryTag,
-  type LeaseRegistry,
-} from "#dispatch";
+} from "../dispatch/layer.js";
+import type { LeaseRegistry } from "../dispatch/lease-registry.js";
 import {
-  MessageAuthorizationServiceLive,
-  MessageServiceLive,
+  messageAuthorizationServiceLive,
+  messageServiceLive,
   MessageServiceTag,
-  type MessageService,
-} from "#message";
+} from "../message/layer.js";
+import type { MessageService } from "../message/message.service.js";
 import {
-  TaskAuthorizationServiceLive,
-  TaskServiceLive,
+  taskAuthorizationServiceLive,
+  taskServiceLive,
   TaskServiceTag,
-  type TaskService,
-} from "#task";
-import { DbTag } from "#db";
-import { EncryptionTag } from "#db/crypto";
+} from "../task/layer.js";
+import type { TaskService } from "../task/task.service.js";
 
-const CoreRuntimeServicesLive = Layer.mergeAll(
-  ConnectionManagerLive,
-  AuthServiceLive,
-  AppAuthServiceLive,
-  ContactsServiceLive,
+const coreRuntimeServicesLive = Layer.mergeAll(
+  connectionManagerLive,
+  authServiceLive,
+  appAuthServiceLive,
+  contactsServiceLive,
 );
 
-const PresenceAndEndpointResolverLive = Layer.provideMerge(
-  Layer.mergeAll(PresenceServiceLive, AgentEndpointResolverLive),
-  CoreRuntimeServicesLive,
+const presenceAndEndpointResolverLive = Layer.provideMerge(
+  Layer.mergeAll(presenceServiceLive, agentEndpointResolverLive),
+  coreRuntimeServicesLive,
 );
 
-const NetworkSendWithPresenceLive = Layer.provideMerge(
-  NetworkSendServiceLive,
-  PresenceAndEndpointResolverLive,
+const networkSendWithPresenceLive = Layer.provideMerge(
+  networkSendServiceLive,
+  presenceAndEndpointResolverLive,
 );
 
-const LeaseRegistryWithNetworkLive = Layer.provideMerge(
-  LeaseRegistryLive,
-  NetworkSendWithPresenceLive,
+const leaseRegistryWithNetworkLive = Layer.provideMerge(
+  leaseRegistryLive,
+  networkSendWithPresenceLive,
 );
 
-const AppEndpointRegistryWithLeasesLive = Layer.provideMerge(
-  AppEndpointRegistryLive,
-  LeaseRegistryWithNetworkLive,
+const appEndpointRegistryWithLeasesLive = Layer.provideMerge(
+  appEndpointRegistryLive,
+  leaseRegistryWithNetworkLive,
 );
 
-const ConversationWithAppRegistryLive = Layer.provideMerge(
-  ConversationServiceLive,
-  AppEndpointRegistryWithLeasesLive,
+const conversationWithAppRegistryLive = Layer.provideMerge(
+  conversationServiceLive,
+  appEndpointRegistryWithLeasesLive,
 );
 
-const DomainAuthorizationLive = Layer.provideMerge(
+const domainAuthorizationLive = Layer.provideMerge(
   Layer.mergeAll(
-    DispatchAdmissionServiceLive,
-    MessageAuthorizationServiceLive,
-    TaskAuthorizationServiceLive,
+    dispatchAdmissionServiceLive,
+    messageAuthorizationServiceLive,
+    taskAuthorizationServiceLive,
   ),
-  ConversationWithAppRegistryLive,
+  conversationWithAppRegistryLive,
 );
 
-const MessageDomainLive = Layer.provideMerge(
-  MessageServiceLive,
-  DomainAuthorizationLive,
+const messageDomainLive = Layer.provideMerge(
+  messageServiceLive,
+  domainAuthorizationLive,
 );
 
-export const ServicesLive = Layer.provideMerge(
-  TaskServiceLive,
-  MessageDomainLive,
+/** Provides the services live runtime value. */
+export const servicesLive = Layer.provideMerge(
+  taskServiceLive,
+  messageDomainLive,
 );
 
+/** Describes resolved services. */
 export interface ResolvedServices {
   readonly db: Db;
   readonly connections: ConnectionManager;
@@ -134,6 +133,7 @@ export interface ResolvedServices {
   readonly encryption: EnvelopeEncryption | null;
 }
 
+/** Provides the resolve services runtime value. */
 export const resolveServices = Effect.all({
   db: DbTag,
   encryption: EncryptionTag,

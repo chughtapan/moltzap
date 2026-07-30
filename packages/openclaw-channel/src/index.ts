@@ -8,4 +8,6 @@ export {
   moltzapChannelPlugin,
   type MoltzapChannelPlugin,
 } from "./openclaw-entry.js";
+/** Re-exports the public API from `./openclaw-entry.js`. */
+// eslint-disable-next-line import-x/no-default-export -- OpenClaw's extension loader resolves the package root default export.
 export { default } from "./openclaw-entry.js";

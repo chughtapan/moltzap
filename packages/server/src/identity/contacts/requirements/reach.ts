@@ -8,11 +8,17 @@ import type {
 import { ConversationServiceTag } from "#conversation";
 import { catchSqlErrorAsDefect } from "#db";
 
+/** Describes creator and targets. */
 export interface CreatorAndTargets {
   readonly creatorAgentId: AgentId;
   readonly targetAgentIds: readonly AgentId[];
 }
 
+/**
+ * Provides the obtain contact policy allows reach runtime value.
+ * @param input Input value to process.
+ * @returns The obtain contact policy allows reach result.
+ */
 export const obtainContactPolicyAllowsReach = (
   input: CreatorAndTargets,
 ): Effect.Effect<

@@ -16,4 +16,4 @@
  * RunLedger storage version are independent namespaces and never imply
  * compatibility with this value.
  */
-export const MOLTZAP_VERSION = "2026.729.0";
+export const MOLTZAP_VERSION = "2026.729.1";

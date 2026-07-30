@@ -1,66 +1,71 @@
 import { Schema } from "effect";
-import {
-  EventCatalog,
-  type EventClass,
-  type EventOf,
-} from "../events/catalog.js";
+import type { EventCatalog, EventClass, EventOf } from "../events/catalog.js";
 
+/** Provides the ledger format version runtime value. */
 export const LEDGER_FORMAT_VERSION = 1;
 
 /** Storage-owned identity that never exposes a filesystem path. */
-export const LedgerRef = Schema.NonEmptyString.pipe(Schema.brand("LedgerRef"));
-export type LedgerRef = typeof LedgerRef.Type;
+export const ledgerRef = Schema.NonEmptyString.pipe(Schema.brand("LedgerRef"));
+/** Represents ledger ref values. */
+export type LedgerRef = typeof ledgerRef.Type;
 
+/* eslint-disable agent-code-guard/no-nullish-type-aliases -- JSON includes null as a first-class value by definition. */
+/** Represents json value values. */
 export type JsonValue =
   | string
   | number
   | boolean
   | null
-  | ReadonlyArray<JsonValue>
+  | readonly JsonValue[]
   | { readonly [key: string]: JsonValue };
+/* eslint-enable agent-code-guard/no-nullish-type-aliases -- The JSON-specific recursive union ends here. */
 
-export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
+/** Validates and decodes json value values. */
+export const jsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
   Schema.Union(
     Schema.String,
     Schema.Finite,
     Schema.Boolean,
     Schema.Null,
-    Schema.Array(JsonValue),
-    Schema.Record({ key: Schema.String, value: JsonValue }),
+    Schema.Array(jsonValue),
+    Schema.Record({ key: Schema.String, value: jsonValue }),
   ),
 ).annotations({ identifier: "LedgerJsonValue" });
 
-const JsonObjectSchema = Schema.Record({
+const jsonObjectSchema = Schema.Record({
   key: Schema.String,
-  value: JsonValue,
+  value: jsonValue,
 });
-export type JsonObject = typeof JsonObjectSchema.Type;
+/** Represents json object values. */
+export type JsonObject = typeof jsonObjectSchema.Type;
 
-const VersionedIdentifierSchema = Schema.String.pipe(
+const versionedIdentifierSchema = Schema.String.pipe(
   Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
 );
-const VersionedEventTagSchema = Schema.String.pipe(
+const versionedEventTagSchema = Schema.String.pipe(
   Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
 );
-const NonNegativeInteger = Schema.Int.pipe(Schema.nonNegative());
+const nonNegativeInteger = Schema.Int.pipe(Schema.nonNegative());
 
-export const LedgerDigest = Schema.String.pipe(
+/** Validates and decodes ledger digest values. */
+export const ledgerDigest = Schema.String.pipe(
   Schema.pattern(/^[\da-f]{64}$/u),
   Schema.brand("LedgerDigest"),
 );
-export type LedgerDigest = typeof LedgerDigest.Type;
+/** Represents ledger digest values. */
+export type LedgerDigest = typeof ledgerDigest.Type;
 
 /** Definition and provenance bound to every completed ledger. */
 export class LedgerManifest extends Schema.Class<LedgerManifest>(
   "LedgerManifest",
 )({
   ledgerFormatVersion: Schema.Literal(LEDGER_FORMAT_VERSION),
-  definitionId: VersionedIdentifierSchema,
+  definitionId: versionedIdentifierSchema,
   runId: Schema.NonEmptyString,
-  catalogTags: Schema.Array(VersionedEventTagSchema),
+  catalogTags: Schema.Array(versionedEventTagSchema),
   createdAt: Schema.DateTimeUtc,
-  provenance: JsonObjectSchema,
-  metadata: JsonObjectSchema,
+  provenance: jsonObjectSchema,
+  metadata: jsonObjectSchema,
 }) {}
 
 /** The immutable publication marker for a completed ledger. */
@@ -69,10 +74,10 @@ export class LedgerCompletion extends Schema.Class<LedgerCompletion>(
 )({
   ledgerFormatVersion: Schema.Literal(LEDGER_FORMAT_VERSION),
   runId: Schema.NonEmptyString,
-  recordCount: NonNegativeInteger,
+  recordCount: nonNegativeInteger,
   artifacts: Schema.Struct({
-    manifest: LedgerDigest,
-    records: LedgerDigest,
+    manifest: ledgerDigest,
+    records: ledgerDigest,
   }),
 }) {}
 
@@ -89,7 +94,11 @@ export interface LedgerRecord<Catalog> {
   readonly event: EventOf<Catalog>;
 }
 
-/** The envelope schema shared by live commits and completed-ledger inspection. */
+/**
+ * The envelope schema shared by live commits and completed-ledger inspection.
+ * @param catalog Value supplied to the operation.
+ * @returns The created ledger record schema.
+ */
 export function makeLedgerRecordSchema<
   SchemaType extends Schema.Schema.All,
   Classes extends EventClass,
@@ -97,9 +106,9 @@ export function makeLedgerRecordSchema<
   return Schema.Struct({
     runId: Schema.NonEmptyString,
     eventId: Schema.NonEmptyString,
-    logicalSequence: NonNegativeInteger,
+    logicalSequence: nonNegativeInteger,
     elapsedNanos: Schema.NonNegativeBigInt,
-    observedAt: NonNegativeInteger,
+    observedAt: nonNegativeInteger,
     producer: Schema.NonEmptyString,
     causationId: Schema.optional(Schema.NonEmptyString),
     correlationId: Schema.optional(Schema.NonEmptyString),

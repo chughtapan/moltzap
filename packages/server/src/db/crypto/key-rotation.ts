@@ -1,7 +1,7 @@
 import type { Db } from "../client.js";
 import type { ConversationKeyRow, Database } from "../database.js";
 import type { Transaction } from "../kysely-vendor.js";
-import { EnvelopeEncryption, type EncryptedPayload } from "./envelope.js";
+import type { EnvelopeEncryption, EncryptedPayload } from "./envelope.js";
 import type { Kek } from "./kek.js";
 import { serializePayload, deserializePayload } from "./serialization.js";
 import { Data, Effect } from "effect";
@@ -39,10 +39,22 @@ interface RewrapConversationKeyInput {
   readonly next: NextKek;
 }
 
+/**
+ * Executes the seed initial kek operation.
+ * @param db Value supplied to the operation.
+ * @param envelope Value supplied to the operation.
+ * @returns The seed initial kek result.
+ */
 export function seedInitialKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(seedInitialKekEffect(db, envelope));
 }
 
+/**
+ * Executes the rotate kek operation.
+ * @param db Value supplied to the operation.
+ * @param envelope Value supplied to the operation.
+ * @returns The rotate kek result.
+ */
 export function rotateKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(rotateKekEffect(db, envelope));
 }
@@ -50,7 +62,7 @@ export function rotateKek(db: Db, envelope: EnvelopeEncryption) {
 function seedInitialKekEffect(
   db: Db,
   envelope: EnvelopeEncryption,
-): Effect.Effect<void, SqlError, never> {
+): Effect.Effect<void, SqlError> {
   return Effect.gen(function* () {
     const kek = envelope.generateKek();
     const encrypted = envelope.encryptKek(kek);
@@ -72,7 +84,7 @@ function seedInitialKekEffect(
 function rotateKekEffect(
   db: Db,
   envelope: EnvelopeEncryption,
-): Effect.Effect<number, SqlError | KeyRotationError, never> {
+): Effect.Effect<number, SqlError | KeyRotationError> {
   return Effect.gen(function* () {
     const current = yield* loadActiveKek(db, envelope);
     const next = createNextKek(envelope, current.version);
@@ -97,7 +109,7 @@ function rotateKekEffect(
 function loadActiveKek(
   db: Db,
   envelope: EnvelopeEncryption,
-): Effect.Effect<ActiveKek, SqlError | KeyRotationError, never> {
+): Effect.Effect<ActiveKek, SqlError | KeyRotationError> {
   return takeFirstOrElse(
     db
       .selectFrom("encryption_keys")
@@ -131,7 +143,7 @@ function rewrapConversationKeys(
   envelope: EnvelopeEncryption,
   current: ActiveKek,
   next: NextKek,
-): Effect.Effect<number, SqlError, never> {
+): Effect.Effect<number, SqlError> {
   return transaction(db, (trx) =>
     Effect.gen(function* () {
       yield* insertNextKek(trx, next);

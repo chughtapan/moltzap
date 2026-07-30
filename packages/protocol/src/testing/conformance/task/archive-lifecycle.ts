@@ -4,7 +4,7 @@
  *   - agent/message/send to the archived conversation returns the typed
  *     ConversationArchived error
  *   - app/conversation/update unarchive broadcasts agent/conversation/unarchived
- *   - agent/message/send succeeds again after unarchive
+ *   - agent/message/send succeeds again after unarchive.
  */
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -27,6 +27,10 @@ import {
 
 const PROPERTY = "archive-lifecycle";
 
+/**
+ * Registers archive lifecycle.
+ * @param ctx Context for the operation.
+ */
 export function registerArchiveLifecycle(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -61,12 +65,7 @@ function assertArchive(
     yield* requireRight(archive, (error) =>
       deliveryViolation(PROPERTY, `archive failed: ${error._tag}`),
     );
-    yield* waitForArchivedEvent(
-      participant,
-      fixture.conversationId,
-      fixture.owner.agent.agentId,
-      PROPERTY,
-    );
+    yield* waitForArchivedEvent(participant, fixture.conversationId, PROPERTY);
     yield* assertConversationRejectsMessages({
       actor: participant,
       taskId: fixture.taskId,
@@ -92,7 +91,6 @@ function assertUnarchive(
     yield* waitForUnarchivedEvent(
       participant,
       fixture.conversationId,
-      fixture.owner.agent.agentId,
       PROPERTY,
     );
     const resumedSend = yield* sendText(

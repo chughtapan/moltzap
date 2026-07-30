@@ -7,10 +7,20 @@ import type { MessagingGroup, MessagingGroupAgent } from "../types.js";
 const groups = new Map<string, MessagingGroup>();
 const wirings = new Map<string, MessagingGroupAgent>();
 
+/**
+ * Creates messaging group.
+ * @param group Value supplied to the operation.
+ */
 export function createMessagingGroup(group: MessagingGroup): void {
   groups.set(group.id, group);
 }
 
+/**
+ * Returns messaging group by platform.
+ * @param channelType Value supplied to the operation.
+ * @param platformId Value supplied to the operation.
+ * @returns The get messaging group by platform result.
+ */
 export function getMessagingGroupByPlatform(
   channelType: string,
   platformId: string,
@@ -26,10 +36,20 @@ export function getMessagingGroupByPlatform(
   return undefined;
 }
 
+/**
+ * Creates messaging group agent.
+ * @param mga Value supplied to the operation.
+ */
 export function createMessagingGroupAgent(mga: MessagingGroupAgent): void {
   wirings.set(mga.id, mga);
 }
 
+/**
+ * Returns messaging group agent by pair.
+ * @param messagingGroupId Value supplied to the operation.
+ * @param agentGroupId Value supplied to the operation.
+ * @returns The get messaging group agent by pair result.
+ */
 export function getMessagingGroupAgentByPair(
   messagingGroupId: string,
   agentGroupId: string,

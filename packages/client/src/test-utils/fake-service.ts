@@ -15,10 +15,10 @@
 
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
-import {
-  AgentCallableGroup,
-  type AnyAgentCallableRpcDefinition,
-  type AnyNotificationDefinition,
+import type {
+  agentCallableGroup,
+  AnyAgentCallableRpcDefinition,
+  AnyNotificationDefinition,
 } from "@moltzap/protocol/socket/catalog";
 import type {
   NotificationDelivery,
@@ -36,7 +36,7 @@ import { testAgentId } from "./ids.js";
 
 const TEST_AGENT_KEY = redactedAgentKey(agentKeyString(0));
 
-type FakeAgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+type FakeAgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
 type FakeAgentCallableTag = FakeAgentCallableRpcs["_tag"];
 type FakeResponseMap = {
   [Tag in FakeAgentCallableTag]?: () => Effect.Effect<
@@ -52,6 +52,7 @@ export interface RecordedCall {
   opts?: RpcCallOptions;
 }
 
+/** Implements fake molt zap service. */
 export class FakeMoltZapService extends MoltZapService {
   calls: RecordedCall[] = [];
   private readonly responses: FakeResponseMap = {};
@@ -72,6 +73,8 @@ export class FakeMoltZapService extends MoltZapService {
 
   /**
    * Register a canned response, typed against the real RPC descriptor.
+   * @param definition Protocol definition to process.
+   * @param result Value supplied to the operation.
    */
   setResponse<Tag extends FakeAgentCallableTag>(
     definition: Extract<AnyAgentCallableRpcDefinition, { readonly name: Tag }>,
@@ -82,11 +85,10 @@ export class FakeMoltZapService extends MoltZapService {
 
   /**
    * Remove a previously-registered response.
+   * @param definition Protocol definition to process.
    */
-  deleteResponse<Tag extends FakeAgentCallableTag>(
-    definition: Extract<AnyAgentCallableRpcDefinition, { readonly name: Tag }>,
-  ): void {
-    delete this.responses[definition.name];
+  deleteResponse(definition: AnyAgentCallableRpcDefinition): void {
+    Reflect.deleteProperty(this.responses, definition.name);
   }
 
   override call<Tag extends FakeAgentCallableTag>(
@@ -115,20 +117,26 @@ export class FakeMoltZapService extends MoltZapService {
   /**
    * Insert a message into the service's internal buffer without going
    * through the WebSocket path. Tests use this to stage context-building state.
+   * @param convId Value supplied to the operation.
+   * @param msg Value supplied to the operation.
    */
   addMessage(convId: string, msg: Message): void {
     Effect.runSync(
       Ref.update(this.parentMessagesRef, (m) => {
         const existing = Option.getOrElse(
           HashMap.get(m, convId),
-          () => [] as ReadonlyArray<Message>,
+          (): readonly Message[] => [],
         );
         return HashMap.set(m, convId, [...existing, msg]);
       }),
     );
   }
 
-  /** Deliver already Schema-decoded notification params through the service. */
+  /**
+   * Deliver already Schema-decoded notification params through the service.
+   * @param definition Protocol definition to process.
+   * @param params Request payload to process.
+   */
   emitEvent<D extends AnyNotificationDefinition>(
     definition: D,
     params: NotificationParamsOf<D>,
@@ -146,7 +154,11 @@ export class FakeMoltZapService extends MoltZapService {
     this.handleNotification(notification);
   }
 
-  /** Pin an agent name in the internal cache without an RPC round-trip. */
+  /**
+   * Pin an agent name in the internal cache without an RPC round-trip.
+   * @param id Value supplied to the operation.
+   * @param name Name of the operation.
+   */
   setAgentNameDirect(id: string, name: string): void {
     Effect.runSync(
       Ref.update(this.parentAgentNamesRef, (m) =>
@@ -159,16 +171,14 @@ export class FakeMoltZapService extends MoltZapService {
    * Typed views of the parent class's private Refs, exposed only to this
    * fake so its test-only harness methods can stage state without going
    * through the WebSocket pipeline.
+   * @returns The parent messages ref result.
    */
   private get parentMessagesRef(): ParentInternals["messagesRef"] {
-    return Reflect.get(this, "messagesRef") as ParentInternals["messagesRef"];
+    return Reflect.get(this, "messagesRef");
   }
 
   private get parentAgentNamesRef(): ParentInternals["agentNamesRef"] {
-    return Reflect.get(
-      this,
-      "agentNamesRef",
-    ) as ParentInternals["agentNamesRef"];
+    return Reflect.get(this, "agentNamesRef");
   }
 }
 
@@ -177,6 +187,6 @@ export class FakeMoltZapService extends MoltZapService {
  *  via `this.internals` so the test-only harness methods can seed state.
  */
 interface ParentInternals {
-  messagesRef: Ref.Ref<HashMap.HashMap<string, ReadonlyArray<Message>>>;
+  messagesRef: Ref.Ref<HashMap.HashMap<string, readonly Message[]>>;
   agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>>;
 }

@@ -58,7 +58,10 @@ const nanoClawEvaluation = defineEvaluationSuite(
   "-nanoclaw-live",
 ).eval021;
 
-type BehavioralRun = SimulatorRunResult<void, NetworkFailure | LedgerFailure>;
+type BehavioralRun = SimulatorRunResult<
+  undefined,
+  NetworkFailure | LedgerFailure
+>;
 
 function measurementResult<E, R>(
   runtime: string,
@@ -112,7 +115,7 @@ const behavioralMeasurement = Effect.fn("evals.measureRealAgentBehaviors")(
   },
 );
 
-const PlatformLayer = simulatorLayer({
+const platformLayer = simulatorLayer({
   ledgerDirectory: LEDGER_ROOT,
   router: { startupTimeout: ROUTER_STARTUP_TIMEOUT },
 });
@@ -121,7 +124,7 @@ it.scopedLive.skipIf(!INTEGRATION_ENABLED)(
   "grades EVAL-021 sequentially against OpenClaw and NanoClaw",
   () =>
     behavioralMeasurement().pipe(
-      Effect.provide(PlatformLayer),
+      Effect.provide(platformLayer),
       Effect.timeout(MEASUREMENT_TIMEOUT),
     ),
   Duration.toMillis(MEASUREMENT_TIMEOUT) + TEST_RUNNER_MARGIN_MS,

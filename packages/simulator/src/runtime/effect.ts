@@ -11,8 +11,8 @@ import {
 } from "./runtime.js";
 import type { AgentHandle } from "../network/participant.js";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesSend,
   type Message,
   type MessageParts,
   type MessageReceivedNotification,
@@ -52,15 +52,15 @@ export interface EffectMessageContext {
   readonly message: Message;
 }
 
-/** A message handler may decline to reply, reply with text, or provide parts. */
-export type EffectMessageReply = string | MessageParts | undefined;
+/** A message handler reply containing text or structured parts. */
+export type EffectMessageReply = string | MessageParts;
 
 /** Construction options owned by one in-process runtime implementation. */
 export interface EffectRuntimeOptions<E = never, R = never> {
   readonly startupTimeout?: Duration.Duration;
   readonly onMessage?: (
     context: EffectMessageContext,
-  ) => Effect.Effect<EffectMessageReply, E, R>;
+  ) => Effect.Effect<EffectMessageReply | undefined, E, R>;
 }
 
 interface EffectRuntimeState {
@@ -78,27 +78,27 @@ function startFailure(
   });
 }
 
-function replyParts(
-  reply: Exclude<EffectMessageReply, undefined>,
-): MessageParts {
+function replyParts(reply: EffectMessageReply): MessageParts {
   return typeof reply === "string" ? [{ type: "text", text: reply }] : reply;
 }
 
 function sendReply(
   client: MoltZapAgentClient,
   incoming: MessageReceivedNotification,
-  reply: EffectMessageReply,
+  reply?: EffectMessageReply,
 ) {
-  return reply === undefined
-    ? Effect.void
-    : client
-        .callDefinition(MessagesSend, {
-          taskId: incoming.taskId,
-          conversationId: incoming.message.conversationId,
-          parts: replyParts(reply),
-          replyToId: incoming.message.id,
-        })
-        .pipe(Effect.asVoid);
+  if (reply === undefined) {
+    return Effect.void;
+  }
+  const parts = replyParts(reply);
+  return client
+    .callDefinition(messagesSend, {
+      taskId: incoming.taskId,
+      conversationId: incoming.message.conversationId,
+      parts,
+      replyToId: incoming.message.id,
+    })
+    .pipe(Effect.asVoid);
 }
 
 function handleMessage<E, R>(
@@ -206,7 +206,7 @@ function acquireEffectRuntime<E, R>(
       catch: (cause) => startFailure(input, cause),
     });
     const received = yield* client.subscribeScoped(
-      MessageReceivedNotificationDefinition,
+      messageReceivedNotificationDefinition,
     );
     const state: EffectRuntimeState = {
       client,
@@ -215,7 +215,7 @@ function acquireEffectRuntime<E, R>(
     yield* Effect.addFinalizer(() => client.close());
     const onMessage =
       options.onMessage ??
-      (() => Effect.succeed<EffectMessageReply>(undefined));
+      (() => Effect.succeed<EffectMessageReply | undefined>(undefined));
     yield* receiveMessages(input, state, onMessage, received).pipe(
       Effect.forkScoped,
     );

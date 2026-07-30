@@ -2,12 +2,14 @@ import { createHash, randomUUID, type Hash } from "node:crypto";
 import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import {
-  JsonValue,
+  type JsonValue,
+  jsonValue,
   LEDGER_FORMAT_VERSION,
   LedgerCompletion,
-  LedgerDigest,
+  ledgerDigest,
   LedgerManifest,
-  LedgerRef,
+  type LedgerRef,
+  ledgerRef,
 } from "./model.js";
 import {
   LedgerStorage,
@@ -47,7 +49,7 @@ interface ActiveLedger {
   readonly ref: LedgerRef;
   readonly runId: string;
   readonly directory: string;
-  readonly manifestDigest: typeof LedgerDigest.Type;
+  readonly manifestDigest: typeof ledgerDigest.Type;
   readonly recordsDigest: Hash;
   readonly phase: Ref.Ref<ActivePhase>;
   readonly transition: Effect.Semaphore;
@@ -66,7 +68,7 @@ interface PreparedAllocation {
   readonly runId: string;
   readonly manifest: LedgerManifest;
   readonly manifestText: string;
-  readonly manifestDigest: typeof LedgerDigest.Type;
+  readonly manifestDigest: typeof ledgerDigest.Type;
   readonly directory: string;
 }
 
@@ -99,8 +101,8 @@ function quote(value: string): string {
 }
 
 function isJsonArray(
-  value: ReadonlyArray<JsonValue> | { readonly [key: string]: JsonValue },
-): value is ReadonlyArray<JsonValue> {
+  value: readonly JsonValue[] | { readonly [key: string]: JsonValue },
+): value is readonly JsonValue[] {
   return Array.isArray(value);
 }
 
@@ -115,7 +117,7 @@ function compareKeys(left: string, right: string): number {
 }
 
 function canonicalComposite(
-  value: ReadonlyArray<JsonValue> | { readonly [key: string]: JsonValue },
+  value: readonly JsonValue[] | { readonly [key: string]: JsonValue },
 ): string {
   if (isJsonArray(value)) {
     return `[${value.map(canonicalJson).join(",")}]`;
@@ -130,16 +132,16 @@ function canonicalJson(value: JsonValue): string {
   if (value === null) {
     return "null";
   }
-  switch (typeof value) {
-    case "boolean":
-      return value ? "true" : "false";
-    case "number":
-      return value === 0 ? "0" : String(value);
-    case "string":
-      return quote(value);
-    case "object":
-      return canonicalComposite(value);
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
   }
+  if (typeof value === "number") {
+    return value === 0 ? "0" : String(value);
+  }
+  if (typeof value === "string") {
+    return quote(value);
+  }
+  return canonicalComposite(value);
 }
 
 function encodeCanonical<S extends Schema.Schema.AnyNoContext>(
@@ -151,7 +153,7 @@ function encodeCanonical<S extends Schema.Schema.AnyNoContext>(
   return Schema.encode(schema)(value, {
     onExcessProperty: "error",
   }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(JsonValue)),
+    Effect.flatMap(Schema.decodeUnknown(jsonValue)),
     Effect.map(canonicalJson),
     Effect.mapError((cause) => storageError(operation, cause, ref)),
   );
@@ -161,15 +163,15 @@ function decodeDigest(
   digest: string,
   operation: StorageOperation,
   ref?: LedgerRef,
-): Effect.Effect<typeof LedgerDigest.Type, LedgerStorageError> {
-  return Schema.decodeUnknown(LedgerDigest)(digest).pipe(
+): Effect.Effect<typeof ledgerDigest.Type, LedgerStorageError> {
+  return Schema.decodeUnknown(ledgerDigest)(digest).pipe(
     Effect.mapError((cause) => storageError(operation, cause, ref)),
   );
 }
 
 function digestText(
   text: string,
-): Effect.Effect<typeof LedgerDigest.Type, LedgerStorageError> {
+): Effect.Effect<typeof ledgerDigest.Type, LedgerStorageError> {
   return Effect.try({
     try: () => createHash("sha256").update(text, "utf8").digest("hex"),
     catch: (cause) => storageError("digest", cause),
@@ -250,7 +252,7 @@ function validateCatalogTags(
 }
 
 function mintRef(): Effect.Effect<LedgerRef, LedgerStorageError> {
-  return Schema.decodeUnknown(LedgerRef)(randomUUID()).pipe(
+  return Schema.decodeUnknown(ledgerRef)(randomUUID()).pipe(
     Effect.mapError((cause) => storageError("allocate", cause)),
   );
 }
@@ -270,7 +272,9 @@ function makeManifest(
     ledgerFormatVersion: LEDGER_FORMAT_VERSION,
     definitionId: input.definitionId,
     runId,
-    catalogTags: [...input.catalogTags].sort(),
+    catalogTags: [...input.catalogTags].sort((left, right) =>
+      left.localeCompare(right),
+    ),
     createdAt: DateTime.unsafeMake(now),
     provenance: input.provenance,
     metadata: input.metadata,
@@ -391,6 +395,9 @@ function appendOpen(
  * The filesystem API has no append commit token. Callers mask this effect from
  * its first file mutation through the digest and phase update so durable bytes
  * and acknowledged storage state cannot diverge under interruption.
+ * @param active Value supplied to the operation.
+ * @param record Value supplied to the operation.
+ * @returns The append record result.
  */
 function appendRecord(
   active: ActiveLedger,
@@ -427,6 +434,8 @@ function appendRecord(
                   ),
                 ),
               );
+            default:
+              return restore(Effect.dieMessage("Unknown active ledger phase"));
           }
         }),
       ),
@@ -644,6 +653,9 @@ function prepareExistingCompletion(
  * Completion publication is one filesystem commit followed by one in-memory
  * handoff. It runs masked because the filesystem API cannot expose the exact
  * instant at which the durable completion link becomes authoritative.
+ * @param active Value supplied to the operation.
+ * @param candidate Value supplied to the operation.
+ * @returns The commit completion result.
  */
 function commitCompletion(
   active: ActiveLedger,
@@ -696,6 +708,8 @@ function completeActive(
                 );
           case "Failed":
             return yield* Effect.fail(phase.error);
+          default:
+            return yield* Effect.dieMessage("Unknown active ledger phase");
         }
       }),
     ),
@@ -791,6 +805,8 @@ function initializeRoot(
  * Every append acknowledges only after the records file is fsynced. Completion
  * is an exact canonical marker published atomically after both bound artifacts
  * are durable.
+ * @param root Value supplied to the operation.
+ * @returns The created filesystem ledger storage.
  */
 export function makeFilesystemLedgerStorage(
   root: string,
@@ -815,7 +831,11 @@ export function makeFilesystemLedgerStorage(
   }).pipe(Effect.withSpan("makeFilesystemLedgerStorage"));
 }
 
-/** Provides LedgerStorage from one filesystem root. */
+/**
+ * Provides LedgerStorage from one filesystem root.
+ * @param root Value supplied to the operation.
+ * @returns The filesystem ledger storage layer result.
+ */
 export function filesystemLedgerStorageLayer(
   root: string,
 ): Layer.Layer<LedgerStorage, LedgerStorageError, FileSystem.FileSystem> {

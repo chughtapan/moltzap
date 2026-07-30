@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
-import { ConnectionId } from "@moltzap/protocol/socket";
+import { connectionIdSchema } from "@moltzap/protocol/socket";
 import type { AppManifest } from "@moltzap/protocol/identity";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
-import { TaskCreate } from "@moltzap/protocol/task";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { messagesAuthorize } from "@moltzap/protocol/message";
+import { taskCreate } from "@moltzap/protocol/task";
 import { appId as makeAppId } from "@moltzap/protocol/testing";
 import { AppEndpointRegistry } from "./endpoint-registry.js";
 import { makeHandlerAppEndpoint } from "../../test-utils/app-endpoint.js";
 
 const APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
-const CONN_ID = Schema.decodeUnknownSync(ConnectionId)(
+const CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
   "00000000-0000-4000-8000-00000000c001",
 );
-const OTHER_CONN_ID = Schema.decodeUnknownSync(ConnectionId)(
+const OTHER_CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
   "00000000-0000-4000-8000-00000000c002",
 );
 
@@ -31,16 +31,16 @@ function makeTestEndpoint(id: typeof CONN_ID) {
   return makeHandlerAppEndpoint({
     id,
     handlers: {
-      [DispatchAuthorize.name]: () =>
+      [dispatchAuthorize.name]: () =>
         Effect.succeed({ admission: { decision: "grant" } }),
-      [MessagesAuthorize.name]: () =>
+      [messagesAuthorize.name]: () =>
         Effect.succeed({
           verdict: {
             decision: "Forward",
             recipients: [],
           },
         }),
-      [TaskCreate.name]: () =>
+      [taskCreate.name]: () =>
         Effect.succeed({ verdict: { decision: "accept" } }),
     },
   });

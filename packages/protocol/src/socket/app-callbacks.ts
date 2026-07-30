@@ -8,7 +8,6 @@ import type {
   DomainErrorsOf,
   ParamsOf,
   ResultOf,
-  RpcDefinition,
   RpcDefinitionAny,
 } from "#transport";
 
@@ -26,8 +25,7 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
   ) => Effect.Effect<ResultOf<D>, DomainErrorsOf<D>>;
 }
 
-type NameOf<D> =
-  D extends RpcDefinition<infer N, any, any, any, any> ? N : never;
+type NameOf<D extends AppCallbackDescriptor> = D["name"];
 
 type SlotValue<D, Ctx> = D extends AppCallbackDescriptor
   ? HandlerSlot<D, Ctx>

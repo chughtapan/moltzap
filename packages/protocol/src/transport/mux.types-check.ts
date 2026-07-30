@@ -16,12 +16,12 @@
  * `impl`/`sink` result down to `impl`, so the compiler checks `impl` against
  * the extension point's declared return shape.
  */
-import { Effect, Mailbox } from "effect";
+import { Effect, type Mailbox } from "effect";
 import { RpcClient, RpcServer } from "@effect/rpc";
 import {
   makeClientChannelProtocol,
   makeServerChannelProtocol,
-  routeInbound,
+  type routeInbound,
   type WireWrite,
 } from "./mux.js";
 
@@ -35,6 +35,7 @@ const serverBuilder = makeServerChannelProtocol({
   write: wireWrite,
   disconnects: serverDisconnects,
 });
+/** Provides the server protocol canary runtime value. */
 export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
   serverBuilder(write).pipe(Effect.map((built) => built.impl)),
 );
@@ -44,9 +45,15 @@ export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
 const clientBuilder = makeClientChannelProtocol({
   write: wireWrite,
 });
+/** Provides the client protocol canary runtime value. */
 export const clientProtocolCanary = RpcClient.Protocol.make((write) =>
   clientBuilder(write).pipe(Effect.map((built) => built.impl)),
 );
 
-// @ts-expect-error a malformed-frame reply writer would reopen parse-error bouncing
-routeInbound("malformed", {}, wireWrite);
+type ExpectTrue<T extends true> = T;
+type RouteInboundHasNoReplyWriter = ExpectTrue<
+  Parameters<typeof routeInbound>["length"] extends 2 ? true : false
+>;
+
+/** Compile-time proof that inbound routing cannot receive a reply writer. */
+export const routeInboundHasNoReplyWriter: RouteInboundHasNoReplyWriter = true;

@@ -1,8 +1,8 @@
 {
-  "name": "@moltzap/v2-transport",
-  "version": "2026.729.0",
+  "name": "@moltzap/v2-router",
+  "version": "2026.729.1",
   "private": true,
-  "description": "L2 message/delivery/poll contracts, Router client and in-memory server",
+  "description": "L2 Router contracts and representation, Router client and in-memory server",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,23 +21,23 @@
     "moltzap-router": "./bin/moltzap-router"
   },
   "scripts": {
-    "build": "nx run @moltzap/v2-transport:build",
-    "lint": "nx run @moltzap/v2-transport:lint"
+    "build": "nx run @moltzap/v2-router:build",
+    "lint": "nx run @moltzap/v2-router:lint"
   },
   "nx": {
     "targets": {
       "build": {
         "executor": "nx:run-commands",
         "options": {
-          "cwd": "v2/transport",
+          "cwd": "v2/router",
           "command": "tsc -b"
         }
       },
       "lint": {
         "executor": "nx:run-commands",
         "options": {
-          "cwd": "v2/transport",
-          "command": "eslint src --cache --max-warnings=0"
+          "cwd": "v2/router",
+          "command": "eslint . --cache --max-warnings=0"
         }
       }
     }

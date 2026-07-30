@@ -3,7 +3,11 @@ import { describe, expect } from "vitest";
 import { Effect, Schema } from "effect";
 
 const it = effectIt.effect;
-import { AgentId, AgentName, AgentsList } from "@moltzap/protocol/identity";
+import {
+  agentId,
+  agentName as agentNameSchema,
+  agentsList,
+} from "@moltzap/protocol/identity";
 import { listCursorSchema } from "@moltzap/protocol/rpc";
 import type { ClientDefinitionSuccess } from "@moltzap/protocol/socket";
 import {
@@ -22,32 +26,31 @@ const PAGE_SIZE = 2;
 const TOTAL = 5;
 const EXPECTED_PAGE_CALLS = Math.ceil(TOTAL / PAGE_SIZE);
 const decodeCursor = Schema.decodeSync(listCursorSchema());
-const decodeAgentId = Schema.decodeSync(AgentId);
-const decodeAgentName = Schema.decodeSync(AgentName);
+const decodeAgentId = Schema.decodeSync(agentId);
+const decodeAgentName = Schema.decodeSync(agentNameSchema);
 const CONSTANT_CURSOR = decodeCursor("stuck-cursor");
 
-type AgentListPage = ClientDefinitionSuccess<typeof AgentsList>;
+type AgentListPage = ClientDefinitionSuccess<typeof agentsList>;
 type FakeAgent = AgentListPage["agents"][number];
 type AgentListCursor = NonNullable<AgentListPage["nextCursor"]>;
 
-const ALL_AGENTS: ReadonlyArray<FakeAgent> = Array.from(
-  { length: TOTAL },
-  (_unused, i) => ({
-    id: decodeAgentId(`00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
-    name: decodeAgentName(`agent-${i}`),
-    status: "active",
-  }),
-);
+const ALL_AGENTS: readonly FakeAgent[] = [
+  ...Array.from({ length: TOTAL }).keys(),
+].map((i) => ({
+  id: decodeAgentId(`00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
+  name: decodeAgentName(`agent-${i}`),
+  status: "active",
+}));
 
 // Keyset paging over an opaque cursor: the cursor encodes the index of
 // the first row of the NEXT page. `nextCursor` present iff more rows
 // remain (Invariant 1: a present cursor means a further page exists).
 function pagingSendRpc(): {
-  readonly send: SendRpcFn<never, typeof AgentsList>;
+  readonly send: SendRpcFn<never, typeof agentsList>;
   callCount: () => number;
 } {
   let calls = 0;
-  const send: SendRpcFn<never, typeof AgentsList> = (_definition, params) => {
+  const send: SendRpcFn<never, typeof agentsList> = (...[, params]) => {
     calls++;
     const cursor = params.cursor;
     const start = cursor === undefined ? 0 : Number(cursor);
@@ -65,11 +68,11 @@ function pagingSendRpc(): {
 // Byzantine server: always claims "more" with the SAME cursor — the
 // drain must terminate via the cycle guard rather than loop forever.
 function nonAdvancingSendRpc(): {
-  readonly send: SendRpcFn<never, typeof AgentsList>;
+  readonly send: SendRpcFn<never, typeof agentsList>;
   callCount: () => number;
 } {
   let calls = 0;
-  const send: SendRpcFn<never, typeof AgentsList> = () => {
+  const send: SendRpcFn<never, typeof agentsList> = () => {
     calls++;
     const page: AgentListPage = {
       agents: ALL_AGENTS.slice(0, PAGE_SIZE),
@@ -84,11 +87,11 @@ function agentName(agent: FakeAgent): string {
   return agent.name;
 }
 
-function agentListParams(cursor: AgentListCursor | undefined) {
+function agentListParams(cursor?: AgentListCursor) {
   return cursor === undefined ? {} : { cursor };
 }
 
-function agentRows(page: AgentListPage): ReadonlyArray<FakeAgent> {
+function agentRows(page: AgentListPage): readonly FakeAgent[] {
   return page.agents;
 }
 
@@ -104,12 +107,12 @@ describe("drainPaginatedList", () => {
       const fake = pagingSendRpc();
       const contacts = yield* drainPaginatedList<
         never,
-        typeof AgentsList,
+        typeof agentsList,
         FakeAgent,
         AgentListCursor
       >({
         sendRpc: fake.send,
-        definition: AgentsList,
+        definition: agentsList,
         paramsForCursor: agentListParams,
         rowsForPage: agentRows,
         nextCursorForPage: agentNextCursor,
@@ -126,18 +129,18 @@ describe("drainPaginatedList", () => {
       const fake = nonAdvancingSendRpc();
       const error = yield* drainPaginatedList<
         never,
-        typeof AgentsList,
+        typeof agentsList,
         FakeAgent,
         AgentListCursor
       >({
         sendRpc: fake.send,
-        definition: AgentsList,
+        definition: agentsList,
         paramsForCursor: agentListParams,
         rowsForPage: agentRows,
         nextCursorForPage: agentNextCursor,
       }).pipe(Effect.flip);
       expect(error).toBeInstanceOf(NonAdvancingCursorError);
-      expect(error.method).toBe(AgentsList.name);
+      expect(error.method).toBe(agentsList.name);
       // Page 1 records cursor C; page 2 (sent with cursor=C) returns C
       // again → already seen → typed fail. Bounded at 2 calls, no loop.
       expect(fake.callCount()).toBe(2);

@@ -43,7 +43,9 @@ function reusesWarmInstall() {
         PUBLISHED_INSTALL_MODE,
       );
       expect(warmCandidate).not.toBeNull();
-      if (warmCandidate === null) return;
+      if (warmCandidate === null) {
+        return;
+      }
 
       const fileSystem = yield* FileSystem.FileSystem;
       const readyFingerprint = yield* fileSystem.readFileString(

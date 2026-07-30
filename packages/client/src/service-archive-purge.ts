@@ -8,6 +8,12 @@ import type { TaskId } from "@moltzap/protocol/task";
  * 1050-line cap.
  */
 
+/**
+ * Executes the purge agent cache entries operation.
+ * @param m Value supplied to the operation.
+ * @param conversationId Value supplied to the operation.
+ * @returns The purge agent cache entries result.
+ */
 export function purgeAgentCacheEntries(
   m: HashMap.HashMap<
     string,
@@ -30,6 +36,12 @@ export function purgeAgentCacheEntries(
   return next;
 }
 
+/**
+ * Executes the purge last notified operation.
+ * @param outer Value supplied to the operation.
+ * @param conversationId Value supplied to the operation.
+ * @returns The purge last notified result.
+ */
 export function purgeLastNotified(
   outer: HashMap.HashMap<string, HashMap.HashMap<string, string>>,
   conversationId: ConversationId,
@@ -47,6 +59,12 @@ export function purgeLastNotified(
   return next;
 }
 
+/**
+ * Executes the purge last read operation.
+ * @param outer Value supplied to the operation.
+ * @param conversationId Value supplied to the operation.
+ * @returns The purge last read result.
+ */
 export function purgeLastRead(
   outer: HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>,
   conversationId: ConversationId,

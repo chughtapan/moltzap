@@ -5,21 +5,24 @@ import {
   type Transport as TransportSurface,
   type TransportError,
 } from "../transport.js";
-import { LocalDaemonRpcs } from "../../local-daemon-rpc.js";
+import type { LocalDaemonRpcs } from "../../local-daemon-rpc.js";
 import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/rpc";
 
 type DaemonRpcs = RpcGroup.Rpcs<typeof LocalDaemonRpcs>;
 type DaemonCommand = DaemonRpcs["_tag"];
 
+/** Describes test transport call. */
 export interface TestTransportCall<Tag extends DaemonCommand = DaemonCommand> {
   readonly method: Tag;
   readonly params: PayloadForTag<DaemonRpcs, Tag>;
 }
 
+/** Represents test transport responder values. */
 export type TestTransportResponder<Tag extends DaemonCommand> = (
   call: TestTransportCall<Tag>,
 ) => SuccessForTag<DaemonRpcs, Tag> | TransportError | Error;
 
+/** Represents test transport responders values. */
 export type TestTransportResponders = {
   readonly [Tag in DaemonCommand]?: TestTransportResponder<Tag>;
 };
@@ -33,6 +36,11 @@ const isTransportError = (value: unknown): value is TransportError =>
 const isError = (value: unknown): value is Error => value instanceof Error;
 const errorMessage = (error: Error): string => error.message;
 
+/**
+ * Provides the make fake transport runtime value.
+ * @param responders Value supplied to the operation.
+ * @returns The created fake transport.
+ */
 export const makeFakeTransport = (
   responders: TestTransportResponders,
 ): {

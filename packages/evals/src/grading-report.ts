@@ -4,19 +4,20 @@ import { Array as Arr, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 
 /** Closed result vocabulary for one executable check. */
-const CheckOutcomeSchema = Schema.Literal("passed", "failed", "undecided");
-export type CheckOutcome = typeof CheckOutcomeSchema.Type;
-const GradeReportTypeId: unique symbol = Symbol.for(
+const checkOutcomeSchema = Schema.Literal("passed", "failed", "undecided");
+/** Represents check outcome values. */
+export type CheckOutcome = typeof checkOutcomeSchema.Type;
+const gradeReportTypeId: unique symbol = Symbol.for(
   "@moltzap/evals/GradeReport",
 );
 
 /** Stable identity for the code that produced a grading report. */
 export type GraderId = `${string}.grader/v${number}`;
 
-const [passed, failed, undecided] = CheckOutcomeSchema.literals;
+const [passed, failed, undecided] = checkOutcomeSchema.literals;
 
 /** Named outcome values for code that constructs or inspects reports. */
-export const CheckOutcome = Object.freeze({
+export const checkOutcome = Object.freeze({
   passed,
   failed,
   undecided,
@@ -31,14 +32,16 @@ export interface GradeCheckResult {
 }
 
 const OUTCOME_PRECEDENCE = {
-  [CheckOutcome.passed]: 0,
-  [CheckOutcome.undecided]: 1,
-  [CheckOutcome.failed]: 2,
+  [checkOutcome.passed]: 0,
+  [checkOutcome.undecided]: 1,
+  [checkOutcome.failed]: 2,
 } as const satisfies Readonly<Record<CheckOutcome, number>>;
 
 /**
  * A failure dominates an undecided check, and an undecided check dominates a
  * pass. The nonempty input prevents a grader with no evidence from passing.
+ * @param checks Value supplied to the operation.
+ * @returns The verdict of result.
  */
 export function verdictOf(
   checks: NonEmptyReadonlyArray<GradeCheckResult>,
@@ -48,13 +51,13 @@ export function verdictOf(
       OUTCOME_PRECEDENCE[check.outcome] > OUTCOME_PRECEDENCE[verdict]
         ? check.outcome
         : verdict,
-    CheckOutcome.passed,
+    checkOutcome.passed,
   );
 }
 
 /** Immutable nominal result produced by one versioned grader. */
 export class GradeReport {
-  private readonly [GradeReportTypeId] = GradeReportTypeId;
+  private readonly [gradeReportTypeId] = gradeReportTypeId;
   readonly graderId: GraderId;
   readonly checks: NonEmptyReadonlyArray<GradeCheckResult>;
   readonly verdict: CheckOutcome;
@@ -74,7 +77,13 @@ export class GradeReport {
     Object.freeze(this);
   }
 
-  /** Own the checks and derive the only verdict exposed by the report. */
+  /**
+   * Own the checks and derive the only verdict exposed by the report.
+   * @param input Input value to process.
+   * @param input.graderId Value supplied to the operation.
+   * @param input.checks Value supplied to the operation.
+   * @returns The created .
+   */
   static make(input: {
     readonly graderId: GraderId;
     readonly checks: NonEmptyReadonlyArray<GradeCheckResult>;

@@ -45,7 +45,7 @@ A definition has a versioned identity and an exact set of schema-backed event
 classes:
 
 ```ts
-import { EventCatalog, Simulator } from "@moltzap/simulator";
+import { EventCatalog, simulator } from "@moltzap/simulator";
 import { Schema } from "effect";
 
 class ConsensusReached extends Schema.TaggedClass<ConsensusReached>()(
@@ -56,7 +56,7 @@ class ConsensusReached extends Schema.TaggedClass<ConsensusReached>()(
   },
 ) {}
 
-const Society = Simulator.define(
+const Society = simulator.define(
   "acme.negotiation/v1",
   EventCatalog.make(ConsensusReached),
 );

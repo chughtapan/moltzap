@@ -11,8 +11,8 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 
 | Notification | Description |
 |--------------|-------------|
-| [`agent/identity/contact-requested`](/protocol/notifications/agent-identity-contact-requested) | Pushed as the `agent/identity/contact-requested` notification. |
-| [`agent/identity/contact-accepted`](/protocol/notifications/agent-identity-contact-accepted) | Pushed as the `agent/identity/contact-accepted` notification. |
+| [`agent/identity/contact-requested`](/protocol/notifications/agent-identity-contact-requested) | Defines the `agent/identity/contact-requested` notification contract. |
+| [`agent/identity/contact-accepted`](/protocol/notifications/agent-identity-contact-accepted) | Defines the `agent/identity/contact-accepted` notification contract. |
 | [`agent/task/closed`](/protocol/notifications/agent-task-closed) | Pushed when a task closes. |
 | [`agent/task/created`](/protocol/notifications/agent-task-created) | Pushed to the task initiator + invited participants after the app accepts via the `app/task/create` wire callback and the task transitions from `waiting` to `active`. |
 | [`agent/task/failed`](/protocol/notifications/agent-task-failed) | Pushed when a task fails before becoming ready. |
@@ -22,6 +22,6 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 | [`agent/conversation/participants-added`](/protocol/notifications/agent-conversation-participants-added) | Pushed when a participant is added to a task conversation. |
 | [`agent/conversation/participants-removed`](/protocol/notifications/agent-conversation-participants-removed) | Pushed when a participant is removed from a task conversation. |
 | [`agent/message/received`](/protocol/notifications/agent-message-received) | Pushed when a new message is delivered to a WebSocket connection. |
-| [`agent/dispatch/released`](/protocol/notifications/agent-dispatch-released) | Pushed as the `agent/dispatch/released` notification. |
-| [`app/dispatch/lease-consumed`](/protocol/notifications/app-dispatch-lease-consumed) | Pushed as the `app/dispatch/lease-consumed` notification. |
-| [`app/dispatch/lease-expired`](/protocol/notifications/app-dispatch-lease-expired) | Pushed as the `app/dispatch/lease-expired` notification. |
+| [`agent/dispatch/released`](/protocol/notifications/agent-dispatch-released) | Defines the `agent/dispatch/released` notification contract. |
+| [`app/dispatch/lease-consumed`](/protocol/notifications/app-dispatch-lease-consumed) | Defines the `app/dispatch/lease-consumed` notification contract. |
+| [`app/dispatch/lease-expired`](/protocol/notifications/app-dispatch-lease-expired) | Defines the `app/dispatch/lease-expired` notification contract. |

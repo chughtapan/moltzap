@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Ref, Schema } from "effect";
-import { ServerBaseUrl } from "@moltzap/protocol/network";
+import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 import { makeAgentHandle } from "../network/participant.js";
 import type { AgentConnection } from "../network/router.js";
@@ -15,7 +15,7 @@ const ALICE_ID = agentId("00000000-0000-4000-8000-000000000001");
 const key = redactedAgentKey(
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000",
 );
-const routerUrl = Schema.decodeUnknownSync(ServerBaseUrl)(
+const routerUrl = Schema.decodeUnknownSync(serverBaseUrlSchema)(
   "http://127.0.0.1:3000",
 );
 
@@ -88,7 +88,7 @@ it("rejects empty runtime names before a run starts", () => {
 
 it.effect("captures runtime behavior when the definition is constructed", () =>
   Effect.gen(function* () {
-    const calls: Array<string> = [];
+    const calls: string[] = [];
     const source = {
       name: "captured",
       acquire: () =>

@@ -21,11 +21,12 @@ class CoreSchemaSqlReadError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
+/** Represents core schema sql load error conditions. */
 export type CoreSchemaSqlLoadError =
   | CoreSchemaSqlAccessError
   | CoreSchemaSqlReadError;
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const dirnameValue = dirname(fileURLToPath(import.meta.url));
 let cachedSchemaSql: string | null = null;
 
 function platformAccessError(attemptedPaths: readonly [string, string]): {
@@ -85,14 +86,27 @@ function platformReadError(path: string): {
   };
 }
 
+/**
+ * Loads core schema sql.
+ * @returns The load core schema sql result.
+ */
 export function loadCoreSchemaSql(): Effect.Effect<
   string,
   CoreSchemaSqlLoadError
 > {
-  if (cachedSchemaSql !== null) return Effect.succeed(cachedSchemaSql);
+  if (cachedSchemaSql !== null) {
+    return Effect.succeed(cachedSchemaSql);
+  }
 
-  const srcPath = join(__dirname, "..", "db", "core-schema.sql");
-  const distPath = join(__dirname, "..", "..", "src", "db", "core-schema.sql");
+  const srcPath = join(dirnameValue, "..", "db", "core-schema.sql");
+  const distPath = join(
+    dirnameValue,
+    "..",
+    "..",
+    "src",
+    "db",
+    "core-schema.sql",
+  );
   const attemptedPaths = [srcPath, distPath] as const;
 
   return FileSystem.FileSystem.pipe(

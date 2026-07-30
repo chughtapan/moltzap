@@ -1,6 +1,8 @@
 import type { Schema } from "effect";
 
+/** Provides the sort key pad width runtime value. */
 export const SORT_KEY_PAD_WIDTH = 2;
+/** Provides the json indent runtime value. */
 export const JSON_INDENT = 2;
 
 /**
@@ -38,11 +40,13 @@ export interface AnyRpcDocDefinition {
   readonly validateResult: (data: unknown) => boolean;
 }
 
+/** Describes notification doc definition. */
 export interface NotificationDocDefinition {
   readonly name: string;
   readonly paramsSchema: Schema.Schema.AnyNoContext;
 }
 
+/** Describes schema property doc. */
 export interface SchemaPropertyDoc {
   readonly name: string;
   readonly type: string;

@@ -11,15 +11,21 @@ arbitrary derivation, and Toxiproxy adversity helpers.
 
 ## Public surface
 
-### [`agentId`](./test-fixtures.ts#L71)
+### [`agentId`](./test-fixtures.ts#L95)
 
 _Function_
 
 ```ts
-export const agentId = (value: string): Schema.Schema.Type<typeof AgentId>
+export const agentId = (
+  value: string,
+): Schema.Schema.Type<typeof agentIdSchema>
 ```
 
-### [`agentKeyArbitrary`](./test-fixtures.ts#L105)
+Validates and decodes agent id values.
+
+**Returns:** The agent id result.
+
+### [`agentKeyArbitrary`](./test-fixtures.ts#L177)
 
 _Variable_
 
@@ -28,7 +34,9 @@ export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
   agentKeyStringArbitrary.map(redactedAgentKey)
 ```
 
-### [`agentKeyString`](./test-fixtures.ts#L107)
+Provides the agent key arbitrary runtime value.
+
+### [`agentKeyString`](./test-fixtures.ts#L184)
 
 _Function_
 
@@ -36,7 +44,11 @@ _Function_
 export const agentKeyString = (seed: number): string
 ```
 
-### [`agentKeyStringArbitrary`](./test-fixtures.ts#L100)
+Provides the agent key string runtime value.
+
+**Returns:** The agent key string result.
+
+### [`agentKeyStringArbitrary`](./test-fixtures.ts#L171)
 
 _Variable_
 
@@ -48,7 +60,9 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
   ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`)
 ```
 
-### [`AgentRegistrationError`](./test-fixtures.ts#L147)
+Provides the agent key string arbitrary runtime value.
+
+### [`AgentRegistrationError`](./test-fixtures.ts#L226)
 
 _Class_
 
@@ -65,15 +79,19 @@ export class AgentRegistrationError extends Data.TaggedError(
 
 HTTP registration failed (network, non-2xx, malformed response).
 
-### [`appId`](./test-fixtures.ts#L89)
+### [`appId`](./test-fixtures.ts#L149)
 
 _Function_
 
 ```ts
-export const appId = (value: string): Schema.Schema.Type<typeof AppId>
+export const appId = (value: string): Schema.Schema.Type<typeof appIdSchema>
 ```
 
-### [`connectionId`](./test-fixtures.ts#L114)
+Validates and decodes app id values.
+
+**Returns:** The app id result.
+
+### [`connectionId`](./test-fixtures.ts#L192)
 
 _Variable_
 
@@ -81,35 +99,51 @@ _Variable_
 export const connectionId = decodeConnectionId
 ```
 
-### [`contactId`](./test-fixtures.ts#L73)
+Provides the connection id runtime value.
+
+### [`contactId`](./test-fixtures.ts#L104)
 
 _Function_
 
 ```ts
 export const contactId = (
   value: string,
-): Schema.Schema.Type<typeof ContactId>
+): Schema.Schema.Type<typeof contactIdSchema>
 ```
 
-### [`conversationId`](./test-fixtures.ts#L77)
+Validates and decodes contact id values.
+
+**Returns:** The contact id result.
+
+### [`conversationId`](./test-fixtures.ts#L113)
 
 _Function_
 
 ```ts
 export const conversationId = (
   value: string,
-): Schema.Schema.Type<typeof ConversationId>
+): Schema.Schema.Type<typeof conversationIdSchema>
 ```
 
-### [`leaseId`](./test-fixtures.ts#L87)
+Validates and decodes conversation id values.
+
+**Returns:** The conversation id result.
+
+### [`leaseId`](./test-fixtures.ts#L140)
 
 _Function_
 
 ```ts
-export const leaseId = (value: string): Schema.Schema.Type<typeof LeaseId>
+export const leaseId = (
+  value: string,
+): Schema.Schema.Type<typeof leaseIdSchema>
 ```
 
-### [`makeTestAgentClient`](./lifecycle.ts#L226)
+Validates and decodes lease id values.
+
+**Returns:** The lease id result.
+
+### [`makeTestAgentClient`](./lifecycle.ts#L245)
 
 _Function_
 
@@ -120,7 +154,11 @@ export function makeTestAgentClient(
 ): Effect.Effect<TestAgentClient, unknown>
 ```
 
-### [`makeTestAppClient`](./lifecycle.ts#L250)
+Creates test agent client.
+
+**Returns:** The created test agent client.
+
+### [`makeTestAppClient`](./lifecycle.ts#L275)
 
 _Function_
 
@@ -131,17 +169,25 @@ export function makeTestAppClient(
 ): Effect.Effect<TestAppClient, unknown>
 ```
 
-### [`messageId`](./test-fixtures.ts#L81)
+Creates test app client.
+
+**Returns:** The created test app client.
+
+### [`messageId`](./test-fixtures.ts#L122)
 
 _Function_
 
 ```ts
 export const messageId = (
   value: string,
-): Schema.Schema.Type<typeof MessageId>
+): Schema.Schema.Type<typeof messageIdSchema>
 ```
 
-### [`mintTestAppCredential`](./test-fixtures.ts#L293)
+Validates and decodes message id values.
+
+**Returns:** The message id result.
+
+### [`mintTestAppCredential`](./test-fixtures.ts#L380)
 
 _Function_
 
@@ -158,7 +204,9 @@ registerTestAgent; the `appKey` is handed to a `TestClient` whose
 `appKey` Connect arm binds an `AppConnection` through the implicit
 moderator-endpoint registration path.
 
-### [`RealServerAcquireError`](./errors.ts#L44)
+**Returns:** The mint test app credential result.
+
+### [`RealServerAcquireError`](./errors.ts#L45)
 
 _Class_
 
@@ -178,7 +226,7 @@ export class RealServerAcquireError extends Data.TaggedError(
 
 Consumer-supplied real-server factory threw or returned an unusable handle.
 
-### [`redactedAgentKey`](./test-fixtures.ts#L91)
+### [`redactedAgentKey`](./test-fixtures.ts#L156)
 
 _Function_
 
@@ -186,7 +234,11 @@ _Function_
 export const redactedAgentKey = (value: string): AgentKey
 ```
 
-### [`redactedAppKey`](./test-fixtures.ts#L93)
+Validates and decodes redacted agent key values.
+
+**Returns:** The redacted agent key result.
+
+### [`redactedAppKey`](./test-fixtures.ts#L163)
 
 _Function_
 
@@ -194,7 +246,11 @@ _Function_
 export const redactedAppKey = (value: string): AppKey
 ```
 
-### [`registerTestAgent`](./test-fixtures.ts#L340)
+Validates and decodes redacted app key values.
+
+**Returns:** The redacted app key result.
+
+### [`registerTestAgent`](./test-fixtures.ts#L432)
 
 _Function_
 
@@ -204,7 +260,11 @@ export function registerTestAgent(
 ): Effect.Effect<TestAgent, AgentRegistrationError>
 ```
 
-### [`RpcResponseError`](./errors.ts#L33)
+Registers test agent.
+
+**Returns:** The register test agent result.
+
+### [`RpcResponseError`](./errors.ts#L34)
 
 _Class_
 
@@ -222,7 +282,7 @@ export class RpcResponseError extends Data.TaggedError(
 
 Server returned a typed error for a request.
 
-### [`RpcTimeoutError`](./errors.ts#L24)
+### [`RpcTimeoutError`](./errors.ts#L25)
 
 _Class_
 
@@ -238,27 +298,35 @@ export class RpcTimeoutError extends Data.TaggedError(
 
 Wall-clock deadline for a request expired before a response.
 
-### [`taskId`](./test-fixtures.ts#L85)
+### [`taskId`](./test-fixtures.ts#L131)
 
 _Function_
 
 ```ts
-export const taskId = (value: string): Schema.Schema.Type<typeof TaskId>
+export const taskId = (
+  value: string,
+): Schema.Schema.Type<typeof taskIdSchema>
 ```
 
-### [`TestAgent`](./test-fixtures.ts#L123)
+Validates and decodes task id values.
+
+**Returns:** The task id result.
+
+### [`TestAgent`](./test-fixtures.ts#L202)
 
 _Interface_
 
 ```ts
 export interface TestAgent {
-  readonly agentId: Schema.Schema.Type<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof agentIdSchema>;
   readonly apiKey: AgentKey;
   readonly name: string;
 }
 ```
 
-### [`TestAgentClient`](./lifecycle.ts#L43)
+Describes test agent.
+
+### [`TestAgentClient`](./lifecycle.ts#L53)
 
 _Interface_
 
@@ -266,7 +334,7 @@ _Interface_
 export interface TestAgentClient {
   readonly principal: "agent";
   readonly agentId?: AgentId;
-  close(): Effect.Effect<void, never>;
+  close(): Effect.Effect<void>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
@@ -292,7 +360,9 @@ export interface TestAgentClient {
 }
 ```
 
-### [`TestAppClient`](./lifecycle.ts#L71)
+Describes test agent client.
+
+### [`TestAppClient`](./lifecycle.ts#L82)
 
 _Interface_
 
@@ -300,7 +370,7 @@ _Interface_
 export interface TestAppClient {
   readonly principal: "app";
   readonly appId?: AppId;
-  close(): Effect.Effect<void, never>;
+  close(): Effect.Effect<void>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
@@ -326,20 +396,22 @@ export interface TestAppClient {
 }
 ```
 
-### [`TestAppCredential`](./test-fixtures.ts#L235)
+Describes test app client.
+
+### [`TestAppCredential`](./test-fixtures.ts#L318)
 
 _Interface_
 
 ```ts
 export interface TestAppCredential {
-  readonly appId: Schema.Schema.Type<typeof AppId>;
+  readonly appId: Schema.Schema.Type<typeof appIdSchema>;
   readonly appKey: AppKey;
 }
 ```
 
 Server-minted app principal credentials.
 
-### [`TestAppHttpRegistrationError`](./test-fixtures.ts#L259)
+### [`TestAppHttpRegistrationError`](./test-fixtures.ts#L342)
 
 _Class_
 
@@ -355,7 +427,7 @@ export class TestAppHttpRegistrationError extends Data.TaggedError(
 
 HTTP app registration failed (network, non-2xx, malformed response).
 
-### [`TestingError`](./errors.ts#L56)
+### [`TestingError`](./errors.ts#L58)
 
 _TypeAlias_
 
@@ -369,7 +441,9 @@ export type TestingError =
   | RealServerAcquireError;
 ```
 
-### [`TestServer`](./lifecycle.ts#L37)
+Represents testing error conditions.
+
+### [`TestServer`](./lifecycle.ts#L46)
 
 _Interface_
 
@@ -381,7 +455,9 @@ export interface TestServer {
 }
 ```
 
-### [`TransportClosedError`](./errors.ts#L7)
+Describes test server.
+
+### [`TransportClosedError`](./errors.ts#L8)
 
 _Class_
 
@@ -397,7 +473,7 @@ export class TransportClosedError extends Data.TaggedError(
 
 Peer closed the underlying WS before a response arrived.
 
-### [`TransportIoError`](./errors.ts#L16)
+### [`TransportIoError`](./errors.ts#L17)
 
 _Class_
 
@@ -412,15 +488,21 @@ export class TransportIoError extends Data.TaggedError(
 
 Underlying transport raised (socket error, DNS, TLS, etc.).
 
-### [`userId`](./test-fixtures.ts#L69)
+### [`userId`](./test-fixtures.ts#L86)
 
 _Function_
 
 ```ts
-export const userId = (value: string): Schema.Schema.Type<typeof UserId>
+export const userId = (
+  value: string,
+): Schema.Schema.Type<typeof userIdSchema>
 ```
 
-### [`waitForValue`](./wait.ts#L30)
+Validates and decodes user id values.
+
+**Returns:** The user id result.
+
+### [`waitForValue`](./wait.ts#L46)
 
 _Function_
 
@@ -433,7 +515,9 @@ export const waitForValue = <A, E = never, R = never>(
 
 Poll `probe` until it returns a defined value, then return it.
 
-### [`waitUntil`](./wait.ts#L18)
+**Returns:** The wait for value result.
+
+### [`waitUntil`](./wait.ts#L28)
 
 _Function_
 
@@ -445,6 +529,8 @@ export const waitUntil = (
 ```
 
 Poll `predicate` until it returns true.
+
+**Returns:** The wait until result.
 
 ### [`WIRE_ERROR_TAG`](./wire-error-tags.ts#L9)
 

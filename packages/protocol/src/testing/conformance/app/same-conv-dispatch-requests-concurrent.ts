@@ -1,5 +1,5 @@
-import { Effect, Schema } from "effect";
-import type { DispatchId, LeaseId } from "#message/dispatch";
+import { Effect, type Schema } from "effect";
+import type { dispatchId, leaseId } from "#message/dispatch";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
@@ -10,18 +10,22 @@ import {
 } from "./_helpers.js";
 import type { DispatchTestDriver, RecipientHandle } from "./_driver.js";
 
+/**
+ * Registers same conversation dispatch requests concurrent.
+ * @param ctx Context for the operation.
+ */
 export function registerSameConversationDispatchRequestsConcurrent(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME =
+  const name =
     "same-conversation-dispatch-requests-reach-moderator-concurrently";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "two agent/dispatch/request calls in same (taskId, conversationId) reach the moderator without server-side serialization",
     withDriver(ctx, (driver) =>
-      runSameConversationDispatchRequestsConcurrent(NAME, driver),
+      runSameConversationDispatchRequestsConcurrent(name, driver),
     ).pipe(
       Effect.withSpan("registerSameConversationDispatchRequestsConcurrent"),
     ),
@@ -44,10 +48,10 @@ function runSameConversationDispatchRequestsConcurrent(
   });
 }
 
-type DispatchAck = {
-  readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
-  readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
-};
+interface DispatchAck {
+  readonly leaseId: Schema.Schema.Type<typeof leaseId>;
+  readonly dispatchId: Schema.Schema.Type<typeof dispatchId>;
+}
 
 function requestConcurrentDispatches(
   driver: DispatchTestDriver,

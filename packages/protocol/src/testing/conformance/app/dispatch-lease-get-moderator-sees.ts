@@ -1,5 +1,5 @@
-import { Effect, Schema } from "effect";
-import type { DispatchId, LeaseId } from "#message/dispatch";
+import { Effect, type Schema } from "effect";
+import type { dispatchId, leaseId } from "#message/dispatch";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
@@ -10,17 +10,21 @@ import {
 } from "./_helpers.js";
 import type { DispatchTestDriver } from "./_driver.js";
 
+/**
+ * Registers dispatch lease get moderator sees record.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchLeaseGetModeratorSeesRecord(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-lease-get-moderator-sees-record";
+  const name = "dispatch-lease-get-moderator-sees-record";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "app/dispatch/lease/get from the moderator's connection at each lifecycle stage returns the full LeaseRecord with state matching the stage",
     withDriver(ctx, (driver) =>
-      assertModeratorSeesLifecycle(NAME, driver),
+      assertModeratorSeesLifecycle(name, driver),
     ).pipe(Effect.withSpan("registerDispatchLeaseGetModeratorSeesRecord")),
   );
 }
@@ -44,10 +48,10 @@ function assertModeratorSeesLifecycle(
   });
 }
 
-type DispatchAck = {
-  readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
-  readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
-};
+interface DispatchAck {
+  readonly leaseId: Schema.Schema.Type<typeof leaseId>;
+  readonly dispatchId: Schema.Schema.Type<typeof dispatchId>;
+}
 
 function assertGrantedView(
   propertyName: string,

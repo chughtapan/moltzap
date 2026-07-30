@@ -1,6 +1,6 @@
 /** @file Scoped NanoClaw runtime. */
 
-import { FileSystem, HttpClient, Path } from "@effect/platform";
+import type { FileSystem, HttpClient, Path } from "@effect/platform";
 import type {
   CommandExecutor,
   ExitCode,
@@ -43,14 +43,14 @@ interface NanoclawWorkspaceFile {
 interface NanoclawMcpServer {
   readonly name: string;
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
 }
 
 /** Configuration captured by one reusable NanoClaw runtime value. */
 export interface NanoclawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
-  readonly workspaceFiles?: ReadonlyArray<NanoclawWorkspaceFile>;
+  readonly workspaceFiles?: readonly NanoclawWorkspaceFile[];
   readonly modelId?: string;
   readonly installMode?: InstallMode;
 
@@ -61,16 +61,16 @@ export interface NanoclawRuntimeOptions {
   readonly autoRegisterConversations?: boolean;
 
   /** Stdio MCP servers mounted into the NanoClaw container workspace. */
-  readonly mcpServers?: ReadonlyArray<NanoclawMcpServer>;
+  readonly mcpServers?: readonly NanoclawMcpServer[];
 }
 
 interface NanoclawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
-  readonly workspaceFiles: ReadonlyArray<NanoclawWorkspaceFile>;
+  readonly workspaceFiles: readonly NanoclawWorkspaceFile[];
   readonly modelId?: string;
   readonly installMode?: InstallMode;
   readonly autoRegisterConversations: boolean;
-  readonly mcpServers?: ReadonlyArray<NanoclawMcpServer>;
+  readonly mcpServers?: readonly NanoclawMcpServer[];
 }
 
 /**
@@ -83,9 +83,9 @@ export interface NanoclawProcessInput {
   readonly apiKey: AgentKey;
   readonly serverUrl: ServerBaseUrl;
   readonly autoRegisterConversations: boolean;
-  readonly workspaceFiles: ReadonlyArray<NanoclawWorkspaceFile>;
+  readonly workspaceFiles: readonly NanoclawWorkspaceFile[];
   readonly modelId?: string;
-  readonly mcpServers?: ReadonlyArray<NanoclawMcpServer>;
+  readonly mcpServers?: readonly NanoclawMcpServer[];
 }
 
 /**
@@ -101,7 +101,7 @@ export interface NanoclawRuntimeDriver<
   Requirements = never,
 > {
   readonly resolveInstallMode: (
-    requested: InstallMode | undefined,
+    requested?: InstallMode,
   ) => Effect.Effect<InstallMode, unknown>;
   readonly install: (
     mode: InstallMode,
@@ -144,14 +144,14 @@ const nativeNanoclawDriver: NanoclawRuntimeDriver<
 };
 
 function snapshotWorkspaceFiles(
-  files: ReadonlyArray<NanoclawWorkspaceFile> | undefined,
-): ReadonlyArray<NanoclawWorkspaceFile> {
+  files?: readonly NanoclawWorkspaceFile[],
+): readonly NanoclawWorkspaceFile[] {
   return Object.freeze((files ?? []).map((file) => Object.freeze({ ...file })));
 }
 
 function snapshotMcpServers(
-  servers: ReadonlyArray<NanoclawMcpServer> | undefined,
-): ReadonlyArray<NanoclawMcpServer> | undefined {
+  servers?: readonly NanoclawMcpServer[],
+): readonly NanoclawMcpServer[] | undefined {
   return servers === undefined
     ? undefined
     : Object.freeze(
@@ -327,7 +327,10 @@ function acquireNanoclawRuntime<
  * Build NanoClaw's process-backed runtime against an explicit low-level driver.
  * Production uses {@link nanoclawRuntime}; this seam keeps lifecycle tests
  * free of Docker and immutable-install work.
+ * @param options Options that control the operation.
+ * @param driver Value supplied to the operation.
  * @internal
+ * @returns The created nanoclaw runtime with.
  */
 export function makeNanoclawRuntimeWith<
   Install,
@@ -348,6 +351,8 @@ export function makeNanoclawRuntimeWith<
 /**
  * Construct a NanoClaw runtime that binds each roster identity to one
  * scoped container-backed process and waits for router-visible readiness.
+ * @param options Options that control the operation.
+ * @returns The nanoclaw runtime result.
  */
 export function nanoclawRuntime(
   options: NanoclawRuntimeOptions = {},

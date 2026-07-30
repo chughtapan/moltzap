@@ -24,14 +24,14 @@
  * ID stays `boundary/app-disconnect-fail-policy`.
  */
 import { Effect, type Scope } from "effect";
-import { TaskRequest } from "#task";
+import { taskRequest } from "#task";
 import { makeAgentTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp, type TestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable, registerProperty } from "../_shared/registry.js";
 
-const CATEGORY = "boundary" as const;
+const CATEGORY = "boundary";
 const PROPERTY = "app-disconnect-fail-policy";
 const DEFAULT_TIMEOUT_MS = 3000;
 
@@ -42,6 +42,10 @@ const unavailable = (reason: string): PropertyUnavailable =>
     reason,
   });
 
+/**
+ * Registers app disconnect fail policy.
+ * @param ctx Context for the operation.
+ */
 export function registerAppDisconnectFailPolicy(
   ctx: ConformanceRunContext,
 ): void {
@@ -123,7 +127,7 @@ function missingTopologyUnavailable() {
     new PropertyUnavailable({
       category: CATEGORY,
       name: PROPERTY,
-      reason: `${TaskRequest.name} does not bootstrap session conversations; needs app-topology dispatch precondition`,
+      reason: `${taskRequest.name} does not bootstrap session conversations; needs app-topology dispatch precondition`,
     }),
   );
 }

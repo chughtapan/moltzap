@@ -14,7 +14,8 @@ The separation from L1 is binding:
 - each future institution is a separate service and trust domain;
 - an institution issues its own versioned, signed, institution-scoped
   statements keyed by `AgentId`;
-- no DirectoryEntry combines identity and institutional facts;
+- no AgentCard or Registry identity record combines identity and
+  institutional facts;
 - Router and Ledger never query or evaluate institutions.
 
 An endpoint later composes L1 identity with statements from whichever
@@ -26,7 +27,7 @@ recognize.
 Network services perform L1 and mechanical protocol checks only:
 
 - identity and key validity;
-- exact schema, version, COSE, and request authentication;
+- exact schema, version, COSE certificate, and request authentication;
 - technical conversation, epoch, Router-instance, and base bindings;
 - exact Gate 1 certificate signer set and signatures.
 

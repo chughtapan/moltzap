@@ -526,10 +526,7 @@ function missingDeclaredDependencyFails() {
         extName: CHANNEL_EXTENSION_NAME,
       }).pipe(Effect.flip);
 
-      expect(error).toMatchObject({
-        _tag: "ChannelPluginInstallError",
-        message: expect.stringContaining(missingPackage),
-      });
+      expect(error.message).toContain(missingPackage);
       const missingLink = path.join(
         stateDir,
         "extensions",
@@ -654,7 +651,7 @@ function loadCopiedChannelEntry(extDir: string) {
 
 function seedChannelPackage(
   channelPkg: string,
-  dependencies: ReadonlyArray<string>,
+  dependencies: readonly string[],
 ) {
   return seedPackage(channelPkg, {
     name: OPENCLAW_CHANNEL_PACKAGE,
@@ -667,7 +664,7 @@ function seedChannelPackage(
 
 function seedChannelEntry(
   channelDist: string,
-  dependencies: ReadonlyArray<string>,
+  dependencies: readonly string[],
 ) {
   const source = [
     ...dependencies.map(

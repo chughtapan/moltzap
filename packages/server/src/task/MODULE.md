@@ -8,12 +8,12 @@ Task-domain service barrel.
 
 ## Public surface
 
-### [`TaskAuthorizationServiceLive`](./layer.ts#L80)
+### [`taskAuthorizationServiceLive`](./layer.ts#L91)
 
 _Variable_
 
 ```ts
-export const TaskAuthorizationServiceLive = Layer.effect(
+export const taskAuthorizationServiceLive = Layer.effect(
   TaskAuthorizationServiceTag,
   Effect.gen(function* () {
     const appEndpointRegistry = yield* AppEndpointRegistryTag;
@@ -22,7 +22,9 @@ export const TaskAuthorizationServiceLive = Layer.effect(
 )
 ```
 
-### [`TaskAuthorizationServiceTag`](./layer.ts#L71)
+Provides the task authorization service live runtime value.
+
+### [`TaskAuthorizationServiceTag`](./layer.ts#L80)
 
 _Class_
 
@@ -32,46 +34,67 @@ export class TaskAuthorizationServiceTag extends Context.Tag(
 )<TaskAuthorizationServiceTag, TaskAuthorizationService>() {}
 ```
 
-### [`taskLeave`](./handlers.ts#L352)
+Implements task authorization service tag.
+
+### [`taskLeave`](./handlers.ts#L386)
 
 _Variable_
 
 ```ts
-export const taskLeave: ServerHandler<typeof TaskLeave> = (params)
+export const taskLeave: ServerHandler<typeof taskLeaveDefinition> = (params)
 ```
 
-### [`taskList`](./handlers.ts#L347)
+Provides the task leave runtime value.
+
+**Returns:** The task leave result.
+
+### [`taskList`](./handlers.ts#L376)
 
 _Variable_
 
 ```ts
-export const taskList: ServerHandler<typeof TaskList> = (params)
+export const taskList: ServerHandler<typeof taskListDefinition> = (params)
 ```
 
-### [`taskRequest`](./handlers.ts#L201)
+Provides the task list runtime value.
+
+**Returns:** The task list result.
+
+### [`taskRequest`](./handlers.ts#L216)
 
 _Variable_
 
 ```ts
-export const taskRequest: ServerHandler<typeof TaskRequest> = (params)
+export const taskRequest: ServerHandler<typeof taskRequestDefinition> = (
+  params,
+)
 ```
 
-### [`TaskService`](./task.service.ts#L176)
+Provides the task request runtime value.
+
+**Returns:** The task leave body result.
+
+### [`TaskService`](./task.service.ts#L186)
 
 _Class_
 
 ```ts
 export class TaskService {
-  constructor(
-    private readonly db: Db,
-    private readonly conversations: ConversationService,
-    private readonly messages: MessageService,
-  ) {}
+  private readonly db: Db;
+  private readonly conversations: ConversationService;
+  private readonly messages: MessageService;
 
-  create(
-    initiator: AgentId,
-    input: TaskCreateInput,
-  ): Effect.Effect<Task, never> {
+  constructor(
+    db: Db,
+    conversations: ConversationService,
+    messages: MessageService,
+  ) {
+    this.db = db;
+    this.conversations = conversations;
+    this.messages = messages;
+  }
+
+  create(initiator: AgentId, input: TaskCreateInput): Effect.Effect<Task> {
     return catchSqlErrorAsDefect(
       transaction(this.db, (trx) =>
         Effect.gen(function* () {
@@ -128,13 +151,13 @@ export class TaskService {
    * Returns the updated row so the handler can fan out
    * `agent/task/created { task }` or `task/failed { taskId, reason }`
    * without a second SELECT.
+   * @param id Value supplied to the operation.
+   * @param status Value supplied to the operation.
+   * @returns The row result.
    */
-  setStatus(
-    id: TaskId,
-    status: "active" | "failed",
-  ): Effect.Effect<Task, never> {
+  setStatus(id: TaskId, status: "active" | "failed"): Effect.Effect<Task> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: TaskService) {
         const row = yield* takeFirstOrFail(
           this.db
             .updateTable("tasks")
@@ -155,7 +178,7 @@ export class TaskService {
     { task: Task; participants: TaskParticipant[] },
     TaskNotFoundError | ForbiddenError
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: TaskService) {
       const task = yield* this.loadTaskWithReadAccess(id, caller);
       const rows = yield* catchSqlErrorAsDefect(
         this.db
@@ -175,20 +198,17 @@ export class TaskService {
     input: TaskListInput,
   ): Effect.Effect<TaskListPage, InvalidCursorError> {
     const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
-    return Effect.gen(this, function* () {
-      const pos =
-        input.cursor === undefined
-          ? undefined
-          : yield* decodeListCursor(input.cursor);
-      return yield* catchSqlErrorAsDefect(
+    return Effect.gen(this, function* (this: TaskService) {
 ```
 
-### [`TaskServiceLive`](./layer.ts#L88)
+Implements task service.
+
+### [`taskServiceLive`](./layer.ts#L100)
 
 _Variable_
 
 ```ts
-export const TaskServiceLive = Layer.effect(
+export const taskServiceLive = Layer.effect(
   TaskServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -199,7 +219,9 @@ export const TaskServiceLive = Layer.effect(
 )
 ```
 
-### [`TaskServiceTag`](./layer.ts#L75)
+Provides the task service live runtime value.
+
+### [`TaskServiceTag`](./layer.ts#L85)
 
 _Class_
 
@@ -210,13 +232,21 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 >() {}
 ```
 
-### [`taskUpdate`](./handlers.ts#L357)
+Implements task service tag.
+
+### [`taskUpdate`](./handlers.ts#L396)
 
 _Variable_
 
 ```ts
-export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params)
+export const taskUpdate: ServerHandler<typeof taskUpdateDefinition> = (
+  params,
+)
 ```
+
+Provides the task update runtime value.
+
+**Returns:** The task update result.
 
 ## Files
 

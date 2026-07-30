@@ -13,7 +13,7 @@ type CoalescedMessage = NonNullable<
 >[number];
 
 interface EnrichmentContext {
-  readonly conversationMeta: EnrichedConversationMeta | undefined;
+  readonly conversationMeta?: EnrichedConversationMeta;
   readonly contextBlocks: ContextBlocks;
   readonly commitContext?: () => void;
 }
@@ -23,28 +23,29 @@ interface EnrichedMessageInput {
   readonly message: Message;
   readonly taskId: TaskId;
   readonly senderName: string;
-  readonly coalesced: ReadonlyArray<CoalescedMessage>;
+  readonly coalesced: readonly CoalescedMessage[];
   readonly context: EnrichmentContext;
 }
 
 function isMessageList(
-  messageOrMessages: Message | ReadonlyArray<Message>,
-): messageOrMessages is ReadonlyArray<Message> {
+  messageOrMessages: Message | readonly Message[],
+): messageOrMessages is readonly Message[] {
   return Array.isArray(messageOrMessages);
 }
 
 function asMessageArray(
-  messageOrMessages: Message | ReadonlyArray<Message>,
+  messageOrMessages: Message | readonly Message[],
 ): Message[] {
   return isMessageList(messageOrMessages)
     ? [...messageOrMessages]
     : [messageOrMessages];
 }
 
-function formatCoalescedText(
-  coalesced: ReadonlyArray<CoalescedMessage>,
-): string {
-  if (coalesced.length === 1) return coalesced[0]!.text;
+function formatCoalescedText(coalesced: readonly CoalescedMessage[]): string {
+  if (coalesced.length === 1) {
+    return /* Safe because the surrounding invariant establishes this asserted shape. */ coalesced[0]!
+      .text;
+  }
   return coalesced
     .map((message, index) =>
       index === 0
@@ -57,7 +58,9 @@ function formatCoalescedText(
 function conversationMetaFrom(
   convMeta: ReturnType<ChannelService["getConversation"]>,
 ): EnrichedConversationMeta | undefined {
-  if (!convMeta) return undefined;
+  if (!convMeta) {
+    return undefined;
+  }
   return {
     type: convMeta.type === "group" ? "group" : "dm",
     name: convMeta.name,
@@ -78,7 +81,7 @@ function extractTextContent(parts: Message["parts"]): string {
 function resolveSenderName(
   service: ChannelService,
   agentId: string,
-): Effect.Effect<string, never> {
+): Effect.Effect<string> {
   const cachedName = service.getAgentName(agentId);
   return cachedName !== undefined
     ? Effect.succeed(cachedName)
@@ -103,11 +106,12 @@ function coalescedMessageFrom(
 
 function buildCoalescedMessages(
   service: ChannelService,
-  messages: ReadonlyArray<Message>,
+  messages: readonly Message[],
   primarySenderName: string,
-): Effect.Effect<CoalescedMessage[], never> {
+): Effect.Effect<CoalescedMessage[]> {
   return Effect.gen(function* () {
-    const primaryMessage = messages[0]!;
+    const primaryMessage =
+      /* Safe because the surrounding invariant establishes this asserted shape. */ messages[0]!;
     const coalesced = [coalescedMessageFrom(primaryMessage, primarySenderName)];
     for (const message of messages.slice(1)) {
       const senderName = yield* resolveSenderName(service, message.senderId);
@@ -126,7 +130,7 @@ function isFromOwnAgent(service: ChannelService, message: Message): boolean {
 function collectContextBlocks(
   service: ChannelService,
   conversationId: string,
-  conversationMeta: EnrichedConversationMeta | undefined,
+  conversationMeta?: EnrichedConversationMeta,
 ): EnrichmentContext {
   const contextBlocks: ContextBlocks = {};
   if (conversationMeta?.type === "group") {
@@ -185,20 +189,25 @@ function buildEnrichedInboundMessage({
   };
 }
 
+/**
+ * Executes the enrich channel message operation.
+ * @param service Value supplied to the operation.
+ * @param taskId Value supplied to the operation.
+ * @param messageOrMessages Value supplied to the operation.
+ * @returns The enrich channel message result.
+ */
 export function enrichChannelMessage(
   service: ChannelService,
   taskId: TaskId,
-  messageOrMessages: Message | ReadonlyArray<Message>,
-): Effect.Effect<
-  {
-    enriched: EnrichedInboundMessage;
-    commitContext?: () => void;
-  },
-  never
-> {
+  messageOrMessages: Message | readonly Message[],
+): Effect.Effect<{
+  enriched: EnrichedInboundMessage;
+  commitContext?: () => void;
+}> {
   return Effect.gen(function* () {
     const messages = asMessageArray(messageOrMessages);
-    const message = messages[0]!;
+    const message =
+      /* Safe because the surrounding invariant establishes this asserted shape. */ messages[0]!;
     const senderName = yield* resolveSenderName(service, message.senderId);
     const coalesced = yield* buildCoalescedMessages(
       service,
