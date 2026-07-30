@@ -1772,6 +1772,206 @@ and Transcript specification and ADR files from the candidate's parent
 revision. This is a mechanical repository event, not a new design
 decision.
 
+## Registration ownership was an open question
+
+### Human questions the current ownership
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb028-eb9d-7ed3-9000-a1f26175ad45`.
+- Enclosing turn: `019fb028-e9f2-77f3-b797-a2b42c68b4d7`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-29T23:14:59.613Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> registration requests should not live in AuthenticatedHttp? they are
+> by design not authenticated?
+
+### Agent proposes Registry ownership
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator:
+  `msg_0d0c5bdb13a3d3c4016a6a89b2b15c81909263c0e77e01f9c0`.
+- Enclosing turn: `019fb028-e9f2-77f3-b797-a2b42c68b4d7`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-29T23:16:03.896Z`.
+- Stored actor role: `assistant`.
+
+Literal excerpt:
+
+> Yes—registration is admitted and proves possession of the submitted
+> key, but it is not authenticated as an existing AgentId. I’ll correct
+> the design so `AuthenticatedHttp` owns only registered-agent
+> requests; Registry privately owns registration admission and
+> proof-of-possession. I’ll also add a clearly non-normative,
+> human-review slate under `docs/architecture/` and link it from the
+> implementation ask.
+
+This is an agent proposal, not a human decision.
+
+### Human later resumes the goal
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb0cc-c14e-7e31-b196-e10ee2934da9`.
+- Enclosing turn: `019fb0cc-bebe-7793-9a25-20563466f7df`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-30T02:13:56.686Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> update to latest v2 and resume goal
+
+At this point in the source, no later literal human event accepted or
+rejected the proposed registration-ownership replacement. The later
+exact-slate approval retained below supplies the explicit maintainer
+decision.
+
+## Numbered layer notation stays in documentation
+
+### Human limits layer notation to documentation
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb034-605f-7430-b2b0-2601cbcbb1fe`.
+- Enclosing turn: `019fb034-5f61-7db1-8c2b-e30b3788fed3`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-29T23:27:30.399Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> we also want to make sure that L1 / L2 language does not slip into
+> the code; its only in the docs
+
+## Configuration simplification and Effect Config
+
+### Human questions three independent Router size settings
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb0e7-b8e8-7a41-815e-ed84688d3e2b`.
+- Enclosing turn: `66fbaaf6-6183-4897-a44e-1098940037a4`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-30T02:43:24.009Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> I'm a bit confused about: MOLTZAP_ROUTER_REQU…│maximum received
+> POS…│ 524,288 │received body octets;…│no
+>    MOLTZAP_ROUTER_OPAQ…│maximum decoded Sign…│ 262,144 │bytes after
+> canonical…│no
+>    MOLTZAP_ROUTER_SIGN…│maximum complete Sig…│ 491,520 │UTF-8 JCS
+> bytes of th…│no
+
+### Human asks why the settings are separate
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb0e7-b8f8-7f01-bda8-7e6823f33cd9`.
+- Enclosing turn: `66fbaaf6-6183-4897-a44e-1098940037a4`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-30T02:43:24.025Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> why do we hav ethese separate constants
+
+These are questions. They do not themselves select fixed primitive
+limits, derived enclosing limits, or exact values.
+
+### Human asks for another configuration cleanup and selects Effect
+Config
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb0eb-32b1-7c63-91be-4e4e6f8176a0`.
+- Enclosing turn: `019fb0eb-30b2-7f03-b3a3-927b02dcd00a`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-30T02:47:11.794Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> do we similar cleanups in other places? vacous config variables? also
+> we should use effect for config loading
+
+The request to use Effect for configuration loading is declarative.
+The questions about other cleanups and vacuous variables do not select
+the agent's later proposed list of retained or excluded keys at this
+point in the source.
+
+### Human rejects a complex research detour
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb0ec-9028-7050-b2f6-79071ed5b9ac`.
+- Enclosing turn: `019fb0eb-30b2-7f03-b3a3-927b02dcd00a`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-30T02:48:41.256Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> you don't need complex research for this
+
+This is process direction. It does not approve a configuration-key
+table.
+
+## Exact implementation slate approved
+
+### Agent identifies the exact review revision
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator:
+  `msg_0d0c5bdb13a3d3c4016a6ac6d7ff208190b1ff303d49534cbb`.
+- Enclosing turn: `24814570-3559-4350-ba3a-71e315fb674b`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-30T03:36:58.067Z`.
+- Stored actor role: `assistant`.
+
+Literal excerpt:
+
+```text
+Implementation is paused at the required human gate. The candidate remains unchanged:
+
+[Review slate](/home/tapanc/moltzap/docs/architecture/l1-l2-human-review-slate.md)
+SHA-256: `d1305a44a1b1a8a351e56687d8f2178e202ef64e65b91a5d36f96e481a01161d`
+
+Reply `approve slate` to resume with ADR/spec reconciliation, blind review, and implementation.
+```
+
+This is the public agent prompt needed to interpret the terse human
+reply. It identifies the candidate by repository path and SHA-256.
+The source's two trailing Markdown hard-break spaces after the link
+were omitted as presentation-only whitespace normalization.
+
+### Human approves the identified slate
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb12b-5068-7541-8b06-6ffe8c6b92bb`.
+- Enclosing turn: `019fb12b-4f15-7c70-8a43-2a5318410ff3`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-30T03:57:13.704Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> approve slate
+
+The reply selects the exact revision identified by the directly
+preceding retained prompt. The slate is a non-normative review
+artifact; current binding outcomes live in the ADRs and normative
+chapters reconciled from this event.
+
 ## Cross-cutting source gaps
 
 ### Session account identity is absent

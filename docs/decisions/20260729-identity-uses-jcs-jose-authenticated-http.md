@@ -1,12 +1,42 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-29
 decision-makers: Tapan Chugh
+superseded-by: 20260729-registration-is-registry-bootstrap-admission.md
 ---
 
 # Identity uses JCS, JOSE, and AuthenticatedHttp
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp).
+Decision provenance: [compacted trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp) and [exact implementation slate approval](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#exact-implementation-slate-approved).
+
+## Supersession
+
+The closed JCS/General-JWS AgentCard and SignedMessage profiles, the
+registered-agent `AuthenticatedHttp` capability, maintained-library
+adapters, deployment-owned channel protection, trust assumptions,
+guarantees, and deliberate deferrals remain current.
+
+`20260729-registration-is-registry-bootstrap-admission.md` replaces the
+parts of this record that place registration inside
+`AuthenticatedHttp`. Registration is now Registry-owned bootstrap
+admission: it keeps the closed RFC 9421 proof-of-possession profile and
+deployment admission credential, but neither creates nor consumes an
+authenticated existing-agent context.
+
+The sibling current records
+`20260729-identity-and-router-expose-deep-effect-capabilities.md` and
+`20260729-representation-limits-are-fixed-or-derived.md` close the
+public deep-module, error, Effect Config, private Effect RPC, and
+fixed-or-derived bound contracts approved in the same slate. They
+refine implementation-facing mechanisms without replacing the retained
+JCS, JOSE, registered-agent authentication, guarantee, or trust scope
+of this record.
+
+The current semantic contract lives in `docs/spec/identity.md`; exact
+JCS, JOSE, HTTP, and Registry representations live in
+`docs/spec/identity-representation.md`. The historical Decision Outcome
+below is retained as written and is current only to the extent stated
+in this section.
 
 ## Context and Problem Statement
 

@@ -88,6 +88,30 @@ function walk(dir, out = []) {
   return out;
 }
 
+function walkNonDocumentationFiles(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (
+      entry.name === "dist" ||
+      entry.name === "node_modules" ||
+      entry.name === ".eslintcache"
+    ) {
+      continue;
+    }
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkNonDocumentationFiles(full, out);
+    } else if (
+      entry.isFile() &&
+      path.extname(entry.name) !== ".md" &&
+      path.extname(entry.name) !== ".mdx"
+    ) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 function rel(file) {
   return path.relative(repo, file);
 }
@@ -245,6 +269,43 @@ const v2Dirs = fs.existsSync(v2Root)
   : [];
 
 failOnSetDrift("v2/", "package set drifted", v2Dirs, Object.keys(V2_PACKAGES));
+
+// Architectural numbering helps readers navigate specifications, but it
+// obscures domain ownership in executable artifacts. Source and package
+// metadata name identity, Registry, router, and Router directly.
+const DOCUMENTATION_ONLY_LAYER_NOTATION =
+  /(?:^|[^A-Za-z0-9])(?:[Ll][12](?=$|[^a-z0-9])|[Ll]ayer(?:[ _-]?(?:[12]|[Oo]ne|[Tt]wo))(?=$|[^a-z0-9]))/g;
+
+let v2VocabularyFileCount = 0;
+for (const dir of v2Dirs) {
+  const files = walkNonDocumentationFiles(path.join(v2Root, dir));
+  if (files.length === 0) {
+    failures.push(
+      `v2/${dir}: no non-documentation files scanned; the vocabulary rule would pass vacuously here`,
+    );
+    continue;
+  }
+  v2VocabularyFileCount += files.length;
+
+  for (const file of files) {
+    const relativePath = rel(file);
+    if (DOCUMENTATION_ONLY_LAYER_NOTATION.test(relativePath)) {
+      failures.push(
+        `${relativePath}: numbered architecture notation is documentation-only`,
+      );
+    }
+    DOCUMENTATION_ONLY_LAYER_NOTATION.lastIndex = 0;
+
+    const text = fs.readFileSync(file, "utf8");
+    for (const match of text.matchAll(DOCUMENTATION_ONLY_LAYER_NOTATION)) {
+      fail(
+        file,
+        lineAt(text, match.index),
+        "numbered architecture notation is documentation-only; name the owning domain",
+      );
+    }
+  }
+}
 
 // ─── One CalVer, carried by v2/VERSION and all six manifests ──────────────
 
@@ -472,5 +533,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${v2Dirs.length} v2 packages and ${v2SourceCount} v2 sources scanned at version ${v2Version}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${v2Dirs.length} v2 packages, ${v2SourceCount} v2 sources, and ${v2VocabularyFileCount} v2 non-documentation files scanned at version ${v2Version}`,
 );

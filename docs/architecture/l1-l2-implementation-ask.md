@@ -2,7 +2,7 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **APPROVED IMPLEMENTATION ASK — AUTHORITY REVIEW REQUIRED BEFORE CODE**
+Status: **ACTIVE IMPLEMENTATION ASK — AUTHORITY RECONCILED; BLIND REVIEW REQUIRED BEFORE CODE**
 
 Governing architecture:
 [`20260728-gate-1-architecture-freeze.md`](../decisions/20260728-gate-1-architecture-freeze.md)
@@ -79,12 +79,29 @@ record, or server-side poll advancement.
 
 ## Human gates
 
+The complete non-normative review surface is
+[`l1-l2-human-review-slate.md`](./l1-l2-human-review-slate.md).
+The maintainer approved its exact SHA-256
+`d1305a44a1b1a8a351e56687d8f2178e202ef64e65b91a5d36f96e481a01161d`.
+The approval event is retained in the
+[decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#exact-implementation-slate-approved).
+Its choices become implementation authority only through the admitted
+ADRs, normative reconciliation, and authority gate below.
+
 ### Vocabulary gate
 
 Public names are human-gated. An implementer may use only the approved
 vocabulary below. A proposed public rename or new public domain term
 stops the slice for human review before it enters an ADR, specification,
 export, route, error, configuration key, or generated document.
+
+Layer numbers are documentation notation, not code vocabulary. `L1` and
+`L2` may appear in Markdown architecture, decision, specification, and
+planning documents to locate a guarantee in the stack. They do not
+appear in package metadata, paths, source or test identifiers, comments
+or JSDoc, runtime strings, configuration, errors, fixtures, migrations,
+or generated code. Code names the owning domain directly: `identity`,
+`Registry`, `router`, and `Router`.
 
 Approved vocabulary:
 
@@ -124,16 +141,15 @@ public “test-vector” abstraction.
 
 ### Staged public-name gate
 
-The approved `MOLTZAP_REGISTRY_` and `MOLTZAP_ROUTER_` prefixes do not
-approve configuration-key suffixes. Before Registry or Router process
-configuration enters source, the implementer presents one complete
-configuration-key table for literal maintainer approval. The same rule
-applies to any public export name not already present in the approved
-vocabulary or governing specifications.
+The exact slate approval covers the complete Registry and Router
+configuration-key tables, public exports, method names, errors, and
+result variants recorded in the governing specifications. The
+implementer uses those names verbatim.
 
-These are scheduled human decisions, not implementation discretion or
-post-Gate-1 deferrals. Internal work may proceed only until the next
-public name would enter source.
+Any public export, configuration key, error, result variant, or domain
+term absent from the approved slate and governing specifications
+returns to literal maintainer review before it enters source. It is not
+implementation discretion.
 
 ### Readability gate
 
@@ -141,6 +157,7 @@ Each slice ends with a human readability review before the next slice
 starts. The review checks:
 
 - names match the vocabulary table;
+- numbered layer notation appears only in documentation;
 - one concept has one name across code, tests, errors, configuration,
   and docs;
 - public interfaces reveal the domain contract and hide mechanisms;
@@ -157,22 +174,30 @@ vocabulary change returns to the vocabulary gate.
 
 ## Authority gate
 
-Before this candidate, repository authority made X.509, CBOR, COSE, a
+The first authority candidate already replaced X.509, CBOR, COSE, the
 cross-layer wire profile, mandatory application-facing TLS, and the
-`transport` package current. Code against the replacement design stays
-blocked until the following authority change and blind review are
-complete.
+`transport` package for L1 and L2. The approved implementation slate
+adds the exact bootstrap boundary, public capability surface, and
+fixed-or-derived configuration contract. Product code remains blocked
+until this follow-on authority change and blind review are complete.
 
 ### Candidate ADRs
 
-The authority change admits four focused records:
+The governing authority set contains the four focused replacement
+records already admitted:
 
 1. `20260729-v2-authority-lives-with-v2.md`
 2. `20260729-representations-are-layer-owned.md`
 3. `20260729-identity-uses-jcs-jose-authenticated-http.md`
 4. `20260729-router-order-is-opaque.md`
 
-Each record:
+The approved slate admits three follow-on records:
+
+5. `20260729-registration-is-registry-bootstrap-admission.md`
+6. `20260729-identity-and-router-expose-deep-effect-capabilities.md`
+7. `20260729-representation-limits-are-fixed-or-derived.md`
+
+Each new record:
 
 - has MADR-minimal frontmatter;
 - names Tapan Chugh as the human decision-maker;
@@ -205,11 +230,21 @@ The records retain these alternatives as non-current choices:
 - durable or per-recipient Router state versus one bounded volatile
   global feed with client-held continuation; and
 - a control-plane-shaped `transport` package versus a data-plane
-  `router` package.
+  `router` package;
+- registration inside registered-agent AuthenticatedHttp versus a
+  Registry-owned signed bootstrap boundary;
+- public mechanism classes and a copied transport framework versus
+  cohesive Effect domain capabilities;
+- independent configuration for every nested representation limit
+  versus fixed primitive limits and owner-derived enclosing limits;
+- an application request queue versus one immediate request permit;
+  and
+- custom environment-prefix enumeration versus ordinary Effect Config
+  lookup of declared keys.
 
 ### Supersession and traceability
 
-The authority candidate:
+The first authority candidate already:
 
 - fully supersedes
   `20260729-wire-profile-assigns-every-gate-1-byte.md`;
@@ -230,7 +265,7 @@ The authority candidate:
 The retained portions of partially superseded records remain explicit.
 No cold reader has to infer which paragraph survives.
 
-The candidate reconciles retained-scope prose in at least:
+That first candidate reconciled retained-scope prose in:
 
 - `20260721-native-principal-shaped-card.md`;
 - `20260721-physical-plane-split.md`;
@@ -243,12 +278,12 @@ The candidate reconciles retained-scope prose in at least:
 - `20260726-attribution-binds-to-the-message.md`; and
 - `20260727-registration-is-out-of-band.md`.
 
-`20260727-code-first-simulator-kernel.md` receives the provenance link
+`20260727-code-first-simulator-kernel.md` received the provenance link
 required by current ADR law. If the original decision source is not
 locatable, its trajectory records that source gap instead of
 reconstructing rationale.
 
-The candidate also:
+That candidate also:
 
 - reconciles `AGENTS.md`, `v2/AGENTS.md`, and `v2/VISION.md`;
 - adds `docs/spec/identity-representation.md`;
@@ -260,6 +295,20 @@ The candidate also:
   unchanged; and
 - revises architecture orientation and this implementation ask only
   where needed to agree with the new authority.
+
+The follow-on authority candidate:
+
+- partially supersedes only the registration-profile portion of
+  `20260729-identity-uses-jcs-jose-authenticated-http.md`;
+- adds the deep public Effect capability and fixed-or-derived limit
+  decisions without replacing the retained identity, Router-order, or
+  layer-owned-representation outcomes;
+- updates the freeze manifest with stable new trace rows and exact
+  normative owners;
+- reconciles the identity, Router, representation, package-interface,
+  readiness, and vision text needed by those rows; and
+- leaves current L3 and later specifications, vocabulary, focused ADR
+  outcomes, and representations unchanged.
 
 ### Blind teammate review
 
@@ -315,6 +364,32 @@ persisted-schema versions remain independent.
 
 ## Shared implementation principles
 
+### V1 pattern audit
+
+V1 is an implementation reference, not a dependency. The pre-code
+audit retains these proven shapes:
+
+- `packages/protocol/src/identity/agents/ids.ts → agentId` and
+  `packages/protocol/src/conversation/types.ts → conversationId`,
+  `messageId` demonstrate one distinctly branded Effect Schema per
+  semantic identifier;
+- `packages/protocol/src/transport/strict-decode.ts →
+  decodesStrictly`, `closedStructGuard` demonstrates why every closed
+  boundary must pass `onExcessProperty: "error"`;
+- `packages/protocol/src/transport/definition.ts → defineRpc`,
+  `applyRequirementMiddlewares` demonstrates per-operation Effect RPC
+  schemas, ordered required middleware, and middleware failures
+  propagating into the call's typed `E`; and
+- the direct `Schema.TaggedError` classes in
+  `packages/protocol/src/transport/wire-errors.ts` demonstrate a class
+  serving as both the runtime tagged value and its Schema.
+
+V2 deliberately does not retain the generic `formatString`,
+`closedStructGuard`, descriptor factory, client/server RPC duplication,
+method catalog, error-class arrays, aggregate error reconstruction, or
+transport dispatcher. The packages use the Effect primitives directly
+inside their deeper domain modules.
+
 The implementation follows these rules in every slice:
 
 - Private Effect Schema refinements construct semantic values.
@@ -339,7 +414,7 @@ The implementation follows these rules in every slice:
   layer-local capability requirement may be middleware only when its
   failure belongs in the operation's typed error channel. Router never
   gains conversation, membership, task, norm, or policy requirements.
-  Required authentication and held-poll middleware is never optional.
+  Required authentication middleware is never optional.
 - Each operation-level server-error schema contains every closed HTTP
   failure that its fixed client call can receive, including failures
   produced before private RPC dispatch and the closed status 500
@@ -355,7 +430,8 @@ The implementation follows these rules in every slice:
   transport errors. A response that has an invalid status/body pairing,
   fails its exact schema, or fails required Registry response binding
   or AgentCard verification is a separate typed client response error.
-  Its exact public type name remains blocked on the vocabulary gate.
+  The human-review slate fixes each exact class name, tag, empty
+  payload shape, and per-operation membership.
 - Requirement order means execution order: authenticated context,
   then any layer-local capability, then the handler. Effect RPC 0.76
   wraps later-attached middleware around earlier-attached middleware,
@@ -412,25 +488,28 @@ The Gate 1 operation requirements are:
 | Registry lookup | none |
 | Registry list | none |
 | Router send | verified agent request context |
-| Router poll | verified agent request context, then one request-scoped held-poll permit |
+| Router poll | verified agent request context |
 
 Health routes remain direct HTTP routes outside the RPC groups.
-The held-poll permit is native `wrap: true` middleware. It enforces both
-the per-AgentId exclusion and global held-poll capacity, fails with the
-closed `overloaded` server error, and releases on success, typed
-failure, defect, interruption, or client cancellation. No other
-capability gate is invented for L1 or L2.
+Router acquires the per-AgentId and global held-poll permit inside the
+handler only after a valid continuation has scanned a stable tail and
+found no addressed message. Invalid cursors, omitted-cursor anchoring,
+and immediately satisfiable polls therefore retain their domain
+precedence and do not consume held-poll capacity. The permit is scoped
+and releases on success, typed failure, defect, interruption, or client
+cancellation. No other capability gate is invented for L1 or L2.
 
 The server HTTP adapter scopes one private `FiberRef` containing the
 nominal AuthenticatedHttp proof around `RpcServer.write`. Handler fibers
 inherit it. The first authenticated middleware reads the proof, checks
-the expected authentication profile, and provides the narrower handler
-context. The `FiberRef` defaults to absent, so a direct or incorrectly
-adapted private call fails closed. Public lookup and list bypass this
-path because their operations deliberately have no authentication
-middleware. Handlers use the context or permit supplied by middleware;
-they do not repeat the authentication, identity lookup, or capacity
-work that obtained it.
+the registered-agent request contract, and provides the narrower
+handler context. The `FiberRef` defaults to absent, so a direct or
+incorrectly adapted private call fails closed. Public lookup and list
+bypass this path because their operations deliberately have no
+authentication middleware. Handlers use the context supplied by
+middleware and do not repeat the authentication or identity lookup that
+obtained it. The Router continuation-wait branch owns its scoped
+private held-poll permit.
 
 The implementation does not carry forward these v1 debt patterns:
 
@@ -443,6 +522,41 @@ The implementation does not carry forward these v1 debt patterns:
 - `UserId` renamed to `PrincipalId` by analogy alone; or
 - custom libraries for standards already covered by the selected
   dependencies.
+
+## Public capability contract
+
+The exact candidate exports, decoded artifact views, verified types,
+method arguments, Effect `A`, `E`, and `R`, layer inputs and
+requirements, and error fields live under `Identity root exports`
+through `Client and signed-artifact errors` in
+[`l1-l2-human-review-slate.md`](./l1-l2-human-review-slate.md). After
+the recorded exact-slate approval and authority reconciliation,
+implementation follows that surface verbatim; it does not infer missing
+API choices inside a batch.
+
+In particular:
+
+- `AgentCard` and `SignedMessage` Schemas hide their exact General JWS
+  state while exposing immutable decoded domain fields;
+- their verified forms are nominal subtypes rather than wrapper
+  objects;
+- `VerifiedAgentRequest` carries caller AgentId, verified AgentCard,
+  and the still-unknown route request, avoiding a second Registry
+  lookup;
+- `Registry`, `Router`, and `AuthenticatedHttp` are `Context.Tag` deep
+  capabilities with static Effect accessors;
+- calls with extra credentials use one inline object while public
+  lookup and list remain unary;
+- client layers take `URL` and Effect `Duration` values and require
+  only `HttpClient.HttpClient`;
+- AuthenticatedHttp's verifier layer requires `Registry` and owns the
+  Router process's bounded nonce, positive-card-cache, and lookup
+  concurrency state; and
+- server subpaths expose constant discard layers whose only `E` is the
+  nested startup error.
+
+No public service-interface, client-options, configuration,
+error-union, JOSE, or RPC-mechanism type is added.
 
 ## L1 representation
 
@@ -545,6 +659,12 @@ An encoded AgentCard is exactly one attached General JWS:
 `AgentCardDigest` is SHA-256 over the JCS representation of the complete
 General JWS.
 
+The AgentCard Schema decodes that representation into an immutable
+domain value exposing only `agentId`, `principalId`, `agentName`,
+`publicKey`, and `issuedAt`. It retains the encoded representation
+privately for exact re-encoding, hashing, and verification.
+`VerifiedAgentCard` is a nominal subtype with the same fields.
+
 ### SignedMessage
 
 The exact signed payload is:
@@ -564,11 +684,27 @@ The exact signed payload is:
 `recipientAgentIds` is nonempty, contains no duplicate decoded ID, and
 is strictly ordered by decoded ID bytes. Received payloads that violate
 the ordering are rejected rather than normalized. `body` is opaque
-bytes and has no L2 interpretation.
+bytes and has no L2 interpretation. Its maximum after canonical
+base64url decoding is the fixed value 262,144 bytes. The fixed maximum
+recipient count is 128.
 
 An encoded SignedMessage is exactly one attached General JWS with the
 same closed shape as AgentCard. Its protected header is exactly
 `{"alg":"Ed25519","kid":"<RFC-9278-JWK-thumbprint-URI>","typ":"application/vnd.moltzap.signed-message+jws"}`.
+
+Identity owns the exact UTF-8 JCS byte length of the complete General
+JWS. `SignedMessage.encodedByteLength` returns that value for an exact
+SignedMessage, and `SignedMessage.maximumEncodedByteLength` exposes the
+maximum under the fixed opaque-body and recipient bounds. Router uses
+those members instead of reimplementing the General JWS calculation.
+
+The SignedMessage Schema likewise exposes only `senderAgentId`,
+`agentCardDigest`, immutable `recipientAgentIds`, `messageId`, and a
+defensive-copy `body` getter while retaining the General JWS privately.
+`VerifiedSignedMessage` is a nominal subtype. Signing takes a
+`ReadonlySet<AgentId>`, rejects an empty set, sorts it by decoded bytes,
+snapshots the body, and derives the sender, card digest, fixed kind,
+and version.
 
 The Router-owned `SignedMessageDigest` is SHA-256 over the JCS
 representation of the complete General JWS and is defined by the L2
@@ -577,9 +713,40 @@ representation.
 ## AuthenticatedHttp
 
 `AuthenticatedHttp` is a deep capability owned by `identity`. It is
-shared by Registry and Router because HTTP request authentication is an
-L1 guarantee. It is not a generic HTTP framework and does not own
-Registry or Router request representations.
+used for requests authenticated as an existing registered AgentId.
+Router consumes it for send and poll. It is not a generic HTTP
+framework and does not own Registry or Router request representations.
+
+Registry separately owns the pre-card registration bootstrap: its
+framing, admission credential, submitted-key proof-of-possession,
+nonce and version checks, and private RPC middleware. Registration is
+signed and admission-gated, but it is not authenticated as an existing
+AgentId. Private representation helpers may be shared within
+`identity`; no generic public profile catalog is introduced.
+
+`VerifiedAgentRequest` contains the caller AgentId, the resolved
+`VerifiedAgentCard`, and the inner route request as `unknown`. It is
+nominal and has no public Schema, constructor, or decoder.
+
+The service-specific client first encodes its typed request with the
+route-owned Effect Schema. `signAgentRequest` accepts that
+`encodedRequest: unknown`, an Effect Platform client request with its
+method and URL selected, caller AgentId, and signing authority. It
+validates the encoded value as canonical-JSON input and installs the
+exact canonical outer body and fixed registered-agent signature
+fields. `verifyAgentRequest` accepts an Effect Platform server request
+plus copied bounded body bytes and returns `VerifiedAgentRequest`.
+
+The Router HTTP boundary performs route, method, framing, media,
+route-body, and immediate-concurrency checks first. AuthenticatedHttp
+then owns canonical JSON, minimum caller extraction, Registry
+resolution, digest and signature checks, time checks, nonce claim, and
+version ordering. The complete route-owned request Schema runs after
+verification.
+
+`AuthenticatedHttp.layer` takes the already refined live-nonce,
+positive-card-cache, and Registry-lookup concurrency limits and
+requires `Registry`. Registry's client layer owns the lookup deadline.
 
 Normal authenticated request bodies have the exact outer shape:
 
@@ -590,7 +757,7 @@ Normal authenticated request bodies have the exact outer shape:
 }
 ```
 
-Registration bodies use:
+Registry bootstrap registration bodies use:
 
 ```json
 {
@@ -619,7 +786,7 @@ Public Registry lookup and list requests are unauthenticated.
 
 ### HTTP message signatures
 
-The RFC 9421 signature label is `moltzap`.
+The signed HTTP profiles use the RFC 9421 signature label `moltzap`.
 
 Normal requests use the tag `moltzap-request-v1` and cover, in this
 exact order:
@@ -632,8 +799,9 @@ exact order:
 6. `content-type`
 7. `moltzap-version`
 
-Registration uses the tag `moltzap-registration-v1` and adds
-`authorization` after `moltzap-version`.
+Registry bootstrap registration uses the tag
+`moltzap-registration-v1` and adds `authorization` after
+`moltzap-version`.
 
 Signature parameters are exactly:
 
@@ -648,7 +816,7 @@ The maximum validity window is 300 seconds. A request may be at most
 five seconds in the future. A nonce contains 16 random bytes and uses
 canonical unpadded base64url.
 
-Registration admission uses:
+Registry bootstrap admission uses:
 
 ```text
 Authorization: MoltZap-Admission <token68>
@@ -659,13 +827,16 @@ configuration, error, logging, and diagnostic boundary.
 
 ### Verification order
 
-Authenticated requests pass through this order:
+Signed registered-agent and Registry bootstrap requests pass through
+this order:
 
 1. route and method;
 2. framing, media type, body bound, and early concurrency bound;
-3. UTF-8, JSON, JCS prelude, and minimum identity extraction;
-4. body digest, HTTP signature, admission, and time checks;
-5. atomic nonce claim;
+3. UTF-8, JSON, JCS prelude, and the profile's minimum identity or
+   submitted-key extraction;
+4. body digest, HTTP signature, time checks, and the profile-specific
+   existing-agent resolution or bootstrap-admission check;
+5. the profile owner's atomic nonce claim;
 6. signed MoltZap version check;
 7. complete closed request schema; and
 8. domain handler.
@@ -711,10 +882,13 @@ driver failures, and secret material do not appear in public errors.
 The Registry is an independent L1 HTTP process. It is the control-plane
 service in this implementation.
 
-Every Registry client receives the deployment-pinned Registry signer
-public JWK. It verifies each returned AgentCard and the register,
-lookup, or list response binding before returning a nominal verified
-domain value.
+Every Registry client is constructed with the Registry origin and
+deployment-pinned Registry signer public JWK. A register call also
+receives the redacted admission credential and bootstrap signing
+authority for the submitted key. Public lookup and list calls require
+no signer. The client verifies each returned AgentCard and the
+register, lookup, or list response binding before returning a nominal
+verified domain value.
 
 ### Routes
 
@@ -723,13 +897,15 @@ domain value.
 - `POST /v1/identities:list`
 - `GET /healthz`
 
-Registration is authenticated with the bootstrap profile. Lookup and
-list are public reads. Health has no domain body.
+Registration is admitted through Registry's signed bootstrap profile
+and proves possession of the submitted key; it is not authenticated as
+an existing AgentId. Lookup and list are public reads. Health has no
+domain body.
 
 ### Requests
 
 Registration inner domain request, placed at `request` inside the
-AuthenticatedHttp registration envelope:
+Registry bootstrap envelope:
 
 ```json
 {
@@ -840,9 +1016,9 @@ interpreting their bodies.
 The Router owns `RouterInstanceId`, `SignedMessageDigest`, and
 `PollCursor`.
 
-The internal global order is a private `bigint`. It never appears in a
-public request, result, log field intended as protocol data, or exported
-type.
+The internal global order is a private unsigned 128-bit `bigint`. It
+never appears in a public request, result, log field intended as
+protocol data, or exported type.
 
 ### Routes
 
@@ -901,9 +1077,9 @@ One Router process instance owns:
 
 - one random 16-byte `RouterInstanceId`;
 - one random 256-bit cursor-encryption key;
-- one private bigint order whose empty-tail sentinel is `0`, whose first
-  accepted entry is `1`, and which increments by one for each later
-  accepted entry;
+- one private unsigned 128-bit `bigint` order whose empty-tail sentinel
+  is `0`, whose first accepted entry is `1`, and which increments by
+  one for each later accepted entry;
 - one private greatest-evicted order initialized to `0`;
 - one global count-and-byte-bounded ring containing one copy of each
   accepted SignedMessage;
@@ -915,6 +1091,14 @@ One Router process instance owns:
 The Router owns no durable state. It owns no per-recipient message
 copy, recipient queue, session, conversation, transaction, persisted
 cursor, or recipient-specific acknowledgment.
+
+Assigning order `2^128 - 1` succeeds and immediately makes local health
+unready because no fresh append capacity remains. A later initial send
+that would assign a greater order returns 429 `overloaded` without
+mutation. Retained retries and polls do not assign an order. This check
+runs only after instance fencing, message validation, and existing
+retry-identity outcomes prove that the initial send would otherwise
+append.
 
 The state lock covers only retry lookup, order assignment, append,
 eviction, scan snapshot, waiter registration, and detaching addressed
@@ -941,12 +1125,13 @@ Its JCS plaintext is exactly:
 {
   "agentId": "agt_<16-byte-base64url>",
   "routerInstanceId": "rti_<16-byte-base64url>",
-  "lastScannedOrder": "<unsigned-decimal-bigint>"
+  "lastScannedOrder": "<unsigned-128-bit-decimal>"
 }
 ```
 
 A `PollCursor` has the prefix `plc_` followed by the complete Compact
-JWE. It is opaque outside the Router package.
+JWE. It is opaque outside the Router package and is at most 348 ASCII
+characters.
 
 Poll request contains optional `pollCursor`.
 
@@ -963,12 +1148,12 @@ current tail. A continuation scans strictly after
 past unrelated messages, and does not skip the first addressed message
 that would exceed a batch count or byte bound.
 
-Tampering, wrong caller, wrong instance, a future order, malformed
-plaintext, a noncanonical decimal, or an old cursor key returns
-`cursor_invalid` without disclosing the current instance. A cursor
-whose last scanned order is less than the greatest-evicted order
-returns conservative `feed_gap` with the current instance; equality is
-safe.
+Tampering, wrong caller, wrong instance, an order above `2^128 - 1`, a
+future order, malformed plaintext, a noncanonical decimal, or an old
+cursor key returns `cursor_invalid` without disclosing the current
+instance. A cursor whose last scanned order is less than the
+greatest-evicted order returns conservative `feed_gap` with the current
+instance; equality is safe.
 
 Long polling uses request-scoped `Deferred` waiters. Cancellation
 removes the waiter. The Router enforces one held poll per AgentId and a
@@ -994,7 +1179,7 @@ Production mechanisms:
 | `@effect/experimental` | `0.61.0` | MIT | compatible Effect SQL peer |
 | `@effect/sql` | `0.52.0` | MIT | SQL capability, transactions, migrator |
 | `@effect/sql-pg` | `0.53.0` | MIT | PostgreSQL implementation for Effect SQL |
-| `jose` | `6.2.4` | MIT | General JWS, JWK thumbprints, Compact JWE |
+| `jose` | `6.2.5` | MIT | General JWS, JWK thumbprints, Compact JWE |
 | `canonicalize` | `3.0.0` | Apache-2.0 | RFC 8785 JCS |
 | `http-message-signatures` | `1.0.6` | ISC | RFC 9421 signing and verification |
 | `structured-headers` | `2.0.3` | MIT | exact structured-field parsing |
@@ -1012,23 +1197,64 @@ Test mechanisms:
 
 No dependency is added until its license, maintenance status, runtime
 format, and compatibility with Node and the selected Effect versions
-are verified. No custom replacement is implemented for one of these
-mechanisms.
+are verified. The lockfile review includes the mandatory
+`@effect/platform-node` peer closure through `@effect/cluster` and
+`@effect/workflow`; unused peer packages are not mislabeled as direct
+application dependencies. No custom replacement is implemented for
+one of these mechanisms.
+
+The pre-code compatibility check against the installed declarations
+confirms that this pinned family provides `Schema.Config`,
+`ConfigProvider.fromEnv`, `ConfigProvider.fromMap`,
+`RpcGroup.toLayer`, `RpcServer.makeNoSerialization`,
+`RpcClient.makeNoSerialization`, `RpcTest.makeClient`, and the proposed
+Effect Platform HTTP request types. The implementation therefore does
+not need a compatibility wrapper or alternate configuration, parsing,
+or RPC library.
 
 ## Operational configuration
 
-Environment data is decoded once at process startup through a closed
-Effect Schema. Every numeric bound is a positive integer in its valid
-cross-field range.
+Each process defines one private `Config.all` value. `Schema.Config`
+decodes and refines every environment value, `Config.redacted` protects
+secret-bearing values, and `Config.withDefault` owns defaults. The
+executable supplies `ConfigProvider.fromEnv`, tests use
+`ConfigProvider.fromMap`, and embedded compositions may provide another
+ConfigProvider. Tests do not mutate `process.env`. Configuration
+failure remains in the server layer's typed startup error channel.
+
+There is no direct `process.env` access, custom environment parser,
+generic public configuration type, mutable configuration singleton,
+prefix-enumeration check, or hot reload. Every numeric bound is a
+positive integer in its valid cross-field range.
+
+An environment key exists only for an independently selectable
+deployment input or resource tradeoff. There is no Registry or Router
+request-queue key, no Registry or Router request-body key, no complete
+SignedMessage-size key, and no Router opaque-body or recipient key.
+The first is unnecessary because request admission uses one immediate
+concurrency permit. The representation-owned values are fixed or
+derived and cannot disagree with an operator-supplied duplicate.
 
 Registry server composition requires its bind settings, PostgreSQL
 URL, admission credential, and absolute Registry-signing private-key
-path. Every Registry client receives the Registry origin and the
-deployment-pinned exact Registry signer public JWK. Router server
-composition therefore receives those two Registry client inputs in
-addition to its own bind and bound settings. These are conceptual
-inputs only: exact public environment suffixes and exported
-configuration type names remain blocked on the human vocabulary gate.
+path. A Registry client is constructed with the Registry origin and
+deployment-pinned Registry signer public key, encoded as the exact
+closed public JWK, through
+`origin: URL`, `registrySignerPublicKey: Ed25519PublicKey`, and
+`requestTimeout: Duration.Duration`. Registration also receives
+`signingAuthority: AgentSigningAuthority` and
+`admissionCredential: Redacted.Redacted<string>` at the call boundary.
+
+Router server composition receives the Registry client inputs plus its
+own bind and independently configurable resource settings. A Router
+client is constructed with `origin: URL`,
+`sendTimeout: Duration.Duration`, and `pollTimeout: Duration.Duration`;
+every send and poll receives `callerAgentId: AgentId` and
+`signingAuthority: AgentSigningAuthority` at the call boundary. These
+conceptual capability inputs do not imply that secrets become process
+environment variables. The exact approved process keys are enumerated
+in the human-review slate and made current by the owning specifications;
+no exported configuration type exists.
 
 Both processes enforce the fixed 16-container JSON depth bound defined
 by their representation chapters. Gate 1 exposes no environment key
@@ -1040,45 +1266,93 @@ Common defaults:
 |---|---:|
 | host | `127.0.0.1` |
 | port | required |
-| request queue depth | `32` |
 
 Registry defaults:
 
 | Setting | Default |
 |---|---:|
-| maximum request body | 64 KiB |
 | list page size | 100 |
 | concurrent requests | 256 |
 | live nonce capacity | 10,000 |
 | SQL pool size | 10 |
-| SQL acquire timeout | 5 seconds |
+| SQL operation timeout | 5 seconds |
 
 Router defaults:
 
 | Setting | Default |
 |---|---:|
-| maximum request body | 512 KiB |
-| maximum opaque body | 256 KiB |
-| maximum complete SignedMessage | 384 KiB |
-| maximum recipients | 128 |
 | retained message count | 4,096 |
 | retained message bytes | 64 MiB |
 | poll message count | 128 |
 | poll response bytes | 1 MiB |
 | concurrent requests | 512 |
 | held polls | 256 |
-| held polls per AgentId | 1 |
 | live nonce capacity | 100,000 |
 | positive AgentCard cache | 10,000 |
 | concurrent Registry lookups | 32 |
 | Registry lookup timeout | 5 seconds |
 
-The Router's 25-second long-poll hold is a fixed Gate 1 value and has
-no environment key.
+Exactly one held poll per AgentId and the 25-second long-poll hold are
+fixed Gate 1 values. Neither has an environment key.
 
-The public configuration prefixes are `MOLTZAP_REGISTRY_` and
-`MOLTZAP_ROUTER_`. Cross-field validation rejects configurations where
-an enclosing bound is smaller than the value it must contain.
+The opaque-body maximum after canonical base64url decoding is the fixed
+Gate 1 value 256 KiB, and the maximum recipient count is the fixed
+Gate 1 value 128. They are acceptance semantics, not deployment
+tuning. Identity derives the complete SignedMessage cap from the fixed
+opaque-body and recipient limits. Registry and Router derive each
+pre-parse route body cap from its exact fixed representation. No
+application request queue is added; request concurrency uses an
+immediate Effect permit and returns 429 when no permit is available.
+
+The SQL operation timeout is one end-to-end deadline for connection
+acquisition and every SQL execution or retry that belongs to one
+required Registry storage operation. Expiry maps to 503 `unavailable`;
+no acquired connection permits an unbounded query.
+
+Each Router byte bound has one explicit accounting domain:
+
+- opaque-body bytes are the bytes obtained after canonical base64url
+  decoding the SignedMessage body;
+- complete and retained SignedMessage bytes are the UTF-8 JCS bytes of
+  the complete General JWS object;
+- request-body bytes are the received HTTP body octets; and
+- poll-response bytes are the UTF-8 JCS bytes of the complete result
+  body, including its PollCursor.
+
+The opaque-body and recipient limits are fixed. Identity derives and
+exposes the maximum complete SignedMessage through its deep-module
+interface. Router derives separate received-body maxima for send and
+poll from their fixed request representations. The HTTP reader enforces
+the selected route's result before parsing, and SignedMessage
+validation enforces the identity-owned artifact result after parsing.
+None has an environment key.
+
+Identity owns one checked size calculator for SignedMessage and
+Registry representations. Router owns one for Router requests,
+PollCursor, and poll results. Each rejects arithmetic outside the
+supported safe integer range. Tests compare each calculator with actual
+Schema, JCS, JWS, or JWE encodings only for the representations its
+package owns.
+
+Router configuration is rejected unless the derived maxima prove:
+
+1. the feed-count bound admits at least one entry and the retained-byte
+   bound holds one derived maximum complete SignedMessage; and
+2. a one-message batch containing one derived maximum complete SignedMessage
+   and one maximum PollCursor fits both the poll-message-count and
+   poll-response-byte bounds.
+
+Under the fixed opaque-body and recipient bounds, the exact 256 KiB
+opaque body and 128-recipient maximum produces a 471,671-byte complete
+SignedMessage and a 471,819-byte send request. The maximum PollCursor
+request is 422 bytes, so send and poll use their own derived request
+bounds. A maximum-order PollCursor is at most 348 characters, and under
+the default resource limits the corresponding one-message batch fits
+the 1 MiB response bound.
+
+Every declared process key uses the `MOLTZAP_REGISTRY_` or
+`MOLTZAP_ROUTER_` prefix. A prefix is a naming convention, not a
+separate closed namespace that the implementation enumerates.
 
 There is no application TLS, certificate, scheme, or trusted-proxy
 configuration. The deployment preserves the request body and the
@@ -1110,9 +1384,30 @@ code exists in this slice.
 - Rename `moltzap-directory` to `moltzap-registry`.
 - Bump all v2 release identities to `2026.729.1`.
 - Keep exactly six packages and preserve the frozen DAG.
+- Allocate every approved runtime and test dependency to the package
+  that owns its use, pin the exact versions in each manifest, update
+  the lockfile, and verify license, maintenance, ESM, Node, and selected
+  Effect-version compatibility before importing it.
+- Give `identity` and `router` non-vacuous Nx `test`,
+  `test:integration`, and `typecheck:tests` targets with separate test
+  TypeScript configurations. Production configurations exclude
+  `*.types-check.ts`; the test typecheck includes and compiles those
+  canaries.
+- Add focused architecture-check targets for both packages and extend
+  documentation generation and documented-import resolution to cover
+  `v2/*`, including generated MODULE pages for owning-symbol flow
+  diagrams.
+- Make the repository architecture check reject numbered identity and
+  Router layer notation in every non-documentation file under a v2
+  package. The check covers package metadata, paths, source, tests,
+  comments, runtime strings, configuration, fixtures, migrations, and
+  generated code, and fails if it scans no files.
 
-Exit: build, typecheck, lint, package-graph checks, version checks, and
-human readability review pass.
+Exit: uncached build, production typecheck, test typecheck, unit-test
+discovery, lint, package-graph, architecture, generated-document,
+documented-import, version, and human readability checks pass. Running
+the required test targets with no discovered tests or no scheduled
+target is a failure, not a green result.
 
 ### Slice 2: refined values and exact L1 representations
 
@@ -1128,10 +1423,10 @@ human readability review pass.
 
 ### Slice 3: AuthenticatedHttp
 
-- Implement exact request signing and verification.
+- Implement exact registered-agent request signing and verification.
 - Implement closed framing and envelope failures.
-- Implement bootstrap admission and normal caller resolution.
-- Implement atomic replay-nonce capability interfaces.
+- Implement normal caller resolution and the registered-agent
+  replay-nonce capability interface.
 - Prove authentication order, version ordering, replay behavior, time
   boundaries, redaction, and failure collapse.
 
@@ -1141,7 +1436,12 @@ human readability review pass.
 ### Slice 4: Registry
 
 - Implement the Registry client and server capability.
-- Implement PostgreSQL migrations and repository.
+- Implement Registry-owned bootstrap admission, submitted-key
+  proof-of-possession, registration nonce handling, and the private
+  registration RPC middleware.
+- Implement PostgreSQL migrations and repository, and ensure the
+  process build carries migration assets rather than depending on the
+  source tree at runtime.
 - Implement registration, lookup, list, health, startup metadata, and
   configuration.
 - Add PGlite-socket and PostgreSQL Testcontainers integration suites.
@@ -1176,6 +1476,364 @@ review pass.
 Exit: every required check is green, every human gate has a recorded
 disposition, and no implementation requirement remains only in chat.
 
+## Implementation batch matrix
+
+The slices above describe outcomes. The following matrix is the exact
+implementation order. A batch contains at most five production
+TypeScript modules. Root façades count; SQL migrations and executable
+wrappers are production assets but not TypeScript modules. Adding a
+sixth module requires re-slicing this matrix before work continues.
+
+Every batch ends with a recorded human readability disposition. The
+next batch does not start until that disposition is `PASS`. Private
+filenames use only vocabulary already present in the governing
+documents; no filename uses numbered layer notation, `wire`, `codec`,
+`transport`, `protocol`, `rpc`, `middleware`, `adapter`, `helper`, or
+`utils`.
+
+### Batch 0: authority reconciliation
+
+Production modules: none.
+
+Work:
+
+- reconcile the admitted ADRs, decision index, freeze manifest,
+  trajectory, identity and Router specifications, representation
+  chapters, layer interfaces, architecture pages, this ask, and the
+  approved human slate;
+- freeze one exact candidate;
+- run the mandatory isolated six-question blind review with no author
+  hints; and
+- obtain maintainer acceptance of the candidate and review result.
+
+Exit: authority is current, traceable, contradiction-free, and
+accepted. No package scaffolding or product implementation enters this
+batch.
+
+### Batch 1: package and executable test floor
+
+Production modules: none.
+
+Supporting files cover both packages' manifests, production and test
+TypeScript configurations, Vitest unit and integration configurations,
+ESLint configurations, lockfile, focused architecture checks, and
+generated-document inputs.
+
+Required evidence:
+
+- `identity-package.test.ts` and `router-package.test.ts`;
+- non-vacuous Nx `build`, production typecheck, test typecheck, `test`,
+  `test:integration`, `lint`, and focused architecture targets;
+- exact six-package graph, `2026.729.1` release identity, export maps,
+  dependency allocation, and zero v1 imports;
+- no numbered layer notation in non-documentation files; and
+- a missing target or zero discovered required tests fails.
+
+Exit: the package shape reads as two deep packages and the maintainer
+records readability `PASS`.
+
+### Batch 2: identity values and signing authority
+
+Production modules:
+
+- `v2/identity/src/identity-values.ts`
+- `v2/identity/src/identity-json.ts`
+- `v2/identity/src/ed25519-public-key.ts`
+- `v2/identity/src/agent-signing-authority.ts`
+- `v2/identity/src/index.ts`
+
+Required evidence:
+
+- `identity-values.test.ts`
+- `identity-values.types-check.ts`
+- `identity-json.test.ts`
+- `ed25519-public-key.test.ts`
+- `agent-signing-authority.test.ts`
+- `agent-signing-authority.types-check.ts`
+
+Exit: each semantic value has one Schema and name; JCS, JOSE, generic
+ID, key material, and library causes remain private; readability
+`PASS`.
+
+### Batch 3: signed identity artifacts
+
+Production modules:
+
+- `v2/identity/src/agent-card.ts`
+- `v2/identity/src/signed-message.ts`
+- `v2/identity/src/index.ts`
+
+Required evidence:
+
+- `agent-card.test.ts`
+- `agent-card.types-check.ts`
+- `signed-message.test.ts`
+- `signed-message.types-check.ts`
+- `signed-artifacts.integration.test.ts`
+- `signed-artifacts.mutation.test.ts`
+
+Tests cover independently produced valid examples, exact encoded and
+decoded views, nominal verified subtypes, mutation rejection,
+recipient rules, defensive body copies, signing-key/card equality, and
+both SignedMessage byte-length members.
+
+Exit: callers can understand and use signed artifacts without learning
+General JWS mechanics; readability `PASS`.
+
+### Batch 4: registered-agent HTTP authentication
+
+Production modules:
+
+- `v2/identity/src/http-errors.ts`
+- `v2/identity/src/identity-http.ts`
+- `v2/identity/src/registered-agent-request.ts`
+- `v2/identity/src/authenticated-http.ts`
+- `v2/identity/src/index.ts`
+
+Required evidence:
+
+- `authenticated-http.test.ts`
+- `authenticated-http.types-check.ts`
+- `authenticated-http.integration.test.ts`
+- `authenticated-http.mutation.test.ts`
+
+Tests cover RFC 9421 oracle agreement, exact fields and order,
+time/replay boundaries, capacity refusal, wrong-version nonce
+consumption, `VerifiedAgentRequest` nominality and fields, card reuse,
+failure collapse, redaction, and rejection of registration as an
+AuthenticatedHttp operation.
+
+Exit: the registered-agent stage order appears once, the proof cannot
+be fabricated or serialized, and readability is `PASS`.
+
+### Batch 5: Registry operations and client
+
+Production modules:
+
+- `v2/identity/src/registry/bootstrap-request.ts`
+- `v2/identity/src/registry/request-context.ts`
+- `v2/identity/src/registry/operations.ts`
+- `v2/identity/src/registry/client.ts`
+- `v2/identity/src/registry.ts`
+
+Required evidence:
+
+- `registry-bootstrap-request.test.ts`
+- `registry-request-context.test.ts`
+- `registry-operations.test.ts`
+- `registry.types-check.ts`
+- `registry-client.test.ts`
+
+Tests cover bootstrap admission, exact private RPC middleware, absent
+proof, FiberRef isolation/inheritance/cleanup, middleware
+short-circuiting, exact `A`/`E` correlation, response-card and binding
+verification, and distinct connection, timeout, signing, declared
+server, and invalid-response errors.
+
+Exit: registration plainly means bootstrap admission rather than
+existing-agent authentication; public reads have no auth; readability
+`PASS`.
+
+### Batch 6: Registry state and configuration
+
+Production modules:
+
+- `v2/identity/src/registry/configuration.ts`
+- `v2/identity/src/registry/storage.ts`
+- `v2/identity/src/registry/registration.ts`
+- `v2/identity/src/registry/reads.ts`
+
+Production asset:
+
+- `v2/identity/src/registry/migrations/0001_registry_state.sql`
+
+Required evidence:
+
+- `registry-configuration.test.ts`
+- `registry-registration.test.ts`
+- `registry-storage.pglite.integration.test.ts`
+- `registry-storage.postgresql.integration.test.ts`
+- `registry-replay-nonces.integration.test.ts`
+- `registry-restart.integration.test.ts`
+
+Configuration tests use `ConfigProvider.fromMap` for exact declared
+keys, defaults, refinements, ignored unrelated entries, redaction, and
+typed failure without mutating `process.env`. Storage tests cover
+migration packaging, startup metadata, one end-to-end SQL deadline,
+separately committed nonce claims, exact-result replay, conflict
+precedence, concurrent uniqueness, retries, rollback, and restart
+identity.
+
+Exit: storage exposes Registry operations rather than SQL machinery,
+configuration contains no duplicate representation or queue knobs,
+and readability is `PASS`.
+
+### Batch 7: Registry HTTP server and process
+
+Production modules:
+
+- `v2/identity/src/registry/http.ts`
+- `v2/identity/src/registry/server.ts`
+- `v2/identity/src/registry/process.ts`
+- `v2/identity/src/index.ts`
+- `v2/identity/src/server.ts`
+
+Production executable:
+
+- `v2/identity/bin/moltzap-registry`
+
+Required evidence:
+
+- `registry-http.integration.test.ts`
+- `registry-process.integration.test.ts`
+- `registry-startup.test.ts`
+- `registry-server.types-check.ts`
+- `registry-errors.mutation.test.ts`
+- `identity-exports.test.ts`
+
+Tests cover every exact route/status/body, route-derived body caps,
+public-read signature-header rejection, pre-operation and status-500
+errors in the exact `E`, health/readiness, startup phases, redacted
+diagnostics, migration discovery, executable lifecycle, and the exact
+root/server exports.
+
+Exit: a cold reader can construct and call Registry without HTTP, RPC,
+SQL, or JOSE knowledge; readability `PASS`.
+
+### Batch 8: Router values, operations, and client
+
+Production modules:
+
+- `v2/router/src/router/values.ts`
+- `v2/router/src/router/request-context.ts`
+- `v2/router/src/router/operations.ts`
+- `v2/router/src/router/client.ts`
+- `v2/router/src/router.ts`
+
+Required evidence:
+
+- `router-values.test.ts`
+- `router-request-context.test.ts`
+- `router-operations.test.ts`
+- `router.types-check.ts`
+- `router-client.test.ts`
+
+Tests cover exact schemas, brands, no public private order, required
+registered-agent context, FiberRef isolation/cleanup, operation
+correlation, request signing, strict responses, and connection/timeout
+distinction.
+
+Exit: public Router contracts expose opaque delivery guarantees, not
+state mechanisms or later-layer semantics; readability `PASS`.
+
+### Batch 9: Router cursor and volatile state
+
+Production modules:
+
+- `v2/router/src/router/poll-cursor.ts`
+- `v2/router/src/router/feed.ts`
+- `v2/router/src/router/held-polls.ts`
+
+Required evidence:
+
+- `poll-cursor.test.ts`
+- `poll-cursor.mutation.test.ts`
+- `router-feed.test.ts`
+- `router-feed.types-check.ts`
+- `router-held-polls.test.ts`
+
+Tests cover Compact JWE oracle agreement, caller/instance/order/tamper
+rejection, one-copy retention, total order and exhaustion, coupled
+retry eviction, stable scans, waiter registration, and scoped held-poll
+release on every exit. AgentCard caching and nonce claims remain inside
+the identity-owned `AuthenticatedHttp` capability from Batch 4.
+
+Exit: `feed.ts` is the sole owner of private order and ring state;
+private order never escapes; readability `PASS`.
+
+### Batch 10: Router send, poll, and configuration
+
+Production modules:
+
+- `v2/router/src/router/configuration.ts`
+- `v2/router/src/router/send.ts`
+- `v2/router/src/router/poll.ts`
+
+Required evidence:
+
+- `router-configuration.test.ts`
+- `router-send.test.ts`
+- `router-poll.test.ts`
+- `router-state-machine.test.ts`
+- `router-capacity.test.ts`
+
+Tests consume identity-owned SignedMessage lengths, prove separate
+derived send and poll route caps, fixed opaque-body/recipient
+acceptance, configured retention/poll fit, exact send precedence,
+initial/retry laws, omitted-cursor anchoring, stable-tail continuation,
+unrelated traffic, count/byte prefixing, and the post-scan held-poll
+permit rule. Router send uses the verified AgentCard already carried by
+`VerifiedAgentRequest`; it performs no second Registry lookup.
+
+Exit: send and poll read in normative precedence without
+infrastructure interleaving; every configured bound has one accounting
+domain; readability `PASS`.
+
+### Batch 11: Router HTTP server and process
+
+Production modules:
+
+- `v2/router/src/router/http.ts`
+- `v2/router/src/router/server.ts`
+- `v2/router/src/router/process.ts`
+- `v2/router/src/index.ts`
+- `v2/router/src/server.ts`
+
+Production executable:
+
+- `v2/router/bin/moltzap-router`
+
+Required evidence:
+
+- `router-http.integration.test.ts`
+- `router-process.integration.test.ts`
+- `router-startup.test.ts`
+- `router-server.types-check.ts`
+- `router-cancellation.integration.test.ts`
+- `router-errors.mutation.test.ts`
+- `router-exports.test.ts`
+
+Tests cover exact AuthenticatedHttp composition, proof propagation, no
+repeated Registry resolution, pre-operation and status-500 errors in
+exact `E`, route caps, long-poll timeout/disconnect/cancellation
+cleanup, health independence from Registry, startup phases, executable
+lifecycle, and exact exports.
+
+Exit: HTTP and private RPC remain hidden behind one Router capability
+and one RouterServer composition surface; readability `PASS`.
+
+### Batch 12: end-to-end completion
+
+Production modules: none; fixes return to their owning batch.
+
+Required evidence:
+
+- `v2/router/src/router/registry-router.e2e.test.ts`
+- `v2/identity/src/registry-binary.integration.test.ts`
+- `v2/router/src/router/router-binary.integration.test.ts`
+
+The scenario starts real Registry and Router processes, registers
+agents through bootstrap admission, anchors a poll, signs and sends one
+opaque message, proves identical ordered receipt by explicit
+recipients and absence for a non-recipient, exercises retained retry,
+restarts Router, and proves instance/cursor fencing.
+
+Exit: uncached affected and repository-wide Nx checks, all unit and
+integration suites, type canaries, docs checks, dependency/license
+audit, forbidden-vocabulary scans, senior implementation review,
+cryptographic/authentication review, cold-reader API review, and every
+recorded readability disposition pass.
+
 ## Required tests
 
 At minimum, the implementation includes:
@@ -1190,12 +1848,22 @@ At minimum, the implementation includes:
   extra-field, mutation, and wrong-key rejection;
 - recipient nonempty, uniqueness, decoded-byte ordering, body
   opacity, and digest properties;
+- `SignedMessage.encodedByteLength` and
+  `SignedMessage.maximumEncodedByteLength` agreement with independently
+  encoded complete General JWS values;
+- Effect Config map-provider tests for exact keys, defaults,
+  refinements, redaction, typed startup failure, and ignored unrelated
+  entries without `process.env` mutation;
+- every derived Registry and Router route-body cap at its exact maximum
+  and at one byte beyond it;
 - RFC 9421 signature-base examples and mutation tests;
 - media, encoding, size, method, route, digest, signature, timing,
   nonce, admission, version, and closed-schema failures;
 - absent-query enforcement and combined-failure precedence;
 - proof that a validly authenticated wrong-version request consumes
   its nonce;
+- proof that invalid cursors, omitted-cursor anchoring, and immediately
+  satisfiable polls do not acquire held-poll capacity;
 - private RPC middleware executes authenticated context before each
   declared layer-local capability and both before the handler;
 - an authentication or capability refusal short-circuits every later
@@ -1232,17 +1900,22 @@ At minimum, the implementation includes:
 - persistent Registry replay rejection through expiry;
 - Registry health and startup metadata mismatch;
 - Router initial/retry state-machine properties;
+- private-order boundary, overflow refusal, health transition, and
+  PollCursor range properties;
 - Router restart fencing and cursor invalidation;
 - Router cursor caller binding, tamper rejection, future-order
   rejection, and conservative feed gaps;
 - Router continuation with unrelated traffic and batch byte/count
   boundaries;
+- schema-checked fixed-representation and configured resource-fit
+  properties;
 - one-copy global retention and coupled retry eviction;
 - positive-cache single flight, no negative caching, and Registry
   outage behavior;
 - long-poll wakeup, timeout, cancellation, per-AgentId exclusivity, and
   global overload;
-- nonce-capacity refusal without eviction of a live nonce; and
+- nonce-capacity refusal without eviction of a live nonce;
+- Registry SQL acquisition, execution, retry, and timeout mapping; and
 - Router health independence from Registry.
 
 ## Completion evidence

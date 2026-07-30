@@ -8,6 +8,8 @@ superseded-by: 20260729-v2-authority-lives-with-v2.md
 # Gate 1 starts with a repository-native architecture freeze
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-gate-1-architecture-freeze), [Registry trust selection](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#registry-trust-assumption), [V2 authority replacement](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#v2-authority-lives-with-v2), [L1/L2 representation replacements](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#representations-are-layer-owned), and [L1/L2 scope correction](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#l1-and-l2-only-scope).
+The current L1/L2 implementation contract is additionally linked to
+the [exact implementation slate approval](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#exact-implementation-slate-approved).
 
 ## Supersession
 
@@ -25,10 +27,15 @@ track. `20260729-representations-are-layer-owned.md`,
 `20260729-router-order-is-opaque.md` replace the cross-layer wire
 catalog, X.509/CBOR/COSE profile, mandatory application TLS, exposed
 Router order, `transport` package, and related L1/L2 rows. The updated
-inventory below points to the current normative owners. These
-replacements leave L3, L4, endpoint-daemon, and MCP semantic documents
-and ADR outcomes unchanged and assign no later-layer replacement
-representation.
+inventory below points to the current normative owners.
+`20260729-registration-is-registry-bootstrap-admission.md`,
+`20260729-identity-and-router-expose-deep-effect-capabilities.md`, and
+`20260729-representation-limits-are-fixed-or-derived.md` replace the
+remaining bootstrap-ownership ambiguity and make the approved callable
+API, Effect Config/RPC realization, and fixed-or-derived bound contracts
+explicit. These replacements leave L3, L4, endpoint-daemon, and MCP
+semantic documents, vocabulary, and ADR outcomes unchanged and assign
+no later-layer replacement representation.
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
@@ -69,11 +76,16 @@ conversation state or local planning databases. If a normative page and
 this inventory disagree, the freeze is not complete and implementation
 remains blocked.
 
-The focused accepted records owning the design rationale are:
+The focused current records—accepted outcomes and the explicitly
+retained portions of partially-superseded outcomes—owning the design
+rationale are:
 
 - `20260729-v2-authority-lives-with-v2.md`
 - `20260729-representations-are-layer-owned.md`
 - `20260729-identity-uses-jcs-jose-authenticated-http.md`
+- `20260729-registration-is-registry-bootstrap-admission.md`
+- `20260729-identity-and-router-expose-deep-effect-capabilities.md`
+- `20260729-representation-limits-are-fixed-or-derived.md`
 - `20260729-router-order-is-opaque.md`
 - `20260728-adrs-link-source-events-and-require-blind-review.md`
 - `20260728-layer-boundaries-and-fault-model.md`
@@ -101,10 +113,10 @@ pin each decision:
 | Category | Evidence required |
 |---|---|
 | `DOC` | Repository consistency checks and a blind teammate review |
-| `ARCH` | Dependency, ownership, process-boundary, and import checks |
-| `WIRE` | Independently produced interoperability examples, strict decoding, authentication, and retry tests |
-| `ID` | Registry, card, identifier, and bootstrap tests |
-| `L2` | Router order, multicast, polling, gap, and restart tests |
+| `ARCH` | Dependency, ownership, process-boundary, import, exact export/construction, and executable-vocabulary checks |
+| `WIRE` | Independently produced interoperability examples, strict decoding, authentication, exact-boundary, and retry tests |
+| `ID` | Registry, card, identifier, bootstrap, identity capability, configuration, and private-RPC tests |
+| `L2` | Router capability, configuration, private-RPC, order, multicast, polling, gap, and restart tests |
 | `L3` | Ledger atomicity, certificate, recovery, and concurrency tests |
 | `PROTO` | START, OpenFloor, quorum, TTL, and failure tests |
 | `MCP` | Daemon discovery, tools, subscriptions, attention, and errors |
@@ -128,6 +140,7 @@ pin each decision:
 | G1-DEC-008 | The authority gate fails on any contradiction, broken lineage, missing layer-owned representation, or already-decided question presented as open. | `docs/architecture/l1-l2-implementation-ask.md` — Authority gate | `DOC` |
 | G1-DEC-009 | Every ADR visibly links to a non-normative source-event ledger with native locators, literal human and agent excerpts, mechanical repository effects, and explicit source gaps; it does not reconstruct motive or rationale. | `AGENTS.md` — Decision provenance | `DOC` |
 | G1-DEC-010 | Every admitted ADR change is bound to an exact candidate and passes the recorded six-question blind teammate gate before landing. | `AGENTS.md` — Blind teammate review gate | `DOC` |
+| G1-DEC-011 | This implementation revision changes only identity and Router authority. L3, L4, endpoint-daemon, MCP, and later-layer semantics, representations, vocabulary, and focused ADR outcomes remain unchanged; no later-layer replacement representation or public name is introduced. | `docs/spec/README.md` — L1 and L2 representation readiness | `DOC`, `DEFER` |
 | G1-DEC-100 | One stack has eight layers in communication and trust regions; guarantees flow up and configuration flows down. | `v2/VISION.md` — The constitution | `ARCH` |
 | G1-DEC-101 | Interpretive policy lives at endpoints. The network has no app principals, manifests, hooks, reverse callbacks, or task owners. | `AGENTS.md` — Constitution | `ARCH` |
 | G1-DEC-102 | L1 owns identity; L7 institutions are separate services and trust domains. Gate 1 contains no L7 service. | `docs/spec/enforcement.md` — L1/L7 separation | `ARCH`, `DEFER` |
@@ -140,6 +153,7 @@ pin each decision:
 | G1-DEC-109 | Router and Ledger verify only L1 identity and technical bindings and never query institutional policy. | `docs/spec/enforcement.md` — Network admission | `ARCH` |
 | G1-DEC-110 | Resource protection is operational quota and abuse control, not institutional policy. | `docs/spec/enforcement.md` — Operational limits | `ARCH` |
 | G1-DEC-111 | L2 bodies remain opaque so end-to-end encryption stays possible, but encryption is not required in Gate 1. | `docs/spec/router.md` — Content blindness | `L2`, `DEFER` |
+| G1-DEC-112 | `L1` and `L2` are documentation notation only. Identity and Router package metadata, paths, source, tests, comments, runtime values, configuration, fixtures, migrations, and generated code use domain vocabulary and are scanned for violations. | `v2/AGENTS.md` — Implementation rules | `ARCH` |
 
 ### Identity, encoding, authentication, and identifiers
 
@@ -155,12 +169,12 @@ pin each decision:
 | G1-DEC-207 | Pinned cards permit established work during Registry outage; a previously unseen identity requires successful resolution. | `docs/spec/identity.md` — Cache behavior | `ID`, `PROTO` |
 | G1-DEC-208 | Registry exposes `POST /v1/identities:register`, `POST /v1/identities:lookup`, `POST /v1/identities:list`, and readiness-only `GET /healthz`; lookup and list are public unauthenticated reads. | `docs/spec/identity.md` — Registry API | `ID`, `WIRE` |
 | G1-DEC-209 | Registration is a Registry control operation using a deployment admission credential; it never traverses Router, Ledger, daemon MCP, or runtime events. | `docs/spec/identity.md` — Registration | `ID` |
-| G1-DEC-210 | Registration proves possession of the submitted Ed25519 public JWK through the sole pre-card `AuthenticatedHttp` RFC 9421 bootstrap profile. | `docs/spec/identity-representation.md` — Registration authentication | `ID`, `WIRE` |
+| G1-DEC-210 | Registration is Registry-owned signed bootstrap admission, not authentication as an existing AgentId. It checks the deployment admission credential and proves possession of the submitted Ed25519 key through the exact pre-card RFC 9421 profile; invalid admission or proof collapses to 401 `authentication_failed`. AuthenticatedHttp applies only to registered-agent requests. | `docs/spec/identity.md` — Registration and AuthenticatedHttp; `docs/spec/identity-representation.md` — HTTP request framing and ownership | `ID`, `WIRE` |
 | G1-DEC-211 | Registration accepts caller-supplied OperationId, opaque PrincipalId, AgentName, and exact Ed25519 public JWK; the admission credential authorizes that attempt. | `docs/spec/identity.md` — Registration | `ID`, `WIRE` |
 | G1-DEC-212 | Agent signing uses a caller-owned pre-existing unencrypted Ed25519 PKCS#8 file named by absolute path; registration never generates or copies it, and private material is redacted at every boundary. | `docs/spec/identity.md` — Private key input | `ID`, `DEFER` |
 | G1-DEC-213 | Normal authenticated bodies carry `callerAgentId`; `AuthenticatedHttp` resolves its immutable AgentCard and verifies with that card's key. Requests do not embed AgentCard. | `docs/spec/identity-representation.md` — Normal authentication | `WIRE` |
-| G1-DEC-214 | The exact normal and registration RFC 9421 profiles bind method, authority, path, query, content digest, content type, MoltZap version, and registration authorization where applicable; require exact signature parameters, a 300-second maximum window, five-second future skew, 16-byte nonce, and atomic replay claim. Application TLS is a deployment concern; admission-bearing deployments protect the credential in transit, and deployments supply response-path integrity when their threat model includes network-path tampering. | `docs/spec/identity-representation.md` — AuthenticatedHttp | `WIRE` |
-| G1-DEC-215 | Normal Registry/Router request signatures use label `moltzap` and tag `moltzap-request-v1`; registration uses tag `moltzap-registration-v1`. SignedMessage attribution remains independently verifiable. | `docs/spec/identity-representation.md` — HTTP message signatures | `WIRE`, `L2` |
+| G1-DEC-214 | The exact registered-agent and Registry-owned bootstrap RFC 9421 profiles bind method, authority, path, query, content digest, content type, MoltZap version, and registration authorization where applicable; require exact signature parameters, a 300-second maximum window, five-second future skew, 16-byte nonce, and atomic replay claim. Application TLS is a deployment concern; admission-bearing deployments protect the credential in transit, and deployments supply response-path integrity when their threat model includes network-path tampering. | `docs/spec/identity-representation.md` — HTTP request framing and ownership | `WIRE` |
+| G1-DEC-215 | Registered-agent request signatures use label `moltzap` and tag `moltzap-request-v1`; Registry-owned registration uses tag `moltzap-registration-v1`. SignedMessage attribution remains independently verifiable. | `docs/spec/identity-representation.md` — HTTP message signatures | `WIRE`, `L2` |
 | G1-DEC-216 | MoltZap-owned L1 signed artifacts and Registry/Router request and result bodies use exact closed JSON; signed logical values use RFC 8785 JCS. | `docs/spec/identity-representation.md` — Canonical JSON | `WIRE` |
 | G1-DEC-217 | Decoders reject duplicate or unknown fields, noncanonical JSON where canonical form is required, noncanonical base64url, extra JWS fields or signatures, unprotected headers, and any unapproved JOSE header or algorithm. | `docs/spec/identity-representation.md` — Strict decoding | `WIRE` |
 | G1-DEC-218 | AgentCard and SignedMessage use distinct exact General-JWS `typ` values and closed payload schemas. This L1 decision does not change the L3 certificate contract. | `docs/spec/identity-representation.md` — JOSE profiles | `WIRE` |
@@ -168,9 +182,14 @@ pin each decision:
 | G1-DEC-220 | AgentId, PrincipalId, OperationId, and MessageId are identity-owned exact type-prefixed canonical unpadded base64url encodings of 16 bytes. AgentCardDigest is an identity-owned full SHA-256 value; SignedMessageDigest is the Router-owned full SHA-256 equality receipt. | `docs/spec/identity-representation.md`, `docs/spec/router-representation.md` — Refined values | `WIRE` |
 | G1-DEC-221 | START ConversationId and genesis TxnId are separately domain-separated SHA-256 derivations over starter AgentId and OperationId, truncated to 128 bits. This L1/L2 revision does not change that L3 contract. | `docs/spec/endpoints/daemon.md` — start_conversation | `PROTO`, `WIRE` |
 | G1-DEC-222 | Registry idempotency uses submitted-key JWK thumbprint plus OperationId and exact canonical inner request bytes; Router retry identity uses authenticated sender AgentId plus MessageId and complete SignedMessage equality. Fresh RFC 9421 attempt metadata is excluded. L3 retry representation remains with L3. | `docs/spec/layer-interfaces.md` — Retry identity | `WIRE`, `ID`, `L2` |
-| G1-DEC-223 | Every authenticated Registry and Router domain POST carries and signs the exact MoltZap compatibility version and rejects mismatch after successful authentication. This L1/L2 row does not change the existing Ledger or independent MCP version contracts. | `docs/spec/identity-representation.md` — Version binding | `WIRE` |
+| G1-DEC-223 | Registry registration and every authenticated Router domain POST carry and sign the exact MoltZap compatibility version and reject mismatch after successful bootstrap admission or registered-agent authentication, respectively. This L1/L2 row does not change the existing Ledger or independent MCP version contracts. | `docs/spec/identity-representation.md` — Version binding | `WIRE` |
 | G1-DEC-224 | The separate L1 and L2 representation chapters and their traceability must be complete before L1/L2 implementation; no cross-layer catalog or shared vector-corpus deliverable blocks either layer. | `docs/spec/README.md` — L1 and L2 representation readiness | `DOC`, `WIRE` |
 | G1-DEC-225 | `docs/spec/identity-representation.md` assigns exact L1 values, JCS/JOSE artifacts, AuthenticatedHttp, Registry representation, and envelope failures; `docs/spec/router-representation.md` assigns exact L2 values, requests, results, and PollCursor. An absent in-scope fact is an owner-chapter defect. This row makes no later-layer representation decision. | `docs/spec/README.md` — L1 and L2 representation readiness | `WIRE` |
+| G1-DEC-226 | The identity root and `/server` subpath have closed export inventories. Their schemas expose immutable domain views and nominal verified trust states; public results, operations, error memberships, construction inputs, and startup phases are exactly those assigned by the identity semantic chapter. | `docs/spec/identity.md` — Public package boundary and Error contract; `docs/spec/identity-representation.md` — AgentCard and SignedMessage | `ARCH`, `ID` |
+| G1-DEC-227 | AgentSigningAuthority, AgentCard, SignedMessage, Registry, and AuthenticatedHttp expose only the approved domain operations and exact Effect signatures. Mechanism-shaped signers, JOSE values, client/server classes, public options or configuration types, aggregate error aliases, and extra constructors are absent. | `docs/spec/identity.md` — Signing and verification, Registry capability, AuthenticatedHttp, and Error contract | `ARCH`, `ID` |
+| G1-DEC-228 | Registry declares `register`, `lookup`, and `list` once in one private no-serialization Effect RPC group. Required bootstrap middleware short-circuits and carries admitted context to `register`; typed failures propagate through the server and client `E` channels; lookup and list have no admission middleware; production has no RPC network route. | `docs/spec/identity.md` — Private Effect RPC | `ARCH`, `ID` |
+| G1-DEC-229 | Registry process configuration is one private Effect `Config.all` decoded and refined with `Schema.Config`, redacts secrets, owns defaults, receives `ConfigProvider.fromEnv` at the executable and `fromMap` in tests, and exposes no direct environment parser, prefix enumerator, mutable singleton, hot reload, or public configuration type. | `docs/spec/identity.md` — Registry configuration | `ARCH`, `ID` |
+| G1-DEC-230 | SignedMessage accepts at most 262,144 decoded opaque-body bytes and 128 recipients. Identity derives the 471,671-byte complete maximum, owns exact encoded-length calculation, and derives each Registry route's pre-parse cap from its closed representation; none is an independent environment setting. | `docs/spec/identity-representation.md` — SignedMessage and Registry routes | `ID`, `WIRE` |
 
 ### L2 Router
 
@@ -178,7 +197,7 @@ pin each decision:
 |---|---|---|---|
 | G1-DEC-300 | SignedMessage names sender AgentId, AgentCardDigest, explicit canonically ordered recipient AgentIds, MessageId, and opaque body bytes in a self-contained signed artifact. | `docs/spec/router.md` — SignedMessage boundary | `L2`, `WIRE` |
 | G1-DEC-301 | L2 has no ConversationId, membership, TxnId, action, route identifier, persistence, replay, or recovery meaning; any such meaning remains inside the opaque body and is owned by L3 endpoints. | `docs/spec/router.md` — Layer boundary | `L2`, `ARCH` |
-| G1-DEC-302 | One correct non-equivocating Router assigns a private global bigint order and multicasts identical SignedMessage bytes; no RouterSequence or internal order appears in the public protocol. | `docs/spec/router.md` — Ordering and multicast | `L2` |
+| G1-DEC-302 | One correct non-equivocating Router assigns a private unsigned 128-bit global order and multicasts identical SignedMessage bytes. Zero is the empty sentinel and the first accepted message is one. Assigning `2^128 - 1` succeeds and makes fresh-append health unready; a later fresh append returns 429 without mutation while retained retries and polls continue. No RouterSequence or internal order appears in the public protocol. | `docs/spec/router.md` — One volatile global feed and Operational bounds | `L2` |
 | G1-DEC-303 | Router is one bounded in-memory process with one global count-and-byte-bounded feed and coupled retry index. Restart loses all process-local state and creates a fresh RouterInstanceId and cursor key; persistence, multi-process ordering, replication, and fork detection are absent. | `docs/spec/router.md` — State and fault model | `L2`, `DEFER` |
 | G1-DEC-304 | Router exposes `POST /v1/messages:send`, endpoint-wide `POST /v1/messages:poll`, and local-readiness-only `GET /healthz`. Router health does not query Registry. | `docs/spec/router.md` — HTTP API | `L2`, `WIRE` |
 | G1-DEC-305 | An authenticated held poll waits at most 25 seconds and returns a bounded ordered `batch` with current RouterInstanceId and opaque PollCursor, or a closed `feed_gap` or `cursor_invalid` result. | `docs/spec/router.md` — Long polling | `L2` |
@@ -191,6 +210,10 @@ pin each decision:
 | G1-DEC-312 | L2 owns no durable replay, recipient advancement, per-conversation recovery, offline convergence, or restart-transparent liveness. | `docs/spec/router.md` — Non-guarantees | `L2`, `DEFER` |
 | G1-DEC-313 | A post-commit notice is an ordinary best-effort SignedMessage wake-up hint, never the source of commit truth. | `docs/spec/control-plane.md` — Commit notification and recovery | `L2`, `L3` |
 | G1-DEC-314 | Every send names its expected RouterInstanceId and declares `initial` or `retry`. Initial duplicate identity conflicts. A retained byte-identical retry returns its original accepted result, changed bytes conflict, and an absent or evicted retry returns `retry_identity_unknown`; L3 may re-envelope the same evidence under a fresh MessageId. | `docs/spec/router.md` — Send | `L2`, `L3` |
+| G1-DEC-315 | The Router root and `/server` subpath have closed export inventories. Router is a deep Effect capability with exact send/poll inputs, results, per-method error memberships, client Layer inputs, and a constant discard server Layer; public client/server classes, options or configuration types, aggregate errors, and extra factories are absent. | `docs/spec/router.md` — Public package boundary and Effect capability and private RPC | `ARCH`, `L2` |
+| G1-DEC-316 | Router declares `send` and `poll` once in one private no-serialization Effect RPC group. Required registered-agent middleware short-circuits and carries `VerifiedAgentRequest` context to handlers, typed failures propagate through server and client `E`, and production has no RPC network route. | `docs/spec/router.md` — Effect capability and private RPC | `ARCH`, `L2` |
+| G1-DEC-317 | Router process configuration is one private Effect `Config.all` decoded and refined with `Schema.Config`, owns defaults and public-key parsing, receives `ConfigProvider.fromEnv` at the executable and `fromMap` in tests, and exposes no direct environment parser, prefix enumerator, mutable singleton, hot reload, or public configuration type. | `docs/spec/router.md` — Configuration | `ARCH`, `L2` |
+| G1-DEC-318 | Router consumes identity's SignedMessage length and derives its own route and result bounds: 471,819 received send bytes, 348 PollCursor characters, 422 received poll bytes, and 472,119 bytes for a one-message maximum batch. Configuration must fit one maximum message by retention and poll count/bytes; no duplicate body, recipient, SignedMessage, or generic request-body setting exists. | `docs/spec/router.md` — Operational bounds; `docs/spec/router-representation.md` — Representation limits | `L2`, `WIRE` |
 
 ### L3 Transcript and endpoint certification
 
@@ -303,6 +326,8 @@ pin each decision:
 | G1-DEC-718 | The old simulator becomes a temporary compatibility facade or is retired; two simulator engines never run in parallel. | `docs/architecture/first-implementation.md` — Cutover | `SIM` |
 | G1-DEC-719 | Testbed owns platform acquisition, supervision, fault layers, external-process constructors, substitutes, and black-box subjects, never production service implementations. | `docs/spec/layer-interfaces.md` — Testbed | `ARCH`, `SIM` |
 | G1-DEC-720 | OpenClaw, NanoClaw, and eval packages remain external consumers of v2 public interfaces. | `docs/architecture/first-implementation.md` — Non-negotiable boundaries | `INT` |
+| G1-DEC-721 | Registry, Router, and AuthenticatedHttp compose through their public Effect capabilities: client Layers require the standard HttpClient, AuthenticatedHttp's Layer requires Registry for verified-card resolution, Registry bootstrap does not require AuthenticatedHttp, and server subpaths own private Effect Config and process composition. | `docs/spec/layer-interfaces.md` — Identity and Router construction handoffs | `ARCH`, `ID`, `L2` |
+| G1-DEC-722 | Effect Schema is the only identity and Router network/configuration parsing boundary. Network JSON parses once as unknown, then closed Schemas, depth/Unicode refinements, and JCS equality enforce the exact representation; no second JSON parser, `jsonc-parser.visit`, or custom configuration parser exists. | `docs/spec/identity-representation.md`, `docs/spec/router-representation.md` — Canonical JSON; `docs/spec/layer-interfaces.md` — Identity and Router construction handoffs | `ARCH`, `ID`, `L2`, `WIRE` |
 
 ## Explicit deferrals
 
@@ -324,7 +349,7 @@ deferral.
 | G1-DEC-808 | Local daemon authentication, hostile-host defense, dynamic port discovery, attach-to-existing ownership, and a universal daemon supervisor. | `docs/spec/endpoints/daemon.md` — Deferred local operations | `DEFER` |
 | G1-DEC-809 | MCP event acknowledgement/replay, cursors, GET subscription streams, webhooks, resource wakeups, asynchronous tool-task handles, and dynamic per-action tools. | `docs/spec/endpoints/daemon.md` — Deferred MCP surface | `DEFER` |
 | G1-DEC-810 | A transactional outbox for commit hints. | `docs/spec/endpoints/tasks.md` — Commit notification | `DEFER` |
-| G1-DEC-811 | Protocol-negotiated resource maxima. Services still require bounded local decoding, pages, polls, retention, caches, and requests; cross-conversation turns and snapshots are deliberate unbounded exceptions. | `docs/architecture/first-implementation.md` — Resource posture | `DEFER` |
+| G1-DEC-811 | A later profile that changes or negotiates the fixed Gate 1 SignedMessage body and recipient maxima or adds other interoperable resource limits. Services still bound pages, polls, retention, caches, requests, and closed representations; cross-conversation turns and snapshots remain deliberate unbounded exceptions. | `v2/VISION.md` — Open-question register | `DEFER` |
 | G1-DEC-812 | Raw bytes, URLs, media types, filenames, metadata, files, images, and audio in action content. | `docs/spec/endpoints/tasks.md` — Deferred content | `DEFER` |
 | G1-DEC-813 | A required end-to-end body-encryption or key-distribution profile. The content-blind SignedMessage body preserves the option. | `docs/spec/router.md` — Content blindness | `DEFER` |
 | G1-DEC-814 | npm publishing, bundling, deployment, production cutover, retrofitting v1, and v1 retirement. | `docs/architecture/first-implementation.md` — Non-goals | `DEFER` |

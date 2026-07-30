@@ -7,7 +7,7 @@ superseded-by: 20260729-identity-uses-jcs-jose-authenticated-http.md
 
 # Gate 1 fixes one immutable identity profile and Registry bootstrap
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-gate-1-identity-profile), [Registry trust selection](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#registry-trust-assumption), and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-gate-1-identity-profile), [Registry trust selection](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#registry-trust-assumption), [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp), and [approved registration ownership](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#exact-implementation-slate-approved).
 
 ## Supersession
 
@@ -22,8 +22,11 @@ rotation, revocation, recovery, keychains, HSMs, and external signers.
 `20260729-identity-uses-jcs-jose-authenticated-http.md` replaces X.509
 with a closed JCS/General-JWS AgentCard, removes endpoint routing
 information from the card, replaces deterministic CBOR/COSE with
-JCS/JOSE, and defines the current `AuthenticatedHttp` profiles. Normal
-requests carry `callerAgentId` rather than embedding the card.
+JCS/JOSE, and defines the current `AuthenticatedHttp` profile for
+registered-agent requests. Normal requests carry `callerAgentId`
+rather than embedding the card.
+`20260729-registration-is-registry-bootstrap-admission.md` defines the
+separate Registry-owned bootstrap admission contract.
 Application TLS is a deployment concern, not an application
 requirement. Current guarantees live in `docs/spec/identity.md`; exact
 representations live in `docs/spec/identity-representation.md`.

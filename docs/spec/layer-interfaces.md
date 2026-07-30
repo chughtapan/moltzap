@@ -76,8 +76,8 @@ representations. `router-representation.md` owns the exact L2 refined
 values, PollCursor, and Router request and result representations.
 
 There is no cross-layer wire catalog, codec package, or shared
-compatibility corpus for L1/L2. This candidate leaves later-layer
-semantic documents and focused ADRs unchanged.
+compatibility corpus for L1/L2. This revision leaves later-layer
+semantic documents, vocabulary, and focused ADRs unchanged.
 
 ## Type ownership
 
@@ -88,7 +88,9 @@ semantic documents and focused ADRs unchanged.
 - AgentId, PrincipalId, AgentName, OperationId, and MessageId;
 - AgentCard, AgentCardDigest, and Ed25519 public-key identity;
 - SignedMessage attribution and verification;
-- AuthenticatedHttp normal and registration profiles; and
+- the registered-agent AuthenticatedHttp profile;
+- Registry-owned bootstrap admission and submitted-key
+  proof-of-possession; and
 - Registry operation contracts.
 
 Other packages import these types; they do not redeclare same-shaped
@@ -154,9 +156,13 @@ production alternative.
 
 Offers registration, lookup, and list operations from `identity.md`.
 Callers receive complete domain values, never raw HTTP responses or
-database rows. The client is configured with the deployment-pinned
-Registry signer public JWK and verifies every returned AgentCard before
-constructing the nominal verified value.
+database rows. The client is configured with the deployment Registry
+origin and deployment-pinned Registry signer public key. Registration
+also receives the redacted admission credential and bootstrap signing
+authority for the submitted key at its call boundary. Public lookup and
+list require no call-boundary admission credential or signing
+authority. The client verifies every returned AgentCard
+before constructing the nominal verified value.
 
 Registration verifies that the returned PrincipalId, AgentName, and
 agent public key equal the submitted bindings. Lookup verifies that a
@@ -178,12 +184,13 @@ distinct typed client response error.
 
 Offers send and bounded poll from `router.md`. The client owns request
 authentication and the Router representation without exposing its
-mechanisms. Send carries expected RouterInstanceId plus `initial` or
+mechanisms. It is configured with the Router origin; each send and poll
+receives the caller AgentId and normal signing authority at its call
+boundary. Send carries expected RouterInstanceId plus `initial` or
 `retry`. Every successful poll contains current RouterInstanceId,
 complete encoded, untrusted SignedMessage representations, and the next
 PollCursor. The endpoint verifies each representation through L1 before
-accepting the returned cursor. This contract does not introduce a new
-public type name before the human vocabulary gate.
+accepting the returned cursor.
 
 Closed send and poll outcomes remain values in the success channel.
 Envelope and declared server failures propagate in the client's typed
@@ -191,6 +198,35 @@ Effect error channel. Client-only connection and timeout failures stay
 distinct from those server failures. A malformed response, invalid
 status/body pairing, or failed response-schema validation is a
 distinct typed client response error.
+
+### Identity and Router construction handoffs
+
+The exact identity and Router root exports, public operation signatures,
+per-method error channels, server surfaces, and configuration keys live
+in their owning semantic chapters. The cross-package construction rules
+are:
+
+- Registry, Router, and AuthenticatedHttp are `Context.Tag` deep
+  capabilities whose named operations are static Effect accessors;
+- the Registry and Router client Layers require Effect's
+  `HttpClient.HttpClient` and expose no public client class, options
+  type, or mechanism-shaped factory;
+- AuthenticatedHttp's Layer requires Registry so a Router process can
+  resolve and positively cache immutable AgentCards without importing
+  Registry internals;
+- registration does not require AuthenticatedHttp: Registry privately
+  composes bootstrap admission, submitted-key proof, and durable replay
+  protection before its handler;
+- each server subpath exposes one constant discard Layer that reads its
+  private Effect Config and owns process composition; and
+- Registry's `register`, `lookup`, and `list` group and Router's `send`
+  and `poll` group use private Effect RPC without exposing an RPC group,
+  middleware tag, serializer, `/rpc` route, or network RPC protocol.
+
+Every production HTTP boundary still decodes its complete exact
+representation through Effect Schema. Private RPC middleware may carry
+verified admission or registered-agent context to the handler, but it
+cannot replace or weaken the layer-owned network Schema.
 
 ### Ledger client
 
@@ -372,6 +408,18 @@ This section is non-normative implementation guidance.
 - Static dependency fixtures fail for every forbidden package edge.
 - Export-map tests prove the exact entries above and no internal
   subpath.
+- Public API and type canaries prove the exact identity and Router root
+  inventories, operation signatures, error channels, and construction
+  requirements assigned by their semantic chapters.
+- Construction tests prove that Router composes the identity-owned
+  registered-agent capability while Registry bootstrap admission does
+  not require it.
+- Private-RPC integration tests prove middleware short-circuiting,
+  context propagation, typed server-to-client failures, interruption,
+  and the absence of an RPC network route or exported RPC surface.
+- Process tests supply Effect Config providers directly and prove that
+  no public configuration type or direct environment parser is part of
+  either package boundary.
 - Manifest and wire values all equal `v2/VERSION`; independent schema
   versions demonstrably do not.
 - Type canaries reject PollCursor/LedgerOffset and
@@ -379,6 +427,8 @@ This section is non-normative implementation guidance.
 - No public Router API exposes a global sequence or delivery wrapper.
 - No cross-layer L1/L2 representation package, catalog, or corpus
   exists.
+- Numbered layer notation appears only in documentation, never in v2
+  implementation artifacts.
 - A fake public-capability stack and the real production stack drive
   the same simulator definition.
 - The simulator root owns one StackProvider type; testbed and fake
@@ -392,4 +442,7 @@ This section is non-normative implementation guidance.
 - `../decisions/20260728-six-deep-packages-one-version.md`
 - `../decisions/20260728-simulator-is-the-system-driver.md`
 - `../decisions/20260729-representations-are-layer-owned.md`
+- `../decisions/20260729-registration-is-registry-bootstrap-admission.md`
+- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
+- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
 - `../decisions/20260729-router-order-is-opaque.md`

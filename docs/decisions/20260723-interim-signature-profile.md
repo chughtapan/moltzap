@@ -7,16 +7,18 @@ superseded-by: 20260729-identity-uses-jcs-jose-authenticated-http.md
 
 # Interim request-signature profile: RFC 9421 with Ed25519
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-interim-signature-profile) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-interim-signature-profile), [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp), and [approved registration ownership](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#exact-implementation-slate-approved).
 
 ## Supersession
 
 This interim profile is fully superseded.
-`20260729-identity-uses-jcs-jose-authenticated-http.md` defines two
-closed RFC 9421 profiles: normal immutable-card-resolved requests and
-the sole pre-card registration bootstrap. Both require atomic
-server-side replay-nonce claims. Message attribution uses its separate
-JCS/General-JWS SignedMessage profile, and no operator key exists.
+`20260729-identity-uses-jcs-jose-authenticated-http.md` defines the
+closed RFC 9421 profile for normal immutable-card-resolved requests.
+`20260729-registration-is-registry-bootstrap-admission.md` defines the
+sole pre-card registration bootstrap and assigns it to the Registry.
+Both require atomic server-side replay-nonce claims. Message attribution
+uses the separate JCS/General-JWS SignedMessage profile, and no operator
+key exists.
 Exact components, parameters, tags, ordering, time bounds, and failure
 collapse live in `docs/spec/identity-representation.md`.
 

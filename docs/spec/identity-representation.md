@@ -9,6 +9,20 @@ Semantic contract: [`identity.md`](./identity.md)
 This chapter owns the exact L1 representation. Its JCS, JWK, JWS, and
 HTTP mechanisms remain private to the deep `identity` package.
 
+## Standards substrate
+
+Effect Schema is the only JSON parser and validates every public
+network boundary. `canonicalize` supplies RFC 8785 JCS. `jose` supplies
+General JWS and JWK thumbprints. `http-message-signatures` and
+`structured-headers` supply RFC 9421 and RFC 8941 mechanisms.
+
+Identity exports none of those libraries and adds no project-owned JSON
+parser, canonicalizer, JOSE stack, HTTP-signature stack, or
+structured-field stack. There is no `jsonc-parser.visit`, second JSON
+parser, generic codec, or public serialization layer. MessagePack,
+deterministic CBOR, COSE, X.509, and application TLS are not L1
+mechanisms. This choice does not change any later-layer representation.
+
 ## Canonical JSON
 
 Every L1 JSON request, result, signed payload, protected header, and
@@ -17,7 +31,8 @@ UTF-8 bytes.
 
 A complete decoder:
 
-1. reads within the configured byte bound;
+1. reads within the owning artifact's fixed maximum or the HTTP
+   route's privately derived body cap;
 2. decodes fatal UTF-8;
 3. parses one unknown JSON value with Effect `Schema.parseJson()`;
 4. applies a private Effect Schema refinement that rejects container
@@ -26,10 +41,11 @@ A complete decoder:
    match; and
 6. decodes through the exact closed schema.
 
-No semantic value escapes before every step succeeds.
-AuthenticatedHttp deliberately performs steps 1 through 4 as its
-parse prelude, performs step 5 before authentication, then performs the
-complete route-owned schema decode at its specified later stage.
+No semantic value escapes before every step succeeds. Registered-agent
+`AuthenticatedHttp` and Registry bootstrap admission each perform steps
+1 through 4 as their parse prelude, perform step 5 before
+authentication, then perform the complete route-owned schema decode at
+the specified later stage.
 
 Duplicate object names require no second parser. Native JSON parsing
 collapses them, so the resulting value's JCS bytes cannot equal input
@@ -61,7 +77,8 @@ use RFC 4648 base64url without `=` padding. Decoders reject:
 - any spelling that does not re-encode byte-identically.
 
 An opaque body may contain zero bytes, represented by the empty string.
-Route bounds limit its maximum length.
+After canonical base64url decoding it contains at most 262,144 bytes.
+This Gate 1 maximum is fixed, not deployment-configurable.
 
 ## Refined values
 
@@ -175,6 +192,18 @@ X.509 members are rejected.
 `AgentCardDigest` is `acd_` plus canonical base64url SHA-256 over the
 UTF-8 JCS bytes of the complete General JWS object.
 
+The public `AgentCard` Effect Schema has this General JWS as its encoded
+side. Its TypeScript side exposes exactly the readonly domain fields
+`agentId`, `principalId`, `agentName`, `publicKey`, and `issuedAt`.
+The exact JWS remains private in the value for lossless Schema encoding,
+digesting, and verification. `publicKey` is an immutable snapshot.
+Fixed `kind` and `moltzapVersion` remain representation invariants, not
+duplicate domain fields.
+
+`VerifiedAgentCard` is a nominal subtype with the same readable fields.
+Only successful `AgentCard.verify` constructs its inaccessible trust
+brand; no Schema, constructor, or standalone decoder is public.
+
 ## SignedMessage
 
 ### Payload
@@ -195,13 +224,14 @@ The payload is exactly:
 }
 ```
 
-`recipientAgentIds` is nonempty. After decoding the AgentId payload
-bytes, entries are unique and strictly increasing by unsigned bytewise
-order. A signer constructs that order. A verifier rejects a different
-order instead of sorting it.
+`recipientAgentIds` has 1 to 128 entries. After decoding the AgentId
+payload bytes, entries are unique and strictly increasing by unsigned
+bytewise order. A signer constructs that order. A verifier rejects a
+different order instead of sorting it.
 
-The body is opaque bytes. Identity and Router never decode or
-re-encode its contents.
+The canonical base64url body decodes to 0 through 262,144 opaque bytes.
+Identity and Router decode only that representation boundary; they
+never interpret or transform its contents.
 
 ### General JWS
 
@@ -224,16 +254,41 @@ to the same immutable identity.
 The Router-owned SignedMessageDigest representation is specified in
 `router-representation.md`.
 
-## AuthenticatedHttp framing
+The public `SignedMessage` Effect Schema has this General JWS as its
+encoded side. Its TypeScript side exposes exactly the readonly domain
+fields `senderAgentId`, `agentCardDigest`, `recipientAgentIds`,
+`messageId`, and `body`. It retains the exact JWS privately for
+lossless Schema encoding, verification, hashing, and forwarding.
+`recipientAgentIds` is an immutable snapshot, and reading `body`
+returns a defensive `Uint8Array` copy. Fixed `kind` and
+`moltzapVersion` remain representation invariants.
 
-AuthenticatedHttp accepts only:
+`VerifiedSignedMessage` is a nominal subtype with the same readable
+fields. Only successful `SignedMessage.sign` or
+`SignedMessage.verify` constructs its inaccessible trust brand; no
+Schema, constructor, or standalone decoder is public.
 
-- a route using the normal profile;
-- Registry registration using the registration profile; or
-- a public Registry lookup or list route with no signature profile.
+`SignedMessage.encodedByteLength` returns the UTF-8 JCS byte length of
+the complete retained General JWS and has no failure channel. Under the
+fixed recipient and body bounds,
+`SignedMessage.maximumEncodedByteLength` is exactly 471,671. Identity
+owns both operations and the overflow-checked calculation; consumers
+do not reproduce its General JWS size formula.
 
-Authenticated request bodies are canonical JSON and have one of these
-outer shapes.
+## HTTP request framing and ownership
+
+Identity defines three distinct HTTP boundary owners:
+
+- registered-agent `AuthenticatedHttp` owns only the normal profile;
+- Registry owns registration bootstrap admission and its
+  proof-of-possession profile; and
+- Registry lookup and list are public reads with no signature profile.
+
+Registration never creates or consumes an authenticated existing-agent
+context. It does not add registration members to `AuthenticatedHttp`.
+
+The two signed profiles use canonical JSON bodies with these outer
+shapes.
 
 Normal:
 
@@ -272,8 +327,8 @@ signature verification. Under RFC 9421, accepted requests cover
 `@query` with the derived value `?`; that derived value alone does not
 distinguish an absent query component from a present empty one.
 
-Authenticated requests also have exactly one `Content-Digest`
-dictionary member:
+Both signed profiles also have exactly one `Content-Digest` dictionary
+member:
 
 ```text
 Content-Digest: sha-256=:<RFC 8941 base64 of SHA-256(body octets)>:
@@ -290,9 +345,9 @@ specified in `identity.md`.
 
 ## HTTP message signatures
 
-Authenticated requests contain exactly one `Signature-Input` dictionary
-member and one matching `Signature` dictionary member. Their label is
-`moltzap`.
+Requests using either signed profile contain exactly one
+`Signature-Input` dictionary member and one matching `Signature`
+dictionary member. Their label is `moltzap`.
 
 ### Normal profile
 
@@ -304,7 +359,7 @@ The signature-input covered-component order is exactly:
 
 Its tag is `moltzap-request-v1`.
 
-### Registration profile
+### Registry registration profile
 
 The covered-component order is exactly:
 
@@ -352,19 +407,22 @@ whitespace, multiple credentials, parameters, and a different scheme
 are rejected. The configured and received credential remains redacted
 in values, logs, traces, metrics, defects, and public errors.
 
-## AuthenticatedHttp validation order
+## Registered-agent AuthenticatedHttp validation order
 
-The server performs:
+The route owner performs stages 1 and 2 before calling
+`AuthenticatedHttp.verifyAgentRequest` with a copied bounded body.
+Together they perform:
 
-1. route lookup and method check;
-2. content framing, content type, content encoding, body limit, and
-   early concurrency bound;
-3. fatal UTF-8, JSON parse, JCS comparison, and minimum caller or
-   submitted-key extraction;
-4. content digest, HTTP signature, key, admission, and time checks;
+1. exact route lookup and method check;
+2. content framing, content type, content encoding, the route-derived
+   body cap, and the immediate request-concurrency permit;
+3. fatal UTF-8, one Effect Schema JSON parse, depth and Unicode
+   refinement, JCS byte comparison, and minimum caller extraction;
+4. Registry resolution, content digest, HTTP signature, card and key
+   binding, algorithm, tag, and time checks;
 5. atomic nonce claim;
 6. signed MoltZap version check;
-7. complete closed route-owned schema decode; and
+7. complete closed route-owned request Schema decode; and
 8. domain handler.
 
 For Router send and poll, stage 7 validates the closed outer request
@@ -373,12 +431,42 @@ while retaining `signedMessage` as a bounded raw JSON object and
 the complete SignedMessage or PollCursor decode, so their failures map
 to `message_invalid` or `cursor_invalid`, respectively.
 
-An otherwise valid wrong-version request consumes its nonce.
+At the end of stage 6 the verifier has constructed the opaque nominal
+`VerifiedAgentRequest`: caller AgentId, verified AgentCard, and the
+still-unknown inner request. Only the route-owned Schema decodes that
+request at stage 7.
 
 At stage 5, an already claimed live nonce is
 `authentication_failed`. A novel nonce that cannot be retained because
 the live-nonce capacity is full is `overloaded` with status 429; it is
 not claimed, and no unexpired nonce is evicted.
+
+## Registry bootstrap-admission validation order
+
+Registry performs:
+
+1. exact registration route lookup and method check;
+2. content framing, content type, content encoding, the route-derived
+   body cap, and the immediate request-concurrency permit;
+3. fatal UTF-8, one Effect Schema JSON parse, depth and Unicode
+   refinement, JCS byte comparison, and minimum submitted-key
+   extraction;
+4. content digest, HTTP signature, submitted-key binding, admission
+   credential, algorithm, tag, and time checks;
+5. durable atomic registration-nonce claim;
+6. signed MoltZap version check;
+7. complete closed `RegistryRegisterRequest` Schema decode; and
+8. the Registry private RPC middleware and domain handler.
+
+Registration performs no AgentCard resolution and constructs no
+`VerifiedAgentRequest`. Successful stage 4 produces private bootstrap
+admission context. An already-live nonce is 401
+`authentication_failed`; a novel nonce that cannot be retained is 429
+`overloaded` without a claim or live-nonce eviction.
+
+For both signed profiles, an otherwise valid wrong-version request
+consumes its nonce. A later schema or domain refusal does not roll the
+claim back.
 
 ### Public Registry read validation order
 
@@ -419,30 +507,50 @@ Common route and framing outcomes are:
 | 2 | public read carries `Content-Digest`, `Signature-Input`, `Signature`, or `Authorization` | 400 `malformed` |
 | 2 | missing, parameterized, or unsupported `Content-Type`, or any `Content-Encoding` | 415 `unsupported_media_type` |
 | 2 | body exceeds the route byte bound | 413 `payload_too_large` |
-| 2 | request queue or early concurrency capacity is unavailable | 429 `overloaded` |
+| 2 | the immediate request-concurrency permit is unavailable | 429 `overloaded`; do not queue the request in application code |
 
-Authenticated-profile outcomes after common framing are:
+Registered-agent `AuthenticatedHttp` outcomes after common framing are:
 
 | Stage | First matching condition | Outcome |
 |---:|---|---|
-| 3 | fatal UTF-8, JSON syntax, duplicate name, depth, canonical-byte, or minimum-identity extraction failure | 400 `malformed` |
+| 3 | fatal UTF-8, JSON syntax, duplicate name, depth, Unicode, canonical-byte, or minimum-caller extraction failure | 400 `malformed` |
 | 4 | required Registry resolution cannot start because lookup capacity is full | 429 `overloaded` |
 | 4 | required Registry resolution is unavailable or times out | 503 `unavailable` |
-| 4 | missing or invalid digest, signature fields, covered component, key binding, card, admission credential, proof, algorithm, tag, or time window | 401 `authentication_failed` |
+| 4 | missing or invalid digest, signature fields, covered component, key binding, card, proof, algorithm, tag, or time window | 401 `authentication_failed` |
 | 5 | nonce is already live | 401 `authentication_failed` |
 | 5 | nonce is novel but live-nonce capacity is full | 429 `overloaded`; do not claim it |
 | 6 | the authenticated signed MoltZap version differs | 412 `version_mismatch`; retain the nonce claim |
 | 7 | complete closed route-owned schema fails | 400 `malformed`; retain the nonce claim |
-| 8 | owner request capacity, including held-poll capacity, is unavailable | 429 `overloaded` |
+| 8 | owner admission capacity that is independent of a route-owned domain outcome is unavailable | 429 `overloaded` |
 | 8 | a required domain dependency is unavailable or times out | 503 `unavailable` |
 | 8 | an unexpected implementation failure occurs | 500 `internal` |
+
+Registry bootstrap-admission outcomes after common framing are:
+
+| Stage | First matching condition | Outcome |
+|---:|---|---|
+| 3 | fatal UTF-8, JSON syntax, duplicate name, depth, Unicode, canonical-byte, or minimum-submitted-key extraction failure | 400 `malformed` |
+| 4 | missing or invalid digest, signature fields, covered component, submitted-key binding, admission credential, proof, algorithm, tag, or time window | 401 `authentication_failed` |
+| 5 | nonce is already live | 401 `authentication_failed` |
+| 5 | nonce is novel but live-nonce capacity is full | 429 `overloaded`; do not claim it |
+| 5 | the durable nonce claim is unavailable or times out | 503 `unavailable` |
+| 6 | the bootstrap-signed MoltZap version differs | 412 `version_mismatch`; retain the nonce claim |
+| 7 | complete closed `RegistryRegisterRequest` Schema fails | 400 `malformed`; retain the nonce claim |
+| 8 | Registry storage is unavailable or times out | 503 `unavailable` |
+| 8 | an unexpected implementation failure occurs | 500 `internal` |
+
+A route owner may define a later capacity check that is meaningful only
+after its domain validation. Router held-poll admission and
+private-order exhaustion are such checks: `router.md` places them only
+where a verified continuation would otherwise wait or a verified fresh
+initial send would otherwise append.
 
 Public Registry read outcomes after common framing are:
 
 | Stage | First matching condition | Outcome |
 |---:|---|---|
 | 3 | `MoltZap-Version` is absent or differs | 412 `version_mismatch` |
-| 4 | fatal UTF-8, JSON syntax, duplicate name, depth, canonical-byte, or complete closed-schema failure | 400 `malformed` |
+| 4 | fatal UTF-8, JSON syntax, duplicate name, depth, Unicode, canonical-byte, or complete closed-schema failure | 400 `malformed` |
 | 5 | Registry storage is unavailable or times out | 503 `unavailable` |
 | 5 | an unexpected implementation failure occurs | 500 `internal` |
 
@@ -486,10 +594,18 @@ introduced.
 
 ## Registry routes
 
+Register, lookup, and list each have one private overflow-checked
+request-body calculator derived from their closed maximum
+representation. The HTTP reader applies that route's cap before UTF-8
+decoding or parsing. These are three derived private values, not one
+generic bound, environment keys, or public configuration members.
+Boundary tests accept each exact maximum and reject one additional
+octet.
+
 ### Register
 
-`POST /v1/identities:register` uses the registration authenticated
-outer body:
+`POST /v1/identities:register` uses the Registry-owned
+bootstrap-admission outer body:
 
 ```json
 {
@@ -580,6 +696,13 @@ increasing decoded AgentId order. Its maximum length is the
 server-configured page size. `hasMore` is true exactly when another
 card exists after the last returned AgentId.
 
+Register, lookup, and list response Schemas are private. They first
+parse these exact untrusted representations. The client then verifies
+each AgentCard, request binding, ordering, uniqueness, and lower bound
+as applicable before constructing `RegistryRegisterResult`,
+`RegistryLookupResult`, or `RegistryListResult`. Those public result
+types are not standalone parsing Schemas.
+
 ### Health
 
 `GET /healthz` returns:
@@ -602,3 +725,6 @@ It requires no MoltZap version or request signature.
 
 - `../decisions/20260729-representations-are-layer-owned.md`
 - `../decisions/20260729-identity-uses-jcs-jose-authenticated-http.md`
+- `../decisions/20260729-registration-is-registry-bootstrap-admission.md`
+- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
+- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`

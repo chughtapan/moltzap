@@ -44,6 +44,54 @@ reorders a batch or substitutes response fields. A deployment whose
 threat model includes that path supplies channel integrity outside the
 Router application.
 
+## Public package boundary
+
+`@moltzap/v2-router` root-exports exactly:
+
+- the same-named Effect Schema values and TypeScript types
+  `RouterInstanceId`, `SignedMessageDigest`, `PollCursor`,
+  `RouterSendRequest`, `RouterSendResult`, `RouterPollRequest`, and
+  `RouterPollResult`;
+- the `Router` deep capability; and
+- `RouterConnectionError`, `RouterRequestTimeoutError`, and
+  `RouterInvalidResponseError`.
+
+`@moltzap/v2-router/server` exports only `RouterServer`, including its
+nested `StartupError`. Router consumes identity values, signed
+artifacts, signing authority, and shared HTTP errors from
+`@moltzap/v2-identity`; it does not redeclare or re-export aliases for
+them.
+
+There is no public Router order, delivery wrapper, client class,
+server class, configuration type, options type, RPC group, middleware
+tag, HTTP adapter, cache, nonce store, waiter, ring entry, or cursor
+plaintext type.
+
+Each Router client-only error is an empty `Data.TaggedError` whose
+`_tag` is exactly its class name. It declares no `message`, code,
+status, reason, cause, operation, method, origin, URL, timeout,
+response, key, path, SQL, or library-detail field. Private redacted
+diagnostics retain an underlying cause before mapping it to the public
+recovery class.
+
+The mapping is exclusive:
+
+- expiry of the configured total call deadline becomes
+  `RouterRequestTimeoutError`;
+- another connection-establishment or connection-use failure becomes
+  `RouterConnectionError`;
+- a recognized operation-declared server envelope becomes the
+  corresponding identity-owned shared server error;
+- local authenticated-request signing failure becomes the
+  identity-owned `AgentSigningError`; and
+- an invalid status, body, Schema, binding, or signature combination
+  becomes `RouterInvalidResponseError`.
+
+Router poll results contain parsed and bounded, but untrusted,
+SignedMessage values. They therefore do not add
+`SignedMessageVerificationError` to `Router.poll`; the endpoint
+verifies every returned message before accepting the PollCursor.
+
 ## Operations
 
 The Router exposes:
@@ -55,6 +103,94 @@ The Router exposes:
 All JSON and HTTP representation details are owned by
 `router-representation.md` and L1 AuthenticatedHttp.
 
+## Effect capability and private RPC
+
+`Router` is the package-root `Context.Tag` deep capability. Its static
+accessors have these exact public signatures:
+
+```ts
+Router.send(input: {
+  readonly request: RouterSendRequest
+  readonly callerAgentId: AgentId
+  readonly signingAuthority: AgentSigningAuthority
+}): Effect.Effect<
+  RouterSendResult,
+  MalformedRequestError
+    | AuthenticationFailedError
+    | RouteNotFoundError
+    | MethodNotAllowedError
+    | VersionMismatchError
+    | PayloadTooLargeError
+    | UnsupportedMediaTypeError
+    | OverloadedError
+    | UnavailableError
+    | InternalServerError
+    | RouterConnectionError
+    | RouterRequestTimeoutError
+    | RouterInvalidResponseError
+    | AgentSigningError,
+  Router
+>
+
+Router.poll(input: {
+  readonly request: RouterPollRequest
+  readonly callerAgentId: AgentId
+  readonly signingAuthority: AgentSigningAuthority
+}): Effect.Effect<
+  RouterPollResult,
+  MalformedRequestError
+    | AuthenticationFailedError
+    | RouteNotFoundError
+    | MethodNotAllowedError
+    | VersionMismatchError
+    | PayloadTooLargeError
+    | UnsupportedMediaTypeError
+    | OverloadedError
+    | UnavailableError
+    | InternalServerError
+    | RouterConnectionError
+    | RouterRequestTimeoutError
+    | RouterInvalidResponseError
+    | AgentSigningError,
+  Router
+>
+```
+
+The production client construction member is exactly:
+
+```ts
+Router.layer(input: {
+  readonly origin: URL
+  readonly sendTimeout: Duration.Duration
+  readonly pollTimeout: Duration.Duration
+}): Layer.Layer<Router, never, HttpClient.HttpClient>
+```
+
+The layer snapshots its URL and durations. There is no public
+`RouterClient`, client-options type, configuration type, service
+interface, signer key, AgentCard, or cursor-key input.
+
+The server subpath exports `RouterServer.layer` as a constant
+`Layer.Layer<never, RouterServer.StartupError>`. The startup error is
+tagged `RouterServerStartupError` and contains only `phase`, which is
+`configuration` or `listener`; implementation and library causes
+remain private and redacted.
+
+The server owns one private Effect RPC group containing only `send` and
+`poll`. Both members require middleware that supplies the verified
+registered-agent context from AuthenticatedHttp. This required
+middleware short-circuits the handler on failure. The verified caller
+and AgentCard reach the handler without a second lookup, and middleware
+or handler failures remain in the typed `E` channel through the HTTP
+adapter. Closed Router refusals remain values in `A`.
+
+The private adapter uses `RpcServer.makeNoSerialization` and
+`RpcClient.makeNoSerialization` for correlation and typed exits.
+Effect Schema still validates every network request and result.
+Production exposes only the named HTTP routes: it has no `/rpc`,
+JSON-RPC, NDJSON, `RpcSerialization`, exported RPC group, or exported
+middleware tag. Health remains a direct route outside RPC.
+
 ## Send
 
 A send contains:
@@ -63,18 +199,25 @@ A send contains:
 - mode `initial` or `retry`; and
 - one complete encoded SignedMessage.
 
-After L1 authenticates the HTTP request, Router checks the expected
-instance before resolving or verifying the SignedMessage. An instance
-mismatch returns `router_restarted` with the current instance and
-performs no message work or feed mutation.
+The HTTP boundary first resolves the route and method, enforces
+framing, media type, that route's derived received-body cap, and the
+immediate request-concurrency permit. AuthenticatedHttp then validates
+the canonical outer request, authenticates the registered caller,
+claims the nonce, and supplies the verified caller AgentCard. The
+Router-owned Effect Schema decodes the retained inner request only
+after that proof succeeds.
+
+Router then checks the expected instance before verifying the
+SignedMessage. An instance mismatch returns `router_restarted` with the
+current instance and performs no message verification or feed
+mutation.
 
 For a matching instance, Router:
 
 1. binds the authenticated caller to SignedMessage sender AgentId;
-2. resolves the caller's immutable AgentCard only on a positive-cache
-   miss;
+2. uses the verified immutable AgentCard supplied by AuthenticatedHttp;
 3. verifies AgentCardDigest, SignedMessage signature, recipient
-   invariants, and configured bounds;
+   invariants, and fixed or derived representation bounds;
 4. leaves the opaque body uninterpreted;
 5. decides the retained retry identity;
 6. assigns the next private global order;
@@ -113,7 +256,7 @@ One process instance owns:
 
 - one random RouterInstanceId;
 - one random 256-bit PollCursor key;
-- one private monotonically increasing bigint order;
+- one private monotonically increasing unsigned 128-bit order;
 - one private greatest-evicted order;
 - one count-and-byte-bounded global ring;
 - one retry index coupled to retained ring entries;
@@ -126,6 +269,16 @@ SignedMessage receives order `1`; each later accepted message increments
 the private order by one within that process instance. The
 greatest-evicted order starts at `0` and advances to each evicted
 entry's order.
+
+The append that assigns `2^128 - 1` succeeds and immediately makes
+health unready because no fresh append capacity remains. A later
+initial send that would require a greater order returns 429
+`overloaded` without mutating Router state. Retained retries and polls
+do not assign a new order.
+
+The exhaustion check runs only when a verified initial send would
+otherwise append. Instance fencing, message validation, and existing
+retry-identity outcomes retain their specified precedence.
 
 Each ring entry stores one exact encoded SignedMessage, its verified
 recipient set, SignedMessageDigest, private order, and retry identity.
@@ -142,19 +295,24 @@ detaching addressed waiters. Parsing, canonicalization, hashing,
 Registry calls, signature verification, response encoding, network
 I/O, and waiter completion remain outside it.
 
-## AgentCard resolution
+## Authenticated caller resolution
 
-Router authenticates and verifies only the caller.
+Router authenticates and verifies only the caller. The
+identity-owned AuthenticatedHttp layer performs that work inside the
+Router process and returns a nominal `VerifiedAgentRequest` containing
+the caller AgentId, verified immutable AgentCard, and untrusted inner
+request. Router consumes the proof but cannot construct or decode it.
 
-On a positive-cache miss, Router uses public Registry lookup and
-verifies the returned AgentCard against the configured Registry public
-JWK. Concurrent misses for one AgentId are single-flight. Verified
-immutable cards have no time-based expiry within Gate 1. Failures and
+On a positive-cache miss, AuthenticatedHttp uses public Registry lookup
+and verifies the returned AgentCard against the configured Registry
+signer public key. Concurrent misses for one AgentId are single-flight
+and bounded by the configured underlying-lookup limit. Verified
+immutable cards have no time-based expiry in Gate 1. Failures and
 `not_found` have zero cache lifetime.
 
-A cached caller can continue sending during Registry outage. An unseen
-or capacity-evicted caller cannot. Registry outage does not make Router
-health unready.
+A cached caller can continue sending and polling during Registry
+outage. An unseen or capacity-evicted caller cannot. Registry outage
+does not make Router health unready.
 
 ## Poll
 
@@ -174,6 +332,10 @@ A successful `batch` contains the current RouterInstanceId, ordered
 SignedMessages, and the next PollCursor. Retrying the same PollCursor
 may return an already observed complete batch. An endpoint advances its
 volatile cursor only after accepting the entire result.
+
+The Router client parses and bounds returned SignedMessages but does
+not mark them verified. The endpoint verifies every returned
+SignedMessage before accepting the batch or its PollCursor.
 
 Router never treats an HTTP write, disconnect, timeout, or cancellation
 as cursor advancement.
@@ -257,26 +419,108 @@ cursors. Durable recovery belongs to L3.
 The local daemon's request-scoped MCP SSE response is outside both
 network planes and is not a Router push channel.
 
+## Configuration
+
+The Router process defines one private `Config.all` value.
+`Schema.Config` decodes and refines every declared value,
+`Config.withDefault` owns defaults, and configuration failure becomes
+`RouterServerStartupError` with phase `configuration`. The executable
+supplies `ConfigProvider.fromEnv`; tests use
+`ConfigProvider.fromMap`; embedded composition may supply another
+provider. There is no direct `process.env` access, custom environment
+parser, mutable singleton, hot reload, or public configuration type.
+Unrelated and unused environment entries are ignored.
+
+The exact Router server environment is:
+
+| Key | Meaning | Required/default | Range and constraints |
+|---|---|---|---|
+| `MOLTZAP_ROUTER_HOST` | listener bind host | `127.0.0.1` | nonempty Node bind host; `0.0.0.0` and `::` allowed |
+| `MOLTZAP_ROUTER_PORT` | listener port | required | integer 1–65535 |
+| `MOLTZAP_ROUTER_REGISTRY_ORIGIN` | Registry client origin | required | serialized HTTP or HTTPS origin with no userinfo, route path, query, or fragment |
+| `MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY` | deployment-pinned Registry signer | required | inline exact closed Ed25519 public JWK JSON in compact JCS spelling |
+| `MOLTZAP_ROUTER_RETAINED_MESSAGE_CAPACITY` | global-ring message count | `4,096` | positive count; one copy per message |
+| `MOLTZAP_ROUTER_RETAINED_MESSAGE_BYTE_CAPACITY` | global-ring byte retention | `67,108,864` | sum of complete SignedMessage JCS bytes |
+| `MOLTZAP_ROUTER_POLL_MESSAGE_LIMIT` | maximum messages in one batch | `128` | positive count |
+| `MOLTZAP_ROUTER_POLL_RESPONSE_BYTE_LIMIT` | maximum complete poll result | `1,048,576` | UTF-8 JCS result bytes including PollCursor |
+| `MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT` | active request permits | `512` | positive integer |
+| `MOLTZAP_ROUTER_HELD_POLL_CAPACITY` | globally held continuation polls | `256` | positive and strictly less than request concurrency |
+| `MOLTZAP_ROUTER_LIVE_NONCE_CAPACITY` | current-instance unexpired nonces | `100,000` | positive; never evict a live nonce |
+| `MOLTZAP_ROUTER_AGENT_CARD_CACHE_CAPACITY` | positive immutable-card LRU | `10,000` | positive entry count |
+| `MOLTZAP_ROUTER_REGISTRY_LOOKUP_CONCURRENCY_LIMIT` | concurrent underlying Registry lookups | `32` | positive; same-AgentId misses remain single-flight |
+| `MOLTZAP_ROUTER_REGISTRY_LOOKUP_TIMEOUT_MS` | complete Registry lookup deadline | `5,000` | positive milliseconds through verified-card result |
+
+Accepting either HTTP or HTTPS only establishes a usable Registry
+client origin. It does not require HTTPS, reject non-loopback HTTP, or
+create a TLS or trusted-proxy mode in the Router.
+
+Numeric environment values use canonical unsigned decimal with no
+whitespace, sign, fraction, or exponent. Their common range is
+`1..2^31-1`, except ports, which are `1..65535`.
+
+Configuration is rejected unless:
+
+1. the retained-message count and byte capacities admit at least one
+   maximum complete SignedMessage;
+2. the poll message limit admits at least one message; and
+3. the poll response-byte limit admits one maximum SignedMessage and
+   one maximum PollCursor in a complete `batch`.
+
+There is no application request queue and no Router configuration key
+for one. An immediate request-concurrency permit is the complete
+in-process admission control; the Node and operating-system connection
+backlog belongs to the runtime and deployment.
+
+There is also no environment key for the opaque-body maximum,
+recipient maximum, complete SignedMessage maximum, either route's body
+cap, MoltZap version, JSON depth, signature-time bounds, 25-second poll
+hold, one-held-poll-per-AgentId rule, private order width,
+RouterInstanceId, PollCursor key, positive-card cache TTL, TLS,
+certificates, URL-scheme policy, trusted proxies, or version
+negotiation. Those values are fixed protocol facts, representation
+consequences, process-generated values, or deployment concerns.
+
 ## Operational bounds
 
-A deployment configures finite:
+A deployment configures finite poll batch and response limits, feed
+count and byte retention, accepted-nonce and positive-card cache
+capacities, and request, held-poll, and Registry-lookup concurrency.
+Identity fixes the opaque body at 262,144 decoded bytes maximum and the
+recipient set at 128 AgentIds maximum. Identity derives the complete
+SignedMessage maximum as 471,671 UTF-8 JCS bytes. Router derives the
+send and poll received-body caps as 471,819 and 422 octets,
+respectively. A PollCursor is at most 348 ASCII characters, and a
+complete one-message batch is at most 472,119 UTF-8 JCS bytes.
 
-- HTTP body limits;
-- opaque body, SignedMessage, and recipient limits;
-- poll batch, response byte, and held-request limits;
-- feed count and byte retention;
-- accepted nonce and positive AgentCard caches; and
-- concurrent requests and Registry lookups.
+The representation depth, these fixed and derived bounds, and the
+25-second poll hold are not deployment configuration.
 
-The representation depth bound and 25-second poll hold are fixed Gate 1
-values, not deployment configuration.
+Byte accounting is exact:
+
+- a route body cap counts received body octets;
+- the fixed opaque-body maximum counts bytes after canonical base64url
+  decode;
+- the complete-message maximum and feed retention count UTF-8 JCS bytes
+  of each complete SignedMessage General JWS object; and
+- the configured poll-response limit counts UTF-8 JCS bytes of the
+  complete result body, including its PollCursor.
+
+Identity exposes the complete-message calculation through
+`SignedMessage.maximumEncodedByteLength` and exact accepted-message
+length through `SignedMessage.encodedByteLength`. Router consumes those
+members instead of reproducing General JWS sizing. Router derives only
+its send, poll, PollCursor, and poll-result sizes from the
+representations it owns. Overflow-checked calculators are compared
+against actual encodings, not a second approximation formula.
 
 Router maps each finite bound exactly:
 
 | Condition | Outcome |
 |---|---|
 | HTTP request body exceeds the route bound | 413 `payload_too_large` before authentication or domain handling |
-| request queue, early concurrency, held-poll, per-AgentId held-poll, live-nonce, or Registry-lookup capacity is unavailable | 429 `overloaded` |
+| immediate request-concurrency, live-nonce, or Registry-lookup capacity is unavailable | 429 `overloaded` |
+| a valid continuation has scanned a stable tail, found no addressed message, and held-poll or per-AgentId held-poll capacity is unavailable | 429 `overloaded` without retaining a waiter |
+| a new initial send would exceed the private unsigned 128-bit order | 429 `overloaded` without mutation; local health is already unready |
 | post-authentication complete SignedMessage, opaque body, or recipient count exceeds its bound | 200 `message_invalid` |
 | a positive AgentCard cache insertion exceeds capacity | evict the least-recently-used positive entry |
 | an uncached required Registry lookup is unavailable or times out | 503 `unavailable` |
@@ -284,11 +528,9 @@ Router maps each finite bound exactly:
 | continuation reaches poll message-count or response-byte capacity | return the bounded prefix and a cursor at the last scanned order; do not skip the first addressed message that did not fit |
 | an unexpected implementation failure occurs | 500 `internal` |
 
-Cross-field configuration ensures one accepted SignedMessage and its
-response envelope can fit the feed and one-message poll bounds. Router
-does not partially decode, silently truncate an artifact, or evict an
-accepted unexpired nonce. A novel nonce refused for capacity is not
-claimed.
+Router does not partially decode, silently truncate an artifact, or
+evict an accepted unexpired nonce. A novel nonce refused for capacity
+is not claimed.
 
 Nonce replay rejection is scoped to the current Router instance.
 Across restart, an old send remains fenced by expected
@@ -300,6 +542,10 @@ server-side cursor advancement.
 `GET /healthz` returns 204 when the current process can accept local
 work and 503 otherwise. It returns no feed, cursor, order, identity, or
 conversation data and never probes Registry.
+
+Successfully assigning the maximum private unsigned 128-bit order makes
+health return 503 until process replacement creates a new
+RouterInstanceId and order.
 
 ## Invariants
 
@@ -338,8 +584,30 @@ conversation data and never probes Registry.
 - Router restart cannot accept an old expected-instance send.
 - A full nonce cache refuses work instead of evicting an unexpired
   nonce.
+- A synthetic order-boundary test accepts order `2^128 - 1`,
+  immediately marks health unready, refuses the next fresh append
+  without mutation, and still permits retained retries and polls.
+- A PollCursor whose plaintext order exceeds `2^128 - 1` is
+  `cursor_invalid`, and the maximum valid cursor fits a one-message
+  response under the configured byte laws.
 - Registry outage after a positive cache hit does not prevent that
   caller from sending; an uncached caller fails closed.
+- Type canaries pin both Router accessors, their complete `E` unions,
+  `Router.layer`, and `RouterServer.layer` without exposing a client,
+  server, options, configuration, RPC, or middleware type.
+- Private RPC tests prove that registered-agent middleware is
+  mandatory, stops the handler on failure, carries its verified context
+  to the handler once, and transports middleware and handler failures
+  through the client `E` channel.
+- Configuration tests use `ConfigProvider.fromMap` to prove every key,
+  default, refinement, cross-field fit law, typed startup failure, and
+  acceptance of unrelated map entries without mutating `process.env`.
+- Boundary tests accept each route's exact maximum received body and
+  reject one additional octet before authentication or domain work.
+- Router size tests compare the send, poll, PollCursor, and poll-result
+  calculators with actual Schema, JCS, and JWE encodings while using
+  the identity-owned SignedMessage maximum without reproducing its
+  General JWS formula.
 - Conversation recovery is implementable using Ledger without L2
   durable replay.
 
@@ -357,3 +625,5 @@ required end-to-end encryption or key-distribution profile.
 - `../decisions/20260728-network-wire-is-http-post-polling.md`
 - `../decisions/20260728-layer-boundaries-and-fault-model.md`
 - `../decisions/20260729-router-order-is-opaque.md`
+- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
+- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
