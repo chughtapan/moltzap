@@ -18,7 +18,7 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L612)
+### [`acquireClient`](./_helpers.ts#L618)
 
 _Function_
 
@@ -33,7 +33,7 @@ Executes the acquire client operation.
 
 **Returns:** The acquire client result.
 
-### [`acquireConversation`](./_helpers.ts#L876)
+### [`acquireConversation`](./_helpers.ts#L882)
 
 _Function_
 
@@ -49,7 +49,7 @@ Executes the acquire conversation operation.
 
 **Returns:** The acquire conversation result.
 
-### [`acquirePropertyConversation`](./_helpers.ts#L334)
+### [`acquirePropertyConversation`](./_helpers.ts#L339)
 
 _Function_
 
@@ -65,7 +65,7 @@ Executes the acquire property conversation operation.
 
 **Returns:** The acquire property conversation result.
 
-### [`archiveConversation`](./_helpers.ts#L393)
+### [`archiveConversation`](./_helpers.ts#L398)
 
 _Function_
 
@@ -81,7 +81,7 @@ Executes the archive conversation operation.
 
 **Returns:** The archive conversation result.
 
-### [`assertConversationRejectsMessages`](./_helpers.ts#L565)
+### [`assertConversationRejectsMessages`](./_helpers.ts#L570)
 
 _Function_
 
@@ -95,7 +95,7 @@ Asserts conversation rejects messages.
 
 **Returns:** The assert conversation rejects messages result.
 
-### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L552)
+### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L557)
 
 _Interface_
 
@@ -111,7 +111,7 @@ export interface AssertConversationRejectsMessagesInput {
 
 Describes assert conversation rejects messages input.
 
-### [`awaitOneNotification`](./_helpers.ts#L290)
+### [`awaitOneNotification`](./_helpers.ts#L295)
 
 _Function_
 
@@ -234,7 +234,7 @@ export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 
 Provides the delivery default timeout ms runtime value.
 
-### [`deliveryViolation`](./_helpers.ts#L262)
+### [`deliveryViolation`](./_helpers.ts#L267)
 
 _Function_
 
@@ -249,7 +249,7 @@ Executes the delivery violation operation.
 
 **Returns:** The delivery violation result.
 
-### [`firstParticipant`](./_helpers.ts#L350)
+### [`firstParticipant`](./_helpers.ts#L355)
 
 _Function_
 
@@ -264,7 +264,7 @@ Executes the first participant operation.
 
 **Returns:** The first participant result.
 
-### [`fixtureN`](./_helpers.ts#L323)
+### [`fixtureN`](./_helpers.ts#L328)
 
 _Function_
 
@@ -276,7 +276,7 @@ Executes the fixture n operation.
 
 **Returns:** The fixture n result.
 
-### [`moderateAs`](./_helpers.ts#L838)
+### [`moderateAs`](./_helpers.ts#L844)
 
 _Function_
 
@@ -303,7 +303,7 @@ the app's forward-all callback.
 
 **Returns:** The moderate as result.
 
-### [`ModeratedHandle`](./_helpers.ts#L798)
+### [`ModeratedHandle`](./_helpers.ts#L804)
 
 _Interface_
 
@@ -474,7 +474,7 @@ export function registerTaskRequestReject(ctx: ConformanceRunContext): void
 
 Registers task request reject.
 
-### [`sendText`](./_helpers.ts#L370)
+### [`sendText`](./_helpers.ts#L375)
 
 _Function_
 
@@ -513,7 +513,7 @@ export const TASK_PROPERTIES: ReadonlyArray<
 All task-layer property registrars: delivery subset first, then the
 `app/conversation/*` family.
 
-### [`unarchiveConversation`](./_helpers.ts#L412)
+### [`unarchiveConversation`](./_helpers.ts#L417)
 
 _Function_
 
@@ -529,7 +529,7 @@ Executes the unarchive conversation operation.
 
 **Returns:** The unarchive conversation result.
 
-### [`waitForArchivedEvent`](./_helpers.ts#L493)
+### [`waitForArchivedEvent`](./_helpers.ts#L498)
 
 _Function_
 
@@ -545,7 +545,7 @@ Waits for for archived event.
 
 **Returns:** The wait for archived event result.
 
-### [`waitForConversationCreatedNotification`](./_helpers.ts#L431)
+### [`waitForConversationCreatedNotification`](./_helpers.ts#L436)
 
 _Function_
 
@@ -561,7 +561,7 @@ Waits for for conversation created notification.
 
 **Returns:** The wait for conversation created notification result.
 
-### [`waitForMessageReceivedNotification`](./_helpers.ts#L462)
+### [`waitForMessageReceivedNotification`](./_helpers.ts#L467)
 
 _Function_
 
@@ -577,7 +577,7 @@ Waits for for message received notification.
 
 **Returns:** The wait for message received notification result.
 
-### [`waitForUnarchivedEvent`](./_helpers.ts#L527)
+### [`waitForUnarchivedEvent`](./_helpers.ts#L532)
 
 _Function_
 
