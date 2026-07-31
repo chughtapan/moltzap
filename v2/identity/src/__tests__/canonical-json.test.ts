@@ -2,7 +2,7 @@ import {
   decodeCanonicalJson,
   encodeCanonicalJson,
   parseCanonicalJson,
-} from "./identity-json.js";
+} from "../canonical-json.js";
 import { Effect, Either, Schema } from "effect";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";

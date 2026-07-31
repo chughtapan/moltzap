@@ -6,18 +6,16 @@ import {
 } from "@moltzap/v2-identity";
 import canonicalize from "canonicalize";
 import { Duration, Effect, Option, Schema } from "effect";
-import { entriesAfter, type FeedSnapshot, type RouterFeed } from "./feed.js";
-import type { HeldPolls } from "./held-polls.js";
 import {
+  type PollCursor,
   RouterPollResult,
   type RouterPollRequest,
   type RouterPollResult as RouterPollResultValue,
-} from "./operations.js";
+  type RouterInstanceId,
+} from "./contract.js";
+import { entriesAfter, type FeedSnapshot, type RouterFeed } from "./feed.js";
 import type { PollCursorCodec } from "./poll-cursor.js";
-import type { PollCursor, RouterInstanceId } from "./values.js";
-
-const HOLD_DURATION = Duration.seconds(25);
-const utf8Encoder = new TextEncoder();
+import type { PollWaiters } from "./poll-waiters.js";
 
 type PollFailure = OverloadedError | InternalServerError;
 
@@ -28,11 +26,40 @@ interface VerifiedCaller {
 interface PollDependencies {
   readonly routerInstanceId: RouterInstanceId;
   readonly feed: RouterFeed;
-  readonly heldPolls: HeldPolls;
+  readonly pollWaiters: PollWaiters;
   readonly cursorCodec: PollCursorCodec;
   readonly pollMessageLimit: number;
   readonly pollResponseByteLimit: number;
 }
+
+/** Poll domain operation after HTTP authentication. */
+export interface RouterPoll {
+  readonly handle: (
+    request: RouterPollRequest,
+    verifiedRequest: VerifiedCaller,
+  ) => Effect.Effect<RouterPollResultValue, PollFailure>;
+}
+
+/**
+ * Builds endpoint-wide bounded polling over one volatile global feed.
+ *
+ * @param input Current process state and finite poll bounds.
+ * @param input.routerInstanceId Current volatile process identity.
+ * @param input.feed Global volatile feed.
+ * @param input.pollWaiters Addressed poll-waiter notifications.
+ * @param input.cursorCodec Caller-bound cursor codec.
+ * @param input.pollMessageLimit Maximum messages in one result.
+ * @param input.pollResponseByteLimit Maximum complete result bytes.
+ * @returns The authenticated poll domain operation.
+ */
+export const makeRouterPoll = (input: PollDependencies): RouterPoll =>
+  Object.freeze({
+    handle: (request: RouterPollRequest, verifiedRequest: VerifiedCaller) =>
+      handlePoll(input, request, verifiedRequest),
+  });
+
+const HOLD_DURATION = Duration.seconds(25);
+const utf8Encoder = new TextEncoder();
 
 interface ScanResult {
   readonly result: RouterPollResultValue;
@@ -168,7 +195,7 @@ const holdAtTail = (
   callerAgentId: AgentId,
   startOrder: bigint,
 ): Effect.Effect<void, OverloadedError> =>
-  input.heldPolls
+  input.pollWaiters
     .awaitSignal(
       callerAgentId,
       addressedDataIsReady(input.feed, callerAgentId, startOrder),
@@ -232,11 +259,11 @@ const continuePoll = (
     ),
   );
 
-const handlePoll = (
+function handlePoll(
   input: PollDependencies,
   request: RouterPollRequest,
   verifiedRequest: VerifiedCaller,
-): Effect.Effect<RouterPollResultValue, PollFailure> => {
+): Effect.Effect<RouterPollResultValue, PollFailure> {
   const callerAgentId = verifiedRequest.callerAgentId;
   if (request.pollCursor !== undefined) {
     return continuePoll(input, callerAgentId, request.pollCursor);
@@ -246,30 +273,4 @@ const handlePoll = (
       makeBatch(input, callerAgentId, [], snapshot.tailOrder),
     ),
   );
-};
-
-/** Poll domain operation after HTTP authentication. */
-export interface RouterPoll {
-  readonly handle: (
-    request: RouterPollRequest,
-    verifiedRequest: VerifiedCaller,
-  ) => Effect.Effect<RouterPollResultValue, PollFailure>;
 }
-
-/**
- * Builds endpoint-wide bounded polling over one volatile global feed.
- *
- * @param input Current process state and finite poll bounds.
- * @param input.routerInstanceId Current volatile process identity.
- * @param input.feed Global volatile feed.
- * @param input.heldPolls Addressed held-poll notifications.
- * @param input.cursorCodec Caller-bound cursor codec.
- * @param input.pollMessageLimit Maximum messages in one result.
- * @param input.pollResponseByteLimit Maximum complete result bytes.
- * @returns The authenticated poll domain operation.
- */
-export const makeRouterPoll = (input: PollDependencies): RouterPoll =>
-  Object.freeze({
-    handle: (request: RouterPollRequest, verifiedRequest: VerifiedCaller) =>
-      handlePoll(input, request, verifiedRequest),
-  });

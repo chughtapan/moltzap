@@ -21,13 +21,8 @@
   "folderChildCountOverrides": [
     {
       "folder": ".",
-      "maxChildren": 14,
-      "reason": "The package root intentionally keeps the public identity artifact and capability vocabulary flat while organization remains human-gated"
-    },
-    {
-      "folder": "registry",
-      "maxChildren": 11,
-      "reason": "The complete Registry process slice is intentionally flat while its final folder organization remains under human review"
+      "maxChildren": 12,
+      "reason": "The identity root keeps its closed identifier, key, signed-artifact, request-authentication, and Registry capability boundaries as peer deep modules"
     }
   ],
   "facadeFiles": [
@@ -40,10 +35,6 @@
       "reason": "Standards adapter boundary for the closed MoltZap HTTP signature profiles"
     },
     {
-      "file": "registered-agent-request.ts",
-      "reason": "Opaque proof boundary produced only by registered-agent authentication"
-    },
-    {
       "file": "registry.ts",
       "reason": "Public deep Registry capability and infrastructure-failure boundary"
     },
@@ -52,8 +43,8 @@
       "reason": "Private HTTP adapter hidden behind the public Registry capability"
     },
     {
-      "file": "registry/operations.ts",
-      "reason": "Closed Registry request, result, representation, and private RPC contract"
+      "file": "registry/contract.ts",
+      "reason": "Closed Registry request, result, operation value, representation, route, and client-failure contract"
     },
     {
       "file": "registry/rpc.ts",

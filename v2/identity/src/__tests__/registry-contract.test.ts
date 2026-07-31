@@ -11,29 +11,26 @@ import {
   PrincipalId,
   Registry,
   RegistryRegisterRequest,
-} from "./index.js";
-import { issueAgentCard } from "./agent-card.js";
-import { UnavailableError } from "./http-errors.js";
-import { encodeCanonicalJson } from "./identity-json.js";
-import { AgentCardIssuedAt } from "./identity-values.js";
-import { loadRegistryConfiguration } from "./registry/configuration.js";
+} from "../index.js";
+import { AgentCardIssuedAt, issueAgentCard } from "../agent-card.js";
+import { encodeCanonicalJson } from "../canonical-json.js";
+import { UnavailableError } from "../http-errors.js";
+import { loadRegistryConfiguration } from "../registry/configuration.js";
 import {
   lookupResponseSchema,
   registerResponseSchema,
-} from "./registry/operations.js";
+} from "../registry/contract.js";
 import {
   makeRegistryRpcClient,
   makeRegistryRpcHandlersLayer,
-} from "./registry/rpc.js";
-import {
   registryAdmissionLayer,
   withBootstrapAdmission,
-} from "./registry/request-context.js";
+} from "../registry/rpc.js";
 import {
   layer as registryServerLayer,
   StartupError,
-} from "./registry/server.js";
-import type { RegistryStorage } from "./registry/storage.js";
+} from "../registry/server.js";
+import type { RegistryStorage } from "../registry/storage.js";
 import { generateKeyPairSync } from "node:crypto";
 import {
   ConfigProvider,

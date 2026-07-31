@@ -1,12 +1,7 @@
-import {
-  AgentCardDigest,
-  AgentCardIssuedAt,
-  AgentId,
-  AgentName,
-  MessageId,
-  OperationId,
-  PrincipalId,
-} from "./identity-values.js";
+import { AgentCardDigest, AgentCardIssuedAt } from "../agent-card.js";
+import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
+import { MessageId } from "../signed-message.js";
+import { OperationId } from "../registry/contract.js";
 import { Either, Schema } from "effect";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";

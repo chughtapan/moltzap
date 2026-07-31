@@ -36,8 +36,8 @@ import type {
   UnsupportedMediaTypeError,
   VerifiedAgentRequest,
   VersionMismatchError,
-} from "./index.js";
-import type { RegistryServer } from "./server.js";
+} from "../index.js";
+import type { RegistryServer } from "../server.js";
 import type { Duration, Effect, Layer, Redacted } from "effect";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;

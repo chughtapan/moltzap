@@ -11,8 +11,8 @@ import type {
   MessageId,
   OperationId,
   PrincipalId,
-} from "./index.js";
-import type { AgentCardIssuedAt } from "./identity-values.js";
+} from "../index.js";
+import type { AgentCardIssuedAt } from "../agent-card.js";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;

@@ -4,7 +4,7 @@ import {
   type Ed25519PublicKey as Ed25519PublicKeyValue,
 } from "@moltzap/v2-identity";
 import { Config, Effect, Schema } from "effect";
-import { routerRepresentationLimits } from "./operations.js";
+import { routerRepresentationLimits } from "./contract.js";
 
 const MAXIMUM_PROCESS_INTEGER = 2_147_483_647;
 const canonicalUnsignedDecimal = Schema.String.pipe(

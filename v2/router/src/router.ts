@@ -1,17 +1,14 @@
 import type { HttpClient } from "@effect/platform";
 import type { AgentId, AgentSigningAuthority } from "@moltzap/v2-identity";
 import { Context, type Duration, Effect, Layer } from "effect";
-import {
-  makeRouterClient,
-  type RouterClientError,
-  type RouterClientService,
-} from "./router/client.js";
+import { makeRouterClient, type RouterClientService } from "./router/client.js";
 import type {
+  RouterClientError,
   RouterPollRequest,
   RouterPollResult,
   RouterSendRequest,
   RouterSendResult,
-} from "./router/operations.js";
+} from "./router/contract.js";
 
 /** Opaque message acceptance and endpoint-wide bounded polling. */
 export class Router extends Context.Tag("@moltzap/v2-router/Router")<

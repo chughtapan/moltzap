@@ -2,7 +2,7 @@ import {
   AgentSigningAuthority,
   InvalidAgentPrivateKeyError,
   agentSigningPrivateKey,
-} from "./agent-signing-authority.js";
+} from "../agent-key.js";
 import { createPrivateKey, createPublicKey, type KeyObject } from "node:crypto";
 import { Effect, Redacted } from "effect";
 import * as fc from "fast-check";

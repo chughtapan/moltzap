@@ -16,32 +16,27 @@ import { Effect, Either, Encoding, Fiber, Schema } from "effect";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
+  maximumPollCursorLength,
+  pollCursorEncodedLength,
+  PollCursor,
+  routerRepresentationLimits,
+  RouterInstanceId,
+  RouterPollResult,
+  RouterSendRequest,
+  SignedMessageDigest,
+  type RouterInstanceId as RouterInstanceIdValue,
+} from "../contract.js";
+import {
   entriesAfter,
   makeRouterFeed,
   makeRouterFeedAtOrder,
-  type RouterFeed,
-} from "./feed.js";
-import { makeHeldPolls, type HeldPolls } from "./held-polls.js";
-import { routerHealthResponse } from "./http.js";
-import {
-  routerRepresentationLimits,
-  RouterPollResult,
-  RouterSendRequest,
-} from "./operations.js";
-import {
-  generatePollCursorKey,
-  makePollCursorCodec,
   maximumPrivateOrder,
-  pollCursorEncodedLength,
-} from "./poll-cursor.js";
-import { makeRouterPoll } from "./poll.js";
-import {
-  maximumPollCursorLength,
-  PollCursor,
-  RouterInstanceId,
-  SignedMessageDigest,
-  type RouterInstanceId as RouterInstanceIdValue,
-} from "./values.js";
+  type RouterFeed,
+} from "../feed.js";
+import { routerHealthResponse } from "../http.js";
+import { generatePollCursorKey, makePollCursorCodec } from "../poll-cursor.js";
+import { makeRouterPoll } from "../poll.js";
+import { makePollWaiters, type PollWaiters } from "../poll-waiters.js";
 
 const utf8Encoder = new TextEncoder();
 const structurallyValidSignature =
@@ -508,7 +503,7 @@ describe("global feed behavior", () => {
         const poll = makeRouterPoll({
           routerInstanceId,
           feed,
-          heldPolls: yield* makeHeldPolls(1),
+          pollWaiters: yield* makePollWaiters(1),
           cursorCodec,
           pollMessageLimit: 2,
           pollResponseByteLimit: 1_048_576,
@@ -635,7 +630,7 @@ describe("poll behavior", () => {
           retainedMessageCapacity: 8,
           retainedMessageByteCapacity: 2_000_000,
         });
-        const heldPolls = yield* makeHeldPolls(4);
+        const pollWaiters = yield* makePollWaiters(4);
         const cursorCodec = makePollCursorCodec({
           key: generatePollCursorKey(),
           routerInstanceId,
@@ -643,7 +638,7 @@ describe("poll behavior", () => {
         const poll = makeRouterPoll({
           routerInstanceId,
           feed,
-          heldPolls,
+          pollWaiters,
           cursorCodec,
           pollMessageLimit: 8,
           pollResponseByteLimit: 1_048_576,
@@ -694,7 +689,7 @@ describe("poll behavior", () => {
         retainedMessageCapacity: 1,
         retainedMessageByteCapacity: 2_000_000,
       });
-      const heldPolls = yield* makeHeldPolls(4);
+      const pollWaiters = yield* makePollWaiters(4);
       const cursorCodec = makePollCursorCodec({
         key: generatePollCursorKey(),
         routerInstanceId,
@@ -702,7 +697,7 @@ describe("poll behavior", () => {
       const poll = makeRouterPoll({
         routerInstanceId,
         feed,
-        heldPolls,
+        pollWaiters,
         cursorCodec,
         pollMessageLimit: 8,
         pollResponseByteLimit: 1_048_576,
@@ -755,7 +750,7 @@ describe("poll behavior", () => {
         routerInstanceId,
       });
       let holdCount = 0;
-      const heldPolls: HeldPolls = {
+      const pollWaiters: PollWaiters = {
         awaitSignal: () =>
           Effect.gen(function* () {
             holdCount += 1;
@@ -775,7 +770,7 @@ describe("poll behavior", () => {
       const poll = makeRouterPoll({
         routerInstanceId,
         feed,
-        heldPolls,
+        pollWaiters,
         cursorCodec,
         pollMessageLimit: 8,
         pollResponseByteLimit: 1_048_576,
@@ -831,7 +826,7 @@ describe("poll behavior", () => {
         const poll = makeRouterPoll({
           routerInstanceId,
           feed,
-          heldPolls: yield* makeHeldPolls(4),
+          pollWaiters: yield* makePollWaiters(4),
           cursorCodec,
           pollMessageLimit: 1,
           pollResponseByteLimit: 1_048_576,
@@ -890,7 +885,7 @@ describe("poll behavior", () => {
       const poll = makeRouterPoll({
         routerInstanceId,
         feed,
-        heldPolls: yield* makeHeldPolls(4),
+        pollWaiters: yield* makePollWaiters(4),
         cursorCodec,
         pollMessageLimit: 8,
         pollResponseByteLimit: 1_048_576,
@@ -933,38 +928,38 @@ describe("held poll behavior", () => {
     "enforces one waiter per agent and cleans up interruption",
     () =>
       Effect.gen(function* () {
-        const heldPolls = yield* makeHeldPolls(2);
+        const pollWaiters = yield* makePollWaiters(2);
         const waiter = yield* Effect.fork(
-          heldPolls.awaitSignal(firstRecipient, Effect.succeed(false)),
+          pollWaiters.awaitSignal(firstRecipient, Effect.succeed(false)),
         );
         yield* Effect.yieldNow();
-        expect(yield* heldPolls.activeCount).toBe(1);
+        expect(yield* pollWaiters.activeCount).toBe(1);
         expect(
           yield* effectFails(
-            heldPolls.awaitSignal(firstRecipient, Effect.succeed(false)),
+            pollWaiters.awaitSignal(firstRecipient, Effect.succeed(false)),
           ),
         ).toBe(true);
         yield* Fiber.interrupt(waiter);
-        expect(yield* heldPolls.activeCount).toBe(0);
+        expect(yield* pollWaiters.activeCount).toBe(0);
       }),
   );
 
   effectIt.effect("wakes only addressed waiters and releases their slots", () =>
     Effect.gen(function* () {
-      const heldPolls = yield* makeHeldPolls(2);
+      const pollWaiters = yield* makePollWaiters(2);
       const first = yield* Effect.fork(
-        heldPolls.awaitSignal(firstRecipient, Effect.succeed(false)),
+        pollWaiters.awaitSignal(firstRecipient, Effect.succeed(false)),
       );
       const second = yield* Effect.fork(
-        heldPolls.awaitSignal(secondRecipient, Effect.succeed(false)),
+        pollWaiters.awaitSignal(secondRecipient, Effect.succeed(false)),
       );
       yield* Effect.yieldNow();
-      expect(yield* heldPolls.activeCount).toBe(2);
-      yield* heldPolls.notify(new Set([firstRecipient]));
+      expect(yield* pollWaiters.activeCount).toBe(2);
+      yield* pollWaiters.notify(new Set([firstRecipient]));
       yield* Fiber.join(first);
-      expect(yield* heldPolls.activeCount).toBe(1);
+      expect(yield* pollWaiters.activeCount).toBe(1);
       yield* Fiber.interrupt(second);
-      expect(yield* heldPolls.activeCount).toBe(0);
+      expect(yield* pollWaiters.activeCount).toBe(0);
     }),
   );
 });

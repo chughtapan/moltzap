@@ -5,14 +5,17 @@ import { PgClient } from "@effect/sql-pg";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- NodeHttpServer.make requires the platform listener constructor at this adapter boundary.
 import { createServer } from "node:http";
 import { Cause, Data, Duration, Effect, Layer, Redacted } from "effect";
-import { AgentSigningAuthority } from "../agent-signing-authority.js";
+import { AgentSigningAuthority } from "../agent-key.js";
 import {
   loadRegistryConfiguration,
   type RegistryConfiguration,
 } from "./configuration.js";
 import { makeRegistryHttpApp } from "./http.js";
-import { makeRegistryRpcClient, makeRegistryRpcHandlersLayer } from "./rpc.js";
-import { registryAdmissionLayer } from "./request-context.js";
+import {
+  makeRegistryRpcClient,
+  makeRegistryRpcHandlersLayer,
+  registryAdmissionLayer,
+} from "./rpc.js";
 import {
   initializeRegistryStorage,
   makeRegistryStorage,
@@ -26,12 +29,46 @@ export class StartupError extends Data.TaggedError(
   readonly phase: "configuration" | "storage" | "listener";
 }> {}
 
-const configurationFailure = () => new StartupError({ phase: "configuration" });
-const storageFailure = () => new StartupError({ phase: "storage" });
-const listenerFailure = () => new StartupError({ phase: "listener" });
+const runRegistryServer = Effect.gen(function* () {
+  const configuration = yield* loadRegistryConfiguration.pipe(
+    Effect.mapError(configurationFailure),
+  );
+  const registrySigningAuthority = yield* loadSigningAuthority(configuration);
+  const registrySignerPublicKey = AgentSigningAuthority.publicKey(
+    registrySigningAuthority,
+  );
+  const storage = yield* connectStorage(configuration, registrySignerPublicKey);
+  const app = yield* buildRegistryApp({
+    configuration,
+    storage,
+    registrySigningAuthority,
+  });
+  yield* serveRegistry(configuration, guardRegistryApp(app));
+});
 
-const loadSigningAuthority = (configuration: RegistryConfiguration) =>
-  Effect.gen(function* () {
+/**
+ * Complete production Registry process composition.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   Binary["moltzap-registry"] --> Process["runRegistryProcess"]
+ *   Process --> Server["runRegistryServer"]
+ *   Server --> Configuration["loadRegistryConfiguration"]
+ *   Server --> Storage["RegistryStorage"]
+ *   Server --> Http["makeRegistryHttpApp"]
+ *   Http --> Admission["verifyBootstrapRegistration"]
+ *   Http --> Rpc["RegistryRpcClient"]
+ *   Admission --> Storage
+ *   Rpc --> Storage
+ *   Http --> Response["HttpServerResponse"]
+ * ```
+ */
+export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
+  runRegistryServer.pipe(Effect.provide(NodeContext.layer)),
+);
+
+function loadSigningAuthority(configuration: RegistryConfiguration) {
+  return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const privateKeyText = yield* fileSystem
       .readFileString(Redacted.value(configuration.signingPrivateKeyPath))
@@ -40,12 +77,13 @@ const loadSigningAuthority = (configuration: RegistryConfiguration) =>
       Redacted.make(privateKeyText),
     ).pipe(Effect.mapError(configurationFailure));
   });
+}
 
-const connectStorage = (
+function connectStorage(
   configuration: RegistryConfiguration,
   registrySignerPublicKey: ReturnType<typeof AgentSigningAuthority.publicKey>,
-) =>
-  Effect.gen(function* () {
+) {
+  return Effect.gen(function* () {
     const sql = yield* PgClient.make({
       url: configuration.postgresqlUrl,
       maxConnections: configuration.sqlPoolSize,
@@ -69,13 +107,14 @@ const connectStorage = (
       operationTimeoutMilliseconds: configuration.sqlOperationTimeoutMs,
     });
   });
+}
 
-const buildRegistryApp = (input: {
+function buildRegistryApp(input: {
   readonly configuration: RegistryConfiguration;
   readonly storage: RegistryStorage;
   readonly registrySigningAuthority: AgentSigningAuthority;
-}) =>
-  Effect.gen(function* () {
+}) {
+  return Effect.gen(function* () {
     const handlers = makeRegistryRpcHandlersLayer({
       storage: input.storage,
       registrySigningAuthority: input.registrySigningAuthority,
@@ -95,9 +134,10 @@ const buildRegistryApp = (input: {
       requestSemaphore,
     });
   });
+}
 
-const guardRegistryApp = (app: ReturnType<typeof makeRegistryHttpApp>) =>
-  app.pipe(
+function guardRegistryApp(app: ReturnType<typeof makeRegistryHttpApp>) {
+  return app.pipe(
     Effect.catchAllCause((cause) =>
       Effect.logError(
         "Registry HTTP application failed",
@@ -105,12 +145,13 @@ const guardRegistryApp = (app: ReturnType<typeof makeRegistryHttpApp>) =>
       ).pipe(Effect.as(HttpServerResponse.empty({ status: 500 }))),
     ),
   );
+}
 
-const serveRegistry = (
+function serveRegistry(
   configuration: RegistryConfiguration,
   app: ReturnType<typeof guardRegistryApp>,
-) =>
-  Effect.gen(function* () {
+) {
+  return Effect.gen(function* () {
     const httpServer = yield* NodeHttpServer.make(createServer, {
       host: configuration.host,
       port: configuration.port,
@@ -120,25 +161,16 @@ const serveRegistry = (
       Effect.provideService(HttpServer.HttpServer, httpServer),
     );
   });
+}
 
-const runRegistryServer = Effect.gen(function* () {
-  const configuration = yield* loadRegistryConfiguration.pipe(
-    Effect.mapError(configurationFailure),
-  );
-  const registrySigningAuthority = yield* loadSigningAuthority(configuration);
-  const registrySignerPublicKey = AgentSigningAuthority.publicKey(
-    registrySigningAuthority,
-  );
-  const storage = yield* connectStorage(configuration, registrySignerPublicKey);
-  const app = yield* buildRegistryApp({
-    configuration,
-    storage,
-    registrySigningAuthority,
-  });
-  yield* serveRegistry(configuration, guardRegistryApp(app));
-});
+function configurationFailure() {
+  return new StartupError({ phase: "configuration" });
+}
 
-/** Complete production Registry process composition. */
-export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
-  runRegistryServer.pipe(Effect.provide(NodeContext.layer)),
-);
+function storageFailure() {
+  return new StartupError({ phase: "storage" });
+}
+
+function listenerFailure() {
+  return new StartupError({ phase: "listener" });
+}

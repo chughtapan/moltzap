@@ -3,18 +3,9 @@ import {
   HttpClientRequest,
   type HttpClientResponse,
 } from "@effect/platform";
-import {
-  Data,
-  Duration,
-  Effect,
-  Either,
-  Encoding,
-  Redacted,
-  Schema,
-} from "effect";
+import { Duration, Effect, Either, Encoding, Redacted, Schema } from "effect";
 import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
-import { AgentSigningAuthority } from "../agent-signing-authority.js";
-import type { Ed25519PublicKey } from "../ed25519-public-key.js";
+import { AgentSigningAuthority, type Ed25519PublicKey } from "../agent-key.js";
 import {
   AuthenticationFailedError,
   InternalServerError,
@@ -28,53 +19,73 @@ import {
   VersionMismatchError,
   type HttpEnvelopeError,
 } from "../http-errors.js";
-import { signHttpRequest } from "../http-signature.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "../identity-json.js";
-import type { AgentId } from "../identity-values.js";
-import { AgentSigningError } from "../signing-errors.js";
+import { AgentSigningError, signHttpRequest } from "../http-signature.js";
+import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
+import type { AgentId } from "../identifiers.js";
 import { MOLTZAP_VERSION } from "../version.js";
 import {
+  LIST_PATH,
   listResponseSchema,
+  LOOKUP_PATH,
   lookupResponseSchema,
+  registrationBody,
+  REGISTER_PATH,
+  RegistryConnectionError,
+  RegistryInvalidResponseError,
   RegistryListRequest,
   type RegistryListResult,
   RegistryLookupRequest,
   type RegistryLookupResult,
-  RegistryRegisterRequest,
   type RegistryRegisterResult,
+  RegistryRequestTimeoutError,
   registerResponseSchema,
-} from "./operations.js";
+  type RegistryClientService,
+  type RegistryPublicReadError,
+  type RegistryRegisterCall,
+} from "./contract.js";
 
-const REGISTER_PATH = "/v1/identities:register";
-const LOOKUP_PATH = "/v1/identities:lookup";
-const LIST_PATH = "/v1/identities:list";
-
-/** The Registry connection could not be established or used. */
-export class RegistryConnectionError extends Data.TaggedError(
-  "RegistryConnectionError",
-) {}
-
-/** The configured complete Registry call deadline expired. */
-export class RegistryRequestTimeoutError extends Data.TaggedError(
-  "RegistryRequestTimeoutError",
-) {}
-
-/** A Registry response did not match the selected operation contract. */
-export class RegistryInvalidResponseError extends Data.TaggedError(
-  "RegistryInvalidResponseError",
-) {}
-
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({
-    parseOptions: {
-      exact: true,
-      onExcessProperty: "error",
-    },
-  });
-
-const registrationBody = exactStruct({
-  request: RegistryRegisterRequest,
-});
+/**
+ * Builds the service installed behind the public Registry capability.
+ *
+ * @param input Immutable Registry client configuration.
+ * @param input.origin Registry HTTP origin.
+ * @param input.registrySignerPublicKey Pinned Registry verification key.
+ * @param input.requestTimeout Complete per-call deadline.
+ * @returns The configured service, requiring an Effect HTTP client.
+ */
+export function makeRegistryService(input: {
+  readonly origin: URL;
+  readonly registrySignerPublicKey: Ed25519PublicKey;
+  readonly requestTimeout: Duration.Duration;
+}): Effect.Effect<RegistryClientService, never, HttpClient.HttpClient> {
+  const origin = new URL(input.origin.href);
+  const requestTimeout = Duration.millis(
+    Duration.toMillis(input.requestTimeout),
+  );
+  return Effect.map(
+    HttpClient.HttpClient,
+    (client): RegistryClientService => ({
+      register: makeRegister({
+        client,
+        origin,
+        registrySignerPublicKey: input.registrySignerPublicKey,
+        requestTimeout,
+      }),
+      lookup: makeLookup({
+        client,
+        origin,
+        registrySignerPublicKey: input.registrySignerPublicKey,
+        requestTimeout,
+      }),
+      list: makeList({
+        client,
+        origin,
+        registrySignerPublicKey: input.registrySignerPublicKey,
+        requestTimeout,
+      }),
+    }),
+  );
+}
 
 type ErrorEnvelope = Readonly<{
   body: string;
@@ -154,47 +165,12 @@ const exactText = (bytes: Uint8Array): string | undefined => {
 };
 
 type ClientOperation = "register" | "lookup" | "list";
-type PublicReadEnvelopeError = Exclude<
-  HttpEnvelopeError,
-  { readonly _tag: "AuthenticationFailedError" }
->;
 type RegistryClientInput = Readonly<{
   client: HttpClient.HttpClient;
   origin: URL;
   registrySignerPublicKey: Ed25519PublicKey;
   requestTimeout: Duration.Duration;
 }>;
-type RegisterCall = Readonly<{
-  request: typeof RegistryRegisterRequest.Type;
-  admissionCredential: Redacted.Redacted;
-  signingAuthority: AgentSigningAuthority;
-}>;
-type RegistryClientError =
-  | RegistryConnectionError
-  | RegistryRequestTimeoutError
-  | RegistryInvalidResponseError;
-
-/** Structural service installed behind the public Registry capability. */
-export interface RegistryClientService {
-  readonly register: (
-    input: RegisterCall,
-  ) => Effect.Effect<
-    RegistryRegisterResult,
-    HttpEnvelopeError | RegistryClientError | AgentSigningError
-  >;
-  readonly lookup: (
-    request: typeof RegistryLookupRequest.Type,
-  ) => Effect.Effect<
-    RegistryLookupResult,
-    PublicReadEnvelopeError | RegistryClientError
-  >;
-  readonly list: (
-    request: typeof RegistryListRequest.Type,
-  ) => Effect.Effect<
-    RegistryListResult,
-    PublicReadEnvelopeError | RegistryClientError
-  >;
-}
 
 const operationDeclares = (
   operation: ClientOperation,
@@ -334,7 +310,7 @@ const makePost = (
 
 const makeSignedRegistrationRequest = (
   input: RegistryClientInput,
-  call: RegisterCall,
+  call: RegistryRegisterCall,
 ) =>
   Effect.gen(function* () {
     if (
@@ -362,7 +338,7 @@ const makeSignedRegistrationRequest = (
 
 const registrationMatchesCall = (
   agentCard: VerifiedAgentCard,
-  call: RegisterCall,
+  call: RegistryRegisterCall,
 ): boolean =>
   agentCard.principalId === call.request.principalId &&
   agentCard.agentName === call.request.agentName &&
@@ -370,7 +346,7 @@ const registrationMatchesCall = (
 
 const decodeRegistrationResult = (
   input: RegistryClientInput,
-  call: RegisterCall,
+  call: RegistryRegisterCall,
   responseBytes: Uint8Array,
 ): Effect.Effect<RegistryRegisterResult, RegistryInvalidResponseError> =>
   Effect.gen(function* () {
@@ -391,18 +367,19 @@ const decodeRegistrationResult = (
     return Object.freeze({ kind: "registered", agentCard });
   });
 
-const makeRegister =
-  (input: RegistryClientInput) =>
-  (
-    call: RegisterCall,
-  ): Effect.Effect<
-    RegistryRegisterResult,
-    | HttpEnvelopeError
-    | RegistryConnectionError
-    | RegistryRequestTimeoutError
-    | RegistryInvalidResponseError
-    | AgentSigningError
-  > =>
+function makeRegister(
+  input: RegistryClientInput,
+): (
+  call: RegistryRegisterCall,
+) => Effect.Effect<
+  RegistryRegisterResult,
+  | HttpEnvelopeError
+  | RegistryConnectionError
+  | RegistryRequestTimeoutError
+  | RegistryInvalidResponseError
+  | AgentSigningError
+> {
+  return (call) =>
     Effect.gen(function* () {
       const request = yield* makeSignedRegistrationRequest(input, call);
       const [response, responseBytes] = yield* execute({
@@ -413,18 +390,20 @@ const makeRegister =
       yield* requireJsonSuccess(response);
       return yield* decodeRegistrationResult(input, call, responseBytes);
     }).pipe((effect) => withDeadline(effect, input.requestTimeout));
+}
 
-const makeLookup =
-  (input: RegistryClientInput) =>
-  (
-    call: typeof RegistryLookupRequest.Type,
-  ): Effect.Effect<
-    RegistryLookupResult,
-    | PublicReadEnvelopeError
-    | RegistryConnectionError
-    | RegistryRequestTimeoutError
-    | RegistryInvalidResponseError
-  > =>
+function makeLookup(
+  input: RegistryClientInput,
+): (
+  call: typeof RegistryLookupRequest.Type,
+) => Effect.Effect<
+  RegistryLookupResult,
+  | RegistryPublicReadError
+  | RegistryConnectionError
+  | RegistryRequestTimeoutError
+  | RegistryInvalidResponseError
+> {
+  return (call) =>
     Effect.gen(function* () {
       const bodyBytes = yield* encodeRequest(RegistryLookupRequest, call);
       const [response, responseBytes] = yield* executePublicRead({
@@ -452,18 +431,20 @@ const makeLookup =
       }
       return Object.freeze({ kind: "found", agentCard });
     }).pipe((effect) => withDeadline(effect, input.requestTimeout));
+}
 
-const makeList =
-  (input: RegistryClientInput) =>
-  (
-    call: typeof RegistryListRequest.Type,
-  ): Effect.Effect<
-    RegistryListResult,
-    | PublicReadEnvelopeError
-    | RegistryConnectionError
-    | RegistryRequestTimeoutError
-    | RegistryInvalidResponseError
-  > =>
+function makeList(
+  input: RegistryClientInput,
+): (
+  call: typeof RegistryListRequest.Type,
+) => Effect.Effect<
+  RegistryListResult,
+  | RegistryPublicReadError
+  | RegistryConnectionError
+  | RegistryRequestTimeoutError
+  | RegistryInvalidResponseError
+> {
+  return (call) =>
     Effect.gen(function* () {
       const bodyBytes = yield* encodeRequest(RegistryListRequest, call);
       const [response, responseBytes] = yield* executePublicRead({
@@ -497,46 +478,4 @@ const makeList =
         hasMore: result.hasMore,
       });
     }).pipe((effect) => withDeadline(effect, input.requestTimeout));
-
-/**
- * Builds the service installed behind the public Registry capability.
- *
- * @param input Immutable Registry client configuration.
- * @param input.origin Registry HTTP origin.
- * @param input.registrySignerPublicKey Pinned Registry verification key.
- * @param input.requestTimeout Complete per-call deadline.
- * @returns The configured service, requiring an Effect HTTP client.
- */
-export const makeRegistryService = (input: {
-  readonly origin: URL;
-  readonly registrySignerPublicKey: Ed25519PublicKey;
-  readonly requestTimeout: Duration.Duration;
-}): Effect.Effect<RegistryClientService, never, HttpClient.HttpClient> => {
-  const origin = new URL(input.origin.href);
-  const requestTimeout = Duration.millis(
-    Duration.toMillis(input.requestTimeout),
-  );
-  return Effect.map(
-    HttpClient.HttpClient,
-    (client): RegistryClientService => ({
-      register: makeRegister({
-        client,
-        origin,
-        registrySignerPublicKey: input.registrySignerPublicKey,
-        requestTimeout,
-      }),
-      lookup: makeLookup({
-        client,
-        origin,
-        registrySignerPublicKey: input.registrySignerPublicKey,
-        requestTimeout,
-      }),
-      list: makeList({
-        client,
-        origin,
-        registrySignerPublicKey: input.registrySignerPublicKey,
-        requestTimeout,
-      }),
-    }),
-  );
-};
+}

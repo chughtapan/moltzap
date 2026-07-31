@@ -1,11 +1,8 @@
 import type { AgentId } from "@moltzap/v2-identity";
 import { Data, Deferred, Effect, Ref } from "effect";
 
-/** No held-poll slot is immediately available. */
-class HeldPollCapacityError extends Data.TaggedError("HeldPollCapacityError") {}
-
 /** Bounded addressed-notification capability. */
-export interface HeldPolls {
+export interface PollWaiters {
   readonly awaitSignal: (
     agentId: AgentId,
     addressedDataIsReady: Effect.Effect<boolean>,
@@ -13,6 +10,31 @@ export interface HeldPolls {
   readonly notify: (recipients: ReadonlySet<AgentId>) => Effect.Effect<void>;
   readonly activeCount: Effect.Effect<number>;
 }
+
+/**
+ * Creates request-scoped poll waiters with global and per-agent bounds.
+ *
+ * @param capacity Maximum simultaneous poll waiters.
+ * @returns The bounded waiter capability.
+ */
+export const makePollWaiters = (capacity: number): Effect.Effect<PollWaiters> =>
+  Effect.gen(function* () {
+    const waiters = yield* Ref.make<Waiters>(new Map());
+    const service: PollWaiters = {
+      awaitSignal: (
+        agentId: AgentId,
+        addressedDataIsReady: Effect.Effect<boolean>,
+      ) =>
+        awaitRegisteredWaiter(waiters, capacity, agentId, addressedDataIsReady),
+      notify: (recipients: ReadonlySet<AgentId>) =>
+        notifyWaiters(waiters, recipients),
+      activeCount: Ref.get(waiters).pipe(Effect.map((current) => current.size)),
+    };
+    return Object.freeze(service);
+  }).pipe(Effect.withSpan("makePollWaiters"));
+
+/** No poll-waiter slot is immediately available. */
+class HeldPollCapacityError extends Data.TaggedError("HeldPollCapacityError") {}
 
 type Waiter = Deferred.Deferred<undefined>;
 type Waiters = ReadonlyMap<AgentId, Waiter>;
@@ -63,13 +85,13 @@ const detachWaiters = (
     return [found, next];
   });
 
-const awaitRegisteredWaiter = (
+function awaitRegisteredWaiter(
   waiters: Ref.Ref<Waiters>,
   capacity: number,
   agentId: AgentId,
   addressedDataIsReady: Effect.Effect<boolean>,
-): Effect.Effect<void, HeldPollCapacityError> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, HeldPollCapacityError> {
+  return Effect.gen(function* () {
     const deferred = yield* Deferred.make<undefined>();
     const registered = yield* registerWaiter(
       waiters,
@@ -87,12 +109,13 @@ const awaitRegisteredWaiter = (
       yield* Deferred.await(deferred);
     }).pipe(Effect.ensuring(removeWaiter(waiters, agentId, deferred)));
   });
+}
 
-const notifyWaiters = (
+function notifyWaiters(
   waiters: Ref.Ref<Waiters>,
   recipients: ReadonlySet<AgentId>,
-): Effect.Effect<void> =>
-  detachWaiters(waiters, recipients).pipe(
+): Effect.Effect<void> {
+  return detachWaiters(waiters, recipients).pipe(
     Effect.flatMap((detached) =>
       Effect.forEach(
         detached,
@@ -101,25 +124,4 @@ const notifyWaiters = (
       ),
     ),
   );
-
-/**
- * Creates request-scoped held polls with global and per-agent bounds.
- *
- * @param capacity Maximum simultaneous held polls.
- * @returns The bounded waiter capability.
- */
-export const makeHeldPolls = (capacity: number): Effect.Effect<HeldPolls> =>
-  Effect.gen(function* () {
-    const waiters = yield* Ref.make<Waiters>(new Map());
-    const service: HeldPolls = {
-      awaitSignal: (
-        agentId: AgentId,
-        addressedDataIsReady: Effect.Effect<boolean>,
-      ) =>
-        awaitRegisteredWaiter(waiters, capacity, agentId, addressedDataIsReady),
-      notify: (recipients: ReadonlySet<AgentId>) =>
-        notifyWaiters(waiters, recipients),
-      activeCount: Ref.get(waiters).pipe(Effect.map((current) => current.size)),
-    };
-    return Object.freeze(service);
-  }).pipe(Effect.withSpan("makeHeldPolls"));
+}

@@ -20,47 +20,43 @@
 export { MOLTZAP_VERSION } from "./version.js";
 
 /** Canonical refined values shared by identity and its consumers. */
-export {
-  AgentCardDigest,
-  AgentId,
-  AgentName,
-  MessageId,
-  OperationId,
-  PrincipalId,
-} from "./identity-values.js";
+export { AgentId, AgentName, PrincipalId } from "./identifiers.js";
 /** Exact immutable public-key representation used by identity artifacts. */
-export { Ed25519PublicKey } from "./ed25519-public-key.js";
-/** Opaque private-key authority and its redacted import failure. */
 export {
   AgentSigningAuthority,
+  Ed25519PublicKey,
   InvalidAgentPrivateKeyError,
-} from "./agent-signing-authority.js";
+} from "./agent-key.js";
 /** Immutable Registry attestation and its pinned verification boundary. */
 export {
   AgentCard,
+  AgentCardDigest,
   AgentCardVerificationError,
   type VerifiedAgentCard,
 } from "./agent-card.js";
 /** Opaque attributed payload and endpoint-owned signing operations. */
 export {
+  MessageId,
   SignedMessage,
   SignedMessageSigningError,
   SignedMessageVerificationError,
   type VerifiedSignedMessage,
 } from "./signed-message.js";
 /** Registered-agent HTTP authentication and its opaque verified proof. */
-export { AuthenticatedHttp } from "./authenticated-http.js";
-/** Opaque proof produced only after registered-agent authentication. */
-export type { VerifiedAgentRequest } from "./registered-agent-request.js";
+export {
+  AuthenticatedHttp,
+  type VerifiedAgentRequest,
+} from "./authenticated-http.js";
 /** Closed Registry request Schemas and verified capability result types. */
 export {
+  OperationId,
   RegistryListRequest,
   RegistryLookupRequest,
   RegistryRegisterRequest,
   type RegistryListResult,
   type RegistryLookupResult,
   type RegistryRegisterResult,
-} from "./registry/operations.js";
+} from "./registry/contract.js";
 /** Registry client capability and closed infrastructure failures. */
 export {
   Registry,
@@ -82,4 +78,4 @@ export {
   VersionMismatchError,
 } from "./http-errors.js";
 /** HTTP request signing failure without implementation detail. */
-export { AgentSigningError } from "./signing-errors.js";
+export { AgentSigningError } from "./http-signature.js";

@@ -11,9 +11,9 @@ import {
   RegistryRegisterRequest,
   type RegistryListRequest,
   type VerifiedAgentCard,
-} from "./index.js";
-import { contentDigest } from "./http-signature.js";
-import { encodeCanonicalJson } from "./identity-json.js";
+} from "../index.js";
+import { encodeCanonicalJson } from "../canonical-json.js";
+import { contentDigest } from "../http-signature.js";
 import {
   LOOPBACK_HOST,
   PGLITE_BINARY,
@@ -44,7 +44,7 @@ import {
   type RegisteredAgent,
   type RegistryRunner,
   type RunningProcess,
-} from "./__tests__/registry-process.js";
+} from "./registry-process.js";
 import { join } from "node:path";
 import { Duration, Effect, Redacted, Ref, Schema } from "effect";
 import { expect, it } from "vitest";

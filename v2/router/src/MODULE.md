@@ -12,7 +12,7 @@ belong to endpoint protocol code.
 
 ## Public surface
 
-### [`PollCursor`](./router/values.ts#L144)
+### [`PollCursor (type)`](./router/contract.ts#L96)
 
 _TypeAlias_
 
@@ -22,7 +22,7 @@ export type PollCursor = typeof PollCursor.Type;
 
 Validated opaque Router poll continuation.
 
-### [`PollCursor`](./router/values.ts#L132)
+### [`PollCursor (value)`](./router/contract.ts#L84)
 
 _Variable_
 
@@ -42,7 +42,7 @@ export const PollCursor = Schema.String.pipe(
 
 Opaque, authenticated continuation for one caller and Router instance.
 
-### [`Router`](./router.ts#L17)
+### [`Router`](./router.ts#L14)
 
 _Class_
 
@@ -76,7 +76,7 @@ export class Router extends Context.Tag("@moltzap/v2-router/Router")<
 
 Opaque message acceptance and endpoint-wide bounded polling.
 
-### [`RouterConnectionError`](./router/errors.ts#L4)
+### [`RouterConnectionError`](./router/contract.ts#L272)
 
 _Class_
 
@@ -88,7 +88,7 @@ export class RouterConnectionError extends Data.TaggedError(
 
 The Router connection could not be established or used.
 
-### [`RouterInstanceId`](./router/values.ts#L120)
+### [`RouterInstanceId (type)`](./router/contract.ts#L72)
 
 _TypeAlias_
 
@@ -98,7 +98,7 @@ export type RouterInstanceId = typeof RouterInstanceId.Type;
 
 Validated Router process identity.
 
-### [`RouterInstanceId`](./router/values.ts#L114)
+### [`RouterInstanceId (value)`](./router/contract.ts#L66)
 
 _Variable_
 
@@ -112,7 +112,7 @@ export const RouterInstanceId = canonicalValue(
 
 Identifies one volatile Router process instance.
 
-### [`RouterInvalidResponseError`](./router/errors.ts#L14)
+### [`RouterInvalidResponseError`](./router/contract.ts#L282)
 
 _Class_
 
@@ -124,7 +124,7 @@ export class RouterInvalidResponseError extends Data.TaggedError(
 
 A Router response did not match the selected operation contract.
 
-### [`RouterPollRequest`](./router/operations.ts#L242)
+### [`RouterPollRequest (type)`](./router/contract.ts#L204)
 
 _Interface_
 
@@ -136,7 +136,7 @@ export interface RouterPollRequest {
 
 One authenticated endpoint-wide poll request.
 
-### [`RouterPollRequest`](./router/operations.ts#L251)
+### [`RouterPollRequest (value)`](./router/contract.ts#L213)
 
 _Variable_
 
@@ -151,7 +151,7 @@ export const RouterPollRequest: Schema.Schema<
 
 Exact Schema for one endpoint-wide poll request.
 
-### [`RouterPollResult`](./router/operations.ts#L273)
+### [`RouterPollResult (type)`](./router/contract.ts#L235)
 
 _TypeAlias_
 
@@ -163,11 +163,16 @@ export type RouterPollResult =
       signedMessages: readonly SignedMessageValue[];
       pollCursor: PollCursor;
     }>
+  | Readonly<{
+      kind: "feed_gap";
+      routerInstanceId: RouterInstanceId;
+    }>
+  | Readonly<{ kind: "cursor_invalid" }>;
 ```
 
 Closed outcome of one endpoint-wide bounded poll.
 
-### [`RouterPollResult`](./router/operations.ts#L300)
+### [`RouterPollResult (value)`](./router/contract.ts#L262)
 
 _Variable_
 
@@ -182,7 +187,7 @@ export const RouterPollResult: Schema.Schema<
 
 Exact Schema for every closed poll outcome.
 
-### [`RouterRequestTimeoutError`](./router/errors.ts#L9)
+### [`RouterRequestTimeoutError`](./router/contract.ts#L277)
 
 _Class_
 
@@ -194,7 +199,7 @@ export class RouterRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Router call deadline expired.
 
-### [`RouterSendRequest`](./router/operations.ts#L145)
+### [`RouterSendRequest (type)`](./router/contract.ts#L99)
 
 _Interface_
 
@@ -208,7 +213,7 @@ export interface RouterSendRequest {
 
 One authenticated request to accept or recover an opaque message.
 
-### [`RouterSendRequest`](./router/operations.ts#L172)
+### [`RouterSendRequest (value)`](./router/contract.ts#L134)
 
 _Variable_
 
@@ -225,7 +230,7 @@ export const RouterSendRequest: Schema.Schema<
 
 Exact Schema for one send request.
 
-### [`RouterSendResult`](./router/operations.ts#L201)
+### [`RouterSendResult (type)`](./router/contract.ts#L163)
 
 _TypeAlias_
 
@@ -236,11 +241,18 @@ export type RouterSendResult =
       routerInstanceId: RouterInstanceId;
       signedMessageDigest: SignedMessageDigest;
     }>
+  | Readonly<{
+      kind: "router_restarted";
+      routerInstanceId: RouterInstanceId;
+    }>
+  | Readonly<{ kind: "message_invalid" }>
+  | Readonly<{ kind: "idempotency_conflict" }>
+  | Readonly<{ kind: "retry_identity_unknown" }>;
 ```
 
 Closed outcome of accepting or recovering an opaque message.
 
-### [`RouterSendResult`](./router/operations.ts#L230)
+### [`RouterSendResult (value)`](./router/contract.ts#L192)
 
 _Variable_
 
@@ -259,7 +271,7 @@ export const RouterSendResult: Schema.Schema<
 
 Exact Schema for every closed send outcome.
 
-### [`SignedMessageDigest`](./router/values.ts#L129)
+### [`SignedMessageDigest (type)`](./router/contract.ts#L81)
 
 _TypeAlias_
 
@@ -269,7 +281,7 @@ export type SignedMessageDigest = typeof SignedMessageDigest.Type;
 
 Validated SignedMessage equality receipt.
 
-### [`SignedMessageDigest`](./router/values.ts#L123)
+### [`SignedMessageDigest (value)`](./router/contract.ts#L75)
 
 _Variable_
 
@@ -283,10 +295,65 @@ export const SignedMessageDigest = canonicalValue(
 
 Equality receipt for one complete retained SignedMessage.
 
+## Server subpath
+
+### `@moltzap/v2-router/server`
+
+#### [`RouterServer`](./router/server.ts#L1)
+
+_Namespace_
+
+#### [`RouterServer.StartupError`](./router/server.ts#L24)
+
+_Class_
+
+```ts
+export class StartupError extends Data.TaggedError("RouterServerStartupError")<{
+  readonly phase: "configuration" | "listener";
+}> {}
+```
+
+Closed Router startup phase.
+
+#### [`RouterServer.layer`](./router/server.ts#L60)
+
+_Variable_
+
+```ts
+export const layer: Layer.Layer<never, StartupError> =
+  Layer.scopedDiscard(runRouterServer)
+```
+
+Complete production Router process composition.
+
+```mermaid
+flowchart LR
+  Binary["moltzap-router"] --> Process["runRouterProcess"]
+  Process --> Server["runRouterServer"]
+  Server --> App["buildRouterApp"]
+  App --> Http["makeRouterHttpApp"]
+  Http --> Authentication["AuthenticatedHttp"]
+  Authentication --> Rpc["private Router RPC"]
+  Rpc --> Operations["send or poll"]
+  Operations --> State["feed, cursor, and poll waiters"]
+  State --> Response["exact HTTP response"]
+```
+
 ## Files
 
 - `index.ts`
 - `router.ts`
-- `errors.ts`
-- `operations.ts`
-- `values.ts`
+- `router/client.ts`
+- `router/configuration.ts`
+- `router/contract.ts`
+- `router/feed.ts`
+- `router/http.ts`
+- `router/poll-cursor.ts`
+- `router/poll-waiters.ts`
+- `router/poll.ts`
+- `router/process.ts`
+- `router/README.md`
+- `router/rpc.ts`
+- `router/send.ts`
+- `router/server.ts`
+- `server.ts`

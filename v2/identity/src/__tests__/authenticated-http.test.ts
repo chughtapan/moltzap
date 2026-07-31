@@ -25,29 +25,35 @@ import { expect, it } from "vitest";
 import {
   AgentSigningAuthority,
   agentSigningPrivateKey,
+  ed25519PublicKeyThumbprintUri,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
-} from "./agent-signing-authority.js";
-import { issueAgentCard, type VerifiedAgentCard } from "./agent-card.js";
-import { AuthenticatedHttp } from "./authenticated-http.js";
-import { ed25519PublicKeyThumbprintUri } from "./ed25519-public-key.js";
+} from "../agent-key.js";
+import {
+  AgentCardIssuedAt,
+  issueAgentCard,
+  type VerifiedAgentCard,
+} from "../agent-card.js";
+import { AuthenticatedHttp } from "../authenticated-http.js";
 import {
   AuthenticationFailedError,
   UnavailableError,
   VersionMismatchError,
-} from "./http-errors.js";
-import { contentDigest, verifyHttpRequestSignature } from "./http-signature.js";
+} from "../http-errors.js";
 import {
-  AgentCardIssuedAt,
+  contentDigest,
+  verifyHttpRequestSignature,
+} from "../http-signature.js";
+import {
   AgentId,
   AgentName,
   PrincipalId,
   type AgentId as AgentIdValue,
-} from "./identity-values.js";
+} from "../identifiers.js";
 import {
   RegistryConnectionError,
   type RegistryClientService,
-} from "./registry/client.js";
-import { Registry } from "./registry.js";
+} from "../registry/contract.js";
+import { Registry } from "../registry.js";
 
 const REQUEST_URL = new URL(
   "http://identity.test/v1/messages:poll?view=current",

@@ -16,65 +16,78 @@ import {
 import { NodeHttpServerRequest } from "@effect/platform-node";
 import canonicalize from "canonicalize";
 import { Cause, Effect, Option, Schema } from "effect";
-import type { RouterFeed } from "./feed.js";
 import {
+  maximumPollCursorLength,
   RawRouterSendRequest,
+  routerHealthPath,
+  routerHttpErrorEnvelope,
+  routerJsonContentType,
+  routerPollPath,
+  routerPollRoutePattern,
   RouterPollRequest,
   RouterPollResult,
   routerRepresentationLimits,
-  type RouterRpcClient,
+  routerSendPath,
+  routerSendRoutePattern,
   RouterSendResult,
-} from "./operations.js";
-import { withVerifiedRouterRequest } from "./request-context.js";
+} from "./contract.js";
+import type { RouterFeed } from "./feed.js";
+import { type RouterRpcClient, withVerifiedRouterRequest } from "./rpc.js";
 
-const SEND_PATH = "/v1/messages:send";
-const POLL_PATH = "/v1/messages:poll";
-const SEND_ROUTE_PATTERN = "/v1/messages::send";
-const POLL_ROUTE_PATTERN = "/v1/messages::poll";
-const HEALTH_PATH = "/healthz";
-const JSON_CONTENT_TYPE = "application/json";
+interface RouterHttpInput {
+  readonly client: RouterRpcClient;
+  readonly feed: RouterFeed;
+  readonly requestSemaphore: Effect.Semaphore;
+}
+
+/**
+ * Builds the complete Router HTTP application over private capabilities.
+ *
+ * @param input Correlated operations, readiness, and admission capability.
+ * @param input.client Private correlated operations.
+ * @param input.feed Feed readiness state.
+ * @param input.requestSemaphore Immediate active-request admission.
+ * @returns The complete named-route HTTP application.
+ */
+export const makeRouterHttpApp = (input: RouterHttpInput) =>
+  HttpRouter.empty.pipe(
+    sendRoute(input),
+    pollRoute(input),
+    healthRoute(input),
+    fallbackRoute(),
+  );
+
+/**
+ * Reports local readiness without exposing feed state.
+ *
+ * @param feed Current process feed.
+ * @returns An empty 204 or 503 response.
+ */
+export const routerHealthResponse = (
+  feed: RouterFeed,
+): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+  feed.freshAppendReady.pipe(
+    Effect.map((ready) =>
+      HttpServerResponse.empty({ status: ready ? 204 : 503 }),
+    ),
+  );
+
 const rawPollRequest = Schema.Struct({
-  pollCursor: Schema.optional(Schema.String.pipe(Schema.maxLength(348))),
+  pollCursor: Schema.optional(
+    Schema.String.pipe(Schema.maxLength(maximumPollCursorLength)),
+  ),
 }).annotations({
   parseOptions: { exact: true, onExcessProperty: "error" },
 });
 
-const envelope = new Map<string, Readonly<{ status: number; body: string }>>([
-  ["MalformedRequestError", { status: 400, body: '{"error":"malformed"}' }],
-  [
-    "AuthenticationFailedError",
-    { status: 401, body: '{"error":"authentication_failed"}' },
-  ],
-  ["RouteNotFoundError", { status: 404, body: '{"error":"not_found"}' }],
-  [
-    "MethodNotAllowedError",
-    { status: 405, body: '{"error":"method_not_allowed"}' },
-  ],
-  [
-    "VersionMismatchError",
-    { status: 412, body: '{"error":"version_mismatch"}' },
-  ],
-  [
-    "PayloadTooLargeError",
-    { status: 413, body: '{"error":"payload_too_large"}' },
-  ],
-  [
-    "UnsupportedMediaTypeError",
-    { status: 415, body: '{"error":"unsupported_media_type"}' },
-  ],
-  ["OverloadedError", { status: 429, body: '{"error":"overloaded"}' }],
-  ["UnavailableError", { status: 503, body: '{"error":"unavailable"}' }],
-  ["InternalServerError", { status: 500, body: '{"error":"internal"}' }],
-]);
-
 const jsonText = (body: string, status: number) =>
   HttpServerResponse.text(body, {
     status,
-    contentType: JSON_CONTENT_TYPE,
+    contentType: routerJsonContentType,
   });
 
 const errorResponse = (error: { readonly _tag: string }) => {
-  const mapped = envelope.get(error._tag);
+  const mapped = routerHttpErrorEnvelope(error._tag);
   return mapped === undefined
     ? jsonText('{"error":"internal"}', 500)
     : jsonText(mapped.body, mapped.status);
@@ -157,7 +170,7 @@ const framingIsMalformed = (
 const mediaTypeIsUnsupported = (
   request: HttpServerRequest.HttpServerRequest,
 ): boolean =>
-  request.headers["content-type"] !== JSON_CONTENT_TYPE ||
+  request.headers["content-type"] !== routerJsonContentType ||
   request.headers["content-encoding"] !== undefined;
 
 const validateDeclaredLength = (
@@ -298,17 +311,11 @@ const handleDomainRequest = <Request, RequestEncoded, Result, ResultEncoded>(
     recoverUnexpectedFailure,
   );
 
-interface RouterHttpInput {
-  readonly client: RouterRpcClient;
-  readonly feed: RouterFeed;
-  readonly requestSemaphore: Effect.Semaphore;
-}
-
-const sendRoute = (input: RouterHttpInput) =>
-  HttpRouter.post(
-    SEND_ROUTE_PATTERN,
+function sendRoute(input: RouterHttpInput) {
+  return HttpRouter.post(
+    routerSendRoutePattern,
     handleDomainRequest({
-      routePath: SEND_PATH,
+      routePath: routerSendPath,
       outerRequestSchema: RawRouterSendRequest,
       resultSchema: RouterSendResult,
       bodyCap: routerRepresentationLimits.sendRequestBodyBytes,
@@ -317,12 +324,13 @@ const sendRoute = (input: RouterHttpInput) =>
       requestSemaphore: input.requestSemaphore,
     }),
   );
+}
 
-const pollRoute = (input: RouterHttpInput) =>
-  HttpRouter.post(
-    POLL_ROUTE_PATTERN,
+function pollRoute(input: RouterHttpInput) {
+  return HttpRouter.post(
+    routerPollRoutePattern,
     handleDomainRequest({
-      routePath: POLL_PATH,
+      routePath: routerPollPath,
       outerRequestSchema: rawPollRequest,
       resultSchema: RouterPollResult,
       bodyCap: routerRepresentationLimits.pollRequestBodyBytes,
@@ -341,66 +349,42 @@ const pollRoute = (input: RouterHttpInput) =>
       requestSemaphore: input.requestSemaphore,
     }),
   );
+}
 
-/**
- * Reports local readiness without exposing feed state.
- *
- * @param feed Current process feed.
- * @returns An empty 204 or 503 response.
- */
-export const routerHealthResponse = (
-  feed: RouterFeed,
-): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
-  feed.freshAppendReady.pipe(
-    Effect.map((ready) =>
-      HttpServerResponse.empty({ status: ready ? 204 : 503 }),
-    ),
-  );
-
-const healthRoute = (input: RouterHttpInput) =>
-  HttpRouter.get(
-    HEALTH_PATH,
+function healthRoute(input: RouterHttpInput) {
+  return HttpRouter.get(
+    routerHealthPath,
     recoverUnexpectedFailure(
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        if (request.url !== HEALTH_PATH) {
+        if (request.url !== routerHealthPath) {
           return errorResponse(new RouteNotFoundError());
         }
         return yield* routerHealthResponse(input.feed);
       }),
     ),
   );
+}
 
-const fallbackRoute = HttpRouter.all(
-  "*",
-  recoverUnexpectedFailure(
-    Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      if (request.url.includes("?")) {
+function fallbackRoute() {
+  return HttpRouter.all(
+    "*",
+    recoverUnexpectedFailure(
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        if (request.url.includes("?")) {
+          return errorResponse(new RouteNotFoundError());
+        }
+        const path = request.url.split("?", 1)[0];
+        if (
+          path === routerSendPath ||
+          path === routerPollPath ||
+          path === routerHealthPath
+        ) {
+          return errorResponse(new MethodNotAllowedError());
+        }
         return errorResponse(new RouteNotFoundError());
-      }
-      const path = request.url.split("?", 1)[0];
-      if (path === SEND_PATH || path === POLL_PATH || path === HEALTH_PATH) {
-        return errorResponse(new MethodNotAllowedError());
-      }
-      return errorResponse(new RouteNotFoundError());
-    }),
-  ),
-);
-
-/**
- * Builds the complete Router HTTP application over private capabilities.
- *
- * @param input Correlated operations, readiness, and admission capability.
- * @param input.client Private correlated operations.
- * @param input.feed Feed readiness state.
- * @param input.requestSemaphore Immediate active-request admission.
- * @returns The complete named-route HTTP application.
- */
-export const makeRouterHttpApp = (input: RouterHttpInput) =>
-  HttpRouter.empty.pipe(
-    sendRoute(input),
-    pollRoute(input),
-    healthRoute(input),
-    fallbackRoute,
+      }),
+    ),
   );
+}

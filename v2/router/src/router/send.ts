@@ -8,45 +8,14 @@ import {
 } from "@moltzap/v2-identity";
 import canonicalize from "canonicalize";
 import { Effect, Encoding, Schema } from "effect";
+import {
+  type RawRouterSendRequest,
+  type RouterInstanceId,
+  type RouterSendResult,
+  SignedMessageDigest,
+} from "./contract.js";
 import type { RouterFeed } from "./feed.js";
-import type { HeldPolls } from "./held-polls.js";
-import type { RawRouterSendRequest, RouterSendResult } from "./operations.js";
-import { SignedMessageDigest, type RouterInstanceId } from "./values.js";
-
-const utf8Encoder = new TextEncoder();
-
-const messageInvalid: RouterSendResult = { kind: "message_invalid" };
-
-const encodeMessage = (
-  signedMessage: VerifiedSignedMessage,
-): Effect.Effect<string, InternalServerError> =>
-  Schema.encode(SignedMessage)(signedMessage).pipe(
-    Effect.catchTag("ParseError", () => Effect.fail(new InternalServerError())),
-    Effect.flatMap((encoded) => {
-      const jcs = canonicalize(encoded);
-      return jcs === undefined
-        ? Effect.fail(new InternalServerError())
-        : Effect.succeed(jcs);
-    }),
-  );
-
-const digestMessage = (
-  encodedMessageJcs: string,
-): Effect.Effect<typeof SignedMessageDigest.Type, InternalServerError> =>
-  Effect.tryPromise({
-    try: () =>
-      globalThis.crypto.subtle.digest(
-        "SHA-256",
-        utf8Encoder.encode(encodedMessageJcs),
-      ),
-    catch: () => new InternalServerError(),
-  }).pipe(
-    Effect.map(
-      (digest) => `smd_${Encoding.encodeBase64Url(new Uint8Array(digest))}`,
-    ),
-    Effect.flatMap(Schema.decodeUnknown(SignedMessageDigest)),
-    Effect.catchTag("ParseError", () => Effect.fail(new InternalServerError())),
-  );
+import type { PollWaiters } from "./poll-waiters.js";
 
 /** Send domain operation after HTTP authentication. */
 export interface RouterSend {
@@ -59,8 +28,28 @@ export interface RouterSend {
 interface SendDependencies {
   readonly routerInstanceId: RouterInstanceId;
   readonly feed: RouterFeed;
-  readonly heldPolls: HeldPolls;
+  readonly pollWaiters: PollWaiters;
 }
+
+/**
+ * Builds send precedence over one current Router instance and feed.
+ *
+ * @param input Current process identity and state capabilities.
+ * @param input.routerInstanceId Current volatile process identity.
+ * @param input.feed Global volatile feed.
+ * @param input.pollWaiters Addressed poll-waiter notifications.
+ * @returns The authenticated send domain operation.
+ */
+export const makeRouterSend = (input: SendDependencies): RouterSend =>
+  Object.freeze({
+    handle: (
+      request: RawRouterSendRequest,
+      verifiedRequest: VerifiedAgentRequest,
+    ) => handleSend(input, request, verifiedRequest),
+  });
+
+const messageInvalid: RouterSendResult = { kind: "message_invalid" };
+const utf8Encoder = new TextEncoder();
 
 const encodedLengthIsValid = (
   message: VerifiedSignedMessage,
@@ -99,7 +88,7 @@ const retainMessage = (
       return yield* Effect.fail(new OverloadedError());
     }
     if (accepted.acceptedRecipients !== undefined) {
-      yield* input.heldPolls.notify(accepted.acceptedRecipients);
+      yield* input.pollWaiters.notify(accepted.acceptedRecipients);
     }
     return accepted.result;
   });
@@ -140,35 +129,48 @@ const handleCurrentInstance = (
     }),
   );
 
-const handleSend = (
+function handleSend(
   input: SendDependencies,
   request: RawRouterSendRequest,
   verifiedRequest: VerifiedAgentRequest,
-): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> =>
-  request.expectedRouterInstanceId !== input.routerInstanceId
+): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> {
+  return request.expectedRouterInstanceId !== input.routerInstanceId
     ? Effect.succeed({
         kind: "router_restarted",
         routerInstanceId: input.routerInstanceId,
       })
     : handleCurrentInstance(input, request, verifiedRequest);
+}
 
-/**
- * Builds send precedence over one current Router instance and feed.
- *
- * @param input Current process identity and state capabilities.
- * @param input.routerInstanceId Current volatile process identity.
- * @param input.feed Global volatile feed.
- * @param input.heldPolls Addressed held-poll notifications.
- * @returns The authenticated send domain operation.
- */
-export const makeRouterSend = (input: {
-  readonly routerInstanceId: RouterInstanceId;
-  readonly feed: RouterFeed;
-  readonly heldPolls: HeldPolls;
-}): RouterSend =>
-  Object.freeze({
-    handle: (
-      request: RawRouterSendRequest,
-      verifiedRequest: VerifiedAgentRequest,
-    ) => handleSend(input, request, verifiedRequest),
-  });
+function encodeMessage(
+  signedMessage: VerifiedSignedMessage,
+): Effect.Effect<string, InternalServerError> {
+  return Schema.encode(SignedMessage)(signedMessage).pipe(
+    Effect.catchTag("ParseError", () => Effect.fail(new InternalServerError())),
+    Effect.flatMap((encoded) => {
+      const jcs = canonicalize(encoded);
+      return jcs === undefined
+        ? Effect.fail(new InternalServerError())
+        : Effect.succeed(jcs);
+    }),
+  );
+}
+
+function digestMessage(
+  encodedMessageJcs: string,
+): Effect.Effect<typeof SignedMessageDigest.Type, InternalServerError> {
+  return Effect.tryPromise({
+    try: () =>
+      globalThis.crypto.subtle.digest(
+        "SHA-256",
+        utf8Encoder.encode(encodedMessageJcs),
+      ),
+    catch: () => new InternalServerError(),
+  }).pipe(
+    Effect.map(
+      (digest) => `smd_${Encoding.encodeBase64Url(new Uint8Array(digest))}`,
+    ),
+    Effect.flatMap(Schema.decodeUnknown(SignedMessageDigest)),
+    Effect.catchTag("ParseError", () => Effect.fail(new InternalServerError())),
+  );
+}
