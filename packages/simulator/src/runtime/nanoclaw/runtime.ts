@@ -33,6 +33,9 @@ import {
 } from "../process.js";
 
 const NANOCLAW_RUNTIME_NAME = "nanoclaw";
+// The injected channel (`@moltzap/nanoclaw-channel` → `src/channels/moltzap.ts`)
+// logs `MoltZap connected` once its server session is live.
+const NANOCLAW_READY_MARKER = "MoltZap connected";
 const DEFAULT_NANOCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
 
 interface NanoclawWorkspaceFile {
@@ -113,9 +116,12 @@ export interface NanoclawRuntimeDriver<
   readonly stop: (handle: Handle) => Effect.Effect<void, never, Requirements>;
   readonly exitCode: (handle: Handle) => Effect.Effect<ExitCode, WaitFailure>;
   readonly output: (handle: Handle) => string;
+
+  /** Recognizes the channel's connect line in the container runner's output. */
+  readonly readyWhen: (output: string) => boolean;
 }
 
-/** Failure returned when NanoClaw cannot become router-visible. */
+/** Failure returned when a NanoClaw process cannot be acquired. */
 export type NanoclawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
 
 type NanoclawHostServices =
@@ -141,6 +147,7 @@ const nativeNanoclawDriver: NanoclawRuntimeDriver<
     ),
   exitCode: (handle) => Fiber.join(handle.exitFiber),
   output: (handle) => handle.logs.text,
+  readyWhen: (output) => output.includes(NANOCLAW_READY_MARKER),
 };
 
 function snapshotWorkspaceFiles(
@@ -297,12 +304,12 @@ function acquireNanoclawRuntime<
   return Effect.gen(function* () {
     const process = yield* acquireNanoclawProcess(settings, driver, input);
     yield* awaitProcessReady({
-      connection: input.connection,
       within: settings.startupTimeout,
       agentName: process.input.agentName,
       agentKey: process.input.apiKey,
       runtimeName: NANOCLAW_RUNTIME_NAME,
       observation: process.observation,
+      readyWhen: driver.readyWhen,
     });
     return {
       termination: processTermination(
@@ -350,7 +357,7 @@ export function makeNanoclawRuntimeWith<
 
 /**
  * Construct a NanoClaw runtime that binds each roster identity to one
- * scoped container-backed process and waits for router-visible readiness.
+ * scoped container-backed process and waits for its readiness line.
  * @param options Options that control the operation.
  * @returns The nanoclaw runtime result.
  */

@@ -9,12 +9,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { PGlite } from "@electric-sql/pglite";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  taskId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { CommittedRouterMessage, routerSequence } from "../network.js";
 import { Effect } from "effect";
 import { assert, describe } from "vitest";
@@ -29,8 +24,6 @@ const it = effectIt.scoped;
 const PGLITE_TEST_TIMEOUT_MS = 60_000;
 const MESSAGE_1 = messageId("00000000-0000-4000-8000-000000000201");
 const MESSAGE_2 = messageId("00000000-0000-4000-8000-000000000202");
-const TASK_1 = taskId("00000000-0000-4000-8000-000000000301");
-const TASK_2 = taskId("00000000-0000-4000-8000-000000000302");
 const CONVERSATION_1 = conversationId("00000000-0000-4000-8000-000000000401");
 const CONVERSATION_2 = conversationId("00000000-0000-4000-8000-000000000402");
 const SENDER_1 = agentId("00000000-0000-4000-8000-000000000501");
@@ -39,7 +32,6 @@ const SENDER_2 = agentId("00000000-0000-4000-8000-000000000502");
 const MESSAGES_DDL = `
   CREATE TABLE messages (
     id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
     sender_id TEXT NOT NULL,
     seq BIGINT NOT NULL
@@ -48,28 +40,25 @@ const MESSAGES_DDL = `
 
 type SeedRow = readonly [
   messageId: string,
-  taskId: string,
   conversationId: string,
   senderId: string,
   sequence: number,
 ];
 
 const VALID_ROWS: readonly SeedRow[] = [
-  [MESSAGE_2, TASK_2, CONVERSATION_2, SENDER_2, 2],
-  [MESSAGE_1, TASK_1, CONVERSATION_1, SENDER_1, 1],
+  [MESSAGE_2, CONVERSATION_2, SENDER_2, 2],
+  [MESSAGE_1, CONVERSATION_1, SENDER_1, 1],
 ];
 
 const EXPECTED_MESSAGES = [
   CommittedRouterMessage.make({
     messageId: MESSAGE_1,
-    taskId: TASK_1,
     conversationId: CONVERSATION_1,
     senderId: SENDER_1,
     routerSequence: routerSequence(1),
   }),
   CommittedRouterMessage.make({
     messageId: MESSAGE_2,
-    taskId: TASK_2,
     conversationId: CONVERSATION_2,
     senderId: SENDER_2,
     routerSequence: routerSequence(2),
@@ -85,7 +74,7 @@ async function seedMessages(
     await db.exec(MESSAGES_DDL);
     for (const row of rows) {
       await db.query(
-        "INSERT INTO messages (id, task_id, conversation_id, sender_id, seq) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO messages (id, conversation_id, sender_id, seq) VALUES ($1, $2, $3, $4)",
         [...row],
       );
     }
@@ -121,7 +110,7 @@ describe("committed-message projection", () => {
     "rejects an invalid router sequence at the SQL boundary",
     () =>
       readSeededMessages("moltzap-pglite-invalid-", [
-        [MESSAGE_1, TASK_1, CONVERSATION_1, SENDER_1, -1],
+        [MESSAGE_1, CONVERSATION_1, SENDER_1, -1],
       ]).pipe(
         Effect.flip,
         Effect.tap((failure) =>

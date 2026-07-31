@@ -59,13 +59,12 @@ function refused(scenarioId: string, detail: string): GradingRefused {
 
 function responseIdentityKey(
   messageId: string,
-  taskId: string,
   endpointId: string,
   senderId: string,
 ): string {
   // JSON tuple encoding preserves field boundaries even when identifiers
   // contain delimiter-like text.
-  return JSON.stringify([messageId, taskId, endpointId, senderId]);
+  return JSON.stringify([messageId, endpointId, senderId]);
 }
 
 function indexResponses(
@@ -75,7 +74,6 @@ function indexResponses(
   for (const message of messages) {
     const key = responseIdentityKey(
       message.messageId,
-      message.taskId,
       message.endpointId,
       message.senderId,
     );
@@ -95,7 +93,6 @@ function responseFor(
   return responses.get(
     responseIdentityKey(
       selection.messageId,
-      selection.taskId,
       selection.endpointId,
       selection.targetId,
     ),

@@ -2,7 +2,6 @@
 
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { type Message, messagePartsSchema } from "@moltzap/protocol/message";
-import type { TaskId } from "@moltzap/protocol/task";
 import { Effect, Option, Schema, Stream } from "effect";
 import type { ParticipantHandle } from "./participant.js";
 import {
@@ -39,46 +38,39 @@ export type ConversationParticipants = readonly [
 export class ConversationAddress {
   readonly [conversationAddressTypeId] = conversationAddressTypeId;
 
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly participants: ConversationParticipants;
 
   private constructor(
-    taskId: TaskId,
     conversationId: ConversationId,
     participants: ConversationParticipants,
   ) {
-    this.taskId = taskId;
     this.conversationId = conversationId;
     this.participants = participants;
   }
 
   static [conversationAddressConstruction](
-    taskId: TaskId,
     conversationId: ConversationId,
     participants: ConversationParticipants,
   ): ConversationAddress {
-    return new ConversationAddress(taskId, conversationId, participants);
+    return new ConversationAddress(conversationId, participants);
   }
 }
 
 /**
  * Construct an address from one router-issued conversation identity.
- * @param taskId Owning task identity.
  * @param conversationId Router-issued conversation identity.
  * @param participants Nonempty addressed participant set.
  * @returns Nominal conversation address.
  * @internal
  */
 export function makeConversationAddress(
-  taskId: TaskId,
   conversationId: ConversationId,
   participants: ConversationParticipants,
 ): ConversationAddress {
   const [first, ...rest] = participants;
   return Object.freeze(
     ConversationAddress[conversationAddressConstruction](
-      taskId,
       conversationId,
       Object.freeze([first, ...rest]),
     ),

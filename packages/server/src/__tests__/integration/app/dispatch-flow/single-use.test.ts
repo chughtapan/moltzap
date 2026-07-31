@@ -37,7 +37,6 @@ const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
-  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
   hooks: MODERATED_HOOKS,
 };
 
@@ -146,21 +145,22 @@ function grantedLeaseIsSingleUse() {
   });
 }
 
-function insertFailureRollsBackLease() {
+function rejectedSendLeavesLeaseGranted() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    // The moderated path binds the task to the fixture's app connection.
-    // Archiving from that app client forces the subsequent agent/message/send to
-    // fail at insert time.
+    // The moderated path routes the conversation to the fixture's app
+    // connection. Evicting the sender from that app client makes the
+    // `ConversationSendAccess` gate reject the subsequent agent/message/send
+    // before the lease is claimed.
     const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "probe",
     );
     yield* moderatorAppClient().sendRpc(conversationUpdate, {
-      action: "archive",
-      taskId: binding.taskId,
+      action: "remove-participant",
       conversationId: binding.conversationId,
+      agentId: bob.agentId,
     });
 
     const sendResult = yield* sendWithLeaseRejected(
@@ -255,8 +255,8 @@ describe("dispatch/* - single-use lease preconditions", () => {
   );
 
   it(
-    "rolls the lease back to granted when message insert fails",
-    insertFailureRollsBackLease,
+    "leaves the lease granted when the send is rejected before claim",
+    rejectedSendLeavesLeaseGranted,
     20_000,
   );
 });

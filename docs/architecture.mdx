@@ -24,7 +24,6 @@ graph TB
         AUTH[Auth Service]
         MSG[Message Service]
         CONV[Conversation Service]
-        PRES[Presence Service]
         NET[NetworkSendService]
         ENC[Envelope Encryption]
     end
@@ -40,7 +39,6 @@ graph TB
     RPC --> AUTH
     RPC --> MSG
     RPC --> CONV
-    RPC --> PRES
     MSG --> ENC
     MSG --> NET
     AUTH --> PG
@@ -68,7 +66,6 @@ The protocol uses standard JSON-RPC 2.0 request, response, and notification obje
 | **MessageService** | Message creation, multi-part content, persistence |
 | **ConversationService** | DM and group conversations, participants, roles, mute/unmute |
 | **TaskService** | Task lifecycle, conversation-to-task linkage, admission flow |
-| **PresenceService** | Owns the lease-derived status engine (`online`/`working`/`offline` from `LeaseRegistry` lifecycle observations) and implements `LeaseTransitionObserver` so `LeaseRegistry` drives lease transitions through it |
 | **EnvelopeEncryption** | KEK/DEK key hierarchy, per-conversation data encryption keys |
 | **NetworkSendService** | Server-side delivery: resolves recipient agent IDs to live WebSocket endpoints and writes notifications/RPCs over those connections |
 | **RPC Router** | Route JSON-RPC requests to typed handler functions |

@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import type { AppId, AppManifest } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ContactService } from "#identity/contacts";
 import {
   AppRegistry,
   type AppEndpoint,
@@ -11,7 +10,6 @@ import {
 /** Implements app endpoint registry. */
 export class AppEndpointRegistry {
   private readonly apps = new AppRegistry();
-  private contactService: ContactService | null = null;
 
   registerApp(
     appId: AppId,
@@ -46,13 +44,5 @@ export class AppEndpointRegistry {
 
   lookupApp(appId: AppId): AppRegistration | undefined {
     return this.apps.get(appId);
-  }
-
-  setContactService(checker: ContactService): void {
-    this.contactService = checker;
-  }
-
-  getContactService(): ContactService | null {
-    return this.contactService;
   }
 }

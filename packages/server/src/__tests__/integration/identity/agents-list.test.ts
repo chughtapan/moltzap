@@ -15,8 +15,6 @@ import {
   type AgentCard,
   type UserId,
   agentsList,
-  contactsAccept,
-  contactsAdd,
 } from "@moltzap/protocol/identity";
 import { userId } from "@moltzap/protocol/testing";
 
@@ -27,8 +25,8 @@ interface AgentsListResult {
   nextCursor?: string;
 }
 
-// agent/identity/agents/list is contact-scoped; these fixtures bind explicit
-// owners so cross-owner visibility cases can be exercised.
+// agent/identity/agents/list returns every registered agent; these fixtures
+// bind explicit owners so cross-owner cases are exercised.
 const REGISTRATION_SECRET = "agents-list-test-secret-zxcv";
 const ALICE_USER_ID = userId("00000000-0000-4000-8000-00000000a11c");
 const BOB_USER_ID = userId("00000000-0000-4000-8000-00000000b0b0");
@@ -160,21 +158,6 @@ function listAgents(agent: OwnedConnectedAgent) {
   ) as Effect.Effect<AgentsListResult>;
 }
 
-function acceptContact(
-  requester: OwnedConnectedAgent,
-  accepter: OwnedConnectedAgent,
-  contactUserId: UserId,
-) {
-  return Effect.gen(function* () {
-    const added = yield* requester.client.sendRpc(contactsAdd, {
-      contactUserId,
-    });
-    yield* accepter.client.sendRpc(contactsAccept, {
-      contactId: added.contact.id,
-    });
-  });
-}
-
 function agentIds(result: AgentsListResult) {
   return result.agents.map((a) => a.id);
 }
@@ -193,20 +176,6 @@ function expectListIncludes(
   }
 }
 
-function expectListExcludes(
-  result: AgentsListResult,
-  excludedAgentIds: string[],
-) {
-  const ids = agentIds(result);
-  for (const agentId of excludedAgentIds) {
-    expect(ids).not.toContain(agentId);
-  }
-}
-
-function expectListHasNoCard(result: AgentsListResult, agentId: string) {
-  expect(cardForAgent(result, agentId)).toBeUndefined();
-}
-
 function returnsOwnAgents() {
   return Effect.gen(function* () {
     const alice1 = yield* connectAlice("alice-sib1");
@@ -217,56 +186,24 @@ function returnsOwnAgents() {
   });
 }
 
-function hidesOwnersWithoutContact() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-iso");
-    const carol = yield* connectCarol("carol-iso");
-
-    const result = yield* listAgents(alice);
-    expectListHasNoCard(result, carol.agentId);
-    expect(cardForAgent(result, alice.agentId)).toBeDefined();
-  });
-}
-
-function returnsAcceptedContactOwners() {
+function returnsAgentsAcrossOwners() {
   return Effect.gen(function* () {
     const alice = yield* connectAlice("alice-x");
     const bob = yield* connectBob("bob-x");
     const carol = yield* connectCarol("carol-x");
 
-    yield* acceptContact(alice, bob, BOB_USER_ID);
-
     const aliceList = yield* listAgents(alice);
-    expectListIncludes(aliceList, [alice.agentId, bob.agentId]);
-    expectListExcludes(aliceList, [carol.agentId]);
+    expectListIncludes(aliceList, [alice.agentId, bob.agentId, carol.agentId]);
 
     const bobList = yield* listAgents(bob);
-    expectListIncludes(bobList, [bob.agentId, alice.agentId]);
-    expectListExcludes(bobList, [carol.agentId]);
+    expectListIncludes(bobList, [bob.agentId, alice.agentId, carol.agentId]);
   });
 }
 
-function pendingContactDoesNotExposeAgents() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-pending");
-    const bob = yield* connectBob("bob-pending");
-
-    yield* alice.client.sendRpc(contactsAdd, {
-      contactUserId: BOB_USER_ID,
-    });
-
-    const aliceList = yield* listAgents(alice);
-    const bobList = yield* listAgents(bob);
-    expectListHasNoCard(aliceList, bob.agentId);
-    expectListHasNoCard(bobList, alice.agentId);
-  });
-}
-
-function returnsContactVisibleCardFields() {
+function returnsAgentCardFields() {
   return Effect.gen(function* () {
     const alice = yield* connectAlice("alice-card");
     const bob = yield* connectBob("bob-card", AGENT_DESCRIPTION);
-    yield* acceptContact(alice, bob, BOB_USER_ID);
 
     const result = yield* listAgents(alice);
     const card = cardForAgent(result, bob.agentId);
@@ -290,31 +227,12 @@ function returnsContactVisibleCardFields() {
   });
 }
 
-describe(`${agentsList.name} — owner visibility`, () => {
-  it(
-    "returns own agents (siblings under same ownerUserId), without contacts setup",
-    returnsOwnAgents,
-  );
+describe(`${agentsList.name} — visibility`, () => {
+  it("returns own agents (siblings under same ownerUserId)", returnsOwnAgents);
 
-  it(
-    "does NOT return agents owned by users the caller is not in contact with",
-    hidesOwnersWithoutContact,
-  );
-
-  it(
-    "returns agents whose owner is an accepted contact of the caller's owner",
-    returnsAcceptedContactOwners,
-  );
+  it("returns agents owned by every other user", returnsAgentsAcrossOwners);
 });
 
-describe(`${agentsList.name} — contact metadata`, () => {
-  it(
-    "pending contact request does NOT yet expose the requester's agents to the recipient (and vice versa)",
-    pendingContactDoesNotExposeAgents,
-  );
-
-  it(
-    "returns the AgentCard fields correctly for contact-visible agents",
-    returnsContactVisibleCardFields,
-  );
+describe(`${agentsList.name} — card shape`, () => {
+  it("returns the AgentCard fields correctly", returnsAgentCardFields);
 });

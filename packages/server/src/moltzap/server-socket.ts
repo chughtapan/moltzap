@@ -71,10 +71,6 @@ const closeSocketSession = Effect.fn("socket.closeSession")(function* (
   );
   if (removed !== undefined && removed._tag === "AgentConnection") {
     const authCtx = removed.auth;
-    yield* options.services.presenceService.onAgentDisconnect(
-      authCtx.agentId,
-      session.connId,
-    );
     // eslint-disable-next-line @typescript-eslint/no-use-before-define -- hook runner is initialized before the callback executes.
     yield* runDisconnectionHooks(authCtx, session, options);
     yield* options.services.agentEndpointResolver.remove(

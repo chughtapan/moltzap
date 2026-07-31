@@ -202,14 +202,13 @@ The boot-installed default app carries an inert endpoint
 manifest declares only static policies, so domain callback services never
 invoke that endpoint.
 
-### [`AppEndpointRegistry`](./endpoint-registry.ts#L12)
+### [`AppEndpointRegistry`](./endpoint-registry.ts#L11)
 
 _Class_
 
 ```ts
 export class AppEndpointRegistry {
   private readonly apps = new AppRegistry();
-  private contactService: ContactService | null = null;
 
   registerApp(
     appId: AppId,
@@ -244,14 +243,6 @@ export class AppEndpointRegistry {
 
   lookupApp(appId: AppId): AppRegistration | undefined {
     return this.apps.get(appId);
-  }
-
-  setContactService(checker: ContactService): void {
-    this.contactService = checker;
-  }
-
-  getContactService(): ContactService | null {
-    return this.contactService;
   }
 }
 ```
@@ -321,8 +312,8 @@ export class AppRegistry {
    * `AppConnection.auth.appId`, or `DEFAULT_APP_ID` at boot), NOT by
    * `manifest.appId`. The DB issues `app_id` via `gen_random_uuid()`;
    * the manifest's `appId` field does not participate in routing.
-   * `agent/task/request` targets the appId the registrant received from
-   * `/api/v1/apps/register`, which is this same server-minted identity.
+   * `agent/conversation/create` targets the appId the registrant received
+   * from `/api/v1/apps/register`, which is this same server-minted identity.
    * @param appId Value supplied to the operation.
    * @param manifest Value supplied to the operation.
    * @param endpoint Value supplied to the operation.
@@ -376,7 +367,7 @@ Callers (`app/network/connect`, `installDefaultApp`) map a
 `false` return to whatever surfacing they need — typed
 `ForbiddenError` for the connect path, an exception for boot.
 
-### [`callAppRpc`](./callback-rpc.ts#L18)
+### [`callAppRpc`](./callback-rpc.ts#L17)
 
 _Function_
 
@@ -397,7 +388,7 @@ Executes the call app rpc operation.
 
 **Returns:** The call app rpc result.
 
-### [`installDefaultApp`](./default-app.ts#L102)
+### [`installDefaultApp`](./default-app.ts#L99)
 
 _Function_
 
@@ -410,12 +401,12 @@ export function installDefaultApp(
 Boot-time installation of the default app. Registers the static-only
 manifest under DEFAULT_APP_ID. No app round-trip is ever made.
 
-App-admin RPCs remain unreachable on
-`DEFAULT_APP_ID` tasks because no client `AppConnection` can ever own
-the default app — its endpoint is a server-minted inert endpoint, not
-a connected HTTP-registered app.
+App-admin RPCs remain unreachable on `DEFAULT_APP_ID` conversations
+because no client `AppConnection` can ever own the default app — its
+endpoint is a server-minted inert endpoint, not a connected
+HTTP-registered app.
 
-### [`wrapHookEffectWithEnvelope`](./callback-rpc.ts#L74)
+### [`wrapHookEffectWithEnvelope`](./callback-rpc.ts#L63)
 
 _Function_
 

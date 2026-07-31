@@ -29,7 +29,7 @@ function connect(agentKey: string): Promise<WebSocket> {
       ws.send(JSON.stringify({
         jsonrpc: "2.0", id: "1",
         method: "agent/network/connect",
-        params: { agentKey, minProtocol: "2026.730.1", maxProtocol: "2026.730.1" }
+        params: { agentKey, minProtocol: "2026.731.1", maxProtocol: "2026.731.1" }
       }));
     });
     ws.on("message", (data) => {

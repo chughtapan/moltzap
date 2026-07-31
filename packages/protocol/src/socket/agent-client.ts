@@ -6,7 +6,6 @@ import { messagesAuthorize } from "#message";
 import { dispatchAuthorize } from "#message/dispatch";
 import { agentConnect, PROTOCOL_VERSION } from "#network";
 import type { agentCallableGroup } from "#socket/catalog";
-import { taskCreate } from "#task";
 import type { CloseInfo } from "./close-info.js";
 import type {
   ErrorForTag,
@@ -34,7 +33,6 @@ const makeAgentCallbackHandlers = (): ReverseCallbackHandlers => {
   return {
     [dispatchAuthorize.name]: reject(dispatchAuthorize.name),
     [messagesAuthorize.name]: reject(messagesAuthorize.name),
-    [taskCreate.name]: reject(taskCreate.name),
   };
 };
 

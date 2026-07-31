@@ -41,26 +41,8 @@
       "#identity/credential-keys": [
         "./src/identity/credential-keys.ts"
       ],
-      "#identity/contacts/requirements": [
-        "./src/identity/contacts/requirements/index.ts"
-      ],
-      "#identity/contacts": [
-        "./src/identity/contacts/index.ts"
-      ],
       "#network": [
         "./src/network/index.ts"
-      ],
-      "#network/presence": [
-        "./src/network/presence/index.ts"
-      ],
-      "#task": [
-        "./src/task/index.ts"
-      ],
-      "#task/handlers": [
-        "./src/task/handlers.ts"
-      ],
-      "#task/requirements": [
-        "./src/task/requirements/index.ts"
       ],
       "#conversation": [
         "./src/conversation/index.ts"

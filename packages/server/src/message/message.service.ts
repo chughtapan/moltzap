@@ -1,7 +1,6 @@
 import {
   type Db,
   nextSnowflakeId,
-  sql,
   type MessageRow,
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -15,7 +14,6 @@ import {
   decodeMessageParts,
   decodeMessagePartsText,
   validateDispatchDecision,
-  MessageNotFoundError,
   messageReceivedNotificationDefinition,
 } from "@moltzap/protocol/message";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
@@ -24,11 +22,7 @@ import {
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
-import {
-  type TaskId,
-  type TaskStatus,
-  HookBlockedError,
-} from "@moltzap/protocol/task";
+import { type TaskId, HookBlockedError } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import {
   DEFAULT_PAGE_LIMIT,
@@ -99,7 +93,8 @@ interface SendMessageInput {
   readonly conversationId: ConversationId;
   readonly parts: MessageParts;
   readonly senderAgentId: AgentId;
-  readonly replyToId?: MessageId;
+  /** Opaque caller-supplied label; stamped on the row and echoed back. */
+  readonly taskId?: TaskId;
   readonly excludeConnectionId?: ConnectionId;
 }
 
@@ -117,14 +112,11 @@ interface ResolveSendVerdictInput {
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
   readonly parts: MessageParts;
-  readonly taskId: TaskId;
+  readonly taskId?: TaskId;
 }
 
 interface SendConversationRow {
-  readonly archived_at: Date | null;
-  readonly task_id: TaskId;
   readonly app_id: AppId;
-  readonly task_status: TaskStatus;
 }
 
 interface EncryptedParts {
@@ -163,15 +155,10 @@ interface MessageServiceDeps {
 }
 
 /**
- * `agent/message/send` server entry point. The `send` method runs the
- * structural checks against `(conversations ⋈ tasks)`, persists the
- * message, then resolves the dispatch-authorization verdict via the
- * `app/message/authorize` round-trip and broadcasts per verdict.
- *
- * Branch over `task.status`:
- * - `{closed, failed}` → fail closed with `TaskClosed`; no insert.
- * - `{waiting, active}` → insert + `app/message/authorize` verdict +
- *   verdict-scoped broadcast.
+ * `agent/message/send` server entry point. The `send` method resolves the
+ * conversation's authorizing app, persists the message, then resolves the
+ * dispatch-authorization verdict via the `app/message/authorize` round-trip
+ * and broadcasts per verdict.
  *
  * The `app/message/authorize` round-trip is the authorization gate:
  * `MessageAuthorizationService` fails closed (`Block { reason:
@@ -266,7 +253,7 @@ export class MessageService {
         const conv = yield* this.readSendConversation(input.conversationId);
         const parts = input.parts;
         const encrypted = yield* this.encryptParts(input.conversationId, parts);
-        const row = yield* this.insertMessageRow(input, conv, encrypted);
+        const row = yield* this.insertMessageRow(input, encrypted);
         return {
           message: this.mapMessage(row, parts),
           parts,
@@ -279,16 +266,11 @@ export class MessageService {
 
   /**
    * Send-conversation projection consumed by the `ConversationSendAccess`
-   * `obtain` AND
-   * `MessageService.sendCommit`'s `app/message/authorize` verdict route.
-   * Joins `conversations` ⋈ `tasks` and returns
-   * `(archived_at, task_id, app_id, task_status)`.
-   *
-   * `app_id` is read by the verdict-routing consumer to identify the
-   * authorizing app for the task.
+   * `obtain` AND `MessageService.sendCommit`'s `app/message/authorize`
+   * verdict route. `app_id` identifies the app authorizing the conversation.
    * @param conversationId Value supplied to the operation.
    * @internal
-   * @returns The reply exists opt result.
+   * @returns The send-conversation row.
    */
   readSendConversation(
     conversationId: ConversationId,
@@ -298,51 +280,14 @@ export class MessageService {
   > {
     return takeFirstOrFail(
       this.db
-        .selectFrom("conversations as c")
-        .innerJoin("tasks as t", "t.id", "c.task_id")
-        .select([
-          "c.archived_at",
-          "c.task_id",
-          "t.app_id as app_id",
-          "t.status as task_status",
-        ])
-        .where("c.id", "=", conversationId),
-    );
-  }
-
-  /**
-   * Reply-target presence gate consumed by `obtainValidReplyTarget`. A
-   * method (not a free function) because it needs `this.db`.
-   * @param conversationId Value supplied to the operation.
-   * @param replyToId Value supplied to the operation.
-   * @internal
-   * @returns The reply exists opt result.
-   */
-  assertReplyTarget(
-    conversationId: ConversationId,
-    replyToId: MessageId,
-  ): Effect.Effect<void, MessageNotFoundError | SqlError> {
-    return Effect.gen(
-      function* (this: MessageService) {
-        const replyExistsOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("messages")
-            .select(sql`1`.as("one"))
-            .where("id", "=", replyToId)
-            .where("conversation_id", "=", conversationId),
-        );
-        if (Option.isNone(replyExistsOpt)) {
-          return yield* new MessageNotFoundError({
-            message: "Reply target not found",
-          });
-        }
-      }.bind(this),
+        .selectFrom("conversations")
+        .select(["app_id"])
+        .where("id", "=", conversationId),
     );
   }
 
   private insertMessageRow(
     input: SendInsertInput,
-    conv: SendConversationRow,
     encryptedParts: EncryptedParts,
   ): Effect.Effect<MessageRow, SqlError> {
     const messageIdValue = decodeMessageId(crypto.randomUUID());
@@ -356,13 +301,12 @@ export class MessageService {
             conversation_id: input.conversationId,
             sender_id: input.senderAgentId,
             seq: nextSnowflakeId().toString(),
-            reply_to_id: input.replyToId ?? null,
             parts_encrypted: encryptedParts.encrypted,
             parts_iv: encryptedParts.iv,
             parts_tag: encryptedParts.tag,
             dek_version: encryptedParts.dekVersion,
             kek_version: encryptedParts.kekVersion,
-            task_id: conv.task_id,
+            task_id: input.taskId ?? null,
             created_at: new Date(createdAtIso),
           })
           .returningAll()
@@ -453,7 +397,9 @@ export class MessageService {
       conversationId: input.conversationId,
       senderAgentId: input.senderAgentId,
       parts: input.carrier.parts,
-      taskId: input.carrier.conv.task_id,
+      ...(input.carrier.message.taskId === undefined
+        ? {}
+        : { taskId: input.carrier.message.taskId }),
     });
   }
 
@@ -504,7 +450,9 @@ export class MessageService {
         audience,
         messageReceivedNotificationDefinition,
         {
-          taskId: input.carrier.conv.task_id,
+          ...(input.carrier.message.taskId === undefined
+            ? {}
+            : { taskId: input.carrier.message.taskId }),
           message: input.carrier.message,
         },
         {
@@ -614,7 +562,7 @@ export class MessageService {
             senderAgentId: input.senderAgentId,
             parts: input.parts,
           },
-          taskId: input.taskId,
+          ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
           appId: input.appId,
         });
         switch (result.decision) {
@@ -911,7 +859,7 @@ export class MessageService {
     return catchSqlErrorAsDefect(
       Effect.gen(
         function* (this: MessageService) {
-          // No per-task conversation key in the tasks/* layer; the raw
+          // Conversations carry no operator-facing key, so the raw
           // conversationId labels the channel for trace capture.
           const senderRowOpt = yield* takeFirstOption(
             this.db
@@ -1016,8 +964,8 @@ export class MessageService {
     return {
       id: row.id,
       conversationId: row.conversation_id,
+      ...(row.task_id === null ? {} : { taskId: row.task_id }),
       senderId: row.sender_id,
-      replyToId: row.reply_to_id ?? undefined,
       parts,
       createdAt: row.created_at.toISOString(),
     };
