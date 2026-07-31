@@ -18,37 +18,43 @@ import {
   type ListCursorPosition,
 } from "#db";
 
-function toAgentCard(row: {
-  id: AgentId;
-  name: string;
-  display_name: string | null;
-  description: string | null;
-  status: string;
-  owner_user_id: UserId;
-}): AgentCard {
-  return {
-    id: row.id,
-    name: row.name,
-    displayName: row.display_name ?? undefined,
-    description: row.description ?? undefined,
-    status: row.status as AgentCard["status"],
-    ownerUserId: row.owner_user_id,
-  };
-}
-
-// `created_at` is the keyset ordering column only; never projected onto `AgentCard`.
-function positionOfAgentRow(row: { id: AgentId; created_at: Date }): {
-  readonly sortKey: string;
-  readonly id: string;
-} {
-  return { sortKey: row.created_at.toISOString(), id: row.id };
-}
-
 interface AgentsListPageInput {
   readonly callerAgentId: AgentId;
   readonly callerOwnerUserId: UserId;
   readonly limit: number;
   readonly pos?: ListCursorPosition;
+}
+
+// ── @effect/rpc handler bodies ───────────────────────────────────────
+
+export const agentsList: ServerHandler<typeof AgentsList> = (params) =>
+  Effect.gen(function* () {
+    return yield* agentsListBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("agentsList"));
+
+// Contact-scoped. `visibleAgentIds` is the entitlement filter; the cursor +
+// limit then run on the `agents` row query so page order is stable regardless
+// of the visibility query's order.
+function agentsListBody(
+  params: ParamsOf<typeof AgentsList>,
+  ctx: AgentContext,
+) {
+  return Effect.gen(function* () {
+    const pos =
+      params.cursor === undefined
+        ? undefined
+        : yield* decodeListCursor(params.cursor).pipe(
+            Effect.catchTag("InvalidCursor", (err) =>
+              Effect.fail(new InvalidParamsError({ message: err.message })),
+            ),
+          );
+    return yield* agentsListPage({
+      callerAgentId: ctx.agentId,
+      callerOwnerUserId: ctx.ownerUserId,
+      limit: params.limit ?? DEFAULT_PAGE_LIMIT,
+      pos,
+    });
+  }).pipe(Effect.withSpan("agents.list.handler"));
 }
 
 // Keyset-paginated `agent/identity/agents/list` page over `(created_at DESC, id ASC)`
@@ -103,34 +109,28 @@ function agentsListPage(input: AgentsListPageInput) {
   );
 }
 
-// Contact-scoped. `visibleAgentIds` is the entitlement filter; the cursor +
-// limit then run on the `agents` row query so page order is stable regardless
-// of the visibility query's order.
-function agentsListBody(
-  params: ParamsOf<typeof AgentsList>,
-  ctx: AgentContext,
-) {
-  return Effect.gen(function* () {
-    const pos =
-      params.cursor === undefined
-        ? undefined
-        : yield* decodeListCursor(params.cursor).pipe(
-            Effect.catchTag("InvalidCursor", (err) =>
-              Effect.fail(new InvalidParamsError({ message: err.message })),
-            ),
-          );
-    return yield* agentsListPage({
-      callerAgentId: ctx.agentId,
-      callerOwnerUserId: ctx.ownerUserId,
-      limit: params.limit ?? DEFAULT_PAGE_LIMIT,
-      pos,
-    });
-  }).pipe(Effect.withSpan("agents.list.handler"));
+function toAgentCard(row: {
+  id: AgentId;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  status: string;
+  owner_user_id: UserId;
+}): AgentCard {
+  return {
+    id: row.id,
+    name: row.name,
+    displayName: row.display_name ?? undefined,
+    description: row.description ?? undefined,
+    status: row.status as AgentCard["status"],
+    ownerUserId: row.owner_user_id,
+  };
 }
 
-// ── @effect/rpc handler bodies ───────────────────────────────────────
-
-export const agentsList: ServerHandler<typeof AgentsList> = (params) =>
-  Effect.gen(function* () {
-    return yield* agentsListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("agentsList"));
+// `created_at` is the keyset ordering column only; never projected onto `AgentCard`.
+function positionOfAgentRow(row: { id: AgentId; created_at: Date }): {
+  readonly sortKey: string;
+  readonly id: string;
+} {
+  return { sortKey: row.created_at.toISOString(), id: row.id };
+}

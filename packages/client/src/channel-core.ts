@@ -250,44 +250,6 @@ interface PendingReleaseEntry {
   readonly receivedAtMs: number;
 }
 
-function errorSummary(err: unknown): Record<string, unknown> {
-  if (err instanceof Error) {
-    return {
-      errorName: err.name,
-      errorMessage: err.message,
-      errorStack: err.stack,
-    };
-  }
-  return {
-    errorValue: String(err),
-  };
-}
-
-function effectLogInfo(
-  message: string,
-  annotations: Record<string, unknown>,
-): Effect.Effect<void, never> {
-  return Effect.logInfo(message).pipe(Effect.annotateLogs(annotations));
-}
-
-function effectLogWarning(
-  message: string,
-  annotations: Record<string, unknown>,
-): Effect.Effect<void, never> {
-  return Effect.logWarning(message).pipe(Effect.annotateLogs(annotations));
-}
-
-function effectLogError(
-  message: string,
-  annotations: Record<string, unknown>,
-): Effect.Effect<void, never> {
-  return Effect.logError(message).pipe(Effect.annotateLogs(annotations));
-}
-
-function runBackgroundLog(effect: Effect.Effect<void, never>): void {
-  Effect.runFork(effect);
-}
-
 interface InboundDispatchWork {
   taskId: TaskId;
   message: Message;
@@ -1216,4 +1178,42 @@ export class MoltZapChannelCore {
       if (commitContext) commitContext();
     });
   }
+}
+
+function errorSummary(err: unknown): Record<string, unknown> {
+  if (err instanceof Error) {
+    return {
+      errorName: err.name,
+      errorMessage: err.message,
+      errorStack: err.stack,
+    };
+  }
+  return {
+    errorValue: String(err),
+  };
+}
+
+function effectLogInfo(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logInfo(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function effectLogWarning(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logWarning(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function effectLogError(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logError(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function runBackgroundLog(effect: Effect.Effect<void, never>): void {
+  Effect.runFork(effect);
 }

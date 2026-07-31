@@ -26,30 +26,6 @@ interface BuiltContextEntries {
   readonly pendingAdvances: ReadonlyArray<readonly [string, string]>;
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function recordOrEmpty(value: unknown): Record<string, unknown> {
-  return isPlainRecord(value) ? value : {};
-}
-
-function recordProperty(
-  record: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> | undefined {
-  const value = record[key];
-  return isPlainRecord(value) ? value : undefined;
-}
-
-function stringProperty(
-  record: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = record[key];
-  return typeof value === "string" ? value : undefined;
-}
-
 export function newMessagesForConversation(
   convId: string,
   messages: ReadonlyArray<Message>,
@@ -77,13 +53,46 @@ export function makeContextCandidate(
   };
 }
 
-function minutesSince(timestamp: string): number {
-  return Math.max(
-    0,
-    Math.round(
-      (Date.now() - new Date(timestamp).getTime()) / MILLISECONDS_PER_MINUTE,
+export function buildContextEntries(
+  candidates: ReadonlyArray<ContextCandidate>,
+  state: CrossConvState,
+  maxMessagesPerConv: number,
+): BuiltContextEntries {
+  const entries: CrossConversationEntry[] = [];
+  const pendingAdvances: Array<readonly [string, string]> = [];
+  for (const candidate of candidates) {
+    const { entry, advance } = contextEntryForCandidate(
+      candidate,
+      state,
+      maxMessagesPerConv,
+    );
+    entries.push(entry);
+    pendingAdvances.push(advance);
+  }
+  return { entries, pendingAdvances };
+}
+
+export function notificationTraceRecord(
+  notification: NotificationDelivery<AnyNotificationDefinition>,
+  agentId: string | undefined,
+): Record<string, unknown> {
+  const params = recordOrEmpty(notification.params);
+  const message = recordProperty(params, "message");
+  const conversation = recordProperty(params, "conversation");
+  const notificationConversationId = stringProperty(params, "conversationId");
+  return {
+    ts: new Date().toISOString(),
+    agentId: agentId ?? "unknown",
+    notification: notification.method,
+    messageId: message?.["id"],
+    messageConversationId: message?.["conversationId"],
+    messageSenderId: message?.["senderId"],
+    conversationId: traceConversationId(
+      conversation,
+      notificationConversationId,
     ),
-  );
+    conversationName: conversation?.["name"],
+  };
 }
 
 function contextEntryForCandidate(
@@ -116,23 +125,24 @@ function contextEntryForCandidate(
   };
 }
 
-export function buildContextEntries(
-  candidates: ReadonlyArray<ContextCandidate>,
-  state: CrossConvState,
-  maxMessagesPerConv: number,
-): BuiltContextEntries {
-  const entries: CrossConversationEntry[] = [];
-  const pendingAdvances: Array<readonly [string, string]> = [];
-  for (const candidate of candidates) {
-    const { entry, advance } = contextEntryForCandidate(
-      candidate,
-      state,
-      maxMessagesPerConv,
-    );
-    entries.push(entry);
-    pendingAdvances.push(advance);
-  }
-  return { entries, pendingAdvances };
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return isPlainRecord(value) ? value : {};
+}
+
+function recordProperty(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = record[key];
+  return isPlainRecord(value) ? value : undefined;
+}
+
+function stringProperty(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function traceConversationId(
@@ -144,25 +154,15 @@ function traceConversationId(
     : (conversation["id"] ?? fallback);
 }
 
-export function notificationTraceRecord(
-  notification: NotificationDelivery<AnyNotificationDefinition>,
-  agentId: string | undefined,
-): Record<string, unknown> {
-  const params = recordOrEmpty(notification.params);
-  const message = recordProperty(params, "message");
-  const conversation = recordProperty(params, "conversation");
-  const notificationConversationId = stringProperty(params, "conversationId");
-  return {
-    ts: new Date().toISOString(),
-    agentId: agentId ?? "unknown",
-    notification: notification.method,
-    messageId: message?.["id"],
-    messageConversationId: message?.["conversationId"],
-    messageSenderId: message?.["senderId"],
-    conversationId: traceConversationId(
-      conversation,
-      notificationConversationId,
+function minutesSince(timestamp: string): number {
+  return Math.max(
+    0,
+    Math.round(
+      (Date.now() - new Date(timestamp).getTime()) / MILLISECONDS_PER_MINUTE,
     ),
-    conversationName: conversation?.["name"],
-  };
+  );
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

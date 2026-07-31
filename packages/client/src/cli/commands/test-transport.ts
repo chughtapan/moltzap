@@ -24,22 +24,6 @@ export type TestTransportResponders = {
   readonly [Tag in DaemonCommand]?: TestTransportResponder<Tag>;
 };
 
-function isTransportError(value: unknown): value is TransportError {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "_tag" in value &&
-    "message" in value
-  );
-}
-
-function isError(value: unknown): value is Error {
-  return value instanceof Error;
-}
-function errorMessage(error: Error): string {
-  return error.message;
-}
-
 export const makeFakeTransport = (
   responders: TestTransportResponders,
 ): {
@@ -76,3 +60,19 @@ export const makeFakeTransport = (
   };
   return { calls, transport };
 };
+
+function isTransportError(value: unknown): value is TransportError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "_tag" in value &&
+    "message" in value
+  );
+}
+
+function isError(value: unknown): value is Error {
+  return value instanceof Error;
+}
+function errorMessage(error: Error): string {
+  return error.message;
+}

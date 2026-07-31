@@ -50,18 +50,6 @@ export function makeTracingLayer(input: TracingLayerInput): Layer.Layer<never> {
   }));
 }
 
-/**
- * Resolve the traces OTLP URL from the standard OTel env vars. The
- * trace-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the full traces URL
- * and is used verbatim; the base `OTEL_EXPORTER_OTLP_ENDPOINT` is a signal
- * root that gets `/v1/traces` appended. Returns `null` when neither is set.
- */
-function stripTrailingSlashes(value: string): string {
-  let end = value.length;
-  while (end > 0 && value.charCodeAt(end - 1) === SLASH_CHAR_CODE) end -= 1;
-  return value.slice(0, end);
-}
-
 export function resolveTracesEndpoint(
   tracesEndpoint: string | undefined,
   baseEndpoint: string | undefined,
@@ -103,3 +91,15 @@ export const readDefaultSpanProcessor: Effect.Effect<
   }),
   Effect.orElseSucceed(() => null),
 );
+
+/**
+ * Resolve the traces OTLP URL from the standard OTel env vars. The
+ * trace-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the full traces URL
+ * and is used verbatim; the base `OTEL_EXPORTER_OTLP_ENDPOINT` is a signal
+ * root that gets `/v1/traces` appended. Returns `null` when neither is set.
+ */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === SLASH_CHAR_CODE) end -= 1;
+  return value.slice(0, end);
+}

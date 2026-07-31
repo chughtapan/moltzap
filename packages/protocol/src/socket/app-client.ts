@@ -40,35 +40,6 @@ const CALLBACK_CONTEXT: AppCallbackContext = {
   requestId: "reverse-rpc",
 };
 
-function isCallbackParams<D extends AnyAppCallbackRpcDefinition>(
-  slot: HandlerSlot<D, AppCallbackContext>,
-  params: unknown,
-): params is Parameters<HandlerSlot<D, AppCallbackContext>["handle"]>[0] {
-  return slot.definition.validateParams(params);
-}
-
-function makeAppCallbackHandlers(
-  handlers: AppCallbackHandlers<AppCallbackContext>,
-): ReverseCallbackHandlers {
-  const adapt =
-    <D extends AnyAppCallbackRpcDefinition>(
-      slot: HandlerSlot<D, AppCallbackContext>,
-    ) =>
-    (params: Rpc.Payload<D["clientRpc"]>) => {
-      if (!isCallbackParams(slot, params)) {
-        return Effect.die(
-          new Error(`Invalid callback payload for ${slot.definition.name}`),
-        );
-      }
-      return slot.handle(params, CALLBACK_CONTEXT);
-    };
-  return {
-    [DispatchAuthorize.name]: adapt(handlers[DispatchAuthorize.name]),
-    [MessagesAuthorize.name]: adapt(handlers[MessagesAuthorize.name]),
-    [TaskCreate.name]: adapt(handlers[TaskCreate.name]),
-  };
-}
-
 export interface AppClientOptions {
   readonly serverUrl: string;
   readonly appKey: AppKey;
@@ -109,4 +80,33 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
     const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
     return this.callEffect(tag, payload, timeoutMs);
   }
+}
+
+function makeAppCallbackHandlers(
+  handlers: AppCallbackHandlers<AppCallbackContext>,
+): ReverseCallbackHandlers {
+  const adapt =
+    <D extends AnyAppCallbackRpcDefinition>(
+      slot: HandlerSlot<D, AppCallbackContext>,
+    ) =>
+    (params: Rpc.Payload<D["clientRpc"]>) => {
+      if (!isCallbackParams(slot, params)) {
+        return Effect.die(
+          new Error(`Invalid callback payload for ${slot.definition.name}`),
+        );
+      }
+      return slot.handle(params, CALLBACK_CONTEXT);
+    };
+  return {
+    [DispatchAuthorize.name]: adapt(handlers[DispatchAuthorize.name]),
+    [MessagesAuthorize.name]: adapt(handlers[MessagesAuthorize.name]),
+    [TaskCreate.name]: adapt(handlers[TaskCreate.name]),
+  };
+}
+
+function isCallbackParams<D extends AnyAppCallbackRpcDefinition>(
+  slot: HandlerSlot<D, AppCallbackContext>,
+  params: unknown,
+): params is Parameters<HandlerSlot<D, AppCallbackContext>["handle"]>[0] {
+  return slot.definition.validateParams(params);
 }

@@ -47,12 +47,6 @@ export type LeaseInvalidProjectionError<E> =
 
 const LEASE_ID_FALLBACK = "(unknown)";
 
-function isLeaseInvalidData(data: unknown): boolean {
-  if (typeof data !== "object" || data === null) return false;
-  const reason = (data as { readonly reason?: unknown }).reason;
-  return reason === "LeaseInvalid";
-}
-
 /**
  * Project an `ForbiddenError` to `LeaseAlreadyConsumed` if it matches the
  * lease-invalid wire shape; otherwise return the original error unchanged.
@@ -126,4 +120,10 @@ export function catchLeaseInvalid<A, E2, R>(ctx?: {
         ),
       ),
   );
+}
+
+function isLeaseInvalidData(data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  const reason = (data as { readonly reason?: unknown }).reason;
+  return reason === "LeaseInvalid";
 }

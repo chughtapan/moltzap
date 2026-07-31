@@ -28,183 +28,6 @@ interface ObserverCallback {
   readonly recipientConnId: ConnectionId;
 }
 
-function withNewEntry(
-  entries: EntryMap,
-  agentId: AgentId,
-  entry: AgentPresenceEntry,
-): EntryMap {
-  const next = new Map(entries);
-  next.set(agentId, entry);
-  return next;
-}
-
-function withoutEntry(entries: EntryMap, agentId: AgentId): EntryMap {
-  const next = new Map(entries);
-  next.delete(agentId);
-  return next;
-}
-
-/**
- * Pure predicate for `onAgentConnect`. A second simultaneous WebSocket
- * connection ADDS to `liveConns` rather than replacing it. Status
- * changes only if the agent was previously offline; subsequent
- * additions to an already-tracked agent leave the lease set untouched.
- */
-function computeConnectTransition(
-  entries: EntryMap,
-  agentId: AgentId,
-  connId: ConnectionId,
-): EntryMap {
-  const entry = entries.get(agentId);
-  if (entry === undefined) {
-    const nextEntry: AgentPresenceEntry = {
-      liveConns: new Set([connId]),
-      leasesByConn: new Map(),
-    };
-    return withNewEntry(entries, agentId, nextEntry);
-  }
-  if (entry.liveConns.has(connId)) {
-    return entries;
-  }
-  const nextLiveConns = new Set<ConnectionId>(entry.liveConns);
-  nextLiveConns.add(connId);
-  const nextEntry: AgentPresenceEntry = {
-    liveConns: nextLiveConns,
-    leasesByConn: entry.leasesByConn,
-  };
-  return withNewEntry(entries, agentId, nextEntry);
-}
-
-/**
- * Pure predicate for `onAgentDisconnect`. Removes `connId` from
- * `liveConns` and drops the per-conn lease bucket so leases bound to
- * the dead conn stop counting toward `working`. If `liveConns` empties
- * out, the entry is removed and status becomes `offline`; otherwise
- * status is re-derived from the leases on the surviving connections.
- * Stale disconnects (the `connId` was never in `liveConns`) are a
- * silent no-op.
- */
-function computeDisconnectTransition(
-  entries: EntryMap,
-  agentId: AgentId,
-  connId: ConnectionId,
-): EntryMap {
-  const entry = entries.get(agentId);
-  if (entry === undefined || !entry.liveConns.has(connId)) {
-    return entries;
-  }
-  const nextLiveConns = new Set<ConnectionId>(entry.liveConns);
-  nextLiveConns.delete(connId);
-  if (nextLiveConns.size === 0) {
-    return withoutEntry(entries, agentId);
-  }
-  const nextLeasesByConn = new Map(entry.leasesByConn);
-  nextLeasesByConn.delete(connId);
-  const nextEntry: AgentPresenceEntry = {
-    liveConns: nextLiveConns,
-    leasesByConn: nextLeasesByConn,
-  };
-  return withNewEntry(entries, agentId, nextEntry);
-}
-
-function auditAbsentEntry(cb: ObserverCallback): PresenceAuditEvent {
-  return cb.kind === "begin"
-    ? {
-        _tag: "LeaseBeginAfterDisconnect",
-        agentId: cb.recipientAgentId,
-        leaseId: cb.leaseId,
-      }
-    : {
-        _tag: "LeaseEndAfterDisconnect",
-        agentId: cb.recipientAgentId,
-        leaseId: cb.leaseId,
-      };
-}
-
-function auditStaleConnId(
-  cb: ObserverCallback,
-  currentLiveConns: ReadonlySet<ConnectionId>,
-): PresenceAuditEvent {
-  // Iteration order is insertion order in ES Map/Set, which gives a
-  // stable witness when the agent has multiple live connections.
-  const firstLive = currentLiveConns.values().next();
-  return {
-    _tag: "LeaseCallbackFromStaleConnection",
-    agentId: cb.recipientAgentId,
-    leaseId: cb.leaseId,
-    kind: cb.kind,
-    staleConnId: cb.recipientConnId,
-    currentConnId: firstLive.done ? cb.recipientConnId : firstLive.value,
-  };
-}
-
-function applyLeaseToEntry(
-  entry: AgentPresenceEntry,
-  kind: "begin" | "end",
-  leaseId: LeaseId,
-  recipientConnId: ConnectionId,
-): AgentPresenceEntry {
-  const nextLeasesByConn = new Map(entry.leasesByConn);
-  const existing = nextLeasesByConn.get(recipientConnId) ?? new Set<LeaseId>();
-  const nextLeases = new Set<LeaseId>(existing);
-  if (kind === "begin") {
-    nextLeases.add(leaseId);
-  } else {
-    nextLeases.delete(leaseId);
-  }
-  if (nextLeases.size === 0) {
-    nextLeasesByConn.delete(recipientConnId);
-  } else {
-    nextLeasesByConn.set(recipientConnId, nextLeases);
-  }
-  return {
-    liveConns: entry.liveConns,
-    leasesByConn: nextLeasesByConn,
-  };
-}
-
-/**
- * Pure predicate for lease-observer transitions (begin / end). The
- * `recipientConnId` must be one of the agent's `liveConns`, otherwise
- * the callback is a fast-reconnect-race ghost and audits. The lease is
- * added to / removed from the per-conn bucket
- * `leasesByConn[recipientConnId]`; the agent's derived status is
- * recomputed from the union of leases across ALL live connections.
- */
-function computeObserverTransition(
-  entries: EntryMap,
-  cb: ObserverCallback,
-): readonly [ObserverOutcome, EntryMap] {
-  const entry = entries.get(cb.recipientAgentId);
-  if (entry === undefined) {
-    return [{ _tag: "audit", event: auditAbsentEntry(cb) }, entries];
-  }
-  if (!entry.liveConns.has(cb.recipientConnId)) {
-    return [
-      { _tag: "audit", event: auditStaleConnId(cb, entry.liveConns) },
-      entries,
-    ];
-  }
-  const nextEntry = applyLeaseToEntry(
-    entry,
-    cb.kind,
-    cb.leaseId,
-    cb.recipientConnId,
-  );
-  return [
-    { _tag: "updated" },
-    withNewEntry(entries, cb.recipientAgentId, nextEntry),
-  ];
-}
-
-function statusForAgent(
-  entries: EntryMap,
-  agentId: AgentId,
-): DerivedPresenceStatus {
-  const entry = entries.get(agentId);
-  return entry === undefined ? "offline" : deriveEntryStatus(entry);
-}
-
 /**
  * Presence service: lease-derived status engine.
  *
@@ -372,4 +195,181 @@ export class PresenceService implements LeaseTransitionObserver {
       ),
     );
   }
+}
+
+/**
+ * Pure predicate for `onAgentConnect`. A second simultaneous WebSocket
+ * connection ADDS to `liveConns` rather than replacing it. Status
+ * changes only if the agent was previously offline; subsequent
+ * additions to an already-tracked agent leave the lease set untouched.
+ */
+function computeConnectTransition(
+  entries: EntryMap,
+  agentId: AgentId,
+  connId: ConnectionId,
+): EntryMap {
+  const entry = entries.get(agentId);
+  if (entry === undefined) {
+    const nextEntry: AgentPresenceEntry = {
+      liveConns: new Set([connId]),
+      leasesByConn: new Map(),
+    };
+    return withNewEntry(entries, agentId, nextEntry);
+  }
+  if (entry.liveConns.has(connId)) {
+    return entries;
+  }
+  const nextLiveConns = new Set<ConnectionId>(entry.liveConns);
+  nextLiveConns.add(connId);
+  const nextEntry: AgentPresenceEntry = {
+    liveConns: nextLiveConns,
+    leasesByConn: entry.leasesByConn,
+  };
+  return withNewEntry(entries, agentId, nextEntry);
+}
+
+/**
+ * Pure predicate for `onAgentDisconnect`. Removes `connId` from
+ * `liveConns` and drops the per-conn lease bucket so leases bound to
+ * the dead conn stop counting toward `working`. If `liveConns` empties
+ * out, the entry is removed and status becomes `offline`; otherwise
+ * status is re-derived from the leases on the surviving connections.
+ * Stale disconnects (the `connId` was never in `liveConns`) are a
+ * silent no-op.
+ */
+function computeDisconnectTransition(
+  entries: EntryMap,
+  agentId: AgentId,
+  connId: ConnectionId,
+): EntryMap {
+  const entry = entries.get(agentId);
+  if (entry === undefined || !entry.liveConns.has(connId)) {
+    return entries;
+  }
+  const nextLiveConns = new Set<ConnectionId>(entry.liveConns);
+  nextLiveConns.delete(connId);
+  if (nextLiveConns.size === 0) {
+    return withoutEntry(entries, agentId);
+  }
+  const nextLeasesByConn = new Map(entry.leasesByConn);
+  nextLeasesByConn.delete(connId);
+  const nextEntry: AgentPresenceEntry = {
+    liveConns: nextLiveConns,
+    leasesByConn: nextLeasesByConn,
+  };
+  return withNewEntry(entries, agentId, nextEntry);
+}
+
+/**
+ * Pure predicate for lease-observer transitions (begin / end). The
+ * `recipientConnId` must be one of the agent's `liveConns`, otherwise
+ * the callback is a fast-reconnect-race ghost and audits. The lease is
+ * added to / removed from the per-conn bucket
+ * `leasesByConn[recipientConnId]`; the agent's derived status is
+ * recomputed from the union of leases across ALL live connections.
+ */
+function computeObserverTransition(
+  entries: EntryMap,
+  cb: ObserverCallback,
+): readonly [ObserverOutcome, EntryMap] {
+  const entry = entries.get(cb.recipientAgentId);
+  if (entry === undefined) {
+    return [{ _tag: "audit", event: auditAbsentEntry(cb) }, entries];
+  }
+  if (!entry.liveConns.has(cb.recipientConnId)) {
+    return [
+      { _tag: "audit", event: auditStaleConnId(cb, entry.liveConns) },
+      entries,
+    ];
+  }
+  const nextEntry = applyLeaseToEntry(
+    entry,
+    cb.kind,
+    cb.leaseId,
+    cb.recipientConnId,
+  );
+  return [
+    { _tag: "updated" },
+    withNewEntry(entries, cb.recipientAgentId, nextEntry),
+  ];
+}
+
+function statusForAgent(
+  entries: EntryMap,
+  agentId: AgentId,
+): DerivedPresenceStatus {
+  const entry = entries.get(agentId);
+  return entry === undefined ? "offline" : deriveEntryStatus(entry);
+}
+
+function withNewEntry(
+  entries: EntryMap,
+  agentId: AgentId,
+  entry: AgentPresenceEntry,
+): EntryMap {
+  const next = new Map(entries);
+  next.set(agentId, entry);
+  return next;
+}
+
+function withoutEntry(entries: EntryMap, agentId: AgentId): EntryMap {
+  const next = new Map(entries);
+  next.delete(agentId);
+  return next;
+}
+
+function auditAbsentEntry(cb: ObserverCallback): PresenceAuditEvent {
+  return cb.kind === "begin"
+    ? {
+        _tag: "LeaseBeginAfterDisconnect",
+        agentId: cb.recipientAgentId,
+        leaseId: cb.leaseId,
+      }
+    : {
+        _tag: "LeaseEndAfterDisconnect",
+        agentId: cb.recipientAgentId,
+        leaseId: cb.leaseId,
+      };
+}
+
+function auditStaleConnId(
+  cb: ObserverCallback,
+  currentLiveConns: ReadonlySet<ConnectionId>,
+): PresenceAuditEvent {
+  // Iteration order is insertion order in ES Map/Set, which gives a
+  // stable witness when the agent has multiple live connections.
+  const firstLive = currentLiveConns.values().next();
+  return {
+    _tag: "LeaseCallbackFromStaleConnection",
+    agentId: cb.recipientAgentId,
+    leaseId: cb.leaseId,
+    kind: cb.kind,
+    staleConnId: cb.recipientConnId,
+    currentConnId: firstLive.done ? cb.recipientConnId : firstLive.value,
+  };
+}
+
+function applyLeaseToEntry(
+  entry: AgentPresenceEntry,
+  kind: "begin" | "end",
+  leaseId: LeaseId,
+  recipientConnId: ConnectionId,
+): AgentPresenceEntry {
+  const nextLeasesByConn = new Map(entry.leasesByConn);
+  const existing = nextLeasesByConn.get(recipientConnId) ?? new Set<LeaseId>();
+  const nextLeases = new Set<LeaseId>(existing);
+  if (kind === "begin") {
+    nextLeases.add(leaseId);
+  } else {
+    nextLeases.delete(leaseId);
+  }
+  if (nextLeases.size === 0) {
+    nextLeasesByConn.delete(recipientConnId);
+  } else {
+    nextLeasesByConn.set(recipientConnId, nextLeases);
+  }
+  return {
+    liveConns: entry.liveConns,
+    leasesByConn: nextLeasesByConn,
+  };
 }

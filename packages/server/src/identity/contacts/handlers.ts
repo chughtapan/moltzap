@@ -17,23 +17,22 @@ import { ContactsServiceTag } from "./layer.js";
 import { NetworkSendServiceTag } from "#network";
 import { agentArm } from "#moltzap/runtime";
 
-function fanOut<D extends AnyNotificationDefinition>(
-  target: UserId,
-  definition: D,
-  params: NotificationParamsOf<D>,
-): Effect.Effect<void, never, AuthServiceTag | NetworkSendServiceTag> {
-  return Effect.gen(function* () {
-    const authService: AuthService = yield* AuthServiceTag;
-    const networkSendService = yield* NetworkSendServiceTag;
-    const agentIds = yield* authService.agentsForOwner(target);
-    if (agentIds.length === 0) return;
-    yield* networkSendService.broadcastNotification(
-      agentIds,
-      definition,
-      params,
-    );
-  }).pipe(Effect.withSpan("contacts.fanOut"));
-}
+// ── @effect/rpc handler bodies ───────────────────────────────────────
+
+export const contactsList: ServerHandler<typeof ContactsList> = (params) =>
+  Effect.gen(function* () {
+    return yield* contactsListBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("contactsList"));
+
+export const contactsAdd: ServerHandler<typeof ContactsAdd> = (params) =>
+  Effect.gen(function* () {
+    return yield* contactsAddBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("contactsAdd"));
+
+export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params) =>
+  Effect.gen(function* () {
+    return yield* contactsAcceptBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("contactsAccept"));
 
 function contactsListBody(
   params: ParamsOf<typeof ContactsList>,
@@ -91,19 +90,20 @@ function contactsAcceptBody(
   }).pipe(Effect.withSpan("contacts.accept"));
 }
 
-// ── @effect/rpc handler bodies ───────────────────────────────────────
-
-export const contactsList: ServerHandler<typeof ContactsList> = (params) =>
-  Effect.gen(function* () {
-    return yield* contactsListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("contactsList"));
-
-export const contactsAdd: ServerHandler<typeof ContactsAdd> = (params) =>
-  Effect.gen(function* () {
-    return yield* contactsAddBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("contactsAdd"));
-
-export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params) =>
-  Effect.gen(function* () {
-    return yield* contactsAcceptBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("contactsAccept"));
+function fanOut<D extends AnyNotificationDefinition>(
+  target: UserId,
+  definition: D,
+  params: NotificationParamsOf<D>,
+): Effect.Effect<void, never, AuthServiceTag | NetworkSendServiceTag> {
+  return Effect.gen(function* () {
+    const authService: AuthService = yield* AuthServiceTag;
+    const networkSendService = yield* NetworkSendServiceTag;
+    const agentIds = yield* authService.agentsForOwner(target);
+    if (agentIds.length === 0) return;
+    yield* networkSendService.broadcastNotification(
+      agentIds,
+      definition,
+      params,
+    );
+  }).pipe(Effect.withSpan("contacts.fanOut"));
+}

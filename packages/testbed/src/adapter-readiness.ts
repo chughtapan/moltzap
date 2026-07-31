@@ -13,6 +13,31 @@ export interface ProcessExitReadinessSource {
 }
 
 /**
+ * The full readiness contract both adapters share: race server-confirmed
+ * authentication against process exit, then tear down on any non-Ready
+ * outcome before returning it.
+ */
+export function raceReadiness(input: {
+  readonly serverReady: Effect.Effect<ReadyOutcome, never, never>;
+  readonly source: ProcessExitReadinessSource;
+  readonly teardown: () => Effect.Effect<void, never, never>;
+}): Effect.Effect<ReadyOutcome, never, never> {
+  return pipe(
+    Effect.race(input.serverReady, processExitLoop(input.source)),
+    // Final-check: if the race resolved `Timeout`, the child may have exited
+    // within the last poll tick window — one last sync probe promotes that
+    // case to `ProcessExited` with the actual exit code so the diagnostic
+    // stderr isn't lost behind an opaque `Timeout`.
+    Effect.flatMap((outcome) =>
+      promoteTimeoutIfProcessExited(outcome, input.source),
+    ),
+    Effect.tap((outcome) =>
+      outcome._tag === "Ready" ? Effect.void : input.teardown(),
+    ),
+  );
+}
+
+/**
  * Poll the runtime child process for exit. Used alongside
  * `server.awaitAgentReady` in an `Effect.race` so we observe BOTH
  * "agent authenticated against the server" AND "process died before
@@ -48,31 +73,6 @@ function processExitLoop(
     Effect.map(
       (state): ReadyOutcome =>
         state ?? { _tag: "Timeout" as const, timeoutMs: source.timeoutMs },
-    ),
-  );
-}
-
-/**
- * The full readiness contract both adapters share: race server-confirmed
- * authentication against process exit, then tear down on any non-Ready
- * outcome before returning it.
- */
-export function raceReadiness(input: {
-  readonly serverReady: Effect.Effect<ReadyOutcome, never, never>;
-  readonly source: ProcessExitReadinessSource;
-  readonly teardown: () => Effect.Effect<void, never, never>;
-}): Effect.Effect<ReadyOutcome, never, never> {
-  return pipe(
-    Effect.race(input.serverReady, processExitLoop(input.source)),
-    // Final-check: if the race resolved `Timeout`, the child may have exited
-    // within the last poll tick window — one last sync probe promotes that
-    // case to `ProcessExited` with the actual exit code so the diagnostic
-    // stderr isn't lost behind an opaque `Timeout`.
-    Effect.flatMap((outcome) =>
-      promoteTimeoutIfProcessExited(outcome, input.source),
-    ),
-    Effect.tap((outcome) =>
-      outcome._tag === "Ready" ? Effect.void : input.teardown(),
     ),
   );
 }

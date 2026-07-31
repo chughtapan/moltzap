@@ -32,6 +32,20 @@ export interface RpcJsDoc {
 
 const DEFINER_NAMES = new Set(["defineRpc", "defineNotification"]);
 
+interface ParsedJsDoc {
+  readonly description: string | null;
+  readonly body: string | null;
+  readonly resultDescription: string | null;
+  readonly errors: ReadonlyArray<RpcErrorTag>;
+  readonly relatedNotifications: ReadonlyArray<string>;
+  readonly triggeredBy: ReadonlyArray<string>;
+}
+
+interface JsDocSection {
+  readonly tag: string | null;
+  readonly content: string;
+}
+
 /**
  * Walk the given source files, parse each into a TypeScript AST,
  * locate `export const Foo = defineRpc({ name: "x/y", ... })` (and
@@ -63,101 +77,6 @@ export const collectRpcJsDoc = (
     }
     return out;
   });
-
-function collectFromSource(
-  relativeFile: string,
-  source: string,
-  out: Map<string, RpcJsDoc>,
-): void {
-  const sf = ts.createSourceFile(
-    relativeFile,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  for (const stmt of sf.statements) {
-    if (!ts.isVariableStatement(stmt)) continue;
-    if (!hasExportModifier(stmt)) continue;
-    const decl = stmt.declarationList.declarations[0];
-    if (!decl || !decl.initializer || !ts.isIdentifier(decl.name)) continue;
-    const call = unwrapDefiner(decl.initializer);
-    if (call === null) continue;
-    const wireName = extractWireName(call);
-    if (wireName === null) continue;
-    const tsName = decl.name.text;
-    const jsdoc = parseJsDocBlock(stmt, sf);
-    const pos = sf.getLineAndCharacterOfPosition(stmt.getStart(sf));
-    out.set(wireName, {
-      ...jsdoc,
-      tsName,
-      file: relativeFile,
-      line: pos.line + 1,
-    });
-  }
-}
-
-function hasExportModifier(stmt: ts.VariableStatement): boolean {
-  const mods = stmt.modifiers ?? [];
-  return mods.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-}
-
-function unwrapDefiner(node: ts.Expression): ts.CallExpression | null {
-  if (!ts.isCallExpression(node)) return null;
-  if (!ts.isIdentifier(node.expression)) return null;
-  if (!DEFINER_NAMES.has(node.expression.text)) return null;
-  return node;
-}
-
-function extractWireName(call: ts.CallExpression): string | null {
-  const arg = call.arguments[0];
-  if (!arg || !ts.isObjectLiteralExpression(arg)) return null;
-  for (const prop of arg.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue;
-    if (!ts.isIdentifier(prop.name)) continue;
-    if (prop.name.text !== "name") continue;
-    if (!ts.isStringLiteral(prop.initializer)) continue;
-    return prop.initializer.text;
-  }
-  return null;
-}
-
-interface ParsedJsDoc {
-  readonly description: string | null;
-  readonly body: string | null;
-  readonly resultDescription: string | null;
-  readonly errors: ReadonlyArray<RpcErrorTag>;
-  readonly relatedNotifications: ReadonlyArray<string>;
-  readonly triggeredBy: ReadonlyArray<string>;
-}
-
-function parseJsDocBlock(
-  stmt: ts.VariableStatement,
-  sf: ts.SourceFile,
-): ParsedJsDoc {
-  const ranges = ts.getLeadingCommentRanges(
-    sf.getFullText(),
-    stmt.getFullStart(),
-  );
-  if (!ranges) return emptyJsDoc();
-  for (const range of ranges) {
-    if (range.kind !== ts.SyntaxKind.MultiLineCommentTrivia) continue;
-    const text = sf.getFullText().slice(range.pos, range.end);
-    if (!text.startsWith("/**")) continue;
-    return parseJsDocText(text);
-  }
-  return emptyJsDoc();
-}
-
-function emptyJsDoc(): ParsedJsDoc {
-  return {
-    description: null,
-    body: null,
-    resultDescription: null,
-    errors: [],
-    relatedNotifications: [],
-    triggeredBy: [],
-  };
-}
 
 /**
  * Parse the raw `/** ... *​/` text of a JSDoc block into structured
@@ -214,6 +133,56 @@ export function parseJsDocText(text: string): ParsedJsDoc {
   };
 }
 
+/**
+ * Parse the content of an `@error` tag. Expected shape:
+ * `&lt;Name> when &lt;prose>` where `&lt;Name>` is the tagged-error class
+ * (e.g. `ConflictError`, `ForbiddenError`) and `&lt;prose>` is
+ * free-form. The wire code is resolved later from the protocol's
+ * error registry. Returns null if the tag content doesn't parse.
+ */
+export function parseErrorTag(text: string): RpcErrorTag | null {
+  const t = text.trim();
+  const whenIx = t.indexOf(" when ");
+  if (whenIx === -1) return null;
+  const name = t.slice(0, whenIx).trim();
+  const when = t.slice(whenIx + 6).trim();
+  if (name.length === 0 || when.length === 0) return null;
+  if (/\s/.test(name)) return null; // type name has no spaces
+  return { name, when };
+}
+
+function collectFromSource(
+  relativeFile: string,
+  source: string,
+  out: Map<string, RpcJsDoc>,
+): void {
+  const sf = ts.createSourceFile(
+    relativeFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  for (const stmt of sf.statements) {
+    if (!ts.isVariableStatement(stmt)) continue;
+    if (!hasExportModifier(stmt)) continue;
+    const decl = stmt.declarationList.declarations[0];
+    if (!decl || !decl.initializer || !ts.isIdentifier(decl.name)) continue;
+    const call = unwrapDefiner(decl.initializer);
+    if (call === null) continue;
+    const wireName = extractWireName(call);
+    if (wireName === null) continue;
+    const tsName = decl.name.text;
+    const jsdoc = parseJsDocBlock(stmt, sf);
+    const pos = sf.getLineAndCharacterOfPosition(stmt.getStart(sf));
+    out.set(wireName, {
+      ...jsdoc,
+      tsName,
+      file: relativeFile,
+      line: pos.line + 1,
+    });
+  }
+}
+
 function stripJsDocMarkup(text: string): string {
   return text
     .replace(/^\/\*\*/, "")
@@ -222,11 +191,6 @@ function stripJsDocMarkup(text: string): string {
     .map((l) => l.replace(/^\s*\*\s?/, "").trimEnd())
     .join("\n")
     .trim();
-}
-
-interface JsDocSection {
-  readonly tag: string | null;
-  readonly content: string;
 }
 
 function splitOnTagBoundary(body: string): ReadonlyArray<JsDocSection> {
@@ -260,20 +224,56 @@ function splitDescriptionAndBody(text: string): {
   };
 }
 
-/**
- * Parse the content of an `@error` tag. Expected shape:
- * `&lt;Name> when &lt;prose>` where `&lt;Name>` is the tagged-error class
- * (e.g. `ConflictError`, `ForbiddenError`) and `&lt;prose>` is
- * free-form. The wire code is resolved later from the protocol's
- * error registry. Returns null if the tag content doesn't parse.
- */
-export function parseErrorTag(text: string): RpcErrorTag | null {
-  const t = text.trim();
-  const whenIx = t.indexOf(" when ");
-  if (whenIx === -1) return null;
-  const name = t.slice(0, whenIx).trim();
-  const when = t.slice(whenIx + 6).trim();
-  if (name.length === 0 || when.length === 0) return null;
-  if (/\s/.test(name)) return null; // type name has no spaces
-  return { name, when };
+function hasExportModifier(stmt: ts.VariableStatement): boolean {
+  const mods = stmt.modifiers ?? [];
+  return mods.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+}
+
+function unwrapDefiner(node: ts.Expression): ts.CallExpression | null {
+  if (!ts.isCallExpression(node)) return null;
+  if (!ts.isIdentifier(node.expression)) return null;
+  if (!DEFINER_NAMES.has(node.expression.text)) return null;
+  return node;
+}
+
+function extractWireName(call: ts.CallExpression): string | null {
+  const arg = call.arguments[0];
+  if (!arg || !ts.isObjectLiteralExpression(arg)) return null;
+  for (const prop of arg.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    if (!ts.isIdentifier(prop.name)) continue;
+    if (prop.name.text !== "name") continue;
+    if (!ts.isStringLiteral(prop.initializer)) continue;
+    return prop.initializer.text;
+  }
+  return null;
+}
+
+function parseJsDocBlock(
+  stmt: ts.VariableStatement,
+  sf: ts.SourceFile,
+): ParsedJsDoc {
+  const ranges = ts.getLeadingCommentRanges(
+    sf.getFullText(),
+    stmt.getFullStart(),
+  );
+  if (!ranges) return emptyJsDoc();
+  for (const range of ranges) {
+    if (range.kind !== ts.SyntaxKind.MultiLineCommentTrivia) continue;
+    const text = sf.getFullText().slice(range.pos, range.end);
+    if (!text.startsWith("/**")) continue;
+    return parseJsDocText(text);
+  }
+  return emptyJsDoc();
+}
+
+function emptyJsDoc(): ParsedJsDoc {
+  return {
+    description: null,
+    body: null,
+    resultDescription: null,
+    errors: [],
+    relatedNotifications: [],
+    triggeredBy: [],
+  };
 }

@@ -16,58 +16,6 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import { AgentContext, AppContext } from "./context.js";
 
 /**
- * Send an awaitable RPC from server → client over the connection's reverse
- * client. Narrows `D` to the moderator-callback union so a client→server method
- * cannot be fired on the reverse channel by mistake. Domain callback services
- * source the {@link Originator} from the registered app's `AppEndpoint`, minted
- * from the live `AppConnection` arm. Caller controls timeout via
- * `Effect.timeout` at the call site.
- */
-export function sendRpcToClient(
-  originator: Originator,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof DispatchAuthorize }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof DispatchAuthorize>,
-  ReverseCallbackError<typeof DispatchAuthorize> | ReverseCallError,
-  never
->;
-export function sendRpcToClient(
-  originator: Originator,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof MessagesAuthorize }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof MessagesAuthorize>,
-  ReverseCallbackError<typeof MessagesAuthorize> | ReverseCallError,
-  never
->;
-export function sendRpcToClient(
-  originator: Originator,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof TaskCreate }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof TaskCreate>,
-  ReverseCallbackError<typeof TaskCreate> | ReverseCallError,
-  never
->;
-export function sendRpcToClient(
-  originator: Originator,
-  request: ReverseCallbackRequest,
-): ReturnType<Originator["callback"]>;
-export function sendRpcToClient(
-  originator: Originator,
-  request: ReverseCallbackRequest,
-): ReturnType<Originator["callback"]> {
-  return originator.callback(request);
-}
-
-/**
  * The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
  * callbacks/notifications through. Constructed by protocol `MoltZapServer`
  * during socket accept and passed to
@@ -122,8 +70,6 @@ class AppConnection extends Data.TaggedClass("AppConnection")<
   private readonly __brand!: never;
 }
 
-export type { UnauthenticatedConnection, AgentConnection, AppConnection };
-
 /** The three-arm connection state — the connections map's only entry shape. */
 export type Connection =
   | UnauthenticatedConnection
@@ -145,53 +91,6 @@ export type TransitionOutcome =
   | { readonly kind: "ok-agent"; readonly authed: AgentConnection }
   | { readonly kind: "ok-app"; readonly authed: AppConnection };
 
-/**
- * Mint the connection arm matching the resolved principal. This is the single
- * runtime check of `auth._tag`; callers narrow through `TransitionOutcome`.
- */
-function mintAuthedArm(
-  base: ConnectionBase,
-  auth: AgentContext | AppContext,
-): { readonly outcome: TransitionOutcome; readonly minted: Connection } {
-  return Match.value(auth).pipe(
-    Match.tag("AgentContext", (agentAuth) => {
-      const authed = new AgentConnection({ ...base, auth: agentAuth });
-      return { outcome: { kind: "ok-agent", authed } as const, minted: authed };
-    }),
-    Match.tag("AppContext", (appAuth) => {
-      const authed = new AppConnection({ ...base, auth: appAuth });
-      return { outcome: { kind: "ok-app", authed } as const, minted: authed };
-    }),
-    Match.exhaustive,
-  );
-}
-
-/**
- * Visit every agent-arm connection in `map`. Centralizes the
- * `_tag === "AgentConnection"` structural narrowing that every agent-scoped
- * reader/mutator shares.
- */
-function eachAgentArm(
-  map: HashMap.HashMap<ConnectionId, Connection>,
-  visit: (conn: AgentConnection) => void,
-): void {
-  for (const conn of HashMap.values(map)) {
-    if (conn._tag === "AgentConnection") visit(conn);
-  }
-}
-
-/** Whether `map` still contains a live agent arm for `agentId`. */
-function hasAgentArm(
-  map: HashMap.HashMap<ConnectionId, Connection>,
-  agentId: AgentId,
-): boolean {
-  let found = false;
-  eachAgentArm(map, (conn) => {
-    if (conn.auth.agentId === agentId) found = true;
-  });
-  return found;
-}
-
 interface ConnectionManagerState {
   readonly connections: HashMap.HashMap<ConnectionId, Connection>;
   readonly agentConversationSubscriptions: HashMap.HashMap<
@@ -200,20 +99,59 @@ interface ConnectionManagerState {
   >;
 }
 
-function addConversationIds(
-  subscriptions: ConnectionManagerState["agentConversationSubscriptions"],
-  agentId: AgentId,
-  conversationIds: readonly ConversationId[],
-): ConnectionManagerState["agentConversationSubscriptions"] {
-  const existing = Option.getOrElse(HashMap.get(subscriptions, agentId), () =>
-    HashSet.empty<ConversationId>(),
-  );
-  let next = existing;
-  for (const conversationId of conversationIds) {
-    next = HashSet.add(next, conversationId);
-  }
-  return HashMap.set(subscriptions, agentId, next);
+/**
+ * Send an awaitable RPC from server → client over the connection's reverse
+ * client. Narrows `D` to the moderator-callback union so a client→server method
+ * cannot be fired on the reverse channel by mistake. Domain callback services
+ * source the {@link Originator} from the registered app's `AppEndpoint`, minted
+ * from the live `AppConnection` arm. Caller controls timeout via
+ * `Effect.timeout` at the call site.
+ */
+export function sendRpcToClient(
+  originator: Originator,
+  request: Extract<
+    ReverseCallbackRequest,
+    { readonly definition: typeof DispatchAuthorize }
+  >,
+): Effect.Effect<
+  ReverseCallbackSuccess<typeof DispatchAuthorize>,
+  ReverseCallbackError<typeof DispatchAuthorize> | ReverseCallError,
+  never
+>;
+export function sendRpcToClient(
+  originator: Originator,
+  request: Extract<
+    ReverseCallbackRequest,
+    { readonly definition: typeof MessagesAuthorize }
+  >,
+): Effect.Effect<
+  ReverseCallbackSuccess<typeof MessagesAuthorize>,
+  ReverseCallbackError<typeof MessagesAuthorize> | ReverseCallError,
+  never
+>;
+export function sendRpcToClient(
+  originator: Originator,
+  request: Extract<
+    ReverseCallbackRequest,
+    { readonly definition: typeof TaskCreate }
+  >,
+): Effect.Effect<
+  ReverseCallbackSuccess<typeof TaskCreate>,
+  ReverseCallbackError<typeof TaskCreate> | ReverseCallError,
+  never
+>;
+export function sendRpcToClient(
+  originator: Originator,
+  request: ReverseCallbackRequest,
+): ReturnType<Originator["callback"]>;
+export function sendRpcToClient(
+  originator: Originator,
+  request: ReverseCallbackRequest,
+): ReturnType<Originator["callback"]> {
+  return originator.callback(request);
 }
+
+export type { UnauthenticatedConnection, AgentConnection, AppConnection };
 
 export class ConnectionManager {
   /**
@@ -531,4 +469,66 @@ export class ConnectionManager {
       ),
     );
   }
+}
+
+/**
+ * Mint the connection arm matching the resolved principal. This is the single
+ * runtime check of `auth._tag`; callers narrow through `TransitionOutcome`.
+ */
+function mintAuthedArm(
+  base: ConnectionBase,
+  auth: AgentContext | AppContext,
+): { readonly outcome: TransitionOutcome; readonly minted: Connection } {
+  return Match.value(auth).pipe(
+    Match.tag("AgentContext", (agentAuth) => {
+      const authed = new AgentConnection({ ...base, auth: agentAuth });
+      return { outcome: { kind: "ok-agent", authed } as const, minted: authed };
+    }),
+    Match.tag("AppContext", (appAuth) => {
+      const authed = new AppConnection({ ...base, auth: appAuth });
+      return { outcome: { kind: "ok-app", authed } as const, minted: authed };
+    }),
+    Match.exhaustive,
+  );
+}
+
+/**
+ * Visit every agent-arm connection in `map`. Centralizes the
+ * `_tag === "AgentConnection"` structural narrowing that every agent-scoped
+ * reader/mutator shares.
+ */
+function eachAgentArm(
+  map: HashMap.HashMap<ConnectionId, Connection>,
+  visit: (conn: AgentConnection) => void,
+): void {
+  for (const conn of HashMap.values(map)) {
+    if (conn._tag === "AgentConnection") visit(conn);
+  }
+}
+
+/** Whether `map` still contains a live agent arm for `agentId`. */
+function hasAgentArm(
+  map: HashMap.HashMap<ConnectionId, Connection>,
+  agentId: AgentId,
+): boolean {
+  let found = false;
+  eachAgentArm(map, (conn) => {
+    if (conn.auth.agentId === agentId) found = true;
+  });
+  return found;
+}
+
+function addConversationIds(
+  subscriptions: ConnectionManagerState["agentConversationSubscriptions"],
+  agentId: AgentId,
+  conversationIds: readonly ConversationId[],
+): ConnectionManagerState["agentConversationSubscriptions"] {
+  const existing = Option.getOrElse(HashMap.get(subscriptions, agentId), () =>
+    HashSet.empty<ConversationId>(),
+  );
+  let next = existing;
+  for (const conversationId of conversationIds) {
+    next = HashSet.add(next, conversationId);
+  }
+  return HashMap.set(subscriptions, agentId, next);
 }

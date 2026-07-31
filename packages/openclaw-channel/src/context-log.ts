@@ -38,42 +38,6 @@ export interface OpenClawContextLogInput {
   readonly crossConversationMessages: readonly CrossConvMessage[];
 }
 
-function sanitizePathPart(value: string): string {
-  const sanitized = value.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  return sanitized.length > 0 ? sanitized : "unknown";
-}
-
-const OpenClawStateDir = Config.option(Config.string("OPENCLAW_STATE_DIR"));
-
-function getOpenClawStateDir(): string | undefined {
-  return Option.getOrUndefined(
-    Effect.runSync(
-      OpenClawStateDir.pipe(
-        Effect.withConfigProvider(ConfigProvider.fromEnv()),
-      ),
-    ),
-  );
-}
-
-function contextLogPath(
-  logDir: string,
-  accountAgentName: string | undefined,
-): Effect.Effect<string, never, Path.Path> {
-  const stateDir = getOpenClawStateDir();
-  const agentName = accountAgentName ?? "agent";
-  return Path.Path.pipe(
-    Effect.map((path) => {
-      const stateName = stateDir
-        ? path.basename(stateDir)
-        : `pid-${process.pid}`;
-      return path.join(
-        logDir,
-        `${sanitizePathPart(agentName)}.${sanitizePathPart(stateName)}.${process.pid}.contexts.jsonl`,
-      );
-    }),
-  );
-}
-
 export function writeOpenClawContextLog(
   input: OpenClawContextLogInput,
 ): Effect.Effect<void, unknown, never> {
@@ -119,4 +83,40 @@ export function writeOpenClawContextLog(
     Effect.provide(NodePath.layer),
     Effect.provide(NodeFileSystem.layer),
   );
+}
+
+function getOpenClawStateDir(): string | undefined {
+  return Option.getOrUndefined(
+    Effect.runSync(
+      OpenClawStateDir.pipe(
+        Effect.withConfigProvider(ConfigProvider.fromEnv()),
+      ),
+    ),
+  );
+}
+
+function contextLogPath(
+  logDir: string,
+  accountAgentName: string | undefined,
+): Effect.Effect<string, never, Path.Path> {
+  const stateDir = getOpenClawStateDir();
+  const agentName = accountAgentName ?? "agent";
+  return Path.Path.pipe(
+    Effect.map((path) => {
+      const stateName = stateDir
+        ? path.basename(stateDir)
+        : `pid-${process.pid}`;
+      return path.join(
+        logDir,
+        `${sanitizePathPart(agentName)}.${sanitizePathPart(stateName)}.${process.pid}.contexts.jsonl`,
+      );
+    }),
+  );
+}
+
+const OpenClawStateDir = Config.option(Config.string("OPENCLAW_STATE_DIR"));
+
+function sanitizePathPart(value: string): string {
+  const sanitized = value.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return sanitized.length > 0 ? sanitized : "unknown";
 }

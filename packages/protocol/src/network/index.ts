@@ -1,6 +1,8 @@
 /**
  * @file Public barrel for connect and presence protocol descriptors.
  */
+import { AgentConnect, AppConnect } from "./connect.js";
+import { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
 export {
   AgentConnect,
   AppConnect,
@@ -15,9 +17,6 @@ export type { HelloOk, ProtocolMismatchReason } from "./connect.js";
 export { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
 
 export { ServerBaseUrl, serverBaseUrl, webSocketUrl } from "./server-url.js";
-
-import { AgentConnect, AppConnect } from "./connect.js";
-import { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
 
 /** Network RPCs callable by agent clients. */
 export const agentCallableNetworkRpcMethods = [

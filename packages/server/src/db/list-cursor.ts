@@ -34,13 +34,6 @@ export class InvalidCursorError extends Data.TaggedError("InvalidCursor")<{
 // A space cannot appear in a canonical ISO-8601 string nor a UUID, so the
 // single split is unambiguous.
 const CURSOR_FIELD_SEP = " ";
-
-// Canonical iff `new Date(sortKey).toISOString()` round-trips — the form
-// `created_at.toISOString()` emits; rejects any non-canonical timestamp.
-function isCanonicalIso8601(sortKey: string): boolean {
-  const parsed = Date.parse(sortKey);
-  return !Number.isNaN(parsed) && new Date(parsed).toISOString() === sortKey;
-}
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -72,31 +65,6 @@ export function decodeListCursor(
     ),
     Effect.flatMap(parseDecodedPayload),
   );
-}
-
-function parseDecodedPayload(
-  decoded: string,
-): Effect.Effect<ListCursorPosition, InvalidCursorError> {
-  const parts = decoded.split(CURSOR_FIELD_SEP);
-  if (parts.length !== 2) {
-    return Effect.fail(
-      new InvalidCursorError({
-        message: "Cursor payload is not a (sortKey, id) pair",
-      }),
-    );
-  }
-  const [sortKey, id] = parts as [string, string];
-  if (!isCanonicalIso8601(sortKey)) {
-    return Effect.fail(
-      new InvalidCursorError({ message: "Cursor sortKey is not ISO-8601" }),
-    );
-  }
-  if (!UUID_RE.test(id)) {
-    return Effect.fail(
-      new InvalidCursorError({ message: "Cursor id is not a UUID" }),
-    );
-  }
-  return Effect.succeed({ sortKey, id });
 }
 
 /**
@@ -151,4 +119,36 @@ export function paginate<Row>(
   const page = rows.slice(0, limit);
   const last = page[page.length - 1]!;
   return { page, nextCursor: encodeListCursor(positionOf(last)) };
+}
+
+function parseDecodedPayload(
+  decoded: string,
+): Effect.Effect<ListCursorPosition, InvalidCursorError> {
+  const parts = decoded.split(CURSOR_FIELD_SEP);
+  if (parts.length !== 2) {
+    return Effect.fail(
+      new InvalidCursorError({
+        message: "Cursor payload is not a (sortKey, id) pair",
+      }),
+    );
+  }
+  const [sortKey, id] = parts as [string, string];
+  if (!isCanonicalIso8601(sortKey)) {
+    return Effect.fail(
+      new InvalidCursorError({ message: "Cursor sortKey is not ISO-8601" }),
+    );
+  }
+  if (!UUID_RE.test(id)) {
+    return Effect.fail(
+      new InvalidCursorError({ message: "Cursor id is not a UUID" }),
+    );
+  }
+  return Effect.succeed({ sortKey, id });
+}
+
+// Canonical iff `new Date(sortKey).toISOString()` round-trips — the form
+// `created_at.toISOString()` emits; rejects any non-canonical timestamp.
+function isCanonicalIso8601(sortKey: string): boolean {
+  const parsed = Date.parse(sortKey);
+  return !Number.isNaN(parsed) && new Date(parsed).toISOString() === sortKey;
 }

@@ -27,10 +27,49 @@ interface EnrichedMessageInput {
   readonly context: EnrichmentContext;
 }
 
-function isMessageList(
+export function enrichChannelMessage(
+  service: ChannelService,
+  taskId: TaskId,
   messageOrMessages: Message | ReadonlyArray<Message>,
-): messageOrMessages is ReadonlyArray<Message> {
-  return Array.isArray(messageOrMessages);
+): Effect.Effect<
+  {
+    enriched: EnrichedInboundMessage;
+    commitContext?: () => void;
+  },
+  never
+> {
+  return Effect.gen(function* () {
+    const messages = asMessageArray(messageOrMessages);
+    const message = messages[0]!;
+    const senderName = yield* resolveSenderName(service, message.senderId);
+    const coalesced = yield* buildCoalescedMessages(
+      service,
+      messages,
+      senderName,
+    );
+    const conversationMeta = conversationMetaFrom(
+      service.getConversation(message.conversationId),
+    );
+    const context = collectContextBlocks(
+      service,
+      message.conversationId,
+      conversationMeta,
+    );
+
+    return {
+      enriched: buildEnrichedInboundMessage({
+        service,
+        message,
+        taskId,
+        senderName,
+        coalesced,
+        context,
+      }),
+      ...(context.commitContext
+        ? { commitContext: context.commitContext }
+        : {}),
+    };
+  }).pipe(Effect.withSpan("enrichChannelMessage"));
 }
 
 function asMessageArray(
@@ -39,19 +78,6 @@ function asMessageArray(
   return isMessageList(messageOrMessages)
     ? [...messageOrMessages]
     : [messageOrMessages];
-}
-
-function formatCoalescedText(
-  coalesced: ReadonlyArray<CoalescedMessage>,
-): string {
-  if (coalesced.length === 1) return coalesced[0]!.text;
-  return coalesced
-    .map((message, index) =>
-      index === 0
-        ? message.text
-        : `[queued message from ${message.sender.name} at ${message.createdAt}]\n${message.text}`,
-    )
-    .join("\n\n");
 }
 
 function conversationMetaFrom(
@@ -65,16 +91,6 @@ function conversationMetaFrom(
   };
 }
 
-function extractTextContent(parts: Message["parts"]): string {
-  return parts
-    .filter(
-      (part): part is Extract<Message["parts"][number], { type: "text" }> =>
-        part.type === "text",
-    )
-    .map((part) => part.text)
-    .join("\n");
-}
-
 function resolveSenderName(
   service: ChannelService,
   agentId: string,
@@ -83,22 +99,6 @@ function resolveSenderName(
   return cachedName !== undefined
     ? Effect.succeed(cachedName)
     : service.resolveAgentName(agentId);
-}
-
-function coalescedMessageFrom(
-  message: Message,
-  senderName: string,
-): CoalescedMessage {
-  return {
-    id: message.id,
-    sender: {
-      id: message.senderId,
-      name: senderName,
-    },
-    text: extractTextContent(message.parts),
-    createdAt: message.createdAt,
-    ...(message.replyToId ? { replyToId: message.replyToId } : {}),
-  };
 }
 
 function buildCoalescedMessages(
@@ -115,12 +115,6 @@ function buildCoalescedMessages(
     }
     return coalesced;
   });
-}
-
-function isFromOwnAgent(service: ChannelService, message: Message): boolean {
-  return (
-    service.ownAgentId !== undefined && message.senderId === service.ownAgentId
-  );
 }
 
 function collectContextBlocks(
@@ -185,47 +179,53 @@ function buildEnrichedInboundMessage({
   };
 }
 
-export function enrichChannelMessage(
-  service: ChannelService,
-  taskId: TaskId,
+function isMessageList(
   messageOrMessages: Message | ReadonlyArray<Message>,
-): Effect.Effect<
-  {
-    enriched: EnrichedInboundMessage;
-    commitContext?: () => void;
-  },
-  never
-> {
-  return Effect.gen(function* () {
-    const messages = asMessageArray(messageOrMessages);
-    const message = messages[0]!;
-    const senderName = yield* resolveSenderName(service, message.senderId);
-    const coalesced = yield* buildCoalescedMessages(
-      service,
-      messages,
-      senderName,
-    );
-    const conversationMeta = conversationMetaFrom(
-      service.getConversation(message.conversationId),
-    );
-    const context = collectContextBlocks(
-      service,
-      message.conversationId,
-      conversationMeta,
-    );
+): messageOrMessages is ReadonlyArray<Message> {
+  return Array.isArray(messageOrMessages);
+}
 
-    return {
-      enriched: buildEnrichedInboundMessage({
-        service,
-        message,
-        taskId,
-        senderName,
-        coalesced,
-        context,
-      }),
-      ...(context.commitContext
-        ? { commitContext: context.commitContext }
-        : {}),
-    };
-  }).pipe(Effect.withSpan("enrichChannelMessage"));
+function coalescedMessageFrom(
+  message: Message,
+  senderName: string,
+): CoalescedMessage {
+  return {
+    id: message.id,
+    sender: {
+      id: message.senderId,
+      name: senderName,
+    },
+    text: extractTextContent(message.parts),
+    createdAt: message.createdAt,
+    ...(message.replyToId ? { replyToId: message.replyToId } : {}),
+  };
+}
+
+function formatCoalescedText(
+  coalesced: ReadonlyArray<CoalescedMessage>,
+): string {
+  if (coalesced.length === 1) return coalesced[0]!.text;
+  return coalesced
+    .map((message, index) =>
+      index === 0
+        ? message.text
+        : `[queued message from ${message.sender.name} at ${message.createdAt}]\n${message.text}`,
+    )
+    .join("\n\n");
+}
+
+function isFromOwnAgent(service: ChannelService, message: Message): boolean {
+  return (
+    service.ownAgentId !== undefined && message.senderId === service.ownAgentId
+  );
+}
+
+function extractTextContent(parts: Message["parts"]): string {
+  return parts
+    .filter(
+      (part): part is Extract<Message["parts"][number], { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("\n");
 }

@@ -9,19 +9,36 @@ const URI_RE = /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/;
 /** The three wire string formats. */
 export type WireStringFormat = "uuid" | "uri" | "date-time";
 
-// Arbitrary-annotation factories. `Arbitrary.make` derives a generator by
-// reading the schema's refinements — but for a `Schema.pattern` like the UUID
-// regex it FALLS BACK to filter-rejection (generate random strings, keep ones
-// matching the regex), which for a UUID essentially never produces a hit and
-// makes conformance fuzzing hang. So each format primitive carries an explicit
-// `arbitrary` annotation that generates valid values DIRECTLY. The `fc` arg is
-// Effect's re-exported FastCheck instance, passed in by `Arbitrary.make` — no
-// top-level `fast-check` import in production code.
-function dateTimeArbitrary() {
-  return (
-    fc: typeof import("effect").FastCheck,
-  ): import("effect").FastCheck.Arbitrary<string> =>
-    fc.date({ noInvalidDate: true }).map((d) => d.toISOString());
+/**
+ * Unbranded `Schema.String` carrying one of the three wire `format` checkers.
+ * Use for `result`/nested string fields that need a `format` but no brand
+ * (e.g. a callback URL `uri`, a raw `uuid`-shaped id field). Emits the draft-07
+ * `format` keyword for the docs walker and runs the regex/finiteness
+ * refinement at decode time.
+ */
+export function formatString(format: WireStringFormat): Schema.Schema<string> {
+  return applyStringFormat(Schema.String, format);
+}
+
+/**
+ * `Schema.Literal(...values)` typed as the union of the literal values. Use
+ * instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` — same
+ * wire shape, simpler schema. `JSONSchema.make` renders a literal union as
+ * `{ "enum": [...] }` (string-valued), which the docs walker reads off
+ * `.enum`.
+ */
+export function stringEnum<T extends string[]>(
+  values: [...T],
+): Schema.Schema<T[number]> {
+  return Schema.Literal(...values);
+}
+
+/**
+ * Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
+ * can keep `as const` references stable while the schema body is owned here.
+ */
+export function dateTimeStringSchema(): typeof DateTimeStringSchema {
+  return DateTimeStringSchema;
 }
 
 /**
@@ -76,40 +93,23 @@ function applyStringFormat(
 }
 
 /**
- * Unbranded `Schema.String` carrying one of the three wire `format` checkers.
- * Use for `result`/nested string fields that need a `format` but no brand
- * (e.g. a callback URL `uri`, a raw `uuid`-shaped id field). Emits the draft-07
- * `format` keyword for the docs walker and runs the regex/finiteness
- * refinement at decode time.
- */
-export function formatString(format: WireStringFormat): Schema.Schema<string> {
-  return applyStringFormat(Schema.String, format);
-}
-
-/**
- * `Schema.Literal(...values)` typed as the union of the literal values. Use
- * instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` — same
- * wire shape, simpler schema. `JSONSchema.make` renders a literal union as
- * `{ "enum": [...] }` (string-valued), which the docs walker reads off
- * `.enum`.
- */
-export function stringEnum<T extends string[]>(
-  values: [...T],
-): Schema.Schema<T[number]> {
-  return Schema.Literal(...values);
-}
-
-/**
  * ISO-8601 date-time string. Validated by the `date-time` `pattern` +
  * `Date.parse` finiteness `filter`. Derive the type off `dateTimeStringSchema()`
  * where needed.
  */
 const DateTimeStringSchema = applyStringFormat(Schema.String, "date-time");
 
-/**
- * Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
- * can keep `as const` references stable while the schema body is owned here.
- */
-export function dateTimeStringSchema(): typeof DateTimeStringSchema {
-  return DateTimeStringSchema;
+// Arbitrary-annotation factories. `Arbitrary.make` derives a generator by
+// reading the schema's refinements — but for a `Schema.pattern` like the UUID
+// regex it FALLS BACK to filter-rejection (generate random strings, keep ones
+// matching the regex), which for a UUID essentially never produces a hit and
+// makes conformance fuzzing hang. So each format primitive carries an explicit
+// `arbitrary` annotation that generates valid values DIRECTLY. The `fc` arg is
+// Effect's re-exported FastCheck instance, passed in by `Arbitrary.make` — no
+// top-level `fast-check` import in production code.
+function dateTimeArbitrary() {
+  return (
+    fc: typeof import("effect").FastCheck,
+  ): import("effect").FastCheck.Arbitrary<string> =>
+    fc.date({ noInvalidDate: true }).map((d) => d.toISOString());
 }

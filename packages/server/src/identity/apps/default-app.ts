@@ -43,25 +43,24 @@ const DEFAULT_APP_MANIFEST = {
   },
 } satisfies AppManifest;
 
-function inertOriginatorOp(op: string): Effect.Effect<never> {
-  return Effect.die(
-    new Error(
-      `default app endpoint: ${op} invoked — the default app declares only static policies, so its originator must never be called`,
-    ),
+/**
+ * Boot-time installation of the default app. Registers the static-only
+ * manifest under {@link DEFAULT_APP_ID}. No app round-trip is ever made.
+ *
+ * App-admin RPCs remain unreachable on
+ * `DEFAULT_APP_ID` tasks because no client `AppConnection` can ever own
+ * the default app — its endpoint is a server-minted inert endpoint, not
+ * a connected HTTP-registered app.
+ *
+ */
+export function installDefaultApp(
+  appEndpointRegistry: AppEndpointRegistry,
+): void {
+  appEndpointRegistry.registerApp(
+    DEFAULT_APP_ID,
+    DEFAULT_APP_MANIFEST,
+    makeDefaultAppEndpoint(),
   );
-}
-
-function makeInertParser(op: string): RpcSerialization.Parser {
-  const fail = () =>
-    Effect.runSync(
-      Effect.dieMessage(
-        `default app endpoint: ${op} invoked — the default app serves no reverse protocol frames`,
-      ),
-    );
-  return {
-    decode: fail,
-    encode: fail,
-  };
 }
 
 /**
@@ -87,22 +86,23 @@ function makeDefaultAppEndpoint(): AppEndpoint {
   };
 }
 
-/**
- * Boot-time installation of the default app. Registers the static-only
- * manifest under {@link DEFAULT_APP_ID}. No app round-trip is ever made.
- *
- * App-admin RPCs remain unreachable on
- * `DEFAULT_APP_ID` tasks because no client `AppConnection` can ever own
- * the default app — its endpoint is a server-minted inert endpoint, not
- * a connected HTTP-registered app.
- *
- */
-export function installDefaultApp(
-  appEndpointRegistry: AppEndpointRegistry,
-): void {
-  appEndpointRegistry.registerApp(
-    DEFAULT_APP_ID,
-    DEFAULT_APP_MANIFEST,
-    makeDefaultAppEndpoint(),
+function inertOriginatorOp(op: string): Effect.Effect<never> {
+  return Effect.die(
+    new Error(
+      `default app endpoint: ${op} invoked — the default app declares only static policies, so its originator must never be called`,
+    ),
   );
+}
+
+function makeInertParser(op: string): RpcSerialization.Parser {
+  const fail = () =>
+    Effect.runSync(
+      Effect.dieMessage(
+        `default app endpoint: ${op} invoked — the default app serves no reverse protocol frames`,
+      ),
+    );
+  return {
+    decode: fail,
+    encode: fail,
+  };
 }

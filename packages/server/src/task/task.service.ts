@@ -37,10 +37,6 @@ const ERR_CONV_NOT_IN_TASK =
   "Conversation does not belong to the specified task";
 const ERR_TASK_NOT_OPEN = "Task is not open for mutation";
 
-function absurdTaskStatus(status: never): never {
-  throw new Error(`unreachable task status: ${JSON.stringify(status)}`);
-}
-
 interface TaskRow {
   readonly id: TaskId;
   readonly app_id: string;
@@ -49,37 +45,6 @@ interface TaskRow {
   readonly started_at: Date | null;
   readonly ended_at: Date | null;
   readonly created_at: Date;
-}
-
-function rowToTask(row: TaskRow): Task {
-  return {
-    id: row.id,
-    appId: row.app_id,
-    initiatorAgentId: row.initiator_agent_id,
-    status: row.status,
-    startedAt: row.started_at ? row.started_at.toISOString() : null,
-    endedAt: row.ended_at ? row.ended_at.toISOString() : null,
-    createdAt: row.created_at.toISOString(),
-  };
-}
-
-function positionOfTaskRow(row: TaskRow): {
-  readonly sortKey: string;
-  readonly id: string;
-} {
-  return { sortKey: row.created_at.toISOString(), id: row.id };
-}
-
-function rowToParticipant(row: {
-  readonly task_id: TaskId;
-  readonly agent_id: AgentId;
-  readonly admitted_at: Date | null;
-}): TaskParticipant {
-  return {
-    taskId: row.task_id,
-    agentId: row.agent_id,
-    admittedAt: row.admitted_at ? row.admitted_at.toISOString() : null,
-  };
 }
 
 interface TaskCreateInput {
@@ -129,49 +94,6 @@ type ConversationParticipantRow = {
 type AgentIdRow = {
   readonly agent_id: AgentId;
 };
-
-function conversationIdsFromRows(
-  rows: readonly ArchivedConversationRow[],
-): ConversationId[] {
-  const ids: ConversationId[] = [];
-  for (const row of rows) ids.push(row.id);
-  return ids;
-}
-
-function participantMapFromRows(
-  rows: readonly ConversationParticipantRow[],
-): ReadonlyMap<ConversationId, readonly AgentId[]> {
-  const participantsByConversation = new Map<ConversationId, AgentId[]>();
-  for (const row of rows) {
-    const existing = participantsByConversation.get(row.conversation_id) ?? [];
-    existing.push(row.agent_id);
-    participantsByConversation.set(row.conversation_id, existing);
-  }
-  return participantsByConversation;
-}
-
-function agentIdsFromRows(rows: readonly AgentIdRow[]): AgentId[] {
-  const agentIds: AgentId[] = [];
-  for (const row of rows) agentIds.push(row.agent_id);
-  return agentIds;
-}
-
-function archivedConversationsFromRows(
-  rows: readonly ArchivedConversationRow[],
-  participantsByConversation: ReadonlyMap<ConversationId, readonly AgentId[]>,
-): TaskCloseLifecycle["archivedConversations"] {
-  const archivedConversations: Array<
-    TaskCloseLifecycle["archivedConversations"][number]
-  > = [];
-  for (const row of rows) {
-    archivedConversations.push({
-      conversationId: row.id,
-      archivedAt: row.archived_at!.toISOString(),
-      participantAgentIds: participantsByConversation.get(row.id) ?? [],
-    });
-  }
-  return archivedConversations;
-}
 
 export class TaskService {
   constructor(
@@ -926,4 +848,82 @@ export class TaskService {
       );
     });
   }
+}
+
+function absurdTaskStatus(status: never): never {
+  throw new Error(`unreachable task status: ${JSON.stringify(status)}`);
+}
+
+function rowToTask(row: TaskRow): Task {
+  return {
+    id: row.id,
+    appId: row.app_id,
+    initiatorAgentId: row.initiator_agent_id,
+    status: row.status,
+    startedAt: row.started_at ? row.started_at.toISOString() : null,
+    endedAt: row.ended_at ? row.ended_at.toISOString() : null,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+function positionOfTaskRow(row: TaskRow): {
+  readonly sortKey: string;
+  readonly id: string;
+} {
+  return { sortKey: row.created_at.toISOString(), id: row.id };
+}
+
+function rowToParticipant(row: {
+  readonly task_id: TaskId;
+  readonly agent_id: AgentId;
+  readonly admitted_at: Date | null;
+}): TaskParticipant {
+  return {
+    taskId: row.task_id,
+    agentId: row.agent_id,
+    admittedAt: row.admitted_at ? row.admitted_at.toISOString() : null,
+  };
+}
+
+function conversationIdsFromRows(
+  rows: readonly ArchivedConversationRow[],
+): ConversationId[] {
+  const ids: ConversationId[] = [];
+  for (const row of rows) ids.push(row.id);
+  return ids;
+}
+
+function participantMapFromRows(
+  rows: readonly ConversationParticipantRow[],
+): ReadonlyMap<ConversationId, readonly AgentId[]> {
+  const participantsByConversation = new Map<ConversationId, AgentId[]>();
+  for (const row of rows) {
+    const existing = participantsByConversation.get(row.conversation_id) ?? [];
+    existing.push(row.agent_id);
+    participantsByConversation.set(row.conversation_id, existing);
+  }
+  return participantsByConversation;
+}
+
+function agentIdsFromRows(rows: readonly AgentIdRow[]): AgentId[] {
+  const agentIds: AgentId[] = [];
+  for (const row of rows) agentIds.push(row.agent_id);
+  return agentIds;
+}
+
+function archivedConversationsFromRows(
+  rows: readonly ArchivedConversationRow[],
+  participantsByConversation: ReadonlyMap<ConversationId, readonly AgentId[]>,
+): TaskCloseLifecycle["archivedConversations"] {
+  const archivedConversations: Array<
+    TaskCloseLifecycle["archivedConversations"][number]
+  > = [];
+  for (const row of rows) {
+    archivedConversations.push({
+      conversationId: row.id,
+      archivedAt: row.archived_at!.toISOString(),
+      participantAgentIds: participantsByConversation.get(row.id) ?? [],
+    });
+  }
+  return archivedConversations;
 }

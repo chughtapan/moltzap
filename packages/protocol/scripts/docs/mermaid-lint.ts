@@ -25,6 +25,8 @@ interface ExtractorState {
   out: MermaidBlock[];
 }
 
+const MMDC_BIN = "mmdc";
+
 /**
  * Locate every fenced ```mermaid block in the given file. Returns the
  * block's 1-based start line (the opening fence) and raw body text.
@@ -48,51 +50,6 @@ export function extractMermaidBlocks(
   }
   return state.out;
 }
-
-function processLine(
-  file: string,
-  line: string,
-  lineIx: number,
-  state: ExtractorState,
-): void {
-  const fenceMatch = line.match(/^([ \t]*)(```+|~~~+)([A-Za-z0-9_-]*)\s*$/);
-  if (fenceMatch) {
-    handleFence(file, fenceMatch, lineIx, state);
-    return;
-  }
-  if (state.inFence && state.fenceLang === "mermaid") {
-    state.bodyLines.push(line);
-  }
-}
-
-function handleFence(
-  file: string,
-  match: RegExpMatchArray,
-  lineIx: number,
-  state: ExtractorState,
-): void {
-  const indent = match[1] ?? "";
-  const lang = match[3] ?? "";
-  if (!state.inFence) {
-    if (indent.length >= 4) return;
-    state.inFence = true;
-    state.fenceLang = lang || null;
-    state.blockStart = lineIx + 1;
-    state.bodyLines = [];
-    return;
-  }
-  if (state.fenceLang === "mermaid") {
-    state.out.push({
-      file,
-      startLine: state.blockStart,
-      body: state.bodyLines.join("\n"),
-    });
-  }
-  state.inFence = false;
-  state.fenceLang = null;
-}
-
-const MMDC_BIN = "mmdc";
 
 /**
  * Validate `block.body` by writing it to a temp file and shelling out
@@ -118,6 +75,22 @@ export const lintBlock = (
     yield* cleanup(fs, inputPath, outputPath);
     return interpretResult(block, result);
   });
+
+function processLine(
+  file: string,
+  line: string,
+  lineIx: number,
+  state: ExtractorState,
+): void {
+  const fenceMatch = line.match(/^([ \t]*)(```+|~~~+)([A-Za-z0-9_-]*)\s*$/);
+  if (fenceMatch) {
+    handleFence(file, fenceMatch, lineIx, state);
+    return;
+  }
+  if (state.inFence && state.fenceLang === "mermaid") {
+    state.bodyLines.push(line);
+  }
+}
 
 function prepareInput(
   fs: FileSystem.FileSystem,
@@ -173,4 +146,31 @@ function interpretResult(
     onRight: (code) =>
       code === 0 ? null : { block, message: `mmdc exited ${String(code)}` },
   });
+}
+
+function handleFence(
+  file: string,
+  match: RegExpMatchArray,
+  lineIx: number,
+  state: ExtractorState,
+): void {
+  const indent = match[1] ?? "";
+  const lang = match[3] ?? "";
+  if (!state.inFence) {
+    if (indent.length >= 4) return;
+    state.inFence = true;
+    state.fenceLang = lang || null;
+    state.blockStart = lineIx + 1;
+    state.bodyLines = [];
+    return;
+  }
+  if (state.fenceLang === "mermaid") {
+    state.out.push({
+      file,
+      startLine: state.blockStart,
+      body: state.bodyLines.join("\n"),
+    });
+  }
+  state.inFence = false;
+  state.fenceLang = null;
 }

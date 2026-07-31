@@ -30,42 +30,6 @@ interface AppBoundConversationLookup {
   readonly appId: AppId;
 }
 
-/**
- * Dispatch admission is only defined for app-bound, non-archived
- * conversations. The success type has no non-app-bound arm, so downstream
- * lease minting cannot accidentally handle one as a lease binding.
- */
-function lookupAppBoundForConversation(
-  db: Db,
-  conversationId: ConversationId,
-): Effect.Effect<AppBoundConversationLookup, never, never> {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const rowOpt = yield* takeFirstOption(
-        db
-          .selectFrom("conversations")
-          .innerJoin("tasks", "tasks.id", "conversations.task_id")
-          .select(["tasks.id as task_id", "tasks.app_id"])
-          .where("conversations.id", "=", conversationId)
-          .where("conversations.archived_at", "is", null)
-          .where("tasks.app_id", "is not", null)
-          .limit(1),
-      );
-      if (Option.isNone(rowOpt) || rowOpt.value.app_id === null) {
-        return yield* Effect.dieMessage(
-          `agent/dispatch/request requires an app-bound conversation: ${conversationId}`,
-        );
-      }
-      const lookup: AppBoundConversationLookup = {
-        _tag: "AppBound",
-        taskId: rowOpt.value.task_id,
-        appId: rowOpt.value.app_id,
-      };
-      return lookup;
-    }).pipe(Effect.withSpan("lookupAppBoundForConversation")),
-  );
-}
-
 export type DispatchAdmissionResult =
   | {
       readonly decision: "grant";
@@ -123,25 +87,6 @@ class DispatchAppUnavailableError extends Data.TaggedError(
 }> {
   override get message(): string {
     return `agent/dispatch/request cannot mint a moderator-bound lease because app ${this.appId} is unavailable for conversation ${this.conversationId}`;
-  }
-}
-
-function dispatchVerdictToLeaseVerdict(
-  verdict: DispatchAdmissionResult,
-): LeaseVerdict {
-  switch (verdict.decision) {
-    case "grant":
-      return verdict.leaseTimeoutMs === undefined
-        ? { _tag: "grant" }
-        : { _tag: "grant", leaseTimeoutMs: verdict.leaseTimeoutMs };
-    case "deny":
-      return verdict.reason === undefined
-        ? { _tag: "deny" }
-        : { _tag: "deny", reason: verdict.reason };
-    case "hold":
-      return verdict.reason === undefined
-        ? { _tag: "hold" }
-        : { _tag: "hold", reason: verdict.reason };
   }
 }
 
@@ -403,5 +348,60 @@ export class DispatchAdmissionService {
           }
         : {}),
     };
+  }
+}
+
+/**
+ * Dispatch admission is only defined for app-bound, non-archived
+ * conversations. The success type has no non-app-bound arm, so downstream
+ * lease minting cannot accidentally handle one as a lease binding.
+ */
+function lookupAppBoundForConversation(
+  db: Db,
+  conversationId: ConversationId,
+): Effect.Effect<AppBoundConversationLookup, never, never> {
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const rowOpt = yield* takeFirstOption(
+        db
+          .selectFrom("conversations")
+          .innerJoin("tasks", "tasks.id", "conversations.task_id")
+          .select(["tasks.id as task_id", "tasks.app_id"])
+          .where("conversations.id", "=", conversationId)
+          .where("conversations.archived_at", "is", null)
+          .where("tasks.app_id", "is not", null)
+          .limit(1),
+      );
+      if (Option.isNone(rowOpt) || rowOpt.value.app_id === null) {
+        return yield* Effect.dieMessage(
+          `agent/dispatch/request requires an app-bound conversation: ${conversationId}`,
+        );
+      }
+      const lookup: AppBoundConversationLookup = {
+        _tag: "AppBound",
+        taskId: rowOpt.value.task_id,
+        appId: rowOpt.value.app_id,
+      };
+      return lookup;
+    }).pipe(Effect.withSpan("lookupAppBoundForConversation")),
+  );
+}
+
+function dispatchVerdictToLeaseVerdict(
+  verdict: DispatchAdmissionResult,
+): LeaseVerdict {
+  switch (verdict.decision) {
+    case "grant":
+      return verdict.leaseTimeoutMs === undefined
+        ? { _tag: "grant" }
+        : { _tag: "grant", leaseTimeoutMs: verdict.leaseTimeoutMs };
+    case "deny":
+      return verdict.reason === undefined
+        ? { _tag: "deny" }
+        : { _tag: "deny", reason: verdict.reason };
+    case "hold":
+      return verdict.reason === undefined
+        ? { _tag: "hold" }
+        : { _tag: "hold", reason: verdict.reason };
   }
 }

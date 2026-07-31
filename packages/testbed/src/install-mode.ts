@@ -18,12 +18,6 @@ interface InstallModeDecision {
   readonly packageRoot: string | null;
 }
 
-const defaultResolverDeps: InstallModeResolverDeps = {
-  resolveChannelPackageRoot: () =>
-    resolveInstalledPackageRoot(CHANNEL_PACKAGE_NAME, import.meta.url),
-  workspacePackagesDir: findWorkspacePackagesDir(import.meta.url),
-};
-
 /**
  * Builds a resolver around explicit package-location seams so inference stays
  * testable without depending on the checkout that runs the test.
@@ -44,6 +38,22 @@ export function makeInstallModeResolver(deps: InstallModeResolverDeps) {
  */
 export function resolveInstallMode(installMode?: InstallMode) {
   return makeInstallModeResolver(defaultResolverDeps)(installMode);
+}
+
+/** @internal */
+export function findWorkspacePackagesDir(
+  moduleUrl: string | URL,
+): string | null {
+  let current = dirname(fileURLToPath(moduleUrl));
+  const root = parse(current).root;
+  while (current !== root) {
+    const parent = dirname(current);
+    if (basename(current) === "testbed" && basename(parent) === "packages") {
+      return parent;
+    }
+    current = parent;
+  }
+  return null;
 }
 
 function decideInstallMode(
@@ -79,6 +89,12 @@ function logInstallModeDecision(decision: InstallModeDecision) {
   );
 }
 
+const defaultResolverDeps: InstallModeResolverDeps = {
+  resolveChannelPackageRoot: () =>
+    resolveInstalledPackageRoot(CHANNEL_PACKAGE_NAME, import.meta.url),
+  workspacePackagesDir: findWorkspacePackagesDir(import.meta.url),
+};
+
 function isWorkspacePackageRoot(
   packageRoot: string,
   workspacePackagesDir: string | null,
@@ -94,20 +110,4 @@ function isWorkspacePackageRoot(
     return false;
   }
   return !relativeRoot.split(sep).includes("node_modules");
-}
-
-/** @internal */
-export function findWorkspacePackagesDir(
-  moduleUrl: string | URL,
-): string | null {
-  let current = dirname(fileURLToPath(moduleUrl));
-  const root = parse(current).root;
-  while (current !== root) {
-    const parent = dirname(current);
-    if (basename(current) === "testbed" && basename(parent) === "packages") {
-      return parent;
-    }
-    current = parent;
-  }
-  return null;
 }

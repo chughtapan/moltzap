@@ -11,10 +11,6 @@ import type {
 import { sendRpcToClient } from "#socket";
 import type { AppRegistration } from "./registry.js";
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 export function callAppRpc(
   entry: AppRegistration,
   request: Extract<
@@ -85,4 +81,8 @@ export function wrapHookEffectWithEnvelope<Verdict, E = never>(opts: {
     ),
     Effect.withSpan("wrapHookEffectWithEnvelope"),
   );
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

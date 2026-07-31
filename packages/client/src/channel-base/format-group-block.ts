@@ -34,20 +34,6 @@ export function getGroupFields(
   return { name: meta.name, participants: meta.participants };
 }
 
-function formatXmlSystemReminder(fields: GroupFields): string {
-  const safeName = sanitizeForSystemReminder(
-    fields.name ?? UNNAMED_GROUP_FALLBACK,
-  );
-  const safeParticipants = fields.participants.map(sanitizeForSystemReminder);
-  return [
-    "<system-reminder>",
-    "This is a group conversation.",
-    `Group name: ${safeName}`,
-    `Participants (${fields.participants.length}): ${safeParticipants.join(", ") || NO_PARTICIPANTS_FALLBACK}`,
-    "</system-reminder>",
-  ].join("\n");
-}
-
 /**
  * Returns the formatted group block.
  *
@@ -74,4 +60,18 @@ export function formatGroupBlock(
     case "json-header":
       return "";
   }
+}
+
+function formatXmlSystemReminder(fields: GroupFields): string {
+  const safeName = sanitizeForSystemReminder(
+    fields.name ?? UNNAMED_GROUP_FALLBACK,
+  );
+  const safeParticipants = fields.participants.map(sanitizeForSystemReminder);
+  return [
+    "<system-reminder>",
+    "This is a group conversation.",
+    `Group name: ${safeName}`,
+    `Participants (${fields.participants.length}): ${safeParticipants.join(", ") || NO_PARTICIPANTS_FALLBACK}`,
+    "</system-reminder>",
+  ].join("\n");
 }

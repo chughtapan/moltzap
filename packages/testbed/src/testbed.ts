@@ -1,6 +1,3 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-export type { InstallMode } from "./install-mode.js";
-
 import { Data, Effect, Exit, Fiber, Schema } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
@@ -124,213 +121,13 @@ class UnknownRuntimeAgent extends Data.TaggedError("UnknownRuntimeAgent")<{
   readonly message: string;
 }> {}
 
-function createRuntime(
-  options: RuntimeStartOptions,
-  installMode: InstallMode,
-): Runtime {
-  switch (options.kind) {
-    case "openclaw":
-      return createOpenClawAdapter({
-        server: options.server,
-        ...options.openclaw,
-        installMode,
-      });
-    case "nanoclaw":
-      return new NanoclawAdapter({
-        server: options.server,
-        ...options.nanoclaw,
-        installMode,
-      });
-  }
-}
-
-function installModeOverride(
-  options: RuntimeStartOptions | TestbedLaunchOptions,
-): InstallMode | undefined {
-  switch (options.kind) {
-    case "openclaw":
-      return options.openclaw?.installMode;
-    case "nanoclaw":
-      return options.nanoclaw?.installMode;
-  }
-}
-
-const decodeServerUrl = Schema.decodeEither(ServerBaseUrl);
-
 /** One agent's spec paired with the `SpawnInput` decoded from it. */
 interface DecodedAgent {
   readonly agent: TestbedAgentSpec;
   readonly spawnInput: SpawnInput;
 }
-
-// `TestbedAgentSpec` is the package boundary, so the address is decoded here
-// rather than trusted; downstream every adapter holds a path-free `ServerUrl`.
-function toSpawnInput(
-  agent: TestbedAgentSpec,
-): Effect.Effect<SpawnInput, SpawnFailed> {
-  return decodeServerUrl(agent.serverUrl).pipe(
-    Effect.mapError((cause) => spawnFailed(agent.agentName, cause)),
-    Effect.map((serverUrl) => ({
-      agentName: AgentName(agent.agentName),
-      apiKey: agent.apiKey,
-      agentId: agent.agentId,
-      serverUrl,
-      ...(agent.workspaceFiles !== undefined
-        ? { workspaceFiles: agent.workspaceFiles }
-        : {}),
-      ...(agent.modelId !== undefined ? { modelId: agent.modelId } : {}),
-    })),
-  );
-}
-
-/**
- * Tear down every started agent in REVERSE insertion order. Last
- * spawned is torn down first so cleanup mirrors startup.
- *
- * Per-adapter teardown does (in order): SIGTERM a running process tree;
- * SIGKILL descendants when the leader exits or the grace window lapses;
- * close the process Scope; recursively remove the temp state-dir.
- *
- * - OpenClaw: `OPENCLAW_TERM_WAIT_MS = 10_000`, `OPENCLAW_KILL_WAIT_MS = 5_000`.
- * - Nanoclaw: signals the runtime child, closes its process scope, then
- *   removes the isolated runtime directory.
- */
-function teardownStartedAgents(
-  startedAgents: ReadonlyArray<StartedRuntimeAgent>,
-): Effect.Effect<void, never, never> {
-  return Effect.forEach(
-    [...startedAgents].reverse(),
-    (startedAgent) => startedAgent.runtime.teardown(),
-    { concurrency: 1, discard: true },
-  );
-}
-
-function runtimeStartOptionsForAgent(
-  options: TestbedLaunchOptions,
-  agent: TestbedAgentSpec,
-): RuntimeStartOptions {
-  const common = {
-    server: options.server,
-    agent,
-    readyTimeoutMs: options.readyTimeoutMs,
-  };
-  switch (options.kind) {
-    case "openclaw":
-      return {
-        ...common,
-        kind: "openclaw",
-        openclaw: options.openclaw,
-      };
-    case "nanoclaw":
-      return {
-        ...common,
-        kind: "nanoclaw",
-        nanoclaw: options.nanoclaw,
-      };
-  }
-}
-
-function startTestbedAgent(
-  options: TestbedLaunchOptions,
-  startedAgents: StartedRuntimeAgent[],
-  decoded: DecodedAgent,
-  installMode: InstallMode,
-) {
-  return Effect.gen(function* () {
-    const pending = yield* startPendingRuntimeAgent(
-      runtimeStartOptionsForAgent(options, decoded.agent),
-      installMode,
-      decoded.spawnInput,
-    );
-    const startedAgent = {
-      spec: decoded.agent,
-      runtime: pending.runtime,
-    } satisfies StartedRuntimeAgent;
-    startedAgents.push(startedAgent);
-    yield* pending.releaseStartupCleanup;
-    return startedAgent;
-  });
-}
-
-function logsForStartedAgent(
-  started: ReadonlyArray<StartedRuntimeAgent>,
-  name: string,
-): string {
-  const startedAgent = started.find(
-    (candidate) => candidate.spec.agentName === name,
-  );
-  if (startedAgent !== undefined) {
-    return startedAgent.runtime.getLogs(LOG_START_OFFSET).text;
-  }
-
-  const knownAgents = started.map((candidate) => candidate.spec.agentName);
-  throw new UnknownRuntimeAgent({
-    agentName: name,
-    knownAgents,
-    message: `Unknown runtime agent "${name}". Known agents: ${knownAgents.join(", ")}`,
-  });
-}
-
-function toTestbed(started: ReadonlyArray<StartedRuntimeAgent>): Testbed {
-  return {
-    agents: started.map((startedAgent) => ({
-      name: startedAgent.spec.agentName,
-      agentId: startedAgent.spec.agentId,
-    })),
-    stopAll: () => teardownStartedAgents(started),
-    getLogs: (name: string): string => logsForStartedAgent(started, name),
-  };
-}
-
-function startPendingRuntimeAgent(
-  options: RuntimeStartOptions,
-  installMode: InstallMode,
-  spawnInput: SpawnInput,
-) {
-  const runtime = createRuntime(options, installMode);
-  return Effect.gen(function* () {
-    let cleanupArmed = true;
-    const [closeStartupScope] = yield* Effect.withEarlyRelease(
-      Effect.gen(function* () {
-        yield* Effect.addFinalizer(() =>
-          cleanupArmed ? runtime.teardown() : Effect.void,
-        );
-        yield* runtime.spawn(spawnInput);
-      }),
-    );
-    const releaseStartupCleanup = Effect.uninterruptible(
-      Effect.sync(() => {
-        cleanupArmed = false;
-      }).pipe(Effect.zipRight(closeStartupScope)),
-    );
-
-    const ready = yield* runtime.waitUntilReady(options.readyTimeoutMs);
-    switch (ready._tag) {
-      case "Ready":
-        return {
-          runtime,
-          releaseStartupCleanup,
-        } satisfies PendingRuntimeAgent;
-      case "Timeout":
-        return yield* Effect.fail(
-          new RuntimeReadyTimedOut({
-            agentName: options.agent.agentName,
-            timeoutMs: ready.timeoutMs,
-            message: `Runtime for agent "${options.agent.agentName}" did not become ready within ${String(ready.timeoutMs)}ms`,
-          }),
-        );
-      case "ProcessExited":
-        return yield* Effect.fail(
-          new RuntimeExitedBeforeReady({
-            agentName: options.agent.agentName,
-            exitCode: ready.exitCode,
-            stderr: ready.stderr,
-            message: `Runtime for agent "${options.agent.agentName}" exited before readiness (exitCode=${String(ready.exitCode)})`,
-          }),
-        );
-    }
-  });
-}
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+export type { InstallMode } from "./install-mode.js";
 
 /**
  * Spawn one runtime agent, wait for ready, release the startup cleanup
@@ -430,6 +227,191 @@ export function launchTestbed(
   ).pipe(Effect.withSpan("launchTestbed"));
 }
 
+/**
+ * Wraps {@link launchTestbed} with OS-signal handlers so user Ctrl-C
+ * during startup interrupts cleanly instead of half-launching a testbed.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   LRFPS["launchTestbedWithProcessSignals(options)"]
+ *   LRFPS --> FORK["Effect.runFork(launchTestbed) → fiber"]
+ *   FORK --> SIGS["installProcessSignalHandlers<br>(SIGINT, SIGTERM by default)<br>first signal: shutdownSignal.value = signal<br>Fiber.interrupt(fiber)"]
+ *   SIGS --> OBS["observeTestbedLaunchFiber<br>routes by exit shape"]
+ *   LRFPS -->|caller interruption| CANCEL["canceler removes handlers<br>and awaits Fiber.interrupt(fiber)"]
+ *   CANCEL --> CLEAN["launchTestbed finalizers<br>finish runtime teardown"]
+ *   OBS -->|Success| OK["resume(Effect.succeed(testbed))"]
+ *   OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ TestbedStartupInterrupted"]
+ *   OBS -->|Other failure| ERR["resume(Effect.failCause(...))"]
+ * ```
+ * @failure TestbedStartupInterrupted when a signal arrives during testbed startup
+ */
+export function launchTestbedWithProcessSignals(
+  options: TestbedProcessSignalOptions,
+): Effect.Effect<
+  Testbed,
+  RuntimeLaunchFailed | TestbedStartupInterrupted,
+  never
+> {
+  const signals = options.signals ?? ["SIGINT", "SIGTERM"];
+  return Effect.async<Testbed, RuntimeLaunchFailed | TestbedStartupInterrupted>(
+    (resume) => {
+      const fiber = Effect.runFork(launchTestbed(options));
+      const shutdownSignal: ShutdownSignalState = { value: null };
+      const handlers = installProcessSignalHandlers(
+        signals,
+        shutdownSignal,
+        fiber,
+      );
+      const cleanup = (): void => {
+        cleanupProcessSignalHandlers(handlers);
+      };
+
+      observeTestbedLaunchFiber(fiber, shutdownSignal, cleanup, resume);
+
+      return Effect.sync(cleanup).pipe(
+        Effect.zipRight(Fiber.interrupt(fiber)),
+        Effect.asVoid,
+      );
+    },
+  );
+}
+
+function installModeOverride(
+  options: RuntimeStartOptions | TestbedLaunchOptions,
+): InstallMode | undefined {
+  switch (options.kind) {
+    case "openclaw":
+      return options.openclaw?.installMode;
+    case "nanoclaw":
+      return options.nanoclaw?.installMode;
+  }
+}
+
+// `TestbedAgentSpec` is the package boundary, so the address is decoded here
+// rather than trusted; downstream every adapter holds a path-free `ServerUrl`.
+function toSpawnInput(
+  agent: TestbedAgentSpec,
+): Effect.Effect<SpawnInput, SpawnFailed> {
+  return decodeServerUrl(agent.serverUrl).pipe(
+    Effect.mapError((cause) => spawnFailed(agent.agentName, cause)),
+    Effect.map((serverUrl) => ({
+      agentName: AgentName(agent.agentName),
+      apiKey: agent.apiKey,
+      agentId: agent.agentId,
+      serverUrl,
+      ...(agent.workspaceFiles !== undefined
+        ? { workspaceFiles: agent.workspaceFiles }
+        : {}),
+      ...(agent.modelId !== undefined ? { modelId: agent.modelId } : {}),
+    })),
+  );
+}
+
+function startPendingRuntimeAgent(
+  options: RuntimeStartOptions,
+  installMode: InstallMode,
+  spawnInput: SpawnInput,
+) {
+  const runtime = createRuntime(options, installMode);
+  return Effect.gen(function* () {
+    let cleanupArmed = true;
+    const [closeStartupScope] = yield* Effect.withEarlyRelease(
+      Effect.gen(function* () {
+        yield* Effect.addFinalizer(() =>
+          cleanupArmed ? runtime.teardown() : Effect.void,
+        );
+        yield* runtime.spawn(spawnInput);
+      }),
+    );
+    const releaseStartupCleanup = Effect.uninterruptible(
+      Effect.sync(() => {
+        cleanupArmed = false;
+      }).pipe(Effect.zipRight(closeStartupScope)),
+    );
+
+    const ready = yield* runtime.waitUntilReady(options.readyTimeoutMs);
+    switch (ready._tag) {
+      case "Ready":
+        return {
+          runtime,
+          releaseStartupCleanup,
+        } satisfies PendingRuntimeAgent;
+      case "Timeout":
+        return yield* Effect.fail(
+          new RuntimeReadyTimedOut({
+            agentName: options.agent.agentName,
+            timeoutMs: ready.timeoutMs,
+            message: `Runtime for agent "${options.agent.agentName}" did not become ready within ${String(ready.timeoutMs)}ms`,
+          }),
+        );
+      case "ProcessExited":
+        return yield* Effect.fail(
+          new RuntimeExitedBeforeReady({
+            agentName: options.agent.agentName,
+            exitCode: ready.exitCode,
+            stderr: ready.stderr,
+            message: `Runtime for agent "${options.agent.agentName}" exited before readiness (exitCode=${String(ready.exitCode)})`,
+          }),
+        );
+    }
+  });
+}
+
+/**
+ * Tear down every started agent in REVERSE insertion order. Last
+ * spawned is torn down first so cleanup mirrors startup.
+ *
+ * Per-adapter teardown does (in order): SIGTERM a running process tree;
+ * SIGKILL descendants when the leader exits or the grace window lapses;
+ * close the process Scope; recursively remove the temp state-dir.
+ *
+ * - OpenClaw: `OPENCLAW_TERM_WAIT_MS = 10_000`, `OPENCLAW_KILL_WAIT_MS = 5_000`.
+ * - Nanoclaw: signals the runtime child, closes its process scope, then
+ *   removes the isolated runtime directory.
+ */
+function teardownStartedAgents(
+  startedAgents: ReadonlyArray<StartedRuntimeAgent>,
+): Effect.Effect<void, never, never> {
+  return Effect.forEach(
+    [...startedAgents].reverse(),
+    (startedAgent) => startedAgent.runtime.teardown(),
+    { concurrency: 1, discard: true },
+  );
+}
+
+function startTestbedAgent(
+  options: TestbedLaunchOptions,
+  startedAgents: StartedRuntimeAgent[],
+  decoded: DecodedAgent,
+  installMode: InstallMode,
+) {
+  return Effect.gen(function* () {
+    const pending = yield* startPendingRuntimeAgent(
+      runtimeStartOptionsForAgent(options, decoded.agent),
+      installMode,
+      decoded.spawnInput,
+    );
+    const startedAgent = {
+      spec: decoded.agent,
+      runtime: pending.runtime,
+    } satisfies StartedRuntimeAgent;
+    startedAgents.push(startedAgent);
+    yield* pending.releaseStartupCleanup;
+    return startedAgent;
+  });
+}
+
+function toTestbed(started: ReadonlyArray<StartedRuntimeAgent>): Testbed {
+  return {
+    agents: started.map((startedAgent) => ({
+      name: startedAgent.spec.agentName,
+      agentId: startedAgent.spec.agentId,
+    })),
+    stopAll: () => teardownStartedAgents(started),
+    getLogs: (name: string): string => logsForStartedAgent(started, name),
+  };
+}
+
 function installProcessSignalHandlers(
   signals: ReadonlyArray<Signal>,
   state: ShutdownSignalState,
@@ -481,60 +463,77 @@ function observeTestbedLaunchFiber(
   });
 }
 
+const decodeServerUrl = Schema.decodeEither(ServerBaseUrl);
+
+function createRuntime(
+  options: RuntimeStartOptions,
+  installMode: InstallMode,
+): Runtime {
+  switch (options.kind) {
+    case "openclaw":
+      return createOpenClawAdapter({
+        server: options.server,
+        ...options.openclaw,
+        installMode,
+      });
+    case "nanoclaw":
+      return new NanoclawAdapter({
+        server: options.server,
+        ...options.nanoclaw,
+        installMode,
+      });
+  }
+}
+
+function runtimeStartOptionsForAgent(
+  options: TestbedLaunchOptions,
+  agent: TestbedAgentSpec,
+): RuntimeStartOptions {
+  const common = {
+    server: options.server,
+    agent,
+    readyTimeoutMs: options.readyTimeoutMs,
+  };
+  switch (options.kind) {
+    case "openclaw":
+      return {
+        ...common,
+        kind: "openclaw",
+        openclaw: options.openclaw,
+      };
+    case "nanoclaw":
+      return {
+        ...common,
+        kind: "nanoclaw",
+        nanoclaw: options.nanoclaw,
+      };
+  }
+}
+
+function logsForStartedAgent(
+  started: ReadonlyArray<StartedRuntimeAgent>,
+  name: string,
+): string {
+  const startedAgent = started.find(
+    (candidate) => candidate.spec.agentName === name,
+  );
+  if (startedAgent !== undefined) {
+    return startedAgent.runtime.getLogs(LOG_START_OFFSET).text;
+  }
+
+  const knownAgents = started.map((candidate) => candidate.spec.agentName);
+  throw new UnknownRuntimeAgent({
+    agentName: name,
+    knownAgents,
+    message: `Unknown runtime agent "${name}". Known agents: ${knownAgents.join(", ")}`,
+  });
+}
+
 function interruptedStartup(signal: Signal) {
   return Effect.fail(
     new TestbedStartupInterrupted({
       signal,
       message: `Testbed startup interrupted by ${signal}`,
     }),
-  );
-}
-
-/**
- * Wraps {@link launchTestbed} with OS-signal handlers so user Ctrl-C
- * during startup interrupts cleanly instead of half-launching a testbed.
- *
- * ```mermaid
- * flowchart TD
- *   LRFPS["launchTestbedWithProcessSignals(options)"]
- *   LRFPS --> FORK["Effect.runFork(launchTestbed) → fiber"]
- *   FORK --> SIGS["installProcessSignalHandlers<br>(SIGINT, SIGTERM by default)<br>first signal: shutdownSignal.value = signal<br>Fiber.interrupt(fiber)"]
- *   SIGS --> OBS["observeTestbedLaunchFiber<br>routes by exit shape"]
- *   LRFPS -->|caller interruption| CANCEL["canceler removes handlers<br>and awaits Fiber.interrupt(fiber)"]
- *   CANCEL --> CLEAN["launchTestbed finalizers<br>finish runtime teardown"]
- *   OBS -->|Success| OK["resume(Effect.succeed(testbed))"]
- *   OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ TestbedStartupInterrupted"]
- *   OBS -->|Other failure| ERR["resume(Effect.failCause(...))"]
- * ```
- * @failure TestbedStartupInterrupted when a signal arrives during testbed startup
- */
-export function launchTestbedWithProcessSignals(
-  options: TestbedProcessSignalOptions,
-): Effect.Effect<
-  Testbed,
-  RuntimeLaunchFailed | TestbedStartupInterrupted,
-  never
-> {
-  const signals = options.signals ?? ["SIGINT", "SIGTERM"];
-  return Effect.async<Testbed, RuntimeLaunchFailed | TestbedStartupInterrupted>(
-    (resume) => {
-      const fiber = Effect.runFork(launchTestbed(options));
-      const shutdownSignal: ShutdownSignalState = { value: null };
-      const handlers = installProcessSignalHandlers(
-        signals,
-        shutdownSignal,
-        fiber,
-      );
-      const cleanup = (): void => {
-        cleanupProcessSignalHandlers(handlers);
-      };
-
-      observeTestbedLaunchFiber(fiber, shutdownSignal, cleanup, resume);
-
-      return Effect.sync(cleanup).pipe(
-        Effect.zipRight(Fiber.interrupt(fiber)),
-        Effect.asVoid,
-      );
-    },
   );
 }

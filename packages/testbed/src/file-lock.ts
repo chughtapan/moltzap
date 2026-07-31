@@ -75,13 +75,6 @@ const DARWIN_KEEP_LOCK_FILE_FLAG = "-k";
 const LINUX_LOCK_COMMAND = "flock";
 const LINUX_EXCLUSIVE_FLAG = "-x";
 
-function toLockError(reason: string, cause?: unknown) {
-  return new ExclusiveFileLockError({
-    reason,
-    ...(cause === undefined ? {} : { cause }),
-  });
-}
-
 /**
  * Builds the native lock-holder plan separately so crash tests can place it
  * behind a disposable parent process without changing production behavior.
@@ -146,4 +139,11 @@ export function runCommandWithExclusiveFileLock(
     Effect.provide(NodeContext.layer),
     Effect.withSpan("runCommandWithExclusiveFileLock"),
   );
+}
+
+function toLockError(reason: string, cause?: unknown) {
+  return new ExclusiveFileLockError({
+    reason,
+    ...(cause === undefined ? {} : { cause }),
+  });
 }

@@ -23,35 +23,6 @@ const SERVER_SCHEMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Reduce an address to scheme and authority, or `null` when it is not one this
- * client can dial.
- *
- * Discarding the socket route loses nothing reachable: the route `webSocketUrl`
- * appends is fixed, so a server published under a path prefix is not
- * addressable through this package at all. Every other path is rejected rather
- * than silently dropped, and so are credentials, which the authority form
- * cannot carry.
- *
- * The result is rebuilt from the parsed URL rather than sliced out of the
- * input, so the scheme reaches `webSocketUrl` in the lower-case spelling its
- * swap matches. `HTTP://host` would otherwise survive validation and then dial
- * an `HTTP://` URL that no WebSocket can open.
- */
-function toOrigin(value: string): string | null {
-  const trimmed = value
-    .replace(SOCKET_ROUTE_SUFFIX, "")
-    .replace(TRAILING_SLASH, "");
-  // `URL.canParse` rather than `URL.parse`: the package's engine floor is Node
-  // 22.0 and `parse` only exists from 22.1.
-  if (!URL.canParse(trimmed)) return null;
-  const url = new URL(trimmed);
-  if (!SERVER_SCHEMES.has(url.protocol)) return null;
-  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") return null;
-  if (url.username !== "" || url.password !== "") return null;
-  return `${url.protocol}//${url.host}`;
-}
-
-/**
  * A MoltZap server address carrying no path, query, or fragment, over
  * `http`, `https`, `ws`, or `wss`.
  */
@@ -96,3 +67,32 @@ export const serverBaseUrl = Schema.decodeSync(ServerBaseUrl);
 /** The socket endpoint a client dials for the given server. */
 export const webSocketUrl = (base: ServerBaseUrl): string =>
   base.replace(WS_SCHEME_PREFIX, "ws") + SOCKET_ROUTE;
+
+/**
+ * Reduce an address to scheme and authority, or `null` when it is not one this
+ * client can dial.
+ *
+ * Discarding the socket route loses nothing reachable: the route `webSocketUrl`
+ * appends is fixed, so a server published under a path prefix is not
+ * addressable through this package at all. Every other path is rejected rather
+ * than silently dropped, and so are credentials, which the authority form
+ * cannot carry.
+ *
+ * The result is rebuilt from the parsed URL rather than sliced out of the
+ * input, so the scheme reaches `webSocketUrl` in the lower-case spelling its
+ * swap matches. `HTTP://host` would otherwise survive validation and then dial
+ * an `HTTP://` URL that no WebSocket can open.
+ */
+function toOrigin(value: string): string | null {
+  const trimmed = value
+    .replace(SOCKET_ROUTE_SUFFIX, "")
+    .replace(TRAILING_SLASH, "");
+  // `URL.canParse` rather than `URL.parse`: the package's engine floor is Node
+  // 22.0 and `parse` only exists from 22.1.
+  if (!URL.canParse(trimmed)) return null;
+  const url = new URL(trimmed);
+  if (!SERVER_SCHEMES.has(url.protocol)) return null;
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") return null;
+  if (url.username !== "" || url.password !== "") return null;
+  return `${url.protocol}//${url.host}`;
+}

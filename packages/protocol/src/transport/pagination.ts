@@ -3,6 +3,8 @@ import { Schema, type Brand } from "effect";
 export const DEFAULT_PAGE_LIMIT = 50;
 export const MAX_PAGE_LIMIT = 200;
 
+export type ListCursor = string & Brand.Brand<"ListCursor">;
+
 export const ListLimitSchema = Schema.optional(
   Schema.Number.pipe(
     Schema.int(),
@@ -11,7 +13,9 @@ export const ListLimitSchema = Schema.optional(
   ),
 );
 
-export type ListCursor = string & Brand.Brand<"ListCursor">;
+export function listCursorSchema(): typeof ListCursorSchema {
+  return ListCursorSchema;
+}
 
 const ListCursorSchema: Schema.Schema<ListCursor, string> = Schema.String.pipe(
   Schema.brand("ListCursor"),
@@ -22,7 +26,3 @@ const ListCursorSchema: Schema.Schema<ListCursor, string> = Schema.String.pipe(
       "not parse, compare, or construct it.",
   }),
 );
-
-export function listCursorSchema(): typeof ListCursorSchema {
-  return ListCursorSchema;
-}

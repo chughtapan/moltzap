@@ -12,6 +12,27 @@ import { PresenceServiceTag } from "./layer.js";
 import { visibleAgentIds } from "#identity/agents";
 import { agentArm, appArm } from "#moltzap/runtime";
 
+// ── @effect/rpc handler body ─────────────────────────────────────────
+
+export const agentPresenceSubscribe: ServerHandler<
+  typeof AgentPresenceSubscribe
+> = (params) =>
+  Effect.gen(function* () {
+    const subscribedIds = yield* visiblePresenceAgentIds(
+      params.agentIds,
+      yield* agentArm,
+    );
+    return yield* presenceSnapshot(subscribedIds);
+  }).pipe(Effect.withSpan("agentPresenceSubscribe"));
+
+export const appPresenceSubscribe: ServerHandler<
+  typeof AppPresenceSubscribe
+> = (params) =>
+  Effect.gen(function* () {
+    yield* appArm;
+    return yield* presenceSnapshot(params.agentIds);
+  }).pipe(Effect.withSpan("appPresenceSubscribe"));
+
 /**
  * `network/presence/subscribe` reads the current status snapshot via
  * `PresenceService.statusMany`. Presence is server-derived from
@@ -55,24 +76,3 @@ function visiblePresenceAgentIds(
     return visibleIds;
   }).pipe(Effect.withSpan("presence.visibleAgentIds"));
 }
-
-// ── @effect/rpc handler body ─────────────────────────────────────────
-
-export const agentPresenceSubscribe: ServerHandler<
-  typeof AgentPresenceSubscribe
-> = (params) =>
-  Effect.gen(function* () {
-    const subscribedIds = yield* visiblePresenceAgentIds(
-      params.agentIds,
-      yield* agentArm,
-    );
-    return yield* presenceSnapshot(subscribedIds);
-  }).pipe(Effect.withSpan("agentPresenceSubscribe"));
-
-export const appPresenceSubscribe: ServerHandler<
-  typeof AppPresenceSubscribe
-> = (params) =>
-  Effect.gen(function* () {
-    yield* appArm;
-    return yield* presenceSnapshot(params.agentIds);
-  }).pipe(Effect.withSpan("appPresenceSubscribe"));

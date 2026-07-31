@@ -26,79 +26,13 @@ type DaemonClientDispatch = TypedDispatchMap<
 
 const SOCKET_REQUEST_TIMEOUT_MS = 10_000;
 
-export { LocalDaemonCommands };
-
 export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
   readonly method: string;
   readonly message: string;
   readonly cause?: unknown;
 }> {}
 
-function socketRequestError(
-  method: string,
-  message: string,
-  cause?: unknown,
-): SocketRequestError {
-  return new SocketRequestError({ method, message, cause });
-}
-
-function errorCode(cause: unknown): unknown {
-  return typeof cause === "object" && cause !== null && "code" in cause
-    ? cause.code
-    : undefined;
-}
-
-function socketErrorCause(err: Socket.SocketError): unknown {
-  return "cause" in err ? err.cause : err;
-}
-
-function fromSocketError(
-  method: string,
-  err: Socket.SocketError,
-): SocketRequestError {
-  const cause = socketErrorCause(err);
-  const code = errorCode(cause);
-  if (code === "ENOENT" || code === "ECONNREFUSED") {
-    return socketRequestError(
-      method,
-      "MoltZap service is not running. Start the OpenClaw channel plugin first.",
-      cause,
-    );
-  }
-  if ("reason" in err && err.reason === "OpenTimeout") {
-    return socketRequestError(method, "Socket request timed out", err);
-  }
-  return socketRequestError(method, err.message, err);
-}
-
-function fromRpcClientError(method: string, err: unknown): SocketRequestError {
-  return socketRequestError(
-    method,
-    err instanceof Error ? err.message : String(err),
-    err,
-  );
-}
-
-function fromDaemonCommandError(
-  method: string,
-  err: unknown,
-): SocketRequestError | LocalDaemonError {
-  if (err instanceof SocketRequestError) return err;
-  if (isLocalDaemonError(err)) return err;
-  return fromRpcClientError(method, err);
-}
-
-function callDaemonClient<Tag extends DaemonCommand>(
-  client: DaemonClientDispatch,
-  command: Tag,
-  payload: PayloadForTag<DaemonRpcs, Tag>,
-): Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, unknown> {
-  return dispatchCall<DaemonRpcs, RpcClientError.RpcClientError, Tag>(
-    client,
-    command,
-    payload,
-  );
-}
+export { LocalDaemonCommands };
 
 export const requestDaemonCommand = <Tag extends DaemonCommand>(
   command: Tag,
@@ -134,3 +68,69 @@ export const requestDaemonCommand = <Tag extends DaemonCommand>(
       );
     }),
   ).pipe(Effect.withSpan("requestDaemonCommand"));
+
+function socketRequestError(
+  method: string,
+  message: string,
+  cause?: unknown,
+): SocketRequestError {
+  return new SocketRequestError({ method, message, cause });
+}
+
+function fromSocketError(
+  method: string,
+  err: Socket.SocketError,
+): SocketRequestError {
+  const cause = socketErrorCause(err);
+  const code = errorCode(cause);
+  if (code === "ENOENT" || code === "ECONNREFUSED") {
+    return socketRequestError(
+      method,
+      "MoltZap service is not running. Start the OpenClaw channel plugin first.",
+      cause,
+    );
+  }
+  if ("reason" in err && err.reason === "OpenTimeout") {
+    return socketRequestError(method, "Socket request timed out", err);
+  }
+  return socketRequestError(method, err.message, err);
+}
+
+function fromDaemonCommandError(
+  method: string,
+  err: unknown,
+): SocketRequestError | LocalDaemonError {
+  if (err instanceof SocketRequestError) return err;
+  if (isLocalDaemonError(err)) return err;
+  return fromRpcClientError(method, err);
+}
+
+function callDaemonClient<Tag extends DaemonCommand>(
+  client: DaemonClientDispatch,
+  command: Tag,
+  payload: PayloadForTag<DaemonRpcs, Tag>,
+): Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, unknown> {
+  return dispatchCall<DaemonRpcs, RpcClientError.RpcClientError, Tag>(
+    client,
+    command,
+    payload,
+  );
+}
+
+function errorCode(cause: unknown): unknown {
+  return typeof cause === "object" && cause !== null && "code" in cause
+    ? cause.code
+    : undefined;
+}
+
+function socketErrorCause(err: Socket.SocketError): unknown {
+  return "cause" in err ? err.cause : err;
+}
+
+function fromRpcClientError(method: string, err: unknown): SocketRequestError {
+  return socketRequestError(
+    method,
+    err instanceof Error ? err.message : String(err),
+    err,
+  );
+}

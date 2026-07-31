@@ -5,12 +5,6 @@ import type {
   NotificationDocDefinition,
 } from "./types.js";
 
-function firstSentence(text: string): string {
-  const trimmed = text.trim().replace(/\s+/g, " ");
-  const m = trimmed.match(/^(.+?[.!?])(\s|$)/);
-  return m ? m[1]!.trim() : trimmed;
-}
-
 export function slugify(method: string): string {
   return method
     .replace(/\//g, "-")
@@ -18,8 +12,73 @@ export function slugify(method: string): string {
     .toLowerCase();
 }
 
-function escapeFrontmatter(s: string): string {
-  return s.replace(/"/g, '\\"');
+export function generateMethodPage(
+  def: AnyRpcDocDefinition,
+  jsdoc: RpcJsDoc | undefined,
+): string {
+  const method = def.name;
+  const description = jsdoc?.description ?? `Call \`${method}\`.`;
+  const subtitle = firstSentence(description);
+  const body = jsdoc?.body ? `${description}\n\n${jsdoc.body}` : description;
+  return [
+    renderMethodHeader(method, subtitle, body),
+    renderParametersSection(extractProperties(def.paramsSchema)),
+    renderResponseSection(
+      extractProperties(def.resultSchema),
+      jsdoc?.resultDescription ?? null,
+    ),
+    renderErrorsSection(jsdoc?.errors),
+    renderRelatedNotificationsSection(jsdoc?.relatedNotifications),
+  ].join("");
+}
+
+export function generateNotificationPage(
+  def: NotificationDocDefinition,
+  jsdoc: RpcJsDoc | undefined,
+): string {
+  const fields = extractProperties(def.paramsSchema);
+  const name = def.name;
+  const description =
+    jsdoc?.description ?? `Pushed as the \`${name}\` notification.`;
+  const subtitle = firstSentence(description);
+
+  let mdx = `---
+title: "${name}"
+description: "${escapeFrontmatter(subtitle)}"
+---
+
+# ${name}
+
+${description}
+
+## Params
+
+`;
+
+  for (const f of fields) {
+    const desc = f.description || `The ${f.name} field.`;
+    mdx += `<ResponseField name="${f.name}" type="${f.type}">\n  ${desc}\n</ResponseField>\n\n`;
+  }
+
+  // Example
+  mdx += `## Example\n\n\`\`\`json\n{\n  "jsonrpc": "2.0",\n  "method": "${name}",\n  "params": { ... }\n}\n\`\`\`\n\n`;
+
+  // Triggered by
+  if (jsdoc?.triggeredBy && jsdoc.triggeredBy.length > 0) {
+    mdx += `## Triggered By\n\n`;
+    for (const m of jsdoc.triggeredBy) {
+      mdx += `- [\`${m}\`](/protocol/methods/${slugify(m)})\n`;
+    }
+    mdx += `\n`;
+  }
+
+  return mdx;
+}
+
+function firstSentence(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  const m = trimmed.match(/^(.+?[.!?])(\s|$)/);
+  return m ? m[1]!.trim() : trimmed;
 }
 
 function renderMethodHeader(
@@ -94,65 +153,6 @@ function renderRelatedNotificationsSection(
   return `## Related Notifications\n\n${links.join("")}\n`;
 }
 
-export function generateMethodPage(
-  def: AnyRpcDocDefinition,
-  jsdoc: RpcJsDoc | undefined,
-): string {
-  const method = def.name;
-  const description = jsdoc?.description ?? `Call \`${method}\`.`;
-  const subtitle = firstSentence(description);
-  const body = jsdoc?.body ? `${description}\n\n${jsdoc.body}` : description;
-  return [
-    renderMethodHeader(method, subtitle, body),
-    renderParametersSection(extractProperties(def.paramsSchema)),
-    renderResponseSection(
-      extractProperties(def.resultSchema),
-      jsdoc?.resultDescription ?? null,
-    ),
-    renderErrorsSection(jsdoc?.errors),
-    renderRelatedNotificationsSection(jsdoc?.relatedNotifications),
-  ].join("");
-}
-
-export function generateNotificationPage(
-  def: NotificationDocDefinition,
-  jsdoc: RpcJsDoc | undefined,
-): string {
-  const fields = extractProperties(def.paramsSchema);
-  const name = def.name;
-  const description =
-    jsdoc?.description ?? `Pushed as the \`${name}\` notification.`;
-  const subtitle = firstSentence(description);
-
-  let mdx = `---
-title: "${name}"
-description: "${escapeFrontmatter(subtitle)}"
----
-
-# ${name}
-
-${description}
-
-## Params
-
-`;
-
-  for (const f of fields) {
-    const desc = f.description || `The ${f.name} field.`;
-    mdx += `<ResponseField name="${f.name}" type="${f.type}">\n  ${desc}\n</ResponseField>\n\n`;
-  }
-
-  // Example
-  mdx += `## Example\n\n\`\`\`json\n{\n  "jsonrpc": "2.0",\n  "method": "${name}",\n  "params": { ... }\n}\n\`\`\`\n\n`;
-
-  // Triggered by
-  if (jsdoc?.triggeredBy && jsdoc.triggeredBy.length > 0) {
-    mdx += `## Triggered By\n\n`;
-    for (const m of jsdoc.triggeredBy) {
-      mdx += `- [\`${m}\`](/protocol/methods/${slugify(m)})\n`;
-    }
-    mdx += `\n`;
-  }
-
-  return mdx;
+function escapeFrontmatter(s: string): string {
+  return s.replace(/"/g, '\\"');
 }

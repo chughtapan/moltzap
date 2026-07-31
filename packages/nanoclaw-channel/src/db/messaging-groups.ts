@@ -4,9 +4,6 @@
 // can observe eval-mode wiring creation.
 import type { MessagingGroup, MessagingGroupAgent } from "../types.js";
 
-const groups = new Map<string, MessagingGroup>();
-const wirings = new Map<string, MessagingGroupAgent>();
-
 export function createMessagingGroup(group: MessagingGroup): void {
   groups.set(group.id, group);
 }
@@ -44,3 +41,6 @@ export function getMessagingGroupAgentByPair(
   }
   return undefined;
 }
+
+const groups = new Map<string, MessagingGroup>();
+const wirings = new Map<string, MessagingGroupAgent>();

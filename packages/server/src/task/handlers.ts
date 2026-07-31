@@ -70,34 +70,132 @@ interface MintInitialInput {
   readonly callerAgentId: AgentId;
 }
 
-function mintInitialConversation(input: MintInitialInput) {
+interface LeaveParticipantFanoutInput {
+  readonly taskId: ParamsOf<typeof TaskLeave>["taskId"];
+  readonly conversationId: ConversationId;
+  readonly leaver: AgentId;
+}
+
+type TaskUpdateParams = ParamsOf<typeof TaskUpdate>;
+type TaskUpdateCloseParams = Extract<TaskUpdateParams, { action: "close" }>;
+type TaskUpdateAddParticipantParams = Extract<
+  TaskUpdateParams,
+  { action: "add-participant" }
+>;
+type TaskUpdateRemoveParticipantParams = Extract<
+  TaskUpdateParams,
+  { action: "remove-participant" }
+>;
+
+// ── @effect/rpc handler body ─────────────────────────────────────────
+//
+// The `ContactPolicyAllowsReach` requirement gates the frame before this body
+// runs. `agentArm` reads the narrowed principal.
+export const taskRequest: ServerHandler<typeof TaskRequest> = (params) =>
+  Effect.gen(function* () {
+    const ctx = yield* agentArm;
+    return yield* taskRequestBody(params, ctx);
+  }).pipe(Effect.withSpan("taskRequest"));
+
+export const taskList: ServerHandler<typeof TaskList> = (params) =>
+  Effect.gen(function* () {
+    return yield* taskListBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("taskList"));
+
+export const taskLeave: ServerHandler<typeof TaskLeave> = (params) =>
+  Effect.gen(function* () {
+    return yield* taskLeaveBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("taskLeave"));
+
+export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params) =>
+  Effect.gen(function* () {
+    return yield* taskUpdateBody(params, yield* appArm);
+  }).pipe(Effect.withSpan("taskUpdate"));
+
+function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   return Effect.gen(function* () {
-    const conversationService = yield* ConversationServiceTag;
-    const participantAgentIds: ReadonlyArray<AgentId> =
-      input.initial.participants ?? input.invitedAgentIds;
-    yield* authorizeConversationCreateCapacityOnly(participantAgentIds);
-    const conversation = yield* conversationService.create({
-      name: input.initial.name,
-      agentIds: [...participantAgentIds],
-      creatorAgentId: input.callerAgentId,
-      mintTask: Effect.succeed({ id: input.task.id }),
+    const taskService = yield* TaskServiceTag;
+    const taskAuthorization = yield* TaskAuthorizationServiceTag;
+    // Contact-policy reachability is enforced by the method's requirement
+    // middleware before this body runs.
+    const waitingTask = yield* taskService.create(ctx.agentId, {
+      appId: params.appId,
+      invitedAgentIds: params.invitedAgentIds,
     });
-    const recipientAgentIds: AgentId[] = [
-      input.callerAgentId,
-      ...participantAgentIds,
-    ];
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
-      ConversationCreatedNotificationDefinition,
-      {
-        taskId: input.task.id,
-        conversationId: conversation.id,
-        name: input.initial.name,
-        participants: [...participantAgentIds],
-      },
+    const initial = initialConversationForWire(params);
+    const verdict = yield* taskAuthorization.authorizeCreate(params.appId, {
+      taskId: waitingTask.id,
+      initiatorAgentId: ctx.agentId,
+      invitedAgentIds: [...params.invitedAgentIds],
+      ...(initial !== undefined ? { initialConversation: initial } : {}),
+    });
+    return verdict.decision === "reject"
+      ? yield* handleReject(
+          waitingTask.id,
+          [ctx.agentId, ...params.invitedAgentIds],
+          verdict.reason,
+        )
+      : yield* handleAccept(waitingTask.id, params, ctx);
+  }).pipe(Effect.withSpan("task.request"));
+}
+
+function taskListBody(params: ParamsOf<typeof TaskList>, ctx: AgentContext) {
+  return Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    const { tasks, nextCursor } = yield* taskService
+      .list(ctx.agentId, { limit: params.limit, cursor: params.cursor })
+      .pipe(
+        Effect.catchTag("InvalidCursor", (err) =>
+          Effect.fail(new InvalidParamsError({ message: err.message })),
+        ),
+      );
+    return {
+      tasks: [...tasks],
+      ...(nextCursor !== undefined ? { nextCursor } : {}),
+    };
+  }).pipe(Effect.withSpan("task.list"));
+}
+
+function taskLeaveBody(
+  params: ParamsOf<typeof TaskLeave>,
+  ctx: { readonly agentId: AgentId },
+) {
+  return Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    const { leftConversationIds, closedTask } = yield* taskService.leaveTask(
+      params.taskId,
+      ctx.agentId,
     );
-    return { task: input.task, conversation };
-  }).pipe(Effect.withSpan("task.request.mintInitialConversation"));
+    for (const conversationId of leftConversationIds) {
+      yield* fanoutLeaveParticipantRemoval({
+        taskId: params.taskId,
+        conversationId,
+        leaver: ctx.agentId,
+      });
+    }
+    if (closedTask !== null) {
+      yield* broadcastNotificationToAgents(
+        [ctx.agentId],
+        TaskClosedNotificationDefinition,
+        { task: closedTask },
+      );
+    }
+    return {};
+  }).pipe(Effect.withSpan("task.leave"));
+}
+
+function taskUpdateBody(params: TaskUpdateParams, ctx: AppContext) {
+  return Effect.gen(function* () {
+    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+    switch (params.action) {
+      case "close":
+        return yield* taskCloseBody(params);
+      case "add-participant":
+        return yield* taskAddParticipantBody(params);
+      case "remove-participant":
+        return yield* taskRemoveParticipantBody(params);
+    }
+  });
 }
 
 // Strip `undefined` optionals so the wire schema's
@@ -167,77 +265,6 @@ function handleAccept(
   }).pipe(Effect.withSpan("task.request.accept"));
 }
 
-function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
-  return Effect.gen(function* () {
-    const taskService = yield* TaskServiceTag;
-    const taskAuthorization = yield* TaskAuthorizationServiceTag;
-    // Contact-policy reachability is enforced by the method's requirement
-    // middleware before this body runs.
-    const waitingTask = yield* taskService.create(ctx.agentId, {
-      appId: params.appId,
-      invitedAgentIds: params.invitedAgentIds,
-    });
-    const initial = initialConversationForWire(params);
-    const verdict = yield* taskAuthorization.authorizeCreate(params.appId, {
-      taskId: waitingTask.id,
-      initiatorAgentId: ctx.agentId,
-      invitedAgentIds: [...params.invitedAgentIds],
-      ...(initial !== undefined ? { initialConversation: initial } : {}),
-    });
-    return verdict.decision === "reject"
-      ? yield* handleReject(
-          waitingTask.id,
-          [ctx.agentId, ...params.invitedAgentIds],
-          verdict.reason,
-        )
-      : yield* handleAccept(waitingTask.id, params, ctx);
-  }).pipe(Effect.withSpan("task.request"));
-}
-
-// ── @effect/rpc handler body ─────────────────────────────────────────
-//
-// The `ContactPolicyAllowsReach` requirement gates the frame before this body
-// runs. `agentArm` reads the narrowed principal.
-export const taskRequest: ServerHandler<typeof TaskRequest> = (params) =>
-  Effect.gen(function* () {
-    const ctx = yield* agentArm;
-    return yield* taskRequestBody(params, ctx);
-  }).pipe(Effect.withSpan("taskRequest"));
-
-function taskLeaveBody(
-  params: ParamsOf<typeof TaskLeave>,
-  ctx: { readonly agentId: AgentId },
-) {
-  return Effect.gen(function* () {
-    const taskService = yield* TaskServiceTag;
-    const { leftConversationIds, closedTask } = yield* taskService.leaveTask(
-      params.taskId,
-      ctx.agentId,
-    );
-    for (const conversationId of leftConversationIds) {
-      yield* fanoutLeaveParticipantRemoval({
-        taskId: params.taskId,
-        conversationId,
-        leaver: ctx.agentId,
-      });
-    }
-    if (closedTask !== null) {
-      yield* broadcastNotificationToAgents(
-        [ctx.agentId],
-        TaskClosedNotificationDefinition,
-        { task: closedTask },
-      );
-    }
-    return {};
-  }).pipe(Effect.withSpan("task.leave"));
-}
-
-interface LeaveParticipantFanoutInput {
-  readonly taskId: ParamsOf<typeof TaskLeave>["taskId"];
-  readonly conversationId: ConversationId;
-  readonly leaver: AgentId;
-}
-
 function fanoutLeaveParticipantRemoval(input: LeaveParticipantFanoutInput) {
   return Effect.gen(function* () {
     const conversationService = yield* ConversationServiceTag;
@@ -257,34 +284,6 @@ function fanoutLeaveParticipantRemoval(input: LeaveParticipantFanoutInput) {
     );
   }).pipe(Effect.withSpan("task.leave.fanout"));
 }
-
-function taskListBody(params: ParamsOf<typeof TaskList>, ctx: AgentContext) {
-  return Effect.gen(function* () {
-    const taskService = yield* TaskServiceTag;
-    const { tasks, nextCursor } = yield* taskService
-      .list(ctx.agentId, { limit: params.limit, cursor: params.cursor })
-      .pipe(
-        Effect.catchTag("InvalidCursor", (err) =>
-          Effect.fail(new InvalidParamsError({ message: err.message })),
-        ),
-      );
-    return {
-      tasks: [...tasks],
-      ...(nextCursor !== undefined ? { nextCursor } : {}),
-    };
-  }).pipe(Effect.withSpan("task.list"));
-}
-
-type TaskUpdateParams = ParamsOf<typeof TaskUpdate>;
-type TaskUpdateCloseParams = Extract<TaskUpdateParams, { action: "close" }>;
-type TaskUpdateAddParticipantParams = Extract<
-  TaskUpdateParams,
-  { action: "add-participant" }
->;
-type TaskUpdateRemoveParticipantParams = Extract<
-  TaskUpdateParams,
-  { action: "remove-participant" }
->;
 
 function taskCloseBody(params: TaskUpdateCloseParams) {
   return Effect.gen(function* () {
@@ -330,33 +329,34 @@ function taskRemoveParticipantBody(params: TaskUpdateRemoveParticipantParams) {
   }).pipe(Effect.withSpan("task.removeParticipant"));
 }
 
-function taskUpdateBody(params: TaskUpdateParams, ctx: AppContext) {
+function mintInitialConversation(input: MintInitialInput) {
   return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-    switch (params.action) {
-      case "close":
-        return yield* taskCloseBody(params);
-      case "add-participant":
-        return yield* taskAddParticipantBody(params);
-      case "remove-participant":
-        return yield* taskRemoveParticipantBody(params);
-    }
-  });
+    const conversationService = yield* ConversationServiceTag;
+    const participantAgentIds: ReadonlyArray<AgentId> =
+      input.initial.participants ?? input.invitedAgentIds;
+    yield* authorizeConversationCreateCapacityOnly(participantAgentIds);
+    const conversation = yield* conversationService.create({
+      name: input.initial.name,
+      agentIds: [...participantAgentIds],
+      creatorAgentId: input.callerAgentId,
+      mintTask: Effect.succeed({ id: input.task.id }),
+    });
+    const recipientAgentIds: AgentId[] = [
+      input.callerAgentId,
+      ...participantAgentIds,
+    ];
+    yield* broadcastNotificationToAgents(
+      recipientAgentIds,
+      ConversationCreatedNotificationDefinition,
+      {
+        taskId: input.task.id,
+        conversationId: conversation.id,
+        name: input.initial.name,
+        participants: [...participantAgentIds],
+      },
+    );
+    return { task: input.task, conversation };
+  }).pipe(Effect.withSpan("task.request.mintInitialConversation"));
 }
-
-export const taskList: ServerHandler<typeof TaskList> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("taskList"));
-
-export const taskLeave: ServerHandler<typeof TaskLeave> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskLeaveBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("taskLeave"));
-
-export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskUpdateBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskUpdate"));
 
 // safer-arch-ignore no-fat-orchestrator: The task RPC adapter coordinates the task lifecycle and notification fan-out while domain state remains in services.

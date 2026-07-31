@@ -52,21 +52,6 @@ export interface AgentPresenceEntry {
 }
 
 /**
- * Derive presence status from an entry — total across all live
- * connections. Single source of truth for the lease-count-to-status
- * mapping; walks `leasesByConn` and returns `working` for any non-zero
- * count, else `online`.
- */
-export function deriveEntryStatus(
-  entry: AgentPresenceEntry,
-): Exclude<DerivedPresenceStatus, "offline"> {
-  for (const leases of entry.leasesByConn.values()) {
-    if (leases.size > 0) return "working";
-  }
-  return "online";
-}
-
-/**
  * Audit-event taxonomy for "expected during teardown" lease callbacks.
  *
  * - **`LeaseEndAfterDisconnect`** — `onLeaseActiveEnd` fires for an
@@ -168,6 +153,21 @@ export interface LeaseTransitionObserver {
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
   ) => Effect.Effect<void, never, never>;
+}
+
+/**
+ * Derive presence status from an entry — total across all live
+ * connections. Single source of truth for the lease-count-to-status
+ * mapping; walks `leasesByConn` and returns `working` for any non-zero
+ * count, else `online`.
+ */
+export function deriveEntryStatus(
+  entry: AgentPresenceEntry,
+): Exclude<DerivedPresenceStatus, "offline"> {
+  for (const leases of entry.leasesByConn.values()) {
+    if (leases.size > 0) return "working";
+  }
+  return "online";
 }
 
 /**

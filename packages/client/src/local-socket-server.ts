@@ -32,19 +32,40 @@ interface StopLocalSocketServerOptions {
   readonly defaultSocketPath: string;
 }
 
-function logFileSystemIssue(
-  level: "info" | "warn",
-  message: string,
-  error: unknown,
-): Effect.Effect<void, never> {
-  return (level === "warn" ? Effect.logWarning : Effect.logInfo)(
-    message,
-    error,
+export function startLocalSocketServer<Handlers extends LocalDaemonHandlers>(
+  options: LocalSocketServerOptions<Handlers>,
+): Effect.Effect<RunningLocalSocketServer, unknown, never> {
+  const effect = Effect.gen(function* () {
+    yield* prepareSocketPath(options.socketPath);
+    const socketScope = yield* Scope.make();
+    const server = yield* makeSocketServer(options.socketPath, socketScope);
+    yield* buildSocketRpcLayer(server, socketScope, options);
+    yield* chmodSocketPath(options.socketPath);
+    yield* installDefaultSocketSymlink(options);
+    return { socketScope, socketPath: options.socketPath };
+  }).pipe(
+    Effect.withSpan("startLocalSocketServer"),
+    Effect.provide(NodeContext.layer),
   );
+  return effect as Effect.Effect<RunningLocalSocketServer, unknown, never>;
 }
 
-function closeScope(scope: Scope.CloseableScope): Effect.Effect<void, never> {
-  return Scope.close(scope, Exit.succeed(undefined));
+export function stopLocalSocketServer(
+  options: StopLocalSocketServerOptions,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    if (options.socketScope !== null) {
+      yield* closeScope(options.socketScope);
+    }
+    yield* removeSocketPath(options.socketPath);
+    yield* removeDefaultSocketSymlinkIfOwned(options);
+  }).pipe(
+    Effect.withSpan("stopLocalSocketServer"),
+    Effect.provide(NodeContext.layer),
+    Effect.catchAll((error) =>
+      logFileSystemIssue("info", "cleanup default symlink", error),
+    ),
+  );
 }
 
 function prepareSocketPath(socketPath: string) {
@@ -126,22 +147,19 @@ function installDefaultSocketSymlink(options: LocalSocketServerOptions) {
   });
 }
 
-export function startLocalSocketServer<Handlers extends LocalDaemonHandlers>(
-  options: LocalSocketServerOptions<Handlers>,
-): Effect.Effect<RunningLocalSocketServer, unknown, never> {
-  const effect = Effect.gen(function* () {
-    yield* prepareSocketPath(options.socketPath);
-    const socketScope = yield* Scope.make();
-    const server = yield* makeSocketServer(options.socketPath, socketScope);
-    yield* buildSocketRpcLayer(server, socketScope, options);
-    yield* chmodSocketPath(options.socketPath);
-    yield* installDefaultSocketSymlink(options);
-    return { socketScope, socketPath: options.socketPath };
-  }).pipe(
-    Effect.withSpan("startLocalSocketServer"),
-    Effect.provide(NodeContext.layer),
+function logFileSystemIssue(
+  level: "info" | "warn",
+  message: string,
+  error: unknown,
+): Effect.Effect<void, never> {
+  return (level === "warn" ? Effect.logWarning : Effect.logInfo)(
+    message,
+    error,
   );
-  return effect as Effect.Effect<RunningLocalSocketServer, unknown, never>;
+}
+
+function closeScope(scope: Scope.CloseableScope): Effect.Effect<void, never> {
+  return Scope.close(scope, Exit.succeed(undefined));
 }
 
 function removeSocketPath(socketPath: string) {
@@ -177,22 +195,4 @@ function removeDefaultSocketSymlinkIfOwned(options: {
         ),
       );
   });
-}
-
-export function stopLocalSocketServer(
-  options: StopLocalSocketServerOptions,
-): Effect.Effect<void, never> {
-  return Effect.gen(function* () {
-    if (options.socketScope !== null) {
-      yield* closeScope(options.socketScope);
-    }
-    yield* removeSocketPath(options.socketPath);
-    yield* removeDefaultSocketSymlinkIfOwned(options);
-  }).pipe(
-    Effect.withSpan("stopLocalSocketServer"),
-    Effect.provide(NodeContext.layer),
-    Effect.catchAll((error) =>
-      logFileSystemIssue("info", "cleanup default symlink", error),
-    ),
-  );
 }

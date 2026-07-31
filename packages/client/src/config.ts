@@ -28,28 +28,6 @@ class ConfigReadError extends Data.TaggedError("ConfigReadError")<{
   readonly path: string;
 }> {}
 
-function describeCause(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
-function configReadError(
-  configPath: string,
-  cause: unknown,
-  detail: string,
-): ConfigReadError {
-  return new ConfigReadError({
-    cause,
-    message: `Failed to ${detail} ${configPath}: ${describeCause(cause)}`,
-    path: configPath,
-  });
-}
-
-function configReadErrorFromProfile(
-  error: ProfileConfigReadError,
-): ConfigReadError {
-  return configReadError(error.path, error.cause, "read");
-}
-
 export const getServerUrl: Effect.Effect<string, never> = Config.option(
   Config.string("MOLTZAP_SERVER_URL"),
 ).pipe(
@@ -81,3 +59,25 @@ export const loadServiceConfig = (
       agentId: profile.agentId,
     };
   }).pipe(Effect.withSpan("loadServiceConfig"));
+
+function configReadErrorFromProfile(
+  error: ProfileConfigReadError,
+): ConfigReadError {
+  return configReadError(error.path, error.cause, "read");
+}
+
+function configReadError(
+  configPath: string,
+  cause: unknown,
+  detail: string,
+): ConfigReadError {
+  return new ConfigReadError({
+    cause,
+    message: `Failed to ${detail} ${configPath}: ${describeCause(cause)}`,
+    path: configPath,
+  });
+}
+
+function describeCause(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}

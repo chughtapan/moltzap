@@ -31,11 +31,6 @@ const FORBIDDEN_AUTHENTICATED_ONLY =
   "This method requires an authenticated principal";
 const FORBIDDEN_INACTIVE = "Agent must be active before performing this action";
 
-/** A wrong-principal / inactive rejection as the tagged `ForbiddenError`. */
-function forbidden(message: string): ForbiddenError {
-  return new ForbiddenError({ message });
-}
-
 /**
  * Peek the live arm by `connId` off the shared manager. A missing entry is an
  * impossible-state defect: the socket-open path inserts the unauthenticated arm
@@ -57,6 +52,31 @@ export const peekLiveArm = (
       }),
     ),
   );
+
+/**
+ * Narrow the live arm to the principal a gated method's `requires` head demands.
+ * A gated method always has a principal head: the empty-`requires` Connect path
+ * carries no policy and never reaches this gate, so an `undefined` head here is a
+ * wiring defect, not a caller-actionable error.
+ */
+export const narrowByPolicy = (
+  principal: PrincipalRequirement | undefined,
+  requireActiveAgent: boolean,
+  connection: Connection,
+): Effect.Effect<Principal, ForbiddenError> => {
+  if (principal === AgentPrincipal) {
+    return narrowAgentArm(connection, requireActiveAgent);
+  }
+  if (principal === AppPrincipal) {
+    return narrowAppArm(connection);
+  }
+  if (principal === AuthenticatedPrincipal) {
+    return narrowAuthenticatedArm(connection);
+  }
+  return Effect.dieMessage(
+    "principal gate: a gated method carried no principal requirement",
+  );
+};
 
 /**
  * Narrow the live arm to the agent principal. Rejects a non-agent arm and,
@@ -94,27 +114,7 @@ function narrowAuthenticatedArm(
     : Effect.fail(forbidden(FORBIDDEN_AUTHENTICATED_ONLY));
 }
 
-/**
- * Narrow the live arm to the principal a gated method's `requires` head demands.
- * A gated method always has a principal head: the empty-`requires` Connect path
- * carries no policy and never reaches this gate, so an `undefined` head here is a
- * wiring defect, not a caller-actionable error.
- */
-export const narrowByPolicy = (
-  principal: PrincipalRequirement | undefined,
-  requireActiveAgent: boolean,
-  connection: Connection,
-): Effect.Effect<Principal, ForbiddenError> => {
-  if (principal === AgentPrincipal) {
-    return narrowAgentArm(connection, requireActiveAgent);
-  }
-  if (principal === AppPrincipal) {
-    return narrowAppArm(connection);
-  }
-  if (principal === AuthenticatedPrincipal) {
-    return narrowAuthenticatedArm(connection);
-  }
-  return Effect.dieMessage(
-    "principal gate: a gated method carried no principal requirement",
-  );
-};
+/** A wrong-principal / inactive rejection as the tagged `ForbiddenError`. */
+function forbidden(message: string): ForbiddenError {
+  return new ForbiddenError({ message });
+}

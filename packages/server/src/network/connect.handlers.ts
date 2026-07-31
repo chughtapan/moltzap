@@ -43,41 +43,108 @@ type ConnectParams = AgentConnectParams | AppConnectParams;
 /** The empty HelloOk — success is the only payload. */
 const HELLO_OK: HelloOk = {};
 
-/** Agent API-key path — mints the closed-union `AgentContext` arm directly. */
-function authenticateAgentKey(
-  agentKey: AgentKey,
-  authService: AuthService,
-): Effect.Effect<AgentContext, UnauthorizedError> {
-  return Effect.gen(function* () {
-    const agent = yield* authService.authenticateAgent(agentKey);
-    if (!agent) {
-      return yield* Effect.fail(
-        new UnauthorizedError({ message: "Authentication failed" }),
+// ── @effect/rpc handler bodies ────────────────────────────────────────
+//
+// `agent/network/connect` and `app/network/connect` are the unauthenticated methods. The
+// method tag selects the principal kind; the body only unwraps the redacted
+// key at the auth-service boundary.
+export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>
+  handleAgentConnect(params).pipe(Effect.withSpan("connect.agent"));
+
+export const connectApp: ServerHandler<typeof AppConnect> = (params) =>
+  handleAppConnect(params).pipe(Effect.withSpan("connect.app"));
+
+function handleAgentConnect(params: AgentConnectParams) {
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const { conn, reemitted } = yield* connectPreamble(params);
+      if (Option.isSome(reemitted)) {
+        return reemitted.value;
+      }
+
+      return yield* completeAgentConnect(params.agentKey, conn.connId);
+    }).pipe(Effect.withSpan("agent.connect")),
+  );
+}
+
+function handleAppConnect(params: AppConnectParams) {
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const { conn, reemitted } = yield* connectPreamble(params);
+      if (Option.isSome(reemitted)) {
+        return reemitted.value;
+      }
+
+      const connections = yield* ConnectionManagerTag;
+      const appAuthService = yield* AppAuthServiceTag;
+      const appEndpointRegistry = yield* AppEndpointRegistryTag;
+      const { auth: appAuth, manifest } = yield* authenticateAppKey(
+        params.appKey,
+        appAuthService,
       );
-    }
-    return yield* agentContextFrom({
-      agentId: agent.agentId,
-      agentStatus: agent.status,
-      ownerUserId: agent.ownerUserId,
-    });
-  }).pipe(Effect.withSpan("connect.authenticateAgentKey"));
+      yield* registerAppArmTransition({
+        connections,
+        appEndpointRegistry,
+        connId: conn.connId,
+        auth: appAuth,
+        manifest,
+      });
+      return HELLO_OK;
+    }).pipe(Effect.withSpan("app.connect")),
+  );
 }
 
 /**
- * Emit the agent's `online` presence on connect, then return the empty HelloOk.
- * `onAgentConnect(agentId, connId)` threads `connId` for the fast-reconnect
- * race guard. The handshake carries no agent identity back — the client already
- * holds its registered `agentId`.
+ * Agent post-auth flow. Resolves the `moltzap_agent_`-prefixed credential to an
+ * `AgentContext`, mints the agent arm via the immutable transition, hydrates
+ * the conversation-id subscription set + agent-endpoint registration, then
+ * emits the empty `HelloOk`. Reached only for the agent-prefixed credential
+ * (the app-prefixed credential returns early in {@link handleConnect}).
  */
-function buildHelloOk(
-  ctx: AgentContext,
-  connId: ConnectionId,
-  presenceService: PresenceService,
-): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
+function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
   return Effect.gen(function* () {
-    yield* presenceService.onAgentConnect(ctx.agentId, connId);
-    return HELLO_OK;
-  }).pipe(Effect.withSpan("connect.buildHelloOk"));
+    const authService = yield* AuthServiceTag;
+    const conversationService = yield* ConversationServiceTag;
+    const presenceService = yield* PresenceServiceTag;
+    const connections = yield* ConnectionManagerTag;
+    const agentEndpointResolver = yield* AgentEndpointResolverTag;
+
+    const auth = yield* authenticateAgentKey(credential, authService);
+    // The agent arm is minted by the immutable transition below; the
+    // arm IS the auth store.
+    yield* mirrorAgentArmTransition(connections, connId, auth);
+    yield* hydrateConnectionState(
+      connections,
+      connId,
+      auth,
+      conversationService,
+    );
+    yield* registerEndpointIfStillConnected(
+      connections,
+      agentEndpointResolver,
+      connId,
+      auth,
+    );
+    const helloOk = yield* buildHelloOk(auth, connId, presenceService);
+    yield* fireConnectionHooks(auth, connId);
+    return helloOk;
+  }).pipe(Effect.withSpan("connect.completeAgentConnect"));
+}
+
+/**
+ * Shared Connect preamble for both principal paths: gate the protocol range,
+ * then re-emit `HelloOk` for an already-authenticated arm (idempotent re-auth).
+ * Returns the live connection plus `Some(helloOk)` when the caller short-
+ * circuits, `None` when it should run its principal-specific auth.
+ */
+function connectPreamble(params: ConnectParams) {
+  return Effect.gen(function* () {
+    yield* checkConnectProtocol(params);
+    const presenceService = yield* PresenceServiceTag;
+    const conn = yield* ConnectionTag;
+    const reemitted = yield* reemitHelloIfAuthenticated(conn, presenceService);
+    return { conn, reemitted };
+  });
 }
 
 /**
@@ -106,61 +173,6 @@ function authenticateAppKey(
     ),
     Effect.withSpan("connect.authenticateAppKey"),
   );
-}
-
-/**
- * Register the freshly minted `AppConnection`'s `AppEndpoint` into
- * `AppEndpointRegistry`/`AppRegistry`, then re-peek for a close race.
- *
- *   1. Register `{ connId, originator }` off the live arm via
- *      `AppEndpointRegistry.registerApp`. A `false` return (the registry rejects an
- *      overwrite — another live connection already owns this appId) rolls
- *      the arm back + surfaces the uniform `UnauthorizedError` (the appKey
- *      resolved but its slot is occupied).
- *   2. A close that raced between the transition and the registration
- *      leaves a stale registry entry; undo it via
- *      `unregisterAppsForConnection` before interrupting the closed request.
- */
-function registerAppEndpoint(args: {
-  readonly connections: ConnectionManager;
-  readonly appEndpointRegistry: AppEndpointRegistry;
-  readonly appId: AppContext["appId"];
-  readonly manifest: AppManifest;
-  readonly authed: {
-    readonly connId: ConnectionId;
-    readonly originator: Originator;
-  };
-}): Effect.Effect<void, UnauthorizedError> {
-  const { connections, appEndpointRegistry, appId, manifest, authed } = args;
-  const connId = authed.connId;
-  return Effect.gen(function* () {
-    // Register under the SERVER-MINTED `appId` (the authenticated
-    // principal), NOT `manifest.appId`. `agent/task/request` routes to the appId the
-    // registrant received from `/api/v1/apps/register` = this identity.
-    const ok = appEndpointRegistry.registerApp(appId, manifest, {
-      connId,
-      originator: authed.originator,
-    });
-    if (!ok) {
-      yield* connections.rollbackToUnauthenticated(connId);
-      return yield* Effect.fail(
-        new UnauthorizedError({
-          message: `App ${appId} already has an active connection`,
-        }),
-      );
-    }
-    const postCheck = yield* connections.peek(connId);
-    if (Option.isNone(postCheck)) {
-      appEndpointRegistry.unregisterAppsForConnection(connId);
-      return yield* Effect.interrupt;
-    }
-    if (postCheck.value._tag !== "AppConnection") {
-      appEndpointRegistry.unregisterAppsForConnection(connId);
-      return yield* Effect.dieMessage(
-        "registerAppEndpoint: app authentication produced a non-app connection",
-      );
-    }
-  }).pipe(Effect.withSpan("connect.registerAppEndpoint"));
 }
 
 /**
@@ -208,6 +220,43 @@ function registerAppArmTransition(args: {
       ),
     ),
   );
+}
+
+/** Agent API-key path — mints the closed-union `AgentContext` arm directly. */
+function authenticateAgentKey(
+  agentKey: AgentKey,
+  authService: AuthService,
+): Effect.Effect<AgentContext, UnauthorizedError> {
+  return Effect.gen(function* () {
+    const agent = yield* authService.authenticateAgent(agentKey);
+    if (!agent) {
+      return yield* Effect.fail(
+        new UnauthorizedError({ message: "Authentication failed" }),
+      );
+    }
+    return yield* agentContextFrom({
+      agentId: agent.agentId,
+      agentStatus: agent.status,
+      ownerUserId: agent.ownerUserId,
+    });
+  }).pipe(Effect.withSpan("connect.authenticateAgentKey"));
+}
+
+/**
+ * Emit the agent's `online` presence on connect, then return the empty HelloOk.
+ * `onAgentConnect(agentId, connId)` threads `connId` for the fast-reconnect
+ * race guard. The handshake carries no agent identity back — the client already
+ * holds its registered `agentId`.
+ */
+function buildHelloOk(
+  ctx: AgentContext,
+  connId: ConnectionId,
+  presenceService: PresenceService,
+): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
+  return Effect.gen(function* () {
+    yield* presenceService.onAgentConnect(ctx.agentId, connId);
+    return HELLO_OK;
+  }).pipe(Effect.withSpan("connect.buildHelloOk"));
 }
 
 function hydrateConnectionState(
@@ -262,43 +311,6 @@ function mirrorAgentArmTransition(
       ),
     ),
   );
-}
-
-/**
- * Agent post-auth flow. Resolves the `moltzap_agent_`-prefixed credential to an
- * `AgentContext`, mints the agent arm via the immutable transition, hydrates
- * the conversation-id subscription set + agent-endpoint registration, then
- * emits the empty `HelloOk`. Reached only for the agent-prefixed credential
- * (the app-prefixed credential returns early in {@link handleConnect}).
- */
-function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
-  return Effect.gen(function* () {
-    const authService = yield* AuthServiceTag;
-    const conversationService = yield* ConversationServiceTag;
-    const presenceService = yield* PresenceServiceTag;
-    const connections = yield* ConnectionManagerTag;
-    const agentEndpointResolver = yield* AgentEndpointResolverTag;
-
-    const auth = yield* authenticateAgentKey(credential, authService);
-    // The agent arm is minted by the immutable transition below; the
-    // arm IS the auth store.
-    yield* mirrorAgentArmTransition(connections, connId, auth);
-    yield* hydrateConnectionState(
-      connections,
-      connId,
-      auth,
-      conversationService,
-    );
-    yield* registerEndpointIfStillConnected(
-      connections,
-      agentEndpointResolver,
-      connId,
-      auth,
-    );
-    const helloOk = yield* buildHelloOk(auth, connId, presenceService);
-    yield* fireConnectionHooks(auth, connId);
-    return helloOk;
-  }).pipe(Effect.withSpan("connect.completeAgentConnect"));
 }
 
 /**
@@ -385,70 +397,58 @@ function reemitHelloIfAuthenticated(
 }
 
 /**
- * Shared Connect preamble for both principal paths: gate the protocol range,
- * then re-emit `HelloOk` for an already-authenticated arm (idempotent re-auth).
- * Returns the live connection plus `Some(helloOk)` when the caller short-
- * circuits, `None` when it should run its principal-specific auth.
+ * Register the freshly minted `AppConnection`'s `AppEndpoint` into
+ * `AppEndpointRegistry`/`AppRegistry`, then re-peek for a close race.
+ *
+ *   1. Register `{ connId, originator }` off the live arm via
+ *      `AppEndpointRegistry.registerApp`. A `false` return (the registry rejects an
+ *      overwrite — another live connection already owns this appId) rolls
+ *      the arm back + surfaces the uniform `UnauthorizedError` (the appKey
+ *      resolved but its slot is occupied).
+ *   2. A close that raced between the transition and the registration
+ *      leaves a stale registry entry; undo it via
+ *      `unregisterAppsForConnection` before interrupting the closed request.
  */
-function connectPreamble(params: ConnectParams) {
+function registerAppEndpoint(args: {
+  readonly connections: ConnectionManager;
+  readonly appEndpointRegistry: AppEndpointRegistry;
+  readonly appId: AppContext["appId"];
+  readonly manifest: AppManifest;
+  readonly authed: {
+    readonly connId: ConnectionId;
+    readonly originator: Originator;
+  };
+}): Effect.Effect<void, UnauthorizedError> {
+  const { connections, appEndpointRegistry, appId, manifest, authed } = args;
+  const connId = authed.connId;
   return Effect.gen(function* () {
-    yield* checkConnectProtocol(params);
-    const presenceService = yield* PresenceServiceTag;
-    const conn = yield* ConnectionTag;
-    const reemitted = yield* reemitHelloIfAuthenticated(conn, presenceService);
-    return { conn, reemitted };
-  });
-}
-
-function handleAgentConnect(params: AgentConnectParams) {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const { conn, reemitted } = yield* connectPreamble(params);
-      if (Option.isSome(reemitted)) {
-        return reemitted.value;
-      }
-
-      return yield* completeAgentConnect(params.agentKey, conn.connId);
-    }).pipe(Effect.withSpan("agent.connect")),
-  );
-}
-
-function handleAppConnect(params: AppConnectParams) {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const { conn, reemitted } = yield* connectPreamble(params);
-      if (Option.isSome(reemitted)) {
-        return reemitted.value;
-      }
-
-      const connections = yield* ConnectionManagerTag;
-      const appAuthService = yield* AppAuthServiceTag;
-      const appEndpointRegistry = yield* AppEndpointRegistryTag;
-      const { auth: appAuth, manifest } = yield* authenticateAppKey(
-        params.appKey,
-        appAuthService,
+    // Register under the SERVER-MINTED `appId` (the authenticated
+    // principal), NOT `manifest.appId`. `agent/task/request` routes to the appId the
+    // registrant received from `/api/v1/apps/register` = this identity.
+    const ok = appEndpointRegistry.registerApp(appId, manifest, {
+      connId,
+      originator: authed.originator,
+    });
+    if (!ok) {
+      yield* connections.rollbackToUnauthenticated(connId);
+      return yield* Effect.fail(
+        new UnauthorizedError({
+          message: `App ${appId} already has an active connection`,
+        }),
       );
-      yield* registerAppArmTransition({
-        connections,
-        appEndpointRegistry,
-        connId: conn.connId,
-        auth: appAuth,
-        manifest,
-      });
-      return HELLO_OK;
-    }).pipe(Effect.withSpan("app.connect")),
-  );
+    }
+    const postCheck = yield* connections.peek(connId);
+    if (Option.isNone(postCheck)) {
+      appEndpointRegistry.unregisterAppsForConnection(connId);
+      return yield* Effect.interrupt;
+    }
+    if (postCheck.value._tag !== "AppConnection") {
+      appEndpointRegistry.unregisterAppsForConnection(connId);
+      return yield* Effect.dieMessage(
+        "registerAppEndpoint: app authentication produced a non-app connection",
+      );
+    }
+  }).pipe(Effect.withSpan("connect.registerAppEndpoint"));
 }
-
-// ── @effect/rpc handler bodies ────────────────────────────────────────
-//
-// `agent/network/connect` and `app/network/connect` are the unauthenticated methods. The
-// method tag selects the principal kind; the body only unwraps the redacted
-// key at the auth-service boundary.
-export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>
-  handleAgentConnect(params).pipe(Effect.withSpan("connect.agent"));
-
-export const connectApp: ServerHandler<typeof AppConnect> = (params) =>
-  handleAppConnect(params).pipe(Effect.withSpan("connect.app"));
 
 // safer-arch-ignore no-fat-orchestrator: Connect handlers coordinate authentication, connection-arm transitions, endpoint registration, and presence as one atomic handshake boundary.

@@ -53,17 +53,6 @@ export function generateAppKey(): {
   };
 }
 
-function generateKeyWithPrefix(prefix: string): {
-  apiKey: string;
-  keyId: string;
-  secretHash: string;
-} {
-  const keyId = randomBytes(KEY_ID_BYTES).toString("hex");
-  const secret = randomBytes(SECRET_BYTES).toString("hex");
-  const apiKey = `${prefix}${keyId}_${secret}`;
-  return { apiKey, keyId, secretHash: hashSecret(secret) };
-}
-
 /** Extract keyId and secret from a full API key string. */
 export function parseApiKey(
   key: AgentKey,
@@ -76,20 +65,6 @@ export function parseAppKey(
   key: AppKey,
 ): { keyId: string; secret: string } | null {
   return parseKeyWithPrefix(Redacted.value(key), APP_KEY_PREFIX);
-}
-
-function parseKeyWithPrefix(
-  key: string,
-  prefix: string,
-): { keyId: string; secret: string } | null {
-  if (!key.startsWith(prefix)) return null;
-  const rest = key.slice(prefix.length);
-  const sepIdx = rest.indexOf("_");
-  if (sepIdx !== KEY_ID_BYTES * HEX_CHARS_PER_BYTE) return null;
-  const keyId = rest.slice(0, sepIdx);
-  const secret = rest.slice(sepIdx + 1);
-  if (secret.length !== SECRET_BYTES * HEX_CHARS_PER_BYTE) return null;
-  return { keyId, secret };
 }
 
 /**
@@ -108,4 +83,29 @@ export function safeEqual(a: string, b: string): boolean {
 /** SHA-256 hex digest of the secret portion. */
 export function hashSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
+}
+
+function generateKeyWithPrefix(prefix: string): {
+  apiKey: string;
+  keyId: string;
+  secretHash: string;
+} {
+  const keyId = randomBytes(KEY_ID_BYTES).toString("hex");
+  const secret = randomBytes(SECRET_BYTES).toString("hex");
+  const apiKey = `${prefix}${keyId}_${secret}`;
+  return { apiKey, keyId, secretHash: hashSecret(secret) };
+}
+
+function parseKeyWithPrefix(
+  key: string,
+  prefix: string,
+): { keyId: string; secret: string } | null {
+  if (!key.startsWith(prefix)) return null;
+  const rest = key.slice(prefix.length);
+  const sepIdx = rest.indexOf("_");
+  if (sepIdx !== KEY_ID_BYTES * HEX_CHARS_PER_BYTE) return null;
+  const keyId = rest.slice(0, sepIdx);
+  const secret = rest.slice(sepIdx + 1);
+  if (secret.length !== SECRET_BYTES * HEX_CHARS_PER_BYTE) return null;
+  return { keyId, secret };
 }

@@ -28,16 +28,6 @@ type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];
 type AgentClientDispatch = TypedDispatchMap<AgentCallableRpcs, RpcClientError>;
 
-function makeAgentCallbackHandlers(): ReverseCallbackHandlers {
-  const reject = (method: string) => () =>
-    Effect.dieMessage(`agent client received unexpected callback ${method}`);
-  return {
-    [DispatchAuthorize.name]: reject(DispatchAuthorize.name),
-    [MessagesAuthorize.name]: reject(MessagesAuthorize.name),
-    [TaskCreate.name]: reject(TaskCreate.name),
-  };
-}
-
 export interface AgentClientOptions {
   readonly serverUrl: string;
   readonly agentKey: AgentKey;
@@ -77,4 +67,14 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
     const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
     return this.callEffect(tag, payload, timeoutMs);
   }
+}
+
+function makeAgentCallbackHandlers(): ReverseCallbackHandlers {
+  const reject = (method: string) => () =>
+    Effect.dieMessage(`agent client received unexpected callback ${method}`);
+  return {
+    [DispatchAuthorize.name]: reject(DispatchAuthorize.name),
+    [MessagesAuthorize.name]: reject(MessagesAuthorize.name),
+    [TaskCreate.name]: reject(TaskCreate.name),
+  };
 }
