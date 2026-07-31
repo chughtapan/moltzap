@@ -33,7 +33,6 @@ export function registerTestAgent(name: string) {
 }
 
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 
 /**
  * Executes the extract message operation.
@@ -56,27 +55,24 @@ export function extractConvId(result: unknown): string {
   );
 }
 
-/** Describes task binding. */
-export interface TaskBinding {
-  readonly taskId: TaskId;
+/** Describes a conversation binding. */
+export interface ConversationBinding {
   readonly conversationId: ConversationId;
 }
 
 /**
- * Executes the extract task binding operation.
+ * Executes the extract conversation binding operation.
  * @param result Value supplied to the operation.
- * @returns The extract task binding result.
+ * @returns The extract conversation binding result.
  */
-export function extractTaskBinding(result: unknown): TaskBinding {
+export function extractConversationBinding(
+  result: unknown,
+): ConversationBinding {
   const typed =
     /* Safe because the test fixture establishes this asserted shape. */ result as {
-      task: { id: TaskId };
-      conversation: { id: ConversationId } | null;
+      conversation: { id: ConversationId };
     };
-  if (typed.conversation === null) {
-    throw new Error("TaskRequest result missing initial conversation");
-  }
-  return { taskId: typed.task.id, conversationId: typed.conversation.id };
+  return { conversationId: typed.conversation.id };
 }
 
 /**

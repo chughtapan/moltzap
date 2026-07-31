@@ -1,25 +1,17 @@
 /**
  * @file Scoped ownership of the MoltZap server used by a simulation run.
  * This boundary owns only the server substrate: a fresh
- * PGlite volume, the container, one presence observer, and identities minted
- * against that server.
+ * PGlite volume, the container, and identities minted against that server.
  */
 import { FileSystem, HttpClient } from "@effect/platform";
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { registerAgent } from "@moltzap/client/auth";
+import type { AgentName, AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
-  type AgentName,
-  agentName,
-  type AgentId,
-  type AgentKey,
-} from "@moltzap/protocol/identity";
-import {
-  agentPresenceSubscribe,
   httpBaseUrl,
   serverBaseUrl,
   type ServerBaseUrl,
 } from "@moltzap/protocol/network";
-import { MoltZapAgentClient } from "@moltzap/protocol/socket";
 import { randomBytes, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -51,9 +43,7 @@ import {
 
 const LOOPBACK_HOST = "127.0.0.1";
 const SERVER_HEALTH_POLL_MS = 250;
-const PRESENCE_POLL_MS = 500;
 const REGISTRATION_SECRET_BYTES = 32;
-const OBSERVER_IDENTITY = Schema.decodeSync(agentName)("moltzap-sim-observer");
 const SERVER_VOLUME_ROOT = join(
   homedir(),
   ".cache",
@@ -68,11 +58,7 @@ const moltZapServerOperation = Schema.Literal(
   "resolve-port",
   "wait-for-health",
   "verify-mount",
-  "register-observer",
-  "create-observer",
-  "connect-observer",
   "register-agent",
-  "await-agent-ready",
   "cleanup",
 );
 
@@ -120,14 +106,10 @@ export interface MoltZapServer {
   readonly register: (
     name: AgentName,
   ) => Effect.Effect<MoltZapServerIdentity, MoltZapServerFailed>;
-  readonly awaitAgentReady: (
-    agentId: AgentId,
-    within: Duration.Duration,
-  ) => Effect.Effect<void, MoltZapServerFailed>;
 
   /**
-   * Close the observer and stop the container once while retaining the volume
-   * until scope close, so traffic collection can open PGlite safely.
+   * Stop the container once while retaining the volume until scope close, so
+   * traffic collection can open PGlite safely.
    */
   readonly stop: () => Effect.Effect<void, MoltZapServerFailed>;
 }
@@ -142,19 +124,6 @@ type MoltZapServerStopReport =
       readonly _tag: "running";
       readonly failures: readonly string[];
     };
-
-/**
- * Minimal observer resource used by the acquisition state machine.
- * @internal
- */
-export interface MoltZapPresenceObserver {
-  readonly awaitAgentReady: (
-    agentId: AgentId,
-    within: Duration.Duration,
-  ) => Effect.Effect<void, unknown>;
-  readonly connect: Effect.Effect<void, unknown>;
-  readonly close: Effect.Effect<void, unknown>;
-}
 
 /**
  * Injectable effects keep partial-acquisition tests hermetic.
@@ -189,10 +158,6 @@ export interface MoltZapServerOperations {
     name: AgentName,
     registrationSecret: RunRegistrationSecret,
   ) => Effect.Effect<MoltZapServerIdentity, unknown>;
-  readonly createObserver: (
-    serverUrl: ServerBaseUrl,
-    key: AgentKey,
-  ) => Effect.Effect<MoltZapPresenceObserver, unknown>;
   readonly stopContainer: (containerId: string) => Effect.Effect<void, unknown>;
 }
 
@@ -206,30 +171,12 @@ type OwnedContainer =
   | { readonly _tag: "may-be-running"; readonly name: string }
   | { readonly _tag: "stopped" };
 
-type OwnedObserver =
-  | { readonly _tag: "absent" }
-  | {
-      readonly _tag: "open";
-      readonly observer: MoltZapPresenceObserver;
-    }
-  | { readonly _tag: "closed" };
-
 interface OwnedResources {
   volume: OwnedVolume;
   container: OwnedContainer;
-  observer: OwnedObserver;
 }
 
 interface AcquiredServer {
-  readonly image: ImageDigest;
-  readonly serverUrl: ServerBaseUrl;
-  readonly volumePath: string;
-  readonly readyTimeout: Duration.Duration;
-  readonly observer: MoltZapPresenceObserver;
-  readonly registrationSecret: RunRegistrationSecret;
-}
-
-interface AcquiredContainer {
   readonly image: ImageDigest;
   readonly serverUrl: ServerBaseUrl;
   readonly volumePath: string;
@@ -345,52 +292,6 @@ function verifyMount(
   );
 }
 
-function awaitReadyByPresence(
-  client: MoltZapAgentClient,
-  agentId: AgentId,
-  within: Duration.Duration,
-): Effect.Effect<void, unknown> {
-  const tick = client
-    .callDefinition(agentPresenceSubscribe, { agentIds: [agentId] })
-    .pipe(
-      Effect.map((result) =>
-        result.statuses.some(
-          (entry) => entry.agentId === agentId && entry.status !== "offline",
-        ),
-      ),
-    );
-  return tick.pipe(
-    Effect.repeat({
-      schedule: Schedule.spaced(Duration.millis(PRESENCE_POLL_MS)),
-      until: (ready) => ready,
-    }),
-    Effect.timeoutFail({
-      duration: within,
-      onTimeout: () =>
-        `agent ${agentId} was not router-visible within ${Duration.format(within)}`,
-    }),
-    Effect.asVoid,
-  );
-}
-
-function createPresenceObserver(
-  serverUrl: ServerBaseUrl,
-  key: AgentKey,
-): Effect.Effect<MoltZapPresenceObserver> {
-  return Effect.sync(() => {
-    const client = new MoltZapAgentClient({
-      serverUrl: httpBaseUrl(serverUrl),
-      agentKey: key,
-    });
-    return {
-      awaitAgentReady: (agentId, within) =>
-        awaitReadyByPresence(client, agentId, within),
-      connect: client.connect(),
-      close: client.close(),
-    };
-  });
-}
-
 function registerIdentity(
   serverUrl: ServerBaseUrl,
   name: AgentName,
@@ -477,7 +378,6 @@ function makeMoltZapServerOperations(
     verifyMount: (volumePath, containerId) =>
       provideHost(verifyMount(volumePath, containerId)),
     register: registerIdentity,
-    createObserver: createPresenceObserver,
     stopContainer: (containerId) =>
       provideHost(stopServerContainer(containerId)),
   };
@@ -487,7 +387,6 @@ function emptyOwnedResources(): OwnedResources {
   return {
     volume: { _tag: "absent" },
     container: { _tag: "absent" },
-    observer: { _tag: "absent" },
   };
 }
 
@@ -511,24 +410,6 @@ function captureCleanup(
     Effect.map((exit) =>
       Exit.isSuccess(exit) ? [] : [`${label}: ${Cause.pretty(exit.cause)}`],
     ),
-  );
-}
-
-function closeObserver(
-  operations: MoltZapServerOperations,
-  owned: OwnedResources,
-): Effect.Effect<readonly string[]> {
-  if (owned.observer._tag !== "open") {
-    return Effect.succeed([]);
-  }
-  const observer = owned.observer.observer;
-  return captureCleanup(
-    "observer",
-    observer.close,
-    operations.cleanupTimeout,
-    () => {
-      owned.observer = { _tag: "closed" };
-    },
   );
 }
 
@@ -577,11 +458,7 @@ function cleanupServer(
   operations: MoltZapServerOperations,
   owned: OwnedResources,
 ): Effect.Effect<readonly string[]> {
-  return Effect.gen(function* () {
-    const observerFailures = yield* closeObserver(operations, owned);
-    const containerFailures = yield* stopContainer(operations, owned);
-    return [...observerFailures, ...containerFailures];
-  });
+  return stopContainer(operations, owned);
 }
 
 function cleanupAll(
@@ -667,7 +544,7 @@ function startServer(
   input: ServerStart,
   operations: MoltZapServerOperations,
   owned: OwnedResources,
-): Effect.Effect<AcquiredContainer, MoltZapServerFailed> {
+): Effect.Effect<AcquiredServer, MoltZapServerFailed> {
   return Effect.gen(function* () {
     const containerName = `moltzap-sim-${randomUUID()}`;
     const registrationSecret = makeRunRegistrationSecret();
@@ -713,7 +590,7 @@ function acquireContainer(
   options: AcquireMoltZapServerOptions,
   operations: MoltZapServerOperations,
   owned: OwnedResources,
-): Effect.Effect<AcquiredContainer, MoltZapServerFailed> {
+): Effect.Effect<AcquiredServer, MoltZapServerFailed> {
   return Effect.gen(function* () {
     const image = yield* resolveRouterImage(options, operations);
     const volumePath = yield* claimVolume(operations, owned);
@@ -729,45 +606,6 @@ function acquireContainer(
   });
 }
 
-function acquireObserver(
-  container: AcquiredContainer,
-  operations: MoltZapServerOperations,
-  owned: OwnedResources,
-): Effect.Effect<MoltZapPresenceObserver, MoltZapServerFailed> {
-  return Effect.gen(function* () {
-    const observerIdentity = yield* atStage(
-      "register-observer",
-      boundedOperation(
-        "observer registration",
-        container.readyTimeout,
-        operations.register(
-          container.serverUrl,
-          OBSERVER_IDENTITY,
-          container.registrationSecret,
-        ),
-      ),
-    );
-    const observer = yield* claimResource(
-      atStage(
-        "create-observer",
-        operations.createObserver(container.serverUrl, observerIdentity.key),
-      ),
-      (created) => {
-        owned.observer = { _tag: "open", observer: created };
-      },
-    );
-    yield* atStage(
-      "connect-observer",
-      boundedOperation(
-        "observer connect",
-        container.readyTimeout,
-        observer.connect,
-      ),
-    );
-    return observer;
-  });
-}
-
 function acquireResources(
   options: AcquireMoltZapServerOptions,
   operations: MoltZapServerOperations,
@@ -775,22 +613,14 @@ function acquireResources(
 ): Effect.Effect<AcquiredServer, MoltZapServerFailed> {
   return Effect.gen(function* () {
     const container = yield* acquireContainer(options, operations, owned);
-    const observer = yield* acquireObserver(container, operations, owned);
     yield* Effect.logInfo("MoltZap router ready").pipe(
       Effect.annotateLogs({
         component: "moltzap-router",
-        operation: "connect-observer",
+        operation: "wait-for-health",
         routerUrl: container.serverUrl,
       }),
     );
-    return {
-      image: container.image,
-      serverUrl: container.serverUrl,
-      volumePath: container.volumePath,
-      readyTimeout: container.readyTimeout,
-      observer,
-      registrationSecret: container.registrationSecret,
-    };
+    return container;
   });
 }
 
@@ -858,11 +688,6 @@ function makeServerHandle(
             acquired.registrationSecret,
           ),
         ),
-      ),
-    awaitAgentReady: (agentId, within) =>
-      atStage(
-        "await-agent-ready",
-        acquired.observer.awaitAgentReady(agentId, within),
       ),
     stop: () =>
       stopOwnedServer(operations, owned, stopPermit).pipe(

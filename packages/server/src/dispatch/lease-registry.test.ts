@@ -7,14 +7,9 @@ import {
   connectionId,
   conversationId,
   messageId,
-  taskId,
 } from "@moltzap/protocol/testing";
 import { Deferred, Effect, Either, Fiber, Option, TestClock } from "effect";
 import { describe, expect } from "vitest";
-import {
-  type LeaseTransitionObserver,
-  noopLeaseTransitionObserver,
-} from "../network/presence/presence-types.js";
 import {
   ConnectionManager,
   type Originator,
@@ -42,7 +37,6 @@ const BINDING = {
   recipientConnectionId: connectionId("00000000-0000-4000-8000-00000000c737"),
   moderatorConnectionId: connectionId("00000000-0000-4000-8000-00000000c738"),
   conversationId: conversationId("00000000-0000-4000-8000-00000000d737"),
-  taskId: taskId("00000000-0000-4000-8000-00000000e737"),
   appId: appId("00000000-0000-4000-8000-00000000f737"),
 } satisfies ModeratorBoundLeaseBinding;
 
@@ -50,14 +44,12 @@ const it = effectIt.effect;
 
 function withRegistry<A, E>(
   use: (registry: LeaseRegistry) => Effect.Effect<A, E>,
-  transitionObserver = noopLeaseTransitionObserver,
   connections?: ConnectionManager,
 ): Effect.Effect<A, E> {
   return Effect.gen(function* () {
     const registry = yield* makeLeaseRegistry({
       connections: connections ?? new ConnectionManager(),
       leaseRetentionMs: TEST_TTL_MS,
-      transitionObserver,
     });
     return yield* use(registry).pipe(Effect.ensuring(registry.shutdown()));
   });
@@ -189,41 +181,43 @@ function finalizeAndRollbackAreSingleUse() {
 
 function resolveBeforeAttachStaysAlive() {
   return Effect.gen(function* () {
-    const beginEntered = yield* Deferred.make<undefined>();
-    const releaseBegin = yield* Deferred.make<undefined>();
-    const observer: LeaseTransitionObserver = {
-      onLeaseActiveBegin: () =>
-        Deferred.succeed(beginEntered, void 0).pipe(
-          Effect.zipRight(Deferred.await(releaseBegin)),
-        ),
-      onLeaseActiveEnd: () => Effect.void,
-    };
-    return yield* withRegistry(
-      (registry) =>
-        asyncObserverScenario(registry, { beginEntered, releaseBegin }).pipe(
-          Effect.ensuring(Deferred.succeed(releaseBegin, void 0)),
-        ),
-      observer,
+    const granted = yield* Deferred.make<undefined>();
+    const finishRoundTrip = yield* Deferred.make<undefined>();
+    return yield* withRegistry((registry) =>
+      fastResolverScenario(registry, { granted, finishRoundTrip }).pipe(
+        Effect.ensuring(Deferred.succeed(finishRoundTrip, void 0)),
+      ),
     );
   });
 }
 
-interface BeginGate {
-  readonly beginEntered: Deferred.Deferred<undefined>;
-  readonly releaseBegin: Deferred.Deferred<undefined>;
+interface RoundTripGate {
+  readonly granted: Deferred.Deferred<undefined>;
+  readonly finishRoundTrip: Deferred.Deferred<undefined>;
 }
 
-function asyncObserverScenario(registry: LeaseRegistry, gate: BeginGate) {
+/**
+ * A round-trip child that resolves its lease before the parent attaches the
+ * handle keeps running: attachment must leave the winning child alive to
+ * finish its post-commit work.
+ * @param registry Value supplied to the operation.
+ * @param gate Value supplied to the operation.
+ * @returns The fast resolver scenario result.
+ */
+function fastResolverScenario(registry: LeaseRegistry, gate: RoundTripGate) {
   return Effect.gen(function* () {
     const leaseId = yield* mintLease(registry);
-    const resolveFiber = yield* Effect.fork(grantLease(registry, leaseId));
-    yield* Deferred.await(gate.beginEntered);
+    const resolveFiber = yield* Effect.fork(
+      grantLease(registry, leaseId).pipe(
+        Effect.zipRight(Deferred.succeed(gate.granted, void 0)),
+        Effect.zipRight(Deferred.await(gate.finishRoundTrip)),
+      ),
+    );
+    yield* Deferred.await(gate.granted);
     yield* registry.attachRoundTripFiber(leaseId, resolveFiber);
-    const claimFiber = yield* Effect.fork(registry.claim(leaseId));
-    expect(Option.isNone(yield* Fiber.poll(claimFiber))).toBe(true);
-    yield* Deferred.succeed(gate.releaseBegin, void 0);
+    expect(Option.isNone(yield* Fiber.poll(resolveFiber))).toBe(true);
+    yield* Deferred.succeed(gate.finishRoundTrip, void 0);
     yield* Fiber.join(resolveFiber);
-    yield* Fiber.join(claimFiber);
   });
 }
 
@@ -276,7 +270,6 @@ function hangingNotificationDoesNotBlockFinalizeOrRetention() {
           yield* registry.shutdown();
           yield* Deferred.await(notifyStopped);
         }),
-      noopLeaseTransitionObserver,
       connections,
     );
   });
@@ -292,10 +285,7 @@ describe("LeaseRegistry", () => {
     "allows exactly one finalize or rollback",
     finalizeAndRollbackAreSingleUse,
   );
-  it(
-    "keeps a fast resolver alive and orders activation",
-    resolveBeforeAttachStaysAlive,
-  );
+  it("keeps a fast resolver alive", resolveBeforeAttachStaysAlive);
   it("starts a fresh TTL after rollback", rollbackStartsANewTtlEpoch);
   it(
     "does not let a hanging notification block finalize or retention",

@@ -7,8 +7,6 @@ import type { ColumnType } from "kysely";
 
 type AgentStatus = "active" | "suspended";
 
-type ContactStatus = "accepted" | "pending";
-
 type EncryptionKeyStatus = "active" | "deprecated" | "revoked";
 
 type Generated<T> =
@@ -29,8 +27,6 @@ type Int8 = ColumnType<
  * site.
  */
 type Json = ColumnType<unknown, unknown, unknown>;
-
-type TaskStatus = "active" | "closed" | "failed" | "waiting";
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
@@ -66,17 +62,6 @@ export interface Apps {
   updated_at: Generated<Timestamp>;
 }
 
-/** Describes contacts. */
-export interface Contacts {
-  contact_user_id: string;
-  created_at: Generated<Timestamp>;
-  id: Generated<string>;
-  owner_user_id: string;
-  relationship: string | null;
-  status: Generated<ContactStatus>;
-  updated_at: Generated<Timestamp>;
-}
-
 /** Describes conversation keys. */
 export interface ConversationKeys {
   conversation_id: string;
@@ -90,18 +75,15 @@ export interface ConversationKeys {
 export interface ConversationParticipants {
   agent_id: string;
   conversation_id: string;
-  joined_at: Generated<Timestamp>;
-  last_read_seq: Generated<Int8>;
 }
 
 /** Describes conversations. */
 export interface Conversations {
-  archived_at: Timestamp | null;
+  app_id: string;
   created_at: Generated<Timestamp>;
   created_by_id: string;
   id: Generated<string>;
   name: string | null;
-  task_id: string;
   updated_at: Generated<Timestamp>;
 }
 
@@ -125,9 +107,13 @@ export interface Messages {
   parts_encrypted: Buffer;
   parts_iv: Buffer;
   parts_tag: Buffer;
-  reply_to_id: string | null;
   sender_id: string;
   seq: Int8;
+
+  /**
+   * Opaque endpoint-supplied label carried on the send params and echoed
+   * back verbatim. The server never reads, joins, or validates it.
+   */
   task_id: string | null;
 
   /**
@@ -139,22 +125,4 @@ export interface Messages {
    * at boundaries).
    */
   dispatch_decision: Generated<Json>;
-}
-
-/** Describes task participants. */
-export interface TaskParticipants {
-  admitted_at: Timestamp | null;
-  agent_id: string;
-  task_id: string;
-}
-
-/** Describes tasks. */
-export interface Tasks {
-  app_id: string;
-  created_at: Generated<Timestamp>;
-  ended_at: Timestamp | null;
-  id: Generated<string>;
-  initiator_agent_id: string;
-  started_at: Timestamp | null;
-  status: Generated<TaskStatus>;
 }

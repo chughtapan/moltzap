@@ -44,21 +44,18 @@ const WIRE_APP_ID = "00000000-0000-4000-8000-000000010003";
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
-  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
   hooks: MODERATED_HOOKS,
 };
 
 const WIRE_APP_MANIFEST: AppManifest = {
   appId: WIRE_APP_ID,
   name: "Wire Moderator Dispatch App",
-  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
   hooks: {
     dispatch_authorize: {
       kind: "hook",
       timeoutMs: DISPATCH_RELEASE_TIMEOUT_MS,
     },
     message_authorize: { kind: "forwardAllExceptSender" },
-    task_create: { kind: "accept" },
   },
 };
 

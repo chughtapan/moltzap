@@ -19,45 +19,22 @@ it("markers are per-viewing-conversation", () =>
     const convC = yield* H.createDm(service, regC.agentId);
 
     // Send message in conv C
-    yield* H.sendAndSettle(
-      regC.client,
-      convC.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convC
-        .conversation!.id,
-      H.SHARED_UPDATE,
-    );
+    yield* H.sendAndSettle(regC.client, convC.conversation.id, H.SHARED_UPDATE);
 
     // Conv B views — sees the update, marker advances
-    const fromB = service.getContext(
-      /* Safe because the test fixture establishes this asserted shape. */ convB
-        .conversation!.id,
-    );
+    const fromB = service.getContext(convB.conversation.id);
     expect(fromB).not.toBeNull();
     expect(fromB).toContain(H.SHARED_UPDATE);
 
     // Conv B's marker advanced, so second call returns null
-    expect(
-      service.getContext(
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
-      ),
-    ).toBeNull();
+    expect(service.getContext(convB.conversation.id)).toBeNull();
 
     // Send message in conv B
-    yield* H.sendAndSettle(
-      regB.client,
-      convB.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convB
-        .conversation!.id,
-      H.B_UPDATE,
-    );
+    yield* H.sendAndSettle(regB.client, convB.conversation.id, H.B_UPDATE);
 
     // Conv C views — should see BOTH conv C's message hasn't been "seen" from C's perspective
     // AND conv B's new message
-    const fromC = service.getContext(
-      /* Safe because the test fixture establishes this asserted shape. */ convC
-        .conversation!.id,
-    );
+    const fromC = service.getContext(convC.conversation.id);
     expect(fromC).not.toBeNull();
     expect(fromC).toContain(H.B_UPDATE);
 
@@ -83,25 +60,12 @@ it("multiple other conversations appear in context", () =>
     const convC = yield* H.createDm(service, regC.agentId);
     const convD = yield* H.createDm(service, regD.agentId);
 
-    yield* H.sendAndSettle(
-      regC.client,
-      convC.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convC
-        .conversation!.id,
-      H.FROM_C,
-    );
-    yield* H.sendAndSettle(
-      regD.client,
-      convD.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convD
-        .conversation!.id,
-      H.FROM_D,
-    );
+    yield* H.sendAndSettle(regC.client, convC.conversation.id, H.FROM_C);
+    yield* H.sendAndSettle(regD.client, convD.conversation.id, H.FROM_D);
 
     const ctx =
       /* Safe because the test fixture establishes this asserted shape. */ service.getContext(
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
+        convB.conversation.id,
       )!;
     expect(ctx).toContain(H.FROM_C);
     expect(ctx).toContain(H.FROM_D);
@@ -113,9 +77,7 @@ it("multiple other conversations appear in context", () =>
     yield* regD.client.close();
   }));
 
-// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This end-to-end scenario keeps setup, four-conversation ordering, the limit assertion, and cleanup visible together.
 it("maxConversations limits output", () =>
-  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Splitting the Effect generator would obscure the single scoped integration lifecycle.
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("lim-a");
     const agentNames = ["lim-b", "lim-c", "lim-d", "lim-e"];
@@ -133,10 +95,7 @@ it("maxConversations limits output", () =>
     for (const a of agents) {
       const conv = yield* H.createDm(service, a.agentId);
       convs.push({
-        taskId: conv.task.id,
-        conversationId:
-          /* Safe because the test fixture establishes this asserted shape. */ conv
-            .conversation!.id,
+        conversationId: conv.conversation.id,
       });
     }
 
@@ -146,9 +105,6 @@ it("maxConversations limits output", () =>
         /* Safe because the test fixture establishes this asserted shape. */ agents[
           i
         ]!.client,
-        /* Safe because the test fixture establishes this asserted shape. */ convs[
-          i
-        ]!.taskId,
         /* Safe because the test fixture establishes this asserted shape. */ convs[
           i
         ]!.conversationId,

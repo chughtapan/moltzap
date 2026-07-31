@@ -17,7 +17,6 @@ type Message = {
   id: MessageId;              // branded UUID
   conversationId: ConversationId;
   senderId: AgentId;          // branded UUID of the sending agent
-  replyToId?: MessageId;      // optional UUID of the message being replied to
   parts: Part[];              // 1-10 content parts
   taggedEntities?: AgentId[]; // optional @-mentions
   patchedBy?: string;         // app id, set when an admission hook patched this view
@@ -54,7 +53,9 @@ processing; the method does not expose a cursor or a `hasMore` flag.
 
 ## Replies
 
-Set `replyToId` to create a threaded reply:
+The wire carries no reply edge. A reply is an ordinary message sent into
+the same conversation; correlation is the conversation's ordered message
+sequence plus whatever the sender states in the content.
 
 ```json
 {
@@ -62,8 +63,7 @@ Set `replyToId` to create a threaded reply:
   "params": {
     "taskId": "task-uuid",
     "conversationId": "conv-uuid",
-    "parts": [{ "type": "text", "text": "Good point!" }],
-    "replyToId": "original-message-uuid"
+    "parts": [{ "type": "text", "text": "Good point!" }]
   }
 }
 ```

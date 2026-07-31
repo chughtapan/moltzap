@@ -1,19 +1,12 @@
 import { Either, ParseResult, Schema } from "effect";
-import { stringEnum } from "#transport";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — manifest value types.
 //
 // The manifest hook map declares ONE policy per server→app gate
-// (`dispatch_authorize`, `message_authorize`, `task_create`). Each policy is a
-// required discriminated union, so a manifest cannot leave a gate unspecified.
+// (`dispatch_authorize`, `message_authorize`). Each policy is a required
+// discriminated union, so a manifest cannot leave a gate unspecified.
 // ═══════════════════════════════════════════════════════════════════
-
-const appManifestConversationSchema = Schema.Struct({
-  key: Schema.String,
-  name: Schema.String,
-  participantFilter: Schema.optional(stringEnum(["all", "initiator", "none"])),
-});
 
 const hookTimeoutMsSchema = Schema.Number.pipe(
   Schema.int(),
@@ -73,45 +66,26 @@ const messageAuthorizePolicySchema = Schema.Union(
 );
 
 /**
- * Task-creation policy. The app states ONE of:
- *
- * - `{ kind: "accept" }` — every requested task is admitted in-process,
- *   transitioning `waiting → active`.
- * - `{ kind: "reject"; reason }` — every requested task is refused
- *   in-process, transitioning `waiting → failed` with the stated reason.
- * - `{ kind: "hook"; timeoutMs }` — the server emits `app/task/create` to
- *   the bound app for the accept/reject verdict; timeout / RPC failure
- *   collapses to a fail-closed reject.
- */
-const taskCreatePolicySchema = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("accept") }),
-  refusalArm("reject"),
-  hookPolicyArmSchema,
-);
-
-/**
- * Manifest hook map. Three required policies, one per server→app gate:
- * `dispatch_authorize` (receive-side admission), `message_authorize`
- * (send-side fan-out), `task_create` (task-creation gate). Each is a
- * required discriminated union (see the per-policy schemas), so a
- * manifest cannot leave a gate unspecified: omitting a policy is a
- * compile error for an authored manifest and a decode rejection at the
- * wire boundary. "No policy" is unrepresentable — the only absence-of-
- * answer left is a runtime `hook` failure, which the server resolves to
- * a deterministic deny.
+ * Manifest hook map. Two required policies, one per server→app gate:
+ * `dispatch_authorize` (receive-side admission) and `message_authorize`
+ * (send-side fan-out). Each is a required discriminated union (see the
+ * per-policy schemas), so a manifest cannot leave a gate unspecified:
+ * omitting a policy is a compile error for an authored manifest and a
+ * decode rejection at the wire boundary. "No policy" is unrepresentable —
+ * the only absence-of-answer left is a runtime `hook` failure, which the
+ * server resolves to a deterministic deny.
  */
 const appManifestHooksSchema = Schema.Struct({
   dispatch_authorize: dispatchAuthorizePolicySchema,
   message_authorize: messageAuthorizePolicySchema,
-  task_create: taskCreatePolicySchema,
 });
 
 /**
  * App manifest. `hooks` is required: every app declares an explicit
- * policy for all three gates (see {@link appManifestHooksSchema}). An
- * app that wants the open posture states it — `{ kind: "grant" }` /
- * `{ kind: "forwardAllExceptSender" }` / `{ kind: "accept" }` — rather
- * than relying on an omission default.
+ * policy for both gates (see {@link appManifestHooksSchema}). An app that
+ * wants the open posture states it — `{ kind: "grant" }` /
+ * `{ kind: "forwardAllExceptSender" }` — rather than relying on an
+ * omission default.
  */
 const appManifestSchema = Schema.Struct({
   appId: Schema.String,
@@ -122,7 +96,6 @@ const appManifestSchema = Schema.Struct({
       maxParticipants: Schema.optional(Schema.Number.pipe(Schema.int())),
     }),
   ),
-  conversations: Schema.optional(Schema.Array(appManifestConversationSchema)),
   hooks: appManifestHooksSchema,
 });
 

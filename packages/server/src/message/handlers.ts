@@ -18,12 +18,6 @@ import {
   type LeaseRegistry,
 } from "#dispatch";
 import { MessageServiceTag } from "./layer.js";
-import {
-  guardTaskActive,
-  guardConversationNotArchived,
-  guardReplyTarget,
-  obtainConversationSendAccess,
-} from "#conversation/requirements";
 import type { MessageService } from "./message.service.js";
 
 type MessagesSendParams = ParamsOf<typeof messagesSendDefinition>;
@@ -76,7 +70,7 @@ const sendWithDispatchLease = Effect.fn("messages.sendWithDispatchLease")(
             conversationId: input.params.conversationId,
             parts: input.params.parts,
             senderAgentId: input.ctx.agentId,
-            replyToId: input.params.replyToId,
+            taskId: input.params.taskId,
             excludeConnectionId: input.connId,
           });
           yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
@@ -106,20 +100,6 @@ const handleMessageSend = Effect.fn("messages.send")(function* (
   const messageService = yield* MessageServiceTag;
   const leaseRegistry = yield* LeaseRegistryTag;
   const connection = yield* ConnectionTag;
-  // The `ConversationSendAccess` requirement already gates the frame. The
-  // body still needs the joined send row for task and conversation guards, so it
-  // reads that row directly here.
-  const sendRow = yield* obtainConversationSendAccess({
-    conversationId: params.conversationId,
-    senderAgentId: ctx.agentId,
-    taskId: params.taskId,
-  });
-  yield* guardTaskActive(sendRow);
-  yield* guardConversationNotArchived(sendRow);
-  yield* guardReplyTarget({
-    conversationId: params.conversationId,
-    replyToId: params.replyToId,
-  });
   if (params.dispatchLeaseId !== undefined) {
     return yield* sendWithDispatchLease({
       connId: connection.connId,
@@ -133,7 +113,7 @@ const handleMessageSend = Effect.fn("messages.send")(function* (
     conversationId: params.conversationId,
     parts: params.parts,
     senderAgentId: ctx.agentId,
-    replyToId: params.replyToId,
+    taskId: params.taskId,
     excludeConnectionId: connection.connId,
   });
   return { message };
@@ -176,8 +156,8 @@ export const messagesSend: ServerHandler<typeof messagesSendDefinition> =
  */
 export const messagesList: ServerHandler<typeof messagesListDefinition> =
   Effect.fn("messagesList")(function* (params) {
-    // Gated by the `TaskReadAccess` + `ConversationInTask` requirements in the
-    // engine stack; the body trusts the gated `params`.
+    // Conversation participation is the whole read gate, asserted by
+    // `MessageService.list` before any row is projected.
     const ctx = yield* agentArm;
     return yield* handleMessageList(params, ctx);
   });

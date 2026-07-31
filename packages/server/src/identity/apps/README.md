@@ -9,7 +9,7 @@ never reaches a deep private path.
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | db, socket, identity siblings (contacts, credential) |
+| Imports FROM | db, socket, identity siblings (credential) |
 | Imports TO   | composed by `core` boot; consumed by `dispatch`, `network`, `message` (app-authority callers) |
 
 ## Files

@@ -16,14 +16,12 @@ const DEFAULT_APP_CONNECTION_ID = Schema.decodeUnknownSync(connectionIdSchema)(
 );
 
 /**
- * The boot-installed default app declares the three open policies
- * explicitly:
+ * The boot-installed default app declares both open policies explicitly:
  *
  *   - `dispatch_authorize: { kind: "grant" }` — unmoderated admission.
  *   - `message_authorize: { kind: "forwardAllExceptSender" }` — fan out
  *     to every participant except the sender, computed in-process via
  *     `ConversationService.getParticipantAgentIds`.
- *   - `task_create: { kind: "accept" }` — auto-accept every task.
  *
  * Each policy is a static arm resolved in-process by the domain callback
  * services, so the endpoint's `originator` is never invoked. The registration still
@@ -39,7 +37,6 @@ const DEFAULT_APP_MANIFEST = {
   hooks: {
     dispatch_authorize: { kind: "grant" },
     message_authorize: { kind: "forwardAllExceptSender" },
-    task_create: { kind: "accept" },
   },
 } satisfies AppManifest;
 
@@ -92,10 +89,10 @@ function makeDefaultAppEndpoint(): AppEndpoint {
  * Boot-time installation of the default app. Registers the static-only
  * manifest under {@link DEFAULT_APP_ID}. No app round-trip is ever made.
  *
- * App-admin RPCs remain unreachable on
- * `DEFAULT_APP_ID` tasks because no client `AppConnection` can ever own
- * the default app — its endpoint is a server-minted inert endpoint, not
- * a connected HTTP-registered app.
+ * App-admin RPCs remain unreachable on `DEFAULT_APP_ID` conversations
+ * because no client `AppConnection` can ever own the default app — its
+ * endpoint is a server-minted inert endpoint, not a connected
+ * HTTP-registered app.
  *
  * @param appEndpointRegistry Value supplied to the operation.
  */

@@ -20,5 +20,5 @@ types used by server services.
 2. `agent/network/connect` or `app/network/connect` authenticates the live
    connection arm.
 3. Domain services read connection/context primitives through `#socket`.
-4. Socket close removes the connection, updates presence/routing state, abandons
+4. Socket close removes the connection, updates routing state, abandons
    leases, and unregisters apps bound to the connection.
