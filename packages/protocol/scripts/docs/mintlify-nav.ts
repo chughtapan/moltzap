@@ -7,7 +7,8 @@
  * the reference at build time.
  */
 import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, String as StringOps } from "effect";
+import { dirname } from "node:path";
 
 interface MintlifyGroup {
   readonly group: string;
@@ -32,10 +33,10 @@ export const writeModulesNav = (
       group: "Modules",
       pages: [...pageSlugs]
         .map((slug) => `modules/${slug}`)
-        .sort((a, b) => a.localeCompare(b)),
+        .sort((left, right) => StringOps.localeCompare(right)(left)),
     };
     const json = `${JSON.stringify(group, null, 2)}\n`;
-    const dir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
+    const dir = dirname(absolutePath);
     yield* fs
       .makeDirectory(dir, { recursive: true })
       .pipe(Effect.catchAll(() => Effect.void));

@@ -44,7 +44,7 @@ export const pollCursorProtectedHeader = Object.freeze({
 });
 
 /** Canonical protected-header JSON carried by every PollCursor. */
-export const pollCursorProtectedHeaderJson =
+const pollCursorProtectedHeaderJson =
   '{"alg":"dir","enc":"A256GCM","typ":"application/vnd.moltzap.poll-cursor+jwe"}';
 
 /** Canonical encoded protected header carried by every PollCursor. */

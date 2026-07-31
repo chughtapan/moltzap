@@ -116,28 +116,28 @@ const publicReadErrors = Schema.Union(
 );
 
 /** Private registration operation including its admission middleware. */
-export const registerOperation = Rpc.make("register", {
+const registerOperation = Rpc.make("register", {
   payload: RegistryRegisterRequest,
   success: registerResultSchema,
   error: registerErrors,
 }).middleware(RegistryAdmission);
 
 /** Private lookup operation. */
-export const lookupOperation = Rpc.make("lookup", {
+const lookupOperation = Rpc.make("lookup", {
   payload: RegistryLookupRequest,
   success: lookupResultSchema,
   error: publicReadErrors,
 });
 
 /** Private deterministic list operation. */
-export const listOperation = Rpc.make("list", {
+const listOperation = Rpc.make("list", {
   payload: RegistryListRequest,
   success: listResultSchema,
   error: publicReadErrors,
 });
 
 /** The package-private no-serialization Registry operation group. */
-export const registryOperations = RpcGroup.make(
+const registryOperations = RpcGroup.make(
   registerOperation,
   lookupOperation,
   listOperation,

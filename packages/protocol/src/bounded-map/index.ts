@@ -59,16 +59,15 @@ export class BoundedMap<K, V> implements ReadonlyMap<K, V> {
     }
     this.entriesStore.set(key, value);
 
-    if (this.entriesStore.size <= this.capacity) {
-      return undefined;
+    let evicted: readonly [K, V] | undefined;
+    if (this.entriesStore.size > this.capacity) {
+      const oldest = this.entriesStore.entries().next();
+      if (!oldest.done) {
+        this.entriesStore.delete(oldest.value[0]);
+        evicted = oldest.value;
+      }
     }
-
-    const oldest = this.entriesStore.entries().next();
-    if (oldest.done) {
-      return undefined;
-    }
-    this.entriesStore.delete(oldest.value[0]);
-    return oldest.value;
+    return evicted;
   }
 
   entries(): MapIterator<[K, V]> {

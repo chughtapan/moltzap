@@ -216,7 +216,7 @@ function parseJsonBody(
   body: string,
   toToxicError: (err: unknown) => ToxicControlError,
 ): Effect.Effect<unknown, ToxicControlError> {
-  return body.length === 0
+  return body === ""
     ? Effect.succeed(null)
     : Effect.try({
         try: (): unknown => JSON.parse(body),

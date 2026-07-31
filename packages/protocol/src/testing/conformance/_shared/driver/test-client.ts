@@ -509,27 +509,29 @@ function takeMatchingAwaiter(
 }
 
 function normalizeRpcError(method: string, error: unknown): SendRpcError {
+  let normalized: SendRpcError;
   if (error instanceof ProtocolRpcTimeoutError) {
-    return new RpcTimeoutError({
+    normalized = new RpcTimeoutError({
       method,
       requestId: SYNTHETIC_REQUEST_ID,
       timeoutMs: error.timeoutMs,
     });
+  } else if (error instanceof NotConnectedError) {
+    normalized = closeErrorFromUnknown(error);
+  } else {
+    const tagged = taggedError(error);
+    normalized =
+      tagged === null
+        ? new TransportIoError({ direction: "inbound", cause: error })
+        : new RpcResponseError({
+            method,
+            requestId: SYNTHETIC_REQUEST_ID,
+            tag: tagged._tag,
+            message: typeof tagged.message === "string" ? tagged.message : "",
+            data: tagged.data,
+          });
   }
-  if (error instanceof NotConnectedError) {
-    return closeErrorFromUnknown(error);
-  }
-  const tagged = taggedError(error);
-  if (tagged !== null) {
-    return new RpcResponseError({
-      method,
-      requestId: SYNTHETIC_REQUEST_ID,
-      tag: tagged._tag,
-      message: typeof tagged.message === "string" ? tagged.message : "",
-      data: tagged.data,
-    });
-  }
-  return new TransportIoError({ direction: "inbound", cause: error });
+  return normalized;
 }
 
 function closeErrorFromUnknown(error: unknown): TransportClosedError {
@@ -571,16 +573,12 @@ function taggedError(value: unknown): {
   readonly message?: unknown;
   readonly data?: unknown;
 } | null {
-  if (value === null || typeof value !== "object") {
-    return null;
-  }
-  const tag: unknown = Reflect.get(value, "_tag");
-  if (typeof tag !== "string") {
-    return null;
-  }
-  return {
-    _tag: tag,
-    message: Reflect.get(value, "message"),
-    data: Reflect.get(value, "data"),
-  };
+  const tag = readUnknownProperty(value, "_tag");
+  return typeof tag === "string"
+    ? {
+        _tag: tag,
+        message: readUnknownProperty(value, "message"),
+        data: readUnknownProperty(value, "data"),
+      }
+    : null;
 }

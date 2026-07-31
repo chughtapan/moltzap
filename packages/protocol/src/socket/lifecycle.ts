@@ -18,6 +18,7 @@ import {
   Ref,
   Schema,
   Scope,
+  String as StringOps,
   type Stream,
 } from "effect";
 import {
@@ -388,10 +389,12 @@ const rewriteCauseFrame = (chunk: string): string | undefined => {
   return JSON.stringify({ ...frame, error: tagged });
 };
 
+const containsSerializedCause = StringOps.includes("Cause");
+
 const flattenReverseErrors =
   (write: WireWrite): WireWrite =>
   (chunk) => {
-    if (!chunk.includes("Cause")) {
+    if (!containsSerializedCause(chunk)) {
       return write(chunk);
     }
     const rewritten = rewriteCauseFrame(chunk);

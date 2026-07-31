@@ -110,7 +110,7 @@ export type RegistryRegisterCall = Readonly<{
 }>;
 
 /** Closed Registry client implementation failures. */
-export type RegistryClientError =
+type RegistryClientError =
   | RegistryConnectionError
   | RegistryRequestTimeoutError
   | RegistryInvalidResponseError;
