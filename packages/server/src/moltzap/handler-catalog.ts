@@ -20,7 +20,6 @@ import { agentsList } from "#identity/agents";
 import { messagesSend, messagesList } from "#message/handlers";
 import {
   agentConversationCreate,
-  conversationCreate,
   conversationList,
   conversationUpdate,
 } from "#conversation/handlers";
@@ -37,7 +36,6 @@ export const serverHandlers: ServerHandlers = {
   "agent/identity/agents/list": agentsList,
   "agent/message/send": messagesSend,
   "agent/message/list": messagesList,
-  "app/conversation/create": conversationCreate,
   "agent/conversation/list": conversationList,
   "agent/conversation/create": agentConversationCreate,
   "app/conversation/update": conversationUpdate,

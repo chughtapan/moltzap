@@ -65,7 +65,6 @@ interface CreateConversationOptions {
   readonly creatorAgentId: AgentId;
   /** Authorizing app; the routing key every send and dispatch resolves. */
   readonly appId: AppId;
-  readonly seedCreatorAsParticipant?: boolean;
 }
 
 interface ListConversationsDeps {
@@ -396,16 +395,12 @@ export class ConversationService {
             })
             .returningAll(),
         );
-        // The creator is auto-seeded as a participant only on the agent
-        // path. The app-originated `app/conversation/create` passes
-        // `seedCreatorAsParticipant: false`: membership = exactly
-        // `input.agentIds`.
-        if (input.seedCreatorAsParticipant !== false) {
-          yield* trx.insertInto("conversation_participants").values({
-            conversation_id: conv.id,
-            agent_id: input.creatorAgentId,
-          });
-        }
+        // The creator joins the conversation it opens; membership is the
+        // creator plus every named participant.
+        yield* trx.insertInto("conversation_participants").values({
+          conversation_id: conv.id,
+          agent_id: input.creatorAgentId,
+        });
         for (const agentId of input.agentIds) {
           yield* trx
             .insertInto("conversation_participants")
@@ -421,12 +416,8 @@ export class ConversationService {
     input: CreateConversationOptions,
     conversationId: ConversationId,
   ): Effect.Effect<void> {
-    // Mirrors `insertConversation`'s membership set: the creator is
-    // subscribed only when it was seeded as a participant.
-    const memberAgentIds =
-      input.seedCreatorAsParticipant !== false
-        ? [input.creatorAgentId, ...input.agentIds]
-        : [...input.agentIds];
+    // Mirrors `insertConversation`'s membership set.
+    const memberAgentIds = [input.creatorAgentId, ...input.agentIds];
     return this.connections.addConversationToAgents(
       memberAgentIds,
       conversationId,
@@ -437,10 +428,7 @@ export class ConversationService {
     input: CreateConversationOptions,
     conversationId: ConversationId,
   ): Effect.Effect<void> {
-    const participantCount =
-      input.seedCreatorAsParticipant !== false
-        ? input.agentIds.length + 1
-        : input.agentIds.length;
+    const participantCount = input.agentIds.length + 1;
     return Effect.logInfo("Conversation created").pipe(
       Effect.annotateLogs({
         conversationId,

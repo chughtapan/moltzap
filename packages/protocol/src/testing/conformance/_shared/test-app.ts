@@ -6,7 +6,7 @@
  * `AppTestClient` and below app-domain scenario drivers: it knows how to
  * HTTP-register the app manifest and answer `app/dispatch/authorize` /
  * `app/message/authorize`, but it does not know about leases or
- * conversations beyond manifest defaults.
+ * conversations.
  */
 import { Duration, Effect, Ref, type Scope, type Schema } from "effect";
 import type { AppManifest } from "#identity/apps";
@@ -36,10 +36,6 @@ const APP_CLIENT_DEFAULT_TIMEOUT_MS = 5_000;
 const UNIQUE_SUFFIX_START = 2;
 const UNIQUE_SUFFIX_END = 8;
 
-const DEFAULT_CONVERSATIONS: NonNullable<AppManifest["conversations"]> = [
-  { key: "main", name: "Main", participantFilter: "all" },
-];
-
 /** Represents test app registration failure conditions. */
 export type TestAppRegistrationFailure =
   | TestAppHttpRegistrationError
@@ -53,7 +49,6 @@ export interface TestAppManifestOptions {
   readonly appId?: string;
   readonly name?: string;
   readonly description?: string;
-  readonly conversations?: AppManifest["conversations"];
   readonly dispatchAuthorizeTimeoutMs?: number;
   readonly messagesAuthorizeTimeoutMs?: number;
 }
@@ -123,7 +118,6 @@ export function makeTestAppManifest(
     ...(options.description !== undefined
       ? { description: options.description }
       : {}),
-    conversations: options.conversations ?? DEFAULT_CONVERSATIONS,
     hooks,
   };
 }

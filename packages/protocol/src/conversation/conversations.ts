@@ -55,31 +55,6 @@ export const agentConversationCreate = defineRpc({
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// app/conversation/create
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * App-only: mint a conversation the calling app authorizes. The
- * conversation's app routing key is the caller's own `appId`.
- *
- * - **Principal:** `AppPrincipal` head. The server handler performs
- *   capacity-only authorization inline.
- * @error ForbiddenError when the caller may not create the conversation
- * @error AgentNotFoundError when a listed participant agent does not exist
- * @error ConversationFullError when the conversation is at capacity
- */
-export const conversationCreate = defineRpc({
-  name: "app/conversation/create",
-  params: Schema.Struct({
-    name: Schema.optional(conversationNameSchema),
-    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
-  }),
-  result: Schema.Struct({ conversation: conversationSchemaValue }),
-  requires: [AppPrincipal],
-  errors: [ForbiddenError, AgentNotFoundError, ConversationFullError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
 // agent/conversation/list
 // ═══════════════════════════════════════════════════════════════════
 
@@ -227,10 +202,7 @@ export const agentCallableConversationRpcMethods = [
 ] as const;
 
 /** App-callable conversation RPC catalog. */
-export const appCallableConversationRpcMethods = [
-  conversationCreate,
-  conversationUpdate,
-] as const;
+export const appCallableConversationRpcMethods = [conversationUpdate] as const;
 
 /** Conversation notification catalog. */
 export const conversationNotifications = [

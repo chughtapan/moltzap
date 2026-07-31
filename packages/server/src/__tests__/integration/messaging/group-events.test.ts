@@ -24,7 +24,7 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-it("group creation notifies all participants with app/conversation/created event", () =>
+it("group creation notifies all participants with agent/conversation/created event", () =>
   Effect.gen(function* () {
     const { agents } = yield* setupAgentGroup(3);
     const [alice, bob, eve] =

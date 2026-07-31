@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import {
   type agentConversationCreate as agentConversationCreateDefinition,
-  type conversationCreate as conversationCreateDefinition,
   conversationCreatedNotificationDefinition,
   type conversationList as conversationListDefinition,
   conversationParticipantsAddedNotificationDefinition,
@@ -42,7 +41,7 @@ function agentConversationCreateBody(
   return Effect.gen(function* () {
     const conversationService = yield* ConversationServiceTag;
     const participants = [...params.participants];
-    yield* authorizeConversationCreateCapacityOnly(participants, true);
+    yield* authorizeConversationCreateCapacityOnly(participants);
     const conversation = yield* conversationService.create({
       ...(params.name === undefined ? {} : { name: params.name }),
       agentIds: participants,
@@ -56,46 +55,6 @@ function agentConversationCreateBody(
     });
     return { conversation };
   }).pipe(Effect.withSpan("conversation.create.agent"));
-}
-
-/**
- * `app/conversation/create` body. The caller's own `appId` becomes the
- * conversation's routing key, which IS the app's authority to create it:
- * an app can only ever mint conversations it already authorizes. Membership
- * is exactly the named participants — the app is not seeded as one.
- * @param appId Authorizing app read off the live `AppConnection`.
- * @param params Request payload to process.
- * @returns The conversation create result.
- */
-function conversationCreateBody(
-  appId: AppContext["appId"],
-  params: ParamsOf<typeof conversationCreateDefinition>,
-) {
-  return Effect.gen(function* () {
-    const conversationService = yield* ConversationServiceTag;
-    yield* authorizeConversationCreateCapacityOnly(
-      [...params.participants],
-      false,
-    );
-    // `conversations.created_by_id` names an agent, and an app-minted
-    // conversation has no agent author; the first named participant stands in.
-    const creatorAgentId =
-      /* Safe because the descriptor requires a non-empty participant list. */ params
-        .participants[0]!;
-    const conversation = yield* conversationService.create({
-      ...(params.name === undefined ? {} : { name: params.name }),
-      agentIds: [...params.participants],
-      creatorAgentId,
-      appId,
-      seedCreatorAsParticipant: false,
-    });
-    yield* fanoutConversationCreate({
-      conversation,
-      participants: params.participants,
-      ...(params.name === undefined ? {} : { name: params.name }),
-    });
-    return { conversation };
-  }).pipe(Effect.withSpan("conversation.create"));
 }
 
 interface ConversationCreateInput {
@@ -239,18 +198,6 @@ export const agentConversationCreate: ServerHandler<
   Effect.gen(function* () {
     return yield* agentConversationCreateBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("agentConversationCreate"));
-
-/**
- * Provides the conversation create runtime value.
- * @param params Request payload to process.
- * @returns The conversation create result.
- */
-export const conversationCreate: ServerHandler<
-  typeof conversationCreateDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* conversationCreateBody((yield* appArm).appId, params);
-  }).pipe(Effect.withSpan("conversationCreate"));
 
 /**
  * Provides the conversation update runtime value.

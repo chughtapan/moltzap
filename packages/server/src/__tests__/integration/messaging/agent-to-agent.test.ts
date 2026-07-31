@@ -251,7 +251,7 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
   it("messages fan out to all group participants", groupChatFansOut);
 });
 
-describe("Regression: app/conversation/create subscribes connected participants", () => {
+describe("Regression: agent/conversation/create subscribes connected participants", () => {
   it(
     "participant connected before conversation creation receives messages without reconnecting",
     connectedParticipantReceivesWithoutReconnect,

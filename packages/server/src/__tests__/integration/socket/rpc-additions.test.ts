@@ -46,7 +46,6 @@ it("apps/register: HTTP registers a valid manifest and the app can connect", () 
     const manifest: AppManifest = {
       appId: APP_ID,
       name: "My Test App",
-      conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
       hooks: {
         dispatch_authorize: { kind: "grant" },
         message_authorize: { kind: "forwardAllExceptSender" },

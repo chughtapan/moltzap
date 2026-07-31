@@ -30,7 +30,6 @@ export type { ConversationSendAccessValue } from "./requirements/index.js";
 /** Re-exports the public API from `./conversations.js`. */
 export {
   agentConversationCreate,
-  conversationCreate,
   conversationList,
   conversationUpdate,
   conversationCreatedNotificationDefinition,

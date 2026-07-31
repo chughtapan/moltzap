@@ -10,7 +10,7 @@ import {
   messagesSend,
 } from "@moltzap/protocol/message";
 import {
-  conversationCreate,
+  agentConversationCreate,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
 import type { AgentId, AppId, AppManifest } from "@moltzap/protocol/identity";
@@ -98,14 +98,15 @@ let appHookState: VerdictState = {
 };
 
 /**
- * Per-test moderator app principal. Its callbacks and app-owned RPCs run on
- * the app connection; the requesting agent drives `agent/message/send`.
+ * Per-test moderator app principal: the DB-minted `appId` plus the live
+ * `AppConnection` whose handlers answer `app/message/authorize`.
  *
- * `sender` is the requesting agent. The app creates conversations with
- * `seedCreatorAsParticipant: false`, so the sender must be listed as a
- * participant for `agent/message/send` to reach `app/message/authorize`.
+ * `sender` is the requesting agent. It creates every conversation naming this
+ * app, and the creator joins what it opens, so `agent/message/send` clears the
+ * participant gate and reaches `app/message/authorize`.
  */
 interface ModeratorApp {
+  readonly appId: AppId;
   readonly client: TestAppClient;
   readonly sender: ConnectedAgent;
 }
@@ -310,12 +311,11 @@ function expectDecisionRecipients(
 
 /**
  * Mint the moderator app principal (HTTP register → `appKey` Connect) and
- * wire its callbacks. Every conversation it creates carries its DB-minted
- * `appId` (NOT `TEST_APP_MANIFEST.appId`) as the routing key, so the app's
- * `AppConnection` is the resolved moderator endpoint. Memoizes the app client
- * for the rest of the test so subsequent conversation creates reuse one app
- * principal.
- * @param agent The requesting agent that drives `agent/message/send`.
+ * wire its callbacks. The conversations below name its DB-minted `appId` (NOT
+ * `TEST_APP_MANIFEST.appId`) as the routing key, so the app's `AppConnection`
+ * is the resolved moderator endpoint. Memoizes the app for the rest of the
+ * test so subsequent conversation creates reuse one app principal.
+ * @param agent The requesting agent that creates conversations and drives `agent/message/send`.
  * @returns The minted moderator app.
  */
 function mintModeratorApp(agent: ConnectedAgent) {
@@ -326,30 +326,36 @@ function mintModeratorApp(agent: ConnectedAgent) {
       registered.appKey,
       moderatorHandlers(),
     );
-    const minted: ModeratorApp = { client, sender: agent };
+    const minted: ModeratorApp = {
+      appId: registered.appId,
+      client,
+      sender: agent,
+    };
     moderatorApp = minted;
     return minted;
   });
 }
 
-// The app creates conversations off its own `AppConnection`
-// (`seedCreatorAsParticipant: false`); the sender agent is added
-// explicitly so its `agent/message/send` passes the participant gate.
+// The sender agent opens the conversation and names the moderator app as its
+// authority, so the app answers `app/message/authorize` for every send.
+// Membership is the sender plus the named participants.
 function createManagedGroup(
   name: string,
   participants: readonly ConnectedAgent[],
 ) {
   const app = currentModeratorApp();
-  return app.client.sendRpc(conversationCreate, {
+  return app.sender.client.sendRpc(agentConversationCreate, {
+    appId: app.appId,
     name,
-    participants: [app.sender.agentId, ...participants.map((p) => p.agentId)],
+    participants: participants.map((p) => p.agentId),
   });
 }
 
 function createManagedDm(participant: ConnectedAgent) {
   const app = currentModeratorApp();
-  return app.client.sendRpc(conversationCreate, {
-    participants: [app.sender.agentId, participant.agentId],
+  return app.sender.client.sendRpc(agentConversationCreate, {
+    appId: app.appId,
+    participants: [participant.agentId],
   });
 }
 

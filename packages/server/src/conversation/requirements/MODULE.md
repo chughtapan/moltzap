@@ -29,14 +29,13 @@ against the conversation's routing key.
 
 **Returns:** The assert caller app owns conversation result.
 
-### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L17)
+### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L15)
 
 _Function_
 
 ```ts
 export const authorizeConversationCreateCapacityOnly = (
   agentIds: readonly AgentId[],
-  seedsCreator: boolean,
 ): Effect.Effect<
   void,
   AgentNotFoundError | ConversationFullError,
@@ -46,9 +45,8 @@ export const authorizeConversationCreateCapacityOnly = (
 
 Capacity authorization for conversation creation. Validates that every
 named target exists, then checks the resulting membership against the
-group limit. `seedsCreator` distinguishes the agent path, whose creator
-joins the conversation, from the app path, whose membership is exactly
-the named targets.
+group limit. The creator joins the conversation it opens, so it counts
+toward the limit alongside the named targets.
 
 **Returns:** The authorize conversation create capacity only result.
 

@@ -53,10 +53,6 @@ describe("AppManifestSchema required shape", () => {
       name: "Werewolf",
       description: "Social deduction game",
       limits: { maxParticipants: 12 },
-      conversations: [
-        { key: "town_square", name: "Town Square", participantFilter: "all" },
-        { key: "den", name: "Werewolf Den", participantFilter: "none" },
-      ],
       hooks: OPEN_HOOKS,
     };
     expect(manifestIsValid(manifest)).toBe(true);
@@ -90,18 +86,6 @@ describe("AppManifestSchema required shape", () => {
 });
 
 describe("AppManifestSchema closed shape", () => {
-  it("rejects invalid participantFilter values", () => {
-    const manifest = {
-      appId: "test",
-      name: "Test",
-      hooks: OPEN_HOOKS,
-      conversations: [
-        { key: "main", name: "Main", participantFilter: "invalid" },
-      ],
-    };
-    expect(manifestIsInvalid(manifest)).toBe(true);
-  });
-
   it("rejects additional properties", () => {
     const manifest = {
       appId: "test",

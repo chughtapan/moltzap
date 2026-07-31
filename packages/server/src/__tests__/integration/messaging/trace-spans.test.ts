@@ -20,10 +20,7 @@ import {
   messagesAuthorize,
   messagesSend,
 } from "@moltzap/protocol/message";
-import {
-  agentConversationCreate,
-  conversationCreate,
-} from "@moltzap/protocol/conversation";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
@@ -184,19 +181,18 @@ function emitBlockedHookSpan() {
     const alice = yield* registerAndConnect("alice-trace-span-blocked");
     const bob = yield* registerAndConnect("bob-trace-span-blocked");
     const registered = yield* registerApp(getBaseUrl(), TRACE_APP_MANIFEST);
-    const appClient = yield* connectAppClient(
+    yield* connectAppClient(
       registered.appId,
       registered.appKey,
       blockingMessageHandlers(),
     );
 
-    // The app creates the conversation off its own `AppConnection`
-    // (`seedCreatorAsParticipant: false`); alice (the sender) is added
-    // explicitly so her `agent/message/send` passes the participant gate and
-    // reaches the `before_message_delivery` hook (vs. a participant-gate
-    // ForbiddenError firing first).
-    const conv = yield* appClient.sendRpc(conversationCreate, {
-      participants: [alice.agentId, bob.agentId],
+    // Alice (the sender) opens the conversation and names the registered app
+    // as its authority, so her `agent/message/send` clears the participant
+    // gate and reaches the `before_message_delivery` hook that blocks it.
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
+      appId: registered.appId,
+      participants: [bob.agentId],
     });
     const outcome = yield* Effect.either(
       alice.client.sendRpc(messagesSend, {

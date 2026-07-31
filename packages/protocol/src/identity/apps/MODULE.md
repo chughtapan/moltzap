@@ -52,7 +52,7 @@ export type AppKey = Redacted.Redacted<AppKeyValue>;
 
 Represents app key values.
 
-### [`AppManifest`](./manifest.ts#L111)
+### [`AppManifest`](./manifest.ts#L103)
 
 _TypeAlias_
 
@@ -62,7 +62,7 @@ export type AppManifest = Schema.Schema.Type<typeof appManifestSchema>;
 
 Represents app manifest values.
 
-### [`AppManifestValidationResult`](./manifest.ts#L121)
+### [`AppManifestValidationResult`](./manifest.ts#L113)
 
 _TypeAlias_
 
@@ -97,7 +97,7 @@ export const manifestPolicyCanaries =
 
 Aggregate whose annotation retains every compile-time policy proof.
 
-### [`validateAppManifest`](./manifest.ts#L135)
+### [`validateAppManifest`](./manifest.ts#L127)
 
 _Function_
 
