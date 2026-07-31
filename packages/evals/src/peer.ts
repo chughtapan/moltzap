@@ -26,6 +26,7 @@ import type { EvaluationCaseId } from "./model.js";
 
 const AGENT_PAGE_SIZE = 100;
 const AGENT_POLL_INTERVAL = "100 millis";
+const GROUP_MEMBER_RESOLUTION_CONCURRENCY = 4;
 const decodeAgentName = Schema.decodeSync(agentName);
 
 /** Endpoint testimony produced by one bundled code peer. */
@@ -78,6 +79,11 @@ export type EvaluationPeerRuntime = AgentRuntime<
 interface PeerConversation {
   readonly taskId: MessageReceivedNotification["taskId"];
   readonly conversationId: Message["conversationId"];
+}
+
+interface PreparedGroup {
+  readonly target: AgentCard;
+  readonly conversation: PeerConversation;
 }
 
 type PeerPolicy = (
@@ -317,6 +323,50 @@ function openingPolicy(
     }).pipe(Effect.withSpan("evals.peer.opening"));
 }
 
+function prepareGroup(
+  context: EffectRuntimeContext,
+  targetName: string,
+  participantNames: NonEmptyReadonlyArray<string>,
+  name: string,
+): Effect.Effect<PreparedGroup, EvaluationPeerFailed> {
+  return Effect.gen(function* () {
+    const [target, participants] = yield* Effect.all([
+      resolveAgent(context.client, targetName),
+      Effect.forEach(
+        participantNames,
+        (participantName) => resolveAgent(context.client, participantName),
+        { concurrency: GROUP_MEMBER_RESOLUTION_CONCURRENCY },
+      ),
+    ] as const);
+    const invitedAgentIds = [
+      target.id,
+      ...participants.map((participant) => participant.id),
+    ];
+    const opened = yield* context.client
+      .callDefinition(taskRequest, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds,
+        initialConversation: { name, participants: invitedAgentIds },
+      })
+      .pipe(Effect.mapError((cause) => failure("open-conversation", cause)));
+    if (opened.conversation === null) {
+      return yield* Effect.fail(
+        failure(
+          "open-conversation",
+          "the router returned no initial conversation",
+        ),
+      );
+    }
+    return {
+      target,
+      conversation: {
+        taskId: opened.task.id,
+        conversationId: opened.conversation.id,
+      },
+    };
+  }).pipe(Effect.withSpan("evals.peer.prepare-group"));
+}
+
 function sourceAnnouncementPolicy(
   caseId: EvaluationCaseId,
   targetName: string,
@@ -356,28 +406,34 @@ function observerPolicy(
 
 function orderedGroupQuestionPolicy(
   caseId: EvaluationCaseId,
-  targetName: string,
+  prepared: PreparedGroup,
   sourceName: string,
   text: string,
 ): PeerPolicy {
   return (context) =>
     Effect.gen(function* () {
-      const [target, source] = yield* Effect.all([
-        resolveAgent(context.client, targetName),
-        resolveAgent(context.client, sourceName),
-      ]);
-      const contact = yield* receiveFrom(context, target.id);
-      const conversation: PeerConversation = {
-        taskId: contact.taskId,
-        conversationId: contact.message.conversationId,
-      };
+      const source = yield* resolveAgent(context.client, sourceName);
+      const contact = yield* receiveFrom(
+        context,
+        prepared.target.id,
+        prepared.conversation,
+      );
       const sourceAnnouncement = yield* receiveFrom(
         context,
         source.id,
-        conversation,
+        prepared.conversation,
       );
-      const question = yield* send(context, caseId, conversation, text);
-      const response = yield* receiveFrom(context, target.id, conversation);
+      const question = yield* send(
+        context,
+        caseId,
+        prepared.conversation,
+        text,
+      );
+      const response = yield* receiveFrom(
+        context,
+        prepared.target.id,
+        prepared.conversation,
+      );
       return new PeerExchange({
         observations: [
           receivedObservation(caseId, context, contact),
@@ -387,6 +443,26 @@ function orderedGroupQuestionPolicy(
         ],
       });
     }).pipe(Effect.withSpan("evals.peer.ordered-group-question"));
+}
+
+function groupResponsePolicy(
+  caseId: EvaluationCaseId,
+  prepared: PreparedGroup,
+  messages: NonEmptyReadonlyArray<string>,
+): PeerPolicy {
+  return (context) =>
+    receiveFrom(context, prepared.target.id, prepared.conversation).pipe(
+      Effect.flatMap((contact) =>
+        reactiveExchange({
+          context,
+          caseId,
+          target: prepared.target,
+          contact,
+          messages,
+        }),
+      ),
+      Effect.withSpan("evals.peer.group-response"),
+    );
 }
 
 function runPeerPolicy(
@@ -425,6 +501,37 @@ function peerRuntime(policy: PeerPolicy): EvaluationPeerRuntime {
           behavior: runPeerPolicy(context, policy, exchange),
         };
       }).pipe(Effect.withSpan("evals.peer.build")),
+  });
+}
+
+interface PreparedGroupRuntimeOptions {
+  readonly targetName: string;
+  readonly participantNames: NonEmptyReadonlyArray<string>;
+  readonly groupName: string;
+  readonly policy: (prepared: PreparedGroup) => PeerPolicy;
+}
+
+function preparedGroupRuntime(
+  options: PreparedGroupRuntimeOptions,
+): EvaluationPeerRuntime {
+  return effectRuntime({
+    build: (context) =>
+      Effect.gen(function* () {
+        const prepared = yield* prepareGroup(
+          context,
+          options.targetName,
+          options.participantNames,
+          options.groupName,
+        );
+        const exchange = yield* Deferred.make<
+          PeerExchange,
+          EvaluationPeerFailed
+        >();
+        return {
+          gateway: Object.freeze({ exchange: Deferred.await(exchange) }),
+          behavior: runPeerPolicy(context, options.policy(prepared), exchange),
+        };
+      }).pipe(Effect.withSpan("evals.peer.build-prepared-group")),
   });
 }
 
@@ -501,21 +608,58 @@ export function observerPeerRuntime(
   return peerRuntime(observerPolicy(caseId, targetName));
 }
 
+interface OrderedGroupPeerOptions {
+  readonly caseId: EvaluationCaseId;
+  readonly targetName: string;
+  readonly sourceName: string;
+  readonly participantNames: NonEmptyReadonlyArray<string>;
+  readonly groupName: string;
+  readonly text: string;
+}
+
 /**
- * Build a question peer that preserves the group interaction order.
- * @param caseId Evaluation case identity copied into endpoint testimony.
- * @param targetName Roster name whose first message identifies the group.
- * @param sourceName Roster name that must announce before the question.
- * @param text Question sent after both preceding group messages arrive.
+ * Build a question peer that provisions a named group and preserves its order.
+ * @param options Named topology and ordered question policy.
  * @returns A runtime whose final observation is the target's response.
  */
 export function orderedGroupPeerRuntime(
-  caseId: EvaluationCaseId,
-  targetName: string,
-  sourceName: string,
-  text: string,
-) {
-  return peerRuntime(
-    orderedGroupQuestionPolicy(caseId, targetName, sourceName, text),
-  );
+  options: OrderedGroupPeerOptions,
+): EvaluationPeerRuntime {
+  return preparedGroupRuntime({
+    targetName: options.targetName,
+    participantNames: options.participantNames,
+    groupName: options.groupName,
+    policy: (prepared) =>
+      orderedGroupQuestionPolicy(
+        options.caseId,
+        prepared,
+        options.sourceName,
+        options.text,
+      ),
+  });
+}
+
+interface GroupResponsePeerOptions {
+  readonly caseId: EvaluationCaseId;
+  readonly targetName: string;
+  readonly participantNames: NonEmptyReadonlyArray<string>;
+  readonly groupName: string;
+  readonly messages: NonEmptyReadonlyArray<string>;
+}
+
+/**
+ * Build a peer that provisions a named group before runtime readiness.
+ * @param options Named topology and ordered response policy.
+ * @returns A runtime whose gateway reports the ordered group interaction.
+ */
+export function groupResponsePeerRuntime(
+  options: GroupResponsePeerOptions,
+): EvaluationPeerRuntime {
+  return preparedGroupRuntime({
+    targetName: options.targetName,
+    participantNames: options.participantNames,
+    groupName: options.groupName,
+    policy: (prepared) =>
+      groupResponsePolicy(options.caseId, prepared, options.messages),
+  });
 }

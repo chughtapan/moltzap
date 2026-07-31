@@ -10,6 +10,7 @@ import {
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
 import { serverBaseUrl } from "@moltzap/protocol/network";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
   agentId,
   agentName,
@@ -46,6 +47,9 @@ interface FakeClientState {
   readonly sendPermissions: Set<string>;
   readonly sendCompletions: Array<Deferred.Deferred<undefined>>;
 }
+
+const TASK_ID = taskId("00000000-0000-4000-8000-000000000811");
+const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000821");
 
 const clientState = vi.hoisted(
   (): FakeClientState => ({
@@ -132,6 +136,13 @@ function fakeCallDefinition(
   if (definition.name === messagesSend.name) {
     return fakeSend(payload);
   }
+  if (definition.name === taskRequest.name) {
+    clientState.calls.push({ definition: taskRequest.name, payload });
+    return Effect.succeed({
+      task: { id: TASK_ID },
+      conversation: { id: CONVERSATION_ID },
+    });
+  }
   return Effect.fail(`unexpected RPC ${definition.name}`);
 }
 
@@ -184,8 +195,6 @@ const SOURCE_ID = agentId("00000000-0000-4000-8000-000000000802");
 const QUESTION_ID = agentId("00000000-0000-4000-8000-000000000803");
 const OTHER_ID = agentId("00000000-0000-4000-8000-000000000804");
 const OBSERVER_ID = agentId("00000000-0000-4000-8000-000000000805");
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000811");
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000821");
 const OTHER_CONVERSATION_ID = conversationId(
   "00000000-0000-4000-8000-000000000822",
 );
@@ -194,6 +203,7 @@ const AGENT_KEY = redactedAgentKey(agentKeyString(801));
 const CREATED_AT = "2026-07-29T00:00:00.000Z";
 const SOURCE_ANNOUNCEMENT = "I have been working on data pipelines.";
 const GROUP_QUESTION = "What has everyone been working on? Keep it brief.";
+const GROUP_NAME = "evaluation-eval-006";
 beforeEach(() => {
   clientState.agents = [];
   clientState.received = undefined;
@@ -341,6 +351,7 @@ const acquireQuestionPeer = Effect.fn(function* () {
   clientState.agents = [
     card(TARGET_NAME, TARGET_ID),
     card(SOURCE_NAME, SOURCE_ID),
+    card(OBSERVER_NAME, OBSERVER_ID),
   ];
   const sendCompleted = yield* Deferred.make<undefined>();
   clientState.sendCompletions.push(sendCompleted);
@@ -353,7 +364,14 @@ const acquireQuestionPeer = Effect.fn(function* () {
     ),
   });
   const running = yield* peers
-    .orderedGroupPeerRuntime(CASE_ID, TARGET_NAME, SOURCE_NAME, GROUP_QUESTION)
+    .orderedGroupPeerRuntime({
+      caseId: CASE_ID,
+      targetName: TARGET_NAME,
+      sourceName: SOURCE_NAME,
+      participantNames: [SOURCE_NAME, OBSERVER_NAME],
+      groupName: GROUP_NAME,
+      text: GROUP_QUESTION,
+    })
     .acquire({
       agentName: agentName(QUESTION_NAME),
       connection: connection(QUESTION_NAME, QUESTION_ID),
@@ -492,6 +510,22 @@ function assertQuestionExchange(
 
 const orderedGroupPolicyTest = Effect.fn(function* () {
   const fixture = yield* acquireQuestionPeer();
+  assert.deepStrictEqual(
+    clientState.calls.filter((call) => call.definition === taskRequest.name),
+    [
+      {
+        definition: taskRequest.name,
+        payload: {
+          appId: DEFAULT_APP_ID,
+          invitedAgentIds: [TARGET_ID, SOURCE_ID, OBSERVER_ID],
+          initialConversation: {
+            name: GROUP_NAME,
+            participants: [TARGET_ID, SOURCE_ID, OBSERVER_ID],
+          },
+        },
+      },
+    ],
+  );
   const contact = yield* publishQuestionPreamble();
   assert.lengthOf(messageCalls(), 0);
   clientState.sendPermissions.add(messagesSend.name);
