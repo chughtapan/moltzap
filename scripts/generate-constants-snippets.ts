@@ -143,6 +143,21 @@ const readPackageVersion = (filePath: string): ReadResult<string> => {
   return ok(parsed.version);
 };
 
+/** Read one nonempty trimmed string from a repository version file. */
+const readVersionFile = (filePath: string): ReadResult<string> => {
+  let value: string;
+  try {
+    value = readFileSync(filePath, "utf8").trim();
+  } catch (cause) {
+    return err(
+      `could not read ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+  return value.length === 0
+    ? err(`expected a nonempty version in ${filePath}`)
+    : ok(value);
+};
+
 // ─── Constant specs ───────────────────────────────────────────────────────
 
 interface StringConstant {
@@ -166,6 +181,9 @@ type Constant = StringConstant | NumberConstant;
 const collect = (): readonly Constant[] => {
   const protocolVersion = readPackageVersion(
     resolve(workspaceRoot, "packages/protocol/package.json"),
+  );
+  const v2ProtocolVersion = readVersionFile(
+    resolve(workspaceRoot, "v2/VERSION"),
   );
   const defaultAppId = readTopLevelLiteral(
     resolve(workspaceRoot, "packages/protocol/src/identity/apps/ids.ts"),
@@ -227,6 +245,12 @@ const collect = (): readonly Constant[] => {
       "packages/protocol/package.json",
       protocolVersion,
       "Current wire-protocol version sent by clients and checked by the server during connect.",
+    ),
+    requireString(
+      "V2_PROTOCOL_VERSION",
+      "v2/VERSION",
+      v2ProtocolVersion,
+      "Current V2 MoltZap compatibility value shared by all six V2 packages and ready representations.",
     ),
     requireString(
       "DEFAULT_APP_ID",
@@ -522,6 +546,7 @@ const main = (): void => {
     .filter(
       (c) =>
         c.name === "PROTOCOL_VERSION" ||
+        c.name === "V2_PROTOCOL_VERSION" ||
         c.name === "DEFAULT_SERVER_PORT" ||
         c.name === "QUICKSTART_PORT",
     )

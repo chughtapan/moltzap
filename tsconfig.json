@@ -23,7 +23,7 @@
       "path": "v2/identity"
     },
     {
-      "path": "v2/transport"
+      "path": "v2/router"
     },
     {
       "path": "v2/transcript"

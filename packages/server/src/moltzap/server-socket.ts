@@ -1,6 +1,6 @@
 // safer-arch-ignore no-trivial-sink-file: This is the protocol socket adapter boundary; core app is intentionally its sole composition consumer.
 import type { Socket as EffectSocket } from "@effect/platform/Socket";
-import { Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 import {
   MoltZapServer,
   type ConnectionId,
@@ -16,6 +16,11 @@ import {
 import { serverHandlers } from "./handler-catalog.js";
 import { makeRequirementMiddlewareLayers } from "./auth-middleware-layers.js";
 import { peekLiveArm } from "./principal-gate.js";
+
+class UserHookError extends Data.TaggedError("UserHookError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const makeConnectionTagLayer = (
   connId: ConnectionId,
@@ -48,43 +53,43 @@ export function makeMoltzapSocketHandler(options: {
         { write: session.write, shutdown: session.shutdown },
         session.originator,
       ),
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define -- lifecycle callback is invoked after module initialization.
     onClose: (...[, session]) => closeSocketSession(session, options),
   });
   return (socket: EffectSocket) => protocolServer.handleSocket(socket);
 }
 
-function closeSocketSession(
+const closeSocketSession = Effect.fn("socket.closeSession")(function* (
   session: MoltZapServerSession,
   options: {
     readonly services: ResolvedServices;
     readonly disconnectionHooks: readonly DisconnectionHook[];
   },
 ) {
-  return Effect.gen(function* () {
-    const removed = yield* options.services.connections.removeAndReturn(
+  const removed = yield* options.services.connections.removeAndReturn(
+    session.connId,
+  );
+  if (removed !== undefined && removed._tag === "AgentConnection") {
+    const authCtx = removed.auth;
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define -- hook runner is initialized before the callback executes.
+    yield* runDisconnectionHooks(authCtx, session, options);
+    yield* options.services.agentEndpointResolver.remove(
+      authCtx.agentId,
       session.connId,
     );
-    if (removed !== undefined && removed._tag === "AgentConnection") {
-      const authCtx = removed.auth;
-      yield* runDisconnectionHooks(authCtx, session, options);
-      yield* options.services.agentEndpointResolver.remove(
-        authCtx.agentId,
-        session.connId,
-      );
-    }
-    yield* options.services.leaseRegistry.abandon(session.connId);
-    options.services.appEndpointRegistry.unregisterAppsForConnection(
-      session.connId,
-    );
-  }).pipe(Effect.withSpan("socket.closeSession"));
-}
+  }
+  yield* options.services.leaseRegistry.abandon(session.connId);
+  options.services.appEndpointRegistry.unregisterAppsForConnection(
+    session.connId,
+  );
+});
 
-function runDisconnectionHooks(
-  authCtx: AgentContext,
-  session: MoltZapServerSession,
-  options: { readonly disconnectionHooks: readonly DisconnectionHook[] },
-) {
-  return Effect.gen(function* () {
+const runDisconnectionHooks = Effect.fn("socket.runDisconnectionHooks")(
+  function* (
+    authCtx: AgentContext,
+    session: MoltZapServerSession,
+    options: { readonly disconnectionHooks: readonly DisconnectionHook[] },
+  ) {
     const { agentId, ownerUserId } = authCtx;
     for (const hook of options.disconnectionHooks) {
       yield* runUserHook(
@@ -94,8 +99,8 @@ function runDisconnectionHooks(
         { agentId, connId: session.connId },
       );
     }
-  }).pipe(Effect.withSpan("socket.runDisconnectionHooks"));
-}
+  },
+);
 
 function runUserHook<TArgs>(
   hook: (args: TArgs) => undefined | PromiseLike<undefined>,
@@ -105,11 +110,11 @@ function runUserHook<TArgs>(
 ): Effect.Effect<void> {
   return Effect.tryPromise({
     try: () => Promise.resolve(hook(args)),
-    catch: (err) => err,
+    catch: (cause) => new UserHookError({ message: `${label} failed`, cause }),
   }).pipe(
     Effect.timeoutFail({
       duration: "2 seconds",
-      onTimeout: () => new Error(`${label} timed out`),
+      onTimeout: () => new UserHookError({ message: `${label} timed out` }),
     }),
     Effect.catchAll((err) =>
       Effect.logWarning(`${label} error`).pipe(

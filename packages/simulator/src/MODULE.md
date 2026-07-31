@@ -539,7 +539,7 @@ export type EffectMessageReply = string | MessageParts;
 
 A message handler reply containing text or structured parts.
 
-### [`effectRuntime`](./runtime/effect.ts#L254)
+### [`effectRuntime`](./runtime/effect.ts#L253)
 
 _Function_
 
@@ -1453,7 +1453,7 @@ export type RuntimeTermination =
 
 Exact terminal observation produced by an acquired runtime.
 
-### [`simulator`](./definition.ts#L235)
+### [`simulator`](./definition.ts#L234)
 
 _Variable_
 
@@ -1466,7 +1466,7 @@ export const simulator: Readonly<{ define: typeof defineSimulator }> =
 
 Discoverable entry point for code-first society definitions.
 
-### [`SimulatorDefinition`](./definition.ts#L170)
+### [`SimulatorDefinition`](./definition.ts#L169)
 
 _Interface_
 

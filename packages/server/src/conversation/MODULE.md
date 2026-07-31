@@ -8,28 +8,32 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./handlers.ts#L195)
+### [`agentConversationCreate`](./handlers.ts#L189)
 
 _Variable_
 
 ```ts
 export const agentConversationCreate: ServerHandler<
   typeof agentConversationCreateDefinition
-> = (params)
+> = Effect.fn("agentConversationCreate")(function* (params) {
+  return yield* agentConversationCreateBody(params, yield* agentArm);
+})
 ```
 
 Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationList`](./handlers.ts#L183)
+### [`conversationList`](./handlers.ts#L178)
 
 _Variable_
 
 ```ts
 export const conversationList: ServerHandler<
   typeof conversationListDefinition
-> = (params)
+> = Effect.fn("conversationList")(function* (params) {
+  return yield* conversationListBody(params, yield* agentArm);
+})
 ```
 
 Provides the conversation list runtime value.
@@ -77,12 +81,14 @@ export class ConversationService {
   private createConversationEffect(
     input: CreateConversationOptions,
   ): Effect.Effect<Conversation, SqlError> {
-    return Effect.gen(this, function* (this: ConversationService) {
-      const created = yield* this.insertConversation(input);
-      yield* this.subscribeCreatedConversation(input, created.id);
-      yield* this.logConversationCreated(input, created.id);
-      return created;
-    });
+    return Effect.gen(
+      function* (this: ConversationService) {
+        const created = yield* this.insertConversation(input);
+        yield* this.subscribeCreatedConversation(input, created.id);
+        yield* this.logConversationCreated(input, created.id);
+        return created;
+      }.bind(this),
+    );
   }
 
   /**
@@ -97,27 +103,29 @@ export class ConversationService {
     ReadonlyMap<AgentId, UserId>,
     AgentNotFoundError | SqlError
   > {
-    return Effect.gen(this, function* (this: ConversationService) {
-      const rows =
-        agentIds.length === 0
-          ? []
-          : yield* this.db
-              .selectFrom("agents")
-              .select(["id", "owner_user_id"])
-              .where("id", "in", [...agentIds]);
-      const ownerByAgentId = new Map<AgentId, UserId>();
-      for (const row of rows) {
-        ownerByAgentId.set(row.id, row.owner_user_id);
-      }
-      for (const agentId of agentIds) {
-        if (!ownerByAgentId.has(agentId)) {
-          return yield* Effect.fail(
-            new AgentNotFoundError({ message: `Agent ${agentId} not found` }),
-          );
+    return Effect.gen(
+      function* (this: ConversationService) {
+        const rows =
+          agentIds.length === 0
+            ? []
+            : yield* this.db
+                .selectFrom("agents")
+                .select(["id", "owner_user_id"])
+                .where("id", "in", [...agentIds]);
+        const ownerByAgentId = new Map<AgentId, UserId>();
+        for (const row of rows) {
+          ownerByAgentId.set(row.id, row.owner_user_id);
         }
-      }
-      return ownerByAgentId;
-    });
+        for (const agentId of agentIds) {
+          if (!ownerByAgentId.has(agentId)) {
+            return yield* new AgentNotFoundError({
+              message: `Agent ${agentId} not found`,
+            });
+          }
+        }
+        return ownerByAgentId;
+      }.bind(this),
+    );
   }
 
   /**
@@ -137,30 +145,26 @@ export class ConversationService {
     agentId: AgentId,
   ): Effect.Effect<void, NotAParticipantError, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        // Snapshot membership BEFORE delete so the evicted agent
-        // is included in the fan-out target list.
-        const participantsSnapshot =
-          yield* this.getParticipantAgentIds(conversationId);
-        const deleted = yield* this.db
-          .deleteFrom("conversation_participants")
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", agentId)
-          .returning("conversation_id");
-        if (deleted.length === 0) {
-          return yield* Effect.fail(
-            new NotAParticipantError({ message: "Participant not found" }),
-          );
-        }
-        yield* this.connections.removeConversationFromAgent(
-          agentId,
-          conversationId,
-        );
-        yield* broadcastNotificationToAgents(
-          participantsSnapshot,
-          conversationParticipantsRemovedNotificationDefinition,
-          {
+      Effect.gen(
+        function* (this: ConversationService) {
+          // Snapshot membership BEFORE delete so the evicted agent
+          // is included in the fan-out target list.
+          const participantsSnapshot =
+            yield* this.getParticipantAgentIds(conversationId);
+          const deleted = yield* this.db
+            .deleteFrom("conversation_participants")
+            .where("conversation_id", "=", conversationId)
+            .where("agent_id", "=", agentId)
+            .returning("conversation_id");
+          if (deleted.length === 0) {
+            return yield* new NotAParticipantError({
+              message: "Participant not found",
+            });
+          }
+          yield* this.connections.removeConversationFromAgent(
+            agentId,
             conversationId,
+          );
 ```
 
 Implements conversation service.
@@ -194,14 +198,16 @@ export class ConversationServiceTag extends Context.Tag(
 
 Implements conversation service tag.
 
-### [`conversationUpdate`](./handlers.ts#L207)
+### [`conversationUpdate`](./handlers.ts#L200)
 
 _Variable_
 
 ```ts
 export const conversationUpdate: ServerHandler<
   typeof conversationUpdateDefinition
-> = (params)
+> = Effect.fn("conversationUpdate")(function* (params) {
+  return yield* conversationUpdateBody(params, yield* appArm);
+})
 ```
 
 Provides the conversation update runtime value.

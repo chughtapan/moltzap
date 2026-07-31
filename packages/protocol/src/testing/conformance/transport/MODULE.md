@@ -125,7 +125,7 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void
 
 Registers slow close cleanup.
 
-### [`registerTimeoutSurface`](./adversity-timeout-surface.ts#L27)
+### [`registerTimeoutSurface`](./adversity-timeout-surface.ts#L28)
 
 _Function_
 

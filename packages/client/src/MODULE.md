@@ -186,19 +186,20 @@ export class MoltZapService {
    * @returns The client result.
    */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const client = new MoltZapAgentClient({
-        serverUrl: this.opts.serverUrl,
-        agentKey: this.opts.agentKey,
-        // The body doesn't branch on close metadata today; the signature is
-        // kept explicit so a future disconnect-handler chain can plumb
-        // code/reason through.
-        onDisconnect: () => {
-          this.connectedValue = false;
-          fanout(this.handlers.disconnect, undefined);
-        },
-      });
-      this.client = client;
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const client = new MoltZapAgentClient({
+          serverUrl: this.opts.serverUrl,
+          agentKey: this.opts.agentKey,
+          // The body doesn't branch on close metadata today; the signature is
+          // kept explicit so a future disconnect-handler chain can plumb
+          // code/reason through.
+          onDisconnect: () => {
+            this.connectedValue = false;
+            fanout(this.handlers.disconnect, undefined);
+          },
+        });
+        this.client = client;
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,

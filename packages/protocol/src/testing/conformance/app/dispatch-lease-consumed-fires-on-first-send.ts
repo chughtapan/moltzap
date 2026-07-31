@@ -56,11 +56,9 @@ function dispatchLeaseConsumedFiresOnFirstSend(
         { dispatchId: ack.dispatchId },
       );
       if (!isConsumedFrameView(consumed.params)) {
-        return yield* Effect.fail(
-          dispatchAdmissionViolation(
-            propertyName,
-            "app/dispatch/lease-consumed payload did not contain string leaseId and messageId fields",
-          ),
+        return yield* dispatchAdmissionViolation(
+          propertyName,
+          "app/dispatch/lease-consumed payload did not contain string leaseId and messageId fields",
         );
       }
       const params = consumed.params;

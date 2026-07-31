@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { MoltZapAgentClient } from "../agent-client.js";
 import { registerAgent, type RegisterResponse } from "../auth.js";
 
@@ -40,7 +40,7 @@ export function registerAndConnect(
       .connect()
       .pipe(
         Effect.mapError((cause) =>
-          cause instanceof Error ? cause : new Error(String(cause)),
+          cause instanceof Error ? cause : new Cause.UnknownException(cause),
         ),
       );
     return {

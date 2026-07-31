@@ -225,32 +225,34 @@ export class MessageService {
     verdict: DispatchDecision,
   ): Effect.Effect<{ committed: boolean }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: MessageService) {
-        // CAS predicate via JSONB containment (`@>`), which Postgres
-        // binds as a query parameter. The UPDATE returns one row iff the
-        // row was still `pending` at UPDATE time; concurrent transitions
-        // see committed=false and skip the dependent broadcast.
-        const result = yield* Effect.tryPromise({
-          try: () =>
-            this.db
-              .updateTable("messages")
-              .set({ dispatch_decision: verdict })
-              .where("id", "=", messageId)
-              .where(
-                "dispatch_decision",
-                "@>",
-                JSON.stringify({ tag: "pending" }),
-              )
-              .returning("id")
-              .execute(),
-          catch: (cause) =>
-            new SqlError({
-              cause,
-              message: "recordDispatchDecision UPDATE failed",
-            }),
-        });
-        return { committed: result.length === 1 };
-      }),
+      Effect.gen(
+        function* (this: MessageService) {
+          // CAS predicate via JSONB containment (`@>`), which Postgres
+          // binds as a query parameter. The UPDATE returns one row iff the
+          // row was still `pending` at UPDATE time; concurrent transitions
+          // see committed=false and skip the dependent broadcast.
+          const result = yield* Effect.tryPromise({
+            try: () =>
+              this.db
+                .updateTable("messages")
+                .set({ dispatch_decision: verdict })
+                .where("id", "=", messageId)
+                .where(
+                  "dispatch_decision",
+                  "@>",
+                  JSON.stringify({ tag: "pending" }),
+                )
+                .returning("id")
+                .execute(),
+            catch: (cause) =>
+              new SqlError({
+                cause,
+                message: "recordDispatchDecision UPDATE failed",
+              }),
+          });
+          return { committed: result.length === 1 };
+        }.bind(this),
+      ),
     );
   }
 
@@ -261,21 +263,23 @@ export class MessageService {
   private sendInsertEffect(
     input: SendInsertInput,
   ): Effect.Effect<SendInsertResult, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(this, function* (this: MessageService) {
-      // `ConversationSendAccess` gates this method in the engine middleware
-      // stack before the handler runs, so `send` requires no permission token in
-      // its Env and trusts `input` (the handler's already-gated params).
-      const conv = yield* this.readSendConversation(input.conversationId);
-      const parts = input.parts;
-      const encrypted = yield* this.encryptParts(input.conversationId, parts);
-      const row = yield* this.insertMessageRow(input, encrypted);
-      return {
-        message: this.mapMessage(row, parts),
-        parts,
-        conv,
-        excludeConnectionId: input.excludeConnectionId,
-      };
-    });
+    return Effect.gen(
+      function* (this: MessageService) {
+        // `ConversationSendAccess` gates this method in the engine middleware
+        // stack before the handler runs, so `send` requires no permission token in
+        // its Env and trusts `input` (the handler's already-gated params).
+        const conv = yield* this.readSendConversation(input.conversationId);
+        const parts = input.parts;
+        const encrypted = yield* this.encryptParts(input.conversationId, parts);
+        const row = yield* this.insertMessageRow(input, encrypted);
+        return {
+          message: this.mapMessage(row, parts),
+          parts,
+          conv,
+          excludeConnectionId: input.excludeConnectionId,
+        };
+      }.bind(this),
+    );
   }
 
   /**
@@ -299,11 +303,6 @@ export class MessageService {
         .where("id", "=", conversationId),
     );
   }
-
-  private insertMessageRow(
-    input: SendInsertInput,
-    encryptedParts: EncryptedParts,
-  ): Effect.Effect<MessageRow, SqlError> {
 ```
 
 `agent/message/send` server entry point. The `send` method resolves the
@@ -356,28 +355,37 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L164)
+### [`messagesList`](./handlers.ts#L157)
 
 _Variable_
 
 ```ts
-export const messagesList: ServerHandler<typeof messagesListDefinition> = (
-  params,
-)
+export const messagesList: ServerHandler<typeof messagesListDefinition> =
+  Effect.fn("messagesList")(function* (params) {
+    // Conversation participation is the whole read gate, asserted by
+    // `MessageService.list` before any row is projected.
+    const ctx = yield* agentArm;
+    return yield* handleMessageList(params, ctx);
+  })
 ```
 
 Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L148)
+### [`messagesSend`](./handlers.ts#L143)
 
 _Variable_
 
 ```ts
-export const messagesSend: ServerHandler<typeof messagesSendDefinition> = (
-  params,
-)
+export const messagesSend: ServerHandler<typeof messagesSendDefinition> =
+  Effect.fn("messagesSend")(function* (params) {
+    // The send-permission requirements gated this frame in the engine stack
+    // before this handler runs. `agentArm` reads the narrowed principal off
+    // `ConnectionTag`.
+    const ctx = yield* agentArm;
+    return yield* handleMessageSend(params, ctx);
+  })
 ```
 
 Provides the messages send runtime value.

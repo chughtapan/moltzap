@@ -60,10 +60,8 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
           .pipe(Effect.either);
         const failure = leftOrNull(outcome);
         if (failure !== null) {
-          return yield* Effect.fail(
-            invariant(
-              `authorized agent/conversation/list failed: ${failure._tag}`,
-            ),
+          return yield* invariant(
+            `authorized agent/conversation/list failed: ${failure._tag}`,
           );
         }
       }).pipe(Effect.withSpan("registerAuthorityPositive")),

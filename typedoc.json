@@ -7,7 +7,9 @@
     "packages/client",
     "packages/simulator",
     "packages/nanoclaw-channel",
-    "packages/openclaw-channel"
+    "packages/openclaw-channel",
+    "v2/identity",
+    "v2/router"
   ],
   "externalSymbolLinkMappings": {
     "effect": {

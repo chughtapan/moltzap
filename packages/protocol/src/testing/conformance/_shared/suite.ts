@@ -21,7 +21,7 @@
 import { FileSystem, Path } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePath from "@effect/platform-node/NodePath";
-import { Cause, Chunk, Effect, Exit, Option } from "effect";
+import { Cause, Chunk, Effect, Exit, Layer, Option } from "effect";
 import {
   acquireRunContext,
   type ConformanceRunContext,
@@ -395,8 +395,7 @@ function writeArtifact(
       ),
     );
   }).pipe(
-    Effect.provide(NodePath.layer),
-    Effect.provide(NodeFileSystem.layer),
+    Effect.provide(Layer.mergeAll(NodePath.layer, NodeFileSystem.layer)),
     Effect.orDie,
   );
 }

@@ -79,26 +79,28 @@ export class DispatchAdmissionService {
     SqlError,
     NetworkSendServiceTag
   > {
-    return Effect.gen(this, function* (this: DispatchAdmissionService) {
-      const lookup = yield* lookupAppBoundForConversation(
-        this.db,
-        args.conversationId,
-      );
-      const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
-      const minted = yield* this.registry.mint(binding);
+    return Effect.gen(
+      function* (this: DispatchAdmissionService) {
+        const lookup = yield* lookupAppBoundForConversation(
+          this.db,
+          args.conversationId,
+        );
+        const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
+        const minted = yield* this.registry.mint(binding);
 
-      yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
-        conversationId: args.conversationId,
-        recipientAgentId: args.recipientAgentId,
-        messageId: args.messageId,
-        senderAgentId: args.senderAgentId,
-        parts: args.parts,
-        attempt: args.attempt,
-        receivedAt: args.receivedAt,
-        pending: args.pending,
-      });
-      return minted;
-    });
+        yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
+          conversationId: args.conversationId,
+          recipientAgentId: args.recipientAgentId,
+          messageId: args.messageId,
+          senderAgentId: args.senderAgentId,
+          parts: args.parts,
+          attempt: args.attempt,
+          receivedAt: args.receivedAt,
+          pending: args.pending,
+        });
+        return minted;
+      }.bind(this),
+    );
   }
 
   private dispatchLeaseBindingForLookup(
@@ -130,12 +132,14 @@ export class DispatchAdmissionService {
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    return Effect.gen(this, function* (this: DispatchAdmissionService) {
-      const fiber = yield* Effect.forkDaemon(
-        this.runForkedDispatchRoundTrip(leaseId, lookup, params),
-      );
-      yield* this.registry.attachRoundTripFiber(leaseId, fiber);
-    });
+    return Effect.gen(
+      function* (this: DispatchAdmissionService) {
+        const fiber = yield* Effect.forkDaemon(
+          this.runForkedDispatchRoundTrip(leaseId, lookup, params),
+        );
+        yield* this.registry.attachRoundTripFiber(leaseId, fiber);
+      }.bind(this),
+    );
   }
 
   private runForkedDispatchRoundTrip(
@@ -159,11 +163,6 @@ export class DispatchAdmissionService {
         reason: "app_unavailable",
       });
     }
-
-    return Effect.gen(this, function* (this: DispatchAdmissionService) {
-      const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
-      const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
-      yield* this.resolveLease(leaseId, dispatchVerdictToLeaseVerdict(verdict));
 ```
 
 Implements dispatch admission service.
@@ -214,7 +213,7 @@ export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 
 Represents dispatch authorize context values.
 
-### [`dispatchLeaseGet`](./handlers.ts#L83)
+### [`dispatchLeaseGet`](./handlers.ts#L77)
 
 _Variable_
 
@@ -228,14 +227,15 @@ Provides the dispatch lease get runtime value.
 
 **Returns:** The dispatch lease get result.
 
-### [`dispatchRequest`](./handlers.ts#L71)
+### [`dispatchRequest`](./handlers.ts#L67)
 
 _Variable_
 
 ```ts
-export const dispatchRequest: ServerHandler<
-  typeof dispatchRequestDefinition
-> = (params)
+export const dispatchRequest: ServerHandler<typeof dispatchRequestDefinition> =
+  Effect.fn("dispatchRequest")(function* (params) {
+    return yield* dispatchRequestBody(params, yield* agentArm);
+  })
 ```
 
 Provides the dispatch request runtime value.

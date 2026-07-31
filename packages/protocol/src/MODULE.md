@@ -41,7 +41,7 @@ export interface AppClientOptions {
 
 Configures app client.
 
-### [`ConnectResult`](./socket/lifecycle.ts#L106)
+### [`ConnectResult`](./socket/lifecycle.ts#L107)
 
 _TypeAlias_
 
@@ -131,7 +131,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 
 Implements molt zap app client.
 
-### [`MoltZapServer`](./socket/server.ts#L293)
+### [`MoltZapServer`](./socket/server.ts#L298)
 
 _Class_
 
@@ -305,7 +305,7 @@ export interface MoltZapServerSession {
 
 Describes molt zap server session.
 
-### [`RpcCallOptions`](./socket/lifecycle.ts#L85)
+### [`RpcCallOptions`](./socket/lifecycle.ts#L86)
 
 _Interface_
 

@@ -382,52 +382,54 @@ export class MoltZapService {
    * @returns The client result.
    */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const client = new MoltZapAgentClient({
-        serverUrl: this.opts.serverUrl,
-        agentKey: this.opts.agentKey,
-        // The body doesn't branch on close metadata today; the signature is
-        // kept explicit so a future disconnect-handler chain can plumb
-        // code/reason through.
-        onDisconnect: () => {
-          this.connectedValue = false;
-          fanout(this.handlers.disconnect, undefined);
-        },
-      });
-      this.client = client;
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const client = new MoltZapAgentClient({
+          serverUrl: this.opts.serverUrl,
+          agentKey: this.opts.agentKey,
+          // The body doesn't branch on close metadata today; the signature is
+          // kept explicit so a future disconnect-handler chain can plumb
+          // code/reason through.
+          onDisconnect: () => {
+            this.connectedValue = false;
+            fanout(this.handlers.disconnect, undefined);
+          },
+        });
+        this.client = client;
 
-      // `subscribeAll().pipe(Stream.runForEach, …)` is forked into a
-      // service-owned scope. The Stream is materialized BEFORE `connect()` so
-      // subscriptions are registered with the registry pre-handshake (a
-      // pre-connect-legal operation).
-      //
-      // Stream errors of type `NotConnectedError` are surfaced on the
-      // fiber's failure channel only when the client transitions to
-      // terminal closed state (close() path); `Effect.catchAll` here
-      // would swallow them silently, so we route through `Effect.logError`
-      // before the fiber exits.
-      const serviceScope = yield* Scope.make();
-      this.serviceScope = serviceScope;
-      const fanoutEffect = client.subscribeAll().pipe(
-        Stream.runForEach((notification) =>
-          Effect.sync(() => {
-            this.handleNotification(notification);
-          }),
-        ),
-        Effect.catchAll((cause) =>
-          Effect.logWarning(
-            "MoltZapService notification fan-out terminated",
-            cause,
+        // `subscribeAll().pipe(Stream.runForEach, …)` is forked into a
+        // service-owned scope. The Stream is materialized BEFORE `connect()` so
+        // subscriptions are registered with the registry pre-handshake (a
+        // pre-connect-legal operation).
+        //
+        // Stream errors of type `NotConnectedError` are surfaced on the
+        // fiber's failure channel only when the client transitions to
+        // terminal closed state (close() path); `Effect.catchAll` here
+        // would swallow them silently, so we route through `Effect.logError`
+        // before the fiber exits.
+        const serviceScope = yield* Scope.make();
+        this.serviceScope = serviceScope;
+        const fanoutEffect = client.subscribeAll().pipe(
+          Stream.runForEach((notification) =>
+            Effect.sync(() => {
+              this.handleNotification(notification);
+            }),
           ),
-        ),
-        Effect.asVoid,
-      );
-      yield* Effect.forkIn(fanoutEffect, serviceScope);
+          Effect.catchAll((cause) =>
+            Effect.logWarning(
+              "MoltZapService notification fan-out terminated",
+              cause,
+            ),
+          ),
+          Effect.asVoid,
+        );
+        yield* Effect.forkIn(fanoutEffect, serviceScope);
 
-      const helloOk = yield* client.connect();
-      this.connectedValue = true;
-      return helloOk;
-    });
+        const helloOk = yield* client.connect();
+        this.connectedValue = true;
+        return helloOk;
+      }.bind(this),
+    );
   }
 
   /**
@@ -496,21 +498,23 @@ export class MoltZapService {
   }
 
   startSocketServer(): Effect.Effect<void, unknown> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const previous = this.resetSocketServerState();
-      yield* stopLocalSocketServer({
-        socketScope: previous.socketScope,
-        socketPath: previous.sockPath,
-        defaultSocketPath: MoltZapService.SOCKET_PATH,
-      });
-      const running = yield* startLocalSocketServer({
-        socketPath: this.socketPath,
-        defaultSocketPath: MoltZapService.SOCKET_PATH,
-        handlers: this.localDaemonHandlers(),
-      });
-      this.socketServerScope = running.socketScope;
-      this.activeSocketPath = running.socketPath;
-    }).pipe(Effect.withSpan("MoltZapService.startSocketServer"));
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const previous = this.resetSocketServerState();
+        yield* stopLocalSocketServer({
+          socketScope: previous.socketScope,
+          socketPath: previous.sockPath,
+          defaultSocketPath: MoltZapService.SOCKET_PATH,
+        });
+        const running = yield* startLocalSocketServer({
+          socketPath: this.socketPath,
+          defaultSocketPath: MoltZapService.SOCKET_PATH,
+          handlers: this.localDaemonHandlers(),
+        });
+        this.socketServerScope = running.socketScope;
+        this.activeSocketPath = running.socketPath;
+      }.bind(this),
+    ).pipe(Effect.withSpan("MoltZapService.startSocketServer"));
   }
 
   private resetSocketServerState(): {
@@ -546,69 +550,75 @@ export class MoltZapService {
   private handleHistoryRequest(
     request: HistoryRequest,
   ): Effect.Effect<HistoryResponse, ServiceRpcError> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const result = yield* this.call(messagesList.name, {
-        conversationId: request.conversationId,
-        limit: request.limit,
-      });
-      const convMeta = yield* this.loadHistorySupportData(
-        request.conversationId,
-        result.messages,
-      );
-      const agentNames = yield* Ref.get(this.agentNamesRef);
-      const lastReadMap = yield* Ref.get(this.lastReadRef);
-      const lastReadIds = lastReadIdsForSession(lastReadMap, request);
-      const messages = result.messages.map((message) =>
-        formatHistoryMessage(message, {
-          agentNames,
-          ownAgentId: this.ownAgentId,
-          lastReadIds,
-          hasSessionKey: request.sessionKey !== undefined,
-        }),
-      );
-      yield* this.advanceHistoryLastRead(request, result.messages);
-      return {
-        messages,
-        conversationMeta: convMeta,
-        newCount: messages.filter((message) => message.isNew).length,
-      };
-    });
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const result = yield* this.call(messagesList.name, {
+          conversationId: request.conversationId,
+          limit: request.limit,
+        });
+        const convMeta = yield* this.loadHistorySupportData(
+          request.conversationId,
+          result.messages,
+        );
+        const agentNames = yield* Ref.get(this.agentNamesRef);
+        const lastReadMap = yield* Ref.get(this.lastReadRef);
+        const lastReadIds = lastReadIdsForSession(lastReadMap, request);
+        const messages = result.messages.map((message) =>
+          formatHistoryMessage(message, {
+            agentNames,
+            ownAgentId: this.ownAgentId,
+            lastReadIds,
+            hasSessionKey: request.sessionKey !== undefined,
+          }),
+        );
+        yield* this.advanceHistoryLastRead(request, result.messages);
+        return {
+          messages,
+          conversationMeta: convMeta,
+          newCount: messages.filter((message) => message.isNew).length,
+        };
+      }.bind(this),
+    );
   }
 
   private loadHistorySupportData(
     convId: ConversationId,
     messages: readonly Message[],
   ) {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const [, convMeta] = yield* Effect.all(
-        [
-          this.refreshHistoryAgentNames(messages),
-          this.fetchHistoryConversationMeta(convId),
-        ],
-        {
-          concurrency: HISTORY_LOOKUP_CONCURRENCY,
-        },
-      );
-      return convMeta;
-    });
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const [, convMeta] = yield* Effect.all(
+          [
+            this.refreshHistoryAgentNames(messages),
+            this.fetchHistoryConversationMeta(convId),
+          ],
+          {
+            concurrency: HISTORY_LOOKUP_CONCURRENCY,
+          },
+        );
+        return convMeta;
+      }.bind(this),
+    );
   }
 
   private refreshHistoryAgentNames(
     messages: readonly Message[],
   ): Effect.Effect<void> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const knownNames = yield* Ref.get(this.agentNamesRef);
-      const unknownAgentIds = [
-        ...new Set(messages.map((message) => message.senderId)),
-      ].filter((id) => !HashMap.has(knownNames, id));
-      if (unknownAgentIds.length === 0) {
-        return;
-      }
-      yield* this.cacheVisibleAgentNamesForIds(new Set(unknownAgentIds)).pipe(
-        Effect.asVoid,
-        Effect.catchAll(() => Effect.void),
-      );
-    });
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const knownNames = yield* Ref.get(this.agentNamesRef);
+        const unknownAgentIds = [
+          ...new Set(messages.map((message) => message.senderId)),
+        ].filter((id) => !HashMap.has(knownNames, id));
+        if (unknownAgentIds.length === 0) {
+          return;
+        }
+        yield* this.cacheVisibleAgentNamesForIds(new Set(unknownAgentIds)).pipe(
+          Effect.asVoid,
+          Effect.catchAll(() => Effect.void),
+        );
+      }.bind(this),
+    );
   }
 
   private fetchHistoryConversationMeta(convId: ConversationId) {
@@ -621,7 +631,7 @@ export class MoltZapService {
         );
         return hit?.conversation;
       }),
-      Effect.catchAll(() => Effect.succeed(undefined)),
+      Effect.orElseSucceed(() => undefined),
     );
   }
 
@@ -698,38 +708,40 @@ export class MoltZapService {
    * @returns The decoded d agent id.
    */
   resolveAgentName(agentId: string): Effect.Effect<string> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const decodedAgentId = Option.getOrUndefined(decodeAgentId(agentId));
-      if (decodedAgentId === undefined) {
-        return agentId;
-      }
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const decodedAgentId = Option.getOrUndefined(decodeAgentId(agentId));
+        if (decodedAgentId === undefined) {
+          return agentId;
+        }
 
-      const cached = Option.getOrUndefined(
-        HashMap.get(snapshot(this.agentNamesRef), agentId),
-      );
-      if (cached !== undefined) {
-        return cached;
-      }
+        const cached = Option.getOrUndefined(
+          HashMap.get(snapshot(this.agentNamesRef), agentId),
+        );
+        if (cached !== undefined) {
+          return cached;
+        }
 
-      return yield* this.cacheVisibleAgentNamesForIds(
-        new Set([decodedAgentId]),
-      ).pipe(
-        Effect.map(() => {
-          const resolved = Option.getOrUndefined(
-            HashMap.get(snapshot(this.agentNamesRef), agentId),
-          );
-          return resolved ?? agentId;
-        }),
-        Effect.catchAll((err) =>
-          Effect.logWarning(
-            "agent/identity/agents/list failed; falling back to agentId",
-          ).pipe(
-            Effect.annotateLogs({ agentId, err: String(err) }),
-            Effect.as(agentId),
+        return yield* this.cacheVisibleAgentNamesForIds(
+          new Set([decodedAgentId]),
+        ).pipe(
+          Effect.map(() => {
+            const resolved = Option.getOrUndefined(
+              HashMap.get(snapshot(this.agentNamesRef), agentId),
+            );
+            return resolved ?? agentId;
+          }),
+          Effect.catchAll((err) =>
+            Effect.logWarning(
+              "agent/identity/agents/list failed; falling back to agentId",
+            ).pipe(
+              Effect.annotateLogs({ agentId, err: String(err) }),
+              Effect.as(agentId),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      }.bind(this),
+    );
   }
 
   // --- Messaging ---
@@ -813,26 +825,30 @@ export class MoltZapService {
     agentName: string,
     text: string,
   ): Effect.Effect<void, ServiceRpcError | AgentNotFoundError> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const cache = yield* Ref.get(this.agentConversationCacheRef);
-      let conversationId = Option.getOrUndefined(HashMap.get(cache, agentName));
-      if (conversationId === undefined) {
-        const agent = yield* this.findVisibleAgentByName(agentName);
-        if (!agent) {
-          return yield* Effect.fail(agentNotFound(agentName));
-        }
-        const created = yield* this.call(agentConversationCreate.name, {
-          appId: DEFAULT_APP_ID,
-          participants: [agent.id],
-        });
-        conversationId = created.conversation.id;
-        const cached = conversationId;
-        yield* Ref.update(this.agentConversationCacheRef, (m) =>
-          HashMap.set(m, agentName, cached),
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const cache = yield* Ref.get(this.agentConversationCacheRef);
+        let conversationId = Option.getOrUndefined(
+          HashMap.get(cache, agentName),
         );
-      }
-      yield* this.send(conversationId, text);
-    });
+        if (conversationId === undefined) {
+          const agent = yield* this.findVisibleAgentByName(agentName);
+          if (!agent) {
+            return yield* agentNotFound(agentName);
+          }
+          const created = yield* this.call(agentConversationCreate.name, {
+            appId: DEFAULT_APP_ID,
+            participants: [agent.id],
+          });
+          conversationId = created.conversation.id;
+          const cached = conversationId;
+          yield* Ref.update(this.agentConversationCacheRef, (m) =>
+            HashMap.set(m, agentName, cached),
+          );
+        }
+        yield* this.send(conversationId, text);
+      }.bind(this),
+    );
   }
 
   private cacheAgentNames(agents: readonly AgentCard[]): Effect.Effect<void> {
@@ -857,41 +873,45 @@ export class MoltZapService {
   private cacheVisibleAgentNamesForIds(
     agentIds: ReadonlySet<string>,
   ): Effect.Effect<void, ServiceRpcError> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      const missing = new Set(agentIds);
-      let cursor: ListCursor | undefined = undefined;
-      for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-        const params = this.agentListParams(cursor);
-        const result = yield* this.call(agentsList.name, params);
-        yield* this.cacheAgentNames(result.agents);
-        for (const agent of result.agents) {
-          missing.delete(agent.id);
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const missing = new Set(agentIds);
+        let cursor: ListCursor | undefined = undefined;
+        for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
+          const params = this.agentListParams(cursor);
+          const result = yield* this.call(agentsList.name, params);
+          yield* this.cacheAgentNames(result.agents);
+          for (const agent of result.agents) {
+            missing.delete(agent.id);
+          }
+          if (missing.size === 0 || result.nextCursor === undefined) {
+            return;
+          }
+          cursor = result.nextCursor;
         }
-        if (missing.size === 0 || result.nextCursor === undefined) {
-          return;
-        }
-        cursor = result.nextCursor;
-      }
-    });
+      }.bind(this),
+    );
   }
 
   private findVisibleAgentByName(
     agentName: string,
   ): Effect.Effect<AgentCard | undefined, ServiceRpcError> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      let cursor: ListCursor | undefined = undefined;
-      for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-        const params = this.agentListParams(cursor);
-        const result = yield* this.call(agentsList.name, params);
-        yield* this.cacheAgentNames(result.agents);
-        const hit = result.agents.find((agent) => agent.name === agentName);
-        if (hit !== undefined || result.nextCursor === undefined) {
-          return hit;
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        let cursor: ListCursor | undefined = undefined;
+        for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
+          const params = this.agentListParams(cursor);
+          const result = yield* this.call(agentsList.name, params);
+          yield* this.cacheAgentNames(result.agents);
+          const hit = result.agents.find((agent) => agent.name === agentName);
+          if (hit !== undefined || result.nextCursor === undefined) {
+            return hit;
+          }
+          cursor = result.nextCursor;
         }
-        cursor = result.nextCursor;
-      }
-      return undefined;
-    });
+        return undefined;
+      }.bind(this),
+    );
   }
 
   // --- Cross-Conversation Context ---

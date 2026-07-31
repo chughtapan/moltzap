@@ -97,11 +97,9 @@ function assertNoSecondRelease(
       driver.recipient.waitForRelease(undefined, NO_SECOND_RELEASE_WINDOW_MS),
     );
     if (Exit.isSuccess(followup)) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          "expected exactly one agent/dispatch/released per lease; got a second frame",
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        "expected exactly one agent/dispatch/released per lease; got a second frame",
       );
     }
   });

@@ -23,14 +23,16 @@ export class LeaseGuard {
    * @returns The ts result.
    */
   consume(): Effect.Effect<boolean> {
-    return Effect.gen(this, function* (this: LeaseGuard) {
-      if (this.consumedAtMillis !== null) {
-        return false;
-      }
-      const ts = yield* Clock.currentTimeMillis;
-      this.consumedAtMillis = ts;
-      return true;
-    });
+    return Effect.gen(
+      function* (this: LeaseGuard) {
+        if (this.consumedAtMillis !== null) {
+          return false;
+        }
+        const ts = yield* Clock.currentTimeMillis;
+        this.consumedAtMillis = ts;
+        return true;
+      }.bind(this),
+    );
   }
 
   /**

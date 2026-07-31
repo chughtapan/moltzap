@@ -4,61 +4,60 @@
     "outDir": "./dist",
     "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "rootDir": "./src",
-    "baseUrl": "./src",
     "paths": {
       "#transport": [
-        "transport/index.ts"
+        "./src/transport/index.ts"
       ],
       "#transport/descriptor": [
-        "transport/descriptor.ts"
+        "./src/transport/descriptor.ts"
       ],
       "#rpc": [
-        "rpc.ts"
+        "./src/rpc.ts"
       ],
       "#identity": [
-        "identity/index.ts"
+        "./src/identity/index.ts"
       ],
       "#identity/agents": [
-        "identity/agents/index.ts"
+        "./src/identity/agents/index.ts"
       ],
       "#identity/apps": [
-        "identity/apps/index.ts"
+        "./src/identity/apps/index.ts"
       ],
       "#identity/users": [
-        "identity/users/index.ts"
+        "./src/identity/users/index.ts"
       ],
       "#identity/principals": [
-        "identity/principals/index.ts"
+        "./src/identity/principals/index.ts"
       ],
       "#identity/requirements": [
-        "identity/requirements/index.ts"
+        "./src/identity/requirements/index.ts"
       ],
       "#network": [
-        "network/index.ts"
+        "./src/network/index.ts"
       ],
       "#task": [
-        "task/index.ts"
+        "./src/task/index.ts"
       ],
       "#conversation": [
-        "conversation/index.ts"
+        "./src/conversation/index.ts"
       ],
       "#conversation/requirements": [
-        "conversation/requirements/index.ts"
+        "./src/conversation/requirements/index.ts"
       ],
       "#message": [
-        "message/index.ts"
+        "./src/message/index.ts"
       ],
       "#message/dispatch": [
-        "message/dispatch.ts"
+        "./src/message/dispatch.ts"
       ],
       "#socket": [
-        "socket/index.ts"
+        "./src/socket/index.ts"
       ],
       "#socket/catalog": [
-        "socket/catalog/index.ts"
+        "./src/socket/catalog/index.ts"
       ],
       "#testing": [
-        "testing/index.ts"
+        "./src/testing/index.ts"
       ]
     },
     "declaration": true,

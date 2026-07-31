@@ -1,7 +1,10 @@
 import { Effect, type Schema } from "effect";
 import type { dispatchId, leaseId } from "#message/dispatch";
 import type { ConformanceRunContext } from "../_shared/runner.js";
-import { registerProperty } from "../_shared/registry.js";
+import {
+  registerProperty,
+  type PropertyInvariantViolation,
+} from "../_shared/registry.js";
 import {
   DISPATCH_ADMISSION_CATEGORY,
   dispatchAdmissionViolation,
@@ -79,7 +82,7 @@ function assertDistinctDispatches(
   propertyName: string,
   ack1: DispatchAck,
   ack2: DispatchAck,
-) {
+): Effect.Effect<void, PropertyInvariantViolation> {
   if (ack1.leaseId === ack2.leaseId) {
     return Effect.fail(
       dispatchAdmissionViolation(

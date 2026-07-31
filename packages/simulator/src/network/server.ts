@@ -755,11 +755,9 @@ export function makeMoltZapServerAcquirer(
               );
               return yield* Effect.failCause(attempt.cause);
             }
-            return yield* Effect.fail(
-              failed(
-                "cleanup",
-                `${Cause.pretty(attempt.cause)}; ${cleanup.join("; ")}`,
-              ),
+            return yield* failed(
+              "cleanup",
+              `${Cause.pretty(attempt.cause)}; ${cleanup.join("; ")}`,
             );
           }
           return yield* Effect.failCause(attempt.cause);

@@ -218,8 +218,7 @@ function acquireEffectRuntime<E, R>(
     };
     yield* Effect.addFinalizer(() => client.close());
     const onMessage =
-      options.onMessage ??
-      (() => Effect.succeed<EffectMessageReply | undefined>(undefined));
+      options.onMessage ?? (() => Effect.void.pipe(Effect.as(undefined)));
     yield* receiveMessages(input, state, onMessage, received).pipe(
       Effect.forkScoped,
     );

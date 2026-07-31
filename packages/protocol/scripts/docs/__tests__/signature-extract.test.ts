@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { ReflectionKind } from "typedoc";
-import { extractSignatureText } from "../modules.js";
+import { extractSignatureText, resolveExportDeclaration } from "../modules.js";
+import type { TypeDocExport } from "../typedoc-load.js";
+
+const mergedExport = (
+  name: string,
+  kind: number,
+  sources: TypeDocExport["sources"],
+): TypeDocExport => ({
+  id: 1,
+  name,
+  kind,
+  kindString: ReflectionKind[kind] ?? `Unknown(${kind})`,
+  packageName: "@moltzap/example",
+  sources,
+  comment: null,
+  signatureReturnTypeName: null,
+});
 
 describe("extractSignatureText", () => {
   it("returns null on empty input", () => {
@@ -96,6 +112,44 @@ describe("extractSignatureText", () => {
     expect(sig).toBe("export type Foo = Bar;");
   });
 
+  it("keeps every arm of a multiline union alias", () => {
+    const source = [
+      "export type RegistryLookupResult =",
+      '  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>',
+      '  | Readonly<{ kind: "not_found" }>;',
+      "",
+      "export interface Unrelated {",
+      "  readonly value: string;",
+      "}",
+      "",
+    ].join("\n");
+
+    expect(
+      extractSignatureText(source, 1, ReflectionKind.TypeAlias, true),
+    ).toBe(
+      [
+        "export type RegistryLookupResult =",
+        '  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>',
+        '  | Readonly<{ kind: "not_found" }>;',
+      ].join("\n"),
+    );
+  });
+
+  it("keeps every member of a multiline intersection alias", () => {
+    const source = [
+      "export type VerifiedAgentRequest = Readonly<{",
+      "  readonly callerAgentId: AgentId;",
+      "  readonly request: unknown;",
+      "}> &",
+      '  Brand.Brand<"VerifiedAgentRequest">;',
+      "",
+    ].join("\n");
+
+    expect(
+      extractSignatureText(source, 1, ReflectionKind.TypeAlias, true),
+    ).toBe(source.trim());
+  });
+
   it("returns null when the line is out of range", () => {
     const source = "line one\nline two\n";
     expect(
@@ -168,5 +222,82 @@ describe("extractSignatureText", () => {
     ].join("\n");
     const sig = extractSignatureText(source, 1, ReflectionKind.Variable);
     expect(sig).toBe("export const greet = (name: string): string");
+  });
+
+  it("renders the type declaration from a Schema value/type pair", () => {
+    const fileName = "v2/identity/src/identifiers.ts";
+    const source = [
+      "export const AgentId = Schema.String;",
+      "export type AgentId = typeof AgentId.Type;",
+      "",
+    ].join("\n");
+    const resolved = resolveExportDeclaration(
+      mergedExport("AgentId", ReflectionKind.TypeAlias, [
+        { fileName, line: 1, character: 13 },
+        { fileName, line: 2, character: 12 },
+      ]),
+      new Map([[fileName, source]]),
+    );
+
+    expect(resolved).toEqual({
+      source: { fileName, line: 2, character: 12 },
+      signatureText: "export type AgentId = typeof AgentId.Type;",
+    });
+  });
+
+  it("renders the value declaration from an interface/value pair", () => {
+    const fileName = "v2/identity/src/agent-key.ts";
+    const source = [
+      "export interface AgentSigningAuthority {",
+      '  readonly _brand: "AgentSigningAuthority";',
+      "}",
+      "export const AgentSigningAuthority = Object.freeze({",
+      "  fromPkcs8,",
+      "  publicKey,",
+      "});",
+      "",
+    ].join("\n");
+    const resolved = resolveExportDeclaration(
+      mergedExport("AgentSigningAuthority", ReflectionKind.Variable, [
+        { fileName, line: 1, character: 17 },
+        { fileName, line: 4, character: 13 },
+      ]),
+      new Map([[fileName, source]]),
+    );
+
+    expect(resolved).toEqual({
+      source: { fileName, line: 4, character: 13 },
+      signatureText: [
+        "export const AgentSigningAuthority = Object.freeze({",
+        "  fromPkcs8,",
+        "  publicKey,",
+        "})",
+      ].join("\n"),
+    });
+  });
+
+  it("keeps the first public overload when declarations share a kind", () => {
+    const fileName = "packages/server/src/example.ts";
+    const source = [
+      "export function send(value: string): string;",
+      "export function send(value: number): number;",
+      "export function send(value: string | number): string | number {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n");
+    const resolved = resolveExportDeclaration(
+      mergedExport("send", ReflectionKind.Function, [
+        { fileName, line: 1, character: 16 },
+        { fileName, line: 2, character: 16 },
+        { fileName, line: 3, character: 16 },
+      ]),
+      new Map([[fileName, source]]),
+    );
+
+    expect(resolved).toEqual({
+      source: { fileName, line: 1, character: 16 },
+      signatureText: "export function send(value: string): string",
+    });
   });
 });

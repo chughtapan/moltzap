@@ -108,26 +108,28 @@ export class NetworkSendService {
     to: AgentId,
     payload: OpaquePayload,
   ): Effect.Effect<DeliveryAck, DeliveryError> {
-    return Effect.gen(this, function* (this: NetworkSendService) {
-      const conns = yield* this.resolver.resolveAll(to);
-      for (const candidate of HashSet.values(conns)) {
-        const conn = yield* this.connections.peek(candidate);
-        if (Option.isNone(conn)) {
-          continue;
+    return Effect.gen(
+      function* (this: NetworkSendService) {
+        const conns = yield* this.resolver.resolveAll(to);
+        for (const candidate of HashSet.values(conns)) {
+          const conn = yield* this.connections.peek(candidate);
+          if (Option.isNone(conn)) {
+            continue;
+          }
+          yield* conn.value.socket.write(payload).pipe(
+            Effect.either,
+            Effect.flatMap(
+              Either.match({
+                onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
+                onRight: () => Effect.void,
+              }),
+            ),
+          );
+          return new DeliveryAck({ to });
         }
-        yield* conn.value.socket.write(payload).pipe(
-          Effect.either,
-          Effect.flatMap(
-            Either.match({
-              onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
-              onRight: () => Effect.void,
-            }),
-          ),
-        );
-        return new DeliveryAck({ to });
-      }
-      return yield* Effect.fail(new RecipientNotResolved({ to }));
-    });
+        return yield* new RecipientNotResolved({ to });
+      }.bind(this),
+    );
   }
 
   /**
@@ -180,25 +182,27 @@ export class NetworkSendService {
       target: AgentId,
     ) => Effect.Effect<void>,
   ): Effect.Effect<{ readonly delivered: readonly AgentId[] }> {
-    return Effect.gen(this, function* (this: NetworkSendService) {
-      const delivered: AgentId[] = [];
-      for (const target of agentIds) {
-        const connIds = yield* this.resolver.resolveAll(target);
-        let reached = false;
-        for (const cid of HashSet.values(connIds)) {
-          const connOpt = yield* this.connectionCanReceive(cid, options);
-          if (Option.isNone(connOpt)) {
-            continue;
+    return Effect.gen(
+      function* (this: NetworkSendService) {
+        const delivered: AgentId[] = [];
+        for (const target of agentIds) {
+          const connIds = yield* this.resolver.resolveAll(target);
+          let reached = false;
+          for (const cid of HashSet.values(connIds)) {
+            const connOpt = yield* this.connectionCanReceive(cid, options);
+            if (Option.isNone(connOpt)) {
+              continue;
+            }
+            yield* fire(connOpt.value, cid, target);
+            reached = true;
           }
-          yield* fire(connOpt.value, cid, target);
-          reached = true;
+          if (reached) {
+            delivered.push(target);
+          }
         }
-        if (reached) {
-          delivered.push(target);
-        }
-      }
-      return { delivered };
-    });
+        return { delivered };
+      }.bind(this),
+    );
   }
 
   /**
@@ -215,36 +219,38 @@ export class NetworkSendService {
     cid: ConnectionId,
     options: BroadcastOptions,
   ): Effect.Effect<Option.Option<AgentConnection>> {
-    return Effect.gen(this, function* (this: NetworkSendService) {
-      if (
-        options.excludeConnectionId !== undefined &&
-        cid === options.excludeConnectionId
-      ) {
-        return Option.none();
-      }
-      const connOpt = yield* this.connections.peek(cid);
-      if (Option.isNone(connOpt)) {
-        return Option.none();
-      }
-      const conn = connOpt.value;
-      // Only authenticated agent arms participate in conversation fan-out;
-      // unauthenticated and app arms have no conversation subscriptions.
-      if (conn._tag !== "AgentConnection") {
-        return Option.none();
-      }
-      const conversationId = options.forConversation;
-      if (conversationId !== undefined) {
-        const subscribed =
-          yield* this.connections.isAgentSubscribedToConversation(
-            conn.auth.agentId,
-            conversationId,
-          );
-        if (!subscribed) {
+    return Effect.gen(
+      function* (this: NetworkSendService) {
+        if (
+          options.excludeConnectionId !== undefined &&
+          cid === options.excludeConnectionId
+        ) {
           return Option.none();
         }
-      }
-      return Option.some(conn);
-    });
+        const connOpt = yield* this.connections.peek(cid);
+        if (Option.isNone(connOpt)) {
+          return Option.none();
+        }
+        const conn = connOpt.value;
+        // Only authenticated agent arms participate in conversation fan-out;
+        // unauthenticated and app arms have no conversation subscriptions.
+        if (conn._tag !== "AgentConnection") {
+          return Option.none();
+        }
+        const conversationId = options.forConversation;
+        if (conversationId !== undefined) {
+          const subscribed =
+            yield* this.connections.isAgentSubscribedToConversation(
+              conn.auth.agentId,
+              conversationId,
+            );
+          if (!subscribed) {
+            return Option.none();
+          }
+        }
+        return Option.some(conn);
+      }.bind(this),
+    );
   }
 
   private forkBroadcastWrite(write: BroadcastWrite): Effect.Effect<void> {

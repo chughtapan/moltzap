@@ -69,11 +69,9 @@ function assertFirstSendConsumes(
       text: "first",
     });
     if (first.errorTag !== undefined) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          `first send failed: code=${first.errorTag}`,
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        `first send failed: code=${first.errorTag}`,
       );
     }
   });
@@ -93,21 +91,17 @@ function assertSecondSendRejected(
       text: "second",
     });
     if (second.errorTag === undefined) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          "second agent/message/send unexpectedly succeeded; expected LeaseInvalid",
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        "second agent/message/send unexpectedly succeeded; expected LeaseInvalid",
       );
     }
     yield* assertSecondErrorCode(propertyName, second.errorTag);
     const errorState = second.errorState;
     if (errorState === undefined) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          "second send LeaseInvalid state <missing> != CONSUMED",
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        "second send LeaseInvalid state <missing> != CONSUMED",
       );
     }
     yield* assertSecondErrorState(propertyName, errorState);
@@ -151,11 +145,9 @@ function assertNoDuplicateConsumed(
       }),
     );
     if (Exit.isSuccess(dup)) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          "saw a duplicate app/dispatch/lease-consumed for the second send",
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        "saw a duplicate app/dispatch/lease-consumed for the second send",
       );
     }
   });

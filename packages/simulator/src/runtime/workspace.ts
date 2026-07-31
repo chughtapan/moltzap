@@ -2,7 +2,7 @@
 
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
-import { Data, Effect, Redacted, Schema } from "effect";
+import { Cause, Data, Effect, Redacted, Schema } from "effect";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import { resolvePackageRoot } from "./packages.js";
 
@@ -251,11 +251,9 @@ function linkChannelDependency(
       packageName,
     );
     if (resolved === null) {
-      return yield* Effect.fail(
-        new ChannelPluginInstallError({
-          message: `channel-plugin-install: cannot resolve declared dependency ${packageName} from ${context.channelPackageDir}`,
-        }),
-      );
+      return yield* new ChannelPluginInstallError({
+        message: `channel-plugin-install: cannot resolve declared dependency ${packageName} from ${context.channelPackageDir}`,
+      });
     }
     const linkTarget = context.path.join(
       context.pluginNodeModules,
@@ -302,11 +300,9 @@ export function seedWorkspaceFiles(
         file.relativePath,
       );
       if (destination === null) {
-        return yield* Effect.fail(
-          new ChannelPluginInstallError({
-            message: `workspace path must stay below its agent root: ${file.relativePath}`,
-          }),
-        );
+        return yield* new ChannelPluginInstallError({
+          message: `workspace path must stay below its agent root: ${file.relativePath}`,
+        });
       }
       yield* fileSystem.makeDirectory(path.dirname(destination), {
         recursive: true,
@@ -354,7 +350,7 @@ export function resolveChannelDependency(
     const anchor = path.join(channelPackageDir, "package.json");
     const anchorExists = yield* fileSystem
       .exists(anchor)
-      .pipe(Effect.catchAll(() => Effect.succeed(false)));
+      .pipe(Effect.orElseSucceed(() => false));
     if (!anchorExists) {
       return null;
     }
@@ -371,7 +367,7 @@ export function resolveChannelDependency(
       );
     return yield* Effect.try({
       try: () => resolvePackageRoot(resolutionAnchor, packageName),
-      catch: (cause) => cause,
+      catch: (cause) => new Cause.UnknownException(cause),
     }).pipe(
       Effect.catchAll((cause) =>
         Effect.logWarning("failed to resolve channel dependency", cause).pipe(
