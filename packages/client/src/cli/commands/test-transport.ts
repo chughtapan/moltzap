@@ -24,14 +24,21 @@ export type TestTransportResponders = {
   readonly [Tag in DaemonCommand]?: TestTransportResponder<Tag>;
 };
 
-const isTransportError = (value: unknown): value is TransportError =>
-  typeof value === "object" &&
-  value !== null &&
-  "_tag" in value &&
-  "message" in value;
+function isTransportError(value: unknown): value is TransportError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "_tag" in value &&
+    "message" in value
+  );
+}
 
-const isError = (value: unknown): value is Error => value instanceof Error;
-const errorMessage = (error: Error): string => error.message;
+function isError(value: unknown): value is Error {
+  return value instanceof Error;
+}
+function errorMessage(error: Error): string {
+  return error.message;
+}
 
 export const makeFakeTransport = (
   responders: TestTransportResponders,

@@ -34,24 +34,28 @@ export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
   readonly cause?: unknown;
 }> {}
 
-const socketRequestError = (
+function socketRequestError(
   method: string,
   message: string,
   cause?: unknown,
-): SocketRequestError => new SocketRequestError({ method, message, cause });
+): SocketRequestError {
+  return new SocketRequestError({ method, message, cause });
+}
 
-const errorCode = (cause: unknown): unknown =>
-  typeof cause === "object" && cause !== null && "code" in cause
+function errorCode(cause: unknown): unknown {
+  return typeof cause === "object" && cause !== null && "code" in cause
     ? cause.code
     : undefined;
+}
 
-const socketErrorCause = (err: Socket.SocketError): unknown =>
-  "cause" in err ? err.cause : err;
+function socketErrorCause(err: Socket.SocketError): unknown {
+  return "cause" in err ? err.cause : err;
+}
 
-const fromSocketError = (
+function fromSocketError(
   method: string,
   err: Socket.SocketError,
-): SocketRequestError => {
+): SocketRequestError {
   const cause = socketErrorCause(err);
   const code = errorCode(cause);
   if (code === "ENOENT" || code === "ECONNREFUSED") {
@@ -65,34 +69,36 @@ const fromSocketError = (
     return socketRequestError(method, "Socket request timed out", err);
   }
   return socketRequestError(method, err.message, err);
-};
+}
 
-const fromRpcClientError = (method: string, err: unknown): SocketRequestError =>
-  socketRequestError(
+function fromRpcClientError(method: string, err: unknown): SocketRequestError {
+  return socketRequestError(
     method,
     err instanceof Error ? err.message : String(err),
     err,
   );
+}
 
-const fromDaemonCommandError = (
+function fromDaemonCommandError(
   method: string,
   err: unknown,
-): SocketRequestError | LocalDaemonError => {
+): SocketRequestError | LocalDaemonError {
   if (err instanceof SocketRequestError) return err;
   if (isLocalDaemonError(err)) return err;
   return fromRpcClientError(method, err);
-};
+}
 
-const callDaemonClient = <Tag extends DaemonCommand>(
+function callDaemonClient<Tag extends DaemonCommand>(
   client: DaemonClientDispatch,
   command: Tag,
   payload: PayloadForTag<DaemonRpcs, Tag>,
-): Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, unknown> =>
-  dispatchCall<DaemonRpcs, RpcClientError.RpcClientError, Tag>(
+): Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, unknown> {
+  return dispatchCall<DaemonRpcs, RpcClientError.RpcClientError, Tag>(
     client,
     command,
     payload,
   );
+}
 
 export const requestDaemonCommand = <Tag extends DaemonCommand>(
   command: Tag,

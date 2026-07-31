@@ -119,12 +119,13 @@ function resolveTransportOptionsOrExit(input: {
   );
 }
 
-const transportLayerFromConfig = <A extends GlobalTransportConfig>(config: A) =>
-  Layer.unwrapEffect(
+function transportLayerFromConfig<A extends GlobalTransportConfig>(config: A) {
+  return Layer.unwrapEffect(
     resolveTransportOptionsOrExit(resolverInputFromConfig(config)).pipe(
       Effect.map(makeTransportLayer),
     ),
   );
+}
 
 /**
  * Top-level `moltzap` command. Subcommands are `@effect/cli` `Command`s —

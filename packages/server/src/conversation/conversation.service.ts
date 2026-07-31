@@ -92,13 +92,13 @@ interface ListConversationsInput {
   readonly archived: ConversationArchiveFilter;
 }
 
-const listConversations = (
+function listConversations(
   deps: ListConversationsDeps,
   input: ListConversationsInput,
 ): Effect.Effect<
   { conversations: ConversationSummary[]; cursor?: string },
   InvalidParamsError
-> => {
+> {
   const { db, previewCache } = deps;
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
@@ -122,11 +122,11 @@ const listConversations = (
       };
     }),
   ).pipe(Effect.withSpan("listConversations"));
-};
+}
 
-const parseListCursor = (
+function parseListCursor(
   cursor: string | undefined,
-): Effect.Effect<string | null, InvalidParamsError> => {
+): Effect.Effect<string | null, InvalidParamsError> {
   if (cursor == null) return Effect.succeed(null);
   const parsed = new Date(cursor);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== cursor) {
@@ -137,7 +137,7 @@ const parseListCursor = (
     );
   }
   return Effect.succeed(cursor);
-};
+}
 
 interface ListRowsInput {
   readonly agentId: AgentId;
@@ -155,11 +155,11 @@ interface ConversationListRow {
   readonly unread_count: number;
 }
 
-const queryConversationListRows = (
+function queryConversationListRows(
   db: Db,
   input: ListRowsInput,
-): Effect.Effect<ReadonlyArray<ConversationListRow>, SqlError> =>
-  rawQuery(
+): Effect.Effect<ReadonlyArray<ConversationListRow>, SqlError> {
+  return rawQuery(
     db,
     sql<ConversationListRow>`
       SELECT c.id, c.name, c.updated_at,
@@ -185,8 +185,9 @@ const queryConversationListRows = (
       LIMIT ${input.limit + 1}
     `,
   );
+}
 
-const archivedListFilter = (archived: ConversationArchiveFilter) => {
+function archivedListFilter(archived: ConversationArchiveFilter) {
   switch (archived) {
     case "only":
       return sql`AND c.archived_at IS NOT NULL`;
@@ -195,33 +196,34 @@ const archivedListFilter = (archived: ConversationArchiveFilter) => {
     case "exclude":
       return sql`AND c.archived_at IS NULL`;
   }
-};
+}
 
-const cursorListFilter = (cursorParam: string | null) => {
+function cursorListFilter(cursorParam: string | null) {
   if (cursorParam === null) return sql``;
   return sql`AND c.updated_at < ${cursorParam}`;
-};
+}
 
 type MutableConversationSummary = Omit<ConversationSummary, "participants"> & {
   participants?: ReadonlyArray<ConversationParticipant["participant"]>;
 };
 
-const conversationSummariesFromRows = (
+function conversationSummariesFromRows(
   rows: ReadonlyArray<ConversationListRow>,
   previewCache: ReadonlyMap<ConversationId, string>,
-): MutableConversationSummary[] =>
-  rows.map((row) => ({
+): MutableConversationSummary[] {
+  return rows.map((row) => ({
     id: row.id,
     name: row.name ?? undefined,
     lastMessagePreview: previewCache.get(row.id),
     lastMessageTimestamp: row.last_message_at?.toISOString(),
     unreadCount: row.unread_count,
   }));
+}
 
-const attachSummaryParticipants = (
+function attachSummaryParticipants(
   db: Db,
   conversations: MutableConversationSummary[],
-): Effect.Effect<void, SqlError> => {
+): Effect.Effect<void, SqlError> {
   if (conversations.length === 0) return Effect.void;
   return Effect.gen(function* () {
     const convIds = conversations.map((conversation) => conversation.id);
@@ -234,13 +236,13 @@ const attachSummaryParticipants = (
       conversation.participants = partsByConv.get(conversation.id) ?? [];
     }
   });
-};
+}
 
 type ParticipantRef = ConversationParticipant["participant"];
 
-const participantRefsByConversation = (
+function participantRefsByConversation(
   rows: ReadonlyArray<{ conversation_id: ConversationId; agent_id: AgentId }>,
-): Map<ConversationId, Array<ParticipantRef>> => {
+): Map<ConversationId, Array<ParticipantRef>> {
   const partsByConv = new Map<ConversationId, Array<ParticipantRef>>();
   for (const row of rows) {
     const participants = partsByConv.get(row.conversation_id) ?? [];
@@ -248,15 +250,15 @@ const participantRefsByConversation = (
     partsByConv.set(row.conversation_id, participants);
   }
   return partsByConv;
-};
+}
 
-const nextConversationListCursor = (
+function nextConversationListCursor(
   hasMore: boolean,
   rows: ReadonlyArray<ConversationListRow>,
-): string | undefined => {
+): string | undefined {
   if (!hasMore) return undefined;
   return rows[rows.length - 1]?.updated_at.toISOString();
-};
+}
 
 export class ConversationService {
   /** In-memory cache for last message previews — avoids decrypting on every list() call */

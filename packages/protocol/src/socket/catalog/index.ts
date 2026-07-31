@@ -116,9 +116,11 @@ export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 
-const makeRpcGroup = <const R extends Rpc.Any>(
+function makeRpcGroup<const R extends Rpc.Any>(
   rpcs: readonly R[],
-): RpcGroup.RpcGroup<R> => RpcGroup.make(...rpcs);
+): RpcGroup.RpcGroup<R> {
+  return RpcGroup.make(...rpcs);
+}
 
 /**
  * Effect RPC group for all client-to-server calls accepted by the server.

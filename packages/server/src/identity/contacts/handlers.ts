@@ -17,12 +17,12 @@ import { ContactsServiceTag } from "./layer.js";
 import { NetworkSendServiceTag } from "#network";
 import { agentArm } from "#moltzap/runtime";
 
-const fanOut = <D extends AnyNotificationDefinition>(
+function fanOut<D extends AnyNotificationDefinition>(
   target: UserId,
   definition: D,
   params: NotificationParamsOf<D>,
-): Effect.Effect<void, never, AuthServiceTag | NetworkSendServiceTag> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, AuthServiceTag | NetworkSendServiceTag> {
+  return Effect.gen(function* () {
     const authService: AuthService = yield* AuthServiceTag;
     const networkSendService = yield* NetworkSendServiceTag;
     const agentIds = yield* authService.agentsForOwner(target);
@@ -33,6 +33,7 @@ const fanOut = <D extends AnyNotificationDefinition>(
       params,
     );
   }).pipe(Effect.withSpan("contacts.fanOut"));
+}
 
 function contactsListBody(
   params: ParamsOf<typeof ContactsList>,

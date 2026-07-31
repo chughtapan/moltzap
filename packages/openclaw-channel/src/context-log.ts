@@ -45,14 +45,15 @@ function sanitizePathPart(value: string): string {
 
 const OpenClawStateDir = Config.option(Config.string("OPENCLAW_STATE_DIR"));
 
-const getOpenClawStateDir = (): string | undefined =>
-  Option.getOrUndefined(
+function getOpenClawStateDir(): string | undefined {
+  return Option.getOrUndefined(
     Effect.runSync(
       OpenClawStateDir.pipe(
         Effect.withConfigProvider(ConfigProvider.fromEnv()),
       ),
     ),
   );
+}
 
 function contextLogPath(
   logDir: string,

@@ -117,7 +117,7 @@ interface SocketRpcLayerOptions<
   >;
 }
 
-const makeSocketRpcLayer = <
+function makeSocketRpcLayer<
   AuthRequires,
   ConnectionProvides,
   ConnectionRequires,
@@ -127,8 +127,8 @@ const makeSocketRpcLayer = <
     ConnectionProvides,
     ConnectionRequires
   >,
-): Layer.Layer<never, never, AuthRequires | ConnectionRequires> =>
-  serverRpcLayer.pipe(
+): Layer.Layer<never, never, AuthRequires | ConnectionRequires> {
+  return serverRpcLayer.pipe(
     Layer.provide(ServerInboundGroup.toLayer(options.handlers)),
     Layer.provide(options.authLayer),
     Layer.provide(options.connectionLayer),
@@ -140,6 +140,7 @@ const makeSocketRpcLayer = <
       }),
     ),
   );
+}
 
 export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
@@ -181,14 +182,17 @@ type ReverseTransportCall = <Tag extends ReverseTag>(
   ErrorForTag<ReverseRpcs, Tag> | ReverseCallError
 >;
 
-const makeReverseNotify =
-  (call: ReverseTransportCall): ReverseClient["notify"] =>
-  (definition, params) =>
+function makeReverseNotify(
+  call: ReverseTransportCall,
+): ReverseClient["notify"] {
+  return (definition, params) =>
     call(definition.notificationRpc._tag, params).pipe(Effect.asVoid);
+}
 
-const makeReverseCallback =
-  (call: ReverseTransportCall): ReverseClient["callback"] =>
-  (request) => {
+function makeReverseCallback(
+  call: ReverseTransportCall,
+): ReverseClient["callback"] {
+  return (request) => {
     if (isDispatchAuthorizeRequest(request)) {
       return call(DispatchAuthorize.clientRpc._tag, request.params);
     }
@@ -200,6 +204,7 @@ const makeReverseCallback =
     }
     return Effect.dieMessage("unknown reverse callback request");
   };
+}
 
 export interface ReverseClient {
   readonly call: <Tag extends ReverseTag>(
@@ -228,16 +233,18 @@ interface AcceptedSocketSession {
   readonly closeRequested: Deferred.Deferred<void>;
 }
 
-const makeMoltZapServerSession = (
+function makeMoltZapServerSession(
   accepted: AcceptedSocketSession,
   originator: ReverseClient,
-): MoltZapServerSession => ({
-  ...accepted,
-  shutdown: Deferred.succeed(accepted.closeRequested, undefined).pipe(
-    Effect.asVoid,
-  ),
-  originator,
-});
+): MoltZapServerSession {
+  return {
+    ...accepted,
+    shutdown: Deferred.succeed(accepted.closeRequested, undefined).pipe(
+      Effect.asVoid,
+    ),
+    originator,
+  };
+}
 
 type ServerSocketRequirements<AuthRequires, ConnectionRequires, HookRequires> =
   | AuthRequires
@@ -251,10 +258,10 @@ type ScopedServerSocketRequirements<
   | ServerSocketRequirements<AuthRequires, ConnectionRequires, HookRequires>
   | Scope.Scope;
 
-const makeReverseClientProtocolLayer = (options: {
+function makeReverseClientProtocolLayer(options: {
   readonly write: WireWrite;
   readonly sinkReady: Deferred.Deferred<ChannelSink>;
-}): Layer.Layer<RpcClient.Protocol> => {
+}): Layer.Layer<RpcClient.Protocol> {
   const builder = makeClientChannelProtocol({
     write: options.write,
   });
@@ -267,13 +274,13 @@ const makeReverseClientProtocolLayer = (options: {
       ),
     ),
   );
-};
+}
 
-const buildReverseClient = (options: {
+function buildReverseClient(options: {
   readonly write: WireWrite;
   readonly scope: Scope.Scope;
-}): Effect.Effect<ReverseClient> =>
-  Effect.gen(function* () {
+}): Effect.Effect<ReverseClient> {
+  return Effect.gen(function* () {
     const sinkReady = yield* Deferred.make<ChannelSink>();
     const protocolLayer = makeReverseClientProtocolLayer({
       write: options.write,
@@ -296,6 +303,7 @@ const buildReverseClient = (options: {
       sink,
     };
   }).pipe(Effect.withSpan("buildReverseClient"));
+}
 
 export class MoltZapServer<
   AuthRequires,

@@ -333,14 +333,15 @@ function resolveAccount(
  * the signal is already aborted; otherwise registers a one-shot `abort`
  * listener and resolves when it fires.
  */
-const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
-  Effect.async<void>((resume) => {
+function waitForAbort(signal: AbortSignal): Effect.Effect<void> {
+  return Effect.async<void>((resume) => {
     if (signal.aborted) {
       resume(Effect.void);
       return;
     }
     signal.addEventListener("abort", () => resume(Effect.void), { once: true });
   });
+}
 
 function logOutboundReply(
   log: OpenClawLogger | undefined,

@@ -149,11 +149,11 @@ export type TransitionOutcome =
  * Mint the connection arm matching the resolved principal. This is the single
  * runtime check of `auth._tag`; callers narrow through `TransitionOutcome`.
  */
-const mintAuthedArm = (
+function mintAuthedArm(
   base: ConnectionBase,
   auth: AgentContext | AppContext,
-): { readonly outcome: TransitionOutcome; readonly minted: Connection } =>
-  Match.value(auth).pipe(
+): { readonly outcome: TransitionOutcome; readonly minted: Connection } {
+  return Match.value(auth).pipe(
     Match.tag("AgentContext", (agentAuth) => {
       const authed = new AgentConnection({ ...base, auth: agentAuth });
       return { outcome: { kind: "ok-agent", authed } as const, minted: authed };
@@ -164,32 +164,33 @@ const mintAuthedArm = (
     }),
     Match.exhaustive,
   );
+}
 
 /**
  * Visit every agent-arm connection in `map`. Centralizes the
  * `_tag === "AgentConnection"` structural narrowing that every agent-scoped
  * reader/mutator shares.
  */
-const eachAgentArm = (
+function eachAgentArm(
   map: HashMap.HashMap<ConnectionId, Connection>,
   visit: (conn: AgentConnection) => void,
-): void => {
+): void {
   for (const conn of HashMap.values(map)) {
     if (conn._tag === "AgentConnection") visit(conn);
   }
-};
+}
 
 /** Whether `map` still contains a live agent arm for `agentId`. */
-const hasAgentArm = (
+function hasAgentArm(
   map: HashMap.HashMap<ConnectionId, Connection>,
   agentId: AgentId,
-): boolean => {
+): boolean {
   let found = false;
   eachAgentArm(map, (conn) => {
     if (conn.auth.agentId === agentId) found = true;
   });
   return found;
-};
+}
 
 interface ConnectionManagerState {
   readonly connections: HashMap.HashMap<ConnectionId, Connection>;
@@ -199,11 +200,11 @@ interface ConnectionManagerState {
   >;
 }
 
-const addConversationIds = (
+function addConversationIds(
   subscriptions: ConnectionManagerState["agentConversationSubscriptions"],
   agentId: AgentId,
   conversationIds: readonly ConversationId[],
-): ConnectionManagerState["agentConversationSubscriptions"] => {
+): ConnectionManagerState["agentConversationSubscriptions"] {
   const existing = Option.getOrElse(HashMap.get(subscriptions, agentId), () =>
     HashSet.empty<ConversationId>(),
   );
@@ -212,7 +213,7 @@ const addConversationIds = (
     next = HashSet.add(next, conversationId);
   }
   return HashMap.set(subscriptions, agentId, next);
-};
+}
 
 export class ConnectionManager {
   /**

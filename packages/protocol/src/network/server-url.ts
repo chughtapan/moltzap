@@ -37,7 +37,7 @@ const SERVER_SCHEMES: ReadonlySet<string> = new Set([
  * swap matches. `HTTP://host` would otherwise survive validation and then dial
  * an `HTTP://` URL that no WebSocket can open.
  */
-const toOrigin = (value: string): string | null => {
+function toOrigin(value: string): string | null {
   const trimmed = value
     .replace(SOCKET_ROUTE_SUFFIX, "")
     .replace(TRAILING_SLASH, "");
@@ -49,7 +49,7 @@ const toOrigin = (value: string): string | null => {
   if (url.pathname !== "/" || url.search !== "" || url.hash !== "") return null;
   if (url.username !== "" || url.password !== "") return null;
   return `${url.protocol}//${url.host}`;
-};
+}
 
 /**
  * A MoltZap server address carrying no path, query, or fragment, over

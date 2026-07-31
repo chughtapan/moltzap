@@ -59,9 +59,10 @@ export class ServerBootFailedError extends Data.TaggedError(
  * what the cleanup step does. `Cause.pretty` provides structured diagnostics
  * without smuggling a raw `Cause` through an `unknown`-typed channel.
  */
-const logAndSwallowCause =
-  (label: string) =>
-  <A, E, R>(eff: Effect.Effect<A, E, R>): Effect.Effect<void, never, R> =>
+function logAndSwallowCause(label: string) {
+  return <A, E, R>(
+    eff: Effect.Effect<A, E, R>,
+  ): Effect.Effect<void, never, R> =>
     eff.pipe(
       Effect.catchAllCause((cleanupCause) =>
         Effect.logError(label).pipe(
@@ -70,16 +71,18 @@ const logAndSwallowCause =
       ),
       Effect.asVoid,
     );
+}
 
 /** Run a best-effort cleanup promise, logging and swallowing any failure. */
-const runCleanupStep = (
+function runCleanupStep(
   run: () => PromiseLike<unknown>,
   label: string,
-): Effect.Effect<void> =>
-  Effect.tryPromise({
+): Effect.Effect<void> {
+  return Effect.tryPromise({
     try: run,
     catch: (cause) => new ServerCloseError({ cause }),
   }).pipe(logAndSwallowCause(label));
+}
 
 function resolveSpanProcessor(
   configured: SpanProcessor | undefined,

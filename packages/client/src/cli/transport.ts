@@ -105,11 +105,11 @@ const DAEMON_TIMEOUT_MS = 10_000;
 
 // Map local socket faults to CLI transport tags. Errors decoded from the daemon
 // RPC error channel are already typed tagged errors and pass through unchanged.
-const tagDaemonError = (
+function tagDaemonError(
   method: string,
   err: SocketRequestError | LocalDaemonError,
   socketPath: string,
-): TransportError => {
+): TransportError {
   if (!(err instanceof SocketRequestError)) return err;
   const msg = err.message;
   if (
@@ -133,14 +133,16 @@ const tagDaemonError = (
     tag: err._tag,
     message: msg,
   });
-};
+}
 
-const makeDaemonTransport = (socketPath: string): Transport => ({
-  command: (tag, payload) =>
-    requestDaemonCommand(tag, payload, socketPath).pipe(
-      Effect.mapError((err) => tagDaemonError(tag, err, socketPath)),
-    ),
-});
+function makeDaemonTransport(socketPath: string): Transport {
+  return {
+    command: (tag, payload) =>
+      requestDaemonCommand(tag, payload, socketPath).pipe(
+        Effect.mapError((err) => tagDaemonError(tag, err, socketPath)),
+      ),
+  };
+}
 
 /** Build the Layer that provides {@link Transport} for the current invocation. */
 export const makeTransportLayer = (

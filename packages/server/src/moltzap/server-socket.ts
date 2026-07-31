@@ -33,15 +33,16 @@ export function makeMoltzapSocketHandler(options: {
   return (socket: EffectSocket) => protocolServer.handleSocket(socket);
 }
 
-const makeConnectionTagLayer = (
+function makeConnectionTagLayer(
   connId: ConnectionId,
-): Layer.Layer<ConnectionTag, never, ConnectionManagerTag> =>
-  Layer.effect(
+): Layer.Layer<ConnectionTag, never, ConnectionManagerTag> {
+  return Layer.effect(
     ConnectionTag,
     ConnectionManagerTag.pipe(
       Effect.flatMap((manager) => peekLiveArm(manager, connId)),
     ),
   );
+}
 
 function closeSocketSession(
   session: MoltZapServerSession,

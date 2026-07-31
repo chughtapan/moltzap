@@ -30,8 +30,9 @@ const HookPolicyArmSchema = Schema.Struct({
   timeoutMs: HookTimeoutMsSchema,
 });
 
-const refusalArm = <Kind extends string>(kind: Kind) =>
-  Schema.Struct({ kind: Schema.Literal(kind), reason: Schema.String });
+function refusalArm<Kind extends string>(kind: Kind) {
+  return Schema.Struct({ kind: Schema.Literal(kind), reason: Schema.String });
+}
 
 /**
  * Receive-side admission policy. The app states ONE of:

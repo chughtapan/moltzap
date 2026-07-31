@@ -129,30 +129,32 @@ type ClientWebSocket = Effect.Effect.Success<
   ReturnType<typeof Socket.makeWebSocket>
 >;
 
-const makeNotConnectedError = (): NotConnectedError =>
-  new NotConnectedError({ message: MSG_NOT_CONNECTED });
+function makeNotConnectedError(): NotConnectedError {
+  return new NotConnectedError({ message: MSG_NOT_CONNECTED });
+}
 
 const decodeServerBaseUrl = Schema.decodeEither(ServerBaseUrl);
 
 // Callers reach the lifecycle across a package boundary with a plain string,
 // so the address is decoded here rather than trusted.
-const socketUrl = (
+function socketUrl(
   serverUrl: string,
-): Effect.Effect<string, NotConnectedError> =>
-  Either.match(decodeServerBaseUrl(serverUrl), {
+): Effect.Effect<string, NotConnectedError> {
+  return Either.match(decodeServerBaseUrl(serverUrl), {
     onLeft: (error) =>
       Effect.fail(new NotConnectedError({ message: error.message })),
     onRight: (base) => Effect.succeed(webSocketUrl(base)),
   });
+}
 
-const openSocket = (
+function openSocket(
   url: string,
   scope: Scope.CloseableScope,
 ): Effect.Effect<
   ClientWebSocket,
   NotConnectedError,
   Socket.WebSocketConstructor
-> => {
+> {
   const openTimeout = Duration.seconds(WEB_SOCKET_OPEN_TIMEOUT_SECONDS);
   return Scope.extend(Socket.makeWebSocket(url, { openTimeout }), scope).pipe(
     Effect.timeoutFail({
@@ -169,15 +171,15 @@ const openSocket = (
       ),
     ),
   );
-};
+}
 
-const drainConnectionEffect = (input: {
+function drainConnectionEffect(input: {
   readonly write: (
     chunk: Socket.CloseEvent,
   ) => Effect.Effect<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
   readonly hasCompletedHandshake: boolean;
-}): Effect.Effect<void> => {
+}): Effect.Effect<void> {
   const closeScope = Scope.close(input.scope, Exit.void);
   if (!input.hasCompletedHandshake) return closeScope;
   return input
@@ -187,14 +189,14 @@ const drainConnectionEffect = (input: {
       Effect.ignore,
       Effect.zipRight(closeScope),
     );
-};
+}
 
-const callWithTimeout = <A, E>(
+function callWithTimeout<A, E>(
   scope: Scope.Scope,
   call: Effect.Effect<A, E>,
   options: { readonly method: string; readonly timeoutMs: number },
-): Effect.Effect<A, E | NotConnectedError | RpcTimeoutError> =>
-  Effect.gen(function* () {
+): Effect.Effect<A, E | NotConnectedError | RpcTimeoutError> {
+  return Effect.gen(function* () {
     const fiber = yield* Effect.forkIn(call, scope);
     const exit = yield* Fiber.await(fiber).pipe(
       Effect.timeoutFail({
@@ -211,6 +213,7 @@ const callWithTimeout = <A, E>(
     }
     return yield* exit;
   }).pipe(Effect.withSpan("callWithTimeout"));
+}
 
 interface ClientConnection<Rpcs extends ProtocolRpc, Client> {
   readonly write: (
@@ -337,15 +340,15 @@ type _NotificationCatalogHasNoExtra = ExpectTrue<
 
 type ReverseHandlers = ReverseCallbackHandlers & ReverseNotificationHandlers;
 
-const buildSocketRpcClient = <Rpcs extends Rpc.Any>(options: {
+function buildSocketRpcClient<Rpcs extends Rpc.Any>(options: {
   readonly group: RpcGroup.RpcGroup<Rpcs>;
   readonly write: WireWrite;
   readonly scope: Scope.Scope;
 }): Effect.Effect<{
   readonly client: RpcClient.RpcClient<Rpcs, RpcClientError>;
   readonly sink: ChannelSink;
-}> =>
-  Effect.gen(function* () {
+}> {
+  return Effect.gen(function* () {
     const sinkReady = yield* Deferred.make<ChannelSink>();
     const builder = makeClientChannelProtocol({
       write: options.write,
@@ -366,152 +369,168 @@ const buildSocketRpcClient = <Rpcs extends Rpc.Any>(options: {
     const sink = yield* Deferred.await(sinkReady);
     return { client, sink };
   }).pipe(Effect.withSpan("buildSocketRpcClient"));
+}
 
-const notificationHandler =
-  <D extends AnyNotificationDefinition>(
-    registry: SubscriberRegistry,
-    definition: D,
-  ) =>
-  (params: NotificationParamsOf<D>): Effect.Effect<void, never> =>
+function notificationHandler<D extends AnyNotificationDefinition>(
+  registry: SubscriberRegistry,
+  definition: D,
+) {
+  return (params: NotificationParamsOf<D>): Effect.Effect<void, never> =>
     registry.dispatch({
       definition,
       method: definition.name,
       params,
     });
+}
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-const asObject = (value: unknown): Record<string, unknown> | undefined =>
-  isRecord(value) ? value : undefined;
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
 
-const tagOf = (value: unknown): unknown => asObject(value)?.["_tag"];
+function tagOf(value: unknown): unknown {
+  return asObject(value)?.["_tag"];
+}
 
-const taggedErrorFromCause = (frame: Record<string, unknown>): unknown => {
+function taggedErrorFromCause(frame: Record<string, unknown>): unknown {
   const error = asObject(frame["error"]);
   if (error === undefined || error["_tag"] !== "Cause") return undefined;
   const cause = asObject(error["data"]);
   if (cause === undefined || cause["_tag"] !== "Fail") return undefined;
   const tagged = cause["error"];
   return typeof tagOf(tagged) === "string" ? tagged : undefined;
-};
+}
 
-const flattenReverseErrors =
-  (write: WireWrite): WireWrite =>
-  (chunk) => {
+function flattenReverseErrors(write: WireWrite): WireWrite {
+  return (chunk) => {
     if (!chunk.includes("Cause")) return write(chunk);
     const rewritten = rewriteCauseFrame(chunk);
     return write(rewritten ?? chunk);
   };
+}
 
-const rewriteCauseFrame = (chunk: string): string | undefined => {
+function rewriteCauseFrame(chunk: string): string | undefined {
   const frame = asObject(parseJson(chunk));
   if (frame === undefined) return undefined;
   const tagged = taggedErrorFromCause(frame);
   if (tagged === undefined) return undefined;
   return JSON.stringify({ ...frame, error: tagged });
-};
+}
 
-const parseJson = (raw: string): unknown =>
-  Effect.runSync(
+function parseJson(raw: string): unknown {
+  return Effect.runSync(
     Effect.try((): unknown => JSON.parse(raw)).pipe(
       Effect.orElseSucceed(() => undefined),
     ),
   );
+}
 
-const buildReverseHandlers = (options: {
+function buildReverseHandlers(options: {
   readonly registry: SubscriberRegistry;
   readonly callbackHandlers: ReverseCallbackHandlers;
-}): ReverseHandlers => ({
-  ...options.callbackHandlers,
-  ...buildNotificationHandlers(options.registry),
-});
+}): ReverseHandlers {
+  return {
+    ...options.callbackHandlers,
+    ...buildNotificationHandlers(options.registry),
+  };
+}
 
-const buildIdentityNotificationHandlers = (
+function buildIdentityNotificationHandlers(
   registry: SubscriberRegistry,
-): IdentityNotificationHandlers => ({
-  [ContactRequestNotificationDefinition.name]: notificationHandler(
-    registry,
-    ContactRequestNotificationDefinition,
-  ),
-  [ContactAcceptedNotificationDefinition.name]: notificationHandler(
-    registry,
-    ContactAcceptedNotificationDefinition,
-  ),
-});
-
-const buildTaskNotificationHandlers = (
-  registry: SubscriberRegistry,
-): TaskNotificationHandlers => ({
-  [MessageReceivedNotificationDefinition.name]: notificationHandler(
-    registry,
-    MessageReceivedNotificationDefinition,
-  ),
-  [TaskClosedNotificationDefinition.name]: notificationHandler(
-    registry,
-    TaskClosedNotificationDefinition,
-  ),
-  [TaskCreatedNotificationDefinition.name]: notificationHandler(
-    registry,
-    TaskCreatedNotificationDefinition,
-  ),
-  [TaskFailedNotificationDefinition.name]: notificationHandler(
-    registry,
-    TaskFailedNotificationDefinition,
-  ),
-  [ConversationCreatedNotificationDefinition.name]: notificationHandler(
-    registry,
-    ConversationCreatedNotificationDefinition,
-  ),
-  [ConversationArchivedNotificationDefinition.name]: notificationHandler(
-    registry,
-    ConversationArchivedNotificationDefinition,
-  ),
-  [ConversationUnarchivedNotificationDefinition.name]: notificationHandler(
-    registry,
-    ConversationUnarchivedNotificationDefinition,
-  ),
-  [ConversationParticipantsAddedNotificationDefinition.name]:
-    notificationHandler(
+): IdentityNotificationHandlers {
+  return {
+    [ContactRequestNotificationDefinition.name]: notificationHandler(
       registry,
-      ConversationParticipantsAddedNotificationDefinition,
+      ContactRequestNotificationDefinition,
     ),
-  [ConversationParticipantsRemovedNotificationDefinition.name]:
-    notificationHandler(
+    [ContactAcceptedNotificationDefinition.name]: notificationHandler(
       registry,
-      ConversationParticipantsRemovedNotificationDefinition,
+      ContactAcceptedNotificationDefinition,
     ),
-});
+  };
+}
 
-const buildDispatchNotificationHandlers = (
+function buildTaskNotificationHandlers(
   registry: SubscriberRegistry,
-): DispatchNotificationHandlers => ({
-  [DispatchRelease.name]: notificationHandler(registry, DispatchRelease),
-  [DispatchLeaseConsumed.name]: notificationHandler(
-    registry,
-    DispatchLeaseConsumed,
-  ),
-  [DispatchLeaseExpired.name]: notificationHandler(
-    registry,
-    DispatchLeaseExpired,
-  ),
-});
+): TaskNotificationHandlers {
+  return {
+    [MessageReceivedNotificationDefinition.name]: notificationHandler(
+      registry,
+      MessageReceivedNotificationDefinition,
+    ),
+    [TaskClosedNotificationDefinition.name]: notificationHandler(
+      registry,
+      TaskClosedNotificationDefinition,
+    ),
+    [TaskCreatedNotificationDefinition.name]: notificationHandler(
+      registry,
+      TaskCreatedNotificationDefinition,
+    ),
+    [TaskFailedNotificationDefinition.name]: notificationHandler(
+      registry,
+      TaskFailedNotificationDefinition,
+    ),
+    [ConversationCreatedNotificationDefinition.name]: notificationHandler(
+      registry,
+      ConversationCreatedNotificationDefinition,
+    ),
+    [ConversationArchivedNotificationDefinition.name]: notificationHandler(
+      registry,
+      ConversationArchivedNotificationDefinition,
+    ),
+    [ConversationUnarchivedNotificationDefinition.name]: notificationHandler(
+      registry,
+      ConversationUnarchivedNotificationDefinition,
+    ),
+    [ConversationParticipantsAddedNotificationDefinition.name]:
+      notificationHandler(
+        registry,
+        ConversationParticipantsAddedNotificationDefinition,
+      ),
+    [ConversationParticipantsRemovedNotificationDefinition.name]:
+      notificationHandler(
+        registry,
+        ConversationParticipantsRemovedNotificationDefinition,
+      ),
+  };
+}
 
-const buildNotificationHandlers = (
+function buildDispatchNotificationHandlers(
   registry: SubscriberRegistry,
-): ReverseNotificationHandlers => ({
-  ...buildIdentityNotificationHandlers(registry),
-  ...buildTaskNotificationHandlers(registry),
-  ...buildDispatchNotificationHandlers(registry),
-});
+): DispatchNotificationHandlers {
+  return {
+    [DispatchRelease.name]: notificationHandler(registry, DispatchRelease),
+    [DispatchLeaseConsumed.name]: notificationHandler(
+      registry,
+      DispatchLeaseConsumed,
+    ),
+    [DispatchLeaseExpired.name]: notificationHandler(
+      registry,
+      DispatchLeaseExpired,
+    ),
+  };
+}
 
-const buildReverseRpcServer = (options: {
+function buildNotificationHandlers(
+  registry: SubscriberRegistry,
+): ReverseNotificationHandlers {
+  return {
+    ...buildIdentityNotificationHandlers(registry),
+    ...buildTaskNotificationHandlers(registry),
+    ...buildDispatchNotificationHandlers(registry),
+  };
+}
+
+function buildReverseRpcServer(options: {
   readonly registry: SubscriberRegistry;
   readonly callbackHandlers: ReverseCallbackHandlers;
   readonly write: WireWrite;
   readonly scope: Scope.Scope;
-}): Effect.Effect<{ readonly sink: ChannelSink }> =>
-  Effect.gen(function* () {
+}): Effect.Effect<{ readonly sink: ChannelSink }> {
+  return Effect.gen(function* () {
     const sinkReady = yield* Deferred.make<ChannelSink>();
     const disconnects = yield* Mailbox.make<number>();
     const protocolLayer = makeServerProtocolLayer({
@@ -528,8 +547,9 @@ const buildReverseRpcServer = (options: {
     const sink = yield* Deferred.await(sinkReady);
     return { sink };
   }).pipe(Effect.withSpan("buildReverseRpcServer"));
+}
 
-const openClientSocketSession = <Rpcs extends ProtocolRpc>(
+function openClientSocketSession<Rpcs extends ProtocolRpc>(
   options: ClientSocketSessionOptions<Rpcs> & {
     readonly group: RpcGroup.RpcGroup<Rpcs>;
   },
@@ -537,8 +557,8 @@ const openClientSocketSession = <Rpcs extends ProtocolRpc>(
   ClientConnection<Rpcs, RpcClient.RpcClient<Rpcs, RpcClientError>>,
   NotConnectedError,
   Socket.WebSocketConstructor
-> =>
-  Effect.gen(function* () {
+> {
+  return Effect.gen(function* () {
     const url = yield* socketUrl(options.serverUrl);
     const scope = yield* Scope.make();
     const socket = yield* openSocket(url, scope);
@@ -574,6 +594,7 @@ const openClientSocketSession = <Rpcs extends ProtocolRpc>(
       handshakeSettled: options.handshakeSettled,
     };
   }).pipe(Effect.withSpan("openProtocolClientSocket"));
+}
 
 export const openProtocolAgentClientSocket = (
   options: ClientSocketSessionOptions<AgentCallableRpcs>,
@@ -605,16 +626,17 @@ class ReconnectAttemptFailedError extends Data.TaggedError(
   readonly reason: string;
 }> {}
 
-const makeReconnectSchedule = () =>
-  Schedule.exponential(
+function makeReconnectSchedule() {
+  return Schedule.exponential(
     Duration.millis(BASE_RECONNECT_DELAY_MS),
     RECONNECT_BACKOFF_FACTOR,
   ).pipe(
     Schedule.either(Schedule.spaced(Duration.millis(MAX_RECONNECT_DELAY_MS))),
     Schedule.jittered,
   );
+}
 
-const makeReconnectLoop = <HelloOk>(input: {
+function makeReconnectLoop<HelloOk>(input: {
   readonly connectEffect: () => Effect.Effect<
     HelloOk,
     unknown,
@@ -622,7 +644,7 @@ const makeReconnectLoop = <HelloOk>(input: {
   >;
   readonly onReconnect: (helloOk: HelloOk) => void;
   readonly onLoopEnd: () => void;
-}): Effect.Effect<void, never> => {
+}): Effect.Effect<void, never> {
   const attempt = input.connectEffect().pipe(
     Effect.tap((helloOk) =>
       Effect.gen(function* () {
@@ -654,7 +676,7 @@ const makeReconnectLoop = <HelloOk>(input: {
     Effect.provide(NodeSocket.layerWebSocketConstructor),
     Effect.withSpan("makeReconnectLoop"),
   );
-};
+}
 
 export class ProtocolClientLifecycle<
   Rpcs extends ProtocolRpc,

@@ -37,27 +37,29 @@ type StartCommandParsed = {
   readonly options: Schema.Schema.Type<typeof StartOptionsSchema>;
 };
 
-const startMessage = (outcome: {
+function startMessage(outcome: {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly reusedConversation: boolean;
-}): string =>
-  outcome.reusedConversation
+}): string {
+  return outcome.reusedConversation
     ? `Task started: ${outcome.taskId} (reusing existing conversation: ${outcome.conversationId})`
     : `Task started: ${outcome.taskId} (conversation: ${outcome.conversationId})`;
+}
 
-const logStartResult = (result: StartTaskCommandResult): Effect.Effect<void> =>
-  Effect.zipRight(
+function logStartResult(result: StartTaskCommandResult): Effect.Effect<void> {
+  return Effect.zipRight(
     Effect.log(startMessage(result)),
     result.sentMessageId === undefined
       ? Effect.void
       : Effect.log(`Message sent: ${result.sentMessageId}`),
   );
+}
 
-const startCommandHandler = (
+function startCommandHandler(
   args: StartCommandArgs,
-): Effect.Effect<void, StartCommandError, Transport> =>
-  command(LocalDaemonCommands.StartTask, {
+): Effect.Effect<void, StartCommandError, Transport> {
+  return command(LocalDaemonCommands.StartTask, {
     name: args.name,
     participants: args.participants,
     ...(args.message === undefined ? {} : { message: args.message }),
@@ -66,11 +68,12 @@ const startCommandHandler = (
     Effect.flatMap(logStartResult),
     Effect.withSpan("startCommandHandler"),
   );
+}
 
-const runStartCommand = (
+function runStartCommand(
   effect: Effect.Effect<void, StartCommandError, Transport>,
-): Effect.Effect<void, never, Transport> =>
-  effect.pipe(
+): Effect.Effect<void, never, Transport> {
+  return effect.pipe(
     Effect.catchTag("StartTaskUsageError", (err: StartTaskUsageError) =>
       Effect.logError(err.message).pipe(
         Effect.zipRight(
@@ -100,6 +103,7 @@ const runStartCommand = (
       );
     }),
   );
+}
 
 const nameArg = Args.text({ name: "name" }).pipe(
   Args.withDescription("Conversation name"),

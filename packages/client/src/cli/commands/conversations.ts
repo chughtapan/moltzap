@@ -29,7 +29,7 @@ const conversationIdArg = Args.text({ name: "conversationId" }).pipe(
   Args.withDescription("Conversation ID"),
 );
 
-const historyHandler = ({
+function historyHandler({
   taskId,
   conversationId,
   limit,
@@ -39,7 +39,7 @@ const historyHandler = ({
   conversationId: ConversationId;
   limit: number;
   sessionKey: Option.Option<string>;
-}) => {
+}) {
   const params: HistoryRequest = Option.isSome(sessionKey)
     ? { taskId, conversationId, limit, sessionKey: sessionKey.value }
     : { taskId, conversationId, limit };
@@ -49,7 +49,7 @@ const historyHandler = ({
       Effect.asVoid,
     ),
   );
-};
+}
 
 const historySubcommand = Command.make(
   "history",

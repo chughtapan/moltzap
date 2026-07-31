@@ -70,7 +70,9 @@ interface CommandHelp {
   readonly subcommands: readonly SubcommandDoc[];
 }
 
-const stripAnsi = (s: string): string => s.replace(ANSI_RE, "");
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, "");
+}
 
 /**
  * `@effect/cli`'s `--help` is conventionally formatted with section
@@ -87,7 +89,7 @@ const SECTION_HEADERS = [
 
 type SectionName = (typeof SECTION_HEADERS)[number];
 
-const splitSections = (raw: string): Map<SectionName, string> => {
+function splitSections(raw: string): Map<SectionName, string> {
   const sections = new Map<SectionName, string>();
   const lines = raw.split("\n");
   let current: SectionName | null = null;
@@ -110,9 +112,9 @@ const splitSections = (raw: string): Map<SectionName, string> => {
   }
   flush();
   return sections;
-};
+}
 
-const captureHelp = (path: readonly string[]): string => {
+function captureHelp(path: readonly string[]): string {
   const args = [cliBin, ...path, "--help"];
   // FORCE_COLOR=0 disables ANSI; some terminals re-add it via TTY checks
   // so we strip defensively too. `--no-color` is not recognized by Effect
@@ -123,7 +125,7 @@ const captureHelp = (path: readonly string[]): string => {
     stdio: ["ignore", "pipe", "pipe"],
   });
   return stripAnsi(stdout);
-};
+}
 
 /**
  * `@effect/cli` formats one argument as:
@@ -142,15 +144,15 @@ const captureHelp = (path: readonly string[]): string => {
 const TYPE_LINE_RE =
   /^(A user-defined piece of text|An integer|A true or false value|One of the following[^.]*|This argument may be repeated[^.]*)\.$/;
 
-const parseArguments = (sectionText: string): readonly ArgumentDoc[] => {
+function parseArguments(sectionText: string): readonly ArgumentDoc[] {
   if (sectionText === "") return [];
   const blocks = splitOnIndentedHeader(sectionText);
   return blocks
     .map((block) => parseArgumentBlock(block))
     .filter((arg): arg is ArgumentDoc => arg !== null);
-};
+}
 
-const splitOnIndentedHeader = (text: string): readonly string[] => {
+function splitOnIndentedHeader(text: string): readonly string[] {
   // A header line is left-flush (no leading whitespace) and starts a new
   // block. Body lines are indented. Two consecutive blank lines also end
   // a block.
@@ -171,9 +173,9 @@ const splitOnIndentedHeader = (text: string): readonly string[] => {
   }
   flush();
   return blocks.map((b) => b.join("\n").trim()).filter((b) => b.length > 0);
-};
+}
 
-const parseArgumentBlock = (block: string): ArgumentDoc | null => {
+function parseArgumentBlock(block: string): ArgumentDoc | null {
   const lines = block.split("\n");
   if (lines.length === 0) return null;
   const header = lines[0]?.trim() ?? "";
@@ -185,16 +187,16 @@ const parseArgumentBlock = (block: string): ArgumentDoc | null => {
   const descriptionLines = bodyLines.filter((l) => !TYPE_LINE_RE.test(l));
   const description = descriptionLines.join(" ").trim();
   return { name: header, description };
-};
+}
 
-const parseOptions = (sectionText: string): readonly OptionDoc[] => {
+function parseOptions(sectionText: string): readonly OptionDoc[] {
   if (sectionText === "") return [];
   const blocks = splitOnIndentedHeader(sectionText);
   return blocks
     .map((block) => parseOptionBlock(block))
     .filter((opt): opt is OptionDoc => opt !== null)
     .filter((opt) => !isGlobalCliOption(opt.signature));
-};
+}
 
 /**
  * Effect CLI injects the same global options on every command:
@@ -211,10 +213,11 @@ const GLOBAL_OPTIONS = new Set([
   "--version",
 ]);
 
-const isGlobalCliOption = (signature: string): boolean =>
-  GLOBAL_OPTIONS.has(signature);
+function isGlobalCliOption(signature: string): boolean {
+  return GLOBAL_OPTIONS.has(signature);
+}
 
-const parseOptionBlock = (block: string): OptionDoc | null => {
+function parseOptionBlock(block: string): OptionDoc | null {
   const lines = block.split("\n");
   if (lines.length === 0) return null;
   const signature = lines[0]?.trim() ?? "";
@@ -228,7 +231,7 @@ const parseOptionBlock = (block: string): OptionDoc | null => {
     .filter((l) => l !== "This setting is optional.");
   const description = descriptionLines.join(" ").trim();
   return { signature, description };
-};
+}
 
 /**
  * The COMMANDS section is rendered as `- <signature>  <description>`
@@ -236,7 +239,7 @@ const parseOptionBlock = (block: string): OptionDoc | null => {
  * to the description's left edge; we split on the first run of >=2
  * spaces.
  */
-const parseSubcommands = (sectionText: string): readonly SubcommandDoc[] => {
+function parseSubcommands(sectionText: string): readonly SubcommandDoc[] {
   if (sectionText === "") return [];
   const subs: SubcommandDoc[] = [];
   const lines = sectionText.split("\n");
@@ -255,13 +258,13 @@ const parseSubcommands = (sectionText: string): readonly SubcommandDoc[] => {
     });
   }
   return subs;
-};
+}
 
-const parseUsage = (sectionText: string): string => {
+function parseUsage(sectionText: string): string {
   const line = sectionText.split("\n").find((l) => l.trim().startsWith("$"));
   if (line === undefined) return sectionText.trim();
   return line.replace(/^\s*\$\s*/, "").trim();
-};
+}
 
 const readHelp = (path: readonly string[]): CommandHelp => {
   const raw = captureHelp(path);
@@ -289,9 +292,9 @@ const readHelp = (path: readonly string[]): CommandHelp => {
   };
 };
 
-const commandPathsFromRootHelp = (
+function commandPathsFromRootHelp(
   rootHelp: CommandHelp,
-): readonly (readonly string[])[] => {
+): readonly (readonly string[])[] {
   const paths = rootHelp.subcommands.map(({ signature }) => {
     const tokens = signature.trim().split(/\s+/);
     const parameterIndex = tokens.findIndex((token) => /^[-[(<]/.test(token));
@@ -309,7 +312,7 @@ const commandPathsFromRootHelp = (
     throw new Error("Root help contains duplicate command paths");
   }
   return paths;
-};
+}
 
 // ─── MDX renderers ────────────────────────────────────────────────────────
 
@@ -366,10 +369,10 @@ const renderCommandReference = (cmd: CommandHelp): string => {
   return parts.join("\n\n");
 };
 
-const renderReferencePage = (
+function renderReferencePage(
   rootHelp: CommandHelp,
   commands: readonly CommandHelp[],
-): string => {
+): string {
   const sections = commands.map(renderCommandReference);
   return [
     "---",
@@ -407,9 +410,9 @@ const renderReferencePage = (
     "",
     ...sections.flatMap((s) => [s, ""]),
   ].join("\n");
-};
+}
 
-const renderCommandsTable = (commands: readonly CommandHelp[]): string => {
+function renderCommandsTable(commands: readonly CommandHelp[]): string {
   const topLevel = commands.filter((c) => c.path.length === 1);
   const rows = topLevel.map((c) => {
     const desc = (c.description.split(/[.\n]/)[0] ?? "").trim();
@@ -423,10 +426,13 @@ const renderCommandsTable = (commands: readonly CommandHelp[]): string => {
     ...rows,
     "",
   ].join("\n");
-};
+}
 
-const renderGlobalFlagsSnippet = (rootHelp: CommandHelp): string =>
-  [AUTO_GEN_NOTE, "", escapeMdxProse(rootHelp.description), ""].join("\n");
+function renderGlobalFlagsSnippet(rootHelp: CommandHelp): string {
+  return [AUTO_GEN_NOTE, "", escapeMdxProse(rootHelp.description), ""].join(
+    "\n",
+  );
+}
 
 // ─── agent/network/connect example snippet ───────────────────────────────
 
@@ -435,7 +441,7 @@ const renderGlobalFlagsSnippet = (rootHelp: CommandHelp): string =>
  * single source of truth for both package and wire versions. Reading JSON
  * keeps the generator decoupled from the protocol package's build output.
  */
-const readProtocolVersion = (): ReadResult<string> => {
+function readProtocolVersion(): ReadResult<string> {
   const sourcePath = resolve(workspaceRoot, "packages/protocol/package.json");
   const result = readPackageVersion(readFileSync(sourcePath, "utf8"));
   if (result._tag === "err") {
@@ -445,7 +451,7 @@ const readProtocolVersion = (): ReadResult<string> => {
     };
   }
   return result;
-};
+}
 
 /**
  * Read `API_KEY_PREFIX` from
@@ -455,7 +461,7 @@ const readProtocolVersion = (): ReadResult<string> => {
  * prefix change (and the `check-no-hardcoded-constants` API_KEY_PREFIX
  * rule no longer needs `ws-connect-example.mdx` on its allowlist).
  */
-const readApiKeyPrefix = (): ReadResult<string> => {
+function readApiKeyPrefix(): ReadResult<string> {
   const sourcePath = resolve(
     workspaceRoot,
     "packages/server/src/identity/credential-keys.ts",
@@ -471,17 +477,17 @@ const readApiKeyPrefix = (): ReadResult<string> => {
     };
   }
   return result;
-};
+}
 
 interface SnippetInputs {
   readonly protocolVersion: string;
   readonly apiKeyPrefix: string;
 }
 
-const renderWsConnectSnippet = ({
+function renderWsConnectSnippet({
   protocolVersion,
   apiKeyPrefix,
-}: SnippetInputs): string => {
+}: SnippetInputs): string {
   // The HelloOk is empty: success is the only signal. The handshake sends a
   // single prefixed `agentKey`; the server resolves the principal off the
   // prefix and replies with `{ }` on success.
@@ -522,11 +528,11 @@ const renderWsConnectSnippet = ({
     "</Tabs>",
     "",
   ].join("\n");
-};
+}
 
 // ─── Entry point ──────────────────────────────────────────────────────────
 
-const main = (): void => {
+function main(): void {
   mkdirSync(cliDocsDir, { recursive: true });
   mkdirSync(snippetsDir, { recursive: true });
 
@@ -569,6 +575,6 @@ const main = (): void => {
   console.log(
     `[generate-cli-docs] wrote reference + ${commands.length} commands + connect snippet (PROTOCOL_VERSION=${protocolVersion.value})`,
   );
-};
+}
 
 main();

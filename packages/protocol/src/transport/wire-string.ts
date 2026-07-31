@@ -17,12 +17,12 @@ export type WireStringFormat = "uuid" | "uri" | "date-time";
 // `arbitrary` annotation that generates valid values DIRECTLY. The `fc` arg is
 // Effect's re-exported FastCheck instance, passed in by `Arbitrary.make` — no
 // top-level `fast-check` import in production code.
-const dateTimeArbitrary =
-  () =>
-  (
+function dateTimeArbitrary() {
+  return (
     fc: typeof import("effect").FastCheck,
   ): import("effect").FastCheck.Arbitrary<string> =>
     fc.date({ noInvalidDate: true }).map((d) => d.toISOString());
+}
 
 /**
  * Apply one of the three wire string-format checkers as a decode-time

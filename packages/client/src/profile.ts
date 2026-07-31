@@ -119,10 +119,10 @@ export const parseProfileName = (
   );
 };
 
-const readProfileFileText = (
+function readProfileFileText(
   configPath: string,
-): Effect.Effect<string | null, ProfileConfigReadError> =>
-  FileSystem.FileSystem.pipe(
+): Effect.Effect<string | null, ProfileConfigReadError> {
+  return FileSystem.FileSystem.pipe(
     Effect.flatMap((fileSystem) =>
       fileSystem
         .exists(configPath)
@@ -144,12 +144,13 @@ const readProfileFileText = (
       }),
     ),
   );
+}
 
-const decodeProfileFileText = (
+function decodeProfileFileText(
   configPath: string,
   text: string,
-): Effect.Effect<ProfileFile, ProfileConfigReadError> =>
-  Schema.decodeUnknown(
+): Effect.Effect<ProfileFile, ProfileConfigReadError> {
+  return Schema.decodeUnknown(
     ProfileFileTextSchema,
     STRICT_PARSE_OPTIONS,
   )(text).pipe(
@@ -162,12 +163,13 @@ const decodeProfileFileText = (
       }),
     ),
   );
+}
 
-const readProfileFile = (): Effect.Effect<
+function readProfileFile(): Effect.Effect<
   { file: ProfileFile; existed: boolean },
   ProfileConfigReadError
-> =>
-  Effect.gen(function* () {
+> {
+  return Effect.gen(function* () {
     const configPath = getConfigFilePathSync();
     const text = yield* readProfileFileText(configPath);
     if (text === null) {
@@ -176,6 +178,7 @@ const readProfileFile = (): Effect.Effect<
     const file = yield* decodeProfileFileText(configPath, text);
     return { file, existed: true };
   });
+}
 
 function profilesFromFile(file: ProfileFile): Map<ProfileName, ProfileRecord> {
   return new Map(
@@ -233,11 +236,11 @@ function nextProfileFile(
   };
 }
 
-const encodeProfileFileText = (
+function encodeProfileFileText(
   configPath: string,
   file: ProfileFile,
-): Effect.Effect<string, ProfileConfigWriteError> =>
-  Schema.encode(
+): Effect.Effect<string, ProfileConfigWriteError> {
+  return Schema.encode(
     ProfileFileTextSchema,
     STRICT_PARSE_OPTIONS,
   )(file).pipe(
@@ -250,10 +253,11 @@ const encodeProfileFileText = (
       }),
     ),
   );
+}
 
-const writeProfileFile = (
+function writeProfileFile(
   next: ProfileFile,
-): Effect.Effect<void, ProfileConfigWriteError> => {
+): Effect.Effect<void, ProfileConfigWriteError> {
   const configDir = getConfigDir();
   const configPath = getConfigFilePathSync();
   return FileSystem.FileSystem.pipe(
@@ -280,7 +284,7 @@ const writeProfileFile = (
       }),
     ),
   );
-};
+}
 
 /**
  * Persist a new profile record under `profiles.&lt;name>`.

@@ -39,15 +39,16 @@ type StandaloneServerError =
   | StandaloneOperationFailed
   | SchemaFileNotFound;
 
-const operationFailed = (
+function operationFailed(
   operation: string,
   cause: unknown,
-): StandaloneOperationFailed =>
-  new StandaloneOperationFailed({
+): StandaloneOperationFailed {
+  return new StandaloneOperationFailed({
     cause,
     message: cause instanceof Error ? cause.message : String(cause),
     operation,
   });
+}
 
 // ── Database factory ────────────────────────────────────────────────
 

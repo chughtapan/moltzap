@@ -125,14 +125,15 @@ const ClientEventLogDir = Config.option(
   Config.string("MOLTZAP_CLIENT_EVENT_LOG_DIR"),
 );
 
-const getClientEventLogDir = (): string | undefined =>
-  Option.getOrUndefined(
+function getClientEventLogDir(): string | undefined {
+  return Option.getOrUndefined(
     Effect.runSync(
       ClientEventLogDir.pipe(
         Effect.withConfigProvider(ConfigProvider.fromEnv()),
       ),
     ),
   );
+}
 
 function appendClientEventTrace(
   record: Record<string, unknown>,
@@ -180,11 +181,12 @@ export type ServiceRpcError =
   | RpcTimeoutError
   | NotConnectedError;
 
-const agentNotFound = (agentName: string): AgentNotFoundError =>
-  new AgentNotFoundError({
+function agentNotFound(agentName: string): AgentNotFoundError {
+  return new AgentNotFoundError({
     message: `Agent not found: ${agentName}`,
     data: { agentName },
   });
+}
 
 export interface ConversationMeta {
   id: string;

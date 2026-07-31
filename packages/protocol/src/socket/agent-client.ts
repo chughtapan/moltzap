@@ -28,7 +28,7 @@ type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];
 type AgentClientDispatch = TypedDispatchMap<AgentCallableRpcs, RpcClientError>;
 
-const makeAgentCallbackHandlers = (): ReverseCallbackHandlers => {
+function makeAgentCallbackHandlers(): ReverseCallbackHandlers {
   const reject = (method: string) => () =>
     Effect.dieMessage(`agent client received unexpected callback ${method}`);
   return {
@@ -36,7 +36,7 @@ const makeAgentCallbackHandlers = (): ReverseCallbackHandlers => {
     [MessagesAuthorize.name]: reject(MessagesAuthorize.name),
     [TaskCreate.name]: reject(TaskCreate.name),
   };
-};
+}
 
 export interface AgentClientOptions {
   readonly serverUrl: string;

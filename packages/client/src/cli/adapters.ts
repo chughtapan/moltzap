@@ -20,24 +20,25 @@ class UnsupportedCliSchemaError extends Error {
   }
 }
 
-const unsupported = (field: string, astTag: string, reason: string): never => {
+function unsupported(field: string, astTag: string, reason: string): never {
   throw new UnsupportedCliSchemaError(field, astTag, reason);
-};
+}
 
-const kebabCase = (value: string): string =>
-  value
+function kebabCase(value: string): string {
+  return value
     .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
     .replace(/^-/, "");
+}
 
-const withoutUndefined = (ast: SchemaAST.AST): SchemaAST.AST => {
+function withoutUndefined(ast: SchemaAST.AST): SchemaAST.AST {
   if (!SchemaAST.isUnion(ast)) return ast;
   const members = ast.types.filter(
     (member) => !SchemaAST.isUndefinedKeyword(member),
   );
   return SchemaAST.Union.make(members, ast.annotations);
-};
+}
 
-const hasIntegerRefinement = (ast: SchemaAST.AST): boolean => {
+function hasIntegerRefinement(ast: SchemaAST.AST): boolean {
   if (SchemaAST.isRefinement(ast)) {
     return (
       Option.contains(
@@ -49,21 +50,22 @@ const hasIntegerRefinement = (ast: SchemaAST.AST): boolean => {
   if (SchemaAST.isUnion(ast)) return ast.types.some(hasIntegerRefinement);
   if (SchemaAST.isTransformation(ast)) return hasIntegerRefinement(ast.to);
   return false;
-};
+}
 
-const propertyName = (property: SchemaAST.PropertySignature): string =>
-  typeof property.name === "string"
+function propertyName(property: SchemaAST.PropertySignature): string {
+  return typeof property.name === "string"
     ? property.name
     : unsupported(
         String(property.name),
         property.type._tag,
         "symbol property keys are not supported",
       );
+}
 
-const closedProperties = (
+function closedProperties(
   ast: SchemaAST.AST,
   side: "encoded" | "type",
-): ReadonlyArray<SchemaAST.PropertySignature> => {
+): ReadonlyArray<SchemaAST.PropertySignature> {
   if (!SchemaAST.isTypeLiteral(ast) || ast.indexSignatures.length > 0) {
     return unsupported(
       "<root>",
@@ -72,14 +74,14 @@ const closedProperties = (
     );
   }
   return ast.propertySignatures;
-};
+}
 
-const scalarOption = (
+function scalarOption(
   field: string,
   name: string,
   encodedAst: SchemaAST.AST,
   validationAst: SchemaAST.AST,
-): Options.Options<unknown> => {
+): Options.Options<unknown> {
   if (SchemaAST.isStringKeyword(encodedAst)) return Options.text(name);
   if (SchemaAST.isNumberKeyword(encodedAst)) {
     return hasIntegerRefinement(validationAst)
@@ -91,14 +93,14 @@ const scalarOption = (
     encodedAst._tag,
     "only encoded string and number scalar fields are supported",
   );
-};
+}
 
-const fragmentForProperty = (
+function fragmentForProperty(
   property: SchemaAST.PropertySignature,
   validationProperty: SchemaAST.PropertySignature,
   presentation: SchemaOptionPresentation,
   claimedNames: Set<string>,
-): Options.Options<Readonly<Record<string, unknown>>> => {
+): Options.Options<Readonly<Record<string, unknown>>> {
   const field = propertyName(property);
   const name = presentation.name ?? kebabCase(field);
   if (claimedNames.has(name)) {
@@ -134,7 +136,7 @@ const fragmentForProperty = (
       }),
     ),
   );
-};
+}
 
 /**
  * Generates scalar named CLI options from a closed Effect Struct schema.

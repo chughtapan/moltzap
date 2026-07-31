@@ -46,10 +46,12 @@ interface MissingJsDoc {
   readonly folder: string;
 }
 
-const MissingJsDoc = (folder: string): MissingJsDoc => ({
-  _tag: "MissingJsDoc",
-  folder,
-});
+function MissingJsDoc(folder: string): MissingJsDoc {
+  return {
+    _tag: "MissingJsDoc",
+    folder,
+  };
+}
 
 /**
  * Render MODULE.md + Mintlify MDX for every folder whose `index.ts`
@@ -94,12 +96,12 @@ export const generateModuleDocs = (
  * `_nav.json` entry and confuses `docs:check:drift`; pruning closes
  * the loop.
  */
-const pruneOrphans = (
+function pruneOrphans(
   rendered: ReadonlyArray<ModuleRenderResult>,
   config: ModuleRenderConfig,
   path: Path.Path,
-): Effect.Effect<void, never, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const liveSlugs = new Set(rendered.map((r) => r.pageSlug));
     const liveFolders = new Set(rendered.map((r) => r.folder));
@@ -127,13 +129,14 @@ const pruneOrphans = (
       process.stdout.write(`  pruned orphan MODULE.md: ${folder}\n`);
     }
   });
+}
 
-const listFilesWithSuffix = (
+function listFilesWithSuffix(
   fs: FileSystem.FileSystem,
   root: string,
   suffix: string,
-): Effect.Effect<ReadonlyArray<string>, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<ReadonlyArray<string>, never, never> {
+  return Effect.gen(function* () {
     const out: string[] = [];
     const stack = [root];
     while (stack.length > 0) {
@@ -159,11 +162,12 @@ const listFilesWithSuffix = (
     }
     return out;
   });
+}
 
-const emitWarnings = (
+function emitWarnings(
   folders: ReadonlyArray<string>,
-): Effect.Effect<void, never, never> =>
-  Effect.sync(() => {
+): Effect.Effect<void, never, never> {
+  return Effect.sync(() => {
     process.stderr.write(
       `\nMODULE generation skipped ${folders.length} folder(s) without file-level JSDoc on index.ts:\n`,
     );
@@ -174,16 +178,17 @@ const emitWarnings = (
     }
     process.stderr.write("\n");
   });
+}
 
-const discoverFolders = (
+function discoverFolders(
   cache: TypeDocCache,
   config: ModuleRenderConfig,
 ): Effect.Effect<
   ReadonlyArray<string>,
   never,
   FileSystem.FileSystem | Path.Path
-> =>
-  Effect.gen(function* () {
+> {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const seen = new Set<string>();
@@ -206,6 +211,7 @@ const discoverFolders = (
     }
     return [...seen].sort();
   });
+}
 
 /**
  * `packages/&lt;pkg&gt;/src` is the package root. Sub-folders below `src/`
@@ -235,13 +241,13 @@ function isInternalModuleSource(source: string): boolean {
   return purpose !== null && /(^|\s)@internal(\s|$)/.test(purpose);
 }
 
-const renderFolder = (
+function renderFolder(
   folder: string,
   cache: TypeDocCache,
   config: ModuleRenderConfig,
   path: Path.Path,
-): Effect.Effect<ModuleRenderResult, MissingJsDoc, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
+): Effect.Effect<ModuleRenderResult, MissingJsDoc, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const indexPath = path.resolve(config.workspaceRoot, folder, "index.ts");
     const indexSource = yield* fs
@@ -284,14 +290,15 @@ const renderFolder = (
     );
     return { folder, h1, pageSlug };
   });
+}
 
-const enrichWithSignatures = (
+function enrichWithSignatures(
   exports: ReadonlyArray<TypeDocExport>,
   fs: FileSystem.FileSystem,
   path: Path.Path,
   config: ModuleRenderConfig,
-): Effect.Effect<ReadonlyArray<EnrichedExport>, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<ReadonlyArray<EnrichedExport>, never, never> {
+  return Effect.gen(function* () {
     const fileCache = new Map<string, string>();
     const enriched: EnrichedExport[] = [];
     for (const ex of exports) {
@@ -315,13 +322,14 @@ const enrichWithSignatures = (
     }
     return enriched;
   });
+}
 
-const writeAtomic = (
+function writeAtomic(
   fs: FileSystem.FileSystem,
   absolutePath: string,
   content: string,
-): Effect.Effect<void, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
     const dir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
     yield* fs
       .makeDirectory(dir, { recursive: true })
@@ -334,6 +342,7 @@ const writeAtomic = (
       .rename(tmp, absolutePath)
       .pipe(Effect.catchAll(() => Effect.void));
   });
+}
 
 interface RenderArgs {
   readonly h1: string;

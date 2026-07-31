@@ -119,13 +119,13 @@ export const lintBlock = (
     return interpretResult(block, result);
   });
 
-const prepareInput = (
+function prepareInput(
   fs: FileSystem.FileSystem,
   tempDir: string,
   inputPath: string,
   body: string,
-): Effect.Effect<void, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
     yield* fs
       .makeDirectory(tempDir, { recursive: true })
       .pipe(Effect.catchAll(() => Effect.void));
@@ -133,16 +133,17 @@ const prepareInput = (
       .writeFileString(inputPath, body)
       .pipe(Effect.catchAll(() => Effect.void));
   });
+}
 
-const runMmdc = (
+function runMmdc(
   inputPath: string,
   outputPath: string,
 ): Effect.Effect<
   Either.Either<number, unknown>,
   never,
   Command.CommandExecutor
-> =>
-  Command.make(
+> {
+  return Command.make(
     MMDC_BIN,
     "--input",
     inputPath,
@@ -150,16 +151,18 @@ const runMmdc = (
     outputPath,
     "--quiet",
   ).pipe(Command.exitCode, Effect.either);
+}
 
-const cleanup = (
+function cleanup(
   fs: FileSystem.FileSystem,
   inputPath: string,
   outputPath: string,
-): Effect.Effect<void, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
     yield* fs.remove(inputPath).pipe(Effect.catchAll(() => Effect.void));
     yield* fs.remove(outputPath).pipe(Effect.catchAll(() => Effect.void));
   });
+}
 
 function interpretResult(
   block: MermaidBlock,

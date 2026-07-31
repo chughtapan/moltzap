@@ -48,12 +48,13 @@ export const AppIdV4 = AppId.pipe(
 );
 export type AppIdV4 = Schema.Schema.Type<typeof AppIdV4>;
 
-const parseStringIssue = (
+function parseStringIssue(
   ast: SchemaAST.Transformation,
   actual: unknown,
   message: string,
-): Effect.Effect<never, ParseResult.ParseIssue, never> =>
-  Effect.fail(new ParseResult.Type(ast, actual, message));
+): Effect.Effect<never, ParseResult.ParseIssue, never> {
+  return Effect.fail(new ParseResult.Type(ast, actual, message));
+}
 
 const SendTargetParts = Schema.Struct({
   taskId: TaskId,
@@ -256,8 +257,9 @@ export type LocalDaemonError = Schema.Schema.Type<
 
 export const isLocalDaemonError = Schema.is(LocalDaemonErrorSchema);
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export const toLocalDaemonError = (error: unknown): LocalDaemonError =>
   isLocalDaemonError(error)

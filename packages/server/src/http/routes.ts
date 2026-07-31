@@ -31,19 +31,19 @@ const ERROR_INVALID_PARAMETERS = "Invalid parameters";
 
 type RegisterParams = ParamsOf<typeof Register>;
 
-const decodeHttpBody =
-  <A, I>(schema: Schema.Schema<A, I>) =>
-  (value: unknown): Effect.Effect<A, unknown> =>
+function decodeHttpBody<A, I>(schema: Schema.Schema<A, I>) {
+  return (value: unknown): Effect.Effect<A, unknown> =>
     Schema.decodeUnknown(schema)(value, { onExcessProperty: "error" });
+}
 
 const decodeRegisterBody = decodeHttpBody(Register.paramsSchema);
 
-const optionalSecretValue = <A>(
+function optionalSecretValue<A>(
   value: Redacted.Redacted<A> | undefined,
-): A | undefined => {
+): A | undefined {
   if (value === undefined) return undefined;
   return Redacted.value(value);
-};
+}
 
 class HttpEarlyResponse extends Data.TaggedError("HttpEarlyResponse")<{
   readonly response: HttpServerResponse.HttpServerResponse;

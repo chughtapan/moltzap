@@ -32,10 +32,12 @@ export class RegisterAgentError extends Data.TaggedError("RegisterAgentError")<{
   readonly cause?: unknown;
 }> {}
 
-const registerAgentError = (
+function registerAgentError(
   message: string,
   cause?: unknown,
-): RegisterAgentError => new RegisterAgentError({ message, cause });
+): RegisterAgentError {
+  return new RegisterAgentError({ message, cause });
+}
 
 /**
  * Register a new agent via HTTP. Thin wrapper around the agent-registration

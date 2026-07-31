@@ -147,13 +147,13 @@ function renderNotificationOverviewRow(
   return `| [\`${name}\`](/protocol/notifications/${slugify(name)}) | ${summary} |`;
 }
 
-const deleteStaleGeneratedPages = (
+function deleteStaleGeneratedPages(
   fs: FileSystem.FileSystem,
   path: Path.Path,
   dir: string,
   expectedFileNames: ReadonlySet<string>,
-): Effect.Effect<void, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
     const entries = yield* fs
       .readDirectory(dir)
       .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)));
@@ -165,14 +165,16 @@ const deleteStaleGeneratedPages = (
         .pipe(Effect.catchAll(() => Effect.void));
     }
   });
+}
 
-const writeGeneratedPage = (
+function writeGeneratedPage(
   fs: FileSystem.FileSystem,
   file: string,
   content: string,
-): Effect.Effect<void, never, never> =>
-  fs
+): Effect.Effect<void, never, never> {
+  return fs
     .writeFileString(file, `${content.trimEnd()}\n`)
     .pipe(Effect.catchAll(() => Effect.void));
+}
 
 NodeRuntime.runMain(program.pipe(Effect.provide(NodeContext.layer)));

@@ -110,28 +110,29 @@ const dropWrite: WireWrite = () => Effect.void;
  * socket write failure to a warning so one failed send does not fault the
  * engine. Shared by both channel protocols' `send`.
  */
-const sendFrame = (
+function sendFrame(
   encode: (frame: unknown) => Effect.Effect<string>,
   write: WireWrite,
   failureMessage: string,
   frame: unknown,
-): Effect.Effect<void> =>
-  encode(frame).pipe(
+): Effect.Effect<void> {
+  return encode(frame).pipe(
     Effect.flatMap(write),
     Effect.catchAll((err) =>
       Effect.logWarning(failureMessage).pipe(Effect.annotateLogs({ err })),
     ),
   );
+}
 
 /** Log + write the `-32700` parse-error frame through the resolved writer. */
-const replyMalformed =
-  (reply: WireWrite) =>
-  (logMessage: string): Effect.Effect<void> =>
+function replyMalformed(reply: WireWrite) {
+  return (logMessage: string): Effect.Effect<void> =>
     Effect.logWarning(logMessage).pipe(
       Effect.zipRight(
         reply(PARSE_ERROR_REPLY).pipe(Effect.catchAll(() => Effect.void)),
       ),
     );
+}
 
 /**
  * The decoded `method` of a chunk, or `None` when the chunk is not a JSON
@@ -144,13 +145,15 @@ const RoutingProbeSchema = Schema.Struct(
 );
 const decodeRoutingProbe = Schema.decodeUnknownOption(RoutingProbeSchema);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-const frameTag = (frame: unknown): unknown =>
-  isRecord(frame) ? frame["_tag"] : undefined;
+function frameTag(frame: unknown): unknown {
+  return isRecord(frame) ? frame["_tag"] : undefined;
+}
 
-const isFromClientEncoded = (frame: unknown): frame is FromClientEncoded => {
+function isFromClientEncoded(frame: unknown): frame is FromClientEncoded {
   switch (frameTag(frame)) {
     case "Request":
     case "Ack":
@@ -161,9 +164,9 @@ const isFromClientEncoded = (frame: unknown): frame is FromClientEncoded => {
     default:
       return false;
   }
-};
+}
 
-const isFromServerEncoded = (frame: unknown): frame is FromServerEncoded => {
+function isFromServerEncoded(frame: unknown): frame is FromServerEncoded {
   switch (frameTag(frame)) {
     case "Chunk":
     case "Exit":
@@ -174,7 +177,7 @@ const isFromServerEncoded = (frame: unknown): frame is FromServerEncoded => {
     default:
       return false;
   }
-};
+}
 
 /**
  * Route one raw socket chunk to the engine sink named by its frame family. A

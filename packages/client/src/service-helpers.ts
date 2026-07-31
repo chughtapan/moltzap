@@ -26,27 +26,29 @@ interface BuiltContextEntries {
   readonly pendingAdvances: ReadonlyArray<readonly [string, string]>;
 }
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-const recordOrEmpty = (value: unknown): Record<string, unknown> =>
-  isPlainRecord(value) ? value : {};
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return isPlainRecord(value) ? value : {};
+}
 
-const recordProperty = (
+function recordProperty(
   record: Record<string, unknown>,
   key: string,
-): Record<string, unknown> | undefined => {
+): Record<string, unknown> | undefined {
   const value = record[key];
   return isPlainRecord(value) ? value : undefined;
-};
+}
 
-const stringProperty = (
+function stringProperty(
   record: Record<string, unknown>,
   key: string,
-): string | undefined => {
+): string | undefined {
   const value = record[key];
   return typeof value === "string" ? value : undefined;
-};
+}
 
 export function newMessagesForConversation(
   convId: string,
@@ -133,11 +135,14 @@ export function buildContextEntries(
   return { entries, pendingAdvances };
 }
 
-const traceConversationId = (
+function traceConversationId(
   conversation: Record<string, unknown> | undefined,
   fallback: string | undefined,
-): unknown =>
-  conversation === undefined ? fallback : (conversation["id"] ?? fallback);
+): unknown {
+  return conversation === undefined
+    ? fallback
+    : (conversation["id"] ?? fallback);
+}
 
 export function notificationTraceRecord(
   notification: NotificationDelivery<AnyNotificationDefinition>,

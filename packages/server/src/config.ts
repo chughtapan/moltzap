@@ -138,8 +138,9 @@ export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
 
 const MAX_PORT_NUMBER = 65_535;
 
-const opt = <A>(c: Config.Config<A>) =>
-  c.pipe(Config.option, Config.map(Option.getOrUndefined));
+function opt<A>(c: Config.Config<A>) {
+  return c.pipe(Config.option, Config.map(Option.getOrUndefined));
+}
 
 // `URL.canParse` requires an absolute URI (a scheme present), so
 // `not-a-url` is rejected while `https://hooks.example.com/x` passes.

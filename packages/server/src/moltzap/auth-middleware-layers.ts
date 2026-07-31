@@ -48,11 +48,11 @@ import { obtainConversationSendAccess } from "#conversation/requirements";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
 /** Read the caller's agent id off the live arm when a requirement derives from it. */
-const callerAgentIdFor = (
+function callerAgentIdFor(
   manager: ConnectionManagerService,
   connId: ConnectionId,
-): Effect.Effect<AgentId> =>
-  peekLiveArm(manager, connId).pipe(
+): Effect.Effect<AgentId> {
+  return peekLiveArm(manager, connId).pipe(
     Effect.flatMap((connection) =>
       connection._tag === "AgentConnection"
         ? Effect.succeed(connection.auth.agentId)
@@ -61,6 +61,7 @@ const callerAgentIdFor = (
           ),
     ),
   );
+}
 
 type ConnectionManagerService = Parameters<typeof peekLiveArm>[0];
 
@@ -71,13 +72,13 @@ type ConnectionManagerService = Parameters<typeof peekLiveArm>[0];
  * `narrowAs` (with `requireActiveAgent` for the `ActiveAgent` arm). The layer
  * provides nothing — it gates only, failing `Forbidden` on the wrong arm.
  */
-const principalLayer = <Mw extends RpcMiddleware.TagClassAny>(
+function principalLayer<Mw extends RpcMiddleware.TagClassAny>(
   mw: Mw,
   connId: ConnectionId,
   narrowAs: PrincipalRequirement,
   requireActiveAgent: boolean,
-): Layer.Layer<Context.Tag.Identifier<Mw>, never, ConnectionManagerTag> =>
-  Layer.effect(
+): Layer.Layer<Context.Tag.Identifier<Mw>, never, ConnectionManagerTag> {
+  return Layer.effect(
     mw,
     Effect.gen(function* () {
       const manager = yield* ConnectionManagerTag;
@@ -91,18 +92,28 @@ const principalLayer = <Mw extends RpcMiddleware.TagClassAny>(
         );
     }),
   );
+}
 
-const makeAgentPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AgentPrincipal, connId, AgentPrincipal, false);
+function makeAgentPrincipalLayer(connId: ConnectionId) {
+  return principalLayer(AgentPrincipal, connId, AgentPrincipal, false);
+}
 
-const makeAppPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AppPrincipal, connId, AppPrincipal, false);
+function makeAppPrincipalLayer(connId: ConnectionId) {
+  return principalLayer(AppPrincipal, connId, AppPrincipal, false);
+}
 
-const makeAuthenticatedPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AuthenticatedPrincipal, connId, AuthenticatedPrincipal, false);
+function makeAuthenticatedPrincipalLayer(connId: ConnectionId) {
+  return principalLayer(
+    AuthenticatedPrincipal,
+    connId,
+    AuthenticatedPrincipal,
+    false,
+  );
+}
 
-const makeActiveAgentLayer = (connId: ConnectionId) =>
-  principalLayer(ActiveAgent, connId, AgentPrincipal, true);
+function makeActiveAgentLayer(connId: ConnectionId) {
+  return principalLayer(ActiveAgent, connId, AgentPrincipal, true);
+}
 
 // ── Domain requirements ──────────────────────────────────────────────────────
 
@@ -132,30 +143,36 @@ type TaskRequestParams = {
   };
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
-const isTaskAndConvParams = (payload: unknown): payload is TaskAndConvParams =>
-  isRecord(payload) &&
-  typeof payload["taskId"] === "string" &&
-  typeof payload["conversationId"] === "string";
+function isTaskAndConvParams(payload: unknown): payload is TaskAndConvParams {
+  return (
+    isRecord(payload) &&
+    typeof payload["taskId"] === "string" &&
+    typeof payload["conversationId"] === "string"
+  );
+}
 
-const isSendParams = (payload: unknown): payload is SendParams =>
-  isRecord(payload) &&
-  (payload["taskId"] === undefined || typeof payload["taskId"] === "string") &&
-  typeof payload["conversationId"] === "string";
+function isSendParams(payload: unknown): payload is SendParams {
+  return (
+    isRecord(payload) &&
+    (payload["taskId"] === undefined ||
+      typeof payload["taskId"] === "string") &&
+    typeof payload["conversationId"] === "string"
+  );
+}
 
-const isTaskAndAgentParams = (
-  payload: unknown,
-): payload is TaskAndAgentParams =>
-  isRecord(payload) && typeof payload["taskId"] === "string";
+function isTaskAndAgentParams(payload: unknown): payload is TaskAndAgentParams {
+  return isRecord(payload) && typeof payload["taskId"] === "string";
+}
 
-const isAgentIdArray = (value: unknown): value is readonly AgentId[] =>
-  Array.isArray(value) && value.every((id) => typeof id === "string");
+function isAgentIdArray(value: unknown): value is readonly AgentId[] {
+  return Array.isArray(value) && value.every((id) => typeof id === "string");
+}
 
-const isTaskRequestParams = (
-  payload: unknown,
-): payload is TaskRequestParams => {
+function isTaskRequestParams(payload: unknown): payload is TaskRequestParams {
   if (!isRecord(payload) || !isAgentIdArray(payload["invitedAgentIds"])) {
     return false;
   }
@@ -166,7 +183,7 @@ const isTaskRequestParams = (
     (initial["participants"] === undefined ||
       isAgentIdArray(initial["participants"]))
   );
-};
+}
 
 function requirePayload<A>(
   payload: unknown,
@@ -222,7 +239,7 @@ type MiddlewareFailure<Mw extends RpcMiddleware.TagClassAny> =
  * which the app-principal `app/conversation/*` methods declare, so its impl
  * must not peek the caller's agent id (the live arm is an `AppConnection`).
  */
-const requirementMiddlewareLayer = <
+function requirementMiddlewareLayer<
   Mw extends RpcMiddleware.TagClassAny,
   Value,
   In,
@@ -230,12 +247,8 @@ const requirementMiddlewareLayer = <
   mw: Mw,
   derive: (payload: unknown) => Effect.Effect<In>,
   obtain: (input: In) => Effect.Effect<Value, MiddlewareFailure<Mw>, MwEnv>,
-): Layer.Layer<
-  Context.Tag.Identifier<Mw>,
-  never,
-  RequirementMiddlewareLayerR
-> =>
-  Layer.effect(
+): Layer.Layer<Context.Tag.Identifier<Mw>, never, RequirementMiddlewareLayerR> {
+  return Layer.effect(
     mw,
     Effect.map(
       mwEnv,
@@ -248,6 +261,7 @@ const requirementMiddlewareLayer = <
           ),
     ),
   );
+}
 
 /**
  * Build a requirement impl Layer whose `derive` ALSO reads the caller's agent
@@ -256,7 +270,7 @@ const requirementMiddlewareLayer = <
  * peek dies on a non-agent arm, which is sound only because these requirements gate
  * agent-callable methods.
  */
-const requirementMiddlewareLayerWithCaller = <
+function requirementMiddlewareLayerWithCaller<
   Mw extends RpcMiddleware.TagClassAny,
   Value,
   In,
@@ -265,12 +279,8 @@ const requirementMiddlewareLayerWithCaller = <
   connId: ConnectionId,
   derive: (payload: unknown, callerAgentId: AgentId) => Effect.Effect<In>,
   obtain: (input: In) => Effect.Effect<Value, MiddlewareFailure<Mw>, MwEnv>,
-): Layer.Layer<
-  Context.Tag.Identifier<Mw>,
-  never,
-  RequirementMiddlewareLayerR
-> =>
-  Layer.effect(
+): Layer.Layer<Context.Tag.Identifier<Mw>, never, RequirementMiddlewareLayerR> {
+  return Layer.effect(
     mw,
     Effect.map(
       mwEnv,
@@ -286,9 +296,10 @@ const requirementMiddlewareLayerWithCaller = <
           }).pipe(Effect.asVoid, Effect.provide(env)),
     ),
   );
+}
 
-const makeConversationInTaskLayer = () =>
-  requirementMiddlewareLayer(
+function makeConversationInTaskLayer() {
+  return requirementMiddlewareLayer(
     ConversationInTask,
     (payload) =>
       requirePayload(payload, isTaskAndConvParams, ConversationInTask.key).pipe(
@@ -299,9 +310,10 @@ const makeConversationInTaskLayer = () =>
       ),
     obtainConversationInTask,
   );
+}
 
-const makeConversationSendAccessLayer = (connId: ConnectionId) =>
-  requirementMiddlewareLayerWithCaller(
+function makeConversationSendAccessLayer(connId: ConnectionId) {
+  return requirementMiddlewareLayerWithCaller(
     ConversationSendAccess,
     connId,
     (payload, senderAgentId) =>
@@ -314,9 +326,10 @@ const makeConversationSendAccessLayer = (connId: ConnectionId) =>
       ),
     obtainConversationSendAccess,
   );
+}
 
-const makeTaskReadAccessLayer = (connId: ConnectionId) =>
-  requirementMiddlewareLayerWithCaller(
+function makeTaskReadAccessLayer(connId: ConnectionId) {
+  return requirementMiddlewareLayerWithCaller(
     TaskReadAccess,
     connId,
     (payload, callerAgentId) =>
@@ -328,9 +341,10 @@ const makeTaskReadAccessLayer = (connId: ConnectionId) =>
       ),
     obtainTaskReadAccess,
   );
+}
 
-const makeContactPolicyAllowsReachLayer = (connId: ConnectionId) =>
-  requirementMiddlewareLayerWithCaller(
+function makeContactPolicyAllowsReachLayer(connId: ConnectionId) {
+  return requirementMiddlewareLayerWithCaller(
     ContactPolicyAllowsReach,
     connId,
     (payload, creatorAgentId) =>
@@ -351,6 +365,7 @@ const makeContactPolicyAllowsReachLayer = (connId: ConnectionId) =>
       ),
     obtainContactPolicyAllowsReach,
   );
+}
 
 /**
  * Every per-socket requirement impl Layer, merged. The engine stacks each

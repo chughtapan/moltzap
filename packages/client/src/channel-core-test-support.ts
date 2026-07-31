@@ -71,81 +71,85 @@ const FALLBACK_RECEIVED_AT = "1970-01-01T00:00:00.000Z";
 const LEASE_MOCK_PREFIX = "lease-mock";
 const DISPATCH_MOCK_PREFIX = "dispatch-mock";
 
-const admissionRequest = (
+function admissionRequest(
   params: Parameters<NonNullable<ChannelService["requestDispatch"]>>[0],
-): AdmissionRequest => ({
-  message: {
-    id: params.messageId as Message["id"],
-    conversationId: params.conversationId as Message["conversationId"],
-    senderId: params.senderAgentId as Message["senderId"],
-    parts: (params.parts as Message["parts"] | undefined) ?? [],
-    createdAt: params.receivedAt ?? FALLBACK_RECEIVED_AT,
-  } as Message,
-  conversationId: params.conversationId,
-  senderAgentId: params.senderAgentId,
-  attempt: params.attempt ?? 0,
-  receivedAt: params.receivedAt ?? FALLBACK_RECEIVED_AT,
-  pending: (params.pending ?? []) as AdmissionRequest["pending"],
-});
+): AdmissionRequest {
+  return {
+    message: {
+      id: params.messageId as Message["id"],
+      conversationId: params.conversationId as Message["conversationId"],
+      senderId: params.senderAgentId as Message["senderId"],
+      parts: (params.parts as Message["parts"] | undefined) ?? [],
+      createdAt: params.receivedAt ?? FALLBACK_RECEIVED_AT,
+    } as Message,
+    conversationId: params.conversationId,
+    senderAgentId: params.senderAgentId,
+    attempt: params.attempt ?? 0,
+    receivedAt: params.receivedAt ?? FALLBACK_RECEIVED_AT,
+    pending: (params.pending ?? []) as AdmissionRequest["pending"],
+  };
+}
 
-const grantVerdict = (
+function grantVerdict(
   decision: Extract<DispatchAdmissionDecision, { readonly _tag: "grant" }>,
-): Extract<
-  DispatchReleaseFrame["verdict"],
-  { readonly decision: "grant" }
-> => ({
-  decision: "grant",
-  ...(decision.leaseId !== undefined ? { leaseId: decision.leaseId } : {}),
-  ...(decision.leaseTimeoutMs !== undefined
-    ? { leaseTimeoutMs: decision.leaseTimeoutMs }
-    : {}),
-  ...(decision.dispatchMessageId !== undefined
-    ? { dispatchMessageId: decision.dispatchMessageId }
-    : {}),
-});
+): Extract<DispatchReleaseFrame["verdict"], { readonly decision: "grant" }> {
+  return {
+    decision: "grant",
+    ...(decision.leaseId !== undefined ? { leaseId: decision.leaseId } : {}),
+    ...(decision.leaseTimeoutMs !== undefined
+      ? { leaseTimeoutMs: decision.leaseTimeoutMs }
+      : {}),
+    ...(decision.dispatchMessageId !== undefined
+      ? { dispatchMessageId: decision.dispatchMessageId }
+      : {}),
+  };
+}
 
-const holdOrDenyVerdict = (
+function holdOrDenyVerdict(
   decision: Exclude<DispatchAdmissionDecision, { readonly _tag: "grant" }>,
-): Exclude<
-  DispatchReleaseFrame["verdict"],
-  { readonly decision: "grant" }
-> => ({
-  decision: decision._tag,
-  ...(decision.reason !== undefined ? { reason: decision.reason } : {}),
-});
+): Exclude<DispatchReleaseFrame["verdict"], { readonly decision: "grant" }> {
+  return {
+    decision: decision._tag,
+    ...(decision.reason !== undefined ? { reason: decision.reason } : {}),
+  };
+}
 
-const releaseVerdict = (
+function releaseVerdict(
   decision: DispatchAdmissionDecision,
-): DispatchReleaseFrame["verdict"] => {
+): DispatchReleaseFrame["verdict"] {
   if (decision._tag === "grant") {
     return grantVerdict(decision);
   }
   return holdOrDenyVerdict(decision);
-};
+}
 
-const releaseFrame = (
+function releaseFrame(
   decision: DispatchAdmissionDecision,
   leaseId: LeaseId,
   dispatchId: string,
-): DispatchReleaseFrame => ({
-  dispatchId,
-  leaseId,
-  verdict: releaseVerdict(decision),
-  ...(decision._tag === "grant" && decision.leaseTimeoutMs !== undefined
-    ? { leaseTimeoutMs: decision.leaseTimeoutMs }
-    : {}),
-});
+): DispatchReleaseFrame {
+  return {
+    dispatchId,
+    leaseId,
+    verdict: releaseVerdict(decision),
+    ...(decision._tag === "grant" && decision.leaseTimeoutMs !== undefined
+      ? { leaseTimeoutMs: decision.leaseTimeoutMs }
+      : {}),
+  };
+}
 
-const leaseIdForDecision = (
+function leaseIdForDecision(
   decision: DispatchAdmissionDecision,
   counter: number,
-): LeaseId =>
-  decision._tag === "grant" && decision.leaseId !== undefined
+): LeaseId {
+  return decision._tag === "grant" && decision.leaseId !== undefined
     ? decision.leaseId
     : testLeaseId(LEASE_MOCK_PREFIX + "-" + counter.toString());
+}
 
-const dispatchIdForCounter = (counter: number): string =>
-  DISPATCH_MOCK_PREFIX + "-" + counter.toString();
+function dispatchIdForCounter(counter: number): string {
+  return DISPATCH_MOCK_PREFIX + "-" + counter.toString();
+}
 
 export function installAdmission(
   fake: FakeChannelService,

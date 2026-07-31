@@ -10,23 +10,29 @@ const HomeDir = Config.string("HOME").pipe(
   Config.orElse(() => Config.string("USERPROFILE")),
 );
 
-const getConfigHomeSync = (): string | undefined =>
-  Option.getOrUndefined(
+function getConfigHomeSync(): string | undefined {
+  return Option.getOrUndefined(
     Effect.runSync(
       ConfigHome.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
     ),
   );
+}
 
-const getHomeDirSync = (): string =>
-  Effect.runSync(
+function getHomeDirSync(): string {
+  return Effect.runSync(
     HomeDir.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
   );
+}
 
-const pathSync = <A>(f: (path: Path.Path) => A): A =>
-  Effect.runSync(Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)));
+function pathSync<A>(f: (path: Path.Path) => A): A {
+  return Effect.runSync(
+    Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
+  );
+}
 
-const getMoltZapHomeDir = (): string =>
-  pathSync((path) => path.join(getHomeDirSync(), MOLTZAP_DIR_NAME));
+function getMoltZapHomeDir(): string {
+  return pathSync((path) => path.join(getHomeDirSync(), MOLTZAP_DIR_NAME));
+}
 
 export const getMoltZapConfigDir = (): string =>
   getConfigHomeSync() ?? getMoltZapHomeDir();

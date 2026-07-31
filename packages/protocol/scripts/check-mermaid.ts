@@ -38,22 +38,23 @@ const program = Effect.gen(function* () {
   yield* report(failures);
 });
 
-const announce = (
+function announce(
   blocks: number,
   files: number,
-): Effect.Effect<void, never, never> =>
-  Effect.sync(() =>
+): Effect.Effect<void, never, never> {
+  return Effect.sync(() =>
     process.stdout.write(
       `Checking ${blocks} Mermaid block(s) across ${files} file(s)...\n`,
     ),
   );
+}
 
-const collectBlocks = (
+function collectBlocks(
   fs: FileSystem.FileSystem,
   path: Path.Path,
   files: ReadonlyArray<string>,
-): Effect.Effect<ReadonlyArray<MermaidBlock>, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<ReadonlyArray<MermaidBlock>, never, never> {
+  return Effect.gen(function* () {
     const out: MermaidBlock[] = [];
     for (const file of files) {
       const source = yield* fs
@@ -64,8 +65,9 @@ const collectBlocks = (
     }
     return out;
   });
+}
 
-const lintAll = (
+function lintAll(
   blocks: ReadonlyArray<MermaidBlock>,
 ): Effect.Effect<
   ReadonlyArray<MermaidFailure>,
@@ -73,8 +75,8 @@ const lintAll = (
   | FileSystem.FileSystem
   | Path.Path
   | import("@effect/platform").Command.CommandExecutor
-> =>
-  Effect.gen(function* () {
+> {
+  return Effect.gen(function* () {
     const results = yield* Effect.forEach(
       blocks,
       (block) => lintBlock(block, TEMP_DIR),
@@ -82,11 +84,12 @@ const lintAll = (
     );
     return results.filter((r): r is MermaidFailure => r !== null);
   });
+}
 
-const report = (
+function report(
   failures: ReadonlyArray<MermaidFailure>,
-): Effect.Effect<void, never, never> =>
-  Effect.sync(() => {
+): Effect.Effect<void, never, never> {
+  return Effect.sync(() => {
     if (failures.length === 0) {
       process.stdout.write("Mermaid lint: PASS\n");
       return;
@@ -99,19 +102,21 @@ const report = (
     process.stderr.write(`Mermaid lint: FAIL (${failures.length})\n`);
     process.exit(1);
   });
+}
 
-const collectMarkdownFiles = (
+function collectMarkdownFiles(
   fs: FileSystem.FileSystem,
   path: Path.Path,
   roots: ReadonlyArray<string>,
-): Effect.Effect<ReadonlyArray<string>, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<ReadonlyArray<string>, never, never> {
+  return Effect.gen(function* () {
     const ctx: WalkCtx = { fs, path, out: [] };
     for (const root of roots) {
       yield* walkInto(ctx, root);
     }
     return ctx.out.sort();
   });
+}
 
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git"]);
 
@@ -121,11 +126,11 @@ interface WalkCtx {
   readonly out: string[];
 }
 
-const walkInto = (
+function walkInto(
   ctx: WalkCtx,
   dir: string,
-): Effect.Effect<void, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
     const entries = yield* ctx.fs
       .readDirectory(dir)
       .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)));
@@ -133,13 +138,14 @@ const walkInto = (
       yield* visitEntry(ctx, dir, name);
     }
   });
+}
 
-const visitEntry = (
+function visitEntry(
   ctx: WalkCtx,
   dir: string,
   name: string,
-): Effect.Effect<void, never, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
     if (SKIP_DIRS.has(name)) return;
     const full = ctx.path.resolve(dir, name);
     const stat = yield* ctx.fs
@@ -152,5 +158,6 @@ const visitEntry = (
     }
     if (name.endsWith(".md") || name.endsWith(".mdx")) ctx.out.push(full);
   });
+}
 
 NodeRuntime.runMain(program.pipe(Effect.provide(NodeContext.layer)));
