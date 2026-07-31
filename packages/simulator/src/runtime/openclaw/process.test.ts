@@ -55,6 +55,11 @@ const FAIL_CLOSED_TOOLS = {
 } satisfies OpenClawToolsConfig;
 const MESSAGE_ONLY_TOOLS = {
   allow: ["message"],
+  sandbox: {
+    tools: {
+      allow: ["message"],
+    },
+  },
   elevated: { enabled: false },
   exec: { mode: "deny" },
 } satisfies OpenClawToolsConfig;
@@ -121,6 +126,9 @@ function allowsOnlyNativeMessageTool(): void {
   );
 
   expect(isToolAllowed(config.tools ?? {}, "message")).toBe(true);
+  expect(isToolAllowed(config.tools?.sandbox?.tools ?? {}, "message")).toBe(
+    true,
+  );
   for (const tool of ["exec", "read", "web_fetch", "moltzap_custom"]) {
     expect(isToolAllowed(config.tools ?? {}, tool)).toBe(false);
   }

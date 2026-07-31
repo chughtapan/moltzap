@@ -81,6 +81,11 @@ const NANOCLAW_OUTPUT = NanoclawGatewayOutput.make({
 });
 const EXPECTED_OPENCLAW_TOOLS = {
   allow: ["message"],
+  sandbox: {
+    tools: {
+      allow: ["message"],
+    },
+  },
   elevated: { enabled: false },
   exec: { mode: "deny" },
 };
