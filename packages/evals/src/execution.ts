@@ -398,6 +398,26 @@ function principalInstruction<
     .pipe(Effect.mapError((cause) => programFailure("principal", cause)));
 }
 
+function observePrincipal<
+  Gateway,
+  DriverFailure,
+  PeerRuntimes extends EvaluationCasePeerRuntimes,
+>(
+  instrumentation: EvaluationCaseInstrumentation<
+    Gateway,
+    DriverFailure,
+    PeerRuntimes
+  >,
+): Effect.Effect<never, EvaluationProgramFailed> {
+  return instrumentation.driver
+    .observe(
+      instrumentation.target,
+      instrumentation.definition.id,
+      instrumentation.emit,
+    )
+    .pipe(Effect.mapError((cause) => programFailure("principal", cause)));
+}
+
 function selectPrincipalOutput(
   output: Option.Option<EvaluationEvidenceId>,
 ): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
@@ -458,7 +478,10 @@ function runCaseProgram<
       instrumentation.definition.id,
       selectedEventId,
     );
-  }).pipe(Effect.raceFirst(runtimeStopped(instrumentation.target)));
+  }).pipe(
+    Effect.raceFirst(observePrincipal(instrumentation)),
+    Effect.raceFirst(runtimeStopped(instrumentation.target)),
+  );
   return program.pipe(
     Effect.timeoutFail({
       duration: instrumentation.policy.caseTimeout,
