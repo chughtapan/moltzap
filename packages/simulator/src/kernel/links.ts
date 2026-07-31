@@ -205,11 +205,9 @@ function disable(
   return (from, to) =>
     Effect.gen(function* () {
       if (from.id === to.id) {
-        return yield* Effect.fail(
-          networkFailure(
-            "disable-link",
-            "a directed link requires two different participants",
-          ),
+        return yield* networkFailure(
+          "disable-link",
+          "a directed link requires two different participants",
         );
       }
       const driver = yield* LinkDriver;

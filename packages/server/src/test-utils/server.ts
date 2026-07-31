@@ -235,7 +235,7 @@ function configureEncryption(
   opts: StartCoreTestServerOptions,
 ) {
   if (!opts.encryption) {
-    return Effect.succeed(undefined);
+    return Effect.void.pipe(Effect.as(undefined));
   }
   const masterSecret = randomBytes(ENCRYPTION_MASTER_SECRET_BYTES).toString(
     "base64",
@@ -353,18 +353,16 @@ function buildCoreTestServer(
  * @param opts Value supplied to the operation.
  * @returns The start core test server effect result.
  */
-export function startCoreTestServerEffect(
-  opts: StartCoreTestServerOptions = {},
-) {
-  return Effect.gen(function* () {
+export const startCoreTestServerEffect = Effect.fn("startCoreTestServer")(
+  function* (opts: StartCoreTestServerOptions = {}) {
     yield* ensureNoCoreTestServerRunning();
     const db = yield* initializeTestDatabase();
     const masterSecret = yield* configureEncryption(db, opts);
     coreApp = createCoreTestApp(db, opts, masterSecret);
     yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
     return buildCoreTestServer(coreApp, db);
-  }).pipe(Effect.withSpan("startCoreTestServer"));
-}
+  },
+);
 
 /**
  * Executes the start core test server full operation.

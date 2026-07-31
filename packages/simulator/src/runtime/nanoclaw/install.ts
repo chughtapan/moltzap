@@ -269,10 +269,8 @@ function prepareNanoclawWorkspaceDependencies() {
     const fileSystem = yield* FileSystem.FileSystem;
     const packagesDir = findWorkspacePackagesDir(import.meta.url);
     if (packagesDir === null) {
-      return yield* Effect.fail(
-        installError(
-          "Workspace install mode requires a MoltZap source checkout with packages/client and packages/protocol",
-        ),
+      return yield* installError(
+        "Workspace install mode requires a MoltZap source checkout with packages/client and packages/protocol",
       );
     }
     // The target consumes both tarballs before this acquisition scope closes.
@@ -337,10 +335,8 @@ function packWorkspacePackage(
       packageName,
     );
     if (manifest.version !== sourceManifest.version) {
-      return yield* Effect.fail(
-        installError(
-          `Packed ${packageName} version ${manifest.version} does not match workspace version ${sourceManifest.version}`,
-        ),
+      return yield* installError(
+        `Packed ${packageName} version ${manifest.version} does not match workspace version ${sourceManifest.version}`,
       );
     }
     const fileSystem = yield* FileSystem.FileSystem;
@@ -371,10 +367,8 @@ function requireBuiltWorkspacePackage(packageDir: string, packageName: string) {
       fileSystem.exists(distEntry),
     );
     if (!exists) {
-      return yield* Effect.fail(
-        installError(
-          `Build ${packageName} before using NanoClaw workspace install mode; expected ${distEntry}`,
-        ),
+      return yield* installError(
+        `Build ${packageName} before using NanoClaw workspace install mode; expected ${distEntry}`,
       );
     }
   });
@@ -589,12 +583,10 @@ function ensureBundledAssetExists(assetPath: string) {
       fileSystem.exists(assetPath),
     );
     if (!exists) {
-      return yield* Effect.fail(
-        installError(
-          "Expected bundled NanoClaw asset at " +
-            assetPath +
-            "; rebuild @moltzap/simulator",
-        ),
+      return yield* installError(
+        "Expected bundled NanoClaw asset at " +
+          assetPath +
+          "; rebuild @moltzap/simulator",
       );
     }
   });
@@ -698,33 +690,27 @@ function copyWorkspaceDependencyTarballs(
  * @internal
  * @returns The rewrite nanoclaw workspace manifest result.
  */
-export function rewriteNanoclawWorkspaceManifest(
-  stagingDir: string,
-  dependencies: NanoclawWorkspaceDependencies,
-) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const manifestPath = join(stagingDir, "package.json");
-    const manifestText = yield* fsEffect(
-      "read staged NanoClaw package.json",
-      fileSystem.readFileString(manifestPath, "utf8"),
-    );
-    const rewrittenText = yield* Effect.try({
-      try: () => rewriteWorkspaceManifestText(manifestText, dependencies),
-      catch: (cause) =>
-        cause instanceof NanoclawInstallError
-          ? cause
-          : installError(
-              "Unable to rewrite staged NanoClaw package.json",
-              cause,
-            ),
-    });
-    yield* fsEffect(
-      "write staged NanoClaw workspace package.json",
-      fileSystem.writeFileString(manifestPath, rewrittenText),
-    );
-  }).pipe(Effect.withSpan("rewriteNanoclawWorkspaceManifest"));
-}
+export const rewriteNanoclawWorkspaceManifest = Effect.fn(
+  "rewriteNanoclawWorkspaceManifest",
+)(function* (stagingDir: string, dependencies: NanoclawWorkspaceDependencies) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const manifestPath = join(stagingDir, "package.json");
+  const manifestText = yield* fsEffect(
+    "read staged NanoClaw package.json",
+    fileSystem.readFileString(manifestPath, "utf8"),
+  );
+  const rewrittenText = yield* Effect.try({
+    try: () => rewriteWorkspaceManifestText(manifestText, dependencies),
+    catch: (cause) =>
+      cause instanceof NanoclawInstallError
+        ? cause
+        : installError("Unable to rewrite staged NanoClaw package.json", cause),
+  });
+  yield* fsEffect(
+    "write staged NanoClaw workspace package.json",
+    fileSystem.writeFileString(manifestPath, rewrittenText),
+  );
+});
 
 function rewriteWorkspaceManifestText(
   manifestText: string,
@@ -755,23 +741,20 @@ function rewriteWorkspaceManifestText(
  * @internal
  * @returns The materialize nanoclaw workspace dependencies result.
  */
-export function materializeNanoclawWorkspaceDependencies(
-  stagingDir: string,
-  dependencies: NanoclawWorkspaceDependencies,
-) {
-  return Effect.gen(function* () {
-    yield* copyWorkspaceDependencyTarballs(stagingDir, dependencies);
-    yield* rewriteNanoclawWorkspaceManifest(stagingDir, dependencies);
-    yield* execEffect(
-      "HUSKY=0 npm install --package-lock-only --ignore-scripts",
-      {
-        cwd: stagingDir,
-        timeout: WORKSPACE_LOCK_TIMEOUT_MS,
-      },
-    );
-    yield* assertNanoclawWorkspaceLock(stagingDir, dependencies);
-  }).pipe(Effect.withSpan("materializeNanoclawWorkspaceDependencies"));
-}
+export const materializeNanoclawWorkspaceDependencies = Effect.fn(
+  "materializeNanoclawWorkspaceDependencies",
+)(function* (stagingDir: string, dependencies: NanoclawWorkspaceDependencies) {
+  yield* copyWorkspaceDependencyTarballs(stagingDir, dependencies);
+  yield* rewriteNanoclawWorkspaceManifest(stagingDir, dependencies);
+  yield* execEffect(
+    "HUSKY=0 npm install --package-lock-only --ignore-scripts",
+    {
+      cwd: stagingDir,
+      timeout: WORKSPACE_LOCK_TIMEOUT_MS,
+    },
+  );
+  yield* assertNanoclawWorkspaceLock(stagingDir, dependencies);
+});
 
 /**
  * Verify NanoClaw's lockfile contains only the expected workspace artifacts.

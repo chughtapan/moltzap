@@ -75,7 +75,6 @@ function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
   return Array.isArray(value);
 }
 
-// eslint-disable-next-line sonarjs/function-return-type -- A JSON snapshot intentionally preserves the input value's JSON variant.
 function snapshotJsonValue(value: JsonValue): JsonValue {
   if (isJsonArray(value)) {
     return Object.freeze(value.map(snapshotJsonValue));

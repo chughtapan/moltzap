@@ -91,7 +91,7 @@ export const loadServiceConfig = (
     );
     const profile = layered.profiles.get(name);
     if (profile === undefined) {
-      return yield* Effect.fail(new ProfileNotFoundError({ name }));
+      return yield* new ProfileNotFoundError({ name });
     }
     const serverUrl = yield* getServerUrl;
     return {

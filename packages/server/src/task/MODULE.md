@@ -36,45 +36,55 @@ export class TaskAuthorizationServiceTag extends Context.Tag(
 
 Implements task authorization service tag.
 
-### [`taskLeave`](./handlers.ts#L386)
+### [`taskLeave`](./handlers.ts#L381)
 
 _Variable_
 
 ```ts
-export const taskLeave: ServerHandler<typeof taskLeaveDefinition> = (params)
+export const taskLeave: ServerHandler<typeof taskLeaveDefinition> = Effect.fn(
+  "taskLeave",
+)(function* (params) {
+  return yield* taskLeaveBody(params, yield* agentArm);
+})
 ```
 
 Provides the task leave runtime value.
 
 **Returns:** The task leave result.
 
-### [`taskList`](./handlers.ts#L376)
+### [`taskList`](./handlers.ts#L370)
 
 _Variable_
 
 ```ts
-export const taskList: ServerHandler<typeof taskListDefinition> = (params)
+export const taskList: ServerHandler<typeof taskListDefinition> = Effect.fn(
+  "taskList",
+)(function* (params) {
+  return yield* taskListBody(params, yield* agentArm);
+})
 ```
 
 Provides the task list runtime value.
 
 **Returns:** The task list result.
 
-### [`taskRequest`](./handlers.ts#L216)
+### [`taskRequest`](./handlers.ts#L215)
 
 _Variable_
 
 ```ts
-export const taskRequest: ServerHandler<typeof taskRequestDefinition> = (
-  params,
-)
+export const taskRequest: ServerHandler<typeof taskRequestDefinition> =
+  Effect.fn("taskRequest")(function* (params) {
+    const ctx = yield* agentArm;
+    return yield* taskRequestBody(params, ctx);
+  })
 ```
 
 Provides the task request runtime value.
 
 **Returns:** The task leave body result.
 
-### [`TaskService`](./task.service.ts#L186)
+### [`TaskService`](./task.service.ts#L188)
 
 _Class_
 
@@ -157,17 +167,19 @@ export class TaskService {
    */
   setStatus(id: TaskId, status: "active" | "failed"): Effect.Effect<Task> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: TaskService) {
-        const row = yield* takeFirstOrFail(
-          this.db
-            .updateTable("tasks")
-            .set({ status })
-            .where("id", "=", id)
-            .where("status", "=", "waiting")
-            .returningAll(),
-        );
-        return rowToTask(row);
-      }),
+      Effect.gen(
+        function* (this: TaskService) {
+          const row = yield* takeFirstOrFail(
+            this.db
+              .updateTable("tasks")
+              .set({ status })
+              .where("id", "=", id)
+              .where("status", "=", "waiting")
+              .returningAll(),
+          );
+          return rowToTask(row);
+        }.bind(this),
+      ),
     );
   }
 
@@ -178,27 +190,25 @@ export class TaskService {
     { task: Task; participants: TaskParticipant[] },
     TaskNotFoundError | ForbiddenError
   > {
-    return Effect.gen(this, function* (this: TaskService) {
-      const task = yield* this.loadTaskWithReadAccess(id, caller);
-      const rows = yield* catchSqlErrorAsDefect(
-        this.db
-          .selectFrom("task_participants")
-          .selectAll()
-          .where("task_id", "=", id),
-      );
-      return {
-        task,
-        participants: rows.map(rowToParticipant),
-      };
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        const task = yield* this.loadTaskWithReadAccess(id, caller);
+        const rows = yield* catchSqlErrorAsDefect(
+          this.db
+            .selectFrom("task_participants")
+            .selectAll()
+            .where("task_id", "=", id),
+        );
+        return {
+          task,
+          participants: rows.map(rowToParticipant),
+        };
+      }.bind(this),
+    );
   }
 
-  list(
-    caller: AgentId,
-    input: TaskListInput,
-  ): Effect.Effect<TaskListPage, InvalidCursorError> {
+  list(caller: AgentId, input: TaskListInput): TaskListEffect {
     const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
-    return Effect.gen(this, function* (this: TaskService) {
 ```
 
 Implements task service.
@@ -234,14 +244,16 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 
 Implements task service tag.
 
-### [`taskUpdate`](./handlers.ts#L396)
+### [`taskUpdate`](./handlers.ts#L392)
 
 _Variable_
 
 ```ts
-export const taskUpdate: ServerHandler<typeof taskUpdateDefinition> = (
-  params,
-)
+export const taskUpdate: ServerHandler<typeof taskUpdateDefinition> = Effect.fn(
+  "taskUpdate",
+)(function* (params) {
+  return yield* taskUpdateBody(params, yield* appArm);
+})
 ```
 
 Provides the task update runtime value.

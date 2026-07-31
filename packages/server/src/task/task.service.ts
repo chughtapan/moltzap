@@ -101,6 +101,8 @@ interface TaskListPage {
   readonly nextCursor?: ListCursor;
 }
 
+type TaskListEffect = Effect.Effect<TaskListPage, InvalidCursorError>;
+
 interface TaskCloseLifecycle {
   readonly task: Task;
   readonly participantAgentIds: readonly AgentId[];
@@ -261,17 +263,19 @@ export class TaskService {
    */
   setStatus(id: TaskId, status: "active" | "failed"): Effect.Effect<Task> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: TaskService) {
-        const row = yield* takeFirstOrFail(
-          this.db
-            .updateTable("tasks")
-            .set({ status })
-            .where("id", "=", id)
-            .where("status", "=", "waiting")
-            .returningAll(),
-        );
-        return rowToTask(row);
-      }),
+      Effect.gen(
+        function* (this: TaskService) {
+          const row = yield* takeFirstOrFail(
+            this.db
+              .updateTable("tasks")
+              .set({ status })
+              .where("id", "=", id)
+              .where("status", "=", "waiting")
+              .returningAll(),
+          );
+          return rowToTask(row);
+        }.bind(this),
+      ),
     );
   }
 
@@ -282,34 +286,34 @@ export class TaskService {
     { task: Task; participants: TaskParticipant[] },
     TaskNotFoundError | ForbiddenError
   > {
-    return Effect.gen(this, function* (this: TaskService) {
-      const task = yield* this.loadTaskWithReadAccess(id, caller);
-      const rows = yield* catchSqlErrorAsDefect(
-        this.db
-          .selectFrom("task_participants")
-          .selectAll()
-          .where("task_id", "=", id),
-      );
-      return {
-        task,
-        participants: rows.map(rowToParticipant),
-      };
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        const task = yield* this.loadTaskWithReadAccess(id, caller);
+        const rows = yield* catchSqlErrorAsDefect(
+          this.db
+            .selectFrom("task_participants")
+            .selectAll()
+            .where("task_id", "=", id),
+        );
+        return {
+          task,
+          participants: rows.map(rowToParticipant),
+        };
+      }.bind(this),
+    );
   }
 
-  list(
-    caller: AgentId,
-    input: TaskListInput,
-  ): Effect.Effect<TaskListPage, InvalidCursorError> {
+  list(caller: AgentId, input: TaskListInput): TaskListEffect {
     const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
-    return Effect.gen(this, function* (this: TaskService) {
+    const db = this.db;
+    return Effect.gen(function* () {
       const pos =
         input.cursor === undefined
           ? undefined
           : yield* decodeListCursor(input.cursor);
       return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* (this: TaskService) {
-          let query = this.db
+        Effect.gen(function* () {
+          let query = db
             .selectFrom("tasks")
             .innerJoin(
               "task_participants",
@@ -363,29 +367,31 @@ export class TaskService {
   }
 
   private closeLifecycleTransaction(trx: TaskTransaction, id: TaskId) {
-    return Effect.gen(this, function* (this: TaskService) {
-      const closedAt = new Date();
-      const taskRow = yield* this.closeTaskRow(trx, id, closedAt);
-      const archivedRows = yield* this.archiveOpenConversations(
-        trx,
-        id,
-        closedAt,
-      );
-      const conversationIds = conversationIdsFromRows(archivedRows);
-      const participantsByConversation =
-        yield* this.readConversationParticipantMap(trx, conversationIds);
-      return {
-        task: rowToTask(taskRow),
-        participantAgentIds: yield* this.readAdmittedTaskParticipantIds(
+    return Effect.gen(
+      function* (this: TaskService) {
+        const closedAt = new Date();
+        const taskRow = yield* this.closeTaskRow(trx, id, closedAt);
+        const archivedRows = yield* this.archiveOpenConversations(
           trx,
           id,
-        ),
-        archivedConversations: archivedConversationsFromRows(
-          archivedRows,
-          participantsByConversation,
-        ),
-      };
-    });
+          closedAt,
+        );
+        const conversationIds = conversationIdsFromRows(archivedRows);
+        const participantsByConversation =
+          yield* this.readConversationParticipantMap(trx, conversationIds);
+        return {
+          task: rowToTask(taskRow),
+          participantAgentIds: yield* this.readAdmittedTaskParticipantIds(
+            trx,
+            id,
+          ),
+          archivedConversations: archivedConversationsFromRows(
+            archivedRows,
+            participantsByConversation,
+          ),
+        };
+      }.bind(this),
+    );
   }
 
   private closeTaskRow(trx: TaskTransaction, id: TaskId, closedAt: Date) {
@@ -446,74 +452,76 @@ export class TaskService {
   loadOpenTask(
     id: TaskId,
   ): Effect.Effect<Task, TaskNotFoundError | ForbiddenError> {
-    return Effect.gen(this, function* (this: TaskService) {
-      const task = yield* this.fetchTask(id);
-      switch (task.status) {
-        case "waiting":
-        case "active":
-          return task;
-        case "closed":
-        case "failed":
-          return yield* Effect.fail(
-            new ForbiddenError({ message: ERR_TASK_NOT_OPEN }),
-          );
-        default:
-          return absurdTaskStatus(task.status);
-      }
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        const task = yield* this.fetchTask(id);
+        switch (task.status) {
+          case "waiting":
+          case "active":
+            return task;
+          case "closed":
+          case "failed":
+            return yield* new ForbiddenError({ message: ERR_TASK_NOT_OPEN });
+          default:
+            return absurdTaskStatus(task.status);
+        }
+      }.bind(this),
+    );
   }
 
   loadTaskWithReadAccess(
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<Task, TaskNotFoundError | ForbiddenError> {
-    return Effect.gen(this, function* (this: TaskService) {
-      const task = yield* this.fetchTask(id);
-      if (task.initiatorAgentId === caller) {
-        return task;
-      }
-      // Pending invites (admitted_at IS NULL) are NOT read access.
-      const participant = yield* catchSqlErrorAsDefect(
-        takeFirstOption(
-          this.db
-            .selectFrom("task_participants")
-            .select("agent_id")
-            .where("task_id", "=", id)
-            .where("agent_id", "=", caller)
-            .where("admitted_at", "is not", null),
-        ),
-      );
-      if (Option.isNone(participant)) {
-        return yield* Effect.fail(
-          new ForbiddenError({ message: ERR_NOT_PARTICIPANT }),
+    return Effect.gen(
+      function* (this: TaskService) {
+        const task = yield* this.fetchTask(id);
+        if (task.initiatorAgentId === caller) {
+          return task;
+        }
+        // Pending invites (admitted_at IS NULL) are NOT read access.
+        const participant = yield* catchSqlErrorAsDefect(
+          takeFirstOption(
+            this.db
+              .selectFrom("task_participants")
+              .select("agent_id")
+              .where("task_id", "=", id)
+              .where("agent_id", "=", caller)
+              .where("admitted_at", "is not", null),
+          ),
         );
-      }
-      return task;
-    });
+        if (Option.isNone(participant)) {
+          return yield* new ForbiddenError({ message: ERR_NOT_PARTICIPANT });
+        }
+        return task;
+      }.bind(this),
+    );
   }
 
   addParticipant(id: TaskId, target: AgentId): Effect.Effect<TaskParticipant> {
     // App-ownership asserted by the handler before this call.
-    return Effect.gen(this, function* (this: TaskService) {
-      const row = yield* catchSqlErrorAsDefect(
-        takeFirstOrFail(
-          this.db
-            .insertInto("task_participants")
-            .values({
-              task_id: id,
-              agent_id: target,
-              admitted_at: new Date(),
-            })
-            .onConflict((oc) =>
-              oc
-                .columns(["task_id", "agent_id"])
-                .doUpdateSet({ admitted_at: new Date() }),
-            )
-            .returningAll(),
-        ),
-      );
-      return rowToParticipant(row);
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        const row = yield* catchSqlErrorAsDefect(
+          takeFirstOrFail(
+            this.db
+              .insertInto("task_participants")
+              .values({
+                task_id: id,
+                agent_id: target,
+                admitted_at: new Date(),
+              })
+              .onConflict((oc) =>
+                oc
+                  .columns(["task_id", "agent_id"])
+                  .doUpdateSet({ admitted_at: new Date() }),
+              )
+              .returningAll(),
+          ),
+        );
+        return rowToParticipant(row);
+      }.bind(this),
+    );
   }
 
   removeParticipant(id: TaskId, target: AgentId): Effect.Effect<void> {
@@ -535,17 +543,17 @@ export class TaskService {
    */
   fetchTask(id: TaskId): Effect.Effect<Task, TaskNotFoundError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: TaskService) {
-        const opt = yield* takeFirstOption(
-          this.db.selectFrom("tasks").selectAll().where("id", "=", id),
-        );
-        if (Option.isNone(opt)) {
-          return yield* Effect.fail(
-            new TaskNotFoundError({ message: ERR_NOT_FOUND }),
+      Effect.gen(
+        function* (this: TaskService) {
+          const opt = yield* takeFirstOption(
+            this.db.selectFrom("tasks").selectAll().where("id", "=", id),
           );
-        }
-        return rowToTask(opt.value);
-      }),
+          if (Option.isNone(opt)) {
+            return yield* new TaskNotFoundError({ message: ERR_NOT_FOUND });
+          }
+          return rowToTask(opt.value);
+        }.bind(this),
+      ),
     );
   }
 
@@ -560,26 +568,26 @@ export class TaskService {
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<void, ConversationNotFoundError | ForbiddenError> {
-    return Effect.gen(this, function* (this: TaskService) {
-      const linkedOpt = yield* catchSqlErrorAsDefect(
-        takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("task_id")
-            .where("id", "=", conversationId),
-        ),
-      );
-      if (Option.isNone(linkedOpt)) {
-        return yield* Effect.fail(
-          new ConversationNotFoundError({ message: "Conversation not found" }),
+    return Effect.gen(
+      function* (this: TaskService) {
+        const linkedOpt = yield* catchSqlErrorAsDefect(
+          takeFirstOption(
+            this.db
+              .selectFrom("conversations")
+              .select("task_id")
+              .where("id", "=", conversationId),
+          ),
         );
-      }
-      if (linkedOpt.value.task_id !== id) {
-        return yield* Effect.fail(
-          new ForbiddenError({ message: ERR_CONV_NOT_IN_TASK }),
-        );
-      }
-    });
+        if (Option.isNone(linkedOpt)) {
+          return yield* new ConversationNotFoundError({
+            message: "Conversation not found",
+          });
+        }
+        if (linkedOpt.value.task_id !== id) {
+          return yield* new ForbiddenError({ message: ERR_CONV_NOT_IN_TASK });
+        }
+      }.bind(this),
+    );
   }
 
   /**
@@ -596,21 +604,21 @@ export class TaskService {
     agentId: AgentId,
   ): Effect.Effect<void, ForbiddenError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: TaskService) {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("task_participants")
-            .select("agent_id")
-            .where("task_id", "=", id)
-            .where("agent_id", "=", agentId)
-            .where("admitted_at", "is not", null),
-        );
-        if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(
-            new ForbiddenError({ message: ERR_NOT_PARTICIPANT }),
+      Effect.gen(
+        function* (this: TaskService) {
+          const rowOpt = yield* takeFirstOption(
+            this.db
+              .selectFrom("task_participants")
+              .select("agent_id")
+              .where("task_id", "=", id)
+              .where("agent_id", "=", agentId)
+              .where("admitted_at", "is not", null),
           );
-        }
-      }),
+          if (Option.isNone(rowOpt)) {
+            return yield* new ForbiddenError({ message: ERR_NOT_PARTICIPANT });
+          }
+        }.bind(this),
+      ),
     );
   }
 
@@ -640,25 +648,23 @@ export class TaskService {
       return Effect.void;
     }
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: TaskService) {
-        const rows = yield* this.db
-          .selectFrom("task_participants")
-          .select("agent_id")
-          .where("task_id", "=", id)
-          .where("agent_id", "in", [...agentIds]);
-        const present = new Set<AgentId>(rows.map((row) => row.agent_id));
-        for (const agentId of agentIds) {
-          if (!present.has(agentId)) {
-            return yield* Effect.fail(
-              new ParticipantNotAdmittedError({
+      Effect.gen(
+        function* (this: TaskService) {
+          const rows = yield* this.db
+            .selectFrom("task_participants")
+            .select("agent_id")
+            .where("task_id", "=", id)
+            .where("agent_id", "in", [...agentIds]);
+          const present = new Set<AgentId>(rows.map((row) => row.agent_id));
+          for (const agentId of agentIds) {
+            if (!present.has(agentId)) {
+              return yield* new ParticipantNotAdmittedError({
                 message: `Agent ${agentId} is not admitted to task ${id}`,
-              }),
-            );
+              });
+            }
           }
-        }
-      }).pipe(
-        Effect.withSpan("taskService.requireAgentsAreInTaskParticipants"),
-      ),
+        }.bind(this),
+      ).pipe(Effect.withSpan("taskService.requireAgentsAreInTaskParticipants")),
     );
   }
 
@@ -686,16 +692,18 @@ export class TaskService {
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<TaskLeaveResult, TaskNotFoundError> {
-    return Effect.gen(this, function* (this: TaskService) {
-      // Existence probe outside the transaction so `not_found` surfaces
-      // before any write attempt.
-      yield* this.fetchTask(id);
-      return yield* catchSqlErrorAsDefect(
-        transaction(this.db, (trx) =>
-          this.leaveTaskTransaction(trx, id, caller),
-        ),
-      );
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        // Existence probe outside the transaction so `not_found` surfaces
+        // before any write attempt.
+        yield* this.fetchTask(id);
+        return yield* catchSqlErrorAsDefect(
+          transaction(this.db, (trx) =>
+            this.leaveTaskTransaction(trx, id, caller),
+          ),
+        );
+      }.bind(this),
+    );
   }
 
   private leaveTaskTransaction(
@@ -703,39 +711,41 @@ export class TaskService {
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<TaskLeaveResult, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(this, function* (this: TaskService) {
-      // Row-level lock on the task BEFORE any participant read.
-      // Without `FOR UPDATE`, two concurrent `leaveTask` callers can
-      // each see the other under read-committed isolation, each skip
-      // `maybeCloseEmptyTask`, and leave the task in a "0 participants
-      // but not closed" state. The lock serializes leaves per task; the
-      // second call sees the post-DELETE state and either no-ops or fires the
-      // closure path correctly.
-      yield* trx
-        .selectFrom("tasks")
-        .select("id")
-        .where("id", "=", id)
-        .forUpdate();
-      const taskParticipantRows = yield* trx
-        .selectFrom("task_participants")
-        .select("agent_id")
-        .where("task_id", "=", id)
-        .where("agent_id", "=", caller);
-      if (taskParticipantRows.length === 0) {
-        return { leftConversationIds: [], closedTask: null };
-      }
-      const leftConversationIds = yield* this.deleteCallerFromConversations(
-        trx,
-        id,
-        caller,
-      );
-      yield* trx
-        .deleteFrom("task_participants")
-        .where("task_id", "=", id)
-        .where("agent_id", "=", caller);
-      const closedTask = yield* this.maybeCloseEmptyTask(trx, id);
-      return { leftConversationIds, closedTask };
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        // Row-level lock on the task BEFORE any participant read.
+        // Without `FOR UPDATE`, two concurrent `leaveTask` callers can
+        // each see the other under read-committed isolation, each skip
+        // `maybeCloseEmptyTask`, and leave the task in a "0 participants
+        // but not closed" state. The lock serializes leaves per task; the
+        // second call sees the post-DELETE state and either no-ops or fires the
+        // closure path correctly.
+        yield* trx
+          .selectFrom("tasks")
+          .select("id")
+          .where("id", "=", id)
+          .forUpdate();
+        const taskParticipantRows = yield* trx
+          .selectFrom("task_participants")
+          .select("agent_id")
+          .where("task_id", "=", id)
+          .where("agent_id", "=", caller);
+        if (taskParticipantRows.length === 0) {
+          return { leftConversationIds: [], closedTask: null };
+        }
+        const leftConversationIds = yield* this.deleteCallerFromConversations(
+          trx,
+          id,
+          caller,
+        );
+        yield* trx
+          .deleteFrom("task_participants")
+          .where("task_id", "=", id)
+          .where("agent_id", "=", caller);
+        const closedTask = yield* this.maybeCloseEmptyTask(trx, id);
+        return { leftConversationIds, closedTask };
+      }.bind(this),
+    );
   }
 
   private deleteCallerFromConversations(
@@ -765,24 +775,26 @@ export class TaskService {
     trx: TaskTransaction,
     id: TaskId,
   ): Effect.Effect<Task | null, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(this, function* (this: TaskService) {
-      const remaining = yield* trx
-        .selectFrom("task_participants")
-        .select("agent_id")
-        .where("task_id", "=", id)
-        .limit(1);
-      if (remaining.length > 0) {
-        return null;
-      }
-      const closedRow = yield* takeFirstOrFail(
-        trx
-          .updateTable("tasks")
-          .set({ status: "closed", ended_at: new Date() })
-          .where("id", "=", id)
-          .returningAll(),
-      );
-      return rowToTask(closedRow);
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        const remaining = yield* trx
+          .selectFrom("task_participants")
+          .select("agent_id")
+          .where("task_id", "=", id)
+          .limit(1);
+        if (remaining.length > 0) {
+          return null;
+        }
+        const closedRow = yield* takeFirstOrFail(
+          trx
+            .updateTable("tasks")
+            .set({ status: "closed", ended_at: new Date() })
+            .where("id", "=", id)
+            .returningAll(),
+        );
+        return rowToTask(closedRow);
+      }.bind(this),
+    );
   }
 
   /**
@@ -805,42 +817,44 @@ export class TaskService {
     { conversation: Conversation; archivedAt: string },
     ConversationNotFoundError | ForbiddenError
   > {
-    return Effect.gen(this, function* (this: TaskService) {
-      return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* (this: TaskService) {
-          const archivedAt = new Date();
-          // Idempotent: if already archived, re-read to surface the
-          // existing `archivedAt` rather than overwriting.
-          const updatedOpt = yield* takeFirstOption(
-            this.db
-              .updateTable("conversations")
-              .set({ archived_at: archivedAt })
-              .where("id", "=", conversationId)
-              .where("task_id", "=", id)
-              .where("archived_at", "is", null)
-              .returningAll(),
-          );
-          if (Option.isSome(updatedOpt)) {
-            const conversation =
-              yield* this.conversations.loadById(conversationId);
-            return {
-              conversation,
-              archivedAt: archivedAt.toISOString(),
-            };
-          }
-          const conversation =
-            yield* this.conversations.loadById(conversationId);
-          if (!conversation.archivedAt) {
-            return yield* Effect.fail(
-              new ConversationNotFoundError({
-                message: "Conversation not found in task",
-              }),
-            );
-          }
-          return { conversation, archivedAt: conversation.archivedAt };
-        }),
-      );
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        return yield* catchSqlErrorAsDefect(
+          Effect.gen(
+            function* (this: TaskService) {
+              const archivedAt = new Date();
+              // Idempotent: if already archived, re-read to surface the
+              // existing `archivedAt` rather than overwriting.
+              const updatedOpt = yield* takeFirstOption(
+                this.db
+                  .updateTable("conversations")
+                  .set({ archived_at: archivedAt })
+                  .where("id", "=", conversationId)
+                  .where("task_id", "=", id)
+                  .where("archived_at", "is", null)
+                  .returningAll(),
+              );
+              if (Option.isSome(updatedOpt)) {
+                const conversation =
+                  yield* this.conversations.loadById(conversationId);
+                return {
+                  conversation,
+                  archivedAt: archivedAt.toISOString(),
+                };
+              }
+              const conversation =
+                yield* this.conversations.loadById(conversationId);
+              if (!conversation.archivedAt) {
+                return yield* new ConversationNotFoundError({
+                  message: "Conversation not found in task",
+                });
+              }
+              return { conversation, archivedAt: conversation.archivedAt };
+            }.bind(this),
+          ),
+        );
+      }.bind(this),
+    );
   }
 
   /**
@@ -859,20 +873,24 @@ export class TaskService {
     { conversation: Conversation },
     ConversationNotFoundError | ForbiddenError
   > {
-    return Effect.gen(this, function* (this: TaskService) {
-      return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* (this: TaskService) {
-          yield* this.db
-            .updateTable("conversations")
-            .set({ archived_at: null })
-            .where("id", "=", conversationId)
-            .where("task_id", "=", id);
-          const conversation =
-            yield* this.conversations.loadById(conversationId);
-          return { conversation };
-        }),
-      );
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        return yield* catchSqlErrorAsDefect(
+          Effect.gen(
+            function* (this: TaskService) {
+              yield* this.db
+                .updateTable("conversations")
+                .set({ archived_at: null })
+                .where("id", "=", conversationId)
+                .where("task_id", "=", id);
+              const conversation =
+                yield* this.conversations.loadById(conversationId);
+              return { conversation };
+            }.bind(this),
+          ),
+        );
+      }.bind(this),
+    );
   }
 
   /**
@@ -898,23 +916,27 @@ export class TaskService {
     { postMutationParticipants: readonly AgentId[] },
     ForbiddenError
   > {
-    return Effect.gen(this, function* (this: TaskService) {
-      return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* (this: TaskService) {
-          yield* this.db
-            .insertInto("conversation_participants")
-            .values({ conversation_id: conversationId, agent_id: agentId })
-            .onConflict((oc) => oc.doNothing());
-          const rows = yield* this.db
-            .selectFrom("conversation_participants")
-            .select("agent_id")
-            .where("conversation_id", "=", conversationId);
-          return {
-            postMutationParticipants: rows.map((row) => row.agent_id),
-          };
-        }),
-      );
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        return yield* catchSqlErrorAsDefect(
+          Effect.gen(
+            function* (this: TaskService) {
+              yield* this.db
+                .insertInto("conversation_participants")
+                .values({ conversation_id: conversationId, agent_id: agentId })
+                .onConflict((oc) => oc.doNothing());
+              const rows = yield* this.db
+                .selectFrom("conversation_participants")
+                .select("agent_id")
+                .where("conversation_id", "=", conversationId);
+              return {
+                postMutationParticipants: rows.map((row) => row.agent_id),
+              };
+            }.bind(this),
+          ),
+        );
+      }.bind(this),
+    );
   }
 
   /**
@@ -941,28 +963,32 @@ export class TaskService {
     },
     ForbiddenError
   > {
-    return Effect.gen(this, function* (this: TaskService) {
-      return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* (this: TaskService) {
-          const preRows = yield* this.db
-            .selectFrom("conversation_participants")
-            .select("agent_id")
-            .where("conversation_id", "=", conversationId);
-          const preMutationParticipants =
-            /* Safe because the surrounding invariant establishes this asserted shape. */ preRows.map(
-              (row) => row.agent_id,
-            ) as readonly AgentId[];
-          const wasParticipant = preMutationParticipants.includes(agentId);
-          if (!wasParticipant) {
-            return { preMutationParticipants, wasParticipant };
-          }
-          yield* this.db
-            .deleteFrom("conversation_participants")
-            .where("conversation_id", "=", conversationId)
-            .where("agent_id", "=", agentId);
-          return { preMutationParticipants, wasParticipant };
-        }),
-      );
-    });
+    return Effect.gen(
+      function* (this: TaskService) {
+        return yield* catchSqlErrorAsDefect(
+          Effect.gen(
+            function* (this: TaskService) {
+              const preRows = yield* this.db
+                .selectFrom("conversation_participants")
+                .select("agent_id")
+                .where("conversation_id", "=", conversationId);
+              const preMutationParticipants =
+                /* Safe because the surrounding invariant establishes this asserted shape. */ preRows.map(
+                  (row) => row.agent_id,
+                ) as readonly AgentId[];
+              const wasParticipant = preMutationParticipants.includes(agentId);
+              if (!wasParticipant) {
+                return { preMutationParticipants, wasParticipant };
+              }
+              yield* this.db
+                .deleteFrom("conversation_participants")
+                .where("conversation_id", "=", conversationId)
+                .where("agent_id", "=", agentId);
+              return { preMutationParticipants, wasParticipant };
+            }.bind(this),
+          ),
+        );
+      }.bind(this),
+    );
   }
 }

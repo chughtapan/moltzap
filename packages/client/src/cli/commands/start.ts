@@ -72,23 +72,23 @@ const runStartCommand = (
   effect: Effect.Effect<void, StartCommandError, Transport>,
 ): Effect.Effect<void, never, Transport> =>
   effect.pipe(
-    Effect.catchTag("StartTaskUsageError", (err: StartTaskUsageError) =>
-      Effect.logError(err.message).pipe(
-        Effect.zipRight(
-          Effect.sync(() => process.exit(EXIT_CODES.USAGE_ERROR)),
-        ),
-      ),
-    ),
-    Effect.catchTag("StartTaskPartialFailure", (err: StartTaskPartialFailure) =>
-      Effect.zipRight(
-        Effect.log(startMessage(err)),
-        Effect.logError(`Error sending message: ${err.message}`).pipe(
+    Effect.catchTags({
+      StartTaskUsageError: (err: StartTaskUsageError) =>
+        Effect.logError(err.message).pipe(
           Effect.zipRight(
-            Effect.sync(() => process.exit(EXIT_CODES.PARTIAL_SUCCESS)),
+            Effect.sync(() => process.exit(EXIT_CODES.USAGE_ERROR)),
           ),
         ),
-      ),
-    ),
+      StartTaskPartialFailure: (err: StartTaskPartialFailure) =>
+        Effect.zipRight(
+          Effect.log(startMessage(err)),
+          Effect.logError(`Error sending message: ${err.message}`).pipe(
+            Effect.zipRight(
+              Effect.sync(() => process.exit(EXIT_CODES.PARTIAL_SUCCESS)),
+            ),
+          ),
+        ),
+    }),
     Effect.catchAll((err) => {
       const msg =
         err.message !== undefined && err.message !== ""

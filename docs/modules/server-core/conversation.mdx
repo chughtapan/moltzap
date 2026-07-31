@@ -13,28 +13,32 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`conversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L334)
+### [`conversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L317)
 
 _Variable_
 
 ```ts
 export const conversationCreate: ServerHandler<
   typeof conversationCreateDefinition
-> = (params)
+> = Effect.fn("conversationCreate")(function* (params) {
+  return yield* conversationCreateBody((yield* appArm).appId, params);
+})
 ```
 
 Provides the conversation create runtime value.
 
 **Returns:** The conversation create result.
 
-### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L322)
+### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L306)
 
 _Variable_
 
 ```ts
 export const conversationList: ServerHandler<
   typeof conversationListDefinition
-> = (params)
+> = Effect.fn("conversationList")(function* (params) {
+  return yield* conversationListBody(params, yield* agentArm);
+})
 ```
 
 Provides the conversation list runtime value.
@@ -91,13 +95,15 @@ export class ConversationService {
   private createConversationEffect<TaskMintError>(
     input: CreateConversationOptions<TaskMintError>,
   ): Effect.Effect<Conversation, TaskMintError | SqlError> {
-    return Effect.gen(this, function* (this: ConversationService) {
-      const task = yield* input.mintTask;
-      const created = yield* this.insertConversation(input, task.id);
-      yield* this.subscribeCreatedConversation(input, created.id);
-      yield* this.logConversationCreated(input, created.id);
-      return created;
-    });
+    return Effect.gen(
+      function* (this: ConversationService) {
+        const task = yield* input.mintTask;
+        const created = yield* this.insertConversation(input, task.id);
+        yield* this.subscribeCreatedConversation(input, created.id);
+        yield* this.logConversationCreated(input, created.id);
+        return created;
+      }.bind(this),
+    );
   }
 
   /**
@@ -112,27 +118,29 @@ export class ConversationService {
     ReadonlyMap<AgentId, UserId>,
     AgentNotFoundError | SqlError
   > {
-    return Effect.gen(this, function* (this: ConversationService) {
-      const rows =
-        agentIds.length === 0
-          ? []
-          : yield* this.db
-              .selectFrom("agents")
-              .select(["id", "owner_user_id"])
-              .where("id", "in", [...agentIds]);
-      const ownerByAgentId = new Map<AgentId, UserId>();
-      for (const row of rows) {
-        ownerByAgentId.set(row.id, row.owner_user_id);
-      }
-      for (const agentId of agentIds) {
-        if (!ownerByAgentId.has(agentId)) {
-          return yield* Effect.fail(
-            new AgentNotFoundError({ message: `Agent ${agentId} not found` }),
-          );
+    return Effect.gen(
+      function* (this: ConversationService) {
+        const rows =
+          agentIds.length === 0
+            ? []
+            : yield* this.db
+                .selectFrom("agents")
+                .select(["id", "owner_user_id"])
+                .where("id", "in", [...agentIds]);
+        const ownerByAgentId = new Map<AgentId, UserId>();
+        for (const row of rows) {
+          ownerByAgentId.set(row.id, row.owner_user_id);
         }
-      }
-      return ownerByAgentId;
-    });
+        for (const agentId of agentIds) {
+          if (!ownerByAgentId.has(agentId)) {
+            return yield* new AgentNotFoundError({
+              message: `Agent ${agentId} not found`,
+            });
+          }
+        }
+        return ownerByAgentId;
+      }.bind(this),
+    );
   }
 
   /**
@@ -162,10 +170,6 @@ export class ConversationService {
 
   /**
    * Reduced-surface participant removal: NO authority gate. Used by
-   * `AppEndpointRegistry.removeDeniedParticipant` for dispatch-deny eviction
-   * (runs server-internally, not via a wire RPC). Broadcasts
-   * `ConversationParticipantsRemoved` with `reason: "app_remove"`
-   * so the evicted agent and the remaining participants observe the
 ```
 
 Implements conversation service.
@@ -206,14 +210,16 @@ export class ConversationServiceTag extends Context.Tag(
 
 Implements conversation service tag.
 
-### [`conversationUpdate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L346)
+### [`conversationUpdate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L328)
 
 _Variable_
 
 ```ts
 export const conversationUpdate: ServerHandler<
   typeof conversationUpdateDefinition
-> = (params)
+> = Effect.fn("conversationUpdate")(function* (params) {
+  return yield* conversationUpdateBody(params, yield* appArm);
+})
 ```
 
 Provides the conversation update runtime value.

@@ -2,12 +2,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { execPath } from "node:process";
-import {
-  Command,
-  FileSystem,
-  type HttpClient,
-  type Path,
-} from "@effect/platform";
+import { Command, FileSystem } from "@effect/platform";
 import type {
   CommandExecutor,
   ExitCode,
@@ -523,25 +518,19 @@ function startConfiguredNanoclawRuntime(
  * @param install Value supplied to the operation.
  * @returns The start nanoclaw runtime effect result.
  */
-export function startNanoclawRuntimeEffect(
+export const startNanoclawRuntimeEffect = Effect.fn(
+  "startNanoclawRuntimeEffect",
+)(function* (
   opts: StartNanoclawRuntimeOptions,
   install: NanoclawRuntimeInstall,
-): Effect.Effect<
-  NanoclawRuntimeHandle,
-  NanoclawRuntimeProcessError,
-  CommandExecutor | FileSystem.FileSystem | HttpClient.HttpClient | Path.Path
-> {
-  return Effect.gen(function* () {
-    yield* ensureOnecliRunning(toRuntimeError);
-    yield* sweepStaleRuntimeDirs();
-    const runtimeDir = yield* createNanoclawRuntimeDir();
-    return yield* startConfiguredNanoclawRuntime(
-      opts,
-      runtimeDir,
-      install,
-    ).pipe(Effect.onError(() => removeNanoclawRuntimeDir(runtimeDir)));
-  }).pipe(Effect.withSpan("startNanoclawRuntimeEffect"));
-}
+) {
+  yield* ensureOnecliRunning(toRuntimeError);
+  yield* sweepStaleRuntimeDirs();
+  const runtimeDir = yield* createNanoclawRuntimeDir();
+  return yield* startConfiguredNanoclawRuntime(opts, runtimeDir, install).pipe(
+    Effect.onError(() => removeNanoclawRuntimeDir(runtimeDir)),
+  );
+});
 
 /**
  * Executes the stop nanoclaw runtime effect operation.
@@ -558,6 +547,7 @@ export function stopNanoclawRuntimeEffect(
   return Effect.uninterruptible(
     stopNanoclawProcess(handle).pipe(
       Effect.ensuring(Scope.close(handle.scope, Exit.succeed(undefined))),
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define -- cleanup runs after module initialization.
       Effect.ensuring(sweepNanoclawContainers(handle.runtimeDir)),
       Effect.ensuring(removeNanoclawRuntimeDir(handle.runtimeDir)),
     ),
@@ -674,8 +664,8 @@ function requireSuccessfulCommand(
       );
 }
 
-function sweepNanoclawContainers(runtimeDir: string) {
-  return Effect.gen(function* () {
+const sweepNanoclawContainers = Effect.fn("sweepNanoclawContainers")(
+  function* (runtimeDir: string) {
     const listResult = yield* runCommand(
       buildNanoclawContainerListCommand(runtimeDir),
       DOCKER_RUN_COMMAND_OPTIONS,
@@ -694,13 +684,11 @@ function sweepNanoclawContainers(runtimeDir: string) {
       DOCKER_RUN_COMMAND_OPTIONS,
     );
     yield* requireSuccessfulCommand("remove NanoClaw containers", removeResult);
-  }).pipe(
-    Effect.catchAll((cause) =>
-      Effect.logWarning("failed to sweep NanoClaw runtime containers", cause),
-    ),
-    Effect.withSpan("sweepNanoclawContainers"),
-  );
-}
+  },
+  Effect.catchAll((cause) =>
+    Effect.logWarning("failed to sweep NanoClaw runtime containers", cause),
+  ),
+);
 
 function stopNanoclawProcess(handle: NanoclawRuntimeHandle) {
   return escalatingKill(

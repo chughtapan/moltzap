@@ -109,11 +109,9 @@ function assertSecondReleaseArrivesFirst(
     const params =
       /* Safe because waitForRelease returns only released-notification deliveries. */ second.params as LeaseIdOnlyView;
     if (params.leaseId !== leaseId) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          "second release leaseId mismatch",
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        "second release leaseId mismatch",
       );
     }
   });

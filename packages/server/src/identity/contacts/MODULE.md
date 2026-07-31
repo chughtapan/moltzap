@@ -35,28 +35,30 @@ export interface ContactCreateInput {
 
 Describes contact create input.
 
-### [`contactsAccept`](./handlers.ts#L131)
+### [`contactsAccept`](./handlers.ts#L114)
 
 _Variable_
 
 ```ts
-export const contactsAccept: ServerHandler<typeof contactsAcceptDefinition> = (
-  params,
-)
+export const contactsAccept: ServerHandler<typeof contactsAcceptDefinition> =
+  Effect.fn("contactsAccept")(function* (params) {
+    return yield* contactsAcceptBody(params, yield* agentArm);
+  })
 ```
 
 Provides the contacts accept runtime value.
 
 **Returns:** The contacts accept result.
 
-### [`contactsAdd`](./handlers.ts#L119)
+### [`contactsAdd`](./handlers.ts#L104)
 
 _Variable_
 
 ```ts
-export const contactsAdd: ServerHandler<typeof contactsAddDefinition> = (
-  params,
-)
+export const contactsAdd: ServerHandler<typeof contactsAddDefinition> =
+  Effect.fn("contactsAdd")(function* (params) {
+    return yield* contactsAddBody(params, yield* agentArm);
+  })
 ```
 
 Provides the contacts add runtime value.
@@ -75,14 +77,15 @@ export interface ContactService {
 
 Describes contact service.
 
-### [`contactsList`](./handlers.ts#L107)
+### [`contactsList`](./handlers.ts#L94)
 
 _Variable_
 
 ```ts
-export const contactsList: ServerHandler<typeof contactsListDefinition> = (
-  params,
-)
+export const contactsList: ServerHandler<typeof contactsListDefinition> =
+  Effect.fn("contactsList")(function* (params) {
+    return yield* contactsListBody(params, yield* agentArm);
+  })
 ```
 
 Provides the contacts list runtime value.
@@ -132,42 +135,46 @@ export class ContactsService {
     input: ContactsListInput,
   ): Effect.Effect<ContactsListPage, InvalidCursorError> {
     const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
-    return Effect.gen(this, function* (this: ContactsService) {
-      const pos =
-        input.cursor === undefined
-          ? undefined
-          : yield* decodeListCursor(input.cursor);
-      return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* (this: ContactsService) {
-          let query = this.db
-            .selectFrom("contacts")
-            .selectAll()
-            .where("owner_user_id", "=", owner);
-          if (pos !== undefined) {
-            query = query.where((eb) =>
-              keysetWhere(
-                eb,
-                { sortKey: sortKeyExpr(eb, "created_at"), id: "id" },
-                pos,
-              ),
-            );
-          }
-          const rows = yield* query
-            .orderBy((eb) => sortKeyExpr(eb, "created_at"), "desc")
-            .orderBy("id", "asc")
-            .limit(limit + 1);
-          const { page, nextCursor } = paginate(
-            rows,
-            limit,
-            positionOfContactRow,
-          );
-          return {
-            contacts: page.map(rowToContact),
-            ...(nextCursor !== undefined ? { nextCursor } : {}),
-          };
-        }),
-      );
-    });
+    return Effect.gen(
+      function* (this: ContactsService) {
+        const pos =
+          input.cursor === undefined
+            ? undefined
+            : yield* decodeListCursor(input.cursor);
+        return yield* catchSqlErrorAsDefect(
+          Effect.gen(
+            function* (this: ContactsService) {
+              let query = this.db
+                .selectFrom("contacts")
+                .selectAll()
+                .where("owner_user_id", "=", owner);
+              if (pos !== undefined) {
+                query = query.where((eb) =>
+                  keysetWhere(
+                    eb,
+                    { sortKey: sortKeyExpr(eb, "created_at"), id: "id" },
+                    pos,
+                  ),
+                );
+              }
+              const rows = yield* query
+                .orderBy((eb) => sortKeyExpr(eb, "created_at"), "desc")
+                .orderBy("id", "asc")
+                .limit(limit + 1);
+              const { page, nextCursor } = paginate(
+                rows,
+                limit,
+                positionOfContactRow,
+              );
+              return {
+                contacts: page.map(rowToContact),
+                ...(nextCursor !== undefined ? { nextCursor } : {}),
+              };
+            }.bind(this),
+          ),
+        );
+      }.bind(this),
+    );
   }
 
   add(
@@ -178,28 +185,28 @@ export class ContactsService {
       return Effect.fail(new ForbiddenError({ message: ERR_SELF_ADD }));
     }
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ContactsService) {
-        const inserted = yield* this.db
-          .insertInto("contacts")
-          .values({
-            owner_user_id: owner,
-            contact_user_id: input.contactUserId,
-            relationship: input.relationship ?? null,
-            status: "pending",
-          })
-          .onConflict((oc) =>
-            oc.columns(["owner_user_id", "contact_user_id"]).doNothing(),
-          )
-          .returningAll();
-        if (inserted.length === 0) {
-          return yield* Effect.fail(
-            new ConflictError({ message: ERR_DUPLICATE }),
+      Effect.gen(
+        function* (this: ContactsService) {
+          const inserted = yield* this.db
+            .insertInto("contacts")
+            .values({
+              owner_user_id: owner,
+              contact_user_id: input.contactUserId,
+              relationship: input.relationship ?? null,
+              status: "pending",
+            })
+            .onConflict((oc) =>
+              oc.columns(["owner_user_id", "contact_user_id"]).doNothing(),
+            )
+            .returningAll();
+          if (inserted.length === 0) {
+            return yield* new ConflictError({ message: ERR_DUPLICATE });
+          }
+          return rowToContact(
+            /* Safe because the surrounding invariant establishes this asserted shape. */ inserted[0]!,
           );
-        }
-        return rowToContact(
-          /* Safe because the surrounding invariant establishes this asserted shape. */ inserted[0]!,
-        );
-      }),
+        }.bind(this),
+      ),
     );
   }
 
@@ -208,21 +215,23 @@ export class ContactsService {
     id: ContactId,
   ): Effect.Effect<ContactAcceptResult, ContactNotFoundError | ForbiddenError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ContactsService) {
-        const updated = yield* this.markPendingContactAccepted(owner, id);
-        if (updated.length === 0) {
-          return yield* this.resolveAlreadyAcceptedContact(owner, id);
-        }
+      Effect.gen(
+        function* (this: ContactsService) {
+          const updated = yield* this.markPendingContactAccepted(owner, id);
+          if (updated.length === 0) {
+            return yield* this.resolveAlreadyAcceptedContact(owner, id);
+          }
 
-        const row =
-          /* Safe because the surrounding invariant establishes this asserted shape. */ updated[0]!;
-        yield* this.upsertMirroredAcceptedContact(row);
-        return {
-          contact: rowToContact(row),
-          requesterUserId: row.owner_user_id,
-          transitioned: true,
-        };
-      }),
+          const row =
+            /* Safe because the surrounding invariant establishes this asserted shape. */ updated[0]!;
+          yield* this.upsertMirroredAcceptedContact(row);
+          return {
+            contact: rowToContact(row),
+            requesterUserId: row.owner_user_id,
+            transitioned: true,
+          };
+        }.bind(this),
+      ),
     );
   }
 
@@ -234,12 +243,6 @@ export class ContactsService {
       .where("contact_user_id", "=", owner)
       .where("status", "=", "pending")
       .returningAll();
-  }
-
-  private resolveAlreadyAcceptedContact(owner: UserId, id: ContactId) {
-    return Effect.gen(this, function* (this: ContactsService) {
-      const existing = yield* this.db
-        .selectFrom("contacts")
 ```
 
 Implements contacts service.

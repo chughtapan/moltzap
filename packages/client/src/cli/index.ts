@@ -176,8 +176,7 @@ const moltzap = Command.provide(moltzapBase, (config) =>
 const cli = Command.run(moltzap, { name: "moltzap", version });
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli Command.run requires the Node argv vector at this process entrypoint.
 cli(process.argv).pipe(
-  Effect.provide(NodeContext.layer),
-  Effect.provide(loggerLive),
+  Effect.provide(Layer.mergeAll(NodeContext.layer, loggerLive)),
   Logger.withMinimumLogLevel(minLogLevel),
   NodeRuntime.runMain,
 );

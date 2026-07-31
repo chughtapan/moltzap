@@ -93,9 +93,7 @@ export function drainPaginatedList<
       acc.push(...rowsForPage(page));
       const nextCursor = nextCursorForPage(page);
       if (nextCursor !== undefined && seenCursors.has(nextCursor)) {
-        return yield* Effect.fail(
-          new NonAdvancingCursorError({ method: definition.name }),
-        );
+        return yield* new NonAdvancingCursorError({ method: definition.name });
       }
       if (nextCursor !== undefined) {
         seenCursors.add(nextCursor);
