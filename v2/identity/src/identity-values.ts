@@ -32,9 +32,16 @@ const canonicalValue = <const Name extends string>(
 ) =>
   Schema.String.pipe(
     Schema.filter(
-      (value) =>
-        value.startsWith(prefix) &&
-        hasCanonicalBase64UrlLength(value.slice(prefix.length), byteLength),
+      (value) => {
+        // eslint-disable-next-line sonarjs/null-dereference -- Schema.String supplies a string and every private constructor supplies a fixed string prefix.
+        const hasPrefix = value.startsWith(prefix);
+        if (!hasPrefix) {
+          return false;
+        }
+        // eslint-disable-next-line sonarjs/null-dereference -- The same closed Schema boundary establishes both operands before slicing the identifier payload.
+        const payload = value.slice(prefix.length);
+        return hasCanonicalBase64UrlLength(payload, byteLength);
+      },
       {
         identifier: name,
         description: `${name} canonical representation`,
@@ -48,13 +55,16 @@ const canonicalValue = <const Name extends string>(
   );
 
 const isWholeSecondUtc = (value: string): boolean => {
+  if (typeof value !== "string") {
+    return false;
+  }
   const epochMilliseconds = Date.parse(value);
   if (!Number.isFinite(epochMilliseconds)) {
     return false;
   }
-  return (
-    new Date(epochMilliseconds).toISOString() === `${value.slice(0, -1)}.000Z`
-  );
+  // eslint-disable-next-line sonarjs/null-dereference -- The explicit runtime guard above establishes the string consumed by this Schema predicate.
+  const wholeSecondValue = `${value.slice(0, -1)}.000Z`;
+  return new Date(epochMilliseconds).toISOString() === wholeSecondValue;
 };
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare --

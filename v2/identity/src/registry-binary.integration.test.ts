@@ -1,0 +1,891 @@
+import { FileSystem, HttpClient, HttpClientRequest } from "@effect/platform";
+import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
+import * as Reactivity from "@effect/experimental/Reactivity";
+import { PgClient } from "@effect/sql-pg";
+import {
+  AgentCard,
+  AgentName,
+  AgentSigningAuthority,
+  MOLTZAP_VERSION,
+  Registry,
+  RegistryRegisterRequest,
+  type RegistryListRequest,
+  type VerifiedAgentCard,
+} from "./index.js";
+import { contentDigest } from "./http-signature.js";
+import { encodeCanonicalJson } from "./identity-json.js";
+import {
+  LOOPBACK_HOST,
+  PGLITE_BINARY,
+  REGISTRY_BINARY,
+  canConnect,
+  callRegister,
+  makeCapturedRegistryRunner,
+  makeOperationId,
+  makePrincipalId,
+  makePrivateKeyPem,
+  makeRegistryRunner,
+  makeSigningAuthority,
+  makeVersionedBootstrapRequest,
+  managedProcess,
+  prepareAgent,
+  processTestError,
+  rawSocketRequest,
+  registerAgent,
+  registryEnvironment,
+  requireCapturedRequest,
+  reservePort,
+  sendRawRequest,
+  startReadyRegistry,
+  stopProcess,
+  waitForExit,
+  waitForTcpListener,
+  type RawHttpResponse,
+  type RegisteredAgent,
+  type RegistryRunner,
+  type RunningProcess,
+} from "./__tests__/registry-process.js";
+import { join } from "node:path";
+import { Duration, Effect, Redacted, Ref, Schema } from "effect";
+import { expect, it } from "vitest";
+
+const REGISTERED_KIND = "registered";
+const NOT_FOUND_KIND = "not_found";
+const IDEMPOTENCY_CONFLICT_KIND = "idempotency_conflict";
+const KEY_ALREADY_REGISTERED_KIND = "key_already_registered";
+const NAME_TAKEN_KIND = "name_taken";
+const FOUND_KIND = "found";
+const OK_STATUS = 200;
+const NO_CONTENT_STATUS = 204;
+const BAD_REQUEST_STATUS = 400;
+const UNAUTHORIZED_STATUS = 401;
+const NOT_FOUND_STATUS = 404;
+const METHOD_NOT_ALLOWED_STATUS = 405;
+const VERSION_MISMATCH_STATUS = 412;
+const PAYLOAD_TOO_LARGE_STATUS = 413;
+const UNSUPPORTED_MEDIA_TYPE_STATUS = 415;
+const OVERLOADED_STATUS = 429;
+const MALFORMED_BODY = '{"error":"malformed"}';
+const AUTHENTICATION_FAILED_BODY = '{"error":"authentication_failed"}';
+const NOT_FOUND_BODY = '{"error":"not_found"}';
+const METHOD_NOT_ALLOWED_BODY = '{"error":"method_not_allowed"}';
+const VERSION_MISMATCH_BODY = '{"error":"version_mismatch"}';
+const PAYLOAD_TOO_LARGE_BODY = '{"error":"payload_too_large"}';
+const UNSUPPORTED_MEDIA_TYPE_BODY = '{"error":"unsupported_media_type"}';
+const OVERLOADED_BODY = '{"error":"overloaded"}';
+const EMPTY_BODY = "";
+const OVERFLOW_BODY_BYTES = 4_096;
+const IDENTITY_POINT_COORDINATE = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const IDENTITY_POINT_KEY_ID =
+  "urn:ietf:params:oauth:jwk-thumbprint:sha-256:eV9frzBXPTP92MWWMpoFOh0WI_kJLvGlhcNs15APU_s";
+const UNIVERSAL_SIGNATURE_BYTES = Buffer.from(
+  `01${"00".repeat(63)}`,
+  "hex",
+).toString("base64");
+const UNIVERSAL_SIGNATURE = `moltzap=:${UNIVERSAL_SIGNATURE_BYTES}:`;
+const expectStartupFailure = (process: RunningProcess) =>
+  Effect.gen(function* () {
+    const exited = yield* Effect.raceFirst(
+      waitForExit(process).pipe(Effect.as(true)),
+      Effect.sleep(Duration.seconds(10)).pipe(Effect.as(false)),
+    );
+    if (!exited) {
+      return yield* Effect.fail(
+        processTestError(`Registry did not reject startup\n${process.logs()}`),
+      );
+    }
+    expect(process.child.exitCode).not.toBe(0);
+  });
+
+const expectExactCard = (
+  actual: VerifiedAgentCard,
+  expected: VerifiedAgentCard,
+) =>
+  Effect.gen(function* () {
+    const [actualEncoded, expectedEncoded] = yield* Effect.all(
+      [
+        Schema.encode(AgentCard)(actual),
+        Schema.encode(AgentCard)(expected),
+      ] as const,
+      { concurrency: 2 },
+    );
+    expect(actualEncoded).toStrictEqual(expectedEncoded);
+  });
+
+const assertRegistrationPrecedence = (
+  first: RegisteredAgent,
+  runRegistry: RegistryRunner,
+) =>
+  Effect.gen(function* () {
+    const repeated = yield* callRegister(runRegistry, first);
+    expect(repeated.kind).toBe(REGISTERED_KIND);
+    if (repeated.kind === REGISTERED_KIND) {
+      yield* expectExactCard(repeated.agentCard, first.agentCard);
+    }
+
+    const changedRequest = {
+      ...first.request,
+      agentName: Schema.decodeUnknownSync(AgentName)("changed-name"),
+    };
+    const conflict = yield* callRegister(runRegistry, {
+      request: changedRequest,
+      signingAuthority: first.signingAuthority,
+    });
+    expect(conflict.kind).toBe(IDEMPOTENCY_CONFLICT_KIND);
+
+    const sameKey = yield* callRegister(runRegistry, {
+      request: {
+        ...first.request,
+        operationId: makeOperationId(),
+      },
+      signingAuthority: first.signingAuthority,
+    });
+    expect(sameKey.kind).toBe(KEY_ALREADY_REGISTERED_KIND);
+
+    const otherKey = yield* prepareAgent("temporary-name");
+    const sameName = yield* callRegister(runRegistry, {
+      ...otherKey,
+      request: {
+        ...otherKey.request,
+        agentName: first.request.agentName,
+      },
+    });
+    expect(sameName.kind).toBe(NAME_TAKEN_KIND);
+  });
+
+const assertWrongAdmission = (runRegistry: RegistryRunner) =>
+  Effect.gen(function* () {
+    const prepared = yield* prepareAgent("wrong-admission");
+    const rejected = yield* callRegister(
+      runRegistry,
+      prepared,
+      "wrong-admission-credential",
+    ).pipe(
+      Effect.as(false),
+      Effect.catchTag("AuthenticationFailedError", () => Effect.succeed(true)),
+    );
+    expect(rejected).toBe(true);
+  });
+
+const assertLookupAndPaging = (
+  agents: readonly [RegisteredAgent, ...RegisteredAgent[]],
+  runRegistry: RegistryRunner,
+) =>
+  Effect.gen(function* () {
+    const lookup = yield* runRegistry(
+      Registry.lookup({ agentName: agents[0].request.agentName }),
+    );
+    expect(lookup.kind).toBe(FOUND_KIND);
+    if (lookup.kind === FOUND_KIND) {
+      yield* expectExactCard(lookup.agentCard, agents[0].agentCard);
+    }
+    const firstPage = yield* runRegistry(Registry.list({}));
+    expect(firstPage.agentCards).toHaveLength(2);
+    expect(firstPage.hasMore).toBe(true);
+    const lastCard = firstPage.agentCards[1];
+    if (lastCard === undefined) {
+      return yield* Effect.fail(processTestError("first page was incomplete"));
+    }
+    const secondPage = yield* runRegistry(
+      Registry.list({ afterAgentId: lastCard.agentId }),
+    );
+    expect(secondPage.agentCards).toHaveLength(2);
+    expect(secondPage.hasMore).toBe(false);
+    const actualIds = new Set(
+      [...firstPage.agentCards, ...secondPage.agentCards].map(
+        (card) => card.agentId,
+      ),
+    );
+    const expectedIds = new Set(agents.map((agent) => agent.agentCard.agentId));
+    expect(actualIds).toStrictEqual(expectedIds);
+  });
+
+const listEveryCard = (runRegistry: RegistryRunner) =>
+  Effect.gen(function* () {
+    const agentCards: VerifiedAgentCard[] = [];
+    let request: RegistryListRequest = {};
+    while (true) {
+      const page = yield* runRegistry(Registry.list(request));
+      agentCards.push(...page.agentCards);
+      if (!page.hasMore) {
+        return Object.freeze([...agentCards]);
+      }
+      const lastCard = page.agentCards.at(-1);
+      if (lastCard === undefined) {
+        return yield* Effect.fail(
+          processTestError("Registry returned an empty partial page"),
+        );
+      }
+      request = { afterAgentId: lastCard.agentId };
+    }
+  });
+
+const executeRequest = (request: HttpClientRequest.HttpClientRequest) =>
+  Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
+    const response = yield* client.execute(request);
+    return {
+      status: response.status,
+      body: yield* response.text,
+    };
+  });
+
+const makeJsonRequest = (origin: URL, path: string, body: string) =>
+  HttpClientRequest.post(new URL(path, origin)).pipe(
+    HttpClientRequest.bodyUint8Array(
+      new TextEncoder().encode(body),
+      "application/json",
+    ),
+    HttpClientRequest.setHeader("moltzap-version", MOLTZAP_VERSION),
+  );
+
+const assertBoundaryResponse = (
+  response: RawHttpResponse,
+  expected: RawHttpResponse,
+): void => {
+  expect(response).toStrictEqual(expected);
+};
+
+type SharedEnvelopeCase = Readonly<{
+  name: string;
+  request: Omit<Parameters<typeof sendRawRequest>[0], "port">;
+  expected: RawHttpResponse;
+}>;
+
+const sharedEnvelopeCases: readonly SharedEnvelopeCase[] = [
+  {
+    name: "health",
+    request: { method: "GET", path: "/healthz" },
+    expected: { status: NO_CONTENT_STATUS, body: EMPTY_BODY },
+  },
+  {
+    name: "query route",
+    request: { method: "GET", path: "/healthz?probe=1" },
+    expected: { status: NOT_FOUND_STATUS, body: NOT_FOUND_BODY },
+  },
+  {
+    name: "wrong method",
+    request: { method: "POST", path: "/healthz" },
+    expected: {
+      status: METHOD_NOT_ALLOWED_STATUS,
+      body: METHOD_NOT_ALLOWED_BODY,
+    },
+  },
+  {
+    name: "duplicate framing",
+    request: {
+      method: "POST",
+      path: "/v1/identities:lookup",
+      headers: [
+        ["content-type", "application/json"],
+        ["moltzap-version", MOLTZAP_VERSION],
+        ["moltzap-version", MOLTZAP_VERSION],
+      ],
+      body: "{}",
+    },
+    expected: { status: BAD_REQUEST_STATUS, body: MALFORMED_BODY },
+  },
+  {
+    name: "unsupported media",
+    request: {
+      method: "POST",
+      path: "/v1/identities:lookup",
+      headers: [
+        ["content-type", "text/plain"],
+        ["moltzap-version", MOLTZAP_VERSION],
+      ],
+      body: "{}",
+    },
+    expected: {
+      status: UNSUPPORTED_MEDIA_TYPE_STATUS,
+      body: UNSUPPORTED_MEDIA_TYPE_BODY,
+    },
+  },
+  {
+    name: "declared size",
+    request: {
+      method: "POST",
+      path: "/v1/identities:register",
+      headers: [
+        ["content-type", "application/json"],
+        ["content-length", "4096"],
+        ["moltzap-version", MOLTZAP_VERSION],
+      ],
+    },
+    expected: {
+      status: PAYLOAD_TOO_LARGE_STATUS,
+      body: PAYLOAD_TOO_LARGE_BODY,
+    },
+  },
+];
+
+const assertReceivedOverflow = (port: number) => {
+  const body = "x".repeat(OVERFLOW_BODY_BYTES);
+  const request = [
+    "POST /v1/identities:register HTTP/1.1",
+    `Host: ${LOOPBACK_HOST}:${port}`,
+    "Content-Type: application/json",
+    `MoltZap-Version: ${MOLTZAP_VERSION}`,
+    "Transfer-Encoding: chunked",
+    "Connection: close",
+    "",
+    OVERFLOW_BODY_BYTES.toString(16),
+    body,
+    "0",
+    "",
+    "",
+  ].join("\r\n");
+  return rawSocketRequest(port, "received-size request", request).pipe(
+    Effect.map((response) => {
+      assertBoundaryResponse(response, {
+        status: PAYLOAD_TOO_LARGE_STATUS,
+        body: PAYLOAD_TOO_LARGE_BODY,
+      });
+      return response;
+    }),
+  );
+};
+
+const assertSharedHttpEnvelopes = (port: number) =>
+  Effect.gen(function* () {
+    yield* Effect.forEach(
+      sharedEnvelopeCases,
+      (scenario) =>
+        sendRawRequest({
+          port,
+          description: scenario.name,
+          ...scenario.request,
+        }).pipe(
+          Effect.map((response) => {
+            expect(response, scenario.name).toStrictEqual(scenario.expected);
+            return response;
+          }),
+        ),
+      { concurrency: 1, discard: true },
+    );
+    yield* assertReceivedOverflow(port);
+  });
+
+const assertBootstrapVersionPrecedence = (origin: URL) =>
+  Effect.gen(function* () {
+    const prepared = yield* prepareAgent("version-precedence");
+    const request = yield* makeVersionedBootstrapRequest(
+      origin,
+      prepared,
+      "incompatible",
+    );
+    assertBoundaryResponse(yield* executeRequest(request), {
+      status: VERSION_MISMATCH_STATUS,
+      body: VERSION_MISMATCH_BODY,
+    });
+    assertBoundaryResponse(yield* executeRequest(request), {
+      status: UNAUTHORIZED_STATUS,
+      body: AUTHENTICATION_FAILED_BODY,
+    });
+  });
+
+const makeIdentityPointForgery = (origin: URL) =>
+  Effect.gen(function* () {
+    const prepared = yield* prepareAgent("identity-point-forgery");
+    const encoded = yield* Schema.encode(RegistryRegisterRequest)(
+      prepared.request,
+    );
+    const bodyBytes = yield* encodeCanonicalJson({
+      request: {
+        ...encoded,
+        publicKey: {
+          crv: "Ed25519",
+          kty: "OKP",
+          x: IDENTITY_POINT_COORDINATE,
+        },
+      },
+    });
+    const signed = yield* makeVersionedBootstrapRequest(
+      origin,
+      prepared,
+      MOLTZAP_VERSION,
+    );
+    const signatureInput = signed.headers["signature-input"];
+    if (signatureInput === undefined) {
+      return yield* Effect.fail(
+        processTestError("signed request omitted Signature-Input"),
+      );
+    }
+    const forged = signed.pipe(
+      HttpClientRequest.bodyUint8Array(bodyBytes, "application/json"),
+      HttpClientRequest.setHeader("content-digest", contentDigest(bodyBytes)),
+      HttpClientRequest.setHeader(
+        "signature-input",
+        signatureInput.replace(
+          /keyid="[^"]+"/u,
+          `keyid="${IDENTITY_POINT_KEY_ID}"`,
+        ),
+      ),
+      HttpClientRequest.setHeader("signature", UNIVERSAL_SIGNATURE),
+    );
+    return { forged, agentName: prepared.request.agentName };
+  });
+
+const assertIdentityPointForgeryRejected = (
+  origin: URL,
+  runRegistry: RegistryRunner,
+) =>
+  Effect.gen(function* () {
+    const { forged, agentName } = yield* makeIdentityPointForgery(origin);
+    assertBoundaryResponse(yield* executeRequest(forged), {
+      status: UNAUTHORIZED_STATUS,
+      body: AUTHENTICATION_FAILED_BODY,
+    });
+    expect((yield* runRegistry(Registry.lookup({ agentName }))).kind).toBe(
+      NOT_FOUND_KIND,
+    );
+  });
+
+const assertPublicAuthenticationFraming = (origin: URL) =>
+  Effect.gen(function* () {
+    const authenticationFraming = makeJsonRequest(
+      origin,
+      "/v1/identities:lookup",
+      "not-json",
+    ).pipe(
+      HttpClientRequest.setHeader("authorization", "MoltZap-Admission ignored"),
+      HttpClientRequest.setHeader("moltzap-version", "incompatible"),
+    );
+    assertBoundaryResponse(yield* executeRequest(authenticationFraming), {
+      status: BAD_REQUEST_STATUS,
+      body: MALFORMED_BODY,
+    });
+  });
+
+const assertPublicRequestBoundaries = (origin: URL, first: RegisteredAgent) =>
+  Effect.gen(function* () {
+    const maximumLookup = JSON.stringify({
+      agentName: "a".repeat(32),
+    });
+    assertBoundaryResponse(
+      yield* executeRequest(
+        makeJsonRequest(origin, "/v1/identities:lookup", maximumLookup),
+      ),
+      { status: OK_STATUS, body: '{"kind":"not_found"}' },
+    );
+    assertBoundaryResponse(
+      yield* executeRequest(
+        makeJsonRequest(origin, "/v1/identities:lookup", `${maximumLookup} `),
+      ),
+      { status: PAYLOAD_TOO_LARGE_STATUS, body: PAYLOAD_TOO_LARGE_BODY },
+    );
+    const maximumList = JSON.stringify({
+      afterAgentId: first.agentCard.agentId,
+    });
+    expect(
+      (yield* executeRequest(
+        makeJsonRequest(origin, "/v1/identities:list", maximumList),
+      )).status,
+    ).toBe(OK_STATUS);
+    assertBoundaryResponse(
+      yield* executeRequest(
+        makeJsonRequest(origin, "/v1/identities:list", `${maximumList} `),
+      ),
+      { status: PAYLOAD_TOO_LARGE_STATUS, body: PAYLOAD_TOO_LARGE_BODY },
+    );
+  });
+
+const assertRejectedRepresentations = (origin: URL, first: RegisteredAgent) =>
+  Effect.gen(function* () {
+    const unknownLookup = JSON.stringify({
+      agentName: first.request.agentName,
+      unknown: true,
+    });
+    const noncanonicalLookup = `{ "agentName":"${first.request.agentName}"}`;
+    for (const body of [unknownLookup, noncanonicalLookup]) {
+      assertBoundaryResponse(
+        yield* executeRequest(
+          makeJsonRequest(origin, "/v1/identities:lookup", body),
+        ),
+        { status: BAD_REQUEST_STATUS, body: MALFORMED_BODY },
+      );
+    }
+    const malformedKey = JSON.stringify({
+      request: {
+        agentName: "malformed-key",
+        operationId: makeOperationId(),
+        principalId: makePrincipalId(),
+        publicKey: { crv: "Ed25519", kty: "OKP", x: "bad" },
+      },
+    });
+    assertBoundaryResponse(
+      yield* executeRequest(
+        makeJsonRequest(origin, "/v1/identities:register", malformedKey),
+      ),
+      { status: BAD_REQUEST_STATUS, body: MALFORMED_BODY },
+    );
+  });
+
+const registerAtMaximumBody = (
+  origin: URL,
+  registrySignerPublicKey: ReturnType<typeof AgentSigningAuthority.publicKey>,
+) =>
+  Effect.gen(function* () {
+    const captured = yield* makeCapturedRegistryRunner(
+      origin,
+      registrySignerPublicKey,
+    );
+    const prepared = yield* prepareAgent("m".repeat(32));
+    const result = yield* callRegister(captured.run, prepared);
+    expect(result.kind).toBe(REGISTERED_KIND);
+    const signedRequest = yield* Ref.get(captured.capturedRequest).pipe(
+      Effect.flatMap(requireCapturedRequest),
+    );
+    const wrongProof = signedRequest.pipe(
+      HttpClientRequest.setHeader("signature", "sig1=:AAAA:"),
+    );
+    assertBoundaryResponse(yield* executeRequest(wrongProof), {
+      status: UNAUTHORIZED_STATUS,
+      body: AUTHENTICATION_FAILED_BODY,
+    });
+    const maximumBody = JSON.stringify({
+      request: {
+        agentName: prepared.request.agentName,
+        operationId: prepared.request.operationId,
+        principalId: prepared.request.principalId,
+        publicKey: prepared.request.publicKey,
+      },
+    });
+    assertBoundaryResponse(
+      yield* executeRequest(
+        makeJsonRequest(origin, "/v1/identities:register", `${maximumBody} `),
+      ),
+      { status: PAYLOAD_TOO_LARGE_STATUS, body: PAYLOAD_TOO_LARGE_BODY },
+    );
+  });
+
+const assertConcurrentIdempotency = (runRegistry: RegistryRunner) =>
+  Effect.gen(function* () {
+    const idempotent = yield* prepareAgent("concurrent-idempotent");
+    const repeated = yield* Effect.all(
+      [
+        callRegister(runRegistry, idempotent),
+        callRegister(runRegistry, idempotent),
+      ] as const,
+      { concurrency: 2 },
+    );
+    expect(
+      repeated.filter((result) => result.kind === REGISTERED_KIND),
+    ).toHaveLength(2);
+    if (
+      repeated[0].kind === REGISTERED_KIND &&
+      repeated[1].kind === REGISTERED_KIND
+    ) {
+      yield* expectExactCard(repeated[0].agentCard, repeated[1].agentCard);
+    }
+  });
+
+const assertConcurrentKey = (runRegistry: RegistryRunner) =>
+  Effect.gen(function* () {
+    const sameKey = yield* prepareAgent("concurrent-key");
+    const keyResults = yield* Effect.all(
+      [
+        callRegister(runRegistry, sameKey),
+        callRegister(runRegistry, {
+          ...sameKey,
+          request: {
+            ...sameKey.request,
+            operationId: makeOperationId(),
+          },
+        }),
+      ] as const,
+      { concurrency: 2 },
+    );
+    expect(
+      keyResults.filter((result) => result.kind === REGISTERED_KIND),
+    ).toHaveLength(1);
+    expect(
+      keyResults.filter(
+        (result) => result.kind === KEY_ALREADY_REGISTERED_KIND,
+      ),
+    ).toHaveLength(1);
+  });
+
+const assertConcurrentName = (runRegistry: RegistryRunner) =>
+  Effect.gen(function* () {
+    const [firstName, secondName] = yield* Effect.all(
+      [prepareAgent("concurrent-name"), prepareAgent("temporary-race")],
+      { concurrency: 2 },
+    );
+    const nameResults = yield* Effect.all(
+      [
+        callRegister(runRegistry, firstName),
+        callRegister(runRegistry, {
+          ...secondName,
+          request: {
+            ...secondName.request,
+            agentName: firstName.request.agentName,
+          },
+        }),
+      ] as const,
+      { concurrency: 2 },
+    );
+    expect(
+      nameResults.filter((result) => result.kind === REGISTERED_KIND),
+    ).toHaveLength(1);
+    expect(
+      nameResults.filter((result) => result.kind === NAME_TAKEN_KIND),
+    ).toHaveLength(1);
+  });
+
+const assertConcurrentRegistration = (runRegistry: RegistryRunner) =>
+  Effect.gen(function* () {
+    yield* assertConcurrentIdempotency(runRegistry);
+    yield* assertConcurrentKey(runRegistry);
+    yield* assertConcurrentName(runRegistry);
+  });
+
+const exerciseFirstRun = (
+  origin: URL,
+  registrySignerPublicKey: ReturnType<typeof AgentSigningAuthority.publicKey>,
+  registryPort: number,
+) =>
+  Effect.gen(function* () {
+    const captured = yield* makeCapturedRegistryRunner(
+      origin,
+      registrySignerPublicKey,
+    );
+    const first = yield* registerAgent("first-agent", captured.run);
+    const runRegistry = makeRegistryRunner(origin, registrySignerPublicKey);
+    yield* assertRegistrationPrecedence(first, runRegistry);
+    yield* assertWrongAdmission(runRegistry);
+    yield* assertIdentityPointForgeryRejected(origin, runRegistry);
+    yield* assertBootstrapVersionPrecedence(origin);
+    const additional = yield* Effect.forEach(
+      ["second-agent", "third-agent", "fourth-agent"],
+      (name) => registerAgent(name, runRegistry),
+      { concurrency: 1 },
+    );
+    const agents = [first, ...additional] as const;
+    yield* assertLookupAndPaging(agents, runRegistry);
+    yield* assertPublicAuthenticationFraming(origin);
+    yield* assertPublicRequestBoundaries(origin, first);
+    yield* assertRejectedRepresentations(origin, first);
+    yield* assertConcurrentRegistration(runRegistry);
+    yield* registerAtMaximumBody(origin, registrySignerPublicKey);
+    yield* assertSharedHttpEnvelopes(registryPort);
+    const request = yield* Ref.get(captured.capturedRequest).pipe(
+      Effect.flatMap(requireCapturedRequest),
+    );
+    return { agents, first, request };
+  });
+
+const assertReplayRejected = (request: HttpClientRequest.HttpClientRequest) =>
+  Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
+    const response = yield* client.execute(request);
+    expect(response.status).toBe(UNAUTHORIZED_STATUS);
+    expect(yield* response.text).toBe(AUTHENTICATION_FAILED_BODY);
+  });
+
+const exerciseRestart = (input: {
+  readonly origin: URL;
+  readonly environment: Readonly<Record<string, string>>;
+  readonly registrySignerPublicKey: ReturnType<
+    typeof AgentSigningAuthority.publicKey
+  >;
+  readonly first: RegisteredAgent;
+  readonly request: HttpClientRequest.HttpClientRequest;
+}) =>
+  Effect.gen(function* () {
+    const registry = yield* startReadyRegistry(input.environment, input.origin);
+    yield* assertReplayRejected(input.request);
+    const runRegistry = makeRegistryRunner(
+      input.origin,
+      input.registrySignerPublicKey,
+    );
+    const lookup = yield* runRegistry(
+      Registry.lookup({ agentId: input.first.agentCard.agentId }),
+    );
+    expect(lookup.kind).toBe(FOUND_KIND);
+    if (lookup.kind === FOUND_KIND) {
+      yield* expectExactCard(lookup.agentCard, input.first.agentCard);
+    }
+    const firstListing = yield* listEveryCard(runRegistry);
+    const repeatedListing = yield* listEveryCard(runRegistry);
+    expect(repeatedListing).toStrictEqual(firstListing);
+    const listedCard = firstListing.find(
+      (card) => card.agentId === input.first.agentCard.agentId,
+    );
+    if (listedCard === undefined) {
+      return yield* Effect.fail(
+        processTestError("restarted Registry list omitted the stored card"),
+      );
+    }
+    yield* expectExactCard(listedCard, input.first.agentCard);
+    const repeated = yield* callRegister(runRegistry, input.first);
+    expect(repeated.kind).toBe(REGISTERED_KIND);
+    if (repeated.kind === REGISTERED_KIND) {
+      yield* expectExactCard(repeated.agentCard, input.first.agentCard);
+    }
+    yield* stopProcess(registry);
+  });
+
+const assertNonceRetention = (input: {
+  readonly origin: URL;
+  readonly environment: Readonly<Record<string, string>>;
+}) =>
+  Effect.gen(function* () {
+    const registry = yield* startReadyRegistry(
+      {
+        ...input.environment,
+        MOLTZAP_REGISTRY_LIVE_NONCE_CAPACITY: "1",
+      },
+      input.origin,
+    );
+    const [first, second] = yield* Effect.all(
+      [prepareAgent("nonce-retained"), prepareAgent("nonce-refused")],
+      { concurrency: 2 },
+    );
+    const [firstRequest, secondRequest] = yield* Effect.all(
+      [
+        makeVersionedBootstrapRequest(input.origin, first, MOLTZAP_VERSION),
+        makeVersionedBootstrapRequest(input.origin, second, MOLTZAP_VERSION),
+      ] as const,
+      { concurrency: 2 },
+    );
+    expect((yield* executeRequest(firstRequest)).status).toBe(OK_STATUS);
+    assertBoundaryResponse(yield* executeRequest(secondRequest), {
+      status: OVERLOADED_STATUS,
+      body: OVERLOADED_BODY,
+    });
+    assertBoundaryResponse(yield* executeRequest(firstRequest), {
+      status: UNAUTHORIZED_STATUS,
+      body: AUTHENTICATION_FAILED_BODY,
+    });
+    yield* stopProcess(registry);
+  });
+
+const assertStartupRejection = (
+  environment: Readonly<Record<string, string>>,
+) =>
+  Effect.gen(function* () {
+    const process = yield* managedProcess(REGISTRY_BINARY, [], environment);
+    yield* expectStartupFailure(process);
+  });
+
+const setupRegistryInfrastructure = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const temporaryDirectory = yield* fileSystem.makeTempDirectoryScoped({
+    prefix: "moltzap-registry-binary-",
+  });
+  const registryKeyPath = join(temporaryDirectory, "registry-key.pem");
+  const wrongKeyPath = join(temporaryDirectory, "wrong-key.pem");
+  const privateKeyPem = makePrivateKeyPem();
+  yield* Effect.all(
+    [
+      fileSystem.writeFileString(registryKeyPath, privateKeyPem, {
+        mode: 0o600,
+      }),
+      fileSystem.writeFileString(wrongKeyPath, makePrivateKeyPem(), {
+        mode: 0o600,
+      }),
+    ],
+    { concurrency: 2, discard: true },
+  );
+  const signingAuthority = yield* makeSigningAuthority(privateKeyPem);
+  const registrySignerPublicKey =
+    AgentSigningAuthority.publicKey(signingAuthority);
+  const [postgresqlPort, registryPort] = yield* Effect.all(
+    [reservePort, reservePort] as const,
+    { concurrency: 2 },
+  );
+  const postgresql = yield* managedProcess(PGLITE_BINARY, [
+    "--db=memory://",
+    `--port=${postgresqlPort}`,
+    `--host=${LOOPBACK_HOST}`,
+    "--max-connections=20",
+  ]);
+  yield* waitForTcpListener(postgresql, postgresqlPort);
+  const postgresqlUrl = `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`;
+  const origin = new URL(`http://${LOOPBACK_HOST}:${registryPort}`);
+  const environment = registryEnvironment({
+    port: registryPort,
+    postgresqlUrl,
+    registryKeyPath,
+  });
+  return {
+    environment,
+    origin,
+    postgresqlUrl,
+    registryPort,
+    registrySignerPublicKey,
+    wrongKeyPath,
+  };
+});
+
+const assertStartupContracts = (input: {
+  readonly environment: Readonly<Record<string, string>>;
+  readonly wrongKeyPath: string;
+  readonly corruptVersion: Effect.Effect<unknown, unknown>;
+}) =>
+  Effect.gen(function* () {
+    yield* assertStartupRejection({
+      ...input.environment,
+      MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL: "short",
+    });
+    yield* assertStartupRejection({
+      ...input.environment,
+      MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: input.wrongKeyPath,
+    });
+    yield* input.corruptVersion;
+    yield* assertStartupRejection(input.environment);
+  });
+
+const registryBinaryBehavior = Effect.gen(function* () {
+  const infrastructure = yield* setupRegistryInfrastructure;
+  const registry = yield* startReadyRegistry(
+    infrastructure.environment,
+    infrastructure.origin,
+  );
+  const firstRun = yield* exerciseFirstRun(
+    infrastructure.origin,
+    infrastructure.registrySignerPublicKey,
+    infrastructure.registryPort,
+  );
+  yield* stopProcess(registry);
+  expect(yield* canConnect(infrastructure.registryPort)).toBe(false);
+
+  yield* exerciseRestart({
+    origin: infrastructure.origin,
+    environment: infrastructure.environment,
+    registrySignerPublicKey: infrastructure.registrySignerPublicKey,
+    first: firstRun.first,
+    request: firstRun.request,
+  });
+
+  const sql = yield* PgClient.make({
+    url: Redacted.make(infrastructure.postgresqlUrl),
+    maxConnections: 2,
+    connectTimeout: Duration.seconds(5),
+    applicationName: "moltzap-registry-acceptance",
+  }).pipe(Effect.provide(Reactivity.layer));
+  yield* sql`DELETE FROM moltzap_registry_nonces`;
+  yield* assertNonceRetention({
+    origin: infrastructure.origin,
+    environment: infrastructure.environment,
+  });
+  yield* assertStartupContracts({
+    environment: infrastructure.environment,
+    wrongKeyPath: infrastructure.wrongKeyPath,
+    corruptVersion: sql.unsafe(`
+        UPDATE moltzap_registry_metadata
+        SET moltzap_version = 'incompatible'
+        WHERE singleton = true
+      `),
+  });
+}).pipe(
+  Effect.scoped,
+  Effect.provide(NodeFileSystem.layer),
+  Effect.provide(NodeHttpClient.layer),
+);
+
+it("preserves Registry contracts across first boot, concurrency, and restart", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(registryBinaryBehavior);
+}, 120_000);

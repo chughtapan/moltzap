@@ -69,16 +69,25 @@
     },
     "v2/identity": {
       "entry": [
+        "src/registry/process.ts",
+        "src/**/*.test.ts",
+        "src/**/*.types-check.ts",
+        "vitest*.config.mjs"
+      ],
+      "project": ["src/**/*.ts", "*.mjs"],
+      "ignoreDependencies": [
+        "@electric-sql/pglite",
+        "@electric-sql/pglite-socket"
+      ]
+    },
+    "v2/router": {
+      "entry": [
+        "src/router/process.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs"]
-    },
-    "v2/router": {
-      "entry": ["src/**/*.test.ts", "vitest*.config.mjs"],
-      "project": ["src/**/*.ts", "*.mjs"],
-      "ignoreDependencies": ["@moltzap/v2-identity"]
     },
     "v2/transcript": {
       "ignoreDependencies": ["@moltzap/v2-identity", "@moltzap/v2-router"]

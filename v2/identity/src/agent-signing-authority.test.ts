@@ -30,8 +30,7 @@ const PKCS8_ED25519_PREFIX = Buffer.from(
 
 const pemFromDer = (der: Uint8Array): string => {
   const base64 = Buffer.from(der).toString("base64");
-  const lines = base64.match(/.{1,64}/g);
-  return `-----BEGIN PRIVATE KEY-----\n${lines?.join("\n") ?? ""}\n-----END PRIVATE KEY-----`;
+  return `-----BEGIN PRIVATE KEY-----\n${base64}\n-----END PRIVATE KEY-----`;
 };
 
 const publicJwk = (privateKey: KeyObject) =>
