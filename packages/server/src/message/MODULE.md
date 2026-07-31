@@ -179,7 +179,7 @@ export type MessageAuthorizeResult =
 
 Represents the result of message authorize.
 
-### [`MessageService`](./message.service.ts#L182)
+### [`MessageService`](./message.service.ts#L179)
 
 _Class_
 
@@ -289,7 +289,7 @@ export class MessageService {
    * authorizing app for the task.
    * @param conversationId Value supplied to the operation.
    * @internal
-   * @returns The reply exists opt result.
+   * @returns The joined send-conversation row.
    */
   readSendConversation(
     conversationId: ConversationId,
@@ -361,7 +361,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L184)
+### [`messagesList`](./handlers.ts#L177)
 
 _Variable_
 
@@ -375,7 +375,7 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L168)
+### [`messagesSend`](./handlers.ts#L161)
 
 _Variable_
 

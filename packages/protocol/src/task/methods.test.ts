@@ -34,15 +34,6 @@ describe("MessageSchema acceptance", () => {
   it("accepts valid message", () => {
     expect(validateMessage(VALID_MESSAGE)).toBe(true);
   });
-
-  it("accepts message with replyToId", () => {
-    expect(
-      validateMessage({
-        ...VALID_MESSAGE,
-        replyToId: "880e8400-e29b-41d4-a716-446655440000",
-      }),
-    ).toBe(true);
-  });
 });
 
 describe("MessageSchema rejection", () => {

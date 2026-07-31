@@ -21,10 +21,6 @@ Send a message to a conversation under a task.
   
 </ParamField>
 
-<ParamField path="replyToId" type="string (UUID)">
-  Branded MessageId
-</ParamField>
-
 <ParamField path="dispatchLeaseId" type="string (UUID)">
   Branded LeaseId
 </ParamField>
@@ -39,7 +35,6 @@ Send a message to a conversation under a task.
 
 | Type | When |
 |------|------|
-| `MessageNotFoundError` | the `replyToId` reply target is absent |
 | `DispatchNotFoundError` | the dispatch lease is missing |
 | `ForbiddenError` | the sender cannot post or the dispatch lease is consumed/invalid |
 | `TaskClosedError` | the task is closed or failed |

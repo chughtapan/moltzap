@@ -37,7 +37,7 @@ exists.
 
 **Returns:** The authorize conversation create capacity only result.
 
-### [`guardConversationNotArchived`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L107)
+### [`guardConversationNotArchived`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L105)
 
 _Function_
 
@@ -51,24 +51,7 @@ Refine the conversation is open (`archived_at IS NULL`).
 
 **Returns:** The guard conversation not archived result.
 
-### [`guardReplyTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L123)
-
-_Function_
-
-```ts
-export const guardReplyTarget = (input: {
-  readonly conversationId: ConversationId;
-  readonly replyToId?: MessageId;
-}): Effect.Effect<void, MessageNotFoundError, MessageServiceTag>
-```
-
-Refine the reply target: when the send names a `replyToId`, verify the
-referenced message exists in the conversation (fails `MessageNotFound` if
-absent); a send with no reply target passes with no DB read.
-
-**Returns:** The guard reply target result.
-
-### [`guardTaskActive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L86)
+### [`guardTaskActive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L84)
 
 _Function_
 
@@ -102,7 +85,7 @@ Provides the obtain conversation in task runtime value.
 
 **Returns:** The obtain conversation in task result.
 
-### [`obtainConversationSendAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L29)
+### [`obtainConversationSendAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L27)
 
 _Function_
 
@@ -119,11 +102,11 @@ export const obtainConversationSendAccess = (input: {
 ```
 
 `ConversationSendAccess` obtain: prove the caller participates in the
-conversation, then do the ONE joined read (`conversations ⋈ tasks`). The row
-it returns is the shared context the send handler guards read from, so the
-whole send path costs one joined read. A `conversationId` that
-survives the participant check but vanishes from the join is a true race
-(archival/deletion) — surfaced as a defect, not a user error.
+conversation, then do the joined read (`conversations ⋈ tasks`). The row it
+returns is the shared context the send handler guards read from. A
+`conversationId` that survives the participant check but vanishes from the
+join is a true race (archival/deletion) — surfaced as a defect, not a user
+error.
 
 **Returns:** The obtain conversation send access result.
 

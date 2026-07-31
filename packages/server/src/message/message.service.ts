@@ -1,7 +1,6 @@
 import {
   type Db,
   nextSnowflakeId,
-  sql,
   type MessageRow,
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -15,7 +14,6 @@ import {
   decodeMessageParts,
   decodeMessagePartsText,
   validateDispatchDecision,
-  MessageNotFoundError,
   messageReceivedNotificationDefinition,
 } from "@moltzap/protocol/message";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
@@ -99,7 +97,6 @@ interface SendMessageInput {
   readonly conversationId: ConversationId;
   readonly parts: MessageParts;
   readonly senderAgentId: AgentId;
-  readonly replyToId?: MessageId;
   readonly excludeConnectionId?: ConnectionId;
 }
 
@@ -284,7 +281,7 @@ export class MessageService {
    * authorizing app for the task.
    * @param conversationId Value supplied to the operation.
    * @internal
-   * @returns The reply exists opt result.
+   * @returns The joined send-conversation row.
    */
   readSendConversation(
     conversationId: ConversationId,
@@ -306,34 +303,6 @@ export class MessageService {
     );
   }
 
-  /**
-   * Reply-target presence gate consumed by `obtainValidReplyTarget`. A
-   * method (not a free function) because it needs `this.db`.
-   * @param conversationId Value supplied to the operation.
-   * @param replyToId Value supplied to the operation.
-   * @internal
-   * @returns The reply exists opt result.
-   */
-  assertReplyTarget(
-    conversationId: ConversationId,
-    replyToId: MessageId,
-  ): Effect.Effect<void, MessageNotFoundError | SqlError> {
-    return Effect.gen(this, function* (this: MessageService) {
-      const replyExistsOpt = yield* takeFirstOption(
-        this.db
-          .selectFrom("messages")
-          .select(sql`1`.as("one"))
-          .where("id", "=", replyToId)
-          .where("conversation_id", "=", conversationId),
-      );
-      if (Option.isNone(replyExistsOpt)) {
-        return yield* Effect.fail(
-          new MessageNotFoundError({ message: "Reply target not found" }),
-        );
-      }
-    });
-  }
-
   private insertMessageRow(
     input: SendInsertInput,
     conv: SendConversationRow,
@@ -350,7 +319,6 @@ export class MessageService {
             conversation_id: input.conversationId,
             sender_id: input.senderAgentId,
             seq: nextSnowflakeId().toString(),
-            reply_to_id: input.replyToId ?? null,
             parts_encrypted: encryptedParts.encrypted,
             parts_iv: encryptedParts.iv,
             parts_tag: encryptedParts.tag,
@@ -972,7 +940,6 @@ export class MessageService {
       id: row.id,
       conversationId: row.conversation_id,
       senderId: row.sender_id,
-      replyToId: row.reply_to_id ?? undefined,
       parts,
       createdAt: row.created_at.toISOString(),
     };

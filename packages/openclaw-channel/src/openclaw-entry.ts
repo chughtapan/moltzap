@@ -47,7 +47,6 @@ import {
   type ConversationId,
   conversationId,
   conversationList,
-  messageId,
 } from "@moltzap/protocol/conversation";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import { TaskClosedError, type TaskId, taskId } from "@moltzap/protocol/task";
@@ -246,11 +245,7 @@ interface OpenClawClientService extends ChannelService {
    * channel service used in tests may omit it.
    */
   callDefinition?: MoltZapService["callDefinition"];
-  sendToAgent?(
-    agentName: string,
-    text: string,
-    opts?: { replyTo?: string },
-  ): Effect.Effect<void, unknown>;
+  sendToAgent?(agentName: string, text: string): Effect.Effect<void, unknown>;
 }
 
 interface MoltzapChannelPluginDeps {
@@ -1124,7 +1119,6 @@ function createOutboundSection(
       to: string;
       text: string;
       accountId?: string | null;
-      replyToId?: string;
     }) {
       return Effect.runPromise(sendTextEffect(activeClients, ctx));
     },
@@ -1186,7 +1180,6 @@ function dispatchOutbound(
   ctx: {
     to: string;
     text: string;
-    replyToId?: string;
   },
 ) {
   return Effect.gen(function* () {
@@ -1199,18 +1192,10 @@ function dispatchOutbound(
       return yield* service.sendToAgent(
         ctx.to.slice(TARGET_PREFIX_AGENT.length),
         ctx.text,
-        { replyTo: ctx.replyToId },
       );
     }
     const parsed = yield* parseTaskTarget(ctx.to);
-    return yield* service.send(
-      parsed.taskId,
-      parsed.conversationId,
-      ctx.text,
-      ctx.replyToId !== undefined
-        ? { replyTo: Schema.decodeUnknownSync(messageId)(ctx.replyToId) }
-        : {},
-    );
+    return yield* service.send(parsed.taskId, parsed.conversationId, ctx.text);
   });
 }
 
@@ -1221,7 +1206,6 @@ function sendTextEffect(
     to: string;
     text: string;
     accountId?: string | null;
-    replyToId?: string;
   },
 ) {
   const requestedAccountId = ctx.accountId ?? "(unspecified)";

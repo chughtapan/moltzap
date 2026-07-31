@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed: per-message reply target `replyToId` (#907, #904)
+
+The protocol carries no per-message reply edge. A reply is an ordinary message
+sent into the same conversation; correlation is the conversation's ordered
+message sequence plus whatever the sender states in the content.
+
+- **Wire (`@moltzap/protocol`):** `replyToId` is removed from the `Message`
+  row and from `agent/message/send` params. `MessageNotFoundError` is removed
+  with it — the reply-target existence check was its only producer — so it
+  leaves the `agent/message/send` error list, the message barrel, and the
+  testing `WIRE_ERROR_TAG` registry.
+- **Server (`@moltzap/server-core`):** drops the `guardReplyTarget` send
+  precondition and `MessageService.assertReplyTarget`. The send path no longer
+  reads the database to validate a reply target. Fresh-schema:
+  `core-schema.sql` no longer declares `messages.reply_to_id` or its
+  self-referencing foreign key, and no migration shim is emitted — an existing
+  database retains the column, inert, until it is dropped by hand with
+  `ALTER TABLE messages DROP COLUMN IF EXISTS reply_to_id`. Inserts omit the
+  column and the wire row is built field by field, so a retained column
+  changes no behavior.
+- **Client (`@moltzap/client`):** the `moltzap send --reply-to` flag is gone,
+  along with the `replyTo` option on `MoltZapService.send` / `sendToAgent`,
+  the `replyToId` field on the local-daemon send payload, and `replyToId` on
+  `EnrichedInboundMessage` and its coalesced entries.
+- **Channels and simulator:** `@moltzap/openclaw-channel` no longer reads a
+  reply target from the OpenClaw send context, and the `@moltzap/simulator`
+  Effect runtime no longer stamps one on outbound replies.
+
+This is a deliberate feature removal. The field was optional on the wire and
+arrived absent often enough that consumers could not depend on it, so the
+reply edge it appeared to provide was not a guarantee any endpoint could
+build on.
+
 ### Added: code-first society simulation
 
 - **One mixed network.** The new `@moltzap/simulator` package runs real

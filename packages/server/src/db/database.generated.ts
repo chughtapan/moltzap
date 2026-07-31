@@ -125,7 +125,6 @@ export interface Messages {
   parts_encrypted: Buffer;
   parts_iv: Buffer;
   parts_tag: Buffer;
-  reply_to_id: string | null;
   sender_id: string;
   seq: Int8;
   task_id: string | null;

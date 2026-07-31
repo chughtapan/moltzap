@@ -100,7 +100,6 @@ function coalescedMessageFrom(
     },
     text: extractTextContent(message.parts),
     createdAt: message.createdAt,
-    ...(message.replyToId ? { replyToId: message.replyToId } : {}),
   };
 }
 
@@ -181,7 +180,6 @@ function buildEnrichedInboundMessage({
     isFromMe: isFromOwnAgent(service, message),
     createdAt: message.createdAt,
     contextBlocks: context.contextBlocks,
-    ...(message.replyToId ? { replyToId: message.replyToId } : {}),
     ...(context.conversationMeta
       ? { conversationMeta: context.conversationMeta }
       : {}),

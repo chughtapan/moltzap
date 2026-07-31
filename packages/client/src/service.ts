@@ -802,7 +802,6 @@ export class MoltZapService {
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
    * @param opts Value supplied to the operation.
-   * @param opts.replyTo Value supplied to the operation.
    * @param opts.dispatchLeaseId Value supplied to the operation.
    * @returns The send result.
    */
@@ -810,7 +809,7 @@ export class MoltZapService {
     taskId: TaskId,
     conversationId: ConversationId,
     text: string,
-    opts?: { replyTo?: MessageId; dispatchLeaseId?: LeaseId },
+    opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
     if (this.isConversationArchived(conversationId)) {
       return Effect.fail(
@@ -822,7 +821,6 @@ export class MoltZapService {
         taskId,
         conversationId,
         parts: [{ type: "text", text }],
-        ...(opts?.replyTo !== undefined ? { replyToId: opts.replyTo } : {}),
         ...(opts?.dispatchLeaseId !== undefined
           ? { dispatchLeaseId: opts.dispatchLeaseId }
           : {}),
@@ -846,7 +844,6 @@ export class MoltZapService {
   sendToAgent(
     agentName: string,
     text: string,
-    opts?: { replyTo?: MessageId },
   ): Effect.Effect<void, ServiceRpcError | AgentNotFoundError> {
     return Effect.gen(this, function* (this: MoltZapService) {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
@@ -878,7 +875,7 @@ export class MoltZapService {
           HashMap.set(m, agentName, cached),
         );
       }
-      yield* this.send(entry.taskId, entry.conversationId, text, opts);
+      yield* this.send(entry.taskId, entry.conversationId, text);
     });
   }
 

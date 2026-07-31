@@ -204,7 +204,6 @@ class SharedConversationResponse extends Schema.Class<SharedConversationResponse
 )({
   messageId: messageIdSchema,
   senderId: agentIdSchema,
-  replyToId: Schema.NullOr(messageIdSchema),
 }) {}
 
 /** The customer policy selected the expected three-message content sequence. */
@@ -268,7 +267,6 @@ const UNEXPECTED_RESPONSE: ReceivedMessage = {
     id: messageId("00000000-0000-4000-8000-000000000008"),
     conversationId: TEST_CONTEXT.conversationId,
     senderId: TEST_CONTEXT.nanoClawId,
-    replyToId: TEST_CONTEXT.triggerMessageId,
     parts: [{ type: "text", text: "WORKING" }],
     createdAt: "2026-07-29T00:00:00.000Z",
   },
@@ -369,8 +367,7 @@ function receiveContentSequence(
         exactText(message) === NANOCLAW_PROPOSAL,
     );
     const witnessSelection = yield* receiveSome(receive, (received) =>
-      received.message.senderId === context.witnessId &&
-      received.message.replyToId === nanoClaw.message.id
+      received.message.senderId === context.witnessId
         ? approvalReceiptFrom(received.message, nanoClaw.message.id).pipe(
             Option.map((approvalReceipt) => ({ received, approvalReceipt })),
           )
@@ -394,7 +391,6 @@ function responseObservation(
   return SharedConversationResponse.make({
     messageId: received.message.id,
     senderId: received.message.senderId,
-    replyToId: received.message.replyToId ?? null,
   });
 }
 
@@ -745,19 +741,22 @@ function assertRecordedContentSequence(
   );
 }
 
-function selectedResponse(
+/**
+ * The recorded responses hold exactly one entry for this message and sender.
+ * @param responses Value supplied to the operation.
+ * @param messageId Value supplied to the operation.
+ * @param senderId Value supplied to the operation.
+ */
+function assertRecordedExactlyOnce(
   responses: readonly SharedConversationResponse[],
   messageId: MessageId,
   senderId: AgentId,
-): SharedConversationResponse {
+): void {
   const matching = responses.filter(
     (response) =>
       response.messageId === messageId && response.senderId === senderId,
   );
   assert.lengthOf(matching, 1);
-  const [response] = matching;
-  assert.isDefined(response);
-  return response;
 }
 
 function assertHealthyCompletion(evidence: SharedConversationEvidence): void {
@@ -817,13 +816,12 @@ function assertEvidence(evidence: SharedConversationEvidence) {
     measurement,
     selected,
   );
-  const witnessResponse = selectedResponse(
+  assertRecordedExactlyOnce(
     measurement.responses,
     selected.witnessMessageId,
     measurement.witnessId,
   );
-  assert.strictEqual(witnessResponse.replyToId, selected.nanoClawMessageId);
-  const openClawResponse = selectedResponse(
+  assertRecordedExactlyOnce(
     measurement.responses,
     selected.openClawMessageId,
     measurement.openClawId,
@@ -833,10 +831,6 @@ function assertEvidence(evidence: SharedConversationEvidence) {
     context: measurement,
     responses: measurement.responses,
     selection: selected,
-    transport: Object.freeze({
-      expectedReplyToId: selected.witnessMessageId,
-      actualReplyToId: openClawResponse.replyToId,
-    }),
   };
 }
 
@@ -879,13 +873,6 @@ function measurementResult(
           witnessMessageId: evidence.selection.witnessMessageId,
           openClawMessageId: evidence.selection.openClawMessageId,
           approvalReceipt: evidence.selection.approvalReceipt,
-        }),
-        transport: Object.freeze({
-          expectedReplyToId: evidence.transport.expectedReplyToId,
-          actualReplyToId: evidence.transport.actualReplyToId,
-          matched:
-            evidence.transport.actualReplyToId ===
-            evidence.transport.expectedReplyToId,
         }),
       })
     : Object.freeze({
@@ -950,7 +937,7 @@ test("records a missed content sequence as elapsed result data", () => {
     const [response] = measurement.responses;
     assert.isDefined(response);
     assert.strictEqual(response.messageId, UNEXPECTED_RESPONSE.message.id);
-    assert.strictEqual(response.replyToId, TEST_CONTEXT.triggerMessageId);
+    assert.strictEqual(response.senderId, TEST_CONTEXT.nanoClawId);
   });
 });
 

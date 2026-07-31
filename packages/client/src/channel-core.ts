@@ -14,7 +14,7 @@ import {
   Option,
   Queue,
 } from "effect";
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import { BoundedMap } from "@moltzap/protocol/bounded-map";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { Message } from "@moltzap/protocol/message";
@@ -77,7 +77,6 @@ export interface EnrichedInboundMessage {
   text: string;
   isFromMe: boolean;
   createdAt: string;
-  replyToId?: string;
   conversationMeta?: EnrichedConversationMeta;
   contextBlocks: ContextBlocks;
 
@@ -90,7 +89,6 @@ export interface EnrichedInboundMessage {
     sender: EnrichedSender;
     text: string;
     createdAt: string;
-    replyToId?: string;
   }>;
   /** Lease that authorizes a runtime reply for this dispatch, when present. */
   dispatchLeaseId?: LeaseId;
@@ -184,7 +182,7 @@ export interface ChannelService {
     taskId: TaskId,
     conversationId: ConversationId,
     text: string,
-    opts?: { replyTo?: MessageId; dispatchLeaseId?: LeaseId },
+    opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError>;
   isConversationArchived?(conversationId: string): boolean;
   getConversation(
