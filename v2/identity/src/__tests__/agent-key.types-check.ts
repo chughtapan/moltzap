@@ -9,7 +9,7 @@ import type {
   AgentSigningAuthority as AgentSigningAuthorityValue,
   Ed25519PublicKey,
   InvalidAgentPrivateKeyError,
-} from "./index.js";
+} from "../index.js";
 import type { Effect, Redacted } from "effect";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;

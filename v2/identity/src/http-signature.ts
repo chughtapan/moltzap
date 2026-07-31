@@ -13,20 +13,20 @@ import {
   type InnerList,
   type Item,
 } from "structured-headers";
-import { Clock, Effect, Option } from "effect";
+import { Clock, Data, Effect, Option } from "effect";
 import {
   AgentSigningAuthority,
   agentSigningPrivateKey,
-} from "./agent-signing-authority.js";
-import {
   ed25519PublicKeyThumbprintUri,
   hasCanonicalEd25519SignatureEncoding,
   type Ed25519PublicKey,
-} from "./ed25519-public-key.js";
+} from "./agent-key.js";
 import { AuthenticationFailedError } from "./http-errors.js";
-import { hasCanonicalBase64UrlLength } from "./identity-values.js";
-import { AgentSigningError } from "./signing-errors.js";
+import { hasCanonicalBase64UrlLength } from "./identifiers.js";
 import { MOLTZAP_VERSION } from "./version.js";
+
+/** An agent-owned HTTP request could not be signed. */
+export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
 const SIGNATURE_LABEL = "moltzap";
 const SIGNATURE_INTERVAL_SECONDS = 300;

@@ -8,34 +8,69 @@ import {
   AgentSigningError,
   type AgentSigningAuthority,
   AuthenticatedHttp,
-  AuthenticationFailedError,
-  InternalServerError,
-  MalformedRequestError,
-  MethodNotAllowedError,
-  OverloadedError,
-  PayloadTooLargeError,
-  RouteNotFoundError,
-  UnavailableError,
-  UnsupportedMediaTypeError,
-  VersionMismatchError,
 } from "@moltzap/v2-identity";
 import canonicalize from "canonicalize";
-import { Duration, Effect, Schema } from "effect";
+import { Duration, Effect, Option, Schema } from "effect";
 import {
+  type RouterClientError,
   RouterConnectionError,
+  type RouterHttpEnvelopeError,
+  routerHttpErrorFromResponse,
   RouterInvalidResponseError,
+  routerJsonContentType,
+  routerPollPath,
   RouterRequestTimeoutError,
-} from "./errors.js";
-import {
   RouterPollRequest,
   RouterPollResult,
+  routerSendPath,
   RouterSendRequest,
   RouterSendResult,
-} from "./operations.js";
+} from "./contract.js";
 
-const SEND_PATH = "/v1/messages:send";
-const POLL_PATH = "/v1/messages:poll";
-const JSON_CONTENT_TYPE = "application/json";
+/** Service shape provided by the public Router capability. */
+export interface RouterClientService {
+  readonly send: (input: {
+    readonly request: RouterSendRequest;
+    readonly callerAgentId: AgentId;
+    readonly signingAuthority: AgentSigningAuthority;
+  }) => Effect.Effect<RouterSendResult, RouterClientError>;
+  readonly poll: (input: {
+    readonly request: RouterPollRequest;
+    readonly callerAgentId: AgentId;
+    readonly signingAuthority: AgentSigningAuthority;
+  }) => Effect.Effect<RouterPollResult, RouterClientError>;
+}
+
+interface RouterClientSettings {
+  readonly origin: URL;
+  readonly sendTimeout: Duration.Duration;
+  readonly pollTimeout: Duration.Duration;
+}
+
+/**
+ * Builds the public Router service over Effect's standard HttpClient.
+ *
+ * @param input Remote origin and complete operation deadlines.
+ * @param input.origin Router HTTP origin.
+ * @param input.sendTimeout Complete send deadline.
+ * @param input.pollTimeout Complete poll deadline.
+ * @returns A client service requiring the standard HttpClient capability.
+ */
+export const makeRouterClient = (input: {
+  readonly origin: URL;
+  readonly sendTimeout: Duration.Duration;
+  readonly pollTimeout: Duration.Duration;
+}): Effect.Effect<RouterClientService, never, HttpClient.HttpClient> => {
+  const settings = Object.freeze({
+    origin: new URL(input.origin.href),
+    sendTimeout: snapshotDuration(input.sendTimeout),
+    pollTimeout: snapshotDuration(input.pollTimeout),
+  });
+  return HttpClient.HttpClient.pipe(
+    Effect.map((client) => makeClientService(client, settings)),
+    Effect.withSpan("makeRouterClient"),
+  );
+};
 
 const invalidResponse = () => new RouterInvalidResponseError();
 const utf8Decoder = new TextDecoder("utf-8", {
@@ -64,37 +99,6 @@ const decodeUtf8 = (
     catch: invalidResponse,
   });
 
-/** Closed public Router client failure union. */
-export type RouterClientError =
-  | MalformedRequestError
-  | AuthenticationFailedError
-  | RouteNotFoundError
-  | MethodNotAllowedError
-  | VersionMismatchError
-  | PayloadTooLargeError
-  | UnsupportedMediaTypeError
-  | OverloadedError
-  | UnavailableError
-  | InternalServerError
-  | RouterConnectionError
-  | RouterRequestTimeoutError
-  | RouterInvalidResponseError
-  | AgentSigningError;
-
-/** Service shape provided by the public Router capability. */
-export interface RouterClientService {
-  readonly send: (input: {
-    readonly request: RouterSendRequest;
-    readonly callerAgentId: AgentId;
-    readonly signingAuthority: AgentSigningAuthority;
-  }) => Effect.Effect<RouterSendResult, RouterClientError>;
-  readonly poll: (input: {
-    readonly request: RouterPollRequest;
-    readonly callerAgentId: AgentId;
-    readonly signingAuthority: AgentSigningAuthority;
-  }) => Effect.Effect<RouterPollResult, RouterClientError>;
-}
-
 const decodeCanonicalResult = <A, I>(
   schema: Schema.Schema<A, I>,
   bytes: Uint8Array,
@@ -118,94 +122,12 @@ const decodeCanonicalResult = <A, I>(
     return result;
   });
 
-const envelopeErrors = new Map<
-  number,
-  Readonly<{
-    body: string;
-    make: () =>
-      | MalformedRequestError
-      | AuthenticationFailedError
-      | RouteNotFoundError
-      | MethodNotAllowedError
-      | VersionMismatchError
-      | PayloadTooLargeError
-      | UnsupportedMediaTypeError
-      | OverloadedError
-      | UnavailableError
-      | InternalServerError;
-  }>
->([
-  [
-    400,
-    { body: '{"error":"malformed"}', make: () => new MalformedRequestError() },
-  ],
-  [
-    401,
-    {
-      body: '{"error":"authentication_failed"}',
-      make: () => new AuthenticationFailedError(),
-    },
-  ],
-  [
-    404,
-    { body: '{"error":"not_found"}', make: () => new RouteNotFoundError() },
-  ],
-  [
-    405,
-    {
-      body: '{"error":"method_not_allowed"}',
-      make: () => new MethodNotAllowedError(),
-    },
-  ],
-  [
-    412,
-    {
-      body: '{"error":"version_mismatch"}',
-      make: () => new VersionMismatchError(),
-    },
-  ],
-  [
-    413,
-    {
-      body: '{"error":"payload_too_large"}',
-      make: () => new PayloadTooLargeError(),
-    },
-  ],
-  [
-    415,
-    {
-      body: '{"error":"unsupported_media_type"}',
-      make: () => new UnsupportedMediaTypeError(),
-    },
-  ],
-  [429, { body: '{"error":"overloaded"}', make: () => new OverloadedError() }],
-  [
-    503,
-    { body: '{"error":"unavailable"}', make: () => new UnavailableError() },
-  ],
-  [
-    500,
-    { body: '{"error":"internal"}', make: () => new InternalServerError() },
-  ],
-]);
-
 const decodeResponse = <A, I>(
   schema: Schema.Schema<A, I>,
   response: HttpClientResponse.HttpClientResponse,
 ): Effect.Effect<
   A,
-  | MalformedRequestError
-  | AuthenticationFailedError
-  | RouteNotFoundError
-  | MethodNotAllowedError
-  | VersionMismatchError
-  | PayloadTooLargeError
-  | UnsupportedMediaTypeError
-  | OverloadedError
-  | UnavailableError
-  | InternalServerError
-  | RouterConnectionError
-  | RouterInvalidResponseError
+  RouterHttpEnvelopeError | RouterConnectionError | RouterInvalidResponseError
 > =>
   Effect.gen(function* () {
     const bytes = yield* response.arrayBuffer.pipe(
@@ -214,24 +136,21 @@ const decodeResponse = <A, I>(
       ),
       Effect.map((buffer) => new Uint8Array(buffer)),
     );
-    if (response.headers["content-type"] !== JSON_CONTENT_TYPE) {
+    if (response.headers["content-type"] !== routerJsonContentType) {
       return yield* Effect.fail(invalidResponse());
     }
     if (response.status === 200) {
       return yield* decodeCanonicalResult(schema, bytes);
     }
-    const recognized = envelopeErrors.get(response.status);
-    if (recognized === undefined) {
-      return yield* Effect.fail(invalidResponse());
-    }
     const text = yield* decodeUtf8(bytes);
+    const recognized = routerHttpErrorFromResponse(response.status, text);
     if (
-      recognized.body !== text ||
-      !sameBytes(bytes, utf8Encoder.encode(recognized.body))
+      Option.isNone(recognized) ||
+      !sameBytes(bytes, utf8Encoder.encode(text))
     ) {
       return yield* Effect.fail(invalidResponse());
     }
-    return yield* Effect.fail(recognized.make());
+    return yield* Effect.fail(recognized.value);
   });
 
 const execute = <Request, RequestEncoded, A, I>(input: {
@@ -272,69 +191,41 @@ const execute = <Request, RequestEncoded, A, I>(input: {
     }),
   );
 
-interface RouterClientSettings {
-  readonly origin: URL;
-  readonly sendTimeout: Duration.Duration;
-  readonly pollTimeout: Duration.Duration;
-}
-
-const snapshotDuration = (duration: Duration.Duration): Duration.Duration =>
-  Duration.match(duration, {
+function snapshotDuration(duration: Duration.Duration): Duration.Duration {
+  return Duration.match(duration, {
     onMillis: Duration.millis,
     onNanos: Duration.nanos,
   });
+}
 
-const makeClientService = (
+function makeClientService(
   client: HttpClient.HttpClient,
   settings: RouterClientSettings,
-): RouterClientService => ({
-  send: (call) =>
-    execute({
-      client,
-      origin: settings.origin,
-      path: SEND_PATH,
-      request: call.request,
-      requestSchema: RouterSendRequest,
-      schema: RouterSendResult,
-      callerAgentId: call.callerAgentId,
-      signingAuthority: call.signingAuthority,
-      timeout: settings.sendTimeout,
-    }),
-  poll: (call) =>
-    execute({
-      client,
-      origin: settings.origin,
-      path: POLL_PATH,
-      request: call.request,
-      requestSchema: RouterPollRequest,
-      schema: RouterPollResult,
-      callerAgentId: call.callerAgentId,
-      signingAuthority: call.signingAuthority,
-      timeout: settings.pollTimeout,
-    }),
-});
-
-/**
- * Builds the public Router service over Effect's standard HttpClient.
- *
- * @param input Remote origin and complete operation deadlines.
- * @param input.origin Router HTTP origin.
- * @param input.sendTimeout Complete send deadline.
- * @param input.pollTimeout Complete poll deadline.
- * @returns A client service requiring the standard HttpClient capability.
- */
-export const makeRouterClient = (input: {
-  readonly origin: URL;
-  readonly sendTimeout: Duration.Duration;
-  readonly pollTimeout: Duration.Duration;
-}): Effect.Effect<RouterClientService, never, HttpClient.HttpClient> => {
-  const settings = Object.freeze({
-    origin: new URL(input.origin.href),
-    sendTimeout: snapshotDuration(input.sendTimeout),
-    pollTimeout: snapshotDuration(input.pollTimeout),
-  });
-  return HttpClient.HttpClient.pipe(
-    Effect.map((client) => makeClientService(client, settings)),
-    Effect.withSpan("makeRouterClient"),
-  );
-};
+): RouterClientService {
+  return {
+    send: (call) =>
+      execute({
+        client,
+        origin: settings.origin,
+        path: routerSendPath,
+        request: call.request,
+        requestSchema: RouterSendRequest,
+        schema: RouterSendResult,
+        callerAgentId: call.callerAgentId,
+        signingAuthority: call.signingAuthority,
+        timeout: settings.sendTimeout,
+      }),
+    poll: (call) =>
+      execute({
+        client,
+        origin: settings.origin,
+        path: routerPollPath,
+        request: call.request,
+        requestSchema: RouterPollRequest,
+        schema: RouterPollResult,
+        callerAgentId: call.callerAgentId,
+        signingAuthority: call.signingAuthority,
+        timeout: settings.pollTimeout,
+      }),
+  };
+}

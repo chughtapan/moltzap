@@ -16,7 +16,7 @@ import {
   MOLTZAP_VERSION,
   Registry,
   type VerifiedAgentCard,
-} from "./index.js";
+} from "../index.js";
 import {
   ADMISSION_CREDENTIAL,
   LOOPBACK_HOST,
@@ -32,10 +32,10 @@ import {
   startReadyRegistry,
   stopProcess,
   waitForHealthStatus,
-} from "./__tests__/registry-process.js";
-import { AuthenticationFailedError } from "./http-errors.js";
-import { verifyBootstrapRegistration } from "./registry/bootstrap-admission.js";
-import { makeRegistryStorage } from "./registry/storage.js";
+} from "./registry-process.js";
+import { AuthenticationFailedError } from "../http-errors.js";
+import { verifyBootstrapRegistration } from "../registry/admission.js";
+import { makeRegistryStorage } from "../registry/storage.js";
 import { join } from "node:path";
 import {
   Clock,

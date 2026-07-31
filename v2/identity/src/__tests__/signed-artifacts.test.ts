@@ -4,31 +4,29 @@ import * as fc from "fast-check";
 import { expect, it } from "vitest";
 import {
   AgentSigningAuthority,
+  Ed25519PublicKey,
+  ed25519PublicKeyThumbprintUri,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
-} from "./agent-signing-authority.js";
+} from "../agent-key.js";
 import {
   AgentCard,
+  AgentCardIssuedAt,
   digestAgentCard,
   issueAgentCard,
   type VerifiedAgentCard,
-} from "./agent-card.js";
+} from "../agent-card.js";
+import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import {
-  Ed25519PublicKey,
-  ed25519PublicKeyThumbprintUri,
-} from "./ed25519-public-key.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "./identity-json.js";
-import {
+  MessageId,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
-} from "./signed-message.js";
+} from "../signed-message.js";
 import {
-  AgentCardIssuedAt,
   AgentId,
   AgentName,
-  MessageId,
   PrincipalId,
   type AgentId as AgentIdValue,
-} from "./identity-values.js";
+} from "../identifiers.js";
 
 const MAXIMUM_BODY_BYTES = 262_144;
 const MAXIMUM_RECIPIENTS = 128;

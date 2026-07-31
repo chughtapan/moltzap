@@ -1,16 +1,147 @@
-import { RpcClient, RpcServer } from "@effect/rpc";
-import { Deferred, Effect, Schema } from "effect";
-import type { AgentSigningAuthority } from "../agent-signing-authority.js";
-import { InternalServerError } from "../http-errors.js";
-import { encodeCanonicalJson } from "../identity-json.js";
+/** @file Private admitted Registry operations and in-process RPC dispatch. */
+
 import {
-  registryOperations,
-  type listOperation,
-  type lookupOperation,
-  type registerOperation,
+  Rpc,
+  RpcClient,
+  RpcGroup,
+  RpcMiddleware,
+  RpcServer,
+} from "@effect/rpc";
+import {
+  Context,
+  Deferred,
+  Effect,
+  FiberRef,
+  Layer,
+  Option,
+  Schema,
+} from "effect";
+import type { AgentSigningAuthority } from "../agent-key.js";
+import {
+  AuthenticationFailedError,
+  InternalServerError,
+  MalformedRequestError,
+  MethodNotAllowedError,
+  OverloadedError,
+  PayloadTooLargeError,
+  RouteNotFoundError,
+  UnavailableError,
+  UnsupportedMediaTypeError,
+  VersionMismatchError,
+} from "../http-errors.js";
+import { encodeCanonicalJson } from "../canonical-json.js";
+import {
+  listResultSchema,
+  lookupResultSchema,
+  registerResultSchema,
+  RegistryListRequest,
+  RegistryLookupRequest,
   RegistryRegisterRequest,
-} from "./operations.js";
+} from "./contract.js";
 import type { RegistryStorage } from "./storage.js";
+
+interface BootstrapAdmission {
+  readonly admitted: true;
+}
+
+class BootstrapAdmissionContext extends Context.Tag(
+  "@moltzap/v2-identity/BootstrapAdmissionContext",
+)<BootstrapAdmissionContext, BootstrapAdmission>() {}
+
+/** Required private RPC admission boundary for Registry registration. */
+export class RegistryAdmission extends RpcMiddleware.Tag<RegistryAdmission>()(
+  "@moltzap/v2-identity/RegistryAdmission",
+  {
+    provides: BootstrapAdmissionContext,
+    failure: AuthenticationFailedError,
+  },
+) {}
+
+const currentAdmission = FiberRef.unsafeMake<Option.Option<BootstrapAdmission>>(
+  Option.none(),
+);
+
+/**
+ * Runs private Registry dispatch with one already-verified admission proof.
+ *
+ * @param effect Private registration dispatch to admit.
+ * @returns The dispatch with its admission proof scoped to the current fiber.
+ */
+export const withBootstrapAdmission = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+  Effect.locally(
+    currentAdmission,
+    Option.some(Object.freeze({ admitted: true as const })),
+  )(effect);
+
+const readAdmission = FiberRef.get(currentAdmission).pipe(
+  Effect.flatMap(
+    Option.match({
+      onNone: () => Effect.fail(new AuthenticationFailedError()),
+      onSome: Effect.succeed,
+    }),
+  ),
+);
+
+/** Layer installed only inside the Registry process's private RPC runtime. */
+export const registryAdmissionLayer = Layer.succeed(
+  RegistryAdmission,
+  () => readAdmission,
+);
+
+const registerErrors = Schema.Union(
+  MalformedRequestError,
+  AuthenticationFailedError,
+  RouteNotFoundError,
+  MethodNotAllowedError,
+  VersionMismatchError,
+  PayloadTooLargeError,
+  UnsupportedMediaTypeError,
+  OverloadedError,
+  UnavailableError,
+  InternalServerError,
+);
+
+const publicReadErrors = Schema.Union(
+  MalformedRequestError,
+  RouteNotFoundError,
+  MethodNotAllowedError,
+  VersionMismatchError,
+  PayloadTooLargeError,
+  UnsupportedMediaTypeError,
+  OverloadedError,
+  UnavailableError,
+  InternalServerError,
+);
+
+/** Private registration operation including its admission middleware. */
+export const registerOperation = Rpc.make("register", {
+  payload: RegistryRegisterRequest,
+  success: registerResultSchema,
+  error: registerErrors,
+}).middleware(RegistryAdmission);
+
+/** Private lookup operation. */
+export const lookupOperation = Rpc.make("lookup", {
+  payload: RegistryLookupRequest,
+  success: lookupResultSchema,
+  error: publicReadErrors,
+});
+
+/** Private deterministic list operation. */
+export const listOperation = Rpc.make("list", {
+  payload: RegistryListRequest,
+  success: listResultSchema,
+  error: publicReadErrors,
+});
+
+/** The package-private no-serialization Registry operation group. */
+export const registryOperations = RpcGroup.make(
+  registerOperation,
+  lookupOperation,
+  listOperation,
+);
 
 /** Private in-process client for the Registry operation group. */
 export type RegistryRpcClient = RpcClient.FromGroup<typeof registryOperations>;

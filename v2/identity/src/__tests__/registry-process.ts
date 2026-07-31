@@ -19,10 +19,12 @@ import {
   type RegistryRegisterRequest as RegistryRegisterRequestValue,
   type VerifiedAgentCard,
 } from "../index.js";
-import { agentSigningPrivateKey } from "../agent-signing-authority.js";
-import { ed25519PublicKeyThumbprintUri } from "../ed25519-public-key.js";
+import {
+  agentSigningPrivateKey,
+  ed25519PublicKeyThumbprintUri,
+} from "../agent-key.js";
+import { encodeCanonicalJson } from "../canonical-json.js";
 import { contentDigest } from "../http-signature.js";
-import { encodeCanonicalJson } from "../identity-json.js";
 import {
   Clock,
   Data,

@@ -2,7 +2,7 @@ import {
   Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
   hasCanonicalEd25519SignatureEncoding,
-} from "./ed25519-public-key.js";
+} from "../agent-key.js";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Either, Schema } from "effect";
 import { generateKeyPairSync, sign as signWithPrivateKey } from "node:crypto";

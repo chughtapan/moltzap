@@ -13,30 +13,70 @@ import {
 import {
   AgentSigningAuthority,
   agentSigningPrivateKey,
-} from "./agent-signing-authority.js";
-import {
   Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
   hasCanonicalEd25519SignatureEncoding,
   type Ed25519PublicKey as Ed25519PublicKeyValue,
-} from "./ed25519-public-key.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "./identity-json.js";
+} from "./agent-key.js";
+import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
-  AgentCardIssuedAt,
-  AgentCardDigest,
   AgentId,
   AgentName,
   PrincipalId,
-  type AgentCardIssuedAt as AgentCardIssuedAtValue,
-  type AgentCardDigest as AgentCardDigestValue,
+  canonicalIdentifier,
   type AgentId as AgentIdValue,
   type AgentName as AgentNameValue,
   type PrincipalId as PrincipalIdValue,
-} from "./identity-values.js";
+} from "./identifiers.js";
 import { MOLTZAP_VERSION } from "./version.js";
 
+const DIGEST_BYTE_LENGTH = 32;
+const WHOLE_SECOND_UTC =
+  /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\dZ$/;
 const AGENT_CARD_TYPE = "application/vnd.moltzap.agent-card+jws";
 const ED25519_SIGNATURE_BYTES = 64;
+
+const isWholeSecondUtc = (value: string): boolean => {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const epochMilliseconds = Date.parse(value);
+  if (!Number.isFinite(epochMilliseconds)) {
+    return false;
+  }
+  // eslint-disable-next-line sonarjs/null-dereference -- The explicit runtime guard above establishes the string consumed by this Schema predicate.
+  const wholeSecondValue = `${value.slice(0, -1)}.000Z`;
+  return new Date(epochMilliseconds).toISOString() === wholeSecondValue;
+};
+
+/** Digest binding a message to one complete immutable AgentCard. */
+// eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
+export const AgentCardDigest = canonicalIdentifier(
+  "AgentCardDigest",
+  "acd_",
+  DIGEST_BYTE_LENGTH,
+);
+/** Validated nominal value decoded by AgentCardDigest. */
+// eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one boundary model.
+export type AgentCardDigest = typeof AgentCardDigest.Type;
+
+/** Whole-second UTC issuance evidence carried by an AgentCard. */
+// eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the package-owned domain name they decode.
+export const AgentCardIssuedAt = Schema.String.pipe(
+  Schema.pattern(WHOLE_SECOND_UTC),
+  Schema.filter(isWholeSecondUtc, {
+    identifier: "AgentCardIssuedAt",
+    description: "AgentCard issuance time in whole-second UTC",
+  }),
+  Schema.brand("AgentCardIssuedAt"),
+  Schema.annotations({
+    identifier: "AgentCardIssuedAt",
+    description: "AgentCard issuance time in whole-second UTC",
+  }),
+);
+/** Validated nominal value decoded by AgentCardIssuedAt. */
+// eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one package boundary model.
+export type AgentCardIssuedAt = typeof AgentCardIssuedAt.Type;
 
 const hasCanonicalBase64UrlByteLength = (
   value: string,
@@ -252,7 +292,7 @@ interface IssueAgentCardInput {
   readonly principalId: PrincipalIdValue;
   readonly agentName: AgentNameValue;
   readonly publicKey: Ed25519PublicKeyValue;
-  readonly issuedAt: AgentCardIssuedAtValue;
+  readonly issuedAt: AgentCardIssuedAt;
   readonly registrySigningAuthority: AgentSigningAuthority;
 }
 
@@ -380,7 +420,7 @@ export const encodeAgentCard = (
  */
 export const digestAgentCard = (
   agentCard: AgentCard,
-): Effect.Effect<AgentCardDigestValue, AgentCardVerificationError> =>
+): Effect.Effect<AgentCardDigest, AgentCardVerificationError> =>
   Effect.gen(function* () {
     const bytes = yield* encodeAgentCard(agentCard);
     const digest = yield* Effect.try({

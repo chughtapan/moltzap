@@ -1,3 +1,5 @@
+/** @file Exact canonical JSON parsing and encoding for identity boundaries. */
+
 import canonicalize from "canonicalize";
 import { Data, Effect, Schema } from "effect";
 import { types as nodeTypes } from "node:util";

@@ -46,29 +46,23 @@ import {
   Schema,
 } from "effect";
 import { describe, expect, it } from "vitest";
-import { Router } from "../router.js";
-import { RouterServer } from "../server.js";
-import { loadRouterConfiguration } from "./configuration.js";
-import {
-  RouterConnectionError,
-  RouterInvalidResponseError,
-  RouterRequestTimeoutError,
-} from "./errors.js";
-import { makeRouterFeedAtOrder } from "./feed.js";
-import { makeHeldPolls } from "./held-polls.js";
+import { Router } from "../../router.js";
+import { RouterServer } from "../../server.js";
+import { loadRouterConfiguration } from "../configuration.js";
 import {
   calculateRouterRepresentationLimits,
-  makeRouterRpcClient,
-  routerRepresentationLimits,
-} from "./operations.js";
-import { maximumPrivateOrder } from "./poll-cursor.js";
-import { withVerifiedRouterRequest } from "./request-context.js";
-import { makeRouterSend } from "./send.js";
-import {
+  RouterConnectionError,
+  RouterInvalidResponseError,
   RouterInstanceId,
   type PollCursor as PollCursorValue,
   type RouterInstanceId as RouterInstanceIdValue,
-} from "./values.js";
+  RouterRequestTimeoutError,
+  routerRepresentationLimits,
+} from "../contract.js";
+import { makeRouterFeedAtOrder, maximumPrivateOrder } from "../feed.js";
+import { makePollWaiters } from "../poll-waiters.js";
+import { makeRouterRpcClient, withVerifiedRouterRequest } from "../rpc.js";
+import { makeRouterSend } from "../send.js";
 
 const utf8Encoder = new TextEncoder();
 
@@ -448,7 +442,7 @@ describe("send exhaustion behavior", () => {
         const send = makeRouterSend({
           routerInstanceId,
           feed,
-          heldPolls: yield* makeHeldPolls(1),
+          pollWaiters: yield* makePollWaiters(1),
         });
         const senderFixture = yield* makeRegisteredSenderFixture();
         const finalMessage = yield* SignedMessage.sign({

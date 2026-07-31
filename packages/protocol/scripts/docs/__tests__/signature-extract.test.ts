@@ -112,6 +112,44 @@ describe("extractSignatureText", () => {
     expect(sig).toBe("export type Foo = Bar;");
   });
 
+  it("keeps every arm of a multiline union alias", () => {
+    const source = [
+      "export type RegistryLookupResult =",
+      '  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>',
+      '  | Readonly<{ kind: "not_found" }>;',
+      "",
+      "export interface Unrelated {",
+      "  readonly value: string;",
+      "}",
+      "",
+    ].join("\n");
+
+    expect(
+      extractSignatureText(source, 1, ReflectionKind.TypeAlias, true),
+    ).toBe(
+      [
+        "export type RegistryLookupResult =",
+        '  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>',
+        '  | Readonly<{ kind: "not_found" }>;',
+      ].join("\n"),
+    );
+  });
+
+  it("keeps every member of a multiline intersection alias", () => {
+    const source = [
+      "export type VerifiedAgentRequest = Readonly<{",
+      "  readonly callerAgentId: AgentId;",
+      "  readonly request: unknown;",
+      "}> &",
+      '  Brand.Brand<"VerifiedAgentRequest">;',
+      "",
+    ].join("\n");
+
+    expect(
+      extractSignatureText(source, 1, ReflectionKind.TypeAlias, true),
+    ).toBe(source.trim());
+  });
+
   it("returns null when the line is out of range", () => {
     const source = "line one\nline two\n";
     expect(
@@ -187,7 +225,7 @@ describe("extractSignatureText", () => {
   });
 
   it("renders the type declaration from a Schema value/type pair", () => {
-    const fileName = "v2/identity/src/identity-values.ts";
+    const fileName = "v2/identity/src/identifiers.ts";
     const source = [
       "export const AgentId = Schema.String;",
       "export type AgentId = typeof AgentId.Type;",
@@ -208,7 +246,7 @@ describe("extractSignatureText", () => {
   });
 
   it("renders the value declaration from an interface/value pair", () => {
-    const fileName = "v2/identity/src/agent-signing-authority.ts";
+    const fileName = "v2/identity/src/agent-key.ts";
     const source = [
       "export interface AgentSigningAuthority {",
       '  readonly _brand: "AgentSigningAuthority";',

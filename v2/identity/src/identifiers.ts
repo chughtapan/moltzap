@@ -1,9 +1,6 @@
 import { Either, Encoding, Schema } from "effect";
 
 const IDENTIFIER_BYTE_LENGTH = 16;
-const DIGEST_BYTE_LENGTH = 32;
-const WHOLE_SECOND_UTC =
-  /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\dZ$/;
 
 const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined => {
   return Either.match(Encoding.decodeBase64Url(value), {
@@ -25,7 +22,15 @@ export const hasCanonicalBase64UrlLength = (
   byteLength: number,
 ): boolean => decodeCanonicalBase64Url(value)?.byteLength === byteLength;
 
-const canonicalValue = <const Name extends string>(
+/**
+ * Constructs one exact prefixed identity Schema for its semantic owner.
+ *
+ * @param name Nominal Schema and brand name.
+ * @param prefix Fixed representation prefix.
+ * @param byteLength Required decoded payload length.
+ * @returns The exact branded string Schema.
+ */
+export const canonicalIdentifier = <const Name extends string>(
   name: Name,
   prefix: string,
   byteLength: number,
@@ -54,25 +59,12 @@ const canonicalValue = <const Name extends string>(
     }),
   );
 
-const isWholeSecondUtc = (value: string): boolean => {
-  if (typeof value !== "string") {
-    return false;
-  }
-  const epochMilliseconds = Date.parse(value);
-  if (!Number.isFinite(epochMilliseconds)) {
-    return false;
-  }
-  // eslint-disable-next-line sonarjs/null-dereference -- The explicit runtime guard above establishes the string consumed by this Schema predicate.
-  const wholeSecondValue = `${value.slice(0, -1)}.000Z`;
-  return new Date(epochMilliseconds).toISOString() === wholeSecondValue;
-};
-
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare --
  * Named Effect Schemas share their domain names with the nominal types they decode.
  */
 
 /** Canonical network identity minted by the Registry. */
-export const AgentId = canonicalValue(
+export const AgentId = canonicalIdentifier(
   "AgentId",
   "agt_",
   IDENTIFIER_BYTE_LENGTH,
@@ -81,40 +73,13 @@ export const AgentId = canonicalValue(
 export type AgentId = typeof AgentId.Type;
 
 /** Opaque identity of the principal represented by an agent. */
-export const PrincipalId = canonicalValue(
+export const PrincipalId = canonicalIdentifier(
   "PrincipalId",
   "prn_",
   IDENTIFIER_BYTE_LENGTH,
 );
 /** Validated nominal value decoded by {@link PrincipalId}. */
 export type PrincipalId = typeof PrincipalId.Type;
-
-/** Idempotency identity for a registration operation. */
-export const OperationId = canonicalValue(
-  "OperationId",
-  "opn_",
-  IDENTIFIER_BYTE_LENGTH,
-);
-/** Validated nominal value decoded by {@link OperationId}. */
-export type OperationId = typeof OperationId.Type;
-
-/** Sender-scoped identity of one attributed message. */
-export const MessageId = canonicalValue(
-  "MessageId",
-  "msg_",
-  IDENTIFIER_BYTE_LENGTH,
-);
-/** Validated nominal value decoded by {@link MessageId}. */
-export type MessageId = typeof MessageId.Type;
-
-/** Digest binding a message to one complete immutable AgentCard. */
-export const AgentCardDigest = canonicalValue(
-  "AgentCardDigest",
-  "acd_",
-  DIGEST_BYTE_LENGTH,
-);
-/** Validated nominal value decoded by {@link AgentCardDigest}. */
-export type AgentCardDigest = typeof AgentCardDigest.Type;
 
 /** Immutable Registry-wide human-facing agent handle. */
 export const AgentName = Schema.String.pipe(
@@ -129,22 +94,6 @@ export const AgentName = Schema.String.pipe(
 );
 /** Validated nominal value decoded by {@link AgentName}. */
 export type AgentName = typeof AgentName.Type;
-
-/** Whole-second UTC issuance evidence carried by an AgentCard. */
-export const AgentCardIssuedAt = Schema.String.pipe(
-  Schema.pattern(WHOLE_SECOND_UTC),
-  Schema.filter(isWholeSecondUtc, {
-    identifier: "AgentCardIssuedAt",
-    description: "AgentCard issuance time in whole-second UTC",
-  }),
-  Schema.brand("AgentCardIssuedAt"),
-  Schema.annotations({
-    identifier: "AgentCardIssuedAt",
-    description: "AgentCard issuance time in whole-second UTC",
-  }),
-);
-/** Validated nominal value decoded by {@link AgentCardIssuedAt}. */
-export type AgentCardIssuedAt = typeof AgentCardIssuedAt.Type;
 
 /* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare --
  * Restore the general naming rules after the public Schema/type pairs.

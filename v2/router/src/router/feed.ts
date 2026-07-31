@@ -1,8 +1,85 @@
 import type { AgentId, MessageId, SignedMessage } from "@moltzap/v2-identity";
 import { Data, Effect, Ref } from "effect";
-import type { RouterSendResult } from "./operations.js";
-import { maximumPrivateOrder } from "./poll-cursor.js";
-import type { RouterInstanceId, SignedMessageDigest } from "./values.js";
+import type {
+  RouterInstanceId,
+  RouterSendResult,
+  SignedMessageDigest,
+} from "./contract.js";
+
+/** Greatest private feed order representable by this Router process. */
+export const maximumPrivateOrder = (1n << 128n) - 1n;
+
+/** Stable view used for one poll scan. */
+export interface FeedSnapshot {
+  readonly entries: readonly FeedEntry[];
+  readonly tailOrder: bigint;
+  readonly greatestEvictedOrder: bigint;
+}
+
+/** Sole capability owning volatile order, retention, and retry identity. */
+export interface RouterFeed {
+  readonly accept: (input: FeedCandidate) => Effect.Effect<FeedAcceptResult>;
+  readonly snapshot: Effect.Effect<FeedSnapshot>;
+  readonly freshAppendReady: Effect.Effect<boolean>;
+}
+
+interface RouterFeedInput {
+  readonly routerInstanceId: RouterInstanceId;
+  readonly retainedMessageCapacity: number;
+  readonly retainedMessageByteCapacity: number;
+}
+
+/** An initial private order is outside the closed unsigned range. */
+export class FeedOrderOutOfRangeError extends Data.TaggedError(
+  "FeedOrderOutOfRangeError",
+) {}
+
+/**
+ * Creates the sole owner of Router private order, retention, and retry state.
+ *
+ * @param input Process identity and finite retention bounds.
+ * @param input.routerInstanceId Current volatile process identity.
+ * @param input.retainedMessageCapacity Maximum retained message count.
+ * @param input.retainedMessageByteCapacity Maximum retained message bytes.
+ * @returns A scoped state capability for send and poll.
+ */
+export const makeRouterFeed = (
+  input: RouterFeedInput,
+): Effect.Effect<RouterFeed> => makeFeed(input, 0n);
+
+/**
+ * Creates a feed over an already-consumed private-order prefix.
+ *
+ * The prefix is treated as evicted history and must fit the unsigned
+ * private-order range.
+ *
+ * @param input Process identity, finite retention bounds, and consumed order.
+ * @returns A scoped state capability for send and poll.
+ */
+export const makeRouterFeedAtOrder = (
+  input: RouterFeedInput & Readonly<{ initialTailOrder: bigint }>,
+): Effect.Effect<RouterFeed, FeedOrderOutOfRangeError> => {
+  if (
+    input.initialTailOrder < 0n ||
+    input.initialTailOrder > maximumPrivateOrder
+  ) {
+    return Effect.fail(new FeedOrderOutOfRangeError());
+  }
+  return makeFeed(input, input.initialTailOrder);
+};
+
+/**
+ * Restricts one stable feed snapshot to entries after a private order.
+ *
+ * @param snapshot Stable feed state for one scan.
+ * @param order Exclusive lower private-order bound.
+ * @returns Entries with a greater private order.
+ */
+export const entriesAfter = (
+  snapshot: FeedSnapshot,
+  order: bigint,
+): readonly FeedEntry[] =>
+  snapshot.entries.filter((entry) => entry.order > order);
 
 interface FeedEntry {
   readonly order: bigint;
@@ -32,13 +109,6 @@ type FeedAcceptResult =
     }>
   | Readonly<{ kind: "overloaded" }>;
 
-/** Stable view used for one poll scan. */
-export interface FeedSnapshot {
-  readonly entries: readonly FeedEntry[];
-  readonly tailOrder: bigint;
-  readonly greatestEvictedOrder: bigint;
-}
-
 interface FeedCandidate {
   readonly mode: "initial" | "retry";
   readonly signedMessage: SignedMessage;
@@ -48,13 +118,6 @@ interface FeedCandidate {
   readonly senderAgentId: AgentId;
   readonly messageId: MessageId;
   readonly signedMessageDigest: SignedMessageDigest;
-}
-
-/** Sole capability owning volatile order, retention, and retry identity. */
-export interface RouterFeed {
-  readonly accept: (input: FeedCandidate) => Effect.Effect<FeedAcceptResult>;
-  readonly snapshot: Effect.Effect<FeedSnapshot>;
-  readonly freshAppendReady: Effect.Effect<boolean>;
 }
 
 const retryKey = (senderAgentId: AgentId, messageId: MessageId): string =>
@@ -201,22 +264,11 @@ const modifyFeed = (
   return appendCandidate(current, candidate, key, input);
 };
 
-interface RouterFeedInput {
-  readonly routerInstanceId: RouterInstanceId;
-  readonly retainedMessageCapacity: number;
-  readonly retainedMessageByteCapacity: number;
-}
-
-/** An initial private order is outside the closed unsigned range. */
-export class FeedOrderOutOfRangeError extends Data.TaggedError(
-  "FeedOrderOutOfRangeError",
-) {}
-
-const makeFeed = (
+function makeFeed(
   input: RouterFeedInput,
   initialTailOrder: bigint,
-): Effect.Effect<RouterFeed> =>
-  Effect.gen(function* () {
+): Effect.Effect<RouterFeed> {
+  return Effect.gen(function* () {
     const state = yield* Ref.make<FeedState>(
       makeInitialState(initialTailOrder),
     );
@@ -236,50 +288,4 @@ const makeFeed = (
     };
     return Object.freeze(service);
   }).pipe(Effect.withSpan("makeRouterFeed"));
-
-/**
- * Creates the sole owner of Router private order, retention, and retry state.
- *
- * @param input Process identity and finite retention bounds.
- * @param input.routerInstanceId Current volatile process identity.
- * @param input.retainedMessageCapacity Maximum retained message count.
- * @param input.retainedMessageByteCapacity Maximum retained message bytes.
- * @returns A scoped state capability for send and poll.
- */
-export const makeRouterFeed = (
-  input: RouterFeedInput,
-): Effect.Effect<RouterFeed> => makeFeed(input, 0n);
-
-/**
- * Creates a feed over an already-consumed private-order prefix.
- *
- * The prefix is treated as evicted history and must fit the unsigned
- * private-order range.
- *
- * @param input Process identity, finite retention bounds, and consumed order.
- * @returns A scoped state capability for send and poll.
- */
-export const makeRouterFeedAtOrder = (
-  input: RouterFeedInput & Readonly<{ initialTailOrder: bigint }>,
-): Effect.Effect<RouterFeed, FeedOrderOutOfRangeError> => {
-  if (
-    input.initialTailOrder < 0n ||
-    input.initialTailOrder > maximumPrivateOrder
-  ) {
-    return Effect.fail(new FeedOrderOutOfRangeError());
-  }
-  return makeFeed(input, input.initialTailOrder);
-};
-
-/**
- * Restricts one stable feed snapshot to entries after a private order.
- *
- * @param snapshot Stable feed state for one scan.
- * @param order Exclusive lower private-order bound.
- * @returns Entries with a greater private order.
- */
-export const entriesAfter = (
-  snapshot: FeedSnapshot,
-  order: bigint,
-): readonly FeedEntry[] =>
-  snapshot.entries.filter((entry) => entry.order > order);
+}

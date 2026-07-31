@@ -13,22 +13,29 @@ import {
   AgentSigningAuthority,
   agentSigningPrivateKey,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
-} from "./agent-signing-authority.js";
-import { digestAgentCard, type VerifiedAgentCard } from "./agent-card.js";
-import {
   ed25519PublicKeyThumbprintUri,
   hasCanonicalEd25519SignatureEncoding,
-} from "./ed25519-public-key.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "./identity-json.js";
+} from "./agent-key.js";
 import {
   AgentCardDigest,
-  AgentId,
-  MessageId,
+  digestAgentCard,
   type AgentCardDigest as AgentCardDigestValue,
+  type VerifiedAgentCard,
+} from "./agent-card.js";
+import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
+import {
+  AgentId,
+  canonicalIdentifier,
   type AgentId as AgentIdValue,
-  type MessageId as MessageIdValue,
-} from "./identity-values.js";
+} from "./identifiers.js";
 import { MOLTZAP_VERSION } from "./version.js";
+
+/** Sender-scoped identity of one attributed message. */
+// eslint-disable-next-line @typescript-eslint/naming-convention -- Effect Schemas share the public domain name they decode.
+export const MessageId = canonicalIdentifier("MessageId", "msg_", 16);
+/** Validated nominal value decoded by MessageId. */
+// eslint-disable-next-line @typescript-eslint/no-redeclare -- The same-named Schema and type form one boundary model.
+export type MessageId = typeof MessageId.Type;
 
 const SIGNED_MESSAGE_TYPE = "application/vnd.moltzap.signed-message+jws";
 const MAXIMUM_BODY_BYTES = 262_144;
@@ -146,7 +153,7 @@ export interface SignedMessage {
   readonly senderAgentId: AgentIdValue;
   readonly agentCardDigest: AgentCardDigestValue;
   readonly recipientAgentIds: readonly AgentIdValue[];
-  readonly messageId: MessageIdValue;
+  readonly messageId: MessageId;
   readonly body: Uint8Array;
 }
 
@@ -313,7 +320,7 @@ interface SignInput {
   readonly agentCard: VerifiedAgentCard;
   readonly signingAuthority: AgentSigningAuthorityValue;
   readonly recipientAgentIds: ReadonlySet<AgentIdValue>;
-  readonly messageId: MessageIdValue;
+  readonly messageId: MessageId;
   readonly body: Uint8Array;
 }
 

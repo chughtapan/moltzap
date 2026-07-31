@@ -1,13 +1,13 @@
 import type { HttpClient } from "@effect/platform";
 import { Context, type Duration, Effect, Layer } from "effect";
-import type { Ed25519PublicKey } from "./ed25519-public-key.js";
+import type { Ed25519PublicKey } from "./agent-key.js";
+import { makeRegistryService } from "./registry/client.js";
 import {
-  makeRegistryService,
   RegistryConnectionError,
   RegistryInvalidResponseError,
   RegistryRequestTimeoutError,
   type RegistryClientService,
-} from "./registry/client.js";
+} from "./registry/contract.js";
 
 /** Closed infrastructure failures returned by the Registry client. */
 export {

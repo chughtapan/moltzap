@@ -5,22 +5,19 @@ import { randomBytes } from "node:crypto";
 import { Clock, Data, Effect, Either, Encoding, Schema } from "effect";
 import {
   AgentCard,
+  AgentCardIssuedAt,
   encodeAgentCard,
   issueAgentCard,
   type VerifiedAgentCard,
 } from "../agent-card.js";
-import type { AgentSigningAuthority } from "../agent-signing-authority.js";
 import {
   ed25519PublicKeyThumbprintUri,
+  type AgentSigningAuthority,
   type Ed25519PublicKey,
-} from "../ed25519-public-key.js";
+} from "../agent-key.js";
 import { InternalServerError, UnavailableError } from "../http-errors.js";
-import { decodeCanonicalJson, encodeCanonicalJson } from "../identity-json.js";
-import {
-  AgentCardIssuedAt,
-  AgentId,
-  type AgentId as AgentIdValue,
-} from "../identity-values.js";
+import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
+import { AgentId, type AgentId as AgentIdValue } from "../identifiers.js";
 import { MOLTZAP_VERSION } from "../version.js";
 import { registryMigration } from "./migrations/0001_registry.js";
 import {
@@ -31,7 +28,7 @@ import {
   type RegistryRegisterRequest,
   type RegistryRegisterResult,
   registerResponseSchema,
-} from "./operations.js";
+} from "./contract.js";
 
 /** Storage initialization failed before the Registry became ready. */
 export class RegistryStorageInitializationError extends Data.TaggedError(
@@ -54,6 +51,68 @@ type StoredOperation = Readonly<{
   requestBytes: Uint8Array;
   resultBytes: Uint8Array;
 }>;
+
+/** Durable operations needed by Registry admission and request handling. */
+export interface RegistryStorage {
+  readonly checkReadiness: () => Effect.Effect<void, StorageError>;
+  readonly claimRegistrationNonce: (input: {
+    readonly nonce: string;
+    readonly expires: number;
+    readonly now: number;
+    readonly capacity: number;
+  }) => Effect.Effect<"claimed" | "replayed" | "full", StorageError>;
+  readonly register: (
+    input: RegisterInput,
+  ) => Effect.Effect<RegistryRegisterResult, StorageError>;
+  readonly lookup: (
+    request: RegistryLookupRequest,
+  ) => Effect.Effect<RegistryLookupResult, StorageError>;
+  readonly list: (
+    request: RegistryListRequest,
+  ) => Effect.Effect<RegistryListResult, StorageError>;
+}
+
+/**
+ * Runs migrations and binds the configured signer and version to storage.
+ *
+ * @param input Initialization dependencies.
+ * @param input.sql Exclusive SQL capability for this Registry process.
+ * @param input.registrySignerPublicKey Pinned Registry verification key.
+ * @returns An effect that completes only after storage is ready.
+ */
+export function initializeRegistryStorage(input: {
+  readonly sql: SqlClient;
+  readonly registrySignerPublicKey: Ed25519PublicKey;
+}): Effect.Effect<void, RegistryStorageInitializationError> {
+  return runStorageInitialization(input).pipe(
+    // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Startup exposes one empty storage phase error and never leaks database or key details.
+    Effect.mapError(() => new RegistryStorageInitializationError()),
+    Effect.catchAllDefect(() =>
+      Effect.fail(new RegistryStorageInitializationError()),
+    ),
+    Effect.withSpan("initializeRegistryStorage"),
+  );
+}
+
+/**
+ * Creates durable Registry operations over one initialized SQL client.
+ *
+ * @param input Storage dependencies and operation bounds.
+ * @param input.sql Initialized SQL capability.
+ * @param input.registrySignerPublicKey Pinned Registry verification key.
+ * @param input.listPageSize Maximum complete cards in one list response.
+ * @param input.operationTimeoutMilliseconds Complete SQL operation deadline.
+ * @returns Durable Registry operations.
+ */
+export function makeRegistryStorage(input: StorageInput): RegistryStorage {
+  return Object.freeze({
+    checkReadiness: makeCheckReadiness(input),
+    claimRegistrationNonce: makeClaimRegistrationNonce(input),
+    register: makeRegister(input),
+    lookup: makeLookup(input),
+    list: makeList(input),
+  });
+}
 
 const AGENT_ID_MINT_ATTEMPTS = 8;
 const migrations = Migrator.fromRecord({
@@ -212,29 +271,10 @@ const decodeAgentIdBytes = (
     onRight: Effect.succeed,
   });
 
-/** Durable operations needed by Registry admission and request handling. */
-export interface RegistryStorage {
-  readonly checkReadiness: () => Effect.Effect<void, StorageError>;
-  readonly claimRegistrationNonce: (input: {
-    readonly nonce: string;
-    readonly expires: number;
-    readonly now: number;
-    readonly capacity: number;
-  }) => Effect.Effect<"claimed" | "replayed" | "full", StorageError>;
-  readonly register: (
-    input: RegisterInput,
-  ) => Effect.Effect<RegistryRegisterResult, StorageError>;
-  readonly lookup: (
-    request: RegistryLookupRequest,
-  ) => Effect.Effect<RegistryLookupResult, StorageError>;
-  readonly list: (
-    request: RegistryListRequest,
-  ) => Effect.Effect<RegistryListResult, StorageError>;
-}
-
-const makeCheckReadiness =
-  (input: StorageInput): RegistryStorage["checkReadiness"] =>
-  () =>
+function makeCheckReadiness(
+  input: StorageInput,
+): RegistryStorage["checkReadiness"] {
+  return () =>
     withStorageDeadline(
       input.sql`SELECT 1 AS ready`.pipe(
         Effect.flatMap((rows) => exactRows(readinessRow, rows)),
@@ -246,6 +286,7 @@ const makeCheckReadiness =
       ),
       input.operationTimeoutMilliseconds,
     );
+}
 
 const ensureMigrationTable = (sql: SqlClient) =>
   sql.unsafe(`
@@ -289,11 +330,11 @@ const bindStorageMetadata = (input: {
     }),
   );
 
-const runStorageInitialization = (input: {
+function runStorageInitialization(input: {
   readonly sql: SqlClient;
   readonly registrySignerPublicKey: Ed25519PublicKey;
-}) =>
-  Effect.gen(function* () {
+}) {
+  return Effect.gen(function* () {
     // The PGlite socket closes after Migrator's missing-table probe. Creating
     // Migrator's own table first keeps every supported database on one path.
     yield* ensureMigrationTable(input.sql);
@@ -306,27 +347,7 @@ const runStorageInitialization = (input: {
     );
     yield* bindStorageMetadata({ sql: input.sql, signerThumbprint });
   });
-
-/**
- * Runs migrations and binds the configured signer and version to storage.
- *
- * @param input Initialization dependencies.
- * @param input.sql Exclusive SQL capability for this Registry process.
- * @param input.registrySignerPublicKey Pinned Registry verification key.
- * @returns An effect that completes only after storage is ready.
- */
-export const initializeRegistryStorage = (input: {
-  readonly sql: SqlClient;
-  readonly registrySignerPublicKey: Ed25519PublicKey;
-}): Effect.Effect<void, RegistryStorageInitializationError> =>
-  runStorageInitialization(input).pipe(
-    // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Startup exposes one empty storage phase error and never leaks database or key details.
-    Effect.mapError(() => new RegistryStorageInitializationError()),
-    Effect.catchAllDefect(() =>
-      Effect.fail(new RegistryStorageInitializationError()),
-    ),
-    Effect.withSpan("initializeRegistryStorage"),
-  );
+}
 
 const claimNonceTransaction = (
   sql: SqlClient,
@@ -363,13 +384,15 @@ const claimNonceTransaction = (
     }),
   );
 
-const makeClaimRegistrationNonce =
-  (input: StorageInput): RegistryStorage["claimRegistrationNonce"] =>
-  (claim) =>
+function makeClaimRegistrationNonce(
+  input: StorageInput,
+): RegistryStorage["claimRegistrationNonce"] {
+  return (claim) =>
     withStorageDeadline(
       claimNonceTransaction(input.sql, claim),
       input.operationTimeoutMilliseconds,
     );
+}
 
 const findStoredOperation = (
   sql: SqlClient,
@@ -509,9 +532,8 @@ const registerTransaction = (
     }),
   );
 
-const makeRegister =
-  (input: StorageInput): RegistryStorage["register"] =>
-  (call) =>
+function makeRegister(input: StorageInput): RegistryStorage["register"] {
+  return (call) =>
     withStorageDeadline(
       internalFailure(
         ed25519PublicKeyThumbprintUri(call.request.publicKey),
@@ -522,6 +544,7 @@ const makeRegister =
       ),
       input.operationTimeoutMilliseconds,
     );
+}
 
 const findCardRows = (sql: SqlClient, request: RegistryLookupRequest) =>
   "agentId" in request
@@ -536,9 +559,8 @@ const findCardRows = (sql: SqlClient, request: RegistryLookupRequest) =>
         WHERE agent_name = ${request.agentName}
       `;
 
-const makeLookup =
-  (input: StorageInput): RegistryStorage["lookup"] =>
-  (request) =>
+function makeLookup(input: StorageInput): RegistryStorage["lookup"] {
+  return (request) =>
     withStorageDeadline(
       Effect.gen(function* () {
         const cards = yield* findCardRows(input.sql, request).pipe(
@@ -559,6 +581,7 @@ const makeLookup =
       }),
       input.operationTimeoutMilliseconds,
     );
+}
 
 const readListRows = (input: StorageInput, afterBytes?: Uint8Array) => {
   const maximumRows = input.listPageSize + 1;
@@ -578,9 +601,8 @@ const readListRows = (input: StorageInput, afterBytes?: Uint8Array) => {
       `;
 };
 
-const makeList =
-  (input: StorageInput): RegistryStorage["list"] =>
-  (request) =>
+function makeList(input: StorageInput): RegistryStorage["list"] {
+  return (request) =>
     withStorageDeadline(
       Effect.gen(function* () {
         const afterBytes =
@@ -605,22 +627,4 @@ const makeList =
       }),
       input.operationTimeoutMilliseconds,
     );
-
-/**
- * Creates durable Registry operations over one initialized SQL client.
- *
- * @param input Storage dependencies and operation bounds.
- * @param input.sql Initialized SQL capability.
- * @param input.registrySignerPublicKey Pinned Registry verification key.
- * @param input.listPageSize Maximum complete cards in one list response.
- * @param input.operationTimeoutMilliseconds Complete SQL operation deadline.
- * @returns Durable Registry operations.
- */
-export const makeRegistryStorage = (input: StorageInput): RegistryStorage =>
-  Object.freeze({
-    checkReadiness: makeCheckReadiness(input),
-    claimRegistrationNonce: makeClaimRegistrationNonce(input),
-    register: makeRegister(input),
-    lookup: makeLookup(input),
-    list: makeList(input),
-  });
+}

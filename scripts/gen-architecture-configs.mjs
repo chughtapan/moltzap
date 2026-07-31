@@ -498,15 +498,9 @@ const architectureConfigDefinitions = [
         folderChildCountOverrides: [
           {
             folder: ".",
-            maxChildren: 14,
+            maxChildren: 12,
             reason:
-              "The package root intentionally keeps the public identity artifact and capability vocabulary flat while organization remains human-gated",
-          },
-          {
-            folder: "registry",
-            maxChildren: 11,
-            reason:
-              "The complete Registry process slice is intentionally flat while its final folder organization remains under human review",
+              "The identity root keeps its closed identifier, key, signed-artifact, request-authentication, and Registry capability boundaries as peer deep modules",
           },
         ],
         facadeFiles: [
@@ -521,11 +515,6 @@ const architectureConfigDefinitions = [
               "Standards adapter boundary for the closed MoltZap HTTP signature profiles",
           },
           {
-            file: "registered-agent-request.ts",
-            reason:
-              "Opaque proof boundary produced only by registered-agent authentication",
-          },
-          {
             file: "registry.ts",
             reason:
               "Public deep Registry capability and infrastructure-failure boundary",
@@ -536,9 +525,9 @@ const architectureConfigDefinitions = [
               "Private HTTP adapter hidden behind the public Registry capability",
           },
           {
-            file: "registry/operations.ts",
+            file: "registry/contract.ts",
             reason:
-              "Closed Registry request, result, representation, and private RPC contract",
+              "Closed Registry request, result, operation value, representation, route, and client-failure contract",
           },
           {
             file: "registry/rpc.ts",
@@ -578,9 +567,9 @@ const architectureConfigDefinitions = [
         folderChildCountOverrides: [
           {
             folder: "router",
-            maxChildren: 14,
+            maxChildren: 12,
             reason:
-              "The complete Router process slice is intentionally flat while its final folder organization remains under human review",
+              "The Router implementation keeps contract, client, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, server, and process as the cohesive boundaries of one independently runnable service",
           },
         ],
         facadeFiles: [
@@ -595,14 +584,24 @@ const architectureConfigDefinitions = [
               "Sole state boundary for ordering, retention, and retry identity",
           },
           {
-            file: "router/operations.ts",
+            file: "router/contract.ts",
             reason:
-              "Closed Router request, result, representation, and private RPC contract",
+              "Closed Router request, result, operation value, representation, route, limit, and client-failure contract",
           },
           {
             file: "router/poll.ts",
             reason:
               "Authenticated poll behavior boundary over cursor and feed capabilities",
+          },
+          {
+            file: "router/poll-cursor.ts",
+            reason:
+              "Authenticated continuation boundary for caller-bound cursor state and process-scoped cursor material",
+          },
+          {
+            file: "router/rpc.ts",
+            reason:
+              "Private correlated dispatch boundary between authenticated HTTP requests and send or poll operations",
           },
           {
             file: "router/send.ts",

@@ -21,8 +21,8 @@ import type {
   UnsupportedMediaTypeError,
   VersionMismatchError,
 } from "@moltzap/v2-identity";
-import type * as RouterPackage from "./index.js";
-import type * as RouterServerPackage from "./server.js";
+import type * as RouterPackage from "../../index.js";
+import type * as RouterServerPackage from "../../server.js";
 import type { Duration, Effect, Layer } from "effect";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;

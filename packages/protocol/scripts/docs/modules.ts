@@ -5,6 +5,7 @@
  * `index.ts`. Output is deterministic: sorted exports, LF endings,
  * stable section order.
  */
+/* eslint-disable sonarjs/null-dereference -- SonarJS treats the strictly typed string and collection callback parameters throughout this generator as nullable. */
 import { FileSystem, Path } from "@effect/platform";
 import { Effect, Schema } from "effect";
 import * as ts from "typescript";
@@ -51,12 +52,25 @@ const REQUIRED_V2_PACKAGE_NAMES = [
   "@moltzap/v2-router",
 ] as const;
 
+/** Package server subpaths admitted to generated v2 module documentation. */
+export const REQUIRED_V2_SERVER_SUBPATHS = [
+  "@moltzap/v2-identity/server",
+  "@moltzap/v2-router/server",
+] as const;
+
 interface LinkContext {
   readonly mode: "module-md" | "mdx";
+  readonly displayName?: string;
+  readonly headingLevel?: number;
 }
 
 interface EnrichedExport extends TypeDocExport {
   readonly signatureText: string | null;
+}
+
+interface EnrichedSubpath {
+  readonly importPath: string;
+  readonly exports: readonly EnrichedExport[];
 }
 
 interface ResolvedExportDeclaration {
@@ -101,6 +115,15 @@ export const generateModuleDocs = (
     if (missingTypeDocPackages.length > 0) {
       return yield* Effect.dieMessage(
         `Required TypeDoc packages were not loaded: ${missingTypeDocPackages.join(", ")}`,
+      );
+    }
+    const missingServerSubpaths = REQUIRED_V2_SERVER_SUBPATHS.filter(
+      (importPath) =>
+        (cache.byPackageEntrypoint.get(importPath)?.length ?? 0) === 0,
+    );
+    if (missingServerSubpaths.length > 0) {
+      return yield* Effect.dieMessage(
+        `Required TypeDoc server subpaths were not loaded: ${missingServerSubpaths.join(", ")}`,
       );
     }
     const folders = yield* discoverFolders(cache, config);
@@ -346,15 +369,40 @@ function renderFolder(
       return yield* Effect.fail(makeMissingJsDoc(folder));
     }
     const packageRoot = isPackageRoot(folder);
+    const packageName = packageRoot
+      ? yield* readPackageName(folder, config, fs, path)
+      : null;
     const exports = (
-      packageRoot
-        ? exportsForPackageRoot(
-            cache,
-            yield* readPackageName(folder, config, fs, path),
-          )
+      packageName !== null
+        ? exportsForPackageRoot(cache, packageName)
         : exportsForModuleFolder(cache, folder)
     ).filter(isBehavioral);
     const enriched = yield* enrichWithSignatures(exports, fs, path, config);
+    const subpaths =
+      packageName === null
+        ? []
+        : yield* Effect.forEach(
+            serverSubpathsForPackage(cache, packageName),
+            (subpath) =>
+              enrichWithSignatures(subpath.exports, fs, path, config).pipe(
+                Effect.map(
+                  (subpathExports): EnrichedSubpath => ({
+                    importPath: subpath.importPath,
+                    exports: subpathExports,
+                  }),
+                ),
+              ),
+            { concurrency: "inherit" },
+          );
+    const documentedExports = [
+      ...enriched,
+      ...subpaths.flatMap((subpath) => subpath.exports),
+    ];
+    const sourceFiles = isRequiredV2ModuleFolder(folder)
+      ? yield* collectProductionSourceFiles(folder, config, fs, path)
+      : documentedExports.flatMap((entry) =>
+          entry.sources.map((source) => source.fileName),
+        );
     const pageSlug = modulePageSlug(folder);
     const h1 = `# ${pageSlug}`;
     const moduleMdBody = renderMarkdown({
@@ -362,6 +410,8 @@ function renderFolder(
       subtitle: `_\`${folder}\`_`,
       purpose,
       exports: enriched,
+      subpaths,
+      sourceFiles,
       folder,
       path,
       linkContext: { mode: "module-md" },
@@ -371,6 +421,8 @@ function renderFolder(
       subtitle: `_\`${folder}\`_`,
       purpose,
       exports: enriched,
+      subpaths,
+      sourceFiles,
       folder,
       path,
       linkContext: { mode: "mdx" },
@@ -389,6 +441,33 @@ function renderFolder(
   });
 }
 
+function collectProductionSourceFiles(
+  folder: string,
+  config: ModuleRenderConfig,
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+): Effect.Effect<readonly string[]> {
+  const sourceRoot = path.resolve(config.workspaceRoot, folder);
+  return Effect.all([
+    listFilesWithSuffix(fs, sourceRoot, ".ts"),
+    listFilesWithSuffix(fs, sourceRoot, "README.md"),
+  ]).pipe(
+    Effect.map((files) =>
+      files
+        .flat()
+        .map((file) => path.relative(config.workspaceRoot, file))
+        .filter(
+          (file) =>
+            !file.includes("/__tests__/") &&
+            !file.endsWith(".test.ts") &&
+            !file.endsWith(".integration.test.ts") &&
+            !file.endsWith(".types-check.ts"),
+        )
+        .sort((left, right) => left.localeCompare(right)),
+    ),
+  );
+}
+
 /**
  * A package-root module documents its entry point, so it owns every public
  * symbol TypeDoc associates with that package even when the declaration lives
@@ -403,6 +482,38 @@ export function exportsForPackageRoot(
   packageName: string,
 ): readonly TypeDocExport[] {
   return cache.byPackageEntrypoint.get(packageName) ?? [];
+}
+
+/**
+ * Returns the documented server subpath exported by one active v2 package.
+ *
+ * @param cache Loaded TypeDoc reflection cache.
+ * @param packageName Package whose approved server entrypoint is requested.
+ * @returns The package's server import path and exported namespace members.
+ */
+function serverSubpathsForPackage(
+  cache: TypeDocCache,
+  packageName: string,
+): ReadonlyArray<
+  Readonly<{
+    importPath: string;
+    exports: readonly TypeDocExport[];
+  }>
+> {
+  const importPath = `${packageName}/server`;
+  if (
+    !REQUIRED_V2_SERVER_SUBPATHS.some(
+      (requiredImportPath) => requiredImportPath === importPath,
+    )
+  ) {
+    return [];
+  }
+  return [
+    {
+      importPath,
+      exports: cache.byPackageEntrypoint.get(importPath) ?? [],
+    },
+  ];
 }
 
 /**
@@ -450,6 +561,13 @@ function enrichWithSignatures(
     const parsedFileCache = new Map<string, ts.SourceFile>();
     const enriched: EnrichedExport[] = [];
     for (const ex of exports) {
+      if (
+        ex.kind === ReflectionKind.Module ||
+        ex.kind === ReflectionKind.Namespace
+      ) {
+        enriched.push({ ...ex, signatureText: null });
+        continue;
+      }
       for (const sourceLocation of ex.sources) {
         if (fileCache.has(sourceLocation.fileName)) {
           continue;
@@ -518,7 +636,12 @@ function resolveExportDeclarationWithCache(
   const text = sourceByFile.get(fallbackSource.fileName) ?? "";
   return {
     source: fallbackSource,
-    signatureText: extractSignatureText(text, fallbackSource.line, ex.kind),
+    signatureText: extractSignatureText(
+      text,
+      fallbackSource.line,
+      ex.kind,
+      fallbackSource.fileName.startsWith("v2/"),
+    ),
   };
 }
 
@@ -613,6 +736,8 @@ interface RenderArgs {
   readonly subtitle: string;
   readonly purpose: string;
   readonly exports: readonly EnrichedExport[];
+  readonly subpaths: readonly EnrichedSubpath[];
+  readonly sourceFiles: readonly string[];
   readonly folder: string;
   readonly path: Path.Path;
   readonly linkContext: LinkContext;
@@ -623,7 +748,13 @@ function renderMarkdown(args: RenderArgs): string {
   const sections: string[][] = [
     renderHeader(args),
     renderPublicSurface(sorted, args.folder, args.path, args.linkContext),
-    renderFilesSection(args.exports, args.folder, args.path),
+    renderServerSubpaths(
+      args.subpaths,
+      args.folder,
+      args.path,
+      args.linkContext,
+    ),
+    renderFilesSection(args.sourceFiles, args.folder, args.path),
   ];
   return sections.flat().join("\n");
 }
@@ -652,8 +783,71 @@ function renderPublicSurface(
     lines.push("_No exports surfaced from this folder._", "");
     return lines;
   }
+  const nameCounts = new Map<string, number>();
+  for (const entry of sorted) {
+    nameCounts.set(entry.name, (nameCounts.get(entry.name) ?? 0) + 1);
+  }
   for (const ex of sorted) {
-    lines.push(...renderExport(ex, folder, path, link));
+    const displayName =
+      isRequiredV2ModuleFolder(folder) && (nameCounts.get(ex.name) ?? 0) > 1
+        ? `${ex.name} (${declarationRole(ex)})`
+        : ex.name;
+    lines.push(
+      ...renderExport(ex, folder, path, {
+        ...link,
+        displayName,
+      }),
+    );
+  }
+  return lines;
+}
+
+function declarationRole(ex: EnrichedExport): string {
+  if (
+    ex.kind === ReflectionKind.TypeAlias ||
+    ex.kind === ReflectionKind.Interface
+  ) {
+    return "type";
+  }
+  if (
+    ex.kind === ReflectionKind.Variable ||
+    ex.kind === ReflectionKind.Function
+  ) {
+    return "value";
+  }
+  return ex.kindString.toLowerCase();
+}
+
+function renderServerSubpaths(
+  subpaths: readonly EnrichedSubpath[],
+  folder: string,
+  path: Path.Path,
+  link: LinkContext,
+): string[] {
+  if (subpaths.length === 0) {
+    return [];
+  }
+  const lines: string[] = ["## Server subpath", ""];
+  for (const subpath of subpaths) {
+    lines.push(`### \`${subpath.importPath}\``, "");
+    const namespaceName = subpath.exports.find(
+      (entry) =>
+        entry.kind === ReflectionKind.Module ||
+        entry.kind === ReflectionKind.Namespace,
+    )?.name;
+    for (const entry of subpath.exports) {
+      const displayName =
+        namespaceName === undefined || entry.name === namespaceName
+          ? entry.name
+          : `${namespaceName}.${entry.name}`;
+      lines.push(
+        ...renderExport(entry, folder, path, {
+          ...link,
+          displayName,
+          headingLevel: 4,
+        }),
+      );
+    }
   }
   return lines;
 }
@@ -704,8 +898,9 @@ function renderExport(
 ): string[] {
   const prose = (text: string) =>
     link.mode === "mdx" ? escapeMdxProse(text) : text;
+  const heading = "#".repeat(link.headingLevel ?? 3);
   const lines: string[] = [
-    `### ${exportLink(ex, folder, path, link)}`,
+    `${heading} ${exportLink(ex, folder, path, link)}`,
     "",
     `_${ex.kindString}_`,
     "",
@@ -731,16 +926,17 @@ function exportLink(
   path: Path.Path,
   link: LinkContext,
 ): string {
+  const displayName = link.displayName ?? ex.name;
   const src = ex.sources[0];
   if (!src) {
-    return `\`${ex.name}\``;
+    return `\`${displayName}\``;
   }
   if (link.mode === "module-md") {
-    return `[\`${ex.name}\`](./${path.relative(folder, src.fileName)}#L${src.line})`;
+    return `[\`${displayName}\`](./${path.relative(folder, src.fileName)}#L${src.line})`;
   }
   // MDX twin lives outside the source tree; emit a GitHub permalink so
   // the rendered Mintlify page resolves to a real source location.
-  return `[\`${ex.name}\`](${sourcePermalink(src.fileName, src.line)})`;
+  return `[\`${displayName}\`](${sourcePermalink(src.fileName, src.line)})`;
 }
 
 function renderFailures(ex: EnrichedExport): string[] {
@@ -759,24 +955,22 @@ function renderFailures(ex: EnrichedExport): string[] {
 }
 
 function renderFilesSection(
-  exports: readonly EnrichedExport[],
+  sourceFiles: readonly string[],
   folder: string,
   path: Path.Path,
 ): string[] {
   const lines: string[] = ["## Files", ""];
-  const files = [
-    ...new Set([
-      ...(isRequiredV2ModuleFolder(folder) ? [`${folder}/index.ts`] : []),
-      ...exports.flatMap((e) => e.sources.map((s) => s.fileName)),
-    ]),
-  ]
+  const files = [...new Set(sourceFiles)]
     .filter((f) => f.startsWith(`${folder}/`))
     .sort((left, right) => left.localeCompare(right));
   if (files.length === 0) {
     lines.push("_No source files tracked under this folder by TypeDoc._");
   } else {
     for (const f of files) {
-      lines.push(`- \`${path.basename(f)}\``);
+      const displayPath = isRequiredV2ModuleFolder(folder)
+        ? path.relative(folder, f)
+        : path.basename(f);
+      lines.push(`- \`${displayPath}\``);
     }
   }
   lines.push("");
@@ -944,12 +1138,15 @@ const KEEP_BODY_KINDS = new Set<number>([
  * @param source Source text to process.
  * @param oneBasedLine Value supplied to the operation.
  * @param kind Value supplied to the operation.
+ * @param completeTypeAlias Whether a multiline alias must run through its
+ * top-level semicolon.
  * @returns The extract signature text result.
  */
 export function extractSignatureText(
   source: string,
   oneBasedLine: number,
   kind: number,
+  completeTypeAlias = false,
 ): string | null {
   if (source.length === 0) {
     return null;
@@ -959,6 +1156,9 @@ export function extractSignatureText(
     return null;
   }
   const startIx = skipLeadingJsDoc(lines, oneBasedLine - 1);
+  if (kind === ReflectionKind.TypeAlias && completeTypeAlias) {
+    return extractTypeAlias(lines, startIx);
+  }
   if (KEEP_BODY_KINDS.has(kind)) {
     return extractBalancedBody(lines, startIx);
   }
@@ -1007,6 +1207,35 @@ function extractFunctionSignature(
     return joined.slice(0, cut).trimEnd();
   }
   return joined.trimEnd();
+}
+
+/**
+ * Retains a complete type alias through its top-level semicolon.
+ *
+ * Multiline unions and intersections can return to zero bracket depth between
+ * members, so a newline is not a declaration boundary for this syntax.
+ *
+ * @param lines Source lines containing the declaration.
+ * @param startIx Zero-based declaration start.
+ * @returns The complete type alias text.
+ */
+function extractTypeAlias(lines: readonly string[], startIx: number): string {
+  const slice = lines.slice(startIx, Math.min(lines.length, startIx + 120));
+  const text = slice.join("\n");
+  let depth = 0;
+  let semiIx = -1;
+  scanTopLevel(text, (ch, i) => {
+    if (ch === "(" || ch === "[" || ch === "<" || ch === "{") {
+      depth++;
+    } else if (ch === ")" || ch === "]" || ch === ">" || ch === "}") {
+      depth--;
+    } else if (ch === ";" && depth <= 0) {
+      semiIx = i;
+      return "stop";
+    }
+    return "continue";
+  });
+  return semiIx >= 0 ? text.slice(0, semiIx + 1).trimEnd() : text.trimEnd();
 }
 
 /**
@@ -1209,3 +1438,5 @@ function scanTopLevel(
   }
   return -1;
 }
+
+/* eslint-enable sonarjs/null-dereference -- Limit the generator-specific suppression to this module. */

@@ -53,6 +53,11 @@ export interface TypeDocCache {
   readonly byFolder: ReadonlyMap<string, readonly TypeDocExport[]>;
 }
 
+/** Selects package subpaths that the documentation pipeline may publish. */
+export interface TypeDocLoadOptions {
+  readonly packageSubpaths?: readonly string[];
+}
+
 /** Reports type doc cache missing failures. */
 export class TypeDocCacheMissingError extends Data.TaggedError(
   "TypeDocCacheMissingError",
@@ -111,10 +116,12 @@ interface RawReflection {
  * (caller forgot to run TypeDoc first) and
  * `TypeDocCacheMalformedError` when the JSON cannot be parsed.
  * @param cachePath Value supplied to the operation.
+ * @param options Package subpaths admitted to the documentation cache.
  * @returns The load type doc result.
  */
 export const loadTypeDoc = (
   cachePath: string,
+  options: TypeDocLoadOptions = {},
 ): Effect.Effect<
   TypeDocCache,
   TypeDocCacheMissingError | TypeDocCacheMalformedError | PlatformError,
@@ -147,7 +154,10 @@ export const loadTypeDoc = (
     return {
       all,
       byPackage: indexBy(all, (e) => e.packageName),
-      byPackageEntrypoint: collectPackageEntrypointExports(raw),
+      byPackageEntrypoint: collectPackageEntrypointExports(
+        raw,
+        new Set(options.packageSubpaths ?? []),
+      ),
       byFolder: indexBy(all, (e) => folderOf(e)),
     };
   }).pipe(Effect.withSpan("loadTypeDoc"));
@@ -178,15 +188,18 @@ function collectExports(root: RawReflection): readonly TypeDocExport[] {
 
 /**
  * TypeDoc represents package entrypoints in two shapes. A focused entrypoint
- * contributes declarations directly beneath the package project, while an
- * expanded package contributes an `index` module whose children are references
- * to declarations elsewhere in the project. Normalize both shapes into the
- * exact public surface owned by the package root.
+ * contributes declarations directly beneath the package project, while a
+ * package with multiple entrypoints contributes one module per entrypoint.
+ * Normalize `index` to the package root and retain only package subpaths that
+ * the caller identified from the package's public contract. Expanded TypeDoc
+ * projects also represent private source files as modules.
  * @param root Value supplied to the operation.
+ * @param packageSubpaths Package import paths approved for publication.
  * @returns The collect package entrypoint exports result.
  */
 function collectPackageEntrypointExports(
   root: RawReflection,
+  packageSubpaths: ReadonlySet<string>,
 ): ReadonlyMap<string, readonly TypeDocExport[]> {
   const reflectionsById = indexReflectionsById(root);
   const entries = new Map<string, readonly TypeDocExport[]>();
@@ -201,15 +214,51 @@ function collectPackageEntrypointExports(
       : children.filter((child) => child.kind !== ReflectionKind.Module);
     entries.set(
       packageName,
-      owned.flatMap((child) => {
-        const declaration = resolveReference(child, reflectionsById);
-        return declaration !== null && shouldEmit(declaration)
-          ? [toExport(declaration, packageName)]
-          : [];
-      }),
+      collectOwnedExports(owned, packageName, reflectionsById, false),
     );
+    for (const entrypoint of children) {
+      const importPath = `${packageName}/${entrypoint.name ?? "<unknown>"}`;
+      if (
+        entrypoint.kind !== ReflectionKind.Module ||
+        entrypoint.name === "index" ||
+        !packageSubpaths.has(importPath)
+      ) {
+        continue;
+      }
+      entries.set(
+        importPath,
+        collectOwnedExports(
+          entrypoint.children ?? [],
+          packageName,
+          reflectionsById,
+          true,
+        ),
+      );
+    }
   }
   return entries;
+}
+
+function collectOwnedExports(
+  children: readonly RawReflection[],
+  packageName: string,
+  reflectionsById: ReadonlyMap<number, RawReflection>,
+  includeDescendants: boolean,
+): readonly TypeDocExport[] {
+  return children.flatMap((child) => {
+    const declaration = resolveReference(child, reflectionsById);
+    if (declaration === null) {
+      return [];
+    }
+    if (!includeDescendants) {
+      return shouldEmit(declaration)
+        ? [toExport(declaration, packageName)]
+        : [];
+    }
+    const exports: TypeDocExport[] = [];
+    walk(declaration, packageName, exports);
+    return exports;
+  });
 }
 
 function indexReflectionsById(
@@ -230,6 +279,7 @@ function indexReflectionsById(
   return reflections;
 }
 
+// eslint-disable-next-line sonarjs/function-return-type -- A missing or cyclic TypeDoc reference is represented explicitly as null.
 function resolveReference(
   reflection: RawReflection,
   reflectionsById: ReadonlyMap<number, RawReflection>,
@@ -336,6 +386,7 @@ export function normalizeSourcePath(
   sourcePath: string,
   sourceUrl?: string,
 ): string {
+  // eslint-disable-next-line sonarjs/null-dereference -- The public parameter is a required string.
   const normalizedPath = sourcePath.replaceAll("\\", "/");
   const workspacePath = findWorkspacePath(normalizedPath);
   if (workspacePath !== null) {
@@ -361,6 +412,7 @@ function findWorkspacePath(sourcePath: string): string | null {
   return match?.[1] ?? null;
 }
 
+// eslint-disable-next-line sonarjs/function-return-type -- A reflection without publishable prose is represented explicitly as null.
 function extractComment(node: RawReflection): TypeDocComment | null {
   // Functions/Methods carry JSDoc on the first call-signature.
   const c = node.signatures?.[0]?.comment ?? node.comment;

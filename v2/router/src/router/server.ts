@@ -9,15 +9,15 @@ import {
   type RouterConfiguration,
 } from "./configuration.js";
 import { makeRouterFeed } from "./feed.js";
-import { makeHeldPolls } from "./held-polls.js";
 import { makeRouterHttpApp } from "./http.js";
-import { makeRouterRpcClient } from "./operations.js";
 import {
   generatePollCursorKey,
   generateRouterInstanceId,
   makePollCursorCodec,
 } from "./poll-cursor.js";
 import { makeRouterPoll } from "./poll.js";
+import { makePollWaiters } from "./poll-waiters.js";
+import { makeRouterRpcClient } from "./rpc.js";
 import { makeRouterSend } from "./send.js";
 
 /** Closed Router startup phase. */
@@ -25,25 +25,43 @@ export class StartupError extends Data.TaggedError("RouterServerStartupError")<{
   readonly phase: "configuration" | "listener";
 }> {}
 
-const configurationFailure = () => new StartupError({ phase: "configuration" });
-const listenerFailure = () => new StartupError({ phase: "listener" });
+const runRouterServer = Effect.gen(function* () {
+  const configuration = yield* loadRouterConfiguration.pipe(
+    Effect.mapError(configurationFailure),
+  );
+  const app = yield* buildRouterApp(configuration);
+  const httpServer = yield* NodeHttpServer.make(createServer, {
+    host: configuration.host,
+    port: configuration.port,
+  }).pipe(Effect.mapError(listenerFailure));
+  yield* HttpServer.serveEffect(app).pipe(
+    Effect.provideService(HttpServer.HttpServer, httpServer),
+    Effect.provide(authenticatedHttpLayer(configuration)),
+    Effect.provide(NodeHttpServer.layerContext),
+  );
+}).pipe(Effect.withSpan("RouterServer.layer"));
 
-const authenticatedHttpLayer = (configuration: RouterConfiguration) => {
-  const registryLayer = Registry.layer({
-    origin: configuration.registryOrigin,
-    registrySignerPublicKey: configuration.registrySignerPublicKey,
-    requestTimeout: Duration.millis(configuration.registryLookupTimeoutMs),
-  }).pipe(Layer.provide(NodeHttpClient.layer));
-  return AuthenticatedHttp.layer({
-    liveNonceCapacity: configuration.liveNonceCapacity,
-    agentCardCacheCapacity: configuration.agentCardCacheCapacity,
-    registryLookupConcurrencyLimit:
-      configuration.registryLookupConcurrencyLimit,
-  }).pipe(Layer.provide(registryLayer));
-};
+/**
+ * Complete production Router process composition.
+ *
+ * ```mermaid
+ * flowchart LR
+ *   Binary["moltzap-router"] --> Process["runRouterProcess"]
+ *   Process --> Server["runRouterServer"]
+ *   Server --> App["buildRouterApp"]
+ *   App --> Http["makeRouterHttpApp"]
+ *   Http --> Authentication["AuthenticatedHttp"]
+ *   Authentication --> Rpc["private Router RPC"]
+ *   Rpc --> Operations["send or poll"]
+ *   Operations --> State["feed, cursor, and poll waiters"]
+ *   State --> Response["exact HTTP response"]
+ * ```
+ */
+export const layer: Layer.Layer<never, StartupError> =
+  Layer.scopedDiscard(runRouterServer);
 
-const makeRequestHandler = (configuration: RouterConfiguration) =>
-  Effect.gen(function* () {
+function buildRouterApp(configuration: RouterConfiguration) {
+  return Effect.gen(function* () {
     const routerInstanceId = yield* Effect.try({
       try: generateRouterInstanceId,
       catch: configurationFailure,
@@ -57,16 +75,16 @@ const makeRequestHandler = (configuration: RouterConfiguration) =>
       retainedMessageCapacity: configuration.retainedMessageCapacity,
       retainedMessageByteCapacity: configuration.retainedMessageByteCapacity,
     });
-    const heldPolls = yield* makeHeldPolls(configuration.heldPollCapacity);
+    const pollWaiters = yield* makePollWaiters(configuration.heldPollCapacity);
     const send = makeRouterSend({
       routerInstanceId,
       feed,
-      heldPolls,
+      pollWaiters,
     });
     const poll = makeRouterPoll({
       routerInstanceId,
       feed,
-      heldPolls,
+      pollWaiters,
       cursorCodec: makePollCursorCodec({
         key: cursorKey,
         routerInstanceId,
@@ -82,23 +100,26 @@ const makeRequestHandler = (configuration: RouterConfiguration) =>
       ),
     });
   });
+}
 
-const serveRouter = Effect.gen(function* () {
-  const configuration = yield* loadRouterConfiguration.pipe(
-    Effect.mapError(configurationFailure),
-  );
-  const app = yield* makeRequestHandler(configuration);
-  const httpServer = yield* NodeHttpServer.make(createServer, {
-    host: configuration.host,
-    port: configuration.port,
-  }).pipe(Effect.mapError(listenerFailure));
-  yield* HttpServer.serveEffect(app).pipe(
-    Effect.provideService(HttpServer.HttpServer, httpServer),
-    Effect.provide(authenticatedHttpLayer(configuration)),
-    Effect.provide(NodeHttpServer.layerContext),
-  );
-}).pipe(Effect.withSpan("RouterServer.layer"));
+function authenticatedHttpLayer(configuration: RouterConfiguration) {
+  const registryLayer = Registry.layer({
+    origin: configuration.registryOrigin,
+    registrySignerPublicKey: configuration.registrySignerPublicKey,
+    requestTimeout: Duration.millis(configuration.registryLookupTimeoutMs),
+  }).pipe(Layer.provide(NodeHttpClient.layer));
+  return AuthenticatedHttp.layer({
+    liveNonceCapacity: configuration.liveNonceCapacity,
+    agentCardCacheCapacity: configuration.agentCardCacheCapacity,
+    registryLookupConcurrencyLimit:
+      configuration.registryLookupConcurrencyLimit,
+  }).pipe(Layer.provide(registryLayer));
+}
 
-/** Complete production Router process composition. */
-export const layer: Layer.Layer<never, StartupError> =
-  Layer.scopedDiscard(serveRouter);
+function configurationFailure() {
+  return new StartupError({ phase: "configuration" });
+}
+
+function listenerFailure() {
+  return new StartupError({ phase: "listener" });
+}
