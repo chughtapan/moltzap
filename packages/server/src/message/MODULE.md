@@ -179,7 +179,7 @@ export type MessageAuthorizeResult =
 
 Represents the result of message authorize.
 
-### [`MessageService`](./message.service.ts#L182)
+### [`MessageService`](./message.service.ts#L179)
 
 _Class_
 
@@ -361,7 +361,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L177)
+### [`messagesList`](./handlers.ts#L170)
 
 _Variable_
 
@@ -379,7 +379,7 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L163)
+### [`messagesSend`](./handlers.ts#L156)
 
 _Variable_
 

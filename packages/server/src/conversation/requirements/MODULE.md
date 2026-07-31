@@ -32,7 +32,7 @@ exists.
 
 **Returns:** The authorize conversation create capacity only result.
 
-### [`guardConversationNotArchived`](./send-access.ts#L105)
+### [`guardConversationNotArchived`](./send-access.ts#L103)
 
 _Function_
 
@@ -46,24 +46,7 @@ Refine the conversation is open (`archived_at IS NULL`).
 
 **Returns:** The guard conversation not archived result.
 
-### [`guardReplyTarget`](./send-access.ts#L121)
-
-_Function_
-
-```ts
-export const guardReplyTarget = (input: {
-  readonly conversationId: ConversationId;
-  readonly replyToId?: MessageId;
-}): Effect.Effect<void, MessageNotFoundError, MessageServiceTag>
-```
-
-Refine the reply target: when the send names a `replyToId`, verify the
-referenced message exists in the conversation (fails `MessageNotFound` if
-absent); a send with no reply target passes with no DB read.
-
-**Returns:** The guard reply target result.
-
-### [`guardTaskActive`](./send-access.ts#L84)
+### [`guardTaskActive`](./send-access.ts#L82)
 
 _Function_
 
@@ -97,7 +80,7 @@ Provides the obtain conversation in task runtime value.
 
 **Returns:** The obtain conversation in task result.
 
-### [`obtainConversationSendAccess`](./send-access.ts#L29)
+### [`obtainConversationSendAccess`](./send-access.ts#L27)
 
 _Function_
 
