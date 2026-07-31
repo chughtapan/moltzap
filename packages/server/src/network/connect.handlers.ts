@@ -25,7 +25,7 @@ import {
   type Originator,
 } from "#socket";
 import { ConnectionHooksTag } from "../core/hooks.js";
-import { DbTag, catchSqlErrorAsDefect } from "#db";
+import { DbTag } from "#db";
 import { AuthServiceTag } from "../identity/agents/layer.js";
 import type { AuthService } from "../identity/agents/auth.service.js";
 import {
@@ -333,6 +333,7 @@ const completeAgentConnect = Effect.fn("connect.completeAgentConnect")(
       auth,
     );
     const helloOk = yield* buildHelloOk(auth, connId, presenceService);
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define -- connection hooks run after module initialization.
     yield* fireConnectionHooks(auth, connId);
     return helloOk;
   },

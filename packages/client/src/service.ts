@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- service intentionally owns the client lifecycle and state handlers. */
+
 import {
   agentId as AgentIdSchema,
   AgentNotFoundError,
@@ -1447,3 +1449,5 @@ export class MoltZapService {
     );
   }
 }
+
+/* eslint-enable max-lines -- restore the repository max-lines rule after this aggregate service. */

@@ -206,7 +206,7 @@ ack); the client's reverse `RpcServer` routes it into its
 
 **Returns:** The broadcast notification to agents result.
 
-### [`connectAgent`](./connect.handlers.ts#L501)
+### [`connectAgent`](./connect.handlers.ts#L497)
 
 _Variable_
 
@@ -218,7 +218,7 @@ Provides the connect agent runtime value.
 
 **Returns:** The connect agent result.
 
-### [`connectApp`](./connect.handlers.ts#L509)
+### [`connectApp`](./connect.handlers.ts#L505)
 
 _Variable_
 
@@ -295,26 +295,28 @@ export class NetworkSendService {
     to: AgentId,
     payload: OpaquePayload,
   ): Effect.Effect<DeliveryAck, DeliveryError> {
-    return Effect.gen(this, function* (this: NetworkSendService) {
-      const conns = yield* this.resolver.resolveAll(to);
-      for (const candidate of HashSet.values(conns)) {
-        const conn = yield* this.connections.peek(candidate);
-        if (Option.isNone(conn)) {
-          continue;
+    return Effect.gen(
+      function* (this: NetworkSendService) {
+        const conns = yield* this.resolver.resolveAll(to);
+        for (const candidate of HashSet.values(conns)) {
+          const conn = yield* this.connections.peek(candidate);
+          if (Option.isNone(conn)) {
+            continue;
+          }
+          yield* conn.value.socket.write(payload).pipe(
+            Effect.either,
+            Effect.flatMap(
+              Either.match({
+                onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
+                onRight: () => Effect.void,
+              }),
+            ),
+          );
+          return new DeliveryAck({ to });
         }
-        yield* conn.value.socket.write(payload).pipe(
-          Effect.either,
-          Effect.flatMap(
-            Either.match({
-              onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
-              onRight: () => Effect.void,
-            }),
-          ),
-        );
-        return new DeliveryAck({ to });
-      }
-      return yield* Effect.fail(new RecipientNotResolved({ to }));
-    });
+        return yield* new RecipientNotResolved({ to });
+      }.bind(this),
+    );
   }
 
   /**
@@ -367,30 +369,28 @@ export class NetworkSendService {
       target: AgentId,
     ) => Effect.Effect<void>,
   ): Effect.Effect<{ readonly delivered: readonly AgentId[] }> {
-    return Effect.gen(this, function* (this: NetworkSendService) {
-      const delivered: AgentId[] = [];
-      for (const target of agentIds) {
-        const connIds = yield* this.resolver.resolveAll(target);
-        let reached = false;
-        for (const cid of HashSet.values(connIds)) {
-          const connOpt = yield* this.connectionCanReceive(cid, options);
-          if (Option.isNone(connOpt)) {
-            continue;
+    return Effect.gen(
+      function* (this: NetworkSendService) {
+        const delivered: AgentId[] = [];
+        for (const target of agentIds) {
+          const connIds = yield* this.resolver.resolveAll(target);
+          let reached = false;
+          for (const cid of HashSet.values(connIds)) {
+            const connOpt = yield* this.connectionCanReceive(cid, options);
+            if (Option.isNone(connOpt)) {
+              continue;
+            }
+            yield* fire(connOpt.value, cid, target);
+            reached = true;
           }
-          yield* fire(connOpt.value, cid, target);
-          reached = true;
+          if (reached) {
+            delivered.push(target);
+          }
         }
-        if (reached) {
-          delivered.push(target);
-        }
-      }
-      return { delivered };
-    });
+        return { delivered };
+      }.bind(this),
+    );
   }
-
-  /**
-   * Gate one resolved connection for conversation fan-out. Returns the
-   * gate-passing {@link AgentConnection} (so the caller threads it into
 ```
 
 Outbound-routing primitive. Use the constructor directly in code;

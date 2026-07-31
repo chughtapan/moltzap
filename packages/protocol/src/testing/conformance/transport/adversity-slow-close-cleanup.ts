@@ -58,6 +58,6 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
           `scope release took ${elapsed}ms under slow_close (budget ${SLOW_CLOSE_BUDGET_MS}ms)`,
         );
       }
-    }),
+    }, Effect.withSpan("registerSlowCloseCleanup")),
   });
 }

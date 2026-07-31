@@ -14,6 +14,9 @@ importers:
       '@chughtapan/safer-architecture-lsp':
         specifier: 0.2.0
         version: 0.2.0
+      '@effect/language-service':
+        specifier: ^0.87.1
+        version: 0.87.1
       '@effect/tsgo':
         specifier: 0.24.3
         version: 0.24.3
@@ -887,6 +890,10 @@ packages:
         optional: true
       lmdb:
         optional: true
+
+  '@effect/language-service@0.87.1':
+    resolution: {integrity: sha512-kcljlJmEgqg5mFAM6UShJYJjMqJb3TbHHxrK8Qoubvwugc0aVWpRkbdgQvK5b17puOt3BKXXKOmcV+oQt0oQqQ==}
+    hasBin: true
 
   '@effect/opentelemetry@0.64.0':
     resolution: {integrity: sha512-fLdsyh/u5ImTyvWUfDQy53PVgHEWO0fOjwKzpmhQzW6CYs8wFBU6pP/VpuRYvCGgpZxk8KW4ySr+fvQ0o74rrA==}
@@ -10162,6 +10169,8 @@ snapshots:
       '@effect/platform': 0.97.0(effect@3.22.0)
       effect: 3.22.0
       uuid: 11.1.1
+
+  '@effect/language-service@0.87.1': {}
 
   '@effect/opentelemetry@0.64.0(@effect/platform@0.97.0(effect@3.22.0))(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.7.1(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-logs@0.205.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-metrics@2.1.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.7.1(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-node@2.7.1(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-web@2.7.1(@opentelemetry/api@1.9.1))(@opentelemetry/semantic-conventions@1.41.1)(effect@3.22.0)':
     dependencies:

@@ -10,15 +10,20 @@ Task-domain requirement helpers.
 
 ### [`assertCallerAppOwnsTask`](./app-ownership.ts#L12)
 
-_Function_
+_Variable_
 
 ```ts
-export const assertCallerAppOwnsTask = (appId: AppId, taskId: TaskId)
+export const assertCallerAppOwnsTask = Effect.fn(
+  "task.assertCallerAppOwnsTask",
+)(function* (appId: AppId, taskId: TaskId) {
+  const taskService = yield* TaskServiceTag;
+  const task = yield* taskService.loadOpenTask(taskId);
+  yield* assertAppOwnsTask(appId, task);
+  return task;
+})
 ```
 
 Provides the assert caller app owns task runtime value.
-
-**Returns:** The assert caller app owns task result.
 
 ### [`obtainTaskReadAccess`](./read-access.ts#L21)
 

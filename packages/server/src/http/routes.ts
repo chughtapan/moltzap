@@ -120,11 +120,14 @@ function makeRegisterRoute(options: CoreHttpAppOptions) {
     handleEarlyResponse(
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
+        // The router factory is intentionally kept above the reusable handler definitions.
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define -- route construction is declaration-order independent.
         const body = yield* readDecodedBody(request, decodeRegisterBody);
         yield* authorizeInviteCode(
           optionalSecretValue(body.inviteCode),
           options.config.registrationSecret,
         );
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define -- route construction is declaration-order independent.
         return yield* registerAgent(body, options);
       }).pipe(Effect.withSpan("http.auth.register")),
     ),
@@ -155,6 +158,7 @@ function makeAppsRegisterRoute(options: CoreHttpAppOptions) {
           extractInviteCode(body),
           options.config.registrationSecret,
         );
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define -- route construction is declaration-order independent.
         return yield* registerApp(manifest, options);
       }).pipe(Effect.withSpan("http.apps.register")),
     ),

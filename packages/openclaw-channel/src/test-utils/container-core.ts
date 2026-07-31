@@ -614,32 +614,27 @@ export function waitForReady(containerId: string) {
 export function stopContainer(
   container: OpenClawContainer,
 ): Effect.Effect<void> {
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) =>
-      Effect.gen(function* () {
-        yield* Effect.try({
-          try: () =>
-            execFileSync(DOCKER_BIN, ["rm", "-f", container.containerId], {
-              stdio: "pipe",
-            }),
-          catch: (cause: unknown) =>
-            new DockerCleanupError({
-              message: "docker rm failed during cleanup",
-              cause,
-            }),
-        }).pipe(
-          Effect.catchAll((cause) =>
-            Effect.sync(() =>
-              logContainerHelperFailure(
-                "docker rm failed during cleanup",
-                cause,
-              ),
-            ),
-          ),
-        );
-        yield* removeTempDir(fileSystem, container.tmpDir);
-      }),
-    ),
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* Effect.try({
+      try: () =>
+        execFileSync(DOCKER_BIN, ["rm", "-f", container.containerId], {
+          stdio: "pipe",
+        }),
+      catch: (cause: unknown) =>
+        new DockerCleanupError({
+          message: "docker rm failed during cleanup",
+          cause,
+        }),
+    }).pipe(
+      Effect.catchAll((cause) =>
+        Effect.sync(() => {
+          logContainerHelperFailure("docker rm failed during cleanup", cause);
+        }),
+      ),
+    );
+    yield* removeTempDir(fileSystem, container.tmpDir);
+  }).pipe(
     Effect.withSpan("stopContainer"),
     Effect.provide(NodeFileSystem.layer),
   );
