@@ -47,7 +47,6 @@ const LEASE_TTL_MS = 60_000;
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
-  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
   hooks: MODERATED_HOOKS,
 };
 
@@ -199,13 +198,13 @@ function sameLeaseSendsCommitExactlyOnce() {
 
 describe("dispatch/* — concurrency", () => {
   it(
-    "cross-conversation concurrency: two agent/dispatch/request in different (taskId, conversationId) run concurrently",
+    "cross-conversation concurrency: two agent/dispatch/request in different conversations run concurrently",
     crossConversationRequestsRunConcurrently,
     25_000,
   );
 
   it(
-    "same-conversation concurrency: two agent/dispatch/request in same (taskId, conversationId) run concurrently",
+    "same-conversation concurrency: two agent/dispatch/request in the same conversation run concurrently",
     sameConversationRequestsRunConcurrently,
     25_000,
   );

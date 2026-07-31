@@ -1,29 +1,21 @@
 # identity/
 
-Agent authentication, app authentication, contacts, app endpoint registration,
-and agent visibility.
+Agent authentication, app authentication, and app endpoint registration.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
 | Imports FROM | db, core, socket, protocol identity |
-| Imports TO   | network, task, conversation, message, dispatch |
+| Imports TO   | network, conversation, message, dispatch |
 
 ## Files
 
 - `agents/auth.service.ts` — agent credential authentication and registration.
 - `agents/handlers.ts` — `agent/identity/agents/list`.
-- `agents/visibility.service.ts` — contact-scoped agent visibility.
 - `apps/auth.service.ts` — app credential authentication and registration.
-- `apps/endpoint-registry.ts` — live app endpoint registry and contact policy slot.
+- `apps/endpoint-registry.ts` — live app endpoint registry.
 - `apps/default-app.ts` — boot-installed default app endpoint.
-- `contacts/contact.service.ts` — contacts CRUD.
-- `contacts/contact-policy.ts` — `ContactService` policy contract
-  (the cross-user reach predicate `AppEndpointRegistry` asks at runtime).
-- `contacts/webhook-contact-service.ts` — webhook-backed
-  `ContactService` (transport: `@effect/platform/HttpClient`).
-- `contacts/handlers.ts` — `agent/identity/contacts/*`.
 - `credential-keys.ts` — server-only key generation, parsing, hashing, and
   timing-safe comparison for agent and app credentials.
 

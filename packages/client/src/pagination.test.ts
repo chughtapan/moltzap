@@ -105,7 +105,7 @@ describe("drainPaginatedList", () => {
   it("drains every page, following nextCursor to the tail", () =>
     Effect.gen(function* () {
       const fake = pagingSendRpc();
-      const contacts = yield* drainPaginatedList<
+      const agents = yield* drainPaginatedList<
         never,
         typeof agentsList,
         FakeAgent,
@@ -117,8 +117,8 @@ describe("drainPaginatedList", () => {
         rowsForPage: agentRows,
         nextCursorForPage: agentNextCursor,
       });
-      expect(contacts).toHaveLength(TOTAL);
-      const names = contacts.map(agentName);
+      expect(agents).toHaveLength(TOTAL);
+      const names = agents.map(agentName);
       expect(names).toEqual(EXPECTED_NAMES);
       // One RPC call per page — no over-fetch, no truncation.
       expect(fake.callCount()).toBe(EXPECTED_PAGE_CALLS);

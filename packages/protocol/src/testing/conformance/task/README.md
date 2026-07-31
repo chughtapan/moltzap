@@ -1,7 +1,7 @@
-# Conformance — `task/` layer
+# Conformance — delivery layer
 
-Task / conversation / message invariants. Every property here
-exercises `agent/task/*`, `app|agent/conversation/*`, or `agent/message/*` semantics —
+Conversation / message delivery invariants. Every property here
+exercises `agent|app/conversation/*` or `agent/message/*` semantics —
 the layer that owns durable state.
 
 ## Property files
@@ -9,12 +9,6 @@ the layer that owns durable state.
 - `fan-out-cardinality.ts`
 - `store-and-replay.ts`
 - `payload-opacity.ts`
-- `task-boundary-isolation.ts`
-- `conversation-lifecycle.ts`
-- `archive-lifecycle.ts`
-- `task-close-lifecycle.ts`
-- `conversation-family.ts` — the `app/conversation/*` family,
-  one `register*` per method
 
 ## Aggregation
 

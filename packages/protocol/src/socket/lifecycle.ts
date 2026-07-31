@@ -39,23 +39,12 @@ import {
   dispatchLeaseConsumed,
   dispatchLeaseExpired,
 } from "#message/dispatch";
-import {
-  contactAcceptedNotificationDefinition,
-  contactRequestNotificationDefinition,
-} from "#identity/contacts";
 import { messageReceivedNotificationDefinition } from "#message";
 import {
-  conversationArchivedNotificationDefinition,
   conversationCreatedNotificationDefinition,
   conversationParticipantsAddedNotificationDefinition,
   conversationParticipantsRemovedNotificationDefinition,
-  conversationUnarchivedNotificationDefinition,
 } from "#conversation";
-import {
-  taskClosedNotificationDefinition,
-  taskCreatedNotificationDefinition,
-  taskFailedNotificationDefinition,
-} from "#task";
 import {
   DEFAULT_GRACEFUL_CLOSE,
   extractCloseInfo,
@@ -250,17 +239,9 @@ type NotificationHandlersFor<D extends AnyNotificationDefinition> = {
     never
   >;
 };
-type IdentityNotificationDefinition =
-  | typeof contactRequestNotificationDefinition
-  | typeof contactAcceptedNotificationDefinition;
-type TaskNotificationDefinition =
+type ConversationNotificationDefinition =
   | typeof messageReceivedNotificationDefinition
-  | typeof taskClosedNotificationDefinition
-  | typeof taskCreatedNotificationDefinition
-  | typeof taskFailedNotificationDefinition
   | typeof conversationCreatedNotificationDefinition
-  | typeof conversationArchivedNotificationDefinition
-  | typeof conversationUnarchivedNotificationDefinition
   | typeof conversationParticipantsAddedNotificationDefinition
   | typeof conversationParticipantsRemovedNotificationDefinition;
 type DispatchNotificationDefinition =
@@ -268,16 +249,13 @@ type DispatchNotificationDefinition =
   | typeof dispatchLeaseConsumed
   | typeof dispatchLeaseExpired;
 
-type IdentityNotificationHandlers =
-  NotificationHandlersFor<IdentityNotificationDefinition>;
-type TaskNotificationHandlers =
-  NotificationHandlersFor<TaskNotificationDefinition>;
+type ConversationNotificationHandlers =
+  NotificationHandlersFor<ConversationNotificationDefinition>;
 type DispatchNotificationHandlers =
   NotificationHandlersFor<DispatchNotificationDefinition>;
 
 type NotificationHandlerDefinition =
-  | IdentityNotificationDefinition
-  | TaskNotificationDefinition
+  | ConversationNotificationDefinition
   | DispatchNotificationDefinition;
 type ExpectTrue<T extends true> = T;
 type NotificationCatalogCoversAll = ExpectTrue<
@@ -401,49 +379,16 @@ const flattenReverseErrors =
     return write(rewritten ?? chunk);
   };
 
-const buildIdentityNotificationHandlers = (
+const buildConversationNotificationHandlers = (
   registry: SubscriberRegistry,
-): IdentityNotificationHandlers => ({
-  [contactRequestNotificationDefinition.name]: notificationHandler(
-    registry,
-    contactRequestNotificationDefinition,
-  ),
-  [contactAcceptedNotificationDefinition.name]: notificationHandler(
-    registry,
-    contactAcceptedNotificationDefinition,
-  ),
-});
-
-const buildTaskNotificationHandlers = (
-  registry: SubscriberRegistry,
-): TaskNotificationHandlers => ({
+): ConversationNotificationHandlers => ({
   [messageReceivedNotificationDefinition.name]: notificationHandler(
     registry,
     messageReceivedNotificationDefinition,
   ),
-  [taskClosedNotificationDefinition.name]: notificationHandler(
-    registry,
-    taskClosedNotificationDefinition,
-  ),
-  [taskCreatedNotificationDefinition.name]: notificationHandler(
-    registry,
-    taskCreatedNotificationDefinition,
-  ),
-  [taskFailedNotificationDefinition.name]: notificationHandler(
-    registry,
-    taskFailedNotificationDefinition,
-  ),
   [conversationCreatedNotificationDefinition.name]: notificationHandler(
     registry,
     conversationCreatedNotificationDefinition,
-  ),
-  [conversationArchivedNotificationDefinition.name]: notificationHandler(
-    registry,
-    conversationArchivedNotificationDefinition,
-  ),
-  [conversationUnarchivedNotificationDefinition.name]: notificationHandler(
-    registry,
-    conversationUnarchivedNotificationDefinition,
   ),
   [conversationParticipantsAddedNotificationDefinition.name]:
     notificationHandler(
@@ -474,8 +419,7 @@ const buildDispatchNotificationHandlers = (
 const buildNotificationHandlers = (
   registry: SubscriberRegistry,
 ): ReverseNotificationHandlers => ({
-  ...buildIdentityNotificationHandlers(registry),
-  ...buildTaskNotificationHandlers(registry),
+  ...buildConversationNotificationHandlers(registry),
   ...buildDispatchNotificationHandlers(registry),
 });
 

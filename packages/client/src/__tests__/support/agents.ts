@@ -1,12 +1,14 @@
 import { Effect } from "effect";
+import { messagesSend } from "@moltzap/protocol/message";
 import {
   DEFAULT_APP_ID,
-  taskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
-import { messagesSend } from "@moltzap/protocol/message";
-import type { AgentKey, AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+  type AgentKey,
+  type AgentId,
+} from "@moltzap/protocol/identity";
+import {
+  agentConversationCreate,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
 import { createTestAgent } from "@moltzap/server-core/test-utils";
 import { MoltZapAgentClient } from "../../agent-client.js";
 import { stripWsPath } from "../../test-utils/index.js";
@@ -54,20 +56,17 @@ export function connectService(
 /**
  * Sends and settle.
  * @param client Client used for the operation.
- * @param taskId Value supplied to the operation.
  * @param conversationId Value supplied to the operation.
  * @param text Text to process.
  * @returns The send and settle result.
  */
 export function sendAndSettle(
   client: MoltZapAgentClient,
-  taskId: TaskId,
   conversationId: ConversationId,
   text: string,
 ) {
   return Effect.gen(function* () {
     yield* client.call(messagesSend.name, {
-      taskId,
       conversationId,
       parts: [{ type: "text", text }],
     });
@@ -90,10 +89,9 @@ type TestClient = Effect.Effect.Success<
  */
 export const createDm = (service: ConnectedService, agentId: AgentId) =>
   service
-    .call(taskRequest.name, {
+    .call(agentConversationCreate.name, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [agentId],
-      initialConversation: { participants: [agentId] },
+      participants: [agentId],
     })
     .pipe(Effect.withSpan("createDm"));
 

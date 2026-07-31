@@ -3,21 +3,20 @@ import { Effect, Schema } from "effect";
 import {
   type AppIdV4,
   localDaemonCommands,
+  startCommandRpc,
   startParticipant,
-  type StartTaskPartialFailure,
-  startTaskCommandRpc,
-  type StartTaskUsageError,
+  type StartCommandResult,
+  type StartPartialFailure,
   type StartParticipant as StartParticipantType,
-  type StartTaskCommandResult,
+  type StartUsageError,
 } from "../../local-daemon-rpc.js";
 import { command, type Transport, type TransportError } from "../transport.js";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 import { optionsFromSchema } from "../adapters.js";
 
 const EXIT_CODES = {
   SUCCESS: 0,
-  TASK_CREATE_FAILED: 1,
+  CREATE_FAILED: 1,
   PARTIAL_SUCCESS: 2,
   USAGE_ERROR: 64,
 } as const;
@@ -39,15 +38,10 @@ interface StartCommandParsed {
 }
 
 const startMessage = (outcome: {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly reusedConversation: boolean;
-}): string =>
-  outcome.reusedConversation
-    ? `Task started: ${outcome.taskId} (reusing existing conversation: ${outcome.conversationId})`
-    : `Task started: ${outcome.taskId} (conversation: ${outcome.conversationId})`;
+}): string => `Conversation started: ${outcome.conversationId}`;
 
-const logStartResult = (result: StartTaskCommandResult): Effect.Effect<void> =>
+const logStartResult = (result: StartCommandResult): Effect.Effect<void> =>
   Effect.zipRight(
     Effect.log(startMessage(result)),
     result.sentMessageId === undefined
@@ -58,7 +52,7 @@ const logStartResult = (result: StartTaskCommandResult): Effect.Effect<void> =>
 const startCommandHandler = (
   args: StartCommandArgs,
 ): Effect.Effect<void, StartCommandError, Transport> =>
-  command(localDaemonCommands.startTask, {
+  command(localDaemonCommands.start, {
     name: args.name,
     participants: args.participants,
     ...(args.message === undefined ? {} : { message: args.message }),
@@ -73,13 +67,13 @@ const runStartCommand = (
 ): Effect.Effect<void, never, Transport> =>
   effect.pipe(
     Effect.catchTags({
-      StartTaskUsageError: (err: StartTaskUsageError) =>
+      StartUsageError: (err: StartUsageError) =>
         Effect.logError(err.message).pipe(
           Effect.zipRight(
             Effect.sync(() => process.exit(EXIT_CODES.USAGE_ERROR)),
           ),
         ),
-      StartTaskPartialFailure: (err: StartTaskPartialFailure) =>
+      StartPartialFailure: (err: StartPartialFailure) =>
         Effect.zipRight(
           Effect.log(startMessage(err)),
           Effect.logError(`Error sending message: ${err.message}`).pipe(
@@ -96,7 +90,7 @@ const runStartCommand = (
           : err._tag;
       return Effect.logError(`Failed: ${msg}`).pipe(
         Effect.zipRight(
-          Effect.sync(() => process.exit(EXIT_CODES.TASK_CREATE_FAILED)),
+          Effect.sync(() => process.exit(EXIT_CODES.CREATE_FAILED)),
         ),
       );
     }),
@@ -112,7 +106,7 @@ const participantsArg = Args.text({ name: "participant" }).pipe(
   Args.repeated,
 );
 
-const startOptionsSchema = startTaskCommandRpc.payloadSchema.pipe(
+const startOptionsSchema = startCommandRpc.payloadSchema.pipe(
   Schema.omit("name", "participants"),
 );
 /** Provides the start options runtime value. */
@@ -153,12 +147,12 @@ export const startCommand: Command.Command<
     }),
 ).pipe(
   Command.withDescription(
-    "Start a task with named participants and optionally send the first message.\n" +
+    "Start a conversation with named participants and optionally send the first message.\n" +
       "\n" +
       "Exit codes:\n" +
       `  ${EXIT_CODES.SUCCESS}   success\n` +
-      `  ${EXIT_CODES.TASK_CREATE_FAILED}   task creation or lookup failed\n` +
-      `  ${EXIT_CODES.PARTIAL_SUCCESS}   task started, first message failed\n` +
+      `  ${EXIT_CODES.CREATE_FAILED}   conversation creation failed\n` +
+      `  ${EXIT_CODES.PARTIAL_SUCCESS}   conversation started, first message failed\n` +
       `  ${EXIT_CODES.USAGE_ERROR}  usage error`,
   ),
 );

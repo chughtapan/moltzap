@@ -6,7 +6,6 @@ import { DbTag } from "#db";
 import { ConnectionManagerTag } from "#socket";
 import { AppEndpointRegistryTag } from "#identity/apps";
 import { ConversationServiceTag } from "#conversation";
-import { PresenceServiceTag } from "#network/presence";
 
 import { DispatchAdmissionService } from "./admission.service.js";
 import { makeLeaseRegistry, type LeaseRegistry } from "./lease-registry.js";
@@ -33,11 +32,9 @@ export const leaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
-    const transitionObserver = yield* PresenceServiceTag;
     return yield* makeLeaseRegistry({
       connections,
       leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
-      transitionObserver,
     });
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );

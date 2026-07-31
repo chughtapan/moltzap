@@ -32,7 +32,7 @@ import {
 const EFFECT_RUNTIME_NAME = "effect";
 const DEFAULT_STARTUP_TIMEOUT = Duration.seconds(10);
 
-/** Acquisition failed before an in-process agent became router-visible. */
+/** Acquisition failed before an in-process agent finished connecting. */
 export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeStartFailed>()(
   "EffectRuntimeStartFailed",
   {
@@ -48,7 +48,9 @@ export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeSt
 /** Message delivery context passed to ordinary Effect agent code. */
 export interface EffectMessageContext {
   readonly agent: AgentHandle;
-  readonly taskId: TaskId;
+
+  /** Grouping label the sender stamped, present only when one was set. */
+  readonly taskId?: TaskId;
   readonly message: Message;
 }
 
@@ -91,12 +93,13 @@ function sendReply(
     return Effect.void;
   }
   const parts = replyParts(reply);
+  // The reply re-stamps whatever grouping label the inbound message carried,
+  // so an endpoint convention survives a round trip through this runtime.
   return client
     .callDefinition(messagesSend, {
-      taskId: incoming.taskId,
       conversationId: incoming.message.conversationId,
       parts,
-      replyToId: incoming.message.id,
+      ...(incoming.taskId === undefined ? {} : { taskId: incoming.taskId }),
     })
     .pipe(Effect.asVoid);
 }
@@ -109,7 +112,7 @@ function handleMessage<E, R>(
 ) {
   return onMessage({
     agent: input.connection.agent,
-    taskId: incoming.taskId,
+    ...(incoming.taskId === undefined ? {} : { taskId: incoming.taskId }),
     message: incoming.message,
   }).pipe(Effect.flatMap((reply) => sendReply(client, incoming, reply)));
 }
@@ -178,14 +181,15 @@ function awaitStartup(
   state: EffectRuntimeState,
   startupTimeout: Duration.Duration,
 ): Effect.Effect<void, EffectRuntimeStartFailed> {
-  const connectAndBecomeVisible = Effect.all(
-    [state.client.connect(), input.connection.awaitReady(startupTimeout)],
-    { concurrency: 2, discard: true },
-  ).pipe(Effect.mapError((cause) => startFailure(input, cause)));
-  return Effect.raceFirst(
-    connectAndBecomeVisible,
-    startupEnded(input, state.termination),
+  const connected = state.client.connect().pipe(
+    Effect.timeoutFail({
+      duration: startupTimeout,
+      onTimeout: () =>
+        `connect did not complete within ${Duration.format(startupTimeout)}`,
+    }),
+    Effect.mapError((cause) => startFailure(input, cause)),
   );
+  return Effect.raceFirst(connected, startupEnded(input, state.termination));
 }
 
 function acquireEffectRuntime<E, R>(

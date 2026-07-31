@@ -12,7 +12,7 @@ import {
 import type { ServiceRpcError } from "@moltzap/client";
 import { agentsList } from "@moltzap/protocol/identity";
 import { messagesSend } from "@moltzap/protocol/message";
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import {
   type ParamsOf,
@@ -20,7 +20,7 @@ import {
   type RpcDefinitionAny,
   ForbiddenError,
 } from "@moltzap/protocol/rpc";
-import { type TaskId, TaskClosedError } from "@moltzap/protocol/task";
+import { HookBlockedError, type TaskId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
@@ -44,22 +44,12 @@ const TARGET_TASK_ID = testTaskId("delivery-target");
 const OUTBOUND_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440406",
 );
-const REPLY_CONVERSATION_ID = testConversationId(
-  "550e8400-e29b-41d4-a716-446655440407",
-);
-const NO_REPLY_CONVERSATION_ID = testConversationId(
-  "550e8400-e29b-41d4-a716-446655440408",
-);
 const STOP_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440409",
 );
 const OUTBOUND_TASK_ID = testTaskId("delivery-outbound");
-const REPLY_TASK_ID = testTaskId("delivery-reply");
-const NO_REPLY_TASK_ID = testTaskId("delivery-no-reply");
 const STOP_TASK_ID = testTaskId("delivery-stop");
 const OUTBOUND_TARGET = `task:${OUTBOUND_TASK_ID}:${OUTBOUND_CONVERSATION_ID}`;
-const REPLY_TARGET = `task:${REPLY_TASK_ID}:${REPLY_CONVERSATION_ID}`;
-const NO_REPLY_TARGET = `task:${NO_REPLY_TASK_ID}:${NO_REPLY_CONVERSATION_ID}`;
 const STOP_TARGET = `task:${STOP_TASK_ID}:${STOP_CONVERSATION_ID}`;
 const AGENT_NOVA_TARGET = "agent:nova";
 const AGENT_NOVA_NAME = "nova";
@@ -70,11 +60,8 @@ const SECOND_REPLY_TEXT = "second reply";
 const PARTIAL_TEXT = "partial";
 const OUTBOUND_TEXT = "Hello from outbound";
 const AGENT_TEXT = "Hello nova";
-const AGENT_REPLY_TEXT = "Reply text";
-const NO_REPLY_TEXT = "No reply ref";
 const BEFORE_STOP_TEXT = "before stop";
 const AFTER_STOP_TEXT = "after stop";
-const PARENT_MESSAGE_ID = testMessageId("550e8400-e29b-41d4-a716-446655440410");
 const LOOKUP_FAILED_MESSAGE = "lookup failed";
 const SERVER_REJECTED_MESSAGE = "Server rejected";
 const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error";
@@ -114,15 +101,13 @@ type DispatchCallWithContext = DispatchCall & {
   };
 };
 type SendFn = (
-  taskId: TaskId,
   conversationId: ConversationId,
   text: string,
-  opts?: { readonly replyTo?: MessageId; readonly dispatchLeaseId?: LeaseId },
+  opts?: { readonly dispatchLeaseId?: LeaseId; readonly taskId?: TaskId },
 ) => Effect.Effect<void, ServiceRpcError>;
 type SendToAgentFn = (
   agentName: string,
   text: string,
-  opts?: { readonly replyTo?: string },
 ) => Effect.Effect<void, unknown>;
 type SendRpcFn = <D extends RpcDefinitionAny>(
   definition: D,
@@ -184,18 +169,18 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
   it("deliver callback returns true for non-final replies", nonFinalIsIgnored);
   it("sendText uses OriginatingTo as conversation id", usesOriginatingTo);
   it("sendText sends to the right conversation", sendsToConversation);
-  it("sendText includes replyToId when present", includesReplyTo);
-  it("sendText omits replyToId when not provided", omitsReplyTo);
   it("resolveTarget accepts agent targets", acceptsAgentTarget);
   it("resolveTarget accepts conversation IDs", acceptsConversationTarget);
   it("resolveTarget rejects empty strings", rejectsEmptyTarget);
   it("sendText delegates agent targets", delegatesAgentTarget);
-  it("sendText forwards agent replyToId", forwardsAgentReplyTo);
   it("sendText reports sendToAgent failures", reportsSendToAgentFailure);
   it("sendText reports disconnected clients", reportsDisconnectedClient);
   it("sendText reports send failures", reportsSendFailure);
-  it("deliver treats TaskClosed as terminal consumed", taskClosedIsConsumed);
-  it("deliver reports non-TaskClosed RPC failures", nonTaskClosedFails);
+  it(
+    "deliver treats an app hook block as terminal consumed",
+    hookBlockIsConsumed,
+  );
+  it("deliver reports transient RPC send failures", sendFailureIsReported);
   it(
     "lease guard stays unconsumed on transient send failure",
     leaseGuardUnconsumedOnTransientFailure,
@@ -489,48 +474,9 @@ function sendsToConversation() {
     });
     expectSuccessfulSend(result);
     expect(mockSend).toHaveBeenCalledWith(
-      OUTBOUND_TASK_ID,
       OUTBOUND_CONVERSATION_ID,
       OUTBOUND_TEXT,
-      {},
-    );
-  });
-}
-
-function includesReplyTo() {
-  return Effect.gen(function* () {
-    const result = yield* sendText({
-      cfg: makeCfg(),
-      to: REPLY_TARGET,
-      text: AGENT_REPLY_TEXT,
-      accountId: ACCOUNT_ID,
-      replyToId: PARENT_MESSAGE_ID,
-    });
-    expectSuccessfulSend(result);
-    expect(mockSend).toHaveBeenCalledWith(
-      REPLY_TASK_ID,
-      REPLY_CONVERSATION_ID,
-      AGENT_REPLY_TEXT,
-      {
-        replyTo: PARENT_MESSAGE_ID,
-      },
-    );
-  });
-}
-
-function omitsReplyTo() {
-  return Effect.gen(function* () {
-    yield* sendText({
-      cfg: makeCfg(),
-      to: NO_REPLY_TARGET,
-      text: NO_REPLY_TEXT,
-      accountId: ACCOUNT_ID,
-    });
-    expect(mockSend).toHaveBeenCalledWith(
-      NO_REPLY_TASK_ID,
-      NO_REPLY_CONVERSATION_ID,
-      NO_REPLY_TEXT,
-      {},
+      { taskId: OUTBOUND_TASK_ID },
     );
   });
 }
@@ -576,30 +522,8 @@ function delegatesAgentTarget() {
       accountId: ACCOUNT_ID,
     });
     expectSuccessfulSend(result);
-    expect(mockSendToAgent).toHaveBeenCalledWith(AGENT_NOVA_NAME, AGENT_TEXT, {
-      replyTo: undefined,
-    });
+    expect(mockSendToAgent).toHaveBeenCalledWith(AGENT_NOVA_NAME, AGENT_TEXT);
     expect(mockSend).not.toHaveBeenCalled();
-  });
-}
-
-function forwardsAgentReplyTo() {
-  return Effect.gen(function* () {
-    const result = yield* sendText({
-      cfg: makeCfg(),
-      to: AGENT_NOVA_TARGET,
-      text: AGENT_REPLY_TEXT,
-      accountId: ACCOUNT_ID,
-      replyToId: PARENT_MESSAGE_ID,
-    });
-    expectSuccessfulSend(result);
-    expect(mockSendToAgent).toHaveBeenCalledWith(
-      AGENT_NOVA_NAME,
-      AGENT_REPLY_TEXT,
-      {
-        replyTo: PARENT_MESSAGE_ID,
-      },
-    );
   });
 }
 
@@ -653,9 +577,9 @@ function serverRejected(): Effect.Effect<void, ServiceRpcError> {
   );
 }
 
-function taskClosedIsConsumed() {
+function hookBlockIsConsumed() {
   return Effect.gen(function* () {
-    mockSend.mockReturnValueOnce(taskClosed());
+    mockSend.mockReturnValueOnce(hookBlocked());
     yield* emitMessage();
     yield* waitForDispatchTimes(1);
     const result = yield* deliverFinal(REPLY_TEXT);
@@ -663,15 +587,15 @@ function taskClosedIsConsumed() {
   });
 }
 
-function taskClosed(): Effect.Effect<void, ServiceRpcError> {
+function hookBlocked(): Effect.Effect<void, ServiceRpcError> {
   return Effect.fail(
-    new TaskClosedError({
-      message: TaskClosedError.message,
+    new HookBlockedError({
+      message: HookBlockedError.message,
     }),
   );
 }
 
-function nonTaskClosedFails() {
+function sendFailureIsReported() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
@@ -689,7 +613,7 @@ function nonTaskClosedFails() {
 
 /**
  * Regression test for the r1 lease-consume ordering fix (PR #622 codex P2):
- * a transient `core.sendReply` failure (non-TaskClosed RPC error) MUST leave
+ * a transient `core.sendReply` failure MUST leave
  * the per-message `LeaseGuard` unconsumed, so a retried `deliver(...)` call
  * still drives the send path. Without the fix in
  * `openclaw-entry.ts → createLeaseConsumingDeliver` + `sendDeliveredReply`

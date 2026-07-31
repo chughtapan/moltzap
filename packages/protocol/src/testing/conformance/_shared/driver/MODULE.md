@@ -8,7 +8,7 @@ Lifecycle-backed conformance client barrel.
 
 ## Public surface
 
-### [`AgentTestClient`](./test-client.ts#L98)
+### [`AgentTestClient`](./test-client.ts#L97)
 
 _Interface_
 
@@ -24,7 +24,7 @@ export interface AgentTestClient extends NotificationClient {
 
 Describes agent test client.
 
-### [`AgentTestClientConfig`](./test-client.ts#L60)
+### [`AgentTestClientConfig`](./test-client.ts#L59)
 
 _Interface_
 
@@ -39,7 +39,7 @@ export interface AgentTestClientConfig {
 
 Describes agent test client config.
 
-### [`AppTestClient`](./test-client.ts#L107)
+### [`AppTestClient`](./test-client.ts#L106)
 
 _Interface_
 
@@ -69,7 +69,7 @@ export interface AppTestClient extends NotificationClient {
 
 Describes app test client.
 
-### [`AppTestClientConfig`](./test-client.ts#L68)
+### [`AppTestClientConfig`](./test-client.ts#L67)
 
 _Interface_
 
@@ -84,7 +84,7 @@ export interface AppTestClientConfig {
 
 Describes app test client config.
 
-### [`CloseableAgentTestClient`](./test-client.ts#L130)
+### [`CloseableAgentTestClient`](./test-client.ts#L129)
 
 _Interface_
 
@@ -96,7 +96,7 @@ export interface CloseableAgentTestClient extends AgentTestClient {
 
 Describes closeable agent test client.
 
-### [`CloseableAppTestClient`](./test-client.ts#L135)
+### [`CloseableAppTestClient`](./test-client.ts#L134)
 
 _Interface_
 
@@ -108,7 +108,7 @@ export interface CloseableAppTestClient extends AppTestClient {
 
 Describes closeable app test client.
 
-### [`makeAgentTestClient`](./test-client.ts#L180)
+### [`makeAgentTestClient`](./test-client.ts#L179)
 
 _Function_
 
@@ -122,7 +122,7 @@ Creates agent test client.
 
 **Returns:** The created agent test client.
 
-### [`makeAppTestClient`](./test-client.ts#L208)
+### [`makeAppTestClient`](./test-client.ts#L207)
 
 _Function_
 
@@ -136,7 +136,7 @@ Creates app test client.
 
 **Returns:** The created app test client.
 
-### [`makeCloseableAgentTestClient`](./test-client.ts#L195)
+### [`makeCloseableAgentTestClient`](./test-client.ts#L194)
 
 _Function_
 
@@ -150,7 +150,7 @@ Creates closeable agent test client.
 
 **Returns:** The created closeable agent test client.
 
-### [`makeCloseableAppTestClient`](./test-client.ts#L223)
+### [`makeCloseableAppTestClient`](./test-client.ts#L222)
 
 _Function_
 
@@ -164,7 +164,7 @@ Creates closeable app test client.
 
 **Returns:** The created closeable app test client.
 
-### [`NotificationClient`](./test-client.ts#L82)
+### [`NotificationClient`](./test-client.ts#L81)
 
 _Interface_
 
@@ -187,7 +187,7 @@ export interface NotificationClient {
 
 Describes notification client.
 
-### [`ServerRequestWaitError`](./test-client.ts#L140)
+### [`ServerRequestWaitError`](./test-client.ts#L139)
 
 _Class_
 
@@ -203,7 +203,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 
 Reports server request wait failures.
 
-### [`ServerRpcContext`](./test-client.ts#L156)
+### [`ServerRpcContext`](./test-client.ts#L155)
 
 _Interface_
 
@@ -216,7 +216,7 @@ export interface ServerRpcContext {
 
 Carries context for server rpc.
 
-### [`ServerRpcDefinition`](./test-client.ts#L149)
+### [`ServerRpcDefinition`](./test-client.ts#L148)
 
 _TypeAlias_
 
@@ -226,7 +226,7 @@ export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
 
 Represents server rpc definition values.
 
-### [`ServerRpcParams`](./test-client.ts#L151)
+### [`ServerRpcParams`](./test-client.ts#L150)
 
 _TypeAlias_
 
@@ -236,7 +236,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Represents server rpc params values.
 
-### [`ServerRpcResult`](./test-client.ts#L153)
+### [`ServerRpcResult`](./test-client.ts#L152)
 
 _TypeAlias_
 

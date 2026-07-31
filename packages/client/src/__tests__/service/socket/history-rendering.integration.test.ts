@@ -1,6 +1,5 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -20,28 +19,23 @@ it("lastRead tracks seen message IDs across reads", () =>
     yield* service.startSocketServer();
     // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
     yield* Effect.gen(function* () {
-      const conv = yield* service.call(taskRequest.name, {
-        appId: DEFAULT_APP_ID,
-        invitedAgentIds: [regB.agentId],
-        initialConversation: { participants: [regB.agentId] },
+      const conv = yield* service.call(H.agentConversationCreate.name, {
+        appId: H.DEFAULT_APP_ID,
+        participants: [regB.agentId],
       });
 
       // Send 3 messages from B
       for (let i = 0; i < 3; i++) {
         yield* H.sendAndSettle(
           regB.client,
-          conv.task.id,
-          /* Safe because the test fixture establishes this asserted shape. */ conv
-            .conversation!.id,
+          conv.conversation.id,
           `track-msg-${i}`,
         );
       }
 
       // First read marks all 3 as seen
       const hist1 = yield* H.socketHistory(
-        conv.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
+        conv.conversation.id,
         H.TRACK_SESSION_KEY,
       );
       expect(hist1.messages.length).toBe(H.SOCKET_PAGE_MESSAGE_COUNT);
@@ -49,17 +43,13 @@ it("lastRead tracks seen message IDs across reads", () =>
       // New message arrives after read
       yield* H.sendAndSettle(
         regB.client,
-        conv.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
+        conv.conversation.id,
         H.TRACK_NEW_MESSAGE,
       );
 
       // Read again — only the new message should be marked new
       const hist2 = yield* H.socketHistory(
-        conv.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
+        conv.conversation.id,
         H.TRACK_SESSION_KEY,
       );
       expect(hist2.newCount).toBe(1);
@@ -76,17 +66,13 @@ it("non-text message parts render as markers in socket history", () =>
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
-      const conv = yield* service.call(taskRequest.name, {
-        appId: DEFAULT_APP_ID,
-        invitedAgentIds: [regB.agentId],
-        initialConversation: { participants: [regB.agentId] },
+      const conv = yield* service.call(H.agentConversationCreate.name, {
+        appId: H.DEFAULT_APP_ID,
+        participants: [regB.agentId],
       });
 
       yield* regB.client.call(H.messagesSend.name, {
-        taskId: conv.task.id,
-        conversationId:
-          /* Safe because the test fixture establishes this asserted shape. */ conv
-            .conversation!.id,
+        conversationId: conv.conversation.id,
         parts: [
           { type: "text", text: "Check this out" },
           { type: "image", url: "https://example.com/photo.jpg" },
@@ -94,11 +80,7 @@ it("non-text message parts render as markers in socket history", () =>
       });
       yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
-      const result = yield* H.socketHistory(
-        conv.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
-      );
+      const result = yield* H.socketHistory(conv.conversation.id);
 
       const msg = result.messages.find(containsAttachmentCaption);
       expect(msg).toBeDefined();

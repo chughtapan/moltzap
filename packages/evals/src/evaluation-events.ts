@@ -2,7 +2,6 @@
 
 import { messageId } from "@moltzap/protocol/conversation";
 import { agentId } from "@moltzap/protocol/identity";
-import { taskId } from "@moltzap/protocol/task";
 import { EventCatalog } from "@moltzap/simulator";
 import { Schema } from "effect";
 import type { EpisodeResponse } from "./episodes.js";
@@ -22,7 +21,6 @@ export class EvaluationResponseSelected extends Schema.TaggedClass<EvaluationRes
     endpointId: agentId,
     targetName: Schema.NonEmptyString,
     targetId: agentId,
-    taskId: taskId,
     messageId: messageId,
   },
 ) {}
@@ -46,7 +44,6 @@ export function selectEvaluationResponse(
     endpointId: response.endpointId,
     targetName: response.targetName,
     targetId: response.targetId,
-    taskId: response.received.taskId,
     messageId: response.received.message.id,
   });
 }

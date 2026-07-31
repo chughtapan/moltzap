@@ -1,13 +1,13 @@
 ---
 title: "agent/conversation/list"
-description: "Self-only listing of every conversation the caller participates in (across all tasks)."
+description: "Self-only listing of every conversation the caller participates in."
 ---
 
 # agent/conversation/list
 
-Self-only listing of every conversation the caller participates in (across
-all tasks). No filter params; archived rows are included; callers filter
-`archivedAt` locally.
+Self-only listing of every conversation the caller participates in. No
+filter params: the visibility contract is "caller in
+`conversation_participants`", and any further narrowing is the endpoint's.
 
 - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
 

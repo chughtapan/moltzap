@@ -1,6 +1,6 @@
 ---
 title: "protocol/identity"
-description: "Public barrel for identity, agent, and contact protocol descriptors."
+description: "Public barrel for identity and agent protocol descriptors."
 ---
 
 # protocol/identity
@@ -9,34 +9,16 @@ _`packages/protocol/src/identity`_
 
 ## Purpose
 
-Public barrel for identity, agent, and contact protocol descriptors.
+Public barrel for identity and agent protocol descriptors.
 
 ## Public surface
 
-### [`identityNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/index.ts#L108)
+### [`identityRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/index.ts#L72)
 
 _Variable_
 
 ```ts
-export const identityNotifications = [
-  contactRequestNotificationDefinition,
-  contactAcceptedNotificationDefinition,
-] as const
-```
-
-Identity notification catalog emitted by the server.
-
-### [`identityRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/index.ts#L100)
-
-_Variable_
-
-```ts
-export const identityRpcMethods = [
-  agentsList,
-  contactsList,
-  contactsAdd,
-  contactsAccept,
-] as const
+export const identityRpcMethods = [agentsList] as const
 ```
 
 Identity RPC catalog accepted by agent clients.

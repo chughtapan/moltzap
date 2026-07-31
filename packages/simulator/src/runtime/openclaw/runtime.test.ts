@@ -1,15 +1,11 @@
-/* eslint-disable sonarjs/no-nested-functions -- lifecycle tests pin acquisition, readiness, cancellation, and exact process-status transitions whose causal order is clearest in Effect generators. */
+/* eslint-disable sonarjs/no-nested-functions -- lifecycle tests pin acquisition, scoped teardown, and exact process-status transitions whose causal order is clearest in Effect generators. */
 
 import { assert, it as effectIt } from "@effect/vitest";
 import {
   ExitCode as processExitCode,
   type ExitCode,
 } from "@effect/platform/CommandExecutor";
-import {
-  NetworkFailure,
-  type AgentConnection,
-  makeAgentHandle,
-} from "../../network.js";
+import { type AgentConnection, makeAgentHandle } from "../../network.js";
 import { RuntimeExited, RuntimeFailed } from "../runtime.js";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
@@ -20,9 +16,9 @@ import {
   Effect,
   Exit,
   Fiber,
-  Option,
   Ref,
   Scope,
+  TestClock,
 } from "effect";
 import { describe } from "vitest";
 import { RuntimeAcquisitionFailed } from "../process.js";
@@ -40,9 +36,10 @@ const test = effectIt.effect;
 const AGENT_NAME = "alice";
 const AGENT_KEY_TEXT =
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";
-const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
+const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
 const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
+const READY_OUTPUT = "MoltZap: connected as alice (agent-1)";
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43123");
 const PROCESS_EXIT_CODE = 23;
 const STARTUP_TIMEOUT = Duration.seconds(17);
@@ -71,16 +68,11 @@ interface Fixture {
   readonly teardownCount: Ref.Ref<number>;
 }
 
-function makeConnection(
-  awaitReady: AgentConnection<"alice">["awaitReady"],
-): AgentConnection<"alice"> {
-  return {
-    agent: makeAgentHandle(AGENT_NAME, AGENT_ID),
-    key: AGENT_KEY,
-    routerUrl: ROUTER_URL,
-    awaitReady,
-  };
-}
+const connection: AgentConnection<"alice"> = {
+  agent: makeAgentHandle(AGENT_NAME, AGENT_ID),
+  key: AGENT_KEY,
+  routerUrl: ROUTER_URL,
+};
 
 function fakeProcessOptions(
   input: Parameters<
@@ -127,6 +119,7 @@ function makeFixture(
         ),
       exitCode: (running) => Deferred.await(running.exitCode),
       output: (running) => running.output,
+      readyWhen: (text) => text.includes("connected as"),
     };
     return {
       runtime: makeOpenClawRuntimeWith(options, driver),
@@ -190,72 +183,27 @@ function assertProcessAcquisition(acquired: AcquiredOpenClaw): void {
   ]);
 }
 
-function returnsAfterReadinessTest() {
+function returnsAfterReadyLineTest() {
   return Effect.gen(function* () {
-    const readyEntered = yield* Deferred.make<Duration.Duration>();
-    const becomeReady = yield* Deferred.make<undefined>();
-    const readyCount = yield* Ref.make(0);
-    const fixture = yield* makeFixture(fullRuntimeOptions());
-    const acquiredFiber = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection((within) =>
-          Ref.update(readyCount, (count) => count + 1).pipe(
-            Effect.zipRight(Deferred.succeed(readyEntered, within)),
-            Effect.zipRight(Deferred.await(becomeReady)),
-          ),
-        ),
+    const fixture = yield* makeFixture(fullRuntimeOptions(), READY_OUTPUT);
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* fixture.runtime.acquire({ connection });
+        assertProcessAcquisition(yield* Deferred.await(fixture.acquired));
       }),
-    ).pipe(Effect.fork);
-    const acquired = yield* Deferred.await(fixture.acquired);
-    const readyWithin = yield* Deferred.await(readyEntered);
-
-    assert.isTrue(Option.isNone(yield* Fiber.poll(acquiredFiber)));
-    assert.strictEqual(
-      Duration.toMillis(readyWithin),
-      Duration.toMillis(STARTUP_TIMEOUT),
     );
-    assertProcessAcquisition(acquired);
-    assert.strictEqual(yield* Ref.get(readyCount), 1);
-    yield* Deferred.succeed(becomeReady, undefined);
-    yield* Fiber.join(acquiredFiber);
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
   });
 }
 
-function interruptedAcquisitionTest() {
-  return Effect.gen(function* () {
-    const readyEntered = yield* Deferred.make<undefined>();
-    const fixture = yield* makeFixture({});
-    const acquired = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection(() =>
-          Deferred.succeed(readyEntered, undefined).pipe(
-            Effect.zipRight(Effect.never),
-          ),
-        ),
-      }),
-    ).pipe(Effect.fork);
-    yield* Deferred.await(readyEntered);
-
-    const interrupted = yield* Fiber.interrupt(acquired);
-    assert.isTrue(Exit.isFailure(interrupted));
-    if (Exit.isFailure(interrupted)) {
-      assert.isTrue(Cause.isInterruptedOnly(interrupted.cause));
-    }
-    assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
-  });
-}
-
-function exitsBeforeReadinessTest() {
+function exitsBeforeReadyLineTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture(
       {},
       `startup failed apiKey=${AGENT_KEY_TEXT}`,
     );
     const acquiring = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection(() => Effect.never),
-      }),
+      fixture.runtime.acquire({ connection }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.acquired);
     yield* Deferred.succeed(
@@ -273,16 +221,14 @@ function exitsBeforeReadinessTest() {
   });
 }
 
-function waitFailsBeforeReadinessTest() {
+function waitFailsBeforeReadyLineTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture(
       {},
       `startup failed apiKey=${AGENT_KEY_TEXT}`,
     );
     const acquiring = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection(() => Effect.never),
-      }),
+      fixture.runtime.acquire({ connection }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.acquired);
     yield* Deferred.fail(fixture.session.exitCode, PROCESS_WAIT_FAILURE);
@@ -296,32 +242,30 @@ function waitFailsBeforeReadinessTest() {
   });
 }
 
-function readinessFailureTest() {
+function readyLineTimeoutTest() {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({});
-    const readinessFailure = NetworkFailure.make({
-      operation: "attach-agent",
-      detail: "router-owned startup deadline elapsed",
-    });
-    const observed = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection(() => Effect.fail(readinessFailure)),
-      }),
-    ).pipe(Effect.flip);
+    const fixture = yield* makeFixture(fullRuntimeOptions(), "still booting");
+    const acquiring = yield* Effect.scoped(
+      fixture.runtime.acquire({ connection }),
+    ).pipe(Effect.flip, Effect.fork);
+    yield* Deferred.await(fixture.acquired);
+    yield* TestClock.adjust(STARTUP_TIMEOUT);
+    const failure = yield* Fiber.join(acquiring);
 
-    assert.instanceOf(observed, RuntimeAcquisitionFailed);
-    assert.include(observed.detail, readinessFailure.detail);
+    assert.instanceOf(failure, RuntimeAcquisitionFailed);
+    assert.include(failure.detail, "did not announce readiness");
+    assert.include(failure.detail, "still booting");
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
   });
 }
 
 function teardownIsNotTerminationTest() {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({});
+    const fixture = yield* makeFixture({}, READY_OUTPUT);
     const scope = yield* Scope.make();
     const running = yield* fixture.runtime
       .acquire({
-        connection: makeConnection(() => Effect.void),
+        connection,
       })
       .pipe(Scope.extend(scope));
     const observing = yield* running.termination.pipe(Effect.forkIn(scope));
@@ -338,12 +282,12 @@ function teardownIsNotTerminationTest() {
 
 function observeTermination(exitCode: ExitCode) {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({});
+    const fixture = yield* makeFixture({}, READY_OUTPUT);
     const observation = yield* Effect.scoped(
       Effect.gen(function* () {
         const acquiring = yield* fixture.runtime
           .acquire({
-            connection: makeConnection(() => Effect.void),
+            connection,
           })
           .pipe(Effect.fork);
         yield* Deferred.await(fixture.acquired);
@@ -359,12 +303,12 @@ function observeTermination(exitCode: ExitCode) {
 
 function observeWaitFailure() {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({});
+    const fixture = yield* makeFixture({}, READY_OUTPUT);
     const observation = yield* Effect.scoped(
       Effect.gen(function* () {
         const acquiring = yield* fixture.runtime
           .acquire({
-            connection: makeConnection(() => Effect.void),
+            connection,
           })
           .pipe(Effect.fork);
         yield* Deferred.await(fixture.acquired);
@@ -391,27 +335,23 @@ function exactTerminationTest() {
   });
 }
 
-// @agent-code-guard/regression-only: controlled sessions pin readiness, cancellation, scoped teardown, private host configuration, and exact process evidence
+// @agent-code-guard/regression-only: controlled sessions pin acquisition, scoped teardown, private host configuration, and exact process evidence
 describe("native OpenClaw runtime", () => {
   test(
-    "uses one router readiness proof and exposes no gateway address",
-    returnsAfterReadinessTest,
+    "returns after the gateway logs its readiness line",
+    returnsAfterReadyLineTest,
   );
   test(
-    "releases an interrupted process acquisition through its Scope",
-    interruptedAcquisitionTest,
+    "fails and releases when the process exits before the readiness line",
+    exitsBeforeReadyLineTest,
   );
   test(
-    "fails and releases when the process exits before readiness",
-    exitsBeforeReadinessTest,
+    "reports an unavailable exit code when the process wait fails before the readiness line",
+    waitFailsBeforeReadyLineTest,
   );
   test(
-    "reports an unavailable exit code when the process wait fails before readiness",
-    waitFailsBeforeReadinessTest,
-  );
-  test(
-    "propagates router readiness failure and releases the process",
-    readinessFailureTest,
+    "fails when no readiness line arrives within the startup timeout",
+    readyLineTimeoutTest,
   );
   test(
     "does not report scoped teardown as autonomous termination",

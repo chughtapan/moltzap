@@ -36,7 +36,7 @@ type HandlerTable<Defs extends AppCallbackDescriptor, Ctx> = {
 };
 
 /**
- * Closed handler table for an app moderating one or more tasks. Every
+ * Closed handler table for an app moderating one or more conversations. Every
  * app callback member is required; vacuous-deny moderators still write the
  * handler explicitly.
  */

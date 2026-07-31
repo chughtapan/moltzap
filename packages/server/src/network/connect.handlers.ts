@@ -37,8 +37,6 @@ import type { AppEndpointRegistry } from "../identity/apps/endpoint-registry.js"
 import { ConversationServiceTag } from "../conversation/layer.js";
 import type { ConversationService } from "../conversation/conversation.service.js";
 import { AgentEndpointResolverTag } from "./layer.js";
-import { PresenceServiceTag } from "./presence/layer.js";
-import type { PresenceService } from "./presence/presence.service.js";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 
@@ -73,25 +71,6 @@ const authenticateAgentKey = Effect.fn("connect.authenticateAgentKey")(
     });
   },
 );
-
-/**
- * Emit the agent's `online` presence on connect, then return the empty HelloOk.
- * `onAgentConnect(agentId, connId)` threads `connId` for the fast-reconnect
- * race guard. The handshake carries no agent identity back — the client already
- * holds its registered `agentId`.
- * @param ctx Context for the operation.
- * @param connId Value supplied to the operation.
- * @param presenceService Value supplied to the operation.
- * @returns The created hello ok.
- */
-const buildHelloOk = Effect.fn("connect.buildHelloOk")(function* (
-  ctx: AgentContext,
-  connId: ConnectionId,
-  presenceService: PresenceService,
-) {
-  yield* presenceService.onAgentConnect(ctx.agentId, connId);
-  return HELLO_OK;
-});
 
 /**
  * Resolve an `appKey` credential to its `AppContext` AND its
@@ -160,8 +139,9 @@ const registerAppEndpoint = Effect.fn("connect.registerAppEndpoint")(
     const { connections, appEndpointRegistry, appId, manifest, authed } = args;
     const connId = authed.connId;
     // Register under the SERVER-MINTED `appId` (the authenticated
-    // principal), NOT `manifest.appId`. `agent/task/request` routes to the appId the
-    // registrant received from `/api/v1/apps/register` = this identity.
+    // principal), NOT `manifest.appId`. `agent/conversation/create` routes to
+    // the appId the registrant received from `/api/v1/apps/register` = this
+    // identity.
     const ok = appEndpointRegistry.registerApp(appId, manifest, {
       connId,
       originator: authed.originator,
@@ -312,7 +292,6 @@ const completeAgentConnect = Effect.fn("connect.completeAgentConnect")(
   function* (credential: AgentKey, connId: ConnectionId) {
     const authService = yield* AuthServiceTag;
     const conversationService = yield* ConversationServiceTag;
-    const presenceService = yield* PresenceServiceTag;
     const connections = yield* ConnectionManagerTag;
     const agentEndpointResolver = yield* AgentEndpointResolverTag;
 
@@ -332,10 +311,9 @@ const completeAgentConnect = Effect.fn("connect.completeAgentConnect")(
       connId,
       auth,
     );
-    const helloOk = yield* buildHelloOk(auth, connId, presenceService);
     // eslint-disable-next-line @typescript-eslint/no-use-before-define -- connection hooks run after module initialization.
     yield* fireConnectionHooks(auth, connId);
-    return helloOk;
+    return HELLO_OK;
   },
 );
 
@@ -414,15 +392,10 @@ function checkConnectProtocol(params: ConnectParams) {
 
 const reemitHelloIfAuthenticated = Effect.fn(
   "connect.reemitHelloIfAuthenticated",
-)(function* (conn: Connection, presenceService: PresenceService) {
+)(function* (conn: Connection) {
   if (conn._tag === "AgentConnection") {
-    const helloOk = yield* buildHelloOk(
-      conn.auth,
-      conn.connId,
-      presenceService,
-    );
     yield* fireConnectionHooks(conn.auth, conn.connId);
-    return Option.some(helloOk);
+    return Option.some(HELLO_OK);
   }
   if (conn._tag === "AppConnection") {
     return Option.some(HELLO_OK);
@@ -441,9 +414,8 @@ const reemitHelloIfAuthenticated = Effect.fn(
 function connectPreamble(params: ConnectParams) {
   return Effect.gen(function* () {
     yield* checkConnectProtocol(params);
-    const presenceService = yield* PresenceServiceTag;
     const conn = yield* ConnectionTag;
-    const reemitted = yield* reemitHelloIfAuthenticated(conn, presenceService);
+    const reemitted = yield* reemitHelloIfAuthenticated(conn);
     return { conn, reemitted };
   });
 }
@@ -505,4 +477,4 @@ export const connectAgent: ServerHandler<typeof agentConnect> = (params) =>
 export const connectApp: ServerHandler<typeof appConnect> = (params) =>
   handleAppConnect(params).pipe(Effect.withSpan("connect.app"));
 
-// safer-arch-ignore no-fat-orchestrator: Connect handlers coordinate authentication, connection-arm transitions, endpoint registration, and presence as one atomic handshake boundary.
+// safer-arch-ignore no-fat-orchestrator: Connect handlers coordinate authentication, connection-arm transitions, and endpoint registration as one atomic handshake boundary.

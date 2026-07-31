@@ -6,7 +6,6 @@ import {
   conversationId,
   messageId,
   redactedAgentKey,
-  taskId,
 } from "@moltzap/protocol/testing";
 import {
   Deferred,
@@ -46,7 +45,6 @@ const KEY = redactedAgentKey(
 const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
   "http://127.0.0.1:43100",
 );
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000003");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000004");
 const RECEIVED_ID = messageId("00000000-0000-4000-8000-000000000005");
 const SECOND_RECEIVED_ID = messageId("00000000-0000-4000-8000-000000000007");
@@ -77,7 +75,6 @@ function writer(events: EndpointEvent[]): EndpointEventWriter {
 
 function receivedMessage(id: MessageId, text: string): ReceivedMessage {
   return {
-    taskId: TASK_ID,
     message: {
       id,
       conversationId: CONVERSATION_ID,
@@ -93,7 +90,7 @@ interface AttachmentCount {
 }
 
 function sendMessage(sends?: AttachmentCount): EndpointTransport["send"] {
-  return (...[, conversationId, parts]) =>
+  return (...[conversationId, parts]) =>
     Effect.sync(() => {
       if (sends !== undefined) {
         sends.value += 1;
@@ -121,7 +118,6 @@ function router(
         agent: makeAgentHandle(name, TARGET_ID),
         key: KEY,
         routerUrl: ROUTER_URL,
-        awaitReady: () => Effect.void,
       }),
     attachEndpoint: (name) =>
       Effect.sync(() => {
@@ -132,7 +128,6 @@ function router(
             received,
             openConversation: () =>
               Effect.succeed({
-                taskId: TASK_ID,
                 conversationId: CONVERSATION_ID,
               }),
             send: sendMessage(sends),

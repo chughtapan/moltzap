@@ -6,5 +6,3 @@ export { agentsList } from "./handlers.js";
 export { AuthService } from "./auth.service.js";
 /** Re-exports the public API from `./layer.js`. */
 export { AuthServiceTag } from "./layer.js";
-/** Re-exports the public API from `./visibility.service.js`. */
-export { visibleAgentIds } from "./visibility.service.js";

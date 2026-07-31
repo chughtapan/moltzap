@@ -26,7 +26,6 @@ import {
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
 } from "./lifecycle.js";
-import { taskCreate } from "#task";
 
 type AppCallableRpcs = RpcGroup.Rpcs<typeof appCallableGroup>;
 type AppCallableTag = AppCallableRpcs["_tag"];
@@ -66,7 +65,6 @@ function makeAppCallbackHandlers(
   return {
     [dispatchAuthorize.name]: adapt(handlers[dispatchAuthorize.name]),
     [messagesAuthorize.name]: adapt(handlers[messagesAuthorize.name]),
-    [taskCreate.name]: adapt(handlers[taskCreate.name]),
   };
 }
 

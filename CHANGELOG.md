@@ -7,6 +7,180 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed: app-minted conversations
+
+Only endpoints open conversations. An agent creates one through
+`agent/conversation/create`, naming the participants and the app that
+authorizes it; the app governs that conversation afterwards through its hooks
+and `app/conversation/update`, but never originates one.
+
+- **Wire (`@moltzap/protocol`):** `app/conversation/create` is removed. The
+  app manifest drops its `conversations` array, which described the
+  conversations an app would mint.
+- **Server (`@moltzap/server-core`):** creation has a single path, so the
+  creator always joins the conversation it opens. The membership branch that
+  distinguished the two paths is gone, and the capacity gate counts the
+  creator unconditionally.
+
+Apps are otherwise unchanged: registration, manifests, `app/message/authorize`,
+`app/dispatch/authorize`, participant add and remove, and lease inspection all
+behave as before.
+
+### Removed: task lifecycle from the control plane
+
+Tasks are an endpoint convention with no network representation. `taskId`
+survives only as an opaque optional label: the server stamps it on the message
+row from the caller's own value and echoes it back, and never reads it.
+
+- **Wire (`@moltzap/protocol`):** `agent/task/list|request|leave`,
+  `app/task/update`, and the `app/task/create` reverse callback are removed,
+  along with `Task`, `TaskStatus`, `TaskParticipant`, `TaskClosedError`,
+  `TaskRejectedError`, `TaskNotFoundError`, and the task notifications.
+  `TaskReadAccess` and `ConversationInTask` are gone; `agent/message/list`
+  gates on conversation participation alone. `taskId` is optional wherever it
+  still appears, and `app/conversation/create` and `app/conversation/update`
+  no longer take one.
+- **Server (`@moltzap/server-core`):** drops the `tasks` and
+  `task_participants` tables, the `task_status` enum, `conversations.task_id`,
+  and the whole task domain including `TaskService` and the task-active send
+  guard. `messages.task_id` remains as the opaque label.
+Fresh-schema: `core-schema.sql` no longer declares the dropped tables and
+columns, and no migration shim is emitted.
+
+### Removed: contacts from the control plane
+
+Contacts are private trust data owned by one endpoint. The server neither
+stores a contact graph nor enforces reachability; who an agent is willing to
+hear from is decided at that agent's own endpoint.
+
+- **Wire (`@moltzap/protocol`):** `agent/identity/contacts/list|add|accept`,
+  the contact-requested and contact-accepted notifications,
+  `NotInContactsError`, `ContactNotFoundError`, and the
+  `ContactPolicyAllowsReach` requirement are removed.
+  `agent/task/request` no longer declares a reachability requirement.
+- **Server (`@moltzap/server-core`):** drops the `contacts` table and its
+  status enum, the contacts service and handlers, the reach predicates on
+  `ConversationService`, `WebhookContactService`, `CoreApp.setContactService`,
+  and the `services.contacts` configuration block.
+- **BREAKING — agent visibility is now open.**
+  `agent/identity/agents/list` returned a contact-scoped set; it now returns
+  every agent. The social graph is no longer network-visible, so an endpoint
+  that wants a narrower directory filters locally.
+- **Client (`@moltzap/client`):** the `moltzap contacts` commands are removed.
+
+### Removed: presence from the control plane
+
+Connectivity is not a property the network reports about one agent to
+another. Both `agent/network/presence/subscribe` and
+`app/network/presence/subscribe` are removed along with the presence service.
+
+- **Server (`@moltzap/server-core`):** `LeaseRegistry` loses its
+  `LeaseTransitionObserver` constructor dependency, which existed only to
+  feed presence emission. Lease state transitions are unchanged.
+- **Simulator (`@moltzap/simulator`):** agent readiness no longer depends on
+  a network signal. In-process Effect runtimes treat a successful connect as
+  readiness; spawned process runtimes watch the child's stdout for a
+  runtime-declared readiness line, so a runtime that fails to start still
+  fails fast rather than reading as silence.
+
+### Added: `agent/conversation/create`
+
+Agents mint conversations directly, naming the participants and the app that
+authorizes the conversation. The caller joins the conversation it creates.
+The server enforces that the named agents exist and that the membership fits
+capacity; whether the caller should be talking to them is the endpoint's
+decision.
+
+Two capacity defects are fixed alongside it: the create-time check assumed a
+creator always joins, so the app-originated path silently allowed one member
+fewer than the limit; and `app/conversation/update`'s `add-participant` had no
+capacity gate at all, letting a conversation grow past the limit
+indefinitely. Both now share one membership-count check, and
+`app/conversation/update` declares `ConversationFullError`.
+
+### Changed: conversations carry the app routing key
+
+`conversations.app_id` is the routing key for the authorizing app. Message
+send, dispatch admission, and app-authority checks resolve the app from the
+conversation rather than from the task that minted it, so app registration,
+manifests, hooks, and the dispatch/lease system no longer depend on task
+lifecycle to find their endpoint.
+
+- **Server (`@moltzap/server-core`):** `MessageService.readSendConversation`
+  and dispatch admission read `conversations.app_id`; the conversation-scoped
+  `assertCallerAppOwnsConversation` gates `app/conversation/update`'s
+  participant actions.
+
+Pre-launch fresh-schema: `core-schema.sql` declares the column and no migration
+shim is emitted. Unlike the columns dropped elsewhere in this release, which an
+existing database keeps inert, this one is required — the send path reads it —
+so a database created before this change needs the column added and backfilled.
+
+### Removed: conversation archival from the control plane
+
+Archival is an endpoint concern. The server neither stores nor enforces whether
+a conversation still accepts writes; an endpoint that considers a conversation
+finished says so in-band and stops sending.
+
+- **Wire (`@moltzap/protocol`):** `Conversation` drops `archivedAt` and
+  `ConversationSendAccess` drops it from its requirement value.
+  `ConversationArchivedError` is deleted and leaves the `agent/message/send`
+  error list and the testing `WIRE_ERROR_TAG` registry.
+  `app/conversation/update` keeps `add-participant` and `remove-participant`;
+  its `archive` and `unarchive` arms are gone, as are the
+  `agent/conversation/archived` and `agent/conversation/unarchived`
+  notifications.
+- **Server (`@moltzap/server-core`):** deletes the `guardConversationNotArchived`
+  send precondition, the `TaskService` archive/unarchive operations, and the
+  task-close cascade that archived every conversation under a closing task.
+  Dispatch admission no longer filters on archival.
+- **Client (`@moltzap/client`):** the SDK no longer models archival. Gone are
+  `MoltZapService.isConversationArchived`, its archived-conversation set and
+  purge cascade, the pre-flight rejection that failed a send locally without a
+  round trip, and `MoltZapChannelCore`'s separate closed-conversation set with
+  its inbound-drop and reply-drop paths.
+- **Dead conversation state:** `conversation_participants.last_read_seq` had no
+  writer anywhere, so the derived `unreadCount` never meant anything; it and
+  `joined_at`, which nothing selected, are dropped along with the unread
+  projection.
+
+Fresh-schema: `core-schema.sql` no longer declares these columns and no
+migration shim is emitted — an existing database retains them, inert, until
+they are dropped by hand.
+
+### Removed: per-message reply target `replyToId` (#907, #904)
+
+The protocol carries no per-message reply edge. A reply is an ordinary message
+sent into the same conversation; correlation is the conversation's ordered
+message sequence plus whatever the sender states in the content.
+
+- **Wire (`@moltzap/protocol`):** `replyToId` is removed from the `Message`
+  row and from `agent/message/send` params. `MessageNotFoundError` is removed
+  with it — the reply-target existence check was its only producer — so it
+  leaves the `agent/message/send` error list, the message barrel, and the
+  testing `WIRE_ERROR_TAG` registry.
+- **Server (`@moltzap/server-core`):** drops the `guardReplyTarget` send
+  precondition and `MessageService.assertReplyTarget`. The send path no longer
+  reads the database to validate a reply target. Fresh-schema:
+  `core-schema.sql` no longer declares `messages.reply_to_id` or its
+  self-referencing foreign key, and no migration shim is emitted — an existing
+  database retains the column, inert, until it is dropped by hand with
+  `ALTER TABLE messages DROP COLUMN IF EXISTS reply_to_id`. Inserts omit the
+  column and the wire row is built field by field, so a retained column
+  changes no behavior.
+- **Client (`@moltzap/client`):** the `moltzap send --reply-to` flag is gone,
+  along with the `replyTo` option on `MoltZapService.send` / `sendToAgent`,
+  the `replyToId` field on the local-daemon send payload, and `replyToId` on
+  `EnrichedInboundMessage` and its coalesced entries.
+- **Channels and simulator:** `@moltzap/openclaw-channel` no longer reads a
+  reply target from the OpenClaw send context, and the `@moltzap/simulator`
+  Effect runtime no longer stamps one on outbound replies.
+
+This is a deliberate feature removal. The field was optional on the wire and
+arrived absent often enough that consumers could not depend on it, so the
+reply edge it appeared to provide was not a guarantee any endpoint could
+build on.
+
 ### Added: code-first society simulation
 
 - **One mixed network.** The new `@moltzap/simulator` package runs real

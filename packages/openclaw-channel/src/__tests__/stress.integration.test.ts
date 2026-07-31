@@ -11,20 +11,25 @@ import { stripWsPath } from "@moltzap/client/test-utils";
 import { getLogs } from "../test-utils/container-core.js";
 import {
   registerTestAgent,
-  extractTaskBinding,
+  extractConversationBinding,
   extractText,
-  type TaskBinding,
+  type ConversationBinding,
 } from "./test-helpers.js";
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import {
+  type AgentId,
+  type AgentKey,
+  DEFAULT_APP_ID,
+} from "@moltzap/protocol/identity";
+import {
+  type ConversationId,
+  agentConversationCreate,
+} from "@moltzap/protocol/conversation";
 import {
   type Message,
   messagesList,
   messagesSend,
 } from "@moltzap/protocol/message";
 import { agentId, waitForValue } from "@moltzap/protocol/testing";
-
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 
 interface StressAgent {
   readonly apiKey: AgentKey;
@@ -37,9 +42,9 @@ interface StressClients {
 }
 
 interface StressConversationIds {
-  readonly convA: TaskBinding;
-  readonly convB: TaskBinding;
-  readonly convC: TaskBinding;
+  readonly convA: ConversationBinding;
+  readonly convB: ConversationBinding;
+  readonly convC: ConversationBinding;
 }
 
 interface StressReplies {
@@ -186,12 +191,11 @@ function createConversation(
   receiverAgentId: AgentId,
 ) {
   return client
-    .call(taskRequest.name, {
+    .call(agentConversationCreate.name, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [receiverAgentId],
-      initialConversation: { participants: [receiverAgentId] },
+      participants: [receiverAgentId],
     })
-    .pipe(Effect.map(extractTaskBinding));
+    .pipe(Effect.map(extractConversationBinding));
 }
 
 function sendStressMessages(
@@ -210,14 +214,13 @@ function sendStressMessages(
 
 function sendBatch(
   client: MoltZapAgentClient,
-  binding: TaskBinding,
+  binding: ConversationBinding,
   prefix: string,
   count: number,
 ) {
   return Array.from({ length: count }, (...args) => {
     const index = args[1];
     return client.call(messagesSend.name, {
-      taskId: binding.taskId,
       conversationId: binding.conversationId,
       parts: [{ type: TEXT_PART_TYPE, text: `${prefix}-msg-${index}` }],
     });
@@ -265,7 +268,7 @@ function waitForStressReplies(
 
 function waitForRepliesByList(params: {
   readonly client: MoltZapAgentClient;
-  readonly binding: TaskBinding;
+  readonly binding: ConversationBinding;
   readonly receiverAgentId: AgentId;
   readonly expectedCount: number;
   readonly timeoutMs: number;
@@ -284,12 +287,11 @@ function waitForRepliesByList(params: {
 
 function listMatchingReplies(params: {
   readonly client: MoltZapAgentClient;
-  readonly binding: TaskBinding;
+  readonly binding: ConversationBinding;
   readonly receiverAgentId: AgentId;
 }) {
   return params.client
     .call(messagesList.name, {
-      taskId: params.binding.taskId,
       conversationId: params.binding.conversationId,
       limit: TOTAL_STRESS_MESSAGE_COUNT,
     })

@@ -17,13 +17,7 @@ import {
   agentId as agentIdSchema,
 } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
-import { type TaskId, taskId as taskIdSchema } from "@moltzap/protocol/task";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  taskId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import {
   AgentProcessExited,
   AgentProcessSignaled,
@@ -204,7 +198,6 @@ class SharedConversationResponse extends Schema.Class<SharedConversationResponse
 )({
   messageId: messageIdSchema,
   senderId: agentIdSchema,
-  replyToId: Schema.NullOr(messageIdSchema),
 }) {}
 
 /** The customer policy selected the expected three-message content sequence. */
@@ -239,7 +232,6 @@ class SharedConversationMeasured extends Schema.TaggedClass<SharedConversationMe
     openClawId: agentIdSchema,
     witnessId: agentIdSchema,
     nanoClawId: agentIdSchema,
-    taskId: taskIdSchema,
     conversationId: conversationIdSchema,
     triggerMessageId: messageIdSchema,
     responses: Schema.Array(SharedConversationResponse),
@@ -258,17 +250,14 @@ const TEST_CONTEXT: SharedConversationContext = {
   openClawId: agentId("00000000-0000-4000-8000-000000000002"),
   witnessId: agentId("00000000-0000-4000-8000-000000000003"),
   nanoClawId: agentId("00000000-0000-4000-8000-000000000004"),
-  taskId: taskId("00000000-0000-4000-8000-000000000005"),
   conversationId: conversationId("00000000-0000-4000-8000-000000000006"),
   triggerMessageId: messageId("00000000-0000-4000-8000-000000000007"),
 };
 const UNEXPECTED_RESPONSE: ReceivedMessage = {
-  taskId: TEST_CONTEXT.taskId,
   message: {
     id: messageId("00000000-0000-4000-8000-000000000008"),
     conversationId: TEST_CONTEXT.conversationId,
     senderId: TEST_CONTEXT.nanoClawId,
-    replyToId: TEST_CONTEXT.triggerMessageId,
     parts: [{ type: "text", text: "WORKING" }],
     createdAt: "2026-07-29T00:00:00.000Z",
   },
@@ -327,7 +316,6 @@ interface SharedConversationContext {
   readonly openClawId: AgentId;
   readonly witnessId: AgentId;
   readonly nanoClawId: AgentId;
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly triggerMessageId: MessageId;
 }
@@ -369,8 +357,7 @@ function receiveContentSequence(
         exactText(message) === NANOCLAW_PROPOSAL,
     );
     const witnessSelection = yield* receiveSome(receive, (received) =>
-      received.message.senderId === context.witnessId &&
-      received.message.replyToId === nanoClaw.message.id
+      received.message.senderId === context.witnessId
         ? approvalReceiptFrom(received.message, nanoClaw.message.id).pipe(
             Option.map((approvalReceipt) => ({ received, approvalReceipt })),
           )
@@ -394,7 +381,6 @@ function responseObservation(
   return SharedConversationResponse.make({
     messageId: received.message.id,
     senderId: received.message.senderId,
-    replyToId: received.message.replyToId ?? null,
   });
 }
 
@@ -493,7 +479,6 @@ function sharedConversationProgram() {
       openClawId: started.openclaw.id,
       witnessId: started.witness.id,
       nanoClawId: started.nanoclaw.id,
-      taskId: conversation.address.taskId,
       conversationId: conversation.address.conversationId,
       triggerMessageId: trigger.id,
     };
@@ -535,7 +520,6 @@ interface ExpectedRecordedMessage {
 
 interface EndpointConversationEvent {
   readonly endpointId: AgentId;
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -545,7 +529,6 @@ function belongsToConversation(
 ): boolean {
   return (
     event.endpointId === context.controllerId &&
-    event.taskId === context.taskId &&
     event.conversationId === context.conversationId
   );
 }
@@ -590,7 +573,6 @@ function assertConversation(
 ): void {
   assert.deepStrictEqual(
     conversations.map((opened) => ({
-      taskId: opened.taskId,
       conversationId: opened.conversationId,
       openedBy: opened.openedBy,
       participants: [...opened.participants].sort((left, right) =>
@@ -599,7 +581,6 @@ function assertConversation(
     })),
     [
       {
-        taskId: context.taskId,
         conversationId: context.conversationId,
         openedBy: context.controllerId,
         participants: [
@@ -620,7 +601,6 @@ function assertTrigger(
   assert.deepStrictEqual(
     sent.map((event) => ({
       endpointId: event.endpointId,
-      taskId: event.taskId,
       conversationId: event.conversationId,
       messageId: event.messageId,
       text: exactPartsText(event.parts),
@@ -628,7 +608,6 @@ function assertTrigger(
     [
       {
         endpointId: context.controllerId,
-        taskId: context.taskId,
         conversationId: context.conversationId,
         messageId: context.triggerMessageId,
         text: BEGIN,
@@ -656,7 +635,6 @@ function assertMeasuredResponses(
     assert.lengthOf(
       committed.filter(
         (event) =>
-          event.taskId === context.taskId &&
           event.conversationId === context.conversationId &&
           event.messageId === response.messageId &&
           event.senderId === response.senderId,
@@ -667,7 +645,6 @@ function assertMeasuredResponses(
   assert.lengthOf(
     committed.filter(
       (event) =>
-        event.taskId === context.taskId &&
         event.conversationId === context.conversationId &&
         event.messageId === context.triggerMessageId &&
         event.senderId === context.controllerId,
@@ -690,7 +667,6 @@ function assertRouterContentSequence(
   const sequence = committed
     .filter(
       (event) =>
-        event.taskId === context.taskId &&
         event.conversationId === context.conversationId &&
         selectedIds.has(event.messageId),
     )
@@ -745,19 +721,22 @@ function assertRecordedContentSequence(
   );
 }
 
-function selectedResponse(
+/**
+ * The recorded responses hold exactly one entry for this message and sender.
+ * @param responses Value supplied to the operation.
+ * @param messageId Value supplied to the operation.
+ * @param senderId Value supplied to the operation.
+ */
+function assertRecordedExactlyOnce(
   responses: readonly SharedConversationResponse[],
   messageId: MessageId,
   senderId: AgentId,
-): SharedConversationResponse {
+): void {
   const matching = responses.filter(
     (response) =>
       response.messageId === messageId && response.senderId === senderId,
   );
   assert.lengthOf(matching, 1);
-  const [response] = matching;
-  assert.isDefined(response);
-  return response;
 }
 
 function assertHealthyCompletion(evidence: SharedConversationEvidence): void {
@@ -817,13 +796,12 @@ function assertEvidence(evidence: SharedConversationEvidence) {
     measurement,
     selected,
   );
-  const witnessResponse = selectedResponse(
+  assertRecordedExactlyOnce(
     measurement.responses,
     selected.witnessMessageId,
     measurement.witnessId,
   );
-  assert.strictEqual(witnessResponse.replyToId, selected.nanoClawMessageId);
-  const openClawResponse = selectedResponse(
+  assertRecordedExactlyOnce(
     measurement.responses,
     selected.openClawMessageId,
     measurement.openClawId,
@@ -833,10 +811,6 @@ function assertEvidence(evidence: SharedConversationEvidence) {
     context: measurement,
     responses: measurement.responses,
     selection: selected,
-    transport: Object.freeze({
-      expectedReplyToId: selected.witnessMessageId,
-      actualReplyToId: openClawResponse.replyToId,
-    }),
   };
 }
 
@@ -861,7 +835,6 @@ function measurementResult(
       recordCount: run.completion.recordCount,
       artifacts: Object.freeze({ ...run.completion.artifacts }),
     }),
-    taskId: context.taskId,
     conversationId: context.conversationId,
     controllerId: context.controllerId,
     openClawId: context.openClawId,
@@ -879,13 +852,6 @@ function measurementResult(
           witnessMessageId: evidence.selection.witnessMessageId,
           openClawMessageId: evidence.selection.openClawMessageId,
           approvalReceipt: evidence.selection.approvalReceipt,
-        }),
-        transport: Object.freeze({
-          expectedReplyToId: evidence.transport.expectedReplyToId,
-          actualReplyToId: evidence.transport.actualReplyToId,
-          matched:
-            evidence.transport.actualReplyToId ===
-            evidence.transport.expectedReplyToId,
         }),
       })
     : Object.freeze({
@@ -950,7 +916,7 @@ test("records a missed content sequence as elapsed result data", () => {
     const [response] = measurement.responses;
     assert.isDefined(response);
     assert.strictEqual(response.messageId, UNEXPECTED_RESPONSE.message.id);
-    assert.strictEqual(response.replyToId, TEST_CONTEXT.triggerMessageId);
+    assert.strictEqual(response.senderId, TEST_CONTEXT.nanoClawId);
   });
 });
 

@@ -35,4 +35,6 @@ conversation regardless of size (no DM vs group fork on the wire).
 
 ## Reply threading
 
-When replying to a specific message, the plugin sets `replyToId` on the outbound message to maintain threading context.
+The plugin sets no per-message reply target: the outbound message carries
+only the originating `taskId` + `conversationId`, so threading context is
+the conversation itself.

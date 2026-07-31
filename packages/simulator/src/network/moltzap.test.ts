@@ -1,4 +1,4 @@
-/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- regression-only resource tests keep each acquisition and release timeline visible in one Effect program. */
+/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, agent-code-guard/no-hardcoded-assertion-literals -- regression-only resource tests keep each acquisition and release timeline visible in one Effect program. */
 
 import { it as effectIt } from "@effect/vitest";
 import { agentName as agentNameSchema } from "@moltzap/protocol/identity";
@@ -9,7 +9,6 @@ import {
   conversationId,
   messageId,
   redactedAgentKey,
-  taskId,
 } from "@moltzap/protocol/testing";
 import {
   makeRouterStopReport,
@@ -29,7 +28,6 @@ import { MoltZapServerFailed } from "./server.js";
 const it = effectIt.scoped;
 const STARTUP_TIMEOUT = Duration.seconds(10);
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43100");
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000101");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
 const agentName = Schema.decodeSync(agentNameSchema);
@@ -53,19 +51,15 @@ const transport: EndpointTransport = {
 interface Harness {
   readonly acquire: MoltZapRouterDriverAcquirer;
   readonly registrations: string[];
-  readonly readyDurations: Duration.Duration[];
   readonly timeline: string[];
 }
 
-function harness(awaitReadyInput?: Effect.Effect<void, unknown>): Harness {
-  const awaitReady = awaitReadyInput ?? Effect.void;
+function harness(): Harness {
   const registrations: string[] = [];
-  const readyDurations: Duration.Duration[] = [];
   const timeline: string[] = [];
   const identities = new Map<string, number>();
   const stopped = makeRouterStopReport([
     {
-      taskId: TASK_ID,
       conversationId: CONVERSATION_ID,
       messageId: MESSAGE_ID,
       senderId: id(1),
@@ -81,10 +75,6 @@ function harness(awaitReadyInput?: Effect.Effect<void, unknown>): Harness {
         identities.set(name, suffix);
         return { agentId: id(suffix), key: key(suffix) };
       }),
-    awaitAgentReady: (...[, within]) =>
-      Effect.sync(() => {
-        readyDurations.push(within);
-      }).pipe(Effect.zipRight(awaitReady)),
     attachEndpoint: () =>
       Effect.gen(function* () {
         yield* Effect.addFinalizer(() =>
@@ -111,7 +101,6 @@ function harness(awaitReadyInput?: Effect.Effect<void, unknown>): Harness {
   return {
     acquire,
     registrations,
-    readyDurations,
     timeline,
   };
 }
@@ -147,9 +136,6 @@ describe("MoltZap router", () => {
       const conflictingRole = yield* router
         .attachEndpoint("alice", ALICE)
         .pipe(Scope.extend(scope), Effect.flip);
-      const readyWithin = Duration.seconds(3);
-
-      yield* firstAlice.awaitReady(readyWithin);
 
       expect(router.address).toBe(ROUTER_URL);
       expect(firstAlice.routerUrl).toBe(ROUTER_URL);
@@ -159,7 +145,6 @@ describe("MoltZap router", () => {
       expect(conflictingRole.operation).toBe("attach-endpoint");
       expect(conflictingRole.detail).toContain("already bound as an agent");
       expect(test.registrations).toEqual(["alice", "probe"]);
-      expect(test.readyDurations).toEqual([readyWithin]);
       expect(test.timeline).toEqual([]);
 
       yield* close(scope);
@@ -173,7 +158,6 @@ describe("MoltZap router", () => {
       const stopped = yield* router.stopped;
       expect(stopped.committedMessages).toEqual([
         {
-          taskId: TASK_ID,
           conversationId: CONVERSATION_ID,
           messageId: MESSAGE_ID,
           senderId: id(1),
@@ -238,30 +222,6 @@ describe("MoltZap router", () => {
       yield* close(scope);
     }));
 
-  it("lets the runtime choose readiness duration and reports non-readiness", () =>
-    Effect.gen(function* () {
-      const timeout = harness(
-        Effect.fail("agent alice was not router-visible within 2s"),
-      );
-      const provider = makeMoltZapRouterProviderWith(
-        { startupTimeout: STARTUP_TIMEOUT },
-        timeout.acquire,
-      );
-      const scope = yield* Scope.make();
-      const router = yield* provider.acquire.pipe(Scope.extend(scope));
-      const alice = yield* router
-        .attachAgent("alice", ALICE)
-        .pipe(Scope.extend(scope));
-      const readyWithin = Duration.seconds(2);
-      const failure = yield* alice.awaitReady(readyWithin).pipe(Effect.flip);
-
-      expect(timeout.readyDurations).toEqual([readyWithin]);
-      expect(failure.operation).toBe("attach-agent");
-      expect(failure.detail).toContain("alice");
-      expect(failure.detail).toContain("2s");
-      yield* close(scope);
-    }));
-
   it("normalizes endpoint attachment and release-time collection failures", () =>
     Effect.gen(function* () {
       const base = harness();
@@ -296,4 +256,4 @@ describe("MoltZap router", () => {
     }));
 });
 
-/* eslint-enable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Restore strict defaults after the scoped file-level exception. */
+/* eslint-enable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, agent-code-guard/no-hardcoded-assertion-literals -- Restore strict defaults after the scoped file-level exception. */

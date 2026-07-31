@@ -24,7 +24,7 @@ Carries context for app callback.
 
 _TypeAlias_
 
-Closed handler table for an app moderating one or more tasks. Every
+Closed handler table for an app moderating one or more conversations. Every
 app callback member is required; vacuous-deny moderators still write the
 handler explicitly.
 
@@ -34,7 +34,7 @@ _Interface_
 
 Configures app client.
 
-### [`ContextOptions`](./service.ts#L157)
+### [`ContextOptions`](./service.ts#L141)
 
 _Interface_
 
@@ -48,7 +48,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](./service.ts#L149)
+### [`ConversationMeta`](./service.ts#L133)
 
 _Interface_
 
@@ -75,7 +75,7 @@ _Class_
 
 Implements molt zap app client.
 
-### [`MoltZapService`](./service.ts#L297)
+### [`MoltZapService`](./service.ts#L279)
 
 _Class_
 
@@ -103,18 +103,8 @@ export class MoltZapService {
   private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
     Effect.runSync(Ref.make(HashMap.empty<string, string>()));
   private readonly agentConversationCacheRef: Ref.Ref<
-    HashMap.HashMap<
-      string,
-      { readonly taskId: TaskId; readonly conversationId: ConversationId }
-    >
-  > = Effect.runSync(
-    Ref.make(
-      HashMap.empty<
-        string,
-        { readonly taskId: TaskId; readonly conversationId: ConversationId }
-      >(),
-    ),
-  );
+    HashMap.HashMap<string, ConversationId>
+  > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationId>()));
   private readonly lastNotifiedRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, string>>
   > = Effect.runSync(
@@ -127,7 +117,6 @@ export class MoltZapService {
       HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
     ),
   );
-  private readonly archivedConversationIds = new Set<string>();
 
   /**
    * The branded outer and inner keys keep conversation and message ids from
@@ -145,8 +134,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    conversationArchived: [],
-    conversationUnarchived: [],
     dispatchRelease: [],
     dispatchLeaseConsumed: [],
     dispatchLeaseExpired: [],
@@ -200,6 +187,19 @@ export class MoltZapService {
    */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
+      function* (this: MoltZapService) {
+        const client = new MoltZapAgentClient({
+          serverUrl: this.opts.serverUrl,
+          agentKey: this.opts.agentKey,
+          // The body doesn't branch on close metadata today; the signature is
+          // kept explicit so a future disconnect-handler chain can plumb
+          // code/reason through.
+          onDisconnect: () => {
+            this.connectedValue = false;
+            fanout(this.handlers.disconnect, undefined);
+          },
+        });
+        this.client = client;
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -216,7 +216,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L137)
+### [`ServiceRpcError`](./service.ts#L121)
 
 _TypeAlias_
 

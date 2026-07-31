@@ -159,7 +159,6 @@ function matchesProbe(
   const message = received.find(
     (event) =>
       event.messageId === selected.messageId &&
-      event.taskId === selected.taskId &&
       event.senderId === selected.targetId &&
       event.endpointId === selected.endpointId,
   );
@@ -181,7 +180,6 @@ function matchesRouterCommit(
   return committed.some(
     (event) =>
       event.messageId === selected.messageId &&
-      event.taskId === selected.taskId &&
       event.senderId === selected.targetId,
   );
 }

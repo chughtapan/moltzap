@@ -18,16 +18,15 @@ import { withTestServiceConfig } from "@moltzap/client/test-utils";
 import {
   type AgentKey,
   agentKey,
+  DEFAULT_APP_ID,
   type AgentId,
 } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
-  taskRequest,
-  DEFAULT_APP_ID,
-  type TaskId,
-} from "@moltzap/protocol/task";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+  agentConversationCreate,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
 import { MoltZapAdapter } from "../channels/moltzap.js";
@@ -67,7 +66,6 @@ interface Harness {
   readonly inboundMessages: InboundCapture[];
   readonly chatMetadata: ChatMetadataCapture[];
   readonly peerInbox: Message[];
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly chatJid: string;
   readonly peerAgentId: string;
@@ -239,30 +237,14 @@ function bootPeerService(
 function createDm(
   peerService: MoltZapService,
   channelAgentId: AgentId,
-): Effect.Effect<
-  { taskId: TaskId; conversationId: ConversationId },
-  EchoIntegrationError
-> {
+): Effect.Effect<{ conversationId: ConversationId }, EchoIntegrationError> {
   return peerService
-    .call(taskRequest.name, {
+    .call(agentConversationCreate.name, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [channelAgentId],
-      initialConversation: { participants: [channelAgentId] },
+      participants: [channelAgentId],
     })
     .pipe(
-      Effect.map((res) => {
-        const r =
-          /* Safe because the test fixture establishes this asserted shape. */ res as {
-            task: { id: TaskId };
-            conversation: { id: ConversationId } | null;
-          };
-        return {
-          taskId: r.task.id,
-          conversationId:
-            /* Safe because the test fixture establishes this asserted shape. */ r
-              .conversation!.id,
-        };
-      }),
+      Effect.map((res) => ({ conversationId: res.conversation.id })),
       Effect.mapError(
         (cause) => new EchoIntegrationError({ operation: "createDm", cause }),
       ),
@@ -307,7 +289,7 @@ function makeHarness(
       ),
     );
     yield* connectPeerService(peerService);
-    const { taskId, conversationId } = yield* createDm(
+    const { conversationId } = yield* createDm(
       peerService,
       config.channelAgentId,
     );
@@ -317,7 +299,6 @@ function makeHarness(
       inboundMessages,
       chatMetadata,
       peerInbox,
-      taskId,
       conversationId,
       chatJid: `${JID_PREFIX}${conversationId}`,
       peerAgentId: config.peerAgentId,
@@ -371,7 +352,7 @@ function peerInboxHas(needle: string): boolean {
 
 function peerSend(text: string): Effect.Effect<void, EchoIntegrationError> {
   return h.peerService
-    .send(h.taskId, h.conversationId, text)
+    .send(h.conversationId, text)
     .pipe(
       Effect.mapError(
         (cause) =>

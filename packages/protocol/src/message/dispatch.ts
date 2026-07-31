@@ -108,7 +108,7 @@ export const dispatchRequest = defineRpc({
 });
 
 const dispatchAuthorizeContextSchema = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   appId: Schema.String,
   conversationId: conversationId,
   recipient: agentOwnershipSchemaValue,
@@ -182,7 +182,7 @@ const leaseRecordSchema = Schema.Struct({
   dispatchId: dispatchId,
   leaseId: leaseId,
   conversationId: conversationId,
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   appId: Schema.String,
   recipientAgentId: agentId,
   moderatorConnectionId: Schema.String,

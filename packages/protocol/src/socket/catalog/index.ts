@@ -6,19 +6,13 @@
  * server-core, conformance, and generated protocol reference docs.
  */
 import { RpcGroup, type Rpc } from "@effect/rpc";
-import { identityRpcMethods, identityNotifications } from "#identity";
+import { identityRpcMethods } from "#identity";
 import {
   agentCallableNetworkRpcMethods,
   appCallableNetworkRpcMethods,
   networkRpcMethods,
   networkNotifications,
 } from "#network";
-import {
-  taskNotifications,
-  agentCallableTaskRpcMethods,
-  appCallableTaskRpcMethods,
-  taskCallbackMethods,
-} from "#task";
 import {
   agentCallableConversationRpcMethods,
   appCallableConversationRpcMethods,
@@ -42,11 +36,9 @@ import {
 export const appCallbackMethods = [
   ...dispatchCallbackMethods,
   ...messageCallbackMethods,
-  ...taskCallbackMethods,
 ] as const;
 
 const appOnlyCallableMethods = [
-  ...appCallableTaskRpcMethods,
   ...appCallableConversationRpcMethods,
   ...appCallableDispatchRpcMethods,
 ] as const;
@@ -57,7 +49,6 @@ const appOnlyCallableMethods = [
 export const agentCallableMethods = [
   ...identityRpcMethods,
   ...agentCallableNetworkRpcMethods,
-  ...agentCallableTaskRpcMethods,
   ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...agentCallableDispatchRpcMethods,
@@ -80,7 +71,6 @@ export const appCallableMethods = [
 export const serverInboundMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
-  ...agentCallableTaskRpcMethods,
   ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...appOnlyCallableMethods,
@@ -92,8 +82,6 @@ export const serverInboundMethods = [
  */
 export const notificationDefinitions = [
   ...networkNotifications,
-  ...identityNotifications,
-  ...taskNotifications,
   ...conversationNotifications,
   ...messageNotifications,
   ...dispatchNotifications,

@@ -54,8 +54,6 @@ export const SYSTEM_REMINDER_OPEN = "<system-reminder>";
 export const SYSTEM_REMINDER_CLOSE = "</system-reminder>";
 /** Provides the one new marker runtime value. */
 export const ONE_NEW_MARKER = "(1 new)";
-/** Provides the archived message runtime value. */
-export const ARCHIVED_MESSAGE = "Conversation is archived";
 /** Provides the resolved agent context name runtime value. */
 export const RESOLVED_AGENT_CONTEXT_NAME = "@name-res-c";
 /** Provides the history first buffer message runtime value. */

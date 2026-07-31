@@ -5,10 +5,10 @@ import {
   type AppIdV4,
   localDaemonCommands,
   startParticipant,
-  StartTaskPartialFailure,
-  StartTaskUsageError,
+  StartPartialFailure,
+  StartUsageError,
 } from "../../local-daemon-rpc.js";
-import { messageId, taskId, conversationId } from "@moltzap/protocol/testing";
+import { messageId, conversationId } from "@moltzap/protocol/testing";
 import { transportSchema } from "../transport.js";
 import {
   makeFakeTransport,
@@ -19,7 +19,6 @@ import { runStartHandler } from "./start.js";
 const it = effectIt.effect;
 const silentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000001");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000002");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000003");
 const APP_ID =
@@ -34,11 +33,11 @@ afterEach(() => {
 });
 
 const runWith = (
-  respond: TestTransportResponder<typeof localDaemonCommands.startTask>,
+  respond: TestTransportResponder<typeof localDaemonCommands.start>,
   args: Parameters<typeof runStartHandler>[0],
 ) => {
   const fixture = makeFakeTransport({
-    [localDaemonCommands.startTask]: respond,
+    [localDaemonCommands.start]: respond,
   });
   return {
     calls: fixture.calls,
@@ -49,13 +48,11 @@ const runWith = (
   };
 };
 
-function sendsStartTaskDaemonCommand() {
+function sendsStartDaemonCommand() {
   return Effect.gen(function* () {
     const run = runWith(
       () => ({
-        taskId: TASK_ID,
         conversationId: CONVERSATION_ID,
-        reusedConversation: false,
         sentMessageId: MESSAGE_ID,
       }),
       {
@@ -70,7 +67,7 @@ function sendsStartTaskDaemonCommand() {
 
     expect(run.calls).toEqual([
       {
-        method: localDaemonCommands.startTask,
+        method: localDaemonCommands.start,
         params: {
           name: "demo",
           participants: [BOB_PARTICIPANT],
@@ -88,7 +85,7 @@ function mapsUsageErrorsToExit64() {
     process.exit =
       /* Safe because the test fixture establishes this asserted shape. */ exitSpy as never;
     const run = runWith(
-      () => new StartTaskUsageError({ message: "Cannot resolve agent:bob" }),
+      () => new StartUsageError({ message: "Cannot resolve agent:bob" }),
       {
         name: "demo",
         participants: [BOB_PARTICIPANT],
@@ -110,10 +107,8 @@ function mapsFirstMessageFailureToExit2() {
       /* Safe because the test fixture establishes this asserted shape. */ exitSpy as never;
     const run = runWith(
       () =>
-        new StartTaskPartialFailure({
-          taskId: TASK_ID,
+        new StartPartialFailure({
           conversationId: CONVERSATION_ID,
-          reusedConversation: false,
           message: "send failed",
         }),
       {
@@ -131,10 +126,10 @@ function mapsFirstMessageFailureToExit2() {
 }
 
 describe("start command handler", () => {
-  it("sends one start-task daemon command", sendsStartTaskDaemonCommand);
+  it("sends one start daemon command", sendsStartDaemonCommand);
   it("maps start usage errors to exit 64", mapsUsageErrorsToExit64);
   it(
-    "maps first-message failure to exit 2 after task creation",
+    "maps first-message failure to exit 2 after conversation creation",
     mapsFirstMessageFailureToExit2,
   );
 });
