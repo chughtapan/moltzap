@@ -34,7 +34,9 @@
       ],
       "outputs": [
         "{workspaceRoot}/docs",
-        "{workspaceRoot}/packages/**/src/**/MODULE.md"
+        "{workspaceRoot}/packages/**/src/**/MODULE.md",
+        "{workspaceRoot}/v2/identity/src/**/MODULE.md",
+        "{workspaceRoot}/v2/router/src/**/MODULE.md"
       ],
       "executor": "nx:run-commands",
       "options": {
@@ -75,7 +77,9 @@
         "{workspaceRoot}/scripts/gen-architecture-configs.mjs"
       ],
       "outputs": [
-        "{workspaceRoot}/packages/*/safer-architecture.config.json"
+        "{workspaceRoot}/packages/*/safer-architecture.config.json",
+        "{workspaceRoot}/v2/identity/safer-architecture.config.json",
+        "{workspaceRoot}/v2/router/safer-architecture.config.json"
       ],
       "executor": "nx:run-commands",
       "options": {
@@ -91,7 +95,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "git diff --exit-code -- 'packages/*/safer-architecture.config.json'"
+        "command": "test -z \"$(git ls-files --others --exclude-standard -- 'v2/identity/safer-architecture.config.json' 'v2/router/safer-architecture.config.json')\" && git diff --exit-code -- 'packages/*/safer-architecture.config.json' 'v2/identity/safer-architecture.config.json' 'v2/router/safer-architecture.config.json'"
       }
     },
     "lint:architecture-boundaries": {
@@ -114,6 +118,17 @@
       "options": {
         "cwd": ".",
         "command": "tsc --noEmit -p tsconfig.eslint.json"
+      }
+    },
+    "lint:effect": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/effect-diagnostics.mjs"
       }
     },
     "lint:dead-code": {
@@ -217,6 +232,13 @@
         {
           "target": "build",
           "projects": "@moltzap/*"
+        },
+        {
+          "target": "typecheck",
+          "projects": [
+            "@moltzap/v2-identity",
+            "@moltzap/v2-router"
+          ]
         },
         {
           "target": "typecheck:tests",

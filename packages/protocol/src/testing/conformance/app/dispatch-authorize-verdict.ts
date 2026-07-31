@@ -109,13 +109,12 @@ function assertReleaseReason(
   params: ReleaseFrameView,
   verdict: AuthorizeVerdict,
 ) {
-  if (verdict._tag === "grant" || params.verdict.reason === verdict.reason) {
-    return Effect.void;
-  }
-  return Effect.fail(
-    dispatchAdmissionViolation(
-      propertyName,
-      `release reason ${String(params.verdict.reason)} != expected ${verdict.reason}`,
-    ),
-  );
+  return verdict._tag === "grant" || params.verdict.reason === verdict.reason
+    ? Effect.void
+    : Effect.fail(
+        dispatchAdmissionViolation(
+          propertyName,
+          `release reason ${String(params.verdict.reason)} != expected ${verdict.reason}`,
+        ),
+      );
 }

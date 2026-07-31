@@ -27,7 +27,7 @@
       "path": "../transcript"
     },
     {
-      "path": "../transport"
+      "path": "../router"
     }
   ]
 }

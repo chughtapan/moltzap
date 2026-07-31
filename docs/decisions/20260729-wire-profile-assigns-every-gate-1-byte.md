@@ -1,12 +1,30 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-29
 decision-makers: Tapan Chugh
+superseded-by: 20260729-representations-are-layer-owned.md
 ---
 
 # One wire profile assigns every Gate 1 byte
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260729-phase-2a-wire-profile-trajectory.md#20260729-wire-profile-assigns-every-gate-1-byte), whose Phase 2A requirement originates in the [Gate 1 engineering review ledger](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-network-wire-is-http-post-polling).
+Decision provenance: [compacted trajectory](../decision-evidence/20260729-phase-2a-wire-profile-trajectory.md#20260729-wire-profile-assigns-every-gate-1-byte), whose Phase 2A requirement originates in the [Gate 1 engineering review ledger](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-network-wire-is-http-post-polling), the [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#representations-are-layer-owned), and the [L1/L2 scope correction](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#l1-and-l2-only-scope).
+
+## Supersession
+
+This record is fully superseded. There is no current cross-layer wire
+catalog or shared vector-corpus abstraction. Each layer owns its exact
+representation contract and acceptance evidence under
+`20260729-representations-are-layer-owned.md`.
+
+For the implemented L1 and L2 scope, the current contracts live in
+`docs/spec/identity-representation.md` and
+`docs/spec/router-representation.md`. X.509, deterministic CBOR, COSE,
+the OID namespace, service-route certificate extensions, exposed
+RouterSequence, and the catalog-wide assignment and CI obligations in
+this historical body are non-current. The replacement decision assigns
+new representation contracts only for L1 and L2. It leaves the focused
+L3, L4, endpoint-daemon, and MCP semantic documents and ADR outcomes
+untouched and assigns no later-layer replacement representation.
 
 ## Context and Problem Statement
 

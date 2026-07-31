@@ -32,23 +32,23 @@ const V2_PACKAGES = {
     npmName: "@moltzap/v2-identity",
     deps: [],
     exports: [".", "./server"],
-    bin: ["moltzap-directory"],
+    bin: ["moltzap-registry"],
   },
-  transport: {
-    npmName: "@moltzap/v2-transport",
+  router: {
+    npmName: "@moltzap/v2-router",
     deps: ["identity"],
     exports: [".", "./server"],
     bin: ["moltzap-router"],
   },
   transcript: {
     npmName: "@moltzap/v2-transcript",
-    deps: ["identity", "transport"],
+    deps: ["identity", "router"],
     exports: [".", "./server"],
     bin: ["moltzap-ledger"],
   },
   endpoint: {
     npmName: "@moltzap/v2-endpoint",
-    deps: ["identity", "transport", "transcript"],
+    deps: ["identity", "router", "transcript"],
     exports: [".", "./server"],
     bin: ["moltzap", "moltzap-agentd"],
   },
@@ -60,7 +60,7 @@ const V2_PACKAGES = {
   },
   testbed: {
     npmName: "@moltzap/v2-testbed",
-    deps: ["identity", "transport", "transcript", "endpoint", "simulator"],
+    deps: ["identity", "router", "transcript", "endpoint", "simulator"],
     exports: ["."],
     bin: [],
   },
@@ -84,6 +84,30 @@ function walk(dir, out = []) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
     else if (entry.isFile() && entry.name.endsWith(".ts")) out.push(full);
+  }
+  return out;
+}
+
+function walkNonDocumentationFiles(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (
+      entry.name === "dist" ||
+      entry.name === "node_modules" ||
+      entry.name === ".eslintcache"
+    ) {
+      continue;
+    }
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkNonDocumentationFiles(full, out);
+    } else if (
+      entry.isFile() &&
+      path.extname(entry.name) !== ".md" &&
+      path.extname(entry.name) !== ".mdx"
+    ) {
+      out.push(full);
+    }
   }
   return out;
 }
@@ -246,6 +270,43 @@ const v2Dirs = fs.existsSync(v2Root)
 
 failOnSetDrift("v2/", "package set drifted", v2Dirs, Object.keys(V2_PACKAGES));
 
+// Architectural numbering helps readers navigate specifications, but it
+// obscures domain ownership in executable artifacts. Source and package
+// metadata name identity, Registry, router, and Router directly.
+const DOCUMENTATION_ONLY_LAYER_NOTATION =
+  /(?:^|[^A-Za-z0-9])(?:[Ll][12](?=$|[^a-z0-9])|[Ll]ayer(?:[ _-]?(?:[12]|[Oo]ne|[Tt]wo))(?=$|[^a-z0-9]))/g;
+
+let v2VocabularyFileCount = 0;
+for (const dir of v2Dirs) {
+  const files = walkNonDocumentationFiles(path.join(v2Root, dir));
+  if (files.length === 0) {
+    failures.push(
+      `v2/${dir}: no non-documentation files scanned; the vocabulary rule would pass vacuously here`,
+    );
+    continue;
+  }
+  v2VocabularyFileCount += files.length;
+
+  for (const file of files) {
+    const relativePath = rel(file);
+    if (DOCUMENTATION_ONLY_LAYER_NOTATION.test(relativePath)) {
+      failures.push(
+        `${relativePath}: numbered architecture notation is documentation-only`,
+      );
+    }
+    DOCUMENTATION_ONLY_LAYER_NOTATION.lastIndex = 0;
+
+    const text = fs.readFileSync(file, "utf8");
+    for (const match of text.matchAll(DOCUMENTATION_ONLY_LAYER_NOTATION)) {
+      fail(
+        file,
+        lineAt(text, match.index),
+        "numbered architecture notation is documentation-only; name the owning domain",
+      );
+    }
+  }
+}
+
 // ─── One CalVer, carried by v2/VERSION and all six manifests ──────────────
 
 const versionFile = path.join(v2Root, "VERSION");
@@ -345,14 +406,34 @@ for (const dir of v2Dirs) {
     );
   }
 
-  // knip must ignore exactly the DAG edges, no more: a stale ignore would
-  // hide a dependency that no longer belongs.
-  failOnSetDrift(
-    `knip.json workspaces["v2/${dir}"]`,
-    "ignoreDependencies drifted from the frozen DAG",
-    knipWorkspaces[`v2/${dir}`]?.ignoreDependencies ?? [],
-    wantedDeps,
+  // Knip ignores describe dependencies reached outside its static TypeScript
+  // graph, such as an executable launched by path. Source-visible imports need
+  // no ignore, so only validate that every ignore is declared and that an
+  // ignored v2 package belongs to the frozen DAG.
+  const ignoredDependencies =
+    knipWorkspaces[`v2/${dir}`]?.ignoreDependencies ?? [];
+  const declaredDependencies = new Set([
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.devDependencies ?? {}),
+    ...Object.keys(manifest.optionalDependencies ?? {}),
+    ...Object.keys(manifest.peerDependencies ?? {}),
+  ]);
+  const undeclaredIgnores = ignoredDependencies.filter(
+    (name) => !declaredDependencies.has(name),
   );
+  if (undeclaredIgnores.length > 0) {
+    failures.push(
+      `knip.json workspaces["v2/${dir}"]: ignored dependencies are not declared by ${where}: ${undeclaredIgnores.join(", ")}`,
+    );
+  }
+  const disallowedIgnoredV2Dependencies = ignoredDependencies.filter(
+    (name) => v2DirByNpmName.has(name) && !wantedDeps.includes(name),
+  );
+  if (disallowedIgnoredV2Dependencies.length > 0) {
+    failures.push(
+      `knip.json workspaces["v2/${dir}"]: ignored v2 dependencies violate the frozen DAG: ${disallowedIgnoredV2Dependencies.join(", ")}`,
+    );
+  }
 }
 
 // ─── v2 import rules ──────────────────────────────────────────────────────
@@ -442,22 +523,39 @@ for (const dir of v2Dirs) {
 // ─── The compatibility value is exported, and matches ─────────────────────
 
 const identityIndex = path.join(v2Root, "identity", "src", "index.ts");
+const identityVersion = path.join(v2Root, "identity", "src", "version.ts");
 if (v2Version !== null) {
   if (!fs.existsSync(identityIndex)) {
     failures.push(
       "v2/identity/src/index.ts: missing; it exports the compatibility value",
     );
   } else {
-    const match = fs
+    const reExport = fs
       .readFileSync(identityIndex, "utf8")
+      .match(
+        /export\s*\{\s*MOLTZAP_VERSION\s*\}\s*from\s*["']\.\/version\.js["']/,
+      );
+    if (reExport === null) {
+      failures.push(
+        "v2/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
+      );
+    }
+  }
+  if (!fs.existsSync(identityVersion)) {
+    failures.push(
+      "v2/identity/src/version.ts: missing; it owns the compatibility value",
+    );
+  } else {
+    const match = fs
+      .readFileSync(identityVersion, "utf8")
       .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']+)["']/);
     if (match === null) {
       failures.push(
-        "v2/identity/src/index.ts: must export MOLTZAP_VERSION, the MoltZap compatibility value",
+        "v2/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
       );
     } else if (match[1] !== v2Version) {
       failures.push(
-        `v2/identity/src/index.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${v2Version}"`,
+        `v2/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${v2Version}"`,
       );
     }
   }
@@ -472,5 +570,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${v2Dirs.length} v2 packages and ${v2SourceCount} v2 sources scanned at version ${v2Version}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${v2Dirs.length} v2 packages, ${v2SourceCount} v2 sources, and ${v2VocabularyFileCount} v2 non-documentation files scanned at version ${v2Version}`,
 );

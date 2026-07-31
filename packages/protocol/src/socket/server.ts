@@ -196,7 +196,12 @@ const makeReverseNotify =
 
 const makeReverseCallback =
   (call: ReverseTransportCall): ReverseClient["callback"] =>
-  (request) => {
+  (
+    request,
+  ): Effect.Effect<
+    ReverseCallbackRequestSuccess,
+    ReverseCallbackRequestError | ReverseCallError
+  > => {
     if (isDispatchAuthorizeRequest(request)) {
       return call(dispatchAuthorize.clientRpc._tag, request.params);
     }

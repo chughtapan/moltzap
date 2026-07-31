@@ -113,11 +113,9 @@ function resolveStartParticipantIds(
       }
       const id = byName.get(entry.name);
       if (id === undefined) {
-        return yield* Effect.fail(
-          new StartTaskUsageError({
-            message: `Cannot resolve "${entry.token}": not-found`,
-          }),
-        );
+        return yield* new StartTaskUsageError({
+          message: `Cannot resolve "${entry.token}": not-found`,
+        });
       }
       resolved.push(id);
     }
@@ -175,11 +173,9 @@ function resolveStartParticipants(
   return Effect.gen(function* () {
     const names = startParticipantNames(participants);
     if (names.length > MAX_START_PARTICIPANT_LOOKUP_NAMES) {
-      return yield* Effect.fail(
-        new StartTaskUsageError({
-          message: `Too many distinct agent names: ${names.length} (max ${MAX_START_PARTICIPANT_LOOKUP_NAMES})`,
-        }),
-      );
+      return yield* new StartTaskUsageError({
+        message: `Too many distinct agent names: ${names.length} (max ${MAX_START_PARTICIPANT_LOOKUP_NAMES})`,
+      });
     }
     const byName = new Map<string, AgentId>();
     if (names.length > 0) {
@@ -269,7 +265,7 @@ function sendOptionalStartMessage({
   StartTaskPartialFailure | ServiceRpcError
 > {
   if (params.message === undefined) {
-    return Effect.succeed(undefined);
+    return Effect.void.pipe(Effect.as(undefined));
   }
   return sendStartMessage({
     call,
@@ -309,11 +305,9 @@ function handleStartTaskCommand(
       result.conversation?.id ??
       (yield* findReusableStartConversation(call, result.task.id));
     if (conversationId === null) {
-      return yield* Effect.fail(
-        new ServiceInputError({
-          message: `Task already exists but is closed: ${result.task.id}`,
-        }),
-      );
+      return yield* new ServiceInputError({
+        message: `Task already exists but is closed: ${result.task.id}`,
+      });
     }
     const sentMessageId = yield* sendOptionalStartMessage({
       call,

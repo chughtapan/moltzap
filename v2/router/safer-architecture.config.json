@@ -1,0 +1,59 @@
+{
+  "packageRuntime": "node",
+  "publicTypePackages": [
+    {
+      "package": "effect",
+      "reason": "Foundational Effect runtime; intentionally part of the public contract"
+    },
+    {
+      "package": "@effect/platform",
+      "reason": "Effect platform abstractions used at boundaries"
+    }
+  ],
+  "allowedTestPublicSubpaths": [],
+  "folderReadmeFileNames": [
+    "README.md",
+    "MODULE.md"
+  ],
+  "folderChildCountOverrides": [
+    {
+      "folder": "router",
+      "maxChildren": 12,
+      "reason": "The Router implementation keeps contract, client, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, server, and process as the cohesive boundaries of one independently runnable service"
+    }
+  ],
+  "facadeFiles": [
+    {
+      "file": "router/client.ts",
+      "reason": "Private HTTP client boundary used by the public Router capability"
+    },
+    {
+      "file": "router/feed.ts",
+      "reason": "Sole state boundary for ordering, retention, and retry identity"
+    },
+    {
+      "file": "router/contract.ts",
+      "reason": "Closed Router request, result, operation value, representation, route, limit, and client-failure contract"
+    },
+    {
+      "file": "router/poll.ts",
+      "reason": "Authenticated poll behavior boundary over cursor and feed capabilities"
+    },
+    {
+      "file": "router/poll-cursor.ts",
+      "reason": "Authenticated continuation boundary for caller-bound cursor state and process-scoped cursor material"
+    },
+    {
+      "file": "router/rpc.ts",
+      "reason": "Private correlated dispatch boundary between authenticated HTTP requests and send or poll operations"
+    },
+    {
+      "file": "router/send.ts",
+      "reason": "Authenticated send behavior boundary over identity proof and feed capabilities"
+    },
+    {
+      "file": "router/server.ts",
+      "reason": "Production process-composition boundary exported through the server subpath"
+    }
+  ]
+}

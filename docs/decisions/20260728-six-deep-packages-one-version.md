@@ -1,12 +1,31 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260729-router-order-is-opaque.md
 ---
 
 # V2 has six deep packages and one Moltzap version
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-six-deep-packages-one-version).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-six-deep-packages-one-version) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
+
+## Supersession
+
+The following scope remains current: V2 has exactly six deep packages;
+production contracts and implementations stay behind their owning
+package; production packages do not depend on simulator or testbed;
+`v2/*` imports nothing from `packages/*`; the explicit export posture
+and non-package list remain; and one CalVer value matches all six
+manifests and MoltZap compatibility while MCP and simulator persisted
+formats version independently.
+
+`20260729-router-order-is-opaque.md` replaces the package name
+`transport` with `router`, the npm project with
+`@moltzap/v2-router`, and the Registry binary
+`moltzap-directory` with `moltzap-registry`. All dependency edges that
+formerly named `transport` now name `router`; the package count remains
+six. The current package map and DAG live in
+`docs/spec/layer-interfaces.md`.
 
 ## Context and Problem Statement
 

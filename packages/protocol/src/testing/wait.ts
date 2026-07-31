@@ -11,7 +11,7 @@ const DEFAULT_POLL_MILLIS = 5;
 const realSleep = (millis: number): Effect.Effect<undefined> =>
   Effect.async<undefined>((resume) => {
     const timer = setTimeout(() => {
-      resume(Effect.succeed(undefined));
+      resume(Effect.void.pipe(Effect.as(undefined)));
     }, millis);
     return Effect.sync(() => {
       clearTimeout(timer);

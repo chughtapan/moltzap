@@ -80,7 +80,7 @@ function checkPayloadOpacity(ctx: ConformanceRunContext, text: string) {
       const snap = yield* participant.notifications.snapshot;
       return snap.some((frame) => containsDeliveredText(frame, text));
     }),
-  ).pipe(Effect.catchAll(() => Effect.succeed(false)));
+  ).pipe(Effect.orElseSucceed(() => false));
 }
 
 function acquirePayloadFixture(ctx: ConformanceRunContext) {

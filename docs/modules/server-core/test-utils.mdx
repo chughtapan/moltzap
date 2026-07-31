@@ -104,7 +104,7 @@ export interface ConnectedAgent {
 
 Describes connected agent.
 
-### [`connectTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L261)
+### [`connectTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L263)
 
 _Function_
 
@@ -283,7 +283,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 
 Validates and decodes default test admin user id values.
 
-### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L466)
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L464)
 
 _Function_
 
@@ -295,7 +295,7 @@ Returns base url.
 
 **Returns:** The get base url result.
 
-### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L442)
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L440)
 
 _Function_
 
@@ -307,7 +307,7 @@ Returns core db.
 
 **Returns:** The get core db result.
 
-### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L455)
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L453)
 
 _Function_
 
@@ -319,7 +319,7 @@ Returns core encryption envelope.
 
 **Returns:** The get core encryption envelope result.
 
-### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L477)
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L475)
 
 _Function_
 
@@ -522,7 +522,7 @@ Registers app.
 
 **Returns:** The register app result.
 
-### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L412)
+### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L410)
 
 _Function_
 
@@ -585,19 +585,24 @@ Start a test server and expose its package-owned integration ports.
 
 ### [`startCoreTestServerEffect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L356)
 
-_Function_
+_Variable_
 
 ```ts
-export function startCoreTestServerEffect(
-  opts: StartCoreTestServerOptions = {},
+export const startCoreTestServerEffect = Effect.fn("startCoreTestServer")(
+  function* (opts: StartCoreTestServerOptions = {}) {
+    yield* ensureNoCoreTestServerRunning();
+    const db = yield* initializeTestDatabase();
+    const masterSecret = yield* configureEncryption(db, opts);
+    coreApp = createCoreTestApp(db, opts, masterSecret);
+    yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
+    return buildCoreTestServer(coreApp, db);
+  },
 )
 ```
 
 Executes the start core test server effect operation.
 
-**Returns:** The start core test server effect result.
-
-### [`startCoreTestServerFull`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L374)
+### [`startCoreTestServerFull`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L372)
 
 _Function_
 
@@ -625,7 +630,7 @@ export interface StartCoreTestServerOptions {
 
 Configures start core test server.
 
-### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L382)
+### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L380)
 
 _Function_
 

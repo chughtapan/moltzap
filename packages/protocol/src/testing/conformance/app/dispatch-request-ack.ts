@@ -35,27 +35,21 @@ export function registerDispatchRequestAckMintsLease(
           senderAgentId: driver.moderator.agentId,
         });
         if (typeof ack.leaseId !== "string" || !isUuidV4(ack.leaseId)) {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              name,
-              `leaseId not UUIDv4: ${String(ack.leaseId)}`,
-            ),
+          return yield* dispatchAdmissionViolation(
+            name,
+            `leaseId not UUIDv4: ${String(ack.leaseId)}`,
           );
         }
         if (typeof ack.dispatchId !== "string" || !isUuidV4(ack.dispatchId)) {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              name,
-              `dispatchId not UUIDv4: ${String(ack.dispatchId)}`,
-            ),
+          return yield* dispatchAdmissionViolation(
+            name,
+            `dispatchId not UUIDv4: ${String(ack.dispatchId)}`,
           );
         }
         if (Object.is(ack.leaseId, ack.dispatchId)) {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              name,
-              "leaseId and dispatchId must differ",
-            ),
+          return yield* dispatchAdmissionViolation(
+            name,
+            "leaseId and dispatchId must differ",
           );
         }
         yield* driver.recipient.waitForRelease();

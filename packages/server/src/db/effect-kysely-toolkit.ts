@@ -82,9 +82,12 @@ function commitViaExecute(this: {
  * @param prototype Value supplied to the operation.
  */
 function patchPrototype(prototype: object): void {
-  Object.assign(prototype, Effectable.CommitPrototype);
+  const patchedPrototype: object = Object.assign(
+    prototype,
+    Effectable.CommitPrototype,
+  );
   /* Safe because the surrounding invariant establishes this asserted shape. */
-  (prototype as { commit: unknown }).commit = commitViaExecute;
+  (patchedPrototype as { commit: unknown }).commit = commitViaExecute;
 }
 
 // Patch all compilable builder prototypes at module load. `SelectQueryBuilder`

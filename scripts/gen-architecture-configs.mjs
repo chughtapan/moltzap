@@ -476,14 +476,157 @@ const packageDefinitions = {
 
 const workspaceRoot = new URL("../", import.meta.url);
 
-for (const [packageName, definition] of Object.entries(packageDefinitions)) {
+const architectureConfigDefinitions = [
+  ...Object.entries(packageDefinitions).map(([packageName, definition]) => ({
+    packageRoot: `packages/${packageName}`,
+    definition,
+  })),
+  {
+    packageRoot: "v2/identity",
+    definition: {
+      config: {
+        packageRuntime: "node",
+        minExportedSiblingModules: 12,
+        maxPublicExports: 40,
+        minPublicFacadeModules: 13,
+        publicTypePackages: [
+          publicTypePackage.effect,
+          publicTypePackage.platform,
+        ],
+        allowedTestPublicSubpaths: [],
+        folderReadmeFileNames: ["README.md", "MODULE.md"],
+        folderChildCountOverrides: [
+          {
+            folder: ".",
+            maxChildren: 12,
+            reason:
+              "The identity root keeps its closed identifier, key, signed-artifact, request-authentication, and Registry capability boundaries as peer deep modules",
+          },
+        ],
+        facadeFiles: [
+          {
+            file: "agent-card.ts",
+            reason:
+              "Immutable Registry attestation boundary for issuance, verification, encoding, and digest operations",
+          },
+          {
+            file: "http-signature.ts",
+            reason:
+              "Standards adapter boundary for the closed MoltZap HTTP signature profiles",
+          },
+          {
+            file: "registry.ts",
+            reason:
+              "Public deep Registry capability and infrastructure-failure boundary",
+          },
+          {
+            file: "registry/client.ts",
+            reason:
+              "Private HTTP adapter hidden behind the public Registry capability",
+          },
+          {
+            file: "registry/contract.ts",
+            reason:
+              "Closed Registry request, result, operation value, representation, route, and client-failure contract",
+          },
+          {
+            file: "registry/rpc.ts",
+            reason:
+              "Correlated in-process RPC boundary between HTTP admission and storage operations",
+          },
+          {
+            file: "registry/server.ts",
+            reason:
+              "Production process-composition boundary exported through the server subpath",
+          },
+          {
+            file: "registry/storage.ts",
+            reason:
+              "Durable Registry storage capability and PostgreSQL implementation boundary",
+          },
+          {
+            file: "registry/migrations/0001_registry.ts",
+            reason:
+              "Ordered PostgreSQL schema migration seam owned by Registry storage",
+          },
+        ],
+      },
+    },
+  },
+  {
+    packageRoot: "v2/router",
+    definition: {
+      config: {
+        packageRuntime: "node",
+        publicTypePackages: [
+          publicTypePackage.effect,
+          publicTypePackage.platform,
+        ],
+        allowedTestPublicSubpaths: [],
+        folderReadmeFileNames: ["README.md", "MODULE.md"],
+        folderChildCountOverrides: [
+          {
+            folder: "router",
+            maxChildren: 12,
+            reason:
+              "The Router implementation keeps contract, client, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, server, and process as the cohesive boundaries of one independently runnable service",
+          },
+        ],
+        facadeFiles: [
+          {
+            file: "router/client.ts",
+            reason:
+              "Private HTTP client boundary used by the public Router capability",
+          },
+          {
+            file: "router/feed.ts",
+            reason:
+              "Sole state boundary for ordering, retention, and retry identity",
+          },
+          {
+            file: "router/contract.ts",
+            reason:
+              "Closed Router request, result, operation value, representation, route, limit, and client-failure contract",
+          },
+          {
+            file: "router/poll.ts",
+            reason:
+              "Authenticated poll behavior boundary over cursor and feed capabilities",
+          },
+          {
+            file: "router/poll-cursor.ts",
+            reason:
+              "Authenticated continuation boundary for caller-bound cursor state and process-scoped cursor material",
+          },
+          {
+            file: "router/rpc.ts",
+            reason:
+              "Private correlated dispatch boundary between authenticated HTTP requests and send or poll operations",
+          },
+          {
+            file: "router/send.ts",
+            reason:
+              "Authenticated send behavior boundary over identity proof and feed capabilities",
+          },
+          {
+            file: "router/server.ts",
+            reason:
+              "Production process-composition boundary exported through the server subpath",
+          },
+        ],
+      },
+    },
+  },
+];
+
+for (const { packageRoot, definition } of architectureConfigDefinitions) {
   const config = definition.config ?? {
     ...definition.beforeShared,
     ...sharedConfig,
     ...definition.afterShared,
   };
   const configUrl = new URL(
-    `packages/${packageName}/safer-architecture.config.json`,
+    `${packageRoot}/safer-architecture.config.json`,
     workspaceRoot,
   );
 

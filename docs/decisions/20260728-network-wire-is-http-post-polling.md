@@ -1,12 +1,38 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260729-router-order-is-opaque.md
 ---
 
 # Gate 1 uses closed HTTP POST operations and bounded Router polling
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-network-wire-is-http-post-polling).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-network-wire-is-http-post-polling), [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque), and [approved registration ownership](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#exact-implementation-slate-approved).
+
+## Supersession
+
+The following scope remains current: independent closed
+per-operation HTTP routes; no network JSON-RPC multiplexer or
+WebSocket; endpoint-wide bounded Router long polling with a maximum
+25-second hold; opaque client-held continuation; explicit send modes
+and expected-instance fencing; retained identical retry recovery;
+`feed_gap`, `router_restarted`, and `retry_identity_unknown` behavior;
+and the separation of the daemon's loopback MCP surface from both
+network planes.
+
+`20260729-identity-uses-jcs-jose-authenticated-http.md` replaces
+deterministic CBOR request encoding and the old request-authentication
+details with closed JSON/JCS and the current RFC 9421 profile for
+registered-agent requests.
+`20260729-registration-is-registry-bootstrap-admission.md` defines the
+separate Registry-owned registration bootstrap.
+`20260729-router-order-is-opaque.md` replaces the delivery route,
+cursor/order exposure, response details, volatile-state contract, and
+application TLS requirement. Router now polls at
+`POST /v1/messages:poll`, health is `GET /healthz`, and its private
+global order is never a public position. Current L2 guarantees live in
+`docs/spec/router.md`; exact request, result, and cursor
+representations live in `docs/spec/router-representation.md`.
 
 ## Context and Problem Statement
 

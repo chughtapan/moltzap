@@ -51,11 +51,9 @@ export function registerDispatchLeaseExpiredFiresOnTtl(
         const params =
           /* Safe because the "expired" observability queue contains only lease-expired deliveries. */ expired.params as LeaseIdOnlyView;
         if (params.leaseId !== ack.leaseId) {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              name,
-              `app/dispatch/lease-expired leaseId ${params.leaseId} != ack ${ack.leaseId}`,
-            ),
+          return yield* dispatchAdmissionViolation(
+            name,
+            `app/dispatch/lease-expired leaseId ${params.leaseId} != ack ${ack.leaseId}`,
           );
         }
         yield* driver.assertLeaseState(ack.dispatchId, "EXPIRED");

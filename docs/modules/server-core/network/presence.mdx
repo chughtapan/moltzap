@@ -56,28 +56,37 @@ accounted-for.
 "offline" is represented by entry absence; presence state NEVER
 holds an entry whose `liveConns` is empty.
 
-### [`agentPresenceSubscribe`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/presence/handlers.ts#L67)
+### [`agentPresenceSubscribe`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/presence/handlers.ts#L62)
 
 _Variable_
 
 ```ts
 export const agentPresenceSubscribe: ServerHandler<
   typeof agentPresenceSubscribeDefinition
-> = (params)
+> = Effect.fn("agentPresenceSubscribe")(function* (params) {
+  const subscribedIds = yield* visiblePresenceAgentIds(
+    params.agentIds,
+    yield* agentArm,
+  );
+  return yield* presenceSnapshot(subscribedIds);
+})
 ```
 
 Provides the agent presence subscribe runtime value.
 
 **Returns:** The agent presence subscribe result.
 
-### [`appPresenceSubscribe`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/presence/handlers.ts#L83)
+### [`appPresenceSubscribe`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/presence/handlers.ts#L77)
 
 _Variable_
 
 ```ts
 export const appPresenceSubscribe: ServerHandler<
   typeof appPresenceSubscribeDefinition
-> = (params)
+> = Effect.fn("appPresenceSubscribe")(function* (params) {
+  yield* appArm;
+  return yield* presenceSnapshot(params.agentIds);
+})
 ```
 
 Provides the app presence subscribe runtime value.

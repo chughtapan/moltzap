@@ -30,6 +30,15 @@ jobs:
       - run: node scripts/test-simulator-packages.mjs
       - run: pnpm typecheck
       - run: pnpm lint
+      # Exact runs fail when a required project target disappears; run-many
+      # and affected intentionally skip projects that do not define a target.
+      - name: Verify identity and Router project floor
+        run: |
+          for project in @moltzap/v2-identity @moltzap/v2-router; do
+            for target in build typecheck typecheck:tests test test:integration lint arch:check; do
+              pnpm nx run "${project}:${target}"
+            done
+          done
       - run: pnpm format:check
       - run: pnpm docs:check:drift
       - run: pnpm docs:check

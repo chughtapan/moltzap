@@ -68,11 +68,9 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
         deliveryViolation(PROPERTY, `tasks/close failed: ${error._tag}`),
       );
       if (closed.action !== "closed" || closed.task.status !== "closed") {
-        return yield* Effect.fail(
-          deliveryViolation(
-            PROPERTY,
-            `tasks/close returned ${JSON.stringify(closed)}`,
-          ),
+        return yield* deliveryViolation(
+          PROPERTY,
+          `tasks/close returned ${JSON.stringify(closed)}`,
         );
       }
       yield* waitForArchivedEvent(
@@ -212,11 +210,9 @@ function waitForTaskClosedEvent(
         | TaskClosedEventData
         | undefined;
     if (data?.task?.id !== taskId || data.task.status !== "closed") {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad task/closed payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad task/closed payload: ${JSON.stringify(event.params)}`,
       );
     }
   });

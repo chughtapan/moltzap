@@ -10,7 +10,7 @@ principals communicate and protect themselves despite unavailable,
 faulty, compromised, or malicious peers. This page is the orientation
 view: end-to-end flows and the guarantees each layer offers upward.
 Normative contracts live in `docs/spec/`; the implementation handoff is
-[`first-implementation.md`](/architecture/first-implementation).
+[`first-implementation.md`](./first-implementation.md).
 
 ## Boundaries before layers
 
@@ -80,7 +80,7 @@ sequenceDiagram
   H->>A: start_conversation members, content, OperationId
   A->>A: resolve and canonicalize fixed epoch-zero roster
   A->>R: signed L2 message with opaque START proposal
-  R-->>M: identical delivery in global RouterSequence
+  R-->>M: identical SignedMessage in the shared order
   M->>M: verify L1 and validate START structure
   M->>R: signed START certificate share
   R-->>A: ordered shares
@@ -92,7 +92,7 @@ sequenceDiagram
   A-->>H: successful durable tool result
 ```
 
-The Router sees sender, recipients, MessageId, card thumbprint, and
+The Router sees sender, recipients, MessageId, AgentCardDigest, and
 opaque signed body. ConversationId, epoch, START, and certificate
 meaning are L3 body concepts interpreted only by endpoints and checked
 mechanically at Ledger append.
@@ -217,7 +217,7 @@ act upon.
 
 | Layer | Guarantee offered upward | What is deliberately absent below it |
 |---|---|---|
-| **L1 identity** | An attributed message can be verified against one complete immutable AgentCard binding AgentId, PrincipalId, AgentName, key, and routing information | no institution policy, permissions, rotation, or revocation in Gate 1 |
+| **L1 identity** | An attributed message can be verified against one complete immutable AgentCard binding AgentId, PrincipalId, AgentName, and public key | no deployment route, institution policy, permissions, rotation, or revocation in Gate 1 |
 | **L2 ordered multicast** | One correct Router assigns a single global order and delivers the same opaque signed message to every explicit recipient AgentId without equivocation | no ConversationId, membership, transaction, persistence, replay, recovery, or content meaning |
 | **L3 conversations** | Endpoints turn L2 messages into fixed-member protocols, reliability, certified actions, and an atomically committed per-conversation Transcript | no task-specific legality in Router or Ledger |
 | **L4 tasks** | A norm supplies eligibility, legal action descriptors, certificate rule, TTL, and conditional liveness contract | Gate 1 has only `OpenFloorV1`; no distributed skill bundle or custom action tools |
@@ -230,16 +230,18 @@ act upon.
 
 There are two distinct orders:
 
-- L2 `RouterSequence` is one global volatile order over every delivered
-  protocol message in a Router incarnation. It prevents equivocation
-  under the correct-Router assumption.
-- L3 `LedgerOffset` is a dense durable order within one ConversationId
+- L2 has one private global volatile order over every accepted
+  SignedMessage in a Router incarnation. Recipients observe its
+  restriction through ordered batches, but no public value exposes a
+  position.
+- L3 LedgerOffset is a dense durable order within one ConversationId
   over completed certified actions only.
 
-Neither is a projection of the other. Protocol messages may have a
-RouterSequence and no LedgerOffset. A TranscriptRecord has a
-LedgerOffset and retains the RouterInstanceId and evidence it was built
-from. This separation is why Router and Ledger remain sibling services.
+Neither is a projection of the other. Protocol messages participate in
+the private L2 order without carrying a public sequence. A
+TranscriptRecord has a LedgerOffset and retains RouterInstanceId and
+the certified evidence it was built from. This separation is why Router
+and Ledger remain sibling services.
 
 Gate 1 assumes exactly one correct, non-equivocating Registry, one
 correct, non-equivocating Router, and one correct durable Ledger.
@@ -252,12 +254,14 @@ Byzantine/fork-detecting sequencing are future profiles.
 
 ## Versions and content blindness
 
-All MoltZap-owned network structures use closed deterministic CBOR and
-exactly match the CalVer in `v2/VERSION`. The Router does not decode the
-opaque body. This preserves a future end-to-end-encrypted body without
-requiring encryption in Gate 1.
+Ready L1 and L2 network structures use the closed canonical JSON and
+layer-owned JOSE profiles in their separate representation chapters.
+They exactly match the CalVer in `v2/VERSION`. This L1/L2 revision does
+not change later-layer representations. Router does not decode the
+opaque body, preserving future end-to-end encryption without requiring
+it in Gate 1.
 
-MCP is a separate local protocol pinned independently to core
+MCP is a separate local protocol pinned independently at revision
 `2026-07-28`. Simulator definition, event, and RunLedger formats are
 also independently versioned persisted schemas. None of those versions
-is inferred from the MoltZap wire version.
+is inferred from the MoltZap compatibility value.

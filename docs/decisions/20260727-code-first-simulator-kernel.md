@@ -1,10 +1,34 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-27
 decision-makers: Tapan Chugh
+superseded-by: 20260728-simulator-is-the-system-driver.md
 ---
 
 # The simulator is code-first with a closed event catalog
+
+Decision provenance: [source-gap report](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#simulator-provenance-source-gap), [Gate 1 simulator-system-driver trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-simulator-is-the-system-driver), [six-package trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-six-deep-packages-one-version), and [Router replacement trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
+
+## Supersession
+
+The following scope remains current: the code-first TypeScript/Effect
+approach; `Simulator.define`; an immutable closed typed EventCatalog;
+the typed run-evidence RunLedger; a scoped runtime roster and private
+lifecycle kernel; Effect programs and services; customer-owned
+scenario languages, sweeps, completion policy, and graders; and the
+requirement that OpenClaw, NanoClaw, Effect, and custom runtimes use one
+public stack without callback shortcuts.
+
+`20260728-simulator-is-the-system-driver.md` replaces the historical
+single-package ownership and source-layout plan with the V2 simulator
+as a system driver over public production capabilities and a separate
+testbed package. `20260729-router-order-is-opaque.md` replaces
+simulator-owned production Router state, public RouterSequence, and
+legacy transport-facing types with the `router` package's opaque,
+volatile L2 capability. `20260728-six-deep-packages-one-version.md`,
+as partially superseded, and `docs/spec/layer-interfaces.md` own the
+current package boundary. The accepted
+`20260728-simulator-is-the-system-driver.md` record remains unchanged.
 
 ## Context and Problem Statement
 
