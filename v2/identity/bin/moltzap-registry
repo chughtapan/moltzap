@@ -1,3 +1,4 @@
 #!/usr/bin/env node
-process.stderr.write("moltzap-registry is not implemented\n");
-process.exit(1);
+import { runRegistryProcess } from "../dist/registry/process.js";
+
+runRegistryProcess();

@@ -4,6 +4,7 @@
  * package builds on. `identity` sits at the root of the v2 dependency
  * graph and imports no other v2 package.
  */
+// safer-arch-ignore no-folder-cycle: This facade re-exports cohesive identity modules that depend on sibling identity contracts; those modules never import the facade.
 
 /**
  * The sole MoltZap compatibility value. Every MoltZap-owned network
@@ -16,4 +17,48 @@
  * RunLedger storage version are independent namespaces and never imply
  * compatibility with this value.
  */
-export const MOLTZAP_VERSION = "2026.729.1";
+export { MOLTZAP_VERSION } from "./version.js";
+
+/** Canonical refined values shared by identity and its consumers. */
+export { AgentId, AgentName, PrincipalId } from "./identifiers.js";
+/** Exact immutable public-key representation used by identity artifacts. */
+export {
+  AgentSigningAuthority,
+  Ed25519PublicKey,
+  InvalidAgentPrivateKeyError,
+} from "./agent-key.js";
+/** Immutable Registry attestation and its pinned verification boundary. */
+export {
+  AgentCard,
+  AgentCardDigest,
+  AgentCardVerificationError,
+  type VerifiedAgentCard,
+} from "./agent-card.js";
+/** Opaque attributed payload and endpoint-owned signing operations. */
+export {
+  MessageId,
+  SignedMessage,
+  SignedMessageSigningError,
+  SignedMessageVerificationError,
+  type VerifiedSignedMessage,
+} from "./signed-message.js";
+/** Registered-agent HTTP authentication and its opaque verified proof. */
+export {
+  AuthenticatedHttp,
+  type VerifiedAgentRequest,
+} from "./authenticated-http.js";
+/** Shared closed HTTP-envelope failures. */
+export {
+  AuthenticationFailedError,
+  InternalServerError,
+  MalformedRequestError,
+  MethodNotAllowedError,
+  OverloadedError,
+  PayloadTooLargeError,
+  RouteNotFoundError,
+  UnavailableError,
+  UnsupportedMediaTypeError,
+  VersionMismatchError,
+} from "./http-errors.js";
+/** HTTP request signing failure without implementation detail. */
+export { AgentSigningError } from "./http-signature.js";

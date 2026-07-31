@@ -123,6 +123,13 @@ urn:ietf:params:oauth:jwk-thumbprint:sha-256:<thumbprint>
 `<thumbprint>` is the canonical unpadded base64url SHA-256 digest
 defined by RFC 7638 and RFC 9278.
 
+Every Ed25519 verification in this chapter uses one strict profile.
+Signature `R` and `S` use their canonical encodings, `S` is less than
+the Ed25519 subgroup order, and small-order public keys are rejected.
+Verification uses the cofactorless equation. These rules apply
+identically to AgentCard, SignedMessage, registered-agent HTTP, and
+Registry bootstrap signatures.
+
 ## AgentCard
 
 ### Payload

@@ -53,6 +53,11 @@ export interface TypeDocCache {
   readonly byFolder: ReadonlyMap<string, readonly TypeDocExport[]>;
 }
 
+/** Selects package subpaths that the documentation pipeline may publish. */
+export interface TypeDocLoadOptions {
+  readonly packageSubpaths?: readonly string[];
+}
+
 /** Reports type doc cache missing failures. */
 export class TypeDocCacheMissingError extends Data.TaggedError(
   "TypeDocCacheMissingError",
@@ -111,10 +116,12 @@ interface RawReflection {
  * (caller forgot to run TypeDoc first) and
  * `TypeDocCacheMalformedError` when the JSON cannot be parsed.
  * @param cachePath Value supplied to the operation.
+ * @param options Package subpaths admitted to the documentation cache.
  * @returns The load type doc result.
  */
 export const loadTypeDoc = (
   cachePath: string,
+  options: TypeDocLoadOptions = {},
 ): Effect.Effect<
   TypeDocCache,
   TypeDocCacheMissingError | TypeDocCacheMalformedError | PlatformError,
@@ -147,7 +154,10 @@ export const loadTypeDoc = (
     return {
       all,
       byPackage: indexBy(all, (e) => e.packageName),
-      byPackageEntrypoint: collectPackageEntrypointExports(raw),
+      byPackageEntrypoint: collectPackageEntrypointExports(
+        raw,
+        new Set(options.packageSubpaths ?? []),
+      ),
       byFolder: indexBy(all, (e) => folderOf(e)),
     };
   }).pipe(Effect.withSpan("loadTypeDoc"));
@@ -178,15 +188,18 @@ function collectExports(root: RawReflection): readonly TypeDocExport[] {
 
 /**
  * TypeDoc represents package entrypoints in two shapes. A focused entrypoint
- * contributes declarations directly beneath the package project, while an
- * expanded package contributes an `index` module whose children are references
- * to declarations elsewhere in the project. Normalize both shapes into the
- * exact public surface owned by the package root.
+ * contributes declarations directly beneath the package project, while a
+ * package with multiple entrypoints contributes one module per entrypoint.
+ * Normalize `index` to the package root and retain only package subpaths that
+ * the caller identified from the package's public contract. Expanded TypeDoc
+ * projects also represent private source files as modules.
  * @param root Value supplied to the operation.
+ * @param packageSubpaths Package import paths approved for publication.
  * @returns The collect package entrypoint exports result.
  */
 function collectPackageEntrypointExports(
   root: RawReflection,
+  packageSubpaths: ReadonlySet<string>,
 ): ReadonlyMap<string, readonly TypeDocExport[]> {
   const reflectionsById = indexReflectionsById(root);
   const entries = new Map<string, readonly TypeDocExport[]>();
@@ -201,15 +214,51 @@ function collectPackageEntrypointExports(
       : children.filter((child) => child.kind !== ReflectionKind.Module);
     entries.set(
       packageName,
-      owned.flatMap((child) => {
-        const declaration = resolveReference(child, reflectionsById);
-        return declaration !== null && shouldEmit(declaration)
-          ? [toExport(declaration, packageName)]
-          : [];
-      }),
+      collectOwnedExports(owned, packageName, reflectionsById, false),
     );
+    for (const entrypoint of children) {
+      const importPath = `${packageName}/${entrypoint.name ?? "<unknown>"}`;
+      if (
+        entrypoint.kind !== ReflectionKind.Module ||
+        entrypoint.name === "index" ||
+        !packageSubpaths.has(importPath)
+      ) {
+        continue;
+      }
+      entries.set(
+        importPath,
+        collectOwnedExports(
+          entrypoint.children ?? [],
+          packageName,
+          reflectionsById,
+          true,
+        ),
+      );
+    }
   }
   return entries;
+}
+
+function collectOwnedExports(
+  children: readonly RawReflection[],
+  packageName: string,
+  reflectionsById: ReadonlyMap<number, RawReflection>,
+  includeDescendants: boolean,
+): readonly TypeDocExport[] {
+  return children.flatMap((child) => {
+    const declaration = resolveReference(child, reflectionsById);
+    if (declaration === null) {
+      return [];
+    }
+    if (!includeDescendants) {
+      return shouldEmit(declaration)
+        ? [toExport(declaration, packageName)]
+        : [];
+    }
+    const exports: TypeDocExport[] = [];
+    walk(declaration, packageName, exports);
+    return exports;
+  });
 }
 
 function indexReflectionsById(
@@ -326,26 +375,36 @@ function extractReturnTypeName(node: RawReflection): string | null {
   return null;
 }
 
-function normalizeSourcePath(p: string, url?: string): string {
-  // TypeDoc sometimes emits absolute paths via workspace symlinks —
-  // trim anything above `packages/` for workspace-relative output.
-  const ix = p.indexOf("packages/");
-  if (ix !== -1) {
-    return p.slice(ix);
+/**
+ * Normalize a TypeDoc source path to a workspace source root.
+ * @param sourcePath TypeDoc's reported source path.
+ * @param sourceUrl Optional source permalink emitted by TypeDoc.
+ * @returns A workspace-relative source path when one can be recovered.
+ */
+function normalizeSourcePath(sourcePath: string, sourceUrl?: string): string {
+  const normalizedPath = sourcePath.replaceAll("\\", "/");
+  const workspacePath = findWorkspacePath(normalizedPath);
+  if (workspacePath !== null) {
+    return workspacePath;
   }
-  // Some packages surface a bare package-relative `fileName` (e.g.
-  // `entry.ts` instead of `packages/foo/src/entry.ts`). Reconstruct
-  // from the source URL, which carries the full repo-relative path
-  // after the SHA. Without this, `discoverFolders` skips the export
-  // on the `packages/`-prefix check and the package is silently
-  // dropped from generated MODULE docs.
-  if (url) {
-    const m = /\/blob\/[^/]+\/(packages\/[^#?]+)/.exec(url);
-    if (m?.[1]) {
-      return m[1];
+
+  if (sourceUrl !== undefined) {
+    const urlMatch = /\/blob\/[^/]+\/([^#?]+)/.exec(sourceUrl);
+    if (urlMatch?.[1] !== undefined) {
+      const urlWorkspacePath = findWorkspacePath(urlMatch[1]);
+      if (urlWorkspacePath !== null) {
+        return urlWorkspacePath;
+      }
     }
   }
-  return p;
+  return normalizedPath;
+}
+
+function findWorkspacePath(sourcePath: string): string | null {
+  const match = /(?:^|\/)((?:packages|v2)\/[^/]+\/src(?:\/.*)?$)/.exec(
+    sourcePath,
+  );
+  return match?.[1] ?? null;
 }
 
 function extractComment(node: RawReflection): TypeDocComment | null {

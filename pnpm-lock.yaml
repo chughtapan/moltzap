@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  eslint-plugin-sonarjs>typescript: 5.9.3
+
 importers:
 
   .:
@@ -387,12 +390,12 @@ importers:
       '@moltzap/v2-identity':
         specifier: workspace:*
         version: link:../identity
-      '@moltzap/v2-transcript':
-        specifier: workspace:*
-        version: link:../transcript
       '@moltzap/v2-router':
         specifier: workspace:*
         version: link:../router
+      '@moltzap/v2-transcript':
+        specifier: workspace:*
+        version: link:../transcript
     devDependencies:
       eslint:
         specifier: ^9
@@ -402,13 +405,105 @@ importers:
         version: 5.9.3
 
   v2/identity:
+    dependencies:
+      '@effect/experimental':
+        specifier: 0.61.0
+        version: 0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
+      '@effect/platform':
+        specifier: 0.97.0
+        version: 0.97.0(effect@3.22.0)
+      '@effect/platform-node':
+        specifier: 0.108.0
+        version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
+      '@effect/rpc':
+        specifier: 0.76.0
+        version: 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
+      '@effect/sql':
+        specifier: 0.52.0
+        version: 0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
+      '@effect/sql-pg':
+        specifier: 0.53.0
+        version: 0.53.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
+      canonicalize:
+        specifier: 3.0.0
+        version: 3.0.0
+      effect:
+        specifier: 3.22.0
+        version: 3.22.0
+      http-message-signatures:
+        specifier: 1.0.6
+        version: 1.0.6
+      jose:
+        specifier: 6.2.5
+        version: 6.2.5
+      structured-headers:
+        specifier: 2.0.3
+        version: 2.0.3
     devDependencies:
+      '@effect/vitest':
+        specifier: 0.30.0
+        version: 0.30.0(effect@3.22.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@electric-sql/pglite':
+        specifier: 0.4.4
+        version: 0.4.4
+      '@electric-sql/pglite-socket':
+        specifier: 0.1.4
+        version: 0.1.4(@electric-sql/pglite@0.4.4)
+      '@testcontainers/postgresql':
+        specifier: 10.28.0
+        version: 10.28.0
       eslint:
         specifier: ^9
         version: 9.39.4(jiti@2.7.0)
+      fast-check:
+        specifier: 3.23.2
+        version: 3.23.2
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+
+  v2/router:
+    dependencies:
+      '@effect/platform':
+        specifier: 0.97.0
+        version: 0.97.0(effect@3.22.0)
+      '@effect/platform-node':
+        specifier: 0.108.0
+        version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
+      '@effect/rpc':
+        specifier: 0.76.0
+        version: 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
+      '@moltzap/v2-identity':
+        specifier: workspace:*
+        version: link:../identity
+      canonicalize:
+        specifier: 3.0.0
+        version: 3.0.0
+      effect:
+        specifier: 3.22.0
+        version: 3.22.0
+      jose:
+        specifier: 6.2.5
+        version: 6.2.5
+    devDependencies:
+      '@effect/vitest':
+        specifier: 0.30.0
+        version: 0.30.0(effect@3.22.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      fast-check:
+        specifier: 3.23.2
+        version: 3.23.2
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
 
   v2/simulator:
     dependencies:
@@ -434,15 +529,15 @@ importers:
       '@moltzap/v2-identity':
         specifier: workspace:*
         version: link:../identity
+      '@moltzap/v2-router':
+        specifier: workspace:*
+        version: link:../router
       '@moltzap/v2-simulator':
         specifier: workspace:*
         version: link:../simulator
       '@moltzap/v2-transcript':
         specifier: workspace:*
         version: link:../transcript
-      '@moltzap/v2-router':
-        specifier: workspace:*
-        version: link:../router
     devDependencies:
       eslint:
         specifier: ^9
@@ -459,19 +554,6 @@ importers:
       '@moltzap/v2-router':
         specifier: workspace:*
         version: link:../router
-    devDependencies:
-      eslint:
-        specifier: ^9
-        version: 9.39.4(jiti@2.7.0)
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-
-  v2/router:
-    dependencies:
-      '@moltzap/v2-identity':
-        specifier: workspace:*
-        version: link:../identity
     devDependencies:
       eslint:
         specifier: ^9
@@ -823,6 +905,14 @@ packages:
       effect: ^3.22.0
       kysely: ^0.28.2
 
+  '@effect/sql-pg@0.53.0':
+    resolution: {integrity: sha512-E9LPkP3aB9RNPhAl9R19z6dcmleNyJJGatg0N/zpH3LyIg3dB/4Qhv543rNOGyQlox5ebUADbHUxWk5UzDfSCA==}
+    peerDependencies:
+      '@effect/experimental': ^0.61.0
+      '@effect/platform': ^0.97.0
+      '@effect/sql': ^0.52.0
+      effect: ^3.22.0
+
   '@effect/sql@0.52.0':
     resolution: {integrity: sha512-S7z9grD8QmuQDjM7VZLA3RsyQt9TKL/uSyjsz9Oz+gqBA4Espu+8dLDCc1OCWxVWUbUnfGH4L6rv4pSsX598iA==}
     peerDependencies:
@@ -848,6 +938,12 @@ packages:
       '@effect/platform': ^0.97.0
       '@effect/rpc': ^0.76.0
       effect: ^3.22.0
+
+  '@electric-sql/pglite-socket@0.1.4':
+    resolution: {integrity: sha512-2LuMFxJPE2FbjWDrWpylWwhZ5uT03rQfBLM7g2AdZmiG3JjC8sbYFkFR4ZeoqVcn22wKzpJTXFV22mQ+s4Oueg==}
+    hasBin: true
+    peerDependencies:
+      '@electric-sql/pglite': 0.4.4
 
   '@electric-sql/pglite@0.4.4':
     resolution: {integrity: sha512-g/6CWAJ4XOkObWCWAQ2IReZD8VvsDy3poRHSKvpRR2F96F8WJ3HVbjpso3gN7l0q6QPPgvxSSpl/qo5k8a7mkQ==}
@@ -4246,6 +4342,11 @@ packages:
     resolution: {integrity: sha512-L28STB170nwWS63UjtlEOE3dldQApaJXZkOI1uMFfzf3rRuPegHaHesyee+YxQ+W6SvRDQV6UrdOdRiR153wJg==}
     engines: {node: '>=6'}
 
+  canonicalize@3.0.0:
+    resolution: {integrity: sha512-yYLfHyDMIXRyRqsKBRLX023riFLpXY2YOfdtqKXZRZy9qsfOJ9U+4F9YZL7MEzL5+ziN2x2nlBvY/Voi3EBljA==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
 
@@ -5844,6 +5945,9 @@ packages:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
     engines: {node: '>= 0.8'}
 
+  http-message-signatures@1.0.6:
+    resolution: {integrity: sha512-mGaW/gs0WyP1X4wcc0iHguoDuv/LGyGLbvn8NWgbSdR+opFXKncrNiwQO8bN5rZ5j0z9HrwrRj33CzIK5dhGXA==}
+
   http-proxy-agent@7.0.2:
     resolution: {integrity: sha512-T1gkAiYYDWYx3V5Bmyu7HcfcvL7mUrTWiM6yOfa3PIphViJ/gFPbvidQ+veqSOHci/PxBcDabeUNCzpOODJZig==}
     engines: {node: '>= 14'}
@@ -6212,8 +6316,8 @@ packages:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
 
-  jose@6.2.2:
-    resolution: {integrity: sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ==}
+  jose@6.2.5:
+    resolution: {integrity: sha512-2E5L2yRp03FnwreJLJX8/r7mHiZICCf8kG7fAsTWkSQTDAcc46NIZoQLKy+EJ8sPoJlxyS4OQR5H70LjIZZlIQ==}
 
   jotai@2.20.0:
     resolution: {integrity: sha512-b5GAqgmXmXzB4WPaTH26ppk9Sl7AA9WSQX7yfdM+gJ1rFROiWcVbi97gFuN/yVCojOcbcvop2sfLL+fjxW0JVg==}
@@ -6495,9 +6599,6 @@ packages:
 
   lodash.topath@4.5.2:
     resolution: {integrity: sha512-1/W4dM+35DwvE/iEd1M9ekewOSTlpFekhw9mhAtrwjVqUr83/ilQiyAvmg4tVX7Unkcfl1KC+i9WdaT4B6aQcg==}
-
-  lodash@4.17.21:
-    resolution: {integrity: sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==}
 
   lodash@4.17.23:
     resolution: {integrity: sha512-LgVTMpQtIopCi79SJeDiP0TfWi5CNEc/L/aRdTh3yIvmZXTnheWpKjSZhnvMl8iXbC1tFg9gdHHDMLoV7CnG+w==}
@@ -7079,6 +7180,9 @@ packages:
     resolution: {integrity: sha512-nK28WOo+QIjBkDduTINE4JkF/UJJKyf2EJxvJKfblDpyg0Q+pkOHNTL0Qwy6NP6FhE/EnzV73BxxqcJaXY9anw==}
     engines: {node: '>= 0.4'}
 
+  obuf@1.1.2:
+    resolution: {integrity: sha512-PX1wu0AmAdPqOL1mWhqmlOd8kOIZQwGZw6rh7uby9fTc5lhaOWFLX3I6R1hrF9k3zUY40e6igsLGkDXK92LJNg==}
+
   oidc-client-ts@3.5.0:
     resolution: {integrity: sha512-l2q8l9CTCTOlbX+AnK4p3M+4CEpKpyQhle6blQkdFhm0IsBqsxm15bYaSa11G7pWdsYr6epdsRZxJpCyCRbT8A==}
     engines: {node: '>=18'}
@@ -7378,9 +7482,21 @@ packages:
   pg-connection-string@2.12.0:
     resolution: {integrity: sha512-U7qg+bpswf3Cs5xLzRqbXbQl85ng0mfSV/J0nnA31MCLgvEaAo7CIhmeyrmJpOr7o+zm0rXK+hNnT5l9RHkCkQ==}
 
+  pg-connection-string@2.9.1:
+    resolution: {integrity: sha512-nkc6NpDcvPVpZXxrreI/FOtX3XemeLl8E0qFr6F2Lrm/I8WOnaWNhIPK2Z7OHpw7gh5XJThi6j6ppgNoaT1w4w==}
+
+  pg-cursor@2.21.0:
+    resolution: {integrity: sha512-IYvk/j+Suhtbo/C3uOf4JLsLK/gWxOTUOmYbDsbKnLaVJDq+KwhwK6ngpRfiCk8eDMS3AmGQABZCv0cREEzHQw==}
+    peerDependencies:
+      pg: ^8
+
   pg-int8@1.0.1:
     resolution: {integrity: sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==}
     engines: {node: '>=4.0.0'}
+
+  pg-numeric@1.0.2:
+    resolution: {integrity: sha512-BM/Thnrw5jm2kKLE5uJkXqqExRUY/toLHda65XgFTBTFYZyopbKjBe29Ii3RbkvlsMoFwD+tHeGaCjjv0gHlyw==}
+    engines: {node: '>=4'}
 
   pg-pool@3.13.0:
     resolution: {integrity: sha512-gB+R+Xud1gLFuRD/QgOIgGOBE2KCQPaPwkzBBGC9oG69pHTkhQeIuejVIk3/cnDyX39av2AxomQiyPT13WKHQA==}
@@ -7393,6 +7509,10 @@ packages:
   pg-types@2.2.0:
     resolution: {integrity: sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==}
     engines: {node: '>=4'}
+
+  pg-types@4.1.0:
+    resolution: {integrity: sha512-o2XFanIMy/3+mThw69O8d4n1E5zsLhdO+OPqswezu7Z5ekP4hYDqlDjlmOpYMbzY2Br0ufCwJLdDIXeNVwcWFg==}
+    engines: {node: '>=10'}
 
   pg@8.20.0:
     resolution: {integrity: sha512-ldhMxz2r8fl/6QkXnBD3CR9/xg694oT6DZQ2s6c/RI28OjtSOpxnPrUCGOBJ46RCUxcWdx3p6kw/xnDHjKvaRA==}
@@ -7546,17 +7666,36 @@ packages:
     resolution: {integrity: sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==}
     engines: {node: '>=4'}
 
+  postgres-array@3.0.4:
+    resolution: {integrity: sha512-nAUSGfSDGOaOAEGwqsRY27GPOea7CNipJPOA7lPbdEpx5Kg3qzdP0AaWC5MlhTWV9s4hFX39nomVZ+C4tnGOJQ==}
+    engines: {node: '>=12'}
+
   postgres-bytea@1.0.1:
     resolution: {integrity: sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ==}
     engines: {node: '>=0.10.0'}
+
+  postgres-bytea@3.0.0:
+    resolution: {integrity: sha512-CNd4jim9RFPkObHSjVHlVrxoVQXz7quwNFpz7RY1okNNme49+sVyiTvTRobiLV548Hx/hb1BG+iE7h9493WzFw==}
+    engines: {node: '>= 6'}
 
   postgres-date@1.0.7:
     resolution: {integrity: sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q==}
     engines: {node: '>=0.10.0'}
 
+  postgres-date@2.1.0:
+    resolution: {integrity: sha512-K7Juri8gtgXVcDfZttFKVmhglp7epKb1K4pgrkLxehjqkrgPhfG6OO8LHLkfaqkbpjNRnra018XwAr1yQFWGcA==}
+    engines: {node: '>=12'}
+
   postgres-interval@1.2.0:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
+
+  postgres-interval@3.0.0:
+    resolution: {integrity: sha512-BSNDnbyZCXSxgA+1f5UU2GmwhoI0aU5yMxRGO8CdFEcY2BQF9xm/7MqKnYoM1nJDk8nONNWDk9WeSmePFhQdlw==}
+    engines: {node: '>=12'}
+
+  postgres-range@1.1.4:
+    resolution: {integrity: sha512-i/hbxIE9803Alj/6ytL7UHQxRvZkI9O4Sy+J3HGc4F4oo/2eQAjTSNJ0bfxyse3bH0nuVesCk+3IRLaMtG3H6w==}
 
   posthog-node@5.17.2:
     resolution: {integrity: sha512-lz3YJOr0Nmiz0yHASaINEDHqoV+0bC3eD8aZAG+Ky292dAnVYul+ga/dMX8KCBXg8hHfKdxw0SztYD5j6dgUqQ==}
@@ -8407,6 +8546,10 @@ packages:
     resolution: {integrity: sha512-ki4hZQfh5rX0QDLLkOCj+h+CVNkqmp/CMf8v8kZpkNVK6jGQooMytqzLZYUVYIZcFZ6yDB70EfD8POcFXiF5oA==}
     engines: {node: '>=18'}
 
+  structured-headers@2.0.3:
+    resolution: {integrity: sha512-4g5yxhlDMClRwCcfKfLeS7Z8yAVdOWGDADwm80Poh1iReU2KVKLGBlqwpHWJ2qovq0+ZIf1atAEO1eua2o9Rgg==}
+    engines: {node: '>=18', npm: '>=6'}
+
   style-to-js@1.1.21:
     resolution: {integrity: sha512-RjQetxJrrUJLQPHbLku6U/ocGtzyjbJMP9lCNK7Ag0CNh690nSH8woqWH9u16nMjYBAok+i7JO1NP2pOy8IsPQ==}
 
@@ -8540,10 +8683,6 @@ packages:
   tinyspy@4.0.4:
     resolution: {integrity: sha512-azl+t0z7pw/z958Gy9svOTuzqIk6xq+NSheJzn5MMWtWTFywIacg2wUlzKFGtt3cthx0r2SxMK0yzJOR0IES7Q==}
     engines: {node: '>=14.0.0'}
-
-  tmp@0.2.5:
-    resolution: {integrity: sha512-voyz6MApa1rQGUxT3E+BK7/ROe8itEx7vD8/HEvt4xwXucvQ5G5oeEiHkmHZJuBO21RpOf+YYm9MOivj709jow==}
-    engines: {node: '>=14.14'}
 
   tmp@0.2.6:
     resolution: {integrity: sha512-5sJPdPjfI5Kx+qbrDesxkglRBxW//g7hCsqspEjwkewGvBMGIKMOTKzLt1hFVJzyadba3lDUN20O9qhvbQUSTA==}
@@ -9105,18 +9244,6 @@ packages:
 
   ws@8.20.0:
     resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
-  ws@8.20.1:
-    resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -9826,7 +9953,7 @@ snapshots:
       '@parcel/watcher': 2.5.6
       effect: 3.22.0
       multipasta: 0.2.7
-      ws: 8.20.1
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9841,7 +9968,7 @@ snapshots:
       effect: 3.22.0
       mime: 3.0.0
       undici: 7.25.0
-      ws: 8.20.1
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9876,6 +10003,20 @@ snapshots:
       effect: 3.22.0
       kysely: 0.28.16
 
+  '@effect/sql-pg@0.53.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)':
+    dependencies:
+      '@effect/experimental': 0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
+      '@effect/platform': 0.97.0(effect@3.22.0)
+      '@effect/sql': 0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
+      effect: 3.22.0
+      pg: 8.20.0
+      pg-connection-string: 2.9.1
+      pg-cursor: 2.21.0(pg@8.20.0)
+      pg-pool: 3.13.0(pg@8.20.0)
+      pg-types: 4.1.0
+    transitivePeerDependencies:
+      - pg-native
+
   '@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)':
     dependencies:
       '@effect/experimental': 0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
@@ -9903,6 +10044,10 @@ snapshots:
       '@effect/platform': 0.97.0(effect@3.22.0)
       '@effect/rpc': 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       effect: 3.22.0
+
+  '@electric-sql/pglite-socket@0.1.4(@electric-sql/pglite@0.4.4)':
+    dependencies:
+      '@electric-sql/pglite': 0.4.4
 
   '@electric-sql/pglite@0.4.4': {}
 
@@ -11221,7 +11366,7 @@ snapshots:
       express: 5.2.1
       express-rate-limit: 8.3.2(express@5.2.1)
       hono: 4.12.9
-      jose: 6.2.2
+      jose: 6.2.5
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
@@ -11245,7 +11390,7 @@ snapshots:
       express: 5.2.1
       express-rate-limit: 8.3.2(express@5.2.1)
       hono: 4.12.9
-      jose: 6.2.2
+      jose: 6.2.5
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
@@ -13275,7 +13420,7 @@ snapshots:
       graceful-fs: 4.2.11
       is-stream: 2.0.1
       lazystream: 1.0.1
-      lodash: 4.17.21
+      lodash: 4.18.1
       normalize-path: 3.0.0
       readable-stream: 4.7.0
 
@@ -13605,6 +13750,8 @@ snapshots:
   camelcase-css@2.0.1: {}
 
   camelcase@5.3.1: {}
+
+  canonicalize@3.0.0: {}
 
   ccount@2.0.1: {}
 
@@ -15657,6 +15804,10 @@ snapshots:
       statuses: 2.0.2
       toidentifier: 1.0.1
 
+  http-message-signatures@1.0.6:
+    dependencies:
+      structured-headers: 2.0.3
+
   http-proxy-agent@7.0.2:
     dependencies:
       agent-base: 7.1.4
@@ -16005,7 +16156,7 @@ snapshots:
 
   jiti@2.7.0: {}
 
-  jose@6.2.2: {}
+  jose@6.2.5: {}
 
   jotai@2.20.0(@types/react@19.2.14)(react@19.2.3):
     optionalDependencies:
@@ -16248,8 +16399,6 @@ snapshots:
   lodash.merge@4.6.2: {}
 
   lodash.topath@4.5.2: {}
-
-  lodash@4.17.21: {}
 
   lodash@4.17.23: {}
 
@@ -17069,7 +17218,7 @@ snapshots:
   node-edge-tts@1.2.10:
     dependencies:
       https-proxy-agent: 7.0.6
-      ws: 8.20.1
+      ws: 8.21.0
       yargs: 17.7.2
     transitivePeerDependencies:
       - bufferutil
@@ -17261,6 +17410,8 @@ snapshots:
       has-symbols: 1.1.0
       object-keys: 1.1.1
 
+  obuf@1.1.2: {}
+
   oidc-client-ts@3.5.0:
     dependencies:
       jwt-decode: 4.0.0
@@ -17437,7 +17588,7 @@ snapshots:
 
   openid-client@6.8.2:
     dependencies:
-      jose: 6.2.2
+      jose: 6.2.5
       oauth4webapi: 3.8.5
 
   openshell@0.1.0:
@@ -17728,7 +17879,15 @@ snapshots:
 
   pg-connection-string@2.12.0: {}
 
+  pg-connection-string@2.9.1: {}
+
+  pg-cursor@2.21.0(pg@8.20.0):
+    dependencies:
+      pg: 8.20.0
+
   pg-int8@1.0.1: {}
+
+  pg-numeric@1.0.2: {}
 
   pg-pool@3.13.0(pg@8.20.0):
     dependencies:
@@ -17743,6 +17902,16 @@ snapshots:
       postgres-bytea: 1.0.1
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
+
+  pg-types@4.1.0:
+    dependencies:
+      pg-int8: 1.0.1
+      pg-numeric: 1.0.2
+      postgres-array: 3.0.4
+      postgres-bytea: 3.0.0
+      postgres-date: 2.1.0
+      postgres-interval: 3.0.0
+      postgres-range: 1.1.4
 
   pg@8.20.0:
     dependencies:
@@ -17891,13 +18060,25 @@ snapshots:
 
   postgres-array@2.0.0: {}
 
+  postgres-array@3.0.4: {}
+
   postgres-bytea@1.0.1: {}
 
+  postgres-bytea@3.0.0:
+    dependencies:
+      obuf: 1.1.2
+
   postgres-date@1.0.7: {}
+
+  postgres-date@2.1.0: {}
 
   postgres-interval@1.2.0:
     dependencies:
       xtend: 4.0.2
+
+  postgres-interval@3.0.0: {}
+
+  postgres-range@1.1.4: {}
 
   posthog-node@5.17.2:
     dependencies:
@@ -19125,6 +19306,8 @@ snapshots:
     dependencies:
       '@tokenizer/token': 0.3.0
 
+  structured-headers@2.0.3: {}
+
   style-to-js@1.1.21:
     dependencies:
       style-to-object: 1.0.14
@@ -19329,7 +19512,7 @@ snapshots:
       properties-reader: 2.3.0
       ssh-remote-port-forward: 1.0.4
       tar-fs: 3.1.2
-      tmp: 0.2.5
+      tmp: 0.2.6
       undici: 5.29.0
     transitivePeerDependencies:
       - bare-abort-controller
@@ -19376,8 +19559,6 @@ snapshots:
   tinyrainbow@2.0.0: {}
 
   tinyspy@4.0.4: {}
-
-  tmp@0.2.5: {}
 
   tmp@0.2.6: {}
 
@@ -20067,8 +20248,6 @@ snapshots:
   ws@8.18.3: {}
 
   ws@8.20.0: {}
-
-  ws@8.20.1: {}
 
   ws@8.21.0: {}
 

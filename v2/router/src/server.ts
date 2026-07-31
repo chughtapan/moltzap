@@ -4,4 +4,4 @@
  * its RouterInstanceId.
  */
 
-export {};
+export * as RouterServer from "./router/server.js";

@@ -14,10 +14,11 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1
 The following scope remains current: V2 has exactly six deep packages;
 production contracts and implementations stay behind their owning
 package; production packages do not depend on simulator or testbed;
-`v2/*` imports nothing from `packages/*`; the explicit export posture
-and non-package list remain; and one CalVer value matches all six
-manifests and MoltZap compatibility while MCP and simulator persisted
-formats version independently.
+`v2/*` imports nothing from `packages/*`; Identity exports `.`,
+`./registry`, and `./registry/server`, the other production packages
+export `.` and `./server`, and the non-package list remains; and one
+CalVer value matches all six manifests and MoltZap compatibility while
+MCP and simulator persisted formats version independently.
 
 `20260729-router-order-is-opaque.md` replaces the package name
 `transport` with `router`, the npm project with
@@ -46,10 +47,11 @@ Chosen: **exactly six networking-vernacular deep packages**:
 | `simulator` | identity and endpoint public capabilities | Portable kernel, runtime roster, EventCatalog, RunLedger, root-exported StackProvider contract |
 | `testbed` | all five | StackProvider Live Layer, platform acquisition, fault layers, substitutes, external processes, black-box subjects |
 
-Identity, transport, transcript, and endpoint export `.` and
-`./server`. Simulator exports `.`, `./adapter`, and `./ledger`.
-Testbed exports `.`. Production packages never depend on simulator or
-testbed, and `v2/*` imports nothing from `packages/*`.
+Identity exports `.`, `./registry`, and `./registry/server`. Transport,
+transcript, and endpoint export `.` and `./server`. Simulator exports
+`.`, `./adapter`, and `./ledger`. Testbed exports `.`. Production
+packages never depend on simulator or testbed, and `v2/*` imports
+nothing from `packages/*`.
 
 Wire, protocol, endpoint-core, daemon-api, CLI, harness-adapter, and
 conformance are not packages. Their implementation lives behind the

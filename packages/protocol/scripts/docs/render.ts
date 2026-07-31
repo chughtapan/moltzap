@@ -1,3 +1,4 @@
+import { String as StringOps } from "effect";
 import type { RpcErrorTag, RpcJsDoc } from "./rpc-jsdoc.js";
 import { extractProperties } from "./schema.js";
 import type {
@@ -7,9 +8,9 @@ import type {
 } from "./types.js";
 
 function firstSentence(text: string): string {
-  const trimmed = text.trim().replace(/\s+/g, " ");
+  const trimmed = StringOps.replace(/\s+/g, " ")(StringOps.trim(text));
   const m = /^(.+?[.!?])(\s|$)/.exec(trimmed);
-  return m?.[1]?.trim() ?? trimmed;
+  return m?.[1] === undefined ? trimmed : StringOps.trim(m[1]);
 }
 
 /**
@@ -18,14 +19,16 @@ function firstSentence(text: string): string {
  * @returns The slugify result.
  */
 export function slugify(method: string): string {
-  return method
-    .replace(/\//g, "-")
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .toLowerCase();
+  const withoutSlashes = StringOps.replace(/\//g, "-")(method);
+  const separatedWords = StringOps.replace(
+    /([a-z0-9])([A-Z])/g,
+    "$1-$2",
+  )(withoutSlashes);
+  return StringOps.toLowerCase(separatedWords);
 }
 
 function escapeFrontmatter(s: string): string {
-  return s.replace(/"/g, '\\"');
+  return StringOps.replace(/"/g, '\\"')(s);
 }
 
 function renderMethodHeader(

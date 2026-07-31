@@ -10,7 +10,7 @@
  * its own JSDoc.
  */
 import { FileSystem, Path } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, String as StringOps } from "effect";
 import * as ts from "typescript";
 
 /** Describes rpc error tag. */
@@ -93,11 +93,10 @@ function collectFromSource(
     if (!decl || !decl.initializer || !ts.isIdentifier(decl.name)) {
       continue;
     }
-    const call = unwrapDefiner(decl.initializer);
-    if (call === null) {
+    if (!isDefinerCall(decl.initializer)) {
       continue;
     }
-    const wireName = extractWireName(call);
+    const wireName = extractWireName(decl.initializer);
     if (wireName === null) {
       continue;
     }
@@ -118,17 +117,14 @@ function hasExportModifier(stmt: ts.VariableStatement): boolean {
   return mods.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
 }
 
-function unwrapDefiner(node: ts.Expression): ts.CallExpression | null {
+function isDefinerCall(node: ts.Expression): node is ts.CallExpression {
   if (!ts.isCallExpression(node)) {
-    return null;
+    return false;
   }
   if (!ts.isIdentifier(node.expression)) {
-    return null;
+    return false;
   }
-  if (!DEFINER_NAMES.has(node.expression.text)) {
-    return null;
-  }
-  return node;
+  return DEFINER_NAMES.has(node.expression.text);
 }
 
 function extractWireName(call: ts.CallExpression): string | null {
@@ -179,7 +175,7 @@ function parseJsDocBlock(
       continue;
     }
     const text = sf.getFullText().slice(range.pos, range.end);
-    if (!text.startsWith("/**")) {
+    if (!StringOps.startsWith("/**")(text)) {
       continue;
     }
     return parseJsDocText(text);
@@ -258,13 +254,12 @@ export function parseJsDocText(text: string): ParsedJsDoc {
 }
 
 function stripJsDocMarkup(text: string): string {
-  return text
-    .replace(/^\/\*\*/, "")
-    .replace(/\*\/$/, "")
-    .split("\n")
-    .map((l) => l.replace(/^\s*\*\s?/, "").trimEnd())
-    .join("\n")
-    .trim();
+  const withoutOpening = StringOps.replace(/^\/\*\*/, "")(text);
+  const body = StringOps.replace(/\*\/$/, "")(withoutOpening);
+  const lines = StringOps.split(body, "\n").map((line) =>
+    StringOps.trimEnd(StringOps.replace(/^\s*\*\s?/, "")(line)),
+  );
+  return StringOps.trim(lines.join("\n"));
 }
 
 interface JsDocSection {
@@ -273,7 +268,7 @@ interface JsDocSection {
 }
 
 function splitOnTagBoundary(body: string): readonly JsDocSection[] {
-  const lines = body.split("\n");
+  const lines = StringOps.split(body, "\n");
   const sections: Array<{ tag: string | null; lines: string[] }> = [
     { tag: null, lines: [] },
   ];
@@ -297,16 +292,17 @@ function splitDescriptionAndBody(text: string): {
   readonly description: string | null;
   readonly body: string | null;
 } {
-  if (text.length === 0) {
+  if (StringOps.isEmpty(text)) {
     return { description: null, body: null };
   }
-  const blankIx = text.indexOf("\n\n");
-  if (blankIx === -1) {
+  const blankBoundary = /\n\n/.exec(text);
+  if (blankBoundary === null) {
     return { description: text, body: null };
   }
+  const blankIx = blankBoundary.index;
   return {
-    description: text.slice(0, blankIx).trim(),
-    body: text.slice(blankIx + 2).trim(),
+    description: StringOps.trim(StringOps.slice(0, blankIx)(text)),
+    body: StringOps.trim(StringOps.slice(blankIx + 2)(text)),
   };
 }
 
@@ -320,14 +316,15 @@ function splitDescriptionAndBody(text: string): {
  * @returns The decoded error tag.
  */
 export function parseErrorTag(text: string): RpcErrorTag | null {
-  const t = text.trim();
-  const whenIx = t.indexOf(" when ");
-  if (whenIx === -1) {
+  const t = StringOps.trim(text);
+  const whenBoundary = / when /.exec(t);
+  if (whenBoundary === null) {
     return null;
   }
-  const name = t.slice(0, whenIx).trim();
-  const when = t.slice(whenIx + 6).trim();
-  if (name.length === 0 || when.length === 0) {
+  const whenIx = whenBoundary.index;
+  const name = StringOps.trim(StringOps.slice(0, whenIx)(t));
+  const when = StringOps.trim(StringOps.slice(whenIx + 6)(t));
+  if (StringOps.isEmpty(name) || StringOps.isEmpty(when)) {
     return null;
   }
   if (/\s/.test(name)) {

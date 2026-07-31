@@ -12,9 +12,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
+    "./registry": {
+      "types": "./dist/registry.d.ts",
+      "import": "./dist/registry.js"
+    },
+    "./registry/server": {
+      "types": "./dist/registry/server.d.ts",
+      "import": "./dist/registry/server.js"
     }
   },
   "bin": {
@@ -22,15 +26,64 @@
   },
   "scripts": {
     "build": "nx run @moltzap/v2-identity:build",
-    "lint": "nx run @moltzap/v2-identity:lint"
+    "typecheck": "nx run @moltzap/v2-identity:typecheck",
+    "typecheck:tests": "nx run @moltzap/v2-identity:typecheck:tests",
+    "test": "nx run @moltzap/v2-identity:test",
+    "test:integration": "nx run @moltzap/v2-identity:test:integration",
+    "lint": "nx run @moltzap/v2-identity:lint",
+    "arch:check": "nx run @moltzap/v2-identity:arch:check"
   },
   "nx": {
     "targets": {
       "build": {
         "executor": "nx:run-commands",
+        "inputs": [
+          "v2Production",
+          "^v2Production"
+        ],
         "options": {
           "cwd": "v2/identity",
           "command": "tsc -b"
+        }
+      },
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "v2Production",
+          "^v2Production"
+        ],
+        "options": {
+          "cwd": "v2/identity",
+          "command": "tsc --noEmit --tsBuildInfoFile ./tsconfig.typecheck.tsbuildinfo -p tsconfig.json"
+        }
+      },
+      "typecheck:tests": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "v2/identity",
+          "command": "tsc -p tsconfig.test.json"
+        }
+      },
+      "test": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "v2/identity",
+          "command": "vitest run --config vitest.config.mjs"
+        }
+      },
+      "test:integration": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "v2/identity",
+          "command": "vitest run --config vitest.integration.config.mjs"
         }
       },
       "lint": {
@@ -39,11 +92,37 @@
           "cwd": "v2/identity",
           "command": "eslint . --cache --max-warnings=0"
         }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "v2/identity",
+          "command": "safer-architecture-lsp check ."
+        }
       }
     }
   },
+  "dependencies": {
+    "@effect/experimental": "0.61.0",
+    "@effect/platform": "0.97.0",
+    "@effect/platform-node": "0.108.0",
+    "@effect/rpc": "0.76.0",
+    "@effect/sql": "0.52.0",
+    "@effect/sql-pg": "0.53.0",
+    "canonicalize": "3.0.0",
+    "effect": "3.22.0",
+    "http-message-signatures": "1.0.6",
+    "jose": "6.2.5",
+    "structured-headers": "2.0.3"
+  },
   "devDependencies": {
+    "@effect/vitest": "0.30.0",
+    "@electric-sql/pglite": "0.4.4",
+    "@electric-sql/pglite-socket": "0.1.4",
+    "@testcontainers/postgresql": "10.28.0",
     "eslint": "^9",
-    "typescript": "^5.7.0"
+    "fast-check": "3.23.2",
+    "typescript": "^5.7.0",
+    "vitest": "3.2.4"
   }
 }

@@ -22,15 +22,64 @@
   },
   "scripts": {
     "build": "nx run @moltzap/v2-router:build",
-    "lint": "nx run @moltzap/v2-router:lint"
+    "typecheck": "nx run @moltzap/v2-router:typecheck",
+    "typecheck:tests": "nx run @moltzap/v2-router:typecheck:tests",
+    "test": "nx run @moltzap/v2-router:test",
+    "test:integration": "nx run @moltzap/v2-router:test:integration",
+    "lint": "nx run @moltzap/v2-router:lint",
+    "arch:check": "nx run @moltzap/v2-router:arch:check"
   },
   "nx": {
     "targets": {
       "build": {
         "executor": "nx:run-commands",
+        "inputs": [
+          "v2Production",
+          "^v2Production"
+        ],
         "options": {
           "cwd": "v2/router",
           "command": "tsc -b"
+        }
+      },
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "v2Production",
+          "^v2Production"
+        ],
+        "options": {
+          "cwd": "v2/router",
+          "command": "tsc --noEmit --tsBuildInfoFile ./tsconfig.typecheck.tsbuildinfo -p tsconfig.json"
+        }
+      },
+      "typecheck:tests": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "v2/router",
+          "command": "tsc -p tsconfig.test.json"
+        }
+      },
+      "test": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "v2/router",
+          "command": "vitest run --config vitest.config.mjs"
+        }
+      },
+      "test:integration": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "v2/router",
+          "command": "vitest run --config vitest.integration.config.mjs"
         }
       },
       "lint": {
@@ -39,14 +88,30 @@
           "cwd": "v2/router",
           "command": "eslint . --cache --max-warnings=0"
         }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "v2/router",
+          "command": "safer-architecture-lsp check ."
+        }
       }
     }
   },
   "dependencies": {
-    "@moltzap/v2-identity": "workspace:*"
+    "@effect/platform": "0.97.0",
+    "@effect/platform-node": "0.108.0",
+    "@effect/rpc": "0.76.0",
+    "@moltzap/v2-identity": "workspace:*",
+    "canonicalize": "3.0.0",
+    "effect": "3.22.0",
+    "jose": "6.2.5"
   },
   "devDependencies": {
+    "@effect/vitest": "0.30.0",
     "eslint": "^9",
-    "typescript": "^5.7.0"
+    "fast-check": "3.23.2",
+    "typescript": "^5.7.0",
+    "vitest": "3.2.4"
   }
 }
