@@ -406,14 +406,34 @@ for (const dir of v2Dirs) {
     );
   }
 
-  // knip must ignore exactly the DAG edges, no more: a stale ignore would
-  // hide a dependency that no longer belongs.
-  failOnSetDrift(
-    `knip.json workspaces["v2/${dir}"]`,
-    "ignoreDependencies drifted from the frozen DAG",
-    knipWorkspaces[`v2/${dir}`]?.ignoreDependencies ?? [],
-    wantedDeps,
+  // Knip ignores describe dependencies reached outside its static TypeScript
+  // graph, such as an executable launched by path. Source-visible imports need
+  // no ignore, so only validate that every ignore is declared and that an
+  // ignored v2 package belongs to the frozen DAG.
+  const ignoredDependencies =
+    knipWorkspaces[`v2/${dir}`]?.ignoreDependencies ?? [];
+  const declaredDependencies = new Set([
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.devDependencies ?? {}),
+    ...Object.keys(manifest.optionalDependencies ?? {}),
+    ...Object.keys(manifest.peerDependencies ?? {}),
+  ]);
+  const undeclaredIgnores = ignoredDependencies.filter(
+    (name) => !declaredDependencies.has(name),
   );
+  if (undeclaredIgnores.length > 0) {
+    failures.push(
+      `knip.json workspaces["v2/${dir}"]: ignored dependencies are not declared by ${where}: ${undeclaredIgnores.join(", ")}`,
+    );
+  }
+  const disallowedIgnoredV2Dependencies = ignoredDependencies.filter(
+    (name) => v2DirByNpmName.has(name) && !wantedDeps.includes(name),
+  );
+  if (disallowedIgnoredV2Dependencies.length > 0) {
+    failures.push(
+      `knip.json workspaces["v2/${dir}"]: ignored v2 dependencies violate the frozen DAG: ${disallowedIgnoredV2Dependencies.join(", ")}`,
+    );
+  }
 }
 
 // ─── v2 import rules ──────────────────────────────────────────────────────
@@ -503,22 +523,39 @@ for (const dir of v2Dirs) {
 // ─── The compatibility value is exported, and matches ─────────────────────
 
 const identityIndex = path.join(v2Root, "identity", "src", "index.ts");
+const identityVersion = path.join(v2Root, "identity", "src", "version.ts");
 if (v2Version !== null) {
   if (!fs.existsSync(identityIndex)) {
     failures.push(
       "v2/identity/src/index.ts: missing; it exports the compatibility value",
     );
   } else {
-    const match = fs
+    const reExport = fs
       .readFileSync(identityIndex, "utf8")
+      .match(
+        /export\s*\{\s*MOLTZAP_VERSION\s*\}\s*from\s*["']\.\/version\.js["']/,
+      );
+    if (reExport === null) {
+      failures.push(
+        "v2/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
+      );
+    }
+  }
+  if (!fs.existsSync(identityVersion)) {
+    failures.push(
+      "v2/identity/src/version.ts: missing; it owns the compatibility value",
+    );
+  } else {
+    const match = fs
+      .readFileSync(identityVersion, "utf8")
       .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']+)["']/);
     if (match === null) {
       failures.push(
-        "v2/identity/src/index.ts: must export MOLTZAP_VERSION, the MoltZap compatibility value",
+        "v2/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
       );
     } else if (match[1] !== v2Version) {
       failures.push(
-        `v2/identity/src/index.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${v2Version}"`,
+        `v2/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${v2Version}"`,
       );
     }
   }

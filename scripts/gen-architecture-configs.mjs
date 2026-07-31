@@ -486,9 +486,81 @@ const architectureConfigDefinitions = [
     definition: {
       config: {
         packageRuntime: "node",
-        publicTypePackages: [publicTypePackage.effect],
+        minExportedSiblingModules: 12,
+        maxPublicExports: 40,
+        minPublicFacadeModules: 13,
+        publicTypePackages: [
+          publicTypePackage.effect,
+          publicTypePackage.platform,
+        ],
         allowedTestPublicSubpaths: [],
-        folderReadmeFileNames: ["MODULE.md"],
+        folderReadmeFileNames: ["README.md", "MODULE.md"],
+        folderChildCountOverrides: [
+          {
+            folder: ".",
+            maxChildren: 14,
+            reason:
+              "The package root intentionally keeps the public identity artifact and capability vocabulary flat while organization remains human-gated",
+          },
+          {
+            folder: "registry",
+            maxChildren: 11,
+            reason:
+              "The complete Registry process slice is intentionally flat while its final folder organization remains under human review",
+          },
+        ],
+        facadeFiles: [
+          {
+            file: "agent-card.ts",
+            reason:
+              "Immutable Registry attestation boundary for issuance, verification, encoding, and digest operations",
+          },
+          {
+            file: "http-signature.ts",
+            reason:
+              "Standards adapter boundary for the closed MoltZap HTTP signature profiles",
+          },
+          {
+            file: "registered-agent-request.ts",
+            reason:
+              "Opaque proof boundary produced only by registered-agent authentication",
+          },
+          {
+            file: "registry.ts",
+            reason:
+              "Public deep Registry capability and infrastructure-failure boundary",
+          },
+          {
+            file: "registry/client.ts",
+            reason:
+              "Private HTTP adapter hidden behind the public Registry capability",
+          },
+          {
+            file: "registry/operations.ts",
+            reason:
+              "Closed Registry request, result, representation, and private RPC contract",
+          },
+          {
+            file: "registry/rpc.ts",
+            reason:
+              "Correlated in-process RPC boundary between HTTP admission and storage operations",
+          },
+          {
+            file: "registry/server.ts",
+            reason:
+              "Production process-composition boundary exported through the server subpath",
+          },
+          {
+            file: "registry/storage.ts",
+            reason:
+              "Durable Registry storage capability and PostgreSQL implementation boundary",
+          },
+          {
+            file: "registry/migrations/0001_registry.ts",
+            reason:
+              "Ordered PostgreSQL schema migration seam owned by Registry storage",
+          },
+        ],
       },
     },
   },
@@ -497,6 +569,52 @@ const architectureConfigDefinitions = [
     definition: {
       config: {
         packageRuntime: "node",
+        publicTypePackages: [
+          publicTypePackage.effect,
+          publicTypePackage.platform,
+        ],
+        allowedTestPublicSubpaths: [],
+        folderReadmeFileNames: ["README.md", "MODULE.md"],
+        folderChildCountOverrides: [
+          {
+            folder: "router",
+            maxChildren: 14,
+            reason:
+              "The complete Router process slice is intentionally flat while its final folder organization remains under human review",
+          },
+        ],
+        facadeFiles: [
+          {
+            file: "router/client.ts",
+            reason:
+              "Private HTTP client boundary used by the public Router capability",
+          },
+          {
+            file: "router/feed.ts",
+            reason:
+              "Sole state boundary for ordering, retention, and retry identity",
+          },
+          {
+            file: "router/operations.ts",
+            reason:
+              "Closed Router request, result, representation, and private RPC contract",
+          },
+          {
+            file: "router/poll.ts",
+            reason:
+              "Authenticated poll behavior boundary over cursor and feed capabilities",
+          },
+          {
+            file: "router/send.ts",
+            reason:
+              "Authenticated send behavior boundary over identity proof and feed capabilities",
+          },
+          {
+            file: "router/server.ts",
+            reason:
+              "Production process-composition boundary exported through the server subpath",
+          },
+        ],
       },
     },
   },

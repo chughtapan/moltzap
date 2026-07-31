@@ -1,8 +1,125 @@
 import { calculateJwkThumbprintUri } from "jose";
-import { Data, Effect, Schema } from "effect";
-import { hasCanonicalBase64UrlLength } from "./identity-values.js";
+import { Data, Effect, Either, Encoding, Schema } from "effect";
 
 const PUBLIC_KEY_BYTE_LENGTH = 32;
+const SIGNATURE_BYTE_LENGTH = 64;
+
+const FIELD_MODULUS = Uint8Array.from([
+  0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
+]);
+
+const SCALAR_ORDER = Uint8Array.from([
+  0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde,
+  0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+]);
+
+const bytesFromHex = (value: string): Uint8Array =>
+  Uint8Array.from(Buffer.from(value, "hex"));
+
+const SMALL_ORDER_POINTS = Object.freeze([
+  bytesFromHex("00".repeat(32)),
+  bytesFromHex(`01${"00".repeat(31)}`),
+  bytesFromHex(
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+  ),
+  bytesFromHex(
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+  ),
+  bytesFromHex(`ec${"ff".repeat(30)}7f`),
+  bytesFromHex(`ed${"ff".repeat(30)}7f`),
+  bytesFromHex(`ee${"ff".repeat(30)}7f`),
+]);
+
+const isLessThanLittleEndian = (
+  value: Uint8Array,
+  upperBound: Uint8Array,
+): boolean => {
+  if (value.byteLength !== upperBound.byteLength) {
+    return false;
+  }
+  for (let index = value.byteLength - 1; index >= 0; index -= 1) {
+    const valueByte = value[index];
+    const boundByte = upperBound[index];
+    if (valueByte === undefined || boundByte === undefined) {
+      return false;
+    }
+    if (valueByte !== boundByte) {
+      return valueByte < boundByte;
+    }
+  }
+  return false;
+};
+
+const hasCanonicalPointEncoding = (value: Uint8Array): boolean => {
+  if (value.byteLength !== PUBLIC_KEY_BYTE_LENGTH) {
+    return false;
+  }
+  const coordinate = Uint8Array.from(value);
+  const finalByte = coordinate[PUBLIC_KEY_BYTE_LENGTH - 1];
+  if (finalByte === undefined) {
+    return false;
+  }
+  coordinate[PUBLIC_KEY_BYTE_LENGTH - 1] = finalByte & 0x7f;
+  return isLessThanLittleEndian(coordinate, FIELD_MODULUS);
+};
+
+const encodesSmallOrderPoint = (value: Uint8Array): boolean =>
+  SMALL_ORDER_POINTS.some((point) => {
+    for (let index = 0; index < PUBLIC_KEY_BYTE_LENGTH; index += 1) {
+      const valueByte = value[index];
+      const pointByte = point[index];
+      if (valueByte === undefined || pointByte === undefined) {
+        return false;
+      }
+      const mask = index === PUBLIC_KEY_BYTE_LENGTH - 1 ? 0x7f : 0xff;
+      if ((valueByte & mask) !== pointByte) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+const hasAcceptedPublicKeyEncoding = (value: Uint8Array): boolean =>
+  hasCanonicalPointEncoding(value) && !encodesSmallOrderPoint(value);
+
+const decodeAcceptedPublicKey = (value: string): Uint8Array | undefined =>
+  Either.match(Encoding.decodeBase64Url(value), {
+    onLeft: () => undefined,
+    onRight: (bytes) =>
+      Encoding.encodeBase64Url(bytes) === value &&
+      hasAcceptedPublicKeyEncoding(bytes)
+        ? bytes
+        : undefined,
+  });
+
+/**
+ * Checks the closed Ed25519 signature representation before cryptographic
+ * verification.
+ *
+ * The standards verifier supplies the strict verification equation. This
+ * boundary additionally rejects alternate point and scalar encodings that
+ * permissive platform verifiers may otherwise accept. The public-key Schema
+ * separately rejects small-order verification keys.
+ *
+ * @param signature Candidate 64-byte Ed25519 signature.
+ * @returns Whether its point and scalar use the single accepted encoding.
+ */
+export const hasCanonicalEd25519SignatureEncoding = (
+  signature: Uint8Array,
+): boolean => {
+  if (signature.byteLength !== SIGNATURE_BYTE_LENGTH) {
+    return false;
+  }
+  const encodedPoint = signature.subarray(0, PUBLIC_KEY_BYTE_LENGTH);
+  const scalar = signature.subarray(PUBLIC_KEY_BYTE_LENGTH);
+  return (
+    hasCanonicalPointEncoding(encodedPoint) &&
+    isLessThanLittleEndian(scalar, SCALAR_ORDER)
+  );
+};
 
 type PublicKeyValue = Readonly<{
   crv: "Ed25519";
@@ -67,13 +184,10 @@ const publicKeyRepresentation = Schema.Struct({
   crv: Schema.Literal("Ed25519"),
   kty: Schema.Literal("OKP"),
   x: Schema.String.pipe(
-    Schema.filter(
-      (value) => hasCanonicalBase64UrlLength(value, PUBLIC_KEY_BYTE_LENGTH),
-      {
-        identifier: "Ed25519PublicKeyCoordinate",
-        description: "Canonical Ed25519 public-key coordinate",
-      },
-    ),
+    Schema.filter((value) => decodeAcceptedPublicKey(value) !== undefined, {
+      identifier: "Ed25519PublicKeyCoordinate",
+      description: "Canonical non-small-order Ed25519 public-key coordinate",
+    }),
   ),
 }).annotations({
   identifier: "Ed25519PublicKeyRepresentation",

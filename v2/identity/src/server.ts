@@ -4,4 +4,4 @@
  * handlers, and internal state stay private to this package.
  */
 
-export {};
+export * as RegistryServer from "./registry/server.js";

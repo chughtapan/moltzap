@@ -30,7 +30,7 @@ type JsonSnapshot =
   | Readonly<{ valid: false }>
   | Readonly<{ valid: true; value: JsonValue }>;
 
-const invalidJsonSnapshot: JsonSnapshot = { valid: false };
+const invalidJsonSnapshot = (): JsonSnapshot => ({ valid: false });
 
 const validJsonSnapshot = (value: JsonValue): JsonSnapshot => ({
   valid: true,
@@ -44,6 +44,10 @@ const isLowSurrogate = (codeUnit: number): boolean =>
   codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
 
 const hasWellFormedUnicode = (value: string): boolean => {
+  if (typeof value !== "string") {
+    return false;
+  }
+  // eslint-disable-next-line sonarjs/null-dereference -- The explicit runtime guard above establishes the string consumed by this hostile-input boundary.
   for (let index = 0; index < value.length; index += 1) {
     const codeUnit = value.charCodeAt(index);
     if (isLowSurrogate(codeUnit)) {
@@ -116,15 +120,16 @@ const captureCanonicalizerDependency = (
   property: PropertyKey,
 ): CanonicalizerDependency => {
   const descriptor = getOwnPropertyDescriptor(owner, property);
-  if (descriptor === undefined) {
-    return freezeObject({ descriptorFound: false, owner, property });
-  }
-  return freezeObject({
-    descriptor,
-    descriptorFound: true,
-    owner,
-    property,
-  });
+  const dependency: CanonicalizerDependency =
+    descriptor === undefined
+      ? { descriptorFound: false, owner, property }
+      : {
+          descriptor,
+          descriptorFound: true,
+          owner,
+          property,
+        };
+  return freezeObject(dependency);
 };
 
 const canonicalizerDependencies: readonly CanonicalizerDependency[] = [
@@ -280,12 +285,12 @@ const snapshotJsonArray = (
 ): JsonSnapshot => {
   const length = readArrayLength(value);
   if (length === undefined) {
-    return invalidJsonSnapshot;
+    return invalidJsonSnapshot();
   }
   // Parsed JSON arrays own only length and one enumerable data property
   // per index, so other shapes never reach the canonicalizer.
   if (ownKeys(value).length !== length + 1) {
-    return invalidJsonSnapshot;
+    return invalidJsonSnapshot();
   }
   const snapshot: JsonValue[] = [];
   for (let index = 0; index < length; index += 1) {
@@ -295,11 +300,11 @@ const snapshotJsonArray = (
       descriptor.enumerable !== true ||
       !("value" in descriptor)
     ) {
-      return invalidJsonSnapshot;
+      return invalidJsonSnapshot();
     }
     const item = visit(descriptor.value, context);
     if (!item.valid) {
-      return invalidJsonSnapshot;
+      return invalidJsonSnapshot();
     }
     defineProperty(snapshot, String(index), {
       configurable: false,
@@ -326,7 +331,7 @@ const snapshotJsonRecord = (
   while (index < keys.length) {
     const key = keys[index];
     if (typeof key !== "string" || !hasWellFormedUnicode(key)) {
-      return invalidJsonSnapshot;
+      return invalidJsonSnapshot();
     }
     const descriptor = getOwnPropertyDescriptor(value, key);
     if (
@@ -334,11 +339,11 @@ const snapshotJsonRecord = (
       descriptor.enumerable !== true ||
       !("value" in descriptor)
     ) {
-      return invalidJsonSnapshot;
+      return invalidJsonSnapshot();
     }
     const member = visit(descriptor.value, context);
     if (!member.valid) {
-      return invalidJsonSnapshot;
+      return invalidJsonSnapshot();
     }
     defineProperty(snapshot, key, {
       configurable: false,
@@ -364,7 +369,7 @@ const snapshotJsonContainer = (
     context.ancestors.has(value) ||
     nodeTypes.isProxy(value)
   ) {
-    return invalidJsonSnapshot;
+    return invalidJsonSnapshot();
   }
   context.ancestors.add(value);
   const nestedContext = { ...context, containerDepth: nextDepth };
@@ -374,7 +379,7 @@ const snapshotJsonContainer = (
     }
     return isPlainRecord(value)
       ? snapshotJsonRecord(value, nestedContext, visit)
-      : invalidJsonSnapshot;
+      : invalidJsonSnapshot();
   } finally {
     context.ancestors.delete(value);
   }
@@ -387,16 +392,16 @@ const visitJsonValue: JsonSnapshotVisitor = (value, context) => {
   if (typeof value === "number") {
     return numberIsFinite(value)
       ? validJsonSnapshot(value)
-      : invalidJsonSnapshot;
+      : invalidJsonSnapshot();
   }
   if (typeof value === "string") {
     return hasWellFormedUnicode(value)
       ? validJsonSnapshot(value)
-      : invalidJsonSnapshot;
+      : invalidJsonSnapshot();
   }
   return typeof value === "object"
     ? snapshotJsonContainer(value, context, visitJsonValue)
-    : invalidJsonSnapshot;
+    : invalidJsonSnapshot();
 };
 
 const snapshotJsonValue = (root: unknown): JsonSnapshot => {
@@ -409,7 +414,7 @@ const snapshotJsonValue = (root: unknown): JsonSnapshot => {
     });
     // eslint-disable-next-line agent-code-guard/bare-catch -- The snapshot boundary converts hostile reflection into ordinary validation failure.
   } catch {
-    return invalidJsonSnapshot;
+    return invalidJsonSnapshot();
   }
 };
 
@@ -529,7 +534,7 @@ export const encodeCanonicalJson = (
 ): Effect.Effect<Uint8Array, CanonicalJsonError> =>
   Effect.sync(() => {
     if (!canonicalizeRuntimeIsIntact()) {
-      return invalidJsonSnapshot;
+      return invalidJsonSnapshot();
     }
     return snapshotJsonValue(value);
   }).pipe(

@@ -1,3 +1,51 @@
 {
-  "packageRuntime": "node"
+  "packageRuntime": "node",
+  "publicTypePackages": [
+    {
+      "package": "effect",
+      "reason": "Foundational Effect runtime; intentionally part of the public contract"
+    },
+    {
+      "package": "@effect/platform",
+      "reason": "Effect platform abstractions used at boundaries"
+    }
+  ],
+  "allowedTestPublicSubpaths": [],
+  "folderReadmeFileNames": [
+    "README.md",
+    "MODULE.md"
+  ],
+  "folderChildCountOverrides": [
+    {
+      "folder": "router",
+      "maxChildren": 14,
+      "reason": "The complete Router process slice is intentionally flat while its final folder organization remains under human review"
+    }
+  ],
+  "facadeFiles": [
+    {
+      "file": "router/client.ts",
+      "reason": "Private HTTP client boundary used by the public Router capability"
+    },
+    {
+      "file": "router/feed.ts",
+      "reason": "Sole state boundary for ordering, retention, and retry identity"
+    },
+    {
+      "file": "router/operations.ts",
+      "reason": "Closed Router request, result, representation, and private RPC contract"
+    },
+    {
+      "file": "router/poll.ts",
+      "reason": "Authenticated poll behavior boundary over cursor and feed capabilities"
+    },
+    {
+      "file": "router/send.ts",
+      "reason": "Authenticated send behavior boundary over identity proof and feed capabilities"
+    },
+    {
+      "file": "router/server.ts",
+      "reason": "Production process-composition boundary exported through the server subpath"
+    }
+  ]
 }
