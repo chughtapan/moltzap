@@ -207,10 +207,7 @@ function findReusableStartConversation(
           ...(cursor === undefined ? {} : { cursor }),
         },
       );
-      const hit = result.items.find(
-        (item) =>
-          item.taskId === taskId && item.conversation.archivedAt === undefined,
-      );
+      const hit = result.items.find((item) => item.taskId === taskId);
       if (hit !== undefined) {
         return hit.conversation.id;
       }

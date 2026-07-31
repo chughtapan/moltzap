@@ -4,11 +4,7 @@
 
 import { Schema } from "effect";
 import { agentId } from "#identity/agents";
-import {
-  ConversationArchivedError,
-  conversationId,
-  messageId,
-} from "#conversation";
+import { conversationId, messageId } from "#conversation";
 import {
   ConversationInTask,
   ConversationSendAccess,
@@ -99,7 +95,6 @@ const messagesSendResult = Schema.Struct({ message: messageSchema });
  * @error DispatchNotFoundError when the dispatch lease is missing
  * @error ForbiddenError when the sender cannot post or the dispatch lease is consumed/invalid
  * @error TaskClosedError when the task is closed or failed
- * @error ConversationArchivedError when the conversation is archived
  * @error HookBlockedError when an app-side send hook blocks the message
  * @relatedNotification agent/message/received
  */
@@ -118,7 +113,6 @@ export const messagesSend = defineRpc({
     ForbiddenError,
     DispatchNotFoundError,
     TaskClosedError,
-    ConversationArchivedError,
   ],
 });
 

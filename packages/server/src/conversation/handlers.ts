@@ -1,24 +1,18 @@
 import { Effect } from "effect";
 import {
-  conversationArchivedNotificationDefinition,
   type conversationCreate as conversationCreateDefinition,
   conversationCreatedNotificationDefinition,
   type conversationList as conversationListDefinition,
   conversationParticipantsAddedNotificationDefinition,
   conversationParticipantsRemovedNotificationDefinition,
   type conversationUpdate as conversationUpdateDefinition,
-  conversationUnarchivedNotificationDefinition,
   type Conversation,
-  type ConversationId,
   type ConversationListItem,
 } from "@moltzap/protocol/conversation";
 
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
-import type {
-  AnyNotificationDefinition,
-  ServerHandler,
-} from "@moltzap/protocol/socket/catalog";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AppContext, AgentContext } from "#socket";
 import { ConversationServiceTag } from "./layer.js";
 import { TaskServiceTag } from "#task";
@@ -30,14 +24,6 @@ import { assertCallerAppOwnsTask } from "#task/requirements";
 const EMPTY_AGENT_IDS: readonly AgentId[] = [];
 
 type ConversationUpdateParams = ParamsOf<typeof conversationUpdateDefinition>;
-type ConversationArchiveParams = Extract<
-  ConversationUpdateParams,
-  { action: "archive" }
->;
-type ConversationUnarchiveParams = Extract<
-  ConversationUpdateParams,
-  { action: "unarchive" }
->;
 type ConversationAddParticipantParams = Extract<
   ConversationUpdateParams,
   { action: "add-participant" }
@@ -101,70 +87,6 @@ function fanoutConversationCreate(input: ConversationCreateInput) {
   ).pipe(Effect.withSpan("conversation.create.fanout"));
 }
 
-interface ArchiveFanoutInput {
-  readonly taskId: ConversationArchiveParams["taskId"];
-  readonly conversationId: ConversationId;
-  readonly archivedAt: string;
-}
-
-/**
- * Broadcast a conversation-scoped notification to the current participant
- * set, tolerating a participant-lookup failure (empty fan-out) so the
- * mutation result is still returned to the caller.
- * @param conversationId Value supplied to the operation.
- * @param definition Protocol definition to process.
- * @param params Request payload to process.
- * @returns The fanout to conversation participants result.
- */
-function fanoutToConversationParticipants<D extends AnyNotificationDefinition>(
-  conversationId: ConversationId,
-  definition: D,
-  params: NotificationParamsOf<D>,
-) {
-  return Effect.gen(function* () {
-    const conversationService = yield* ConversationServiceTag;
-    const recipientAgentIds = yield* conversationService
-      .getParticipantAgentIds(conversationId)
-      .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS));
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
-      definition,
-      params,
-      {
-        forConversation: conversationId,
-      },
-    );
-  });
-}
-
-function fanoutArchive(input: ArchiveFanoutInput) {
-  return fanoutToConversationParticipants(
-    input.conversationId,
-    conversationArchivedNotificationDefinition,
-    {
-      taskId: input.taskId,
-      conversationId: input.conversationId,
-      archivedAt: input.archivedAt,
-    },
-  ).pipe(Effect.withSpan("conversation.archive.fanout"));
-}
-
-interface UnarchiveFanoutInput {
-  readonly taskId: ConversationUnarchiveParams["taskId"];
-  readonly conversationId: ConversationId;
-}
-
-function fanoutUnarchive(input: UnarchiveFanoutInput) {
-  return fanoutToConversationParticipants(
-    input.conversationId,
-    conversationUnarchivedNotificationDefinition,
-    {
-      taskId: input.taskId,
-      conversationId: input.conversationId,
-    },
-  ).pipe(Effect.withSpan("conversation.unarchive.fanout"));
-}
-
 function conversationListBody(
   params: ParamsOf<typeof conversationListDefinition>,
   ctx: AgentContext,
@@ -172,12 +94,7 @@ function conversationListBody(
   return Effect.gen(function* () {
     const conversationService = yield* ConversationServiceTag;
     const { conversations, cursor: nextCursor } =
-      yield* conversationService.list(
-        ctx.agentId,
-        params.limit,
-        params.cursor,
-        "include",
-      );
+      yield* conversationService.list(ctx.agentId, params.limit, params.cursor);
     const items: ConversationListItem[] = [];
     for (const summary of conversations) {
       // The three per-conversation reads are independent; run them together.
@@ -196,45 +113,6 @@ function conversationListBody(
     }
     return { items, ...(nextCursor !== undefined ? { nextCursor } : {}) };
   }).pipe(Effect.withSpan("conversation.list"));
-}
-
-function conversationArchiveBody(
-  params: ConversationArchiveParams,
-  ctx: AppContext,
-) {
-  return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-    const taskService = yield* TaskServiceTag;
-    const { archivedAt } = yield* taskService.archiveConversation(
-      params.taskId,
-      params.conversationId,
-    );
-    yield* fanoutArchive({
-      taskId: params.taskId,
-      conversationId: params.conversationId,
-      archivedAt,
-    });
-    return {};
-  }).pipe(Effect.withSpan("conversation.archive"));
-}
-
-function conversationUnarchiveBody(
-  params: ConversationUnarchiveParams,
-  ctx: AppContext,
-) {
-  return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-    const taskService = yield* TaskServiceTag;
-    yield* taskService.unarchiveConversation(
-      params.taskId,
-      params.conversationId,
-    );
-    yield* fanoutUnarchive({
-      taskId: params.taskId,
-      conversationId: params.conversationId,
-    });
-    return {};
-  }).pipe(Effect.withSpan("conversation.unarchive"));
 }
 
 function conversationAddParticipantBody(
@@ -299,10 +177,6 @@ function conversationUpdateBody(
   ctx: AppContext,
 ) {
   switch (params.action) {
-    case "archive":
-      return conversationArchiveBody(params, ctx);
-    case "unarchive":
-      return conversationUnarchiveBody(params, ctx);
     case "add-participant":
       return conversationAddParticipantBody(params, ctx);
     case "remove-participant":

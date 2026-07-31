@@ -34,7 +34,7 @@ export interface ConversationInTaskValue {
 
 Requirement: proves `conversation.task_id === taskId`.
 
-### [`ConversationSendAccess`](./conversation-send-access.ts#L21)
+### [`ConversationSendAccess`](./conversation-send-access.ts#L20)
 
 _Class_
 
@@ -57,7 +57,6 @@ export interface ConversationSendAccessValue {
   readonly taskId: TaskId;
   readonly appId: AppId | null;
   readonly taskStatus: TaskStatus;
-  readonly archivedAt: Date | null;
 }
 ```
 

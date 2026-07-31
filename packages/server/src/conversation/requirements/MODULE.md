@@ -32,21 +32,7 @@ exists.
 
 **Returns:** The authorize conversation create capacity only result.
 
-### [`guardConversationNotArchived`](./send-access.ts#L105)
-
-_Function_
-
-```ts
-export const guardConversationNotArchived = (
-  row: ConversationSendAccessValue,
-): Effect.Effect<void, ConversationArchivedError>
-```
-
-Refine the conversation is open (`archived_at IS NULL`).
-
-**Returns:** The guard conversation not archived result.
-
-### [`guardTaskActive`](./send-access.ts#L84)
+### [`guardTaskActive`](./send-access.ts#L79)
 
 _Function_
 
@@ -56,9 +42,7 @@ export const guardTaskActive = (
 ): Effect.Effect<void, TaskClosedError>
 ```
 
-Refine the task is active (status is NOT `closed`/`failed`). Called BEFORE
-guardConversationNotArchived so a closed task surfaces `TaskClosed`
-before the auto-archive's `ConversationArchived`.
+Refine the task is active (status is NOT `closed`/`failed`).
 
 **Returns:** The guard task active result.
 
@@ -80,7 +64,7 @@ Provides the obtain conversation in task runtime value.
 
 **Returns:** The obtain conversation in task result.
 
-### [`obtainConversationSendAccess`](./send-access.ts#L27)
+### [`obtainConversationSendAccess`](./send-access.ts#L25)
 
 _Function_
 
@@ -100,8 +84,7 @@ export const obtainConversationSendAccess = (input: {
 conversation, then do the joined read (`conversations ⋈ tasks`). The row it
 returns is the shared context the send handler guards read from. A
 `conversationId` that survives the participant check but vanishes from the
-join is a true race (archival/deletion) — surfaced as a defect, not a user
-error.
+join is a true race (deletion) — surfaced as a defect, not a user error.
 
 **Returns:** The obtain conversation send access result.
 

@@ -63,7 +63,6 @@ CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT,
   created_by_id UUID NOT NULL REFERENCES agents(id),
-  archived_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -74,8 +73,6 @@ CREATE TRIGGER conversations_updated_at BEFORE UPDATE ON conversations
 CREATE TABLE conversation_participants (
   conversation_id UUID NOT NULL REFERENCES conversations(id),
   agent_id UUID NOT NULL REFERENCES agents(id),
-  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_read_seq BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (conversation_id, agent_id)
 );
 CREATE INDEX idx_participants_lookup

@@ -179,7 +179,7 @@ export type MessageAuthorizeResult =
 
 Represents the result of message authorize.
 
-### [`MessageService`](./message.service.ts#L179)
+### [`MessageService`](./message.service.ts#L178)
 
 _Class_
 
@@ -283,7 +283,7 @@ export class MessageService {
    * `obtain` AND
    * `MessageService.sendCommit`'s `app/message/authorize` verdict route.
    * Joins `conversations` ⋈ `tasks` and returns
-   * `(archived_at, task_id, app_id, task_status)`.
+   * `(task_id, app_id, task_status)`.
    *
    * `app_id` is read by the verdict-routing consumer to identify the
    * authorizing app for the task.
@@ -301,9 +301,9 @@ export class MessageService {
       this.db
         .selectFrom("conversations as c")
         .innerJoin("tasks as t", "t.id", "c.task_id")
-        .select([
-          "c.archived_at",
-          "c.task_id",
+        .select(["c.task_id", "t.app_id as app_id", "t.status as task_status"])
+        .where("c.id", "=", conversationId),
+    );
 ```
 
 `agent/message/send` server entry point. The `send` method runs the
@@ -361,7 +361,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L177)
+### [`messagesList`](./handlers.ts#L175)
 
 _Variable_
 
@@ -375,7 +375,7 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L161)
+### [`messagesSend`](./handlers.ts#L159)
 
 _Variable_
 

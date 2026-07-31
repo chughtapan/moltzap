@@ -18,8 +18,7 @@
  * | TaskRequest | happy-path + participants + app binding + atomic initial conv + dual-emit |
  * | TaskLeave | self-only + idempotent no-op + last-participant closure + per-cid removal |
  * | ConversationCreate | app-only + participant-admitted invariant + dual-emit |
- * | ConversationList | self only + items shape + archived-included |
- * | ConversationUpdate archive/unarchive | app-only + idempotency + dual-emit |
+ * | ConversationList | self only + items shape |
  * | ConversationUpdate add-participant | app-only + participant-admitted + idempotency + dual-emit |
  * | ConversationUpdate remove-participant | app-only + idempotency + dual-emit |
  */
@@ -394,11 +393,6 @@ it("ConversationList returns items with { taskId, conversation, participants }",
       /* Safe because the test fixture establishes this asserted shape. */ item!
         .participants.length,
     ).toBeGreaterThanOrEqual(1);
-    // Conversation row shape includes optional `archivedAt`.
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ item!
-        .conversation.archivedAt,
-    ).toBeUndefined();
   }));
 
 it("ConversationList respects limit + returns nextCursor when more rows exist", () =>

@@ -1,7 +1,7 @@
 # Conversation domain
 
 This folder implements conversation creation, listing, updates, participant
-membership, archive state, and preview projection.
+membership, and preview projection.
 
 `ConversationService` owns the database operations and invariants,
 `handlers.ts` adapts protocol RPCs to that service and performs notification

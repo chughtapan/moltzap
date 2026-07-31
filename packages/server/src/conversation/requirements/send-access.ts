@@ -1,8 +1,7 @@
 import { Cause, Effect } from "effect";
-import {
-  type ConversationSendAccessValue,
-  ConversationArchivedError,
-  type ConversationId,
+import type {
+  ConversationSendAccessValue,
+  ConversationId,
 } from "@moltzap/protocol/conversation";
 import { type TaskId, TaskClosedError } from "@moltzap/protocol/task";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
@@ -16,8 +15,7 @@ import { catchSqlErrorAsDefect } from "#db";
  * conversation, then do the joined read (`conversations ⋈ tasks`). The row it
  * returns is the shared context the send handler guards read from. A
  * `conversationId` that survives the participant check but vanishes from the
- * join is a true race (archival/deletion) — surfaced as a defect, not a user
- * error.
+ * join is a true race (deletion) — surfaced as a defect, not a user error.
  * @param input Input value to process.
  * @param input.conversationId Value supplied to the operation.
  * @param input.senderAgentId Value supplied to the operation.
@@ -63,21 +61,18 @@ export const obtainConversationSendAccess = (input: {
       taskId: input.taskId ?? conv.task_id,
       appId: conv.app_id,
       taskStatus: conv.task_status,
-      archivedAt: conv.archived_at,
     };
   }).pipe(Effect.withSpan("obtainConversationSendAccess"));
 
 // ── Send-precondition handler guards ──────────────────────────────────────────
 //
-// The remaining send preconditions refine the `ConversationSendAccess` row the
-// requirement middleware already fetched. They are HANDLER guards (called in
-// order at the top of the `agent/message/send` body), not standalone middlewares.
-// They take the provided row as a value: no DB read, no service env.
+// Send preconditions refine the `ConversationSendAccess` row the requirement
+// middleware already fetched. They are HANDLER guards (called at the top of the
+// `agent/message/send` body), not standalone middlewares. They take the provided
+// row as a value: no DB read, no service env.
 
 /**
- * Refine the task is active (status is NOT `closed`/`failed`). Called BEFORE
- * {@link guardConversationNotArchived} so a closed task surfaces `TaskClosed`
- * before the auto-archive's `ConversationArchived`.
+ * Refine the task is active (status is NOT `closed`/`failed`).
  * @param row Value supplied to the operation.
  * @returns The guard task active result.
  */
@@ -95,16 +90,4 @@ export const guardTaskActive = (
           },
         }),
       )
-    : Effect.void;
-
-/**
- * Refine the conversation is open (`archived_at IS NULL`).
- * @param row Value supplied to the operation.
- * @returns The guard conversation not archived result.
- */
-export const guardConversationNotArchived = (
-  row: ConversationSendAccessValue,
-): Effect.Effect<void, ConversationArchivedError> =>
-  row.archivedAt !== null
-    ? Effect.fail(new ConversationArchivedError({}))
     : Effect.void;

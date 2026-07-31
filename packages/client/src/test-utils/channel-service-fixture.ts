@@ -10,21 +10,9 @@ import type { CrossConversationEntry, CrossConvMessage } from "../service.js";
 
 type MessageHandler = (payload: { taskId: TaskId; message: Message }) => void;
 type VoidHandler = () => void;
-type ConversationArchivedHandler = (data: { conversationId: string }) => void;
-type ConversationUnarchivedHandler = (data: { conversationId: string }) => void;
 type DispatchReleaseHandler = (frame: DispatchReleaseFrame) => void;
-type ServiceEvent =
-  | "message"
-  | "disconnect"
-  | "conversationArchived"
-  | "conversationUnarchived"
-  | "dispatchRelease";
-type ServiceHandler =
-  | MessageHandler
-  | VoidHandler
-  | ConversationArchivedHandler
-  | ConversationUnarchivedHandler
-  | DispatchReleaseHandler;
+type ServiceEvent = "message" | "disconnect" | "dispatchRelease";
+type ServiceHandler = MessageHandler | VoidHandler | DispatchReleaseHandler;
 
 interface SentReply {
   taskId: string;
@@ -49,15 +37,12 @@ interface FixtureConversationMeta {
 interface ChannelServiceFixtureStore {
   readonly messageHandlers: MessageHandler[];
   readonly disconnectHandlers: VoidHandler[];
-  readonly conversationArchivedHandlers: ConversationArchivedHandler[];
-  readonly conversationUnarchivedHandlers: ConversationUnarchivedHandler[];
   readonly dispatchReleaseHandlers: DispatchReleaseHandler[];
   readonly conversations: Map<string, FixtureConversationMeta>;
   readonly agentNames: Map<string, string>;
   readonly contextEntriesByConv: Map<string, CrossConversationEntry[]>;
   readonly fullMessagesByConv: Map<string, CrossConvMessage[]>;
   readonly resolveFailures: Map<string, Error>;
-  readonly archivedConversationIds: Set<string>;
   readonly resolveCalls: string[];
   readonly sent: SentReply[];
   readonly connectCalls: { count: number };
@@ -84,8 +69,6 @@ function participantKey(participant: string): string {
 export interface ChannelServiceEmit {
   message(msg: Message, taskId?: TaskId): void;
   disconnect(): void;
-  conversationArchived(data: { conversationId: string }): void;
-  conversationUnarchived(data: { conversationId: string }): void;
   dispatchRelease(frame: DispatchReleaseFrame): void;
 }
 
@@ -130,15 +113,12 @@ function createFixtureStore(
   return {
     messageHandlers: [],
     disconnectHandlers: [],
-    conversationArchivedHandlers: [],
-    conversationUnarchivedHandlers: [],
     dispatchReleaseHandlers: [],
     conversations: new Map(),
     agentNames: new Map(),
     contextEntriesByConv: new Map(),
     fullMessagesByConv: new Map(),
     resolveFailures: new Map(),
-    archivedConversationIds: new Set(),
     resolveCalls: [],
     sent: [],
     connectCalls: { count: 0 },
@@ -161,14 +141,6 @@ function registerServiceHandler(
   } else if (event === "disconnect") {
     store.disconnectHandlers.push(
       /* Safe because the surrounding invariant establishes this asserted shape. */ handler as VoidHandler,
-    );
-  } else if (event === "conversationArchived") {
-    store.conversationArchivedHandlers.push(
-      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as ConversationArchivedHandler,
-    );
-  } else if (event === "conversationUnarchived") {
-    store.conversationUnarchivedHandlers.push(
-      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as ConversationUnarchivedHandler,
     );
   } else if (event === "dispatchRelease") {
     store.dispatchReleaseHandlers.push(
@@ -269,10 +241,6 @@ function makeService(store: ChannelServiceFixtureStore): ChannelService {
       return store.agentNames.get(agentId);
     },
 
-    isConversationArchived(convId: string) {
-      return store.archivedConversationIds.has(convId);
-    },
-
     resolveAgentName(agentId: string) {
       return resolveFixtureAgentName(store, agentId);
     },
@@ -307,23 +275,6 @@ function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
     disconnect() {
       for (const h of store.disconnectHandlers) {
         h();
-      }
-    },
-    conversationArchived(data) {
-      const conversationId = conversationKey(data.conversationId);
-      store.archivedConversationIds.add(conversationId);
-      store.conversations.delete(conversationId);
-      for (const h of store.conversationArchivedHandlers) {
-        h({ conversationId });
-      }
-    },
-    conversationUnarchived(data) {
-      const conversationId = conversationKey(data.conversationId);
-      store.archivedConversationIds.delete(conversationId);
-      for (const h of store.conversationUnarchivedHandlers) {
-        h({
-          conversationId,
-        });
       }
     },
     dispatchRelease(frame) {

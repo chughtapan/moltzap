@@ -118,7 +118,6 @@ interface ResolveSendVerdictInput {
 }
 
 interface SendConversationRow {
-  readonly archived_at: Date | null;
   readonly task_id: TaskId;
   readonly app_id: AppId;
   readonly task_status: TaskStatus;
@@ -275,7 +274,7 @@ export class MessageService {
    * `obtain` AND
    * `MessageService.sendCommit`'s `app/message/authorize` verdict route.
    * Joins `conversations` ⋈ `tasks` and returns
-   * `(archived_at, task_id, app_id, task_status)`.
+   * `(task_id, app_id, task_status)`.
    *
    * `app_id` is read by the verdict-routing consumer to identify the
    * authorizing app for the task.
@@ -293,12 +292,7 @@ export class MessageService {
       this.db
         .selectFrom("conversations as c")
         .innerJoin("tasks as t", "t.id", "c.task_id")
-        .select([
-          "c.archived_at",
-          "c.task_id",
-          "t.app_id as app_id",
-          "t.status as task_status",
-        ])
+        .select(["c.task_id", "t.app_id as app_id", "t.status as task_status"])
         .where("c.id", "=", conversationId),
     );
   }

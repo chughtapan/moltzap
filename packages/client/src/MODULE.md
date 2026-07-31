@@ -34,7 +34,7 @@ _Interface_
 
 Configures app client.
 
-### [`ContextOptions`](./service.ts#L155)
+### [`ContextOptions`](./service.ts#L145)
 
 _Interface_
 
@@ -48,7 +48,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](./service.ts#L147)
+### [`ConversationMeta`](./service.ts#L137)
 
 _Interface_
 
@@ -75,7 +75,7 @@ _Class_
 
 Implements molt zap app client.
 
-### [`MoltZapService`](./service.ts#L295)
+### [`MoltZapService`](./service.ts#L283)
 
 _Class_
 
@@ -127,7 +127,6 @@ export class MoltZapService {
       HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
     ),
   );
-  private readonly archivedConversationIds = new Set<string>();
 
   /**
    * The branded outer and inner keys keep conversation and message ids from
@@ -145,8 +144,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    conversationArchived: [],
-    conversationUnarchived: [],
     dispatchRelease: [],
     dispatchLeaseConsumed: [],
     dispatchLeaseExpired: [],
@@ -200,6 +197,9 @@ export class MoltZapService {
    */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(this, function* (this: MoltZapService) {
+      const client = new MoltZapAgentClient({
+        serverUrl: this.opts.serverUrl,
+        agentKey: this.opts.agentKey,
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -216,7 +216,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L135)
+### [`ServiceRpcError`](./service.ts#L125)
 
 _TypeAlias_
 

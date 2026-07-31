@@ -19,7 +19,6 @@
  */
 import { Effect } from "effect";
 import {
-  conversationArchivedNotificationDefinition,
   conversationCreatedNotificationDefinition,
   conversationParticipantsRemovedNotificationDefinition,
   type Conversation,
@@ -310,18 +309,6 @@ function taskCloseBody(params: TaskUpdateCloseParams) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const closed = yield* taskService.closeWithLifecycle(params.taskId);
-    for (const conversation of closed.archivedConversations) {
-      yield* broadcastNotificationToAgents(
-        conversation.participantAgentIds,
-        conversationArchivedNotificationDefinition,
-        {
-          taskId: params.taskId,
-          conversationId: conversation.conversationId,
-          archivedAt: conversation.archivedAt,
-        },
-        { forConversation: conversation.conversationId },
-      );
-    }
     yield* broadcastNotificationToAgents(
       closed.participantAgentIds,
       taskClosedNotificationDefinition,

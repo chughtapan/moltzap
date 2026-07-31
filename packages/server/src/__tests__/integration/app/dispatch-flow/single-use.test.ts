@@ -2,7 +2,7 @@
  * Dispatch admission single-use lease behavior.
  */
 import { it as effectIt } from "@effect/vitest";
-import { conversationUpdate } from "@moltzap/protocol/conversation";
+import { taskUpdate } from "@moltzap/protocol/task";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
@@ -146,21 +146,20 @@ function grantedLeaseIsSingleUse() {
   });
 }
 
-function insertFailureRollsBackLease() {
+function rejectedSendLeavesLeaseGranted() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     // The moderated path binds the task to the fixture's app connection.
-    // Archiving from that app client forces the subsequent agent/message/send to
-    // fail at insert time.
+    // Closing the task from that app client makes the send guard reject the
+    // subsequent agent/message/send before the lease is claimed.
     const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "probe",
     );
-    yield* moderatorAppClient().sendRpc(conversationUpdate, {
-      action: "archive",
+    yield* moderatorAppClient().sendRpc(taskUpdate, {
+      action: "close",
       taskId: binding.taskId,
-      conversationId: binding.conversationId,
     });
 
     const sendResult = yield* sendWithLeaseRejected(
@@ -255,8 +254,8 @@ describe("dispatch/* - single-use lease preconditions", () => {
   );
 
   it(
-    "rolls the lease back to granted when message insert fails",
-    insertFailureRollsBackLease,
+    "leaves the lease granted when the send is rejected before claim",
+    rejectedSendLeavesLeaseGranted,
     20_000,
   );
 });

@@ -41,7 +41,7 @@ export interface AppClientOptions {
 
 Configures app client.
 
-### [`ConnectResult`](./socket/lifecycle.ts#L117)
+### [`ConnectResult`](./socket/lifecycle.ts#L115)
 
 _TypeAlias_
 
@@ -305,7 +305,7 @@ export interface MoltZapServerSession {
 
 Describes molt zap server session.
 
-### [`RpcCallOptions`](./socket/lifecycle.ts#L96)
+### [`RpcCallOptions`](./socket/lifecycle.ts#L94)
 
 _Interface_
 

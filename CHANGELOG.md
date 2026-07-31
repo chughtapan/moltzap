@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed: conversation archival from the control plane
+
+Archival is an endpoint concern. The server neither stores nor enforces whether
+a conversation still accepts writes; an endpoint that considers a conversation
+finished says so in-band and stops sending.
+
+- **Wire (`@moltzap/protocol`):** `Conversation` drops `archivedAt` and
+  `ConversationSendAccess` drops it from its requirement value.
+  `ConversationArchivedError` is deleted and leaves the `agent/message/send`
+  error list and the testing `WIRE_ERROR_TAG` registry.
+  `app/conversation/update` keeps `add-participant` and `remove-participant`;
+  its `archive` and `unarchive` arms are gone, as are the
+  `agent/conversation/archived` and `agent/conversation/unarchived`
+  notifications.
+- **Server (`@moltzap/server-core`):** deletes the `guardConversationNotArchived`
+  send precondition, the `TaskService` archive/unarchive operations, and the
+  task-close cascade that archived every conversation under a closing task.
+  Dispatch admission no longer filters on archival.
+- **Client (`@moltzap/client`):** the SDK no longer models archival. Gone are
+  `MoltZapService.isConversationArchived`, its archived-conversation set and
+  purge cascade, the pre-flight rejection that failed a send locally without a
+  round trip, and `MoltZapChannelCore`'s separate closed-conversation set with
+  its inbound-drop and reply-drop paths.
+- **Dead conversation state:** `conversation_participants.last_read_seq` had no
+  writer anywhere, so the derived `unreadCount` never meant anything; it and
+  `joined_at`, which nothing selected, are dropped along with the unread
+  projection.
+
+Fresh-schema: `core-schema.sql` no longer declares these columns and no
+migration shim is emitted — an existing database retains them, inert, until
+they are dropped by hand.
+
 ### Removed: per-message reply target `replyToId` (#907, #904)
 
 The protocol carries no per-message reply edge. A reply is an ordinary message
