@@ -345,7 +345,6 @@ const parseRawSocketResponse = (
   bytes: Uint8Array,
 ): Effect.Effect<RawHttpResponse, ProcessTestError> => {
   const response = Buffer.from(bytes).toString("utf8");
-  // eslint-disable-next-line sonarjs/null-dereference -- Buffer.toString produces the concrete text parsed at this raw HTTP boundary.
   const separator = response.indexOf("\r\n\r\n");
   if (separator < 0) {
     return Effect.fail(

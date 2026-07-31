@@ -38,12 +38,10 @@ export const canonicalIdentifier = <const Name extends string>(
   Schema.String.pipe(
     Schema.filter(
       (value) => {
-        // eslint-disable-next-line sonarjs/null-dereference -- Schema.String supplies a string and every private constructor supplies a fixed string prefix.
         const hasPrefix = value.startsWith(prefix);
         if (!hasPrefix) {
           return false;
         }
-        // eslint-disable-next-line sonarjs/null-dereference -- The same closed Schema boundary establishes both operands before slicing the identifier payload.
         const payload = value.slice(prefix.length);
         return hasCanonicalBase64UrlLength(payload, byteLength);
       },

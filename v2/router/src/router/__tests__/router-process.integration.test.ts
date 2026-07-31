@@ -257,7 +257,6 @@ const parseRawSocketResponse = (
   bytes: Uint8Array,
 ): Effect.Effect<RawHttpResponse, ProcessTestError> => {
   const response = Buffer.from(bytes).toString("utf8");
-  // eslint-disable-next-line sonarjs/null-dereference -- Buffer.toString always produces the concrete text parsed at this raw HTTP boundary.
   const separator = response.indexOf("\r\n\r\n");
   if (separator < 0) {
     return Effect.fail(
@@ -273,7 +272,6 @@ const parseRawSocketResponse = (
     );
   }
   const contentTypeLine = headerLines.slice(1).find((line) => {
-    // eslint-disable-next-line sonarjs/null-dereference -- String.split produces concrete string members for this raw HTTP boundary.
     return line.toLowerCase().startsWith("content-type:");
   });
   const contentType = contentTypeLine?.slice("content-type:".length).trim();
@@ -334,7 +332,6 @@ const chunkedPollRequest = (
     `Moltzap-Version: ${MOLTZAP_VERSION}`,
     "Transfer-Encoding: chunked",
     "",
-    // eslint-disable-next-line sonarjs/null-dereference -- The required string argument is concrete at this raw HTTP boundary.
     body.length.toString(16),
     body,
   ];

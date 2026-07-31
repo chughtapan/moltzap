@@ -279,7 +279,6 @@ function indexReflectionsById(
   return reflections;
 }
 
-// eslint-disable-next-line sonarjs/function-return-type -- A missing or cyclic TypeDoc reference is represented explicitly as null.
 function resolveReference(
   reflection: RawReflection,
   reflectionsById: ReadonlyMap<number, RawReflection>,
@@ -386,7 +385,6 @@ export function normalizeSourcePath(
   sourcePath: string,
   sourceUrl?: string,
 ): string {
-  // eslint-disable-next-line sonarjs/null-dereference -- The public parameter is a required string.
   const normalizedPath = sourcePath.replaceAll("\\", "/");
   const workspacePath = findWorkspacePath(normalizedPath);
   if (workspacePath !== null) {
@@ -412,7 +410,6 @@ function findWorkspacePath(sourcePath: string): string | null {
   return match?.[1] ?? null;
 }
 
-// eslint-disable-next-line sonarjs/function-return-type -- A reflection without publishable prose is represented explicitly as null.
 function extractComment(node: RawReflection): TypeDocComment | null {
   // Functions/Methods carry JSDoc on the first call-signature.
   const c = node.signatures?.[0]?.comment ?? node.comment;

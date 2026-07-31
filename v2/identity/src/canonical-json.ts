@@ -49,7 +49,6 @@ const hasWellFormedUnicode = (value: string): boolean => {
   if (typeof value !== "string") {
     return false;
   }
-  // eslint-disable-next-line sonarjs/null-dereference -- The explicit runtime guard above establishes the string consumed by this hostile-input boundary.
   for (let index = 0; index < value.length; index += 1) {
     const codeUnit = value.charCodeAt(index);
     if (isLowSurrogate(codeUnit)) {

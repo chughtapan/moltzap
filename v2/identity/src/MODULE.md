@@ -11,7 +11,7 @@ graph and imports no other v2 package.
 
 ## Public surface
 
-### [`AgentCard (type)`](./agent-card.ts#L144)
+### [`AgentCard (type)`](./agent-card.ts#L143)
 
 _Interface_
 
@@ -27,7 +27,7 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](./agent-card.ts#L439)
+### [`AgentCard (value)`](./agent-card.ts#L438)
 
 _Variable_
 
@@ -42,7 +42,7 @@ export const AgentCard = Object.assign(agentCardSchema, {
 
 Verifies immutable Registry attestation without exposing JOSE mechanics.
 
-### [`AgentCardDigest (type)`](./agent-card.ts#L61)
+### [`AgentCardDigest (type)`](./agent-card.ts#L60)
 
 _TypeAlias_
 
@@ -52,7 +52,7 @@ export type AgentCardDigest = typeof AgentCardDigest.Type;
 
 Validated nominal value decoded by AgentCardDigest.
 
-### [`AgentCardDigest (value)`](./agent-card.ts#L54)
+### [`AgentCardDigest (value)`](./agent-card.ts#L53)
 
 _Variable_
 
@@ -66,7 +66,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](./agent-card.ts#L283)
+### [`AgentCardVerificationError`](./agent-card.ts#L282)
 
 _Class_
 
@@ -78,7 +78,7 @@ export class AgentCardVerificationError extends Data.TaggedError(
 
 A parsed AgentCard does not verify against the pinned Registry signer.
 
-### [`AgentId (type)`](./identifiers.ts#L73)
+### [`AgentId (type)`](./identifiers.ts#L71)
 
 _TypeAlias_
 
@@ -88,7 +88,7 @@ export type AgentId = typeof AgentId.Type;
 
 Validated nominal value decoded by AgentId.
 
-### [`AgentId (value)`](./identifiers.ts#L67)
+### [`AgentId (value)`](./identifiers.ts#L65)
 
 _Variable_
 
@@ -102,7 +102,7 @@ export const AgentId = canonicalIdentifier(
 
 Canonical network identity minted by the Registry.
 
-### [`AgentName (type)`](./identifiers.ts#L96)
+### [`AgentName (type)`](./identifiers.ts#L94)
 
 _TypeAlias_
 
@@ -112,7 +112,7 @@ export type AgentName = typeof AgentName.Type;
 
 Validated nominal value decoded by AgentName.
 
-### [`AgentName (value)`](./identifiers.ts#L85)
+### [`AgentName (value)`](./identifiers.ts#L83)
 
 _Variable_
 
@@ -387,7 +387,7 @@ export class PayloadTooLargeError extends Schema.TaggedError<PayloadTooLargeErro
 
 The received body exceeds the selected route's derived representation cap.
 
-### [`PrincipalId (type)`](./identifiers.ts#L82)
+### [`PrincipalId (type)`](./identifiers.ts#L80)
 
 _TypeAlias_
 
@@ -397,7 +397,7 @@ export type PrincipalId = typeof PrincipalId.Type;
 
 Validated nominal value decoded by PrincipalId.
 
-### [`PrincipalId (value)`](./identifiers.ts#L76)
+### [`PrincipalId (value)`](./identifiers.ts#L74)
 
 _Variable_
 
@@ -698,7 +698,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](./agent-card.ts#L268)
+### [`VerifiedAgentCard`](./agent-card.ts#L267)
 
 _TypeAlias_
 
