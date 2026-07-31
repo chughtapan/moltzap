@@ -12,9 +12,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
+    "./registry": {
+      "types": "./dist/registry.d.ts",
+      "import": "./dist/registry.js"
+    },
+    "./registry/server": {
+      "types": "./dist/registry/server.d.ts",
+      "import": "./dist/registry/server.js"
     }
   },
   "bin": {

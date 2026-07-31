@@ -7,11 +7,13 @@ import {
   AgentId,
   AgentName,
   AgentSigningAuthority,
-  OperationId,
   PrincipalId,
+} from "../../index.js";
+import {
+  OperationId,
   Registry,
   RegistryRegisterRequest,
-} from "../../index.js";
+} from "../../registry.js";
 import { AgentCardIssuedAt, issueAgentCard } from "../../agent-card.js";
 import { encodeCanonicalJson } from "../../canonical-json.js";
 import { UnavailableError } from "../../http-errors.js";

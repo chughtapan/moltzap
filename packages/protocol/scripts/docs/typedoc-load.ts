@@ -381,10 +381,7 @@ function extractReturnTypeName(node: RawReflection): string | null {
  * @param sourceUrl Optional source permalink emitted by TypeDoc.
  * @returns A workspace-relative source path when one can be recovered.
  */
-export function normalizeSourcePath(
-  sourcePath: string,
-  sourceUrl?: string,
-): string {
+function normalizeSourcePath(sourcePath: string, sourceUrl?: string): string {
   const normalizedPath = sourcePath.replaceAll("\\", "/");
   const workspacePath = findWorkspacePath(normalizedPath);
   if (workspacePath !== null) {

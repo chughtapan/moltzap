@@ -13,11 +13,11 @@ import type {
   AuthenticationFailedError,
   MalformedRequestError,
   OverloadedError,
-  Registry,
   UnavailableError,
   VerifiedAgentRequest,
   VersionMismatchError,
 } from "../index.js";
+import type { Registry } from "../registry.js";
 import type { Effect, Layer } from "effect";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;

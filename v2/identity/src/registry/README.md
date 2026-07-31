@@ -1,8 +1,9 @@
 # Registry implementation
 
-This folder contains the runnable Registry behind the public `Registry`
-capability. The package root owns the public identity vocabulary; these files
-own process composition, HTTP admission, and durable storage.
+This folder contains the runnable Registry behind the public
+`@moltzap/v2-identity/registry` capability. These files own Registry requests,
+results, client failures, process composition, HTTP admission, and durable
+storage.
 
 Start with:
 
@@ -20,6 +21,5 @@ Start with:
 failures, routes, and enclosing limits shared by those boundaries.
 `configuration.ts` and `migrations/` remain private implementation details.
 
-The package-root `server.ts` is only the public `./server` export facade. It
-points at this folder's server composition without moving private
-mechanisms into the package root.
+Consumers that compose the Registry process import `layer` and `StartupError`
+directly from `@moltzap/v2-identity/registry/server`.

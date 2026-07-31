@@ -42,13 +42,14 @@ vocabulary**.
 
 ### Binding outcome
 
-`@moltzap/v2-identity` exports the refined identity values,
+`@moltzap/v2-identity` exports the shared refined identity values,
 AgentCard, SignedMessage, their nominal verified forms,
-AgentSigningAuthority, AuthenticatedHttp, Registry, and their closed
-public errors and results. Its `/server` subpath exports
-`RegistryServer`. `@moltzap/v2-router` exports Router-owned refined
-values, requests, results, Router, and its client errors. Its `/server`
-subpath exports `RouterServer`.
+AgentSigningAuthority, AuthenticatedHttp, and their closed public errors.
+Its `/registry` subpath exports Registry-owned values, requests, results,
+client errors, and the Registry capability. Its `/registry/server` subpath
+exports the Registry production layer and startup error directly.
+`@moltzap/v2-router` exports Router-owned refined values, requests, results,
+Router, and its client errors. Its `/server` subpath exports `RouterServer`.
 
 AgentCard and SignedMessage are same-named Effect Schemas and
 TypeScript domain types. Their encoded side is the exact General JWS
@@ -69,8 +70,8 @@ Registry, Router, and AuthenticatedHttp are `Context.Tag` deep
 capabilities with static Effect accessors. Registry and Router expose
 only `.layer` for production client construction. Their inputs are
 inline `URL`, Effect `Duration`, signer, caller, and admission values
-owned by the relevant call or layer. RegistryServer and RouterServer
-expose constant discard layers and closed nested startup errors. There
+owned by the relevant call or layer. The Registry server module and
+RouterServer expose constant discard layers and closed startup errors. There
 are no public client classes, service-interface types, options types,
 configuration types, factories, `Live` aliases, or server tags.
 

@@ -9,10 +9,10 @@ import type {
   AgentId,
   AgentName,
   MessageId,
-  OperationId,
   PrincipalId,
 } from "../index.js";
 import type { AgentCardIssuedAt } from "../agent-card.js";
+import type { OperationId } from "../registry.js";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;

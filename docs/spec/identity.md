@@ -47,36 +47,45 @@ Schema values and TypeScript types:
 - `AgentId`;
 - `PrincipalId`;
 - `AgentName`;
-- `OperationId`;
 - `MessageId`;
 - `AgentCardDigest`;
 - `Ed25519PublicKey`;
 - `AgentCard`;
-- `SignedMessage`;
+- `SignedMessage`.
+
+The `@moltzap/v2-identity/registry` subpath exports exactly these
+same-named Effect Schema values and TypeScript types:
+
+- `OperationId`;
 - `RegistryRegisterRequest`;
 - `RegistryLookupRequest`; and
 - `RegistryListRequest`.
 
-It exports these type-only trust states and capability results:
+The root exports these type-only trust states:
 
 - `VerifiedAgentCard`;
 - `VerifiedSignedMessage`;
-- `VerifiedAgentRequest`;
+- `VerifiedAgentRequest`.
+
+The Registry subpath exports these type-only capability results:
+
 - `RegistryRegisterResult`;
 - `RegistryLookupResult`; and
 - `RegistryListResult`.
 
 The remaining root exports are `MOLTZAP_VERSION` (exactly
 `2026.729.1`), `AgentSigningAuthority`, `AuthenticatedHttp`,
-`Registry`, and the exact error classes in
-[Error contract](#error-contract).
+and the shared exact error classes in [Error contract](#error-contract).
+The Registry subpath also exports `Registry` and its exact client error
+classes.
+
 `SignedMessage.encodedByteLength` and
 `SignedMessage.maximumEncodedByteLength` are nested deep-module
 members, not additional root exports. `AgentCardIssuedAt` is not an
 export.
 
-The `@moltzap/v2-identity/server` subpath exports only
-`RegistryServer`. Its production binary is exactly
+The `@moltzap/v2-identity/registry/server` subpath exports only `layer`
+and `StartupError`. Its production binary is exactly
 `moltzap-registry`. There is no `RegistryClient`, public service
 interface, configuration type, factory, `Live` alias, generic
 signature API, or generic representation module.
@@ -518,20 +527,17 @@ callers supply those values directly; they are not Registry server
 environment keys. `.layer` is the only public production-construction
 member.
 
-The server subpath exposes one constant discard layer:
+The Registry server subpath exposes one constant discard layer:
 
 ```ts
-RegistryServer.layer: Layer.Layer<
-  never,
-  RegistryServer.StartupError
->
+layer: Layer.Layer<never, StartupError>
 ```
 
 It reads private Effect Config and composes its Node and PostgreSQL
 capabilities. Embedded runs select another `ConfigProvider`; there is
 no server configuration object or otherwise-unused server service tag.
-An ES-module namespace export supplies the nested `StartupError` name;
-the implementation does not use a TypeScript `namespace` declaration.
+The module exports `StartupError` directly; consumers may use an ES-module
+namespace import when they want a qualified name.
 
 ## Private Effect RPC
 
@@ -589,7 +595,7 @@ lookup value with `kind: "not_found"` is not that error.
 authentication stage. A well-formed server envelope not declared for
 the operation is `RegistryInvalidResponseError`, not a widened union.
 
-Identity also root-exports these Registry client errors:
+The Registry subpath also exports these Registry client errors:
 
 - `RegistryConnectionError`;
 - `RegistryRequestTimeoutError`; and
@@ -627,7 +633,8 @@ Registry response-card failures do not expose
 SQL detail, response body, or library error crosses the public error
 boundary.
 
-`RegistryServer.StartupError` is a `Data.TaggedError` named
+`StartupError` from `@moltzap/v2-identity/registry/server` is a
+`Data.TaggedError` named
 `RegistryServerStartupError` with exactly `_tag` and `phase`. Its
 closed phases are `configuration`, `storage`, and `listener`.
 Configuration covers Effect Config validation, admission credential

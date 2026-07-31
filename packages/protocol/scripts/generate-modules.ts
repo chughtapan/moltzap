@@ -21,7 +21,7 @@ import {
 import { writeModulesNav } from "./docs/mintlify-nav.js";
 import {
   generateModuleDocs,
-  REQUIRED_V2_SERVER_SUBPATHS,
+  REQUIRED_V2_PACKAGE_SUBPATHS,
 } from "./docs/modules.js";
 import { loadTypeDoc } from "./docs/typedoc-load.js";
 
@@ -33,7 +33,7 @@ const NAV_PATH = resolve(DOCS_MODULES_DIR, "_nav.json");
 
 const program = Effect.gen(function* () {
   const cache = yield* loadTypeDoc(CACHE_PATH, {
-    packageSubpaths: REQUIRED_V2_SERVER_SUBPATHS,
+    packageSubpaths: REQUIRED_V2_PACKAGE_SUBPATHS,
   });
   const results = yield* generateModuleDocs(cache, {
     workspaceRoot: WORKSPACE_ROOT,

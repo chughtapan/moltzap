@@ -63,6 +63,7 @@ const runRegistryServer = Effect.gen(function* () {
  *   Http --> Response["HttpServerResponse"]
  * ```
  */
+// safer-arch-ignore require-boundary-owned-types: The declared Layer type is the public boundary; this composition root provides the Node adapter internally.
 export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
   runRegistryServer.pipe(Effect.provide(NodeContext.layer)),
 );

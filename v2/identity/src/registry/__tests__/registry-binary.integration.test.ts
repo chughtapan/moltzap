@@ -7,11 +7,13 @@ import {
   AgentName,
   AgentSigningAuthority,
   MOLTZAP_VERSION,
-  Registry,
-  RegistryRegisterRequest,
-  type RegistryListRequest,
   type VerifiedAgentCard,
 } from "../../index.js";
+import {
+  Registry,
+  type RegistryListRequest,
+  RegistryRegisterRequest,
+} from "../../registry.js";
 import { encodeCanonicalJson } from "../../canonical-json.js";
 import { contentDigest } from "../../http-signature.js";
 import {

@@ -15,6 +15,12 @@ import type {
   MethodNotAllowedError,
   OverloadedError,
   PayloadTooLargeError,
+  RouteNotFoundError,
+  UnavailableError,
+  UnsupportedMediaTypeError,
+  VersionMismatchError,
+} from "../../index.js";
+import type {
   Registry,
   RegistryConnectionError,
   RegistryInvalidResponseError,
@@ -25,12 +31,8 @@ import type {
   RegistryRegisterRequest,
   RegistryRegisterResult,
   RegistryRequestTimeoutError,
-  RouteNotFoundError,
-  UnavailableError,
-  UnsupportedMediaTypeError,
-  VersionMismatchError,
-} from "../../index.js";
-import type { RegistryServer } from "../../server.js";
+} from "../../registry.js";
+import type * as RegistryServer from "../server.js";
 import type { Duration, Effect, Layer, Redacted } from "effect";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;

@@ -14,9 +14,9 @@ import {
   AgentCard,
   AgentSigningAuthority,
   MOLTZAP_VERSION,
-  Registry,
   type VerifiedAgentCard,
 } from "../../index.js";
+import { Registry } from "../../registry.js";
 import {
   ADMISSION_CREDENTIAL,
   LOOPBACK_HOST,

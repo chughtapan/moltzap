@@ -130,7 +130,6 @@ The final identity production map is:
 ```text
 v2/identity/src/
 ├── index.ts
-├── server.ts
 ├── version.ts
 ├── identifiers.ts
 ├── agent-key.ts
@@ -159,8 +158,8 @@ v2/identity/src/
 private canonical identifier constructor used by their semantic owners.
 `AgentCard` owns `AgentCardDigest` and whole-second issuance validation.
 `SignedMessage` owns `MessageId`. The Registry contract owns
-`OperationId`. The root façade continues to export the exact approved
-names.
+`OperationId`. The root and Registry subpath façades export their exact
+approved names.
 
 `agent-key.ts` is the one key boundary for `Ed25519PublicKey`,
 `AgentSigningAuthority`, strict signature representation checks, and
@@ -243,11 +242,12 @@ moltzap-router
   → exact HTTP response
 ```
 
-The package-root `server.ts` files remain the intentional `./server`
-export façades. The nested `registry/server.ts` and `router/server.ts`
-files are the production composition roots. A Mermaid flow in JSDoc
-above each owning composition symbol makes that distinction visible in
-generated module documentation.
+`registry/server.ts` is both the Registry production composition root
+and its `./registry/server` package subpath. Router retains its
+package-root `server.ts` as the `./server` export façade over the nested
+`router/server.ts` composition root. A Mermaid flow in JSDoc above each
+owning composition symbol makes those boundaries visible in generated
+module documentation.
 
 Each substantial production file reads in this order:
 
@@ -290,14 +290,14 @@ concurrency, restart, persistence, and boundary assertion.
 |---|---|
 | Keep `AuthenticatedHttp` reusable by Router, Ledger, and later consumers | Horizontal ownership |
 | Separate public service contracts from private Effect RPC machinery | Horizontal ownership and both package maps |
-| Collapse vague buckets and unjustified shallow modules without changing exports | Identity package map and Router package map |
+| Collapse vague buckets and unjustified shallow modules while keeping exports with their owning domain | Identity package map and Router package map |
 | Preserve deep HTTP, standards, authentication, storage, and state modules | Final source organization and readability pass |
 | Make binary-to-response flows visible in code and generated docs | Vertical reading order |
 | Reorganize tests by behavior and remove vacuous runtime export tests | Test organization |
 
 The pass is complete when:
 
-- the identity root exports the exact approved inventory;
+- the identity package entrypoints export the exact approved inventories;
 - `AuthenticatedHttp` remains identity-owned and imports no Router code;
 - Router depends only on the public identity package;
 - Registry and Router clients and servers consume their own single
@@ -368,7 +368,7 @@ Approved vocabulary:
 | Concept | Public name |
 |---|---|
 | L1 identity service | `Registry` |
-| L1 server capability | `RegistryServer` |
+| L1 server module | `@moltzap/v2-identity/registry/server` |
 | L2 opaque routing service | `Router` |
 | L2 server capability | `RouterServer` |
 | shared request-authentication capability | `AuthenticatedHttp` |
@@ -793,7 +793,7 @@ The implementation does not carry forward these v1 debt patterns:
 
 The exact candidate exports, decoded artifact views, verified types,
 method arguments, Effect `A`, `E`, and `R`, layer inputs and
-requirements, and error fields live under `Identity root exports`
+requirements, and error fields live under `Identity package exports`
 through `Client and signed-artifact errors` in
 [`l1-l2-human-review-slate.md`](./l1-l2-human-review-slate.md). After
 the recorded exact-slate approval and authority reconciliation,
@@ -1912,10 +1912,10 @@ fields, card reuse, failure collapse, and rejection of registration as
 an AuthenticatedHttp operation.
 
 Exit: `Registry` exists before `AuthenticatedHttp.layer` requires it,
-the root façade exposes both complete capabilities, registration
-plainly means bootstrap admission, public reads have no authentication,
-the registered-agent stage order appears once, and readability is
-`PASS`.
+the identity package exposes both complete capabilities through their
+owning entrypoints, registration plainly means bootstrap admission,
+public reads have no authentication, the registered-agent stage order
+appears once, and readability is `PASS`.
 
 ### Batch 6: Registry state and configuration
 
@@ -1957,7 +1957,6 @@ Production modules:
 - `v2/identity/src/registry/server.ts`
 - `v2/identity/src/registry/process.ts`
 - `v2/identity/src/index.ts`
-- `v2/identity/src/server.ts`
 
 Production executable:
 

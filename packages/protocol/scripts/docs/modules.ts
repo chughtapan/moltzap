@@ -51,9 +51,10 @@ const REQUIRED_V2_PACKAGE_NAMES = [
   "@moltzap/v2-router",
 ] as const;
 
-/** Package server subpaths admitted to generated v2 module documentation. */
-export const REQUIRED_V2_SERVER_SUBPATHS = [
-  "@moltzap/v2-identity/server",
+/** Package subpaths admitted to generated v2 module documentation. */
+export const REQUIRED_V2_PACKAGE_SUBPATHS = [
+  "@moltzap/v2-identity/registry",
+  "@moltzap/v2-identity/registry/server",
   "@moltzap/v2-router/server",
 ] as const;
 
@@ -116,13 +117,13 @@ export const generateModuleDocs = (
         `Required TypeDoc packages were not loaded: ${missingTypeDocPackages.join(", ")}`,
       );
     }
-    const missingServerSubpaths = REQUIRED_V2_SERVER_SUBPATHS.filter(
+    const missingPackageSubpaths = REQUIRED_V2_PACKAGE_SUBPATHS.filter(
       (importPath) =>
         (cache.byPackageEntrypoint.get(importPath)?.length ?? 0) === 0,
     );
-    if (missingServerSubpaths.length > 0) {
+    if (missingPackageSubpaths.length > 0) {
       return yield* Effect.dieMessage(
-        `Required TypeDoc server subpaths were not loaded: ${missingServerSubpaths.join(", ")}`,
+        `Required TypeDoc package subpaths were not loaded: ${missingPackageSubpaths.join(", ")}`,
       );
     }
     const folders = yield* discoverFolders(cache, config);
@@ -373,15 +374,15 @@ function renderFolder(
       : null;
     const exports = (
       packageName !== null
-        ? exportsForPackageRoot(cache, packageName)
-        : exportsForModuleFolder(cache, folder)
+        ? (cache.byPackageEntrypoint.get(packageName) ?? [])
+        : (cache.byFolder.get(folder) ?? [])
     ).filter(isBehavioral);
     const enriched = yield* enrichWithSignatures(exports, fs, path, config);
     const subpaths =
       packageName === null
         ? []
         : yield* Effect.forEach(
-            serverSubpathsForPackage(cache, packageName),
+            packageSubpathsForPackage(cache, packageName),
             (subpath) =>
               enrichWithSignatures(subpath.exports, fs, path, config).pipe(
                 Effect.map(
@@ -459,7 +460,6 @@ function collectProductionSourceFiles(
           (file) =>
             !file.includes("/__tests__/") &&
             !file.endsWith(".test.ts") &&
-            !file.endsWith(".integration.test.ts") &&
             !file.endsWith(".types-check.ts"),
         )
         .sort((left, right) => left.localeCompare(right)),
@@ -468,29 +468,13 @@ function collectProductionSourceFiles(
 }
 
 /**
- * A package-root module documents its entry point, so it owns every public
- * symbol TypeDoc associates with that package even when the declaration lives
- * in a nested capability folder. Nested module pages continue to own symbols
- * by declaration folder.
- * @param cache Loaded TypeDoc reflection cache.
- * @param packageName Value supplied to the operation.
- * @returns The exports for package root result.
- */
-export function exportsForPackageRoot(
-  cache: TypeDocCache,
-  packageName: string,
-): readonly TypeDocExport[] {
-  return cache.byPackageEntrypoint.get(packageName) ?? [];
-}
-
-/**
- * Returns the documented server subpath exported by one active v2 package.
+ * Returns the documented public subpaths exported by one active v2 package.
  *
  * @param cache Loaded TypeDoc reflection cache.
- * @param packageName Package whose approved server entrypoint is requested.
- * @returns The package's server import path and exported namespace members.
+ * @param packageName Package whose approved public subpaths are requested.
+ * @returns The package import paths and their exported members.
  */
-function serverSubpathsForPackage(
+function packageSubpathsForPackage(
   cache: TypeDocCache,
   packageName: string,
 ): ReadonlyArray<
@@ -499,33 +483,12 @@ function serverSubpathsForPackage(
     exports: readonly TypeDocExport[];
   }>
 > {
-  const importPath = `${packageName}/server`;
-  if (
-    !REQUIRED_V2_SERVER_SUBPATHS.some(
-      (requiredImportPath) => requiredImportPath === importPath,
-    )
-  ) {
-    return [];
-  }
-  return [
-    {
-      importPath,
-      exports: cache.byPackageEntrypoint.get(importPath) ?? [],
-    },
-  ];
-}
-
-/**
- * Executes the exports for module folder operation.
- * @param cache Loaded TypeDoc reflection cache.
- * @param folder Module folder to process.
- * @returns The exports for module folder result.
- */
-export function exportsForModuleFolder(
-  cache: TypeDocCache,
-  folder: string,
-): readonly TypeDocExport[] {
-  return cache.byFolder.get(folder) ?? [];
+  return REQUIRED_V2_PACKAGE_SUBPATHS.filter((importPath) =>
+    importPath.startsWith(`${packageName}/`),
+  ).map((importPath) => ({
+    importPath,
+    exports: cache.byPackageEntrypoint.get(importPath) ?? [],
+  }));
 }
 
 const packageManifest = Schema.parseJson(
@@ -747,7 +710,7 @@ function renderMarkdown(args: RenderArgs): string {
   const sections: string[][] = [
     renderHeader(args),
     renderPublicSurface(sorted, args.folder, args.path, args.linkContext),
-    renderServerSubpaths(
+    renderPackageSubpaths(
       args.subpaths,
       args.folder,
       args.path,
@@ -817,7 +780,7 @@ function declarationRole(ex: EnrichedExport): string {
   return ex.kindString.toLowerCase();
 }
 
-function renderServerSubpaths(
+function renderPackageSubpaths(
   subpaths: readonly EnrichedSubpath[],
   folder: string,
   path: Path.Path,
@@ -826,19 +789,27 @@ function renderServerSubpaths(
   if (subpaths.length === 0) {
     return [];
   }
-  const lines: string[] = ["## Server subpath", ""];
+  const lines: string[] = ["## Package subpaths", ""];
   for (const subpath of subpaths) {
     lines.push(`### \`${subpath.importPath}\``, "");
+    const nameCounts = new Map<string, number>();
+    for (const entry of subpath.exports) {
+      nameCounts.set(entry.name, (nameCounts.get(entry.name) ?? 0) + 1);
+    }
     const namespaceName = subpath.exports.find(
       (entry) =>
         entry.kind === ReflectionKind.Module ||
         entry.kind === ReflectionKind.Namespace,
     )?.name;
     for (const entry of subpath.exports) {
-      const displayName =
+      const qualifiedName =
         namespaceName === undefined || entry.name === namespaceName
           ? entry.name
           : `${namespaceName}.${entry.name}`;
+      const displayName =
+        (nameCounts.get(entry.name) ?? 0) > 1
+          ? `${qualifiedName} (${declarationRole(entry)})`
+          : qualifiedName;
       lines.push(
         ...renderExport(entry, folder, path, {
           ...link,
@@ -1036,7 +1007,7 @@ export function parseFailureTag(text: string): {
  * @param folder Workspace-relative module folder.
  * @returns Generated page slug.
  */
-export function modulePageSlug(folder: string): string {
+function modulePageSlug(folder: string): string {
   const parts = sourcePathParts(folder);
   const pkg = packageSlugFor(parts);
   const modulePath = pathFromPackageSrc(parts);
@@ -1076,7 +1047,7 @@ function sourcePathParts(folder: string): readonly string[] {
  * @param line One-based source line.
  * @returns GitHub source permalink.
  */
-export function sourcePermalink(fileName: string, line: number): string {
+function sourcePermalink(fileName: string, line: number): string {
   const branch = fileName.startsWith("v2/") ? "v2" : "main";
   return `${SOURCE_LINK_BASE}/${branch}/${fileName}#L${line}`;
 }

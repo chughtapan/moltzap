@@ -4,7 +4,7 @@
  * package builds on. `identity` sits at the root of the v2 dependency
  * graph and imports no other v2 package.
  */
-// safer-arch-ignore no-folder-cycle: This public facade exposes Registry while its implementation depends on package-owned identity contracts; implementation modules never import this facade.
+// safer-arch-ignore no-folder-cycle: This facade re-exports cohesive identity modules that depend on sibling identity contracts; those modules never import the facade.
 
 /**
  * The sole MoltZap compatibility value. Every MoltZap-owned network
@@ -47,23 +47,6 @@ export {
   AuthenticatedHttp,
   type VerifiedAgentRequest,
 } from "./authenticated-http.js";
-/** Closed Registry request Schemas and verified capability result types. */
-export {
-  OperationId,
-  RegistryListRequest,
-  RegistryLookupRequest,
-  RegistryRegisterRequest,
-  type RegistryListResult,
-  type RegistryLookupResult,
-  type RegistryRegisterResult,
-} from "./registry/contract.js";
-/** Registry client capability and closed infrastructure failures. */
-export {
-  Registry,
-  RegistryConnectionError,
-  RegistryInvalidResponseError,
-  RegistryRequestTimeoutError,
-} from "./registry.js";
 /** Shared closed HTTP-envelope failures. */
 export {
   AuthenticationFailedError,

@@ -89,7 +89,7 @@ private.
 
 | Package | Depends on | Owns | Exports | Binaries |
 |---|---|---|---|---|
-| `identity` | none | L1 contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server | `.`, `./server` | `moltzap-registry` |
+| `identity` | none | L1 contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server | `.`, `./registry`, `./registry/server` | `moltzap-registry` |
 | `router` | `identity` | L2 contracts and representation, Router client and in-memory server | `.`, `./server` | `moltzap-router` |
 | `transcript` | `identity`, Router contracts | L3 action certificate and TranscriptRecord contracts, Ledger client and PostgreSQL server | `.`, `./server` | `moltzap-ledger` |
 | `endpoint` | `identity`, `router`, `transcript` | protocol engine, `OpenFloorV1`, recovery/reconciliation, SQLite state, daemon MCP, CLI | `.`, `./server` | `moltzap-agentd`, `moltzap` |

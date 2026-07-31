@@ -6,16 +6,18 @@ import {
   AgentSigningAuthority,
   AuthenticatedHttp,
   MessageId,
-  OperationId,
   PrincipalId,
-  Registry,
   SignedMessage,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
-  type RegistryLookupRequest,
-  type RegistryRegisterRequest,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
 } from "@moltzap/v2-identity";
+import {
+  OperationId,
+  Registry,
+  type RegistryLookupRequest,
+  type RegistryRegisterRequest,
+} from "@moltzap/v2-identity/registry";
 import { spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { createConnection, createServer } from "node:net";

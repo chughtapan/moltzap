@@ -338,16 +338,16 @@ const testDocImportsResolve = (): void => {
   );
   restoreAllPlants();
 
-  // V2 packages live outside packages/, so pin both a named root binding
-  // and a bare server-subpath import from the active implementation packages.
+  // V2 packages live outside packages/, so pin named root and capability
+  // bindings together with their server composition subpaths.
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/v2-identity";\nimport "@moltzap/v2-router/server";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/v2-identity";\nimport { Registry } from "@moltzap/v2-identity/registry";\nimport "@moltzap/v2-identity/registry/server";\nimport "@moltzap/v2-router/server";\n\`\`\`\n`,
   );
   const r6 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
   assert(
-    "v2 root binding and server subpath resolve",
+    "v2 root, capability, and server subpaths resolve",
     r6.code === 0,
     `expected v2 imports to pass. exit=${r6.code}, stderr=${r6.stderr.slice(0, 300)}`,
   );

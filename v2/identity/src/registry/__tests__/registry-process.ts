@@ -11,14 +11,16 @@ import { fileURLToPath } from "node:url";
 import {
   AgentName,
   AgentSigningAuthority,
-  OperationId,
   PrincipalId,
-  Registry,
-  RegistryRegisterRequest,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
-  type RegistryRegisterRequest as RegistryRegisterRequestValue,
   type VerifiedAgentCard,
 } from "../../index.js";
+import {
+  OperationId,
+  Registry,
+  RegistryRegisterRequest,
+  type RegistryRegisterRequest as RegistryRegisterRequestValue,
+} from "../../registry.js";
 import {
   agentSigningPrivateKey,
   ed25519PublicKeyThumbprintUri,

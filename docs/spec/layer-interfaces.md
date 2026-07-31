@@ -40,16 +40,17 @@ abstraction.
 
 | Package | Export map | Production executables |
 |---|---|---|
-| `identity` | `.`, `./server` | `moltzap-registry` |
+| `identity` | `.`, `./registry`, `./registry/server` | `moltzap-registry` |
 | `router` | `.`, `./server` | `moltzap-router` |
 | `transcript` | `.`, `./server` | `moltzap-ledger` |
 | `endpoint` | `.`, `./server` | `moltzap-agentd`, `moltzap` |
 | `simulator` | `.`, `./adapter`, `./ledger` | none |
 | `testbed` | `.` | none |
 
-The root export contains the package's stable contracts and client
-capabilities. `./server` exposes production composition and the
-executable boundary, not repositories, database rows, HTTP handlers,
+The root export contains the package's shared stable contracts and client
+capabilities. Identity places Registry-owned contracts and its client
+capability under `./registry`. A server subpath exposes production composition
+and the executable boundary, not repositories, database rows, HTTP handlers,
 or internal protocol state machines.
 
 ## Version contract
@@ -201,7 +202,7 @@ distinct typed client response error.
 
 ### Identity and Router construction handoffs
 
-The exact identity and Router root exports, public operation signatures,
+The exact identity and Router public exports, operation signatures,
 per-method error channels, server surfaces, and configuration keys live
 in their owning semantic chapters. The cross-package construction rules
 are:

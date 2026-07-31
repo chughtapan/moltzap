@@ -31,7 +31,7 @@ const V2_PACKAGES = {
   identity: {
     npmName: "@moltzap/v2-identity",
     deps: [],
-    exports: [".", "./server"],
+    exports: [".", "./registry", "./registry/server"],
     bin: ["moltzap-registry"],
   },
   router: {

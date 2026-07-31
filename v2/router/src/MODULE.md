@@ -295,7 +295,7 @@ export const SignedMessageDigest = canonicalValue(
 
 Equality receipt for one complete retained SignedMessage.
 
-## Server subpath
+## Package subpaths
 
 ### `@moltzap/v2-router/server`
 
@@ -303,7 +303,7 @@ Equality receipt for one complete retained SignedMessage.
 
 _Namespace_
 
-#### [`RouterServer.StartupError`](./router/server.ts#L24)
+#### [`RouterServer.StartupError`](./router/server.ts#L25)
 
 _Class_
 
@@ -315,7 +315,7 @@ export class StartupError extends Data.TaggedError("RouterServerStartupError")<{
 
 Closed Router startup phase.
 
-#### [`RouterServer.layer`](./router/server.ts#L60)
+#### [`RouterServer.layer`](./router/server.ts#L61)
 
 _Variable_
 

@@ -500,7 +500,7 @@ const architectureConfigDefinitions = [
             folder: ".",
             maxChildren: 12,
             reason:
-              "The identity root keeps its closed identifier, key, signed-artifact, request-authentication, and Registry capability boundaries as peer deep modules",
+              "The identity package keeps its closed identifier, key, signed-artifact, request-authentication, and Registry capability boundaries as peer deep modules",
           },
         ],
         facadeFiles: [
@@ -537,7 +537,7 @@ const architectureConfigDefinitions = [
           {
             file: "registry/server.ts",
             reason:
-              "Production process-composition boundary exported through the server subpath",
+              "Production process-composition boundary exported through the Registry server subpath",
           },
           {
             file: "registry/storage.ts",

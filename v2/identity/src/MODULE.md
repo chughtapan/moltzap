@@ -341,26 +341,6 @@ export const MOLTZAP_VERSION = "2026.729.1"
 
 Sole compatibility value for MoltZap-owned network boundaries.
 
-### [`OperationId (type)`](./registry/contract.ts#L24)
-
-_TypeAlias_
-
-```ts
-export type OperationId = typeof OperationId.Type;
-```
-
-Validated nominal value decoded by OperationId.
-
-### [`OperationId (value)`](./registry/contract.ts#L21)
-
-_Variable_
-
-```ts
-export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
-```
-
-Idempotency identity for a registration operation.
-
 ### [`OverloadedError`](./http-errors.ts#L46)
 
 _Class_
@@ -410,193 +390,6 @@ export const PrincipalId = canonicalIdentifier(
 ```
 
 Opaque identity of the principal represented by an agent.
-
-### [`Registry`](./registry.ts#L20)
-
-_Class_
-
-```ts
-export class Registry extends Context.Tag("@moltzap/v2-identity/Registry")<
-  Registry,
-  RegistryClientService
->() {
-  static readonly register = Effect.serviceFunctionEffect(
-    Registry,
-    (service) => service.register,
-  );
-
-  static readonly lookup = Effect.serviceFunctionEffect(
-    Registry,
-    (service) => service.lookup,
-  );
-
-  static readonly list = Effect.serviceFunctionEffect(
-    Registry,
-    (service) => service.list,
-  );
-
-  static readonly layer = (input: {
-    readonly origin: URL;
-    readonly registrySignerPublicKey: Ed25519PublicKey;
-    readonly requestTimeout: Duration.Duration;
-  }): Layer.Layer<Registry, never, HttpClient.HttpClient> =>
-    Layer.effect(Registry, makeRegistryService(input));
-}
-```
-
-Bootstrap registration and immutable identity resolution.
-
-### [`RegistryConnectionError`](./registry/contract.ts#L27)
-
-_Class_
-
-```ts
-export class RegistryConnectionError extends Data.TaggedError(
-  "RegistryConnectionError",
-) {}
-```
-
-The Registry connection could not be established or used.
-
-### [`RegistryInvalidResponseError`](./registry/contract.ts#L37)
-
-_Class_
-
-```ts
-export class RegistryInvalidResponseError extends Data.TaggedError(
-  "RegistryInvalidResponseError",
-) {}
-```
-
-A Registry response did not match the selected operation contract.
-
-### [`RegistryListRequest (type)`](./registry/contract.ts#L84)
-
-_TypeAlias_
-
-```ts
-export type RegistryListRequest = typeof RegistryListRequest.Type;
-```
-
-Validated Registry list continuation request.
-
-### [`RegistryListRequest (value)`](./registry/contract.ts#L79)
-
-_Variable_
-
-```ts
-export const RegistryListRequest = exactStruct({
-  afterAgentId: Schema.optional(AgentId),
-}).annotations({ identifier: "RegistryListRequest" })
-```
-
-Closed Registry list continuation request.
-
-### [`RegistryListResult`](./registry/contract.ts#L99)
-
-_TypeAlias_
-
-```ts
-export type RegistryListResult = Readonly<{
-  kind: "page";
-  agentCards: readonly VerifiedAgentCard[];
-  hasMore: boolean;
-}>;
-```
-
-One deterministic page of complete immutable AgentCards.
-
-### [`RegistryLookupRequest (type)`](./registry/contract.ts#L75)
-
-_TypeAlias_
-
-```ts
-export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
-```
-
-Validated Registry lookup selector.
-
-### [`RegistryLookupRequest (value)`](./registry/contract.ts#L63)
-
-_Variable_
-
-```ts
-export const RegistryLookupRequest = Schema.Union(
-  exactStruct({ agentId: AgentId }),
-  exactStruct({ agentName: AgentName }),
-).annotations({
-  identifier: "RegistryLookupRequest",
-  parseOptions: {
-    exact: true,
-    onExcessProperty: "error",
-  },
-})
-```
-
-Closed Registry lookup selector.
-
-### [`RegistryLookupResult`](./registry/contract.ts#L94)
-
-_TypeAlias_
-
-```ts
-export type RegistryLookupResult =
-  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>
-  | Readonly<{ kind: "not_found" }>;
-```
-
-Closed domain outcome from one public identity lookup.
-
-### [`RegistryRegisterRequest (type)`](./registry/contract.ts#L59)
-
-_TypeAlias_
-
-```ts
-export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
-```
-
-Validated Registry bootstrap registration request.
-
-### [`RegistryRegisterRequest (value)`](./registry/contract.ts#L51)
-
-_Variable_
-
-```ts
-export const RegistryRegisterRequest = exactStruct({
-  operationId: OperationId,
-  principalId: PrincipalId,
-  agentName: AgentName,
-  publicKey: Ed25519PublicKey,
-}).annotations({ identifier: "RegistryRegisterRequest" })
-```
-
-Closed Registry bootstrap registration request.
-
-### [`RegistryRegisterResult`](./registry/contract.ts#L87)
-
-_TypeAlias_
-
-```ts
-export type RegistryRegisterResult =
-  | Readonly<{ kind: "registered"; agentCard: VerifiedAgentCard }>
-  | Readonly<{ kind: "name_taken" }>
-  | Readonly<{ kind: "key_already_registered" }>
-  | Readonly<{ kind: "idempotency_conflict" }>;
-```
-
-Closed domain outcome from one bootstrap registration attempt.
-
-### [`RegistryRequestTimeoutError`](./registry/contract.ts#L32)
-
-_Class_
-
-```ts
-export class RegistryRequestTimeoutError extends Data.TaggedError(
-  "RegistryRequestTimeoutError",
-) {}
-```
-
-The configured complete Registry call deadline expired.
 
 ### [`RouteNotFoundError`](./http-errors.ts#L16)
 
@@ -747,15 +540,220 @@ export class VersionMismatchError extends Schema.TaggedError<VersionMismatchErro
 
 The request carries a different MoltZap compatibility value.
 
-## Server subpath
+## Package subpaths
 
-### `@moltzap/v2-identity/server`
+### `@moltzap/v2-identity/registry`
 
-#### [`RegistryServer`](./registry/server.ts#L1)
+#### [`Registry`](./registry.ts#L22)
 
-_Namespace_
+_Class_
 
-#### [`RegistryServer.StartupError`](./registry/server.ts#L26)
+```ts
+export class Registry extends Context.Tag("@moltzap/v2-identity/Registry")<
+  Registry,
+  RegistryClientService
+>() {
+  static readonly register = Effect.serviceFunctionEffect(
+    Registry,
+    (service) => service.register,
+  );
+
+  static readonly lookup = Effect.serviceFunctionEffect(
+    Registry,
+    (service) => service.lookup,
+  );
+
+  static readonly list = Effect.serviceFunctionEffect(
+    Registry,
+    (service) => service.list,
+  );
+
+  static readonly layer = (input: {
+    readonly origin: URL;
+    readonly registrySignerPublicKey: Ed25519PublicKey;
+    readonly requestTimeout: Duration.Duration;
+  }): Layer.Layer<Registry, never, HttpClient.HttpClient> =>
+    Layer.effect(Registry, makeRegistryService(input));
+}
+```
+
+Bootstrap registration and immutable identity resolution.
+
+#### [`RegistryConnectionError`](./registry/contract.ts#L27)
+
+_Class_
+
+```ts
+export class RegistryConnectionError extends Data.TaggedError(
+  "RegistryConnectionError",
+) {}
+```
+
+The Registry connection could not be established or used.
+
+#### [`RegistryInvalidResponseError`](./registry/contract.ts#L37)
+
+_Class_
+
+```ts
+export class RegistryInvalidResponseError extends Data.TaggedError(
+  "RegistryInvalidResponseError",
+) {}
+```
+
+A Registry response did not match the selected operation contract.
+
+#### [`RegistryRequestTimeoutError`](./registry/contract.ts#L32)
+
+_Class_
+
+```ts
+export class RegistryRequestTimeoutError extends Data.TaggedError(
+  "RegistryRequestTimeoutError",
+) {}
+```
+
+The configured complete Registry call deadline expired.
+
+#### [`OperationId (type)`](./registry/contract.ts#L24)
+
+_TypeAlias_
+
+```ts
+export type OperationId = typeof OperationId.Type;
+```
+
+Validated nominal value decoded by OperationId.
+
+#### [`RegistryListRequest (type)`](./registry/contract.ts#L84)
+
+_TypeAlias_
+
+```ts
+export type RegistryListRequest = typeof RegistryListRequest.Type;
+```
+
+Validated Registry list continuation request.
+
+#### [`RegistryListResult`](./registry/contract.ts#L99)
+
+_TypeAlias_
+
+```ts
+export type RegistryListResult = Readonly<{
+  kind: "page";
+  agentCards: readonly VerifiedAgentCard[];
+  hasMore: boolean;
+}>;
+```
+
+One deterministic page of complete immutable AgentCards.
+
+#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L75)
+
+_TypeAlias_
+
+```ts
+export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
+```
+
+Validated Registry lookup selector.
+
+#### [`RegistryLookupResult`](./registry/contract.ts#L94)
+
+_TypeAlias_
+
+```ts
+export type RegistryLookupResult =
+  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>
+  | Readonly<{ kind: "not_found" }>;
+```
+
+Closed domain outcome from one public identity lookup.
+
+#### [`RegistryRegisterRequest (type)`](./registry/contract.ts#L59)
+
+_TypeAlias_
+
+```ts
+export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
+```
+
+Validated Registry bootstrap registration request.
+
+#### [`RegistryRegisterResult`](./registry/contract.ts#L87)
+
+_TypeAlias_
+
+```ts
+export type RegistryRegisterResult =
+  | Readonly<{ kind: "registered"; agentCard: VerifiedAgentCard }>
+  | Readonly<{ kind: "name_taken" }>
+  | Readonly<{ kind: "key_already_registered" }>
+  | Readonly<{ kind: "idempotency_conflict" }>;
+```
+
+Closed domain outcome from one bootstrap registration attempt.
+
+#### [`OperationId (value)`](./registry/contract.ts#L21)
+
+_Variable_
+
+```ts
+export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
+```
+
+Idempotency identity for a registration operation.
+
+#### [`RegistryListRequest (value)`](./registry/contract.ts#L79)
+
+_Variable_
+
+```ts
+export const RegistryListRequest = exactStruct({
+  afterAgentId: Schema.optional(AgentId),
+}).annotations({ identifier: "RegistryListRequest" })
+```
+
+Closed Registry list continuation request.
+
+#### [`RegistryLookupRequest (value)`](./registry/contract.ts#L63)
+
+_Variable_
+
+```ts
+export const RegistryLookupRequest = Schema.Union(
+  exactStruct({ agentId: AgentId }),
+  exactStruct({ agentName: AgentName }),
+).annotations({
+  identifier: "RegistryLookupRequest",
+  parseOptions: {
+    exact: true,
+    onExcessProperty: "error",
+  },
+})
+```
+
+Closed Registry lookup selector.
+
+#### [`RegistryRegisterRequest (value)`](./registry/contract.ts#L51)
+
+_Variable_
+
+```ts
+export const RegistryRegisterRequest = exactStruct({
+  operationId: OperationId,
+  principalId: PrincipalId,
+  agentName: AgentName,
+  publicKey: Ed25519PublicKey,
+}).annotations({ identifier: "RegistryRegisterRequest" })
+```
+
+Closed Registry bootstrap registration request.
+
+### `@moltzap/v2-identity/registry/server`
+
+#### [`StartupError`](./registry/server.ts#L26)
 
 _Class_
 
@@ -769,7 +767,7 @@ export class StartupError extends Data.TaggedError(
 
 Closed Registry startup failure.
 
-#### [`RegistryServer.layer`](./registry/server.ts#L66)
+#### [`layer`](./registry/server.ts#L67)
 
 _Variable_
 
@@ -817,6 +815,5 @@ flowchart TD
 - `registry/rpc.ts`
 - `registry/server.ts`
 - `registry/storage.ts`
-- `server.ts`
 - `signed-message.ts`
 - `version.ts`
