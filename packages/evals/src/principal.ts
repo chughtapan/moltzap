@@ -11,9 +11,10 @@ import {
   type OpenClawGatewayRequestFailed,
   type StartedAgent,
 } from "@moltzap/simulator/runtime";
-import { Effect, Option, Ref, Schema } from "effect";
+import { Effect, Option, Ref, Schema, Stream } from "effect";
 import {
   NanoclawPrincipalInputSent,
+  NanoclawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   type evaluationEvents,
@@ -45,6 +46,11 @@ export interface PrincipalInstruction {
  * gateway has one.
  */
 export interface PrincipalDriver<Gateway, Failure> {
+  readonly observe: <Name extends string>(
+    target: StartedAgent<Name, Gateway>,
+    caseId: EvaluationCaseId,
+    emit: EmitEvaluationEvent,
+  ) => Effect.Effect<never, Failure | LedgerFailure>;
   readonly drive: <Name extends string>(
     target: StartedAgent<Name, Gateway>,
     instruction: PrincipalInstruction,
@@ -124,6 +130,7 @@ export const openClawPrincipalDriver = Object.freeze({
     Ref.make(0).pipe(
       Effect.map((nextInstruction) =>
         Object.freeze({
+          observe: () => Effect.never,
           drive: <Name extends string>(
             target: StartedAgent<Name, OpenClawGateway>,
             instruction: PrincipalInstruction,
@@ -168,6 +175,27 @@ function driveNanoclaw<Name extends string>(
   }).pipe(Effect.withSpan("evals.principal.nanoclaw"));
 }
 
+function observeNanoclaw<Name extends string>(
+  target: StartedAgent<Name, NanoclawGateway>,
+  caseId: EvaluationCaseId,
+  emit: EmitEvaluationEvent,
+): Effect.Effect<never, NanoclawGatewayError | LedgerFailure> {
+  return target.gateway.outputs.pipe(
+    Stream.runForEach((output) =>
+      emit(
+        NanoclawPrincipalOutputReceived.make({
+          caseId,
+          agentName: decodeAgentName(target.agent.name),
+          agentId: target.agent.id,
+          output,
+        }),
+      ),
+    ),
+    Effect.andThen(Effect.never),
+    Effect.withSpan("evals.principal.nanoclaw.outputs"),
+  );
+}
+
 /**
  * Drive NanoClaw only through its native owner-local socket.
  *
@@ -181,6 +209,7 @@ export const nanoclawPrincipalDriver: PrincipalDriverFactory<
   make: () =>
     Effect.succeed(
       Object.freeze({
+        observe: observeNanoclaw,
         drive: driveNanoclaw,
       }),
     ),

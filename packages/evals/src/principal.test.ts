@@ -13,9 +13,10 @@ import {
   type StartedAgent,
 } from "@moltzap/simulator/runtime";
 import { makeAgentHandle } from "@moltzap/simulator/network";
-import { Effect, Option, Ref, Schema, Stream } from "effect";
+import { Deferred, Effect, Option, Ref, Schema, Stream } from "effect";
 import {
   NanoclawPrincipalInputSent,
+  NanoclawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
 } from "./events.js";
@@ -251,6 +252,16 @@ function assertNanoclawInput(
   );
 }
 
+function assertNanoclawOutput(event?: EvaluationEvent): void {
+  if (!(event instanceof NanoclawPrincipalOutputReceived)) {
+    assert.fail("expected a NanoClaw output event");
+  }
+  assert.strictEqual(event.caseId, CASE_ID);
+  assert.strictEqual(event.agentName, TARGET_NAME);
+  assert.strictEqual(event.agentId, TARGET_ID);
+  assert.deepStrictEqual(event.output, NANOCLAW_OUTPUT);
+}
+
 function recordingNanoclawGateway(
   inputs: Ref.Ref<readonly NanoclawGatewayInput[]>,
   outputPulls: Ref.Ref<number>,
@@ -263,6 +274,37 @@ function recordingNanoclawGateway(
       ),
     ).pipe(Stream.concat(Stream.never)),
   };
+}
+
+function nanoclawOutputObservationTest() {
+  return Effect.gen(function* () {
+    const recorder = yield* makeEventRecorder();
+    const inputs = yield* Ref.make<readonly NanoclawGatewayInput[]>([]);
+    const outputPulls = yield* Ref.make(0);
+    const outputRecorded = yield* Deferred.make<undefined>();
+    const gateway = recordingNanoclawGateway(inputs, outputPulls);
+    const driver = yield* nanoclawPrincipalDriver.make(ATTEMPT_ID);
+    const emit: EmitEvaluationEvent = (event) =>
+      recorder
+        .emit(event)
+        .pipe(
+          Effect.tap(() =>
+            event instanceof NanoclawPrincipalOutputReceived
+              ? Deferred.succeed(outputRecorded, undefined)
+              : Effect.void,
+          ),
+        );
+
+    yield* driver
+      .observe(target(gateway), CASE_ID, emit)
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(outputRecorded);
+
+    const recorded = yield* Ref.get(recorder.events);
+    assert.strictEqual(recorded.length, 1);
+    assertNanoclawOutput(recorded[0]);
+    assert.strictEqual(yield* Ref.get(outputPulls), 1);
+  }).pipe(Effect.scoped);
 }
 
 function nanoclawUncorrelatedOutputTest() {
@@ -352,6 +394,11 @@ describe("runtime-native principal drivers", () => {
   test(
     "records sequential NanoClaw inputs without consuming or correlating output frames",
     nanoclawUncorrelatedOutputTest,
+  );
+
+  test(
+    "records NanoClaw output frames through an independent scoped observer",
+    nanoclawOutputObservationTest,
   );
 
   test(
