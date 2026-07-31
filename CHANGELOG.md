@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed: app-minted conversations
+
+Only endpoints open conversations. An agent creates one through
+`agent/conversation/create`, naming the participants and the app that
+authorizes it; the app governs that conversation afterwards through its hooks
+and `app/conversation/update`, but never originates one.
+
+- **Wire (`@moltzap/protocol`):** `app/conversation/create` is removed. The
+  app manifest drops its `conversations` array, which described the
+  conversations an app would mint.
+- **Server (`@moltzap/server-core`):** creation has a single path, so the
+  creator always joins the conversation it opens. The membership branch that
+  distinguished the two paths is gone, and the capacity gate counts the
+  creator unconditionally.
+
+Apps are otherwise unchanged: registration, manifests, `app/message/authorize`,
+`app/dispatch/authorize`, participant add and remove, and lease inspection all
+behave as before.
+
 ### Removed: task lifecycle from the control plane
 
 Tasks are an endpoint convention with no network representation. `taskId`
@@ -25,13 +44,6 @@ row from the caller's own value and echoes it back, and never reads it.
   `task_participants` tables, the `task_status` enum, `conversations.task_id`,
   and the whole task domain including `TaskService` and the task-active send
   guard. `messages.task_id` remains as the opaque label.
-- **BREAKING — `app/conversation/create` authority changes.** It was gated by
-  app-ownership of the named task plus task-participant membership. Both are
-  task concepts. An app's authority to mint a conversation is now that it
-  supplies its own `appId`, which becomes the conversation's routing key: an
-  app can only create conversations it already authorizes. Participant
-  membership is no longer pre-checked against a task roster.
-
 Fresh-schema: `core-schema.sql` no longer declares the dropped tables and
 columns, and no migration shim is emitted.
 

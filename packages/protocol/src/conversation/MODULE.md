@@ -8,7 +8,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](./conversations.ts#L224)
+### [`agentCallableConversationRpcMethods`](./conversations.ts#L199)
 
 _Variable_
 
@@ -47,15 +47,12 @@ it. The caller joins the conversation it creates.
   here; it enforces only that the named agents exist and that the
   membership fits capacity.
 
-### [`appCallableConversationRpcMethods`](./conversations.ts#L230)
+### [`appCallableConversationRpcMethods`](./conversations.ts#L205)
 
 _Variable_
 
 ```ts
-export const appCallableConversationRpcMethods = [
-  conversationCreate,
-  conversationUpdate,
-] as const
+export const appCallableConversationRpcMethods = [conversationUpdate] as const
 ```
 
 App-callable conversation RPC catalog.
@@ -70,30 +67,7 @@ export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 Conversation row visible on conversation surfaces.
 
-### [`conversationCreate`](./conversations.ts#L71)
-
-_Variable_
-
-```ts
-export const conversationCreate = defineRpc({
-  name: "app/conversation/create",
-  params: Schema.Struct({
-    name: Schema.optional(conversationNameSchema),
-    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
-  }),
-  result: Schema.Struct({ conversation: conversationSchemaValue }),
-  requires: [AppPrincipal],
-  errors: [ForbiddenError, AgentNotFoundError, ConversationFullError],
-})
-```
-
-App-only: mint a conversation the calling app authorizes. The
-conversation's app routing key is the caller's own `appId`.
-
-- **Principal:** `AppPrincipal` head. The server handler performs
-  capacity-only authorization inline.
-
-### [`ConversationCreatedNotification`](./conversations.ts#L189)
+### [`ConversationCreatedNotification`](./conversations.ts#L164)
 
 _TypeAlias_
 
@@ -105,7 +79,7 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/created`.
 
-### [`conversationCreatedNotificationDefinition`](./conversations.ts#L204)
+### [`conversationCreatedNotificationDefinition`](./conversations.ts#L179)
 
 _Variable_
 
@@ -157,7 +131,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`conversationList`](./conversations.ts#L106)
+### [`conversationList`](./conversations.ts#L81)
 
 _Variable_
 
@@ -183,7 +157,7 @@ filter params: the visibility contract is "caller in
 
 - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
 
-### [`ConversationListItem`](./conversations.ts#L93)
+### [`ConversationListItem`](./conversations.ts#L68)
 
 _TypeAlias_
 
@@ -223,7 +197,7 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 
 The referenced conversation does not exist (or is not visible to the caller).
 
-### [`conversationNotifications`](./conversations.ts#L236)
+### [`conversationNotifications`](./conversations.ts#L208)
 
 _Variable_
 
@@ -254,7 +228,7 @@ export interface ConversationParticipant {
 
 Participant row for a conversation.
 
-### [`ConversationParticipantsAddedNotification`](./conversations.ts#L194)
+### [`ConversationParticipantsAddedNotification`](./conversations.ts#L169)
 
 _TypeAlias_
 
@@ -266,7 +240,7 @@ export type ConversationParticipantsAddedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/participants-added`.
 
-### [`conversationParticipantsAddedNotificationDefinition`](./conversations.ts#L210)
+### [`conversationParticipantsAddedNotificationDefinition`](./conversations.ts#L185)
 
 _Variable_
 
@@ -280,7 +254,7 @@ export const conversationParticipantsAddedNotificationDefinition =
 
 Pushed when a participant is added to a conversation.
 
-### [`ConversationParticipantsRemovedNotification`](./conversations.ts#L199)
+### [`ConversationParticipantsRemovedNotification`](./conversations.ts#L174)
 
 _TypeAlias_
 
@@ -292,7 +266,7 @@ export type ConversationParticipantsRemovedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/participants-removed`.
 
-### [`conversationParticipantsRemovedNotificationDefinition`](./conversations.ts#L217)
+### [`conversationParticipantsRemovedNotificationDefinition`](./conversations.ts#L192)
 
 _Variable_
 
@@ -338,7 +312,7 @@ export interface ConversationSummary {
 
 Conversation summary row used by list surfaces.
 
-### [`conversationUpdate`](./conversations.ts#L147)
+### [`conversationUpdate`](./conversations.ts#L122)
 
 _Variable_
 
@@ -357,7 +331,7 @@ participant add and participant remove semantics.
 
 - **Principal:** `AppPrincipal` head.
 
-### [`ConversationUpdateParams`](./conversations.ts#L134)
+### [`ConversationUpdateParams`](./conversations.ts#L109)
 
 _TypeAlias_
 

@@ -47,7 +47,6 @@ const LEASE_TTL_MS = 60_000;
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
-  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
   hooks: MODERATED_HOOKS,
 };
 

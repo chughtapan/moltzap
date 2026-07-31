@@ -1,5 +1,4 @@
 import { Either, ParseResult, Schema } from "effect";
-import { stringEnum } from "#transport";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — manifest value types.
@@ -8,12 +7,6 @@ import { stringEnum } from "#transport";
 // (`dispatch_authorize`, `message_authorize`). Each policy is a required
 // discriminated union, so a manifest cannot leave a gate unspecified.
 // ═══════════════════════════════════════════════════════════════════
-
-const appManifestConversationSchema = Schema.Struct({
-  key: Schema.String,
-  name: Schema.String,
-  participantFilter: Schema.optional(stringEnum(["all", "initiator", "none"])),
-});
 
 const hookTimeoutMsSchema = Schema.Number.pipe(
   Schema.int(),
@@ -103,7 +96,6 @@ const appManifestSchema = Schema.Struct({
       maxParticipants: Schema.optional(Schema.Number.pipe(Schema.int())),
     }),
   ),
-  conversations: Schema.optional(Schema.Array(appManifestConversationSchema)),
   hooks: appManifestHooksSchema,
 });
 
