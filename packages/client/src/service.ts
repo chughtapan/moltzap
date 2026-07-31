@@ -2,6 +2,7 @@ import {
   agentId as AgentIdSchema,
   AgentNotFoundError,
   agentsList,
+  DEFAULT_APP_ID,
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
@@ -23,17 +24,14 @@ import type {
   ClientDefinitionSuccess,
 } from "@moltzap/protocol/socket";
 import {
+  agentConversationCreate,
   type ConversationCreatedNotification,
   conversationCreatedNotificationDefinition,
   conversationList,
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
-import {
-  DEFAULT_APP_ID,
-  taskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
+import type { TaskId } from "@moltzap/protocol/task";
 import {
   type Message,
   type MessageReceivedNotification,
@@ -105,8 +103,6 @@ const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
 const HISTORY_LOOKUP_CONCURRENCY = 2;
 const AGENT_LOOKUP_PAGE_SIZE = 100;
 const AGENT_LOOKUP_MAX_PAGES = 20;
-const REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE = 50;
-const REUSABLE_CONVERSATION_LOOKUP_MAX_PAGES = 20;
 const decodeAgentId = Schema.decodeUnknownOption(AgentIdSchema);
 
 /** The agent group's member `Rpc`s — the tag-keyed surface the service drives. */
@@ -206,7 +202,7 @@ type ClientNotificationDelivery =
   NotificationDelivery<AnyNotificationDefinition>;
 
 interface ServiceHandlerPayloads {
-  readonly message: { readonly taskId: TaskId; readonly message: Message };
+  readonly message: { readonly taskId?: TaskId; readonly message: Message };
 
   /**
    * The "raw notification" surface receives the descriptor-tagged delivery
@@ -303,18 +299,8 @@ export class MoltZapService {
   private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
     Effect.runSync(Ref.make(HashMap.empty<string, string>()));
   private readonly agentConversationCacheRef: Ref.Ref<
-    HashMap.HashMap<
-      string,
-      { readonly taskId: TaskId; readonly conversationId: ConversationId }
-    >
-  > = Effect.runSync(
-    Ref.make(
-      HashMap.empty<
-        string,
-        { readonly taskId: TaskId; readonly conversationId: ConversationId }
-      >(),
-    ),
-  );
+    HashMap.HashMap<string, ConversationId>
+  > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationId>()));
   private readonly lastNotifiedRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, string>>
   > = Effect.runSync(
@@ -562,7 +548,6 @@ export class MoltZapService {
   ): Effect.Effect<HistoryResponse, ServiceRpcError> {
     return Effect.gen(this, function* (this: MoltZapService) {
       const result = yield* this.call(messagesList.name, {
-        taskId: request.taskId,
         conversationId: request.conversationId,
         limit: request.limit,
       });
@@ -774,27 +759,31 @@ export class MoltZapService {
    * params frame. The server marks the lease consumed, blocking the
    * app authorization timeout sweep. `MoltZapChannelCore.sendReply` forwards
    * `leaseIdInFlight` automatically when the caller omits it.
-   * @param taskId Value supplied to the operation.
+   *
+   * `opts.taskId` is an endpoint-chosen label stamped onto the message and
+   * echoed back to recipients. The server stores it without reading it, so
+   * it groups messages for whoever set the convention and never affects
+   * routing or authorization.
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
    * @param opts Value supplied to the operation.
    * @param opts.dispatchLeaseId Value supplied to the operation.
+   * @param opts.taskId Value supplied to the operation.
    * @returns The send result.
    */
   send(
-    taskId: TaskId,
     conversationId: ConversationId,
     text: string,
-    opts?: { dispatchLeaseId?: LeaseId },
+    opts?: { dispatchLeaseId?: LeaseId; taskId?: TaskId },
   ): Effect.Effect<void, ServiceRpcError> {
     return Effect.asVoid(
       this.call(messagesSend.name, {
-        taskId,
         conversationId,
         parts: [{ type: "text", text }],
         ...(opts?.dispatchLeaseId !== undefined
           ? { dispatchLeaseId: opts.dispatchLeaseId }
           : {}),
+        ...(opts?.taskId !== undefined ? { taskId: opts.taskId } : {}),
       }),
     );
   }
@@ -812,71 +801,37 @@ export class MoltZapService {
     return this.call(dispatchRequest.name, params);
   }
 
+  /**
+   * Send to a named agent, minting the DM conversation on first use and
+   * reusing it afterwards. The per-name cache is what makes the DM stable:
+   * `agent/conversation/create` mints a fresh conversation on every call.
+   * @param agentName Name of the agent to reach.
+   * @param text Text to process.
+   * @returns The send result.
+   */
   sendToAgent(
     agentName: string,
     text: string,
   ): Effect.Effect<void, ServiceRpcError | AgentNotFoundError> {
     return Effect.gen(this, function* (this: MoltZapService) {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
-      let entry = Option.getOrUndefined(HashMap.get(cache, agentName));
-      if (entry === undefined) {
+      let conversationId = Option.getOrUndefined(HashMap.get(cache, agentName));
+      if (conversationId === undefined) {
         const agent = yield* this.findVisibleAgentByName(agentName);
         if (!agent) {
           return yield* Effect.fail(agentNotFound(agentName));
         }
-        const createResult = yield* this.call(taskRequest.name, {
+        const created = yield* this.call(agentConversationCreate.name, {
           appId: DEFAULT_APP_ID,
-          invitedAgentIds: [agent.id],
-          initialConversation: { participants: [agent.id] },
+          participants: [agent.id],
         });
-        // `conversation: null` is the documented dedup-hit shape under
-        // `DEFAULT_APP_ID`. Resolve the reusable conversation under the
-        // returned task; if none exists, fail rather than die.
-        const conversationId =
-          createResult.conversation !== null
-            ? createResult.conversation.id
-            : yield* this.resolveReusableConversationId(
-                createResult.task.id,
-                agentName,
-              );
-        entry = { taskId: createResult.task.id, conversationId };
-        const cached = entry;
+        conversationId = created.conversation.id;
+        const cached = conversationId;
         yield* Ref.update(this.agentConversationCacheRef, (m) =>
           HashMap.set(m, agentName, cached),
         );
       }
-      yield* this.send(entry.taskId, entry.conversationId, text);
-    });
-  }
-
-  private resolveReusableConversationId(
-    taskId: TaskId,
-    agentName: string,
-  ): Effect.Effect<ConversationId, ServiceRpcError | AgentNotFoundError> {
-    return Effect.gen(this, function* (this: MoltZapService) {
-      let cursor: string | undefined = undefined;
-      for (
-        let page = 0;
-        page < REUSABLE_CONVERSATION_LOOKUP_MAX_PAGES;
-        page++
-      ) {
-        const params: { limit: number; cursor?: string } = {
-          limit: REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE,
-        };
-        if (cursor !== undefined) {
-          params.cursor = cursor;
-        }
-        const result = yield* this.call(conversationList.name, params);
-        const hit = result.items.find((item) => item.taskId === taskId);
-        if (hit !== undefined) {
-          return hit.conversation.id;
-        }
-        if (result.nextCursor === undefined) {
-          break;
-        }
-        cursor = result.nextCursor;
-      }
-      return yield* Effect.fail(agentNotFound(agentName));
+      yield* this.send(conversationId, text);
     });
   }
 
@@ -1293,7 +1248,9 @@ export class MoltZapService {
     // hits the cache on every subsequent message.
     if (msg.senderId !== this.ownAgentIdValue) {
       fanout(this.handlers.message, {
-        taskId: notification.taskId,
+        ...(notification.taskId !== undefined
+          ? { taskId: notification.taskId }
+          : {}),
         message: msg,
       });
     }

@@ -139,8 +139,9 @@ function registerAppEndpoint(args: {
   const connId = authed.connId;
   return Effect.gen(function* () {
     // Register under the SERVER-MINTED `appId` (the authenticated
-    // principal), NOT `manifest.appId`. `agent/task/request` routes to the appId the
-    // registrant received from `/api/v1/apps/register` = this identity.
+    // principal), NOT `manifest.appId`. `agent/conversation/create` routes to
+    // the appId the registrant received from `/api/v1/apps/register` = this
+    // identity.
     const ok = appEndpointRegistry.registerApp(appId, manifest, {
       connId,
       originator: authed.originator,

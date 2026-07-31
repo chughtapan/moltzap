@@ -20,7 +20,6 @@ export type { EffectKysely } from "./effect-kysely-toolkit.js";
 /** Re-exports the public API from `./list-cursor.js`. */
 export {
   decodeListCursor,
-  InvalidCursorError,
   keysetWhere,
   paginate,
   sortKeyExpr,
@@ -28,7 +27,6 @@ export {
 /** Re-exports the public API from `./list-cursor.js`. */
 export type { ListCursorPosition } from "./list-cursor.js";
 /** Re-exports the public API from `./kysely-vendor.js`. */
-export type { Transaction } from "./kysely-vendor.js";
 /** Re-exports the public API from `./postgres-dialect.js`. */
 export { PostgresDialect } from "./postgres-dialect.js";
 /** Re-exports the public API from `./snowflake.js`. */

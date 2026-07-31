@@ -10,17 +10,14 @@ import {
   registerAndConnect,
   type ConnectedAgent,
 } from "../helpers.js";
-import {
-  DEFAULT_APP_ID,
-  taskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import {
   messageReceivedNotificationDefinition,
   messagesList,
   messagesSend,
 } from "@moltzap/protocol/message";
 import {
+  agentConversationCreate,
   conversationCreatedNotificationDefinition,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
@@ -48,60 +45,34 @@ function textPart(text: string) {
 function createDm(
   creator: ConnectedAgent,
   participant: ConnectedAgent,
-): Effect.Effect<
-  { task: { id: TaskId }; conversation: { id: ConversationId } },
-  unknown
-> {
+): Effect.Effect<ConversationId, unknown> {
   return creator.client
-    .sendRpc(taskRequest, {
+    .sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [participant.agentId],
-      initialConversation: { participants: [participant.agentId] },
+      participants: [participant.agentId],
     })
-    .pipe(
-      Effect.map((result) => ({
-        task: { id: result.task.id },
-        conversation: {
-          id: /* Safe because the test fixture establishes this asserted shape. */ result
-            .conversation!.id,
-        },
-      })),
-    );
+    .pipe(Effect.map((result) => result.conversation.id));
 }
 
 function createGroup(
   creator: ConnectedAgent,
   participants: readonly ConnectedAgent[],
-): Effect.Effect<
-  { task: { id: TaskId }; conversation: { id: ConversationId } },
-  unknown
-> {
-  const ids = participants.map((p) => p.agentId);
+): Effect.Effect<ConversationId, unknown> {
   return creator.client
-    .sendRpc(taskRequest, {
+    .sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: ids,
-      initialConversation: { name: GROUP_NAME, participants: ids },
+      name: GROUP_NAME,
+      participants: participants.map((p) => p.agentId),
     })
-    .pipe(
-      Effect.map((result) => ({
-        task: { id: result.task.id },
-        conversation: {
-          id: /* Safe because the test fixture establishes this asserted shape. */ result
-            .conversation!.id,
-        },
-      })),
-    );
+    .pipe(Effect.map((result) => result.conversation.id));
 }
 
 function sendText(
   sender: ConnectedAgent,
-  taskId: TaskId,
   conversationId: ConversationId,
   text: string,
 ) {
   return sender.client.sendRpc(messagesSend, {
-    taskId,
     conversationId,
     parts: [textPart(text)],
   });
@@ -128,11 +99,10 @@ function waitForMessageText(agent: ConnectedAgent) {
 
 function messageTextsFor(
   agent: ConnectedAgent,
-  taskId: TaskId,
   conversationId: ConversationId,
 ) {
   return agent.client
-    .sendRpc(messagesList, { taskId, conversationId })
+    .sendRpc(messagesList, { conversationId })
     .pipe(
       Effect.map((result) =>
         result.messages.map((message) => firstTextPart(message.parts)),
@@ -154,19 +124,17 @@ function fullDmFlow() {
     const alice = yield* registerAndConnect("alice-a2a");
     const bob = yield* registerAndConnect("bob-a2a");
 
-    const conv = yield* createDm(alice, bob);
-    const taskId = conv.task.id;
-    const conversationId = conv.conversation.id;
+    const conversationId = yield* createDm(alice, bob);
 
     const bobHello = yield* Effect.fork(waitForMessageText(bob));
-    yield* sendText(alice, taskId, conversationId, HELLO_BOB);
+    yield* sendText(alice, conversationId, HELLO_BOB);
     expect(yield* Fiber.join(bobHello)).toBe(HELLO_BOB);
 
     const aliceReply = yield* Effect.fork(waitForMessageText(alice));
-    yield* sendText(bob, taskId, conversationId, HEY_ALICE);
+    yield* sendText(bob, conversationId, HEY_ALICE);
     expect(yield* Fiber.join(aliceReply)).toBe(HEY_ALICE);
 
-    expect(yield* messageTextsFor(alice, taskId, conversationId)).toEqual([
+    expect(yield* messageTextsFor(alice, conversationId)).toEqual([
       HELLO_BOB,
       HEY_ALICE,
     ]);
@@ -179,19 +147,17 @@ function groupChatFansOut() {
     const alice = yield* registerAndConnect("alice-fan");
     const bob = yield* registerAndConnect("bob-fan");
     const eve = yield* registerAndConnect("eve-fan");
-    const conv = yield* createGroup(alice, [bob, eve]);
-    const taskId = conv.task.id;
-    const conversationId = conv.conversation.id;
+    const conversationId = yield* createGroup(alice, [bob, eve]);
 
     const bobStandup = yield* Effect.fork(waitForMessageText(bob));
     const eveStandup = yield* Effect.fork(waitForMessageText(eve));
-    yield* sendText(alice, taskId, conversationId, TEAM_STANDUP);
+    yield* sendText(alice, conversationId, TEAM_STANDUP);
     expect(yield* Fiber.join(bobStandup)).toBe(TEAM_STANDUP);
     expect(yield* Fiber.join(eveStandup)).toBe(TEAM_STANDUP);
 
     const aliceAllClear = yield* Effect.fork(waitForMessageText(alice));
     const eveAllClear = yield* Effect.fork(waitForMessageText(eve));
-    yield* sendText(bob, taskId, conversationId, ALL_CLEAR);
+    yield* sendText(bob, conversationId, ALL_CLEAR);
     expect(yield* Fiber.join(aliceAllClear)).toBe(ALL_CLEAR);
     expect(yield* Fiber.join(eveAllClear)).toBe(ALL_CLEAR);
     yield* closeAgents([alice, bob, eve]);
@@ -208,18 +174,13 @@ function connectedParticipantReceivesWithoutReconnect() {
         conversationCreatedNotificationDefinition,
       ),
     );
-    const conv = yield* createDm(alice, bob);
+    const conversationId = yield* createDm(alice, bob);
 
     const createdEvent = yield* Fiber.join(createdEventFiber);
     expect(createdEvent).toBeDefined();
 
     const bobMessage = yield* Effect.fork(waitForMessageText(bob));
-    yield* sendText(
-      alice,
-      conv.task.id,
-      conv.conversation.id,
-      NO_RECONNECT_NEEDED,
-    );
+    yield* sendText(alice, conversationId, NO_RECONNECT_NEEDED);
     expect(yield* Fiber.join(bobMessage)).toBe(NO_RECONNECT_NEEDED);
     yield* closeAgents([alice, bob]);
   });
@@ -229,7 +190,7 @@ function liveSubscriptionDeliversSequentialEvents() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-buf");
     const bob = yield* registerAndConnect("bob-buf");
-    const conv = yield* createDm(alice, bob);
+    const conversationId = yield* createDm(alice, bob);
 
     const messages = yield* bob.client
       .subscribe(messageReceivedNotificationDefinition)
@@ -240,8 +201,8 @@ function liveSubscriptionDeliversSequentialEvents() {
         Effect.map(Chunk.toReadonlyArray),
         Effect.fork,
       );
-    yield* sendText(alice, conv.task.id, conv.conversation.id, FIRST_MESSAGE);
-    yield* sendText(alice, conv.task.id, conv.conversation.id, SECOND_MESSAGE);
+    yield* sendText(alice, conversationId, FIRST_MESSAGE);
+    yield* sendText(alice, conversationId, SECOND_MESSAGE);
     expect(yield* Fiber.join(messages)).toEqual([
       FIRST_MESSAGE,
       SECOND_MESSAGE,
@@ -254,7 +215,7 @@ function senderDoesNotReceiveOwnMessage() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-noecho");
     const bob = yield* registerAndConnect("bob-noecho");
-    const conv = yield* createDm(alice, bob);
+    const conversationId = yield* createDm(alice, bob);
 
     // Subscribe Alice before the send so the stream observes any echo frame
     // that arrives in flight. `Stream.interruptAfter` bounds the collection
@@ -271,7 +232,7 @@ function senderDoesNotReceiveOwnMessage() {
       awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
 
-    yield* sendText(alice, conv.task.id, conv.conversation.id, NO_ECHO_MESSAGE);
+    yield* sendText(alice, conversationId, NO_ECHO_MESSAGE);
     expect(yield* Fiber.join(bobEvent)).toBeDefined();
     const echoEvents = Chunk.toReadonlyArray(yield* Fiber.join(aliceEcho));
     expect(echoEvents).toHaveLength(0);

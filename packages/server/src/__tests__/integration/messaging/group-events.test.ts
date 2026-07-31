@@ -10,8 +10,11 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
-import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
+import {
+  agentConversationCreate,
+  conversationCreatedNotificationDefinition,
+} from "@moltzap/protocol/conversation";
 
 const GROUP_NAME = "Eval Group";
 
@@ -44,29 +47,17 @@ it("group creation notifies all participants with app/conversation/created event
       ),
     );
 
-    const conv = yield* alice.client.sendRpc(taskRequest, {
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId, eve.agentId],
-      initialConversation: {
-        name: GROUP_NAME,
-        participants: [bob.agentId, eve.agentId],
-      },
+      name: GROUP_NAME,
+      participants: [bob.agentId, eve.agentId],
     });
 
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.name,
-    ).toBe(GROUP_NAME);
+    expect(conv.conversation.name).toBe(GROUP_NAME);
 
     const bobCreated = yield* Fiber.join(bobCreatedFiber);
     const eveCreated = yield* Fiber.join(eveCreatedFiber);
 
-    expect(bobCreated.params.conversationId).toBe(
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-    );
-    expect(eveCreated.params.conversationId).toBe(
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-    );
+    expect(bobCreated.params.conversationId).toBe(conv.conversation.id);
+    expect(eveCreated.params.conversationId).toBe(conv.conversation.id);
   }));

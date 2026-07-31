@@ -18,7 +18,6 @@
     "modules/protocol/socket/catalog",
     "modules/protocol/src",
     "modules/protocol/task",
-    "modules/protocol/task/requirements",
     "modules/protocol/testing",
     "modules/protocol/testing/arbitraries",
     "modules/protocol/testing/conformance",
@@ -38,8 +37,6 @@
     "modules/server-core/message",
     "modules/server-core/network",
     "modules/server-core/socket",
-    "modules/server-core/task",
-    "modules/server-core/task/requirements",
     "modules/server-core/test-utils",
     "modules/simulator/src"
   ]

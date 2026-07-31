@@ -58,7 +58,6 @@ const WIRE_APP_MANIFEST: AppManifest = {
       timeoutMs: DISPATCH_RELEASE_TIMEOUT_MS,
     },
     message_authorize: { kind: "forwardAllExceptSender" },
-    task_create: { kind: "accept" },
   },
 };
 

@@ -45,15 +45,6 @@
       "#network": [
         "network/index.ts"
       ],
-      "#task": [
-        "task/index.ts"
-      ],
-      "#task/handlers": [
-        "task/handlers.ts"
-      ],
-      "#task/requirements": [
-        "task/requirements/index.ts"
-      ],
       "#conversation": [
         "conversation/index.ts"
       ],

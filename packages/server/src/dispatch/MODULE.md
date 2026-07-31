@@ -8,7 +8,7 @@ Dispatch-domain service barrel.
 
 ## Public surface
 
-### [`DispatchAdmissionConversations`](./admission.service.ts#L107)
+### [`DispatchAdmissionConversations`](./admission.service.ts#L105)
 
 _Interface_
 
@@ -23,7 +23,7 @@ export interface DispatchAdmissionConversations {
 
 Describes dispatch admission conversations.
 
-### [`DispatchAdmissionResult`](./admission.service.ts#L74)
+### [`DispatchAdmissionResult`](./admission.service.ts#L72)
 
 _TypeAlias_
 
@@ -39,7 +39,7 @@ export type DispatchAdmissionResult =
 
 Represents the result of dispatch admission.
 
-### [`DispatchAdmissionService`](./admission.service.ts#L160)
+### [`DispatchAdmissionService`](./admission.service.ts#L158)
 
 _Class_
 
@@ -121,7 +121,6 @@ export class DispatchAdmissionService {
       recipientConnectionId: args.recipientConnectionId,
       conversationId: args.conversationId,
       appId: lookup.appId,
-      taskId: lookup.taskId,
       moderatorConnectionId: entry.endpoint.connId,
     });
   }
@@ -164,6 +163,7 @@ export class DispatchAdmissionService {
     return Effect.gen(this, function* (this: DispatchAdmissionService) {
       const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
       const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
+      yield* this.resolveLease(leaseId, dispatchVerdictToLeaseVerdict(verdict));
 ```
 
 Implements dispatch admission service.
@@ -242,7 +242,7 @@ Provides the dispatch request runtime value.
 
 **Returns:** The dispatch request result.
 
-### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L94)
+### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L92)
 
 _Interface_
 
@@ -262,7 +262,7 @@ export interface EnqueueDispatchRequestArgs {
 
 Describes enqueue dispatch request args.
 
-### [`LeaseInvalidError`](./lease-registry.ts#L166)
+### [`LeaseInvalidError`](./lease-registry.ts#L163)
 
 _Class_
 
@@ -285,7 +285,7 @@ surface a precise wire-error code, e.g. Typed-CONSUMED /
 typed-EXPIRED) and `expected` carries the set of states the
 operation would have accepted.
 
-### [`LeaseRecord`](./lease-registry.ts#L135)
+### [`LeaseRecord`](./lease-registry.ts#L133)
 
 _Interface_
 
@@ -309,7 +309,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L515)
+### [`leaseRecordToWire`](./lease-registry.ts#L512)
 
 _Function_
 
@@ -322,7 +322,7 @@ Translation point between the in-process nested `LeaseRecord` and the wire
 
 **Returns:** The lease record to wire result.
 
-### [`LeaseRegistry`](./lease-registry.ts#L290)
+### [`LeaseRegistry`](./lease-registry.ts#L287)
 
 _Interface_
 
@@ -550,7 +550,7 @@ export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
 
 Implements lease registry tag.
 
-### [`LeaseState`](./lease-registry.ts#L114)
+### [`LeaseState`](./lease-registry.ts#L112)
 
 _TypeAlias_
 
@@ -570,7 +570,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L125)
+### [`LeaseVerdict`](./lease-registry.ts#L123)
 
 _TypeAlias_
 
@@ -581,7 +581,7 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1300)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1296)
 
 _Function_
 
@@ -601,7 +601,7 @@ notification and retention effects.
 
 **Returns:** The created lease registry.
 
-### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L99)
+### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L98)
 
 _Interface_
 
@@ -612,7 +612,6 @@ export interface ModeratorBoundLeaseBinding {
   readonly recipientConnectionId: ConnectionId;
   readonly conversationId: ConversationId;
   readonly moderatorConnectionId: ConnectionId;
-  readonly taskId: TaskId;
   readonly appId: AppId;
 }
 ```

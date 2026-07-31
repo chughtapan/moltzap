@@ -11,13 +11,13 @@ import {
   getEncryptionEnvelope,
   type ConnectedAgent,
 } from "../helpers.js";
-import {
-  DEFAULT_APP_ID,
-  taskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import {
+  agentConversationCreate,
+  type ConversationId,
+  type MessageId,
+} from "@moltzap/protocol/conversation";
 import { rotateKek } from "#db/crypto";
 
 const it = effectIt.live;
@@ -50,7 +50,6 @@ interface EncryptionKeySnapshot {
 interface EncryptedFixture {
   readonly sender: ConnectedAgent;
   readonly peer: ConnectedAgent;
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -65,22 +64,12 @@ function createEncryptedFixture(
   return Effect.gen(function* () {
     const sender = yield* registerAndConnect(senderName);
     const peer = yield* registerAndConnect(peerName);
-    const result = yield* sender.client.sendRpc(taskRequest, {
+    const result = yield* sender.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [peer.agentId],
-      initialConversation: {
-        name: ENCRYPTION_CONVERSATION_NAME,
-        participants: [peer.agentId],
-      },
+      name: ENCRYPTION_CONVERSATION_NAME,
+      participants: [peer.agentId],
     });
-    return {
-      sender,
-      peer,
-      taskId: result.task.id,
-      conversationId:
-        /* Safe because the test fixture establishes this asserted shape. */ result
-          .conversation!.id,
-    };
+    return { sender, peer, conversationId: result.conversation.id };
   });
 }
 
@@ -89,7 +78,6 @@ function sendEncryptedProbe(
   text = ENCRYPTED_MESSAGE_TEXT,
 ) {
   return fixture.sender.client.sendRpc(messagesSend, {
-    taskId: fixture.taskId,
     conversationId: fixture.conversationId,
     parts: [{ type: "text", text }],
   });
@@ -134,10 +122,7 @@ function readEncryptionKeyRows() {
 
 function readMessageTexts(fixture: EncryptedFixture) {
   return fixture.sender.client
-    .sendRpc(messagesList, {
-      taskId: fixture.taskId,
-      conversationId: fixture.conversationId,
-    })
+    .sendRpc(messagesList, { conversationId: fixture.conversationId })
     .pipe(
       Effect.map((result) =>
         result.messages.map((message) => firstTextPart(message.parts)),

@@ -24,7 +24,6 @@ import {
   messageReceivedNotificationDefinition,
 } from "#message";
 import { dispatchAuthorize } from "#message/dispatch";
-import { taskCreate } from "#task";
 import type { agentCallableGroup } from "#socket/catalog";
 import {
   type ClientLifecycleOptions,
@@ -85,7 +84,6 @@ const callbackHandlers = (): ReverseCallbackHandlers => {
   return {
     [dispatchAuthorize.name]: unexpected(dispatchAuthorize.name),
     [messagesAuthorize.name]: unexpected(messagesAuthorize.name),
-    [taskCreate.name]: unexpected(taskCreate.name),
   };
 };
 

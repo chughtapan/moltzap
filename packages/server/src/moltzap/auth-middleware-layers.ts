@@ -30,21 +30,14 @@ import {
   type AgentId,
 } from "@moltzap/protocol/identity";
 import {
-  ConversationInTask,
   ConversationSendAccess,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
-import { TaskReadAccess, type TaskId } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import { ConnectionManagerTag } from "#socket";
 import { ConversationServiceTag } from "#conversation";
 import { MessageServiceTag } from "#message";
-import { TaskServiceTag } from "#task";
-import { obtainTaskReadAccess } from "#task/requirements";
-import {
-  obtainConversationInTask,
-  obtainConversationSendAccess,
-} from "#conversation/requirements";
+import { obtainConversationSendAccess } from "#conversation/requirements";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
 /**
@@ -119,7 +112,7 @@ const makeActiveAgentLayer = (connId: ConnectionId) =>
 // ── Domain requirements ──────────────────────────────────────────────────────
 
 /** The requirement obtains' service env. */
-type MwEnv = TaskServiceTag | ConversationServiceTag | MessageServiceTag;
+type MwEnv = ConversationServiceTag | MessageServiceTag;
 
 /** The options an `@effect/rpc` `RpcMiddleware` impl receives per request. */
 interface MwOptions {
@@ -129,34 +122,14 @@ interface MwOptions {
 }
 
 interface SendParams {
-  readonly taskId?: TaskId;
   readonly conversationId: ConversationId;
-}
-interface TaskAndConvParams {
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-}
-interface TaskAndAgentParams {
-  readonly taskId: TaskId;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-const isTaskAndConvParams = (payload: unknown): payload is TaskAndConvParams =>
-  isRecord(payload) &&
-  typeof payload.taskId === "string" &&
-  typeof payload.conversationId === "string";
-
 const isSendParams = (payload: unknown): payload is SendParams =>
-  isRecord(payload) &&
-  (payload.taskId === undefined || typeof payload.taskId === "string") &&
-  typeof payload.conversationId === "string";
-
-const isTaskAndAgentParams = (
-  payload: unknown,
-): payload is TaskAndAgentParams =>
-  isRecord(payload) && typeof payload.taskId === "string";
+  isRecord(payload) && typeof payload.conversationId === "string";
 
 function requirePayload<A>(
   payload: unknown,
@@ -178,12 +151,10 @@ function requirePayload<A>(
  * `RpcMiddleware` contract is `Effect&lt;void, E>` with no context channel.
  */
 const mwEnv = Effect.gen(function* () {
-  const taskService = yield* TaskServiceTag;
   const conversationService = yield* ConversationServiceTag;
   const messageService = yield* MessageServiceTag;
   const manager = yield* ConnectionManagerTag;
   return Context.empty().pipe(
-    Context.add(TaskServiceTag, taskService),
     Context.add(ConversationServiceTag, conversationService),
     Context.add(MessageServiceTag, messageService),
     Context.add(ConnectionManagerTag, manager),
@@ -195,7 +166,6 @@ const mwEnv = Effect.gen(function* () {
  * services plus the connection manager (for the caller-peeking variant).
  */
 type RequirementMiddlewareLayerR =
-  | TaskServiceTag
   | ConversationServiceTag
   | MessageServiceTag
   | ConnectionManagerTag;
@@ -209,50 +179,10 @@ type MiddlewareFailure<Mw extends RpcMiddleware.TagClassAny> =
     : never;
 
 /**
- * Build a requirement impl Layer whose `derive` reads only the decoded `payload`
- * (no caller). Used for requirements that gate on pure params — e.g. `ConversationInTask`,
- * which the app-principal `app/conversation/*` methods declare, so its impl
- * must not peek the caller's agent id (the live arm is an `AppConnection`).
- * @param mw Value supplied to the operation.
- * @param derive Value supplied to the operation.
- * @param obtain Value supplied to the operation.
- * @returns The requirement middleware layer result.
- */
-const requirementMiddlewareLayer = <
-  Mw extends RpcMiddleware.TagClassAny,
-  Value,
-  In,
->(
-  mw: Mw,
-  derive: (payload: unknown) => Effect.Effect<In>,
-  obtain: (input: In) => Effect.Effect<Value, MiddlewareFailure<Mw>, MwEnv>,
-): Layer.Layer<
-  Context.Tag.Identifier<Mw>,
-  never,
-  RequirementMiddlewareLayerR
-> =>
-  unsafeCoerce(
-    Layer.effect(
-      mw,
-      Effect.map(
-        mwEnv,
-        (env) =>
-          ({ payload }: MwOptions) =>
-            derive(payload).pipe(
-              Effect.flatMap(obtain),
-              Effect.asVoid,
-              Effect.provide(env),
-            ),
-      ),
-    ),
-  );
-
-/**
- * Build a requirement impl Layer whose `derive` ALSO reads the caller's agent
- * id, peeked off the live arm. Used by the agent-principal requirements
- * (`ConversationSendAccess`, `TaskReadAccess`); the peek dies on a non-agent
- * arm, which is sound only because these requirements gate agent-callable
- * methods.
+ * Build a requirement impl Layer whose `derive` reads the caller's agent id,
+ * peeked off the live arm. Used by the agent-principal requirements
+ * (`ConversationSendAccess`); the peek dies on a non-agent arm, which is sound
+ * only because these requirements gate agent-callable methods.
  * @param mw Value supplied to the operation.
  * @param connId Value supplied to the operation.
  * @param derive Value supplied to the operation.
@@ -292,19 +222,6 @@ const requirementMiddlewareLayerWithCaller = <
     ),
   );
 
-const makeConversationInTaskLayer = () =>
-  requirementMiddlewareLayer(
-    ConversationInTask,
-    (payload) =>
-      requirePayload(payload, isTaskAndConvParams, ConversationInTask.key).pipe(
-        Effect.map((p) => ({
-          taskId: p.taskId,
-          conversationId: p.conversationId,
-        })),
-      ),
-    obtainConversationInTask,
-  );
-
 const makeConversationSendAccessLayer = (connId: ConnectionId) =>
   requirementMiddlewareLayerWithCaller(
     ConversationSendAccess,
@@ -314,31 +231,14 @@ const makeConversationSendAccessLayer = (connId: ConnectionId) =>
         Effect.map((p) => ({
           conversationId: p.conversationId,
           senderAgentId,
-          taskId: p.taskId,
         })),
       ),
     obtainConversationSendAccess,
   );
 
-const makeTaskReadAccessLayer = (connId: ConnectionId) =>
-  requirementMiddlewareLayerWithCaller(
-    TaskReadAccess,
-    connId,
-    (payload, callerAgentId) =>
-      requirePayload(payload, isTaskAndAgentParams, TaskReadAccess.key).pipe(
-        Effect.map((p) => ({
-          taskId: p.taskId,
-          callerAgentId,
-        })),
-      ),
-    obtainTaskReadAccess,
-  );
-
 /**
  * Every per-socket requirement impl Layer, merged. The engine stacks each
- * requirement on the methods that declare it. `ConversationInTask` reads no
- * caller (pure params — it gates app-principal methods too); the rest peek the
- * caller's agent id.
+ * requirement on the methods that declare it.
  * @param connId Value supplied to the operation.
  * @returns The created requirement middleware layers.
  */
@@ -348,7 +248,5 @@ export const makeRequirementMiddlewareLayers = (connId: ConnectionId) =>
     makeAppPrincipalLayer(connId),
     makeAuthenticatedPrincipalLayer(connId),
     makeActiveAgentLayer(connId),
-    makeConversationInTaskLayer(),
     makeConversationSendAccessLayer(connId),
-    makeTaskReadAccessLayer(connId),
   );

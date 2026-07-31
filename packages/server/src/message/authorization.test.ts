@@ -6,7 +6,6 @@ import { connectionIdSchema } from "@moltzap/protocol/socket";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize } from "@moltzap/protocol/message";
-import { taskCreate } from "@moltzap/protocol/task";
 import {
   agentId,
   appId as makeAppId,
@@ -42,7 +41,6 @@ const APP_MANIFEST = {
   hooks: {
     dispatch_authorize: { kind: "hook", timeoutMs: 5_000 },
     message_authorize: { kind: "hook", timeoutMs: 5_000 },
-    task_create: { kind: "hook", timeoutMs: 5_000 },
   },
 } satisfies AppManifest;
 
@@ -102,8 +100,6 @@ describe("MessageAuthorizationService", () => {
                     reason: "unexpected_hook",
                   },
                 }),
-              [taskCreate.name]: () =>
-                Effect.succeed({ verdict: { decision: "accept" } }),
             },
           }),
         );
@@ -148,8 +144,6 @@ function runRegisteredMessageAuthorize() {
                   : [SENDER],
             },
           }),
-        [taskCreate.name]: () =>
-          Effect.succeed({ verdict: { decision: "accept" } }),
       },
     });
     registry.registerApp(APP_ID, APP_MANIFEST, connection);

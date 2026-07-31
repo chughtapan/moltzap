@@ -2,9 +2,9 @@
 // Run `pnpm db:generate` after changing src/db/core-schema.sql.
 
 import type { ColumnType, Selectable } from "kysely";
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { AppId, TaskId } from "@moltzap/protocol/task";
+import type { TaskId } from "@moltzap/protocol/task";
 
 import type {
   Agents as RawAgents,
@@ -14,8 +14,6 @@ import type {
   Conversations as RawConversations,
   EncryptionKeys as RawEncryptionKeys,
   Messages as RawMessages,
-  TaskParticipants as RawTaskParticipants,
-  Tasks as RawTasks,
 } from "./database.generated.js";
 
 type Branded<T extends string> = ColumnType<T, string, string>;
@@ -51,13 +49,9 @@ interface ConversationParticipants
 }
 
 interface Conversations
-  extends Omit<
-    RawConversations,
-    "id" | "created_by_id" | "task_id" | "app_id"
-  > {
+  extends Omit<RawConversations, "id" | "created_by_id" | "app_id"> {
   id: GeneratedBranded<ConversationId>;
   created_by_id: Branded<AgentId>;
-  task_id: Branded<TaskId>;
   app_id: Branded<AppId>;
 }
 
@@ -74,18 +68,6 @@ interface Messages
   task_id: BrandedNullable<TaskId>;
 }
 
-interface TaskParticipants
-  extends Omit<RawTaskParticipants, "agent_id" | "task_id"> {
-  agent_id: Branded<AgentId>;
-  task_id: Branded<TaskId>;
-}
-
-interface Tasks extends Omit<RawTasks, "app_id" | "id" | "initiator_agent_id"> {
-  app_id: Branded<AppId>;
-  id: GeneratedBranded<TaskId>;
-  initiator_agent_id: Branded<AgentId>;
-}
-
 /** Represents message row values. */
 export type MessageRow = Selectable<Messages>;
 /** Represents conversation key row values. */
@@ -100,6 +82,4 @@ export interface Database {
   messages: Messages;
   encryption_keys: EncryptionKeys;
   conversation_keys: ConversationKeys;
-  tasks: Tasks;
-  task_participants: TaskParticipants;
 }

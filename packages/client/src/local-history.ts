@@ -1,6 +1,5 @@
 import { agentId } from "@moltzap/protocol/identity";
 import { conversationId, messageId } from "@moltzap/protocol/conversation";
-import { taskId } from "@moltzap/protocol/task";
 import type { Message } from "@moltzap/protocol/message";
 import { HashMap, Option, Schema } from "effect";
 import { renderPart } from "./message-rendering.js";
@@ -14,7 +13,6 @@ const historyLimit = Schema.Number.pipe(
 );
 
 const historyRequestSchemaValue = Schema.Struct({
-  taskId: taskId,
   conversationId: conversationId,
   limit: Schema.optionalWith(historyLimit, {
     default: () => DEFAULT_HISTORY_LIMIT,

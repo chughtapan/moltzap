@@ -346,9 +346,7 @@ function attachesTheActiveDispatchLeaseToRepliesMadeDuringHandlerExecution() {
       }),
     );
     const core = new MoltZapChannelCore({ service: fake.service });
-    core.onInbound((msg) =>
-      core.sendReply(msg.taskId, msg.conversationId, "reply"),
-    );
+    core.onInbound((msg) => core.sendReply(msg.conversationId, "reply"));
 
     fake.emit.message(buildMessage({ id: "msg-with-lease" }));
     yield* flushDispatchChainEffect;

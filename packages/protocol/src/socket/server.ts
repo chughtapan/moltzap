@@ -6,7 +6,6 @@ import { type ConnectionId, newConnectionId } from "./connection.js";
 import {
   isDispatchAuthorizeRequest,
   isMessagesAuthorizeRequest,
-  isTaskCreateRequest,
 } from "./reverse-callbacks.js";
 import {
   reverseRpcGroup,
@@ -16,7 +15,6 @@ import {
   type ServerHandlers,
 } from "#socket/catalog";
 import { messagesAuthorize } from "#message";
-import { taskCreate } from "#task";
 import { dispatchAuthorize } from "#message/dispatch";
 import {
   makeClientChannelProtocol,
@@ -39,11 +37,7 @@ import type {
   AuthenticatedPrincipal,
 } from "#identity/principals";
 import type { ActiveAgent } from "#identity/requirements";
-import type {
-  ConversationInTask,
-  ConversationSendAccess,
-} from "#conversation/requirements";
-import type { TaskReadAccess } from "#task/requirements";
+import type { ConversationSendAccess } from "#conversation/requirements";
 
 /** Represents server socket write values. */
 export type ServerSocketWrite = (
@@ -93,9 +87,7 @@ type ServerRequirementMiddleware =
   | AppPrincipal
   | AuthenticatedPrincipal
   | ActiveAgent
-  | ConversationInTask
-  | ConversationSendAccess
-  | TaskReadAccess;
+  | ConversationSendAccess;
 
 const serverRpcLayer = RpcServer.layer(serverInboundGroup);
 
@@ -169,10 +161,6 @@ export type ReverseCallbackRequest =
   | {
       readonly definition: typeof messagesAuthorize;
       readonly params: ReverseCallbackPayload<typeof messagesAuthorize>;
-    }
-  | {
-      readonly definition: typeof taskCreate;
-      readonly params: ReverseCallbackPayload<typeof taskCreate>;
     };
 type ReverseCallbackRequestDefinition = ReverseCallbackRequest["definition"];
 type ReverseCallbackRequestSuccess =
@@ -200,9 +188,6 @@ const makeReverseCallback =
     }
     if (isMessagesAuthorizeRequest(request)) {
       return call(messagesAuthorize.clientRpc._tag, request.params);
-    }
-    if (isTaskCreateRequest(request)) {
-      return call(taskCreate.clientRpc._tag, request.params);
     }
     return Effect.dieMessage("unknown reverse callback request");
   };

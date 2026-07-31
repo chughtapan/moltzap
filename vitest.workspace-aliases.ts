@@ -126,9 +126,6 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
     "packages/server/src/identity/credential-keys.ts",
   ),
   alias("#network", "packages/server/src/network/index.ts"),
-  alias("#task", "packages/server/src/task/index.ts"),
-  alias("#task/handlers", "packages/server/src/task/handlers.ts"),
-  alias("#task/requirements", "packages/server/src/task/requirements/index.ts"),
   alias("#conversation", "packages/server/src/conversation/index.ts"),
   alias(
     "#conversation/handlers",

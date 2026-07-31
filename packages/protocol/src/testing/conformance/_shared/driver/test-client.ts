@@ -24,7 +24,6 @@ import type {
   AnyNotificationDefinition,
 } from "#socket/catalog";
 import { messagesAuthorize } from "#message";
-import { taskCreate } from "#task";
 import { dispatchAuthorize } from "#message/dispatch";
 import {
   MoltZapAgentClient,
@@ -368,11 +367,6 @@ function makeDynamicAppHandlers(
       definition: messagesAuthorize,
       handle: (params: ParamsOf<typeof messagesAuthorize>) =>
         runAppCallback(handlersRef, awaitersRef, messagesAuthorize, params),
-    },
-    [taskCreate.name]: {
-      definition: taskCreate,
-      handle: (params: ParamsOf<typeof taskCreate>) =>
-        runAppCallback(handlersRef, awaitersRef, taskCreate, params),
     },
   };
 }

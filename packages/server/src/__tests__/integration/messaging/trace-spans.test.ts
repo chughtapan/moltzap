@@ -14,24 +14,25 @@ import {
   connectAppClient,
   getBaseUrl,
 } from "../helpers.js";
-import {
-  DEFAULT_APP_ID,
-  taskCreate,
-  taskRequest,
-  type AppId,
-} from "@moltzap/protocol/task";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
   messageReceivedNotificationDefinition,
   messagesAuthorize,
   messagesSend,
 } from "@moltzap/protocol/message";
-import { conversationCreate } from "@moltzap/protocol/conversation";
+import {
+  agentConversationCreate,
+  conversationCreate,
+} from "@moltzap/protocol/conversation";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppManifest } from "@moltzap/protocol/identity";
+import {
+  DEFAULT_APP_ID,
+  type AppId,
+  type AppManifest,
+} from "@moltzap/protocol/identity";
 
 let tracePort: CoreTestSpanExporterPort;
 const TRACE_APP_ID =
@@ -44,7 +45,6 @@ const TRACE_APP_MANIFEST: AppManifest = {
   hooks: {
     dispatch_authorize: { kind: "grant" },
     message_authorize: { kind: "hook", timeoutMs: 5_000 },
-    task_create: { kind: "accept" },
   },
 };
 
@@ -126,11 +126,6 @@ function blockingMessageHandlers(): AppCallbackHandlers<AppCallbackContext> {
           verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
         }),
     },
-    [taskCreate.name]: {
-      definition: taskCreate,
-      handle: () =>
-        Effect.succeed({ verdict: { decision: "accept" as const } }),
-    },
   };
 }
 
@@ -139,21 +134,17 @@ function emitDeliveredMessageSpan() {
     const alice = yield* registerAndConnect("alice-trace-span");
     const bob = yield* registerAndConnect("bob-trace-span");
 
-    const conv = yield* alice.client.sendRpc(taskRequest, {
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
+      participants: [bob.agentId],
     });
-    const conversationId =
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id;
+    const conversationId = conv.conversation.id;
 
     const messageText = "hello from trace span test";
     const bobEventFiber = yield* Effect.fork(
       awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
     yield* alice.client.sendRpc(messagesSend, {
-      taskId: conv.task.id,
       conversationId,
       parts: [{ type: "text", text: messageText }],
     });
@@ -199,22 +190,16 @@ function emitBlockedHookSpan() {
       blockingMessageHandlers(),
     );
 
-    const task = yield* alice.client.sendRpc(taskRequest, {
-      appId: registered.appId,
-      invitedAgentIds: [bob.agentId],
-    });
     // The app creates the conversation off its own `AppConnection`
     // (`seedCreatorAsParticipant: false`); alice (the sender) is added
     // explicitly so her `agent/message/send` passes the participant gate and
     // reaches the `before_message_delivery` hook (vs. a participant-gate
     // ForbiddenError firing first).
     const conv = yield* appClient.sendRpc(conversationCreate, {
-      taskId: task.task.id,
       participants: [alice.agentId, bob.agentId],
     });
     const outcome = yield* Effect.either(
       alice.client.sendRpc(messagesSend, {
-        taskId: task.task.id,
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: TRACE_BLOCKED_TEXT }],
       }),

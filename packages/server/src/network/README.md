@@ -8,7 +8,7 @@ Connect handlers, agent-endpoint resolution, outbound `send` and
 | Direction | Allowed |
 |---|---|
 | Imports FROM | db, core, socket, identity |
-| Imports TO   | task, conversation, message, dispatch |
+| Imports TO   | conversation, message, dispatch |
 
 ## Files
 

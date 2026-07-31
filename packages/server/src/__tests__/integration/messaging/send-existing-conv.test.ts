@@ -10,7 +10,8 @@ import {
   setupAgentPair,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
@@ -29,21 +30,16 @@ it("second message to existing DM delivers correctly with same conversationId", 
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(taskRequest, {
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
+      participants: [bob.agentId],
     });
-    const taskId = conv.task.id;
-    const conversationId =
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id;
+    const conversationId = conv.conversation.id;
 
     const firstBobEvent = yield* Effect.fork(
       awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
     yield* alice.client.sendRpc(messagesSend, {
-      taskId,
       conversationId,
       parts: [{ type: "text", text: FIRST_MESSAGE_TEXT }],
     });
@@ -54,7 +50,6 @@ it("second message to existing DM delivers correctly with same conversationId", 
       awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
     const send2 = yield* alice.client.sendRpc(messagesSend, {
-      taskId,
       conversationId,
       parts: [{ type: "text", text: SECOND_MESSAGE_TEXT }],
     });

@@ -20,10 +20,10 @@ import {
 } from "@moltzap/protocol/conversation";
 import {
   type AgentId,
+  type AppId,
   type UserId,
   AgentNotFoundError,
 } from "@moltzap/protocol/identity";
-import type { AppId, TaskId } from "@moltzap/protocol/task";
 import { BoundedMap } from "@moltzap/protocol/bounded-map";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
@@ -59,14 +59,13 @@ interface ConversationSummary {
   readonly participants?: ReadonlyArray<ConversationParticipant["participant"]>;
 }
 
-interface CreateConversationOptions<TaskMintError = never> {
+interface CreateConversationOptions {
   readonly name?: string;
   readonly agentIds: readonly AgentId[];
   readonly creatorAgentId: AgentId;
   /** Authorizing app; the routing key every send and dispatch resolves. */
   readonly appId: AppId;
   readonly seedCreatorAsParticipant?: boolean;
-  readonly mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>;
 }
 
 interface ListConversationsDeps {
@@ -264,18 +263,15 @@ export class ConversationService {
     );
   }
 
-  create<TaskMintError = never>(
-    input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<Conversation, TaskMintError> {
+  create(input: CreateConversationOptions): Effect.Effect<Conversation> {
     return catchSqlErrorAsDefect(this.createConversationEffect(input));
   }
 
-  private createConversationEffect<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<Conversation, TaskMintError | SqlError> {
+  private createConversationEffect(
+    input: CreateConversationOptions,
+  ): Effect.Effect<Conversation, SqlError> {
     return Effect.gen(this, function* (this: ConversationService) {
-      const task = yield* input.mintTask;
-      const created = yield* this.insertConversation(input, task.id);
+      const created = yield* this.insertConversation(input);
       yield* this.subscribeCreatedConversation(input, created.id);
       yield* this.logConversationCreated(input, created.id);
       return created;
@@ -339,16 +335,6 @@ export class ConversationService {
         // is included in the fan-out target list.
         const participantsSnapshot =
           yield* this.getParticipantAgentIds(conversationId);
-        const taskRowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("task_id")
-            .where("id", "=", conversationId),
-        );
-        const taskId = Option.match(taskRowOpt, {
-          onNone: () => null,
-          onSome: (row) => row.task_id,
-        });
         const deleted = yield* this.db
           .deleteFrom("conversation_participants")
           .where("conversation_id", "=", conversationId)
@@ -363,18 +349,15 @@ export class ConversationService {
           agentId,
           conversationId,
         );
-        if (taskId !== null) {
-          yield* broadcastNotificationToAgents(
-            participantsSnapshot,
-            conversationParticipantsRemovedNotificationDefinition,
-            {
-              taskId,
-              conversationId,
-              removedAgentId: agentId,
-              reason: "app_remove" as const,
-            },
-          );
-        }
+        yield* broadcastNotificationToAgents(
+          participantsSnapshot,
+          conversationParticipantsRemovedNotificationDefinition,
+          {
+            conversationId,
+            removedAgentId: agentId,
+            reason: "app_remove" as const,
+          },
+        );
       }),
     );
   }
@@ -398,9 +381,8 @@ export class ConversationService {
     );
   }
 
-  private insertConversation<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
-    taskId: TaskId,
+  private insertConversation(
+    input: CreateConversationOptions,
   ): Effect.Effect<Conversation, SqlError> {
     return transaction(this.db, (trx) =>
       Effect.gen(this, function* (this: ConversationService) {
@@ -410,7 +392,6 @@ export class ConversationService {
             .values({
               name: input.name ?? null,
               created_by_id: input.creatorAgentId,
-              task_id: taskId,
               app_id: input.appId,
             })
             .returningAll(),
@@ -436,8 +417,8 @@ export class ConversationService {
     );
   }
 
-  private subscribeCreatedConversation<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
+  private subscribeCreatedConversation(
+    input: CreateConversationOptions,
     conversationId: ConversationId,
   ): Effect.Effect<void> {
     // Mirrors `insertConversation`'s membership set: the creator is
@@ -452,8 +433,8 @@ export class ConversationService {
     );
   }
 
-  private logConversationCreated<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
+  private logConversationCreated(
+    input: CreateConversationOptions,
     conversationId: ConversationId,
   ): Effect.Effect<void> {
     const participantCount =
@@ -498,32 +479,72 @@ export class ConversationService {
   }
 
   /**
-   * Parent task lookup for `agent/conversation/list` row projection.
-   * `conversations.task_id` is NOT NULL, so the only failure mode is
-   * `ConversationNotFoundError` (row missing).
+   * `app/conversation/update` add-participant body.
+   *
+   * Inserts a `conversation_participants` row (idempotent via
+   * `ON CONFLICT DO NOTHING`) AND captures the post-mutation membership so
+   * the handler can fan out the participants-added notification.
    * @param conversationId Value supplied to the operation.
+   * @param agentId Identifier of the agent targeted by the operation.
    * @internal
-   * @returns The row opt result.
+   * @returns The post-mutation membership.
    */
-  taskIdForConversation(
+  addConversationParticipant(
     conversationId: ConversationId,
-  ): Effect.Effect<TaskId, ConversationNotFoundError> {
+    agentId: AgentId,
+  ): Effect.Effect<{ postMutationParticipants: readonly AgentId[] }> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* (this: ConversationService) {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("task_id")
-            .where("id", "=", conversationId),
+        yield* this.db
+          .insertInto("conversation_participants")
+          .values({ conversation_id: conversationId, agent_id: agentId })
+          .onConflict((oc) => oc.doNothing());
+        const rows = yield* this.db
+          .selectFrom("conversation_participants")
+          .select("agent_id")
+          .where("conversation_id", "=", conversationId);
+        return { postMutationParticipants: rows.map((row) => row.agent_id) };
+      }),
+    );
+  }
+
+  /**
+   * `app/conversation/update` remove-participant body.
+   *
+   * Returns the pre-mutation membership snapshot so the handler can fan out
+   * the participants-removed notification to the removed agent after their
+   * `conversation_participants` row is deleted. Idempotent: no-op when the
+   * agent is not currently in the conversation.
+   * @param conversationId Value supplied to the operation.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @internal
+   * @returns The pre-mutation membership and whether a row was deleted.
+   */
+  removeConversationParticipant(
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<{
+    preMutationParticipants: readonly AgentId[];
+    wasParticipant: boolean;
+  }> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* (this: ConversationService) {
+        const preRows = yield* this.db
+          .selectFrom("conversation_participants")
+          .select("agent_id")
+          .where("conversation_id", "=", conversationId);
+        const preMutationParticipants: readonly AgentId[] = preRows.map(
+          (row) => row.agent_id,
         );
-        if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(
-            new ConversationNotFoundError({
-              message: MSG_CONVERSATION_NOT_FOUND,
-            }),
-          );
+        const wasParticipant = preMutationParticipants.includes(agentId);
+        if (!wasParticipant) {
+          return { preMutationParticipants, wasParticipant };
         }
-        return rowOpt.value.task_id;
+        yield* this.db
+          .deleteFrom("conversation_participants")
+          .where("conversation_id", "=", conversationId)
+          .where("agent_id", "=", agentId);
+        return { preMutationParticipants, wasParticipant };
       }),
     );
   }
@@ -561,8 +582,7 @@ export class ConversationService {
 
   /**
    * Authorizing app for a conversation. The routing key every app-authority
-   * gate compares against, read without joining the task that minted the
-   * conversation.
+   * gate compares against.
    * @param conversationId Value supplied to the operation.
    * @internal
    * @returns The authorizing app id.

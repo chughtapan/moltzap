@@ -16,14 +16,12 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AppContext, AgentContext } from "#socket";
 import { ConversationServiceTag } from "./layer.js";
-import { TaskServiceTag } from "#task";
 import { agentArm, appArm } from "#moltzap/runtime";
 import {
   assertCallerAppOwnsConversation,
   authorizeConversationCreateCapacityOnly,
 } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
-import { assertCallerAppOwnsTask } from "#task/requirements";
 
 const EMPTY_AGENT_IDS: readonly AgentId[] = [];
 
@@ -42,26 +40,16 @@ function agentConversationCreateBody(
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
-    const taskService = yield* TaskServiceTag;
     const conversationService = yield* ConversationServiceTag;
     const participants = [...params.participants];
     yield* authorizeConversationCreateCapacityOnly(participants, true);
-    // The conversation row still carries a task binding, so the agent path
-    // mints one for the conversation it is about to create.
-    const task = yield* taskService.create(ctx.agentId, {
-      appId: params.appId,
-      invitedAgentIds: participants,
-    });
-    const active = yield* taskService.setStatus(task.id, "active");
     const conversation = yield* conversationService.create({
       ...(params.name === undefined ? {} : { name: params.name }),
       agentIds: participants,
       creatorAgentId: ctx.agentId,
       appId: params.appId,
-      mintTask: Effect.succeed({ id: active.id }),
     });
     yield* fanoutConversationCreate({
-      taskId: active.id,
       conversation,
       participants: [ctx.agentId, ...participants],
       ...(params.name === undefined ? {} : { name: params.name }),
@@ -70,46 +58,47 @@ function agentConversationCreateBody(
   }).pipe(Effect.withSpan("conversation.create.agent"));
 }
 
+/**
+ * `app/conversation/create` body. The caller's own `appId` becomes the
+ * conversation's routing key, which IS the app's authority to create it:
+ * an app can only ever mint conversations it already authorizes. Membership
+ * is exactly the named participants — the app is not seeded as one.
+ * @param appId Authorizing app read off the live `AppConnection`.
+ * @param params Request payload to process.
+ * @returns The conversation create result.
+ */
 function conversationCreateBody(
   appId: AppContext["appId"],
-  params: {
-    readonly taskId: ParamsOf<typeof conversationCreateDefinition>["taskId"];
-    readonly name?: string;
-    readonly participants: readonly AgentId[];
-  },
+  params: ParamsOf<typeof conversationCreateDefinition>,
 ) {
   return Effect.gen(function* () {
-    const task = yield* assertCallerAppOwnsTask(appId, params.taskId);
-    const taskService = yield* TaskServiceTag;
     const conversationService = yield* ConversationServiceTag;
-    yield* taskService.requireAgentsAreInTaskParticipants(
-      params.taskId,
-      params.participants,
-    );
     yield* authorizeConversationCreateCapacityOnly(
       [...params.participants],
       false,
     );
+    // `conversations.created_by_id` names an agent, and an app-minted
+    // conversation has no agent author; the first named participant stands in.
+    const creatorAgentId =
+      /* Safe because the descriptor requires a non-empty participant list. */ params
+        .participants[0]!;
     const conversation = yield* conversationService.create({
-      name: params.name,
+      ...(params.name === undefined ? {} : { name: params.name }),
       agentIds: [...params.participants],
-      creatorAgentId: task.initiatorAgentId,
+      creatorAgentId,
       appId,
       seedCreatorAsParticipant: false,
-      mintTask: Effect.succeed({ id: params.taskId }),
     });
     yield* fanoutConversationCreate({
-      taskId: params.taskId,
       conversation,
       participants: params.participants,
-      name: params.name,
+      ...(params.name === undefined ? {} : { name: params.name }),
     });
     return { conversation };
   }).pipe(Effect.withSpan("conversation.create"));
 }
 
 interface ConversationCreateInput {
-  readonly taskId: ParamsOf<typeof conversationCreateDefinition>["taskId"];
   readonly conversation: Conversation;
   readonly participants: readonly AgentId[];
   readonly name?: string;
@@ -120,7 +109,6 @@ function fanoutConversationCreate(input: ConversationCreateInput) {
     [...input.participants],
     conversationCreatedNotificationDefinition,
     {
-      taskId: input.taskId,
       conversationId: input.conversation.id,
       name: input.name,
       participants: [...input.participants],
@@ -138,16 +126,14 @@ function conversationListBody(
       yield* conversationService.list(ctx.agentId, params.limit, params.cursor);
     const items: ConversationListItem[] = [];
     for (const summary of conversations) {
-      // The three per-conversation reads are independent; run them together.
-      const { conversation, participants, linkedTaskId } = yield* Effect.all({
+      // The two per-conversation reads are independent; run them together.
+      const { conversation, participants } = yield* Effect.all({
         conversation: conversationService.loadById(summary.id),
         participants: conversationService
           .getParticipantAgentIds(summary.id)
           .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS)),
-        linkedTaskId: conversationService.taskIdForConversation(summary.id),
       });
       items.push({
-        taskId: linkedTaskId,
         conversation,
         participants: [...participants],
       });
@@ -163,10 +149,6 @@ function conversationAddParticipantBody(
   return Effect.gen(function* () {
     yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
     const conversationService = yield* ConversationServiceTag;
-    const taskService = yield* TaskServiceTag;
-    yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
-      params.agentId,
-    ]);
     const current = yield* conversationService.getParticipantAgentIds(
       params.conversationId,
     );
@@ -174,7 +156,7 @@ function conversationAddParticipantBody(
       yield* conversationService.assertGroupCapacity(current.length + 1);
     }
     const { postMutationParticipants } =
-      yield* taskService.addConversationParticipant(
+      yield* conversationService.addConversationParticipant(
         params.conversationId,
         params.agentId,
       );
@@ -182,7 +164,6 @@ function conversationAddParticipantBody(
       postMutationParticipants,
       conversationParticipantsAddedNotificationDefinition,
       {
-        taskId: params.taskId,
         conversationId: params.conversationId,
         addedAgentId: params.agentId,
       },
@@ -197,9 +178,9 @@ function conversationRemoveParticipantBody(
 ) {
   return Effect.gen(function* () {
     yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
-    const taskService = yield* TaskServiceTag;
+    const conversationService = yield* ConversationServiceTag;
     const { preMutationParticipants, wasParticipant } =
-      yield* taskService.removeConversationParticipant(
+      yield* conversationService.removeConversationParticipant(
         params.conversationId,
         params.agentId,
       );
@@ -210,7 +191,6 @@ function conversationRemoveParticipantBody(
       preMutationParticipants,
       conversationParticipantsRemovedNotificationDefinition,
       {
-        taskId: params.taskId,
         conversationId: params.conversationId,
         removedAgentId: params.agentId,
         reason: "app_remove" as const,

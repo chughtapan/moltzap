@@ -37,7 +37,7 @@ export const messageId: Schema.Schema<MessageId, string> = formatString(
   Schema.annotations({ description: "Branded MessageId" }),
 );
 
-/** The referenced conversation does not exist under the task (or is not visible). */
+/** The referenced conversation does not exist (or is not visible to the caller). */
 export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(
   "ConversationNotFound",
   errorPayloadFields,
@@ -61,17 +61,6 @@ export class ConversationFullError extends Schema.TaggedError<ConversationFullEr
   static readonly message = "Conversation is full";
 }
 
-/**
- * A requested conversation participant is not admitted to the task that owns
- * the conversation.
- */
-export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantNotAdmittedError>()(
-  "ParticipantNotAdmitted",
-  errorPayloadFields,
-) {
-  static readonly message = "Agent is not admitted to the task";
-}
-
 const conversationSchemaValue = Schema.Struct({
   id: conversationId,
   name: Schema.optional(Schema.String),
@@ -81,7 +70,7 @@ const conversationSchemaValue = Schema.Struct({
   updatedAt: dateTimeString,
 });
 
-/** Conversation row visible on task conversation surfaces. */
+/** Conversation row visible on conversation surfaces. */
 export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 /** Participant row for a conversation. */

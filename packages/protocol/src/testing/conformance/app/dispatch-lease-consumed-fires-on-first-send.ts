@@ -46,7 +46,6 @@ function dispatchLeaseConsumedFiresOnFirstSend(
       });
       yield* driver.recipient.waitForRelease();
       const sent = yield* driver.recipient.sendWithLease({
-        taskId: driver.fixtures.taskId,
         conversationId: driver.fixtures.conversationId,
         leaseId: ack.leaseId,
         text: "consumed",

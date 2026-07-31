@@ -18,7 +18,7 @@ export const agentCallableDispatchRpcMethods = [dispatchRequest] as const
 
 Lists the agent callable dispatch rpc methods in dispatch order.
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L142)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L131)
 
 _Variable_
 
@@ -107,7 +107,7 @@ export const dispatchCallbackMethods = [dispatchAuthorize] as const
 
 Lists the dispatch callback methods in dispatch order.
 
-### [`DispatchDecision`](./messages.ts#L67)
+### [`DispatchDecision`](./messages.ts#L66)
 
 _TypeAlias_
 
@@ -119,7 +119,7 @@ export type DispatchDecision = Schema.Schema.Type<
 
 Per-message dispatch authorization decision persisted with the message.
 
-### [`dispatchDecisionSchema`](./messages.ts#L75)
+### [`dispatchDecisionSchema`](./messages.ts#L74)
 
 _Function_
 
@@ -310,7 +310,7 @@ export type LeaseId = string & Brand.Brand<"LeaseId">;
 
 Represents lease id values.
 
-### [`Message`](./messages.ts#L49)
+### [`Message`](./messages.ts#L48)
 
 _TypeAlias_
 
@@ -320,7 +320,7 @@ export type Message = Schema.Schema.Type<typeof messageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](./messages.ts#L183)
+### [`messageCallbackMethods`](./messages.ts#L172)
 
 _Variable_
 
@@ -330,7 +330,7 @@ export const messageCallbackMethods = [messagesAuthorize] as const
 
 Message callback RPC catalog.
 
-### [`messageNotifications`](./messages.ts#L205)
+### [`messageNotifications`](./messages.ts#L194)
 
 _Variable_
 
@@ -367,7 +367,7 @@ directly so persisted bodies cannot drift from the wire contract.
 
 **Returns:** The nonempty schema shared by all message boundaries.
 
-### [`MessageReceivedNotification`](./messages.ts#L191)
+### [`MessageReceivedNotification`](./messages.ts#L180)
 
 _TypeAlias_
 
@@ -379,7 +379,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`messageReceivedNotificationDefinition`](./messages.ts#L199)
+### [`messageReceivedNotificationDefinition`](./messages.ts#L188)
 
 _Variable_
 
@@ -392,7 +392,7 @@ export const messageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`messagesAuthorize`](./messages.ts#L174)
+### [`messagesAuthorize`](./messages.ts#L163)
 
 _Variable_
 
@@ -408,7 +408,7 @@ export const messagesAuthorize = defineRpc({
 
 Server callback asking an app for the per-message fan-out verdict.
 
-### [`messagesList`](./messages.ts#L133)
+### [`messagesList`](./messages.ts#L122)
 
 _Variable_
 
@@ -417,14 +417,15 @@ export const messagesList = defineRpc({
   name: "agent/message/list",
   params: messagesListParams,
   result: messagesListResult,
-  requires: [AgentPrincipal, ActiveAgent, TaskReadAccess, ConversationInTask],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [ForbiddenError],
 })
 ```
 
 List the newest visible messages in a conversation, returned oldest-first.
+The server enforces conversation participation.
 
-### [`messagesSend`](./messages.ts#L101)
+### [`messagesSend`](./messages.ts#L99)
 
 _Variable_
 
@@ -433,22 +434,12 @@ export const messagesSend = defineRpc({
   name: "agent/message/send",
   params: messagesSendParams,
   result: messagesSendResult,
-  requires: [
-    AgentPrincipal,
-    ActiveAgent,
-    ConversationInTask,
-    ConversationSendAccess,
-  ],
-  errors: [
-    HookBlockedError,
-    ForbiddenError,
-    DispatchNotFoundError,
-    TaskClosedError,
-  ],
+  requires: [AgentPrincipal, ActiveAgent, ConversationSendAccess],
+  errors: [HookBlockedError, ForbiddenError, DispatchNotFoundError],
 })
 ```
 
-Send a message to a conversation under a task.
+Send a message to a conversation.
 
 ### [`Part`](./parts.ts#L34)
 
@@ -460,7 +451,7 @@ export type Part = Schema.Schema.Type<typeof partSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](./messages.ts#L80)
+### [`validateDispatchDecision`](./messages.ts#L79)
 
 _Variable_
 
@@ -472,7 +463,7 @@ export const validateDispatchDecision = closedStructGuard(
 
 Return true when a value is a closed dispatch decision.
 
-### [`validateMessage`](./messages.ts#L52)
+### [`validateMessage`](./messages.ts#L51)
 
 _Variable_
 

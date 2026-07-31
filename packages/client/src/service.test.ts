@@ -15,11 +15,14 @@ import {
   testAgentId,
   testConversationId,
   testMessageId,
-  testTaskId,
 } from "./test-utils/index.js";
 
-import { agentName, agentsList } from "@moltzap/protocol/identity";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import {
+  agentName,
+  agentsList,
+  DEFAULT_APP_ID,
+} from "@moltzap/protocol/identity";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 
 const effectTest = effectIt.effect;
 
@@ -68,7 +71,7 @@ const LOOKUP_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
   agentsList.name,
 );
 const CREATE_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  taskRequest.name,
+  agentConversationCreate.name,
 );
 const SEND_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
   messagesSend.name,
@@ -108,22 +111,9 @@ const FULL_HISTORY_MESSAGE_SPACING_MS = 1_000;
 const FULL_HISTORY_EXPECTED_MESSAGES = 50;
 const STORED_MESSAGE_COUNT = 30;
 
-const TASK_ALICE_ID = testTaskId("task-alice");
-const TASK_BOB_ID = testTaskId("task-bob");
-
-const taskCreateResponse = (
-  taskId = TASK_ALICE_ID,
+const conversationCreateResponse = (
   conversationId = CONVERSATION_ALICE_ID,
 ) => ({
-  task: {
-    id: taskId,
-    appId: DEFAULT_APP_ID,
-    initiatorAgentId: AGENT_SELF_ID,
-    status: "active" as const,
-    startedAt: null,
-    endedAt: null,
-    createdAt: DEFAULT_TEST_DATE,
-  },
   conversation: {
     id: conversationId,
     createdBy: AGENT_SELF_ID,
@@ -160,7 +150,7 @@ function seedAgentLookup(
 function makeSendToAgentService(): FakeMoltZapService {
   const service = new FakeMoltZapService();
   seedAgentLookup(service);
-  service.setResponse(taskRequest, taskCreateResponse());
+  service.setResponse(agentConversationCreate, conversationCreateResponse());
   seedMessageSendResponse(service);
   return service;
 }
@@ -177,17 +167,15 @@ function sendToAgentCreatesConversation() {
         params: { limit: 100 },
       },
       {
-        method: taskRequest.name,
+        method: agentConversationCreate.name,
         params: {
           appId: DEFAULT_APP_ID,
-          invitedAgentIds: [AGENT_ALICE_ID],
-          initialConversation: { participants: [AGENT_ALICE_ID] },
+          participants: [AGENT_ALICE_ID],
         },
       },
       {
         method: messagesSend.name,
         params: {
-          taskId: TASK_ALICE_ID,
           conversationId: CONVERSATION_ALICE_ID,
           parts: [{ type: "text", text: HELLO_TEXT }],
         },
@@ -208,7 +196,6 @@ function sendToAgentCachesConversation() {
       {
         method: messagesSend.name,
         params: {
-          taskId: TASK_ALICE_ID,
           conversationId: CONVERSATION_ALICE_ID,
           parts: [{ type: "text", text: SECOND_TEXT }],
         },
@@ -224,8 +211,8 @@ function sendToAgentCachesPerAgentName() {
 
     seedAgentLookup(service, AGENT_BOB_ID, BOB_AGENT_NAME);
     service.setResponse(
-      taskRequest,
-      taskCreateResponse(TASK_BOB_ID, CONVERSATION_BOB_ID),
+      agentConversationCreate,
+      conversationCreateResponse(CONVERSATION_BOB_ID),
     );
     yield* service.sendToAgent(BOB_AGENT_NAME, HELLO_BOB_TEXT);
 
@@ -283,7 +270,7 @@ function sendToAgentLookupFailurePropagates() {
 function sendToAgentCreateFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(taskRequest);
+    service.deleteResponse(agentConversationCreate);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -339,7 +326,7 @@ describe("MoltZapService.sendToAgent lookup failures", () => {
 
 describe("MoltZapService.sendToAgent send failures", () => {
   effectTest(
-    "propagates errors from agent/task/request",
+    "propagates errors from agent/conversation/create",
     sendToAgentCreateFailurePropagates,
   );
 
@@ -1009,10 +996,7 @@ describe("MoltZapService.fanout — message handlers", () => {
       parts: [{ type: "text", text: "hi" }],
       createdAt: "2026-04-16T00:00:00.000Z",
     });
-    const event = {
-      taskId: TASK_ALICE_ID,
-      message: msg,
-    };
+    const event = { message: msg };
 
     service.emitEvent(messageReceivedNotificationDefinition, event);
 

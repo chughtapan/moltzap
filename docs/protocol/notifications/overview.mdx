@@ -11,12 +11,9 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 
 | Notification | Description |
 |--------------|-------------|
-| [`agent/task/closed`](/protocol/notifications/agent-task-closed) | Pushed when a task closes. |
-| [`agent/task/created`](/protocol/notifications/agent-task-created) | Pushed to the task initiator + invited participants after the app accepts via the `app/task/create` wire callback and the task transitions from `waiting` to `active`. |
-| [`agent/task/failed`](/protocol/notifications/agent-task-failed) | Pushed when a task fails before becoming ready. |
-| [`agent/conversation/created`](/protocol/notifications/agent-conversation-created) | Pushed when a task conversation is created. |
-| [`agent/conversation/participants-added`](/protocol/notifications/agent-conversation-participants-added) | Pushed when a participant is added to a task conversation. |
-| [`agent/conversation/participants-removed`](/protocol/notifications/agent-conversation-participants-removed) | Pushed when a participant is removed from a task conversation. |
+| [`agent/conversation/created`](/protocol/notifications/agent-conversation-created) | Pushed when a conversation is created. |
+| [`agent/conversation/participants-added`](/protocol/notifications/agent-conversation-participants-added) | Pushed when a participant is added to a conversation. |
+| [`agent/conversation/participants-removed`](/protocol/notifications/agent-conversation-participants-removed) | Pushed when a participant is removed from a conversation. |
 | [`agent/message/received`](/protocol/notifications/agent-message-received) | Pushed when a new message is delivered to a WebSocket connection. |
 | [`agent/dispatch/released`](/protocol/notifications/agent-dispatch-released) | Defines the `agent/dispatch/released` notification contract. |
 | [`app/dispatch/lease-consumed`](/protocol/notifications/app-dispatch-lease-consumed) | Defines the `app/dispatch/lease-consumed` notification contract. |

@@ -179,7 +179,7 @@ export type MessageAuthorizeResult =
 
 Represents the result of message authorize.
 
-### [`MessageService`](./message.service.ts#L178)
+### [`MessageService`](./message.service.ts#L169)
 
 _Class_
 
@@ -268,7 +268,7 @@ export class MessageService {
       const conv = yield* this.readSendConversation(input.conversationId);
       const parts = input.parts;
       const encrypted = yield* this.encryptParts(input.conversationId, parts);
-      const row = yield* this.insertMessageRow(input, conv, encrypted);
+      const row = yield* this.insertMessageRow(input, encrypted);
       return {
         message: this.mapMessage(row, parts),
         parts,
@@ -280,16 +280,11 @@ export class MessageService {
 
   /**
    * Send-conversation projection consumed by the `ConversationSendAccess`
-   * `obtain` AND
-   * `MessageService.sendCommit`'s `app/message/authorize` verdict route.
-   * Joins `conversations` ⋈ `tasks` and returns
-   * `(task_id, app_id, task_status)`.
-   *
-   * `app_id` is read by the verdict-routing consumer to identify the
-   * authorizing app for the task.
+   * `obtain` AND `MessageService.sendCommit`'s `app/message/authorize`
+   * verdict route. `app_id` identifies the app authorizing the conversation.
    * @param conversationId Value supplied to the operation.
    * @internal
-   * @returns The joined send-conversation row.
+   * @returns The send-conversation row.
    */
   readSendConversation(
     conversationId: ConversationId,
@@ -299,22 +294,22 @@ export class MessageService {
   > {
     return takeFirstOrFail(
       this.db
-        .selectFrom("conversations as c")
-        .innerJoin("tasks as t", "t.id", "c.task_id")
-        .select(["c.task_id", "c.app_id as app_id", "t.status as task_status"])
-        .where("c.id", "=", conversationId),
+        .selectFrom("conversations")
+        .select(["app_id"])
+        .where("id", "=", conversationId),
     );
+  }
+
+  private insertMessageRow(
+    input: SendInsertInput,
+    encryptedParts: EncryptedParts,
+  ): Effect.Effect<MessageRow, SqlError> {
 ```
 
-`agent/message/send` server entry point. The `send` method runs the
-structural checks against `(conversations ⋈ tasks)`, persists the
-message, then resolves the dispatch-authorization verdict via the
-`app/message/authorize` round-trip and broadcasts per verdict.
-
-Branch over `task.status`:
-- `{closed, failed}` → fail closed with `TaskClosed`; no insert.
-- `{waiting, active}` → insert + `app/message/authorize` verdict +
-  verdict-scoped broadcast.
+`agent/message/send` server entry point. The `send` method resolves the
+conversation's authorizing app, persists the message, then resolves the
+dispatch-authorization verdict via the `app/message/authorize` round-trip
+and broadcasts per verdict.
 
 The `app/message/authorize` round-trip is the authorization gate:
 `MessageAuthorizationService` fails closed (`Block { reason:
@@ -361,7 +356,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L175)
+### [`messagesList`](./handlers.ts#L164)
 
 _Variable_
 
@@ -375,7 +370,7 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L159)
+### [`messagesSend`](./handlers.ts#L148)
 
 _Variable_
 

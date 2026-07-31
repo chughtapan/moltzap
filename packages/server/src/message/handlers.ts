@@ -18,10 +18,6 @@ import {
   type LeaseRegistry,
 } from "#dispatch";
 import { MessageServiceTag } from "./layer.js";
-import {
-  guardTaskActive,
-  obtainConversationSendAccess,
-} from "#conversation/requirements";
 import { catchSqlErrorAsDefect } from "#db";
 import type { MessageService } from "./message.service.js";
 
@@ -76,6 +72,7 @@ function sendWithDispatchLease(input: LeaseSendInput) {
               conversationId: input.params.conversationId,
               parts: input.params.parts,
               senderAgentId: input.ctx.agentId,
+              taskId: input.params.taskId,
               excludeConnectionId: input.connId,
             });
             yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
@@ -104,15 +101,6 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
       const messageService = yield* MessageServiceTag;
       const leaseRegistry = yield* LeaseRegistryTag;
       const connection = yield* ConnectionTag;
-      // The `ConversationSendAccess` requirement already gates the frame. The
-      // body still needs the joined send row for the task guard, so it reads
-      // that row directly here.
-      const sendRow = yield* obtainConversationSendAccess({
-        conversationId: params.conversationId,
-        senderAgentId: ctx.agentId,
-        taskId: params.taskId,
-      });
-      yield* guardTaskActive(sendRow);
       if (params.dispatchLeaseId !== undefined) {
         return yield* sendWithDispatchLease({
           connId: connection.connId,
@@ -126,6 +114,7 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
         conversationId: params.conversationId,
         parts: params.parts,
         senderAgentId: ctx.agentId,
+        taskId: params.taskId,
         excludeConnectionId: connection.connId,
       });
       return { message };
@@ -176,8 +165,8 @@ export const messagesList: ServerHandler<typeof messagesListDefinition> = (
   params,
 ) =>
   Effect.gen(function* () {
-    // Gated by the `TaskReadAccess` + `ConversationInTask` requirements in the
-    // engine stack; the body trusts the gated `params`.
+    // Conversation participation is the whole read gate, asserted by
+    // `MessageService.list` before any row is projected.
     const ctx = yield* agentArm;
     return yield* handleMessageList(params, ctx);
   }).pipe(Effect.withSpan("messagesList"));

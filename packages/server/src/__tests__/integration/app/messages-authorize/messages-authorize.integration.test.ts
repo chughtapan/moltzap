@@ -4,12 +4,6 @@ import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
-  taskCreate,
-  taskRequest,
-  type AppId,
-  type TaskId,
-} from "@moltzap/protocol/task";
-import {
   messageReceivedNotificationDefinition,
   messagesAuthorize,
   messagesList,
@@ -19,7 +13,7 @@ import {
   conversationCreate,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
-import type { AgentId, AppManifest } from "@moltzap/protocol/identity";
+import type { AgentId, AppId, AppManifest } from "@moltzap/protocol/identity";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
@@ -53,7 +47,6 @@ const TEST_APP_MANIFEST: AppManifest = {
   hooks: {
     dispatch_authorize: { kind: "grant" },
     message_authorize: { kind: "hook", timeoutMs: 5_000 },
-    task_create: { kind: "accept" },
   },
 };
 
@@ -106,8 +99,7 @@ let appHookState: VerdictState = {
 
 /**
  * Per-test moderator app principal. Its callbacks and app-owned RPCs run on
- * the app connection; the requesting agent drives `agent/task/request` and
- * `agent/message/send`.
+ * the app connection; the requesting agent drives `agent/message/send`.
  *
  * `sender` is the requesting agent. The app creates conversations with
  * `seedCreatorAsParticipant: false`, so the sender must be listed as a
@@ -139,8 +131,8 @@ beforeEach(() =>
 );
 
 /**
- * Server→client callbacks served by the moderator app principal.
- * `app/task/create` auto-accepts; the scenarios exercise `app/message/authorize`.
+ * Server→client callbacks served by the moderator app principal. The
+ * scenarios exercise `app/message/authorize`.
  * @returns The moderator handlers result.
  */
 function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
@@ -164,19 +156,12 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
           };
         }),
     },
-    [taskCreate.name]: {
-      definition: taskCreate,
-      handle: () =>
-        Effect.succeed({ verdict: { decision: "accept" as const } }),
-    },
   };
 }
 
 function currentModeratorApp(): ModeratorApp {
   if (moderatorApp === null) {
-    throw new Error(
-      "moderatorApp: not minted — call createAppManagedTask first",
-    );
+    throw new Error("moderatorApp: not minted — call mintModeratorApp first");
   }
   return moderatorApp;
 }
@@ -237,7 +222,6 @@ function attemptPendingCasBlock(messageId: string) {
 }
 
 interface ConversationBinding {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -325,21 +309,16 @@ function expectDecisionRecipients(
 }
 
 /**
- * Mint the moderator app principal (HTTP register → `appKey` Connect),
- * wire its callbacks, then have the requesting `agent` drive the
- * agent-only `agent/task/request` against the DB-minted `appId`. The
- * server-minted `appId` (NOT `TEST_APP_MANIFEST.appId`) is what
- * `agent/task/request` targets so the app's `AppConnection` is the resolved
- * moderator endpoint. Memoizes the app client for the rest of the test so
- * subsequent conversation creates reuse one app principal.
- * @param agent Agent fixture that performs the operation.
- * @param invited Value supplied to the operation.
- * @returns The created app managed task.
+ * Mint the moderator app principal (HTTP register → `appKey` Connect) and
+ * wire its callbacks. Every conversation it creates carries its DB-minted
+ * `appId` (NOT `TEST_APP_MANIFEST.appId`) as the routing key, so the app's
+ * `AppConnection` is the resolved moderator endpoint. Memoizes the app client
+ * for the rest of the test so subsequent conversation creates reuse one app
+ * principal.
+ * @param agent The requesting agent that drives `agent/message/send`.
+ * @returns The minted moderator app.
  */
-function createAppManagedTask(
-  agent: ConnectedAgent,
-  invited: readonly ConnectedAgent[],
-) {
+function mintModeratorApp(agent: ConnectedAgent) {
   return Effect.gen(function* () {
     const registered = yield* registerApp(getBaseUrl(), TEST_APP_MANIFEST);
     const client = yield* connectAppClient(
@@ -347,11 +326,9 @@ function createAppManagedTask(
       registered.appKey,
       moderatorHandlers(),
     );
-    moderatorApp = { client, sender: agent };
-    return yield* agent.client.sendRpc(taskRequest, {
-      appId: registered.appId,
-      invitedAgentIds: invited.map((a) => a.agentId),
-    });
+    const minted: ModeratorApp = { client, sender: agent };
+    moderatorApp = minted;
+    return minted;
   });
 }
 
@@ -359,22 +336,19 @@ function createAppManagedTask(
 // (`seedCreatorAsParticipant: false`); the sender agent is added
 // explicitly so its `agent/message/send` passes the participant gate.
 function createManagedGroup(
-  taskId: TaskId,
   name: string,
   participants: readonly ConnectedAgent[],
 ) {
   const app = currentModeratorApp();
   return app.client.sendRpc(conversationCreate, {
-    taskId,
     name,
     participants: [app.sender.agentId, ...participants.map((p) => p.agentId)],
   });
 }
 
-function createManagedDm(taskId: TaskId, participant: ConnectedAgent) {
+function createManagedDm(participant: ConnectedAgent) {
   const app = currentModeratorApp();
   return app.client.sendRpc(conversationCreate, {
-    taskId,
     participants: [app.sender.agentId, participant.agentId],
   });
 }
@@ -385,7 +359,6 @@ function sendText(
   text: string,
 ) {
   return agent.client.sendRpc(messagesSend, {
-    taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
   });
@@ -400,7 +373,6 @@ function sendTextWithTimeout(
   return agent.client.sendRpc(
     messagesSend,
     {
-      taskId: binding.taskId,
       conversationId: binding.conversationId,
       parts: [{ type: "text", text }],
     },
@@ -413,12 +385,9 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
     const { alice, bob } = yield* setupAgentPair();
     appHookState.next = { decision: DECISION_BLOCK, reason: BLOCK_REASON };
 
-    const task = yield* createAppManagedTask(alice, [bob]);
-    const conv = yield* createManagedGroup(task.task.id, CONV_NAME_BLOCK, [
-      bob,
-    ]);
+    yield* mintModeratorApp(alice);
+    const conv = yield* createManagedGroup(CONV_NAME_BLOCK, [bob]);
     const binding: ConversationBinding = {
-      taskId: task.task.id,
       conversationId: conv.conversation.id,
     };
     const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
@@ -445,10 +414,9 @@ function tmUnreachableSynthesizesBlock() {
     const { alice, bob } = yield* setupAgentPair();
     appHookState.next = { kind: NEVER_REPLY };
 
-    const task = yield* createAppManagedTask(alice, [bob]);
-    const conv = yield* createManagedDm(task.task.id, bob);
+    yield* mintModeratorApp(alice);
+    const conv = yield* createManagedDm(bob);
     const binding: ConversationBinding = {
-      taskId: task.task.id,
       conversationId: conv.conversation.id,
     };
     const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
@@ -473,14 +441,13 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
     const carol = yield* registerAndConnect("carol-sub");
     const dave = yield* registerAndConnect("dave-sub");
 
-    const task = yield* createAppManagedTask(alice, [bob, carol, dave]);
-    const conv = yield* createManagedGroup(task.task.id, CONV_NAME_SUBSET, [
+    yield* mintModeratorApp(alice);
+    const conv = yield* createManagedGroup(CONV_NAME_SUBSET, [
       bob,
       carol,
       dave,
     ]);
     const binding: ConversationBinding = {
-      taskId: task.task.id,
       conversationId: conv.conversation.id,
     };
     appHookState.next = {
@@ -515,10 +482,9 @@ function forwardEmptySendsNoFanout() {
     const { alice, bob } = yield* setupAgentPair();
     appHookState.next = { decision: DECISION_FORWARD, recipients: [] };
 
-    const task = yield* createAppManagedTask(alice, [bob]);
-    const conv = yield* createManagedDm(task.task.id, bob);
+    yield* mintModeratorApp(alice);
+    const conv = yield* createManagedDm(bob);
     const binding: ConversationBinding = {
-      taskId: task.task.id,
       conversationId: conv.conversation.id,
     };
     const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
@@ -571,7 +537,6 @@ function expectPerCallerVisibility(input: VisibilityCheckInput) {
   const { alice, bob, carol, binding, forwarded } = input;
   return Effect.gen(function* () {
     const aliceList = yield* alice.client.sendRpc(messagesList, {
-      taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
     const allIds = (yield* readAllMessageIdsForConversation(
@@ -585,14 +550,12 @@ function expectPerCallerVisibility(input: VisibilityCheckInput) {
         .sort((left, right) => left.localeCompare(right)),
     ).toEqual(allIds);
     const bobList = yield* bob.client.sendRpc(messagesList, {
-      taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
     expect(bobList.messages.map((m) => m.id)).toEqual([
       forwarded.bobForward.message.id,
     ]);
     const carolList = yield* carol.client.sendRpc(messagesList, {
-      taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
     expect(carolList.messages.map((m) => m.id)).toEqual([
@@ -606,13 +569,9 @@ function senderAndRecipientsSeeOnlyAuthorizedRows() {
     const alice = yield* registerAndConnect("alice-vis");
     const bob = yield* registerAndConnect("bob-vis");
     const carol = yield* registerAndConnect("carol-vis");
-    const task = yield* createAppManagedTask(alice, [bob, carol]);
-    const conv = yield* createManagedGroup(task.task.id, CONV_NAME_VISIBILITY, [
-      bob,
-      carol,
-    ]);
+    yield* mintModeratorApp(alice);
+    const conv = yield* createManagedGroup(CONV_NAME_VISIBILITY, [bob, carol]);
     const binding: ConversationBinding = {
-      taskId: task.task.id,
       conversationId: conv.conversation.id,
     };
     const forwarded = yield* sendThreeAuthorizedMessages({
@@ -634,10 +593,9 @@ function senderAndRecipientsSeeOnlyAuthorizedRows() {
 function casGuardPreservesCommittedVerdict() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const task = yield* createAppManagedTask(alice, [bob]);
-    const conv = yield* createManagedDm(task.task.id, bob);
+    yield* mintModeratorApp(alice);
+    const conv = yield* createManagedDm(bob);
     const binding: ConversationBinding = {
-      taskId: task.task.id,
       conversationId: conv.conversation.id,
     };
 
@@ -675,9 +633,9 @@ describe("app/message/authorize — block verdict paths", () => {
   );
 
   // DEFAULT_APP_ID is boot-installed in-process; no connected app can
-  // register over it. The app/message/authorize
-  // verdict for DEFAULT_APP_ID tasks is fixed to the default Forward
-  // policy and cannot be overridden.
+  // register over it. The app/message/authorize verdict for
+  // DEFAULT_APP_ID conversations is fixed to the default Forward policy
+  // and cannot be overridden.
 });
 
 describe("app/message/authorize — forward verdict paths", () => {

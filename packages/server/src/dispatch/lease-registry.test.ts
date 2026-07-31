@@ -7,7 +7,6 @@ import {
   connectionId,
   conversationId,
   messageId,
-  taskId,
 } from "@moltzap/protocol/testing";
 import { Deferred, Effect, Either, Fiber, Option, TestClock } from "effect";
 import { describe, expect } from "vitest";
@@ -38,7 +37,6 @@ const BINDING = {
   recipientConnectionId: connectionId("00000000-0000-4000-8000-00000000c737"),
   moderatorConnectionId: connectionId("00000000-0000-4000-8000-00000000c738"),
   conversationId: conversationId("00000000-0000-4000-8000-00000000d737"),
-  taskId: taskId("00000000-0000-4000-8000-00000000e737"),
   appId: appId("00000000-0000-4000-8000-00000000f737"),
 } satisfies ModeratorBoundLeaseBinding;
 

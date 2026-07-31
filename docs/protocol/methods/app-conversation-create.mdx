@@ -1,25 +1,17 @@
 ---
 title: "app/conversation/create"
-description: "App-only: mint a new conversation under an existing task."
+description: "App-only: mint a conversation the calling app authorizes."
 ---
 
 # app/conversation/create
 
-App-only: mint a new conversation under an existing task. Every
-entry in `participants` MUST already appear in `task_participants`
-for `taskId`; violations return `ParticipantNotAdmittedError`.
+App-only: mint a conversation the calling app authorizes. The
+conversation's app routing key is the caller's own `appId`.
 
-- **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
-  handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
-  non-owner before the body); the server handler performs capacity-only
-  authorization inline, and targets are gated by
-  `requireAgentsAreInTaskParticipants`.
+- **Principal:** `AppPrincipal` head. The server handler performs
+  capacity-only authorization inline.
 
 ## Parameters
-
-<ParamField path="taskId" type="string (UUID)" required>
-  Branded TaskId
-</ParamField>
 
 <ParamField path="name" type="string">
   
@@ -39,8 +31,6 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
 
 | Type | When |
 |------|------|
-| `ForbiddenError` | the caller does not own the task |
-| `TaskNotFoundError` | the task does not exist |
+| `ForbiddenError` | the caller may not create the conversation |
 | `AgentNotFoundError` | a listed participant agent does not exist |
-| `ParticipantNotAdmittedError` | a participant is not admitted to the task |
 | `ConversationFullError` | the conversation is at capacity |

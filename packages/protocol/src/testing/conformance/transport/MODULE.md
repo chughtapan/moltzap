@@ -17,7 +17,7 @@ by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireProxiedClient`](./_helpers.ts#L86)
+### [`acquireProxiedClient`](./_helpers.ts#L84)
 
 _Function_
 
@@ -39,7 +39,7 @@ Acquire an agent client that routes through the Toxiproxy proxy.
 
 **Returns:** The acquire proxied client result.
 
-### [`ADVERSITY_CATEGORY`](./_helpers.ts#L32)
+### [`ADVERSITY_CATEGORY`](./_helpers.ts#L30)
 
 _Variable_
 
@@ -49,7 +49,7 @@ export const ADVERSITY_CATEGORY = "adversity"
 
 Provides the adversity category runtime value.
 
-### [`adversityViolation`](./_helpers.ts#L44)
+### [`adversityViolation`](./_helpers.ts#L42)
 
 _Function_
 
@@ -64,7 +64,7 @@ Executes the adversity violation operation.
 
 **Returns:** The adversity violation result.
 
-### [`createOneOnOneConversation`](./_helpers.ts#L263)
+### [`createOneOnOneConversation`](./_helpers.ts#L261)
 
 _Function_
 
@@ -74,7 +74,7 @@ export function createOneOnOneConversation(
   participant: { agent: TestAgent; client: AgentTestClient },
   propertyName: string,
 ): Effect.Effect<
-  { taskId: TaskId; conversationId: ConversationId },
+  { conversationId: ConversationId },
   PropertyInvariantViolation
 >
 ```
@@ -83,7 +83,7 @@ Creates one on one conversation.
 
 **Returns:** The created one on one conversation.
 
-### [`proxyName`](./_helpers.ts#L68)
+### [`proxyName`](./_helpers.ts#L66)
 
 _Function_
 
@@ -95,7 +95,7 @@ Executes the proxy name operation.
 
 **Returns:** The proxy name result.
 
-### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L28)
+### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L27)
 
 _Function_
 
@@ -135,7 +135,7 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void
 
 Registers timeout surface.
 
-### [`ToxicBodyParams`](./_helpers.ts#L137)
+### [`ToxicBodyParams`](./_helpers.ts#L135)
 
 _Interface_
 
@@ -182,7 +182,7 @@ export const TRANSPORT_PROPERTIES: ReadonlyArray<
 All transport-layer property registrars, in the order
 `_shared/suite.ts` invokes them.
 
-### [`withToxicProxy`](./_helpers.ts#L156)
+### [`withToxicProxy`](./_helpers.ts#L154)
 
 _Function_
 

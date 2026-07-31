@@ -20,7 +20,7 @@ import {
   type RpcDefinitionAny,
   ForbiddenError,
 } from "@moltzap/protocol/rpc";
-import { type TaskId, TaskClosedError } from "@moltzap/protocol/task";
+import { HookBlockedError, type TaskId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
@@ -101,10 +101,9 @@ type DispatchCallWithContext = DispatchCall & {
   };
 };
 type SendFn = (
-  taskId: TaskId,
   conversationId: ConversationId,
   text: string,
-  opts?: { readonly dispatchLeaseId?: LeaseId },
+  opts?: { readonly dispatchLeaseId?: LeaseId; readonly taskId?: TaskId },
 ) => Effect.Effect<void, ServiceRpcError>;
 type SendToAgentFn = (
   agentName: string,
@@ -177,8 +176,11 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
   it("sendText reports sendToAgent failures", reportsSendToAgentFailure);
   it("sendText reports disconnected clients", reportsDisconnectedClient);
   it("sendText reports send failures", reportsSendFailure);
-  it("deliver treats TaskClosed as terminal consumed", taskClosedIsConsumed);
-  it("deliver reports non-TaskClosed RPC failures", nonTaskClosedFails);
+  it(
+    "deliver treats an app hook block as terminal consumed",
+    hookBlockIsConsumed,
+  );
+  it("deliver reports transient RPC send failures", sendFailureIsReported);
   it(
     "lease guard stays unconsumed on transient send failure",
     leaseGuardUnconsumedOnTransientFailure,
@@ -472,9 +474,9 @@ function sendsToConversation() {
     });
     expectSuccessfulSend(result);
     expect(mockSend).toHaveBeenCalledWith(
-      OUTBOUND_TASK_ID,
       OUTBOUND_CONVERSATION_ID,
       OUTBOUND_TEXT,
+      { taskId: OUTBOUND_TASK_ID },
     );
   });
 }
@@ -575,9 +577,9 @@ function serverRejected(): Effect.Effect<void, ServiceRpcError> {
   );
 }
 
-function taskClosedIsConsumed() {
+function hookBlockIsConsumed() {
   return Effect.gen(function* () {
-    mockSend.mockReturnValueOnce(taskClosed());
+    mockSend.mockReturnValueOnce(hookBlocked());
     yield* emitMessage();
     yield* waitForDispatchTimes(1);
     const result = yield* deliverFinal(REPLY_TEXT);
@@ -585,15 +587,15 @@ function taskClosedIsConsumed() {
   });
 }
 
-function taskClosed(): Effect.Effect<void, ServiceRpcError> {
+function hookBlocked(): Effect.Effect<void, ServiceRpcError> {
   return Effect.fail(
-    new TaskClosedError({
-      message: TaskClosedError.message,
+    new HookBlockedError({
+      message: HookBlockedError.message,
     }),
   );
 }
 
-function nonTaskClosedFails() {
+function sendFailureIsReported() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
@@ -611,7 +613,7 @@ function nonTaskClosedFails() {
 
 /**
  * Regression test for the r1 lease-consume ordering fix (PR #622 codex P2):
- * a transient `core.sendReply` failure (non-TaskClosed RPC error) MUST leave
+ * a transient `core.sendReply` failure MUST leave
  * the per-message `LeaseGuard` unconsumed, so a retried `deliver(...)` call
  * still drives the send path. Without the fix in
  * `openclaw-entry.ts → createLeaseConsumingDeliver` + `sendDeliveredReply`

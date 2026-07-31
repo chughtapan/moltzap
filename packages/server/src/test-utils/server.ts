@@ -421,7 +421,6 @@ export function resetCoreTestDb() {
       }
       yield* execPglite(`
     TRUNCATE TABLE
-      task_participants, tasks,
       messages,
       conversation_participants, conversation_keys, conversations,
       agents, encryption_keys

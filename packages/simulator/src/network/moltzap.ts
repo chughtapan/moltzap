@@ -1,13 +1,18 @@
 /** @file MoltZap implementation of the simulator router service. */
 
-import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
+import {
+  DEFAULT_APP_ID,
+  type AgentId,
+  type AgentKey,
+  type AgentName,
+} from "@moltzap/protocol/identity";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
 } from "@moltzap/protocol/message";
 import { httpBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import { MoltZapAgentClient } from "@moltzap/protocol/socket";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
   type AgentConnection,
   type AttachedEndpoint,
@@ -143,34 +148,20 @@ function openConversationWith(
 ): EndpointTransport["openConversation"] {
   return (participants: ParticipantIds) =>
     client
-      .callDefinition(taskRequest, {
+      .callDefinition(agentConversationCreate, {
         appId: DEFAULT_APP_ID,
-        invitedAgentIds: participants,
-        initialConversation: { participants },
+        participants,
       })
       .pipe(
         Effect.mapError((cause) => fail("open-conversation", cause)),
-        Effect.flatMap((result) =>
-          result.conversation === null
-            ? Effect.fail(
-                fail(
-                  "open-conversation",
-                  "task request returned no initial conversation",
-                ),
-              )
-            : Effect.succeed({
-                taskId: result.task.id,
-                conversationId: result.conversation.id,
-              }),
-        ),
+        Effect.map((result) => ({ conversationId: result.conversation.id })),
       );
 }
 
 function sendWith(client: MoltZapAgentClient): EndpointTransport["send"] {
-  return (taskId, conversationId, parts) =>
+  return (conversationId, parts) =>
     client
       .callDefinition(messagesSend, {
-        taskId,
         conversationId,
         parts,
       })

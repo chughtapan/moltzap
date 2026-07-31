@@ -15,16 +15,14 @@
  * to admit, dispatch proceeds (no admission gate); when an app IS wired
  * and severs mid-flight, dispatch sees the deny verdict.
  *
- * The tasks/* layer creates a task without bootstrapping the
- * manifest-declared conversation map, so this property cannot assemble
- * the dispatch precondition (a non-empty conversation attached to the
- * task) without an app-registration step that is out of scope for the
- * conformance fixture. Property reports `PropertyUnavailable` until a
- * follow-up issue wires the app-topology dispatch precondition. Property
- * ID stays `boundary/app-disconnect-fail-policy`.
+ * The conformance fixture registers the app but does not bootstrap the
+ * manifest-declared conversation map, so this property cannot assemble the
+ * dispatch precondition (a non-empty conversation the app authorizes).
+ * Property reports `PropertyUnavailable` until the app-topology dispatch
+ * precondition is wired. Property ID stays
+ * `boundary/app-disconnect-fail-policy`.
  */
 import { Effect, type Scope } from "effect";
-import { taskRequest } from "#task";
 import { makeAgentTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp, type TestApp } from "../_shared/test-app.js";
@@ -34,6 +32,13 @@ import { PropertyUnavailable, registerProperty } from "../_shared/registry.js";
 const CATEGORY = "boundary";
 const PROPERTY = "app-disconnect-fail-policy";
 const DEFAULT_TIMEOUT_MS = 3000;
+
+/**
+ * Reason this property reports as unavailable. The suite's allowed
+ * coverage-gap table matches on this text, so both sides read one constant.
+ */
+export const MISSING_TOPOLOGY_REASON =
+  "conformance fixture does not bootstrap the app-topology dispatch precondition";
 
 const unavailable = (reason: string): PropertyUnavailable =>
   new PropertyUnavailable({
@@ -127,7 +132,7 @@ function missingTopologyUnavailable() {
     new PropertyUnavailable({
       category: CATEGORY,
       name: PROPERTY,
-      reason: `${taskRequest.name} does not bootstrap session conversations; needs app-topology dispatch precondition`,
+      reason: MISSING_TOPOLOGY_REASON,
     }),
   );
 }

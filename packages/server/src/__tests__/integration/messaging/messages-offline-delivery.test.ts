@@ -8,18 +8,20 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Fiber } from "effect";
 import {
-  DEFAULT_APP_ID,
-  taskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
-import {
   messageReceivedNotificationDefinition,
   messagesList,
   messagesSend,
   type Message,
 } from "@moltzap/protocol/message";
-import type { AgentKey, AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import {
+  DEFAULT_APP_ID,
+  type AgentKey,
+  type AgentId,
+} from "@moltzap/protocol/identity";
+import {
+  agentConversationCreate,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
 import {
   awaitOneNotification,
   startTestServerEffect,
@@ -101,7 +103,6 @@ function connectTracked(agentId: AgentId, apiKey: AgentKey) {
 }
 
 interface GroupBinding {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -109,19 +110,11 @@ function setupGroupConversation(
   agents: ThreeAgents,
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
-    const created = yield* agents.tm.sendRpc(taskRequest, {
+    const created = yield* agents.tm.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [agents.senderAgentId, agents.recipientAgentId],
-      initialConversation: {
-        participants: [agents.senderAgentId, agents.recipientAgentId],
-      },
+      participants: [agents.senderAgentId, agents.recipientAgentId],
     });
-    return {
-      taskId: created.task.id,
-      conversationId:
-        /* Safe because the test fixture establishes this asserted shape. */ created
-          .conversation!.id,
-    };
+    return { conversationId: created.conversation.id };
   });
 }
 
@@ -143,7 +136,6 @@ function sendText(
   text: string,
 ) {
   return client.sendRpc(messagesSend, {
-    taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
   });
@@ -173,7 +165,6 @@ function commitsWhenParticipantIsOffline() {
       agents.recipientApiKey,
     );
     const listed = yield* reconnectedRecipient.sendRpc(messagesList, {
-      taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
     expect(sentMessageTexts(listed.messages)).toContain(OFFLINE_TEXT);

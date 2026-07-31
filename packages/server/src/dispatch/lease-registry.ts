@@ -11,7 +11,6 @@ import {
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 import {
   type dispatchLeaseGet,
   type DispatchId,
@@ -102,7 +101,6 @@ export interface ModeratorBoundLeaseBinding {
   readonly recipientConnectionId: ConnectionId;
   readonly conversationId: ConversationId;
   readonly moderatorConnectionId: ConnectionId;
-  readonly taskId: TaskId;
   readonly appId: AppId;
 }
 
@@ -148,8 +146,7 @@ export interface LeaseRecord {
 
 /**
  * Lease mint result. Both ids are branded — calling code cannot
- * accidentally confuse them with `MessageId` / `TaskId` / generic
- * strings.
+ * accidentally confuse them with `MessageId` / generic strings.
  */
 interface LeaseMintResult {
   readonly leaseId: LeaseId;
@@ -517,7 +514,6 @@ export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire {
     dispatchId: record.dispatchId,
     leaseId: record.leaseId,
     conversationId: record.binding.conversationId,
-    taskId: record.binding.taskId,
     appId: record.binding.appId,
     recipientAgentId: record.binding.recipientAgentId,
     moderatorConnectionId: record.binding.moderatorConnectionId,

@@ -9,7 +9,6 @@ import {
   conversationId,
   messageId,
   redactedAgentKey,
-  taskId,
 } from "@moltzap/protocol/testing";
 import {
   makeRouterStopReport,
@@ -29,7 +28,6 @@ import { MoltZapServerFailed } from "./server.js";
 const it = effectIt.scoped;
 const STARTUP_TIMEOUT = Duration.seconds(10);
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43100");
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000101");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
 const agentName = Schema.decodeSync(agentNameSchema);
@@ -62,7 +60,6 @@ function harness(): Harness {
   const identities = new Map<string, number>();
   const stopped = makeRouterStopReport([
     {
-      taskId: TASK_ID,
       conversationId: CONVERSATION_ID,
       messageId: MESSAGE_ID,
       senderId: id(1),
@@ -161,7 +158,6 @@ describe("MoltZap router", () => {
       const stopped = yield* router.stopped;
       expect(stopped.committedMessages).toEqual([
         {
-          taskId: TASK_ID,
           conversationId: CONVERSATION_ID,
           messageId: MESSAGE_ID,
           senderId: id(1),

@@ -113,7 +113,7 @@ Executes the dispatch admission violation operation.
 
 **Returns:** The dispatch admission violation result.
 
-### [`DispatchTestDriver`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L273)
+### [`DispatchTestDriver`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L265)
 
 _Interface_
 
@@ -122,7 +122,6 @@ export interface DispatchTestDriver {
   readonly recipient: RecipientHandle;
   readonly moderator: ModeratorHandle;
   readonly fixtures: {
-    readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
     readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
   };
 
@@ -160,10 +159,9 @@ export interface DispatchTestDriver {
 
 Cross-impl driver. One `DispatchTestDriver` instance per property,
 acquired under the property's `Scope`. Wires up the real server,
-recipient + moderator clients, and shared task / conversation
-fixtures.
+recipient + moderator clients, and the shared conversation fixture.
 
-### [`DispatchVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L89)
+### [`DispatchVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L84)
 
 _TypeAlias_
 
@@ -253,7 +251,7 @@ export interface LeaseIdOnlyView {
 
 Describes lease id only view.
 
-### [`LeaseState`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L100)
+### [`LeaseState`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L95)
 
 _TypeAlias_
 
@@ -274,7 +272,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L938)
+### [`makeDispatchTestDriver`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L923)
 
 _Function_
 
@@ -294,7 +292,19 @@ exact failure mode the per-property scope prevents.
 
 **Returns:** The created dispatch test driver.
 
-### [`ModeratorHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L200)
+### [`MISSING_TOPOLOGY_REASON`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/app-disconnect-fail-policy.ts#L40)
+
+_Variable_
+
+```ts
+export const MISSING_TOPOLOGY_REASON =
+  "conformance fixture does not bootstrap the app-topology dispatch precondition"
+```
+
+Reason this property reports as unavailable. The suite's allowed
+coverage-gap table matches on this text, so both sides read one constant.
+
+### [`ModeratorHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L194)
 
 _Interface_
 
@@ -316,7 +326,6 @@ export interface ModeratorHandle {
   readonly handleAuthorize: (opts: {
     readonly respondWith: DispatchVerdict;
     readonly predicate?: (params: {
-      readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
       readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
       readonly messageId: Schema.Schema.Type<typeof messageId>;
     }) => boolean;
@@ -390,7 +399,7 @@ export const NO_SECOND_RELEASE_WINDOW_MS = 250
 
 Provides the no second release window ms runtime value.
 
-### [`RecipientHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L118)
+### [`RecipientHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L113)
 
 _Interface_
 
@@ -441,7 +450,6 @@ export interface RecipientHandle {
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
     readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
     readonly leaseId: Schema.Schema.Type<typeof leaseId>;
     readonly text: string;
@@ -463,7 +471,7 @@ server under a recipient agent identity. All methods return Effects
 scoped to the surrounding `Scope`; releasing the scope closes the
 underlying agent client.
 
-### [`registerAppDisconnectFailPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/app-disconnect-fail-policy.ts#L49)
+### [`registerAppDisconnectFailPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/app-disconnect-fail-policy.ts#L54)
 
 _Function_
 

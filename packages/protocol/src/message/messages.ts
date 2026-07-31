@@ -5,13 +5,9 @@
 import { Schema } from "effect";
 import { agentId } from "#identity/agents";
 import { conversationId, messageId } from "#conversation";
-import {
-  ConversationInTask,
-  ConversationSendAccess,
-} from "#conversation/requirements";
-import { TaskReadAccess } from "#task/requirements";
+import { ConversationSendAccess } from "#conversation/requirements";
 import { DispatchNotFoundError, leaseId } from "#message/dispatch";
-import { HookBlockedError, TaskClosedError, taskId } from "#task";
+import { HookBlockedError, taskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
   listLimitSchema,
@@ -35,9 +31,12 @@ export type { MessageParts, Part } from "./parts.js";
 const dateTimeString = dateTimeStringSchema();
 const messageParts = messagePartsSchema();
 
+// `taskId` is an opaque endpoint label the server carries and echoes; a
+// message pinned to no label omits it.
 const messageSchema = Schema.Struct({
   id: messageId,
   conversationId: conversationId,
+  taskId: Schema.optional(taskId),
   senderId: agentId,
   parts: messageParts,
   taggedEntities: Schema.optional(Schema.Array(agentId)),
@@ -82,7 +81,7 @@ export const validateDispatchDecision = closedStructGuard(
 );
 
 const messagesSendParams = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   parts: messageParts,
   dispatchLeaseId: Schema.optional(leaseId),
@@ -91,10 +90,9 @@ const messagesSendParams = Schema.Struct({
 const messagesSendResult = Schema.Struct({ message: messageSchema });
 
 /**
- * Send a message to a conversation under a task.
+ * Send a message to a conversation.
  * @error DispatchNotFoundError when the dispatch lease is missing
  * @error ForbiddenError when the sender cannot post or the dispatch lease is consumed/invalid
- * @error TaskClosedError when the task is closed or failed
  * @error HookBlockedError when an app-side send hook blocks the message
  * @relatedNotification agent/message/received
  */
@@ -102,22 +100,12 @@ export const messagesSend = defineRpc({
   name: "agent/message/send",
   params: messagesSendParams,
   result: messagesSendResult,
-  requires: [
-    AgentPrincipal,
-    ActiveAgent,
-    ConversationInTask,
-    ConversationSendAccess,
-  ],
-  errors: [
-    HookBlockedError,
-    ForbiddenError,
-    DispatchNotFoundError,
-    TaskClosedError,
-  ],
+  requires: [AgentPrincipal, ActiveAgent, ConversationSendAccess],
+  errors: [HookBlockedError, ForbiddenError, DispatchNotFoundError],
 });
 
 const messagesListParams = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   limit: listLimitSchema,
 });
@@ -128,13 +116,14 @@ const messagesListResult = Schema.Struct({
 
 /**
  * List the newest visible messages in a conversation, returned oldest-first.
+ * The server enforces conversation participation.
  * @error ForbiddenError when the caller is not a participant of the conversation
  */
 export const messagesList = defineRpc({
   name: "agent/message/list",
   params: messagesListParams,
   result: messagesListResult,
-  requires: [AgentPrincipal, ActiveAgent, TaskReadAccess, ConversationInTask],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [ForbiddenError],
 });
 
@@ -145,7 +134,7 @@ export const agentCallableMessageRpcMethods = [
 ] as const;
 
 const messagesAuthorizeContextSchema = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   appId: Schema.String,
   conversationId: conversationId,
   message: Schema.Struct({
@@ -183,7 +172,7 @@ export const messagesAuthorize = defineRpc({
 export const messageCallbackMethods = [messagesAuthorize] as const;
 
 const messageReceivedNotificationSchema = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   message: messageSchema,
 });
 

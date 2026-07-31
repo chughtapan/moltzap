@@ -8,7 +8,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](./app-endpoint.ts#L51)
+### [`AppEndpointHandlers`](./app-endpoint.ts#L49)
 
 _TypeAlias_
 
@@ -20,11 +20,11 @@ export type AppEndpointHandlers = {
 
 Mapped over the closed `AnyAppCallbackRpcDefinition` union, keyed
 by each definition's wire name. Mandates one handler per
-task-callback RPC at construction time — adding a new entry to
+app-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L59)
+### [`AwaitNotificationError`](./helpers.ts#L58)
 
 _TypeAlias_
 
@@ -36,7 +36,7 @@ export type AwaitNotificationError =
 
 Represents await notification error conditions.
 
-### [`awaitOneNotification`](./helpers.ts#L74)
+### [`awaitOneNotification`](./helpers.ts#L73)
 
 _Function_
 
@@ -56,7 +56,7 @@ connection from masquerading as a missing notification.
 
 **Returns:** The await one notification result.
 
-### [`closeAllClients`](./helpers.ts#L186)
+### [`closeAllClients`](./helpers.ts#L185)
 
 _Function_
 
@@ -68,7 +68,7 @@ Executes the close all clients operation.
 
 **Returns:** The close all clients result.
 
-### [`connectAppClient`](./helpers.ts#L336)
+### [`connectAppClient`](./helpers.ts#L335)
 
 _Function_
 
@@ -84,7 +84,7 @@ Executes the connect app client operation.
 
 **Returns:** The connect app client result.
 
-### [`ConnectedAgent`](./helpers.ts#L114)
+### [`ConnectedAgent`](./helpers.ts#L113)
 
 _Interface_
 
@@ -99,7 +99,7 @@ export interface ConnectedAgent {
 
 Describes connected agent.
 
-### [`connectTestClient`](./helpers.ts#L261)
+### [`connectTestClient`](./helpers.ts#L260)
 
 _Function_
 
@@ -251,7 +251,7 @@ export interface CoreTestSpanExporterPort {
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](./helpers.ts#L229)
+### [`createTestAgent`](./helpers.ts#L228)
 
 _Function_
 
@@ -278,7 +278,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 
 Validates and decodes default test admin user id values.
 
-### [`getBaseUrl`](./server.ts#L465)
+### [`getBaseUrl`](./server.ts#L464)
 
 _Function_
 
@@ -290,7 +290,7 @@ Returns base url.
 
 **Returns:** The get base url result.
 
-### [`getCoreDb`](./server.ts#L441)
+### [`getCoreDb`](./server.ts#L440)
 
 _Function_
 
@@ -302,7 +302,7 @@ Returns core db.
 
 **Returns:** The get core db result.
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L454)
+### [`getCoreEncryptionEnvelope`](./server.ts#L453)
 
 _Function_
 
@@ -314,7 +314,7 @@ Returns core encryption envelope.
 
 **Returns:** The get core encryption envelope result.
 
-### [`getWsUrl`](./server.ts#L476)
+### [`getWsUrl`](./server.ts#L475)
 
 _Function_
 
@@ -363,7 +363,7 @@ existing field's signature does.
 
 **Returns:** The created fake service.
 
-### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L97)
+### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L95)
 
 _Function_
 
@@ -450,7 +450,7 @@ export type PgliteHarnessError =
 
 Represents pglite harness error conditions.
 
-### [`postJson`](./helpers.ts#L377)
+### [`postJson`](./helpers.ts#L376)
 
 _Function_
 
@@ -468,7 +468,7 @@ repeated request/JSON boilerplate.
 
 **Returns:** The post json result.
 
-### [`registerAgent`](./helpers.ts#L204)
+### [`registerAgent`](./helpers.ts#L203)
 
 _Function_
 
@@ -484,7 +484,7 @@ Registers agent.
 
 **Returns:** The register agent result.
 
-### [`registerAndConnect`](./helpers.ts#L357)
+### [`registerAndConnect`](./helpers.ts#L356)
 
 _Function_
 
@@ -498,7 +498,7 @@ Register and connect an agent. Tracked for automatic cleanup.
 
 **Returns:** The register and connect result.
 
-### [`registerApp`](./helpers.ts#L304)
+### [`registerApp`](./helpers.ts#L303)
 
 _Function_
 
@@ -529,7 +529,7 @@ Executes the reset core test db operation.
 
 **Returns:** The reset core test db result.
 
-### [`setupAgentGroup`](./helpers.ts#L486)
+### [`setupAgentGroup`](./helpers.ts#L485)
 
 _Function_
 
@@ -541,7 +541,6 @@ export function setupAgentGroup(
   {
     agents: ConnectedAgent[];
     conversationId?: ConversationId;
-    taskId?: TaskId;
   },
   Error
 >
@@ -551,7 +550,7 @@ Create N agents, all connected. Optionally create a group conversation.
 
 **Returns:** The setup agent group result.
 
-### [`setupAgentPair`](./helpers.ts#L468)
+### [`setupAgentPair`](./helpers.ts#L467)
 
 _Function_
 
@@ -632,7 +631,7 @@ Executes the stop core test server operation.
 
 **Returns:** The stop core test server result.
 
-### [`trackClient`](./helpers.ts#L178)
+### [`trackClient`](./helpers.ts#L177)
 
 _Function_
 

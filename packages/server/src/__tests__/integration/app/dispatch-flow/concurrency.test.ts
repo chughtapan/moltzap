@@ -199,13 +199,13 @@ function sameLeaseSendsCommitExactlyOnce() {
 
 describe("dispatch/* — concurrency", () => {
   it(
-    "cross-conversation concurrency: two agent/dispatch/request in different (taskId, conversationId) run concurrently",
+    "cross-conversation concurrency: two agent/dispatch/request in different conversations run concurrently",
     crossConversationRequestsRunConcurrently,
     25_000,
   );
 
   it(
-    "same-conversation concurrency: two agent/dispatch/request in same (taskId, conversationId) run concurrently",
+    "same-conversation concurrency: two agent/dispatch/request in the same conversation run concurrently",
     sameConversationRequestsRunConcurrently,
     25_000,
   );

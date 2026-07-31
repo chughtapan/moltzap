@@ -4,28 +4,28 @@ import { Effect } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
-import { testAgentId, testConversationId, testTaskId } from "./ids.js";
+import { testAgentId, testConversationId } from "./ids.js";
 import type { ChannelService, DispatchReleaseFrame } from "../channel-core.js";
 import type { CrossConversationEntry, CrossConvMessage } from "../service.js";
 
-type MessageHandler = (payload: { taskId: TaskId; message: Message }) => void;
+type MessageHandler = (payload: { taskId?: TaskId; message: Message }) => void;
 type VoidHandler = () => void;
 type DispatchReleaseHandler = (frame: DispatchReleaseFrame) => void;
 type ServiceEvent = "message" | "disconnect" | "dispatchRelease";
 type ServiceHandler = MessageHandler | VoidHandler | DispatchReleaseHandler;
 
 interface SentReply {
-  taskId: string;
   convId: string;
   text: string;
   dispatchLeaseId?: string;
+  taskId?: string;
 }
 
 interface SendFixtureReplyInput {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly text: string;
   readonly dispatchLeaseId?: string;
+  readonly taskId?: TaskId;
 }
 
 interface FixtureConversationMeta {
@@ -49,7 +49,6 @@ interface ChannelServiceFixtureStore {
   readonly closeCalls: { count: number };
   connectResult: unknown;
   ownAgentId?: string;
-  fallbackTaskId: TaskId;
 }
 
 const agentKey = (id: string): string => testAgentId(id);
@@ -83,11 +82,7 @@ export interface ChannelServiceState {
   setFullMessages(currentConvId: string, messages: CrossConvMessage[]): void;
   setResolveAgentNameFailure(agentId: string, err: Error): void;
   setConnectResult(result: unknown): void;
-  readonly sent: ReadonlyArray<{
-    convId: string;
-    text: string;
-    dispatchLeaseId?: string;
-  }>;
+  readonly sent: readonly SentReply[];
   readonly connectCalls: { count: number };
   readonly closeCalls: { count: number };
   resolveAgentNameCallCount(agentId: string): number;
@@ -125,7 +120,6 @@ function createFixtureStore(
     closeCalls: { count: 0 },
     connectResult: {},
     ownAgentId,
-    fallbackTaskId: testTaskId("fixture-task"),
   };
 }
 
@@ -164,12 +158,12 @@ function sendFixtureReply(
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     store.sent.push({
-      taskId: input.taskId,
       convId: input.conversationId,
       text: input.text,
       ...(input.dispatchLeaseId !== undefined
         ? { dispatchLeaseId: input.dispatchLeaseId }
         : {}),
+      ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
     });
   });
 }
@@ -177,15 +171,15 @@ function sendFixtureReply(
 function makeFixtureSend(
   store: ChannelServiceFixtureStore,
 ): ChannelService["send"] {
-  return (taskId, conversationId, text, opts) => {
-    const dispatchLeaseId = opts?.dispatchLeaseId;
-    return sendFixtureReply(store, {
-      taskId,
+  return (conversationId, text, opts) =>
+    sendFixtureReply(store, {
       conversationId,
       text,
-      dispatchLeaseId,
+      ...(opts?.dispatchLeaseId !== undefined
+        ? { dispatchLeaseId: opts.dispatchLeaseId }
+        : {}),
+      ...(opts?.taskId !== undefined ? { taskId: opts.taskId } : {}),
     });
-  };
 }
 
 function getFixtureConversation(
@@ -266,10 +260,8 @@ function makeService(store: ChannelServiceFixtureStore): ChannelService {
 function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
   const emit: ChannelServiceEmit = {
     message(msg, taskId) {
-      const fallback = store.fallbackTaskId;
-      const tid = taskId ?? fallback;
       for (const h of store.messageHandlers) {
-        h({ taskId: tid, message: msg });
+        h({ ...(taskId === undefined ? {} : { taskId }), message: msg });
       }
     },
     disconnect() {

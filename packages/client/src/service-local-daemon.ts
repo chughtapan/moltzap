@@ -1,17 +1,16 @@
 import type { RpcGroup } from "@effect/rpc";
 import { Effect, Either } from "effect";
-import { agentsList, type AgentId } from "@moltzap/protocol/identity";
+import {
+  agentsList,
+  DEFAULT_APP_ID,
+  type AgentId,
+} from "@moltzap/protocol/identity";
 import type { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
 import {
-  conversationList,
+  agentConversationCreate,
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
-import {
-  DEFAULT_APP_ID,
-  taskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 import type {
   ListCursor,
@@ -24,14 +23,13 @@ import type { ServiceRpcError } from "./service.js";
 import type { HistoryRequest, HistoryResponse } from "./local-history.js";
 import {
   localDaemonCommands,
-  ServiceInputError,
-  StartTaskPartialFailure,
-  StartTaskUsageError,
+  StartPartialFailure,
+  StartUsageError,
   type LocalDaemonHandlers,
   type SendCommandPayload,
+  type StartCommandPayload,
+  type StartCommandResult,
   type StartParticipant,
-  type StartTaskCommandPayload,
-  type StartTaskCommandResult,
 } from "./local-daemon-rpc.js";
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
@@ -55,18 +53,14 @@ interface LocalDaemonHandlerOptions {
 
 interface StartMessageInput {
   readonly call: ServiceCall;
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly reusedConversation: boolean;
   readonly text: string;
 }
 
 interface OptionalStartMessageInput {
   readonly call: ServiceCall;
-  readonly params: StartTaskCommandPayload;
-  readonly taskId: TaskId;
+  readonly params: StartCommandPayload;
   readonly conversationId: ConversationId;
-  readonly reusedConversation: boolean;
 }
 
 const MAX_START_PARTICIPANT_LOOKUP_NAMES = 100;
@@ -85,19 +79,10 @@ function startParticipantNames(
   );
 }
 
-function initialStartConversation(
-  name: string,
-  invitedAgentIds: readonly AgentId[],
-) {
-  return invitedAgentIds.length === 0
-    ? { name }
-    : { name, participants: invitedAgentIds };
-}
-
 function resolveStartParticipantIds(
   participants: readonly StartParticipant[],
   byName: ReadonlyMap<string, AgentId>,
-): Effect.Effect<readonly AgentId[], StartTaskUsageError> {
+): Effect.Effect<readonly AgentId[], StartUsageError> {
   return Effect.gen(function* () {
     const resolved: AgentId[] = [];
     for (const entry of participants) {
@@ -108,7 +93,7 @@ function resolveStartParticipantIds(
       const id = byName.get(entry.name);
       if (id === undefined) {
         return yield* Effect.fail(
-          new StartTaskUsageError({
+          new StartUsageError({
             message: `Cannot resolve "${entry.token}": not-found`,
           }),
         );
@@ -155,21 +140,23 @@ function handleSendCommand(
   params: SendCommandPayload,
 ): Effect.Effect<{ readonly messageId: MessageId }, ServiceRpcError> {
   return call(messagesSend.name, {
-    taskId: params.target.taskId,
     conversationId: params.target.conversationId,
     parts: [{ type: "text", text: params.message }],
+    ...(params.target.taskId === undefined
+      ? {}
+      : { taskId: params.target.taskId }),
   }).pipe(Effect.map((result) => ({ messageId: result.message.id })));
 }
 
 function resolveStartParticipants(
   call: ServiceCall,
   participants: readonly StartParticipant[],
-): Effect.Effect<readonly AgentId[], StartTaskUsageError | ServiceRpcError> {
+): Effect.Effect<readonly AgentId[], StartUsageError | ServiceRpcError> {
   return Effect.gen(function* () {
     const names = startParticipantNames(participants);
     if (names.length > MAX_START_PARTICIPANT_LOOKUP_NAMES) {
       return yield* Effect.fail(
-        new StartTaskUsageError({
+        new StartUsageError({
           message: `Too many distinct agent names: ${names.length} (max ${MAX_START_PARTICIPANT_LOOKUP_NAMES})`,
         }),
       );
@@ -187,46 +174,16 @@ function resolveStartParticipants(
   });
 }
 
-function findReusableStartConversation(
-  call: ServiceCall,
-  taskId: TaskId,
-): Effect.Effect<ConversationId | null, ServiceRpcError> {
-  return Effect.gen(function* () {
-    let cursor: string | undefined = undefined;
-    for (let page = 0; page < 10; page++) {
-      const result: ResultOf<typeof conversationList> = yield* call(
-        conversationList.name,
-        {
-          limit: 100,
-          ...(cursor === undefined ? {} : { cursor }),
-        },
-      );
-      const hit = result.items.find((item) => item.taskId === taskId);
-      if (hit !== undefined) {
-        return hit.conversation.id;
-      }
-      if (result.nextCursor === undefined) {
-        return null;
-      }
-      cursor = result.nextCursor;
-    }
-    return null;
-  });
-}
-
 function sendStartMessage({
   call,
-  taskId,
   conversationId,
-  reusedConversation,
   text,
 }: StartMessageInput): Effect.Effect<
   MessageId,
-  StartTaskPartialFailure | ServiceRpcError
+  StartPartialFailure | ServiceRpcError
 > {
   return Effect.either(
     call(messagesSend.name, {
-      taskId,
       conversationId,
       parts: [{ type: "text", text }],
     }),
@@ -236,10 +193,8 @@ function sendStartMessage({
         onRight: (result) => Effect.succeed(result.message.id),
         onLeft: (error) =>
           Effect.fail(
-            new StartTaskPartialFailure({
-              taskId,
+            new StartPartialFailure({
               conversationId,
-              reusedConversation,
               message: error instanceof Error ? error.message : String(error),
             }),
           ),
@@ -251,74 +206,57 @@ function sendStartMessage({
 function sendOptionalStartMessage({
   call,
   params,
-  taskId,
   conversationId,
-  reusedConversation,
 }: OptionalStartMessageInput): Effect.Effect<
   MessageId | undefined,
-  StartTaskPartialFailure | ServiceRpcError
+  StartPartialFailure | ServiceRpcError
 > {
   if (params.message === undefined) {
     return Effect.succeed(undefined);
   }
   return sendStartMessage({
     call,
-    taskId,
     conversationId,
-    reusedConversation,
     text: params.message,
   });
 }
 
-function handleStartTaskCommand(
+function handleStartCommand(
   call: ServiceCall,
-  params: StartTaskCommandPayload,
+  params: StartCommandPayload,
 ): Effect.Effect<
-  StartTaskCommandResult,
-  | StartTaskUsageError
-  | StartTaskPartialFailure
-  | ServiceInputError
-  | ServiceRpcError
+  StartCommandResult,
+  StartUsageError | StartPartialFailure | ServiceRpcError
 > {
   return Effect.gen(function* () {
     const appId = params.appId ?? DEFAULT_APP_ID;
-    const invitedAgentIds = yield* resolveStartParticipants(
+    const participants = yield* resolveStartParticipants(
       call,
       params.participants,
     );
-    const result = yield* call(taskRequest.name, {
-      appId,
-      invitedAgentIds,
-      initialConversation: initialStartConversation(
-        params.name,
-        invitedAgentIds,
-      ),
-    });
-    const reusedConversation = result.conversation === null;
-    const conversationId =
-      result.conversation?.id ??
-      (yield* findReusableStartConversation(call, result.task.id));
-    if (conversationId === null) {
+    if (participants.length === 0) {
       return yield* Effect.fail(
-        new ServiceInputError({
-          message: `Task already exists but is closed: ${result.task.id}`,
+        new StartUsageError({
+          message: "A conversation needs at least one other participant",
         }),
       );
     }
+    const created = yield* call(agentConversationCreate.name, {
+      appId,
+      name: params.name,
+      participants,
+    });
+    const conversationId = created.conversation.id;
     const sentMessageId = yield* sendOptionalStartMessage({
       call,
       params,
-      taskId: result.task.id,
       conversationId,
-      reusedConversation,
     });
     return {
-      taskId: result.task.id,
       conversationId,
-      reusedConversation,
       ...(sentMessageId === undefined ? {} : { sentMessageId }),
     };
-  }).pipe(Effect.withSpan("MoltZapService.handleStartTaskCommand"));
+  }).pipe(Effect.withSpan("MoltZapService.handleStartCommand"));
 }
 
 /**
@@ -355,12 +293,10 @@ export function makeLocalDaemonHandlers({
       lookupAgentsByNames(call, params.names),
     [localDaemonCommands.messagesList]: (params) =>
       call(messagesList.name, {
-        taskId: params.taskId,
         conversationId: params.conversationId,
         ...(params.limit === undefined ? {} : { limit: params.limit }),
       }),
     [localDaemonCommands.send]: (params) => handleSendCommand(call, params),
-    [localDaemonCommands.startTask]: (params) =>
-      handleStartTaskCommand(call, params),
+    [localDaemonCommands.start]: (params) => handleStartCommand(call, params),
   };
 }

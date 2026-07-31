@@ -8,33 +8,7 @@ Conversation-owned requirement middleware tags.
 
 ## Public surface
 
-### [`ConversationInTask`](./conversation-in-task.ts#L15)
-
-_Class_
-
-```ts
-export class ConversationInTask extends RpcMiddleware.Tag<ConversationInTask>()(
-  "@moltzap/protocol/ConversationInTask",
-  { failure: Schema.Union(ConversationNotFoundError) },
-) {}
-```
-
-Implements conversation in task.
-
-### [`ConversationInTaskValue`](./conversation-in-task.ts#L9)
-
-_Interface_
-
-```ts
-export interface ConversationInTaskValue {
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-}
-```
-
-Requirement: proves `conversation.task_id === taskId`.
-
-### [`ConversationSendAccess`](./conversation-send-access.ts#L20)
+### [`ConversationSendAccess`](./conversation-send-access.ts#L18)
 
 _Class_
 
@@ -54,16 +28,14 @@ _Interface_
 ```ts
 export interface ConversationSendAccessValue {
   readonly conversationId: ConversationId;
-  readonly taskId: TaskId;
-  readonly appId: AppId | null;
-  readonly taskStatus: TaskStatus;
+  readonly appId: AppId;
 }
 ```
 
 Permission: the caller may send to this conversation, proven by participant
-membership. The server obtain performs the joined read that feeds send guards.
+membership. The server obtain performs the joined read that feeds send
+guards; `appId` is the conversation's authorizing app.
 
 ## Files
 
-- `conversation-in-task.ts`
 - `conversation-send-access.ts`
