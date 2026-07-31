@@ -1,3 +1,5 @@
+import { String as StringOps } from "effect";
+
 /** Describes allowed coverage gap. */
 export interface AllowedCoverageGap {
   readonly id: string;
@@ -23,6 +25,6 @@ export function isAllowedCoverageGap(
     if (gap.reasonIncludes === undefined) {
       return true;
     }
-    return reason.includes(gap.reasonIncludes);
+    return StringOps.includes(gap.reasonIncludes)(reason);
   });
 }

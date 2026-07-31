@@ -6,7 +6,7 @@
  * dial `/ws/ws`, and the resulting socket never opens. `ServerBaseUrl` is the
  * type that makes such a value unconstructible.
  */
-import { ParseResult, Schema, type Brand } from "effect";
+import { ParseResult, Schema, String as StringOps, type Brand } from "effect";
 
 /** Route the server serves the WebSocket upgrade on. */
 const SOCKET_ROUTE = "/ws";
@@ -41,9 +41,8 @@ const SERVER_SCHEMES: ReadonlySet<string> = new Set([
  * @returns The to origin result.
  */
 const toOrigin = (value: string): string | null => {
-  const trimmed = value
-    .replace(SOCKET_ROUTE_SUFFIX, "")
-    .replace(TRAILING_SLASH, "");
+  const withoutSocketRoute = StringOps.replace(SOCKET_ROUTE_SUFFIX, "")(value);
+  const trimmed = StringOps.replace(TRAILING_SLASH, "")(withoutSocketRoute);
   // `URL.canParse` rather than `URL.parse`: the package's engine floor is Node
   // 22.0 and `parse` only exists from 22.1.
   if (!URL.canParse(trimmed)) {

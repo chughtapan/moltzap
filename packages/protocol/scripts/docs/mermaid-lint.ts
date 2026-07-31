@@ -9,7 +9,7 @@ import {
   Path,
   type CommandExecutor,
 } from "@effect/platform";
-import { Data, Effect, Either, Stream } from "effect";
+import { Data, Effect, Either, Stream, String as StringOps } from "effect";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -114,7 +114,7 @@ export const collectMarkdownFiles = (
     for (const root of roots) {
       yield* walkInto(ctx, root);
     }
-    return ctx.out.sort((left, right) => left.localeCompare(right));
+    return ctx.out.sort((left, right) => StringOps.localeCompare(right)(left));
   });
 
 function walkInto(
@@ -148,7 +148,7 @@ function visitEntry(
       yield* walkInto(ctx, full);
       return;
     }
-    if (name.endsWith(".md") || name.endsWith(".mdx")) {
+    if (StringOps.endsWith(".md")(name) || StringOps.endsWith(".mdx")(name)) {
       ctx.out.push(full);
     }
   });
@@ -202,7 +202,7 @@ export function extractMermaidBlocks(
   file: string,
   source: string,
 ): readonly MermaidBlock[] {
-  const lines = source.split("\n");
+  const lines = StringOps.split(source, "\n");
   const state: ExtractorState = {
     inFence: false,
     fenceLang: null,
@@ -241,7 +241,7 @@ function handleFence(
   const indent = match[1] ?? "";
   const lang = match[3] ?? "";
   if (!state.inFence) {
-    if (indent.length >= 4) {
+    if (StringOps.length(indent) >= 4) {
       return;
     }
     state.inFence = true;
@@ -426,10 +426,9 @@ function interpretResult(
  * @returns The format stderr result.
  */
 function formatStderr(stderr: string): string {
-  const lines = stderr
-    .split("\n")
-    .map((l) => l.trimEnd())
-    .filter((l) => l.length > 0 && !/^\s*at\s/.test(l))
+  const lines = StringOps.split(stderr, "\n")
+    .map(StringOps.trimEnd)
+    .filter((line) => StringOps.isNonEmpty(line) && !/^\s*at\s/.test(line))
     .slice(0, STDERR_LINES_KEPT);
   if (lines.length === 0) {
     return "";

@@ -171,7 +171,7 @@ export type HelloOk = Schema.Schema.Type<typeof helloOkSchema>;
 
 Represents hello ok values.
 
-### [`httpBaseUrl`](./server-url.ts#L112)
+### [`httpBaseUrl`](./server-url.ts#L111)
 
 _Function_
 
@@ -280,7 +280,7 @@ Reason discriminant carried in `ProtocolMismatchError.data.reason`:
 `maxProtocol`; the client must update. `server-below-client-min` — the
 client is newer than the server supports.
 
-### [`serverBaseUrl`](./server-url.ts#L105)
+### [`serverBaseUrl`](./server-url.ts#L104)
 
 _Variable_
 
@@ -293,7 +293,7 @@ such as one a locally started server just reported. Decode with
 `Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
 configuration or another package.
 
-### [`ServerBaseUrl`](./server-url.ts#L69)
+### [`ServerBaseUrl`](./server-url.ts#L68)
 
 _TypeAlias_
 
@@ -304,7 +304,7 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
 A MoltZap server address carrying no path, query, or fragment, over
 `http`, `https`, `ws`, or `wss`.
 
-### [`serverBaseUrlSchema`](./server-url.ts#L75)
+### [`serverBaseUrlSchema`](./server-url.ts#L74)
 
 _Variable_
 
@@ -347,7 +347,7 @@ export const serverUrlTypeCanaries:
 
 Retains both the runtime positive control and compile-time negative proof.
 
-### [`webSocketUrl`](./server-url.ts#L120)
+### [`webSocketUrl`](./server-url.ts#L119)
 
 _Function_
 

@@ -153,12 +153,11 @@ function assertReplayBodies(
   pair: ReplayPair,
 ) {
   const successPair = successPairOrNull(pair);
-  if (successPair === null) {
-    return Effect.void;
-  }
-  const aCanon = canonIdempotenceResult(method, successPair.a);
-  const bCanon = canonIdempotenceResult(method, successPair.b);
-  return aCanon === bCanon
+  const bodiesMatch =
+    successPair === null ||
+    canonIdempotenceResult(method, successPair.a) ===
+      canonIdempotenceResult(method, successPair.b);
+  return bodiesMatch
     ? Effect.void
     : Effect.fail(
         new PropertyInvariantViolation({

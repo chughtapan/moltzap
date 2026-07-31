@@ -8,6 +8,7 @@ import { RpcTimeoutError } from "../_shared/errors.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
 import { taskList } from "#task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
+import type { PropertyInvariantViolation } from "../_shared/registry.js";
 import {
   acquireProxiedClient,
   adversityViolation,
@@ -83,7 +84,9 @@ function measureTimeoutOutcome(
   );
 }
 
-function assertTimeoutError(error: unknown) {
+function assertTimeoutError(
+  error: unknown,
+): Effect.Effect<void, PropertyInvariantViolation> {
   if (error === null) {
     return Effect.fail(
       adversityViolation(

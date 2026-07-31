@@ -6,7 +6,7 @@
  */
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { Effect } from "effect";
+import { Effect, String as StringOps } from "effect";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { notificationDefinitions } from "#socket/catalog";
@@ -142,10 +142,14 @@ function renderNotificationOverviewRow(
   const description =
     jsdocMap.get(name)?.description ??
     `Pushed as the \`${name}\` notification.`;
-  const oneLine = description.replace(/\s+/g, " ").trim();
-  const firstSentence = oneLine.split(". ")[0] ?? "";
-  const summary = firstSentence + (oneLine.includes(". ") ? "." : "");
+  const summary = notificationSummary(description);
   return `| [\`${name}\`](/protocol/notifications/${slugify(name)}) | ${summary} |`;
+}
+
+function notificationSummary(description: string): string {
+  const oneLine = StringOps.trim(StringOps.replace(/\s+/g, " ")(description));
+  const [firstSentence] = StringOps.split(oneLine, ". ");
+  return `${firstSentence}${StringOps.includes(". ")(oneLine) ? "." : ""}`;
 }
 
 function deleteStaleGeneratedPages(
@@ -178,7 +182,7 @@ function writeGeneratedPage(
   content: string,
 ): Effect.Effect<void> {
   return fs
-    .writeFileString(file, `${content.trimEnd()}\n`)
+    .writeFileString(file, `${StringOps.trimEnd(content)}\n`)
     .pipe(Effect.catchAll(() => Effect.void));
 }
 
