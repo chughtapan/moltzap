@@ -57,11 +57,9 @@ export function registerSlowFirstDoesNotDelaySecondAck(
           // Both acks under FAST_ACK_THRESHOLD_MS — must be much less
           // than the configured hold.
           if (elapsed > FAST_ACK_THRESHOLD_MS) {
-            return yield* Effect.fail(
-              dispatchAdmissionViolation(
-                name,
-                `second ack arrived after ${elapsed}ms (>${FAST_ACK_THRESHOLD_MS}ms); server-side serialization detected`,
-              ),
+            return yield* dispatchAdmissionViolation(
+              name,
+              `second ack arrived after ${elapsed}ms (>${FAST_ACK_THRESHOLD_MS}ms); server-side serialization detected`,
             );
           }
         }),

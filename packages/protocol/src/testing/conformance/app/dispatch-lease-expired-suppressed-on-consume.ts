@@ -82,11 +82,9 @@ function consumeLease(
       text: "consume-before-ttl",
     });
     if (sent.errorTag !== undefined) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          `agent/message/send failed: code=${sent.errorTag}`,
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        `agent/message/send failed: code=${sent.errorTag}`,
       );
     }
   });
@@ -108,11 +106,9 @@ function assertExpiredNeverFires(
       }),
     );
     if (Exit.isSuccess(expired)) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          "app/dispatch/lease-expired unexpectedly fired after CONSUMED",
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        "app/dispatch/lease-expired unexpectedly fired after CONSUMED",
       );
     }
   });

@@ -34,7 +34,7 @@ _Interface_
 
 Configures app client.
 
-### [`ContextOptions`](./service.ts#L155)
+### [`ContextOptions`](./service.ts#L157)
 
 _Interface_
 
@@ -48,7 +48,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](./service.ts#L147)
+### [`ConversationMeta`](./service.ts#L149)
 
 _Interface_
 
@@ -75,7 +75,7 @@ _Class_
 
 Implements molt zap app client.
 
-### [`MoltZapService`](./service.ts#L295)
+### [`MoltZapService`](./service.ts#L297)
 
 _Class_
 
@@ -199,7 +199,7 @@ export class MoltZapService {
    * @returns The client result.
    */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
-    return Effect.gen(this, function* (this: MoltZapService) {
+    return Effect.gen(
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -216,7 +216,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L135)
+### [`ServiceRpcError`](./service.ts#L137)
 
 _TypeAlias_
 

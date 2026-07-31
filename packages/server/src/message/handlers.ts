@@ -24,7 +24,6 @@ import {
   guardReplyTarget,
   obtainConversationSendAccess,
 } from "#conversation/requirements";
-import { catchSqlErrorAsDefect } from "#db";
 import type { MessageService } from "./message.service.js";
 
 type MessagesSendParams = ParamsOf<typeof messagesSendDefinition>;
@@ -60,8 +59,8 @@ interface LeaseSendInput {
   readonly leaseRegistry: LeaseRegistry;
 }
 
-function sendWithDispatchLease(input: LeaseSendInput) {
-  return Effect.gen(function* () {
+const sendWithDispatchLease = Effect.fn("messages.sendWithDispatchLease")(
+  function* (input: LeaseSendInput) {
     const leaseId = input.params.dispatchLeaseId;
     if (leaseId === undefined) {
       return yield* Effect.dieMessage(
@@ -72,23 +71,22 @@ function sendWithDispatchLease(input: LeaseSendInput) {
     const message = yield* Effect.scoped(
       Effect.acquireUseRelease(
         claimDispatchLease(input.leaseRegistry, leaseId),
-        (claim) =>
-          Effect.gen(function* () {
-            const carrier = yield* input.messageService.sendInsert({
-              conversationId: input.params.conversationId,
-              parts: input.params.parts,
-              senderAgentId: input.ctx.agentId,
-              replyToId: input.params.replyToId,
-              excludeConnectionId: input.connId,
-            });
-            yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
-            finalized = true;
-            return yield* input.messageService.sendCommit(
-              carrier,
-              input.params.conversationId,
-              input.ctx.agentId,
-            );
-          }).pipe(Effect.withSpan("messages.sendWithLease")),
+        Effect.fn("messages.sendWithLease")(function* (claim) {
+          const carrier = yield* input.messageService.sendInsert({
+            conversationId: input.params.conversationId,
+            parts: input.params.parts,
+            senderAgentId: input.ctx.agentId,
+            replyToId: input.params.replyToId,
+            excludeConnectionId: input.connId,
+          });
+          yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
+          finalized = true;
+          return yield* input.messageService.sendCommit(
+            carrier,
+            input.params.conversationId,
+            input.ctx.agentId,
+          );
+        }),
         (claim, exit) => {
           if (Exit.isSuccess(exit) || finalized) {
             return Effect.void;
@@ -98,61 +96,58 @@ function sendWithDispatchLease(input: LeaseSendInput) {
       ),
     );
     return { message };
-  }).pipe(Effect.withSpan("messages.sendWithDispatchLease"));
-}
+  },
+);
 
-function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const messageService = yield* MessageServiceTag;
-      const leaseRegistry = yield* LeaseRegistryTag;
-      const connection = yield* ConnectionTag;
-      // The `ConversationSendAccess` requirement already gates the frame. The
-      // body still needs the joined send row for task and conversation guards, so it
-      // reads that row directly here.
-      const sendRow = yield* obtainConversationSendAccess({
-        conversationId: params.conversationId,
-        senderAgentId: ctx.agentId,
-        taskId: params.taskId,
-      });
-      yield* guardTaskActive(sendRow);
-      yield* guardConversationNotArchived(sendRow);
-      yield* guardReplyTarget({
-        conversationId: params.conversationId,
-        replyToId: params.replyToId,
-      });
-      if (params.dispatchLeaseId !== undefined) {
-        return yield* sendWithDispatchLease({
-          connId: connection.connId,
-          ctx,
-          params,
-          messageService,
-          leaseRegistry,
-        });
-      }
-      const message = yield* messageService.send({
-        conversationId: params.conversationId,
-        parts: params.parts,
-        senderAgentId: ctx.agentId,
-        replyToId: params.replyToId,
-        excludeConnectionId: connection.connId,
-      });
-      return { message };
-    }).pipe(Effect.withSpan("messages.send")),
-  );
-}
+const handleMessageSend = Effect.fn("messages.send")(function* (
+  params: MessagesSendParams,
+  ctx: AgentContext,
+) {
+  const messageService = yield* MessageServiceTag;
+  const leaseRegistry = yield* LeaseRegistryTag;
+  const connection = yield* ConnectionTag;
+  // The `ConversationSendAccess` requirement already gates the frame. The
+  // body still needs the joined send row for task and conversation guards, so it
+  // reads that row directly here.
+  const sendRow = yield* obtainConversationSendAccess({
+    conversationId: params.conversationId,
+    senderAgentId: ctx.agentId,
+    taskId: params.taskId,
+  });
+  yield* guardTaskActive(sendRow);
+  yield* guardConversationNotArchived(sendRow);
+  yield* guardReplyTarget({
+    conversationId: params.conversationId,
+    replyToId: params.replyToId,
+  });
+  if (params.dispatchLeaseId !== undefined) {
+    return yield* sendWithDispatchLease({
+      connId: connection.connId,
+      ctx,
+      params,
+      messageService,
+      leaseRegistry,
+    });
+  }
+  const message = yield* messageService.send({
+    conversationId: params.conversationId,
+    parts: params.parts,
+    senderAgentId: ctx.agentId,
+    replyToId: params.replyToId,
+    excludeConnectionId: connection.connId,
+  });
+  return { message };
+});
 
-function handleMessageList(
+const handleMessageList = Effect.fn("messages.list")(function* (
   params: ParamsOf<typeof messagesListDefinition>,
   ctx: AgentContext,
 ) {
-  return Effect.gen(function* () {
-    const messageService = yield* MessageServiceTag;
-    return yield* messageService.list(params.conversationId, ctx.agentId, {
-      limit: params.limit,
-    });
-  }).pipe(Effect.withSpan("messages.list"));
-}
+  const messageService = yield* MessageServiceTag;
+  return yield* messageService.list(params.conversationId, ctx.agentId, {
+    limit: params.limit,
+  });
+});
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 //
@@ -165,28 +160,24 @@ function handleMessageList(
  * @param params Request payload to process.
  * @returns The messages send result.
  */
-export const messagesSend: ServerHandler<typeof messagesSendDefinition> = (
-  params,
-) =>
-  Effect.gen(function* () {
+export const messagesSend: ServerHandler<typeof messagesSendDefinition> =
+  Effect.fn("messagesSend")(function* (params) {
     // The send-permission requirements gated this frame in the engine stack
     // before this handler runs. `agentArm` reads the narrowed principal off
     // `ConnectionTag`.
     const ctx = yield* agentArm;
     return yield* handleMessageSend(params, ctx);
-  }).pipe(Effect.withSpan("messagesSend"));
+  });
 
 /**
  * Provides the messages list runtime value.
  * @param params Request payload to process.
  * @returns The messages list result.
  */
-export const messagesList: ServerHandler<typeof messagesListDefinition> = (
-  params,
-) =>
-  Effect.gen(function* () {
+export const messagesList: ServerHandler<typeof messagesListDefinition> =
+  Effect.fn("messagesList")(function* (params) {
     // Gated by the `TaskReadAccess` + `ConversationInTask` requirements in the
     // engine stack; the body trusts the gated `params`.
     const ctx = yield* agentArm;
     return yield* handleMessageList(params, ctx);
-  }).pipe(Effect.withSpan("messagesList"));
+  });

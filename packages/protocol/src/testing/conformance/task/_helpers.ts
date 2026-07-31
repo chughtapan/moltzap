@@ -449,11 +449,9 @@ export function waitForConversationCreatedNotification(
       ),
     );
     if (event.params.conversationId !== conversationId) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad created event payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad created event payload: ${JSON.stringify(event.params)}`,
       );
     }
   }).pipe(Effect.withSpan("waitForConversationCreatedNotification"));
@@ -482,11 +480,9 @@ export function waitForMessageReceivedNotification(
       ),
     );
     if (event.params.message.conversationId !== conversationId) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad message event payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad message event payload: ${JSON.stringify(event.params)}`,
       );
     }
   }).pipe(Effect.withSpan("waitForMessageReceivedNotification"));
@@ -518,11 +514,9 @@ export function waitForArchivedEvent(
       event.params.conversationId !== conversationId ||
       typeof event.params.archivedAt !== "string"
     ) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad archive event payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad archive event payload: ${JSON.stringify(event.params)}`,
       );
     }
   }).pipe(Effect.withSpan("waitForArchivedEvent"));
@@ -551,11 +545,9 @@ export function waitForUnarchivedEvent(
       ),
     );
     if (event.params.conversationId !== conversationId) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad unarchive event payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad unarchive event payload: ${JSON.stringify(event.params)}`,
       );
     }
   }).pipe(Effect.withSpan("waitForUnarchivedEvent"));

@@ -63,27 +63,21 @@ function assertGrantedView(
     yield* driver.assertLeaseState(ack.dispatchId, "GRANTED");
     const grantedView = yield* driver.moderator.getLease(ack.dispatchId);
     if (grantedView.leaseId !== ack.leaseId) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          `getLease leaseId ${grantedView.leaseId} != ack ${ack.leaseId}`,
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        `getLease leaseId ${grantedView.leaseId} != ack ${ack.leaseId}`,
       );
     }
     if (grantedView.state !== "GRANTED") {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          `expected GRANTED, got ${grantedView.state}`,
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        `expected GRANTED, got ${grantedView.state}`,
       );
     }
     if (grantedView.verdict === null || grantedView.verdict._tag !== "grant") {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          `expected verdict.grant, got ${JSON.stringify(grantedView.verdict)}`,
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        `expected verdict.grant, got ${JSON.stringify(grantedView.verdict)}`,
       );
     }
   });
@@ -102,11 +96,9 @@ function consumeLease(
       text: "consume-for-getlease-stage",
     });
     if (sent.errorTag !== undefined) {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          `agent/message/send failed: code=${sent.errorTag}`,
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        `agent/message/send failed: code=${sent.errorTag}`,
       );
     }
   });
@@ -122,11 +114,9 @@ function assertConsumedView(
     yield* driver.assertLeaseState(dispatchId, "CONSUMED");
     const consumedView = yield* driver.moderator.getLease(dispatchId);
     if (consumedView.state !== "CONSUMED") {
-      return yield* Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          `expected CONSUMED, got ${consumedView.state}`,
-        ),
+      return yield* dispatchAdmissionViolation(
+        propertyName,
+        `expected CONSUMED, got ${consumedView.state}`,
       );
     }
   });

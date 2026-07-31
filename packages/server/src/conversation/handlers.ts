@@ -47,7 +47,7 @@ type ConversationRemoveParticipantParams = Extract<
   { action: "remove-participant" }
 >;
 
-function conversationCreateBody(
+const conversationCreateBody = Effect.fn("conversation.create")(function* (
   appId: AppContext["appId"],
   params: {
     readonly taskId: ParamsOf<typeof conversationCreateDefinition>["taskId"];
@@ -55,31 +55,29 @@ function conversationCreateBody(
     readonly participants: readonly AgentId[];
   },
 ) {
-  return Effect.gen(function* () {
-    const task = yield* assertCallerAppOwnsTask(appId, params.taskId);
-    const taskService = yield* TaskServiceTag;
-    const conversationService = yield* ConversationServiceTag;
-    yield* taskService.requireAgentsAreInTaskParticipants(
-      params.taskId,
-      params.participants,
-    );
-    yield* authorizeConversationCreateCapacityOnly([...params.participants]);
-    const conversation = yield* conversationService.create({
-      name: params.name,
-      agentIds: [...params.participants],
-      creatorAgentId: task.initiatorAgentId,
-      seedCreatorAsParticipant: false,
-      mintTask: Effect.succeed({ id: params.taskId }),
-    });
-    yield* fanoutConversationCreate({
-      taskId: params.taskId,
-      conversation,
-      participants: params.participants,
-      name: params.name,
-    });
-    return { conversation };
-  }).pipe(Effect.withSpan("conversation.create"));
-}
+  const task = yield* assertCallerAppOwnsTask(appId, params.taskId);
+  const taskService = yield* TaskServiceTag;
+  const conversationService = yield* ConversationServiceTag;
+  yield* taskService.requireAgentsAreInTaskParticipants(
+    params.taskId,
+    params.participants,
+  );
+  yield* authorizeConversationCreateCapacityOnly([...params.participants]);
+  const conversation = yield* conversationService.create({
+    name: params.name,
+    agentIds: [...params.participants],
+    creatorAgentId: task.initiatorAgentId,
+    seedCreatorAsParticipant: false,
+    mintTask: Effect.succeed({ id: params.taskId }),
+  });
+  yield* fanoutConversationCreate({
+    taskId: params.taskId,
+    conversation,
+    participants: params.participants,
+    name: params.name,
+  });
+  return { conversation };
+});
 
 interface ConversationCreateInput {
   readonly taskId: ParamsOf<typeof conversationCreateDefinition>["taskId"];
@@ -165,64 +163,56 @@ function fanoutUnarchive(input: UnarchiveFanoutInput) {
   ).pipe(Effect.withSpan("conversation.unarchive.fanout"));
 }
 
-function conversationListBody(
+const conversationListBody = Effect.fn("conversation.list")(function* (
   params: ParamsOf<typeof conversationListDefinition>,
   ctx: AgentContext,
 ) {
-  return Effect.gen(function* () {
-    const conversationService = yield* ConversationServiceTag;
-    const { conversations, cursor: nextCursor } =
-      yield* conversationService.list(
-        ctx.agentId,
-        params.limit,
-        params.cursor,
-        "include",
-      );
-    const items: ConversationListItem[] = [];
-    for (const summary of conversations) {
-      // The three per-conversation reads are independent; run them together.
-      const { conversation, participants, linkedTaskId } = yield* Effect.all({
-        conversation: conversationService.loadById(summary.id),
-        participants: conversationService
-          .getParticipantAgentIds(summary.id)
-          .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS)),
-        linkedTaskId: conversationService.taskIdForConversation(summary.id),
-      });
-      items.push({
-        taskId: linkedTaskId,
-        conversation,
-        participants: [...participants],
-      });
-    }
-    return { items, ...(nextCursor !== undefined ? { nextCursor } : {}) };
-  }).pipe(Effect.withSpan("conversation.list"));
-}
+  const conversationService = yield* ConversationServiceTag;
+  const { conversations, cursor: nextCursor } = yield* conversationService.list(
+    ctx.agentId,
+    params.limit,
+    params.cursor,
+    "include",
+  );
+  const items: ConversationListItem[] = [];
+  for (const summary of conversations) {
+    // The three per-conversation reads are independent; run them together.
+    const { conversation, participants, linkedTaskId } = yield* Effect.all({
+      conversation: conversationService.loadById(summary.id),
+      participants: conversationService
+        .getParticipantAgentIds(summary.id)
+        .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS)),
+      linkedTaskId: conversationService.taskIdForConversation(summary.id),
+    });
+    items.push({
+      taskId: linkedTaskId,
+      conversation,
+      participants: [...participants],
+    });
+  }
+  return { items, ...(nextCursor !== undefined ? { nextCursor } : {}) };
+});
 
-function conversationArchiveBody(
+const conversationArchiveBody = Effect.fn("conversation.archive")(function* (
   params: ConversationArchiveParams,
   ctx: AppContext,
 ) {
-  return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-    const taskService = yield* TaskServiceTag;
-    const { archivedAt } = yield* taskService.archiveConversation(
-      params.taskId,
-      params.conversationId,
-    );
-    yield* fanoutArchive({
-      taskId: params.taskId,
-      conversationId: params.conversationId,
-      archivedAt,
-    });
-    return {};
-  }).pipe(Effect.withSpan("conversation.archive"));
-}
+  yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+  const taskService = yield* TaskServiceTag;
+  const { archivedAt } = yield* taskService.archiveConversation(
+    params.taskId,
+    params.conversationId,
+  );
+  yield* fanoutArchive({
+    taskId: params.taskId,
+    conversationId: params.conversationId,
+    archivedAt,
+  });
+  return {};
+});
 
-function conversationUnarchiveBody(
-  params: ConversationUnarchiveParams,
-  ctx: AppContext,
-) {
-  return Effect.gen(function* () {
+const conversationUnarchiveBody = Effect.fn("conversation.unarchive")(
+  function* (params: ConversationUnarchiveParams, ctx: AppContext) {
     yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
     yield* taskService.unarchiveConversation(
@@ -234,65 +224,59 @@ function conversationUnarchiveBody(
       conversationId: params.conversationId,
     });
     return {};
-  }).pipe(Effect.withSpan("conversation.unarchive"));
-}
+  },
+);
 
-function conversationAddParticipantBody(
-  params: ConversationAddParticipantParams,
-  ctx: AppContext,
-) {
-  return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-    const taskService = yield* TaskServiceTag;
-    yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
+const conversationAddParticipantBody = Effect.fn(
+  "conversation.participants.add",
+)(function* (params: ConversationAddParticipantParams, ctx: AppContext) {
+  yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+  const taskService = yield* TaskServiceTag;
+  yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
+    params.agentId,
+  ]);
+  const { postMutationParticipants } =
+    yield* taskService.addConversationParticipant(
+      params.conversationId,
       params.agentId,
-    ]);
-    const { postMutationParticipants } =
-      yield* taskService.addConversationParticipant(
-        params.conversationId,
-        params.agentId,
-      );
-    yield* broadcastNotificationToAgents(
-      postMutationParticipants,
-      conversationParticipantsAddedNotificationDefinition,
-      {
-        taskId: params.taskId,
-        conversationId: params.conversationId,
-        addedAgentId: params.agentId,
-      },
     );
-    return {};
-  }).pipe(Effect.withSpan("conversation.participants.add"));
-}
+  yield* broadcastNotificationToAgents(
+    postMutationParticipants,
+    conversationParticipantsAddedNotificationDefinition,
+    {
+      taskId: params.taskId,
+      conversationId: params.conversationId,
+      addedAgentId: params.agentId,
+    },
+  );
+  return {};
+});
 
-function conversationRemoveParticipantBody(
-  params: ConversationRemoveParticipantParams,
-  ctx: AppContext,
-) {
-  return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-    const taskService = yield* TaskServiceTag;
-    const { preMutationParticipants, wasParticipant } =
-      yield* taskService.removeConversationParticipant(
-        params.conversationId,
-        params.agentId,
-      );
-    if (!wasParticipant) {
-      return {};
-    }
-    yield* broadcastNotificationToAgents(
-      preMutationParticipants,
-      conversationParticipantsRemovedNotificationDefinition,
-      {
-        taskId: params.taskId,
-        conversationId: params.conversationId,
-        removedAgentId: params.agentId,
-        reason: "app_remove" as const,
-      },
+const conversationRemoveParticipantBody = Effect.fn(
+  "conversation.participants.remove",
+)(function* (params: ConversationRemoveParticipantParams, ctx: AppContext) {
+  yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+  const taskService = yield* TaskServiceTag;
+  const { preMutationParticipants, wasParticipant } =
+    yield* taskService.removeConversationParticipant(
+      params.conversationId,
+      params.agentId,
     );
+  if (!wasParticipant) {
     return {};
-  }).pipe(Effect.withSpan("conversation.participants.remove"));
-}
+  }
+  yield* broadcastNotificationToAgents(
+    preMutationParticipants,
+    conversationParticipantsRemovedNotificationDefinition,
+    {
+      taskId: params.taskId,
+      conversationId: params.conversationId,
+      removedAgentId: params.agentId,
+      reason: "app_remove" as const,
+    },
+  );
+  return {};
+});
 
 function conversationUpdateBody(
   params: ConversationUpdateParams,
@@ -321,10 +305,9 @@ function conversationUpdateBody(
  */
 export const conversationList: ServerHandler<
   typeof conversationListDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* conversationListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("conversationList"));
+> = Effect.fn("conversationList")(function* (params) {
+  return yield* conversationListBody(params, yield* agentArm);
+});
 
 /**
  * Provides the conversation create runtime value.
@@ -333,10 +316,9 @@ export const conversationList: ServerHandler<
  */
 export const conversationCreate: ServerHandler<
   typeof conversationCreateDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* conversationCreateBody((yield* appArm).appId, params);
-  }).pipe(Effect.withSpan("conversationCreate"));
+> = Effect.fn("conversationCreate")(function* (params) {
+  return yield* conversationCreateBody((yield* appArm).appId, params);
+});
 
 /**
  * Provides the conversation update runtime value.
@@ -345,7 +327,6 @@ export const conversationCreate: ServerHandler<
  */
 export const conversationUpdate: ServerHandler<
   typeof conversationUpdateDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* conversationUpdateBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("conversationUpdate"));
+> = Effect.fn("conversationUpdate")(function* (params) {
+  return yield* conversationUpdateBody(params, yield* appArm);
+});

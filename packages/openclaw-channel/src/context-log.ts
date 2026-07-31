@@ -1,6 +1,6 @@
 import { FileSystem, Path } from "@effect/platform";
 import { NodeFileSystem, NodePath } from "@effect/platform-node";
-import { Config, ConfigProvider, Effect, Option } from "effect";
+import { Config, ConfigProvider, Effect, Layer, Option } from "effect";
 import type { CrossConvMessage } from "@moltzap/client/channel-base";
 
 interface OpenClawContextLogEntry {
@@ -123,7 +123,6 @@ export function writeOpenClawContextLog(
     });
   }).pipe(
     Effect.withSpan("writeOpenClawContextLog"),
-    Effect.provide(NodePath.layer),
-    Effect.provide(NodeFileSystem.layer),
+    Effect.provide(Layer.mergeAll(NodePath.layer, NodeFileSystem.layer)),
   );
 }

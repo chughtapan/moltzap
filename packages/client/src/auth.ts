@@ -128,8 +128,8 @@ function failRegisterStatus(
 ): Effect.Effect<never, RegisterAgentError> {
   return Effect.gen(function* () {
     const text = yield* decodeResponseText(response);
-    return yield* Effect.fail(
-      registerAgentError(`Register failed: ${response.status} ${text}`),
+    return yield* registerAgentError(
+      `Register failed: ${response.status} ${text}`,
     );
   });
 }
