@@ -4,7 +4,6 @@ import {
   AgentId as AgentIdSchema,
   AgentNotFoundError,
   AgentsList,
-  type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
 import {
@@ -51,7 +50,6 @@ import {
   isNotificationDeliveryFor,
   type NotificationDelivery,
   type NotificationParamsOf,
-  type ListCursor,
   type PayloadForTag,
   type ParamsOf,
   type ResultOf,
@@ -73,6 +71,7 @@ import {
   Scope,
   Stream,
 } from "effect";
+import { AgentNameCache } from "./agent-name-cache.js";
 import { MoltZapAgentClient, type RpcCallOptions } from "./agent-client.js";
 import {
   loadServiceConfig,
@@ -115,8 +114,6 @@ const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
 const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
 const HISTORY_LOOKUP_CONCURRENCY = 2;
-const AGENT_LOOKUP_PAGE_SIZE = 100;
-const AGENT_LOOKUP_MAX_PAGES = 20;
 const REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE = 50;
 const REUSABLE_CONVERSATION_LOOKUP_MAX_PAGES = 20;
 const decodeAgentId = Schema.decodeUnknownOption(AgentIdSchema);
@@ -344,8 +341,9 @@ export class MoltZapService {
   private readonly messagesRef: Ref.Ref<
     HashMap.HashMap<string, ReadonlyArray<Message>>
   > = Effect.runSync(Ref.make(HashMap.empty<string, ReadonlyArray<Message>>()));
-  private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
-    Effect.runSync(Ref.make(HashMap.empty<string, string>()));
+  private readonly agentNames = new AgentNameCache<ServiceRpcError>((params) =>
+    this.call(AgentsList.name, params),
+  );
   private readonly agentConversationCacheRef: Ref.Ref<
     HashMap.HashMap<
       string,
@@ -515,7 +513,7 @@ export class MoltZapService {
       Effect.all([
         Ref.set(this.conversationsRef, HashMap.empty()),
         Ref.set(this.messagesRef, HashMap.empty()),
-        Ref.set(this.agentNamesRef, HashMap.empty()),
+        this.agentNames.clear(),
         Ref.set(this.agentConversationCacheRef, HashMap.empty()),
         Ref.set(this.lastNotifiedRef, HashMap.empty()),
         Ref.set(this.lastReadRef, HashMap.empty()),
@@ -614,7 +612,7 @@ export class MoltZapService {
         request.conversationId,
         result.messages,
       );
-      const agentNames = yield* Ref.get(this.agentNamesRef);
+      const agentNames = yield* this.agentNames.all();
       const lastReadMap = yield* Ref.get(this.lastReadRef);
       const lastReadIds = lastReadIdsForSession(lastReadMap, request);
       const messages = result.messages.map((message) =>
@@ -656,12 +654,12 @@ export class MoltZapService {
     messages: ReadonlyArray<Message>,
   ): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
-      const knownNames = yield* Ref.get(this.agentNamesRef);
+      const knownNames = yield* this.agentNames.all();
       const unknownAgentIds = [
         ...new Set(messages.map((message) => message.senderId)),
       ].filter((id) => !HashMap.has(knownNames, id));
       if (unknownAgentIds.length === 0) return;
-      yield* this.cacheVisibleAgentNamesForIds(new Set(unknownAgentIds)).pipe(
+      yield* this.agentNames.cacheForIds(new Set(unknownAgentIds)).pipe(
         Effect.asVoid,
         Effect.catchAll(() => Effect.void),
       );
@@ -742,9 +740,7 @@ export class MoltZapService {
   // --- Agent Names ---
 
   getAgentName(agentId: string): string | undefined {
-    return Option.getOrUndefined(
-      HashMap.get(snapshot(this.agentNamesRef), agentId),
-    );
+    return this.agentNames.get(agentId);
   }
 
   /**
@@ -754,34 +750,9 @@ export class MoltZapService {
    * silent (a cold agent is an expected transient state).
    */
   resolveAgentName(agentId: string): Effect.Effect<string, never> {
-    return Effect.gen(this, function* () {
-      const decodedAgentId = Option.getOrUndefined(decodeAgentId(agentId));
-      if (decodedAgentId === undefined) return agentId;
-
-      const cached = Option.getOrUndefined(
-        HashMap.get(snapshot(this.agentNamesRef), agentId),
-      );
-      if (cached !== undefined) return cached;
-
-      return yield* this.cacheVisibleAgentNamesForIds(
-        new Set([decodedAgentId]),
-      ).pipe(
-        Effect.map(() => {
-          const resolved = Option.getOrUndefined(
-            HashMap.get(snapshot(this.agentNamesRef), agentId),
-          );
-          return resolved ?? agentId;
-        }),
-        Effect.catchAll((err) =>
-          Effect.logWarning(
-            "agent/identity/agents/list failed; falling back to agentId",
-          ).pipe(
-            Effect.annotateLogs({ agentId, err: String(err) }),
-            Effect.as(agentId),
-          ),
-        ),
-      );
-    });
+    const decoded = Option.getOrUndefined(decodeAgentId(agentId));
+    if (decoded === undefined) return Effect.succeed(agentId);
+    return this.agentNames.resolve(agentId, decoded);
   }
 
   // --- Messaging ---
@@ -860,7 +831,7 @@ export class MoltZapService {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
       let entry = Option.getOrUndefined(HashMap.get(cache, agentName));
       if (entry === undefined) {
-        const agent = yield* this.findVisibleAgentByName(agentName);
+        const agent = yield* this.agentNames.findByName(agentName);
         if (!agent) {
           return yield* Effect.fail(agentNotFound(agentName));
         }
@@ -916,61 +887,6 @@ export class MoltZapService {
         cursor = result.nextCursor;
       }
       return yield* Effect.fail(agentNotFound(agentName));
-    });
-  }
-
-  private cacheAgentNames(
-    agents: ReadonlyArray<AgentCard>,
-  ): Effect.Effect<void> {
-    if (agents.length === 0) return Effect.void;
-    return Ref.update(this.agentNamesRef, (names) => {
-      let next = names;
-      for (const agent of agents) {
-        next = HashMap.set(next, agent.id, agent.name);
-      }
-      return next;
-    });
-  }
-
-  private agentListParams(
-    cursor: ListCursor | undefined,
-  ): ParamsOf<typeof AgentsList> {
-    return cursor === undefined
-      ? { limit: AGENT_LOOKUP_PAGE_SIZE }
-      : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
-  }
-
-  private cacheVisibleAgentNamesForIds(
-    agentIds: ReadonlySet<string>,
-  ): Effect.Effect<void, ServiceRpcError> {
-    return Effect.gen(this, function* () {
-      const missing = new Set(agentIds);
-      let cursor: ListCursor | undefined = undefined;
-      for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-        const params = this.agentListParams(cursor);
-        const result = yield* this.call(AgentsList.name, params);
-        yield* this.cacheAgentNames(result.agents);
-        for (const agent of result.agents) missing.delete(agent.id);
-        if (missing.size === 0 || result.nextCursor === undefined) return;
-        cursor = result.nextCursor;
-      }
-    });
-  }
-
-  private findVisibleAgentByName(
-    agentName: string,
-  ): Effect.Effect<AgentCard | undefined, ServiceRpcError> {
-    return Effect.gen(this, function* () {
-      let cursor: ListCursor | undefined = undefined;
-      for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-        const params = this.agentListParams(cursor);
-        const result = yield* this.call(AgentsList.name, params);
-        yield* this.cacheAgentNames(result.agents);
-        const hit = result.agents.find((agent) => agent.name === agentName);
-        if (hit !== undefined || result.nextCursor === undefined) return hit;
-        cursor = result.nextCursor;
-      }
-      return undefined;
     });
   }
 
@@ -1073,7 +989,7 @@ export class MoltZapService {
     return {
       messagesMap: snapshot(this.messagesRef),
       conversationsMap: snapshot(this.conversationsRef),
-      agentNamesMap: snapshot(this.agentNamesRef),
+      agentNamesMap: this.agentNames.snapshot(),
       viewMarkers: getOr(lastNotifiedMap, currentConvId, () =>
         HashMap.empty<string, string>(),
       ),
@@ -1306,7 +1222,7 @@ export class MoltZapService {
 
     this.storeMessage(msg);
     // Name resolution is driven lazily by channel-core's serialized consumer
-    // via resolveAgentName(), which populates agentNamesRef on first miss and
+    // via resolveAgentName(), which populates the agent-name cache on first miss and
     // hits the cache on every subsequent message.
     if (msg.senderId !== this._ownAgentId) {
       fanout(this.handlers.message, {

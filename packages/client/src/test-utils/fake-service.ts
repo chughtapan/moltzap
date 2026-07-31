@@ -13,7 +13,7 @@
  * every test that uses the fake.
  */
 
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import type { AgentCard, AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   AgentCallableGroup,
   type AnyAgentCallableRpcDefinition,
@@ -29,6 +29,7 @@ import type { Message } from "@moltzap/protocol/message";
 import type { RpcGroup } from "@effect/rpc";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
+import type { AgentNameCache } from "../agent-name-cache.js";
 import { MoltZapService, type ServiceRpcError } from "../service.js";
 import type { RpcCallOptions } from "../agent-client.js";
 import { testAgentId } from "./ids.js";
@@ -148,9 +149,7 @@ export class FakeMoltZapService extends MoltZapService {
   /** Pin an agent name in the internal cache without an RPC round-trip. */
   setAgentNameDirect(id: string, name: string): void {
     Effect.runSync(
-      Ref.update(this.parentAgentNamesRef, (m) =>
-        HashMap.set(m, testAgentId(id), name),
-      ),
+      this.parentAgentNames.cache([{ id: testAgentId(id), name } as AgentCard]),
     );
   }
 
@@ -163,11 +162,8 @@ export class FakeMoltZapService extends MoltZapService {
     return Reflect.get(this, "messagesRef") as ParentInternals["messagesRef"];
   }
 
-  private get parentAgentNamesRef(): ParentInternals["agentNamesRef"] {
-    return Reflect.get(
-      this,
-      "agentNamesRef",
-    ) as ParentInternals["agentNamesRef"];
+  private get parentAgentNames(): ParentInternals["agentNames"] {
+    return Reflect.get(this, "agentNames") as ParentInternals["agentNames"];
   }
 }
 
@@ -177,5 +173,5 @@ export class FakeMoltZapService extends MoltZapService {
  */
 interface ParentInternals {
   messagesRef: Ref.Ref<HashMap.HashMap<string, ReadonlyArray<Message>>>;
-  agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>>;
+  agentNames: AgentNameCache<unknown>;
 }
