@@ -274,6 +274,37 @@ function boundedResponseTextTest() {
   });
 }
 
+function nullableMediaUrlTest() {
+  return Effect.gen(function* () {
+    const exitCode = yield* Deferred.make<ExitCode>();
+    const response = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const gateway = yield* acquireOpenClawGatewayWith(
+          processSession(exitCode),
+          STARTUP_TIMEOUT,
+          readyClient({
+            runId: RUN_ID,
+            status: "ok",
+            summary: "completed",
+            result: {
+              payloads: [{ text: RESPONSE_TEXT, mediaUrl: null }],
+            },
+          }),
+        );
+        return yield* gateway.agent(
+          OpenClawGatewayRequest.make({
+            message: "Return the native message result.",
+            idempotencyKey: IDEMPOTENCY_KEY,
+          }),
+        );
+      }),
+    );
+
+    assert.instanceOf(response, OpenClawGatewaySucceeded);
+    assert.isNull(response.result.payloads?.[0]?.mediaUrl);
+  });
+}
+
 function oversizedResponseTextTest() {
   return Effect.gen(function* () {
     const exitCode = yield* Deferred.make<ExitCode>();
@@ -391,6 +422,7 @@ describe("OpenClaw principal gateway", () => {
     "accepts native output at the application boundary",
     boundedResponseTextTest,
   );
+  test("accepts OpenClaw's nullable media URL", nullableMediaUrlTest);
   test(
     "rejects native output above the application boundary",
     oversizedResponseTextTest,

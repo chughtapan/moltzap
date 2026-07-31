@@ -171,9 +171,11 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
   it("sendText uses OriginatingTo as conversation id", usesOriginatingTo);
   it("sendText sends to the right conversation", sendsToConversation);
   it("resolveTarget accepts agent targets", acceptsAgentTarget);
+  it("resolveTarget normalizes plain agent names", normalizesPlainAgentName);
   it("resolveTarget accepts conversation IDs", acceptsConversationTarget);
   it("resolveTarget rejects empty strings", rejectsEmptyTarget);
   it("sendText delegates agent targets", delegatesAgentTarget);
+  it("sendText delegates plain agent names", delegatesPlainAgentName);
   it("sendText reports sendToAgent failures", reportsSendToAgentFailure);
   it("sendText reports disconnected clients", reportsDisconnectedClient);
   it("sendText reports send failures", reportsSendFailure);
@@ -184,7 +186,10 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
     leaseGuardUnconsumedOnTransientFailure,
   );
   it("stopAccount removes client from active pool", stopRemovesClient);
-  it("property: resolveTarget accepts generated plain ids", plainIdsResolve);
+  it(
+    "property: resolveTarget normalizes generated agent names",
+    plainAgentNamesResolve,
+  );
 });
 
 function startGateway() {
@@ -490,6 +495,17 @@ function acceptsAgentTarget() {
   });
 }
 
+function normalizesPlainAgentName() {
+  return Effect.sync(() => {
+    expect(
+      started.plugin.outbound.resolveTarget({
+        to: AGENT_NOVA_NAME,
+        cfg: makeCfg(),
+      }),
+    ).toMatchObject({ ok: true, to: AGENT_NOVA_TARGET });
+  });
+}
+
 function acceptsConversationTarget() {
   return Effect.sync(() => {
     expect(
@@ -516,6 +532,20 @@ function delegatesAgentTarget() {
     const result = yield* sendText({
       cfg: makeCfg(),
       to: AGENT_NOVA_TARGET,
+      text: AGENT_TEXT,
+      accountId: ACCOUNT_ID,
+    });
+    expectSuccessfulSend(result);
+    expect(mockSendToAgent).toHaveBeenCalledWith(AGENT_NOVA_NAME, AGENT_TEXT);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+}
+
+function delegatesPlainAgentName() {
+  return Effect.gen(function* () {
+    const result = yield* sendText({
+      cfg: makeCfg(),
+      to: AGENT_NOVA_NAME,
       text: AGENT_TEXT,
       accountId: ACCOUNT_ID,
     });
@@ -669,20 +699,17 @@ function stopRemovesClient() {
   });
 }
 
-function plainIdsResolve() {
+function plainAgentNamesResolve() {
   return Effect.sync(() => {
     fc.assert(
       fc.property(
-        fc
-          .string({ minLength: 1 })
-          .filter((value) => value.trim().length > 0 && !value.includes(":")),
+        fc.stringMatching(/^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$/),
         (target) => {
-          const normalizedTarget = target.trim();
           const result = started.plugin.outbound.resolveTarget({
             to: target,
             cfg: makeCfg(),
           });
-          expect(result).toMatchObject({ ok: true, to: normalizedTarget });
+          expect(result).toMatchObject({ ok: true, to: `agent:${target}` });
         },
       ),
     );

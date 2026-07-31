@@ -21,8 +21,9 @@ surface.
 - **Account** — OpenClaw channel identity; its `id` is the MoltZap
   profile name from `~/.moltzap/config.json`; OpenClaw stores no
   MoltZap API keys.
-- **Target** — `agent:<name>` or `task:<taskId>:<conversationId>`;
-  `isMoltZapTarget` is the accepting predicate.
+- **Target** — an agent name, `agent:<name>`, or
+  `task:<taskId>:<conversationId>`. Plain agent names normalize to the
+  canonical `agent:<name>` form at the OpenClaw boundary.
 - **Dispatch lease** — single-use admission token from the MoltZap
   server, threaded through OpenClaw's `deliver` → reply flow.
 - **Context log** — per-message JSONL dump of the enriched inbound
@@ -43,12 +44,11 @@ surface.
   Host opt-in `MoltzapChannelPluginDeps.onLeaseConsumed` receives
   the typed error; deliver still returns `false` per
   `OpenClawDeliver: PromiseLike<boolean>`.
-- Target resolution: `messaging.targetResolver` validates both
-  target formats with no server round-trip; `directory` (`listPeers`,
-  `listGroups` — named groups only) is live RPC returning `[]` on
-  failure; `outbound.resolveTarget` requires a non-empty target and
-  rejects `:`-containing targets in neither format — colon-free
-  strings pass resolution but fail at send in `parseTaskTarget`.
+- Target resolution: `messaging.targetResolver` and
+  `outbound.resolveTarget` normalize a plain, valid agent name to
+  `agent:<name>` and validate explicit agent and task targets without a
+  server round-trip. `directory` (`listPeers`, `listGroups` — named groups
+  only) is live RPC returning `[]` on failure.
 - Notification routing keys on the typed definitions from
   `@moltzap/protocol`: `agent/message/received` enters dispatch,
   non-message notifications update channel state. Sender identity

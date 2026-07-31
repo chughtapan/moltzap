@@ -33,7 +33,7 @@ class OpenClawGatewayPayload extends Schema.Class<OpenClawGatewayPayload>(
   "OpenClawGatewayPayload",
 )({
   text: Schema.optional(openClawGatewayText),
-  mediaUrl: Schema.optional(openClawGatewayMediaUrl),
+  mediaUrl: Schema.optional(Schema.NullOr(openClawGatewayMediaUrl)),
   mediaUrls: Schema.optional(
     Schema.Array(openClawGatewayMediaUrl).pipe(
       Schema.maxItems(OPENCLAW_GATEWAY_MEDIA_URL_MAX_COUNT),
