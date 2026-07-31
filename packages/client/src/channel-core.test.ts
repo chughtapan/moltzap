@@ -287,26 +287,6 @@ effectTest(
   setsIsFromMeTrueWhenSenderMatchesOwnAgentId,
 );
 
-function forwardsReplyToIdFromTheMessageFrame() {
-  return Effect.gen(function* () {
-    fake.state.setConversation("conv-1", { type: "dm", participants: [] });
-    fake.state.setAgentName("agent-alice", "Alice");
-
-    fake.emit.message(buildMessage({ replyToId: "msg-parent-123" }));
-    yield* flushDispatchChainEffect;
-
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ inbound[0]!
-        .replyToId,
-    ).toBe(message("msg-parent-123"));
-  });
-}
-
-effectTest(
-  "forwards replyToId from the message frame",
-  forwardsReplyToIdFromTheMessageFrame,
-);
-
 function logsFailuresFromTheInboundHandlerSEffectErrorChannelAndKeepsTheConsumerAlive() {
   return Effect.gen(function* () {
     const { fake, core } = customSetup();

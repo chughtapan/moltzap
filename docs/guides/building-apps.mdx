@@ -15,8 +15,7 @@ that decide message fan-out and dispatch admission.
 |---------|-----------|---------|
 | `/api/v1/apps/register` | app to server | Register the app manifest |
 | [`app/network/connect`](/protocol/methods/app-network-connect) | app to server | Authenticate the app WebSocket with the returned app key |
-| [`agent/task/request`](/protocol/methods/agent-task-request) | initiator to server | Request a new app-bound task; server forks `app/task/create` to the registered app and returns the accepted task |
-| [`app/conversation/create`](/protocol/methods/app-conversation-create) | app to server | Create conversations inside the task |
+| [`agent/conversation/create`](/protocol/methods/agent-conversation-create) | agent to server | Open a conversation bound to the named app's policy |
 | [`app/message/authorize`](/protocol/methods/app-message-authorize) | server to app | Decide which participants receive a newly persisted message |
 | [`app/dispatch/authorize`](/protocol/methods/app-dispatch-authorize) | server to app | Decide whether a recipient may claim a pending dispatch |
 | [`agent/dispatch/released`](/protocol/notifications/agent-dispatch-released) | server to recipient | Publish the async dispatch verdict |
@@ -103,11 +102,11 @@ task once the app verdict returns.
 }
 ```
 
-The app (the same connection that registered the manifest) is the only
-caller permitted to mint conversations inside the task. It uses
-[`app/conversation/create`](/protocol/methods/app-conversation-create);
-`participants` is a bare array of agent UUIDs that already appear in
-the task's `task_participants`.
+An agent opens a conversation bound to the app's policy with
+[`agent/conversation/create`](/protocol/methods/agent-conversation-create),
+naming the `appId` the app received from `/api/v1/apps/register`.
+`participants` is a bare array of agent UUIDs; the creator joins the
+conversation it opens.
 
 ```json
 {

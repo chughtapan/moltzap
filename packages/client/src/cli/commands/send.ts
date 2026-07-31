@@ -1,46 +1,37 @@
 import { Args, Command } from "@effect/cli";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import {
   localDaemonCommands,
-  sendCommandRpc,
   sendTarget,
   type SendTarget as SendTargetValue,
 } from "../../local-daemon-rpc.js";
 import { command, runHandler, type Transport } from "../transport.js";
-import { optionsFromSchema } from "../adapters.js";
+
+// safer-arch-ignore no-trivial-sink-file: this command is a private one-command-per-file leaf consistent with the CLI commands folder convention.
 
 interface SendCommandParsed {
   readonly target: SendTargetValue;
   readonly message: string;
-  readonly options: Schema.Schema.Type<typeof sendOptionsSchema>;
 }
 
 const targetArg = Args.text({ name: "target" }).pipe(
   Args.withSchema(sendTarget),
-  Args.withDescription("Target task+conversation as task:<taskId>:<convId>"),
+  Args.withDescription(
+    "Target conversation as conv:<convId>, or task:<taskId>:<convId> to " +
+      "stamp a task label on the message",
+  ),
 );
 
 const messageArg = Args.text({ name: "message" }).pipe(
   Args.withDescription("Message text"),
 );
 
-const sendOptionsSchema = sendCommandRpc.payloadSchema.pipe(
-  Schema.omit("target", "message"),
-);
-/** Provides the send options runtime value. */
-export const sendOptions = optionsFromSchema(sendOptionsSchema, {
-  replyToId: {
-    name: "reply-to",
-    description: "Reply to a specific message",
-  },
-});
-
 /**
- * `moltzap send task:&lt;taskId>:&lt;convId> &lt;message> [--reply-to &lt;id>]` —
- * socket-call into the local MoltZapService to enqueue an outbound
- * `agent/message/send` against an existing (taskId, conversationId) pair.
- * `taskId` is REQUIRED on the wire, so the CLI target always carries both
- * ids.
+ * `moltzap send conv:&lt;convId> &lt;message>` — socket-call into the local
+ * MoltZapService to enqueue an outbound `agent/message/send` against an
+ * existing conversation. The conversation is the whole address;
+ * `task:&lt;taskId>:&lt;convId>` is also accepted and forwards the task label
+ * verbatim for endpoints that group by one.
  *
  * Identity selection is driven by the parent `@effect/cli` options
  * wired in `cli/index.ts`:
@@ -52,8 +43,8 @@ export const sendOptions = optionsFromSchema(sendOptionsSchema, {
  * If no profile is provided, the command uses the default local daemon socket.
  *
  * Examples:
- *   moltzap send task:$TID:$CID "hello"                          # default identity
- *   moltzap --profile alice send task:$TID:$CID "hello"          # send as alice.
+ *   moltzap send conv:$CID "hello"                          # default identity
+ *   moltzap --profile alice send conv:$CID "hello"          # send as alice.
  *
  * Default path delegates to the local channel daemon via a
  * Unix-socket RPC; it does NOT mint its own `MoltZapAgentClient`.
@@ -66,9 +57,9 @@ export const sendOptions = optionsFromSchema(sendOptionsSchema, {
  *   participant sock as socket-client
  *   participant daemon
  *
- *   shell->>cli: moltzap send task:taskId:convId msg
- *   cli->>send: handler({target, message, options})
- *   send->>sock: command(cli/send, {target, message, replyToId?})
+ *   shell->>cli: moltzap send conv:convId msg
+ *   cli->>send: handler({target, message})
+ *   send->>sock: command(cli/send, {target, message})
  *   Note over sock: NodeSocket.makeNet(~/.moltzap/service.sock, 10s) — ENOENT/ECONNREFUSED → SocketRequestError "not running"
  *   sock->>daemon: NDJSON RPC — cli/send
  *   Note over daemon: LocalDaemonRpcs handler → MessagesSend → agent-client → server
@@ -87,13 +78,12 @@ export const sendCommand: Command.Command<
   SendCommandParsed
 > = Command.make(
   "send",
-  { target: targetArg, message: messageArg, options: sendOptions },
-  ({ target, message, options }) => {
+  { target: targetArg, message: messageArg },
+  ({ target, message }) => {
     return runHandler(
       command(localDaemonCommands.send, {
         target,
         message,
-        ...options,
       }).pipe(
         Effect.flatMap((result) =>
           Effect.log(`Message sent (id: ${result.messageId})`),
@@ -104,7 +94,7 @@ export const sendCommand: Command.Command<
   },
 ).pipe(
   Command.withDescription(
-    "Send a message to task:<taskId>:<conversationId>. " +
+    "Send a message to conv:<conversationId>. " +
       "Identity follows the global --profile flag.",
   ),
 );

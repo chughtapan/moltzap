@@ -38,13 +38,9 @@ import {
   type PropertyFailure,
 } from "../_shared/registry.js";
 import type { agentId } from "#identity";
+import type { appId as appIdSchema } from "@moltzap/protocol/task";
 import {
-  type appId as appIdSchema,
-  taskRequest,
-  taskUpdate,
-} from "@moltzap/protocol/task";
-import {
-  conversationCreate,
+  agentConversationCreate,
   conversationUpdate,
   type conversationId as conversationIdSchema,
   type messageId,
@@ -60,7 +56,6 @@ import {
   type dispatchId as dispatchIdSchema,
 } from "#message/dispatch";
 import { messagesSend } from "@moltzap/protocol/message";
-import type { taskId as taskIdSchema } from "#task";
 import type { NotificationDelivery, ResultOf } from "#transport";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
@@ -161,7 +156,6 @@ export interface RecipientHandle {
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
     readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
     readonly leaseId: Schema.Schema.Type<typeof leaseId>;
     readonly text: string;
@@ -214,7 +208,6 @@ export interface ModeratorHandle {
   readonly handleAuthorize: (opts: {
     readonly respondWith: DispatchVerdict;
     readonly predicate?: (params: {
-      readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
       readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
       readonly messageId: Schema.Schema.Type<typeof messageId>;
     }) => boolean;
@@ -267,14 +260,12 @@ export interface ModeratorHandle {
 /**
  * Cross-impl driver. One `DispatchTestDriver` instance per property,
  * acquired under the property's `Scope`. Wires up the real server,
- * recipient + moderator clients, and shared task / conversation
- * fixtures.
+ * recipient + moderator clients, and the shared conversation fixture.
  */
 export interface DispatchTestDriver {
   readonly recipient: RecipientHandle;
   readonly moderator: ModeratorHandle;
   readonly fixtures: {
-    readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
     readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
   };
 
@@ -635,7 +626,6 @@ function sendWithLease(
   return Effect.gen(function* () {
     const exit = yield* Effect.exit(
       acquired.client.sendRpc(messagesSend, {
-        taskId: params.taskId,
         conversationId: params.conversationId,
         parts: [{ type: "text", text: params.text }],
         dispatchLeaseId: params.leaseId,
@@ -687,7 +677,6 @@ function rpcErrorState(error: RpcResponseError): string | undefined {
 }
 
 interface DispatchAuthorizePredicateInput {
-  readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
   readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
   readonly messageId: Schema.Schema.Type<typeof messageId>;
 }
@@ -705,20 +694,18 @@ interface DriverAgents {
 }
 
 interface DriverClients {
-  /** Agent connection — drives the agent-called `agent/task/request`. */
+  /** Agent connection — drives the agent-called `agent/conversation/create`. */
   readonly moderatorClient: AgentTestClient;
 
   /**
    * App-principal `AppConnection` — hosts the moderator callbacks and
-   * the app-only RPCs (app/conversation/create, add-participant,
-   * app/dispatch/lease/get).
+   * the app-only RPCs (add-participant, app/dispatch/lease/get).
    */
   readonly appClient: AppTestClient;
   readonly recipientAcquired: AcquiredCloseableClient;
 }
 
 interface DriverFixtures {
-  readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
   readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
 }
 
@@ -733,7 +720,6 @@ interface DriverBuildParts {
 interface AddRecipientInput {
   readonly ctx: ConformanceRunContext;
   readonly moderatorClient: AppTestClient;
-  readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
   readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
   readonly opts: Parameters<DispatchTestDriver["addRecipient"]>[0];
 }
@@ -824,7 +810,6 @@ function authorizePredicateInput(
   params: ServerRpcParams<typeof dispatchAuthorize>,
 ): DispatchAuthorizePredicateInput {
   return {
-    taskId: params.taskId,
     conversationId: params.conversationId,
     messageId: params.message.id,
   };
@@ -948,10 +933,11 @@ export function makeDispatchTestDriver(
   return Effect.gen(function* () {
     const agents = yield* acquireDriverAgents(ctx);
     // Register the moderator app FIRST (HTTP + `appKey` Connect → an
-    // `AppConnection`); `agent/task/request` then targets the server-minted
-    // `appId`. App-only RPCs + moderator callbacks + `app/dispatch/lease/get`
-    // route through `app.client`; the agent `moderatorClient` only drives
-    // the agent-called `agent/task/request`.
+    // `AppConnection`); `agent/conversation/create` then targets the
+    // server-minted `appId`. App-only RPCs + moderator callbacks +
+    // `app/dispatch/lease/get` route through `app.client`; the agent
+    // `moderatorClient` only drives the agent-called
+    // `agent/conversation/create`.
     const app = yield* registerDriverApp(ctx, moderatorTimeoutMs);
     const clients = yield* acquireDriverClients(ctx, agents, app);
     const fixtures = yield* createDriverFixtures(
@@ -1041,55 +1027,27 @@ function createDriverFixtures(
   appId: Schema.Schema.Type<typeof appIdSchema>,
   recipientAgent: TestAgent,
 ): Effect.Effect<DriverFixtures, PropertyFailure> {
-  // `agent/task/request` is agent-called (the moderator agent); the app-only
-  // `app/conversation/create` routes through the app principal.
   return Effect.gen(function* () {
-    const taskId = yield* createDriverTask(
+    const conversationId = yield* createDriverConversation(
       clients.moderatorClient,
       appId,
       recipientAgent,
     );
-    const conversationId = yield* createDriverConversation(
-      clients.appClient,
-      taskId,
-      recipientAgent,
-    );
-    return { taskId, conversationId };
+    return { conversationId };
   });
 }
 
-function createDriverTask(
+function createDriverConversation(
   moderatorClient: AgentTestClient,
   appId: Schema.Schema.Type<typeof appIdSchema>,
-  recipientAgent: TestAgent,
-): Effect.Effect<Schema.Schema.Type<typeof taskIdSchema>, PropertyFailure> {
-  return moderatorClient
-    .sendRpc(taskRequest, {
-      appId,
-      invitedAgentIds: [recipientAgent.agentId],
-    })
-    .pipe(
-      Effect.map((result) => result.task.id),
-      Effect.mapError((e) =>
-        violation(
-          SETUP_FAILURE_PROPERTY,
-          `app/task/create failed: ${unwrapError(e)}`,
-        ),
-      ),
-    );
-}
-
-function createDriverConversation(
-  moderatorClient: AppTestClient,
-  taskId: Schema.Schema.Type<typeof taskIdSchema>,
   recipientAgent: TestAgent,
 ): Effect.Effect<
   Schema.Schema.Type<typeof conversationIdSchema>,
   PropertyFailure
 > {
   return moderatorClient
-    .sendRpc(conversationCreate, {
-      taskId,
+    .sendRpc(agentConversationCreate, {
+      appId,
       name: "conformance-dispatch-conv",
       participants: [recipientAgent.agentId],
     })
@@ -1098,7 +1056,7 @@ function createDriverConversation(
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
-          `app/conversation/create failed: ${unwrapError(e)}`,
+          `agent/conversation/create failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1112,10 +1070,9 @@ function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
     addRecipient: (opts) =>
       addRecipient({
         ctx: parts.ctx,
-        // Task and conversation mutations are app-called; route through the app
+        // Conversation mutations are app-called; route through the app
         // principal.
         moderatorClient: parts.clients.appClient,
-        taskId: parts.fixtures.taskId,
         conversationId: parts.fixtures.conversationId,
         opts,
       }),
@@ -1132,10 +1089,8 @@ function addRecipient(
     const name = input.opts.agentName ?? "conf-rcpt2";
     const agent = yield* acquireAgent(input.ctx, name);
     const acquired = yield* acquireCloseableClient(input.ctx, agent);
-    yield* addTaskParticipant(input.moderatorClient, input.taskId, agent);
     yield* addConversationParticipant(
       input.moderatorClient,
-      input.taskId,
       input.conversationId,
       agent,
     );
@@ -1143,37 +1098,14 @@ function addRecipient(
   });
 }
 
-function addTaskParticipant(
-  moderatorClient: AppTestClient,
-  taskId: Schema.Schema.Type<typeof taskIdSchema>,
-  agent: TestAgent,
-): Effect.Effect<void, PropertyFailure> {
-  return moderatorClient
-    .sendRpc(taskUpdate, {
-      action: "add-participant",
-      taskId,
-      agentId: agent.agentId,
-    })
-    .pipe(
-      Effect.mapError((e) =>
-        violation(
-          "driver.addRecipient",
-          `app/task/update failed: ${unwrapError(e)}`,
-        ),
-      ),
-    );
-}
-
 function addConversationParticipant(
   moderatorClient: AppTestClient,
-  taskId: Schema.Schema.Type<typeof taskIdSchema>,
   conversationId: Schema.Schema.Type<typeof conversationIdSchema>,
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
     .sendRpc(conversationUpdate, {
       action: "add-participant",
-      taskId,
       conversationId,
       agentId: agent.agentId,
     })

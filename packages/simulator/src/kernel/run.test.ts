@@ -5,14 +5,12 @@ import {
   agentId as protocolAgentId,
   messageId,
   redactedAgentKey,
-  taskId,
 } from "@moltzap/protocol/testing";
 import {
   Cause,
   Chunk,
   DateTime,
   Deferred,
-  Duration,
   Effect,
   Exit,
   Ref,
@@ -74,7 +72,6 @@ const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
 );
 const OBSERVED_EXIT_CODE = 7;
 const PRIMARY_AGENT_NAME = "alice";
-const READY = () => Effect.void;
 
 function agentId(suffix: number) {
   return protocolAgentId(
@@ -163,12 +160,11 @@ function attachFakeEndpoint<const Name extends string>(
       received: Stream.never,
       openConversation: () =>
         Effect.succeed({
-          taskId: taskId("00000000-0000-4000-8000-000000000101"),
           conversationId: conversationId(
             "00000000-0000-4000-8000-000000000102",
           ),
         }),
-      send: (...[, currentConversationId, parts]) =>
+      send: (...[currentConversationId, parts]) =>
         (committedSends === undefined
           ? Effect.void
           : Ref.update(committedSends, (count) => count + 1)
@@ -202,7 +198,6 @@ function fakeRouterProvider(
               agent: makeAgentHandle(name, agentId(nextIdentity)),
               key: agentKey(nextIdentity),
               routerUrl: ROUTER_URL,
-              awaitReady: READY,
             };
           }),
         attachEndpoint: (name) => attachFakeEndpoint(name, committedSends),
@@ -217,22 +212,18 @@ function fakeRouterProvider(
 
 const codeRuntime = defineRuntime({
   name: "effect",
-  acquire: (input) =>
-    input.connection.awaitReady(Duration.seconds(1)).pipe(
-      Effect.as({
-        termination: Effect.succeed(RuntimeCompleted.make({})),
-      }),
-    ),
+  acquire: () =>
+    Effect.succeed({
+      termination: Effect.succeed(RuntimeCompleted.make({})),
+    }),
 });
 
 const processRuntime = defineRuntime({
   name: "process",
-  acquire: (input) =>
-    input.connection.awaitReady(Duration.seconds(1)).pipe(
-      Effect.as({
-        termination: Effect.succeed(RuntimeExited.make({ code: 0 })),
-      }),
-    ),
+  acquire: () =>
+    Effect.succeed({
+      termination: Effect.succeed(RuntimeExited.make({ code: 0 })),
+    }),
 });
 
 const roster = society.agents({
@@ -242,10 +233,7 @@ const roster = society.agents({
 
 const ongoingRuntime = defineRuntime({
   name: "ongoing",
-  acquire: (input) =>
-    input.connection
-      .awaitReady(Duration.seconds(1))
-      .pipe(Effect.as({ termination: Effect.never })),
+  acquire: () => Effect.succeed({ termination: Effect.never }),
 });
 
 const ongoingRoster = society.agents({
@@ -361,10 +349,8 @@ test("records genuine runtime termination while policy remains active", () =>
     const termination = yield* Deferred.make<RuntimeExited>();
     const observedRuntime = defineRuntime({
       name: "observed-process",
-      acquire: (input) =>
-        input.connection
-          .awaitReady(Duration.seconds(1))
-          .pipe(Effect.as({ termination: Deferred.await(termination) })),
+      acquire: () =>
+        Effect.succeed({ termination: Deferred.await(termination) }),
     });
     const observedRoster = society.agents({
       alice: observedRuntime,
@@ -396,12 +382,10 @@ test("records a defective termination observer as runtime failure", () =>
   Effect.gen(function* () {
     const defectiveRuntime = defineRuntime({
       name: "defective-termination-observer",
-      acquire: (input) =>
-        input.connection.awaitReady(Duration.seconds(1)).pipe(
-          Effect.as({
-            termination: Effect.dieMessage("termination observer defect"),
-          }),
-        ),
+      acquire: () =>
+        Effect.succeed({
+          termination: Effect.dieMessage("termination observer defect"),
+        }),
     });
     const defectiveRoster = society.agents({
       alice: defectiveRuntime,

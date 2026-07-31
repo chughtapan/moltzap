@@ -1,7 +1,8 @@
 /**
- * Cursor codec for the cursor-paginated list RPCs (`agent/identity/agents/list`,
- * `agent/identity/contacts/list`, `agent/task/list`). A `ListCursor` is base64url of the last
- * emitted row's `(sortKey, id)` tuple, ordered `(created_at DESC, id ASC)`.
+ * Cursor codec for the cursor-paginated list RPCs
+ * (`agent/identity/agents/list`, `agent/conversation/list`). A `ListCursor`
+ * is base64url of the last emitted row's `(sortKey, id)` tuple, ordered
+ * `(created_at DESC, id ASC)`.
  *
  * This module is the only sanctioned decoder of a cursor token; the
  * server eslint config bans `atob` / base64url `Buffer.from` elsewhere

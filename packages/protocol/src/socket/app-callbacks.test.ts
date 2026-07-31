@@ -1,5 +1,5 @@
 /**
- * Schema conformance for the server-initiated task-callback verbs.
+ * Schema conformance for the server-initiated app-callback verbs.
  *
  * Strict Effect-Schema decode checks against the descriptor's `paramsSchema`
  * and `resultSchema`. `DispatchAdmissionDecision` verdict-shape coverage lives
@@ -11,7 +11,6 @@ import { describe, it, expect } from "vitest";
 import type { Schema } from "effect";
 import { dispatchAuthorize } from "#message/dispatch";
 import { messagesAuthorize } from "#message";
-import { taskCreate } from "#task";
 import { appCallbackMethods } from "#socket/catalog";
 import { decodesStrictly } from "#transport";
 
@@ -68,7 +67,6 @@ describe("admission RPC registration", () => {
     expect(appCallbackNames).toEqual([
       dispatchAuthorize.name,
       messagesAuthorize.name,
-      taskCreate.name,
     ]);
   });
 });
@@ -106,12 +104,12 @@ describe("DispatchAuthorize params acceptance", () => {
 
 describe("DispatchAuthorize params rejection", () => {
   it("rejects missing required fields", () => {
-    const withoutTask = Object.fromEntries(
+    const withoutConversation = Object.fromEntries(
       Object.entries(DISPATCH_AUTHORIZE_PARAMS).filter(
-        ([key]) => key !== "taskId",
+        ([key]) => key !== "conversationId",
       ),
     );
-    expect(validateDispatchAuthorizeParams(withoutTask)).toBe(false);
+    expect(validateDispatchAuthorizeParams(withoutConversation)).toBe(false);
     expect(validateDispatchAuthorizeParams({})).toBe(false);
   });
 

@@ -53,7 +53,6 @@ export const messagesListHandler = (
 
 /** Provides the messages list options runtime value. */
 export const messagesListOptions = optionsFromSchema(messagesListPayload, {
-  taskId: { name: "task", description: "Task id" },
   conversationId: {
     name: "conversation",
     description: "Conversation id",
@@ -68,9 +67,7 @@ const messagesListCommand = Command.make(
 
 /** `moltzap messages [list]` subcommand group. */
 export const messagesCommand = Command.make("messages", {}, () =>
-  logLines([
-    "Usage: moltzap messages list --task <id> --conversation <id> [--limit N]",
-  ]),
+  logLines(["Usage: moltzap messages list --conversation <id> [--limit N]"]),
 ).pipe(
   Command.withDescription(
     "Query message history. Runs as the identity selected by the global " +

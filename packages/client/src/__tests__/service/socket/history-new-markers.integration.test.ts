@@ -1,6 +1,5 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -19,33 +18,19 @@ it("history via socket returns messages with isOwn labels", () =>
     yield* service.startSocketServer();
     // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
     yield* Effect.gen(function* () {
-      const conv = yield* service.call(taskRequest.name, {
-        appId: DEFAULT_APP_ID,
-        invitedAgentIds: [regB.agentId],
-        initialConversation: { participants: [regB.agentId] },
+      const conv = yield* service.call(H.agentConversationCreate.name, {
+        appId: H.DEFAULT_APP_ID,
+        participants: [regB.agentId],
       });
 
       yield* service.call(H.messagesSend.name, {
-        taskId: conv.task.id,
-        conversationId:
-          /* Safe because the test fixture establishes this asserted shape. */ conv
-            .conversation!.id,
+        conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "Hello from A" }],
       });
       yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
-      yield* H.sendAndSettle(
-        regB.client,
-        conv.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
-        "Hello from B",
-      );
+      yield* H.sendAndSettle(regB.client, conv.conversation.id, "Hello from B");
 
-      const result = yield* H.socketHistory(
-        conv.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
-      );
+      const result = yield* H.socketHistory(conv.conversation.id);
 
       expect(result.messages.length).toBeGreaterThanOrEqual(2);
       const ownMsgs = result.messages.filter(isOwn);
@@ -63,9 +48,7 @@ it("history via socket returns messages with isOwn labels", () =>
     }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
-// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The marker transition is meaningful only as one ordered end-to-end scenario.
 it("messages stay *NEW* after getContext notification until history is read", () =>
-  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Splitting the Effect generator would hide the notification-versus-read state sequence.
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("wm-a");
     const regB = yield* H.registerAgent("wm-b");
@@ -74,7 +57,7 @@ it("messages stay *NEW* after getContext notification until history is read", ()
     yield* regC.client.connect();
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
-    // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The scoped body deliberately keeps all marker transitions before its single ensuring cleanup.
+
     yield* Effect.gen(function* () {
       const convB = yield* H.createDm(service, regB.agentId);
       const convC = yield* H.createDm(service, regC.agentId);
@@ -82,39 +65,26 @@ it("messages stay *NEW* after getContext notification until history is read", ()
       // Seller sends message in conv C
       yield* H.sendAndSettle(
         regC.client,
-        convC.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ convC
-          .conversation!.id,
+        convC.conversation.id,
         H.PRICE_MESSAGE,
       );
 
       // System-reminder fires for conv B → advances lastNotified
-      const reminder = service.getContext(
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
-        {
-          type: "cross-conversation",
-        },
-      );
+      const reminder = service.getContext(convB.conversation.id, {
+        type: "cross-conversation",
+      });
       expect(reminder).toContain(H.ONE_NEW_MARKER);
 
       // System-reminder won't repeat (lastNotified advanced)
-      const reminder2 = service.getContext(
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
-        {
-          type: "cross-conversation",
-        },
-      );
+      const reminder2 = service.getContext(convB.conversation.id, {
+        type: "cross-conversation",
+      });
       expect(reminder2).toBeNull();
 
       // BUT history via socket still shows *NEW* (lastRead not advanced yet)
       const hist1 = yield* H.socketHistory(
-        convC.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ convC
-          .conversation!.id,
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
+        convC.conversation.id,
+        convB.conversation.id,
       );
       expect(hist1.newCount).toBe(1);
       expect(
@@ -128,11 +98,8 @@ it("messages stay *NEW* after getContext notification until history is read", ()
 
       // After reading, lastRead advances → second fetch shows 0 new
       const hist2 = yield* H.socketHistory(
-        convC.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ convC
-          .conversation!.id,
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
+        convC.conversation.id,
+        convB.conversation.id,
       );
       expect(hist2.newCount).toBe(0);
     }).pipe(
@@ -142,9 +109,7 @@ it("messages stay *NEW* after getContext notification until history is read", ()
     );
   }));
 
-// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The before-read, after-read, and new-arrival transitions form one regression scenario.
 it("new messages after history read are marked *NEW*", () =>
-  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Splitting the Effect generator would obscure the ordering that the test protects.
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("wm2-a");
     const regB = yield* H.registerAgent("wm2-b");
@@ -159,27 +124,15 @@ it("new messages after history read are marked *NEW*", () =>
       // First message
       yield* H.sendAndSettle(
         regC.client,
-        convC.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ convC
-          .conversation!.id,
+        convC.conversation.id,
         H.FIRST_MESSAGE,
       );
-      service.getContext(
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
-        {
-          type: "cross-conversation",
-        },
-      );
+      service.getContext(convB.conversation.id, {
+        type: "cross-conversation",
+      });
 
       const readC = () =>
-        H.socketHistory(
-          convC.task.id,
-          /* Safe because the test fixture establishes this asserted shape. */ convC
-            .conversation!.id,
-          /* Safe because the test fixture establishes this asserted shape. */ convB
-            .conversation!.id,
-        );
+        H.socketHistory(convC.conversation.id, convB.conversation.id);
 
       // Read history → advances lastRead
       const hist1 = yield* readC();
@@ -190,9 +143,7 @@ it("new messages after history read are marked *NEW*", () =>
       // New message arrives AFTER read
       yield* H.sendAndSettle(
         regC.client,
-        convC.task.id,
-        /* Safe because the test fixture establishes this asserted shape. */ convC
-          .conversation!.id,
+        convC.conversation.id,
         H.SECOND_MESSAGE,
       );
       // Third read → 1 new (the new message)

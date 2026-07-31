@@ -16,17 +16,18 @@ import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 import {
   registerTestAgent,
   extractMessage,
-  extractTaskBinding,
+  extractConversationBinding,
   extractText,
-  type TaskBinding,
+  type ConversationBinding,
 } from "./test-helpers.js";
 
 import {
   agentsList,
+  DEFAULT_APP_ID,
   type AgentId,
   type AgentKey,
 } from "@moltzap/protocol/identity";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
@@ -367,37 +368,35 @@ function connectedClient(agentKey: AgentKey) {
 function createDm(
   client: MoltZapAgentClient,
   invitee: AgentId,
-): Effect.Effect<TaskBinding, unknown> {
+): Effect.Effect<ConversationBinding, unknown> {
   return client
-    .call(taskRequest.name, {
+    .call(agentConversationCreate.name, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [invitee],
-      initialConversation: { participants: [invitee] },
+      participants: [invitee],
     })
-    .pipe(Effect.map(extractTaskBinding));
+    .pipe(Effect.map(extractConversationBinding));
 }
 
 function createGroup(
   client: MoltZapAgentClient,
   name: string,
   agentIds: readonly AgentId[],
-): Effect.Effect<TaskBinding, unknown> {
+): Effect.Effect<ConversationBinding, unknown> {
   return client
-    .call(taskRequest.name, {
+    .call(agentConversationCreate.name, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: agentIds,
-      initialConversation: { name, participants: agentIds },
+      name,
+      participants: agentIds,
     })
-    .pipe(Effect.map(extractTaskBinding));
+    .pipe(Effect.map(extractConversationBinding));
 }
 
 function sendText(
   client: MoltZapAgentClient,
-  binding: TaskBinding,
+  binding: ConversationBinding,
   text: string,
 ) {
   return client.call(messagesSend.name, {
-    taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
   });

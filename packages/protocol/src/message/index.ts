@@ -4,7 +4,6 @@
 
 /** Re-exports the public API from `./messages.js`. */
 export {
-  MessageNotFoundError,
   messagesSend,
   messagesList,
   messagesAuthorize,

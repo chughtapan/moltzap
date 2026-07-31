@@ -114,7 +114,7 @@ export interface CoreTestServerHandle {
   /**
    * Pre-wired server handle that reports readiness from the live
    * `ConnectionManager`. Out-of-process consumers construct their own handle
-   * over WebSocket presence.
+   * over the WebSocket connection they already hold.
    */
   runtimeServer: CoreTestRuntimeServerHandle;
 
@@ -419,10 +419,8 @@ export function resetCoreTestDb() {
       }
       yield* execPglite(`
     TRUNCATE TABLE
-      task_participants, tasks,
       messages,
       conversation_participants, conversation_keys, conversations,
-      contacts,
       agents, encryption_keys
     CASCADE;
   `);

@@ -22,7 +22,6 @@ import {
   appId as appIdSchema,
   type AppKey,
   appKey,
-  contactId as contactIdSchema,
   userId as userIdSchema,
 } from "#identity";
 import { connectionId as decodeConnectionId } from "#socket";
@@ -96,15 +95,6 @@ export const agentId = (
   value: string,
 ): Schema.Schema.Type<typeof agentIdSchema> =>
   Schema.decodeUnknownSync(agentIdSchema)(value);
-/**
- * Validates and decodes contact id values.
- * @param value Value to process.
- * @returns The contact id result.
- */
-export const contactId = (
-  value: string,
-): Schema.Schema.Type<typeof contactIdSchema> =>
-  Schema.decodeUnknownSync(contactIdSchema)(value);
 /**
  * Validates and decodes conversation id values.
  * @param value Value to process.

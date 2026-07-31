@@ -11,7 +11,6 @@ export {
 } from "./agents.js";
 /** Re-exports the public API from `./constants.js`. */
 export {
-  ARCHIVED_MESSAGE,
   B_UPDATE,
   CONTEXT_LIMIT,
   FIRST_MESSAGE,
@@ -62,12 +61,12 @@ export type { SocketHistoryResponse } from "./socket.js";
 
 /** Re-exports the public API from `@moltzap/protocol/conversation`. */
 export {
-  ConversationArchivedError,
+  agentConversationCreate,
   conversationUpdate,
   conversationList,
 } from "@moltzap/protocol/conversation";
-/** Re-exports the public API from `@moltzap/protocol/task`. */
-export { DEFAULT_APP_ID, taskLeave, taskRequest } from "@moltzap/protocol/task";
+/** Re-exports the public API from `@moltzap/protocol/identity`. */
+export { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 /** Re-exports the public API from `@moltzap/protocol/message`. */
 export {
   messageReceivedNotificationDefinition,

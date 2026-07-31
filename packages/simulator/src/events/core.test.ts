@@ -13,7 +13,6 @@ import {
 } from "./core.js";
 
 const AGENT_ID = "550e8400-e29b-41d4-a716-446655440000";
-const TASK_ID = "550e8400-e29b-41d4-a716-446655440001";
 const CONVERSATION_ID = "550e8400-e29b-41d4-a716-446655440002";
 const MESSAGE_ID = "550e8400-e29b-41d4-a716-446655440003";
 
@@ -70,7 +69,6 @@ test("keeps router commitment evidence content-blind", () =>
   Effect.gen(function* () {
     const committed = yield* coreEvents.decode({
       _tag: "moltzap.router-message-committed/v1",
-      taskId: TASK_ID,
       conversationId: CONVERSATION_ID,
       messageId: MESSAGE_ID,
       senderId: AGENT_ID,
@@ -79,7 +77,6 @@ test("keeps router commitment evidence content-blind", () =>
     const contentBearing = yield* coreEvents
       .decode({
         _tag: "moltzap.router-message-committed/v1",
-        taskId: TASK_ID,
         conversationId: CONVERSATION_ID,
         messageId: MESSAGE_ID,
         senderId: AGENT_ID,

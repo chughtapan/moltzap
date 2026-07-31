@@ -1,16 +1,16 @@
 # Server integration tests
 
-Per-layer organization mirrors the server socket / identity / network / task /
-app decomposition.
+Per-layer organization mirrors the server socket / identity / network /
+messaging / app decomposition.
 
 ## Layout
 
 ```
 __tests__/integration/
 ├── socket/      # WebSocket lifecycle, heartbeat, RPC plumbing
-├── identity/    # registration, claim, agents-list, contacts, auth
-├── network/     # presence + agent endpoint resolver
-├── task/        # conversations, messages, tasks, mute, archive, trace
+├── identity/    # registration, claim, agents-list, auth
+├── network/     # agent endpoint resolver
+├── messaging/   # conversations, messages, encryption, trace
 └── app/         # app registration + dispatch-admission lease lifecycle
     └── dispatch-flow/  # bucketed dispatch-admission scenarios
 ```
