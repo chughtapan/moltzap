@@ -151,6 +151,15 @@ const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   // Disabled: knip runs once at the workspace root (whole-monorepo)
   // via `pnpm lint`; per-package lint scripts run eslint only.
   "agent-code-guard/require-knip-in-lint": "off",
+  // Effect and Option constructors intentionally return distinct closed variants
+  // through one declared union. SonarJS treats those variants as inconsistent
+  // return types even when TypeScript proves the public return type.
+  "sonarjs/function-return-type": "off",
+  // TypeScript's control-flow analysis owns these checks. SonarJS loses the
+  // established narrowing for Effect Schema unions and generic array methods,
+  // so it reports errors for statically typed object and string operands.
+  "sonarjs/in-operator-type-error": "off",
+  "sonarjs/argument-type": "off",
   "local-guard/gen-finally": "error",
 });
 

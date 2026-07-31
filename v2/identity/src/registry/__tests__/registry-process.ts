@@ -273,7 +273,6 @@ const readRawResponse = (
   });
 };
 
-/* eslint-disable sonarjs/function-return-type -- Node's HTTP adapter needs a header record normally and a flat list only to preserve intentional duplicates. */
 const requestHeaders = (
   port: number,
   headers?: ReadonlyArray<readonly [string, string]>,
@@ -300,8 +299,6 @@ const requestHeaders = (
     ...headers.flatMap(([name, value]) => [name, value]),
   ];
 };
-/* eslint-enable sonarjs/function-return-type -- Restore ordinary return-shape checks. */
-
 const sendRawRequest = (input: {
   readonly port: number;
   readonly method: string;
