@@ -28,12 +28,9 @@ import {
 } from "#task";
 import {
   type ConversationId,
-  conversationArchivedNotificationDefinition,
   conversationCreatedNotificationDefinition,
   conversationParticipantsAddedNotificationDefinition,
   conversationParticipantsRemovedNotificationDefinition,
-  conversationUpdate,
-  conversationUnarchivedNotificationDefinition,
 } from "#conversation";
 import {
   messageReceivedNotificationDefinition,
@@ -77,10 +74,10 @@ export interface ConversationFixture {
 
   /**
    * The app-principal `AppConnection` bound as the conversation's
-   * moderator. App-admin RPCs (archive, unarchive, addParticipant,
-   * removeParticipant, close) head their `requires` with `AppPrincipal`, so
-   * they route through THIS client, not the agent `owner`. `owner` (an agent)
-   * drives `agent/task/request` + `agent/message/send`.
+   * moderator. App-admin RPCs (addParticipant, removeParticipant, close)
+   * head their `requires` with `AppPrincipal`, so they route through THIS
+   * client, not the agent `owner`. `owner` (an agent) drives
+   * `agent/task/request` + `agent/message/send`.
    */
   readonly moderatorClient: AppTestClient;
 }
@@ -380,47 +377,6 @@ export function sendText(
   });
 }
 
-// App-admin conversation updates head their `requires` with `AppPrincipal`;
-// callers pass the fixture's `moderatorClient` (the app principal), NOT the
-// agent owner.
-/**
- * Executes the archive conversation operation.
- * @param moderatorClient Value supplied to the operation.
- * @param taskId Value supplied to the operation.
- * @param conversationId Value supplied to the operation.
- * @returns The archive conversation result.
- */
-export function archiveConversation(
-  moderatorClient: AppTestClient,
-  taskId: TaskId,
-  conversationId: ConversationId,
-) {
-  return moderatorClient.sendRpc(conversationUpdate, {
-    action: "archive",
-    taskId,
-    conversationId,
-  });
-}
-
-/**
- * Executes the unarchive conversation operation.
- * @param moderatorClient Value supplied to the operation.
- * @param taskId Value supplied to the operation.
- * @param conversationId Value supplied to the operation.
- * @returns The unarchive conversation result.
- */
-export function unarchiveConversation(
-  moderatorClient: AppTestClient,
-  taskId: TaskId,
-  conversationId: ConversationId,
-) {
-  return moderatorClient.sendRpc(conversationUpdate, {
-    action: "unarchive",
-    taskId,
-    conversationId,
-  });
-}
-
 /**
  * Waits for for conversation created notification.
  * @param observer Value supplied to the operation.
@@ -487,82 +443,13 @@ export function waitForMessageReceivedNotification(
   }).pipe(Effect.withSpan("waitForMessageReceivedNotification"));
 }
 
-/**
- * Waits for for archived event.
- * @param observer Value supplied to the operation.
- * @param conversationId Value supplied to the operation.
- * @param propertyName Value supplied to the operation.
- * @returns The wait for archived event result.
- */
-export function waitForArchivedEvent(
-  observer: ConversationActor,
-  conversationId: ConversationId,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation> {
-  return Effect.gen(function* () {
-    const event = yield* awaitOneNotification(
-      observer.notifications,
-      conversationArchivedNotificationDefinition,
-      DELIVERY_DEFAULT_TIMEOUT_MS,
-    ).pipe(
-      Effect.mapError((reason) =>
-        deliveryViolation(propertyName, `archive event missing: ${reason}`),
-      ),
-    );
-    if (
-      event.params.conversationId !== conversationId ||
-      typeof event.params.archivedAt !== "string"
-    ) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad archive event payload: ${JSON.stringify(event.params)}`,
-        ),
-      );
-    }
-  }).pipe(Effect.withSpan("waitForArchivedEvent"));
-}
-
-/**
- * Waits for for unarchived event.
- * @param observer Value supplied to the operation.
- * @param conversationId Value supplied to the operation.
- * @param propertyName Value supplied to the operation.
- * @returns The wait for unarchived event result.
- */
-export function waitForUnarchivedEvent(
-  observer: ConversationActor,
-  conversationId: ConversationId,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation> {
-  return Effect.gen(function* () {
-    const event = yield* awaitOneNotification(
-      observer.notifications,
-      conversationUnarchivedNotificationDefinition,
-      DELIVERY_DEFAULT_TIMEOUT_MS,
-    ).pipe(
-      Effect.mapError((reason) =>
-        deliveryViolation(propertyName, `unarchive event missing: ${reason}`),
-      ),
-    );
-    if (event.params.conversationId !== conversationId) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad unarchive event payload: ${JSON.stringify(event.params)}`,
-        ),
-      );
-    }
-  }).pipe(Effect.withSpan("waitForUnarchivedEvent"));
-}
-
 /** Describes assert conversation rejects messages input. */
 export interface AssertConversationRejectsMessagesInput {
   readonly actor: ConversationActor;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly propertyName: string;
-  readonly expectedError?: { readonly tag: string };
+  readonly expectedError: { readonly tag: string };
 }
 
 /**
@@ -573,22 +460,19 @@ export interface AssertConversationRejectsMessagesInput {
 export function assertConversationRejectsMessages(
   input: AssertConversationRejectsMessagesInput,
 ): Effect.Effect<void, PropertyInvariantViolation> {
-  const expectedError = input.expectedError ?? {
-    tag: "ConversationArchived",
-  };
-  const { actor, taskId, conversationId, propertyName } = input;
+  const { actor, taskId, conversationId, propertyName, expectedError } = input;
   return Effect.gen(function* () {
     const outcome = yield* sendText(
       actor,
       taskId,
       conversationId,
-      "must-fail-while-archived",
+      "must-be-rejected",
     ).pipe(Effect.either);
     const outcomeViolation = Either.match(outcome, {
       onRight: () =>
         deliveryViolation(
           propertyName,
-          "agent/message/send succeeded while archived",
+          `agent/message/send succeeded, expected ${expectedError.tag}`,
         ),
       onLeft: (error) => {
         if (
@@ -895,7 +779,7 @@ export function acquireConversation(
       { concurrency: clamped },
     );
     // A separate app principal holds authority for app-only RPCs
-    // (archive, addParticipant, close); DEFAULT_APP_ID has no app connection. `owner`
+    // (addParticipant, close); DEFAULT_APP_ID has no app connection. `owner`
     // (agent) drives agent/task/request below.
     const moderator = yield* moderateAs(ctx, owner, namePrefix);
     const createResult = yield* owner.client

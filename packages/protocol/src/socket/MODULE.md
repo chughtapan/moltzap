@@ -82,7 +82,7 @@ Executes the classify close cause operation.
 
 **Returns:** The classify close cause result.
 
-### [`ClientConnectError`](./lifecycle.ts#L124)
+### [`ClientConnectError`](./lifecycle.ts#L122)
 
 _TypeAlias_
 
@@ -92,7 +92,7 @@ export type ClientConnectError<Rpcs extends ProtocolRpc> =
 
 Represents client connect error conditions.
 
-### [`ClientDefinitionError`](./lifecycle.ts#L111)
+### [`ClientDefinitionError`](./lifecycle.ts#L109)
 
 _TypeAlias_
 
@@ -102,7 +102,7 @@ export type ClientDefinitionError<D extends ClientRpcDefinition> =
 
 Represents client definition error conditions.
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L105)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L103)
 
 _TypeAlias_
 
@@ -112,7 +112,7 @@ export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 
 Represents client definition payload values.
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L108)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L106)
 
 _TypeAlias_
 
@@ -122,7 +122,7 @@ export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 
 Represents client definition success values.
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L203)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L201)
 
 _Interface_
 
@@ -148,7 +148,7 @@ export interface ClientLifecycleOptions<
 
 Configures client lifecycle.
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L101)
+### [`ClientRpcDefinition`](./lifecycle.ts#L99)
 
 _Interface_
 
@@ -241,7 +241,7 @@ export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
 
 Validates and decodes connection id values.
 
-### [`ConnectResult`](./lifecycle.ts#L117)
+### [`ConnectResult`](./lifecycle.ts#L115)
 
 _TypeAlias_
 
@@ -636,7 +636,7 @@ Provides the new connection id runtime value.
 
 **Returns:** The new connection id result.
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L559)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L547)
 
 _Function_
 
@@ -654,7 +654,7 @@ Provides the open protocol agent client socket runtime value.
 
 **Returns:** The open protocol agent client socket result.
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L576)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L564)
 
 _Function_
 
@@ -672,7 +672,7 @@ Provides the open protocol app client socket runtime value.
 
 **Returns:** The open protocol app client socket result.
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L681)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L669)
 
 _Class_
 
@@ -828,7 +828,7 @@ export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 
 Represents reverse callback error conditions.
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L239)
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L237)
 
 _TypeAlias_
 
@@ -929,7 +929,7 @@ export interface ReverseClient {
 
 Describes reverse client.
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L87)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L85)
 
 _Variable_
 
@@ -939,7 +939,7 @@ export const RPC_TIMEOUT_MS = 30_000
 
 Provides the rpc timeout ms runtime value.
 
-### [`RpcCallOptions`](./lifecycle.ts#L96)
+### [`RpcCallOptions`](./lifecycle.ts#L94)
 
 _Interface_
 

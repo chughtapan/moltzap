@@ -20,7 +20,6 @@ import {
 import { MessageServiceTag } from "./layer.js";
 import {
   guardTaskActive,
-  guardConversationNotArchived,
   obtainConversationSendAccess,
 } from "#conversation/requirements";
 import { catchSqlErrorAsDefect } from "#db";
@@ -106,15 +105,14 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
       const leaseRegistry = yield* LeaseRegistryTag;
       const connection = yield* ConnectionTag;
       // The `ConversationSendAccess` requirement already gates the frame. The
-      // body still needs the joined send row for task and conversation guards, so it
-      // reads that row directly here.
+      // body still needs the joined send row for the task guard, so it reads
+      // that row directly here.
       const sendRow = yield* obtainConversationSendAccess({
         conversationId: params.conversationId,
         senderAgentId: ctx.agentId,
         taskId: params.taskId,
       });
       yield* guardTaskActive(sendRow);
-      yield* guardConversationNotArchived(sendRow);
       if (params.dispatchLeaseId !== undefined) {
         return yield* sendWithDispatchLease({
           connId: connection.connId,

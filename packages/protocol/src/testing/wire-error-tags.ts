@@ -19,7 +19,6 @@ export const WIRE_ERROR_TAG = {
   TaskRejected: "TaskRejected",
   HookBlocked: "HookBlocked",
   ParticipantNotAdmitted: "ParticipantNotAdmitted",
-  ConversationArchived: "ConversationArchived",
   ConversationFull: "ConversationFull",
   ConversationNotFound: "ConversationNotFound",
   AgentNotFound: "AgentNotFound",

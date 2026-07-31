@@ -34,9 +34,9 @@ interface AppBoundConversationLookup {
 }
 
 /**
- * Dispatch admission is only defined for app-bound, non-archived
- * conversations. The success type has no non-app-bound arm, so downstream
- * lease minting cannot accidentally handle one as a lease binding.
+ * Dispatch admission is only defined for app-bound conversations. The
+ * success type has no non-app-bound arm, so downstream lease minting
+ * cannot accidentally handle one as a lease binding.
  * @param db Value supplied to the operation.
  * @param conversationId Value supplied to the operation.
  * @returns The lookup app bound for conversation result.
@@ -53,7 +53,6 @@ function lookupAppBoundForConversation(
           .innerJoin("tasks", "tasks.id", "conversations.task_id")
           .select(["tasks.id as task_id", "tasks.app_id"])
           .where("conversations.id", "=", conversationId)
-          .where("conversations.archived_at", "is", null)
           .where("tasks.app_id", "is not", null)
           .limit(1),
       );

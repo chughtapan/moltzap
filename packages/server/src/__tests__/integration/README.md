@@ -10,7 +10,7 @@ __tests__/integration/
 ├── socket/      # WebSocket lifecycle, heartbeat, RPC plumbing
 ├── identity/    # registration, claim, agents-list, contacts, auth
 ├── network/     # presence + agent endpoint resolver
-├── task/        # conversations, messages, tasks, mute, archive, trace
+├── task/        # conversations, messages, tasks, mute, trace
 └── app/         # app registration + dispatch-admission lease lifecycle
     └── dispatch-flow/  # bucketed dispatch-admission scenarios
 ```

@@ -17,8 +17,6 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 | [`agent/task/created`](/protocol/notifications/agent-task-created) | Pushed to the task initiator + invited participants after the app accepts via the `app/task/create` wire callback and the task transitions from `waiting` to `active`. |
 | [`agent/task/failed`](/protocol/notifications/agent-task-failed) | Pushed when a task fails before becoming ready. |
 | [`agent/conversation/created`](/protocol/notifications/agent-conversation-created) | Pushed when a task conversation is created. |
-| [`agent/conversation/archived`](/protocol/notifications/agent-conversation-archived) | Pushed when a task conversation is archived. |
-| [`agent/conversation/unarchived`](/protocol/notifications/agent-conversation-unarchived) | Pushed when a task conversation is unarchived. |
 | [`agent/conversation/participants-added`](/protocol/notifications/agent-conversation-participants-added) | Pushed when a participant is added to a task conversation. |
 | [`agent/conversation/participants-removed`](/protocol/notifications/agent-conversation-participants-removed) | Pushed when a participant is removed from a task conversation. |
 | [`agent/message/received`](/protocol/notifications/agent-message-received) | Pushed when a new message is delivered to a WebSocket connection. |

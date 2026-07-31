@@ -349,51 +349,6 @@ effectTest(
   delegatesToServiceSendWithConversationIdAndText,
 );
 
-function dropsRepliesLocallyAfterTheConversationIsArchived() {
-  return Effect.gen(function* () {
-    fake.emit.conversationArchived({ conversationId: "conv-42" });
-
-    yield* core.sendReply(
-      task("task-42"),
-      conversation("conv-42"),
-      "hello there",
-    );
-
-    expect(fake.state.sent).toEqual([]);
-  });
-}
-
-effectTest(
-  "drops replies locally after the conversation is archived",
-  dropsRepliesLocallyAfterTheConversationIsArchived,
-);
-
-function resumesRepliesAfterTheConversationIsUnarchived() {
-  return Effect.gen(function* () {
-    fake.emit.conversationArchived({ conversationId: "conv-42" });
-    fake.emit.conversationUnarchived({ conversationId: "conv-42" });
-
-    yield* core.sendReply(
-      task("task-42"),
-      conversation("conv-42"),
-      "hello again",
-    );
-
-    expect(fake.state.sent).toEqual([
-      {
-        taskId: task("task-42"),
-        convId: conversation("conv-42"),
-        text: "hello again",
-      },
-    ]);
-  });
-}
-
-effectTest(
-  "resumes replies after the conversation is unarchived",
-  resumesRepliesAfterTheConversationIsUnarchived,
-);
-
 function returnsTheSameShapeAsTheInstanceHandlerPath() {
   return Effect.gen(function* () {
     fake.state.setConversation("conv-1", {

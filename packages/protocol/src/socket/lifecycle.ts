@@ -44,11 +44,9 @@ import {
 } from "#identity/contacts";
 import { messageReceivedNotificationDefinition } from "#message";
 import {
-  conversationArchivedNotificationDefinition,
   conversationCreatedNotificationDefinition,
   conversationParticipantsAddedNotificationDefinition,
   conversationParticipantsRemovedNotificationDefinition,
-  conversationUnarchivedNotificationDefinition,
 } from "#conversation";
 import {
   taskClosedNotificationDefinition,
@@ -258,8 +256,6 @@ type TaskNotificationDefinition =
   | typeof taskCreatedNotificationDefinition
   | typeof taskFailedNotificationDefinition
   | typeof conversationCreatedNotificationDefinition
-  | typeof conversationArchivedNotificationDefinition
-  | typeof conversationUnarchivedNotificationDefinition
   | typeof conversationParticipantsAddedNotificationDefinition
   | typeof conversationParticipantsRemovedNotificationDefinition;
 type DispatchNotificationDefinition =
@@ -433,14 +429,6 @@ const buildTaskNotificationHandlers = (
   [conversationCreatedNotificationDefinition.name]: notificationHandler(
     registry,
     conversationCreatedNotificationDefinition,
-  ),
-  [conversationArchivedNotificationDefinition.name]: notificationHandler(
-    registry,
-    conversationArchivedNotificationDefinition,
-  ),
-  [conversationUnarchivedNotificationDefinition.name]: notificationHandler(
-    registry,
-    conversationUnarchivedNotificationDefinition,
   ),
   [conversationParticipantsAddedNotificationDefinition.name]:
     notificationHandler(

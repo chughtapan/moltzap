@@ -536,39 +536,6 @@ effectTest(
   doesNotLetHeldWorkInOneConversationBlockAnotherConversation,
 );
 
-function purgesHeldAndQueuedDispatchWorkWhenAConversationIsArchived() {
-  return Effect.gen(function* () {
-    const { fake, received } = customSetup();
-    fake.state.setConversation("conv-1", {
-      type: "group",
-      participants: [],
-    });
-    fake.state.setAgentName("agent-alice", "Alice");
-    let calls = 0;
-    installAdmission(fake, () =>
-      Effect.sync(() => {
-        calls += 1;
-        return { _tag: "hold" as const, reason: "waiting" };
-      }),
-    );
-
-    fake.emit.message(buildMessage({ id: "msg-held" }));
-    yield* flushDispatchChainEffect;
-
-    fake.emit.conversationArchived({ conversationId: "conv-1" });
-    fake.emit.message(buildMessage({ id: "msg-after-archive" }));
-    yield* flushDispatchChainEffect;
-
-    expect(calls).toBe(1);
-    expect(received).toHaveLength(0);
-  });
-}
-
-effectTest(
-  "purges held and queued dispatch work when a conversation is archived",
-  purgesHeldAndQueuedDispatchWorkWhenAConversationIsArchived,
-);
-
 function keepsBlockedAuthorizationHeadOfLineAndCoalescesSameConversationBacklogOnGrant() {
   return Effect.gen(function* () {
     const { fake, received } = customSetup();

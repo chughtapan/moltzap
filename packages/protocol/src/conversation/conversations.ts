@@ -8,7 +8,6 @@ import { agentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import {
-  dateTimeStringSchema,
   ForbiddenError,
   InvalidParamsError,
   listLimitSchema,
@@ -26,7 +25,6 @@ import {
 } from "./types.js";
 import { conversationNameSchema } from "./name.js";
 
-const dateTimeString = dateTimeStringSchema();
 const conversationSchemaValue = conversationSchema();
 
 // ═══════════════════════════════════════════════════════════════════
@@ -85,8 +83,8 @@ export type ConversationListItem = Schema.Schema.Type<
 
 /**
  * Self-only listing of every conversation the caller participates in (across
- * all tasks). No filter params; archived rows are included; callers filter
- * `archivedAt` locally.
+ * all tasks). No filter params: the visibility contract is "caller in
+ * `conversation_participants`", and any further narrowing is the endpoint's.
  *
  * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
  * @error InvalidParamsError when the `cursor` does not decode
@@ -108,16 +106,6 @@ export const conversationList = defineRpc({
 
 const conversationUpdateParamsSchema = Schema.Union(
   Schema.Struct({
-    action: Schema.Literal("archive"),
-    taskId: taskId,
-    conversationId: conversationId,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("unarchive"),
-    taskId: taskId,
-    conversationId: conversationId,
-  }),
-  Schema.Struct({
     action: Schema.Literal("add-participant"),
     taskId: taskId,
     conversationId: conversationId,
@@ -138,7 +126,7 @@ export type ConversationUpdateParams = Schema.Schema.Type<
 
 /**
  * App-only conversation mutation surface. `app/conversation/update` owns
- * archive, unarchive, participant add, and participant remove semantics.
+ * participant add and participant remove semantics.
  *
  * - **Principal:** `AppPrincipal` head + `ConversationInTask`.
  * @error ForbiddenError when the caller does not own the task
@@ -164,7 +152,6 @@ export const conversationUpdate = defineRpc({
 //
 // Recipient fan-out:
 //   - `created` → initial `participants` list
-//   - `archived` / `unarchived` → post-mutation `conversation_participants`
 //   - `participants/added` → post-mutation membership (newcomer included)
 //   - `participants/removed` → pre-mutation membership (so the removed agent
 //     still receives the notification)
@@ -175,17 +162,6 @@ const conversationCreatedNotificationSchema = Schema.Struct({
   conversationId: conversationId,
   name: Schema.optional(Schema.String),
   participants: Schema.Array(agentId),
-});
-
-const conversationArchivedNotificationSchema = Schema.Struct({
-  taskId: taskId,
-  conversationId: conversationId,
-  archivedAt: dateTimeString,
-});
-
-const conversationUnarchivedNotificationSchema = Schema.Struct({
-  taskId: taskId,
-  conversationId: conversationId,
 });
 
 const conversationParticipantsAddedNotificationSchema = Schema.Struct({
@@ -206,16 +182,6 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
   typeof conversationCreatedNotificationSchema
 >;
 
-/** Notification payload for `agent/conversation/archived`. */
-export type ConversationArchivedNotification = Schema.Schema.Type<
-  typeof conversationArchivedNotificationSchema
->;
-
-/** Notification payload for `agent/conversation/unarchived`. */
-export type ConversationUnarchivedNotification = Schema.Schema.Type<
-  typeof conversationUnarchivedNotificationSchema
->;
-
 /** Notification payload for `agent/conversation/participants-added`. */
 export type ConversationParticipantsAddedNotification = Schema.Schema.Type<
   typeof conversationParticipantsAddedNotificationSchema
@@ -230,18 +196,6 @@ export type ConversationParticipantsRemovedNotification = Schema.Schema.Type<
 export const conversationCreatedNotificationDefinition = defineNotification({
   name: "agent/conversation/created",
   params: conversationCreatedNotificationSchema,
-});
-
-/** Pushed when a task conversation is archived. */
-export const conversationArchivedNotificationDefinition = defineNotification({
-  name: "agent/conversation/archived",
-  params: conversationArchivedNotificationSchema,
-});
-
-/** Pushed when a task conversation is unarchived. */
-export const conversationUnarchivedNotificationDefinition = defineNotification({
-  name: "agent/conversation/unarchived",
-  params: conversationUnarchivedNotificationSchema,
 });
 
 /** Pushed when a participant is added to a task conversation. */
@@ -270,8 +224,6 @@ export const appCallableConversationRpcMethods = [
 /** Conversation notification catalog. */
 export const conversationNotifications = [
   conversationCreatedNotificationDefinition,
-  conversationArchivedNotificationDefinition,
-  conversationUnarchivedNotificationDefinition,
   conversationParticipantsAddedNotificationDefinition,
   conversationParticipantsRemovedNotificationDefinition,
 ] as const;

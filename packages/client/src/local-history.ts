@@ -51,7 +51,6 @@ const historyConversationMetaSchema = Schema.Struct({
   lastMessageTimestamp: Schema.optional(Schema.String),
   createdAt: Schema.String,
   updatedAt: Schema.String,
-  archivedAt: Schema.optional(Schema.String),
 });
 
 const historyResponseSchemaValue = Schema.Struct({

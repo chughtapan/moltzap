@@ -9,7 +9,6 @@ import {
   TaskNotFoundError,
 } from "@moltzap/protocol/task";
 import {
-  type Conversation,
   type ConversationId,
   ConversationNotFoundError,
   ParticipantNotAdmittedError,
@@ -104,11 +103,6 @@ interface TaskListPage {
 interface TaskCloseLifecycle {
   readonly task: Task;
   readonly participantAgentIds: readonly AgentId[];
-  readonly archivedConversations: ReadonlyArray<{
-    readonly conversationId: ConversationId;
-    readonly archivedAt: string;
-    readonly participantAgentIds: readonly AgentId[];
-  }>;
 }
 
 /**
@@ -122,38 +116,8 @@ interface TaskLeaveResult {
 }
 
 type TaskTransaction = Transaction<Database>;
-interface ArchivedConversationRow {
-  readonly id: ConversationId;
-  readonly archived_at: Date | null;
-}
-interface ConversationParticipantRow {
-  readonly conversation_id: ConversationId;
-  readonly agent_id: AgentId;
-}
 interface AgentIdRow {
   readonly agent_id: AgentId;
-}
-
-function conversationIdsFromRows(
-  rows: readonly ArchivedConversationRow[],
-): ConversationId[] {
-  const ids: ConversationId[] = [];
-  for (const row of rows) {
-    ids.push(row.id);
-  }
-  return ids;
-}
-
-function participantMapFromRows(
-  rows: readonly ConversationParticipantRow[],
-): ReadonlyMap<ConversationId, readonly AgentId[]> {
-  const participantsByConversation = new Map<ConversationId, AgentId[]>();
-  for (const row of rows) {
-    const existing = participantsByConversation.get(row.conversation_id) ?? [];
-    existing.push(row.agent_id);
-    participantsByConversation.set(row.conversation_id, existing);
-  }
-  return participantsByConversation;
 }
 
 function agentIdsFromRows(rows: readonly AgentIdRow[]): AgentId[] {
@@ -162,24 +126,6 @@ function agentIdsFromRows(rows: readonly AgentIdRow[]): AgentId[] {
     agentIds.push(row.agent_id);
   }
   return agentIds;
-}
-
-function archivedConversationsFromRows(
-  rows: readonly ArchivedConversationRow[],
-  participantsByConversation: ReadonlyMap<ConversationId, readonly AgentId[]>,
-): TaskCloseLifecycle["archivedConversations"] {
-  const archivedConversations: Array<
-    TaskCloseLifecycle["archivedConversations"][number]
-  > = [];
-  for (const row of rows) {
-    archivedConversations.push({
-      conversationId: row.id,
-      archivedAt:
-        /* Safe because the surrounding invariant establishes this asserted shape. */ row.archived_at!.toISOString(),
-      participantAgentIds: participantsByConversation.get(row.id) ?? [],
-    });
-  }
-  return archivedConversations;
 }
 
 /** Implements task service. */
@@ -364,65 +310,25 @@ export class TaskService {
 
   private closeLifecycleTransaction(trx: TaskTransaction, id: TaskId) {
     return Effect.gen(this, function* (this: TaskService) {
-      const closedAt = new Date();
-      const taskRow = yield* this.closeTaskRow(trx, id, closedAt);
-      const archivedRows = yield* this.archiveOpenConversations(
-        trx,
-        id,
-        closedAt,
-      );
-      const conversationIds = conversationIdsFromRows(archivedRows);
-      const participantsByConversation =
-        yield* this.readConversationParticipantMap(trx, conversationIds);
+      const taskRow = yield* this.closeTaskRow(trx, id);
       return {
         task: rowToTask(taskRow),
         participantAgentIds: yield* this.readAdmittedTaskParticipantIds(
           trx,
           id,
         ),
-        archivedConversations: archivedConversationsFromRows(
-          archivedRows,
-          participantsByConversation,
-        ),
       };
     });
   }
 
-  private closeTaskRow(trx: TaskTransaction, id: TaskId, closedAt: Date) {
+  private closeTaskRow(trx: TaskTransaction, id: TaskId) {
     return takeFirstOrFail(
       trx
         .updateTable("tasks")
-        .set({ status: "closed", ended_at: closedAt })
+        .set({ status: "closed", ended_at: new Date() })
         .where("id", "=", id)
         .returningAll(),
     );
-  }
-
-  private archiveOpenConversations(
-    trx: TaskTransaction,
-    id: TaskId,
-    closedAt: Date,
-  ) {
-    return trx
-      .updateTable("conversations")
-      .set({ archived_at: closedAt })
-      .where("task_id", "=", id)
-      .where("archived_at", "is", null)
-      .returning(["id", "archived_at"]);
-  }
-
-  private readConversationParticipantMap(
-    trx: TaskTransaction,
-    conversationIds: readonly ConversationId[],
-  ) {
-    if (conversationIds.length === 0) {
-      return Effect.succeed(new Map<ConversationId, readonly AgentId[]>());
-    }
-    return trx
-      .selectFrom("conversation_participants")
-      .select(["conversation_id", "agent_id"])
-      .where("conversation_id", "in", [...conversationIds])
-      .pipe(Effect.map(participantMapFromRows));
   }
 
   private readAdmittedTaskParticipantIds(trx: TaskTransaction, id: TaskId) {
@@ -788,96 +694,6 @@ export class TaskService {
   /**
    * `app/conversation/update` body.
    *
-   * Returns the updated `Conversation` (with populated `archivedAt`)
-   * so the handler can fan out the archive notification. App-ownership
-   * (`assertAppOwnsTask`) is asserted by the
-   * app-arm handler before this call, so this body assumes authority is
-   * proven. `ConversationInTask` is enforced by requirement middleware.
-   * @param id Value supplied to the operation.
-   * @param conversationId Value supplied to the operation.
-   * @internal
-   * @returns The archived at result.
-   */
-  archiveConversation(
-    id: TaskId,
-    conversationId: ConversationId,
-  ): Effect.Effect<
-    { conversation: Conversation; archivedAt: string },
-    ConversationNotFoundError | ForbiddenError
-  > {
-    return Effect.gen(this, function* (this: TaskService) {
-      return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* (this: TaskService) {
-          const archivedAt = new Date();
-          // Idempotent: if already archived, re-read to surface the
-          // existing `archivedAt` rather than overwriting.
-          const updatedOpt = yield* takeFirstOption(
-            this.db
-              .updateTable("conversations")
-              .set({ archived_at: archivedAt })
-              .where("id", "=", conversationId)
-              .where("task_id", "=", id)
-              .where("archived_at", "is", null)
-              .returningAll(),
-          );
-          if (Option.isSome(updatedOpt)) {
-            const conversation =
-              yield* this.conversations.loadById(conversationId);
-            return {
-              conversation,
-              archivedAt: archivedAt.toISOString(),
-            };
-          }
-          const conversation =
-            yield* this.conversations.loadById(conversationId);
-          if (!conversation.archivedAt) {
-            return yield* Effect.fail(
-              new ConversationNotFoundError({
-                message: "Conversation not found in task",
-              }),
-            );
-          }
-          return { conversation, archivedAt: conversation.archivedAt };
-        }),
-      );
-    });
-  }
-
-  /**
-   * `app/conversation/update` body. Idempotent (no-op when the
-   * conversation is not archived). Returns the updated `Conversation`
-   * (with `archivedAt` cleared).
-   * @param id Value supplied to the operation.
-   * @param conversationId Value supplied to the operation.
-   * @internal
-   * @returns The conversation result.
-   */
-  unarchiveConversation(
-    id: TaskId,
-    conversationId: ConversationId,
-  ): Effect.Effect<
-    { conversation: Conversation },
-    ConversationNotFoundError | ForbiddenError
-  > {
-    return Effect.gen(this, function* (this: TaskService) {
-      return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* (this: TaskService) {
-          yield* this.db
-            .updateTable("conversations")
-            .set({ archived_at: null })
-            .where("id", "=", conversationId)
-            .where("task_id", "=", id);
-          const conversation =
-            yield* this.conversations.loadById(conversationId);
-          return { conversation };
-        }),
-      );
-    });
-  }
-
-  /**
-   * `app/conversation/update` body.
-   *
    * Inserts a new `conversation_participants` row (idempotent via
    * `ON CONFLICT DO NOTHING`) AND captures the post-mutation membership
    * so the handler can fan out the participants-added notifications.
@@ -924,8 +740,7 @@ export class TaskService {
    * fan out the participants-removed notification to the removed
    * agent after their `conversation_participants` row is deleted.
    * Idempotent: no-op when the agent is not currently in the
-   * conversation. The conversation is NOT auto-archived when its
-   * `conversation_participants` becomes empty.
+   * conversation.
    * @param conversationId Value supplied to the operation.
    * @param agentId Identifier of the agent targeted by the operation.
    * @internal

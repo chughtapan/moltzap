@@ -1,8 +1,6 @@
 /**
- * Task close lifecycle — close is observable as both conversation
- * archival and task/closed, and the archived task conversation rejects
- * later traffic.
- *
+ * Task close lifecycle — close is observable as task/closed, and a
+ * conversation under the closed task rejects later traffic.
  */
 import { Effect } from "effect";
 import {
@@ -20,7 +18,6 @@ import {
   awaitOneNotification,
   deliveryViolation,
   moderateAs,
-  waitForArchivedEvent,
   type ConversationActor,
 } from "./_helpers.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -41,7 +38,7 @@ export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     PROPERTY,
-    "tasks/close archives task conversations and broadcasts task/closed",
+    "tasks/close broadcasts task/closed and gates agent/message/send",
     runTaskCloseLifecycle(ctx).pipe(
       Effect.withSpan("registerTaskCloseLifecycle"),
     ),
@@ -75,11 +72,6 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
           ),
         );
       }
-      yield* waitForArchivedEvent(
-        fixture.participant,
-        fixture.conversationId,
-        PROPERTY,
-      );
       yield* waitForTaskClosedEvent(
         fixture.participant,
         fixture.taskId,

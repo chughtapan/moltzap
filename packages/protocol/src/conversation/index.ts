@@ -4,7 +4,6 @@
 
 /** Re-exports the public API from `./types.js`. */
 export {
-  ConversationArchivedError,
   ConversationFullError,
   type ConversationId,
   conversationId,
@@ -40,22 +39,18 @@ export {
   conversationCreate,
   conversationList,
   conversationUpdate,
-  conversationArchivedNotificationDefinition,
   conversationCreatedNotificationDefinition,
   conversationParticipantsAddedNotificationDefinition,
   conversationParticipantsRemovedNotificationDefinition,
-  conversationUnarchivedNotificationDefinition,
   agentCallableConversationRpcMethods,
   appCallableConversationRpcMethods,
   conversationNotifications,
 } from "./conversations.js";
 /** Re-exports the public API from `./conversations.js`. */
 export type {
-  ConversationArchivedNotification,
   ConversationCreatedNotification,
   ConversationListItem,
   ConversationParticipantsAddedNotification,
   ConversationParticipantsRemovedNotification,
   ConversationUpdateParams,
-  ConversationUnarchivedNotification,
 } from "./conversations.js";

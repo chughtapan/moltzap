@@ -12,7 +12,6 @@ import {
 import {
   type Conversation,
   type ConversationParticipant,
-  type ConversationSummary,
   type ConversationId,
   ConversationFullError,
   ConversationNotFoundError,
@@ -50,7 +49,6 @@ type ContactPolicyCheck = (
 ) => Effect.Effect<boolean>;
 
 type ContactPolicyResolver = () => ContactPolicyCheck | null;
-type ConversationArchiveFilter = "exclude" | "include" | "only";
 const NO_CONTACT_POLICY_RESOLVER: ContactPolicyResolver = () => null;
 
 interface ConversationColumns {
@@ -59,7 +57,15 @@ interface ConversationColumns {
   readonly created_by_id: AgentId;
   readonly created_at: Date;
   readonly updated_at: Date;
-  readonly archived_at: Date | null;
+}
+
+/** Conversation projection returned by the list surface. */
+interface ConversationSummary {
+  readonly id: ConversationId;
+  readonly name?: string;
+  readonly lastMessagePreview?: string;
+  readonly lastMessageTimestamp?: string;
+  readonly participants?: ReadonlyArray<ConversationParticipant["participant"]>;
 }
 
 interface CreateConversationOptions<TaskMintError = never> {
@@ -94,7 +100,6 @@ interface ListConversationsInput {
   readonly agentId: AgentId;
   readonly limit: number;
   readonly cursor?: string;
-  readonly archived: ConversationArchiveFilter;
 }
 
 function listConversations(
@@ -112,7 +117,6 @@ function listConversations(
         agentId: input.agentId,
         limit: input.limit,
         cursorParam,
-        archived: input.archived,
       });
       const hasMore = rows.length > input.limit;
       const resultRows = hasMore ? rows.slice(0, input.limit) : rows;
@@ -150,7 +154,6 @@ interface ListRowsInput {
   readonly agentId: AgentId;
   readonly limit: number;
   readonly cursorParam: string | null;
-  readonly archived: ConversationArchiveFilter;
 }
 
 interface ConversationListRow {
@@ -159,7 +162,6 @@ interface ConversationListRow {
   readonly updated_at: Date;
   readonly has_last_message: boolean;
   readonly last_message_at: Date | null;
-  readonly unread_count: number;
 }
 
 function queryConversationListRows(
@@ -171,13 +173,7 @@ function queryConversationListRows(
     sql<ConversationListRow>`
       SELECT c.id, c.name, c.updated_at,
              m.parts_encrypted IS NOT NULL as has_last_message,
-             m.created_at as last_message_at,
-             COALESCE(
-               (SELECT COUNT(*) FROM messages m2
-                WHERE m2.conversation_id = c.id
-                AND m2.seq > cp.last_read_seq
-                AND m2.is_deleted = false), 0
-             )::int as unread_count
+             m.created_at as last_message_at
       FROM conversation_participants cp
       JOIN conversations c ON c.id = cp.conversation_id
       LEFT JOIN LATERAL (
@@ -186,27 +182,11 @@ function queryConversationListRows(
         ORDER BY seq DESC LIMIT 1
       ) m ON true
       WHERE cp.agent_id = ${input.agentId}
-        ${archivedListFilter(input.archived)}
         ${cursorListFilter(input.cursorParam)}
       ORDER BY COALESCE(m.created_at, c.updated_at) DESC
       LIMIT ${input.limit + 1}
     `,
   );
-}
-
-function archivedListFilter(archived: ConversationArchiveFilter) {
-  switch (archived) {
-    case "only":
-      return sql`AND c.archived_at IS NOT NULL`;
-    case "include":
-      return sql``;
-    case "exclude":
-      return sql`AND c.archived_at IS NULL`;
-    default: {
-      const exhaustive: never = archived;
-      return exhaustive;
-    }
-  }
 }
 
 function cursorListFilter(cursorParam: string | null) {
@@ -229,7 +209,6 @@ function conversationSummariesFromRows(
     name: row.name ?? undefined,
     lastMessagePreview: previewCache.get(row.id),
     lastMessageTimestamp: row.last_message_at?.toISOString(),
-    unreadCount: row.unread_count,
   }));
 }
 
@@ -544,14 +523,13 @@ export class ConversationService {
     agentId: AgentId,
     limit = DEFAULT_PAGE_LIMIT,
     cursor?: string,
-    archived: ConversationArchiveFilter = "exclude",
   ): Effect.Effect<
     { conversations: ConversationSummary[]; cursor?: string },
     InvalidParamsError
   > {
     return listConversations(
       { db: this.db, previewCache: this.previewCache },
-      { agentId, limit, cursor, archived },
+      { agentId, limit, cursor },
     );
   }
 
@@ -602,10 +580,9 @@ export class ConversationService {
   }
 
   /**
-   * By-id projection used by `app/conversation/update`
-   * handlers to surface the post-mutation `Conversation` row (with
-   * populated `archivedAt`) for the fan-out notification. Fails with
-   * `ConversationNotFoundError` when the row is missing.
+   * By-id projection used by list and mutation surfaces to surface the
+   * `Conversation` row. Fails with `ConversationNotFoundError` when the
+   * row is missing.
    * @param conversationId Value supplied to the operation.
    * @internal
    * @returns The row opt result.
@@ -755,7 +732,6 @@ export class ConversationService {
       createdBy: row.created_by_id,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
-      archivedAt: row.archived_at ? row.archived_at.toISOString() : undefined,
     };
   }
 }

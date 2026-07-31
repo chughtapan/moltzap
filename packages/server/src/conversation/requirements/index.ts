@@ -6,7 +6,6 @@ export { authorizeConversationCreateCapacityOnly } from "./create-authorization.
 export { obtainConversationInTask } from "./in-task.js";
 /** Re-exports the public API from `./send-access.js`. */
 export {
-  guardConversationNotArchived,
   guardTaskActive,
   obtainConversationSendAccess,
 } from "./send-access.js";

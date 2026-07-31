@@ -14,7 +14,6 @@ export interface ConversationSendAccessValue {
   readonly taskId: TaskId;
   readonly appId: AppId | null;
   readonly taskStatus: TaskStatus;
-  readonly archivedAt: Date | null;
 }
 
 /** Implements conversation send access. */

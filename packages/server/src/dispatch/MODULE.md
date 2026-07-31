@@ -8,7 +8,7 @@ Dispatch-domain service barrel.
 
 ## Public surface
 
-### [`DispatchAdmissionConversations`](./admission.service.ts#L109)
+### [`DispatchAdmissionConversations`](./admission.service.ts#L108)
 
 _Interface_
 
@@ -23,7 +23,7 @@ export interface DispatchAdmissionConversations {
 
 Describes dispatch admission conversations.
 
-### [`DispatchAdmissionResult`](./admission.service.ts#L76)
+### [`DispatchAdmissionResult`](./admission.service.ts#L75)
 
 _TypeAlias_
 
@@ -39,7 +39,7 @@ export type DispatchAdmissionResult =
 
 Represents the result of dispatch admission.
 
-### [`DispatchAdmissionService`](./admission.service.ts#L162)
+### [`DispatchAdmissionService`](./admission.service.ts#L161)
 
 _Class_
 
@@ -242,7 +242,7 @@ Provides the dispatch request runtime value.
 
 **Returns:** The dispatch request result.
 
-### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L96)
+### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L95)
 
 _Interface_
 

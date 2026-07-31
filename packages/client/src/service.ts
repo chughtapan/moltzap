@@ -24,13 +24,8 @@ import type {
 } from "@moltzap/protocol/socket";
 import {
   type ConversationCreatedNotification,
-  type ConversationArchivedNotification,
-  type ConversationUnarchivedNotification,
   conversationCreatedNotificationDefinition,
-  conversationArchivedNotificationDefinition,
-  conversationUnarchivedNotificationDefinition,
   conversationList,
-  ConversationArchivedError,
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
@@ -102,11 +97,6 @@ import {
   type HistoryResponse,
   lastReadIdsForSession,
 } from "./local-history.js";
-import {
-  purgeAgentCacheEntries,
-  purgeLastNotified,
-  purgeLastRead,
-} from "./service-archive-purge.js";
 import { appendClientEventTrace } from "./service-event-trace.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
@@ -222,12 +212,10 @@ interface ServiceHandlerPayloads {
    * The "raw notification" surface receives the descriptor-tagged delivery
    * emitted after the native reverse RPC handler has Schema-decoded params.
    * Subscribers that want specific payloads register typed `on(...)` handlers
-   * such as `conversationArchived`.
+   * such as `dispatchRelease`.
    */
   readonly rawNotification: ClientNotificationDelivery;
   readonly disconnect: undefined;
-  readonly conversationArchived: ConversationArchivedNotification;
-  readonly conversationUnarchived: ConversationUnarchivedNotification;
   readonly dispatchRelease: NotificationParamsOf<typeof dispatchRelease>;
   readonly dispatchLeaseConsumed: NotificationParamsOf<
     typeof dispatchLeaseConsumed
@@ -339,7 +327,6 @@ export class MoltZapService {
       HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
     ),
   );
-  private readonly archivedConversationIds = new Set<string>();
 
   /**
    * The branded outer and inner keys keep conversation and message ids from
@@ -357,8 +344,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    conversationArchived: [],
-    conversationUnarchived: [],
     dispatchRelease: [],
     dispatchLeaseConsumed: [],
     dispatchLeaseExpired: [],
@@ -489,7 +474,6 @@ export class MoltZapService {
         Ref.set(this.lastReadRef, HashMap.empty()),
       ]),
     );
-    this.archivedConversationIds.clear();
     this.seenMessageIds.clear();
     // Handlers are preserved across explicit close()/connect() cycles.
     // MoltZapChannelCore subscribes once in its constructor; clearing handlers
@@ -697,10 +681,6 @@ export class MoltZapService {
     );
   }
 
-  isConversationArchived(convId: string): boolean {
-    return this.archivedConversationIds.has(convId);
-  }
-
   getConversations(): ConversationMeta[] {
     return [...HashMap.values(snapshot(this.conversationsRef))];
   }
@@ -780,18 +760,14 @@ export class MoltZapService {
    *   participant server
    *
    *   caller->>svc: send(convId, text, opts?)
-   *   alt conversation is archived
-   *     svc-->>caller: fail(RpcServerError ConversationArchived)
-   *   else
-   *     svc->>ws: sendRpc(MessagesSend, params)
-   *     Note over ws: stateRef None → fail NotConnectedError; otherwise allocate request id, encode frame
-   *     ws->>server: {jsonrpc, method agent/message/send, id, params}
-   *     Note over ws: Deferred raced against 30s timeout
-   *     server-->>ws: {result, id} or {error, id}
-   *     Note over ws: reader fiber decodes, resolves the Deferred
-   *     ws-->>svc: result or RpcServerError or RpcTimeoutError
-   *     svc-->>caller: Effect.void
-   *   end
+   *   svc->>ws: sendRpc(MessagesSend, params)
+   *   Note over ws: stateRef None → fail NotConnectedError; otherwise allocate request id, encode frame
+   *   ws->>server: {jsonrpc, method agent/message/send, id, params}
+   *   Note over ws: Deferred raced against 30s timeout
+   *   server-->>ws: {result, id} or {error, id}
+   *   Note over ws: reader fiber decodes, resolves the Deferred
+   *   ws-->>svc: result or RpcServerError or RpcTimeoutError
+   *   svc-->>caller: Effect.void
    * ```
    *
    * `opts.dispatchLeaseId` (when set) is forwarded verbatim in the
@@ -811,11 +787,6 @@ export class MoltZapService {
     text: string,
     opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
-    if (this.isConversationArchived(conversationId)) {
-      return Effect.fail(
-        new ConversationArchivedError({ message: "Conversation is archived" }),
-      );
-    }
     return Effect.asVoid(
       this.call(messagesSend.name, {
         taskId,
@@ -860,8 +831,7 @@ export class MoltZapService {
         });
         // `conversation: null` is the documented dedup-hit shape under
         // `DEFAULT_APP_ID`. Resolve the reusable conversation under the
-        // returned task; if none exists (task closed / all archived),
-        // fail rather than die.
+        // returned task; if none exists, fail rather than die.
         const conversationId =
           createResult.conversation !== null
             ? createResult.conversation.id
@@ -897,11 +867,7 @@ export class MoltZapService {
           params.cursor = cursor;
         }
         const result = yield* this.call(conversationList.name, params);
-        const hit = result.items.find(
-          (item) =>
-            item.taskId === taskId &&
-            item.conversation.archivedAt === undefined,
-        );
+        const hit = result.items.find((item) => item.taskId === taskId);
         if (hit !== undefined) {
           return hit.conversation.id;
         }
@@ -1259,24 +1225,6 @@ export class MoltZapService {
       this.handleConversationCreatedNotification(notification.params);
       return true;
     }
-    if (
-      isNotificationDeliveryFor(
-        notification,
-        conversationArchivedNotificationDefinition,
-      )
-    ) {
-      this.handleConversationArchivedNotification(notification.params);
-      return true;
-    }
-    if (
-      isNotificationDeliveryFor(
-        notification,
-        conversationUnarchivedNotificationDefinition,
-      )
-    ) {
-      this.handleConversationUnarchivedNotification(notification.params);
-      return true;
-    }
     return false;
   }
 
@@ -1355,7 +1303,6 @@ export class MoltZapService {
     notification: ConversationCreatedNotification,
   ): void {
     const { conversationId, name, participants } = notification;
-    this.archivedConversationIds.delete(conversationId);
     Effect.runSync(
       Ref.update(this.conversationsRef, (m) => {
         const inferredType: "dm" | "group" =
@@ -1367,42 +1314,6 @@ export class MoltZapService {
           ...(name !== undefined ? { name } : {}),
         });
       }),
-    );
-  }
-
-  private handleConversationArchivedNotification(
-    notification: ConversationArchivedNotification,
-  ): void {
-    this.markConversationArchived(notification.conversationId);
-    fanout(this.handlers.conversationArchived, notification);
-  }
-
-  private handleConversationUnarchivedNotification(
-    notification: ConversationUnarchivedNotification,
-  ): void {
-    this.archivedConversationIds.delete(notification.conversationId);
-    fanout(this.handlers.conversationUnarchived, notification);
-  }
-
-  private markConversationArchived(conversationId: ConversationId): void {
-    this.seenMessageIds.delete(conversationId);
-    this.archivedConversationIds.add(conversationId);
-    Effect.runSync(
-      Effect.all([
-        Ref.update(this.conversationsRef, (m) =>
-          HashMap.remove(m, conversationId),
-        ),
-        Ref.update(this.messagesRef, (m) => HashMap.remove(m, conversationId)),
-        Ref.update(this.agentConversationCacheRef, (m) =>
-          purgeAgentCacheEntries(m, conversationId),
-        ),
-        Ref.update(this.lastNotifiedRef, (outer) =>
-          purgeLastNotified(outer, conversationId),
-        ),
-        Ref.update(this.lastReadRef, (outer) =>
-          purgeLastRead(outer, conversationId),
-        ),
-      ]),
     );
   }
 
