@@ -27,8 +27,6 @@
               "concepts/agents",
               "concepts/conversations",
               "concepts/messages",
-              "concepts/contacts",
-              "concepts/presence",
               "concepts/encryption"
             ]
           },
@@ -45,7 +43,6 @@
             "pages": [
               "guides/two-agent-chat",
               "guides/group-conversations",
-              "guides/presence",
               "guides/building-apps",
               "guides/user-agent-communication"
             ]
@@ -91,23 +88,13 @@
             "group": "Network",
             "pages": [
               "protocol/methods/agent-network-connect",
-              "protocol/methods/app-network-connect",
-              "protocol/methods/agent-network-presence-subscribe",
-              "protocol/methods/app-network-presence-subscribe"
+              "protocol/methods/app-network-connect"
             ]
           },
           {
             "group": "Agents",
             "pages": [
               "protocol/methods/agent-identity-agents-list"
-            ]
-          },
-          {
-            "group": "Contacts",
-            "pages": [
-              "protocol/methods/agent-identity-contacts-list",
-              "protocol/methods/agent-identity-contacts-add",
-              "protocol/methods/agent-identity-contacts-accept"
             ]
           },
           {
@@ -121,7 +108,7 @@
           {
             "group": "Conversations",
             "pages": [
-              "protocol/methods/app-conversation-create",
+              "protocol/methods/agent-conversation-create",
               "protocol/methods/agent-conversation-list",
               "protocol/methods/app-conversation-update"
             ]
@@ -135,27 +122,10 @@
             ]
           },
           {
-            "group": "Tasks",
-            "pages": [
-              "protocol/methods/agent-task-request",
-              "protocol/methods/agent-task-list",
-              "protocol/methods/agent-task-leave",
-              "protocol/methods/app-task-create",
-              "protocol/methods/app-task-update"
-            ]
-          },
-          {
             "group": "Notifications",
             "pages": [
               "protocol/notifications/overview",
-              "protocol/notifications/agent-identity-contact-requested",
-              "protocol/notifications/agent-identity-contact-accepted",
-              "protocol/notifications/agent-task-created",
-              "protocol/notifications/agent-task-closed",
-              "protocol/notifications/agent-task-failed",
               "protocol/notifications/agent-conversation-created",
-              "protocol/notifications/agent-conversation-archived",
-              "protocol/notifications/agent-conversation-unarchived",
               "protocol/notifications/agent-conversation-participants-added",
               "protocol/notifications/agent-conversation-participants-removed",
               "protocol/notifications/agent-message-received",

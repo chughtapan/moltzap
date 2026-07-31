@@ -13,11 +13,9 @@ import {
   agentId as makeAgentId,
   conversationId as makeConversationId,
   messageId as makeMessageId,
-  taskId as makeTaskId,
 } from "@moltzap/protocol/testing";
 
 const it = effectIt.effect;
-const TASK_ID = makeTaskId("00000000-0000-4000-8000-00000000001a");
 const CONVERSATION_ID = makeConversationId(
   "00000000-0000-4000-8000-00000000000c",
 );
@@ -62,7 +60,6 @@ function runMessagesList(
   limit?: number,
 ) {
   return messagesListHandler({
-    taskId: TASK_ID,
     conversationId: CONVERSATION_ID,
     ...(limit !== undefined ? { limit } : {}),
   }).pipe(
@@ -85,7 +82,6 @@ describe("messages list", () => {
       expect(calls[0]).toEqual({
         method: localDaemonCommands.messagesList,
         params: {
-          taskId: TASK_ID,
           conversationId: CONVERSATION_ID,
           limit: DEFAULT_LIMIT,
         },
@@ -99,7 +95,6 @@ describe("messages list", () => {
       });
       yield* runMessagesList(transport);
       expect(calls[0]?.params).toEqual({
-        taskId: TASK_ID,
         conversationId: CONVERSATION_ID,
       });
     }));

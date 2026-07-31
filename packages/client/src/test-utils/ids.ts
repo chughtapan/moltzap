@@ -1,7 +1,12 @@
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import {
+  dispatchId,
+  type DispatchId,
+  type LeaseId,
+} from "@moltzap/protocol/message/dispatch";
 import type { TaskId } from "@moltzap/protocol/task";
+import { Schema } from "effect";
 import {
   agentId,
   conversationId,
@@ -101,3 +106,13 @@ export const testTaskId = (label: string): TaskId =>
  */
 export const testLeaseId = (label: string): LeaseId =>
   leaseId(uuidFor("lease", label));
+
+const decodeDispatchId = Schema.decodeSync(dispatchId);
+
+/**
+ * Provides the test dispatch id runtime value.
+ * @param label Value supplied to the operation.
+ * @returns The test dispatch id result.
+ */
+export const testDispatchId = (label: string): DispatchId =>
+  decodeDispatchId(uuidFor("dispatch", label));

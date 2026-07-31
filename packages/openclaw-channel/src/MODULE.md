@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1313)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1345)
 
 _Function_
 
@@ -61,12 +61,14 @@ callback (`MoltzapChannelPluginDeps.onLeaseConsumed`) rather than
 a throw.
 
 `resolveTarget` accepts `agent:&lt;name>` (DM with named agent) and
-`task:&lt;taskId>:&lt;conversationId>` (existing conversation). A target
-containing `:` in any other shape is rejected.
+`conv:&lt;conversationId>` (existing conversation).
+`task:&lt;taskId>:&lt;conversationId>` also resolves and carries the task
+label onto the sent message. A target containing `:` in any other shape
+is rejected.
 
 **Returns:** The created moltzap channel plugin.
 
-### [`default`](./openclaw-entry.ts#L1343)
+### [`default`](./openclaw-entry.ts#L1375)
 
 _Variable_
 
@@ -74,7 +76,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1340)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1372)
 
 _Variable_
 
@@ -87,7 +89,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1331)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1363)
 
 _TypeAlias_
 

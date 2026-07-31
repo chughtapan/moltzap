@@ -13,7 +13,6 @@ import {
   registerTestAgent,
   type TestAgent,
   conversationId,
-  taskId,
 } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -21,12 +20,11 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import {
-  taskRequest,
-  DEFAULT_APP_ID,
-  type TaskId,
-} from "@moltzap/protocol/task";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+  agentConversationCreate,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
 
 /** Provides the adversity category runtime value. */
 export const ADVERSITY_CATEGORY = "adversity";
@@ -265,37 +263,24 @@ export function createOneOnOneConversation(
   participant: { agent: TestAgent; client: AgentTestClient },
   propertyName: string,
 ): Effect.Effect<
-  { taskId: TaskId; conversationId: ConversationId },
+  { conversationId: ConversationId },
   PropertyInvariantViolation
 > {
   return Effect.gen(function* () {
     const create = yield* owner.client
-      .sendRpc(taskRequest, {
+      .sendRpc(agentConversationCreate, {
         appId: DEFAULT_APP_ID,
-        invitedAgentIds: [participant.agent.agentId],
-        initialConversation: {
-          name: `adv-conv-${owner.agent.name}`,
-          participants: [participant.agent.agentId],
-        },
+        name: `adv-conv-${owner.agent.name}`,
+        participants: [participant.agent.agentId],
       })
       .pipe(
         Effect.mapError((error) =>
           adversityViolation(
             propertyName,
-            `app/task/create under toxic: ${error._tag}`,
+            `agent/conversation/create under toxic: ${error._tag}`,
           ),
         ),
       );
-    const cid = create.conversation?.id;
-    if (typeof cid !== "string" || cid.length === 0) {
-      return yield* adversityViolation(
-        propertyName,
-        "app/task/create returned no conversation.id",
-      );
-    }
-    return {
-      taskId: taskId(create.task.id),
-      conversationId: conversationId(cid),
-    };
+    return { conversationId: conversationId(create.conversation.id) };
   }).pipe(Effect.withSpan("createOneOnOneConversation"));
 }

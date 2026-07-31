@@ -1,11 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Stream } from "effect";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  taskId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import {
   Endpoint,
   NetworkFailure,
@@ -23,7 +18,6 @@ import {
 const SEND_OPERATION = "send" satisfies NetworkOperation;
 const id = (suffix: string) =>
   agentId(`00000000-0000-4000-8000-${suffix.padStart(12, "0")}`);
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000101");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
 function makeTransport(
@@ -36,7 +30,7 @@ function makeTransport(
     openConversation: (participants) =>
       Effect.sync(() => {
         openedWith.push(participants);
-        return { taskId: TASK_ID, conversationId: CONVERSATION_ID };
+        return { conversationId: CONVERSATION_ID };
       }),
     send: () => Effect.sync(onSend).pipe(Effect.zipRight(Effect.never)),
   };
@@ -45,7 +39,6 @@ function makeTransport(
 function stoppedRouter(): RouterStopped {
   return makeRouterStopReport([
     {
-      taskId: TASK_ID,
       conversationId: CONVERSATION_ID,
       messageId: MESSAGE_ID,
       senderId: id("1"),

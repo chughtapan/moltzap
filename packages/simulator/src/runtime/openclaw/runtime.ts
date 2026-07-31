@@ -30,6 +30,9 @@ import {
 } from "../process.js";
 
 const OPENCLAW_RUNTIME_NAME = "openclaw";
+// The MoltZap channel logs `MoltZap: connected as <name> (<id>)` once the
+// gateway's server session is live.
+const OPENCLAW_READY_MARKER = "connected as";
 const DEFAULT_OPENCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
 
 interface OpenClawWorkspaceFile {
@@ -88,9 +91,12 @@ export interface OpenClawRuntimeDriver<
   ) => Effect.Effect<Session, unknown, Scope.Scope | Requirements>;
   readonly exitCode: (session: Session) => Effect.Effect<ExitCode, WaitFailure>;
   readonly output: (session: Session) => string;
+
+  /** Recognizes the channel's connect line in the gateway's output. */
+  readonly readyWhen: (output: string) => boolean;
 }
 
-/** Failure returned when OpenClaw cannot become router-visible. */
+/** Failure returned when an OpenClaw process cannot be acquired. */
 export type OpenClawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
 
 type OpenClawHostServices = CommandExecutor | FileSystem.FileSystem | Path.Path;
@@ -109,6 +115,7 @@ const nativeOpenClawDriver: OpenClawRuntimeDriver<
   acquire: acquireOpenClawProcess,
   exitCode: (session) => session.exitCode,
   output: (session) => session.output(),
+  readyWhen: (output) => output.includes(OPENCLAW_READY_MARKER),
 };
 
 function snapshotWorkspaceFiles(
@@ -264,12 +271,12 @@ function acquireOpenClawRuntime<
   return Effect.gen(function* () {
     const process = yield* acquireOpenClawSession(settings, driver, input);
     yield* awaitProcessReady({
-      connection: input.connection,
       within: settings.startupTimeout,
       agentName: process.input.agentName,
       agentKey: process.input.apiKey,
       runtimeName: OPENCLAW_RUNTIME_NAME,
       observation: process.observation,
+      readyWhen: driver.readyWhen,
     });
     return {
       termination: processTermination(
@@ -316,7 +323,7 @@ export function makeOpenClawRuntimeWith<
 
 /**
  * Construct an OpenClaw runtime that binds each roster identity to one
- * scoped gateway process and waits for router-visible readiness.
+ * scoped gateway process and waits for its readiness line.
  * @param options Options that control the operation.
  * @returns The open claw runtime result.
  */

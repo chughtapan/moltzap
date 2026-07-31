@@ -8,7 +8,7 @@ Agent identity server internals.
 
 ## Public surface
 
-### [`agentsList`](./handlers.ts#L143)
+### [`agentsList`](./handlers.ts#L123)
 
 _Variable_
 
@@ -16,7 +16,7 @@ _Variable_
 export const agentsList: ServerHandler<typeof agentsListDefinition> = Effect.fn(
   "agentsList",
 )(function* (params) {
-  return yield* agentsListBody(params, yield* agentArm);
+  return yield* agentsListBody(params);
 })
 ```
 
@@ -164,39 +164,8 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
 
 Implements auth service tag.
 
-### [`visibleAgentIds`](./visibility.service.ts#L27)
-
-_Function_
-
-```ts
-export function visibleAgentIds(
-  req: VisibleAgentIdsRequest,
-): Effect.Effect<readonly AgentId[]>
-```
-
-Executes the visible agent ids operation.
-
-**Returns:** The visible agent ids result.
-
-### [`VisibleAgentIdsRequest`](./visibility.service.ts#L14)
-
-_Interface_
-
-```ts
-export interface VisibleAgentIdsRequest {
-  readonly db: Db;
-  readonly callerAgentId: AgentId;
-  readonly callerOwnerUserId: UserId;
-  /** When set, intersect the visible set with these IDs. */
-  readonly restrictTo?: readonly AgentId[];
-}
-```
-
-Describes visible agent ids request.
-
 ## Files
 
 - `auth.service.ts`
 - `handlers.ts`
 - `layer.ts`
-- `visibility.service.ts`

@@ -5,13 +5,13 @@
  * server-initiated app callbacks. It deliberately stays above
  * `AppTestClient` and below app-domain scenario drivers: it knows how to
  * HTTP-register the app manifest and answer `app/dispatch/authorize` /
- * `app/message/authorize`, but it does not know about tasks, leases, or
- * conversations beyond manifest defaults.
+ * `app/message/authorize`, but it does not know about leases or
+ * conversations.
  */
 import { Duration, Effect, Ref, type Scope, type Schema } from "effect";
 import type { AppManifest } from "#identity/apps";
 import { messagesAuthorize as messagesAuthorizeDefinition } from "#message";
-import { type appId as appIdSchema, taskCreate } from "#task";
+import type { appId as appIdSchema } from "#task";
 import { dispatchAuthorize as dispatchAuthorizeDefinition } from "#message/dispatch";
 import {
   makeAppTestClient,
@@ -36,10 +36,6 @@ const APP_CLIENT_DEFAULT_TIMEOUT_MS = 5_000;
 const UNIQUE_SUFFIX_START = 2;
 const UNIQUE_SUFFIX_END = 8;
 
-const DEFAULT_CONVERSATIONS: NonNullable<AppManifest["conversations"]> = [
-  { key: "main", name: "Main", participantFilter: "all" },
-];
-
 /** Represents test app registration failure conditions. */
 export type TestAppRegistrationFailure =
   | TestAppHttpRegistrationError
@@ -53,10 +49,8 @@ export interface TestAppManifestOptions {
   readonly appId?: string;
   readonly name?: string;
   readonly description?: string;
-  readonly conversations?: AppManifest["conversations"];
   readonly dispatchAuthorizeTimeoutMs?: number;
   readonly messagesAuthorizeTimeoutMs?: number;
-  readonly taskCreateTimeoutMs?: number;
 }
 
 /**
@@ -90,7 +84,7 @@ export interface TestAppCallbackScript<D extends ServerRpcDefinition> {
 
 /** Describes test app. */
 export interface TestApp {
-  /** Server-minted appId (the principal `agent/task/request` targets). */
+  /** Server-minted appId (the principal `agent/conversation/create` targets). */
   readonly appId: Schema.Schema.Type<typeof appIdSchema>;
   readonly manifest: AppManifest;
   /** The app-principal `AppConnection` hosting the moderator callbacks. */
@@ -124,7 +118,6 @@ export function makeTestAppManifest(
     ...(options.description !== undefined
       ? { description: options.description }
       : {}),
-    conversations: options.conversations ?? DEFAULT_CONVERSATIONS,
     hooks,
   };
 }
@@ -161,13 +154,6 @@ export function registerTestApp(
       client,
       messagesAuthorizeDefinition,
     );
-    // agent/task/request fires app/task/create before the task
-    // leaves `waiting`. Dispatch-admission properties don't gate task
-    // creation, so the test app auto-accepts; the dispatch lifecycle
-    // is what they exercise.
-    yield* client.onAppCallback(taskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
-    );
     return {
       appId: credential.appId,
       manifest,
@@ -179,12 +165,12 @@ export function registerTestApp(
 }
 
 /**
- * Build the three required hook policies. A slot with a `*TimeoutMs`
+ * Build the required hook policies. A slot with a `*TimeoutMs`
  * option becomes a `{ kind: "hook", timeoutMs }` policy that round-trips
  * to the test app's scripted handler; a slot without one takes its open
- * static policy (`grant` / `forwardAllExceptSender` / `accept`), which
- * the server resolves in-process to the same verdict the app's open
- * handler would return.
+ * static policy (`grant` / `forwardAllExceptSender`), which the server
+ * resolves in-process to the same verdict the app's open handler would
+ * return.
  * @param options Options that control the operation.
  * @returns The created manifest hooks.
  */
@@ -200,10 +186,6 @@ function makeManifestHooks(
       options.messagesAuthorizeTimeoutMs === undefined
         ? { kind: "forwardAllExceptSender" }
         : { kind: "hook", timeoutMs: options.messagesAuthorizeTimeoutMs },
-    task_create:
-      options.taskCreateTimeoutMs === undefined
-        ? { kind: "accept" }
-        : { kind: "hook", timeoutMs: options.taskCreateTimeoutMs },
   };
 }
 

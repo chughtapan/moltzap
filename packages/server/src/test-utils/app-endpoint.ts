@@ -18,19 +18,17 @@ import {
   type ReverseCallbackSuccess,
   isDispatchAuthorizeRequest,
   isMessagesAuthorizeRequest,
-  isTaskCreateRequest,
   type ConnectionId,
   type ReverseCallError,
 } from "@moltzap/protocol/socket";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize } from "@moltzap/protocol/message";
-import { taskCreate } from "@moltzap/protocol/task";
 import type { RpcSerialization } from "@effect/rpc";
 import type { AppEndpoint } from "#identity/apps";
 import type { Originator } from "#socket";
 
 /**
- * In-process handler for one task-callback RPC. The handler returns
+ * In-process handler for one app-callback RPC. The handler returns
  * the wire-shape result for the matching definition; no encode/decode
  * loop since both sides live in-process.
  */
@@ -44,7 +42,7 @@ type AppEndpointHandler<D extends AnyAppCallbackRpcDefinition> = (
 /**
  * Mapped over the closed `AnyAppCallbackRpcDefinition` union, keyed
  * by each definition's wire name. Mandates one handler per
- * task-callback RPC at construction time — adding a new entry to
+ * app-callback RPC at construction time — adding a new entry to
  * `appCallbackMethods` becomes a compile error at every endpoint
  * construction site.
  */
@@ -107,9 +105,6 @@ export function makeHandlerAppEndpoint(args: {
     }
     if (isMessagesAuthorizeRequest(request)) {
       return args.handlers[messagesAuthorize.name](request.params);
-    }
-    if (isTaskCreateRequest(request)) {
-      return args.handlers[taskCreate.name](request.params);
     }
     return defect("originator.callback");
   };

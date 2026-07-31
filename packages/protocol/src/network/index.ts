@@ -1,5 +1,5 @@
 /**
- * @file Public barrel for connect and presence protocol descriptors.
+ * @file Public barrel for connect protocol descriptors.
  */
 export {
   agentConnect,
@@ -13,9 +13,6 @@ export {
 /** Re-exports the public API from `./connect.js`. */
 export type { HelloOk, ProtocolMismatchReason } from "./connect.js";
 
-/** Re-exports the public API from `./presence.js`. */
-export { agentPresenceSubscribe, appPresenceSubscribe } from "./presence.js";
-
 /** Re-exports the public API from `./server-url.js`. */
 export {
   type ServerBaseUrl,
@@ -26,27 +23,15 @@ export {
 } from "./server-url.js";
 
 import { agentConnect, appConnect } from "./connect.js";
-import { agentPresenceSubscribe, appPresenceSubscribe } from "./presence.js";
 
 /** Network RPCs callable by agent clients. */
-export const agentCallableNetworkRpcMethods = [
-  agentConnect,
-  agentPresenceSubscribe,
-] as const;
+export const agentCallableNetworkRpcMethods = [agentConnect] as const;
 
 /** Network RPCs callable by app clients. */
-export const appCallableNetworkRpcMethods = [
-  appConnect,
-  appPresenceSubscribe,
-] as const;
+export const appCallableNetworkRpcMethods = [appConnect] as const;
 
 /** Network RPCs accepted by the server. */
-export const networkRpcMethods = [
-  agentConnect,
-  appConnect,
-  agentPresenceSubscribe,
-  appPresenceSubscribe,
-] as const;
+export const networkRpcMethods = [agentConnect, appConnect] as const;
 
 /** Network notifications emitted by the server. */
 export const networkNotifications = [] as const;

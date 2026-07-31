@@ -6,7 +6,6 @@
 import { Effect, Exit, Fiber, Stream } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
-import type { TaskId } from "#task";
 import type { ConversationId } from "#conversation";
 import { messageReceivedNotificationDefinition, messagesSend } from "#message";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -46,7 +45,7 @@ function runLatencyResilience(
   return Effect.gen(function* () {
     const owner = yield* acquireLatencyClient(ctx, params, "o");
     const participant = yield* acquireLatencyClient(ctx, params, "p");
-    const { taskId, conversationId } = yield* createOneOnOneConversation(
+    const { conversationId } = yield* createOneOnOneConversation(
       owner,
       participant,
       "latency-resilience",
@@ -55,12 +54,7 @@ function runLatencyResilience(
       participant.client,
       conversationId,
     ).pipe(Effect.fork);
-    yield* sendLatencyProbe(
-      params.attachToxic,
-      owner.client,
-      taskId,
-      conversationId,
-    );
+    yield* sendLatencyProbe(params.attachToxic, owner.client, conversationId);
     const delivered = yield* Fiber.await(observed);
     if (Exit.isFailure(delivered)) {
       return yield* adversityViolation(
@@ -88,7 +82,6 @@ function acquireLatencyClient(
 function sendLatencyProbe(
   attachToxic: ToxicBodyParams["attachToxic"],
   client: AgentTestClient,
-  taskId: TaskId,
   conversationId: ConversationId,
 ) {
   return Effect.scoped(
@@ -96,7 +89,6 @@ function sendLatencyProbe(
       yield* attachToxic;
       yield* client
         .sendRpc(messagesSend, {
-          taskId,
           conversationId,
           parts: [{ type: "text", text: "lat-ping" }],
         })

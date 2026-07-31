@@ -1,16 +1,15 @@
 /**
- * App-session-scoping: app authority belongs to the app principal that owns the
- * task. An app authenticates via `appKey` as an `AppConnection`, and
- * task-admin RPCs (`app/conversation/create`, etc.) are gated by
- * `assertAppOwnsTask(connection.auth.appId, task)`. The requesting agent is a
- * separate principal.
+ * App-session-scoping: app authority belongs to the app principal named by
+ * `conversations.app_id`. An agent mints the conversation and names the
+ * authorizing app; that app authenticates via `appKey` as an `AppConnection`,
+ * and the app-owned mutation RPCs (`app/conversation/update`) are gated by
+ * `assertCallerAppOwnsConversation(connection.auth.appId,
+ * conversationId)`. The participating agents are separate principals.
  *
  * Coverage:
  * 1. The owning app's `AppConnection` passes the app ownership gate.
- * 2. An agent connection does not pass (only an `AppConnection` is an app
- *    principal; `assertCallerAppOwnsTask` rejects non-app callers).
- * 3. A different app (different `appKey` -> different DB appId) does not own
- *    the task and is rejected.
+ * 2. A different app (different `appKey` -> different DB appId) does not own
+ *    the conversation and is rejected.
  *
  * The hijack rejection (a second connection cannot steal a live app's
  * moderator-endpoint binding) is covered at the unit level by
@@ -24,13 +23,15 @@ import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { it as effectIt } from "@effect/vitest";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize } from "@moltzap/protocol/message";
-import { taskCreate, taskRequest, type AppId } from "@moltzap/protocol/task";
-import { conversationCreate } from "@moltzap/protocol/conversation";
+import {
+  agentConversationCreate,
+  conversationUpdate,
+} from "@moltzap/protocol/conversation";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppManifest } from "@moltzap/protocol/identity";
+import type { AppId, AppManifest } from "@moltzap/protocol/identity";
 import { Cause, Effect, Exit, Option } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
@@ -47,17 +48,14 @@ import {
 const it = effectIt.live;
 
 // `manifest.appId` does not route (the DB mints `app_id`); the manifest
-// supplies name / conversations / hooks. `task_create` is `kind: "hook"`
-// so the app's `TaskCreate` callback is consulted; the other two policies
-// take their open static verdict in-process.
+// supplies name / hooks. Both policies take their open static verdict
+// in-process, so no callback fires during these scenarios.
 const APP_MANIFEST: AppManifest = {
   name: "App Session Scoping Test App",
   appId: "00000000-0000-4000-8000-000000010004",
-  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
   hooks: {
     dispatch_authorize: { kind: "grant" },
     message_authorize: { kind: "forwardAllExceptSender" },
-    task_create: { kind: "hook", timeoutMs: 5_000 },
   },
 };
 
@@ -81,26 +79,29 @@ function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): string | null {
 }
 
 /**
- * Register an app (HTTP), open its `AppConnection`, wire an auto-accept
- * `app/task/create` callback, and return the live app client + DB-minted appId.
- * @returns The setup owning app result.
+ * Register an app (HTTP), open its `AppConnection`, and return the live app
+ * client plus the DB-minted appId.
+ * @param name Manifest display name, distinct per registered app.
+ * @returns The setup app result.
  */
-function setupOwningApp(): Effect.Effect<
-  { appClient: TestAppClient; appId: AppId },
-  unknown
-> {
+function setupApp(
+  name: string,
+): Effect.Effect<{ appClient: TestAppClient; appId: AppId }, unknown> {
   return Effect.gen(function* () {
-    const registered = yield* registerApp(getBaseUrl(), APP_MANIFEST);
+    const registered = yield* registerApp(getBaseUrl(), {
+      ...APP_MANIFEST,
+      name,
+    });
     const appClient = yield* connectAppClient(
       registered.appId,
       registered.appKey,
-      acceptTaskCreateHandlers(),
+      staticVerdictHandlers(),
     );
     return { appClient, appId: registered.appId };
   });
 }
 
-function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
+function staticVerdictHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
     [dispatchAuthorize.name]: {
       definition: dispatchAuthorize,
@@ -110,26 +111,26 @@ function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
       definition: messagesAuthorize,
       handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
-    [taskCreate.name]: {
-      definition: taskCreate,
-      handle: () =>
-        Effect.succeed({ verdict: { decision: "accept" as const } }),
-    },
   };
 }
 
-function owningAppConnPassesTmGate() {
+function owningAppConnPassesOwnershipGate() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice");
     const bob = yield* registerAndConnect("bob");
-    const { appClient, appId } = yield* setupOwningApp();
-    const task = yield* alice.client.sendRpc(taskRequest, {
+    const carol = yield* registerAndConnect("carol");
+    const { appClient, appId } = yield* setupApp("Owning App");
+    // Alice mints the conversation and binds it to the app under test;
+    // `carol` stays out of the initial membership so the app's add is a real
+    // mutation.
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId,
-      invitedAgentIds: [bob.agentId],
-    });
-    const conv = yield* appClient.sendRpc(conversationCreate, {
-      taskId: task.task.id,
       participants: [bob.agentId],
+    });
+    yield* appClient.sendRpc(conversationUpdate, {
+      action: "add-participant",
+      conversationId: conv.conversation.id,
+      agentId: carol.agentId,
     });
     expect(conv.conversation.id).toBeTruthy();
   });
@@ -139,26 +140,20 @@ function nonOwningAppFailsAppOwnershipGate() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-3");
     const bob = yield* registerAndConnect("bob-3");
-    const { appId } = yield* setupOwningApp();
-    const task = yield* alice.client.sendRpc(taskRequest, {
-      appId,
-      invitedAgentIds: [bob.agentId],
+    const carol = yield* registerAndConnect("carol-3");
+    const owning = yield* setupApp("Owning App 3");
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
+      appId: owning.appId,
+      participants: [bob.agentId],
     });
     // A DIFFERENT app (fresh appKey → different DB appId) does not own the
-    // task; `assertAppOwnsTask` rejects it with the same ForbiddenError.
-    const other = yield* registerApp(getBaseUrl(), {
-      ...APP_MANIFEST,
-      name: "Other App",
-    });
-    const otherClient = yield* connectAppClient(
-      other.appId,
-      other.appKey,
-      acceptTaskCreateHandlers(),
-    );
+    // conversation; `assertCallerAppOwnsConversation` rejects it.
+    const other = yield* setupApp("Other App");
     const exit = yield* Effect.exit(
-      otherClient.sendRpc(conversationCreate, {
-        taskId: task.task.id,
-        participants: [bob.agentId],
+      other.appClient.sendRpc(conversationUpdate, {
+        action: "add-participant",
+        conversationId: conv.conversation.id,
+        agentId: carol.agentId,
       }),
     );
     expect(rpcErrorCode(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
@@ -168,7 +163,7 @@ function nonOwningAppFailsAppOwnershipGate() {
 describe("app-session-scoping — app authority via owning app principal", () => {
   it(
     "the owning app connection passes the app ownership gate",
-    owningAppConnPassesTmGate,
+    owningAppConnPassesOwnershipGate,
     20_000,
   );
   it(

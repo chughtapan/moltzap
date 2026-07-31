@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import type { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import type { messagesAuthorize } from "@moltzap/protocol/message";
-import type { taskCreate } from "@moltzap/protocol/task";
 import type {
   ReverseCallError,
   ReverseCallbackError,
@@ -34,16 +33,6 @@ export function callAppRpc(
 ): Effect.Effect<
   ReverseCallbackSuccess<typeof messagesAuthorize>,
   ReverseCallbackError<typeof messagesAuthorize> | ReverseCallError
->;
-export function callAppRpc(
-  entry: AppRegistration,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof taskCreate }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof taskCreate>,
-  ReverseCallbackError<typeof taskCreate> | ReverseCallError
 >;
 /**
  * Executes the call app rpc operation.

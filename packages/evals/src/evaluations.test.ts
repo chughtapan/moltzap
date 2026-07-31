@@ -4,7 +4,6 @@ import {
   agentId,
   conversationId,
   messageId as makeMessageId,
-  taskId as makeTaskId,
 } from "@moltzap/protocol/testing";
 import {
   AgentRuntimeReady,
@@ -68,8 +67,6 @@ const targetId = agentId("00000000-0000-4000-8000-000000000001");
 const senderId = agentId("00000000-0000-4000-8000-000000000002");
 const probeId = agentId("00000000-0000-4000-8000-000000000003");
 const targetName = Schema.decodeSync(agentName)(TARGET_AGENT_NAME);
-const taskId = makeTaskId("00000000-0000-4000-8000-000000000004");
-const alternateTaskId = makeTaskId("00000000-0000-4000-8000-000000000007");
 const directConversationId = conversationId(
   "00000000-0000-4000-8000-000000000005",
 );
@@ -91,7 +88,6 @@ function received(
 ): EndpointMessageReceived {
   return EndpointMessageReceived.make({
     endpointId,
-    taskId,
     conversationId,
     messageId: messageId(id),
     senderId: targetId,
@@ -111,7 +107,6 @@ function selected(
     endpointId,
     targetName,
     targetId,
-    taskId: message.taskId,
     messageId: message.messageId,
   });
 }
@@ -241,7 +236,6 @@ function testEndpointSemantics(): void {
 interface ProbeResponseInput {
   readonly id: ReturnType<typeof messageId>;
   readonly endpointId?: typeof senderId;
-  readonly taskId?: typeof taskId;
   readonly senderId?: typeof targetId;
   readonly text?: string;
 }
@@ -250,13 +244,11 @@ function probeResponse(input: ProbeResponseInput): EndpointMessageReceived {
   const {
     id,
     endpointId = probeId,
-    taskId: responseTaskId = taskId,
     senderId: responseSenderId = targetId,
     text = "hunter2",
   } = input;
   return EndpointMessageReceived.make({
     endpointId,
-    taskId: responseTaskId,
     conversationId: probeConversationId,
     messageId: id,
     senderId: responseSenderId,
@@ -274,10 +266,6 @@ function testCompoundResponseIdentity(): void {
           id: sharedMessageId,
           endpointId: senderId,
         });
-        const taskDecoy = probeResponse({
-          id: sharedMessageId,
-          taskId: alternateTaskId,
-        });
         const senderDecoy = probeResponse({
           id: sharedMessageId,
           senderId,
@@ -289,7 +277,7 @@ function testCompoundResponseIdentity(): void {
 
         const result = yield* gradeEval032(
           ledgerView(
-            [endpointDecoy, taskDecoy, senderDecoy, response],
+            [endpointDecoy, senderDecoy, response],
             [
               selected(
                 eval032Description.scenarioId,
@@ -427,7 +415,6 @@ function testSemanticChecks(): void {
   it("rejects attachments on an exact-text response", () => {
     const message = EndpointMessageReceived.make({
       endpointId: probeId,
-      taskId,
       conversationId: probeConversationId,
       messageId: messageId(2),
       senderId: targetId,

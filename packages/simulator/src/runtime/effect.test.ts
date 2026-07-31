@@ -109,27 +109,18 @@ beforeEach(() => {
   clientState.closes = 0;
 });
 
-function connection(
-  observeReady: (within: Duration.Duration) => void,
-): AgentConnection<"alice"> {
-  return {
-    agent: makeAgentHandle("alice", AGENT_ID),
-    key: AGENT_KEY,
-    routerUrl: ROUTER_URL,
-    awaitReady: (within) =>
-      Effect.sync(() => {
-        observeReady(within);
-      }),
-  };
-}
+const connection: AgentConnection<"alice"> = {
+  agent: makeAgentHandle("alice", AGENT_ID),
+  key: AGENT_KEY,
+  routerUrl: ROUTER_URL,
+};
 
 // @agent-code-guard/regression-only: controlled client lifecycles expose protocol routing, termination, and scope cleanup order directly
-it.effect("uses the wire protocol for readiness, delivery, and replies", () =>
+it.effect("uses the wire protocol for connect, delivery, and replies", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const delivery = yield* Deferred.make<MessageReceivedNotification>();
       const callback = yield* Deferred.make<EffectMessageContext>();
-      let readyWithin: Duration.Duration | undefined;
       clientState.received = Stream.fromEffect(Deferred.await(delivery));
       const runtime = effectRuntime({
         startupTimeout: STARTUP_TIMEOUT,
@@ -137,11 +128,7 @@ it.effect("uses the wire protocol for readiness, delivery, and replies", () =>
           Deferred.succeed(callback, context).pipe(Effect.as("pong")),
       });
 
-      const running = yield* runtime.acquire({
-        connection: connection((within) => {
-          readyWithin = within;
-        }),
-      });
+      const running = yield* runtime.acquire({ connection });
       yield* Deferred.succeed(delivery, INCOMING);
       const observed = yield* Deferred.await(callback);
       const termination = yield* running.termination;
@@ -149,7 +136,6 @@ it.effect("uses the wire protocol for readiness, delivery, and replies", () =>
       assert.instanceOf(termination, RuntimeCompleted);
       assert.strictEqual(observed.agent.id, AGENT_ID);
       assert.strictEqual(clientState.connects, 1);
-      assert.deepStrictEqual(readyWithin, STARTUP_TIMEOUT);
       assert.strictEqual(
         clientState.constructed[0]?.serverUrl,
         httpBaseUrl(ROUTER_URL),
@@ -158,7 +144,6 @@ it.effect("uses the wire protocol for readiness, delivery, and replies", () =>
       assert.deepInclude(clientState.sent[0]?.payload, {
         taskId: INCOMING.taskId,
         conversationId: INCOMING.message.conversationId,
-        replyToId: INCOMING.message.id,
         parts: [{ type: "text", text: "pong" }],
       });
     }),
@@ -174,7 +159,7 @@ it.effect("turns callback failure into a runtime observation", () =>
         onMessage: () => Effect.fail("handler failed"),
       });
       const running = yield* runtime.acquire({
-        connection: connection(() => undefined),
+        connection,
       });
 
       yield* Deferred.succeed(delivery, INCOMING);
@@ -194,7 +179,7 @@ it.effect("scope teardown closes the client without reporting completion", () =>
 
     const running = yield* Effect.scoped(
       effectRuntime().acquire({
-        connection: connection(() => undefined),
+        connection,
       }),
     );
     const termination = yield* Effect.fork(running.termination);
@@ -219,7 +204,7 @@ it.effect("snapshots runtime options at construction", () =>
       options.onMessage = () => Effect.succeed("replacement");
 
       const running = yield* runtime.acquire({
-        connection: connection(() => undefined),
+        connection,
       });
       yield* Deferred.succeed(delivery, INCOMING);
       yield* running.termination;

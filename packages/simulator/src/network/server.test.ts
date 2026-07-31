@@ -23,7 +23,6 @@ import {
 } from "effect";
 import { assert, describe } from "vitest";
 import {
-  type MoltZapPresenceObserver,
   type MoltZapServerOperations,
   MoltZapServerFailed,
   makeMoltZapServerAcquirer,
@@ -86,11 +85,6 @@ function makeFakeHarness(
     stoppedNames: [],
     containerSecret: undefined,
   };
-  const observer: MoltZapPresenceObserver = {
-    awaitAgentReady: () => Effect.void,
-    connect: fakeStep(state, "observer.connect", undefined),
-    close: fakeStep(state, "observer.close", undefined),
-  };
   const operations: MoltZapServerOperations = {
     cleanupTimeout: READY_TIMEOUT,
     resolveImage: () => fakeStep(state, "image.resolve", IMAGE),
@@ -125,7 +119,6 @@ function makeFakeHarness(
           }),
         ),
       ),
-    createObserver: () => fakeStep(state, "observer.create", observer),
     stopContainer: (containerName) =>
       Effect.sync(() => {
         state.stoppedNames.push(containerName);
@@ -150,7 +143,6 @@ describe("MoltZap server", () => {
             readyTimeout: READY_TIMEOUT,
           });
           const identity = yield* server.register(ALICE);
-          yield* server.awaitAgentReady(identity.agentId, READY_TIMEOUT);
           assert.strictEqual(identity.agentId, AGENT_ID);
           assert.strictEqual(identity.key, AGENT_KEY);
           assert.strictEqual(server.image, IMAGE);
@@ -159,7 +151,7 @@ describe("MoltZap server", () => {
             server.messageDatabasePath,
             `${VOLUME_PATH}/pglite`,
           );
-          assert.strictEqual(harness.state.registrationSecrets.length, 2);
+          assert.strictEqual(harness.state.registrationSecrets.length, 1);
           assert.strictEqual(
             harness.state.registrationSecrets.every(
               (secret) => secret === harness.state.containerSecret,
@@ -169,7 +161,6 @@ describe("MoltZap server", () => {
 
           yield* server.stop();
           yield* server.stop();
-          assert.strictEqual(count(harness.state.calls, "observer.close"), 1);
           assert.strictEqual(count(harness.state.calls, "container.stop"), 1);
           assert.strictEqual(count(harness.state.calls, "volume.remove"), 0);
         }),
@@ -180,8 +171,7 @@ describe("MoltZap server", () => {
         harness.state.stoppedNames,
         harness.state.startedNames,
       );
-      assert.deepStrictEqual(harness.state.calls.slice(-3), [
-        "observer.close",
+      assert.deepStrictEqual(harness.state.calls.slice(-2), [
         "container.stop",
         "volume.remove",
       ]);
@@ -211,37 +201,6 @@ describe("MoltZap server", () => {
       ]);
     }));
 
-  it("normalizes observer readiness failures at the server boundary", () =>
-    Effect.gen(function* () {
-      const harness = makeFakeHarness();
-      const observer: MoltZapPresenceObserver = {
-        awaitAgentReady: () => Effect.fail("presence query failed"),
-        connect: Effect.void,
-        close: fakeStep(harness.state, "observer.close", undefined),
-      };
-      const acquire = makeMoltZapServerAcquirer({
-        ...harness.operations,
-        createObserver: () =>
-          fakeStep(harness.state, "observer.create", observer),
-      });
-
-      const failure = yield* Effect.scoped(
-        Effect.gen(function* () {
-          const server = yield* acquire({
-            image: IMAGE,
-            readyTimeout: READY_TIMEOUT,
-          });
-          return yield* server
-            .awaitAgentReady(AGENT_ID, READY_TIMEOUT)
-            .pipe(Effect.flip);
-        }),
-      );
-
-      assert.instanceOf(failure, MoltZapServerFailed);
-      assert.strictEqual(failure.operation, "await-agent-ready");
-      assert.match(failure.detail, /presence query failed/u);
-    }));
-
   it("recovers a possibly-created container by its pre-known name", () =>
     Effect.gen(function* () {
       const harness = makeFakeHarness([["container.start", 1]]);
@@ -265,26 +224,6 @@ describe("MoltZap server", () => {
         "image.resolve",
         "volume.create",
         "container.start",
-        "container.stop",
-        "volume.remove",
-      ]);
-    }));
-
-  it("reverses observer, container, and volume after observer connect fails", () =>
-    Effect.gen(function* () {
-      const harness = makeFakeHarness([["observer.connect", 1]]);
-      const acquire = makeMoltZapServerAcquirer(harness.operations);
-
-      const error = yield* Effect.scoped(
-        acquire({
-          readyTimeout: READY_TIMEOUT,
-        }),
-      ).pipe(Effect.flip);
-
-      assert.instanceOf(error, MoltZapServerFailed);
-      assert.strictEqual(error.operation, "connect-observer");
-      assert.deepStrictEqual(harness.state.calls.slice(-3), [
-        "observer.close",
         "container.stop",
         "volume.remove",
       ]);
@@ -321,74 +260,29 @@ describe("MoltZap server", () => {
       ]);
     }));
 
-  it("interrupts a timed-out observer connection before cleaning resources", () =>
-    Effect.gen(function* () {
-      const harness = makeFakeHarness();
-      const connectEntered = yield* Deferred.make<undefined>();
-      const connectInterrupted = yield* Deferred.make<undefined>();
-      const observer: MoltZapPresenceObserver = {
-        awaitAgentReady: () => Effect.void,
-        connect: Deferred.succeed(connectEntered, undefined).pipe(
-          Effect.zipRight(Effect.never),
-          Effect.onInterrupt(() =>
-            Deferred.succeed(connectInterrupted, undefined).pipe(Effect.asVoid),
-          ),
-        ),
-        close: fakeStep(harness.state, "observer.close", undefined),
-      };
-      const operations: MoltZapServerOperations = {
-        ...harness.operations,
-        createObserver: () =>
-          fakeStep(harness.state, "observer.create", observer),
-      };
-      const acquire = makeMoltZapServerAcquirer(operations);
-      const acquisition = yield* Effect.scoped(
-        acquire({
-          image: IMAGE,
-          readyTimeout: READY_TIMEOUT,
-        }),
-      ).pipe(Effect.fork);
-
-      yield* Deferred.await(connectEntered);
-      yield* TestClock.adjust(READY_TIMEOUT);
-      const error = yield* Fiber.join(acquisition).pipe(Effect.flip);
-      yield* Deferred.await(connectInterrupted);
-
-      assert.instanceOf(error, MoltZapServerFailed);
-      assert.strictEqual(error.operation, "connect-observer");
-      assert.strictEqual(count(harness.state.calls, "observer.close"), 1);
-      assert.strictEqual(count(harness.state.calls, "container.stop"), 1);
-      assert.strictEqual(count(harness.state.calls, "volume.remove"), 1);
-    }));
-
   it("interrupts timed-out cleanup before retrying the owned resource", () =>
     Effect.gen(function* () {
       const harness = makeFakeHarness();
-      const closeEntered = yield* Deferred.make<undefined>();
-      const closeInterrupted = yield* Deferred.make<undefined>();
-      let closeAttempts = 0;
-      const observer: MoltZapPresenceObserver = {
-        awaitAgentReady: () => Effect.void,
-        connect: Effect.void,
-        close: Effect.suspend(() => {
-          closeAttempts += 1;
-          harness.state.calls.push("observer.close");
-          return closeAttempts === 1
-            ? Deferred.succeed(closeEntered, undefined).pipe(
-                Effect.zipRight(Effect.never),
-                Effect.onInterrupt(() =>
-                  Deferred.succeed(closeInterrupted, undefined).pipe(
-                    Effect.asVoid,
-                  ),
-                ),
-              )
-            : Effect.void;
-        }),
-      };
+      const stopEntered = yield* Deferred.make<undefined>();
+      const stopInterrupted = yield* Deferred.make<undefined>();
+      let stopAttempts = 0;
       const operations: MoltZapServerOperations = {
         ...harness.operations,
-        createObserver: () =>
-          fakeStep(harness.state, "observer.create", observer),
+        stopContainer: () =>
+          Effect.suspend(() => {
+            stopAttempts += 1;
+            harness.state.calls.push("container.stop");
+            return stopAttempts === 1
+              ? Deferred.succeed(stopEntered, undefined).pipe(
+                  Effect.zipRight(Effect.never),
+                  Effect.onInterrupt(() =>
+                    Deferred.succeed(stopInterrupted, undefined).pipe(
+                      Effect.asVoid,
+                    ),
+                  ),
+                )
+              : Effect.void;
+          }),
       };
       const acquire = makeMoltZapServerAcquirer(operations);
       const scope = yield* Scope.make();
@@ -396,41 +290,21 @@ describe("MoltZap server", () => {
         image: IMAGE,
         readyTimeout: READY_TIMEOUT,
       }).pipe(Scope.extend(scope));
-      const stopping = yield* server.stop().pipe(Effect.fork);
+      const stopping = yield* server.stop().pipe(Effect.flip, Effect.fork);
 
-      yield* Deferred.await(closeEntered);
+      yield* Deferred.await(stopEntered);
       yield* TestClock.adjust(READY_TIMEOUT);
-      yield* Fiber.join(stopping);
-      yield* Deferred.await(closeInterrupted);
+      const failure = yield* Fiber.join(stopping);
+      yield* Deferred.await(stopInterrupted);
 
-      assert.strictEqual(closeAttempts, 1);
-      assert.strictEqual(count(harness.state.calls, "container.stop"), 1);
+      assert.instanceOf(failure, MoltZapServerFailed);
+      assert.strictEqual(failure.operation, "cleanup");
+      assert.strictEqual(stopAttempts, 1);
       assert.strictEqual(count(harness.state.calls, "volume.remove"), 0);
 
       yield* Scope.close(scope, Exit.void);
 
-      assert.strictEqual(closeAttempts, 2);
-      assert.strictEqual(count(harness.state.calls, "container.stop"), 1);
-      assert.strictEqual(count(harness.state.calls, "volume.remove"), 1);
-    }));
-
-  it("keeps traffic-safe stop successful when observer cleanup needs retry", () =>
-    Effect.gen(function* () {
-      const harness = makeFakeHarness([["observer.close", 1]]);
-      const acquire = makeMoltZapServerAcquirer(harness.operations);
-
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const server = yield* acquire({
-            readyTimeout: READY_TIMEOUT,
-          });
-          yield* server.stop();
-          assert.strictEqual(count(harness.state.calls, "volume.remove"), 0);
-        }),
-      );
-
-      assert.strictEqual(count(harness.state.calls, "observer.close"), 2);
-      assert.strictEqual(count(harness.state.calls, "container.stop"), 1);
+      assert.strictEqual(stopAttempts, 2);
       assert.strictEqual(count(harness.state.calls, "volume.remove"), 1);
     }));
 

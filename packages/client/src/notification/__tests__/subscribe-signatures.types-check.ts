@@ -13,39 +13,35 @@ import type {
   NotificationSubscriberRegistry,
 } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import { taskFailedNotificationDefinition } from "@moltzap/protocol/task";
+import { dispatchRelease } from "@moltzap/protocol/message/dispatch";
 import { subscribe, type subscribeAll } from "../stream.js";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
-type TaskFailedParams = NotificationParamsOf<
-  typeof taskFailedNotificationDefinition
->;
-type RetryableTaskFailure = TaskFailedParams & {
-  readonly reason: "retryable";
+type ReleaseParams = NotificationParamsOf<typeof dispatchRelease>;
+type DeniedRelease = ReleaseParams & {
+  readonly verdict: { readonly decision: "deny" };
 };
-type RetryablePredicate = (
-  params: TaskFailedParams,
-) => params is RetryableTaskFailure;
+type DeniedPredicate = (params: ReleaseParams) => params is DeniedRelease;
 
 /**
  * Exercise the type-guard overload with concrete protocol types.
  * @param registry Notification registry supplied by a connected client.
- * @param isRetryable Predicate that narrows task failures.
- * @returns A stream narrowed to retryable task failures.
+ * @param isDenied Predicate that narrows dispatch releases to denials.
+ * @returns A stream narrowed to denied dispatch releases.
  */
-export function subscribeRetryableCanary(
+export function subscribeDeniedCanary(
   registry: NotificationSubscriberRegistry<
     NotConnectedError,
     AnyNotificationDefinition
   >,
-  isRetryable: RetryablePredicate,
+  isDenied: DeniedPredicate,
 ) {
-  return subscribe(registry, taskFailedNotificationDefinition, isRetryable);
+  return subscribe(registry, dispatchRelease, isDenied);
 }
 
-type RetryableStream = ReturnType<typeof subscribeRetryableCanary>;
+type DeniedStream = ReturnType<typeof subscribeDeniedCanary>;
 
 /**
  * Exercise Stream consumption against the real subscription return type.
@@ -71,11 +67,11 @@ type SubscribeStreamShape = Expect<
     >
   >
 >;
-type RetryableOverloadResolves = Expect<
-  Equal<RetryableStream, Stream.Stream<RetryableTaskFailure, NotConnectedError>>
+type DeniedOverloadResolves = Expect<
+  Equal<DeniedStream, Stream.Stream<DeniedRelease, NotConnectedError>>
 >;
-type RetryableElementIsExact = Expect<
-  Equal<Stream.Stream.Success<RetryableStream>, RetryableTaskFailure>
+type DeniedElementIsExact = Expect<
+  Equal<Stream.Stream.Success<DeniedStream>, DeniedRelease>
 >;
 type SubscribeAllStreamShape = Expect<
   Equal<
@@ -101,8 +97,8 @@ type TypedErrorChannelIsExact = Expect<
 /** Compile-time assertions for notification subscription contracts. */
 export type NotificationSubscriptionCanaries = [
   SubscribeStreamShape,
-  RetryableOverloadResolves,
-  RetryableElementIsExact,
+  DeniedOverloadResolves,
+  DeniedElementIsExact,
   SubscribeAllStreamShape,
   RunForEachHasNoLeakedRequirements,
   TypedErrorChannelIsExact,
