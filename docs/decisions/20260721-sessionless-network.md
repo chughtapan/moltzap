@@ -2,20 +2,27 @@
 status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
-superseded-by: 20260728-network-wire-is-http-post-polling.md
+superseded-by: 20260729-router-order-is-opaque.md
 ---
 
 # The network is sessionless
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-sessionless-network).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-sessionless-network) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
 
 ## Supersession
 
 Per-request authentication and the absence of identity-bound network
-sessions remain accepted. Position replay, offline convergence, and
-per-conversation coordination claims in this record are replaced:
-Router has a volatile endpoint-wide poll cursor, while L3 endpoints own
-reconciliation and recovery.
+sessions remain accepted. A held long poll and its request-scoped
+waiter are not a session. Router may keep bounded process-local feed,
+retry, replay-nonce, cache, and waiter state, but it stores no
+recipient continuation or progress after a request.
+
+`20260729-router-order-is-opaque.md` replaces public position,
+position-resumable delivery, offline convergence, and
+per-conversation coordination claims. Clients hold an opaque
+current-instance PollCursor; Router state is volatile; L3 endpoints own
+reconciliation and recovery. `docs/spec/router.md` is the current
+behavioral contract.
 
 ## Context and Problem Statement
 

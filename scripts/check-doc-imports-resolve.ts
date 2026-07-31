@@ -3,7 +3,7 @@
  * @file Doc-imports-resolve gate. Scans every `from "@moltzap/*"`
  * import statement that appears in a `.mdx`/`.md` file under `docs/`
  * (or in the repo-root `README.md`), parses each referenced package's
- * `exports` map out of its `package.json`, and verifies two things:
+ * `exports` map from the v1 and v2 workspace package roots, and verifies:
  *
  *   1. The exact subpath (`.` or `./<name>`) resolves to a published
  *      entry — the doc cannot dangle on a path that isn't in the
@@ -36,7 +36,10 @@ import ts from "typescript";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..");
 const docsDir = resolve(workspaceRoot, "docs");
-const packagesDir = resolve(workspaceRoot, "packages");
+const workspacePackageRoots = [
+  resolve(workspaceRoot, "packages"),
+  resolve(workspaceRoot, "v2"),
+] as const;
 
 // ─── Workspace package discovery ──────────────────────────────────────────
 
@@ -55,28 +58,30 @@ interface PackageInfo {
 
 const readPackages = (): ReadonlyMap<string, PackageInfo> => {
   const out = new Map<string, PackageInfo>();
-  for (const entry of readdirSync(packagesDir)) {
-    const pkgDir = resolve(packagesDir, entry);
-    const pkgJsonPath = resolve(pkgDir, "package.json");
-    let parsed: { name?: string; exports?: Record<string, unknown> };
-    try {
-      parsed = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as typeof parsed;
-    } catch {
-      continue;
+  for (const packageRoot of workspacePackageRoots) {
+    for (const entry of readdirSync(packageRoot)) {
+      const pkgDir = resolve(packageRoot, entry);
+      const pkgJsonPath = resolve(pkgDir, "package.json");
+      let parsed: { name?: string; exports?: Record<string, unknown> };
+      try {
+        parsed = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as typeof parsed;
+      } catch {
+        continue;
+      }
+      if (!parsed.name) continue;
+      const subpaths = new Map<string, ExportTarget>();
+      for (const [sub, target] of Object.entries(parsed.exports ?? {})) {
+        const resolved = resolveExportTarget(target);
+        if (resolved === null) continue;
+        const resolvedAbs = resolve(pkgDir, resolved);
+        const sourceCandidate = guessSourcePath(pkgDir, resolved);
+        subpaths.set(sub, {
+          resolvedPath: resolvedAbs,
+          ...(sourceCandidate === null ? {} : { sourceCandidate }),
+        });
+      }
+      out.set(parsed.name, { packageDir: pkgDir, subpaths });
     }
-    if (!parsed.name) continue;
-    const subpaths = new Map<string, ExportTarget>();
-    for (const [sub, target] of Object.entries(parsed.exports ?? {})) {
-      const resolved = resolveExportTarget(target);
-      if (resolved === null) continue;
-      const resolvedAbs = resolve(pkgDir, resolved);
-      const sourceCandidate = guessSourcePath(pkgDir, resolved);
-      subpaths.set(sub, {
-        resolvedPath: resolvedAbs,
-        ...(sourceCandidate === null ? {} : { sourceCandidate }),
-      });
-    }
-    out.set(parsed.name, { packageDir: pkgDir, subpaths });
   }
   return out;
 };
@@ -333,7 +338,11 @@ interface Violation {
   readonly file: string;
   readonly line: number;
   readonly text: string;
-  readonly kind: "unknown-package" | "unknown-subpath" | "missing-export";
+  readonly kind:
+    | "unknown-package"
+    | "unknown-subpath"
+    | "missing-target"
+    | "missing-export";
   readonly detail: string;
 }
 
@@ -350,7 +359,7 @@ const scanImports = (
         line: imp.line,
         text: imp.raw,
         kind: "unknown-package",
-        detail: `Package '${imp.packageName}' is not in packages/.`,
+        detail: `Package '${imp.packageName}' is not in packages/ or v2/.`,
       });
       continue;
     }
@@ -365,12 +374,25 @@ const scanImports = (
       });
       continue;
     }
+    const sourceExists =
+      target.sourceCandidate !== undefined &&
+      fileExists(target.sourceCandidate);
+    const resolvedExists = fileExists(target.resolvedPath);
+    if (!sourceExists && !resolvedExists) {
+      out.push({
+        file: relative(workspaceRoot, imp.absFile),
+        line: imp.line,
+        text: imp.raw,
+        kind: "missing-target",
+        detail: `Package '${imp.packageName}${imp.subpath === "." ? "" : imp.subpath}' resolves to neither ${target.sourceCandidate === undefined ? "a source candidate" : relative(workspaceRoot, target.sourceCandidate)} nor ${relative(workspaceRoot, target.resolvedPath)}.`,
+      });
+      continue;
+    }
     if (!imp.hasNamedClause || imp.namedBindings.length === 0) continue;
-    // Prefer the src candidate; fall back to the resolved dist file.
-    const candidate =
-      target.sourceCandidate !== undefined && fileExists(target.sourceCandidate)
-        ? target.sourceCandidate
-        : target.resolvedPath;
+    // Prefer the source candidate; fall back to the built entry.
+    const candidate = sourceExists
+      ? (target.sourceCandidate ?? target.resolvedPath)
+      : target.resolvedPath;
     const exportSet = collectExports(candidate);
     if (exportSet.hasStarExport) continue;
     for (const name of imp.namedBindings) {

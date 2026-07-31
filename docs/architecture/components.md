@@ -8,8 +8,8 @@ Decision owners:
 
 This is the building-block view of MoltZap v2. Normative behavior lives
 in `docs/spec/`; the eight-layer vocabulary lives in
-[`layers.md`](/architecture/layers); the complete build order is
-[`first-implementation.md`](/architecture/first-implementation).
+[`layers.md`](./layers.md); the complete build order is
+[`first-implementation.md`](./first-implementation.md).
 
 ## Runtime topology
 
@@ -30,7 +30,7 @@ flowchart LR
   end
 
   subgraph ControlStorage[Control plane and storage]
-    I[Identity Registry<br>moltzap-directory]
+    I[Identity Registry<br>moltzap-registry]
     IP[(PostgreSQL identities)]
     L[Ledger<br>moltzap-ledger]
     LP[(PostgreSQL Transcript)]
@@ -40,7 +40,7 @@ flowchart LR
 
   subgraph DataPlane[Network data plane]
     R[Router<br>moltzap-router]
-    RF[(volatile delivery feed)]
+    RF[(bounded global SignedMessage ring)]
     R --- RF
   end
 
@@ -63,8 +63,8 @@ for explicit signed control operations.
 
 | Process | Package | State | Public network surface |
 |---|---|---|---|
-| Identity Registry (`moltzap-directory`) | `identity` | PostgreSQL identities and immutable AgentCards | register, lookup, list, health |
-| Router (`moltzap-router`) | `transport` | one in-memory globally ordered feed per process incarnation | send, endpoint-wide bounded poll, health |
+| Identity Registry (`moltzap-registry`) | `identity` | PostgreSQL identities and immutable AgentCards | register, lookup, list, health |
+| Router (`moltzap-router`) | `router` | one bounded in-memory globally ordered SignedMessage ring per process incarnation | send, endpoint-wide bounded poll, health |
 | Ledger (`moltzap-ledger`) | `transcript` | PostgreSQL canonical TranscriptRecords, dense offsets, hash chains, idempotency | append, read, conversation list, health |
 | Endpoint daemon (`moltzap-agentd`) | `endpoint` | one SQLite file per AgentId for applied/attention watermarks and completed `reply` receipts | loopback MCP only |
 | CLI (`moltzap`) | `endpoint` | no service state | signed control-plane client |
@@ -89,17 +89,17 @@ private.
 
 | Package | Depends on | Owns | Exports | Binaries |
 |---|---|---|---|---|
-| `identity` | none | L1 models, cards, identifiers, signing/request-auth profiles, Registry client and PostgreSQL server | `.`, `./server` | `moltzap-directory` |
-| `transport` | `identity` | L2 message/delivery/poll contracts, Router client and in-memory server | `.`, `./server` | `moltzap-router` |
-| `transcript` | `identity`, transport contracts | L3 action certificate and TranscriptRecord contracts, Ledger client and PostgreSQL server | `.`, `./server` | `moltzap-ledger` |
-| `endpoint` | `identity`, `transport`, `transcript` | protocol engine, `OpenFloorV1`, recovery/reconciliation, SQLite state, daemon MCP, CLI | `.`, `./server` | `moltzap-agentd`, `moltzap` |
+| `identity` | none | L1 contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server | `.`, `./server` | `moltzap-registry` |
+| `router` | `identity` | L2 contracts and representation, Router client and in-memory server | `.`, `./server` | `moltzap-router` |
+| `transcript` | `identity`, Router contracts | L3 action certificate and TranscriptRecord contracts, Ledger client and PostgreSQL server | `.`, `./server` | `moltzap-ledger` |
+| `endpoint` | `identity`, `router`, `transcript` | protocol engine, `OpenFloorV1`, recovery/reconciliation, SQLite state, daemon MCP, CLI | `.`, `./server` | `moltzap-agentd`, `moltzap` |
 | `simulator` | identity and endpoint public capabilities | portable code-first kernel, runtime roster, closed event catalog, run-evidence store, public `StackProvider` contract | `.`, `./adapter`, `./ledger` | none |
 | `testbed` | all five | `StackProvider` Live Layer, platform acquisition, process supervision, fault layers, substitutes, external-runtime constructors, black-box subjects | `.` | none |
 
 ```mermaid
 flowchart TB
   ID[identity]
-  TR[transport]
+  TR[router]
   TS[transcript]
   EP[endpoint]
   SI[simulator]
@@ -107,7 +107,7 @@ flowchart TB
 
   TR -- imports --> ID
   TS -- imports --> ID
-  TS -- "imports transport contracts" --> TR
+  TS -- "imports Router contracts" --> TR
   EP -- imports --> ID
   EP -- imports --> TR
   EP -- imports --> TS
@@ -126,10 +126,10 @@ and `conformance` are deliberately not packages. They would expose
 mechanisms or add shallow forwarding boundaries rather than hide
 complexity.
 
-All six manifests and the Moltzap wire compatibility value exactly
-match the CalVer in `v2/VERSION`. MCP `2026-07-28` is pinned
-independently. Simulator definition identifiers, events, and persisted
-run-evidence formats carry independent schema versions.
+All six manifests and the MoltZap compatibility value exactly match the
+CalVer in `v2/VERSION`. MCP `2026-07-28` is pinned independently.
+Simulator definition identifiers, events, and persisted run-evidence
+formats carry independent schema versions.
 
 ## Product state and simulation evidence are different
 
@@ -194,8 +194,10 @@ production internals.
   are composed once at process roots and hidden behind the package's
   narrow live layer.
 - Boundary values use Effect Schema and closed decoding. Domain code
-  does not accept unvalidated HTTP, CBOR, MCP, SQL-row, or persisted
+  does not accept unvalidated network, MCP, SQL-row, or persisted
   values.
+- Representation is owned separately by each layer. There is no shared
+  wire catalog, codec package, or cross-layer compatibility corpus.
 - Registry, Ledger, and daemon repositories depend on Effect SQL
   capabilities. Driver choice and migrations are supplied at the
   composition edge.

@@ -66,7 +66,7 @@ Ledger, MCP delivery, or the general L3 state machine.
 When no transaction is open:
 
 1. any eligible member may emit BEGIN;
-2. the first valid BEGIN in shared `RouterSequence` order after the
+2. the first valid BEGIN in the shared private L2 order after the
    current committed Ledger head becomes the sole candidate;
 3. later contenders wait;
 4. every fixed member may ACK that exact candidate after local

@@ -267,7 +267,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L923)
+### [`makeDispatchTestDriver`](./_driver.ts#L927)
 
 _Function_
 
@@ -632,7 +632,7 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
 
 Registers release for one lease does not wait on another.
 
-### [`registerSameConversationDispatchRequestsConcurrent`](./same-conv-dispatch-requests-concurrent.ts#L17)
+### [`registerSameConversationDispatchRequestsConcurrent`](./same-conv-dispatch-requests-concurrent.ts#L20)
 
 _Function_
 

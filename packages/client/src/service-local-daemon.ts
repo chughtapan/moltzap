@@ -92,11 +92,9 @@ function resolveStartParticipantIds(
       }
       const id = byName.get(entry.name);
       if (id === undefined) {
-        return yield* Effect.fail(
-          new StartUsageError({
-            message: `Cannot resolve "${entry.token}": not-found`,
-          }),
-        );
+        return yield* new StartUsageError({
+          message: `Cannot resolve "${entry.token}": not-found`,
+        });
       }
       resolved.push(id);
     }
@@ -155,11 +153,9 @@ function resolveStartParticipants(
   return Effect.gen(function* () {
     const names = startParticipantNames(participants);
     if (names.length > MAX_START_PARTICIPANT_LOOKUP_NAMES) {
-      return yield* Effect.fail(
-        new StartUsageError({
-          message: `Too many distinct agent names: ${names.length} (max ${MAX_START_PARTICIPANT_LOOKUP_NAMES})`,
-        }),
-      );
+      return yield* new StartUsageError({
+        message: `Too many distinct agent names: ${names.length} (max ${MAX_START_PARTICIPANT_LOOKUP_NAMES})`,
+      });
     }
     const byName = new Map<string, AgentId>();
     if (names.length > 0) {
@@ -212,7 +208,7 @@ function sendOptionalStartMessage({
   StartPartialFailure | ServiceRpcError
 > {
   if (params.message === undefined) {
-    return Effect.succeed(undefined);
+    return Effect.void.pipe(Effect.as(undefined));
   }
   return sendStartMessage({
     call,
@@ -235,11 +231,9 @@ function handleStartCommand(
       params.participants,
     );
     if (participants.length === 0) {
-      return yield* Effect.fail(
-        new StartUsageError({
-          message: "A conversation needs at least one other participant",
-        }),
-      );
+      return yield* new StartUsageError({
+        message: "A conversation needs at least one other participant",
+      });
     }
     const created = yield* call(agentConversationCreate.name, {
       appId,

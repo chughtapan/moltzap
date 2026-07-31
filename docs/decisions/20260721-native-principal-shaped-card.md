@@ -2,19 +2,25 @@
 status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
-superseded-by: 20260728-gate-1-identity-profile.md
+superseded-by: 20260729-identity-uses-jcs-jose-authenticated-http.md
 ---
 
 # The identity card is moltzap-native and principal-shaped
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-native-principal-shaped-card).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-native-principal-shaped-card) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp).
 
 ## Supersession
 
-The Moltzap-native, principal-shaped card remains accepted. The Gate 1
-identity profile now closes the previously open key model, makes the
-card immutable, adds endpoint routing information, and fixes complete
-Registry lookup behavior.
+The MoltZap-native, principal-shaped card remains accepted: AgentCard
+binds AgentId to an opaque PrincipalId, AgentName, verification key, and
+issue time, and Registry returns the complete immutable card.
+
+`20260729-identity-uses-jcs-jose-authenticated-http.md` closes the
+current key and container profile. It replaces the historical
+container-neutral and endpoint-routing statements: AgentCard is an
+exact JCS/General-JWS artifact with no service origin or route.
+`docs/spec/identity.md` owns the identity guarantee and
+`docs/spec/identity-representation.md` owns the exact representation.
 
 ## Context and Problem Statement
 

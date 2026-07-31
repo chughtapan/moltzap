@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+import { runRegistryProcess } from "../dist/registry/process.js";
+
+runRegistryProcess();

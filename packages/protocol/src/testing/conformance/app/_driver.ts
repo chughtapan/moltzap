@@ -389,19 +389,23 @@ function verdictToWire(
 
 function verdictFromWire(raw: unknown): DispatchVerdict | null {
   const verdict = wireVerdictView(raw);
-  if (verdict === null) {
-    return null;
+  let decoded: DispatchVerdict | null = null;
+  if (verdict !== null) {
+    switch (verdict.decision) {
+      case "grant":
+        decoded = grantVerdictFromWire(verdict);
+        break;
+      case "deny":
+        decoded = reasonVerdictFromWire("deny", verdict.reason);
+        break;
+      case "hold":
+        decoded = reasonVerdictFromWire("hold", verdict.reason);
+        break;
+      default:
+        break;
+    }
   }
-  switch (verdict.decision) {
-    case "grant":
-      return grantVerdictFromWire(verdict);
-    case "deny":
-      return reasonVerdictFromWire("deny", verdict.reason);
-    case "hold":
-      return reasonVerdictFromWire("hold", verdict.reason);
-    default:
-      return null;
-  }
+  return decoded;
 }
 
 function wireVerdictView(raw: unknown): WireVerdictView | null {

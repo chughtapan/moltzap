@@ -99,7 +99,7 @@ export interface ConnectedAgent {
 
 Describes connected agent.
 
-### [`connectTestClient`](./helpers.ts#L260)
+### [`connectTestClient`](./helpers.ts#L262)
 
 _Function_
 
@@ -278,7 +278,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 
 Validates and decodes default test admin user id values.
 
-### [`getBaseUrl`](./server.ts#L464)
+### [`getBaseUrl`](./server.ts#L462)
 
 _Function_
 
@@ -290,7 +290,7 @@ Returns base url.
 
 **Returns:** The get base url result.
 
-### [`getCoreDb`](./server.ts#L440)
+### [`getCoreDb`](./server.ts#L438)
 
 _Function_
 
@@ -302,7 +302,7 @@ Returns core db.
 
 **Returns:** The get core db result.
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L453)
+### [`getCoreEncryptionEnvelope`](./server.ts#L451)
 
 _Function_
 
@@ -314,7 +314,7 @@ Returns core encryption envelope.
 
 **Returns:** The get core encryption envelope result.
 
-### [`getWsUrl`](./server.ts#L475)
+### [`getWsUrl`](./server.ts#L473)
 
 _Function_
 
@@ -517,7 +517,7 @@ Registers app.
 
 **Returns:** The register app result.
 
-### [`resetCoreTestDb`](./server.ts#L412)
+### [`resetCoreTestDb`](./server.ts#L410)
 
 _Function_
 
@@ -579,19 +579,24 @@ Start a test server and expose its package-owned integration ports.
 
 ### [`startCoreTestServerEffect`](./server.ts#L356)
 
-_Function_
+_Variable_
 
 ```ts
-export function startCoreTestServerEffect(
-  opts: StartCoreTestServerOptions = {},
+export const startCoreTestServerEffect = Effect.fn("startCoreTestServer")(
+  function* (opts: StartCoreTestServerOptions = {}) {
+    yield* ensureNoCoreTestServerRunning();
+    const db = yield* initializeTestDatabase();
+    const masterSecret = yield* configureEncryption(db, opts);
+    coreApp = createCoreTestApp(db, opts, masterSecret);
+    yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
+    return buildCoreTestServer(coreApp, db);
+  },
 )
 ```
 
 Executes the start core test server effect operation.
 
-**Returns:** The start core test server effect result.
-
-### [`startCoreTestServerFull`](./server.ts#L374)
+### [`startCoreTestServerFull`](./server.ts#L372)
 
 _Function_
 
@@ -619,7 +624,7 @@ export interface StartCoreTestServerOptions {
 
 Configures start core test server.
 
-### [`stopCoreTestServer`](./server.ts#L382)
+### [`stopCoreTestServer`](./server.ts#L380)
 
 _Function_
 

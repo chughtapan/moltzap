@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1330)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1345)
 
 _Function_
 
@@ -68,7 +68,7 @@ is rejected.
 
 **Returns:** The created moltzap channel plugin.
 
-### [`default`](./openclaw-entry.ts#L1360)
+### [`default`](./openclaw-entry.ts#L1375)
 
 _Variable_
 
@@ -76,7 +76,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1357)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1372)
 
 _Variable_
 
@@ -89,7 +89,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1348)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1363)
 
 _TypeAlias_
 

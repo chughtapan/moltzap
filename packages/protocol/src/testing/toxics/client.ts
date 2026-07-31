@@ -216,7 +216,7 @@ function parseJsonBody(
   body: string,
   toToxicError: (err: unknown) => ToxicControlError,
 ): Effect.Effect<unknown, ToxicControlError> {
-  return body.length === 0
+  return body === ""
     ? Effect.succeed(null)
     : Effect.try({
         try: (): unknown => JSON.parse(body),
@@ -312,13 +312,11 @@ function createProxy(
       body: proxyBody(opts, network, nextListenPort),
     });
     if (!isRawProxy(response)) {
-      return yield* Effect.fail(
-        new ToxicControlError({
-          op: "create-proxy",
-          status: 0,
-          body: "Toxiproxy returned a malformed proxy payload",
-        }),
-      );
+      return yield* new ToxicControlError({
+        op: "create-proxy",
+        status: 0,
+        body: "Toxiproxy returned a malformed proxy payload",
+      });
     }
     const raw = response;
     yield* Effect.addFinalizer(deleteProxyFinalizer(base, opts.name));

@@ -2,18 +2,26 @@
 status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
-superseded-by: 20260728-gate-1-identity-profile.md
+superseded-by: 20260729-identity-uses-jcs-jose-authenticated-http.md
 ---
 
 # Directory read serves cards
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-directory-serves-cards).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-directory-serves-cards) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp).
 
 ## Supersession
 
-Serving complete native cards directly remains accepted. Gate 1 now
-makes each card immutable, includes endpoint routing information, and
-separates all future L7 institutional statements from Registry entries.
+Registry lookup and list serving complete native immutable AgentCards
+directly remains accepted. No parallel thin identity or routing
+metadata projection is served, and future L7 institutional statements
+remain outside Registry.
+
+`20260729-identity-uses-jcs-jose-authenticated-http.md` replaces the
+historical Directory/X.509/routing/freshness and revocation language.
+The public service name is Registry. AgentCard is an exact
+JCS/General-JWS artifact with no service origin or route. Lookup and
+list are public unauthenticated reads. Current behavior lives in
+`docs/spec/identity.md`.
 
 ## Context and Problem Statement
 

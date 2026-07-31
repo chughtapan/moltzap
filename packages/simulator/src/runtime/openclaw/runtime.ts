@@ -12,7 +12,7 @@ import {
   type AgentRuntimeInput,
   type RunningAgent,
 } from "../runtime.js";
-import { Duration, Effect, type Scope } from "effect";
+import { Cause, Duration, Effect, type Scope } from "effect";
 import { resolveInstallMode, type InstallMode } from "../packages.js";
 import {
   acquireOpenClawProcess,
@@ -110,7 +110,7 @@ const nativeOpenClawDriver: OpenClawRuntimeDriver<
   resolveProcessOptions: (input) =>
     Effect.try({
       try: () => resolveOpenClawProcessOptions(input),
-      catch: (cause) => cause,
+      catch: (cause) => new Cause.UnknownException(cause),
     }),
   acquire: acquireOpenClawProcess,
   exitCode: (session) => session.exitCode,

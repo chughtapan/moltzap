@@ -34,11 +34,11 @@ type ConversationRemoveParticipantParams = Extract<
   { action: "remove-participant" }
 >;
 
-function agentConversationCreateBody(
-  params: ParamsOf<typeof agentConversationCreateDefinition>,
-  ctx: AgentContext,
-) {
-  return Effect.gen(function* () {
+const agentConversationCreateBody = Effect.fn("conversation.create.agent")(
+  function* (
+    params: ParamsOf<typeof agentConversationCreateDefinition>,
+    ctx: AgentContext,
+  ) {
     const conversationService = yield* ConversationServiceTag;
     const participants = [...params.participants];
     yield* authorizeConversationCreateCapacityOnly(participants);
@@ -54,8 +54,8 @@ function agentConversationCreateBody(
       ...(params.name === undefined ? {} : { name: params.name }),
     });
     return { conversation };
-  }).pipe(Effect.withSpan("conversation.create.agent"));
-}
+  },
+);
 
 interface ConversationCreateInput {
   readonly conversation: Conversation;
@@ -75,89 +75,84 @@ function fanoutConversationCreate(input: ConversationCreateInput) {
   ).pipe(Effect.withSpan("conversation.create.fanout"));
 }
 
-function conversationListBody(
+const conversationListBody = Effect.fn("conversation.list")(function* (
   params: ParamsOf<typeof conversationListDefinition>,
   ctx: AgentContext,
 ) {
-  return Effect.gen(function* () {
-    const conversationService = yield* ConversationServiceTag;
-    const { conversations, cursor: nextCursor } =
-      yield* conversationService.list(ctx.agentId, params.limit, params.cursor);
-    const items: ConversationListItem[] = [];
-    for (const summary of conversations) {
-      // The two per-conversation reads are independent; run them together.
-      const { conversation, participants } = yield* Effect.all({
-        conversation: conversationService.loadById(summary.id),
-        participants: conversationService
-          .getParticipantAgentIds(summary.id)
-          .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS)),
-      });
-      items.push({
-        conversation,
-        participants: [...participants],
-      });
-    }
-    return { items, ...(nextCursor !== undefined ? { nextCursor } : {}) };
-  }).pipe(Effect.withSpan("conversation.list"));
-}
+  const conversationService = yield* ConversationServiceTag;
+  const { conversations, cursor: nextCursor } = yield* conversationService.list(
+    ctx.agentId,
+    params.limit,
+    params.cursor,
+  );
+  const items: ConversationListItem[] = [];
+  for (const summary of conversations) {
+    // The two per-conversation reads are independent; run them together.
+    const { conversation, participants } = yield* Effect.all({
+      conversation: conversationService.loadById(summary.id),
+      participants: conversationService
+        .getParticipantAgentIds(summary.id)
+        .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS)),
+    });
+    items.push({
+      conversation,
+      participants: [...participants],
+    });
+  }
+  return { items, ...(nextCursor !== undefined ? { nextCursor } : {}) };
+});
 
-function conversationAddParticipantBody(
-  params: ConversationAddParticipantParams,
-  ctx: AppContext,
-) {
-  return Effect.gen(function* () {
-    yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
-    const conversationService = yield* ConversationServiceTag;
-    const current = yield* conversationService.getParticipantAgentIds(
+const conversationAddParticipantBody = Effect.fn(
+  "conversation.participants.add",
+)(function* (params: ConversationAddParticipantParams, ctx: AppContext) {
+  yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
+  const conversationService = yield* ConversationServiceTag;
+  const current = yield* conversationService.getParticipantAgentIds(
+    params.conversationId,
+  );
+  if (!current.includes(params.agentId)) {
+    yield* conversationService.assertGroupCapacity(current.length + 1);
+  }
+  const { postMutationParticipants } =
+    yield* conversationService.addConversationParticipant(
       params.conversationId,
+      params.agentId,
     );
-    if (!current.includes(params.agentId)) {
-      yield* conversationService.assertGroupCapacity(current.length + 1);
-    }
-    const { postMutationParticipants } =
-      yield* conversationService.addConversationParticipant(
-        params.conversationId,
-        params.agentId,
-      );
-    yield* broadcastNotificationToAgents(
-      postMutationParticipants,
-      conversationParticipantsAddedNotificationDefinition,
-      {
-        conversationId: params.conversationId,
-        addedAgentId: params.agentId,
-      },
-    );
-    return {};
-  }).pipe(Effect.withSpan("conversation.participants.add"));
-}
+  yield* broadcastNotificationToAgents(
+    postMutationParticipants,
+    conversationParticipantsAddedNotificationDefinition,
+    {
+      conversationId: params.conversationId,
+      addedAgentId: params.agentId,
+    },
+  );
+  return {};
+});
 
-function conversationRemoveParticipantBody(
-  params: ConversationRemoveParticipantParams,
-  ctx: AppContext,
-) {
-  return Effect.gen(function* () {
-    yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
-    const conversationService = yield* ConversationServiceTag;
-    const { preMutationParticipants, wasParticipant } =
-      yield* conversationService.removeConversationParticipant(
-        params.conversationId,
-        params.agentId,
-      );
-    if (!wasParticipant) {
-      return {};
-    }
-    yield* broadcastNotificationToAgents(
-      preMutationParticipants,
-      conversationParticipantsRemovedNotificationDefinition,
-      {
-        conversationId: params.conversationId,
-        removedAgentId: params.agentId,
-        reason: "app_remove" as const,
-      },
+const conversationRemoveParticipantBody = Effect.fn(
+  "conversation.participants.remove",
+)(function* (params: ConversationRemoveParticipantParams, ctx: AppContext) {
+  yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
+  const conversationService = yield* ConversationServiceTag;
+  const { preMutationParticipants, wasParticipant } =
+    yield* conversationService.removeConversationParticipant(
+      params.conversationId,
+      params.agentId,
     );
+  if (!wasParticipant) {
     return {};
-  }).pipe(Effect.withSpan("conversation.participants.remove"));
-}
+  }
+  yield* broadcastNotificationToAgents(
+    preMutationParticipants,
+    conversationParticipantsRemovedNotificationDefinition,
+    {
+      conversationId: params.conversationId,
+      removedAgentId: params.agentId,
+      reason: "app_remove" as const,
+    },
+  );
+  return {};
+});
 
 function conversationUpdateBody(
   params: ConversationUpdateParams,
@@ -182,10 +177,9 @@ function conversationUpdateBody(
  */
 export const conversationList: ServerHandler<
   typeof conversationListDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* conversationListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("conversationList"));
+> = Effect.fn("conversationList")(function* (params) {
+  return yield* conversationListBody(params, yield* agentArm);
+});
 
 /**
  * Provides the agent conversation create runtime value.
@@ -194,10 +188,9 @@ export const conversationList: ServerHandler<
  */
 export const agentConversationCreate: ServerHandler<
   typeof agentConversationCreateDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* agentConversationCreateBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("agentConversationCreate"));
+> = Effect.fn("agentConversationCreate")(function* (params) {
+  return yield* agentConversationCreateBody(params, yield* agentArm);
+});
 
 /**
  * Provides the conversation update runtime value.
@@ -206,7 +199,6 @@ export const agentConversationCreate: ServerHandler<
  */
 export const conversationUpdate: ServerHandler<
   typeof conversationUpdateDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* conversationUpdateBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("conversationUpdate"));
+> = Effect.fn("conversationUpdate")(function* (params) {
+  return yield* conversationUpdateBody(params, yield* appArm);
+});

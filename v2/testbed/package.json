@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/v2-testbed",
-  "version": "2026.729.0",
+  "version": "2026.729.1",
   "private": true,
   "description": "StackProvider Live Layer, platform acquisition, process supervision, fault layers, substitutes, external-runtime constructors, black-box subjects",
   "license": "Apache-2.0",
@@ -40,10 +40,11 @@
     "@moltzap/v2-identity": "workspace:*",
     "@moltzap/v2-simulator": "workspace:*",
     "@moltzap/v2-transcript": "workspace:*",
-    "@moltzap/v2-transport": "workspace:*"
+    "@moltzap/v2-router": "workspace:*"
   },
   "devDependencies": {
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
-    "typescript": "^5.7.0"
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
 }

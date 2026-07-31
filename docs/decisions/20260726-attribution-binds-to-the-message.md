@@ -2,19 +2,26 @@
 status: partially-superseded
 date: 2026-07-26
 decision-makers: Tapan Chugh
-superseded-by: 20260728-gate-1-identity-profile.md
+superseded-by: 20260729-identity-uses-jcs-jose-authenticated-http.md
 ---
 
 # Attribution binds to the message, not to the request
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260726-attribution-binds-to-the-message).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260726-attribution-binds-to-the-message) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp).
 
 ## Supersession
 
-Self-contained message attribution independent of carriage remains
-accepted. The raw opaque-byte signing recipe is replaced by the closed
-deterministic-CBOR/COSE L1 profile, while HTTP request authentication
-remains a separate RFC 9421 proof.
+Self-contained SignedMessage attribution independent of carriage
+remains accepted. HTTP request authentication remains a separate RFC
+9421 proof and is not the retained message evidence.
+
+`20260729-identity-uses-jcs-jose-authenticated-http.md` replaces both
+the raw opaque-byte signing recipe and the later deterministic-CBOR/COSE
+profile with a closed JCS payload in an attached General JWS. The
+complete SignedMessage binds its envelope and opaque body and is
+verified against the immutable AgentCard named by AgentCardDigest.
+Exact representation lives in
+`docs/spec/identity-representation.md`.
 
 ## Context and Problem Statement
 

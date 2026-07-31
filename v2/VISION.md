@@ -64,6 +64,10 @@ implementation source. Superseded records preserve history but point to
 their replacements. A binding decision must be checked into this chain;
 chat, issues, and agent-private state are not durable authority.
 
+Before cutover, this authority set lives on the `v2` branch. Production
+v1 authority stays on `main`, and `main` code continues to merge forward.
+V2 ADRs and specifications do not require a duplicate main-branch copy.
+
 ## The constitution
 
 1. **Three boundaries.** Endpoints | control plane and storage | data
@@ -90,18 +94,20 @@ chat, issues, and agent-private state are not durable authority.
    upward. No lower layer interprets an upper layer's concepts.
 
 5. **L1 is identity only.** An AgentCard binds an AgentId and
-   PrincipalId to a verification key, immutable name, and endpoint
-   routing information. It supplies verifiable attribution. L1 does not
-   say what an agent is allowed to do and carries no institutional
-   status.
+   PrincipalId to a verification key and immutable name. It supplies
+   verifiable attribution. L1 also owns the deep authenticated-HTTP
+   boundary used by Registry and Router in Gate 1. It does not say what
+   an agent is allowed to do, carry deployment routing, or carry
+   institutional status.
 
-6. **L2 is equivocation-free ordered multicast only.** A message names
-   its sender, card thumbprint, MessageId, and explicit recipient
+6. **L2 is equivocation-free ordered multicast only.** A SignedMessage
+   names its sender, AgentCard digest, MessageId, and explicit recipient
    AgentIds, then carries an opaque signed body. The Router assigns a
-   RouterInstanceId and one global RouterSequence and delivers identical
-   bytes to every recipient. L2 has no ConversationId, membership,
-   TxnId, protocol meaning, persistence, replay, or offline-convergence
-   guarantee.
+   RouterInstanceId and one private global order and exposes continuation
+   only through an opaque client-held PollCursor. Every recipient
+   observes the same SignedMessage bytes in that order. L2 has no
+   ConversationId, membership, TxnId, protocol meaning, persistence,
+   durable replay, or offline-convergence guarantee.
 
 7. **L3 owns conversations and reliability.** ConversationId,
    immutable membership epochs, protocols, retransmission, recovery,
@@ -182,33 +188,40 @@ bind this first executable slice.
 - Router replication, Byzantine sequencing, and fork detection are not
   claimed.
 
-The Router mints a fresh RouterInstanceId at process start. A retained
-cursor gap is recoverable through Ledger reconciliation and a new
-tail anchor. Every successful poll, including an empty anchor, returns
-the authenticated current instance. The daemon adopts it and fences
-every reconciled epoch descriptor that differs, so simultaneous Router
-and daemon restart does not bypass the fence. A `router_restarted`
-result also exposes the current instance separately from the opaque
-cursor. Old-instance conversations remain readable, and a fully
-certified old-instance action may still append once. This is fail-stop
-safety, not restart-transparent liveness.
+The Router mints a fresh RouterInstanceId and cursor-encryption key at
+process start. It keeps one bounded global ring with one copy of each
+accepted SignedMessage, a retry index coupled to that ring, bounded
+authentication and positive-identity caches, and request-scoped poll
+waiters. It has no database, per-recipient copy or index, cursor record,
+session record, or durable recovery state.
+
+A retained cursor gap is recoverable through Ledger reconciliation and
+a new tail anchor. Every successful poll, including an empty anchor,
+returns the current instance to the authenticated caller. The daemon
+adopts it and fences every reconciled epoch descriptor that differs, so
+simultaneous Router and daemon restart does not bypass the fence. A
+`router_restarted` result exposes the current instance separately from
+the opaque cursor. Old-instance conversations remain readable, and a
+fully certified old-instance action may still append once. This is
+fail-stop safety, not restart-transparent liveness.
 
 Every send declares `initial` or `retry` and names the expected Router
-instance. Within a retained current-instance entry, an identical
-MessageId retry returns the original ordering result and changed L1
-bytes conflict. A forgotten retry is never guessed or redelivered:
-Router returns `retry_identity_unknown`, after which L3 may re-envelope
-the same signed protocol evidence under a fresh L1 MessageId. Per-attempt
-HTTP authentication uses a fresh nonce and signature; idempotency
-compares canonical operation bytes, not those authentication fields.
+instance. Within a retained current-instance entry, `retry` carrying a
+byte-identical complete SignedMessage returns the original accepted
+result and changed SignedMessage bytes conflict. A forgotten retry is
+never guessed or redelivered: Router returns
+`retry_identity_unknown`, after which L3 may re-envelope the same
+signed protocol evidence under a fresh L1 MessageId. Per-attempt HTTP
+authentication uses a fresh nonce and signature; Router retry equality
+does not compare those authentication fields.
 
 ### Processes and persistence
 
 Gate 1 runs three independent network services and one daemon per
 AgentId:
 
-- `moltzap-directory`: Registry HTTP and PostgreSQL;
-- `moltzap-router`: Router HTTP and bounded in-memory delivery feed;
+- `moltzap-registry`: Registry HTTP and PostgreSQL;
+- `moltzap-router`: Router HTTP and bounded in-memory SignedMessage feed;
 - `moltzap-ledger`: Ledger HTTP and PostgreSQL;
 - `moltzap-agentd`: endpoint engine, network clients, local MCP, and one
   SQLite database.
@@ -227,29 +240,63 @@ completed `reply` receipts needed to recover an acknowledged reply
 result. Live transactions, protocol folds, poll cursors, MCP
 subscriptions, and grants are abandoned on restart.
 
-Network domain operations are separate HTTP POST routes with closed,
-deterministic CBOR bodies and RFC 9421 request authentication. Router
-delivery is endpoint-wide bounded long polling with a maximum 25-second
-hold. There is no WebSocket, network JSON-RPC, session, or GET stream.
+Implemented L1 and L2 network operations are separate HTTP routes with
+closed canonical JSON bodies and identity-owned RFC 9421 request
+authentication. Registry lookup and list are public reads. Registration
+is Registry-owned bootstrap admission: it proves possession of the
+submitted key and checks a deployment admission credential, but it is
+not authenticated as an existing AgentId. `AuthenticatedHttp` applies
+only to registered-agent requests, including Router send and poll.
+Router polling is endpoint-wide bounded long polling with a maximum
+25-second hold. There is no WebSocket, network JSON-RPC, network
+session, or GET stream. Private Effect RPC groups preserve typed
+operation context and failures inside each deep package; they do not
+define the production HTTP representation. Effect Schema is the only
+network and configuration boundary parser.
 
-This architecture freeze fixes those semantic constraints but does not
-assign every byte-level constant. The first Phase 2A contract change
-must land the exact AgentName grammar, X.509 profile, CBOR maps, COSE
-headers and contexts, identifier/hash preimages, cursor representation,
-protocol-message schemas, result tags, and MCP JSON Schemas in one
-normative wire catalog with independent golden vectors. Until that
-catalog and its accepted ADR land, the architecture is frozen but
-product and protocol implementation remains blocked. These assignments
-are a pre-code Gate 1 deliverable, not choices delegated to
-implementers and not post-Gate-1 deferrals.
+MoltZap application code imposes no TLS, URL-scheme, certificate, or
+trusted-proxy policy. Channel protection, ingress certificates, network
+exposure, and admission-credential confidentiality are deployment
+responsibilities. The deployment preserves every signed HTTP component
+at ingress. Gate 1 does not defend against a network path that tampers
+with unsigned responses. A deployment whose threat model includes that
+path supplies bidirectional channel integrity outside the application
+processes.
+
+Representation authority is layer-owned. L1 uses its identity
+representation chapter for JCS, JWK, General JWS, SignedMessage, and
+AuthenticatedHttp. L2 uses its Router representation chapter for
+RouterInstanceId, PollCursor, and route bodies. No cross-layer wire
+catalog, shared codec package, or monolithic compatibility corpus exists.
+The opaque SignedMessage body maximum is 262,144 bytes and its recipient
+maximum is 128. The complete SignedMessage and enclosing Registry and
+Router route maxima are derived from their closed representations rather
+than independently configured. Process configuration contains only
+independent deployment inputs and resource tradeoffs and is loaded
+through Effect Config; there is no application request queue or duplicate
+configuration for a fixed or derived representation limit.
+
+The identity and router roots expose exact closed public inventories.
+Their Registry, Router, and AuthenticatedHttp operations are deep Effect
+capabilities with typed failure channels; production construction is
+exposed only through their named Layers, while mechanisms, private RPC
+groups, configuration models, and server internals remain hidden. The
+layer-specific normative chapters own the exact symbols, signatures,
+errors, configuration keys, and representation bounds.
+
+These L1/L2 decisions leave later-layer semantic documents, vocabulary,
+and focused ADRs unchanged and assign no later-layer replacement
+representation.
 
 ### Identity
 
-Gate 1 has one immutable AgentCard and Ed25519 key per AgentId. Cards
-include immutable Registry-wide AgentName and endpoint routing
-information. Messages carry the AgentId and card thumbprint; endpoints
-resolve and cache complete cards. Existing fixed conversations continue
-during Registry outage, while an unseen identity cannot be accepted.
+Gate 1 has one immutable Registry-signed JCS/General-JWS AgentCard and
+one Ed25519 key per AgentId. Cards include the immutable Registry-wide
+AgentName and exact public JWK. Deployment service origins are separate
+configuration. SignedMessage values carry the AgentId and AgentCard
+digest; endpoints resolve and cache complete cards. Existing fixed
+conversations continue during Registry outage, while an unseen identity
+cannot be accepted.
 
 Registration is the sole pre-card control operation. The CLI presents a
 deployment admission code, caller-supplied PrincipalId and AgentName,
@@ -317,15 +364,20 @@ conflicts instead of producing a second action.
 
 ### Packages and versions
 
-V2 has exactly six deep packages: `identity`, `transport`, `transcript`,
+V2 has exactly six deep packages: `identity`, `router`, `transcript`,
 `endpoint`, `simulator`, and `testbed`. Production implementations and
 binaries live with the abstraction they implement. Production packages
 never depend on `simulator` or `testbed`.
 
-All six manifests and Moltzap wire compatibility use the exact CalVer
-in `v2/VERSION`. MCP `2026-07-28` is externally owned and pinned
+All six manifests and MoltZap compatibility use the exact CalVer in
+`v2/VERSION`. MCP `2026-07-28` is externally owned and pinned
 independently. Simulator definition IDs, event formats, and RunLedger
 formats have independent persisted-schema versions for replay.
+
+Numbered layer labels are documentation notation. Identity and Router
+package metadata, paths, source, tests, comments, runtime values,
+configuration, fixtures, migrations, and generated code name their
+owning domains and capabilities instead.
 
 The package ownership and DAG are normative in
 `docs/spec/layer-interfaces.md`, oriented visually in
@@ -336,10 +388,6 @@ The package ownership and DAG are normative in
 
 These questions are deliberately outside Gate 1. An implementation must
 not answer them accidentally.
-
-The exact Phase 2A wire catalog is intentionally absent from this list:
-it is required before implementation inside Gate 1, not deferred beyond
-it.
 
 1. Which post-Gate-1 action vocabulary, membership transitions, quorum
    rules, aborts, and conditional fairness contracts belong to #765?
@@ -359,8 +407,9 @@ it.
 8. Does a later local MCP profile add replay, acknowledgment, custom
    action tools, hostile-local-process security, or dynamic daemon
    discovery?
-9. Which protocol-level resource maxima, if any, become interoperable
-   wire constants rather than deployment settings?
+9. Which later profile, if any, changes or negotiates the fixed Gate 1
+   SignedMessage body and recipient maxima or adds other interoperable
+   resource limits?
 10. Which physical Transcript compression preserves identical logical
     records, hashes, signature preimages, and verification without live
     Registry access?
@@ -390,21 +439,19 @@ committed.
    root blind teammate review gate without inherited chat, private
    planning state, or file pointers.
 2. **Land an immutable simulator source baseline.** Rebase the code-first
-   simulator rewrite onto the frozen `main`, align it with this
-   constitution, ensure every source file is tracked, and pass
+   simulator rewrite onto the current source baseline, align it with
+   this constitution, ensure every source file is tracked, and pass
    non-vacuous build, type, lint, unit, architecture, and evaluation
    checks. Record the landed SHA in
    `v2/inputs/simulator-handoff-20260728.md`.
-3. **Merge `main` forward into `v2` and scaffold the six packages.**
-   Establish only `v2/VERSION`, manifests, exports, binary declarations,
-   Nx projects, and dependency guards. The next change accepts the
-   exact byte-level wire catalog and independent golden vectors. Only
-   then add closed contract types, fakes, conformance fixtures, product
-   code, protocol code, or the simulator port.
+3. **Keep `main` merged forward and maintain the six packages.**
+   Establish `v2/VERSION`, manifests, exports, binary declarations, Nx
+   projects, and dependency guards. Land each implemented layer's
+   representation chapter and accepted decision trace before its code.
 4. **Port the simulator kernel.** Preserve the landed code-first API,
    typed events, scoped runtime roster, and simulation RunLedger while
    replacing every v1-facing type with v2 public capabilities.
-5. **Build the production stack.** Implement identity, transport, and
+5. **Build the production stack.** Implement identity, Router, and
    transcript in dependency-respecting lanes, then integrate endpoint
    protocol, persistence, daemon MCP, and CLI.
 6. **Build the testbed and runtime bridges.** Acquire the single

@@ -38,6 +38,8 @@
     "modules/server-core/network",
     "modules/server-core/socket",
     "modules/server-core/test-utils",
-    "modules/simulator/src"
+    "modules/simulator/src",
+    "modules/v2/identity/src",
+    "modules/v2/router/src"
   ]
 }

@@ -62,6 +62,11 @@ const INBOUND_LOG_PREVIEW_CHARS = 80;
 const BODY_FOR_AGENT_LOG_PREVIEW_CHARS = 500;
 const OUTBOUND_LOG_PREVIEW_CHARS = 80;
 
+class DispatchInboundError extends Data.TaggedError("DispatchInboundError")<{
+  readonly cause: unknown;
+  readonly message: string;
+}> {}
+
 const MOLTZAP_TARGET_RE = /^(agent:.+|conv:[^:]+|task:[^:]+:.+)$/;
 const openClawContextLogDir = Config.option(
   Config.string("MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"),
@@ -339,13 +344,13 @@ function resolveAccount(
 const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
   Effect.async<undefined>((resume) => {
     if (signal.aborted) {
-      resume(Effect.succeed(undefined));
+      resume(Effect.void.pipe(Effect.as(undefined)));
       return;
     }
     signal.addEventListener(
       "abort",
       () => {
-        resume(Effect.succeed(undefined));
+        resume(Effect.void.pipe(Effect.as(undefined)));
       },
       { once: true },
     );
@@ -580,7 +585,11 @@ function dispatchInboundReply(params: {
           }),
         },
       }),
-    catch: (err: unknown) => err,
+    catch: (err: unknown) =>
+      new DispatchInboundError({
+        cause: err,
+        message: err instanceof Error ? err.message : String(err),
+      }),
   }).pipe(Effect.tapError((err) => logDispatchError(err, params.log)));
 }
 
@@ -711,7 +720,7 @@ function listPeersEffect(
     }));
   }).pipe(
     Effect.withSpan("createMoltzapChannelPlugin.listPeers"),
-    Effect.catchAll(() => Effect.succeed([])),
+    Effect.orElseSucceed(() => []),
   );
 }
 
@@ -749,7 +758,7 @@ function listGroupsEffect(
       }));
   }).pipe(
     Effect.withSpan("createMoltzapChannelPlugin.listGroups"),
-    Effect.catchAll(() => Effect.succeed([])),
+    Effect.orElseSucceed(() => []),
   );
 }
 
@@ -816,7 +825,7 @@ function startGatewayAccountEffect(
   log?.info?.(`MoltZap: connecting as ${account.agentName ?? accountId}`);
   return Effect.gen(function* () {
     if (profileName.length === 0) {
-      return yield* Effect.fail(new MoltZapAccountProfileMissingError());
+      return yield* new MoltZapAccountProfileMissingError();
     }
     const service = yield* createGatewayService(profileName, account, deps);
     const core = createGatewayCore(service, deps);
@@ -1207,14 +1216,22 @@ function parseConversationTarget(
   if (sep <= 0 || sep === body.length - 1) {
     return Effect.fail(malformed);
   }
-  return Effect.try({
-    try: () => ({
-      taskId: Schema.decodeUnknownSync(taskId)(body.slice(0, sep)),
-      conversationId: Schema.decodeUnknownSync(conversationId)(
-        body.slice(sep + 1),
+  return Effect.gen(function* () {
+    const parsedTaskId = yield* Schema.decodeUnknown(taskId)(
+      body.slice(0, sep),
+    ).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new MoltZapTargetMalformedError({ target: to })),
       ),
-    }),
-    catch: () => malformed,
+    );
+    const parsedConversationId = yield* Schema.decodeUnknown(conversationId)(
+      body.slice(sep + 1),
+    ).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new MoltZapTargetMalformedError({ target: to })),
+      ),
+    );
+    return { taskId: parsedTaskId, conversationId: parsedConversationId };
   });
 }
 
@@ -1229,9 +1246,7 @@ function dispatchOutbound(
   return Effect.gen(function* () {
     if (ctx.to.startsWith(TARGET_PREFIX_AGENT)) {
       if (!service.sendToAgent) {
-        return yield* Effect.fail(
-          new MoltZapAgentTargetUnsupportedError({ accountId }),
-        );
+        return yield* new MoltZapAgentTargetUnsupportedError({ accountId });
       }
       return yield* service.sendToAgent(
         ctx.to.slice(TARGET_PREFIX_AGENT.length),
@@ -1260,9 +1275,9 @@ function sendTextEffect(
   return Effect.gen(function* () {
     const active = getActiveService(activeClients, ctx.accountId);
     if (active === undefined) {
-      return yield* Effect.fail(
-        new MoltZapClientNotConnectedError({ accountId: requestedAccountId }),
-      );
+      return yield* new MoltZapClientNotConnectedError({
+        accountId: requestedAccountId,
+      });
     }
     yield* dispatchOutbound(active.service, active.accountId, ctx);
     return new OpenClawSendTextSuccess();

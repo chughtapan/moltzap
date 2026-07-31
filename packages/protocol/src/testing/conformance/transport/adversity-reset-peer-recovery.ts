@@ -59,7 +59,7 @@ function runResetPeerRecovery(
       params.attachToxic,
     );
     if (!observed) {
-      return yield* Effect.fail(resetUnavailable());
+      return yield* resetUnavailable();
     }
   });
 }

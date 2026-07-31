@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.730.1",
+  "version": "2026.731.0",
   "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
@@ -90,10 +90,11 @@
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
     "@moltzap/server-core": "workspace:*",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
     "fast-check": "^3.23.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^3.2.0"
   }
 }

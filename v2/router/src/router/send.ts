@@ -1,0 +1,176 @@
+import {
+  InternalServerError,
+  OverloadedError,
+  SignedMessage,
+  type SignedMessage as SignedMessageValue,
+  type VerifiedAgentRequest,
+  type VerifiedSignedMessage,
+} from "@moltzap/v2-identity";
+import canonicalize from "canonicalize";
+import { Effect, Encoding, Schema } from "effect";
+import {
+  type RawRouterSendRequest,
+  type RouterInstanceId,
+  type RouterSendResult,
+  SignedMessageDigest,
+} from "./contract.js";
+import type { RouterFeed } from "./feed.js";
+import type { PollWaiters } from "./poll-waiters.js";
+
+/** Send domain operation after HTTP authentication. */
+export interface RouterSend {
+  readonly handle: (
+    request: RawRouterSendRequest,
+    verifiedRequest: VerifiedAgentRequest,
+  ) => Effect.Effect<RouterSendResult, OverloadedError | InternalServerError>;
+}
+
+interface SendDependencies {
+  readonly routerInstanceId: RouterInstanceId;
+  readonly feed: RouterFeed;
+  readonly pollWaiters: PollWaiters;
+}
+
+/**
+ * Builds send precedence over one current Router instance and feed.
+ *
+ * @param input Current process identity and state capabilities.
+ * @param input.routerInstanceId Current volatile process identity.
+ * @param input.feed Global volatile feed.
+ * @param input.pollWaiters Addressed poll-waiter notifications.
+ * @returns The authenticated send domain operation.
+ */
+export const makeRouterSend = (input: SendDependencies): RouterSend =>
+  Object.freeze({
+    handle: (
+      request: RawRouterSendRequest,
+      verifiedRequest: VerifiedAgentRequest,
+    ) => handleSend(input, request, verifiedRequest),
+  });
+
+const messageInvalid: RouterSendResult = { kind: "message_invalid" };
+const utf8Encoder = new TextEncoder();
+
+const encodedLengthIsValid = (
+  message: VerifiedSignedMessage,
+  encodedMessageJcs: string,
+): boolean => {
+  const encodedByteLength = SignedMessage.encodedByteLength(message);
+  return (
+    encodedByteLength === utf8Encoder.encode(encodedMessageJcs).byteLength &&
+    encodedByteLength <= SignedMessage.maximumEncodedByteLength
+  );
+};
+
+const retainMessage = (
+  input: SendDependencies,
+  mode: RawRouterSendRequest["mode"],
+  message: VerifiedSignedMessage,
+): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> =>
+  Effect.gen(function* () {
+    const encodedMessageJcs = yield* encodeMessage(message);
+    if (!encodedLengthIsValid(message, encodedMessageJcs)) {
+      return messageInvalid;
+    }
+    const signedMessageDigest = yield* digestMessage(encodedMessageJcs);
+    const recipients = new Set(message.recipientAgentIds);
+    const accepted = yield* input.feed.accept({
+      mode,
+      signedMessage: message,
+      encodedMessageJcs,
+      encodedByteLength: SignedMessage.encodedByteLength(message),
+      recipients,
+      senderAgentId: message.senderAgentId,
+      messageId: message.messageId,
+      signedMessageDigest,
+    });
+    if (accepted.kind === "overloaded") {
+      return yield* Effect.fail(new OverloadedError());
+    }
+    if (accepted.acceptedRecipients !== undefined) {
+      yield* input.pollWaiters.notify(accepted.acceptedRecipients);
+    }
+    return accepted.result;
+  });
+
+const handleDecodedMessage = (
+  input: SendDependencies,
+  request: RawRouterSendRequest,
+  verifiedRequest: VerifiedAgentRequest,
+  signedMessage: SignedMessageValue,
+): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> => {
+  if (signedMessage.senderAgentId !== verifiedRequest.callerAgentId) {
+    return Effect.succeed(messageInvalid);
+  }
+  return SignedMessage.verify({
+    signedMessage,
+    agentCard: verifiedRequest.agentCard,
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: () => Effect.succeed(messageInvalid),
+      onSuccess: (message) => retainMessage(input, request.mode, message),
+    }),
+  );
+};
+
+const handleCurrentInstance = (
+  input: SendDependencies,
+  request: RawRouterSendRequest,
+  verifiedRequest: VerifiedAgentRequest,
+): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> =>
+  Schema.decodeUnknown(SignedMessage)(request.signedMessage, {
+    exact: true,
+    onExcessProperty: "error",
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: () => Effect.succeed(messageInvalid),
+      onSuccess: (signedMessage) =>
+        handleDecodedMessage(input, request, verifiedRequest, signedMessage),
+    }),
+  );
+
+function handleSend(
+  input: SendDependencies,
+  request: RawRouterSendRequest,
+  verifiedRequest: VerifiedAgentRequest,
+): Effect.Effect<RouterSendResult, OverloadedError | InternalServerError> {
+  return request.expectedRouterInstanceId !== input.routerInstanceId
+    ? Effect.succeed({
+        kind: "router_restarted",
+        routerInstanceId: input.routerInstanceId,
+      })
+    : handleCurrentInstance(input, request, verifiedRequest);
+}
+
+function encodeMessage(
+  signedMessage: VerifiedSignedMessage,
+): Effect.Effect<string, InternalServerError> {
+  return Schema.encode(SignedMessage)(signedMessage).pipe(
+    Effect.catchTag("ParseError", () => Effect.fail(new InternalServerError())),
+    Effect.flatMap((encoded) => {
+      const jcs = canonicalize(encoded);
+      return jcs === undefined
+        ? Effect.fail(new InternalServerError())
+        : Effect.succeed(jcs);
+    }),
+  );
+}
+
+function digestMessage(
+  encodedMessageJcs: string,
+): Effect.Effect<typeof SignedMessageDigest.Type, InternalServerError> {
+  return Effect.tryPromise({
+    try: () =>
+      globalThis.crypto.subtle.digest(
+        "SHA-256",
+        utf8Encoder.encode(encodedMessageJcs),
+      ),
+    catch: () => new InternalServerError(),
+  }).pipe(
+    Effect.map(
+      (digest) => `smd_${Encoding.encodeBase64Url(new Uint8Array(digest))}`,
+    ),
+    Effect.flatMap(Schema.decodeUnknown(SignedMessageDigest)),
+    Effect.catchTag("ParseError", () => Effect.fail(new InternalServerError())),
+  );
+}

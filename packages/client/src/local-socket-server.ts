@@ -207,8 +207,5 @@ export function stopLocalSocketServer(
   }).pipe(
     Effect.withSpan("stopLocalSocketServer"),
     Effect.provide(NodeContext.layer),
-    Effect.catchAll((error) =>
-      logFileSystemIssue("info", "cleanup default symlink", error),
-    ),
   );
 }

@@ -60,31 +60,35 @@ export function classifyCloseCause(
 }
 
 function classifySocketFailure(failure: unknown): CloseKind | null {
+  let kind: CloseKind | null = null;
   if (Socket.SocketCloseError.is(failure)) {
-    return closeKind.clean({
+    kind = closeKind.clean({
       code: failure.code,
       reason: failure.closeReason ?? "",
     });
+  } else if (failure instanceof Socket.SocketGenericError) {
+    kind = classifyGenericSocketError(failure);
   }
-  if (failure instanceof Socket.SocketGenericError) {
-    return classifyGenericSocketError(failure);
-  }
-  return null;
+  return kind;
 }
 
 function classifyGenericSocketError(
   failure: Socket.SocketGenericError,
 ): CloseKind {
+  let kind: CloseKind;
   switch (failure.reason) {
     case "Open":
     case "OpenTimeout":
-      return closeKind.handshakeFailure({ underlying: failure.reason });
+      kind = closeKind.handshakeFailure({ underlying: failure.reason });
+      break;
     case "Read":
     case "Write":
-      return closeKind.transportFailure({ underlying: failure.reason });
+      kind = closeKind.transportFailure({ underlying: failure.reason });
+      break;
     default:
-      return closeKind.unknown();
+      kind = closeKind.unknown();
   }
+  return kind;
 }
 
 /**

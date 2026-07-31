@@ -57,64 +57,61 @@ interface AgentsListPageInput {
 // Keyset-paginated `agent/identity/agents/list` page over `(created_at DESC, id ASC)`
 // across every registered agent. Returns the wire result shape; `nextCursor`
 // present iff a further page exists.
-function agentsListPage(input: AgentsListPageInput) {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const db = yield* DbTag;
-      let query = db
-        .selectFrom("agents")
-        .select([
-          "id",
-          "name",
-          "display_name",
-          "description",
-          "status",
-          "owner_user_id",
-          "created_at",
-        ]);
-      if (input.pos !== undefined) {
-        const cursorPos = input.pos;
-        query = query.where((eb) =>
-          keysetWhere(
-            eb,
-            { sortKey: sortKeyExpr(eb, "created_at"), id: "id" },
-            cursorPos,
+const agentsListPageEffect = Effect.fn("agents.list")(function* (
+  input: AgentsListPageInput,
+) {
+  const db = yield* DbTag;
+  let query = db
+    .selectFrom("agents")
+    .select([
+      "id",
+      "name",
+      "display_name",
+      "description",
+      "status",
+      "owner_user_id",
+      "created_at",
+    ]);
+  if (input.pos !== undefined) {
+    const cursorPos = input.pos;
+    query = query.where((eb) =>
+      keysetWhere(
+        eb,
+        { sortKey: sortKeyExpr(eb, "created_at"), id: "id" },
+        cursorPos,
+      ),
+    );
+  }
+  const rows = yield* query
+    .orderBy((eb) => sortKeyExpr(eb, "created_at"), "desc")
+    .orderBy("id", "asc")
+    .limit(input.limit + 1);
+  const { page, nextCursor } = paginate(rows, input.limit, positionOfAgentRow);
+  return {
+    agents: page.map(toAgentCard),
+    ...(nextCursor !== undefined ? { nextCursor } : {}),
+  };
+});
+
+const agentsListPage = (input: AgentsListPageInput) =>
+  catchSqlErrorAsDefect(agentsListPageEffect(input));
+
+const agentsListBody = Effect.fn("agents.list.handler")(function* (
+  params: ParamsOf<typeof agentsListDefinition>,
+) {
+  const pos =
+    params.cursor === undefined
+      ? undefined
+      : yield* decodeListCursor(params.cursor).pipe(
+          Effect.catchTag("InvalidCursor", (err) =>
+            Effect.fail(new InvalidParamsError({ message: err.message })),
           ),
         );
-      }
-      const rows = yield* query
-        .orderBy((eb) => sortKeyExpr(eb, "created_at"), "desc")
-        .orderBy("id", "asc")
-        .limit(input.limit + 1);
-      const { page, nextCursor } = paginate(
-        rows,
-        input.limit,
-        positionOfAgentRow,
-      );
-      return {
-        agents: page.map(toAgentCard),
-        ...(nextCursor !== undefined ? { nextCursor } : {}),
-      };
-    }).pipe(Effect.withSpan("agents.list")),
-  );
-}
-
-function agentsListBody(params: ParamsOf<typeof agentsListDefinition>) {
-  return Effect.gen(function* () {
-    const pos =
-      params.cursor === undefined
-        ? undefined
-        : yield* decodeListCursor(params.cursor).pipe(
-            Effect.catchTag("InvalidCursor", (err) =>
-              Effect.fail(new InvalidParamsError({ message: err.message })),
-            ),
-          );
-    return yield* agentsListPage({
-      limit: params.limit ?? DEFAULT_PAGE_LIMIT,
-      pos,
-    });
-  }).pipe(Effect.withSpan("agents.list.handler"));
-}
+  return yield* agentsListPage({
+    limit: params.limit ?? DEFAULT_PAGE_LIMIT,
+    pos,
+  });
+});
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
@@ -123,6 +120,8 @@ function agentsListBody(params: ParamsOf<typeof agentsListDefinition>) {
  * @param params Request payload to process.
  * @returns The agents list result.
  */
-export const agentsList: ServerHandler<typeof agentsListDefinition> = (
-  params,
-) => agentsListBody(params).pipe(Effect.withSpan("agentsList"));
+export const agentsList: ServerHandler<typeof agentsListDefinition> = Effect.fn(
+  "agentsList",
+)(function* (params) {
+  return yield* agentsListBody(params);
+});
