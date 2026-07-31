@@ -5,6 +5,11 @@
     "node": ">=22.19.0 <25"
   },
   "packageManager": "pnpm@10.6.2",
+  "pnpm": {
+    "overrides": {
+      "eslint-plugin-sonarjs>typescript": "5.9.3"
+    }
+  },
   "scripts": {
     "build": "nx run-many -t build",
     "test": "nx run-many -t test",

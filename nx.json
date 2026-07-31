@@ -8,7 +8,7 @@
     "production": [
       "default",
       "!{projectRoot}/**/*.test.ts",
-      "!{projectRoot}/src/__tests__/**",
+      "!{projectRoot}/src/**/__tests__/**",
       "!{projectRoot}/tsconfig.test.json",
       "!{projectRoot}/vitest.config.mjs",
       "!{projectRoot}/vitest.integration.config.mjs"
