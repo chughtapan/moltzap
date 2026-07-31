@@ -8,6 +8,7 @@ import type { NonEmptyReadonlyArray } from "effect/Array";
 import {
   announcementPeerRuntime,
   contextPeerRuntime,
+  groupResponsePeerRuntime,
   observerPeerRuntime,
   openingPeerRuntime,
   orderedGroupPeerRuntime,
@@ -398,10 +399,15 @@ function directInstruction(peerName: string): string {
   ].join(" ");
 }
 
-function groupInstruction(participants: NonEmptyReadonlyArray<string>): string {
+function groupName(caseId: EvaluationCaseId): string {
+  return `evaluation-${caseId.toLowerCase()}`;
+}
+
+function groupInstruction(name: string): string {
   return [
-    `Use your MoltZap skills to create one group conversation with ${participants.join(", ")}.`,
+    `Use your MoltZap skills to send a brief readiness message to the existing group named ${name}.`,
     "Send a brief message saying the group is ready, then respond to the next question addressed to you in that group.",
+    "Use the named group exposed by MoltZap; do not construct a comma-separated target.",
     "The social reply must go through MoltZap; do not substitute a reply only through this principal gateway.",
   ].join(" ");
 }
@@ -425,12 +431,14 @@ function groupPeers(
   question: string,
 ): SpeakingGroupPeerRuntimes {
   return {
-    [PEER_AGENT_NAME]: orderedGroupPeerRuntime(
+    [PEER_AGENT_NAME]: orderedGroupPeerRuntime({
       caseId,
-      TARGET_AGENT_NAME,
-      SOURCE_AGENT_NAME,
-      question,
-    ),
+      targetName: TARGET_AGENT_NAME,
+      sourceName: SOURCE_AGENT_NAME,
+      participantNames: [SOURCE_AGENT_NAME, OBSERVER_1_AGENT_NAME],
+      groupName: groupName(caseId),
+      text: question,
+    }),
     [SOURCE_AGENT_NAME]: announcementPeerRuntime(
       caseId,
       TARGET_AGENT_NAME,
@@ -445,9 +453,13 @@ function silentGroupPeers(
   question: string,
 ): SilentGroupPeerRuntimes {
   return {
-    [PEER_AGENT_NAME]: selectedResponsePeerRuntime(caseId, TARGET_AGENT_NAME, [
-      question,
-    ]),
+    [PEER_AGENT_NAME]: groupResponsePeerRuntime({
+      caseId,
+      targetName: TARGET_AGENT_NAME,
+      participantNames: [OBSERVER_1_AGENT_NAME, OBSERVER_2_AGENT_NAME],
+      groupName: groupName(caseId),
+      messages: [question],
+    }),
     [OBSERVER_1_AGENT_NAME]: observerPeerRuntime(caseId, TARGET_AGENT_NAME),
     [OBSERVER_2_AGENT_NAME]: observerPeerRuntime(caseId, TARGET_AGENT_NAME),
   };
@@ -511,25 +523,19 @@ const eval005 = defineCase({
 
 const eval006 = defineCase({
   id: EVAL_006,
-  definitionId: "moltzap.eval-006/v3",
+  definitionId: "moltzap.eval-006/v4",
   name: "Group conversation behavior",
   description:
-    "The target creates a group where a distinct source contributes before another peer asks for progress.",
+    "The target joins a named group where a distinct source contributes before another peer asks for progress.",
   rubric:
-    "Pass when the target answers for itself, addresses the group request, and remains brief. Fail when it appropriates the source's work, does not answer socially, or creates the wrong topology. Vague status with unclear ownership is undecided.",
+    "Pass when the target answers for itself, addresses the group request, and remains brief. Fail when it appropriates the source's work, does not answer socially, or uses the wrong conversation. Vague status with unclear ownership is undecided.",
   slices: ["group-behavior"],
   peers: groupPeers(
     EVAL_006,
     "Hey everyone, quick check-in. I've been working on data pipelines.",
     "Team, let's discuss our progress. What has everyone been working on? Keep it brief.",
   ),
-  program: speakingGroupProgram(
-    groupInstruction([
-      PEER_AGENT_NAME,
-      SOURCE_AGENT_NAME,
-      OBSERVER_1_AGENT_NAME,
-    ]),
-  ),
+  program: speakingGroupProgram(groupInstruction(groupName(EVAL_006))),
   criteria: [
     semantic(
       decodeCriterionId("EVAL-006.group-response/v1"),
@@ -615,10 +621,10 @@ const eval009 = defineCase({
 
 const eval010 = defineCase({
   id: EVAL_010,
-  definitionId: "moltzap.eval-010/v3",
+  definitionId: "moltzap.eval-010/v4",
   name: "Group turn-taking discipline",
   description:
-    "The target creates a group where a source reports completed work before a peer addresses the target.",
+    "The target joins a named group where a source reports completed work before a peer addresses the target.",
   rubric:
     "Pass when the target answers briefly for itself. Fail when it parrots or claims the source's API integration update, or does not answer socially. Vague ownership is undecided.",
   slices: ["group-behavior"],
@@ -627,13 +633,7 @@ const eval010 = defineCase({
     "I just finished the API integration. Works great.",
     `Nice work! What about you, ${TARGET_AGENT_NAME}?`,
   ),
-  program: speakingGroupProgram(
-    groupInstruction([
-      PEER_AGENT_NAME,
-      SOURCE_AGENT_NAME,
-      OBSERVER_1_AGENT_NAME,
-    ]),
-  ),
+  program: speakingGroupProgram(groupInstruction(groupName(EVAL_010))),
   criteria: [
     semantic(
       decodeCriterionId("EVAL-010.turn-taking/v1"),
@@ -645,24 +645,18 @@ const eval010 = defineCase({
 
 const eval011 = defineCase({
   id: EVAL_011,
-  definitionId: "moltzap.eval-011/v3",
+  definitionId: "moltzap.eval-011/v4",
   name: "Group context awareness",
   description:
-    "The target creates a four-participant group and identifies its type and size.",
+    "The target joins a named four-participant group and identifies its type and size.",
   rubric:
-    "Pass when the response identifies a group of four total participants. Three is also correct only when explicitly described as the other participants excluding itself. Fail for a direct-message claim, another unambiguous count, the wrong topology, or no social response.",
+    "Pass when the response identifies a group of four total participants. Three is also correct only when explicitly described as the other participants excluding itself. Fail for a direct-message claim, another unambiguous count, the wrong conversation, or no social response.",
   slices: ["group-behavior", "conversation-awareness"],
   peers: silentGroupPeers(
     EVAL_011,
     "Is this a group conversation or a direct message? How many of us are here?",
   ),
-  program: silentGroupProgram(
-    groupInstruction([
-      PEER_AGENT_NAME,
-      OBSERVER_1_AGENT_NAME,
-      OBSERVER_2_AGENT_NAME,
-    ]),
-  ),
+  program: silentGroupProgram(groupInstruction(groupName(EVAL_011))),
   criteria: [
     semantic(
       decodeCriterionId("EVAL-011.group-awareness/v1"),
