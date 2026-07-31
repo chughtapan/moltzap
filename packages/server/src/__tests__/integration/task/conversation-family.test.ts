@@ -55,11 +55,9 @@ import {
   registerApp,
   createTestUser,
   createTestAgent,
-  expectEitherLeft,
-  getTestCoreApp,
   type TestAgentClient,
 } from "../helpers.js";
-import { agentId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
+import { agentId } from "@moltzap/protocol/testing";
 import { awaitOneNotification } from "../../../test-utils/helpers.js";
 
 const REGISTRATION_SECRET = "tcf-test-secret-xyz1";
@@ -247,39 +245,6 @@ it("TaskRequest (initialConversation) mints a conversation + emits app/conversat
     expect(result.conversation?.name).toBe(INITIAL_CONV_NAME);
     expect(result.conversation?.createdBy).toBe(alice.agentId);
     yield* newFib.await;
-  }));
-
-it("TaskRequest applies contact policy to initial-conversation-only participants", () =>
-  Effect.gen(function* () {
-    const { alice, bob, carol } = yield* setupThreeAgents();
-    const app = getTestCoreApp();
-    app.setContactService({
-      areInContact: (requesterOwner, targetOwner) =>
-        Effect.succeed(
-          requesterOwner === ALICE_USER.id && targetOwner === BOB_USER.id,
-        ),
-    });
-
-    const result = yield* alice.client
-      .sendRpc(taskRequest, {
-        appId: DEFAULT_APP_ID,
-        invitedAgentIds: [bob.agentId],
-        initialConversation: {
-          participants: [carol.agentId],
-        },
-      })
-      .pipe(
-        Effect.either,
-        Effect.ensuring(
-          Effect.sync(() => {
-            app.setContactService({
-              areInContact: () => Effect.succeed(true),
-            });
-          }),
-        ),
-      );
-
-    expect(expectEitherLeft(result)._tag).toBe(WIRE_ERROR_TAG.NotInContacts);
   }));
 
 // ─── TaskLeave ───────────────────────────────────────────────────────

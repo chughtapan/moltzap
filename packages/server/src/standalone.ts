@@ -2,11 +2,10 @@
 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Data, Effect, Layer } from "effect";
-import { FileSystem, HttpClient } from "@effect/platform";
-import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
+import { Data, Effect } from "effect";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { createCoreApp, type CoreApp } from "#core";
-import { applyOutboundWebhookCap } from "#network";
 import {
   loadStandaloneConfig,
   type CoreConfig,
@@ -22,10 +21,8 @@ import {
   type Database,
   type Db,
 } from "#db";
-import { WebhookContactService } from "#identity/contacts";
 
 const dirnameValue = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
 
 /** Implements standalone operation failed. */
 export class StandaloneOperationFailed extends Data.TaggedError(
@@ -295,33 +292,6 @@ function startServerEffect(
     const database = yield* createStandaloneDatabase(bootPlan);
     yield* logDatabaseSelection(database.usePgLite);
     yield* migrateStandaloneDatabase(database.handle, bootPlan);
-    // The standalone HttpClient backs the YAML-wired contact-webhook
-    // service. Two wiring concerns:
-    //
-    // 1. Dispatcher lifecycle. We use the process-global Undici
-    //    dispatcher (`dispatcherLayerGlobal`) instead of `layerUndici`
-    //    — the latter is `Layer.scoped` over a fresh `Undici.Agent`
-    //    whose finalizer would `dispatcher.destroy()` it the moment
-    //    the surrounding `Effect.provide` scope closes (the line
-    //    below). The contact service would then issue requests against
-    //    a destroyed Agent. The process-global dispatcher has no
-    //    per-instance lifecycle, matching this client's server-
-    //    lifetime role. The CoreApp constructs its own scoped Undici client
-    //    through `core/layers.ts`; that one IS managed by the dispatch
-    //    ManagedRuntime scope and disposes cleanly on `app.close()`.
-    //
-    // 2. Outbound-webhook concurrency cap. We apply
-    //    {@link applyOutboundWebhookCap} so this client pulls from the
-    //    process-wide `Effect.Semaphore(10)`. The remaining standalone
-    //    webhook path is contact policy.
-    const rawHttpClient = yield* HttpClient.HttpClient.pipe(
-      Effect.provide(
-        NodeHttpClient.layerUndiciWithoutDispatcher.pipe(
-          Layer.provide(NodeHttpClient.dispatcherLayerGlobal),
-        ),
-      ),
-    );
-    const httpClient = applyOutboundWebhookCap(rawHttpClient);
     yield* Effect.logWarning("Boot admin user configured").pipe(
       Effect.annotateLogs({ adminUserId: bootPlan.adminUserId }),
     );
@@ -330,7 +300,6 @@ function startServerEffect(
       handle: database.handle,
     });
     const app = createCoreApp(coreConfig);
-    yield* installContactService(app, bootPlan, httpClient);
     yield* logStandaloneStarted(app, database.usePgLite);
     return { app, bootPlan, stop: () => app.close() };
   }).pipe(Effect.withSpan("startServerEffect"));
@@ -383,26 +352,6 @@ function makeCoreConfig(options: {
     devMode: bootPlan.devMode,
     adminUserId: bootPlan.adminUserId,
   };
-}
-
-function installContactService(
-  app: CoreApp,
-  bootPlan: StandaloneBootPlan,
-  httpClient: HttpClient.HttpClient,
-): Effect.Effect<void> {
-  return Effect.sync(() => {
-    const binding = bootPlan.contactWebhook;
-    if (binding === undefined) {
-      return;
-    }
-    app.setContactService(
-      new WebhookContactService(
-        httpClient,
-        binding.url,
-        binding.timeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
-      ),
-    );
-  });
 }
 
 function logStandaloneStarted(

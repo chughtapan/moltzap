@@ -1,6 +1,5 @@
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ContactService } from "#identity/contacts";
 import type { ConnectionManager } from "#socket";
 import type { NetworkSendService } from "#network";
 import type { LeaseRegistry } from "#dispatch";
@@ -48,17 +47,10 @@ export interface CoreApp {
 
   /**
    * Live ConnectionManager instance. Apps can query `getByParticipant` to
-   * check whether an agent has any live connections (for presence-gated
+   * check whether an agent has any live connections (for liveness-gated
    * push decisions, etc.). Stable identity.
    */
   readonly connections: ConnectionManager;
-
-  /**
-   * Wire a contact-policy gate for app-session admission and
-   * conversation-creation paths. Absence of a checker means "allow all";
-   * operators that need real policy decisions inject their resolver here.
-   */
-  setContactService: (checker: ContactService) => void;
 
   /**
    * Server-local lease registry for the

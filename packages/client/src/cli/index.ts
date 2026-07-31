@@ -13,7 +13,6 @@ import {
 } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
 import { agentsCommand } from "./commands/agents.js";
-import { contactsCommand } from "./commands/contacts.js";
 import {
   conversationsCommand,
   historyCommand,
@@ -159,7 +158,6 @@ const moltzapBase = Command.make("moltzap", {
   Command.withSubcommands([
     registerCommand,
     sendCommand,
-    contactsCommand,
     conversationsCommand,
     historyCommand,
     statusCommand,

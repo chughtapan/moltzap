@@ -30,9 +30,7 @@ import type { ConnectionTag, ConnectionManagerTag } from "#socket";
 import type { DbTag } from "#db";
 import type { AuthServiceTag } from "#identity/agents";
 import type { AppAuthServiceTag, AppEndpointRegistryTag } from "#identity/apps";
-import type { ContactsServiceTag } from "#identity/contacts";
 import type { AgentEndpointResolverTag, NetworkSendServiceTag } from "#network";
-import type { PresenceServiceTag } from "#network/presence";
 import type { ConversationServiceTag } from "#conversation";
 import type { DispatchAdmissionServiceTag, LeaseRegistryTag } from "#dispatch";
 import type { MessageServiceTag } from "#message";
@@ -49,30 +47,27 @@ import type { TaskAuthorizationServiceTag, TaskServiceTag } from "#task";
 type TransportTags = ConnectionTag | DbTag;
 
 /**
- * Identity-layer allowlist: agent authentication, registration, contacts, and
- * visibility.
+ * Identity-layer allowlist: agent authentication and registration.
  */
 type IdentityTags = TransportTags | AuthServiceTag;
 
 /**
- * Network-layer allowlist: connect, presence, and outbound routing. The
+ * Network-layer allowlist: connect and outbound routing. The
  * `agentEndpointResolver` is the `AgentId → ConnectionId` multimap
- * maintained by network connect/disconnect paths. Presence owns the
- * lease-derived status engine.
+ * maintained by network connect/disconnect paths.
  */
 type NetworkTags =
   | IdentityTags
   | AgentEndpointResolverTag
   | ConnectionManagerTag
-  | NetworkSendServiceTag
-  | PresenceServiceTag;
+  | NetworkSendServiceTag;
 
 /**
  * Task-layer allowlist: conversations, messages, tasks.
  * Includes `LeaseRegistryTag` for message dispatch leases and
  * `AppAuthServiceTag` for the app connect arm. The connect handler runs at
  * this tier because it pulls cross-cutting services spanning network
- * connections/presence and conversation resolution.
+ * connections and conversation resolution.
  */
 type TaskTags =
   | NetworkTags
@@ -80,7 +75,6 @@ type TaskTags =
   | ConversationServiceTag
   | TaskServiceTag
   | TaskAuthorizationServiceTag
-  | ContactsServiceTag
   | LeaseRegistryTag
   | AppAuthServiceTag;
 

@@ -82,7 +82,7 @@ Executes the classify close cause operation.
 
 **Returns:** The classify close cause result.
 
-### [`ClientConnectError`](./lifecycle.ts#L122)
+### [`ClientConnectError`](./lifecycle.ts#L118)
 
 _TypeAlias_
 
@@ -92,7 +92,7 @@ export type ClientConnectError<Rpcs extends ProtocolRpc> =
 
 Represents client connect error conditions.
 
-### [`ClientDefinitionError`](./lifecycle.ts#L109)
+### [`ClientDefinitionError`](./lifecycle.ts#L105)
 
 _TypeAlias_
 
@@ -102,7 +102,7 @@ export type ClientDefinitionError<D extends ClientRpcDefinition> =
 
 Represents client definition error conditions.
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L103)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L99)
 
 _TypeAlias_
 
@@ -112,7 +112,7 @@ export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 
 Represents client definition payload values.
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L106)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L102)
 
 _TypeAlias_
 
@@ -122,7 +122,7 @@ export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 
 Represents client definition success values.
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L201)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L197)
 
 _Interface_
 
@@ -148,7 +148,7 @@ export interface ClientLifecycleOptions<
 
 Configures client lifecycle.
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L99)
+### [`ClientRpcDefinition`](./lifecycle.ts#L95)
 
 _Interface_
 
@@ -241,7 +241,7 @@ export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
 
 Validates and decodes connection id values.
 
-### [`ConnectResult`](./lifecycle.ts#L115)
+### [`ConnectResult`](./lifecycle.ts#L111)
 
 _TypeAlias_
 
@@ -450,7 +450,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 
 Implements molt zap app client.
 
-### [`MoltZapServer`](./server.ts#L310)
+### [`MoltZapServer`](./server.ts#L308)
 
 _Class_
 
@@ -578,7 +578,7 @@ export class MoltZapServer<
 
 Implements molt zap server.
 
-### [`MoltZapServerOptions`](./server.ts#L70)
+### [`MoltZapServerOptions`](./server.ts#L69)
 
 _Interface_
 
@@ -608,7 +608,7 @@ export interface MoltZapServerOptions<
 
 Configures molt zap server.
 
-### [`MoltZapServerSession`](./server.ts#L55)
+### [`MoltZapServerSession`](./server.ts#L54)
 
 _Interface_
 
@@ -636,7 +636,7 @@ Provides the new connection id runtime value.
 
 **Returns:** The new connection id result.
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L547)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L523)
 
 _Function_
 
@@ -654,7 +654,7 @@ Provides the open protocol agent client socket runtime value.
 
 **Returns:** The open protocol agent client socket result.
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L564)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L540)
 
 _Function_
 
@@ -672,7 +672,7 @@ Provides the open protocol app client socket runtime value.
 
 **Returns:** The open protocol app client socket result.
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L669)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L645)
 
 _Class_
 
@@ -818,7 +818,7 @@ stateDiagram-v2
   Stopping --> Stopped: OwnerDone completes terminal close
 ```
 
-### [`ReverseCallbackError`](./server.ts#L163)
+### [`ReverseCallbackError`](./server.ts#L161)
 
 _TypeAlias_
 
@@ -828,7 +828,7 @@ export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 
 Represents reverse callback error conditions.
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L237)
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L233)
 
 _TypeAlias_
 
@@ -843,7 +843,7 @@ export type ReverseCallbackHandlers = {
 
 Represents reverse callback handlers values.
 
-### [`ReverseCallbackPayload`](./server.ts#L157)
+### [`ReverseCallbackPayload`](./server.ts#L155)
 
 _TypeAlias_
 
@@ -853,7 +853,7 @@ export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
 
 Represents reverse callback payload values.
 
-### [`ReverseCallbackRequest`](./server.ts#L166)
+### [`ReverseCallbackRequest`](./server.ts#L164)
 
 _TypeAlias_
 
@@ -867,7 +867,7 @@ export type ReverseCallbackRequest =
 
 Represents reverse callback request values.
 
-### [`ReverseCallbackSuccess`](./server.ts#L160)
+### [`ReverseCallbackSuccess`](./server.ts#L158)
 
 _TypeAlias_
 
@@ -877,7 +877,7 @@ export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
 
 Represents reverse callback success values.
 
-### [`ReverseCallbackTag`](./server.ts#L152)
+### [`ReverseCallbackTag`](./server.ts#L150)
 
 _TypeAlias_
 
@@ -890,7 +890,7 @@ export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
 
 Represents reverse callback tag values.
 
-### [`ReverseCallError`](./server.ts#L147)
+### [`ReverseCallError`](./server.ts#L145)
 
 _TypeAlias_
 
@@ -900,7 +900,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
 Represents reverse call error conditions.
 
-### [`ReverseClient`](./server.ts#L213)
+### [`ReverseClient`](./server.ts#L211)
 
 _Interface_
 
@@ -929,7 +929,7 @@ export interface ReverseClient {
 
 Describes reverse client.
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L85)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L81)
 
 _Variable_
 
@@ -939,7 +939,7 @@ export const RPC_TIMEOUT_MS = 30_000
 
 Provides the rpc timeout ms runtime value.
 
-### [`RpcCallOptions`](./lifecycle.ts#L94)
+### [`RpcCallOptions`](./lifecycle.ts#L90)
 
 _Interface_
 
@@ -951,7 +951,7 @@ export interface RpcCallOptions {
 
 Configures rpc call.
 
-### [`ServerSocketWrite`](./server.ts#L50)
+### [`ServerSocketWrite`](./server.ts#L49)
 
 _TypeAlias_
 

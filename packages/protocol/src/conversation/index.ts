@@ -36,6 +36,7 @@ export type {
 
 /** Re-exports the public API from `./conversations.js`. */
 export {
+  agentConversationCreate,
   conversationCreate,
   conversationList,
   conversationUpdate,

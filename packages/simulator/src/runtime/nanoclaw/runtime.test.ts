@@ -3,11 +3,7 @@ import {
   ExitCode as processExitCode,
   type ExitCode,
 } from "@effect/platform/CommandExecutor";
-import {
-  NetworkFailure,
-  type AgentConnection,
-  makeAgentHandle,
-} from "../../network.js";
+import { type AgentConnection, makeAgentHandle } from "../../network.js";
 import { RuntimeExited, RuntimeFailed } from "../runtime.js";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
@@ -18,9 +14,9 @@ import {
   Effect,
   Exit,
   Fiber,
-  Option,
   Ref,
   Scope,
+  TestClock,
 } from "effect";
 import { describe } from "vitest";
 import { RuntimeAcquisitionFailed } from "../process.js";
@@ -36,15 +32,14 @@ const test = effectIt.effect;
 const AGENT_NAME = "alice";
 const AGENT_KEY_TEXT =
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";
-const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
+const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
 const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
+const READY_OUTPUT = 'level=INFO message="MoltZap connected" channel=moltzap';
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43123");
 const PROCESS_EXIT_CODE = 23;
 const STARTUP_TIMEOUT = Duration.seconds(17);
 const MODEL_ID = "test/model";
-const READY_FAILURE_OPERATION = "attach-agent";
-const READY_FAILURE_DETAIL = "alice was not router-visible";
 const PROCESS_WAIT_FAILURE = "process wait failed";
 type ProcessWaitFailure = typeof PROCESS_WAIT_FAILURE;
 
@@ -66,16 +61,11 @@ interface Fixture {
   readonly teardownCount: Ref.Ref<number>;
 }
 
-function makeConnection(
-  awaitReady: AgentConnection<"alice">["awaitReady"],
-): AgentConnection<"alice"> {
-  return {
-    agent: makeAgentHandle(AGENT_NAME, AGENT_ID),
-    key: AGENT_KEY,
-    routerUrl: ROUTER_URL,
-    awaitReady,
-  };
-}
+const connection: AgentConnection<"alice"> = {
+  agent: makeAgentHandle(AGENT_NAME, AGENT_ID),
+  key: AGENT_KEY,
+  routerUrl: ROUTER_URL,
+};
 
 function makeFixture(
   options: NanoclawRuntimeOptions,
@@ -107,6 +97,7 @@ function makeFixture(
         ),
       exitCode: (running) => Deferred.await(running.exitCode),
       output: (running) => running.output,
+      readyWhen: (text) => text.includes("MoltZap connected"),
     };
     return {
       runtime: makeNanoclawRuntimeWith(options, driver),
@@ -155,69 +146,27 @@ function assertProcessInput(process: NanoclawProcessInput): void {
   ]);
 }
 
-function returnsAfterReadinessTest() {
+function returnsAfterReadyLineTest() {
   return Effect.gen(function* () {
-    const readyEntered = yield* Deferred.make<Duration.Duration>();
-    const becomeReady = yield* Deferred.make<undefined>();
-    const fixture = yield* makeFixture(fullRuntimeOptions());
-    const acquired = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection((within) =>
-          Deferred.succeed(readyEntered, within).pipe(
-            Effect.zipRight(Deferred.await(becomeReady)),
-          ),
-        ),
+    const fixture = yield* makeFixture(fullRuntimeOptions(), READY_OUTPUT);
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* fixture.runtime.acquire({ connection });
+        assertProcessInput(yield* Deferred.await(fixture.processInput));
       }),
-    ).pipe(Effect.fork);
-    const process = yield* Deferred.await(fixture.processInput);
-    const readyWithin = yield* Deferred.await(readyEntered);
-
-    assert.isTrue(Option.isNone(yield* Fiber.poll(acquired)));
-    assert.strictEqual(
-      Duration.toMillis(readyWithin),
-      Duration.toMillis(STARTUP_TIMEOUT),
     );
-    assertProcessInput(process);
-    yield* Deferred.succeed(becomeReady, undefined);
-    yield* Fiber.join(acquired);
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
   });
 }
 
-function interruptedAcquisitionTest() {
-  return Effect.gen(function* () {
-    const readyEntered = yield* Deferred.make<undefined>();
-    const fixture = yield* makeFixture({});
-    const acquired = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection(() =>
-          Deferred.succeed(readyEntered, undefined).pipe(
-            Effect.zipRight(Effect.never),
-          ),
-        ),
-      }),
-    ).pipe(Effect.fork);
-    yield* Deferred.await(readyEntered);
-
-    const interrupted = yield* Fiber.interrupt(acquired);
-    assert.isTrue(Exit.isFailure(interrupted));
-    if (Exit.isFailure(interrupted)) {
-      assert.isTrue(Cause.isInterruptedOnly(interrupted.cause));
-    }
-    assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
-  });
-}
-
-function exitsBeforeReadinessTest() {
+function exitsBeforeReadyLineTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture(
       {},
       `startup failed apiKey=${AGENT_KEY_TEXT}`,
     );
     const acquiring = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection(() => Effect.never),
-      }),
+      fixture.runtime.acquire({ connection }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.processInput);
     yield* Deferred.succeed(
@@ -235,16 +184,14 @@ function exitsBeforeReadinessTest() {
   });
 }
 
-function waitFailsBeforeReadinessTest() {
+function waitFailsBeforeReadyLineTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture(
       {},
       `startup failed apiKey=${AGENT_KEY_TEXT}`,
     );
     const acquiring = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection(() => Effect.never),
-      }),
+      fixture.runtime.acquire({ connection }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.processInput);
     yield* Deferred.fail(fixture.handle.exitCode, PROCESS_WAIT_FAILURE);
@@ -258,43 +205,30 @@ function waitFailsBeforeReadinessTest() {
   });
 }
 
-function readinessFailureTest() {
+function readyLineTimeoutTest() {
   return Effect.gen(function* () {
-    const readyWithin = yield* Deferred.make<Duration.Duration>();
-    const expected = NetworkFailure.make({
-      operation: READY_FAILURE_OPERATION,
-      detail: READY_FAILURE_DETAIL,
-    });
-    const fixture = yield* makeFixture({
-      startupTimeout: STARTUP_TIMEOUT,
-    });
-    const observed = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        connection: makeConnection((within) =>
-          Deferred.succeed(readyWithin, within).pipe(
-            Effect.zipRight(Effect.fail(expected)),
-          ),
-        ),
-      }),
-    ).pipe(Effect.flip);
+    const fixture = yield* makeFixture(fullRuntimeOptions(), "still booting");
+    const acquiring = yield* Effect.scoped(
+      fixture.runtime.acquire({ connection }),
+    ).pipe(Effect.flip, Effect.fork);
+    yield* Deferred.await(fixture.processInput);
+    yield* TestClock.adjust(STARTUP_TIMEOUT);
+    const failure = yield* Fiber.join(acquiring);
 
-    assert.instanceOf(observed, RuntimeAcquisitionFailed);
-    assert.include(observed.detail, READY_FAILURE_DETAIL);
-    assert.strictEqual(
-      Duration.toMillis(yield* Deferred.await(readyWithin)),
-      Duration.toMillis(STARTUP_TIMEOUT),
-    );
+    assert.instanceOf(failure, RuntimeAcquisitionFailed);
+    assert.include(failure.detail, "did not announce readiness");
+    assert.include(failure.detail, "still booting");
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
   });
 }
 
 function teardownIsNotTerminationTest() {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({});
+    const fixture = yield* makeFixture({}, READY_OUTPUT);
     const scope = yield* Scope.make();
     const running = yield* fixture.runtime
       .acquire({
-        connection: makeConnection(() => Effect.void),
+        connection,
       })
       .pipe(Scope.extend(scope));
     const observing = yield* running.termination.pipe(Effect.forkIn(scope));
@@ -311,12 +245,12 @@ function teardownIsNotTerminationTest() {
 
 function observeTermination(exitCode: ExitCode) {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({});
+    const fixture = yield* makeFixture({}, READY_OUTPUT);
     const observation = yield* Effect.scoped(
       Effect.gen(function* () {
         const acquiring = yield* fixture.runtime
           .acquire({
-            connection: makeConnection(() => Effect.void),
+            connection,
           })
           .pipe(Effect.fork);
         yield* Deferred.await(fixture.processInput);
@@ -332,12 +266,12 @@ function observeTermination(exitCode: ExitCode) {
 
 function observeWaitFailure() {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({});
+    const fixture = yield* makeFixture({}, READY_OUTPUT);
     const observation = yield* Effect.scoped(
       Effect.gen(function* () {
         const acquiring = yield* fixture.runtime
           .acquire({
-            connection: makeConnection(() => Effect.void),
+            connection,
           })
           .pipe(Effect.fork);
         yield* Deferred.await(fixture.processInput);
@@ -364,27 +298,23 @@ function exactTerminationTest() {
   });
 }
 
-// @agent-code-guard/regression-only: controlled handles expose process readiness, cancellation, teardown, and exact exit evidence deterministically
+// @agent-code-guard/regression-only: controlled handles expose process acquisition, teardown, and exact exit evidence deterministically
 describe("native NanoClaw runtime", () => {
   test(
-    "returns only after router-visible readiness",
-    returnsAfterReadinessTest,
+    "returns after the container runner logs its readiness line",
+    returnsAfterReadyLineTest,
   );
   test(
-    "releases an interrupted process acquisition through its Scope",
-    interruptedAcquisitionTest,
+    "fails and releases when the process exits before the readiness line",
+    exitsBeforeReadyLineTest,
   );
   test(
-    "fails and releases when the process exits before readiness",
-    exitsBeforeReadinessTest,
+    "reports an unavailable exit code when the process wait fails before the readiness line",
+    waitFailsBeforeReadyLineTest,
   );
   test(
-    "reports an unavailable exit code when the process wait fails before readiness",
-    waitFailsBeforeReadinessTest,
-  );
-  test(
-    "propagates router readiness failure and releases the process",
-    readinessFailureTest,
+    "fails when no readiness line arrives within the startup timeout",
+    readyLineTimeoutTest,
   );
   test(
     "does not report scoped teardown as autonomous termination",

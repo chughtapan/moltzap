@@ -43,7 +43,6 @@ import type {
   ConversationInTask,
   ConversationSendAccess,
 } from "#conversation/requirements";
-import type { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
 import type { TaskReadAccess } from "#task/requirements";
 
 /** Represents server socket write values. */
@@ -96,8 +95,7 @@ type ServerRequirementMiddleware =
   | ActiveAgent
   | ConversationInTask
   | ConversationSendAccess
-  | TaskReadAccess
-  | ContactPolicyAllowsReach;
+  | TaskReadAccess;
 
 const serverRpcLayer = RpcServer.layer(serverInboundGroup);
 

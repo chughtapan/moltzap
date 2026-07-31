@@ -27,12 +27,6 @@
       "#identity/users": [
         "identity/users/index.ts"
       ],
-      "#identity/contacts": [
-        "identity/contacts/index.ts"
-      ],
-      "#identity/contacts/requirements": [
-        "identity/contacts/requirements/index.ts"
-      ],
       "#identity/principals": [
         "identity/principals/index.ts"
       ],

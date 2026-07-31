@@ -17,7 +17,6 @@ import { type TaskId, taskId } from "@moltzap/protocol/task";
 import {
   type Brand,
   Context,
-  type Duration,
   type Effect,
   Schema,
   type Scope,
@@ -118,15 +117,14 @@ export interface EndpointTransport {
 }
 
 /**
- * Runtime connection issued by every router implementation. A
- * runtime chooses its own startup deadline and awaits router-visible readiness
- * before completing acquisition.
+ * Runtime connection issued by every router implementation. It carries the
+ * credential and address a runtime dials; each runtime chooses its own startup
+ * deadline and owns whatever readiness evidence its process exposes.
  */
 export interface AgentConnection<Name extends string = string> {
   readonly agent: AgentHandle<Name>;
   readonly key: AgentKey;
   readonly routerUrl: ServerBaseUrl;
-  awaitReady(within: Duration.Duration): Effect.Effect<void, NetworkFailure>;
 }
 
 /** Router output used by an experiment-controlled endpoint. */

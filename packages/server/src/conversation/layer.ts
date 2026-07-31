@@ -4,7 +4,6 @@ import { Context, Effect, Layer } from "effect";
 
 import { DbTag } from "#db";
 import { ConnectionManagerTag } from "#socket";
-import { AppEndpointRegistryTag } from "#identity/apps";
 
 import { ConversationService } from "./conversation.service.js";
 
@@ -19,13 +18,6 @@ export const conversationServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     const connections = yield* ConnectionManagerTag;
-    const appEndpointRegistry = yield* AppEndpointRegistryTag;
-    return new ConversationService(db, connections, () => {
-      const contacts = appEndpointRegistry.getContactService();
-      if (!contacts) {
-        return null;
-      }
-      return (a, b) => contacts.areInContact(a, b);
-    });
+    return new ConversationService(db, connections);
   }).pipe(Effect.withSpan("ConversationServiceLive")),
 );

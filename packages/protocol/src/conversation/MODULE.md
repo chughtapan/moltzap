@@ -8,17 +8,46 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](./conversations.ts#L216)
+### [`agentCallableConversationRpcMethods`](./conversations.ts#L246)
 
 _Variable_
 
 ```ts
-export const agentCallableConversationRpcMethods = [conversationList] as const
+export const agentCallableConversationRpcMethods = [
+  conversationList,
+  agentConversationCreate,
+] as const
 ```
 
 Agent-callable conversation RPC catalog.
 
-### [`appCallableConversationRpcMethods`](./conversations.ts#L219)
+### [`agentConversationCreate`](./conversations.ts#L47)
+
+_Variable_
+
+```ts
+export const agentConversationCreate = defineRpc({
+  name: "agent/conversation/create",
+  params: Schema.Struct({
+    appId: appId,
+    name: Schema.optional(conversationNameSchema),
+    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
+  }),
+  result: Schema.Struct({ conversation: conversationSchemaValue }),
+  requires: [AgentPrincipal, ActiveAgent],
+  errors: [AgentNotFoundError, ConversationFullError],
+})
+```
+
+Mint a conversation naming its participants and the app that authorizes
+it. The caller joins the conversation it creates.
+
+- **Principal:** `AgentPrincipal` + `ActiveAgent`. Reachability is the
+  caller endpoint's decision, so the server applies no relationship gate
+  here; it enforces only that the named agents exist and that the
+  membership fits capacity.
+
+### [`appCallableConversationRpcMethods`](./conversations.ts#L252)
 
 _Variable_
 
@@ -41,7 +70,7 @@ export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 Conversation row visible on task conversation surfaces.
 
-### [`conversationCreate`](./conversations.ts#L51)
+### [`conversationCreate`](./conversations.ts#L79)
 
 _Variable_
 
@@ -72,11 +101,10 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
 - **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
   handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
   non-owner before the body); the server handler performs capacity-only
-  authorization inline because an app minting on the task's behalf has no
-  agent contact-edges; targets are gated by
+  authorization inline, and targets are gated by
   `requireAgentsAreInTaskParticipants`.
 
-### [`ConversationCreatedNotification`](./conversations.ts#L181)
+### [`ConversationCreatedNotification`](./conversations.ts#L211)
 
 _TypeAlias_
 
@@ -88,7 +116,7 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/created`.
 
-### [`conversationCreatedNotificationDefinition`](./conversations.ts#L196)
+### [`conversationCreatedNotificationDefinition`](./conversations.ts#L226)
 
 _Variable_
 
@@ -140,7 +168,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`conversationList`](./conversations.ts#L93)
+### [`conversationList`](./conversations.ts#L121)
 
 _Variable_
 
@@ -166,7 +194,7 @@ all tasks). No filter params: the visibility contract is "caller in
 
 - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
 
-### [`ConversationListItem`](./conversations.ts#L80)
+### [`ConversationListItem`](./conversations.ts#L108)
 
 _TypeAlias_
 
@@ -206,7 +234,7 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 
 The referenced conversation does not exist under the task (or is not visible).
 
-### [`conversationNotifications`](./conversations.ts#L225)
+### [`conversationNotifications`](./conversations.ts#L258)
 
 _Variable_
 
@@ -237,7 +265,7 @@ export interface ConversationParticipant {
 
 Participant row for a conversation.
 
-### [`ConversationParticipantsAddedNotification`](./conversations.ts#L186)
+### [`ConversationParticipantsAddedNotification`](./conversations.ts#L216)
 
 _TypeAlias_
 
@@ -249,7 +277,7 @@ export type ConversationParticipantsAddedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/participants-added`.
 
-### [`conversationParticipantsAddedNotificationDefinition`](./conversations.ts#L202)
+### [`conversationParticipantsAddedNotificationDefinition`](./conversations.ts#L232)
 
 _Variable_
 
@@ -263,7 +291,7 @@ export const conversationParticipantsAddedNotificationDefinition =
 
 Pushed when a participant is added to a task conversation.
 
-### [`ConversationParticipantsRemovedNotification`](./conversations.ts#L191)
+### [`ConversationParticipantsRemovedNotification`](./conversations.ts#L221)
 
 _TypeAlias_
 
@@ -275,7 +303,7 @@ export type ConversationParticipantsRemovedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/participants-removed`.
 
-### [`conversationParticipantsRemovedNotificationDefinition`](./conversations.ts#L209)
+### [`conversationParticipantsRemovedNotificationDefinition`](./conversations.ts#L239)
 
 _Variable_
 
@@ -321,7 +349,7 @@ export interface ConversationSummary {
 
 Conversation summary row used by list surfaces.
 
-### [`conversationUpdate`](./conversations.ts#L137)
+### [`conversationUpdate`](./conversations.ts#L166)
 
 _Variable_
 
@@ -336,6 +364,7 @@ export const conversationUpdate = defineRpc({
     TaskNotFoundError,
     ConversationNotFoundError,
     ParticipantNotAdmittedError,
+    ConversationFullError,
   ],
 })
 ```
@@ -345,7 +374,7 @@ participant add and participant remove semantics.
 
 - **Principal:** `AppPrincipal` head + `ConversationInTask`.
 
-### [`ConversationUpdateParams`](./conversations.ts#L123)
+### [`ConversationUpdateParams`](./conversations.ts#L151)
 
 _TypeAlias_
 

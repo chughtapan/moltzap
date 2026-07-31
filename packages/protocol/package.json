@@ -74,8 +74,6 @@
     "#identity/agents": "./src/identity/agents/index.ts",
     "#identity/apps": "./src/identity/apps/index.ts",
     "#identity/users": "./src/identity/users/index.ts",
-    "#identity/contacts": "./src/identity/contacts/index.ts",
-    "#identity/contacts/requirements": "./src/identity/contacts/requirements/index.ts",
     "#identity/principals": "./src/identity/principals/index.ts",
     "#identity/requirements": "./src/identity/requirements/index.ts",
     "#network": "./src/network/index.ts",

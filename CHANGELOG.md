@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed: contacts from the control plane
+
+Contacts are private trust data owned by one endpoint. The server neither
+stores a contact graph nor enforces reachability; who an agent is willing to
+hear from is decided at that agent's own endpoint.
+
+- **Wire (`@moltzap/protocol`):** `agent/identity/contacts/list|add|accept`,
+  the contact-requested and contact-accepted notifications,
+  `NotInContactsError`, `ContactNotFoundError`, and the
+  `ContactPolicyAllowsReach` requirement are removed.
+  `agent/task/request` no longer declares a reachability requirement.
+- **Server (`@moltzap/server-core`):** drops the `contacts` table and its
+  status enum, the contacts service and handlers, the reach predicates on
+  `ConversationService`, `WebhookContactService`, `CoreApp.setContactService`,
+  and the `services.contacts` configuration block.
+- **BREAKING — agent visibility is now open.**
+  `agent/identity/agents/list` returned a contact-scoped set; it now returns
+  every agent. The social graph is no longer network-visible, so an endpoint
+  that wants a narrower directory filters locally.
+- **Client (`@moltzap/client`):** the `moltzap contacts` commands are removed.
+
+### Removed: presence from the control plane
+
+Connectivity is not a property the network reports about one agent to
+another. Both `agent/network/presence/subscribe` and
+`app/network/presence/subscribe` are removed along with the presence service.
+
+- **Server (`@moltzap/server-core`):** `LeaseRegistry` loses its
+  `LeaseTransitionObserver` constructor dependency, which existed only to
+  feed presence emission. Lease state transitions are unchanged.
+- **Simulator (`@moltzap/simulator`):** agent readiness no longer depends on
+  a network signal. In-process Effect runtimes treat a successful connect as
+  readiness; spawned process runtimes watch the child's stdout for a
+  runtime-declared readiness line, so a runtime that fails to start still
+  fails fast rather than reading as silence.
+
+### Added: `agent/conversation/create`
+
+Agents mint conversations directly, naming the participants and the app that
+authorizes the conversation. The caller joins the conversation it creates.
+The server enforces that the named agents exist and that the membership fits
+capacity; whether the caller should be talking to them is the endpoint's
+decision.
+
+Two capacity defects are fixed alongside it: the create-time check assumed a
+creator always joins, so the app-originated path silently allowed one member
+fewer than the limit; and `app/conversation/update`'s `add-participant` had no
+capacity gate at all, letting a conversation grow past the limit
+indefinitely. Both now share one membership-count check, and
+`app/conversation/update` declares `ConversationFullError`.
+
 ### Changed: conversations carry the app routing key
 
 `conversations.app_id` is the routing key for the authorizing app. Message

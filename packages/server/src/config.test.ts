@@ -36,10 +36,6 @@ const REUSED_ENV_KEY = "MOLTZAP_TEST_PATCH_KEY";
 const REUSED_ENV_VALUE = "regression-352-value";
 const REUSE_YAML = `registration:\n  secret: \${${REUSED_ENV_KEY}}\n`;
 
-const CONTACT_URL = "https://example.com/contacts";
-const CONTACT_TIMEOUT = 7000;
-const CALLBACK_TOKEN = "cb-token-123";
-
 // Validation-parity fixtures. Each must FAIL with a validation
 // ConfigLoadError — these are the structural rejections the prior Ajv
 // schema enforced, now re-asserted via TypeBox Value.Check.
@@ -53,28 +49,10 @@ const ENCRYPTION_CAMELCASE_YAML = `encryption:\n  masterSecret: a-real-secret\n`
 const UNKNOWN_TOPLEVEL_YAML = `database:\n  url: ${PG_URL}\nbogus: true\n`;
 const RETIRED_SEED_YAML = `database:\n  url: ${PG_URL}\nseed:\n  agents:\n    - name: alice\n`;
 const UNKNOWN_NESTED_YAML = `server:\n  port: 3000\n  extra: nope\n`;
-const BAD_WEBHOOK_URL_YAML = `services:\n  contacts:\n    type: webhook\n    webhook_url: not-a-url\n`;
-const SMALL_TIMEOUT_YAML = `services:\n  contacts:\n    type: webhook\n    webhook_url: ${CONTACT_URL}\n    timeout_ms: 50\n`;
-const BAD_SERVICE_TYPE_YAML = `services:\n  contacts:\n    type: grpc\n`;
 // Empty database.url must FAIL (minLength: 1) rather than be read as a
 // blank URL — main's Ajv rejected it; an empty string here is a typo, not
 // a request for the PGlite fallback (that path is "no database.url at all").
 const EMPTY_DB_URL_YAML = `database:\n  url: ""\n`;
-
-const CONTACTS_YAML = `services:
-  contacts:
-    type: webhook
-    webhook_url: ${CONTACT_URL}
-    timeout_ms: ${CONTACT_TIMEOUT}
-`;
-
-const CONTACT_WITH_CALLBACK_YAML = `services:
-  contacts:
-    type: webhook
-    webhook_url: ${CONTACT_URL}
-    timeout_ms: ${CONTACT_TIMEOUT}
-    callback_token: ${CALLBACK_TOKEN}
-`;
 
 function envOnly(env: Record<string, string | undefined>) {
   return loadStandaloneConfig({
@@ -316,41 +294,6 @@ function expectValidationRejection(body: string) {
   );
 }
 
-function contactsBinding() {
-  return withTempConfig(CONTACTS_YAML, (configPath) =>
-    Effect.gen(function* () {
-      const result = yield* loadStandaloneConfig({
-        configPath,
-        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
-      });
-      expect(result.contactWebhook).toEqual({
-        url: CONTACT_URL,
-        timeoutMs: CONTACT_TIMEOUT,
-      });
-    }),
-  );
-}
-
-function contactCallbackTokenBothPresent() {
-  return withTempConfig(CONTACT_WITH_CALLBACK_YAML, (configPath) =>
-    Effect.gen(function* () {
-      const result = yield* loadStandaloneConfig({
-        configPath,
-        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
-      });
-      // The shared webhook parser accepts both timeout_ms and
-      // callback_token; both present must survive the YAML service decode
-      // (regression: an earlier projection dropped callback_token whenever
-      // timeout_ms was also set). callback_token is not projected into the
-      // boot-plan binding, so only the url + timeoutMs surface.
-      expect(result.contactWebhook).toEqual({
-        url: CONTACT_URL,
-        timeoutMs: CONTACT_TIMEOUT,
-      });
-    }),
-  );
-}
-
 describe("loadStandaloneConfig env-only", () => {
   eff("PGlite default + no encryption under dev mode", devDefaults);
   eff("ENCRYPTION_MASTER_SECRET surfaces", encryptionSurfaces);
@@ -370,14 +313,6 @@ describe("loadStandaloneConfig YAML", () => {
     envBackedRegistrationInterpolation,
   );
   it("apps[] passes through to bootPlan", appsPassthrough);
-  it(
-    "services.contacts: webhook produces contactWebhook binding",
-    contactsBinding,
-  );
-  it(
-    "services.contacts: keeps both timeout_ms and callback_token",
-    contactCallbackTokenBothPresent,
-  );
   it("does not mutate a reused processEnv during interpolation", () =>
     doesNotMutateReusedEnv());
 });
@@ -397,12 +332,6 @@ describe("loadStandaloneConfig validation parity", () => {
     expectValidationRejection(RETIRED_SEED_YAML));
   it("rejects unknown nested keys", () =>
     expectValidationRejection(UNKNOWN_NESTED_YAML));
-  it("rejects a malformed webhook_url", () =>
-    expectValidationRejection(BAD_WEBHOOK_URL_YAML));
-  it("rejects timeout_ms below the 100ms minimum", () =>
-    expectValidationRejection(SMALL_TIMEOUT_YAML));
-  it("rejects an unknown service type", () =>
-    expectValidationRejection(BAD_SERVICE_TYPE_YAML));
   it("rejects an empty database.url string", () =>
     expectValidationRejection(EMPTY_DB_URL_YAML));
 });

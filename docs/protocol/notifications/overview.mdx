@@ -11,8 +11,6 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 
 | Notification | Description |
 |--------------|-------------|
-| [`agent/identity/contact-requested`](/protocol/notifications/agent-identity-contact-requested) | Defines the `agent/identity/contact-requested` notification contract. |
-| [`agent/identity/contact-accepted`](/protocol/notifications/agent-identity-contact-accepted) | Defines the `agent/identity/contact-accepted` notification contract. |
 | [`agent/task/closed`](/protocol/notifications/agent-task-closed) | Pushed when a task closes. |
 | [`agent/task/created`](/protocol/notifications/agent-task-created) | Pushed to the task initiator + invited participants after the app accepts via the `app/task/create` wire callback and the task transitions from `waiting` to `active`. |
 | [`agent/task/failed`](/protocol/notifications/agent-task-failed) | Pushed when a task fails before becoming ready. |

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import {
+  type agentConversationCreate as agentConversationCreateDefinition,
   type conversationCreate as conversationCreateDefinition,
   conversationCreatedNotificationDefinition,
   type conversationList as conversationListDefinition,
@@ -36,6 +37,39 @@ type ConversationRemoveParticipantParams = Extract<
   { action: "remove-participant" }
 >;
 
+function agentConversationCreateBody(
+  params: ParamsOf<typeof agentConversationCreateDefinition>,
+  ctx: AgentContext,
+) {
+  return Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    const conversationService = yield* ConversationServiceTag;
+    const participants = [...params.participants];
+    yield* authorizeConversationCreateCapacityOnly(participants, true);
+    // The conversation row still carries a task binding, so the agent path
+    // mints one for the conversation it is about to create.
+    const task = yield* taskService.create(ctx.agentId, {
+      appId: params.appId,
+      invitedAgentIds: participants,
+    });
+    const active = yield* taskService.setStatus(task.id, "active");
+    const conversation = yield* conversationService.create({
+      ...(params.name === undefined ? {} : { name: params.name }),
+      agentIds: participants,
+      creatorAgentId: ctx.agentId,
+      appId: params.appId,
+      mintTask: Effect.succeed({ id: active.id }),
+    });
+    yield* fanoutConversationCreate({
+      taskId: active.id,
+      conversation,
+      participants: [ctx.agentId, ...participants],
+      ...(params.name === undefined ? {} : { name: params.name }),
+    });
+    return { conversation };
+  }).pipe(Effect.withSpan("conversation.create.agent"));
+}
+
 function conversationCreateBody(
   appId: AppContext["appId"],
   params: {
@@ -52,7 +86,10 @@ function conversationCreateBody(
       params.taskId,
       params.participants,
     );
-    yield* authorizeConversationCreateCapacityOnly([...params.participants]);
+    yield* authorizeConversationCreateCapacityOnly(
+      [...params.participants],
+      false,
+    );
     const conversation = yield* conversationService.create({
       name: params.name,
       agentIds: [...params.participants],
@@ -125,10 +162,17 @@ function conversationAddParticipantBody(
 ) {
   return Effect.gen(function* () {
     yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
+    const conversationService = yield* ConversationServiceTag;
     const taskService = yield* TaskServiceTag;
     yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
       params.agentId,
     ]);
+    const current = yield* conversationService.getParticipantAgentIds(
+      params.conversationId,
+    );
+    if (!current.includes(params.agentId)) {
+      yield* conversationService.assertGroupCapacity(current.length + 1);
+    }
     const { postMutationParticipants } =
       yield* taskService.addConversationParticipant(
         params.conversationId,
@@ -203,6 +247,18 @@ export const conversationList: ServerHandler<
   Effect.gen(function* () {
     return yield* conversationListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("conversationList"));
+
+/**
+ * Provides the agent conversation create runtime value.
+ * @param params Request payload to process.
+ * @returns The agent conversation create result.
+ */
+export const agentConversationCreate: ServerHandler<
+  typeof agentConversationCreateDefinition
+> = (params) =>
+  Effect.gen(function* () {
+    return yield* agentConversationCreateBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("agentConversationCreate"));
 
 /**
  * Provides the conversation create runtime value.

@@ -13,7 +13,7 @@ server:
 
 # Boot-time owner for agents registered through the default auth/register
 # route. Use your app's real bootstrap user id here; the full
-# registration/contact flow will replace this later.
+# registration flow will replace this later.
 admin_user_id: "00000000-0000-4000-8000-000000000001"
 
 # Optional: enable encryption at rest. Generate with `openssl rand -base64 32`.
@@ -29,9 +29,3 @@ admin_user_id: "00000000-0000-4000-8000-000000000001"
 # production.
 # dev_mode:
 #   enabled: true
-
-# Optional: external service webhooks
-# services:
-#   contacts:
-#     type: webhook
-#     webhook_url: https://your-app.example.com/hooks/moltzap/contacts

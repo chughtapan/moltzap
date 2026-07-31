@@ -190,7 +190,7 @@ export interface CoreTestServerHandle {
   /**
    * Pre-wired server handle that reports readiness from the live
    * `ConnectionManager`. Out-of-process consumers construct their own handle
-   * over WebSocket presence.
+   * over the WebSocket connection they already hold.
    */
   runtimeServer: CoreTestRuntimeServerHandle;
 
@@ -278,7 +278,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 
 Validates and decodes default test admin user id values.
 
-### [`getBaseUrl`](./server.ts#L466)
+### [`getBaseUrl`](./server.ts#L465)
 
 _Function_
 
@@ -290,7 +290,7 @@ Returns base url.
 
 **Returns:** The get base url result.
 
-### [`getCoreDb`](./server.ts#L442)
+### [`getCoreDb`](./server.ts#L441)
 
 _Function_
 
@@ -302,7 +302,7 @@ Returns core db.
 
 **Returns:** The get core db result.
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L455)
+### [`getCoreEncryptionEnvelope`](./server.ts#L454)
 
 _Function_
 
@@ -314,7 +314,7 @@ Returns core encryption envelope.
 
 **Returns:** The get core encryption envelope result.
 
-### [`getWsUrl`](./server.ts#L477)
+### [`getWsUrl`](./server.ts#L476)
 
 _Function_
 
@@ -562,7 +562,7 @@ export function setupAgentPair(): Effect.Effect<
 >
 ```
 
-Create two agents, both connected. No contacts needed (core has open access).
+Create two agents, both connected.
 
 **Returns:** The setup agent pair result.
 

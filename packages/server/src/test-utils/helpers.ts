@@ -462,7 +462,7 @@ function decodePostJsonResponse(
 }
 
 /**
- * Create two agents, both connected. No contacts needed (core has open access).
+ * Create two agents, both connected.
  * @returns The setup agent pair result.
  */
 export function setupAgentPair(): Effect.Effect<

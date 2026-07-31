@@ -25,7 +25,6 @@ import {
   ActiveAgent,
   AgentPrincipal,
   AppPrincipal,
-  ContactPolicyAllowsReach,
   AuthenticatedPrincipal,
   type PrincipalRequirement,
   type AgentId,
@@ -46,7 +45,6 @@ import {
   obtainConversationInTask,
   obtainConversationSendAccess,
 } from "#conversation/requirements";
-import { obtainContactPolicyAllowsReach } from "#identity/contacts/requirements";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
 /**
@@ -141,12 +139,6 @@ interface TaskAndConvParams {
 interface TaskAndAgentParams {
   readonly taskId: TaskId;
 }
-interface TaskRequestParams {
-  readonly invitedAgentIds: readonly AgentId[];
-  readonly initialConversation?: {
-    readonly participants?: readonly AgentId[];
-  };
-}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -165,25 +157,6 @@ const isTaskAndAgentParams = (
   payload: unknown,
 ): payload is TaskAndAgentParams =>
   isRecord(payload) && typeof payload.taskId === "string";
-
-const isAgentIdArray = (value: unknown): value is readonly AgentId[] =>
-  Array.isArray(value) && value.every((id) => typeof id === "string");
-
-const isTaskRequestParams = (
-  payload: unknown,
-): payload is TaskRequestParams => {
-  if (!isRecord(payload) || !isAgentIdArray(payload.invitedAgentIds)) {
-    return false;
-  }
-  const initial = payload.initialConversation;
-  if (initial === undefined) {
-    return true;
-  }
-  return (
-    isRecord(initial) &&
-    (initial.participants === undefined || isAgentIdArray(initial.participants))
-  );
-};
 
 function requirePayload<A>(
   payload: unknown,
@@ -277,9 +250,9 @@ const requirementMiddlewareLayer = <
 /**
  * Build a requirement impl Layer whose `derive` ALSO reads the caller's agent
  * id, peeked off the live arm. Used by the agent-principal requirements
- * (`ConversationSendAccess`, `TaskReadAccess`, `ContactPolicyAllowsReach`); the
- * peek dies on a non-agent arm, which is sound only because these requirements gate
- * agent-callable methods.
+ * (`ConversationSendAccess`, `TaskReadAccess`); the peek dies on a non-agent
+ * arm, which is sound only because these requirements gate agent-callable
+ * methods.
  * @param mw Value supplied to the operation.
  * @param connId Value supplied to the operation.
  * @param derive Value supplied to the operation.
@@ -361,29 +334,6 @@ const makeTaskReadAccessLayer = (connId: ConnectionId) =>
     obtainTaskReadAccess,
   );
 
-const makeContactPolicyAllowsReachLayer = (connId: ConnectionId) =>
-  requirementMiddlewareLayerWithCaller(
-    ContactPolicyAllowsReach,
-    connId,
-    (payload, creatorAgentId) =>
-      requirePayload(
-        payload,
-        isTaskRequestParams,
-        ContactPolicyAllowsReach.key,
-      ).pipe(
-        Effect.map((p) => ({
-          creatorAgentId,
-          targetAgentIds: [
-            ...new Set([
-              ...p.invitedAgentIds,
-              ...(p.initialConversation?.participants ?? []),
-            ]),
-          ],
-        })),
-      ),
-    obtainContactPolicyAllowsReach,
-  );
-
 /**
  * Every per-socket requirement impl Layer, merged. The engine stacks each
  * requirement on the methods that declare it. `ConversationInTask` reads no
@@ -401,5 +351,4 @@ export const makeRequirementMiddlewareLayers = (connId: ConnectionId) =>
     makeConversationInTaskLayer(),
     makeConversationSendAccessLayer(connId),
     makeTaskReadAccessLayer(connId),
-    makeContactPolicyAllowsReachLayer(connId),
   );

@@ -168,7 +168,7 @@ export class DispatchAdmissionService {
 
 Implements dispatch admission service.
 
-### [`dispatchAdmissionServiceLive`](./layer.ts#L46)
+### [`dispatchAdmissionServiceLive`](./layer.ts#L43)
 
 _Variable_
 
@@ -192,7 +192,7 @@ export const dispatchAdmissionServiceLive = Layer.effect(
 
 Provides the dispatch admission service live runtime value.
 
-### [`DispatchAdmissionServiceTag`](./layer.ts#L27)
+### [`DispatchAdmissionServiceTag`](./layer.ts#L26)
 
 _Class_
 
@@ -262,7 +262,7 @@ export interface EnqueueDispatchRequestArgs {
 
 Describes enqueue dispatch request args.
 
-### [`LeaseInvalidError`](./lease-registry.ts#L167)
+### [`LeaseInvalidError`](./lease-registry.ts#L166)
 
 _Class_
 
@@ -285,7 +285,7 @@ surface a precise wire-error code, e.g. Typed-CONSUMED /
 typed-EXPIRED) and `expected` carries the set of states the
 operation would have accepted.
 
-### [`LeaseRecord`](./lease-registry.ts#L136)
+### [`LeaseRecord`](./lease-registry.ts#L135)
 
 _Interface_
 
@@ -309,7 +309,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L535)
+### [`leaseRecordToWire`](./lease-registry.ts#L515)
 
 _Function_
 
@@ -322,7 +322,7 @@ Translation point between the in-process nested `LeaseRecord` and the wire
 
 **Returns:** The lease record to wire result.
 
-### [`LeaseRegistry`](./lease-registry.ts#L291)
+### [`LeaseRegistry`](./lease-registry.ts#L290)
 
 _Interface_
 
@@ -518,37 +518,7 @@ the immutable record version that created it, so a stale pre-rollback timer
 cannot expire a newer GRANTED epoch. The timeout comes from the grant
 verdict's `leaseTimeoutMs`.
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L429)
-
-_Interface_
-
-```ts
-export interface LeaseRegistryDeps {
-  readonly connections: ConnectionManager;
-  readonly leaseRetentionMs: number;
-  readonly transitionObserver: LeaseTransitionObserver;
-}
-```
-
-Constructor dependencies for the lease registry.
-- `connections`: looked up by the internal `emitDispatchRelease`
-  helper to find the recipient and at `app/dispatch/lease-consumed` /
-  `app/dispatch/lease-expired` emission to find the moderator's connection.
-- `leaseRetentionMs`: terminal-state retention window (CONSUMED /
-  DENIED / EXPIRED / ABANDONED). A GRANTED lease may separately carry the
-  verdict's `leaseTimeoutMs`.
-- `transitionObserver`: called at every transition that crosses the
-  lease's "active for presence" boundary (PENDING → GRANTED, exits
-  from GRANTED|CLAIMED). Feeds presence emission. **Required, not
-  optional** — every constructor call site supplies a value, either
-  the real `PresenceService` (production) or the
-  `noopLeaseTransitionObserver` constant (tests that do not exercise
-  presence). Required-not-default is structurally tighter: TypeScript
-  surfaces missing wiring at the call site. See
-  `network/presence → LeaseTransitionObserver` for the call shape; the
-  per-transition contract lives in `network/presence → PresenceService`.
-
-### [`leaseRegistryLive`](./layer.ts#L32)
+### [`leaseRegistryLive`](./layer.ts#L31)
 
 _Variable_
 
@@ -557,11 +527,9 @@ export const leaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
-    const transitionObserver = yield* PresenceServiceTag;
     return yield* makeLeaseRegistry({
       connections,
       leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
-      transitionObserver,
     });
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 )
@@ -569,7 +537,7 @@ export const leaseRegistryLive = Layer.effect(
 
 Provides the lease registry live runtime value.
 
-### [`LeaseRegistryTag`](./layer.ts#L21)
+### [`LeaseRegistryTag`](./layer.ts#L20)
 
 _Class_
 
@@ -582,7 +550,7 @@ export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
 
 Implements lease registry tag.
 
-### [`LeaseState`](./lease-registry.ts#L115)
+### [`LeaseState`](./lease-registry.ts#L114)
 
 _TypeAlias_
 
@@ -602,7 +570,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L126)
+### [`LeaseVerdict`](./lease-registry.ts#L125)
 
 _TypeAlias_
 
@@ -613,7 +581,7 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1389)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1300)
 
 _Function_
 
@@ -627,14 +595,13 @@ Construct the registry. The constructor is the only public factory
 — `LeaseRegistry` is referenced as an interface from call sites.
 
 Implementation: one `Ref&lt;LeaseRegistryData>` atomically owns entries,
-dispatch index, and closed state. A narrow semaphore orders each state
-commit with its presence observer callback; network notifications and fiber
-interruption run after that critical section. A shared shutdown signal
-cancels parked notification and retention effects.
+dispatch index, and closed state; network notifications and fiber
+interruption run after the commit. A shared shutdown signal cancels parked
+notification and retention effects.
 
 **Returns:** The created lease registry.
 
-### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L100)
+### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L99)
 
 _Interface_
 

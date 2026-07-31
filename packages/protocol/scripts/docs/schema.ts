@@ -87,9 +87,7 @@ function methodSortKey(method: string): string {
     "agents",
     "messages",
     "conversations",
-    "contacts",
     "invites",
-    "presence",
     "apps",
     "system",
   ];

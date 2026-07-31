@@ -32,7 +32,7 @@ import {
 const EFFECT_RUNTIME_NAME = "effect";
 const DEFAULT_STARTUP_TIMEOUT = Duration.seconds(10);
 
-/** Acquisition failed before an in-process agent became router-visible. */
+/** Acquisition failed before an in-process agent finished connecting. */
 export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeStartFailed>()(
   "EffectRuntimeStartFailed",
   {
@@ -177,14 +177,15 @@ function awaitStartup(
   state: EffectRuntimeState,
   startupTimeout: Duration.Duration,
 ): Effect.Effect<void, EffectRuntimeStartFailed> {
-  const connectAndBecomeVisible = Effect.all(
-    [state.client.connect(), input.connection.awaitReady(startupTimeout)],
-    { concurrency: 2, discard: true },
-  ).pipe(Effect.mapError((cause) => startFailure(input, cause)));
-  return Effect.raceFirst(
-    connectAndBecomeVisible,
-    startupEnded(input, state.termination),
+  const connected = state.client.connect().pipe(
+    Effect.timeoutFail({
+      duration: startupTimeout,
+      onTimeout: () =>
+        `connect did not complete within ${Duration.format(startupTimeout)}`,
+    }),
+    Effect.mapError((cause) => startFailure(input, cause)),
   );
+  return Effect.raceFirst(connected, startupEnded(input, state.termination));
 }
 
 function acquireEffectRuntime<E, R>(

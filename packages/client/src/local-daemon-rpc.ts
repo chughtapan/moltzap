@@ -1,15 +1,7 @@
 import { Rpc, RpcGroup } from "@effect/rpc";
 import { Effect, ParseResult, Schema } from "effect";
 import type * as SchemaAST from "effect/SchemaAST";
-import {
-  agentId,
-  agentsList,
-  contactId,
-  contactsAccept,
-  contactsAdd,
-  contactsList,
-  userId,
-} from "@moltzap/protocol/identity";
+import { agentId, agentsList } from "@moltzap/protocol/identity";
 import { agentCallableMethods } from "@moltzap/protocol/socket/catalog";
 import { appId, taskId } from "@moltzap/protocol/task";
 import { conversationId, messageId } from "@moltzap/protocol/conversation";
@@ -157,9 +149,6 @@ export const localDaemonCommands = {
   history: "daemon/history",
   agentsList: "cli/agents/list",
   agentsSearch: "cli/agents/search",
-  contactsList: "cli/contacts/list",
-  contactsAdd: "cli/contacts/add",
-  contactsAccept: "cli/contacts/accept",
   messagesList: "cli/messages/list",
   send: "cli/send",
   startTask: "cli/start-task",
@@ -174,16 +163,6 @@ const agentsSearchCommandPayload = Schema.Struct({
     Schema.minItems(1),
     Schema.maxItems(MAX_NAME_LOOKUP_BATCH),
   ),
-});
-
-const contactsListCommandPayload = emptyPayload;
-
-const contactsAddCommandPayload = Schema.Struct({
-  userId: userId,
-});
-
-const contactsAcceptCommandPayload = Schema.Struct({
-  contactId: contactId,
 });
 
 const messagesListCommandPayload = Schema.Struct({
@@ -330,21 +309,6 @@ export class LocalDaemonRpcs extends RpcGroup.make(
   Rpc.make(localDaemonCommands.agentsSearch, {
     payload: agentsSearchCommandPayload,
     success: agentsList.resultSchema,
-    error: localDaemonErrorSchema,
-  }),
-  Rpc.make(localDaemonCommands.contactsList, {
-    payload: contactsListCommandPayload,
-    success: contactsList.resultSchema,
-    error: localDaemonErrorSchema,
-  }),
-  Rpc.make(localDaemonCommands.contactsAdd, {
-    payload: contactsAddCommandPayload,
-    success: contactsAdd.resultSchema,
-    error: localDaemonErrorSchema,
-  }),
-  Rpc.make(localDaemonCommands.contactsAccept, {
-    payload: contactsAcceptCommandPayload,
-    success: contactsAccept.resultSchema,
     error: localDaemonErrorSchema,
   }),
   messagesListCommandRpc,
