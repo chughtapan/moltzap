@@ -1,19 +1,13 @@
 /**
- * Registry and AuthenticatedHttp keep their complete public inputs and Effect
- * channels exact. These canaries prevent adapters from leaking private
- * requirements or silently widening the failures consumers must handle.
+ * Registry keeps its complete public inputs and Effect channels exact.
+ * These canaries prevent adapters from leaking private requirements or
+ * silently widening the failures consumers must handle.
  */
 
-import type {
-  HttpClient,
-  HttpClientRequest,
-  HttpServerRequest,
-} from "@effect/platform";
+import type { HttpClient } from "@effect/platform";
 import type {
   AgentSigningAuthority,
   AgentSigningError,
-  AgentId,
-  AuthenticatedHttp,
   AuthenticationFailedError,
   Ed25519PublicKey,
   InternalServerError,
@@ -34,10 +28,9 @@ import type {
   RouteNotFoundError,
   UnavailableError,
   UnsupportedMediaTypeError,
-  VerifiedAgentRequest,
   VersionMismatchError,
-} from "../index.js";
-import type { RegistryServer } from "../server.js";
+} from "../../index.js";
+import type { RegistryServer } from "../../server.js";
 import type { Duration, Effect, Layer, Redacted } from "effect";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
@@ -60,36 +53,16 @@ type RegisterFailure =
   | RegistryClientFailure
   | AuthenticationFailedError
   | AgentSigningError;
-type AuthenticationFailure =
-  | MalformedRequestError
-  | AuthenticationFailedError
-  | VersionMismatchError
-  | OverloadedError
-  | UnavailableError;
-
 type RegisterCall = Readonly<{
   request: RegistryRegisterRequest;
   admissionCredential: Redacted.Redacted;
   signingAuthority: AgentSigningAuthority;
 }>;
-type SignCall = Readonly<{
-  httpRequest: HttpClientRequest.HttpClientRequest;
-  callerAgentId: AgentId;
-  encodedRequest: unknown;
-  signingAuthority: AgentSigningAuthority;
-}>;
-type VerifyCall = Readonly<{
-  httpRequest: HttpServerRequest.HttpServerRequest;
-  bodyBytes: Uint8Array;
-}>;
 
 type RegisterEffect = ReturnType<typeof Registry.register>;
 type LookupEffect = ReturnType<typeof Registry.lookup>;
 type ListEffect = ReturnType<typeof Registry.list>;
-type SignEffect = ReturnType<typeof AuthenticatedHttp.signAgentRequest>;
-type VerifyEffect = ReturnType<typeof AuthenticatedHttp.verifyAgentRequest>;
 type RegistryLayer = ReturnType<typeof Registry.layer>;
-type AuthenticationLayer = ReturnType<typeof AuthenticatedHttp.layer>;
 type ServerLayer = typeof RegistryServer.layer;
 
 type RegisterInputIsExact = Expect<
@@ -132,46 +105,11 @@ type RegistryLayerInputIsExact = Expect<
 type RegistryLayerIsExact = Expect<
   Equal<RegistryLayer, Layer.Layer<Registry, never, HttpClient.HttpClient>>
 >;
-type SignInputIsExact = Expect<
-  Equal<Parameters<typeof AuthenticatedHttp.signAgentRequest>[0], SignCall>
->;
-type SignChannelsAreExact = Expect<
-  Equal<
-    SignEffect,
-    Effect.Effect<HttpClientRequest.HttpClientRequest, AgentSigningError>
-  >
->;
-type VerifyInputIsExact = Expect<
-  Equal<Parameters<typeof AuthenticatedHttp.verifyAgentRequest>[0], VerifyCall>
->;
-type VerifyChannelsAreExact = Expect<
-  Equal<
-    VerifyEffect,
-    Effect.Effect<
-      VerifiedAgentRequest,
-      AuthenticationFailure,
-      AuthenticatedHttp
-    >
-  >
->;
-type AuthenticationLayerInputIsExact = Expect<
-  Equal<
-    Parameters<typeof AuthenticatedHttp.layer>[0],
-    Readonly<{
-      liveNonceCapacity: number;
-      agentCardCacheCapacity: number;
-      registryLookupConcurrencyLimit: number;
-    }>
-  >
->;
-type AuthenticationLayerIsExact = Expect<
-  Equal<AuthenticationLayer, Layer.Layer<AuthenticatedHttp, never, Registry>>
->;
 type ServerLayerIsExact = Expect<
   Equal<ServerLayer, Layer.Layer<never, RegistryServer.StartupError>>
 >;
 
-/** Compile-time evidence for both public HTTP-facing capabilities. */
+/** Compile-time evidence for the public Registry capability. */
 export type RegistryCapabilityCanaries = [
   RegisterInputIsExact,
   RegisterChannelsAreExact,
@@ -181,11 +119,5 @@ export type RegistryCapabilityCanaries = [
   ListChannelsAreExact,
   RegistryLayerInputIsExact,
   RegistryLayerIsExact,
-  SignInputIsExact,
-  SignChannelsAreExact,
-  VerifyInputIsExact,
-  VerifyChannelsAreExact,
-  AuthenticationLayerInputIsExact,
-  AuthenticationLayerIsExact,
   ServerLayerIsExact,
 ];

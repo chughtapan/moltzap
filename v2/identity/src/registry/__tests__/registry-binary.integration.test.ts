@@ -11,9 +11,9 @@ import {
   RegistryRegisterRequest,
   type RegistryListRequest,
   type VerifiedAgentCard,
-} from "../index.js";
-import { encodeCanonicalJson } from "../canonical-json.js";
-import { contentDigest } from "../http-signature.js";
+} from "../../index.js";
+import { encodeCanonicalJson } from "../../canonical-json.js";
+import { contentDigest } from "../../http-signature.js";
 import {
   LOOPBACK_HOST,
   PGLITE_BINARY,

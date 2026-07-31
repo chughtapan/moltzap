@@ -2098,7 +2098,7 @@ Production modules: none; fixes return to their owning batch.
 Required evidence:
 
 - `v2/router/src/router/registry-router.e2e.test.ts`
-- `v2/identity/src/registry-binary.integration.test.ts`
+- `v2/identity/src/registry/__tests__/registry-binary.integration.test.ts`
 - `v2/router/src/router/router-binary.integration.test.ts`
 
 The scenario starts real Registry and Router processes, registers

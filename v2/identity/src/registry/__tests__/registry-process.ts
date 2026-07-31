@@ -18,13 +18,13 @@ import {
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   type RegistryRegisterRequest as RegistryRegisterRequestValue,
   type VerifiedAgentCard,
-} from "../index.js";
+} from "../../index.js";
 import {
   agentSigningPrivateKey,
   ed25519PublicKeyThumbprintUri,
-} from "../agent-key.js";
-import { encodeCanonicalJson } from "../canonical-json.js";
-import { contentDigest } from "../http-signature.js";
+} from "../../agent-key.js";
+import { encodeCanonicalJson } from "../../canonical-json.js";
+import { contentDigest } from "../../http-signature.js";
 import {
   Clock,
   Data,
@@ -62,7 +62,9 @@ const SIGNATURE_PARAMETERS = [
   "alg",
   "tag",
 ] as const;
-const WORKSPACE_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+const WORKSPACE_ROOT = fileURLToPath(
+  new URL("../../../../../", import.meta.url),
+);
 const CHILD_PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
 const PGLITE_BINARY = join(
   WORKSPACE_ROOT,
