@@ -7,20 +7,15 @@ import {
 } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize, messagesSend } from "@moltzap/protocol/message";
 import {
+  agentConversationCreate,
   conversationParticipantsRemovedNotificationDefinition,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
-import {
-  taskCreate,
-  taskRequest,
-  type AppId,
-  type TaskId,
-} from "@moltzap/protocol/task";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppManifest } from "@moltzap/protocol/identity";
+import type { AppId, AppManifest } from "@moltzap/protocol/identity";
 import {
   agentId as protocolAgentId,
   messageId,
@@ -85,7 +80,6 @@ export const DISPATCH_REQUEST_CONCURRENCY = 2;
 
 /** Describes conversation binding. */
 export interface ConversationBinding {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -110,13 +104,14 @@ export const stopDispatchFlowServer = () =>
 export const makeProbeMessageId = () => messageId(crypto.randomUUID());
 
 /**
- * Create a task + conversation under the fixture's moderator app. The app is
- * minted through app registration, connects as a separate `AppConnection`, and
- * binds that connection as the app's moderator endpoint. `agent/task/request` is sent
- * by `alice` and targets the DB-minted `appId`. The caller must attach the
- * moderator callbacks before calling this; the server resolves the forked
- * moderator round-trip on the first `agent/dispatch/request`. `manifest.appId` is
- * ignored; the manifest supplies hook declarations and conversation defaults.
+ * Create a conversation under the fixture's moderator app. The app is minted
+ * through app registration, connects as a separate `AppConnection`, and binds
+ * that connection as the app's moderator endpoint. `agent/conversation/create`
+ * is sent by `alice` and names the DB-minted `appId` as the conversation's
+ * routing key. The caller must attach the moderator callbacks before calling
+ * this; the server resolves the forked moderator round-trip on the first
+ * `agent/dispatch/request`. `manifest.appId` is ignored; the manifest supplies
+ * hook declarations and conversation defaults.
  * @param alice Value supplied to the operation.
  * @param bob Value supplied to the operation.
  * @param manifest Value supplied to the operation.
@@ -129,17 +124,11 @@ export function createConversationOnApp(
 ): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
     const appId = yield* ensureModeratorApp(manifest);
-    const result = yield* alice.client.sendRpc(taskRequest, {
+    const result = yield* alice.client.sendRpc(agentConversationCreate, {
       appId,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
+      participants: [bob.agentId],
     });
-    return {
-      taskId: result.task.id,
-      conversationId:
-        /* Safe because the test fixture establishes this asserted shape. */ result
-          .conversation!.id,
-    };
+    return { conversationId: result.conversation.id };
   }).pipe(Effect.withSpan("createConversationOnApp"));
 }
 
@@ -163,14 +152,11 @@ const MODERATOR_HOOK_TIMEOUT_MS = 5_000;
  * Hook policy set for a moderated dispatch app: `dispatch_authorize` is
  * `kind: "hook"` so the server round-trips the admission decision to the
  * app's connection (the fixture answers it via {@link setNextHookVerdict}).
- * `task_create` stays `accept` (static) — these scenarios exercise the
- * dispatch lifecycle, so the task auto-accepts in-process. Dispatch-flow
- * manifests declare `hooks: MODERATED_HOOKS` directly.
+ * Dispatch-flow manifests declare `hooks: MODERATED_HOOKS` directly.
  */
 export const MODERATED_HOOKS: AppManifest["hooks"] = {
   dispatch_authorize: { kind: "hook", timeoutMs: MODERATOR_HOOK_TIMEOUT_MS },
   message_authorize: { kind: "forwardAllExceptSender" },
-  task_create: { kind: "accept" },
 };
 
 function ensureModeratorApp(
@@ -212,11 +198,6 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
     [messagesAuthorize.name]: {
       definition: messagesAuthorize,
       handle: () => Effect.dieMessage("unexpected app/message/authorize"),
-    },
-    [taskCreate.name]: {
-      definition: taskCreate,
-      handle: () =>
-        Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
   };
 }
@@ -307,7 +288,6 @@ export function sendMessageWithLease(
   text: string,
 ) {
   return sender.client.sendRpc(messagesSend, {
-    taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
     dispatchLeaseId: leaseId,

@@ -18,7 +18,6 @@
 import { connectAgent, connectApp } from "#network";
 import { agentsList } from "#identity/agents";
 import { messagesSend, messagesList } from "#message/handlers";
-import { taskList, taskLeave, taskRequest, taskUpdate } from "#task/handlers";
 import {
   agentConversationCreate,
   conversationCreate,
@@ -38,10 +37,6 @@ export const serverHandlers: ServerHandlers = {
   "agent/identity/agents/list": agentsList,
   "agent/message/send": messagesSend,
   "agent/message/list": messagesList,
-  "agent/task/list": taskList,
-  "agent/task/leave": taskLeave,
-  "agent/task/request": taskRequest,
-  "app/task/update": taskUpdate,
   "app/conversation/create": conversationCreate,
   "agent/conversation/list": conversationList,
   "agent/conversation/create": agentConversationCreate,

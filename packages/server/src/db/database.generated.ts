@@ -28,8 +28,6 @@ type Int8 = ColumnType<
  */
 type Json = ColumnType<unknown, unknown, unknown>;
 
-type TaskStatus = "active" | "closed" | "failed" | "waiting";
-
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 /** Describes agents. */
@@ -86,7 +84,6 @@ export interface Conversations {
   created_by_id: string;
   id: Generated<string>;
   name: string | null;
-  task_id: string;
   updated_at: Generated<Timestamp>;
 }
 
@@ -112,6 +109,11 @@ export interface Messages {
   parts_tag: Buffer;
   sender_id: string;
   seq: Int8;
+
+  /**
+   * Opaque endpoint-supplied label carried on the send params and echoed
+   * back verbatim. The server never reads, joins, or validates it.
+   */
   task_id: string | null;
 
   /**
@@ -123,22 +125,4 @@ export interface Messages {
    * at boundaries).
    */
   dispatch_decision: Generated<Json>;
-}
-
-/** Describes task participants. */
-export interface TaskParticipants {
-  admitted_at: Timestamp | null;
-  agent_id: string;
-  task_id: string;
-}
-
-/** Describes tasks. */
-export interface Tasks {
-  app_id: string;
-  created_at: Generated<Timestamp>;
-  ended_at: Timestamp | null;
-  id: Generated<string>;
-  initiator_agent_id: string;
-  started_at: Timestamp | null;
-  status: Generated<TaskStatus>;
 }

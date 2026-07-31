@@ -5,7 +5,6 @@ import {
   agentId as protocolAgentId,
   messageId,
   redactedAgentKey,
-  taskId,
 } from "@moltzap/protocol/testing";
 import {
   Cause,
@@ -161,12 +160,11 @@ function attachFakeEndpoint<const Name extends string>(
       received: Stream.never,
       openConversation: () =>
         Effect.succeed({
-          taskId: taskId("00000000-0000-4000-8000-000000000101"),
           conversationId: conversationId(
             "00000000-0000-4000-8000-000000000102",
           ),
         }),
-      send: (...[, currentConversationId, parts]) =>
+      send: (...[currentConversationId, parts]) =>
         (committedSends === undefined
           ? Effect.void
           : Ref.update(committedSends, (count) => count + 1)

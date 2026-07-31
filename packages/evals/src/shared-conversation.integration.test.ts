@@ -17,13 +17,7 @@ import {
   agentId as agentIdSchema,
 } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
-import { type TaskId, taskId as taskIdSchema } from "@moltzap/protocol/task";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  taskId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import {
   AgentProcessExited,
   AgentProcessSignaled,
@@ -238,7 +232,6 @@ class SharedConversationMeasured extends Schema.TaggedClass<SharedConversationMe
     openClawId: agentIdSchema,
     witnessId: agentIdSchema,
     nanoClawId: agentIdSchema,
-    taskId: taskIdSchema,
     conversationId: conversationIdSchema,
     triggerMessageId: messageIdSchema,
     responses: Schema.Array(SharedConversationResponse),
@@ -257,12 +250,10 @@ const TEST_CONTEXT: SharedConversationContext = {
   openClawId: agentId("00000000-0000-4000-8000-000000000002"),
   witnessId: agentId("00000000-0000-4000-8000-000000000003"),
   nanoClawId: agentId("00000000-0000-4000-8000-000000000004"),
-  taskId: taskId("00000000-0000-4000-8000-000000000005"),
   conversationId: conversationId("00000000-0000-4000-8000-000000000006"),
   triggerMessageId: messageId("00000000-0000-4000-8000-000000000007"),
 };
 const UNEXPECTED_RESPONSE: ReceivedMessage = {
-  taskId: TEST_CONTEXT.taskId,
   message: {
     id: messageId("00000000-0000-4000-8000-000000000008"),
     conversationId: TEST_CONTEXT.conversationId,
@@ -325,7 +316,6 @@ interface SharedConversationContext {
   readonly openClawId: AgentId;
   readonly witnessId: AgentId;
   readonly nanoClawId: AgentId;
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly triggerMessageId: MessageId;
 }
@@ -489,7 +479,6 @@ function sharedConversationProgram() {
       openClawId: started.openclaw.id,
       witnessId: started.witness.id,
       nanoClawId: started.nanoclaw.id,
-      taskId: conversation.address.taskId,
       conversationId: conversation.address.conversationId,
       triggerMessageId: trigger.id,
     };
@@ -531,7 +520,6 @@ interface ExpectedRecordedMessage {
 
 interface EndpointConversationEvent {
   readonly endpointId: AgentId;
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -541,7 +529,6 @@ function belongsToConversation(
 ): boolean {
   return (
     event.endpointId === context.controllerId &&
-    event.taskId === context.taskId &&
     event.conversationId === context.conversationId
   );
 }
@@ -586,7 +573,6 @@ function assertConversation(
 ): void {
   assert.deepStrictEqual(
     conversations.map((opened) => ({
-      taskId: opened.taskId,
       conversationId: opened.conversationId,
       openedBy: opened.openedBy,
       participants: [...opened.participants].sort((left, right) =>
@@ -595,7 +581,6 @@ function assertConversation(
     })),
     [
       {
-        taskId: context.taskId,
         conversationId: context.conversationId,
         openedBy: context.controllerId,
         participants: [
@@ -616,7 +601,6 @@ function assertTrigger(
   assert.deepStrictEqual(
     sent.map((event) => ({
       endpointId: event.endpointId,
-      taskId: event.taskId,
       conversationId: event.conversationId,
       messageId: event.messageId,
       text: exactPartsText(event.parts),
@@ -624,7 +608,6 @@ function assertTrigger(
     [
       {
         endpointId: context.controllerId,
-        taskId: context.taskId,
         conversationId: context.conversationId,
         messageId: context.triggerMessageId,
         text: BEGIN,
@@ -652,7 +635,6 @@ function assertMeasuredResponses(
     assert.lengthOf(
       committed.filter(
         (event) =>
-          event.taskId === context.taskId &&
           event.conversationId === context.conversationId &&
           event.messageId === response.messageId &&
           event.senderId === response.senderId,
@@ -663,7 +645,6 @@ function assertMeasuredResponses(
   assert.lengthOf(
     committed.filter(
       (event) =>
-        event.taskId === context.taskId &&
         event.conversationId === context.conversationId &&
         event.messageId === context.triggerMessageId &&
         event.senderId === context.controllerId,
@@ -686,7 +667,6 @@ function assertRouterContentSequence(
   const sequence = committed
     .filter(
       (event) =>
-        event.taskId === context.taskId &&
         event.conversationId === context.conversationId &&
         selectedIds.has(event.messageId),
     )
@@ -855,7 +835,6 @@ function measurementResult(
       recordCount: run.completion.recordCount,
       artifacts: Object.freeze({ ...run.completion.artifacts }),
     }),
-    taskId: context.taskId,
     conversationId: context.conversationId,
     controllerId: context.controllerId,
     openClawId: context.openClawId,

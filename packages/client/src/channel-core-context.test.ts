@@ -329,16 +329,14 @@ effectTest(
 
 function delegatesToServiceSendWithConversationIdAndText() {
   return Effect.gen(function* () {
-    yield* core.sendReply(
-      task("task-42"),
-      conversation("conv-42"),
-      "hello there",
-    );
+    yield* core.sendReply(conversation("conv-42"), "hello there", {
+      taskId: task("task-42"),
+    });
     expect(fake.state.sent).toEqual([
       {
-        taskId: task("task-42"),
         convId: conversation("conv-42"),
         text: "hello there",
+        taskId: task("task-42"),
       },
     ]);
   });
@@ -374,7 +372,9 @@ function returnsTheSameShapeAsTheInstanceHandlerPath() {
     });
 
     const { enriched: staticResult, commitContext } =
-      yield* MoltZapChannelCore.enrichMessage(service, task("task-1"), msg);
+      yield* MoltZapChannelCore.enrichMessage(service, msg, {
+        taskId: task("task-1"),
+      });
 
     expect(staticResult).toMatchObject({
       id: message("msg-static"),
@@ -408,8 +408,8 @@ function staticHelperToleratesResolveAgentNameThrowingDisconnectedService() {
 
     const { enriched: result } = yield* MoltZapChannelCore.enrichMessage(
       fake.service,
-      task("task-unknown"),
       buildMessage({ senderId: "agent-unknown" }),
+      { taskId: task("task-unknown") },
     );
 
     expect(result.sender.name).toBe(agent("agent-unknown"));

@@ -52,7 +52,7 @@ export type AppKey = Redacted.Redacted<AppKeyValue>;
 
 Represents app key values.
 
-### [`AppManifest`](./manifest.ts#L130)
+### [`AppManifest`](./manifest.ts#L111)
 
 _TypeAlias_
 
@@ -62,7 +62,7 @@ export type AppManifest = Schema.Schema.Type<typeof appManifestSchema>;
 
 Represents app manifest values.
 
-### [`AppManifestValidationResult`](./manifest.ts#L140)
+### [`AppManifestValidationResult`](./manifest.ts#L121)
 
 _TypeAlias_
 
@@ -87,7 +87,7 @@ export const DEFAULT_APP_ID = Schema.decodeSync(appId)(
 
 Validates and decodes default app id values.
 
-### [`manifestPolicyCanaries`](./manifest-policy.types-check.ts#L88)
+### [`manifestPolicyCanaries`](./manifest-policy.types-check.ts#L90)
 
 _Variable_
 
@@ -97,7 +97,7 @@ export const manifestPolicyCanaries =
 
 Aggregate whose annotation retains every compile-time policy proof.
 
-### [`validateAppManifest`](./manifest.ts#L154)
+### [`validateAppManifest`](./manifest.ts#L135)
 
 _Function_
 

@@ -1,7 +1,7 @@
 # @moltzap/server-core
 
 Standalone MoltZap server runtime: Effect Layers for the service
-graph, WebSocket + HTTP transport, dispatch/message/task domain
+graph, WebSocket + HTTP transport, dispatch/conversation/message domain
 services, Kysely persistence on PostgreSQL or embedded PGlite (no
 database URL configured, and all tests). Ships as a binary
 (`bin/moltzap-server`); the root barrel is intentionally `export {}` —
@@ -17,7 +17,6 @@ packages/server/src/
 ├── http/            # HTTP routes + Node HTTP server
 ├── identity/        # agents, apps, auth
 ├── network/         # connection liveness, send routing, outbound caps
-├── task/            # task lifecycle + task-owned RPC handlers
 ├── conversation/    # conversation service + requirements
 ├── message/         # message service + message RPC handlers
 ├── dispatch/        # LeaseRegistry + dispatch admission handlers
@@ -36,16 +35,19 @@ packages/server/src/
   HOLD → CLAIMED → CONSUMED / EXPIRED / ABANDONED; atomic transitions
   via `Ref.modify`; CLAIMED rollback restores GRANTED on insert
   failure.
-- **App authority** — authority over a task's conversation set.
-  `DEFAULT_APP_ID` covers ordinary DMs/groups (no moderator); a
-  registered app's UUID covers app-moderated tasks. `tasks.app_id`
+- **App authority** — authority over a conversation. `DEFAULT_APP_ID`
+  covers ordinary DMs/groups (no moderator); a registered app's UUID
+  covers app-moderated conversations. `conversations.app_id`
   (`TEXT NOT NULL`) is the routing key; there is no separate
   endpoint-address column — app endpoint identity derives from
-  `app_id` at routing time.
+  `app_id` at routing time. A creating app supplies its own `appId`,
+  so `app/conversation/create` needs no further gate;
+  `app/conversation/update` compares the caller against the stored key
+  via `assertCallerAppOwnsConversation`.
 - **Domain requirement** — protocol-owned `RpcMiddleware.Tag` whose
   implementation resolves runtime IDs or already-fetched rows for a
   handler (e.g. `ConversationSendAccess` proves sender membership and
-  loads the joined conversation/task row used by send guards).
+  loads the conversation row the send path reads).
   Implemented per socket in `moltzap/auth-middleware-layers.ts`.
 - **CoreApp / ManagedRuntime** — `createCoreApp` composes services +
   Kysely + Layers and builds the persistent runtime once from
@@ -67,7 +69,8 @@ packages/server/src/
   runner.
 - **Layer-tag hierarchy** — allowlist of the Effect Tags each protocol
   layer may pull (`TransportTags ⊂ IdentityTags ⊂ NetworkTags ⊂
-  TaskTags ⊂ AppTags`, `moltzap/layer-tags.ts`). Only `AppTags` is
+  ConversationTags ⊂ AppTags`, `moltzap/layer-tags.ts`). Only `AppTags`
+  is
   enforced in types: `http/routes.ts` bounds the socket dispatch
   effect's `R` to `Exclude<AppTags, ConnectionTag>`; the per-layer
   subsets guide Tag placement.
@@ -83,13 +86,11 @@ packages/server/src/
   add a domain requirement: declare the tag class + value type in the
   owning protocol domain folder, implement its server layer in
   `moltzap/auth-middleware-layers.ts`. Obtain helpers that touch
-  server services live beside the owning domain (`task/requirements`,
-  `conversation/requirements`).
-- App-owned task administration (`app/task/update`,
-  `app/conversation/create`, `app/conversation/update`) calls
-  `assertCallerAppOwnsTask(ctx.appId, params.taskId)`
-  (`task/requirements/app-ownership.ts`), which loads the open task
-  and delegates to the protocol-owned `assertAppOwnsTask`.
+  server services live beside the owning domain
+  (`conversation/requirements`).
+- `messages.task_id` is an opaque endpoint label: the sender supplies it
+  on `agent/message/send`, the server stamps and echoes it, and no read
+  path joins, filters, or validates it.
 
 ## Tests
 

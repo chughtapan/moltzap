@@ -13,7 +13,6 @@ import {
 } from "@moltzap/protocol/identity";
 import type { Message, MessageParts } from "@moltzap/protocol/message";
 import type { ServerBaseUrl } from "@moltzap/protocol/network";
-import { type TaskId, taskId } from "@moltzap/protocol/task";
 import {
   type Brand,
   Context,
@@ -74,13 +73,11 @@ export function networkFailure(
 
 /** A message delivered to one attached endpoint. */
 export interface ReceivedMessage {
-  readonly taskId: TaskId;
   readonly message: Message;
 }
 
 /** Conversation identity returned by an endpoint transport. */
 export interface OpenedConversation {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -110,7 +107,6 @@ export interface EndpointTransport {
     participants: ParticipantIds,
   ): Effect.Effect<OpenedConversation, NetworkFailure>;
   send(
-    taskId: TaskId,
     conversationId: ConversationId,
     parts: MessageParts,
   ): Effect.Effect<Message, NetworkFailure>;
@@ -137,7 +133,6 @@ export interface AttachedEndpoint<Name extends string> {
 export class CommittedRouterMessage extends Schema.Class<CommittedRouterMessage>(
   "CommittedRouterMessage",
 )({
-  taskId: taskId,
   conversationId: conversationId,
   messageId: messageId,
   senderId: agentId,

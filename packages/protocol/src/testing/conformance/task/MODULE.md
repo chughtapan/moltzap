@@ -4,13 +4,10 @@ _`packages/protocol/src/testing/conformance/task`_
 
 ## Purpose
 
-Public barrel for task-layer conformance properties.
+Public barrel for delivery-layer conformance properties.
 
-Task-layer conformance properties.
-
-Task / conversation / message invariants — fan-out cardinality,
-store-and-replay, payload opacity, task-boundary isolation,
-conversation lifecycle, task-close lifecycle.
+Conversation / message delivery invariants — fan-out cardinality,
+store-and-replay, payload opacity.
 
 Each `register*` lives in its own file. This barrel re-exports them
 by name AND aggregates them into `TASK_PROPERTIES` for the
@@ -18,22 +15,7 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L504)
-
-_Function_
-
-```ts
-export function acquireClient(
-  ctx: ConformanceRunContext,
-  name: string,
-): Effect.Effect<ConversationActor, string, Scope.Scope>
-```
-
-Executes the acquire client operation.
-
-**Returns:** The acquire client result.
-
-### [`acquireConversation`](./_helpers.ts#L768)
+### [`acquireConversation`](./_helpers.ts#L423)
 
 _Function_
 
@@ -49,96 +31,7 @@ Executes the acquire conversation operation.
 
 **Returns:** The acquire conversation result.
 
-### [`acquirePropertyConversation`](./_helpers.ts#L331)
-
-_Function_
-
-```ts
-export function acquirePropertyConversation(
-  ctx: ConformanceRunContext,
-  propertyName: string,
-  namePrefix: string,
-): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
-```
-
-Executes the acquire property conversation operation.
-
-**Returns:** The acquire property conversation result.
-
-### [`assertConversationRejectsMessages`](./_helpers.ts#L460)
-
-_Function_
-
-```ts
-export function assertConversationRejectsMessages(
-  input: AssertConversationRejectsMessagesInput,
-): Effect.Effect<void, PropertyInvariantViolation>
-```
-
-Asserts conversation rejects messages.
-
-**Returns:** The assert conversation rejects messages result.
-
-### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L447)
-
-_Interface_
-
-```ts
-export interface AssertConversationRejectsMessagesInput {
-  readonly actor: ConversationActor;
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-  readonly propertyName: string;
-  readonly expectedError: { readonly tag: string };
-}
-```
-
-Describes assert conversation rejects messages input.
-
-### [`awaitOneNotification`](./_helpers.ts#L287)
-
-_Function_
-
-```ts
-export function awaitOneNotification<D extends AnyNotificationDefinition>(
-  buffer: NotificationBuffer,
-  definition: D,
-  timeoutMs: number,
-): Effect.Effect<NotificationDelivery<D>, string>
-```
-
-Stream-based one-shot waiter for protocol-side conformance helpers.
-
-Consumes the per-client historical `NotificationBuffer` populated by
-the `subscribeAll()` pump installed at `acquireClient` time, so
-sequential `send → awaitOneNotification` patterns observe frames that
-arrived between the triggering RPC and the wait. Mirrors
-`@moltzap/server-core/test-utils → awaitOneNotification`.
-
-Surfaces a single string message on either timeout or stream
-exhaustion, so call sites use an `e.message`-style error mapper without
-a tagged error type per definition.
-
-**Returns:** The await one notification result.
-
-### [`CONVERSATION_FAMILY_PROPERTIES`](./conversation-family.ts#L473)
-
-_Variable_
-
-```ts
-export const CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext) => void
-> = [
-  registerTaskCreate,
-  registerTaskRequestReject,
-  registerTaskLeave,
-  registerConversationCreateAndList,
-]
-```
-
-Provides the conversation family properties runtime value.
-
-### [`ConversationActor`](./_helpers.ts#L86)
+### [`ConversationActor`](./_helpers.ts#L59)
 
 _Interface_
 
@@ -150,12 +43,11 @@ export interface ConversationActor {
   /**
    * Per-client historical notification buffer: `subscribe`
    * only emits frames arriving AFTER materialisation, so a sequential
-   * `send → awaitOneNotification` races the response frame. The buffer
+   * `send → read snapshot` races the response frame. The buffer
    * is fed by a long-lived
-   * `subscribeAll()` pump installed at `acquireClient` time;
-   * `awaitOneNotification` consumes the buffer so frames that arrived
-   * between the triggering RPC and the wait are still observable. This
-   * mirrors `@moltzap/server-core/test-utils → connectTestClient` (the
+   * `subscribeAll()` pump installed at `acquireClient` time, so frames that
+   * arrived between the triggering RPC and the read are still observable.
+   * This mirrors `@moltzap/server-core/test-utils → connectTestClient` (the
    * `makeNotificationBuffer` JSDoc below covers the design).
    */
   readonly notifications: NotificationBuffer;
@@ -164,7 +56,7 @@ export interface ConversationActor {
 
 Describes conversation actor.
 
-### [`ConversationFixture`](./_helpers.ts#L69)
+### [`ConversationFixture`](./_helpers.ts#L44)
 
 _Interface_
 
@@ -172,15 +64,13 @@ _Interface_
 export interface ConversationFixture {
   readonly owner: ConversationActor;
   readonly participants: readonly ConversationActor[];
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 
   /**
    * The app-principal `AppConnection` bound as the conversation's
-   * moderator. App-admin RPCs (addParticipant, removeParticipant, close)
-   * head their `requires` with `AppPrincipal`, so they route through THIS
-   * client, not the agent `owner`. `owner` (an agent) drives
-   * `agent/task/request` + `agent/message/send`.
+   * moderator. App-admin RPCs head their `requires` with `AppPrincipal`, so
+   * they route through THIS client, not the agent `owner`. `owner` drives
+   * `agent/conversation/create` + `agent/message/send`.
    */
   readonly moderatorClient: AppTestClient;
 }
@@ -188,7 +78,7 @@ export interface ConversationFixture {
 
 Describes conversation fixture.
 
-### [`DELIVERY_CATEGORY`](./_helpers.ts#L61)
+### [`DELIVERY_CATEGORY`](./_helpers.ts#L36)
 
 _Variable_
 
@@ -198,7 +88,7 @@ export const DELIVERY_CATEGORY = "delivery"
 
 Provides the delivery category runtime value.
 
-### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L65)
+### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L40)
 
 _Variable_
 
@@ -208,7 +98,7 @@ export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
 
 Provides the delivery default property num runs runtime value.
 
-### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L63)
+### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L38)
 
 _Variable_
 
@@ -218,7 +108,7 @@ export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 
 Provides the delivery default timeout ms runtime value.
 
-### [`deliveryViolation`](./_helpers.ts#L259)
+### [`deliveryViolation`](./_helpers.ts#L150)
 
 _Function_
 
@@ -233,22 +123,7 @@ Executes the delivery violation operation.
 
 **Returns:** The delivery violation result.
 
-### [`firstParticipant`](./_helpers.ts#L347)
-
-_Function_
-
-```ts
-export function firstParticipant(
-  fixture: ConversationFixture,
-  propertyName: string,
-): Effect.Effect<ConversationActor, PropertyInvariantViolation>
-```
-
-Executes the first participant operation.
-
-**Returns:** The first participant result.
-
-### [`fixtureN`](./_helpers.ts#L320)
+### [`fixtureN`](./_helpers.ts#L166)
 
 _Function_
 
@@ -260,64 +135,7 @@ Executes the fixture n operation.
 
 **Returns:** The fixture n result.
 
-### [`moderateAs`](./_helpers.ts#L730)
-
-_Function_
-
-```ts
-export function moderateAs(
-  ctx: ConformanceRunContext,
-  owner: ConversationActor,
-  namePrefix: string,
-): Effect.Effect<ModeratedHandle, string, Scope.Scope>
-```
-
-Wire a SEPARATE app principal as moderator: HTTP-register the manifest
-+ `appKey`-Connect an `AppTestClient` whose implicit registration binds it
-as the app's moderator endpoint. The grant-all `DispatchAuthorize` +
-accept `TaskCreate` + forward-all `MessagesAuthorize` callbacks run on
-THAT app connection (all are server-initiated, app-principal
-round-trips). The agent `owner` drives `agent/task/request` + `agent/message/send`.
-
-Participant tracking stays on `owner.client` (an agent + conversation
-participant): the `app/conversation/created` + participants/added/removed
-notifications are agent broadcasts that CANNOT reach an `AppConnection`.
-The shared in-process `participantsRef` bridges the owner's subscriber to
-the app's forward-all callback.
-
-**Returns:** The moderate as result.
-
-### [`ModeratedHandle`](./_helpers.ts#L690)
-
-_Interface_
-
-```ts
-export interface ModeratedHandle {
-  readonly appId: Schema.Schema.Type<typeof AppIdSchema>;
-
-  /**
-   * The app-principal `AppConnection` bound as moderator. App-admin RPCs (their
-   * `requires` head is `AppPrincipal`) route through this client.
-   */
-  readonly client: AppTestClient;
-
-  /**
-   * Block until the moderator has observed `expectedAgentIds` as
-   * participants of `conversationId` via
-   * `app/conversation/updateed` notifications. Bridges
-   * the gap between the create RPC returning and the notification
-   * arriving on the moderator's subscriber.
-   */
-  readonly awaitConversationReady: (
-    conversationId: ConversationId,
-    expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof agentId>>,
-  ) => Effect.Effect<void, string>;
-}
-```
-
-Describes moderated handle.
-
-### [`NotificationBuffer`](./_helpers.ts#L117)
+### [`NotificationBuffer`](./_helpers.ts#L86)
 
 _Interface_
 
@@ -330,41 +148,14 @@ export interface NotificationBuffer {
 }
 ```
 
-Historical notification buffer used by `awaitOneNotification`. Holds
-every inbound notification arriving on a single client's
-`subscribeAll()` Stream until a consumer pulls a matching frame.
+Historical notification buffer. Holds every inbound notification arriving
+on a single client's `subscribeAll()` Stream.
 
 The `snapshot` and `closed` fields are the only public surfaces;
 the pump fiber that feeds them is interrupted by the enclosing
 Scope finalizer installed by `makeNotificationBuffer`. `closed` is
 set to true when the transport-side stream terminates (either via
-`TransportClosedError` or normal exhaustion); `awaitOneNotification`
-consumes it to surface "Connection closed" rather than masquerading
-a missing notification as a timeout.
-
-### [`registerConversationCreateAndList`](./conversation-family.ts#L426)
-
-_Function_
-
-```ts
-export function registerConversationCreateAndList(
-  ctx: ConformanceRunContext,
-): void
-```
-
-Registers conversation create and list.
-
-### [`registerConversationLifecycle`](./conversation-lifecycle.ts#L28)
-
-_Function_
-
-```ts
-export function registerConversationLifecycle(
-  ctx: ConformanceRunContext,
-): void
-```
-
-Registers conversation lifecycle.
+`TransportClosedError` or normal exhaustion).
 
 ### [`registerFanOutCardinality`](./fan-out-cardinality.ts#L35)
 
@@ -396,136 +187,22 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void
 
 Registers store and replay.
 
-### [`registerTaskBoundaryIsolation`](./task-boundary-isolation.ts#L62)
-
-_Function_
-
-```ts
-export function registerTaskBoundaryIsolation(
-  ctx: ConformanceRunContext,
-): void
-```
-
-Registers task boundary isolation.
-
-### [`registerTaskCloseLifecycle`](./task-close-lifecycle.ts#L36)
-
-_Function_
-
-```ts
-export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
-```
-
-Registers task close lifecycle.
-
-### [`registerTaskCreate`](./conversation-family.ts#L130)
-
-_Function_
-
-```ts
-export function registerTaskCreate(ctx: ConformanceRunContext): void
-```
-
-Registers task create.
-
-### [`registerTaskLeave`](./conversation-family.ts#L342)
-
-_Function_
-
-```ts
-export function registerTaskLeave(ctx: ConformanceRunContext): void
-```
-
-Registers task leave.
-
-### [`registerTaskRequestReject`](./conversation-family.ts#L276)
-
-_Function_
-
-```ts
-export function registerTaskRequestReject(ctx: ConformanceRunContext): void
-```
-
-Registers task request reject.
-
-### [`sendText`](./_helpers.ts#L367)
-
-_Function_
-
-```ts
-export function sendText(
-  actor: ConversationActor,
-  taskId: TaskId,
-  conversationId: ConversationId,
-  text: string,
-)
-```
-
-Sends text.
-
-**Returns:** The send text result.
-
-### [`TASK_PROPERTIES`](./index.ts#L50)
+### [`TASK_PROPERTIES`](./index.ts#L25)
 
 _Variable_
 
 ```ts
 export const TASK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
-> = [
-  registerFanOutCardinality,
-  registerStoreAndReplay,
-  registerPayloadOpacity,
-  registerTaskBoundaryIsolation,
-  registerConversationLifecycle,
-  registerTaskCloseLifecycle,
-  ...CONVERSATION_FAMILY_PROPERTIES,
-]
+> = [registerFanOutCardinality, registerStoreAndReplay, registerPayloadOpacity]
 ```
 
-All task-layer property registrars: delivery subset first, then the
-`app/conversation/*` family.
-
-### [`waitForConversationCreatedNotification`](./_helpers.ts#L387)
-
-_Function_
-
-```ts
-export function waitForConversationCreatedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationId,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
-```
-
-Waits for for conversation created notification.
-
-**Returns:** The wait for conversation created notification result.
-
-### [`waitForMessageReceivedNotification`](./_helpers.ts#L420)
-
-_Function_
-
-```ts
-export function waitForMessageReceivedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationId,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
-```
-
-Waits for for message received notification.
-
-**Returns:** The wait for message received notification result.
+All delivery-layer property registrars.
 
 ## Files
 
 - `_helpers.ts`
-- `conversation-family.ts`
-- `conversation-lifecycle.ts`
 - `fan-out-cardinality.ts`
 - `index.ts`
 - `payload-opacity.ts`
 - `store-and-replay.ts`
-- `task-boundary-isolation.ts`
-- `task-close-lifecycle.ts`

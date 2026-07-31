@@ -173,7 +173,7 @@ precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
 returns `null` — the caller falls through to a no-op tracing Layer (spans
 stay in Effect's fiber context but are not exported).
 
-### [`ResolvedServices`](./layers.ts#L108)
+### [`ResolvedServices`](./layers.ts#L93)
 
 _Interface_
 
@@ -189,14 +189,13 @@ export interface ResolvedServices {
   readonly appEndpointRegistry: AppEndpointRegistry;
   readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
-  readonly taskService: TaskService;
   readonly encryption: EnvelopeEncryption | null;
 }
 ```
 
 Describes resolved services.
 
-### [`resolveServices`](./layers.ts#L124)
+### [`resolveServices`](./layers.ts#L108)
 
 _Variable_
 
@@ -213,7 +212,6 @@ export const resolveServices = Effect.all({
   appEndpointRegistry: AppEndpointRegistryTag,
   leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
-  taskService: TaskServiceTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>
 ```
 
@@ -258,14 +256,14 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`servicesLive`](./layers.ts#L102)
+### [`servicesLive`](./layers.ts#L87)
 
 _Variable_
 
 ```ts
 export const servicesLive = Layer.provideMerge(
-  taskServiceLive,
-  messageDomainLive,
+  messageServiceLive,
+  domainAuthorizationLive,
 )
 ```
 

@@ -1,14 +1,11 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect, Either } from "effect";
 import * as H from "../../support/index.js";
 import {
   conversationId as makeConversationId,
-  taskId as makeTaskId,
+  WIRE_ERROR_TAG,
 } from "@moltzap/protocol/testing";
-
-const TASK_NOT_FOUND_TAG = "TaskNotFound";
 
 H.setupServiceIntegration();
 
@@ -36,23 +33,14 @@ it("send command works via socket", () =>
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
-      const conv = yield* service.call(taskRequest.name, {
-        appId: DEFAULT_APP_ID,
-        invitedAgentIds: [regB.agentId],
-        initialConversation: { participants: [regB.agentId] },
+      const conv = yield* service.call(H.agentConversationCreate.name, {
+        appId: H.DEFAULT_APP_ID,
+        participants: [regB.agentId],
       });
-      expect(
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
-      ).toBeDefined();
+      expect(conv.conversation.id).toBeDefined();
 
       const msg = yield* H.requestDaemonCommand(H.localDaemonCommands.send, {
-        target: {
-          taskId: conv.task.id,
-          conversationId:
-            /* Safe because the test fixture establishes this asserted shape. */ conv
-              .conversation!.id,
-        },
+        target: { conversationId: conv.conversation.id },
         message: "via socket",
       });
       expect(msg.messageId).toBeDefined();
@@ -67,7 +55,6 @@ it("command preserves protocol error tag over socket", () =>
     yield* Effect.gen(function* () {
       const result = yield* Effect.either(
         H.requestDaemonCommand(H.localDaemonCommands.messagesList, {
-          taskId: makeTaskId("00000000-0000-4000-8000-00000000f001"),
           conversationId: makeConversationId(
             "00000000-0000-4000-8000-00000000f002",
           ),
@@ -75,7 +62,7 @@ it("command preserves protocol error tag over socket", () =>
       );
       Either.match(result, {
         onLeft: (error) => {
-          expect(error._tag).toBe(TASK_NOT_FOUND_TAG);
+          expect(error._tag).toBe(WIRE_ERROR_TAG.Forbidden);
         },
         onRight: () => expect.fail(),
       });

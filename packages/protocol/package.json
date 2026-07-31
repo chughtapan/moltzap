@@ -78,7 +78,6 @@
     "#identity/requirements": "./src/identity/requirements/index.ts",
     "#network": "./src/network/index.ts",
     "#task": "./src/task/index.ts",
-    "#task/requirements": "./src/task/requirements/index.ts",
     "#conversation": "./src/conversation/index.ts",
     "#conversation/requirements": "./src/conversation/requirements/index.ts",
     "#message": "./src/message/index.ts",

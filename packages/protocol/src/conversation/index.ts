@@ -11,7 +11,6 @@ export {
   type MessageId,
   messageId,
   NotAParticipantError,
-  ParticipantNotAdmittedError,
   conversationSchema,
 } from "./types.js";
 /** Re-exports the public API from `./types.js`. */
@@ -24,15 +23,9 @@ export type {
 export { conversationNameSchema } from "./name.js";
 
 /** Re-exports the public API from `./requirements/index.js`. */
-export {
-  ConversationInTask,
-  ConversationSendAccess,
-} from "./requirements/index.js";
+export { ConversationSendAccess } from "./requirements/index.js";
 /** Re-exports the public API from `./requirements/index.js`. */
-export type {
-  ConversationInTaskValue,
-  ConversationSendAccessValue,
-} from "./requirements/index.js";
+export type { ConversationSendAccessValue } from "./requirements/index.js";
 
 /** Re-exports the public API from `./conversations.js`. */
 export {

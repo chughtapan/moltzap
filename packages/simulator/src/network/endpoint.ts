@@ -3,7 +3,6 @@
 import { Context, Effect, type Stream } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { TaskId } from "@moltzap/protocol/task";
 import {
   type ConversationAddress,
   type ConversationSocket,
@@ -32,7 +31,6 @@ export interface EndpointInbox {
   readonly messages: Stream.Stream<ReceivedMessage, NetworkFailure>;
   /** Obtain the shared ordered cursor for one bound conversation. */
   readonly conversation: (
-    taskId: TaskId,
     conversationId: ConversationId,
   ) => Effect.Effect<Stream.Stream<ReceivedMessage, NetworkFailure>>;
 }
@@ -103,7 +101,7 @@ export class Endpoint<Name extends string = string> {
     const addressed = addressedParticipants(this.participant, participants);
     return this.transport.openConversation(ids).pipe(
       Effect.flatMap((opened) =>
-        this.inbox.conversation(opened.taskId, opened.conversationId).pipe(
+        this.inbox.conversation(opened.conversationId).pipe(
           Effect.map((messages) => ({
             messages,
             opened,
@@ -112,7 +110,6 @@ export class Endpoint<Name extends string = string> {
       ),
       Effect.map(({ messages, opened }) => {
         const address = makeConversationAddress(
-          opened.taskId,
           opened.conversationId,
           addressed,
         );
@@ -120,12 +117,7 @@ export class Endpoint<Name extends string = string> {
           this.participant,
           address,
           messages,
-          (content) =>
-            this.transport.send(
-              address.taskId,
-              address.conversationId,
-              content,
-            ),
+          (content) => this.transport.send(address.conversationId, content),
         );
       }),
     );
@@ -144,7 +136,7 @@ export class Endpoint<Name extends string = string> {
     );
     return isParticipant
       ? this.inbox
-          .conversation(address.taskId, address.conversationId)
+          .conversation(address.conversationId)
           .pipe(
             Effect.map((messages) =>
               makeConversationSocket(
@@ -152,11 +144,7 @@ export class Endpoint<Name extends string = string> {
                 address,
                 messages,
                 (content) =>
-                  this.transport.send(
-                    address.taskId,
-                    address.conversationId,
-                    content,
-                  ),
+                  this.transport.send(address.conversationId, content),
               ),
             ),
           )

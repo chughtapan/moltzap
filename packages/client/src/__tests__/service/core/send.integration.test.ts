@@ -31,12 +31,7 @@ it("send() delivers message to other agent", () =>
       ),
     );
 
-    yield* service.send(
-      conv.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-      H.HELLO_FROM_SERVICE,
-    );
+    yield* service.send(conv.conversation.id, H.HELLO_FROM_SERVICE);
 
     const eventOpt = yield* Fiber.join(eventFiber);
     const event = Option.getOrThrowWith(

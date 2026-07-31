@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed: task lifecycle from the control plane
+
+Tasks are an endpoint convention with no network representation. `taskId`
+survives only as an opaque optional label: the server stamps it on the message
+row from the caller's own value and echoes it back, and never reads it.
+
+- **Wire (`@moltzap/protocol`):** `agent/task/list|request|leave`,
+  `app/task/update`, and the `app/task/create` reverse callback are removed,
+  along with `Task`, `TaskStatus`, `TaskParticipant`, `TaskClosedError`,
+  `TaskRejectedError`, `TaskNotFoundError`, and the task notifications.
+  `TaskReadAccess` and `ConversationInTask` are gone; `agent/message/list`
+  gates on conversation participation alone. `taskId` is optional wherever it
+  still appears, and `app/conversation/create` and `app/conversation/update`
+  no longer take one.
+- **Server (`@moltzap/server-core`):** drops the `tasks` and
+  `task_participants` tables, the `task_status` enum, `conversations.task_id`,
+  and the whole task domain including `TaskService` and the task-active send
+  guard. `messages.task_id` remains as the opaque label.
+- **BREAKING — `app/conversation/create` authority changes.** It was gated by
+  app-ownership of the named task plus task-participant membership. Both are
+  task concepts. An app's authority to mint a conversation is now that it
+  supplies its own `appId`, which becomes the conversation's routing key: an
+  app can only create conversations it already authorizes. Participant
+  membership is no longer pre-checked against a task roster.
+
+Fresh-schema: `core-schema.sql` no longer declares the dropped tables and
+columns, and no migration shim is emitted.
+
 ### Removed: contacts from the control plane
 
 Contacts are private trust data owned by one endpoint. The server neither

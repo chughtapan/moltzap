@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./handlers.ts#L256)
+### [`agentConversationCreate`](./handlers.ts#L236)
 
 _Variable_
 
@@ -22,7 +22,7 @@ Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationCreate`](./handlers.ts#L268)
+### [`conversationCreate`](./handlers.ts#L248)
 
 _Variable_
 
@@ -36,7 +36,7 @@ Provides the conversation create runtime value.
 
 **Returns:** The conversation create result.
 
-### [`conversationList`](./handlers.ts#L244)
+### [`conversationList`](./handlers.ts#L224)
 
 _Variable_
 
@@ -50,7 +50,7 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](./conversation.service.ts#L238)
+### [`ConversationService`](./conversation.service.ts#L237)
 
 _Class_
 
@@ -84,18 +84,15 @@ export class ConversationService {
     );
   }
 
-  create<TaskMintError = never>(
-    input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<Conversation, TaskMintError> {
+  create(input: CreateConversationOptions): Effect.Effect<Conversation> {
     return catchSqlErrorAsDefect(this.createConversationEffect(input));
   }
 
-  private createConversationEffect<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<Conversation, TaskMintError | SqlError> {
+  private createConversationEffect(
+    input: CreateConversationOptions,
+  ): Effect.Effect<Conversation, SqlError> {
     return Effect.gen(this, function* (this: ConversationService) {
-      const task = yield* input.mintTask;
-      const created = yield* this.insertConversation(input, task.id);
+      const created = yield* this.insertConversation(input);
       yield* this.subscribeCreatedConversation(input, created.id);
       yield* this.logConversationCreated(input, created.id);
       return created;
@@ -159,22 +156,25 @@ export class ConversationService {
         // is included in the fan-out target list.
         const participantsSnapshot =
           yield* this.getParticipantAgentIds(conversationId);
-        const taskRowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("task_id")
-            .where("id", "=", conversationId),
-        );
-        const taskId = Option.match(taskRowOpt, {
-          onNone: () => null,
-          onSome: (row) => row.task_id,
-        });
         const deleted = yield* this.db
           .deleteFrom("conversation_participants")
           .where("conversation_id", "=", conversationId)
           .where("agent_id", "=", agentId)
           .returning("conversation_id");
         if (deleted.length === 0) {
+          return yield* Effect.fail(
+            new NotAParticipantError({ message: "Participant not found" }),
+          );
+        }
+        yield* this.connections.removeConversationFromAgent(
+          agentId,
+          conversationId,
+        );
+        yield* broadcastNotificationToAgents(
+          participantsSnapshot,
+          conversationParticipantsRemovedNotificationDefinition,
+          {
+            conversationId,
 ```
 
 Implements conversation service.
@@ -208,7 +208,7 @@ export class ConversationServiceTag extends Context.Tag(
 
 Implements conversation service tag.
 
-### [`conversationUpdate`](./handlers.ts#L280)
+### [`conversationUpdate`](./handlers.ts#L260)
 
 _Variable_
 

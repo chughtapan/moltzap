@@ -8,7 +8,7 @@ Code-first simulator API.
 
 ## Public surface
 
-### [`AgentConnection`](./network/router.ts#L124)
+### [`AgentConnection`](./network/router.ts#L120)
 
 _Interface_
 
@@ -49,7 +49,7 @@ export class AgentHandle<
 
 A participant whose autonomous runtime is owned by the run scope.
 
-### [`AgentProcessExited`](./events/core.ts#L86)
+### [`AgentProcessExited`](./events/core.ts#L85)
 
 _Class_
 
@@ -67,7 +67,7 @@ export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()
 
 A roster runtime process terminated with an operating-system exit code.
 
-### [`AgentProcessSignaled`](./events/core.ts#L97)
+### [`AgentProcessSignaled`](./events/core.ts#L96)
 
 _Class_
 
@@ -194,7 +194,7 @@ export interface AgentRuntime<AcquisitionError = never, Requirements = never>
 
 A runtime definition accepted by keyed society rosters.
 
-### [`AgentRuntimeCompleted`](./events/core.ts#L65)
+### [`AgentRuntimeCompleted`](./events/core.ts#L64)
 
 _Class_
 
@@ -246,7 +246,7 @@ export class AgentRuntimeDefinitionError extends Schema.TaggedError<AgentRuntime
 
 Invalid runtime metadata rejected before a run acquires resources.
 
-### [`AgentRuntimeFailed`](./events/core.ts#L75)
+### [`AgentRuntimeFailed`](./events/core.ts#L74)
 
 _Class_
 
@@ -276,7 +276,7 @@ export interface AgentRuntimeInput<Name extends string> {
 
 Router attachment issued to every autonomous runtime implementation.
 
-### [`AgentRuntimeReady`](./events/core.ts#L45)
+### [`AgentRuntimeReady`](./events/core.ts#L44)
 
 _Class_
 
@@ -293,7 +293,7 @@ export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
 
 A roster runtime has acquired its identity and completed readiness.
 
-### [`AgentRuntimeStartFailed`](./events/core.ts#L55)
+### [`AgentRuntimeStartFailed`](./events/core.ts#L54)
 
 _Class_
 
@@ -326,7 +326,7 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`ConversationAddress`](./network/conversation.ts#L39)
+### [`ConversationAddress`](./network/conversation.ts#L38)
 
 _Class_
 
@@ -334,26 +334,22 @@ _Class_
 export class ConversationAddress {
   readonly [conversationAddressTypeId] = conversationAddressTypeId;
 
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly participants: ConversationParticipants;
 
   private constructor(
-    taskId: TaskId,
     conversationId: ConversationId,
     participants: ConversationParticipants,
   ) {
-    this.taskId = taskId;
     this.conversationId = conversationId;
     this.participants = participants;
   }
 
   static [conversationAddressConstruction](
-    taskId: TaskId,
     conversationId: ConversationId,
     participants: ConversationParticipants,
   ): ConversationAddress {
-    return new ConversationAddress(taskId, conversationId, participants);
+    return new ConversationAddress(conversationId, participants);
   }
 }
 ```
@@ -361,7 +357,7 @@ export class ConversationAddress {
 A participant-independent network address. Binding an endpoint produces a
 conversation socket; the address itself never implies a sender.
 
-### [`ConversationOpened`](./events/core.ts#L108)
+### [`ConversationOpened`](./events/core.ts#L107)
 
 _Class_
 
@@ -370,7 +366,6 @@ export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()
   "moltzap.conversation-opened/v1",
   {
     openedBy: agentId,
-    taskId: taskId,
     conversationId: conversationId,
     participants: Schema.NonEmptyArray(agentId),
   },
@@ -379,7 +374,7 @@ export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()
 
 A participant allocated a conversation address for a nonempty group.
 
-### [`ConversationParticipants`](./network/conversation.ts#L30)
+### [`ConversationParticipants`](./network/conversation.ts#L29)
 
 _TypeAlias_
 
@@ -392,7 +387,7 @@ export type ConversationParticipants = readonly [
 
 Every conversation has at least one participant of any network role.
 
-### [`ConversationSocket`](./network/conversation.ts#L107)
+### [`ConversationSocket`](./network/conversation.ts#L99)
 
 _Class_
 
@@ -473,7 +468,7 @@ export class ConversationSocket {
 
 A conversation address bound to exactly one controlled endpoint.
 
-### [`coreEvents`](./events/core.ts#L228)
+### [`coreEvents`](./events/core.ts#L224)
 
 _Variable_
 
@@ -525,14 +520,16 @@ _Interface_
 ```ts
 export interface EffectMessageContext {
   readonly agent: AgentHandle;
-  readonly taskId: TaskId;
+
+  /** Grouping label the sender stamped, present only when one was set. */
+  readonly taskId?: TaskId;
   readonly message: Message;
 }
 ```
 
 Message delivery context passed to ordinary Effect agent code.
 
-### [`EffectMessageReply`](./runtime/effect.ts#L56)
+### [`EffectMessageReply`](./runtime/effect.ts#L58)
 
 _TypeAlias_
 
@@ -542,7 +539,7 @@ export type EffectMessageReply = string | MessageParts;
 
 A message handler reply containing text or structured parts.
 
-### [`effectRuntime`](./runtime/effect.ts#L250)
+### [`effectRuntime`](./runtime/effect.ts#L254)
 
 _Function_
 
@@ -557,7 +554,7 @@ production MoltZap protocol.
 
 **Returns:** Autonomous runtime backed by in-process Effect behavior.
 
-### [`EffectRuntimeOptions`](./runtime/effect.ts#L59)
+### [`EffectRuntimeOptions`](./runtime/effect.ts#L61)
 
 _Interface_
 
@@ -604,7 +601,7 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
 
 The closed encoded union persisted for a catalog.
 
-### [`Endpoint`](./network/endpoint.ts#L56)
+### [`Endpoint`](./network/endpoint.ts#L54)
 
 _Class_
 
@@ -659,7 +656,7 @@ export class Endpoint<Name extends string = string> {
     const addressed = addressedParticipants(this.participant, participants);
     return this.transport.openConversation(ids).pipe(
       Effect.flatMap((opened) =>
-        this.inbox.conversation(opened.taskId, opened.conversationId).pipe(
+        this.inbox.conversation(opened.conversationId).pipe(
           Effect.map((messages) => ({
             messages,
             opened,
@@ -668,7 +665,6 @@ export class Endpoint<Name extends string = string> {
       ),
       Effect.map(({ messages, opened }) => {
         const address = makeConversationAddress(
-          opened.taskId,
           opened.conversationId,
           addressed,
         );
@@ -676,12 +672,7 @@ export class Endpoint<Name extends string = string> {
           this.participant,
           address,
           messages,
-          (content) =>
-            this.transport.send(
-              address.taskId,
-              address.conversationId,
-              content,
-            ),
+          (content) => this.transport.send(address.conversationId, content),
         );
       }),
     );
@@ -700,7 +691,7 @@ export class Endpoint<Name extends string = string> {
     );
     return isParticipant
       ? this.inbox
-          .conversation(address.taskId, address.conversationId)
+          .conversation(address.conversationId)
           .pipe(
             Effect.map((messages) =>
               makeConversationSocket(
@@ -708,11 +699,7 @@ export class Endpoint<Name extends string = string> {
                 address,
                 messages,
                 (content) =>
-                  this.transport.send(
-                    address.taskId,
-                    address.conversationId,
-                    content,
-                  ),
+                  this.transport.send(address.conversationId, content),
               ),
             ),
           )
@@ -728,7 +715,7 @@ export class Endpoint<Name extends string = string> {
 
 A run-scoped participant controlled directly by the experiment program.
 
-### [`EndpointMessageReceived`](./events/core.ts#L131)
+### [`EndpointMessageReceived`](./events/core.ts#L128)
 
 _Class_
 
@@ -737,7 +724,6 @@ export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageR
   "moltzap.endpoint-message-received/v1",
   {
     endpointId: agentId,
-    taskId: taskId,
     conversationId: conversationId,
     messageId: messageId,
     senderId: agentId,
@@ -748,7 +734,7 @@ export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageR
 
 A controlled endpoint received a message through the data plane.
 
-### [`EndpointMessageSent`](./events/core.ts#L119)
+### [`EndpointMessageSent`](./events/core.ts#L117)
 
 _Class_
 
@@ -757,7 +743,6 @@ export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>
   "moltzap.endpoint-message-sent/v1",
   {
     endpointId: agentId,
-    taskId: taskId,
     conversationId: conversationId,
     messageId: messageId,
     parts: messageParts,
@@ -1008,7 +993,7 @@ export interface LinkControllerService {
 
 Run-scoped, evidence-producing directed-link control.
 
-### [`LinkDown`](./events/core.ts#L155)
+### [`LinkDown`](./events/core.ts#L151)
 
 _Class_
 
@@ -1024,7 +1009,7 @@ export class LinkDown extends Schema.TaggedClass<LinkDown>()(
 
 A directed participant link transitioned from available to unavailable.
 
-### [`LinkUp`](./events/core.ts#L164)
+### [`LinkUp`](./events/core.ts#L160)
 
 _Class_
 
@@ -1096,7 +1081,7 @@ export interface NanoclawRuntimeOptions {
 
 Configuration captured by one reusable NanoClaw runtime value.
 
-### [`Network`](./network/endpoint.ts#L197)
+### [`Network`](./network/endpoint.ts#L185)
 
 _Class_
 
@@ -1109,7 +1094,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`NetworkFailure`](./network/router.ts#L50)
+### [`NetworkFailure`](./network/router.ts#L49)
 
 _Class_
 
@@ -1129,7 +1114,7 @@ export class NetworkFailure extends Schema.TaggedError<NetworkFailure>()(
 
 An operational failure at a network boundary.
 
-### [`NetworkService`](./network/endpoint.ts#L190)
+### [`NetworkService`](./network/endpoint.ts#L178)
 
 _Interface_
 
@@ -1214,7 +1199,7 @@ export class ParticipantHandle<Name extends string = string> {
 A router-issued network identity. The hidden symbol prevents structurally
 similar protocol data from being used as an identity handle.
 
-### [`ProgramFailed`](./events/core.ts#L176)
+### [`ProgramFailed`](./events/core.ts#L172)
 
 _Class_
 
@@ -1229,7 +1214,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramInterrupted`](./events/core.ts#L184)
+### [`ProgramInterrupted`](./events/core.ts#L180)
 
 _Class_
 
@@ -1244,7 +1229,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L170)
+### [`ProgramSucceeded`](./events/core.ts#L166)
 
 _Class_
 
@@ -1274,20 +1259,19 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`ReceivedMessage`](./network/router.ts#L76)
+### [`ReceivedMessage`](./network/router.ts#L75)
 
 _Interface_
 
 ```ts
 export interface ReceivedMessage {
-  readonly taskId: TaskId;
   readonly message: Message;
 }
 ```
 
 A message delivered to one attached endpoint.
 
-### [`RouterMessageCommitted`](./events/core.ts#L147)
+### [`RouterMessageCommitted`](./events/core.ts#L143)
 
 _Class_
 
@@ -1303,7 +1287,7 @@ export class RouterMessageCommitted extends Schema.TaggedClass<RouterMessageComm
 The router durably committed one message. Payload content remains an
 endpoint concern so this evidence also works with content-blind routers.
 
-### [`RouterStarted`](./events/core.ts#L21)
+### [`RouterStarted`](./events/core.ts#L20)
 
 _Class_
 
@@ -1318,7 +1302,7 @@ export class RouterStarted extends Schema.TaggedClass<RouterStarted>()(
 
 The run-scoped router is accepting participant connections.
 
-### [`RouterStartFailed`](./events/core.ts#L29)
+### [`RouterStartFailed`](./events/core.ts#L28)
 
 _Class_
 
@@ -1333,7 +1317,7 @@ export class RouterStartFailed extends Schema.TaggedClass<RouterStartFailed>()(
 
 Router acquisition failed before the data plane became available.
 
-### [`RouterStopFailed`](./events/core.ts#L37)
+### [`RouterStopFailed`](./events/core.ts#L36)
 
 _Class_
 
@@ -1361,7 +1345,7 @@ export interface RunningAgent {
 The only post-acquisition lifecycle observation. Completion of this Effect
 records a fact; customer policy decides whether that fact ends the run.
 
-### [`RunStarted`](./events/core.ts#L13)
+### [`RunStarted`](./events/core.ts#L12)
 
 _Class_
 

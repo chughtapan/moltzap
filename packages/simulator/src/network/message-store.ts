@@ -33,7 +33,6 @@ export function messageDatabasePathForVolume(
 const MESSAGES_QUERY = `
   SELECT
     id AS "messageId",
-    task_id AS "taskId",
     conversation_id AS "conversationId",
     sender_id AS "senderId",
     seq::double precision AS "routerSequence"

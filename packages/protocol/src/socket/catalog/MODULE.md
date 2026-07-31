@@ -12,7 +12,7 @@ server-core, conformance, and generated protocol reference docs.
 
 ## Public surface
 
-### [`agentCallableGroup`](./index.ts#L141)
+### [`agentCallableGroup`](./index.ts#L130)
 
 _Variable_
 
@@ -24,7 +24,7 @@ export const agentCallableGroup = makeRpcGroup(
 
 Effect RPC group for all agent-callable methods.
 
-### [`agentCallableMethods`](./index.ts#L57)
+### [`agentCallableMethods`](./index.ts#L49)
 
 _Variable_
 
@@ -32,7 +32,6 @@ _Variable_
 export const agentCallableMethods = [
   ...identityRpcMethods,
   ...agentCallableNetworkRpcMethods,
-  ...agentCallableTaskRpcMethods,
   ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...agentCallableDispatchRpcMethods,
@@ -41,7 +40,7 @@ export const agentCallableMethods = [
 
 Client-to-server descriptors an agent principal may originate.
 
-### [`AnyAgentCallableRpcDefinition`](./index.ts#L105)
+### [`AnyAgentCallableRpcDefinition`](./index.ts#L94)
 
 _TypeAlias_
 
@@ -52,7 +51,7 @@ export type AnyAgentCallableRpcDefinition =
 
 Any descriptor an agent client may call.
 
-### [`AnyAppCallableRpcDefinition`](./index.ts#L109)
+### [`AnyAppCallableRpcDefinition`](./index.ts#L98)
 
 _TypeAlias_
 
@@ -62,7 +61,7 @@ export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
 
 Any descriptor an app client may call.
 
-### [`AnyAppCallbackRpcDefinition`](./index.ts#L112)
+### [`AnyAppCallbackRpcDefinition`](./index.ts#L101)
 
 _TypeAlias_
 
@@ -72,7 +71,7 @@ export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 
 Any callback descriptor the server may call on an app client.
 
-### [`AnyNotificationDefinition`](./index.ts#L115)
+### [`AnyNotificationDefinition`](./index.ts#L104)
 
 _TypeAlias_
 
@@ -83,7 +82,7 @@ export type AnyNotificationDefinition =
 
 Any server-to-client notification descriptor.
 
-### [`AnyServerRpcDefinition`](./index.ts#L102)
+### [`AnyServerRpcDefinition`](./index.ts#L91)
 
 _TypeAlias_
 
@@ -93,7 +92,7 @@ export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 
 Any client-to-server descriptor the server handles.
 
-### [`appCallableGroup`](./index.ts#L146)
+### [`appCallableGroup`](./index.ts#L135)
 
 _Variable_
 
@@ -105,7 +104,7 @@ export const appCallableGroup = makeRpcGroup(
 
 Effect RPC group for all app-callable methods.
 
-### [`appCallableMethods`](./index.ts#L69)
+### [`appCallableMethods`](./index.ts#L60)
 
 _Variable_
 
@@ -118,7 +117,7 @@ export const appCallableMethods = [
 
 Client-to-server descriptors an app principal may originate.
 
-### [`appCallbackMethods`](./index.ts#L42)
+### [`appCallbackMethods`](./index.ts#L36)
 
 _Variable_
 
@@ -126,20 +125,18 @@ _Variable_
 export const appCallbackMethods = [
   ...dispatchCallbackMethods,
   ...messageCallbackMethods,
-  ...taskCallbackMethods,
 ] as const
 ```
 
 Server-to-app callback descriptors the app client must serve.
 
-### [`notificationDefinitions`](./index.ts#L93)
+### [`notificationDefinitions`](./index.ts#L83)
 
 _Variable_
 
 ```ts
 export const notificationDefinitions = [
   ...networkNotifications,
-  ...taskNotifications,
   ...conversationNotifications,
   ...messageNotifications,
   ...dispatchNotifications,
@@ -148,7 +145,7 @@ export const notificationDefinitions = [
 
 Every server-to-client notification descriptor.
 
-### [`notificationRpcGroup`](./index.ts#L156)
+### [`notificationRpcGroup`](./index.ts#L145)
 
 _Variable_
 
@@ -163,7 +160,7 @@ as a fire-and-forget `void`-result RPC on a target connection's reverse
 channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`.
 
-### [`reverseRpcGroup`](./index.ts#L171)
+### [`reverseRpcGroup`](./index.ts#L160)
 
 _Variable_
 
@@ -184,7 +181,7 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked; an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`ServerHandler`](./index.ts#L137)
+### [`ServerHandler`](./index.ts#L126)
 
 _TypeAlias_
 
@@ -194,7 +191,7 @@ export type ServerHandler<D extends AnyServerRpcDefinition> =
 
 Handler type for one inbound RPC descriptor.
 
-### [`ServerHandlers`](./index.ts#L132)
+### [`ServerHandlers`](./index.ts#L121)
 
 _TypeAlias_
 
@@ -206,7 +203,7 @@ export type ServerHandlers = RpcGroup.HandlersFrom<
 
 Complete server handler table keyed by every inbound RPC tag.
 
-### [`serverInboundGroup`](./index.ts#L125)
+### [`serverInboundGroup`](./index.ts#L114)
 
 _Variable_
 
@@ -218,7 +215,7 @@ export const serverInboundGroup = makeRpcGroup(
 
 Effect RPC group for all client-to-server calls accepted by the server.
 
-### [`serverInboundMethods`](./index.ts#L80)
+### [`serverInboundMethods`](./index.ts#L71)
 
 _Variable_
 
@@ -226,7 +223,6 @@ _Variable_
 export const serverInboundMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
-  ...agentCallableTaskRpcMethods,
   ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...appOnlyCallableMethods,

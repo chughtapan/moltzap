@@ -38,6 +38,7 @@ import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 export {
   testAgentId,
   testConversationId,
+  testDispatchId,
   testLeaseId,
   testMessageId,
   testTaskId,

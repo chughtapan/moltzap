@@ -1,7 +1,7 @@
 /**
  * @file Conversation RPC descriptors and notifications.
  */
-// safer-arch-ignore no-cross-domain-sibling-import: Conversation descriptors carry task identifiers and task-not-found failures as part of their public wire contract.
+// safer-arch-ignore no-cross-domain-sibling-import: Conversation descriptors echo the opaque task label as part of their public wire contract.
 
 import { Schema } from "effect";
 import { agentId, AgentNotFoundError } from "#identity/agents";
@@ -14,15 +14,13 @@ import {
   stringEnum,
 } from "#transport";
 import { defineNotification, defineRpc } from "#transport/descriptor";
-import { ConversationInTask } from "#conversation/requirements";
-import { taskId, TaskNotFoundError } from "../task/ids.js";
+import { taskId } from "../task/ids.js";
 import { appId } from "#identity/apps";
 import {
   ConversationFullError,
   conversationId,
   conversationSchema,
   ConversationNotFoundError,
-  ParticipantNotAdmittedError,
 } from "./types.js";
 import { conversationNameSchema } from "./name.js";
 
@@ -61,37 +59,24 @@ export const agentConversationCreate = defineRpc({
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * App-only: mint a new conversation under an existing task. Every
- * entry in `participants` MUST already appear in `task_participants`
- * for `taskId`; violations return `ParticipantNotAdmittedError`.
+ * App-only: mint a conversation the calling app authorizes. The
+ * conversation's app routing key is the caller's own `appId`.
  *
- * - **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
- *   handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
- *   non-owner before the body); the server handler performs capacity-only
- *   authorization inline, and targets are gated by
- *   `requireAgentsAreInTaskParticipants`.
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist
+ * - **Principal:** `AppPrincipal` head. The server handler performs
+ *   capacity-only authorization inline.
+ * @error ForbiddenError when the caller may not create the conversation
  * @error AgentNotFoundError when a listed participant agent does not exist
- * @error ParticipantNotAdmittedError when a participant is not admitted to the task
  * @error ConversationFullError when the conversation is at capacity
  */
 export const conversationCreate = defineRpc({
   name: "app/conversation/create",
   params: Schema.Struct({
-    taskId: taskId,
     name: Schema.optional(conversationNameSchema),
     participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
   }),
   result: Schema.Struct({ conversation: conversationSchemaValue }),
   requires: [AppPrincipal],
-  errors: [
-    ForbiddenError,
-    TaskNotFoundError,
-    AgentNotFoundError,
-    ParticipantNotAdmittedError,
-    ConversationFullError,
-  ],
+  errors: [ForbiddenError, AgentNotFoundError, ConversationFullError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -99,7 +84,7 @@ export const conversationCreate = defineRpc({
 // ═══════════════════════════════════════════════════════════════════
 
 const conversationListItemSchema = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   conversation: conversationSchemaValue,
   participants: Schema.Array(agentId),
 });
@@ -110,8 +95,8 @@ export type ConversationListItem = Schema.Schema.Type<
 >;
 
 /**
- * Self-only listing of every conversation the caller participates in (across
- * all tasks). No filter params: the visibility contract is "caller in
+ * Self-only listing of every conversation the caller participates in. No
+ * filter params: the visibility contract is "caller in
  * `conversation_participants`", and any further narrowing is the endpoint's.
  *
  * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
@@ -135,13 +120,11 @@ export const conversationList = defineRpc({
 const conversationUpdateParamsSchema = Schema.Union(
   Schema.Struct({
     action: Schema.Literal("add-participant"),
-    taskId: taskId,
     conversationId: conversationId,
     agentId: agentId,
   }),
   Schema.Struct({
     action: Schema.Literal("remove-participant"),
-    taskId: taskId,
     conversationId: conversationId,
     agentId: agentId,
   }),
@@ -156,25 +139,17 @@ export type ConversationUpdateParams = Schema.Schema.Type<
  * App-only conversation mutation surface. `app/conversation/update` owns
  * participant add and participant remove semantics.
  *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask`.
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist or is not open
- * @error ConversationNotFoundError when the conversation does not exist under the task
- * @error ParticipantNotAdmittedError when the agent is not admitted to the task
+ * - **Principal:** `AppPrincipal` head.
+ * @error ForbiddenError when the caller does not own the conversation
+ * @error ConversationNotFoundError when the conversation does not exist
  * @error ConversationFullError when adding the agent would exceed capacity
  */
 export const conversationUpdate = defineRpc({
   name: "app/conversation/update",
   params: conversationUpdateParamsSchema,
   result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [
-    ForbiddenError,
-    TaskNotFoundError,
-    ConversationNotFoundError,
-    ParticipantNotAdmittedError,
-    ConversationFullError,
-  ],
+  requires: [AppPrincipal],
+  errors: [ForbiddenError, ConversationNotFoundError, ConversationFullError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -185,26 +160,29 @@ export const conversationUpdate = defineRpc({
 //   - `participants/added` → post-mutation membership (newcomer included)
 //   - `participants/removed` → pre-mutation membership (so the removed agent
 //     still receives the notification)
+//
+// `taskId` is the opaque endpoint label echoed back when the creator pinned
+// one; conversations without a label omit it.
 // ═══════════════════════════════════════════════════════════════════
 
 const conversationCreatedNotificationSchema = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   name: Schema.optional(Schema.String),
   participants: Schema.Array(agentId),
 });
 
 const conversationParticipantsAddedNotificationSchema = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   addedAgentId: agentId,
 });
 
 const conversationParticipantsRemovedNotificationSchema = Schema.Struct({
-  taskId: taskId,
+  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   removedAgentId: agentId,
-  reason: stringEnum(["app_remove", "task_leave"]),
+  reason: stringEnum(["app_remove"]),
 });
 
 /** Notification payload for `agent/conversation/created`. */
@@ -222,20 +200,20 @@ export type ConversationParticipantsRemovedNotification = Schema.Schema.Type<
   typeof conversationParticipantsRemovedNotificationSchema
 >;
 
-/** Pushed when a task conversation is created. */
+/** Pushed when a conversation is created. */
 export const conversationCreatedNotificationDefinition = defineNotification({
   name: "agent/conversation/created",
   params: conversationCreatedNotificationSchema,
 });
 
-/** Pushed when a participant is added to a task conversation. */
+/** Pushed when a participant is added to a conversation. */
 export const conversationParticipantsAddedNotificationDefinition =
   defineNotification({
     name: "agent/conversation/participants-added",
     params: conversationParticipantsAddedNotificationSchema,
   });
 
-/** Pushed when a participant is removed from a task conversation. */
+/** Pushed when a participant is removed from a conversation. */
 export const conversationParticipantsRemovedNotificationDefinition =
   defineNotification({
     name: "agent/conversation/participants-removed",

@@ -7,7 +7,7 @@ Agent authentication, app authentication, and app endpoint registration.
 | Direction | Allowed |
 |---|---|
 | Imports FROM | db, core, socket, protocol identity |
-| Imports TO   | network, task, conversation, message, dispatch |
+| Imports TO   | network, conversation, message, dispatch |
 
 ## Files
 

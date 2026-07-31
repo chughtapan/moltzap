@@ -29,7 +29,6 @@ const manifestIsInvalid = (manifest: unknown): boolean =>
 const OPEN_HOOKS = {
   dispatch_authorize: { kind: "grant" },
   message_authorize: { kind: "forwardAllExceptSender" },
-  task_create: { kind: "accept" },
 } as const;
 
 const minimalManifestArbitrary = fc.record({
@@ -39,7 +38,7 @@ const minimalManifestArbitrary = fc.record({
 });
 
 describe("AppManifestSchema required shape", () => {
-  it("accepts a manifest with all three policies declared", () => {
+  it("accepts a manifest with both policies declared", () => {
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
@@ -63,7 +62,7 @@ describe("AppManifestSchema required shape", () => {
     expect(manifestIsValid(manifest)).toBe(true);
   });
 
-  it("accepts generated manifests with all policies declared", () => {
+  it("accepts generated manifests with both policies declared", () => {
     const property = fc.property(minimalManifestArbitrary, manifestIsValid);
     fc.assert(property, { numRuns: MANIFEST_PROPERTY_RUNS });
     expect(manifestIsValid({ appId: "", name: "", hooks: OPEN_HOOKS })).toBe(
@@ -84,10 +83,7 @@ describe("AppManifestSchema required shape", () => {
       manifestIsInvalid({
         appId: "test",
         name: "Test",
-        hooks: {
-          dispatch_authorize: { kind: "grant" },
-          message_authorize: { kind: "forwardAllExceptSender" },
-        },
+        hooks: { dispatch_authorize: { kind: "grant" } },
       }),
     ).toBe(true);
   });
@@ -171,11 +167,10 @@ describe("AppManifestSchema hook policies", () => {
     );
   });
 
-  it("accepts the static deny / reject policies with a reason", () => {
+  it("accepts the static deny policies with a reason", () => {
     const hooks = {
       dispatch_authorize: { kind: "deny", reason: "closed" },
       message_authorize: { kind: "deny", reason: "muted" },
-      task_create: { kind: "reject", reason: "not recruiting" },
     };
     expect(manifestIsValid(manifestWithHooks(hooks))).toBe(true);
   });
@@ -184,7 +179,6 @@ describe("AppManifestSchema hook policies", () => {
     const hooks = {
       dispatch_authorize: { kind: "hook", timeoutMs: 3000 },
       message_authorize: { kind: "hook", timeoutMs: 3000 },
-      task_create: { kind: "hook", timeoutMs: 3000 },
     };
     expect(manifestIsValid(manifestWithHooks(hooks))).toBe(true);
   });

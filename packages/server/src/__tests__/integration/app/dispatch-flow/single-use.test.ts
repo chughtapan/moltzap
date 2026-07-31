@@ -2,7 +2,7 @@
  * Dispatch admission single-use lease behavior.
  */
 import { it as effectIt } from "@effect/vitest";
-import { taskUpdate } from "@moltzap/protocol/task";
+import { conversationUpdate } from "@moltzap/protocol/conversation";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
@@ -149,17 +149,19 @@ function grantedLeaseIsSingleUse() {
 function rejectedSendLeavesLeaseGranted() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    // The moderated path binds the task to the fixture's app connection.
-    // Closing the task from that app client makes the send guard reject the
-    // subsequent agent/message/send before the lease is claimed.
+    // The moderated path routes the conversation to the fixture's app
+    // connection. Evicting the sender from that app client makes the
+    // `ConversationSendAccess` gate reject the subsequent agent/message/send
+    // before the lease is claimed.
     const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "probe",
     );
-    yield* moderatorAppClient().sendRpc(taskUpdate, {
-      action: "close",
-      taskId: binding.taskId,
+    yield* moderatorAppClient().sendRpc(conversationUpdate, {
+      action: "remove-participant",
+      conversationId: binding.conversationId,
+      agentId: bob.agentId,
     });
 
     const sendResult = yield* sendWithLeaseRejected(

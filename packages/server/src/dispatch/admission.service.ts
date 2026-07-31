@@ -10,11 +10,11 @@ import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { TaskId } from "@moltzap/protocol/task";
 import type { NetworkSendServiceTag } from "#network";
 import {
   callAppRpc,
   type AppEndpointRegistry,
+  type AppRegistration,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
 import { type Db, catchSqlErrorAsDefect, takeFirstOption } from "#db";
@@ -29,7 +29,6 @@ export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 
 interface AppBoundConversationLookup {
   readonly _tag: "AppBound";
-  readonly taskId: TaskId;
   readonly appId: AppId;
 }
 
@@ -50,7 +49,7 @@ function lookupAppBoundForConversation(
       const rowOpt = yield* takeFirstOption(
         db
           .selectFrom("conversations")
-          .select(["conversations.task_id", "conversations.app_id"])
+          .select(["conversations.app_id"])
           .where("conversations.id", "=", conversationId)
           .where("conversations.app_id", "is not", null)
           .limit(1),
@@ -62,7 +61,6 @@ function lookupAppBoundForConversation(
       }
       const lookup: AppBoundConversationLookup = {
         _tag: "AppBound",
-        taskId: rowOpt.value.task_id,
         appId: rowOpt.value.app_id,
       };
       return lookup;
@@ -234,7 +232,6 @@ export class DispatchAdmissionService {
       recipientConnectionId: args.recipientConnectionId,
       conversationId: args.conversationId,
       appId: lookup.appId,
-      taskId: lookup.taskId,
       moderatorConnectionId: entry.endpoint.connId,
     });
   }
@@ -296,7 +293,6 @@ export class DispatchAdmissionService {
           senderAgentId: params.senderAgentId,
           parts: params.parts,
         },
-        taskId: lookup.taskId,
         appId: lookup.appId,
         attempt: params.attempt ?? 0,
         receivedAt: params.receivedAt,
@@ -371,29 +367,13 @@ export class DispatchAdmissionService {
           decision: "deny",
           reason: policy.reason,
         });
-      case "hook": {
-        const taskId = ctx.taskId;
-        const timeoutMs = policy.timeoutMs;
-        return wrapHookEffectWithEnvelope({
-          raw: callAppRpc(entry, {
-            definition: dispatchAuthorize,
-            params: this.dispatchAuthorizeParamsForWire(ctx),
-          }).pipe(Effect.map((envelope) => envelope.admission)),
-          timeoutMs,
-          timeoutLogMessage: "app/dispatch/authorize timed out",
-          timeoutLogContext: { taskId, appId, timeoutMs },
-          errorLogMessage: "app/dispatch/authorize error",
-          errorLogContext: { taskId, appId },
-          onTimeout: () => ({
-            decision: "deny",
-            reason: "timeout",
-          }),
-          onError: () => ({
-            decision: "deny",
-            reason: "app/dispatch/authorize error",
-          }),
-        });
-      }
+      case "hook":
+        return this.dispatchAuthorizeViaHook(
+          appId,
+          ctx,
+          entry,
+          policy.timeoutMs,
+        );
       default: {
         const exhaustive: never = policy;
         return exhaustive;
@@ -401,11 +381,50 @@ export class DispatchAdmissionService {
     }
   }
 
+  /**
+   * Round-trip the app's `dispatch_authorize` hook. Fails closed: an
+   * unreachable app, a timeout, or a handler error all deny admission.
+   * @param appId Value supplied to the operation.
+   * @param ctx Value supplied to the operation.
+   * @param entry Value supplied to the operation.
+   * @param timeoutMs Value supplied to the operation.
+   * @returns The dispatch admission result.
+   */
+  private dispatchAuthorizeViaHook(
+    appId: AppId,
+    ctx: DispatchAuthorizeContext,
+    entry: AppRegistration,
+    timeoutMs: number,
+  ): Effect.Effect<DispatchAdmissionResult> {
+    return wrapHookEffectWithEnvelope({
+      raw: callAppRpc(entry, {
+        definition: dispatchAuthorize,
+        params: this.dispatchAuthorizeParamsForWire(ctx),
+      }).pipe(Effect.map((envelope) => envelope.admission)),
+      timeoutMs,
+      timeoutLogMessage: "app/dispatch/authorize timed out",
+      timeoutLogContext: {
+        conversationId: ctx.conversationId,
+        appId,
+        timeoutMs,
+      },
+      errorLogMessage: "app/dispatch/authorize error",
+      errorLogContext: { conversationId: ctx.conversationId, appId },
+      onTimeout: () => ({
+        decision: "deny",
+        reason: "timeout",
+      }),
+      onError: () => ({
+        decision: "deny",
+        reason: "app/dispatch/authorize error",
+      }),
+    });
+  }
+
   private dispatchAuthorizeParamsForWire(
     ctx: DispatchAuthorizeContext,
   ): ParamsOf<typeof dispatchAuthorize> {
     return {
-      taskId: ctx.taskId,
       appId: ctx.appId,
       conversationId: ctx.conversationId,
       recipient: ctx.recipient,

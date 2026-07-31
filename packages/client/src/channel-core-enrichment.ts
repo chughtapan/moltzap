@@ -21,7 +21,7 @@ interface EnrichmentContext {
 interface EnrichedMessageInput {
   readonly service: ChannelService;
   readonly message: Message;
-  readonly taskId: TaskId;
+  readonly taskId?: TaskId;
   readonly senderName: string;
   readonly coalesced: readonly CoalescedMessage[];
   readonly context: EnrichmentContext;
@@ -170,7 +170,7 @@ function buildEnrichedInboundMessage({
 }: EnrichedMessageInput): EnrichedInboundMessage {
   return {
     id: message.id,
-    taskId,
+    ...(taskId === undefined ? {} : { taskId }),
     conversationId: message.conversationId,
     sender: {
       id: message.senderId,
@@ -190,14 +190,15 @@ function buildEnrichedInboundMessage({
 /**
  * Executes the enrich channel message operation.
  * @param service Value supplied to the operation.
- * @param taskId Value supplied to the operation.
  * @param messageOrMessages Value supplied to the operation.
+ * @param labels Grouping labels carried alongside the message.
+ * @param labels.taskId Value supplied to the operation.
  * @returns The enrich channel message result.
  */
 export function enrichChannelMessage(
   service: ChannelService,
-  taskId: TaskId,
   messageOrMessages: Message | readonly Message[],
+  labels: { readonly taskId?: TaskId } = {},
 ): Effect.Effect<{
   enriched: EnrichedInboundMessage;
   commitContext?: () => void;
@@ -225,7 +226,7 @@ export function enrichChannelMessage(
       enriched: buildEnrichedInboundMessage({
         service,
         message,
-        taskId,
+        ...(labels.taskId === undefined ? {} : { taskId: labels.taskId }),
         senderName,
         coalesced,
         context,

@@ -8,7 +8,8 @@ import {
   registerAndConnect,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
 const TEST_GROUP_NAME = "Test Group";
@@ -28,29 +29,19 @@ it("create group, send messages, verify seq monotonicity", () =>
     const eve = yield* registerAndConnect("eve-grp");
 
     // Alice creates a group (3+ participants ⇒ "group", not "dm")
-    const conv = yield* alice.client.sendRpc(taskRequest, {
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId, eve.agentId],
-      initialConversation: {
-        name: TEST_GROUP_NAME,
-        participants: [bob.agentId, eve.agentId],
-      },
+      name: TEST_GROUP_NAME,
+      participants: [bob.agentId, eve.agentId],
     });
 
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.name,
-    ).toBe(TEST_GROUP_NAME);
+    expect(conv.conversation.name).toBe(TEST_GROUP_NAME);
 
-    const taskId = conv.task.id;
-    const conversationId =
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id;
+    const conversationId = conv.conversation.id;
 
     // Alice sends multiple messages
     for (let i = 0; i < 3; i++) {
       yield* alice.client.sendRpc(messagesSend, {
-        taskId,
         conversationId,
         parts: [{ type: "text", text: `Message ${i + 1}` }],
       });
@@ -58,7 +49,6 @@ it("create group, send messages, verify seq monotonicity", () =>
 
     // List messages
     const messages = yield* alice.client.sendRpc(messagesList, {
-      taskId,
       conversationId,
     });
 

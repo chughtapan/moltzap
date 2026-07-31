@@ -10,7 +10,8 @@ import {
   textOfPart,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   messageReceivedNotificationDefinition,
   messagesList,
@@ -31,15 +32,11 @@ it("message with multiple text parts preserves all parts in order", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(taskRequest, {
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
+      participants: [bob.agentId],
     });
-    const taskId = conv.task.id;
-    const conversationId =
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id;
+    const conversationId = conv.conversation.id;
 
     const parts = [
       { type: "text" as const, text: PART_ONE_TEXT },
@@ -52,7 +49,6 @@ it("message with multiple text parts preserves all parts in order", () =>
     );
 
     const sendResult = yield* alice.client.sendRpc(messagesSend, {
-      taskId,
       conversationId,
       parts,
     });
@@ -70,7 +66,6 @@ it("message with multiple text parts preserves all parts in order", () =>
 
     // Verify via message listing
     const history = yield* bob.client.sendRpc(messagesList, {
-      taskId,
       conversationId,
     });
     expect(history.messages).toHaveLength(1);

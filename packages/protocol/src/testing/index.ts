@@ -33,8 +33,6 @@ export {
 // descriptor-level helpers only.
 /** Re-exports the public API from `#transport/descriptor`. */
 export { decodeRpcResult } from "#transport/descriptor";
-/** Re-exports the public API from `#task`. */
-export { taskFailedNotificationDefinition } from "#task";
 /** Re-exports the public API from `./wire-error-tags.js`. */
 export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 

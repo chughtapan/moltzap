@@ -48,7 +48,9 @@ export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeSt
 /** Message delivery context passed to ordinary Effect agent code. */
 export interface EffectMessageContext {
   readonly agent: AgentHandle;
-  readonly taskId: TaskId;
+
+  /** Grouping label the sender stamped, present only when one was set. */
+  readonly taskId?: TaskId;
   readonly message: Message;
 }
 
@@ -91,11 +93,13 @@ function sendReply(
     return Effect.void;
   }
   const parts = replyParts(reply);
+  // The reply re-stamps whatever grouping label the inbound message carried,
+  // so an endpoint convention survives a round trip through this runtime.
   return client
     .callDefinition(messagesSend, {
-      taskId: incoming.taskId,
       conversationId: incoming.message.conversationId,
       parts,
+      ...(incoming.taskId === undefined ? {} : { taskId: incoming.taskId }),
     })
     .pipe(Effect.asVoid);
 }
@@ -108,7 +112,7 @@ function handleMessage<E, R>(
 ) {
   return onMessage({
     agent: input.connection.agent,
-    taskId: incoming.taskId,
+    ...(incoming.taskId === undefined ? {} : { taskId: incoming.taskId }),
     message: incoming.message,
   }).pipe(Effect.flatMap((reply) => sendReply(client, incoming, reply)));
 }

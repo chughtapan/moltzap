@@ -8,7 +8,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](./connection.ts#L112)
+### [`AgentConnection`](./connection.ts#L101)
 
 _Interface_
 
@@ -68,7 +68,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`AppConnection`](./connection.ts#L118)
+### [`AppConnection`](./connection.ts#L107)
 
 _Interface_
 
@@ -94,7 +94,7 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 
 Implements app context.
 
-### [`Connection`](./connection.ts#L128)
+### [`Connection`](./connection.ts#L117)
 
 _TypeAlias_
 
@@ -107,7 +107,7 @@ export type Connection =
 
 The three-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L232)
+### [`ConnectionManager`](./connection.ts#L221)
 
 _Class_
 
@@ -274,7 +274,7 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`Originator`](./connection.ts#L77)
+### [`Originator`](./connection.ts#L66)
 
 _TypeAlias_
 
@@ -319,7 +319,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`sendRpcToClient`](./connection.ts#L30)
+### [`sendRpcToClient`](./connection.ts#L29)
 
 _Function_
 
@@ -345,7 +345,7 @@ from the live `AppConnection` arm. Caller controls timeout via
 
 **Returns:** The send rpc to client result.
 
-### [`TransitionOutcome`](./connection.ts#L139)
+### [`TransitionOutcome`](./connection.ts#L128)
 
 _TypeAlias_
 
@@ -359,7 +359,7 @@ success arms are split per minted arm so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](./connection.ts#L106)
+### [`UnauthenticatedConnection`](./connection.ts#L95)
 
 _Interface_
 
@@ -373,7 +373,7 @@ class UnauthenticatedConnection extends Data.TaggedClass(
 
 Re-exports the public API from `current module`.
 
-### [`WebSocketRef`](./connection.ts#L82)
+### [`WebSocketRef`](./connection.ts#L71)
 
 _Interface_
 

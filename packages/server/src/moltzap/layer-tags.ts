@@ -1,7 +1,7 @@
 /**
  * Per-layer Tag allowlists. The hierarchy mirrors the protocol layer stack:
  *
- *   transport ─ identity ─ network ─ task + conversation + message ─ app.
+ *   transport ─ identity ─ network ─ conversation + message ─ app.
  *
  * Each layer's allowlist is a superset of the layer below: any Tag legal at
  * layer L is legal at every layer above L. Adding a Tag to a layer's
@@ -34,7 +34,6 @@ import type { AgentEndpointResolverTag, NetworkSendServiceTag } from "#network";
 import type { ConversationServiceTag } from "#conversation";
 import type { DispatchAdmissionServiceTag, LeaseRegistryTag } from "#dispatch";
 import type { MessageServiceTag } from "#message";
-import type { TaskAuthorizationServiceTag, TaskServiceTag } from "#task";
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.
@@ -63,18 +62,16 @@ type NetworkTags =
   | NetworkSendServiceTag;
 
 /**
- * Task-layer allowlist: conversations, messages, tasks.
+ * Conversation-layer allowlist: conversations and messages.
  * Includes `LeaseRegistryTag` for message dispatch leases and
  * `AppAuthServiceTag` for the app connect arm. The connect handler runs at
  * this tier because it pulls cross-cutting services spanning network
  * connections and conversation resolution.
  */
-type TaskTags =
+type ConversationTags =
   | NetworkTags
   | MessageServiceTag
   | ConversationServiceTag
-  | TaskServiceTag
-  | TaskAuthorizationServiceTag
   | LeaseRegistryTag
   | AppAuthServiceTag;
 
@@ -82,7 +79,7 @@ type TaskTags =
  * App-layer allowlist: dispatch admission and connected app registration.
  */
 export type AppTags =
-  | TaskTags
+  | ConversationTags
   | AppEndpointRegistryTag
   | DispatchAdmissionServiceTag;
 

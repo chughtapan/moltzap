@@ -17,7 +17,7 @@ testing helpers live behind focused package subpaths.
 
 ## Public surface
 
-### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L42)
+### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L40)
 
 _Interface_
 
@@ -31,7 +31,7 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L74)
+### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L72)
 
 _Interface_
 
@@ -46,7 +46,7 @@ export interface AppClientOptions {
 
 Configures app client.
 
-### [`ConnectResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L111)
+### [`ConnectResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L106)
 
 _TypeAlias_
 
@@ -56,7 +56,7 @@ export type ConnectResult = ResultOf<typeof agentConnect>;
 
 Represents the result of connect.
 
-### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L49)
+### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L47)
 
 _Class_
 
@@ -96,7 +96,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L82)
+### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L80)
 
 _Class_
 
@@ -136,7 +136,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 
 Implements molt zap app client.
 
-### [`MoltZapServer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L308)
+### [`MoltZapServer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L293)
 
 _Class_
 
@@ -264,7 +264,7 @@ export class MoltZapServer<
 
 Implements molt zap server.
 
-### [`MoltZapServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L69)
+### [`MoltZapServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L63)
 
 _Interface_
 
@@ -294,7 +294,7 @@ export interface MoltZapServerOptions<
 
 Configures molt zap server.
 
-### [`MoltZapServerSession`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L54)
+### [`MoltZapServerSession`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L48)
 
 _Interface_
 
@@ -310,7 +310,7 @@ export interface MoltZapServerSession {
 
 Describes molt zap server session.
 
-### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L90)
+### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L85)
 
 _Interface_
 

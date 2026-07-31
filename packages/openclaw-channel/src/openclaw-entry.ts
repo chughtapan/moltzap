@@ -49,17 +49,20 @@ import {
   conversationList,
 } from "@moltzap/protocol/conversation";
 import type { ResultOf } from "@moltzap/protocol/rpc";
-import { TaskClosedError, type TaskId, taskId } from "@moltzap/protocol/task";
+import { HookBlockedError, type TaskId, taskId } from "@moltzap/protocol/task";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 
 const CHANNEL_ID = "moltzap";
 const TARGET_PREFIX_AGENT = "agent:";
+const TARGET_PREFIX_CONVERSATION = "conv:";
 const TARGET_PREFIX_TASK = "task:";
+const TARGET_HINT =
+  'Use "agent:<name>" for DMs or "conv:<conversationId>" for existing conversations';
 const INBOUND_LOG_PREVIEW_CHARS = 80;
 const BODY_FOR_AGENT_LOG_PREVIEW_CHARS = 500;
 const OUTBOUND_LOG_PREVIEW_CHARS = 80;
 
-const MOLTZAP_TARGET_RE = /^(agent:.+|task:[^:]+:.+)$/;
+const MOLTZAP_TARGET_RE = /^(agent:.+|conv:[^:]+|task:[^:]+:.+)$/;
 const openClawContextLogDir = Config.option(
   Config.string("MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"),
 );
@@ -360,35 +363,45 @@ function logOutboundReply(
   });
 }
 
-function isTaskClosedRpcError(err: unknown): err is TaskClosedError {
-  return err instanceof TaskClosedError;
+function isTerminalSendRejection(err: unknown): err is HookBlockedError {
+  return err instanceof HookBlockedError;
 }
 
+/**
+ * Project a failed reply into the deliver contract's boolean. An app hook
+ * block is the server's final verdict on this message, so the reply is
+ * reported as handled and never retried; every other failure is transient
+ * from the plugin's side and reports not-delivered so the host may retry.
+ * @param conversationId Value supplied to the operation.
+ * @param err Error to inspect.
+ * @param log Value supplied to the operation.
+ * @returns Whether the reply is considered handled.
+ */
 function handleReplyFailure(
   conversationId: string,
   err: unknown,
   log?: OpenClawLogger,
 ): Effect.Effect<boolean> {
   return Effect.sync(() => {
-    if (isTaskClosedRpcError(err)) {
+    if (isTerminalSendRejection(err)) {
       log?.warn?.(
         {
           conversationId,
           tag: err._tag,
           msg: err.message,
         },
-        "MoltZap: send rejected; task closed, dropping without retry",
+        "MoltZap: send rejected by an app hook, dropping without retry",
       );
       return true;
     }
-    log?.error?.(`MoltZap: failed to send reply: ${err}`);
+    log?.error?.(`MoltZap: failed to send reply to ${conversationId}: ${err}`);
     return false;
   });
 }
 
 function sendDeliveredReply(params: {
   readonly core: MoltZapChannelCore;
-  readonly taskId: TaskId;
+  readonly taskId?: TaskId;
   readonly conversationId: ConversationId;
   readonly text: string;
   readonly leaseId?: LeaseId;
@@ -397,14 +410,12 @@ function sendDeliveredReply(params: {
   readonly guard: LeaseGuard;
 }): Effect.Effect<boolean> {
   return params.core
-    .sendReply(
-      params.taskId,
-      params.conversationId,
-      params.text,
-      params.leaseId !== undefined
-        ? { dispatchLeaseId: params.leaseId }
-        : undefined,
-    )
+    .sendReply(params.conversationId, params.text, {
+      ...(params.leaseId === undefined
+        ? {}
+        : { dispatchLeaseId: params.leaseId }),
+      ...(params.taskId === undefined ? {} : { taskId: params.taskId }),
+    })
     .pipe(
       catchLeaseInvalid(
         params.leaseId !== undefined ? { leaseId: params.leaseId } : undefined,
@@ -487,7 +498,9 @@ function createLeaseConsumingDeliver(params: {
         }
         return yield* sendDeliveredReply({
           core: params.core,
-          taskId: params.enriched.taskId,
+          ...(params.enriched.taskId === undefined
+            ? {}
+            : { taskId: params.enriched.taskId }),
           conversationId: params.enriched.conversationId,
           text,
           leaseId: params.enriched.dispatchLeaseId,
@@ -498,6 +511,19 @@ function createLeaseConsumingDeliver(params: {
       }),
     );
   };
+}
+
+/**
+ * Render the reply-to target for an inbound message. A message carrying a
+ * task label round-trips through the `task:` form so the reply keeps the
+ * sender's grouping; everything else addresses the conversation directly.
+ * @param enriched Value supplied to the operation.
+ * @returns The originating target string.
+ */
+function originatingTarget(enriched: EnrichedInboundMessage): string {
+  return enriched.taskId === undefined
+    ? `${TARGET_PREFIX_CONVERSATION}${enriched.conversationId}`
+    : `${TARGET_PREFIX_TASK}${enriched.taskId}:${enriched.conversationId}`;
 }
 
 function buildInboundDispatchContext(
@@ -513,7 +539,7 @@ function buildInboundDispatchContext(
     Provider: CHANNEL_ID,
     Surface: CHANNEL_ID,
     OriginatingChannel: CHANNEL_ID,
-    OriginatingTo: `${TARGET_PREFIX_TASK}${input.enriched.taskId}:${input.enriched.conversationId}`,
+    OriginatingTo: originatingTarget(input.enriched),
     ChatType: input.chatType,
     ...(input.groupSubject ? { GroupSubject: input.groupSubject } : {}),
     ...(input.groupMembers ? { GroupMembers: input.groupMembers } : {}),
@@ -592,15 +618,15 @@ function createMessagingSection() {
       looksLikeId(raw: string): boolean {
         return isMoltZapTarget(raw);
       },
-      hint: 'Use "agent:<name>" for DMs or "task:<taskId>:<conversationId>" for existing conversations',
+      hint: TARGET_HINT,
       resolveTarget(params: OpenClawResolveTargetParams) {
         const { normalized } = params;
         if (!isMoltZapTarget(normalized)) {
           return Promise.resolve(null);
         }
-        const kind = normalized.startsWith(TARGET_PREFIX_TASK)
-          ? ("group" as const)
-          : ("user" as const);
+        const kind = normalized.startsWith(TARGET_PREFIX_AGENT)
+          ? ("user" as const)
+          : ("group" as const);
         return Promise.resolve({
           to: normalized,
           kind,
@@ -716,7 +742,7 @@ function listGroupsEffect(
     return items
       .filter((item) => isNamedGroup(item.conversation))
       .map((item) => ({
-        id: `task:${item.taskId}:${item.conversation.id}`,
+        id: `${TARGET_PREFIX_CONVERSATION}${item.conversation.id}`,
         name: /* Safe because the surrounding invariant establishes this asserted shape. */ item
           .conversation.name!,
         kind: "group" as const,
@@ -1135,7 +1161,7 @@ function resolveOutboundTarget(toInput?: string) {
   if (to.includes(":") && !isMoltZapTarget(to)) {
     return new OpenClawTargetRejected({
       error: new Error(
-        `MoltZap: unsupported target format "${to}" — use agent:<name> or task:<taskId>:<conversationId>`,
+        `MoltZap: unsupported target format "${to}" — use agent:<name> or conv:<conversationId>`,
       ),
     });
   }
@@ -1146,22 +1172,40 @@ class MoltZapTargetMalformedError extends Data.TaggedError(
   "MoltZapTargetMalformedError",
 )<{ readonly target: string }> {
   override get message(): string {
-    return `MoltZap: invalid target "${this.target}" — expected task:<taskId>:<conversationId>`;
+    return `MoltZap: invalid target "${this.target}" — expected conv:<conversationId>`;
   }
 }
 
-function parseTaskTarget(
+interface ConversationTarget {
+  readonly conversationId: ConversationId;
+  readonly taskId?: TaskId;
+}
+
+/**
+ * Decode an outbound target into the conversation to send to, plus the
+ * optional grouping label a `task:` target carries through untouched.
+ * @param to Value supplied to the operation.
+ * @returns The parsed conversation target.
+ */
+function parseConversationTarget(
   to: string,
-): Effect.Effect<
-  { readonly taskId: TaskId; readonly conversationId: ConversationId },
-  MoltZapTargetMalformedError
-> {
-  const body = to.startsWith(TARGET_PREFIX_TASK)
-    ? to.slice(TARGET_PREFIX_TASK.length)
-    : to;
+): Effect.Effect<ConversationTarget, MoltZapTargetMalformedError> {
+  const malformed = new MoltZapTargetMalformedError({ target: to });
+  if (!to.startsWith(TARGET_PREFIX_TASK)) {
+    const body = to.startsWith(TARGET_PREFIX_CONVERSATION)
+      ? to.slice(TARGET_PREFIX_CONVERSATION.length)
+      : to;
+    return Effect.try({
+      try: () => ({
+        conversationId: Schema.decodeUnknownSync(conversationId)(body),
+      }),
+      catch: () => malformed,
+    });
+  }
+  const body = to.slice(TARGET_PREFIX_TASK.length);
   const sep = body.indexOf(":");
   if (sep <= 0 || sep === body.length - 1) {
-    return Effect.fail(new MoltZapTargetMalformedError({ target: to }));
+    return Effect.fail(malformed);
   }
   return Effect.try({
     try: () => ({
@@ -1170,7 +1214,7 @@ function parseTaskTarget(
         body.slice(sep + 1),
       ),
     }),
-    catch: () => new MoltZapTargetMalformedError({ target: to }),
+    catch: () => malformed,
   });
 }
 
@@ -1194,8 +1238,12 @@ function dispatchOutbound(
         ctx.text,
       );
     }
-    const parsed = yield* parseTaskTarget(ctx.to);
-    return yield* service.send(parsed.taskId, parsed.conversationId, ctx.text);
+    const parsed = yield* parseConversationTarget(ctx.to);
+    return yield* service.send(
+      parsed.conversationId,
+      ctx.text,
+      parsed.taskId === undefined ? undefined : { taskId: parsed.taskId },
+    );
   });
 }
 
@@ -1272,8 +1320,10 @@ function sendTextEffect(
  * a throw.
  *
  * `resolveTarget` accepts `agent:&lt;name>` (DM with named agent) and
- * `task:&lt;taskId>:&lt;conversationId>` (existing conversation). A target
- * containing `:` in any other shape is rejected.
+ * `conv:&lt;conversationId>` (existing conversation).
+ * `task:&lt;taskId>:&lt;conversationId>` also resolves and carries the task
+ * label onto the sent message. A target containing `:` in any other shape
+ * is rejected.
  * @param deps Value supplied to the operation.
  * @returns The created moltzap channel plugin.
  */

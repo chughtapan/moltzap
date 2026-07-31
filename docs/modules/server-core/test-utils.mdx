@@ -13,7 +13,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L51)
+### [`AppEndpointHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L49)
 
 _TypeAlias_
 
@@ -25,11 +25,11 @@ export type AppEndpointHandlers = {
 
 Mapped over the closed `AnyAppCallbackRpcDefinition` union, keyed
 by each definition's wire name. Mandates one handler per
-task-callback RPC at construction time — adding a new entry to
+app-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L59)
+### [`AwaitNotificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L58)
 
 _TypeAlias_
 
@@ -41,7 +41,7 @@ export type AwaitNotificationError =
 
 Represents await notification error conditions.
 
-### [`awaitOneNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L74)
+### [`awaitOneNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L73)
 
 _Function_
 
@@ -61,7 +61,7 @@ connection from masquerading as a missing notification.
 
 **Returns:** The await one notification result.
 
-### [`closeAllClients`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L186)
+### [`closeAllClients`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L185)
 
 _Function_
 
@@ -73,7 +73,7 @@ Executes the close all clients operation.
 
 **Returns:** The close all clients result.
 
-### [`connectAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L336)
+### [`connectAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L335)
 
 _Function_
 
@@ -89,7 +89,7 @@ Executes the connect app client operation.
 
 **Returns:** The connect app client result.
 
-### [`ConnectedAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L114)
+### [`ConnectedAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L113)
 
 _Interface_
 
@@ -104,7 +104,7 @@ export interface ConnectedAgent {
 
 Describes connected agent.
 
-### [`connectTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L261)
+### [`connectTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L260)
 
 _Function_
 
@@ -256,7 +256,7 @@ export interface CoreTestSpanExporterPort {
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L229)
+### [`createTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L228)
 
 _Function_
 
@@ -283,7 +283,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 
 Validates and decodes default test admin user id values.
 
-### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L465)
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L464)
 
 _Function_
 
@@ -295,7 +295,7 @@ Returns base url.
 
 **Returns:** The get base url result.
 
-### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L441)
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L440)
 
 _Function_
 
@@ -307,7 +307,7 @@ Returns core db.
 
 **Returns:** The get core db result.
 
-### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L454)
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L453)
 
 _Function_
 
@@ -319,7 +319,7 @@ Returns core encryption envelope.
 
 **Returns:** The get core encryption envelope result.
 
-### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L476)
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L475)
 
 _Function_
 
@@ -368,7 +368,7 @@ existing field's signature does.
 
 **Returns:** The created fake service.
 
-### [`makeHandlerAppEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L97)
+### [`makeHandlerAppEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L95)
 
 _Function_
 
@@ -455,7 +455,7 @@ export type PgliteHarnessError =
 
 Represents pglite harness error conditions.
 
-### [`postJson`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L377)
+### [`postJson`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L376)
 
 _Function_
 
@@ -473,7 +473,7 @@ repeated request/JSON boilerplate.
 
 **Returns:** The post json result.
 
-### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L204)
+### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L203)
 
 _Function_
 
@@ -489,7 +489,7 @@ Registers agent.
 
 **Returns:** The register agent result.
 
-### [`registerAndConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L357)
+### [`registerAndConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L356)
 
 _Function_
 
@@ -503,7 +503,7 @@ Register and connect an agent. Tracked for automatic cleanup.
 
 **Returns:** The register and connect result.
 
-### [`registerApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L304)
+### [`registerApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L303)
 
 _Function_
 
@@ -534,7 +534,7 @@ Executes the reset core test db operation.
 
 **Returns:** The reset core test db result.
 
-### [`setupAgentGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L486)
+### [`setupAgentGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L485)
 
 _Function_
 
@@ -546,7 +546,6 @@ export function setupAgentGroup(
   {
     agents: ConnectedAgent[];
     conversationId?: ConversationId;
-    taskId?: TaskId;
   },
   Error
 >
@@ -556,7 +555,7 @@ Create N agents, all connected. Optionally create a group conversation.
 
 **Returns:** The setup agent group result.
 
-### [`setupAgentPair`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L468)
+### [`setupAgentPair`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L467)
 
 _Function_
 
@@ -637,7 +636,7 @@ Executes the stop core test server operation.
 
 **Returns:** The stop core test server result.
 
-### [`trackClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L178)
+### [`trackClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L177)
 
 _Function_
 

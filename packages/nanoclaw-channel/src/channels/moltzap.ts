@@ -33,8 +33,8 @@ import {
 import type { MessagingGroupAgent } from "../types.js";
 
 // `MoltZapChannelError` covers nanoclaw's host-shape failures that are NOT
-// lease-related (un-owned jid, missing taskId). Lease errors flow through
-// channel-base's `LeaseAlreadyConsumed` instead.
+// lease-related (un-owned jid, unknown conversation). Lease errors flow
+// through channel-base's `LeaseAlreadyConsumed` instead.
 class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
   readonly reason: string;
 }> {
@@ -168,14 +168,14 @@ export class MoltZapAdapter implements ChannelAdapter {
   // server returns the typed wire error, and channel-base projects it to
   // `LeaseAlreadyConsumed`.
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
-  // Per-jid memory of the task and branded conversation id from the most
-  // recent inbound. `agent/message/send` requires both; keeping the branded
-  // id avoids re-decoding it on every reply. Bounded: an evicted
-  // conversation degrades to the existing "no taskId" deliver error until
-  // its next inbound refreshes the entry.
+  // Per-jid memory of the branded conversation id from the most recent
+  // inbound, plus the grouping label that message carried so a reply can
+  // re-stamp it. Keeping the branded id avoids re-decoding it on every
+  // reply. Bounded: an evicted conversation degrades to the unknown-jid
+  // deliver error until its next inbound refreshes the entry.
   private readonly conversationsByJid = new BoundedMap<
     string,
-    { readonly taskId: TaskId; readonly conversationId: ConversationId }
+    { readonly conversationId: ConversationId; readonly taskId?: TaskId }
   >(MAX_TRACKED_CONVERSATIONS);
   private ownAgentId: string;
   private core: MoltZapChannelCore | null;
@@ -327,7 +327,7 @@ export class MoltZapAdapter implements ChannelAdapter {
       if (conversation === undefined) {
         return yield* Effect.fail(
           new MoltZapChannelError({
-            reason: `MoltZap channel has no taskId for jid: ${jid}`,
+            reason: `MoltZap channel has no conversation for jid: ${jid}`,
           }),
         );
       }
@@ -340,12 +340,12 @@ export class MoltZapAdapter implements ChannelAdapter {
         );
       }
       yield* core
-        .sendReply(
-          conversation.taskId,
-          conversation.conversationId,
-          text,
-          leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
-        )
+        .sendReply(conversation.conversationId, text, {
+          ...(leaseId === undefined ? {} : { dispatchLeaseId: leaseId }),
+          ...(conversation.taskId === undefined
+            ? {}
+            : { taskId: conversation.taskId }),
+        })
         .pipe(
           catchLeaseInvalid(leaseId !== undefined ? { leaseId } : undefined),
         );
@@ -360,8 +360,8 @@ export class MoltZapAdapter implements ChannelAdapter {
     enriched: EnrichedInboundMessage,
   ): void {
     this.conversationsByJid.set(jid, {
-      taskId: enriched.taskId,
       conversationId: enriched.conversationId,
+      ...(enriched.taskId === undefined ? {} : { taskId: enriched.taskId }),
     });
   }
 

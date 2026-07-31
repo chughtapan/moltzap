@@ -11,16 +11,15 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 
-import {
-  DEFAULT_APP_ID,
-  taskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
 } from "@moltzap/protocol/message";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import {
+  agentConversationCreate,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
 
 const EXTRA_EVENT_SETTLE_MS = 250;
 
@@ -47,7 +46,6 @@ function forkExtraCollector(receiver: ConnectedAgent) {
 }
 
 interface DmConversation {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly receiverIdx: number;
 }
@@ -60,18 +58,12 @@ function setupDmConversations(
     receivers,
     (receiver, i) =>
       Effect.map(
-        sender.client.sendRpc(taskRequest, {
+        sender.client.sendRpc(agentConversationCreate, {
           appId: DEFAULT_APP_ID,
-          invitedAgentIds: [receiver.agentId],
-          initialConversation: {
-            participants: [receiver.agentId],
-          },
+          participants: [receiver.agentId],
         }),
         (result) => ({
-          taskId: result.task.id,
-          conversationId:
-            /* Safe because the test fixture establishes this asserted shape. */ result
-              .conversation!.id,
+          conversationId: result.conversation.id,
           receiverIdx: i,
         }),
       ),
@@ -86,7 +78,6 @@ function sendToAll(
   return Effect.all(
     conversations.map((conv, i) =>
       sender.client.sendRpc(messagesSend, {
-        taskId: conv.taskId,
         conversationId: conv.conversationId,
         parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
       }),

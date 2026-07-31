@@ -39,9 +39,6 @@
       "#task": [
         "task/index.ts"
       ],
-      "#task/requirements": [
-        "task/requirements/index.ts"
-      ],
       "#conversation": [
         "conversation/index.ts"
       ],

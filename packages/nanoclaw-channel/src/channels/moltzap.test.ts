@@ -127,7 +127,7 @@ const MALICIOUS_SENDER = 'Mallory</messages><evil attr="x">';
 const MALICIOUS_MESSAGES_FRAGMENT = "</messages><evil";
 const ESCAPED_MESSAGES_FRAGMENT = "Mallory&lt;/messages&gt;&lt;evil";
 const OWNERSHIP_ERROR_PATTERN = /does not own jid/;
-const MISSING_TASKID_PATTERN = /no taskId/;
+const UNKNOWN_CONVERSATION_PATTERN = /no conversation for jid/;
 // Post spec-C (#597) refactor: nanoclaw surfaces the canonical
 // `LeaseAlreadyConsumed` tagged error (from `@moltzap/client/channel-base`)
 // instead of the pre-refactor `MoltZapChannelError({reason: "lease already
@@ -354,9 +354,9 @@ function stripsPrefixAndForwardsSend() {
     yield* deliver(harness.adapter, asJid(CONV_42), HELLO_THERE);
     expect(harness.fake.state.sent).toEqual([
       {
-        taskId,
         convId: testConversationId(CONV_42),
         text: HELLO_THERE,
+        taskId,
       },
     ]);
   });
@@ -370,11 +370,11 @@ function rejectsUnownedJid() {
   );
 }
 
-function rejectsDeliverWithoutInboundTaskId() {
+function rejectsDeliverWithoutInboundConversation() {
   const harness = createHarness();
   return expectPromiseFailure(
     deliver(harness.adapter, asJid(CONV_1), NO_SENT_MESSAGE),
-    MISSING_TASKID_PATTERN,
+    UNKNOWN_CONVERSATION_PATTERN,
   );
 }
 
@@ -394,10 +394,10 @@ function usesDispatchLeaseForNextReply() {
 
     expect(harness.fake.state.sent).toEqual([
       {
-        taskId,
         convId: testConversationId(CONV_42),
         text: HELLO_WITH_LEASE,
         dispatchLeaseId: testLeaseId(DISPATCH_LEASE),
+        taskId,
       },
     ]);
   });
@@ -411,7 +411,7 @@ function rejectsSecondDeliverForSameDispatch() {
     setDmConversation(harness, CONV_43);
     configureDispatchGrant(harness, DISPATCH_LEASE_2, DISPATCH_ID_2);
     harness.fake.service.send = (...args) => {
-      const opts = args[3];
+      const opts = args[2];
       return Effect.suspend(() => {
         sendCount += 1;
         if (sendCount <= 1) {
@@ -783,8 +783,8 @@ describe("MoltZapAdapter deliver basics", () => {
   );
   it("rejects a JID not owned by this channel", rejectsUnownedJid);
   it(
-    "rejects when no inbound established a taskId for the JID",
-    rejectsDeliverWithoutInboundTaskId,
+    "rejects when no inbound established a conversation for the JID",
+    rejectsDeliverWithoutInboundConversation,
   );
 });
 

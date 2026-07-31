@@ -45,8 +45,7 @@ import {
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 import type { ToxiproxyNetworkConfig } from "../../toxics/client.js";
-
-import { taskRequest } from "#task";
+import { MISSING_TOPOLOGY_REASON } from "../app/app-disconnect-fail-policy.js";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
@@ -57,7 +56,7 @@ const BASE_ALLOWED_SERVER_COVERAGE_GAPS: readonly AllowedCoverageGap[] = [
   },
   {
     id: "boundary/app-disconnect-fail-policy",
-    reasonIncludes: taskRequest.name,
+    reasonIncludes: MISSING_TOPOLOGY_REASON,
   },
 ];
 const TOXIPROXY_MISSING_ALLOWED_COVERAGE_GAPS: readonly AllowedCoverageGap[] = [

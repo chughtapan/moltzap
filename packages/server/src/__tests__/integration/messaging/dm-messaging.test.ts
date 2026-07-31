@@ -9,7 +9,8 @@ import {
   getKyselyDb,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
@@ -24,20 +25,15 @@ it("send and receive a DM, list messages", () =>
     const bob = yield* registerAndConnect("bob-dm");
 
     // Alice creates a DM conversation with Bob
-    const conv = yield* alice.client.sendRpc(taskRequest, {
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
+      participants: [bob.agentId],
     });
 
-    const taskId = conv.task.id;
-    const conversationId =
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id;
+    const conversationId = conv.conversation.id;
 
     // Alice sends a message
     const sendResult = yield* alice.client.sendRpc(messagesSend, {
-      taskId,
       conversationId,
       parts: [{ type: "text", text: "Hello Bob!" }],
     });
@@ -49,7 +45,6 @@ it("send and receive a DM, list messages", () =>
 
     // Alice lists messages
     const messages = yield* alice.client.sendRpc(messagesList, {
-      taskId,
       conversationId,
     });
 

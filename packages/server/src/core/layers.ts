@@ -46,12 +46,6 @@ import {
   MessageServiceTag,
 } from "../message/layer.js";
 import type { MessageService } from "../message/message.service.js";
-import {
-  taskAuthorizationServiceLive,
-  taskServiceLive,
-  TaskServiceTag,
-} from "../task/layer.js";
-import type { TaskService } from "../task/task.service.js";
 
 const coreRuntimeServicesLive = Layer.mergeAll(
   connectionManagerLive,
@@ -85,23 +79,14 @@ const conversationWithAppRegistryLive = Layer.provideMerge(
 );
 
 const domainAuthorizationLive = Layer.provideMerge(
-  Layer.mergeAll(
-    dispatchAdmissionServiceLive,
-    messageAuthorizationServiceLive,
-    taskAuthorizationServiceLive,
-  ),
+  Layer.mergeAll(dispatchAdmissionServiceLive, messageAuthorizationServiceLive),
   conversationWithAppRegistryLive,
-);
-
-const messageDomainLive = Layer.provideMerge(
-  messageServiceLive,
-  domainAuthorizationLive,
 );
 
 /** Provides the services live runtime value. */
 export const servicesLive = Layer.provideMerge(
-  taskServiceLive,
-  messageDomainLive,
+  messageServiceLive,
+  domainAuthorizationLive,
 );
 
 /** Describes resolved services. */
@@ -116,7 +101,6 @@ export interface ResolvedServices {
   readonly appEndpointRegistry: AppEndpointRegistry;
   readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
-  readonly taskService: TaskService;
   readonly encryption: EnvelopeEncryption | null;
 }
 
@@ -133,5 +117,4 @@ export const resolveServices = Effect.all({
   appEndpointRegistry: AppEndpointRegistryTag,
   leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
-  taskService: TaskServiceTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;

@@ -7,7 +7,6 @@
  */
 
 import { messagesAuthorize } from "#message";
-import { taskCreate } from "#task";
 import { dispatchAuthorize } from "#message/dispatch";
 import type { ReverseCallbackRequest } from "./server.js";
 
@@ -21,12 +20,6 @@ export type MessagesAuthorizeRequest = Extract<
   ReverseCallbackRequest,
   { readonly definition: typeof messagesAuthorize }
 >;
-/** Represents task create request values. */
-export type TaskCreateRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof taskCreate }
->;
-
 /**
  * Provides the is dispatch authorize request runtime value.
  * @param request Value supplied to the operation.
@@ -46,12 +39,3 @@ export const isMessagesAuthorizeRequest = (
   request: ReverseCallbackRequest,
 ): request is MessagesAuthorizeRequest =>
   request.definition === messagesAuthorize;
-
-/**
- * Provides the is task create request runtime value.
- * @param request Value supplied to the operation.
- * @returns Whether task create request.
- */
-export const isTaskCreateRequest = (
-  request: ReverseCallbackRequest,
-): request is TaskCreateRequest => request.definition === taskCreate;

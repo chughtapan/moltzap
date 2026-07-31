@@ -190,7 +190,7 @@ ack); the client's reverse `RpcServer` routes it into its
 
 **Returns:** The broadcast notification to agents result.
 
-### [`connectAgent`](./connect.handlers.ts#L467)
+### [`connectAgent`](./connect.handlers.ts#L468)
 
 _Variable_
 
@@ -202,7 +202,7 @@ Provides the connect agent runtime value.
 
 **Returns:** The connect agent result.
 
-### [`connectApp`](./connect.handlers.ts#L475)
+### [`connectApp`](./connect.handlers.ts#L476)
 
 _Variable_
 

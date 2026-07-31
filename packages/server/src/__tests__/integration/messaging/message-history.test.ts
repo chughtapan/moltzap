@@ -8,7 +8,8 @@ import {
   setupAgentPair,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
 const TOTAL_MESSAGES_TO_SEND = 15;
@@ -26,20 +27,15 @@ it("message listing returns bounded newest messages in ascending order", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(taskRequest, {
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
+      participants: [bob.agentId],
     });
-    const taskId = conv.task.id;
-    const conversationId =
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id;
+    const conversationId = conv.conversation.id;
 
     // Send enough messages to exceed the bounded result window.
     for (let i = 1; i <= TOTAL_MESSAGES_TO_SEND; i++) {
       yield* alice.client.sendRpc(messagesSend, {
-        taskId,
         conversationId,
         parts: [{ type: "text", text: `Message ${i}` }],
       });
@@ -47,7 +43,6 @@ it("message listing returns bounded newest messages in ascending order", () =>
 
     // List with limit=10 — should get the newest 10.
     const page1 = yield* alice.client.sendRpc(messagesList, {
-      taskId,
       conversationId,
       limit: PAGE_SIZE,
     });
@@ -73,7 +68,6 @@ it("message listing returns bounded newest messages in ascending order", () =>
 
     // List all — should get every message.
     const all = yield* alice.client.sendRpc(messagesList, {
-      taskId,
       conversationId,
       limit: 100,
     });

@@ -102,13 +102,6 @@ function addressedIds(
   return [endpointId, ...unique];
 }
 
-function conversationKey(
-  taskId: ReceivedMessage["taskId"],
-  conversationId: ReceivedMessage["message"]["conversationId"],
-): string {
-  return `${taskId}/${conversationId}`;
-}
-
 function publish(
   runtime: InboxRuntime,
   received: ReceivedMessage,
@@ -120,10 +113,7 @@ function publish(
         return;
       }
       yield* PubSub.publish(runtime.all, Take.of(received));
-      const key = conversationKey(
-        received.taskId,
-        received.message.conversationId,
-      );
+      const key = received.message.conversationId;
       let conversation = state.conversations.get(key);
       if (conversation === undefined) {
         conversation = yield* Mailbox.make<ReceivedMessage, NetworkFailure>();
@@ -164,11 +154,11 @@ function finish(
 }
 
 function conversation(runtime: InboxRuntime): EndpointInbox["conversation"] {
-  return (taskId, conversationId) =>
+  return (conversationId) =>
     runtime.transition.withPermits(1)(
       Effect.gen(function* () {
         const state = yield* Ref.get(runtime.state);
-        const key = conversationKey(taskId, conversationId);
+        const key = conversationId;
         const existing = state.conversations.get(key);
         if (existing !== undefined) {
           return conversationStream(existing);
@@ -201,7 +191,6 @@ function runIngress<Name extends string>(
         .write({
           event: EndpointMessageReceived.make({
             endpointId: attachment.participant.id,
-            taskId: received.taskId,
             conversationId: received.message.conversationId,
             messageId: received.message.id,
             senderId: received.message.senderId,
@@ -266,7 +255,6 @@ function openConversation<Name extends string>(
           .write({
             event: ConversationOpened.make({
               openedBy: attachment.participant.id,
-              taskId: opened.taskId,
               conversationId: opened.conversationId,
               participants: addressedIds(
                 attachment.participant.id,
@@ -286,14 +274,13 @@ function send<Name extends string>(
   attachment: AttachedEndpoint<Name>,
   writer: EndpointEventWriter,
 ): EndpointTransport["send"] {
-  return (taskId, conversationId, parts) =>
-    attachment.transport.send(taskId, conversationId, parts).pipe(
+  return (conversationId, parts) =>
+    attachment.transport.send(conversationId, parts).pipe(
       Effect.flatMap((message) =>
         writer
           .write({
             event: EndpointMessageSent.make({
               endpointId: attachment.participant.id,
-              taskId,
               conversationId,
               messageId: message.id,
               parts: message.parts,

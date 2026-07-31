@@ -12,7 +12,7 @@ testing helpers live behind focused package subpaths.
 
 ## Public surface
 
-### [`AgentClientOptions`](./socket/agent-client.ts#L42)
+### [`AgentClientOptions`](./socket/agent-client.ts#L40)
 
 _Interface_
 
@@ -26,7 +26,7 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`AppClientOptions`](./socket/app-client.ts#L74)
+### [`AppClientOptions`](./socket/app-client.ts#L72)
 
 _Interface_
 
@@ -41,7 +41,7 @@ export interface AppClientOptions {
 
 Configures app client.
 
-### [`ConnectResult`](./socket/lifecycle.ts#L111)
+### [`ConnectResult`](./socket/lifecycle.ts#L106)
 
 _TypeAlias_
 
@@ -51,7 +51,7 @@ export type ConnectResult = ResultOf<typeof agentConnect>;
 
 Represents the result of connect.
 
-### [`MoltZapAgentClient`](./socket/agent-client.ts#L49)
+### [`MoltZapAgentClient`](./socket/agent-client.ts#L47)
 
 _Class_
 
@@ -91,7 +91,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](./socket/app-client.ts#L82)
+### [`MoltZapAppClient`](./socket/app-client.ts#L80)
 
 _Class_
 
@@ -131,7 +131,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 
 Implements molt zap app client.
 
-### [`MoltZapServer`](./socket/server.ts#L308)
+### [`MoltZapServer`](./socket/server.ts#L293)
 
 _Class_
 
@@ -259,7 +259,7 @@ export class MoltZapServer<
 
 Implements molt zap server.
 
-### [`MoltZapServerOptions`](./socket/server.ts#L69)
+### [`MoltZapServerOptions`](./socket/server.ts#L63)
 
 _Interface_
 
@@ -289,7 +289,7 @@ export interface MoltZapServerOptions<
 
 Configures molt zap server.
 
-### [`MoltZapServerSession`](./socket/server.ts#L54)
+### [`MoltZapServerSession`](./socket/server.ts#L48)
 
 _Interface_
 
@@ -305,7 +305,7 @@ export interface MoltZapServerSession {
 
 Describes molt zap server session.
 
-### [`RpcCallOptions`](./socket/lifecycle.ts#L90)
+### [`RpcCallOptions`](./socket/lifecycle.ts#L85)
 
 _Interface_
 
