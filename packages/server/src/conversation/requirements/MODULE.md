@@ -8,6 +8,27 @@ Conversation-domain requirement helpers.
 
 ## Public surface
 
+### [`assertCallerAppOwnsConversation`](./app-ownership.ts#L22)
+
+_Function_
+
+```ts
+export const assertCallerAppOwnsConversation = (
+  appId: AppId,
+  conversationId: ConversationId,
+): Effect.Effect<
+  void,
+  ForbiddenError | ConversationNotFoundError,
+  ConversationServiceTag
+>
+```
+
+App-principal ownership gate. App conversation-mutation handlers call this
+before the service mutation; it compares the calling AppConnection's appId
+against the conversation's routing key.
+
+**Returns:** The assert caller app owns conversation result.
+
 ### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L18)
 
 _Function_
@@ -103,6 +124,7 @@ Describes task and conversation.
 
 ## Files
 
+- `app-ownership.ts`
 - `create-authorization.ts`
 - `in-task.ts`
 - `send-access.ts`

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: conversations carry the app routing key
+
+`conversations.app_id` is the routing key for the authorizing app. Message
+send, dispatch admission, and app-authority checks resolve the app from the
+conversation rather than from the task that minted it, so app registration,
+manifests, hooks, and the dispatch/lease system no longer depend on task
+lifecycle to find their endpoint.
+
+- **Server (`@moltzap/server-core`):** `MessageService.readSendConversation`
+  and dispatch admission read `conversations.app_id`; the conversation-scoped
+  `assertCallerAppOwnsConversation` gates `app/conversation/update`'s
+  participant actions.
+
+Fresh-schema: `core-schema.sql` declares the column and no migration shim is
+emitted.
+
 ### Removed: conversation archival from the control plane
 
 Archival is an endpoint concern. The server neither stores nor enforces whether

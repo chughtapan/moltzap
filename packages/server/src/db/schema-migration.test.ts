@@ -181,6 +181,7 @@ function rejectsConversationWithOrphanTask() {
           id: CONV_ID,
           created_by_id: AGENT_ID,
           task_id: ORPHAN_TASK_ID,
+          app_id: DEFAULT_APP_ID,
         }),
       );
       expect(Exit.isFailure(exit)).toBe(true);
@@ -352,6 +353,7 @@ function insertConversation(harness: PgliteHarness, task: typeof TASK_ID) {
     id: CONV_ID,
     created_by_id: AGENT_ID,
     task_id: task,
+    app_id: DEFAULT_APP_ID,
   });
 }
 

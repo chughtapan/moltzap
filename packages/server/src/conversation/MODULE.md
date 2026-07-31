@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`conversationCreate`](./handlers.ts#L208)
+### [`conversationCreate`](./handlers.ts#L212)
 
 _Variable_
 
@@ -22,7 +22,7 @@ Provides the conversation create runtime value.
 
 **Returns:** The conversation create result.
 
-### [`conversationList`](./handlers.ts#L196)
+### [`conversationList`](./handlers.ts#L200)
 
 _Variable_
 
@@ -36,7 +36,7 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](./conversation.service.ts#L260)
+### [`ConversationService`](./conversation.service.ts#L262)
 
 _Class_
 
@@ -201,7 +201,7 @@ export class ConversationServiceTag extends Context.Tag(
 
 Implements conversation service tag.
 
-### [`conversationUpdate`](./handlers.ts#L220)
+### [`conversationUpdate`](./handlers.ts#L224)
 
 _Variable_
 

@@ -94,6 +94,7 @@ export interface ConversationParticipants {
 
 /** Describes conversations. */
 export interface Conversations {
+  app_id: string;
   created_at: Generated<Timestamp>;
   created_by_id: string;
   id: Generated<string>;
