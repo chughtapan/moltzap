@@ -29,6 +29,12 @@ are usable. Experiment-controlled endpoints remain network participants for
 probes and workloads, but do not represent a principal instructing an
 autonomous agent. Synthetic-endpoint OpenClaw and NanoClaw runs are network
 diagnostics rather than behavioral acceptance.
+The earlier three-entry-point v1 package list is also replaced: the root
+remains the society definition, execution, and evidence surface, while runtime
+contracts and shipped implementations are grouped at
+`@moltzap/simulator/runtime` inside the same package. The current v1 boundary
+lives in
+[`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md).
 
 `20260728-simulator-is-the-system-driver.md` replaces the historical
 single-package ownership and source-layout plan with the V2 simulator

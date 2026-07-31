@@ -23,7 +23,7 @@ condition, evaluation-created social workspace,
 `EvaluationResponseSelected`, prompt-bound selected-response requirement,
 `replyToId` correlation, and classification of synthetic-peer runs as
 behavioral acceptance are replaced by
-[`20260729-principal-io-uses-runtime-gateways.md`](20260729-principal-io-uses-runtime-gateways.md).
+[`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md).
 The replacement record governs principal I/O, gateway evidence, autonomous
 agent social action, complete-roster conditions, native evidence selection,
 and current behavioral acceptance.
@@ -260,7 +260,7 @@ offline-delivery guarantees remain outside v0.
 
 This section records the package organization at the time of the original
 decision. The current organization and ownership boundaries live in
-[`20260729-principal-io-uses-runtime-gateways.md`](20260729-principal-io-uses-runtime-gateways.md#source-organization).
+[`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md#source-organization).
 
 The private evaluation package uses capability-sized modules:
 
