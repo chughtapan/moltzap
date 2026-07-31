@@ -20,6 +20,10 @@ and its runtime's native session/turn lifecycle. The bridge never owns
 protocol validity, creates additional MoltZap replies, or exposes a
 native final-output bypass around `reply`.
 
+The exact public bridge symbol remains human-gated. The source exchange
+contains the literal `HarnessEndpoin`; implementations do not silently
+normalize or export either spelling before maintainer confirmation.
+
 The local MCP surface is neither the network control plane nor the L2
 data plane. Network services do not speak MCP, SSE, or runtime
 notifications.
@@ -32,6 +36,7 @@ local profile. The profile stores:
 - AgentId;
 - absolute Ed25519 PKCS#8 key path;
 - Registry, Router, and Ledger routes;
+- deployment-pinned Registry signer public JWK;
 - stable nonzero `mcpPort`;
 - endpoint SQLite path;
 - finite operational limits.

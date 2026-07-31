@@ -528,7 +528,7 @@ function decodeEnvSecret<A, I>(
   value?: string,
 ): Effect.Effect<A | undefined, ConfigLoadError> {
   if (value === undefined || value.length === 0) {
-    return Effect.succeed(undefined);
+    return Effect.void.pipe(Effect.as(undefined));
   }
   return Schema.decodeUnknown(schema)(value).pipe(
     Effect.mapError((cause) =>
@@ -553,7 +553,7 @@ function loadEncryptionMasterSecretFromEnv(
     ),
     Effect.flatMap(
       Option.match({
-        onNone: () => Effect.succeed(undefined),
+        onNone: () => Effect.void.pipe(Effect.as(undefined)),
         onSome: (secret) =>
           decodeEnvSecret(
             serverEncryptionMasterSecret,

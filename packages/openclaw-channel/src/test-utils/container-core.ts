@@ -13,7 +13,7 @@ import path from "node:path";
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { Effect, Redacted } from "effect";
+import { Data, Effect, Redacted } from "effect";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 
@@ -34,6 +34,11 @@ const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
 class OpenClawContainerError extends Error {
   override readonly name = "OpenClawContainerError";
 }
+
+class DockerCleanupError extends Data.TaggedError("DockerCleanupError")<{
+  readonly cause: unknown;
+  readonly message: string;
+}> {}
 
 interface StartContainerOptions {
   readonly name: string;
@@ -609,27 +614,29 @@ export function waitForReady(containerId: string) {
 export function stopContainer(
   container: OpenClawContainer,
 ): Effect.Effect<void> {
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) =>
-      Effect.gen(function* () {
-        try {
-          execFileSync(DOCKER_BIN, ["rm", "-f", container.containerId], {
-            stdio: "pipe",
-          });
-        } catch (cause) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* Effect.try({
+      try: () =>
+        execFileSync(DOCKER_BIN, ["rm", "-f", container.containerId], {
+          stdio: "pipe",
+        }),
+      catch: (cause: unknown) =>
+        new DockerCleanupError({
+          message: "docker rm failed during cleanup",
+          cause,
+        }),
+    }).pipe(
+      Effect.catchAll((cause) =>
+        Effect.sync(() => {
           logContainerHelperFailure("docker rm failed during cleanup", cause);
-        }
-        yield* removeTempDir(fileSystem, container.tmpDir);
-      }),
-    ),
+        }),
+      ),
+    );
+    yield* removeTempDir(fileSystem, container.tmpDir);
+  }).pipe(
     Effect.withSpan("stopContainer"),
     Effect.provide(NodeFileSystem.layer),
-    Effect.catchAll((cause) =>
-      logContainerHelperFailureEffect(
-        "temporary directory cleanup failed",
-        cause,
-      ),
-    ),
   );
 }
 

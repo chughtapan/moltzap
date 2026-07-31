@@ -323,13 +323,15 @@ export class ConversationService {
   private createConversationEffect<TaskMintError>(
     input: CreateConversationOptions<TaskMintError>,
   ): Effect.Effect<Conversation, TaskMintError | SqlError> {
-    return Effect.gen(this, function* (this: ConversationService) {
-      const task = yield* input.mintTask;
-      const created = yield* this.insertConversation(input, task.id);
-      yield* this.subscribeCreatedConversation(input, created.id);
-      yield* this.logConversationCreated(input, created.id);
-      return created;
-    });
+    return Effect.gen(
+      function* (this: ConversationService) {
+        const task = yield* input.mintTask;
+        const created = yield* this.insertConversation(input, task.id);
+        yield* this.subscribeCreatedConversation(input, created.id);
+        yield* this.logConversationCreated(input, created.id);
+        return created;
+      }.bind(this),
+    );
   }
 
   /**
@@ -344,27 +346,29 @@ export class ConversationService {
     ReadonlyMap<AgentId, UserId>,
     AgentNotFoundError | SqlError
   > {
-    return Effect.gen(this, function* (this: ConversationService) {
-      const rows =
-        agentIds.length === 0
-          ? []
-          : yield* this.db
-              .selectFrom("agents")
-              .select(["id", "owner_user_id"])
-              .where("id", "in", [...agentIds]);
-      const ownerByAgentId = new Map<AgentId, UserId>();
-      for (const row of rows) {
-        ownerByAgentId.set(row.id, row.owner_user_id);
-      }
-      for (const agentId of agentIds) {
-        if (!ownerByAgentId.has(agentId)) {
-          return yield* Effect.fail(
-            new AgentNotFoundError({ message: `Agent ${agentId} not found` }),
-          );
+    return Effect.gen(
+      function* (this: ConversationService) {
+        const rows =
+          agentIds.length === 0
+            ? []
+            : yield* this.db
+                .selectFrom("agents")
+                .select(["id", "owner_user_id"])
+                .where("id", "in", [...agentIds]);
+        const ownerByAgentId = new Map<AgentId, UserId>();
+        for (const row of rows) {
+          ownerByAgentId.set(row.id, row.owner_user_id);
         }
-      }
-      return ownerByAgentId;
-    });
+        for (const agentId of agentIds) {
+          if (!ownerByAgentId.has(agentId)) {
+            return yield* new AgentNotFoundError({
+              message: `Agent ${agentId} not found`,
+            });
+          }
+        }
+        return ownerByAgentId;
+      }.bind(this),
+    );
   }
 
   /**
@@ -409,48 +413,50 @@ export class ConversationService {
     agentId: AgentId,
   ): Effect.Effect<void, NotAParticipantError, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        // Snapshot membership BEFORE delete so the evicted agent
-        // is included in the fan-out target list.
-        const participantsSnapshot =
-          yield* this.getParticipantAgentIds(conversationId);
-        const taskRowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("task_id")
-            .where("id", "=", conversationId),
-        );
-        const taskId = Option.match(taskRowOpt, {
-          onNone: () => null,
-          onSome: (row) => row.task_id,
-        });
-        const deleted = yield* this.db
-          .deleteFrom("conversation_participants")
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", agentId)
-          .returning("conversation_id");
-        if (deleted.length === 0) {
-          return yield* Effect.fail(
-            new NotAParticipantError({ message: "Participant not found" }),
+      Effect.gen(
+        function* (this: ConversationService) {
+          // Snapshot membership BEFORE delete so the evicted agent
+          // is included in the fan-out target list.
+          const participantsSnapshot =
+            yield* this.getParticipantAgentIds(conversationId);
+          const taskRowOpt = yield* takeFirstOption(
+            this.db
+              .selectFrom("conversations")
+              .select("task_id")
+              .where("id", "=", conversationId),
           );
-        }
-        yield* this.connections.removeConversationFromAgent(
-          agentId,
-          conversationId,
-        );
-        if (taskId !== null) {
-          yield* broadcastNotificationToAgents(
-            participantsSnapshot,
-            conversationParticipantsRemovedNotificationDefinition,
-            {
-              taskId,
-              conversationId,
-              removedAgentId: agentId,
-              reason: "app_remove" as const,
-            },
+          const taskId = Option.match(taskRowOpt, {
+            onNone: () => null,
+            onSome: (row) => row.task_id,
+          });
+          const deleted = yield* this.db
+            .deleteFrom("conversation_participants")
+            .where("conversation_id", "=", conversationId)
+            .where("agent_id", "=", agentId)
+            .returning("conversation_id");
+          if (deleted.length === 0) {
+            return yield* new NotAParticipantError({
+              message: "Participant not found",
+            });
+          }
+          yield* this.connections.removeConversationFromAgent(
+            agentId,
+            conversationId,
           );
-        }
-      }),
+          if (taskId !== null) {
+            yield* broadcastNotificationToAgents(
+              participantsSnapshot,
+              conversationParticipantsRemovedNotificationDefinition,
+              {
+                taskId,
+                conversationId,
+                removedAgentId: agentId,
+                reason: "app_remove" as const,
+              },
+            );
+          }
+        }.bind(this),
+      ),
     );
   }
 
@@ -476,35 +482,37 @@ export class ConversationService {
     taskId: TaskId,
   ): Effect.Effect<Conversation, SqlError> {
     return transaction(this.db, (trx) =>
-      Effect.gen(this, function* (this: ConversationService) {
-        const conv = yield* takeFirstOrFail(
-          trx
-            .insertInto("conversations")
-            .values({
-              name: input.name ?? null,
-              created_by_id: input.creatorAgentId,
-              task_id: taskId,
-            })
-            .returningAll(),
-        );
-        // The creator is auto-seeded as a participant only on the agent
-        // path. The app-originated `app/conversation/create` passes
-        // `seedCreatorAsParticipant: false`: membership = exactly
-        // `input.agentIds`.
-        if (input.seedCreatorAsParticipant !== false) {
-          yield* trx.insertInto("conversation_participants").values({
-            conversation_id: conv.id,
-            agent_id: input.creatorAgentId,
-          });
-        }
-        for (const agentId of input.agentIds) {
-          yield* trx
-            .insertInto("conversation_participants")
-            .values({ conversation_id: conv.id, agent_id: agentId })
-            .onConflict((oc) => oc.doNothing());
-        }
-        return this.mapConversation(conv);
-      }),
+      Effect.gen(
+        function* (this: ConversationService) {
+          const conv = yield* takeFirstOrFail(
+            trx
+              .insertInto("conversations")
+              .values({
+                name: input.name ?? null,
+                created_by_id: input.creatorAgentId,
+                task_id: taskId,
+              })
+              .returningAll(),
+          );
+          // The creator is auto-seeded as a participant only on the agent
+          // path. The app-originated `app/conversation/create` passes
+          // `seedCreatorAsParticipant: false`: membership = exactly
+          // `input.agentIds`.
+          if (input.seedCreatorAsParticipant !== false) {
+            yield* trx.insertInto("conversation_participants").values({
+              conversation_id: conv.id,
+              agent_id: input.creatorAgentId,
+            });
+          }
+          for (const agentId of input.agentIds) {
+            yield* trx
+              .insertInto("conversation_participants")
+              .values({ conversation_id: conv.id, agent_id: agentId })
+              .onConflict((oc) => oc.doNothing());
+          }
+          return this.mapConversation(conv);
+        }.bind(this),
+      ),
     );
   }
 
@@ -559,14 +567,16 @@ export class ConversationService {
     conversationId: ConversationId,
   ): Effect.Effect<readonly AgentId[]> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const rows = yield* this.db
-          .selectFrom("conversation_participants")
-          .select("agent_id")
-          .where("conversation_id", "=", conversationId);
+      Effect.gen(
+        function* (this: ConversationService) {
+          const rows = yield* this.db
+            .selectFrom("conversation_participants")
+            .select("agent_id")
+            .where("conversation_id", "=", conversationId);
 
-        return rows.map((r) => r.agent_id);
-      }),
+          return rows.map((r) => r.agent_id);
+        }.bind(this),
+      ),
     );
   }
 
@@ -582,22 +592,22 @@ export class ConversationService {
     conversationId: ConversationId,
   ): Effect.Effect<TaskId, ConversationNotFoundError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("task_id")
-            .where("id", "=", conversationId),
-        );
-        if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(
-            new ConversationNotFoundError({
-              message: MSG_CONVERSATION_NOT_FOUND,
-            }),
+      Effect.gen(
+        function* (this: ConversationService) {
+          const rowOpt = yield* takeFirstOption(
+            this.db
+              .selectFrom("conversations")
+              .select("task_id")
+              .where("id", "=", conversationId),
           );
-        }
-        return rowOpt.value.task_id;
-      }),
+          if (Option.isNone(rowOpt)) {
+            return yield* new ConversationNotFoundError({
+              message: MSG_CONVERSATION_NOT_FOUND,
+            });
+          }
+          return rowOpt.value.task_id;
+        }.bind(this),
+      ),
     );
   }
 
@@ -614,34 +624,36 @@ export class ConversationService {
     conversationId: ConversationId,
   ): Effect.Effect<Conversation, ConversationNotFoundError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .selectAll()
-            .where("id", "=", conversationId),
-        );
-        if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(
-            new ConversationNotFoundError({
-              message: MSG_CONVERSATION_NOT_FOUND,
-            }),
+      Effect.gen(
+        function* (this: ConversationService) {
+          const rowOpt = yield* takeFirstOption(
+            this.db
+              .selectFrom("conversations")
+              .selectAll()
+              .where("id", "=", conversationId),
           );
-        }
-        return this.mapConversation(rowOpt.value);
-      }),
+          if (Option.isNone(rowOpt)) {
+            return yield* new ConversationNotFoundError({
+              message: MSG_CONVERSATION_NOT_FOUND,
+            });
+          }
+          return this.mapConversation(rowOpt.value);
+        }.bind(this),
+      ),
     );
   }
 
   getConversationIds(agentId: AgentId): Effect.Effect<ConversationId[]> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const rows = yield* this.db
-          .selectFrom("conversation_participants")
-          .select("conversation_id")
-          .where("agent_id", "=", agentId);
-        return rows.map((r) => r.conversation_id);
-      }),
+      Effect.gen(
+        function* (this: ConversationService) {
+          const rows = yield* this.db
+            .selectFrom("conversation_participants")
+            .select("conversation_id")
+            .where("agent_id", "=", agentId);
+          return rows.map((r) => r.conversation_id);
+        }.bind(this),
+      ),
     );
   }
 
@@ -650,23 +662,23 @@ export class ConversationService {
     agentId: AgentId,
   ): Effect.Effect<void, ForbiddenError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversation_participants")
-            .select(sql`1`.as("exists"))
-            .where("conversation_id", "=", conversationId)
-            .where("agent_id", "=", agentId),
-        );
-
-        if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(
-            new ForbiddenError({
-              message: "Not a participant in this conversation",
-            }),
+      Effect.gen(
+        function* (this: ConversationService) {
+          const rowOpt = yield* takeFirstOption(
+            this.db
+              .selectFrom("conversation_participants")
+              .select(sql`1`.as("exists"))
+              .where("conversation_id", "=", conversationId)
+              .where("agent_id", "=", agentId),
           );
-        }
-      }),
+
+          if (Option.isNone(rowOpt)) {
+            return yield* new ForbiddenError({
+              message: "Not a participant in this conversation",
+            });
+          }
+        }.bind(this),
+      ),
     );
   }
 
@@ -680,39 +692,37 @@ export class ConversationService {
     input: CreatorContactPolicyInput,
   ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const creatorOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("agents")
-            .select(["owner_user_id"])
-            .where("id", "=", input.creatorAgentId),
-        );
-        if (Option.isNone(creatorOpt)) {
-          return yield* Effect.fail(
-            new AgentNotFoundError({
-              message: `Agent ${input.creatorAgentId} not found`,
-            }),
+      Effect.gen(
+        function* (this: ConversationService) {
+          const creatorOpt = yield* takeFirstOption(
+            this.db
+              .selectFrom("agents")
+              .select(["owner_user_id"])
+              .where("id", "=", input.creatorAgentId),
           );
-        }
-        const creatorOwner = creatorOpt.value.owner_user_id;
-        for (const targetAgentId of input.targetAgentIds) {
-          const targetOwner = input.ownerByAgentId.get(targetAgentId);
-          if (targetOwner === undefined) {
-            return yield* Effect.fail(
-              new AgentNotFoundError({
-                message: `Agent ${targetAgentId} not found`,
-              }),
-            );
+          if (Option.isNone(creatorOpt)) {
+            return yield* new AgentNotFoundError({
+              message: `Agent ${input.creatorAgentId} not found`,
+            });
           }
-          yield* this.checkContactEdge({
-            requesterAgentId: input.creatorAgentId,
-            requesterOwnerUserId: creatorOwner,
-            targetAgentId,
-            targetOwnerUserId: targetOwner,
-            policy: input.policy,
-          });
-        }
-      }),
+          const creatorOwner = creatorOpt.value.owner_user_id;
+          for (const targetAgentId of input.targetAgentIds) {
+            const targetOwner = input.ownerByAgentId.get(targetAgentId);
+            if (targetOwner === undefined) {
+              return yield* new AgentNotFoundError({
+                message: `Agent ${targetAgentId} not found`,
+              });
+            }
+            yield* this.checkContactEdge({
+              requesterAgentId: input.creatorAgentId,
+              requesterOwnerUserId: creatorOwner,
+              targetAgentId,
+              targetOwnerUserId: targetOwner,
+              policy: input.policy,
+            });
+          }
+        }.bind(this),
+      ),
     );
   }
 
@@ -725,27 +735,27 @@ export class ConversationService {
   checkContactEdge(
     input: ContactEdgeInput,
   ): Effect.Effect<void, NotInContactsError> {
-    return Effect.gen(this, function* (this: ConversationService) {
-      const allowed = yield* input.policy(
-        input.requesterOwnerUserId,
-        input.targetOwnerUserId,
-      );
-      if (!allowed) {
-        yield* Effect.logInfo("Contact policy denied").pipe(
-          Effect.annotateLogs({
-            requesterAgentId: input.requesterAgentId,
-            targetAgentId: input.targetAgentId,
-            requesterOwner: input.requesterOwnerUserId,
-            targetOwner: input.targetOwnerUserId,
-          }),
+    return Effect.gen(
+      function* (this: ConversationService) {
+        const allowed = yield* input.policy(
+          input.requesterOwnerUserId,
+          input.targetOwnerUserId,
         );
-        return yield* Effect.fail(
-          new NotInContactsError({
+        if (!allowed) {
+          yield* Effect.logInfo("Contact policy denied").pipe(
+            Effect.annotateLogs({
+              requesterAgentId: input.requesterAgentId,
+              targetAgentId: input.targetAgentId,
+              requesterOwner: input.requesterOwnerUserId,
+              targetOwner: input.targetOwnerUserId,
+            }),
+          );
+          return yield* new NotInContactsError({
             message: `Contact policy does not allow this edge`,
-          }),
-        );
-      }
-    });
+          });
+        }
+      }.bind(this),
+    );
   }
 
   private mapConversation(row: ConversationColumns): Conversation {

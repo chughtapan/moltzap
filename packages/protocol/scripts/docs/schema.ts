@@ -1,4 +1,4 @@
-import { JSONSchema, type Schema } from "effect";
+import { JSONSchema, String as StringOps, type Schema } from "effect";
 import { appCallbackMethods, serverInboundMethods } from "#socket/catalog";
 import * as protocolSchema from "../../src/index.js";
 import {
@@ -82,7 +82,7 @@ function getOwnProperty(value: object, key: string): unknown {
 }
 
 function methodSortKey(method: string): string {
-  const prefixOrder = [
+  const prefixOrder: readonly string[] = [
     "auth",
     "agents",
     "messages",
@@ -93,10 +93,14 @@ function methodSortKey(method: string): string {
     "apps",
     "system",
   ];
-  const prefix = method.split("/")[0] ?? "";
+  const prefix = StringOps.split(method, "/")[0];
   const index = prefixOrder.indexOf(prefix);
   const order = index === -1 ? prefixOrder.length : index;
-  return `${order.toString().padStart(SORT_KEY_PAD_WIDTH, "0")}:${method}`;
+  const paddedOrder = StringOps.padStart(
+    SORT_KEY_PAD_WIDTH,
+    "0",
+  )(String(order));
+  return `${paddedOrder}:${method}`;
 }
 
 // ── Schema Introspection ─────────────────────────────────────────────────

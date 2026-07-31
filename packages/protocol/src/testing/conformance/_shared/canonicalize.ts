@@ -14,6 +14,7 @@
  * No blanket `canonicalizeUnordered` helper: picking which arrays to
  * sort is a spec decision, not an ergonomic default.
  */
+import { String as StringOps } from "effect";
 
 /**
  * Sort a JSON-array by the canonical stringification of each element.
@@ -53,7 +54,7 @@ function sortObjectKeysDeep(value: unknown): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(value).sort((left, right) =>
-    left.localeCompare(right),
+    StringOps.localeCompare(right)(left),
   )) {
     const v: unknown = Reflect.get(value, key);
     out[key] = sortObjectKeysDeep(v);

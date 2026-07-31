@@ -54,27 +54,29 @@ export class AppAuthService {
     readonly manifest: AppManifest;
   }): Effect.Effect<{ appId: AppId; appKey: AppKey }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: AppAuthService) {
-        const { appKey, keyId, secretHash } = generateAppKey();
+      Effect.gen(
+        function* (this: AppAuthService) {
+          const { appKey, keyId, secretHash } = generateAppKey();
 
-        const { app_id: appId } = yield* takeFirstOrFail(
-          this.db
-            .insertInto("apps")
-            .values({
-              manifest_json: params.manifest,
-              api_key_id: keyId,
-              api_key_secret_hash: secretHash,
-            })
-            .returning(["app_id"]),
-          "Failed to insert app",
-        );
+          const { app_id: appId } = yield* takeFirstOrFail(
+            this.db
+              .insertInto("apps")
+              .values({
+                manifest_json: params.manifest,
+                api_key_id: keyId,
+                api_key_secret_hash: secretHash,
+              })
+              .returning(["app_id"]),
+            "Failed to insert app",
+          );
 
-        yield* Effect.logInfo("App registered").pipe(
-          Effect.annotateLogs({ appId }),
-        );
+          yield* Effect.logInfo("App registered").pipe(
+            Effect.annotateLogs({ appId }),
+          );
 
-        return { appId, appKey };
-      }),
+          return { appId, appKey };
+        }.bind(this),
+      ),
     );
   }
 
@@ -99,39 +101,41 @@ export class AppAuthService {
     UnauthorizedError
   > {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: AppAuthService) {
-        const parsed = parseAppKey(apiKey);
-        if (!parsed) {
-          return null;
-        }
+      Effect.gen(
+        function* (this: AppAuthService) {
+          const parsed = parseAppKey(apiKey);
+          if (!parsed) {
+            return null;
+          }
 
-        const rows = yield* this.db
-          .selectFrom("apps")
-          .select(["app_id", "manifest_json", "api_key_secret_hash"])
-          .where("api_key_id", "=", parsed.keyId);
+          const rows = yield* this.db
+            .selectFrom("apps")
+            .select(["app_id", "manifest_json", "api_key_secret_hash"])
+            .where("api_key_id", "=", parsed.keyId);
 
-        const row = rows[0];
-        if (row === undefined) {
-          return null;
-        }
-        if (!safeEqual(hashSecret(parsed.secret), row.api_key_secret_hash)) {
-          return null;
-        }
+          const row = rows[0];
+          if (row === undefined) {
+            return null;
+          }
+          if (!safeEqual(hashSecret(parsed.secret), row.api_key_secret_hash)) {
+            return null;
+          }
 
-        return yield* Either.match(validateAppManifest(row.manifest_json), {
-          onLeft: () =>
-            Effect.fail(
-              new UnauthorizedError({
-                data: { reason: "manifest_corrupted" },
+          return yield* Either.match(validateAppManifest(row.manifest_json), {
+            onLeft: () =>
+              Effect.fail(
+                new UnauthorizedError({
+                  data: { reason: "manifest_corrupted" },
+                }),
+              ),
+            onRight: (manifest) =>
+              Effect.succeed({
+                auth: new AppContext({ appId: row.app_id }),
+                manifest,
               }),
-            ),
-          onRight: (manifest) =>
-            Effect.succeed({
-              auth: new AppContext({ appId: row.app_id }),
-              manifest,
-            }),
-        });
-      }),
+          });
+        }.bind(this),
+      ),
     );
   }
 
@@ -149,29 +153,31 @@ export class AppAuthService {
    */
   getManifest(appId: AppId): Effect.Effect<AppManifest> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: AppAuthService) {
-        const rows = yield* this.db
-          .selectFrom("apps")
-          .select(["manifest_json"])
-          .where("app_id", "=", appId);
+      Effect.gen(
+        function* (this: AppAuthService) {
+          const rows = yield* this.db
+            .selectFrom("apps")
+            .select(["manifest_json"])
+            .where("app_id", "=", appId);
 
-        const row = rows[0];
-        if (row === undefined) {
-          return yield* Effect.die(
-            new Error("getManifest: app row missing for known-valid appId"),
-          );
-        }
+          const row = rows[0];
+          if (row === undefined) {
+            return yield* Effect.die(
+              new Error("getManifest: app row missing for known-valid appId"),
+            );
+          }
 
-        return yield* Either.match(validateAppManifest(row.manifest_json), {
-          onLeft: () =>
-            Effect.die(
-              new Error(
-                "getManifest: manifest_json decode failure for known-valid appId",
+          return yield* Either.match(validateAppManifest(row.manifest_json), {
+            onLeft: () =>
+              Effect.die(
+                new Error(
+                  "getManifest: manifest_json decode failure for known-valid appId",
+                ),
               ),
-            ),
-          onRight: (manifest) => Effect.succeed(manifest),
-        });
-      }),
+            onRight: (manifest) => Effect.succeed(manifest),
+          });
+        }.bind(this),
+      ),
     );
   }
 
@@ -193,34 +199,36 @@ export class AppAuthService {
     appKey: AppKey,
   ): Effect.Effect<void> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: AppAuthService) {
-        const parsed = parseAppKey(appKey);
-        if (!parsed) {
-          // The appKey is minted by `generateAppKey()` at the same boot; an
-          // unparseable key is a programmer-invariant violation, not an
-          // operational state.
-          return yield* Effect.die(
-            new Error("installDefaultApp: appKey failed parseAppKey"),
-          );
-        }
-        const secretHash = hashSecret(parsed.secret);
+      Effect.gen(
+        function* (this: AppAuthService) {
+          const parsed = parseAppKey(appKey);
+          if (!parsed) {
+            // The appKey is minted by `generateAppKey()` at the same boot; an
+            // unparseable key is a programmer-invariant violation, not an
+            // operational state.
+            return yield* Effect.die(
+              new Error("installDefaultApp: appKey failed parseAppKey"),
+            );
+          }
+          const secretHash = hashSecret(parsed.secret);
 
-        yield* this.db
-          .insertInto("apps")
-          .values({
-            app_id: appId,
-            manifest_json: manifest,
-            api_key_id: parsed.keyId,
-            api_key_secret_hash: secretHash,
-          })
-          .onConflict((oc) =>
-            oc.column("app_id").doUpdateSet({
+          yield* this.db
+            .insertInto("apps")
+            .values({
+              app_id: appId,
+              manifest_json: manifest,
               api_key_id: parsed.keyId,
               api_key_secret_hash: secretHash,
-              manifest_json: manifest,
-            }),
-          );
-      }),
+            })
+            .onConflict((oc) =>
+              oc.column("app_id").doUpdateSet({
+                api_key_id: parsed.keyId,
+                api_key_secret_hash: secretHash,
+                manifest_json: manifest,
+              }),
+            );
+        }.bind(this),
+      ),
     );
   }
 }

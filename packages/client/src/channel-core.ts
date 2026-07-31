@@ -586,13 +586,15 @@ export class MoltZapChannelCore {
   }
 
   disconnect(): Effect.Effect<void> {
-    return Effect.gen(this, function* (this: MoltZapChannelCore) {
-      this.service.close();
-      this.connected = false;
-      // Interrupt the consumer fiber so any queued inbound messages are
-      // dropped rather than delivered after the channel is torn down.
-      yield* Fiber.interrupt(this.consumerFiber);
-    });
+    return Effect.gen(
+      function* (this: MoltZapChannelCore) {
+        this.service.close();
+        this.connected = false;
+        // Interrupt the consumer fiber so any queued inbound messages are
+        // dropped rather than delivered after the channel is torn down.
+        yield* Fiber.interrupt(this.consumerFiber);
+      }.bind(this),
+    );
   }
 
   isConnected(): boolean {
@@ -790,42 +792,46 @@ export class MoltZapChannelCore {
     work: InboundDispatchWork,
     leaseId: LeaseId,
   ): Effect.Effect<DispatchAdmissionDecision> {
-    return Effect.gen(this, function* (this: MoltZapChannelCore) {
-      const buffered = this.consumeDispatchRelease(leaseId);
-      if (buffered) {
-        return this.projectVerdict(work, leaseId, buffered.verdict);
-      }
-      const deferred = yield* Deferred.make<DispatchReleaseFrame>();
-      this.pendingDispatchesByLease.set(leaseId, deferred);
-      // `ensuring` (not `tap`) guarantees the entry is removed even on
-      // interrupt — without it, a fiber interruption (consumer fiber
-      // teardown on `disconnect`) would orphan the Deferred + leak the
-      // lease entry until process exit.
-      const settled = yield* Deferred.await(deferred).pipe(
-        Effect.timeoutOption(Duration.millis(this.dispatchAdmissionTimeoutMs)),
-        Effect.ensuring(
-          Effect.sync(() => {
-            this.pendingDispatchesByLease.delete(leaseId);
-          }),
-        ),
-      );
-      if (Option.isNone(settled)) {
-        yield* effectLogWarning(
-          "MoltZapChannelCore: dispatchRelease wait timed out - fail-closed deny",
-          {
-            messageId: work.message.id,
-            conversationId: work.message.conversationId,
-            leaseId,
-            timeoutMs: this.dispatchAdmissionTimeoutMs,
-          },
+    return Effect.gen(
+      function* (this: MoltZapChannelCore) {
+        const buffered = this.consumeDispatchRelease(leaseId);
+        if (buffered) {
+          return this.projectVerdict(work, leaseId, buffered.verdict);
+        }
+        const deferred = yield* Deferred.make<DispatchReleaseFrame>();
+        this.pendingDispatchesByLease.set(leaseId, deferred);
+        // `ensuring` (not `tap`) guarantees the entry is removed even on
+        // interrupt — without it, a fiber interruption (consumer fiber
+        // teardown on `disconnect`) would orphan the Deferred + leak the
+        // lease entry until process exit.
+        const settled = yield* Deferred.await(deferred).pipe(
+          Effect.timeoutOption(
+            Duration.millis(this.dispatchAdmissionTimeoutMs),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              this.pendingDispatchesByLease.delete(leaseId);
+            }),
+          ),
         );
-        return {
-          _tag: "deny" as const,
-          reason: "dispatch release wait timed out",
-        };
-      }
-      return this.projectVerdict(work, leaseId, settled.value.verdict);
-    });
+        if (Option.isNone(settled)) {
+          yield* effectLogWarning(
+            "MoltZapChannelCore: dispatchRelease wait timed out - fail-closed deny",
+            {
+              messageId: work.message.id,
+              conversationId: work.message.conversationId,
+              leaseId,
+              timeoutMs: this.dispatchAdmissionTimeoutMs,
+            },
+          );
+          return {
+            _tag: "deny" as const,
+            reason: "dispatch release wait timed out",
+          };
+        }
+        return this.projectVerdict(work, leaseId, settled.value.verdict);
+      }.bind(this),
+    );
   }
 
   private projectVerdict(
@@ -889,15 +895,17 @@ export class MoltZapChannelCore {
   private dispatchInboundWork(
     work: InboundDispatchWork,
   ): Effect.Effect<void, unknown> {
-    return Effect.gen(this, function* (this: MoltZapChannelCore) {
-      const current = this.takeDispatchCandidate(work);
-      if (this.closedConversationIds.has(current.message.conversationId)) {
-        yield* this.logClosedDispatchDrop(current);
-        return;
-      }
-      const decision = yield* this.dispatchAdmission(current);
-      yield* this.handleDispatchDecision(current, decision);
-    });
+    return Effect.gen(
+      function* (this: MoltZapChannelCore) {
+        const current = this.takeDispatchCandidate(work);
+        if (this.closedConversationIds.has(current.message.conversationId)) {
+          yield* this.logClosedDispatchDrop(current);
+          return;
+        }
+        const decision = yield* this.dispatchAdmission(current);
+        yield* this.handleDispatchDecision(current, decision);
+      }.bind(this),
+    );
   }
 
   private handleDispatchDecision(
@@ -916,28 +924,35 @@ export class MoltZapChannelCore {
     current: InboundDispatchWork,
     decision: DispatchGrantDecision,
   ): Effect.Effect<void, unknown> {
-    return Effect.gen(this, function* (this: MoltZapChannelCore) {
-      const messages = yield* this.messagesForGrantedDispatch(
-        current,
-        decision,
-      );
-      if (messages.length === 0) {
-        yield* this.logDispatchTargetUnavailable(current, decision);
-        return;
-      }
-      const primaryMessage =
-        /* Safe because the surrounding invariant establishes this asserted shape. */ messages[0]!;
-      yield* this.logDispatchStart(current, primaryMessage, messages, decision);
-      const timedOut = yield* this.runGrantedDispatch(
-        current,
-        primaryMessage,
-        messages,
-        decision,
-      );
-      if (!timedOut) {
-        yield* this.logDispatchCompleted(current, primaryMessage, decision);
-      }
-    });
+    return Effect.gen(
+      function* (this: MoltZapChannelCore) {
+        const messages = yield* this.messagesForGrantedDispatch(
+          current,
+          decision,
+        );
+        if (messages.length === 0) {
+          yield* this.logDispatchTargetUnavailable(current, decision);
+          return;
+        }
+        const primaryMessage =
+          /* Safe because the surrounding invariant establishes this asserted shape. */ messages[0]!;
+        yield* this.logDispatchStart(
+          current,
+          primaryMessage,
+          messages,
+          decision,
+        );
+        const timedOut = yield* this.runGrantedDispatch(
+          current,
+          primaryMessage,
+          messages,
+          decision,
+        );
+        if (!timedOut) {
+          yield* this.logDispatchCompleted(current, primaryMessage, decision);
+        }
+      }.bind(this),
+    );
   }
 
   private messagesForGrantedDispatch(
@@ -1029,15 +1044,17 @@ export class MoltZapChannelCore {
     current: InboundDispatchWork,
     decision: DispatchHoldDecision,
   ): Effect.Effect<void> {
-    return Effect.gen(this, function* (this: MoltZapChannelCore) {
-      yield* effectLogInfo("MoltZapChannelCore: inbound dispatch held", {
-        messageId: current.message.id,
-        conversationId: current.message.conversationId,
-        attempt: current.attempt,
-        reason: decision.reason,
-      });
-      this.parkDispatchWork(current);
-    });
+    return Effect.gen(
+      function* (this: MoltZapChannelCore) {
+        yield* effectLogInfo("MoltZapChannelCore: inbound dispatch held", {
+          messageId: current.message.id,
+          conversationId: current.message.conversationId,
+          attempt: current.attempt,
+          reason: decision.reason,
+        });
+        this.parkDispatchWork(current);
+      }.bind(this),
+    );
   }
 
   private logClosedDispatchDrop(
@@ -1210,23 +1227,29 @@ export class MoltZapChannelCore {
     taskId: TaskId,
     messages: readonly Message[],
   ): Effect.Effect<void, unknown> {
-    return Effect.gen(this, function* (this: MoltZapChannelCore) {
-      if (!this.inboundHandler) {
-        return;
-      }
-      const { enriched, commitContext } =
-        yield* MoltZapChannelCore.enrichMessage(this.service, taskId, messages);
-      const leased =
-        this.leaseIdInFlight !== undefined
-          ? { ...enriched, dispatchLeaseId: this.leaseIdInFlight }
-          : enriched;
-      // The handler is user code returning an Effect — yield it directly so
-      // its typed error channel propagates to the consumer fiber, which logs
-      // and continues. We await it inline to preserve arrival-order delivery.
-      yield* this.inboundHandler(leased);
-      if (commitContext) {
-        commitContext();
-      }
-    });
+    return Effect.gen(
+      function* (this: MoltZapChannelCore) {
+        if (!this.inboundHandler) {
+          return;
+        }
+        const { enriched, commitContext } =
+          yield* MoltZapChannelCore.enrichMessage(
+            this.service,
+            taskId,
+            messages,
+          );
+        const leased =
+          this.leaseIdInFlight !== undefined
+            ? { ...enriched, dispatchLeaseId: this.leaseIdInFlight }
+            : enriched;
+        // The handler is user code returning an Effect — yield it directly so
+        // its typed error channel propagates to the consumer fiber, which logs
+        // and continues. We await it inline to preserve arrival-order delivery.
+        yield* this.inboundHandler(leased);
+        if (commitContext) {
+          commitContext();
+        }
+      }.bind(this),
+    );
   }
 }

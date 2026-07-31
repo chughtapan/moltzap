@@ -50,28 +50,22 @@ function subscribeAfterConnectBody(ctx: ConformanceRunContext, name: string) {
         );
       const statuses: readonly PresenceStatusEntry[] = result.statuses;
       if (statuses.length !== 1) {
-        return yield* Effect.fail(
-          presenceViolation(
-            name,
-            `expected 1 status entry, got ${statuses.length}`,
-          ),
+        return yield* presenceViolation(
+          name,
+          `expected 1 status entry, got ${statuses.length}`,
         );
       }
       const entry = statuses.at(0);
       if (entry === undefined) {
-        return yield* Effect.fail(
-          presenceViolation(
-            name,
-            "status entry disappeared after length check",
-          ),
+        return yield* presenceViolation(
+          name,
+          "status entry disappeared after length check",
         );
       }
       if (entry.agentId !== a.agentId || entry.status !== "online") {
-        return yield* Effect.fail(
-          presenceViolation(
-            name,
-            `expected { agentId: ${a.agentId}, status: online }, got ${JSON.stringify(entry)}`,
-          ),
+        return yield* presenceViolation(
+          name,
+          `expected { agentId: ${a.agentId}, status: online }, got ${JSON.stringify(entry)}`,
         );
       }
     }).pipe(Effect.withSpan("registerSubscribeAfterConnect")),

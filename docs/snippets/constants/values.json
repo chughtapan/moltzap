@@ -9,6 +9,13 @@
       "note": "Current wire-protocol version sent by clients and checked by the server during connect."
     },
     {
+      "name": "V2_PROTOCOL_VERSION",
+      "value": "2026.729.1",
+      "kind": "string",
+      "sourcePath": "v2/VERSION",
+      "note": "Current V2 MoltZap compatibility value shared by all six V2 packages and ready representations."
+    },
+    {
       "name": "DEFAULT_APP_ID",
       "value": "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",
       "kind": "string",

@@ -59,43 +59,16 @@ export class BoundedMap<K, V> implements ReadonlyMap<K, V> {
     }
     this.entriesStore.set(key, value);
 
-    if (this.entriesStore.size <= this.capacity) {
-      return undefined;
+    let evicted: readonly [K, V] | undefined;
+    if (this.entriesStore.size > this.capacity) {
+      const oldest = this.entriesStore.entries().next();
+      if (!oldest.done) {
+        this.entriesStore.delete(oldest.value[0]);
+        evicted = oldest.value;
+      }
     }
-
-    const oldest = this.entriesStore.entries().next();
-    if (oldest.done) {
-      return undefined;
-    }
-    this.entriesStore.delete(oldest.value[0]);
-    return oldest.value;
+    return evicted;
   }
-
-  entries(): MapIterator<[K, V]> {
-    return this.entriesStore.entries();
-  }
-
-  keys(): MapIterator<K> {
-    return this.entriesStore.keys();
-  }
-
-  values(): MapIterator<V> {
-    return this.entriesStore.values();
-  }
-
-  forEach(
-    callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void,
-    thisArg?: unknown,
-  ): void {
-    this.entriesStore.forEach((value, key) => {
-      callbackfn.call(thisArg, value, key, this);
-    });
-  }
-
-  [Symbol.iterator](): MapIterator<[K, V]> {
-    return this.entries();
-  }
-}
 ```
 
 Insertion-ordered map with a fixed entry capacity.

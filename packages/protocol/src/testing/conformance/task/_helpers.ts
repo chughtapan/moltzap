@@ -124,6 +124,11 @@ export interface NotificationBuffer {
   readonly closed: Ref.Ref<boolean>;
 }
 
+type NotificationBufferUpdate<D extends AnyNotificationDefinition> = readonly [
+  NotificationDelivery<D> | null,
+  ReadonlyArray<NotificationDelivery<AnyNotificationDefinition>>,
+];
+
 const PUMP_POLL_INTERVAL_MS = 5;
 
 /**
@@ -183,7 +188,7 @@ function pullMatchingFromBuffer<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
 ): Effect.Effect<NotificationDelivery<D> | null> {
-  return Ref.modify(buffer.snapshot, (frames) => {
+  return Ref.modify(buffer.snapshot, (frames): NotificationBufferUpdate<D> => {
     const idx = frames.findIndex((frame) => frame.definition === definition);
     if (idx < 0) {
       return [null, frames];
@@ -195,8 +200,8 @@ function pullMatchingFromBuffer<D extends AnyNotificationDefinition>(
     ) {
       return [null, frames];
     }
-    const rest = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
-    return [matched, rest];
+    const remaining = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
+    return [matched, remaining];
   });
 }
 
@@ -444,11 +449,9 @@ export function waitForConversationCreatedNotification(
       ),
     );
     if (event.params.conversationId !== conversationId) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad created event payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad created event payload: ${JSON.stringify(event.params)}`,
       );
     }
   }).pipe(Effect.withSpan("waitForConversationCreatedNotification"));
@@ -477,11 +480,9 @@ export function waitForMessageReceivedNotification(
       ),
     );
     if (event.params.message.conversationId !== conversationId) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad message event payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad message event payload: ${JSON.stringify(event.params)}`,
       );
     }
   }).pipe(Effect.withSpan("waitForMessageReceivedNotification"));
@@ -513,11 +514,9 @@ export function waitForArchivedEvent(
       event.params.conversationId !== conversationId ||
       typeof event.params.archivedAt !== "string"
     ) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad archive event payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad archive event payload: ${JSON.stringify(event.params)}`,
       );
     }
   }).pipe(Effect.withSpan("waitForArchivedEvent"));
@@ -546,11 +545,9 @@ export function waitForUnarchivedEvent(
       ),
     );
     if (event.params.conversationId !== conversationId) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad unarchive event payload: ${JSON.stringify(event.params)}`,
-        ),
+      return yield* deliveryViolation(
+        propertyName,
+        `bad unarchive event payload: ${JSON.stringify(event.params)}`,
       );
     }
   }).pipe(Effect.withSpan("waitForUnarchivedEvent"));
@@ -586,27 +583,28 @@ export function assertConversationRejectsMessages(
     ).pipe(Effect.either);
     const outcomeViolation = Either.match(outcome, {
       onRight: () =>
-        deliveryViolation(
-          propertyName,
-          "agent/message/send succeeded while archived",
+        Option.some(
+          deliveryViolation(
+            propertyName,
+            "agent/message/send succeeded while archived",
+          ),
         ),
       onLeft: (error) => {
-        if (
-          error instanceof RpcResponseError &&
-          error.tag === expectedError.tag
-        ) {
-          return null;
-        }
         const errorLabel =
           error instanceof RpcResponseError ? error.tag : error._tag;
-        return deliveryViolation(
-          propertyName,
-          `agent/message/send returned ${errorLabel}, expected ${expectedError.tag}`,
-        );
+        return error instanceof RpcResponseError &&
+          error.tag === expectedError.tag
+          ? Option.none()
+          : Option.some(
+              deliveryViolation(
+                propertyName,
+                `agent/message/send returned ${errorLabel}, expected ${expectedError.tag}`,
+              ),
+            );
       },
     });
-    if (outcomeViolation !== null) {
-      return yield* Effect.fail(outcomeViolation);
+    if (Option.isSome(outcomeViolation)) {
+      return yield* Effect.fail(outcomeViolation.value);
     }
   }).pipe(Effect.withSpan("assertConversationRejectsMessages"));
 }

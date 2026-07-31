@@ -270,25 +270,25 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   private initializeCore() {
-    return Effect.gen(this, function* (this: MoltZapAdapter) {
-      if (this.core !== null) {
-        return this.core;
-      }
-      const profileName = this.profileName;
-      if (profileName === null) {
-        return yield* Effect.fail(
-          new MoltZapChannelError({
+    return Effect.gen(
+      function* (this: MoltZapAdapter) {
+        if (this.core !== null) {
+          return this.core;
+        }
+        const profileName = this.profileName;
+        if (profileName === null) {
+          return yield* new MoltZapChannelError({
             reason: "MoltZap channel has no profile for initialization",
-          }),
-        );
-      }
-      const service = yield* MoltZapService.make(profileName);
-      const core = new MoltZapChannelCore({ service });
-      this.core = core;
-      this.ownAgentId = service.ownAgentId ?? "";
-      this.attachCore(core);
-      return core;
-    });
+          });
+        }
+        const service = yield* MoltZapService.make(profileName);
+        const core = new MoltZapChannelCore({ service });
+        this.core = core;
+        this.ownAgentId = service.ownAgentId ?? "";
+        this.attachCore(core);
+        return core;
+      }.bind(this),
+    );
   }
 
   private attachCore(core: MoltZapChannelCore): void {
@@ -313,46 +313,42 @@ export class MoltZapAdapter implements ChannelAdapter {
     void,
     LeaseAlreadyConsumed | MoltZapChannelError | ServiceRpcError
   > {
-    return Effect.gen(this, function* (this: MoltZapAdapter) {
-      if (!this.ownsJid(jid)) {
-        return yield* Effect.fail(
-          new MoltZapChannelError({
+    return Effect.gen(
+      function* (this: MoltZapAdapter) {
+        if (!this.ownsJid(jid)) {
+          return yield* new MoltZapChannelError({
             reason: `MoltZap channel does not own jid: ${jid}`,
-          }),
-        );
-      }
-      const leaseEntry = yield* this.dispatchLeases.peek(jid);
-      const leaseId = Option.getOrUndefined(leaseEntry);
-      const conversation = this.conversationsByJid.get(jid);
-      if (conversation === undefined) {
-        return yield* Effect.fail(
-          new MoltZapChannelError({
+          });
+        }
+        const leaseEntry = yield* this.dispatchLeases.peek(jid);
+        const leaseId = Option.getOrUndefined(leaseEntry);
+        const conversation = this.conversationsByJid.get(jid);
+        if (conversation === undefined) {
+          return yield* new MoltZapChannelError({
             reason: `MoltZap channel has no taskId for jid: ${jid}`,
-          }),
-        );
-      }
-      const core = this.core;
-      if (core === null) {
-        return yield* Effect.fail(
-          new MoltZapChannelError({
+          });
+        }
+        const core = this.core;
+        if (core === null) {
+          return yield* new MoltZapChannelError({
             reason: "MoltZap channel is not connected",
-          }),
-        );
-      }
-      yield* core
-        .sendReply(
-          conversation.taskId,
-          conversation.conversationId,
-          text,
-          leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
-        )
-        .pipe(
-          catchLeaseInvalid(leaseId !== undefined ? { leaseId } : undefined),
-        );
-      // Keep the lease entry: a second deliver for the same jid re-uses the
-      // consumed lease and triggers the server's CONSUMED rejection
-      // (single-use semantics).
-    });
+          });
+        }
+        yield* core
+          .sendReply(
+            conversation.taskId,
+            conversation.conversationId,
+            text,
+            leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
+          )
+          .pipe(
+            catchLeaseInvalid(leaseId !== undefined ? { leaseId } : undefined),
+          );
+        // Keep the lease entry: a second deliver for the same jid re-uses the
+        // consumed lease and triggers the server's CONSUMED rejection
+        // (single-use semantics).
+      }.bind(this),
+    );
   }
 
   private rememberConversation(

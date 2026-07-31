@@ -194,26 +194,28 @@ export class DispatchAdmissionService {
     SqlError,
     NetworkSendServiceTag
   > {
-    return Effect.gen(this, function* (this: DispatchAdmissionService) {
-      const lookup = yield* lookupAppBoundForConversation(
-        this.db,
-        args.conversationId,
-      );
-      const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
-      const minted = yield* this.registry.mint(binding);
+    return Effect.gen(
+      function* (this: DispatchAdmissionService) {
+        const lookup = yield* lookupAppBoundForConversation(
+          this.db,
+          args.conversationId,
+        );
+        const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
+        const minted = yield* this.registry.mint(binding);
 
-      yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
-        conversationId: args.conversationId,
-        recipientAgentId: args.recipientAgentId,
-        messageId: args.messageId,
-        senderAgentId: args.senderAgentId,
-        parts: args.parts,
-        attempt: args.attempt,
-        receivedAt: args.receivedAt,
-        pending: args.pending,
-      });
-      return minted;
-    });
+        yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
+          conversationId: args.conversationId,
+          recipientAgentId: args.recipientAgentId,
+          messageId: args.messageId,
+          senderAgentId: args.senderAgentId,
+          parts: args.parts,
+          attempt: args.attempt,
+          receivedAt: args.receivedAt,
+          pending: args.pending,
+        });
+        return minted;
+      }.bind(this),
+    );
   }
 
   private dispatchLeaseBindingForLookup(
@@ -246,12 +248,14 @@ export class DispatchAdmissionService {
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    return Effect.gen(this, function* (this: DispatchAdmissionService) {
-      const fiber = yield* Effect.forkDaemon(
-        this.runForkedDispatchRoundTrip(leaseId, lookup, params),
-      );
-      yield* this.registry.attachRoundTripFiber(leaseId, fiber);
-    });
+    return Effect.gen(
+      function* (this: DispatchAdmissionService) {
+        const fiber = yield* Effect.forkDaemon(
+          this.runForkedDispatchRoundTrip(leaseId, lookup, params),
+        );
+        yield* this.registry.attachRoundTripFiber(leaseId, fiber);
+      }.bind(this),
+    );
   }
 
   private runForkedDispatchRoundTrip(
@@ -276,35 +280,45 @@ export class DispatchAdmissionService {
       });
     }
 
-    return Effect.gen(this, function* (this: DispatchAdmissionService) {
-      const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
-      const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
-      yield* this.resolveLease(leaseId, dispatchVerdictToLeaseVerdict(verdict));
-      yield* this.removeDeniedParticipant(verdict, params);
-    });
+    return Effect.gen(
+      function* (this: DispatchAdmissionService) {
+        const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
+        const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
+        yield* this.resolveLease(
+          leaseId,
+          dispatchVerdictToLeaseVerdict(verdict),
+        );
+        yield* this.removeDeniedParticipant(verdict, params);
+      }.bind(this),
+    );
   }
 
   private dispatchAuthorizeContext(
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<DispatchAuthorizeContext, SqlError> {
-    return Effect.gen(this, function* (this: DispatchAdmissionService) {
-      const ownerUserId = yield* this.recipientOwnerId(params.recipientAgentId);
-      return {
-        conversationId: params.conversationId,
-        recipient: { agentId: params.recipientAgentId, ownerUserId },
-        message: {
-          id: params.messageId,
-          senderAgentId: params.senderAgentId,
-          parts: params.parts,
-        },
-        taskId: lookup.taskId,
-        appId: lookup.appId,
-        attempt: params.attempt ?? 0,
-        receivedAt: params.receivedAt,
-        pending: params.pending === undefined ? undefined : [...params.pending],
-      };
-    });
+    return Effect.gen(
+      function* (this: DispatchAdmissionService) {
+        const ownerUserId = yield* this.recipientOwnerId(
+          params.recipientAgentId,
+        );
+        return {
+          conversationId: params.conversationId,
+          recipient: { agentId: params.recipientAgentId, ownerUserId },
+          message: {
+            id: params.messageId,
+            senderAgentId: params.senderAgentId,
+            parts: params.parts,
+          },
+          taskId: lookup.taskId,
+          appId: lookup.appId,
+          attempt: params.attempt ?? 0,
+          receivedAt: params.receivedAt,
+          pending:
+            params.pending === undefined ? undefined : [...params.pending],
+        };
+      }.bind(this),
+    );
   }
 
   private recipientOwnerId(agentId: AgentId): Effect.Effect<UserId, SqlError> {

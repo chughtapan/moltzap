@@ -30,35 +30,25 @@ export const CACHE_BUILD_PERMIT = Effect.runSync(Effect.makeSemaphore(1));
 
 type ErrorFactory<E> = (reason: string, cause?: unknown) => E;
 
-/** Process-local memo that records successful acquisitions by key. */
-export interface SuccessMemo<Key, Value> {
-  readonly getOrAcquire: <E, R>(
-    key: Key,
-    acquire: Effect.Effect<Value, E, R>,
-  ) => Effect.Effect<Value, E, R>;
-  readonly peek: (key: Key) => Effect.Effect<Value | null>;
-}
-
 /**
  * Coalesces concurrent acquisitions and remembers only successful values.
  * Failed, defecting, and interrupted acquisitions leave the key empty, so the
  * next caller performs a fresh acquisition.
  * @returns The created success memo.
  */
-export function makeSuccessMemo<Key, Value>(): Effect.Effect<
-  SuccessMemo<Key, Value>
-> {
-  return Effect.gen(function* () {
-    const values = yield* Ref.make<ReadonlyMap<Key, Value>>(new Map());
-    const permit = yield* Effect.makeSemaphore(1);
+export const makeSuccessMemo = Effect.fn("makeSuccessMemo")(function* <
+  Key,
+  Value,
+>() {
+  const values = yield* Ref.make<ReadonlyMap<Key, Value>>(new Map());
+  const permit = yield* Effect.makeSemaphore(1);
 
-    return {
-      peek: (key: Key) => peekSuccessMemo(values, key),
-      getOrAcquire: <E, R>(key: Key, acquire: Effect.Effect<Value, E, R>) =>
-        getOrAcquireSuccess(values, permit, key, acquire),
-    };
-  }).pipe(Effect.withSpan("makeSuccessMemo"));
-}
+  return {
+    peek: (key: Key) => peekSuccessMemo(values, key),
+    getOrAcquire: <E, R>(key: Key, acquire: Effect.Effect<Value, E, R>) =>
+      getOrAcquireSuccess(values, permit, key, acquire),
+  };
+});
 
 function peekSuccessMemo<Key, Value>(
   values: Ref.Ref<ReadonlyMap<Key, Value>>,
@@ -145,6 +135,7 @@ export function makeImmutableCache<E>(
   return {
     createBuildingCache: () => createBuildingCache(cacheRoot, fsEffect),
     findCacheGeneration: (fingerprint: string) =>
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define -- cache methods are invoked after module initialization.
       findCacheGeneration(cacheRoot, fingerprint, fsEffect),
     publishCacheGeneration: (buildingDir: string) =>
       publishCacheGeneration(cacheRoot, buildingDir, fsEffect),
@@ -262,39 +253,37 @@ function writeReadyMarker<E>(
   );
 }
 
-function findCacheGeneration<E>(
+const findCacheGeneration = Effect.fn("findCacheGeneration")(function* <E>(
   cacheRoot: string,
   fingerprint: string,
   fsEffect: FsEffect<E>,
 ) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const exists = yield* fsEffect(
-      "check immutable cache root " + cacheRoot,
-      fileSystem.exists(cacheRoot),
-    );
-    if (!exists) {
-      return null;
-    }
-    const entries = yield* fsEffect(
-      "list immutable cache generations " + cacheRoot,
-      fileSystem.readDirectory(cacheRoot),
-    );
-    for (const entry of entries
-      .filter(isCacheGeneration)
-      .sort((left, right) => left.localeCompare(right))) {
-      const generationDir = join(cacheRoot, entry);
-      const readyFingerprint = yield* readReadyFingerprint(
-        readyMarkerPath(generationDir),
-        fsEffect,
-      );
-      if (readyFingerprint === fingerprint) {
-        return generationDir;
-      }
-    }
+  const fileSystem = yield* FileSystem.FileSystem;
+  const exists = yield* fsEffect(
+    "check immutable cache root " + cacheRoot,
+    fileSystem.exists(cacheRoot),
+  );
+  if (!exists) {
     return null;
-  }).pipe(Effect.withSpan("findCacheGeneration"));
-}
+  }
+  const entries = yield* fsEffect(
+    "list immutable cache generations " + cacheRoot,
+    fileSystem.readDirectory(cacheRoot),
+  );
+  for (const entry of entries
+    .filter(isCacheGeneration)
+    .sort((left, right) => left.localeCompare(right))) {
+    const generationDir = join(cacheRoot, entry);
+    const readyFingerprint = yield* readReadyFingerprint(
+      readyMarkerPath(generationDir),
+      fsEffect,
+    );
+    if (readyFingerprint === fingerprint) {
+      return generationDir;
+    }
+  }
+  return null;
+});
 
 function publishCacheGeneration<E>(
   cacheRoot: string,

@@ -225,7 +225,7 @@ export const resolveProfileRecord = (
     const layered = yield* loadLayeredConfig;
     const found = layered.profiles.get(name);
     if (found === undefined) {
-      return yield* Effect.fail(new ProfileNotFoundError({ name }));
+      return yield* new ProfileNotFoundError({ name });
     }
     return found;
   }).pipe(Effect.withSpan("resolveProfileRecord"));

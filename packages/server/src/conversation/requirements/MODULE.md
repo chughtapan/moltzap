@@ -32,7 +32,7 @@ exists.
 
 **Returns:** The authorize conversation create capacity only result.
 
-### [`guardConversationNotArchived`](./send-access.ts#L107)
+### [`guardConversationNotArchived`](./send-access.ts#L105)
 
 _Function_
 
@@ -46,7 +46,7 @@ Refine the conversation is open (`archived_at IS NULL`).
 
 **Returns:** The guard conversation not archived result.
 
-### [`guardReplyTarget`](./send-access.ts#L123)
+### [`guardReplyTarget`](./send-access.ts#L121)
 
 _Function_
 
@@ -63,7 +63,7 @@ absent); a send with no reply target passes with no DB read.
 
 **Returns:** The guard reply target result.
 
-### [`guardTaskActive`](./send-access.ts#L86)
+### [`guardTaskActive`](./send-access.ts#L84)
 
 _Function_
 

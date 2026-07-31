@@ -63,11 +63,9 @@ function runLatencyResilience(
     );
     const delivered = yield* Fiber.await(observed);
     if (Exit.isFailure(delivered)) {
-      return yield* Effect.fail(
-        adversityViolation(
-          "latency-resilience",
-          "latency toxic dropped all events",
-        ),
+      return yield* adversityViolation(
+        "latency-resilience",
+        "latency toxic dropped all events",
       );
     }
   });

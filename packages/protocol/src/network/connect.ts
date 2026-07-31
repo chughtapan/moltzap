@@ -1,4 +1,4 @@
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Schema, String as StringOps } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
 import { agentKey } from "#identity/agents";
 import { appKey } from "#identity/apps";
@@ -75,7 +75,7 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 const NUMERIC_SEGMENT_RE = /^\d+$/;
 
 function parseVersionSegments(version: string): readonly number[] {
-  const parts = version.split(".");
+  const parts = StringOps.split(version, ".");
   const segments: number[] = [];
   for (const part of parts) {
     if (!NUMERIC_SEGMENT_RE.test(part)) {
