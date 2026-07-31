@@ -192,7 +192,7 @@ const packageDefinitions = {
     config: {
       minExportedSiblingModules: 10,
       maxSubpathExports: 11,
-      maxPublicExports: 42,
+      maxPublicExports: 43,
       maxPublicReexports: 13,
       minPublicFacadeModules: 14,
       folderChildCountOverrides: [

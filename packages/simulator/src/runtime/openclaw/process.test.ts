@@ -15,6 +15,7 @@ import {
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
+  agentName,
   agentKeyString,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
@@ -42,7 +43,7 @@ const CHANNEL_DIST_DIR = resolve(
   "../../../../openclaw-channel/dist",
 );
 const PROCESS_INPUT: OpenClawProcessInput = {
-  agentName: "alice",
+  agentName: agentName("alice"),
   agentId: agentId("00000000-0000-4000-8000-000000000001"),
   apiKey: redactedAgentKey(agentKeyString(97)),
   serverUrl: serverBaseUrl("http://127.0.0.1:43123"),
@@ -103,6 +104,9 @@ function preservesOmittedPolicy(): void {
 
   expect(config).not.toHaveProperty("tools");
   expect(config.agents?.defaults).not.toHaveProperty("sandbox");
+  expect(config.agents?.list).toEqual([
+    { id: PROCESS_INPUT.agentName, default: true },
+  ]);
 }
 
 function allowsOnlyNativeMessageTool(): void {

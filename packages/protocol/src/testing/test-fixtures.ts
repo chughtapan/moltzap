@@ -17,6 +17,7 @@ import {
 import { Data, Effect, Either, FastCheck, Schema } from "effect";
 import {
   agentId as agentIdSchema,
+  agentName as agentNameSchema,
   type AgentKey,
   agentKey,
   appId as appIdSchema,
@@ -96,6 +97,15 @@ export const agentId = (
   value: string,
 ): Schema.Schema.Type<typeof agentIdSchema> =>
   Schema.decodeUnknownSync(agentIdSchema)(value);
+/**
+ * Validates and decodes agent name values.
+ * @param value Value to process.
+ * @returns The agent name result.
+ */
+export const agentName = (
+  value: string,
+): Schema.Schema.Type<typeof agentNameSchema> =>
+  Schema.decodeUnknownSync(agentNameSchema)(value);
 /**
  * Validates and decodes contact id values.
  * @param value Value to process.

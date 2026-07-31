@@ -34,6 +34,7 @@ const OTHER_DEPENDENCY_NAME = "effect";
 const OTHER_DEPENDENCY_VERSION = "3.22.0";
 const BUILD_SCRIPT = "tsc";
 const PROTOCOL_MISMATCH_REASON = "packed client protocol dependency";
+const TRANSITIVE_FIXTURE_PACKAGE_NAME = "@fixture/transitive";
 const HASH_HEX_LENGTH = 64;
 const CLIENT_HASH = "a".repeat(HASH_HEX_LENGTH);
 const OTHER_CLIENT_HASH = "b".repeat(HASH_HEX_LENGTH);
@@ -107,6 +108,10 @@ describe("NanoClaw workspace dependency staging", () => {
     rewritesManifest,
   );
   it("accepts an exact two-package file lock", acceptsWorkspaceLock);
+  it(
+    "accepts ordinary dependencies nested beneath MoltZap packages",
+    acceptsNestedNonMoltzapDependencies,
+  );
   it(
     "rejects a packed client built against another protocol",
     rejectsMismatchedBuilds,
@@ -410,6 +415,21 @@ function acceptsWorkspaceLock() {
         }),
       ),
     ),
+  );
+}
+
+function acceptsNestedNonMoltzapDependencies() {
+  const lock = makeWorkspaceLock();
+  return runWithLock(
+    {
+      ...lock,
+      packages: {
+        ...lock.packages,
+        [`node_modules/${CLIENT_PACKAGE_NAME}/node_modules/${TRANSITIVE_FIXTURE_PACKAGE_NAME}`]:
+          {},
+      },
+    },
+    (root) => assertNanoclawWorkspaceLock(root, WORKSPACE_DEPENDENCIES),
   );
 }
 

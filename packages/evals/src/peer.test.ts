@@ -1,6 +1,5 @@
 import { assert, beforeEach, it } from "@effect/vitest";
 import {
-  agentName,
   agentsList,
   type AgentCard,
   type AgentId,
@@ -13,13 +12,14 @@ import {
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
+  agentName,
   agentKeyString,
   conversationId,
   messageId,
   redactedAgentKey,
   taskId,
 } from "@moltzap/protocol/testing";
-import { Array as Arr, Deferred, Effect, Schema, Stream } from "effect";
+import { Array as Arr, Deferred, Effect, Stream } from "effect";
 import { vi } from "vitest";
 import type { AgentConnection } from "@moltzap/simulator";
 import { makeAgentHandle } from "@moltzap/simulator/network";
@@ -194,8 +194,6 @@ const AGENT_KEY = redactedAgentKey(agentKeyString(801));
 const CREATED_AT = "2026-07-29T00:00:00.000Z";
 const SOURCE_ANNOUNCEMENT = "I have been working on data pipelines.";
 const GROUP_QUESTION = "What has everyone been working on? Keep it brief.";
-const decodeAgentName = Schema.decodeSync(agentName);
-
 beforeEach(() => {
   clientState.agents = [];
   clientState.received = undefined;
@@ -225,7 +223,7 @@ function receivedStream(
 function card(name: string, id: AgentId): AgentCard {
   return {
     id,
-    name: decodeAgentName(name),
+    name: agentName(name),
     status: "active",
   };
 }
@@ -329,6 +327,7 @@ const acquireSourcePeer = Effect.fn(function* () {
   const running = yield* peers
     .announcementPeerRuntime(CASE_ID, TARGET_NAME, SOURCE_ANNOUNCEMENT)
     .acquire({
+      agentName: agentName(SOURCE_NAME),
       connection: connection(SOURCE_NAME, SOURCE_ID),
     });
   yield* Deferred.await(ready);
@@ -356,6 +355,7 @@ const acquireQuestionPeer = Effect.fn(function* () {
   const running = yield* peers
     .orderedGroupPeerRuntime(CASE_ID, TARGET_NAME, SOURCE_NAME, GROUP_QUESTION)
     .acquire({
+      agentName: agentName(QUESTION_NAME),
       connection: connection(QUESTION_NAME, QUESTION_ID),
     });
   yield* Deferred.await(ready);
@@ -370,6 +370,7 @@ const acquireObserverPeer = Effect.fn(function* () {
   const running = yield* peers
     .observerPeerRuntime(CASE_ID, TARGET_NAME)
     .acquire({
+      agentName: agentName(OBSERVER_NAME),
       connection: connection(OBSERVER_NAME, OBSERVER_ID),
     });
   yield* Deferred.await(ready);

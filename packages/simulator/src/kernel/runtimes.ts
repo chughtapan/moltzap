@@ -60,6 +60,7 @@ function runtimeAcquire<
   Name extends Extract<keyof Definitions, string>,
 >(
   runtime: Definitions[Name],
+  agentName: AgentName,
   connection: AgentConnection<Name>,
 ): Effect.Effect<
   RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
@@ -68,7 +69,7 @@ function runtimeAcquire<
 > {
   // The keyed entry keeps its exact gateway while this supervisor widens its
   // failure and service requirements to the complete roster unions.
-  return runtime.acquire({ connection });
+  return runtime.acquire({ agentName, connection });
 }
 
 function attemptAgent<
@@ -87,6 +88,7 @@ function attemptAgent<
     );
     const running = yield* runtimeAcquire<Definitions, Name>(
       input.runtime,
+      input.agentName,
       connection,
     );
     const started = Object.freeze({

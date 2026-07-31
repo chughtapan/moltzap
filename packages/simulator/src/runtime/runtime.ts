@@ -1,5 +1,6 @@
 /** @file Scoped autonomous-agent runtime contract. */
 
+import type { AgentName } from "@moltzap/protocol/identity";
 import { type Effect, Either, Schema, type Scope } from "effect";
 import { jsonValue, type JsonValue as JsonValueType } from "../ledger/model.js";
 import type { AgentConnection } from "../network/router.js";
@@ -83,6 +84,7 @@ export interface RunningAgent<Gateway> {
 
 /** Router attachment issued to every autonomous runtime implementation. */
 export interface AgentRuntimeInput<Name extends string> {
+  readonly agentName: AgentName;
   readonly connection: AgentConnection<Name>;
 }
 

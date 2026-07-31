@@ -361,7 +361,7 @@ function processInput<Name extends string>(
   settings: OpenClawRuntimeSettings,
 ): OpenClawProcessInput {
   return {
-    agentName: input.connection.agent.name,
+    agentName: input.agentName,
     agentId: input.connection.agent.id,
     apiKey: input.connection.key,
     serverUrl: input.connection.routerUrl,

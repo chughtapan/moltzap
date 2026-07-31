@@ -10,7 +10,11 @@ import {
 } from "../../network.js";
 import { RuntimeExited, RuntimeFailed } from "../runtime.js";
 import { serverBaseUrl } from "@moltzap/protocol/network";
-import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  agentName,
+  redactedAgentKey,
+} from "@moltzap/protocol/testing";
 import {
   Cause,
   Deferred,
@@ -39,7 +43,8 @@ import {
 } from "./runtime.js";
 
 const test = effectIt.effect;
-const AGENT_NAME = "alice";
+const ROSTER_KEY = "alice";
+const AGENT_NAME = agentName(ROSTER_KEY);
 const AGENT_KEY_TEXT =
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";
 const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
@@ -102,7 +107,7 @@ function makeConnection(
   awaitReady: AgentConnection<"alice">["awaitReady"],
 ): AgentConnection<"alice"> {
   return {
-    agent: makeAgentHandle(AGENT_NAME, AGENT_ID),
+    agent: makeAgentHandle(ROSTER_KEY, AGENT_ID),
     key: AGENT_KEY,
     routerUrl: ROUTER_URL,
     awaitReady,
@@ -249,6 +254,7 @@ function returnsAfterReadinessTest() {
     const fixture = yield* makeFixture(fullRuntimeOptions());
     const acquiredFiber = yield* Effect.scoped(
       fixture.runtime.acquire({
+        agentName: AGENT_NAME,
         connection: makeConnection((within) =>
           Ref.update(readyCount, (count) => count + 1).pipe(
             Effect.zipRight(Deferred.succeed(readyEntered, within)),
@@ -281,6 +287,7 @@ function interruptedAcquisitionTest() {
     const fixture = yield* makeFixture({});
     const acquired = yield* Effect.scoped(
       fixture.runtime.acquire({
+        agentName: AGENT_NAME,
         connection: makeConnection(() =>
           Deferred.succeed(readyEntered, undefined).pipe(
             Effect.zipRight(Effect.never),
@@ -308,6 +315,7 @@ function exitsBeforeReadinessTest() {
     );
     const acquiring = yield* Effect.scoped(
       fixture.runtime.acquire({
+        agentName: AGENT_NAME,
         connection: makeConnection(() => Effect.never),
       }),
     ).pipe(Effect.flip, Effect.fork);
@@ -336,6 +344,7 @@ function waitFailsBeforeReadinessTest() {
     );
     const acquiring = yield* Effect.scoped(
       fixture.runtime.acquire({
+        agentName: AGENT_NAME,
         connection: makeConnection(() => Effect.never),
       }),
     ).pipe(Effect.flip, Effect.fork);
@@ -361,6 +370,7 @@ function readinessFailureTest() {
     });
     const observed = yield* Effect.scoped(
       fixture.runtime.acquire({
+        agentName: AGENT_NAME,
         connection: makeConnection(() => Effect.fail(readinessFailure)),
       }),
     ).pipe(Effect.flip);
@@ -378,6 +388,7 @@ function teardownIsNotTerminationTest() {
     const scope = yield* Scope.make();
     const running = yield* fixture.runtime
       .acquire({
+        agentName: AGENT_NAME,
         connection: makeConnection(() => Effect.void),
       })
       .pipe(Scope.extend(scope));
@@ -401,6 +412,7 @@ function observeTermination(exitCode: ExitCode) {
       Effect.gen(function* () {
         const acquiring = yield* fixture.runtime
           .acquire({
+            agentName: AGENT_NAME,
             connection: makeConnection(() => Effect.void),
           })
           .pipe(Effect.fork);
@@ -423,6 +435,7 @@ function observeWaitFailure() {
       Effect.gen(function* () {
         const acquiring = yield* fixture.runtime
           .acquire({
+            agentName: AGENT_NAME,
             connection: makeConnection(() => Effect.void),
           })
           .pipe(Effect.fork);
@@ -515,6 +528,7 @@ function snapshotsNativePolicyTest() {
 
     const acquiring = yield* Effect.scoped(
       fixture.runtime.acquire({
+        agentName: AGENT_NAME,
         connection: makeConnection(() => Effect.never),
       }),
     ).pipe(Effect.fork);

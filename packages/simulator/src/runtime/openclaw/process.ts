@@ -24,7 +24,7 @@ import {
 } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import { httpBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type {
@@ -239,7 +239,7 @@ export interface OpenClawProcessOptionOverrides {
  * @internal
  */
 export interface OpenClawProcessInput {
-  readonly agentName: string;
+  readonly agentName: AgentName;
   readonly apiKey: AgentKey;
   readonly agentId: AgentId;
   readonly serverUrl: ServerBaseUrl;
@@ -264,6 +264,7 @@ export interface OpenClawProcessSession {
   readonly output: () => string;
   readonly gatewayUrl: `ws://127.0.0.1:${number}`;
   readonly gatewayToken: Redacted.Redacted;
+  readonly agentName: AgentName;
 }
 
 interface SpawnedProcess {
@@ -301,6 +302,7 @@ interface OpenClawRuntimeHandle {
   readonly logBuffer: BoundedLogBuffer;
   readonly portClaim: OpenClawPortClaim;
   readonly gatewayToken: Redacted.Redacted;
+  readonly agentName: AgentName;
 }
 
 type LeasedOpenClawPortClaim = OpenClawPortClaim & {
@@ -715,6 +717,7 @@ function acquireOpenClawRuntimeHandle(
           logBuffer,
           portClaim,
           gatewayToken,
+          agentName: input.agentName,
         });
       }),
     ),
@@ -791,6 +794,7 @@ function openClawProcessSession(
         .join(OPENCLAW_GATEWAY_TOKEN_REDACTION_MARKER),
     gatewayUrl: `ws://127.0.0.1:${handle.portClaim.port}`,
     gatewayToken: handle.gatewayToken,
+    agentName: handle.agentName,
   };
 }
 
@@ -951,7 +955,7 @@ function makeOpenClawPortClaim(
 
 function writeOpenClawConfig(opts: {
   stateDir: string;
-  agentName: string;
+  agentName: AgentName;
   agentId: OpenClawProcessInput["agentId"];
   apiKey: OpenClawProcessInput["apiKey"];
   modelId?: string;
@@ -1029,7 +1033,7 @@ function mcpConfigSection(
  */
 export function buildOpenClawConfig(
   opts: {
-    readonly agentName: string;
+    readonly agentName: AgentName;
     readonly modelId?: string;
     readonly installMode: InstallMode;
     readonly mcpServers?: readonly McpServerMount[];
@@ -1060,6 +1064,7 @@ export function buildOpenClawConfig(
         // opening line the agent sends in place of answering the step.
         skipBootstrap: true,
       },
+      list: [{ id: opts.agentName, default: true }],
     },
     ...(opts.tools === undefined ? {} : { tools: opts.tools }),
     commands: { native: "auto", nativeSkills: "auto", restart: true },
