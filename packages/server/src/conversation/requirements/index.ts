@@ -7,7 +7,6 @@ export { obtainConversationInTask } from "./in-task.js";
 /** Re-exports the public API from `./send-access.js`. */
 export {
   guardConversationNotArchived,
-  guardReplyTarget,
   guardTaskActive,
   obtainConversationSendAccess,
 } from "./send-access.js";

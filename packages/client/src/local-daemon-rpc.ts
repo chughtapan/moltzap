@@ -195,7 +195,6 @@ const messagesListCommandPayload = Schema.Struct({
 const sendCommandPayload = Schema.Struct({
   target: sendTarget,
   message: Schema.String.pipe(Schema.minLength(1)),
-  replyToId: Schema.optional(messageId),
 });
 /** Represents send command payload values. */
 export type SendCommandPayload = Schema.Schema.Type<typeof sendCommandPayload>;
@@ -298,7 +297,7 @@ export const messagesListCommandRpc = Rpc.make(
 );
 
 /** Provides the send command rpc runtime value. */
-export const sendCommandRpc = Rpc.make(localDaemonCommands.send, {
+const sendCommandRpc = Rpc.make(localDaemonCommands.send, {
   payload: sendCommandPayload,
   success: sendCommandResult,
   error: localDaemonErrorSchema,

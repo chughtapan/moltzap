@@ -66,7 +66,6 @@ const HELLO_TEXT = "hello";
 const HI_TEXT = "hi";
 const FIRST_TEXT = "first";
 const SECOND_TEXT = "second";
-const REPLY_TEXT = "reply text";
 const HELLO_ALICE_TEXT = "hello alice";
 const HELLO_BOB_TEXT = "hello bob";
 const ALICE_AGAIN_TEXT = "alice again";
@@ -179,10 +178,6 @@ function makeSendToAgentService(): FakeMoltZapService {
   return service;
 }
 
-function findSendCall(service: FakeMoltZapService) {
-  return service.calls.find((call) => call.method === messagesSend.name);
-}
-
 function sendToAgentCreatesConversation() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
@@ -232,24 +227,6 @@ function sendToAgentCachesConversation() {
         },
       },
     ]);
-  });
-}
-
-function sendToAgentForwardsReplyTo() {
-  return Effect.gen(function* () {
-    const service = makeSendToAgentService();
-    const replyToId = testMessageId("msg-123");
-
-    yield* service.sendToAgent(SEND_TO_AGENT_NAME, REPLY_TEXT, {
-      replyTo: replyToId,
-    });
-
-    expect(findSendCall(service)?.params).toEqual({
-      taskId: TASK_ALICE_ID,
-      conversationId: CONVERSATION_ALICE_ID,
-      parts: [{ type: "text", text: REPLY_TEXT }],
-      replyToId,
-    });
   });
 }
 
@@ -351,11 +328,6 @@ describe("MoltZapService.sendToAgent core flow", () => {
   effectTest(
     "caches the conversation id and skips lookup on subsequent calls",
     sendToAgentCachesConversation,
-  );
-
-  effectTest(
-    "forwards replyTo to agent/message/send as replyToId",
-    sendToAgentForwardsReplyTo,
   );
 });
 

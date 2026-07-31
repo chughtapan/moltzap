@@ -96,7 +96,6 @@ function sendReply(
       taskId: incoming.taskId,
       conversationId: incoming.message.conversationId,
       parts,
-      replyToId: incoming.message.id,
     })
     .pipe(Effect.asVoid);
 }

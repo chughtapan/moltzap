@@ -543,7 +543,7 @@ export type EffectMessageReply = string | MessageParts;
 
 A message handler reply containing text or structured parts.
 
-### [`effectRuntime`](./runtime/effect.ts#L250)
+### [`effectRuntime`](./runtime/effect.ts#L249)
 
 _Function_
 

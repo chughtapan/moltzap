@@ -1,7 +1,7 @@
 /** Test fixture factory for ChannelService-shaped objects. */
 
 import { Effect } from "effect";
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
 import { testAgentId, testConversationId, testTaskId } from "./ids.js";
@@ -30,7 +30,6 @@ interface SentReply {
   taskId: string;
   convId: string;
   text: string;
-  replyTo?: string;
   dispatchLeaseId?: string;
 }
 
@@ -38,7 +37,6 @@ interface SendFixtureReplyInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly text: string;
-  readonly replyTo?: MessageId;
   readonly dispatchLeaseId?: string;
 }
 
@@ -105,7 +103,6 @@ export interface ChannelServiceState {
   readonly sent: ReadonlyArray<{
     convId: string;
     text: string;
-    replyTo?: string;
     dispatchLeaseId?: string;
   }>;
   readonly connectCalls: { count: number };
@@ -198,7 +195,6 @@ function sendFixtureReply(
       taskId: input.taskId,
       convId: input.conversationId,
       text: input.text,
-      ...(input.replyTo !== undefined ? { replyTo: input.replyTo } : {}),
       ...(input.dispatchLeaseId !== undefined
         ? { dispatchLeaseId: input.dispatchLeaseId }
         : {}),
@@ -210,13 +206,11 @@ function makeFixtureSend(
   store: ChannelServiceFixtureStore,
 ): ChannelService["send"] {
   return (taskId, conversationId, text, opts) => {
-    const replyTo = opts?.replyTo;
     const dispatchLeaseId = opts?.dispatchLeaseId;
     return sendFixtureReply(store, {
       taskId,
       conversationId,
       text,
-      replyTo,
       dispatchLeaseId,
     });
   };

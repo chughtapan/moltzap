@@ -158,7 +158,6 @@ it.effect("uses the wire protocol for readiness, delivery, and replies", () =>
       assert.deepInclude(clientState.sent[0]?.payload, {
         taskId: INCOMING.taskId,
         conversationId: INCOMING.message.conversationId,
-        replyToId: INCOMING.message.id,
         parts: [{ type: "text", text: "pong" }],
       });
     }),
