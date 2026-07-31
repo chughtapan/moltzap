@@ -1,6 +1,7 @@
 /** @file Scoped principal access to one OpenClaw gateway process. */
 
 import type { ExitCode } from "@effect/platform/CommandExecutor";
+import type { AgentName } from "@moltzap/protocol/identity";
 import {
   GatewayClient,
   startGatewayClientWhenEventLoopReady,
@@ -137,6 +138,7 @@ interface OpenClawAgentRequestParameters {
   readonly message: string;
   readonly idempotencyKey: string;
   readonly deliver: false;
+  readonly agentId: AgentName;
   readonly sessionKey?: string;
   readonly thinking?: string;
   readonly timeout?: number;
@@ -250,11 +252,13 @@ function startGatewayClient(
 
 function agentRequestParameters(
   request: OpenClawGatewayRequest,
+  agentName: AgentName,
 ): OpenClawAgentRequestParameters {
   return {
     message: request.message,
     idempotencyKey: request.idempotencyKey,
     deliver: false,
+    agentId: agentName,
     ...(request.sessionKey === undefined
       ? {}
       : { sessionKey: request.sessionKey }),
@@ -267,12 +271,15 @@ function agentRequestParameters(
   };
 }
 
-function makeOpenClawGateway(client: OpenClawGatewayClient): OpenClawGateway {
+function makeOpenClawGateway(
+  client: OpenClawGatewayClient,
+  agentName: AgentName,
+): OpenClawGateway {
   return Object.freeze({
     agent: (request: OpenClawGatewayRequest) =>
       Effect.tryPromise({
         try: (signal) =>
-          client.request("agent", agentRequestParameters(request), {
+          client.request("agent", agentRequestParameters(request, agentName), {
             expectFinal: true,
             timeoutMs: null,
             signal,
@@ -347,7 +354,7 @@ export function acquireOpenClawGatewayWith(
       }),
     );
     yield* ready;
-    return makeOpenClawGateway(client);
+    return makeOpenClawGateway(client, session.agentName);
   }).pipe(Effect.withSpan("OpenClawGateway.acquire"));
 }
 

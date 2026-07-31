@@ -16,6 +16,7 @@ import * as toxics from "./toxics/index.js";
 export {
   userId,
   agentId,
+  agentName,
   appId,
   connectionId,
   contactId,

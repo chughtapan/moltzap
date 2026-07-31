@@ -7,7 +7,7 @@ import type {
   ExitCode,
 } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import type { ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   defineRuntime,
@@ -127,7 +127,7 @@ interface NanoclawRuntimeSettings {
  * @internal
  */
 export interface NanoclawProcessInput {
-  readonly agentName: string;
+  readonly agentName: AgentName;
   readonly agentId: AgentId;
   readonly apiKey: AgentKey;
   readonly serverUrl: ServerBaseUrl;
@@ -307,7 +307,7 @@ function processInput<Name extends string>(
   settings: NanoclawRuntimeSettings,
 ): NanoclawProcessInput {
   return {
-    agentName: input.connection.agent.name,
+    agentName: input.agentName,
     agentId: input.connection.agent.id,
     apiKey: input.connection.key,
     serverUrl: input.connection.routerUrl,

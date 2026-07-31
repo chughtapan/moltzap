@@ -3,6 +3,7 @@ import {
   ExitCode as processExitCode,
   type ExitCode,
 } from "@effect/platform/CommandExecutor";
+import { agentName } from "@moltzap/protocol/testing";
 import { Deferred, Duration, Effect, Fiber, Redacted } from "effect";
 import { describe } from "vitest";
 import {
@@ -28,7 +29,7 @@ const RUN_ID = "run-1";
 const RESPONSE_TEXT = "done";
 const INSTRUCTION = "Contact Bob over MoltZap.";
 const IDEMPOTENCY_KEY = "instruction-1";
-const SESSION_KEY = "agent:main:principal";
+const AGENT_NAME = agentName("alice");
 const PROVIDER_TIMEOUT_PHASE = "provider";
 const GATEWAY_TEXT_MAX_LENGTH = 32 * 1_024;
 
@@ -53,6 +54,7 @@ function processSession(
     output: () => "",
     gatewayUrl: GATEWAY_URL,
     gatewayToken: Redacted.make(GATEWAY_TOKEN),
+    agentName: AGENT_NAME,
   };
 }
 
@@ -126,7 +128,6 @@ function runRoundTrip(fixture: RoundTripFixture) {
         OpenClawGatewayRequest.make({
           message: INSTRUCTION,
           idempotencyKey: IDEMPOTENCY_KEY,
-          sessionKey: SESSION_KEY,
           timeout: 30,
         }),
       );
@@ -169,7 +170,7 @@ function assertRoundTrip(
     message: INSTRUCTION,
     idempotencyKey: IDEMPOTENCY_KEY,
     deliver: false,
-    sessionKey: SESSION_KEY,
+    agentId: AGENT_NAME,
     timeout: 30,
   });
   assert.strictEqual(requestOptions.expectFinal, true);
@@ -379,7 +380,7 @@ function exitBeforeHelloTest() {
 
 describe("OpenClaw principal gateway", () => {
   test(
-    "keeps one scoped client and decodes the native agent response",
+    "binds the scoped client to its principal agent and decodes the response",
     gatewayRoundTripTest,
   );
   test(

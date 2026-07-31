@@ -1,7 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Ref, Schema } from "effect";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
-import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  agentName,
+  redactedAgentKey,
+} from "@moltzap/protocol/testing";
 import { makeAgentHandle } from "../network/participant.js";
 import type { AgentConnection } from "../network/router.js";
 import {
@@ -13,6 +17,7 @@ import {
 import { makeAgentRosterBuilder } from "./roster.js";
 
 const ALICE_ID = agentId("00000000-0000-4000-8000-000000000001");
+const ALICE_NAME = agentName("alice");
 const key = redactedAgentKey(
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000",
 );
@@ -68,7 +73,10 @@ it.effect("releases an acquired runtime with its caller scope", () =>
 
     yield* Effect.scoped(
       Effect.gen(function* () {
-        const running = yield* runtime.acquire({ connection });
+        const running = yield* runtime.acquire({
+          agentName: ALICE_NAME,
+          connection,
+        });
         const termination = yield* running.termination;
 
         assert.instanceOf(termination, RuntimeCompleted);
@@ -145,7 +153,9 @@ it.effect("captures runtime behavior when the definition is constructed", () =>
         };
       });
 
-    yield* Effect.scoped(runtime.acquire({ connection }));
+    yield* Effect.scoped(
+      runtime.acquire({ agentName: ALICE_NAME, connection }),
+    );
 
     assert.deepStrictEqual(calls, ["original"]);
   }),

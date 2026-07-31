@@ -9,7 +9,7 @@ import type {
   Process,
 } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import { httpBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   Data,
@@ -64,7 +64,7 @@ export interface NanoclawRuntimeHandle {
 }
 
 interface StartNanoclawRuntimeOptions {
-  agentName: string;
+  agentName: AgentName;
   agentId: AgentId;
   apiKey: AgentKey;
   serverUrl: ServerBaseUrl;

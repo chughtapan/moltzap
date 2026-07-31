@@ -7,6 +7,7 @@ import {
 import { httpBaseUrl, serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
+  agentName,
   agentKeyString,
   conversationId,
   messageId,
@@ -108,7 +109,8 @@ const AGENT_KEY = redactedAgentKey(agentKeyString(80));
 const ROUTER_URL = serverBaseUrl("ws://127.0.0.1:3000");
 const STARTUP_TIMEOUT = Duration.seconds(3);
 const EXPECTED_RUNTIME_NAME = "effect";
-const AGENT_NAME = "alice";
+const ROSTER_KEY = "alice";
+const AGENT_NAME = agentName(ROSTER_KEY);
 const ORIGINAL_VERSION = "original";
 const REPLACEMENT_VERSION = "replacement";
 const INCOMING: MessageReceivedNotification = {
@@ -135,7 +137,7 @@ function connection(
   observeReady: (within: Duration.Duration) => void,
 ): AgentConnection<"alice"> {
   return {
-    agent: makeAgentHandle(AGENT_NAME, AGENT_ID),
+    agent: makeAgentHandle(ROSTER_KEY, AGENT_ID),
     key: AGENT_KEY,
     routerUrl: ROUTER_URL,
     awaitReady: (within) =>
@@ -226,6 +228,7 @@ it.effect(
         const runtime = makeGatewayRuntime(received);
 
         const running = yield* runtime.acquire({
+          agentName: AGENT_NAME,
           connection: connection((within) => {
             clientState.events.push("ready");
             readyWithin = within;
@@ -269,6 +272,7 @@ it.effect("turns behavior failure into a runtime observation", () =>
           }),
       });
       const running = yield* runtime.acquire({
+        agentName: AGENT_NAME,
         connection: connection(() => undefined),
       });
 
@@ -294,6 +298,7 @@ it.effect("reports autonomous interruption as runtime failure", () =>
           }),
       });
       const running = yield* runtime.acquire({
+        agentName: AGENT_NAME,
         connection: connection(() => undefined),
       });
 
@@ -315,6 +320,7 @@ it.effect("maps builder failure to acquisition failure", () =>
     const failure = yield* Effect.scoped(
       runtime
         .acquire({
+          agentName: AGENT_NAME,
           connection: connection(() => undefined),
         })
         .pipe(Effect.flip),
@@ -338,6 +344,7 @@ it.effect("scope teardown closes the client without reporting completion", () =>
             behavior: Effect.never,
           }),
       }).acquire({
+        agentName: AGENT_NAME,
         connection: connection(() => undefined),
       }),
     );
@@ -370,6 +377,7 @@ it.effect("snapshots the builder at runtime construction", () =>
         });
 
       const running = yield* runtime.acquire({
+        agentName: AGENT_NAME,
         connection: connection(() => undefined),
       });
 
