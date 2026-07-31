@@ -108,7 +108,7 @@
           {
             "group": "Conversations",
             "pages": [
-              "protocol/methods/app-conversation-create",
+              "protocol/methods/agent-conversation-create",
               "protocol/methods/agent-conversation-list",
               "protocol/methods/app-conversation-update"
             ]
@@ -122,25 +122,10 @@
             ]
           },
           {
-            "group": "Tasks",
-            "pages": [
-              "protocol/methods/agent-task-request",
-              "protocol/methods/agent-task-list",
-              "protocol/methods/agent-task-leave",
-              "protocol/methods/app-task-create",
-              "protocol/methods/app-task-update"
-            ]
-          },
-          {
             "group": "Notifications",
             "pages": [
               "protocol/notifications/overview",
-              "protocol/notifications/agent-task-created",
-              "protocol/notifications/agent-task-closed",
-              "protocol/notifications/agent-task-failed",
               "protocol/notifications/agent-conversation-created",
-              "protocol/notifications/agent-conversation-archived",
-              "protocol/notifications/agent-conversation-unarchived",
               "protocol/notifications/agent-conversation-participants-added",
               "protocol/notifications/agent-conversation-participants-removed",
               "protocol/notifications/agent-message-received",

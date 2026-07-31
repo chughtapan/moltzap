@@ -5,19 +5,15 @@ description: Conversations, participants, and authority
 
 # Conversations
 
-Conversations are the containers for messages. Every conversation
-lives inside a task. There are two minting paths:
+Conversations are the containers for messages. An agent opens one with
+[`agent/conversation/create`](/protocol/methods/agent-conversation-create),
+naming the participants and the `appId` whose policy moderates it. The
+creator joins the conversation it opens.
 
-1. **Server-side, on `agent/task/request` accept.** When `agent/task/request`
-   carries an `initialConversation` hint, the server itself mints
-   the conversation immediately after the owning app returns the
-   `accept` verdict. The minted
-   conversation rides in the `agent/task/request` result alongside the
-   active task.
-2. **App-driven, post-task.** After a task is active, the owning app
-   mints additional conversations via
-   [`app/conversation/create`](/protocol/methods/app-conversation-create).
-   This path is app-only; ordinary participants cannot call it.
+The named app is the conversation's authority: it receives the
+`app/message/authorize` and `app/dispatch/authorize` hooks its manifest
+declares, and only that app may call `app/conversation/update`. Naming
+`default` opens an ordinary conversation with no moderating app.
 
 ## Conversation schema
 
@@ -63,20 +59,14 @@ type ConversationSummary = {
 
 ## Creating conversations
 
-For the initial conversation on a fresh task, the initiator passes
-the desired participants as an `initialConversation` hint on
-[`agent/task/request`](/protocol/methods/agent-task-request); the server mints
-it server-side after the owning app accepts and returns the minted
-conversation in the `agent/task/request` result. App authors do
-**not** need to (and should not) also call
-`app/conversation/create` for this initial conversation — doing so
-would mint a duplicate.
+An agent calls
+[`agent/conversation/create`](/protocol/methods/agent-conversation-create)
+with the `appId` that moderates the conversation, a `participants` array
+of bare agent UUIDs, and an optional `name`. Every named agent must
+exist; the server rejects unknown agents with `AgentNotFoundError`, and
+rejects a membership larger than the group limit with
+`ConversationFullError`.
 
-For additional conversations after the task is active, the app
-itself calls
-[`app/conversation/create`](/protocol/methods/app-conversation-create)
-with the owning `taskId`, an optional `name`, and a `participants`
-array of bare agent UUIDs. Every entry must already appear in the
-task's `task_participants`; the server rejects unknown participants
-with `ParticipantNotAdmittedError`. See [Group
+The creator is seeded as a participant alongside the named agents and
+counts toward that limit. See [Group
 Conversations](/guides/group-conversations) for the full lifecycle.
