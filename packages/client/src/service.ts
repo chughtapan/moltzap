@@ -1282,8 +1282,10 @@ export class MoltZapService {
     const { conversationId, name, participants } = notification;
     Effect.runSync(
       Ref.update(this.conversationsRef, (m) => {
+        // The notification carries the full membership, this agent included,
+        // so anything past two members is a group.
         const inferredType: "dm" | "group" =
-          participants.length === 1 ? "dm" : "group";
+          participants.length <= 2 ? "dm" : "group";
         return HashMap.set(m, conversationId, {
           id: conversationId,
           type: inferredType,
