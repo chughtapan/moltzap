@@ -111,8 +111,10 @@ lifecycle to find their endpoint.
   `assertCallerAppOwnsConversation` gates `app/conversation/update`'s
   participant actions.
 
-Fresh-schema: `core-schema.sql` declares the column and no migration shim is
-emitted.
+Pre-launch fresh-schema: `core-schema.sql` declares the column and no migration
+shim is emitted. Unlike the columns dropped elsewhere in this release, which an
+existing database keeps inert, this one is required — the send path reads it —
+so a database created before this change needs the column added and backfilled.
 
 ### Removed: conversation archival from the control plane
 

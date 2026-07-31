@@ -40,10 +40,10 @@ packages/server/src/
   covers app-moderated conversations. `conversations.app_id`
   (`TEXT NOT NULL`) is the routing key; there is no separate
   endpoint-address column — app endpoint identity derives from
-  `app_id` at routing time. A creating app supplies its own `appId`,
-  so `app/conversation/create` needs no further gate;
-  `app/conversation/update` compares the caller against the stored key
-  via `assertCallerAppOwnsConversation`.
+  `app_id` at routing time. The agent opening a conversation names the
+  server-minted `appId` that moderates it; `app/conversation/update`
+  compares the caller against the stored key via
+  `assertCallerAppOwnsConversation`.
 - **Domain requirement** — protocol-owned `RpcMiddleware.Tag` whose
   implementation resolves runtime IDs or already-fetched rows for a
   handler (e.g. `ConversationSendAccess` proves sender membership and
