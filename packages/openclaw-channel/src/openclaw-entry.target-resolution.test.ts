@@ -24,6 +24,8 @@ const isConfiguredAccount = moltzapChannelPlugin.config.isConfigured.bind(
 const cfg: Parameters<typeof resolveMessagingTarget>[0]["cfg"] = {};
 
 const AGENT_BOB = "agent:bob";
+const BOB = "bob";
+const EVALUATION_PEER = "evaluation-peer";
 const AGENT_MULTI_WORD = "agent:multi-word-name";
 const TASK_ABC = "task:t1:abc-123";
 const TASK_UUID =
@@ -34,9 +36,8 @@ const UNKNOWN_USER_PREFIX = "user:someone";
 const HTTP_TARGET = "http://example.com";
 const EMPTY_AGENT = "agent:";
 const EMPTY_TASK = "task:";
-const UNKNOWN_TEXT = "unknown";
+const INVALID_AGENT_NAME = "not a valid agent name";
 const OUTBOUND_TASK = "task:t1:abc";
-const PLAIN_CONV_ID = "plain-conv-id";
 const UNKNOWN_PREFIX_TARGET = "unknown:foo";
 const SPACED_AGENT_BOB = "  agent:bob  ";
 const BOB_DISPLAY = "bob";
@@ -78,6 +79,21 @@ function resolvesAgentTarget() {
   });
 }
 
+function resolvesPlainAgentName() {
+  return Effect.gen(function* () {
+    const result = yield* tryResolveMessagingTarget(
+      EVALUATION_PEER,
+      EVALUATION_PEER,
+    );
+    expect(result).toEqual({
+      to: `agent:${EVALUATION_PEER}`,
+      kind: USER_KIND,
+      display: EVALUATION_PEER,
+      source: NORMALIZED_SOURCE,
+    });
+  });
+}
+
 function resolvesConversationTarget() {
   return Effect.gen(function* () {
     const result = yield* tryResolveMessagingTarget(TASK_ABC, TASK_ABC);
@@ -92,7 +108,10 @@ function resolvesConversationTarget() {
 
 function returnsNullForUnrecognizedFormats() {
   return Effect.gen(function* () {
-    const result = yield* tryResolveMessagingTarget(UNKNOWN_TEXT, UNKNOWN_TEXT);
+    const result = yield* tryResolveMessagingTarget(
+      INVALID_AGENT_NAME,
+      INVALID_AGENT_NAME,
+    );
     expect(result).toBeNull();
   });
 }
@@ -128,6 +147,7 @@ describe("isMoltZapTarget rejected ids", () => {
 
 describe("messaging.targetResolver.resolveTarget", () => {
   it("resolves agent targets as user targets", resolvesAgentTarget);
+  it("normalizes plain agent names as user targets", resolvesPlainAgentName);
   it("resolves task targets as group targets", resolvesConversationTarget);
   it(
     "returns null for unrecognized formats",
@@ -150,10 +170,10 @@ describe("outbound.resolveTarget accepted targets", () => {
     });
   });
 
-  vitestIt("accepts plain conversation IDs", () => {
-    expect(resolveOutboundTarget({ to: PLAIN_CONV_ID })).toMatchObject({
+  vitestIt("normalizes plain agent names", () => {
+    expect(resolveOutboundTarget({ to: BOB })).toMatchObject({
       ok: true,
-      to: PLAIN_CONV_ID,
+      to: AGENT_BOB,
     });
   });
 });
