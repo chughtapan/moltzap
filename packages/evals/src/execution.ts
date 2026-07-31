@@ -177,8 +177,14 @@ interface NanoclawEvaluationConditionOptions {
   readonly execution: EvaluationExecutionPolicy;
 }
 
+const BUNDLED_OPENCLAW_MESSAGE_TOOL = "message";
 const BUNDLED_OPENCLAW_TOOLS = {
-  allow: ["message"],
+  allow: [BUNDLED_OPENCLAW_MESSAGE_TOOL],
+  sandbox: {
+    tools: {
+      allow: [BUNDLED_OPENCLAW_MESSAGE_TOOL],
+    },
+  },
   elevated: { enabled: false },
   exec: { mode: "deny" },
 } satisfies NonNullable<OpenClawRuntimeOptions["tools"]>;
@@ -192,6 +198,9 @@ const BUNDLED_OPENCLAW_SANDBOX = {
 } satisfies NonNullable<OpenClawRuntimeOptions["sandbox"]>;
 
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.allow);
+Object.freeze(BUNDLED_OPENCLAW_TOOLS.sandbox.tools.allow);
+Object.freeze(BUNDLED_OPENCLAW_TOOLS.sandbox.tools);
+Object.freeze(BUNDLED_OPENCLAW_TOOLS.sandbox);
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.elevated);
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.exec);
 Object.freeze(BUNDLED_OPENCLAW_TOOLS);
