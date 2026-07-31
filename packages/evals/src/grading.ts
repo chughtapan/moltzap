@@ -644,13 +644,13 @@ export class JudgeResult extends Schema.Class<JudgeResult>("JudgeResult")({
 }) {}
 
 /** The configured semantic provider is not available. */
-export class JudgeUnavailable extends Schema.TaggedError<JudgeUnavailable>()(
+export class JudgeUnavailable extends Schema.TaggedClass<JudgeUnavailable>()(
   "JudgeUnavailable",
   { detail: Schema.NonEmptyString },
 ) {}
 
 /** Semantic judging exceeded its customer-visible deadline. */
-export class JudgeTimedOut extends Schema.TaggedError<JudgeTimedOut>()(
+export class JudgeTimedOut extends Schema.TaggedClass<JudgeTimedOut>()(
   "JudgeTimedOut",
   {
     timeoutMillis: positiveInteger,
@@ -659,7 +659,7 @@ export class JudgeTimedOut extends Schema.TaggedError<JudgeTimedOut>()(
 ) {}
 
 /** The semantic provider rejected work because of rate limiting. */
-export class JudgeRateLimited extends Schema.TaggedError<JudgeRateLimited>()(
+export class JudgeRateLimited extends Schema.TaggedClass<JudgeRateLimited>()(
   "JudgeRateLimited",
   {
     detail: Schema.NonEmptyString,
@@ -668,13 +668,13 @@ export class JudgeRateLimited extends Schema.TaggedError<JudgeRateLimited>()(
 ) {}
 
 /** The provider returned data outside the strict structured-output contract. */
-export class JudgeInvalidOutput extends Schema.TaggedError<JudgeInvalidOutput>()(
+export class JudgeInvalidOutput extends Schema.TaggedClass<JudgeInvalidOutput>()(
   "JudgeInvalidOutput",
   { detail: Schema.NonEmptyString },
 ) {}
 
 /** A semantic result cited or described evidence outside the transcript. */
-export class JudgeEvidenceMismatch extends Schema.TaggedError<JudgeEvidenceMismatch>()(
+export class JudgeEvidenceMismatch extends Schema.TaggedClass<JudgeEvidenceMismatch>()(
   "JudgeEvidenceMismatch",
   {
     detail: Schema.NonEmptyString,

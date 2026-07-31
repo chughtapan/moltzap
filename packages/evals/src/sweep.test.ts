@@ -16,6 +16,7 @@ import {
   EvaluationTranscript,
   GatewayTranscriptItem,
   GradeReport,
+  JudgeUnavailable,
 } from "./grading.js";
 import {
   decodeConditionId,
@@ -36,6 +37,7 @@ import {
   EvaluationSweepIncomplete,
   InProgressEvaluationReport,
   JudgePolicySnapshot,
+  JudgingUnavailableAttempt,
   LedgerAllocationFailedAttempt,
   RunFailedAttempt,
   appendEvaluationAttempt,
@@ -47,6 +49,7 @@ import {
   evaluationReport,
   evaluationReportId,
   makeAssessedAttempt,
+  makeJudgingUnavailableAttempt,
   remainingEvaluationCells,
   resumeEvaluationReport,
   terminalAttempt,
@@ -507,6 +510,38 @@ function terminalDetailSerializationTest() {
   });
 }
 
+function judgingUnavailableSerializationTest() {
+  return Effect.gen(function* () {
+    const reportPlan = plan(casePlan("EVAL-005"));
+    const evaluationCase = reportPlan.cases[0];
+    const unavailable = yield* makeJudgingUnavailableAttempt({
+      attemptId: decodeEvaluationAttemptId(
+        "judge-unavailable/effect/v1/EVAL-005/001",
+      ),
+      caseId: evaluationCase.id,
+      conditionId: reportPlan.conditions[0].id,
+      sample: 1,
+      startedAt: instant,
+      completedAt: instant,
+      receipt: completedReceipt(),
+      transcript: transcript(evaluationCase.id),
+      codeAssessments: [],
+      pendingCriterionIds: evaluationCase.criterionIds,
+      error: JudgeUnavailable.make({
+        detail: "OPENAI_API_KEY is not configured",
+      }),
+    });
+
+    const decoded = yield* Schema.encode(terminalAttempt)(unavailable, {
+      onExcessProperty: "error",
+    }).pipe(Effect.flatMap(Schema.decodeUnknown(terminalAttempt)));
+
+    assert.instanceOf(decoded, JudgingUnavailableAttempt);
+    assert.instanceOf(decoded.error, JudgeUnavailable);
+    assert.strictEqual(decoded.error.detail, unavailable.error.detail);
+  });
+}
+
 function canonicalSliceValidationTest() {
   return Effect.gen(function* () {
     const reportPlan = plan(casePlan("EVAL-005"));
@@ -549,6 +584,10 @@ describe("evaluation report invariants", () => {
   it(
     "persists operational failure details without diagnostic wrappers",
     terminalDetailSerializationTest,
+  );
+  it(
+    "persists unavailable judging without runtime error metadata",
+    judgingUnavailableSerializationTest,
   );
   it(
     "rejects report plans outside the canonical slice vocabulary",
