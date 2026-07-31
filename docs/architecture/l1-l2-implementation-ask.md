@@ -56,6 +56,266 @@ process-local state required to serve its current instance. It has no
 durable cursor state, recipient queue, conversation state, delivery
 record, or server-side poll advancement.
 
+## Final source organization and readability pass
+
+Status: **APPROVED IMPLEMENTATION WORK**
+
+This section owns the final physical organization of the completed
+Registry and Router slices. It changes no normative behavior, public
+export, route, configuration key, error tag, result variant, database
+contract, or process boundary. Public vocabulary remains subject to the
+human vocabulary gate.
+
+The pass applies the deep-module rule to navigation: one file exists for
+one durable concept or boundary, not for each implementation step. Large
+cohesive standards, authentication, HTTP, storage, and state modules stay
+deep. Generic `shared`, `core`, `wire`, `transport`, `protocol`, `codec`,
+`adapter`, `helper`, and `utils` modules do not appear.
+
+### Horizontal ownership
+
+The package boundary remains:
+
+```text
+identity
+  ├── identity artifacts and signing
+  ├── AuthenticatedHttp
+  └── Registry client and process
+
+router
+  └── Router client and process
+```
+
+`AuthenticatedHttp` is an identity-owned public capability. It imports no
+Router module or vocabulary. Router, Ledger, and other registered-agent
+services consume it through `@moltzap/v2-identity` without depending on
+one another. It owns registered-agent card resolution, request-signature
+verification, nonce replay protection, and the nominal
+`VerifiedAgentRequest` proof. Each consuming service separately owns its
+operation authorization, capability middleware, and request Schema.
+
+Registry bootstrap registration does not use `AuthenticatedHttp`.
+`registry/admission.ts` owns the unauthenticated bootstrap admission
+profile before private Registry dispatch. Registry lookup and list remain
+public reads.
+
+Client and server representations for one service have one package-local
+owner:
+
+| Concern | Registry owner | Router owner |
+|---|---|---|
+| Public requests, results, refined operation values, client failures, routes, and exact enclosing limits | `registry/contract.ts` | `router/contract.ts` |
+| Production HTTP client | `registry/client.ts` | `router/client.ts` |
+| Production HTTP server boundary | `registry/http.ts` | `router/http.ts` |
+| Private correlated Effect RPC, middleware proof, and in-process dispatch | `registry/rpc.ts` | `router/rpc.ts` |
+| Durable or volatile state | `registry/storage.ts` | `router/feed.ts`, `router/poll-cursor.ts`, and `router/poll-waiters.ts` |
+| Process configuration and composition | `registry/configuration.ts`, `registry/server.ts`, and `registry/process.ts` | `router/configuration.ts`, `router/server.ts`, and `router/process.ts` |
+
+`contract.ts` is not a cross-package wire library. It is the single
+service-owned contract used by that service's client, HTTP server, and
+private dispatch. Registry and Router retain separate representation
+owners and do not share route, envelope, framing, limit, or
+canonicalization helpers.
+
+Small duplicated Effect Config refinements, listener composition, HTTP
+framing, and client deadline mechanics stay package-private. A maintained
+Effect or standards-library facility replaces duplication only when it
+already supplies the required behavior; this pass introduces no package
+or dependency.
+
+### Identity package map
+
+The final identity production map is:
+
+```text
+v2/identity/src/
+├── index.ts
+├── server.ts
+├── version.ts
+├── identifiers.ts
+├── agent-key.ts
+├── agent-card.ts
+├── signed-message.ts
+├── canonical-json.ts
+├── http-errors.ts
+├── http-signature.ts
+├── authenticated-http.ts
+├── registry.ts
+└── registry/
+    ├── README.md
+    ├── contract.ts
+    ├── client.ts
+    ├── admission.ts
+    ├── rpc.ts
+    ├── http.ts
+    ├── storage.ts
+    ├── configuration.ts
+    ├── server.ts
+    ├── process.ts
+    └── migrations/
+```
+
+`identifiers.ts` owns `AgentId`, `PrincipalId`, and `AgentName`, plus the
+private canonical identifier constructor used by their semantic owners.
+`AgentCard` owns `AgentCardDigest` and whole-second issuance validation.
+`SignedMessage` owns `MessageId`. The Registry contract owns
+`OperationId`. The root façade continues to export the exact approved
+names.
+
+`agent-key.ts` is the one key boundary for `Ed25519PublicKey`,
+`AgentSigningAuthority`, strict signature representation checks, and
+private-key import failure. It exposes no generic signing operation.
+
+`canonical-json.ts` and `http-signature.ts` remain deep private standards
+boundaries. `authenticated-http.ts` remains a deep public capability and
+absorbs the nominal verified-request proof rather than keeping that proof
+in a shallow file. `http-signature.ts` owns the shared request-signing
+failure.
+
+`registry.ts` remains the public Registry capability. Registry client
+failures and service call shapes live in `registry/contract.ts`; the
+network mechanics remain private in `registry/client.ts`.
+
+### Router package map
+
+The final Router production map is:
+
+```text
+v2/router/src/
+├── index.ts
+├── server.ts
+├── router.ts
+└── router/
+    ├── README.md
+    ├── contract.ts
+    ├── client.ts
+    ├── rpc.ts
+    ├── http.ts
+    ├── send.ts
+    ├── poll.ts
+    ├── feed.ts
+    ├── poll-cursor.ts
+    ├── poll-waiters.ts
+    ├── configuration.ts
+    ├── server.ts
+    └── process.ts
+```
+
+`router/contract.ts` owns the approved Router refined values, requests,
+results, client failures, exact route representations, and derived
+enclosing limits. It imports no send, poll, HTTP, RPC, or state
+implementation.
+
+`router/rpc.ts` owns only the private registered-agent middleware proof,
+operation group, handlers, and no-serialization in-process client. It
+receives the send and poll capabilities from the composition root. The
+public contract never imports those capabilities.
+
+`poll-cursor.ts` owns authenticated continuation encryption and
+decryption. `feed.ts` owns private order, one-copy retention, and retry
+identity. `poll-waiters.ts` names the request-scoped waiting behavior
+directly. None of these state mechanisms enters the public surface.
+
+### Vertical reading order
+
+The current executable paths remain:
+
+```text
+moltzap-registry
+  → runRegistryProcess
+  → runRegistryServer
+  → makeRegistryHttpApp
+  → bootstrap admission or public read
+  → private Registry RPC
+  → RegistryStorage
+  → exact HTTP response
+```
+
+```text
+moltzap-router
+  → runRouterProcess
+  → runRouterServer
+  → makeRouterHttpApp
+  → AuthenticatedHttp
+  → private Router RPC
+  → send or poll
+  → feed, cursor, and poll waiters
+  → exact HTTP response
+```
+
+The package-root `server.ts` files remain the intentional `./server`
+export façades. The nested `registry/server.ts` and `router/server.ts`
+files are the production composition roots. A Mermaid flow in JSDoc
+above each owning composition symbol makes that distinction visible in
+generated module documentation.
+
+Each substantial production file reads in this order:
+
+1. exported contract or capability;
+2. public or package-level constructor;
+3. orchestration in request order;
+4. typed failure projection; and
+5. leaf parsing, byte, and state helpers.
+
+Moving a helper above the main flow is justified only when module
+initialization requires it. Comments explain hidden constraints and
+surprising invariants, never the refactor, plan, or following statement.
+
+### Test organization
+
+Tests remain package-owned and are grouped under local `__tests__`
+directories by observable behavior. Production source folders do not
+interleave implementation modules with thousand-line umbrella suites.
+
+Identity tests group identifiers, keys, signed artifacts, canonical JSON,
+request authentication, Registry contract/client/dispatch, PostgreSQL
+behavior, and process behavior. Router tests group contract/client,
+private dispatch, send, poll, feed, cursor, waiters, configuration, HTTP
+process behavior, and the Registry-to-Router scenario.
+
+Package-local test support may hide child-process, raw-socket, database,
+and cryptographic fixture mechanics. It does not hide arrange/act/assert
+behavior behind a custom test DSL and does not become a production export
+or seventh package.
+
+Runtime tests that assert only `Object.keys()` or mirror an export list
+are removed. Existing `*.types-check.ts` canaries pin public type
+invariants, and repository export and architecture checks pin package
+shape. Behavior tests retain every current success, refusal, failure,
+concurrency, restart, persistence, and boundary assertion.
+
+### Plan anchors and acceptance
+
+| Change | Plan anchor |
+|---|---|
+| Keep `AuthenticatedHttp` reusable by Router, Ledger, and later consumers | Horizontal ownership |
+| Separate public service contracts from private Effect RPC machinery | Horizontal ownership and both package maps |
+| Collapse vague buckets and unjustified shallow modules without changing exports | Identity package map and Router package map |
+| Preserve deep HTTP, standards, authentication, storage, and state modules | Final source organization and readability pass |
+| Make binary-to-response flows visible in code and generated docs | Vertical reading order |
+| Reorganize tests by behavior and remove vacuous runtime export tests | Test organization |
+
+The pass is complete when:
+
+- the identity root exports the exact approved inventory;
+- `AuthenticatedHttp` remains identity-owned and imports no Router code;
+- Router depends only on the public identity package;
+- Registry and Router clients and servers consume their own single
+  service contract;
+- public contracts import no private RPC, HTTP, process, storage, send,
+  poll, or state implementation;
+- no new package, dependency, public name, public error, configuration
+  key, route, result, or behavior appears;
+- no numbered layer notation appears in non-documentation files;
+- temporary architecture overrides that say organization remains under
+  human review are removed or replaced by stable deep-module rationale;
+- generated `MODULE.md` and MDX pages show the final source map and
+  composition flows;
+- every moved or split test still asserts observable behavior; and
+- uncached identity and Router build, production and test typecheck,
+  lint, architecture, unit, integration, documentation, and
+  repository-contract checks pass non-vacuously.
+
 ## Run constraints
 
 - The existing Agent Code Guard version remains unchanged in this run.
@@ -1492,18 +1752,18 @@ disposition, and no implementation requirement remains only in chat.
 
 ## Implementation batch matrix
 
-The slices above describe outcomes. The following matrix is the exact
-implementation order. A batch contains at most five production
-TypeScript modules. Root façades count; SQL migrations and executable
-wrappers are production assets but not TypeScript modules. Adding a
-sixth module requires re-slicing this matrix before work continues.
+The slices above describe outcomes. The following matrix records their
+acceptance ownership. The final source organization section governs the
+physical module layout after all slices exist. Moving private code within
+that final map does not alter a slice's behavioral owner.
 
 Every batch ends with a recorded human readability disposition. The
 next batch does not start until that disposition is `PASS`. Private
 filenames use only vocabulary already present in the governing
 documents; no filename uses numbered layer notation, `wire`, `codec`,
-`transport`, `protocol`, `rpc`, `middleware`, `adapter`, `helper`, or
-`utils`.
+`transport`, `protocol`, `middleware`, `adapter`, `helper`, or `utils`.
+The private `rpc.ts` filename precisely identifies the Effect RPC
+correlation boundary approved for each service.
 
 ### Batch 0: authority reconciliation
 
@@ -1535,7 +1795,7 @@ generated-document inputs.
 
 Required evidence:
 
-- `identity-package.test.ts` and `router-package.test.ts`;
+- public `*.types-check.ts` canaries and repository export checks;
 - non-vacuous Nx `build`, production typecheck, test typecheck, `test`,
   `test:integration`, and `lint` targets, plus generated
   safer-architecture configuration and focused package targets;
@@ -1557,19 +1817,17 @@ records readability `PASS`.
 
 Production modules:
 
-- `v2/identity/src/identity-values.ts`
-- `v2/identity/src/identity-json.ts`
-- `v2/identity/src/ed25519-public-key.ts`
-- `v2/identity/src/agent-signing-authority.ts`
+- `v2/identity/src/identifiers.ts`
+- `v2/identity/src/canonical-json.ts`
+- `v2/identity/src/agent-key.ts`
 - `v2/identity/src/index.ts`
 
 Required evidence:
 
-- `identity-values.test.ts`
-- `identity-values.types-check.ts`
-- `identity-json.test.ts`
-- `ed25519-public-key.test.ts`
-- `agent-signing-authority.test.ts`
+- `identifiers.test.ts`
+- `identifiers.types-check.ts`
+- `canonical-json.test.ts`
+- `agent-key.test.ts`
 - `agent-signing-authority.types-check.ts`
 
 Exit: each semantic value has one Schema and name; JCS, JOSE, generic
@@ -1606,17 +1864,17 @@ General JWS mechanics; readability `PASS`.
 Production modules:
 
 - `v2/identity/src/http-errors.ts`
-- `v2/identity/src/identity-http.ts`
-- `v2/identity/src/registry/bootstrap-request.ts`
-- `v2/identity/src/registry/request-context.ts`
-- `v2/identity/src/registry/operations.ts`
+- `v2/identity/src/http-signature.ts`
+- `v2/identity/src/registry/admission.ts`
+- `v2/identity/src/registry/contract.ts`
+- `v2/identity/src/registry/rpc.ts`
 
 Required evidence:
 
-- `identity-http.test.ts`
-- `registry-bootstrap-request.test.ts`
-- `registry-request-context.test.ts`
-- `registry-operations.test.ts`
+- `http-signature.test.ts`
+- `registry-admission.test.ts`
+- `registry-contract.test.ts`
+- `registry-rpc.test.ts`
 
 Tests cover RFC 9421 oracle agreement, exact bootstrap fields and
 order, admission failure collapse, redaction, absent request proof,
@@ -1634,7 +1892,6 @@ Production modules:
 
 - `v2/identity/src/registry/client.ts`
 - `v2/identity/src/registry.ts`
-- `v2/identity/src/registered-agent-request.ts`
 - `v2/identity/src/authenticated-http.ts`
 - `v2/identity/src/index.ts`
 
@@ -1666,12 +1923,10 @@ Production modules:
 
 - `v2/identity/src/registry/configuration.ts`
 - `v2/identity/src/registry/storage.ts`
-- `v2/identity/src/registry/registration.ts`
-- `v2/identity/src/registry/reads.ts`
 
 Production asset:
 
-- `v2/identity/src/registry/migrations/0001_registry_state.sql`
+- `v2/identity/src/registry/migrations/0001_registry.ts`
 
 Required evidence:
 
@@ -1730,17 +1985,15 @@ SQL, or JOSE knowledge; readability `PASS`.
 
 Production modules:
 
-- `v2/router/src/router/values.ts`
-- `v2/router/src/router/request-context.ts`
-- `v2/router/src/router/operations.ts`
+- `v2/router/src/router/contract.ts`
+- `v2/router/src/router/rpc.ts`
 - `v2/router/src/router/client.ts`
 - `v2/router/src/router.ts`
 
 Required evidence:
 
-- `router-values.test.ts`
-- `router-request-context.test.ts`
-- `router-operations.test.ts`
+- `router-contract.test.ts`
+- `router-rpc.test.ts`
 - `router.types-check.ts`
 - `router-client.test.ts`
 
@@ -1758,7 +2011,7 @@ Production modules:
 
 - `v2/router/src/router/poll-cursor.ts`
 - `v2/router/src/router/feed.ts`
-- `v2/router/src/router/held-polls.ts`
+- `v2/router/src/router/poll-waiters.ts`
 
 Required evidence:
 
@@ -1766,7 +2019,7 @@ Required evidence:
 - `poll-cursor.mutation.test.ts`
 - `router-feed.test.ts`
 - `router-feed.types-check.ts`
-- `router-held-polls.test.ts`
+- `router-poll-waiters.test.ts`
 
 Tests cover Compact JWE oracle agreement, caller/instance/order/tamper
 rejection, one-copy retention, total order and exhaustion, coupled
