@@ -215,7 +215,6 @@ export type VerifiedHttpSignature = Readonly<{
 const isItem = (value: Item | InnerList): value is Item =>
   !Array.isArray(value[0]);
 
-/* eslint-disable sonarjs/function-return-type -- Effect Option deliberately returns its closed Some and None variants */
 const readCoveredFields = (
   value?: Item | InnerList,
 ): Option.Option<
@@ -237,7 +236,6 @@ const readCoveredFields = (
   }
   return Option.some({ fields, parameters });
 };
-/* eslint-enable sonarjs/function-return-type -- restore ordinary return-shape checks */
 
 const readSignatureBytes = (
   value?: Item | InnerList,
@@ -265,7 +263,6 @@ const isExactSignatureDictionary = (
   dictionary.size === 1 &&
   dictionary.has(SIGNATURE_LABEL);
 
-/* eslint-disable sonarjs/function-return-type -- Effect Option deliberately returns its closed Some and None variants */
 const parseExactSignature = (
   signatureInputHeader: string,
   signatureHeader: string,
@@ -297,7 +294,6 @@ const parseExactSignature = (
     return Option.none();
   }
 };
-/* eslint-enable sonarjs/function-return-type -- restore ordinary return-shape checks */
 
 const hasExactSequence = (
   actual: readonly string[],
@@ -325,7 +321,6 @@ interface SignatureParameterValues {
   readonly tag: Option.Option<BareItem>;
 }
 
-/* eslint-disable sonarjs/function-return-type -- Effect Option deliberately returns its closed Some and None variants */
 const readParameterValues = (
   parameters: ReadonlyMap<string, BareItem>,
 ): Option.Option<SignatureParameterValues> => {
@@ -350,7 +345,6 @@ const readParameterValues = (
     tag: Option.fromNullable(parameters.get("tag")),
   });
 };
-/* eslint-enable sonarjs/function-return-type -- restore ordinary return-shape checks */
 
 const hasExpectedIdentityParameters = (
   values: SignatureParameterValues,
@@ -378,7 +372,6 @@ const hasAcceptableTimes = (
   values.created <= nowSeconds + FUTURE_SKEW_SECONDS &&
   values.expires >= nowSeconds;
 
-/* eslint-disable sonarjs/function-return-type -- Effect Option deliberately returns its closed Some and None variants */
 const exactParameters = (
   parsed: ParsedSignature,
   profile: HttpSignatureProfile,
@@ -405,7 +398,6 @@ const exactParameters = (
     verifiedAt: nowSeconds,
   });
 };
-/* eslint-enable sonarjs/function-return-type -- restore ordinary return-shape checks */
 
 const serverRequestUrl = (
   request: HttpServerRequest.HttpServerRequest,
@@ -429,7 +421,6 @@ interface SignatureEnvelope {
   readonly url: URL;
 }
 
-/* eslint-disable sonarjs/function-return-type -- Effect Option deliberately returns its closed Some and None variants */
 const readSignatureEnvelope = (input: {
   readonly httpRequest: HttpServerRequest.HttpServerRequest;
   readonly bodyBytes: Uint8Array;
@@ -452,7 +443,6 @@ const readSignatureEnvelope = (input: {
     url: url.value,
   });
 };
-/* eslint-enable sonarjs/function-return-type -- restore ordinary return-shape checks */
 
 const makeVerifyingKey = (
   keyid: string,

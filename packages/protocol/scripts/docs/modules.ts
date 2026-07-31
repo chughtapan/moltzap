@@ -5,7 +5,6 @@
  * `index.ts`. Output is deterministic: sorted exports, LF endings,
  * stable section order.
  */
-/* eslint-disable sonarjs/null-dereference -- SonarJS treats the strictly typed string and collection callback parameters throughout this generator as nullable. */
 import { FileSystem, Path } from "@effect/platform";
 import { Effect, Schema } from "effect";
 import * as ts from "typescript";
@@ -1438,5 +1437,3 @@ function scanTopLevel(
   }
   return -1;
 }
-
-/* eslint-enable sonarjs/null-dereference -- Limit the generator-specific suppression to this module. */

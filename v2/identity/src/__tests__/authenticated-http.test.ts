@@ -391,7 +391,6 @@ const withServerRequest = (
 ): PreparedRequest => ({ ...prepared, serverRequest });
 
 const changeSignature = (value: string): string => {
-  // eslint-disable-next-line sonarjs/null-dereference -- The structured Signature header is a concrete string at this test boundary.
   const firstByteIndex = value.indexOf(":") + 1;
   if (firstByteIndex <= 0 || firstByteIndex >= value.length) {
     return `${value}:changed`;
@@ -505,7 +504,6 @@ const structuredFieldDuplicateMutations = (
       name: "created parameter",
       prepared: withSignatureInput(
         prepared,
-        // eslint-disable-next-line sonarjs/null-dereference -- requiredHeader establishes the signed field at this boundary.
         signatureInput.replace(";created=", ";created=0;created="),
       ),
     },

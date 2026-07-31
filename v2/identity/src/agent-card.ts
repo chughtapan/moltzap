@@ -44,7 +44,6 @@ const isWholeSecondUtc = (value: string): boolean => {
   if (!Number.isFinite(epochMilliseconds)) {
     return false;
   }
-  // eslint-disable-next-line sonarjs/null-dereference -- The explicit runtime guard above establishes the string consumed by this Schema predicate.
   const wholeSecondValue = `${value.slice(0, -1)}.000Z`;
   return new Date(epochMilliseconds).toISOString() === wholeSecondValue;
 };
