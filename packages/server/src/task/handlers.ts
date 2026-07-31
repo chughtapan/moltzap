@@ -71,6 +71,7 @@ interface MintInitialInput {
   };
   readonly invitedAgentIds: readonly AgentId[];
   readonly callerAgentId: AgentId;
+  readonly appId: AppId;
 }
 
 function mintInitialConversation(input: MintInitialInput) {
@@ -83,6 +84,7 @@ function mintInitialConversation(input: MintInitialInput) {
       name: input.initial.name,
       agentIds: [...participantAgentIds],
       creatorAgentId: input.callerAgentId,
+      appId: input.appId,
       mintTask: Effect.succeed({ id: input.task.id }),
     });
     const recipientAgentIds: AgentId[] = [
@@ -172,6 +174,7 @@ function handleAccept(
       initial: params.initialConversation,
       invitedAgentIds: params.invitedAgentIds,
       callerAgentId: ctx.agentId,
+      appId: params.appId,
     });
   }).pipe(Effect.withSpan("task.request.accept"));
 }

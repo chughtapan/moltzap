@@ -59,10 +59,14 @@ interface ConversationParticipants
 }
 
 interface Conversations
-  extends Omit<RawConversations, "id" | "created_by_id" | "task_id"> {
+  extends Omit<
+    RawConversations,
+    "id" | "created_by_id" | "task_id" | "app_id"
+  > {
   id: GeneratedBranded<ConversationId>;
   created_by_id: Branded<AgentId>;
   task_id: Branded<TaskId>;
+  app_id: Branded<AppId>;
 }
 
 type EncryptionKeys = RawEncryptionKeys;

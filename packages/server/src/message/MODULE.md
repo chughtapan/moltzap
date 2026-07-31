@@ -301,7 +301,7 @@ export class MessageService {
       this.db
         .selectFrom("conversations as c")
         .innerJoin("tasks as t", "t.id", "c.task_id")
-        .select(["c.task_id", "t.app_id as app_id", "t.status as task_status"])
+        .select(["c.task_id", "c.app_id as app_id", "t.status as task_status"])
         .where("c.id", "=", conversationId),
     );
 ```

@@ -63,9 +63,16 @@ CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT,
   created_by_id UUID NOT NULL REFERENCES agents(id),
+  -- Routing key for the authorizing app. App authority is proved by
+  -- comparing the calling AppConnection's appId against this column
+  -- (`assertAppOwnsConversation`); there is no separate endpoint-address
+  -- column, because app endpoint identity derives from `app_id` at routing
+  -- time.
+  app_id TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX idx_conversations_app ON conversations(app_id);
 CREATE TRIGGER conversations_updated_at BEFORE UPDATE ON conversations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 

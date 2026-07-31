@@ -24,7 +24,7 @@ import {
   AgentNotFoundError,
   NotInContactsError,
 } from "@moltzap/protocol/identity";
-import type { TaskId } from "@moltzap/protocol/task";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
 import { BoundedMap } from "@moltzap/protocol/bounded-map";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
@@ -72,6 +72,8 @@ interface CreateConversationOptions<TaskMintError = never> {
   readonly name?: string;
   readonly agentIds: readonly AgentId[];
   readonly creatorAgentId: AgentId;
+  /** Authorizing app; the routing key every send and dispatch resolves. */
+  readonly appId: AppId;
   readonly seedCreatorAsParticipant?: boolean;
   readonly mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>;
 }
@@ -463,6 +465,7 @@ export class ConversationService {
               name: input.name ?? null,
               created_by_id: input.creatorAgentId,
               task_id: taskId,
+              app_id: input.appId,
             })
             .returningAll(),
         );
@@ -606,6 +609,37 @@ export class ConversationService {
           );
         }
         return this.mapConversation(rowOpt.value);
+      }),
+    );
+  }
+
+  /**
+   * Authorizing app for a conversation. The routing key every app-authority
+   * gate compares against, read without joining the task that minted the
+   * conversation.
+   * @param conversationId Value supplied to the operation.
+   * @internal
+   * @returns The authorizing app id.
+   */
+  loadAppId(
+    conversationId: ConversationId,
+  ): Effect.Effect<AppId, ConversationNotFoundError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* (this: ConversationService) {
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("conversations")
+            .select("app_id")
+            .where("id", "=", conversationId),
+        );
+        if (Option.isNone(rowOpt)) {
+          return yield* Effect.fail(
+            new ConversationNotFoundError({
+              message: MSG_CONVERSATION_NOT_FOUND,
+            }),
+          );
+        }
+        return rowOpt.value.app_id;
       }),
     );
   }

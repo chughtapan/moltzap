@@ -17,7 +17,10 @@ import type { AppContext, AgentContext } from "#socket";
 import { ConversationServiceTag } from "./layer.js";
 import { TaskServiceTag } from "#task";
 import { agentArm, appArm } from "#moltzap/runtime";
-import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
+import {
+  assertCallerAppOwnsConversation,
+  authorizeConversationCreateCapacityOnly,
+} from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import { assertCallerAppOwnsTask } from "#task/requirements";
 
@@ -54,6 +57,7 @@ function conversationCreateBody(
       name: params.name,
       agentIds: [...params.participants],
       creatorAgentId: task.initiatorAgentId,
+      appId,
       seedCreatorAsParticipant: false,
       mintTask: Effect.succeed({ id: params.taskId }),
     });
@@ -120,7 +124,7 @@ function conversationAddParticipantBody(
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+    yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
     const taskService = yield* TaskServiceTag;
     yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
       params.agentId,
@@ -148,7 +152,7 @@ function conversationRemoveParticipantBody(
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+    yield* assertCallerAppOwnsConversation(ctx.appId, params.conversationId);
     const taskService = yield* TaskServiceTag;
     const { preMutationParticipants, wasParticipant } =
       yield* taskService.removeConversationParticipant(

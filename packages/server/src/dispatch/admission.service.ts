@@ -50,10 +50,9 @@ function lookupAppBoundForConversation(
       const rowOpt = yield* takeFirstOption(
         db
           .selectFrom("conversations")
-          .innerJoin("tasks", "tasks.id", "conversations.task_id")
-          .select(["tasks.id as task_id", "tasks.app_id"])
+          .select(["conversations.task_id", "conversations.app_id"])
           .where("conversations.id", "=", conversationId)
-          .where("tasks.app_id", "is not", null)
+          .where("conversations.app_id", "is not", null)
           .limit(1),
       );
       if (Option.isNone(rowOpt) || rowOpt.value.app_id === null) {

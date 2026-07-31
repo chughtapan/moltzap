@@ -36,7 +36,7 @@ export class TaskAuthorizationServiceTag extends Context.Tag(
 
 Implements task authorization service tag.
 
-### [`taskLeave`](./handlers.ts#L373)
+### [`taskLeave`](./handlers.ts#L376)
 
 _Variable_
 
@@ -48,7 +48,7 @@ Provides the task leave runtime value.
 
 **Returns:** The task leave result.
 
-### [`taskList`](./handlers.ts#L363)
+### [`taskList`](./handlers.ts#L366)
 
 _Variable_
 
@@ -60,7 +60,7 @@ Provides the task list runtime value.
 
 **Returns:** The task list result.
 
-### [`taskRequest`](./handlers.ts#L215)
+### [`taskRequest`](./handlers.ts#L218)
 
 _Variable_
 
@@ -234,7 +234,7 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 
 Implements task service tag.
 
-### [`taskUpdate`](./handlers.ts#L383)
+### [`taskUpdate`](./handlers.ts#L386)
 
 _Variable_
 
