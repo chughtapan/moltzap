@@ -112,6 +112,7 @@ export const materializePublishedOpenClawPlugin = Effect.fn(
     target,
     options.openclawBin,
   );
+  // eslint-disable-next-line @typescript-eslint/no-use-before-define -- cache helper is initialized before this effect executes.
   return yield* materializeOpenClawPluginCacheGeneration({
     generationDir,
     stateDir: options.stateDir,
@@ -259,6 +260,7 @@ function buildAndPublishCacheGeneration(
           join(stagingHome, ".openclaw", "npm", "projects"),
           target.channelVersion,
         );
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define -- validation helper runs after module initialization.
         yield* validateOpenClawPluginProject(
           sourceProjectDir,
           target.channelVersion,

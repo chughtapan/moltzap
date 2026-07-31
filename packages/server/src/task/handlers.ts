@@ -228,6 +228,7 @@ const taskLeaveBody = Effect.fn("task.leave")(function* (
     ctx.agentId,
   );
   for (const conversationId of leftConversationIds) {
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define -- fanout is invoked after module initialization.
     yield* fanoutLeaveParticipantRemoval({
       taskId: params.taskId,
       conversationId,

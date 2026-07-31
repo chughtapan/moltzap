@@ -18,7 +18,7 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L626)
+### [`acquireClient`](./_helpers.ts#L612)
 
 _Function_
 
@@ -33,7 +33,7 @@ Executes the acquire client operation.
 
 **Returns:** The acquire client result.
 
-### [`acquireConversation`](./_helpers.ts#L890)
+### [`acquireConversation`](./_helpers.ts#L876)
 
 _Function_
 
@@ -49,7 +49,7 @@ Executes the acquire conversation operation.
 
 **Returns:** The acquire conversation result.
 
-### [`acquirePropertyConversation`](./_helpers.ts#L339)
+### [`acquirePropertyConversation`](./_helpers.ts#L334)
 
 _Function_
 
@@ -65,7 +65,7 @@ Executes the acquire property conversation operation.
 
 **Returns:** The acquire property conversation result.
 
-### [`archiveConversation`](./_helpers.ts#L398)
+### [`archiveConversation`](./_helpers.ts#L393)
 
 _Function_
 
@@ -81,7 +81,7 @@ Executes the archive conversation operation.
 
 **Returns:** The archive conversation result.
 
-### [`assertConversationRejectsMessages`](./_helpers.ts#L578)
+### [`assertConversationRejectsMessages`](./_helpers.ts#L565)
 
 _Function_
 
@@ -95,7 +95,7 @@ Asserts conversation rejects messages.
 
 **Returns:** The assert conversation rejects messages result.
 
-### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L565)
+### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L552)
 
 _Interface_
 
@@ -111,7 +111,7 @@ export interface AssertConversationRejectsMessagesInput {
 
 Describes assert conversation rejects messages input.
 
-### [`awaitOneNotification`](./_helpers.ts#L295)
+### [`awaitOneNotification`](./_helpers.ts#L290)
 
 _Function_
 
@@ -137,7 +137,7 @@ a tagged error type per definition.
 
 **Returns:** The await one notification result.
 
-### [`CONVERSATION_FAMILY_PROPERTIES`](./conversation-family.ts#L473)
+### [`CONVERSATION_FAMILY_PROPERTIES`](./conversation-family.ts#L467)
 
 _Variable_
 
@@ -234,7 +234,7 @@ export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 
 Provides the delivery default timeout ms runtime value.
 
-### [`deliveryViolation`](./_helpers.ts#L267)
+### [`deliveryViolation`](./_helpers.ts#L262)
 
 _Function_
 
@@ -249,7 +249,7 @@ Executes the delivery violation operation.
 
 **Returns:** The delivery violation result.
 
-### [`firstParticipant`](./_helpers.ts#L355)
+### [`firstParticipant`](./_helpers.ts#L350)
 
 _Function_
 
@@ -264,7 +264,7 @@ Executes the first participant operation.
 
 **Returns:** The first participant result.
 
-### [`fixtureN`](./_helpers.ts#L328)
+### [`fixtureN`](./_helpers.ts#L323)
 
 _Function_
 
@@ -276,7 +276,7 @@ Executes the fixture n operation.
 
 **Returns:** The fixture n result.
 
-### [`moderateAs`](./_helpers.ts#L852)
+### [`moderateAs`](./_helpers.ts#L838)
 
 _Function_
 
@@ -303,7 +303,7 @@ the app's forward-all callback.
 
 **Returns:** The moderate as result.
 
-### [`ModeratedHandle`](./_helpers.ts#L812)
+### [`ModeratedHandle`](./_helpers.ts#L798)
 
 _Interface_
 
@@ -368,7 +368,7 @@ export function registerArchiveLifecycle(ctx: ConformanceRunContext): void
 
 Registers archive lifecycle.
 
-### [`registerConversationCreateAndList`](./conversation-family.ts#L426)
+### [`registerConversationCreateAndList`](./conversation-family.ts#L422)
 
 _Function_
 
@@ -422,7 +422,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void
 
 Registers store and replay.
 
-### [`registerTaskBoundaryIsolation`](./task-boundary-isolation.ts#L62)
+### [`registerTaskBoundaryIsolation`](./task-boundary-isolation.ts#L61)
 
 _Function_
 
@@ -454,7 +454,7 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void
 
 Registers task create.
 
-### [`registerTaskLeave`](./conversation-family.ts#L342)
+### [`registerTaskLeave`](./conversation-family.ts#L338)
 
 _Function_
 
@@ -464,7 +464,7 @@ export function registerTaskLeave(ctx: ConformanceRunContext): void
 
 Registers task leave.
 
-### [`registerTaskRequestReject`](./conversation-family.ts#L276)
+### [`registerTaskRequestReject`](./conversation-family.ts#L272)
 
 _Function_
 
@@ -474,7 +474,7 @@ export function registerTaskRequestReject(ctx: ConformanceRunContext): void
 
 Registers task request reject.
 
-### [`sendText`](./_helpers.ts#L375)
+### [`sendText`](./_helpers.ts#L370)
 
 _Function_
 
@@ -513,7 +513,7 @@ export const TASK_PROPERTIES: ReadonlyArray<
 All task-layer property registrars: delivery subset first, then the
 `app/conversation/*` family.
 
-### [`unarchiveConversation`](./_helpers.ts#L417)
+### [`unarchiveConversation`](./_helpers.ts#L412)
 
 _Function_
 
@@ -529,7 +529,7 @@ Executes the unarchive conversation operation.
 
 **Returns:** The unarchive conversation result.
 
-### [`waitForArchivedEvent`](./_helpers.ts#L502)
+### [`waitForArchivedEvent`](./_helpers.ts#L493)
 
 _Function_
 
@@ -545,7 +545,7 @@ Waits for for archived event.
 
 **Returns:** The wait for archived event result.
 
-### [`waitForConversationCreatedNotification`](./_helpers.ts#L436)
+### [`waitForConversationCreatedNotification`](./_helpers.ts#L431)
 
 _Function_
 
@@ -561,7 +561,7 @@ Waits for for conversation created notification.
 
 **Returns:** The wait for conversation created notification result.
 
-### [`waitForMessageReceivedNotification`](./_helpers.ts#L469)
+### [`waitForMessageReceivedNotification`](./_helpers.ts#L462)
 
 _Function_
 
@@ -577,7 +577,7 @@ Waits for for message received notification.
 
 **Returns:** The wait for message received notification result.
 
-### [`waitForUnarchivedEvent`](./_helpers.ts#L538)
+### [`waitForUnarchivedEvent`](./_helpers.ts#L527)
 
 _Function_
 

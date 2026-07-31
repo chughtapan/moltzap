@@ -411,7 +411,10 @@ export function notificationSubscribe<
               catch: (cause) => new Cause.UnknownException(cause),
             }).pipe(Effect.orDie),
           onClose: (cause) =>
-            Effect.promise(() => emit.fail(cause)).pipe(Effect.asVoid),
+            Effect.try({
+              try: () => emit.fail(cause),
+              catch: (error) => new Cause.UnknownException(error),
+            }).pipe(Effect.asVoid, Effect.orDie),
         },
         refinement,
       ),
@@ -443,7 +446,10 @@ export function notificationSubscribeAll<
               catch: (cause) => new Cause.UnknownException(cause),
             }).pipe(Effect.orDie),
           onClose: (cause) =>
-            Effect.promise(() => emit.fail(cause)).pipe(Effect.asVoid),
+            Effect.try({
+              try: () => emit.fail(cause),
+              catch: (error) => new Cause.UnknownException(error),
+            }).pipe(Effect.asVoid, Effect.orDie),
         },
         refinement,
       ),

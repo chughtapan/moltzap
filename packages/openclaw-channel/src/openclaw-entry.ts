@@ -1181,14 +1181,20 @@ function parseTaskTarget(
   return Effect.gen(function* () {
     const parsedTaskId = yield* Schema.decodeUnknown(taskId)(
       body.slice(0, sep),
+    ).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new MoltZapTargetMalformedError({ target: to })),
+      ),
     );
     const parsedConversationId = yield* Schema.decodeUnknown(conversationId)(
       body.slice(sep + 1),
+    ).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new MoltZapTargetMalformedError({ target: to })),
+      ),
     );
     return { taskId: parsedTaskId, conversationId: parsedConversationId };
-  }).pipe(
-    Effect.mapError(() => new MoltZapTargetMalformedError({ target: to })),
-  );
+  });
 }
 
 function dispatchOutbound(

@@ -24,7 +24,6 @@ import {
   guardReplyTarget,
   obtainConversationSendAccess,
 } from "#conversation/requirements";
-import { catchSqlErrorAsDefect } from "#db";
 import type { MessageService } from "./message.service.js";
 
 type MessagesSendParams = ParamsOf<typeof messagesSendDefinition>;

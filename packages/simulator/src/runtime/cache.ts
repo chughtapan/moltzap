@@ -30,15 +30,6 @@ export const CACHE_BUILD_PERMIT = Effect.runSync(Effect.makeSemaphore(1));
 
 type ErrorFactory<E> = (reason: string, cause?: unknown) => E;
 
-/** Process-local memo that records successful acquisitions by key. */
-export interface SuccessMemo<Key, Value> {
-  readonly getOrAcquire: <E, R>(
-    key: Key,
-    acquire: Effect.Effect<Value, E, R>,
-  ) => Effect.Effect<Value, E, R>;
-  readonly peek: (key: Key) => Effect.Effect<Value | null>;
-}
-
 /**
  * Coalesces concurrent acquisitions and remembers only successful values.
  * Failed, defecting, and interrupted acquisitions leave the key empty, so the
@@ -144,6 +135,7 @@ export function makeImmutableCache<E>(
   return {
     createBuildingCache: () => createBuildingCache(cacheRoot, fsEffect),
     findCacheGeneration: (fingerprint: string) =>
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define -- cache methods are invoked after module initialization.
       findCacheGeneration(cacheRoot, fingerprint, fsEffect),
     publishCacheGeneration: (buildingDir: string) =>
       publishCacheGeneration(cacheRoot, buildingDir, fsEffect),

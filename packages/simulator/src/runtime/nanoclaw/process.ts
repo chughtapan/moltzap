@@ -2,12 +2,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { execPath } from "node:process";
-import {
-  Command,
-  FileSystem,
-  type HttpClient,
-  type Path,
-} from "@effect/platform";
+import { Command, FileSystem } from "@effect/platform";
 import type {
   CommandExecutor,
   ExitCode,
@@ -552,6 +547,7 @@ export function stopNanoclawRuntimeEffect(
   return Effect.uninterruptible(
     stopNanoclawProcess(handle).pipe(
       Effect.ensuring(Scope.close(handle.scope, Exit.succeed(undefined))),
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define -- cleanup runs after module initialization.
       Effect.ensuring(sweepNanoclawContainers(handle.runtimeDir)),
       Effect.ensuring(removeNanoclawRuntimeDir(handle.runtimeDir)),
     ),

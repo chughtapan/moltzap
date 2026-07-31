@@ -53,6 +53,7 @@ export function makeMoltzapSocketHandler(options: {
         { write: session.write, shutdown: session.shutdown },
         session.originator,
       ),
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define -- lifecycle callback is invoked after module initialization.
     onClose: (...[, session]) => closeSocketSession(session, options),
   });
   return (socket: EffectSocket) => protocolServer.handleSocket(socket);
@@ -74,6 +75,7 @@ const closeSocketSession = Effect.fn("socket.closeSession")(function* (
       authCtx.agentId,
       session.connId,
     );
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define -- hook runner is initialized before the callback executes.
     yield* runDisconnectionHooks(authCtx, session, options);
     yield* options.services.agentEndpointResolver.remove(
       authCtx.agentId,
