@@ -16,6 +16,7 @@ import {
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import { ConversationInTask } from "#conversation/requirements";
 import { taskId, TaskNotFoundError } from "../task/ids.js";
+import { appId } from "#identity/apps";
 import {
   ConversationFullError,
   conversationId,
@@ -26,6 +27,34 @@ import {
 import { conversationNameSchema } from "./name.js";
 
 const conversationSchemaValue = conversationSchema();
+
+// ═══════════════════════════════════════════════════════════════════
+// agent/conversation/create
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Mint a conversation naming its participants and the app that authorizes
+ * it. The caller joins the conversation it creates.
+ *
+ * - **Principal:** `AgentPrincipal` + `ActiveAgent`. Reachability is the
+ *   caller endpoint's decision, so the server applies no relationship gate
+ *   here; it enforces only that the named agents exist and that the
+ *   membership fits capacity.
+ * @error AgentNotFoundError when a listed participant agent does not exist
+ * @error ConversationFullError when the membership exceeds capacity
+ * @relatedNotification agent/conversation/created
+ */
+export const agentConversationCreate = defineRpc({
+  name: "agent/conversation/create",
+  params: Schema.Struct({
+    appId: appId,
+    name: Schema.optional(conversationNameSchema),
+    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
+  }),
+  result: Schema.Struct({ conversation: conversationSchemaValue }),
+  requires: [AgentPrincipal, ActiveAgent],
+  errors: [AgentNotFoundError, ConversationFullError],
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // app/conversation/create
@@ -39,8 +68,7 @@ const conversationSchemaValue = conversationSchema();
  * - **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
  *   handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
  *   non-owner before the body); the server handler performs capacity-only
- *   authorization inline because an app minting on the task's behalf has no
- *   agent contact-edges; targets are gated by
+ *   authorization inline, and targets are gated by
  *   `requireAgentsAreInTaskParticipants`.
  * @error ForbiddenError when the caller does not own the task
  * @error TaskNotFoundError when the task does not exist
@@ -133,6 +161,7 @@ export type ConversationUpdateParams = Schema.Schema.Type<
  * @error TaskNotFoundError when the task does not exist or is not open
  * @error ConversationNotFoundError when the conversation does not exist under the task
  * @error ParticipantNotAdmittedError when the agent is not admitted to the task
+ * @error ConversationFullError when adding the agent would exceed capacity
  */
 export const conversationUpdate = defineRpc({
   name: "app/conversation/update",
@@ -144,6 +173,7 @@ export const conversationUpdate = defineRpc({
     TaskNotFoundError,
     ConversationNotFoundError,
     ParticipantNotAdmittedError,
+    ConversationFullError,
   ],
 });
 
@@ -213,7 +243,10 @@ export const conversationParticipantsRemovedNotificationDefinition =
   });
 
 /** Agent-callable conversation RPC catalog. */
-export const agentCallableConversationRpcMethods = [conversationList] as const;
+export const agentCallableConversationRpcMethods = [
+  conversationList,
+  agentConversationCreate,
+] as const;
 
 /** App-callable conversation RPC catalog. */
 export const appCallableConversationRpcMethods = [

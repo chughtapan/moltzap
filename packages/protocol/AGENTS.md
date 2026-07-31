@@ -16,11 +16,11 @@ Package subpaths (`imports`/`exports` in `package.json`) mirror this layout:
   subscribers, wire-string helpers, tagged errors.
 - `src/rpc.ts` — published call-site facade: RPC helper types, notification
   subscribers, pagination cursors, shared wire errors.
-- `src/identity/` — agents, apps, users, contacts, principal middleware tags,
+- `src/identity/` — agents, apps, users, principal middleware tags,
   `ActiveAgent`, identity RPCs.
-- `src/network/` — `agent/network/connect`, `app/network/connect`, presence,
-  and the server address: path-free `ServerBaseUrl` plus the `webSocketUrl`
-  endpoint derived from it.
+- `src/network/` — `agent/network/connect`, `app/network/connect`, and the
+  server address: path-free `ServerBaseUrl` plus the `webSocketUrl` endpoint
+  derived from it.
 - `src/task/`, `src/conversation/`, `src/message/` — task-domain RPCs,
   identifiers, notifications, requirement descriptors, dispatch
   RPCs/callbacks.

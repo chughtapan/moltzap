@@ -66,10 +66,6 @@ function closeSocketSession(
     );
     if (removed !== undefined && removed._tag === "AgentConnection") {
       const authCtx = removed.auth;
-      yield* options.services.presenceService.onAgentDisconnect(
-        authCtx.agentId,
-        session.connId,
-      );
       yield* runDisconnectionHooks(authCtx, session, options);
       yield* options.services.agentEndpointResolver.remove(
         authCtx.agentId,

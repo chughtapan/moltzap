@@ -7,7 +7,7 @@
  * to fire the `app/task/create` callback over the bound app's connection.
  *
  * Lifecycle (one-way, fail-closed):
- *   1. Validate contact policy + create the task row in `waiting`.
+ *   1. Create the task row in `waiting`.
  *   2. Fire `app/task/create` callback to the bound app.
  *      Timeout / RPC error / decode failure synthesizes a reject
  *      verdict with a synthesized reason code.
@@ -79,7 +79,7 @@ function mintInitialConversation(input: MintInitialInput) {
     const conversationService = yield* ConversationServiceTag;
     const participantAgentIds: readonly AgentId[] =
       input.initial.participants ?? input.invitedAgentIds;
-    yield* authorizeConversationCreateCapacityOnly(participantAgentIds);
+    yield* authorizeConversationCreateCapacityOnly(participantAgentIds, true);
     const conversation = yield* conversationService.create({
       name: input.initial.name,
       agentIds: [...participantAgentIds],
@@ -183,8 +183,6 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const taskAuthorization = yield* TaskAuthorizationServiceTag;
-    // Contact-policy reachability is enforced by the method's requirement
-    // middleware before this body runs.
     const waitingTask = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
       invitedAgentIds: params.invitedAgentIds,
@@ -208,8 +206,7 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
 
 // ── @effect/rpc handler body ─────────────────────────────────────────
 //
-// The `ContactPolicyAllowsReach` requirement gates the frame before this body
-// runs. `agentArm` reads the narrowed principal.
+// `agentArm` reads the narrowed principal.
 /**
  * Provides the task request runtime value.
  * @param params Request payload to process.

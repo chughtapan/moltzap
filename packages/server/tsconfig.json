@@ -42,17 +42,8 @@
       "#identity/credential-keys": [
         "identity/credential-keys.ts"
       ],
-      "#identity/contacts/requirements": [
-        "identity/contacts/requirements/index.ts"
-      ],
-      "#identity/contacts": [
-        "identity/contacts/index.ts"
-      ],
       "#network": [
         "network/index.ts"
-      ],
-      "#network/presence": [
-        "network/presence/index.ts"
       ],
       "#task": [
         "task/index.ts"

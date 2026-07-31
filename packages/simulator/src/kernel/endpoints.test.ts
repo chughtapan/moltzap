@@ -121,7 +121,6 @@ function router(
         agent: makeAgentHandle(name, TARGET_ID),
         key: KEY,
         routerUrl: ROUTER_URL,
-        awaitReady: () => Effect.void,
       }),
     attachEndpoint: (name) =>
       Effect.sync(() => {

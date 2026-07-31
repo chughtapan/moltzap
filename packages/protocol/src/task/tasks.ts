@@ -19,7 +19,6 @@ import {
 } from "../conversation/types.js";
 import { conversationNameSchema } from "../conversation/name.js";
 import { appId } from "#identity/apps";
-import { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
 import { taskId, TaskNotFoundError } from "./ids.js";
 
 /** Re-exports the public API from `#identity/apps`. */
@@ -44,7 +43,7 @@ export { type AppId, appId, DEFAULT_APP_ID } from "#identity/apps";
 // | Method                              | Authority                                |
 // |-------------------------------------|------------------------------------------|
 // | agent/task/list                     | self only (own tasks)                    |
-// | agent/task/request                  | active agent + contact-policy            |
+// | agent/task/request                  | active agent                             |
 // | agent/task/leave                    | self only                                |
 // | app/task/update                     | owning app only                          |
 //
@@ -181,9 +180,6 @@ export type InitialConversationInput = Schema.Schema.Type<
  * result is returned after the verdict resolves (the handler awaits it).
  *
  * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
- * - **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
- *   reach every invited agent and initial-conversation participant under the
- *   recipient's contact policy.
  * @error TaskRejectedError when the owning app rejects the task
  * @error AgentNotFoundError when an invited or initial-conversation participant is missing
  * @error ConversationFullError when the `initialConversation` exceeds capacity
@@ -199,7 +195,7 @@ export const taskRequest = defineRpc({
     task: taskSchema,
     conversation: Schema.Union(conversationSchemaValue, Schema.Null),
   }),
-  requires: [AgentPrincipal, ActiveAgent, ContactPolicyAllowsReach],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
 });
 

@@ -5,10 +5,8 @@ import { type Db, DbTag } from "#db";
 import { ConnectionManager } from "#socket";
 import { AgentEndpointResolver, NetworkSendService } from "#network";
 import { AuthService } from "#identity/agents";
-import { ContactsService } from "#identity/contacts";
 import { ConversationService } from "#conversation";
 import { MessageService } from "#message";
-import { PresenceService } from "#network/presence";
 import { AppEndpointRegistry } from "#identity/apps";
 import { EncryptionTag } from "#db/crypto";
 import { servicesLive, resolveServices } from "#core";
@@ -50,8 +48,6 @@ it("ServicesLive resolves every service via resolveServices", () =>
     expect(services.networkSendService).toBeInstanceOf(NetworkSendService);
     expect(services.authService).toBeInstanceOf(AuthService);
     expect(services.conversationService).toBeInstanceOf(ConversationService);
-    expect(services.contactService).toBeInstanceOf(ContactsService);
-    expect(services.presenceService).toBeInstanceOf(PresenceService);
     expect(services.appEndpointRegistry).toBeInstanceOf(AppEndpointRegistry);
     expect(services.messageService).toBeInstanceOf(MessageService);
 

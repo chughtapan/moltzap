@@ -37,8 +37,6 @@ import type { AppEndpointRegistry } from "../identity/apps/endpoint-registry.js"
 import { ConversationServiceTag } from "../conversation/layer.js";
 import type { ConversationService } from "../conversation/conversation.service.js";
 import { AgentEndpointResolverTag } from "./layer.js";
-import { PresenceServiceTag } from "./presence/layer.js";
-import type { PresenceService } from "./presence/presence.service.js";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 
@@ -72,27 +70,6 @@ function authenticateAgentKey(
       ownerUserId: agent.ownerUserId,
     });
   }).pipe(Effect.withSpan("connect.authenticateAgentKey"));
-}
-
-/**
- * Emit the agent's `online` presence on connect, then return the empty HelloOk.
- * `onAgentConnect(agentId, connId)` threads `connId` for the fast-reconnect
- * race guard. The handshake carries no agent identity back — the client already
- * holds its registered `agentId`.
- * @param ctx Context for the operation.
- * @param connId Value supplied to the operation.
- * @param presenceService Value supplied to the operation.
- * @returns The created hello ok.
- */
-function buildHelloOk(
-  ctx: AgentContext,
-  connId: ConnectionId,
-  presenceService: PresenceService,
-): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
-  return Effect.gen(function* () {
-    yield* presenceService.onAgentConnect(ctx.agentId, connId);
-    return HELLO_OK;
-  }).pipe(Effect.withSpan("connect.buildHelloOk"));
 }
 
 /**
@@ -316,7 +293,6 @@ function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
   return Effect.gen(function* () {
     const authService = yield* AuthServiceTag;
     const conversationService = yield* ConversationServiceTag;
-    const presenceService = yield* PresenceServiceTag;
     const connections = yield* ConnectionManagerTag;
     const agentEndpointResolver = yield* AgentEndpointResolverTag;
 
@@ -336,9 +312,8 @@ function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
       connId,
       auth,
     );
-    const helloOk = yield* buildHelloOk(auth, connId, presenceService);
     yield* fireConnectionHooks(auth, connId);
-    return helloOk;
+    return HELLO_OK;
   }).pipe(Effect.withSpan("connect.completeAgentConnect"));
 }
 
@@ -409,19 +384,11 @@ function checkConnectProtocol(params: ConnectParams) {
   );
 }
 
-function reemitHelloIfAuthenticated(
-  conn: Connection,
-  presenceService: PresenceService,
-) {
+function reemitHelloIfAuthenticated(conn: Connection) {
   return Effect.gen(function* () {
     if (conn._tag === "AgentConnection") {
-      const helloOk = yield* buildHelloOk(
-        conn.auth,
-        conn.connId,
-        presenceService,
-      );
       yield* fireConnectionHooks(conn.auth, conn.connId);
-      return Option.some(helloOk);
+      return Option.some(HELLO_OK);
     }
     if (conn._tag === "AppConnection") {
       return Option.some(HELLO_OK);
@@ -441,9 +408,8 @@ function reemitHelloIfAuthenticated(
 function connectPreamble(params: ConnectParams) {
   return Effect.gen(function* () {
     yield* checkConnectProtocol(params);
-    const presenceService = yield* PresenceServiceTag;
     const conn = yield* ConnectionTag;
-    const reemitted = yield* reemitHelloIfAuthenticated(conn, presenceService);
+    const reemitted = yield* reemitHelloIfAuthenticated(conn);
     return { conn, reemitted };
   });
 }
@@ -509,4 +475,4 @@ export const connectAgent: ServerHandler<typeof agentConnect> = (params) =>
 export const connectApp: ServerHandler<typeof appConnect> = (params) =>
   handleAppConnect(params).pipe(Effect.withSpan("connect.app"));
 
-// safer-arch-ignore no-fat-orchestrator: Connect handlers coordinate authentication, connection-arm transitions, endpoint registration, and presence as one atomic handshake boundary.
+// safer-arch-ignore no-fat-orchestrator: Connect handlers coordinate authentication, connection-arm transitions, and endpoint registration as one atomic handshake boundary.

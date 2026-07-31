@@ -8,8 +8,8 @@ app decomposition.
 ```
 __tests__/integration/
 ├── socket/      # WebSocket lifecycle, heartbeat, RPC plumbing
-├── identity/    # registration, claim, agents-list, contacts, auth
-├── network/     # presence + agent endpoint resolver
+├── identity/    # registration, claim, agents-list, auth
+├── network/     # agent endpoint resolver
 ├── task/        # conversations, messages, tasks, mute, trace
 └── app/         # app registration + dispatch-admission lease lifecycle
     └── dispatch-flow/  # bucketed dispatch-admission scenarios

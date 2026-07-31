@@ -5,7 +5,7 @@ export type { Db } from "./client.js";
 /** Re-exports the public API from `./layer.js`. */
 export { DbTag } from "./layer.js";
 /** Re-exports the public API from `./database.js`. */
-export type { ContactRow, Database, MessageRow } from "./database.js";
+export type { Database, MessageRow } from "./database.js";
 /** Re-exports the public API from `./effect-kysely-toolkit.js`. */
 export {
   catchSqlErrorAsDefect,

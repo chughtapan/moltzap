@@ -17,14 +17,10 @@
  */
 import { connectAgent, connectApp } from "#network";
 import { agentsList } from "#identity/agents";
-import { contactsAccept, contactsAdd, contactsList } from "#identity/contacts";
-import {
-  agentPresenceSubscribe,
-  appPresenceSubscribe,
-} from "#network/presence";
 import { messagesSend, messagesList } from "#message/handlers";
 import { taskList, taskLeave, taskRequest, taskUpdate } from "#task/handlers";
 import {
+  agentConversationCreate,
   conversationCreate,
   conversationList,
   conversationUpdate,
@@ -40,11 +36,6 @@ export const serverHandlers: ServerHandlers = {
   "agent/network/connect": connectAgent,
   "app/network/connect": connectApp,
   "agent/identity/agents/list": agentsList,
-  "agent/identity/contacts/list": contactsList,
-  "agent/identity/contacts/add": contactsAdd,
-  "agent/identity/contacts/accept": contactsAccept,
-  "agent/network/presence/subscribe": agentPresenceSubscribe,
-  "app/network/presence/subscribe": appPresenceSubscribe,
   "agent/message/send": messagesSend,
   "agent/message/list": messagesList,
   "agent/task/list": taskList,
@@ -53,6 +44,7 @@ export const serverHandlers: ServerHandlers = {
   "app/task/update": taskUpdate,
   "app/conversation/create": conversationCreate,
   "agent/conversation/list": conversationList,
+  "agent/conversation/create": agentConversationCreate,
   "app/conversation/update": conversationUpdate,
   "agent/dispatch/request": dispatchRequest,
   "app/dispatch/lease/get": dispatchLeaseGet,

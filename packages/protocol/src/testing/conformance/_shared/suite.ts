@@ -36,7 +36,6 @@ import {
 } from "./registry.js";
 import { TRANSPORT_PROPERTIES } from "../transport/index.js";
 import { IDENTITY_PROPERTIES } from "../identity/index.js";
-import { NETWORK_PROPERTIES } from "../network/index.js";
 import { TASK_PROPERTIES } from "../task/index.js";
 import { APP_PROPERTIES } from "../app/index.js";
 import type { RealServerAcquireError, ToxicControlError } from "./errors.js";
@@ -153,7 +152,6 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
   for (const fn of [
     ...TRANSPORT_PROPERTIES,
     ...IDENTITY_PROPERTIES,
-    ...NETWORK_PROPERTIES,
     ...TASK_PROPERTIES,
     ...APP_PROPERTIES,
   ]) {

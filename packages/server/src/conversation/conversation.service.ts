@@ -22,7 +22,6 @@ import {
   type AgentId,
   type UserId,
   AgentNotFoundError,
-  NotInContactsError,
 } from "@moltzap/protocol/identity";
 import type { AppId, TaskId } from "@moltzap/protocol/task";
 import { BoundedMap } from "@moltzap/protocol/bounded-map";
@@ -42,14 +41,6 @@ const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} partic
 const PREVIEW_CACHE_MAX = 2000;
 const PREVIEW_CACHE_TEXT_CHARS = 80;
 const MSG_CONVERSATION_NOT_FOUND = "Conversation not found";
-
-type ContactPolicyCheck = (
-  ownerUserIdA: UserId,
-  ownerUserIdB: UserId,
-) => Effect.Effect<boolean>;
-
-type ContactPolicyResolver = () => ContactPolicyCheck | null;
-const NO_CONTACT_POLICY_RESOLVER: ContactPolicyResolver = () => null;
 
 interface ConversationColumns {
   readonly id: ConversationId;
@@ -76,21 +67,6 @@ interface CreateConversationOptions<TaskMintError = never> {
   readonly appId: AppId;
   readonly seedCreatorAsParticipant?: boolean;
   readonly mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>;
-}
-
-interface CreatorContactPolicyInput {
-  readonly creatorAgentId: AgentId;
-  readonly targetAgentIds: readonly AgentId[];
-  readonly ownerByAgentId: ReadonlyMap<AgentId, UserId>;
-  readonly policy: ContactPolicyCheck;
-}
-
-interface ContactEdgeInput {
-  readonly requesterAgentId: AgentId;
-  readonly requesterOwnerUserId: UserId;
-  readonly targetAgentId: AgentId;
-  readonly targetOwnerUserId: UserId;
-  readonly policy: ContactPolicyCheck;
 }
 
 interface ListConversationsDeps {
@@ -267,17 +243,10 @@ export class ConversationService {
 
   private readonly db: Db;
   private readonly connections: ConnectionManager;
-  private readonly resolveContactPolicy: ContactPolicyResolver;
 
-  constructor(
-    db: Db,
-    connections: ConnectionManager,
-    resolveContactPolicy?: ContactPolicyResolver,
-  ) {
+  constructor(db: Db, connections: ConnectionManager) {
     this.db = db;
     this.connections = connections;
-    this.resolveContactPolicy =
-      resolveContactPolicy ?? NO_CONTACT_POLICY_RESOLVER;
   }
 
   /**
@@ -349,31 +318,6 @@ export class ConversationService {
   }
 
   /**
-   * Enforces creator-to-target contact policy for a new conversation.
-   * @param creatorAgentId Value supplied to the operation.
-   * @param targetAgentIds Value supplied to the operation.
-   * @param ownerByAgentId Value supplied to the operation.
-   * @internal
-   * @returns The policy result.
-   */
-  assertContactPolicyForCreate(
-    creatorAgentId: AgentId,
-    targetAgentIds: readonly AgentId[],
-    ownerByAgentId: ReadonlyMap<AgentId, UserId>,
-  ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
-    const policy = this.resolveContactPolicy();
-    if (policy === null || targetAgentIds.length === 0) {
-      return Effect.void;
-    }
-    return this.assertCreatorContactsAll({
-      creatorAgentId,
-      targetAgentIds,
-      ownerByAgentId,
-      policy,
-    });
-  }
-
-  /**
    * Reduced-surface participant removal: NO authority gate. Used by
    * `AppEndpointRegistry.removeDeniedParticipant` for dispatch-deny eviction
    * (runs server-internally, not via a wire RPC). Broadcasts
@@ -436,15 +380,17 @@ export class ConversationService {
   }
 
   /**
-   * Rejects a conversation whose initial group exceeds capacity.
-   * @param targetAgentIds Value supplied to the operation.
+   * Rejects a membership that exceeds the group limit. Callers pass the
+   * resulting member count, so creation and participant addition share one
+   * capacity rule.
+   * @param memberCount Value supplied to the operation.
    * @internal
-   * @returns The conv result.
+   * @returns The capacity assertion result.
    */
-  assertGroupCapacityForCreate(
-    targetAgentIds: readonly AgentId[],
+  assertGroupCapacity(
+    memberCount: number,
   ): Effect.Effect<void, ConversationFullError> {
-    if (targetAgentIds.length + 1 <= MAX_GROUP_PARTICIPANTS) {
+    if (memberCount <= MAX_GROUP_PARTICIPANTS) {
       return Effect.void;
     }
     return Effect.fail(
@@ -679,84 +625,6 @@ export class ConversationService {
         }
       }),
     );
-  }
-
-  /**
-   * Enforces contact policy for each requested target.
-   * @param input Input value to process.
-   * @internal
-   * @returns The creator opt result.
-   */
-  assertCreatorContactsAll(
-    input: CreatorContactPolicyInput,
-  ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const creatorOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("agents")
-            .select(["owner_user_id"])
-            .where("id", "=", input.creatorAgentId),
-        );
-        if (Option.isNone(creatorOpt)) {
-          return yield* Effect.fail(
-            new AgentNotFoundError({
-              message: `Agent ${input.creatorAgentId} not found`,
-            }),
-          );
-        }
-        const creatorOwner = creatorOpt.value.owner_user_id;
-        for (const targetAgentId of input.targetAgentIds) {
-          const targetOwner = input.ownerByAgentId.get(targetAgentId);
-          if (targetOwner === undefined) {
-            return yield* Effect.fail(
-              new AgentNotFoundError({
-                message: `Agent ${targetAgentId} not found`,
-              }),
-            );
-          }
-          yield* this.checkContactEdge({
-            requesterAgentId: input.creatorAgentId,
-            requesterOwnerUserId: creatorOwner,
-            targetAgentId,
-            targetOwnerUserId: targetOwner,
-            policy: input.policy,
-          });
-        }
-      }),
-    );
-  }
-
-  /**
-   * Checks one contact-policy edge.
-   * @param input Input value to process.
-   * @internal
-   * @returns The allowed result.
-   */
-  checkContactEdge(
-    input: ContactEdgeInput,
-  ): Effect.Effect<void, NotInContactsError> {
-    return Effect.gen(this, function* (this: ConversationService) {
-      const allowed = yield* input.policy(
-        input.requesterOwnerUserId,
-        input.targetOwnerUserId,
-      );
-      if (!allowed) {
-        yield* Effect.logInfo("Contact policy denied").pipe(
-          Effect.annotateLogs({
-            requesterAgentId: input.requesterAgentId,
-            targetAgentId: input.targetAgentId,
-            requesterOwner: input.requesterOwnerUserId,
-            targetOwner: input.targetOwnerUserId,
-          }),
-        );
-        return yield* Effect.fail(
-          new NotInContactsError({
-            message: `Contact policy does not allow this edge`,
-          }),
-        );
-      }
-    });
   }
 
   private mapConversation(row: ConversationColumns): Conversation {

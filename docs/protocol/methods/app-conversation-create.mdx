@@ -12,8 +12,7 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
 - **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
   handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
   non-owner before the body); the server handler performs capacity-only
-  authorization inline because an app minting on the task's behalf has no
-  agent contact-edges; targets are gated by
+  authorization inline, and targets are gated by
   `requireAgentsAreInTaskParticipants`.
 
 ## Parameters

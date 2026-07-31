@@ -56,7 +56,7 @@ export interface CoreConfig {
   /**
    * Boot-time admin owner id. Agents registered through the default
    * `/api/v1/auth/register` route are owned by this user until the
-   * full app-specific registration/contact flow is installed.
+   * full app-specific registration flow is installed.
    */
   adminUserId: UserId;
 
@@ -83,11 +83,6 @@ export interface CoreConfig {
 // Public: StandaloneBootPlan — `loadStandaloneConfig` output
 // ─────────────────────────────────────────────────────────────────────
 
-interface WebhookServiceBinding {
-  readonly url: string;
-  readonly timeoutMs?: number;
-}
-
 /** Describes standalone boot plan. */
 export interface StandaloneBootPlan {
   /** DATABASE_URL or YAML `database.url`. Empty string → embedded PGlite. */
@@ -104,9 +99,6 @@ export interface StandaloneBootPlan {
   readonly adminUserId: UserId;
 
   readonly registrationSecret?: RegistrationSecret;
-
-  /** YAML `services.contacts: { type: "webhook" }` — drives `WebhookContactService` wiring. */
-  readonly contactWebhook?: WebhookServiceBinding;
 
   /** YAML `apps[]` — manifest references carried through from the config file. */
   readonly apps: ReadonlyArray<{ readonly manifest: string }>;
@@ -147,32 +139,11 @@ const MAX_PORT_NUMBER = 65_535;
 const opt = <A>(c: Config.Config<A>) =>
   c.pipe(Config.option, Config.map(Option.getOrUndefined));
 
-// `URL.canParse` requires an absolute URI (a scheme present), so
-// `not-a-url` is rejected while `https://hooks.example.com/x` passes.
-const uriString = Schema.String.pipe(
-  Schema.filter((s) => URL.canParse(s) || "must be a valid absolute URI"),
-);
-
 const portNumber = Schema.Number.pipe(
   Schema.int(),
   Schema.greaterThanOrEqualTo(1),
   Schema.lessThanOrEqualTo(MAX_PORT_NUMBER),
 );
-
-const webhookServiceShape = Schema.Struct({
-  type: Schema.Literal("webhook"),
-  webhook_url: uriString,
-  timeout_ms: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(100)),
-  ),
-  callback_token: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-});
-
-const inProcessServiceShape = Schema.Struct({
-  type: Schema.Literal("in_process"),
-});
-
-const serviceShape = Schema.Union(webhookServiceShape, inProcessServiceShape);
 
 const appRefShape = Schema.Struct({
   manifest: Schema.String.pipe(Schema.minLength(1)),
@@ -195,9 +166,6 @@ const moltZapConfigShape = Schema.Struct({
   encryption: Schema.optional(
     Schema.Struct({ master_secret: serverEncryptionMasterSecret }),
   ),
-  services: Schema.optional(
-    Schema.Struct({ contacts: Schema.optional(serviceShape) }),
-  ),
   registration: Schema.optional(
     Schema.Struct({ secret: Schema.optional(registrationSecret) }),
   ),
@@ -210,7 +178,6 @@ const moltZapConfigShape = Schema.Struct({
 });
 
 type YamlConfig = Schema.Schema.Type<typeof moltZapConfigShape>;
-type YamlServiceConfig = Schema.Schema.Type<typeof serviceShape>;
 
 const decodeConfigShape = Schema.decodeUnknownEither(moltZapConfigShape, {
   errors: "all",
@@ -493,15 +460,6 @@ function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot> {
   );
 }
 
-function webhookBinding(
-  service?: YamlServiceConfig,
-): WebhookServiceBinding | undefined {
-  if (service === undefined || service.type !== "webhook") {
-    return undefined;
-  }
-  return { url: service.webhook_url, timeoutMs: service.timeout_ms };
-}
-
 function makeInvalidEnvError(
   configPath: string,
   message: string,
@@ -695,7 +653,6 @@ interface YamlDerived {
   readonly pgliteDataDir?: string;
   readonly encryptionFromYaml?: ServerEncryptionMasterSecret;
   readonly registrationSecret?: RegistrationSecret;
-  readonly contactWebhook?: WebhookServiceBinding;
   readonly apps: ReadonlyArray<{ readonly manifest: string }>;
 }
 
@@ -704,7 +661,6 @@ function projectYaml(yaml: YamlConfig): YamlDerived {
     pgliteDataDir: yaml.database?.data_dir,
     encryptionFromYaml: yaml.encryption?.master_secret,
     registrationSecret: yaml.registration?.secret,
-    contactWebhook: webhookBinding(yaml.services?.contacts),
     apps: yaml.apps ?? [],
   };
 }
@@ -724,7 +680,6 @@ function assembleBootPlan(
     devMode: fields.devMode,
     adminUserId: fields.adminUserId,
     registrationSecret: ymlDerived.registrationSecret,
-    contactWebhook: ymlDerived.contactWebhook,
     apps: ymlDerived.apps,
     configDirectory: inputs.configDirectory,
   };

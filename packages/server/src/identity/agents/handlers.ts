@@ -12,7 +12,6 @@ import {
   type ParamsOf,
 } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
-import type { AgentContext } from "#socket";
 import {
   DbTag,
   catchSqlErrorAsDefect,
@@ -22,8 +21,6 @@ import {
   sortKeyExpr,
   type ListCursorPosition,
 } from "#db";
-import { agentArm } from "#moltzap/runtime";
-import { visibleAgentIds } from "./visibility.service.js";
 
 function toAgentCard(row: {
   id: AgentId;
@@ -53,27 +50,17 @@ function positionOfAgentRow(row: { id: AgentId; created_at: Date }): {
 }
 
 interface AgentsListPageInput {
-  readonly callerAgentId: AgentId;
-  readonly callerOwnerUserId: UserId;
   readonly limit: number;
   readonly pos?: ListCursorPosition;
 }
 
 // Keyset-paginated `agent/identity/agents/list` page over `(created_at DESC, id ASC)`
-// restricted to the caller's visible set (Invariant 4). Returns the wire
-// result shape; `nextCursor` present iff a further page exists.
+// across every registered agent. Returns the wire result shape; `nextCursor`
+// present iff a further page exists.
 function agentsListPage(input: AgentsListPageInput) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const db = yield* DbTag;
-      const ids = yield* visibleAgentIds({
-        db,
-        callerAgentId: input.callerAgentId,
-        callerOwnerUserId: input.callerOwnerUserId,
-      });
-      if (ids.length === 0) {
-        return { agents: [] satisfies AgentCard[] };
-      }
       let query = db
         .selectFrom("agents")
         .select([
@@ -84,8 +71,7 @@ function agentsListPage(input: AgentsListPageInput) {
           "status",
           "owner_user_id",
           "created_at",
-        ])
-        .where("id", "in", ids);
+        ]);
       if (input.pos !== undefined) {
         const cursorPos = input.pos;
         query = query.where((eb) =>
@@ -113,13 +99,7 @@ function agentsListPage(input: AgentsListPageInput) {
   );
 }
 
-// Contact-scoped. `visibleAgentIds` is the entitlement filter; the cursor +
-// limit then run on the `agents` row query so page order is stable regardless
-// of the visibility query's order.
-function agentsListBody(
-  params: ParamsOf<typeof agentsListDefinition>,
-  ctx: AgentContext,
-) {
+function agentsListBody(params: ParamsOf<typeof agentsListDefinition>) {
   return Effect.gen(function* () {
     const pos =
       params.cursor === undefined
@@ -130,8 +110,6 @@ function agentsListBody(
             ),
           );
     return yield* agentsListPage({
-      callerAgentId: ctx.agentId,
-      callerOwnerUserId: ctx.ownerUserId,
       limit: params.limit ?? DEFAULT_PAGE_LIMIT,
       pos,
     });
@@ -147,7 +125,4 @@ function agentsListBody(
  */
 export const agentsList: ServerHandler<typeof agentsListDefinition> = (
   params,
-) =>
-  Effect.gen(function* () {
-    return yield* agentsListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("agentsList"));
+) => agentsListBody(params).pipe(Effect.withSpan("agentsList"));

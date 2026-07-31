@@ -7,8 +7,6 @@ import type { ColumnType } from "kysely";
 
 type AgentStatus = "active" | "suspended";
 
-type ContactStatus = "accepted" | "pending";
-
 type EncryptionKeyStatus = "active" | "deprecated" | "revoked";
 
 type Generated<T> =
@@ -63,17 +61,6 @@ export interface Apps {
    * alias so no read path trusts the persisted shape unchecked.
    */
   manifest_json: Json;
-  updated_at: Generated<Timestamp>;
-}
-
-/** Describes contacts. */
-export interface Contacts {
-  contact_user_id: string;
-  created_at: Generated<Timestamp>;
-  id: Generated<string>;
-  owner_user_id: string;
-  relationship: string | null;
-  status: Generated<ContactStatus>;
   updated_at: Generated<Timestamp>;
 }
 

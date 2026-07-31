@@ -30,20 +30,10 @@ import {
 import type { AppAuthService } from "../identity/apps/auth.service.js";
 import type { AppEndpointRegistry } from "../identity/apps/endpoint-registry.js";
 import {
-  contactsServiceLive,
-  ContactsServiceTag,
-} from "../identity/contacts/layer.js";
-import type { ContactsService } from "../identity/contacts/contact.service.js";
-import {
   conversationServiceLive,
   ConversationServiceTag,
 } from "../conversation/layer.js";
 import type { ConversationService } from "../conversation/conversation.service.js";
-import {
-  presenceServiceLive,
-  PresenceServiceTag,
-} from "../network/presence/layer.js";
-import type { PresenceService } from "../network/presence/presence.service.js";
 import {
   dispatchAdmissionServiceLive,
   leaseRegistryLive,
@@ -67,22 +57,21 @@ const coreRuntimeServicesLive = Layer.mergeAll(
   connectionManagerLive,
   authServiceLive,
   appAuthServiceLive,
-  contactsServiceLive,
 );
 
-const presenceAndEndpointResolverLive = Layer.provideMerge(
-  Layer.mergeAll(presenceServiceLive, agentEndpointResolverLive),
+const endpointResolverLive = Layer.provideMerge(
+  agentEndpointResolverLive,
   coreRuntimeServicesLive,
 );
 
-const networkSendWithPresenceLive = Layer.provideMerge(
+const networkSendLive = Layer.provideMerge(
   networkSendServiceLive,
-  presenceAndEndpointResolverLive,
+  endpointResolverLive,
 );
 
 const leaseRegistryWithNetworkLive = Layer.provideMerge(
   leaseRegistryLive,
-  networkSendWithPresenceLive,
+  networkSendLive,
 );
 
 const appEndpointRegistryWithLeasesLive = Layer.provideMerge(
@@ -124,8 +113,6 @@ export interface ResolvedServices {
   readonly authService: AuthService;
   readonly appAuthService: AppAuthService;
   readonly conversationService: ConversationService;
-  readonly contactService: ContactsService;
-  readonly presenceService: PresenceService;
   readonly appEndpointRegistry: AppEndpointRegistry;
   readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
@@ -143,8 +130,6 @@ export const resolveServices = Effect.all({
   authService: AuthServiceTag,
   appAuthService: AppAuthServiceTag,
   conversationService: ConversationServiceTag,
-  contactService: ContactsServiceTag,
-  presenceService: PresenceServiceTag,
   appEndpointRegistry: AppEndpointRegistryTag,
   leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,

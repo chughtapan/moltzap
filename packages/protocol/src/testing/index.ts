@@ -18,7 +18,6 @@ export {
   agentId,
   appId,
   connectionId,
-  contactId,
   conversationId,
   leaseId,
   messageId,

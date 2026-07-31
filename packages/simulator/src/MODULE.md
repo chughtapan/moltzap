@@ -8,7 +8,7 @@ Code-first simulator API.
 
 ## Public surface
 
-### [`AgentConnection`](./network/router.ts#L125)
+### [`AgentConnection`](./network/router.ts#L124)
 
 _Interface_
 
@@ -17,13 +17,12 @@ export interface AgentConnection<Name extends string = string> {
   readonly agent: AgentHandle<Name>;
   readonly key: AgentKey;
   readonly routerUrl: ServerBaseUrl;
-  awaitReady(within: Duration.Duration): Effect.Effect<void, NetworkFailure>;
 }
 ```
 
-Runtime connection issued by every router implementation. A
-runtime chooses its own startup deadline and awaits router-visible readiness
-before completing acquisition.
+Runtime connection issued by every router implementation. It carries the
+credential and address a runtime dials; each runtime chooses its own startup
+deadline and owns whatever readiness evidence its process exposes.
 
 ### [`AgentHandle`](./network/participant.ts#L58)
 
@@ -543,7 +542,7 @@ export type EffectMessageReply = string | MessageParts;
 
 A message handler reply containing text or structured parts.
 
-### [`effectRuntime`](./runtime/effect.ts#L249)
+### [`effectRuntime`](./runtime/effect.ts#L250)
 
 _Function_
 
@@ -591,7 +590,7 @@ export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeSt
 }
 ```
 
-Acquisition failed before an in-process agent became router-visible.
+Acquisition failed before an in-process agent finished connecting.
 
 ### [`EncodedEventOf`](./events/catalog.ts#L43)
 
@@ -1048,7 +1047,7 @@ export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 
 Nonempty protocol message content.
 
-### [`nanoclawRuntime`](./runtime/nanoclaw/runtime.ts#L357)
+### [`nanoclawRuntime`](./runtime/nanoclaw/runtime.ts#L364)
 
 _Function_
 
@@ -1059,11 +1058,11 @@ export function nanoclawRuntime(
 ```
 
 Construct a NanoClaw runtime that binds each roster identity to one
-scoped container-backed process and waits for router-visible readiness.
+scoped container-backed process and waits for its readiness line.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoclawRuntimeAcquisitionError`](./runtime/nanoclaw/runtime.ts#L119)
+### [`NanoclawRuntimeAcquisitionError`](./runtime/nanoclaw/runtime.ts#L125)
 
 _TypeAlias_
 
@@ -1071,9 +1070,9 @@ _TypeAlias_
 export type NanoclawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
 ```
 
-Failure returned when NanoClaw cannot become router-visible.
+Failure returned when a NanoClaw process cannot be acquired.
 
-### [`NanoclawRuntimeOptions`](./runtime/nanoclaw/runtime.ts#L51)
+### [`NanoclawRuntimeOptions`](./runtime/nanoclaw/runtime.ts#L54)
 
 _Interface_
 
@@ -1110,7 +1109,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`NetworkFailure`](./network/router.ts#L51)
+### [`NetworkFailure`](./network/router.ts#L50)
 
 _Class_
 
@@ -1144,7 +1143,7 @@ export interface NetworkService {
 
 Controlled endpoint operations installed for one run scope.
 
-### [`openClawRuntime`](./runtime/openclaw/runtime.ts#L323)
+### [`openClawRuntime`](./runtime/openclaw/runtime.ts#L330)
 
 _Function_
 
@@ -1155,11 +1154,11 @@ export function openClawRuntime(
 ```
 
 Construct an OpenClaw runtime that binds each roster identity to one
-scoped gateway process and waits for router-visible readiness.
+scoped gateway process and waits for its readiness line.
 
 **Returns:** The open claw runtime result.
 
-### [`OpenClawRuntimeAcquisitionError`](./runtime/openclaw/runtime.ts#L94)
+### [`OpenClawRuntimeAcquisitionError`](./runtime/openclaw/runtime.ts#L100)
 
 _TypeAlias_
 
@@ -1167,9 +1166,9 @@ _TypeAlias_
 export type OpenClawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
 ```
 
-Failure returned when OpenClaw cannot become router-visible.
+Failure returned when an OpenClaw process cannot be acquired.
 
-### [`OpenClawRuntimeOptions`](./runtime/openclaw/runtime.ts#L48)
+### [`OpenClawRuntimeOptions`](./runtime/openclaw/runtime.ts#L51)
 
 _Interface_
 
@@ -1275,7 +1274,7 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`ReceivedMessage`](./network/router.ts#L77)
+### [`ReceivedMessage`](./network/router.ts#L76)
 
 _Interface_
 
@@ -1377,7 +1376,7 @@ export class RunStarted extends Schema.TaggedClass<RunStarted>()(
 
 The run ledger is allocated and run-scoped acquisition has begun.
 
-### [`RuntimeAcquisitionFailed`](./runtime/process.ts#L36)
+### [`RuntimeAcquisitionFailed`](./runtime/process.ts#L40)
 
 _Class_
 

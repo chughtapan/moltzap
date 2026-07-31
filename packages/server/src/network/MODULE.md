@@ -167,22 +167,6 @@ export class AgentEndpointResolverTag extends Context.Tag(
 
 Implements agent endpoint resolver tag.
 
-### [`applyOutboundWebhookCap`](./outbound-webhook-cap.ts#L45)
-
-_Function_
-
-```ts
-export function applyOutboundWebhookCap(
-  client: HttpClient.HttpClient,
-): HttpClient.HttpClient
-```
-
-Wrap an `HttpClient.HttpClient` with OUTBOUND_WEBHOOK_PERMITS.
-Used by the standalone contact-policy wiring so the same 10-permit pool
-covers outbound webhook traffic in the process.
-
-**Returns:** The apply outbound webhook cap result.
-
 ### [`broadcastNotificationToAgents`](./notification-broadcast.ts#L24)
 
 _Function_
@@ -206,7 +190,7 @@ ack); the client's reverse `RpcServer` routes it into its
 
 **Returns:** The broadcast notification to agents result.
 
-### [`connectAgent`](./connect.handlers.ts#L501)
+### [`connectAgent`](./connect.handlers.ts#L467)
 
 _Variable_
 
@@ -218,7 +202,7 @@ Provides the connect agent runtime value.
 
 **Returns:** The connect agent result.
 
-### [`connectApp`](./connect.handlers.ts#L509)
+### [`connectApp`](./connect.handlers.ts#L475)
 
 _Variable_
 
@@ -445,4 +429,3 @@ arbitrary `string` where a wire-ready frame is expected.
 - `layer.ts`
 - `network-send.ts`
 - `notification-broadcast.ts`
-- `outbound-webhook-cap.ts`

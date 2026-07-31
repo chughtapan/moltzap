@@ -67,10 +67,6 @@ export interface MoltZapRouterDriver {
   readonly register: (
     name: AgentName,
   ) => Effect.Effect<RouterIdentity, unknown>;
-  readonly awaitAgentReady: (
-    agentId: AgentId,
-    within: Duration.Duration,
-  ) => Effect.Effect<void, unknown>;
   readonly attachEndpoint: (
     key: AgentKey,
   ) => Effect.Effect<EndpointTransport, unknown, Scope.Scope>;
@@ -215,7 +211,6 @@ const acquireMoltZapDriver: MoltZapRouterDriverAcquirer<MoltZapServerHost> = (
       (server): MoltZapRouterDriver => ({
         address: server.serverUrl,
         register: server.register,
-        awaitAgentReady: server.awaitAgentReady,
         attachEndpoint: (key) => endpointTransport(server.serverUrl, key),
         stopAndCollect: collectStoppedRouter(server),
       }),
@@ -262,16 +257,6 @@ function identityFor(
   );
 }
 
-function readiness(
-  runtime: RouterRuntime,
-  agentId: AgentId,
-  within: Duration.Duration,
-): Effect.Effect<void, NetworkFailure> {
-  return runtime.driver
-    .awaitAgentReady(agentId, within)
-    .pipe(Effect.mapError((cause) => fail("attach-agent", cause)));
-}
-
 function attachAgent<const Name extends string>(
   runtime: RouterRuntime,
   name: Name,
@@ -287,7 +272,6 @@ function attachAgent<const Name extends string>(
       agent: makeAgentHandle(name, identity.agentId),
       key: identity.key,
       routerUrl: runtime.driver.address,
-      awaitReady: (within) => readiness(runtime, identity.agentId, within),
     })),
   );
 }

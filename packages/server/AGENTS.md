@@ -15,8 +15,8 @@ packages/server/src/
 ├── moltzap/         # protocol adapter: handler catalog, requirement middleware layers
 ├── socket/          # WS connection/session primitives
 ├── http/            # HTTP routes + Node HTTP server
-├── identity/        # agents, apps, contacts, auth
-├── network/         # presence, connection liveness, send routing, outbound caps
+├── identity/        # agents, apps, auth
+├── network/         # connection liveness, send routing, outbound caps
 ├── task/            # task lifecycle + task-owned RPC handlers
 ├── conversation/    # conversation service + requirements
 ├── message/         # message service + message RPC handlers
@@ -84,7 +84,7 @@ packages/server/src/
   owning protocol domain folder, implement its server layer in
   `moltzap/auth-middleware-layers.ts`. Obtain helpers that touch
   server services live beside the owning domain (`task/requirements`,
-  `conversation/requirements`, `identity/contacts/requirements`).
+  `conversation/requirements`).
 - App-owned task administration (`app/task/update`,
   `app/conversation/create`, `app/conversation/update`) calls
   `assertCallerAppOwnsTask(ctx.appId, params.taskId)`

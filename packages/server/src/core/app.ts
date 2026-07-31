@@ -216,9 +216,6 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     networkSendService: services.networkSendService,
     connections: services.connections,
     leaseRegistry: services.leaseRegistry,
-    setContactService: (checker) => {
-      services.appEndpointRegistry.setContactService(checker);
-    },
     close: () =>
       Effect.runPromise(closeCoreAppEffect(options).pipe(Effect.as(undefined))),
   };

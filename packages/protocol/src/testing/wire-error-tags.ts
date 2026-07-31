@@ -23,7 +23,5 @@ export const WIRE_ERROR_TAG = {
   ConversationNotFound: "ConversationNotFound",
   AgentNotFound: "AgentNotFound",
   NotAParticipant: "NotAParticipant",
-  NotInContacts: "NotInContacts",
-  ContactNotFound: "ContactNotFound",
   DispatchNotFound: "DispatchNotFound",
 } as const;

@@ -29,13 +29,14 @@ against the conversation's routing key.
 
 **Returns:** The assert caller app owns conversation result.
 
-### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L18)
+### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L17)
 
 _Function_
 
 ```ts
 export const authorizeConversationCreateCapacityOnly = (
   agentIds: readonly AgentId[],
+  seedsCreator: boolean,
 ): Effect.Effect<
   void,
   AgentNotFoundError | ConversationFullError,
@@ -43,13 +44,11 @@ export const authorizeConversationCreateCapacityOnly = (
 >
 ```
 
-Capacity-only authorization for the app-originated
-`app/conversation/create`. An app minting a conversation on the task's
-behalf has no agent contact-edges of its own; the targets
-are already gated by `requireAgentsAreInTaskParticipants` in the
-handler, so the creator contact-policy basis does NOT apply. Only the
-group-capacity check runs. Loading owners still validates every target
-exists.
+Capacity authorization for conversation creation. Validates that every
+named target exists, then checks the resulting membership against the
+group limit. `seedsCreator` distinguishes the agent path, whose creator
+joins the conversation, from the app path, whose membership is exactly
+the named targets.
 
 **Returns:** The authorize conversation create capacity only result.
 

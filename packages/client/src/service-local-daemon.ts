@@ -1,12 +1,6 @@
 import type { RpcGroup } from "@effect/rpc";
 import { Effect, Either } from "effect";
-import {
-  agentsList,
-  contactsAccept,
-  contactsAdd,
-  contactsList,
-  type AgentId,
-} from "@moltzap/protocol/identity";
+import { agentsList, type AgentId } from "@moltzap/protocol/identity";
 import type { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
 import {
   conversationList,
@@ -359,11 +353,6 @@ export function makeLocalDaemonHandlers({
       ),
     [localDaemonCommands.agentsSearch]: (params) =>
       lookupAgentsByNames(call, params.names),
-    [localDaemonCommands.contactsList]: () => call(contactsList.name, {}),
-    [localDaemonCommands.contactsAdd]: (params) =>
-      call(contactsAdd.name, { contactUserId: params.userId }),
-    [localDaemonCommands.contactsAccept]: (params) =>
-      call(contactsAccept.name, { contactId: params.contactId }),
     [localDaemonCommands.messagesList]: (params) =>
       call(messagesList.name, {
         taskId: params.taskId,

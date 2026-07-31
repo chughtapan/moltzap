@@ -2,14 +2,13 @@
 // Run `pnpm db:generate` after changing src/db/core-schema.sql.
 
 import type { ColumnType, Selectable } from "kysely";
-import type { AgentId, ContactId, UserId } from "@moltzap/protocol/identity";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AppId, TaskId } from "@moltzap/protocol/task";
 
 import type {
   Agents as RawAgents,
   Apps as RawApps,
-  Contacts as RawContacts,
   ConversationKeys as RawConversationKeys,
   ConversationParticipants as RawConversationParticipants,
   Conversations as RawConversations,
@@ -38,13 +37,6 @@ interface Agents extends Omit<RawAgents, "id" | "owner_user_id"> {
 
 interface Apps extends Omit<RawApps, "app_id"> {
   app_id: GeneratedBranded<AppId>;
-}
-
-interface Contacts
-  extends Omit<RawContacts, "id" | "contact_user_id" | "owner_user_id"> {
-  id: GeneratedBranded<ContactId>;
-  contact_user_id: Branded<UserId>;
-  owner_user_id: Branded<UserId>;
 }
 
 interface ConversationKeys
@@ -96,8 +88,6 @@ interface Tasks extends Omit<RawTasks, "app_id" | "id" | "initiator_agent_id"> {
 
 /** Represents message row values. */
 export type MessageRow = Selectable<Messages>;
-/** Represents contact row values. */
-export type ContactRow = Selectable<Contacts>;
 /** Represents conversation key row values. */
 export type ConversationKeyRow = Selectable<ConversationKeys>;
 
@@ -110,7 +100,6 @@ export interface Database {
   messages: Messages;
   encryption_keys: EncryptionKeys;
   conversation_keys: ConversationKeys;
-  contacts: Contacts;
   tasks: Tasks;
   task_participants: TaskParticipants;
 }

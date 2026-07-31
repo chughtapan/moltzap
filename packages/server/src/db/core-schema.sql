@@ -122,25 +122,6 @@ CREATE TABLE conversation_keys (
   PRIMARY KEY (conversation_id, dek_version)
 );
 
--- Contacts (user-to-user relationship graph)
-CREATE TYPE contact_status AS ENUM ('pending', 'accepted');
-
-CREATE TABLE contacts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id UUID NOT NULL,
-  contact_user_id UUID NOT NULL,
-  relationship TEXT,
-  status contact_status NOT NULL DEFAULT 'pending',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (owner_user_id, contact_user_id),
-  CHECK (owner_user_id <> contact_user_id)
-);
-CREATE INDEX idx_contacts_owner ON contacts(owner_user_id);
-CREATE INDEX idx_contacts_target ON contacts(contact_user_id);
-CREATE TRIGGER contacts_updated_at BEFORE UPDATE ON contacts
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
 -- Tasks (durable actor-model task layer)
 CREATE TYPE task_status AS ENUM ('waiting', 'active', 'failed', 'closed');
 

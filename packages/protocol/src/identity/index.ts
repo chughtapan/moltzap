@@ -1,7 +1,7 @@
 /**
- * @file Public barrel for identity, agent, and contact protocol descriptors.
+ * @file Public barrel for identity and agent protocol descriptors.
  */
-// safer-arch-ignore no-large-public-surface: This compatibility facade intentionally curates the established identity API while narrower agents, contacts, and apps entrypoints remain available.
+// safer-arch-ignore no-large-public-surface: This compatibility facade intentionally curates the established identity API while narrower agents and apps entrypoints remain available.
 
 import {
   type AgentId,
@@ -20,18 +20,6 @@ import {
   validateAgentCard,
   agentOwnershipSchema,
 } from "./agents/index.js";
-import {
-  type ContactId,
-  contactId,
-  contactsList,
-  contactsAdd,
-  contactsAccept,
-  contactRequestNotificationDefinition,
-  contactAcceptedNotificationDefinition,
-  NotInContactsError,
-  ContactNotFoundError,
-  ContactPolicyAllowsReach,
-} from "./contacts/index.js";
 
 /** Re-exports the public API from `current module`. */
 export {
@@ -80,32 +68,5 @@ export type { PrincipalRequirement } from "./principals/index.js";
 /** Re-exports the public API from `./requirements/index.js`. */
 export { ActiveAgent } from "./requirements/index.js";
 
-/** Re-exports the public API from `current module`. */
-export {
-  type ContactId,
-  contactId,
-  contactsList,
-  contactsAdd,
-  contactsAccept,
-  contactRequestNotificationDefinition,
-  contactAcceptedNotificationDefinition,
-  NotInContactsError,
-  ContactNotFoundError,
-  ContactPolicyAllowsReach,
-};
-/** Re-exports the public API from `./contacts/index.js`. */
-export type { ContactPolicyAllowsReachValue } from "./contacts/index.js";
-
 /** Identity RPC catalog accepted by agent clients. */
-export const identityRpcMethods = [
-  agentsList,
-  contactsList,
-  contactsAdd,
-  contactsAccept,
-] as const;
-
-/** Identity notification catalog emitted by the server. */
-export const identityNotifications = [
-  contactRequestNotificationDefinition,
-  contactAcceptedNotificationDefinition,
-] as const;
+export const identityRpcMethods = [agentsList] as const;

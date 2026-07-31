@@ -202,14 +202,13 @@ The boot-installed default app carries an inert endpoint
 manifest declares only static policies, so domain callback services never
 invoke that endpoint.
 
-### [`AppEndpointRegistry`](./endpoint-registry.ts#L12)
+### [`AppEndpointRegistry`](./endpoint-registry.ts#L11)
 
 _Class_
 
 ```ts
 export class AppEndpointRegistry {
   private readonly apps = new AppRegistry();
-  private contactService: ContactService | null = null;
 
   registerApp(
     appId: AppId,
@@ -244,14 +243,6 @@ export class AppEndpointRegistry {
 
   lookupApp(appId: AppId): AppRegistration | undefined {
     return this.apps.get(appId);
-  }
-
-  setContactService(checker: ContactService): void {
-    this.contactService = checker;
-  }
-
-  getContactService(): ContactService | null {
-    return this.contactService;
   }
 }
 ```

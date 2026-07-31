@@ -6,7 +6,7 @@
  * server-core, conformance, and generated protocol reference docs.
  */
 import { RpcGroup, type Rpc } from "@effect/rpc";
-import { identityRpcMethods, identityNotifications } from "#identity";
+import { identityRpcMethods } from "#identity";
 import {
   agentCallableNetworkRpcMethods,
   appCallableNetworkRpcMethods,
@@ -92,7 +92,6 @@ export const serverInboundMethods = [
  */
 export const notificationDefinitions = [
   ...networkNotifications,
-  ...identityNotifications,
   ...taskNotifications,
   ...conversationNotifications,
   ...messageNotifications,

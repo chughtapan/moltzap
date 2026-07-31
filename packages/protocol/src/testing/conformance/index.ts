@@ -3,7 +3,6 @@
  */
 import * as transport from "./transport/index.js";
 import * as identity from "./identity/index.js";
-import * as network from "./network/index.js";
 import * as task from "./task/index.js";
 import * as app from "./app/index.js";
 
@@ -35,4 +34,4 @@ export {
   runConformanceSuite,
 } from "./_shared/suite.js";
 /** Re-exports the public API from `current module`. */
-export { transport, identity, network, task, app };
+export { transport, identity, task, app };

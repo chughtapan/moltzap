@@ -38,10 +38,6 @@ import {
   dispatchLeaseConsumed,
   dispatchLeaseExpired,
 } from "#message/dispatch";
-import {
-  contactAcceptedNotificationDefinition,
-  contactRequestNotificationDefinition,
-} from "#identity/contacts";
 import { messageReceivedNotificationDefinition } from "#message";
 import {
   conversationCreatedNotificationDefinition,
@@ -247,9 +243,6 @@ type NotificationHandlersFor<D extends AnyNotificationDefinition> = {
     never
   >;
 };
-type IdentityNotificationDefinition =
-  | typeof contactRequestNotificationDefinition
-  | typeof contactAcceptedNotificationDefinition;
 type TaskNotificationDefinition =
   | typeof messageReceivedNotificationDefinition
   | typeof taskClosedNotificationDefinition
@@ -263,15 +256,12 @@ type DispatchNotificationDefinition =
   | typeof dispatchLeaseConsumed
   | typeof dispatchLeaseExpired;
 
-type IdentityNotificationHandlers =
-  NotificationHandlersFor<IdentityNotificationDefinition>;
 type TaskNotificationHandlers =
   NotificationHandlersFor<TaskNotificationDefinition>;
 type DispatchNotificationHandlers =
   NotificationHandlersFor<DispatchNotificationDefinition>;
 
 type NotificationHandlerDefinition =
-  | IdentityNotificationDefinition
   | TaskNotificationDefinition
   | DispatchNotificationDefinition;
 type ExpectTrue<T extends true> = T;
@@ -394,19 +384,6 @@ const flattenReverseErrors =
     return write(rewritten ?? chunk);
   };
 
-const buildIdentityNotificationHandlers = (
-  registry: SubscriberRegistry,
-): IdentityNotificationHandlers => ({
-  [contactRequestNotificationDefinition.name]: notificationHandler(
-    registry,
-    contactRequestNotificationDefinition,
-  ),
-  [contactAcceptedNotificationDefinition.name]: notificationHandler(
-    registry,
-    contactAcceptedNotificationDefinition,
-  ),
-});
-
 const buildTaskNotificationHandlers = (
   registry: SubscriberRegistry,
 ): TaskNotificationHandlers => ({
@@ -459,7 +436,6 @@ const buildDispatchNotificationHandlers = (
 const buildNotificationHandlers = (
   registry: SubscriberRegistry,
 ): ReverseNotificationHandlers => ({
-  ...buildIdentityNotificationHandlers(registry),
   ...buildTaskNotificationHandlers(registry),
   ...buildDispatchNotificationHandlers(registry),
 });
