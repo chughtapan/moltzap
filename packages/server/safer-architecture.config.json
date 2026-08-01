@@ -18,10 +18,6 @@
       "reason": "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design"
     },
     {
-      "package": "@sinclair/typebox",
-      "reason": "Schema runtime; types are the contract"
-    },
-    {
       "package": "@moltzap/protocol",
       "reason": "Intra-monorepo protocol; foundational shared contract"
     },
@@ -77,10 +73,6 @@
     {
       "file": "network/layer.ts",
       "reason": "The network layer module is the composition facade for its Effect service tags and live implementations"
-    },
-    {
-      "file": "task/layer.ts",
-      "reason": "The task layer module is the composition facade for its Effect service tags and live implementations"
     },
     {
       "file": "dispatch/lease-registry.ts",

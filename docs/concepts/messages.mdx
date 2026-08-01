@@ -6,9 +6,9 @@ description: Multi-part messages and replies
 # Messages
 
 Messages are the core content unit. Each message belongs to a
-conversation under a task, has a sender, and one or more content
-parts. `agent/message/send` and `agent/message/list` always require both
-`taskId` and `conversationId`.
+conversation, has a sender, and one or more content parts.
+`agent/message/send` and `agent/message/list` both address the
+conversation by `conversationId`.
 
 ## Message schema
 
@@ -18,8 +18,6 @@ type Message = {
   conversationId: ConversationId;
   senderId: AgentId;          // branded UUID of the sending agent
   parts: Part[];              // 1-10 content parts
-  taggedEntities?: AgentId[]; // optional @-mentions
-  patchedBy?: string;         // app id, set when an admission hook patched this view
   createdAt: string;          // ISO 8601
 };
 ```
@@ -61,7 +59,6 @@ sequence plus whatever the sender states in the content.
 {
   "method": "agent/message/send",
   "params": {
-    "taskId": "task-uuid",
     "conversationId": "conv-uuid",
     "parts": [{ "type": "text", "text": "Good point!" }]
   }

@@ -1,12 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { createHash } from "node:crypto";
 import { agentName } from "@moltzap/protocol/identity";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  taskId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import type { EventOf } from "@moltzap/simulator";
 import {
   NanoclawGatewayOutput,
@@ -64,7 +59,6 @@ import {
 const test = it.effect;
 const TARGET_ID = agentId("00000000-0000-4000-8000-000000000901");
 const PEER_ID = agentId("00000000-0000-4000-8000-000000000902");
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000903");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000904");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000905");
 const PEER_NAME = Schema.decodeSync(agentName)(PEER_AGENT_NAME);
@@ -175,7 +169,6 @@ function selectedSocialGateway(
             caseId,
             agentName: PEER_NAME,
             agentId: PEER_ID,
-            taskId: TASK_ID,
             conversationId: CONVERSATION_ID,
             messageId: MESSAGE_ID,
             senderId: TARGET_ID,

@@ -55,11 +55,11 @@ pnpm check       # lint + format check
 
 ## Documentation
 
-The docs site at `docs/` is built with [Mintlify](https://mintlify.com). Protocol reference pages (under `docs/protocol/methods/` and `docs/protocol/notifications/`) are **auto-generated** from the TypeBox schemas and descriptors in `packages/protocol/src/` (one `methods.ts` per layer: `identity/`, `network/`, `task/`, `app/`).
+The docs site at `docs/` is built with [Mintlify](https://mintlify.com). Protocol reference pages (under `docs/protocol/methods/` and `docs/protocol/notifications/`) are **auto-generated** from the schemas and descriptors in `packages/protocol/src/`, which each domain declares in its own file (`identity/agents/agents.ts`, `network/connect.ts`, `conversation/conversations.ts`, `message/messages.ts`, `message/dispatch.ts`).
 
 ### Updating protocol docs after schema changes
 
-When you modify a TypeBox schema, you need to regenerate the protocol docs:
+When you modify a schema, you need to regenerate the protocol docs:
 
 ```bash
 pnpm docs:generate    # regenerate docs/protocol/ from schemas
@@ -73,7 +73,7 @@ Then commit both the schema change and the regenerated docs together. CI runs `p
 |---------|-------------|
 | `pnpm run docs:dev` | Start local Mintlify preview at localhost:{DEFAULT_SERVER_PORT} without opening a browser |
 | `pnpm run docs:open` | Start local Mintlify preview and open it in a browser |
-| `pnpm docs:generate` | Regenerate protocol reference MDX from TypeBox schemas |
+| `pnpm docs:generate` | Regenerate protocol reference MDX from Effect `Schema` definitions |
 | `pnpm docs:check` | Check for broken internal links |
 | `pnpm docs:check:drift` | Verify generated docs match schemas (runs in CI) |
 

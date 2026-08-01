@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BoundedMap } from "./index.js";
+import { BoundedMap } from "./bounded-map.js";
 
 const CAPACITY = 2;
 const EMPTY_SIZE = 0;

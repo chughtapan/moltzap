@@ -25,8 +25,8 @@ export const conversationId: Schema.Schema<ConversationId, string> =
  * Branded message identifier.
  *
  * This lives in the conversation module to keep the message module downstream:
- * conversation participant state references the last-read message, and message
- * rows reference their conversation.
+ * message rows reference their conversation, so the identifier both domains
+ * share belongs to the one they both sit above.
  */
 export type MessageId = string & Brand.Brand<"MessageId">;
 /** Validates and decodes message id values. */
@@ -65,36 +65,12 @@ const conversationSchemaValue = Schema.Struct({
   id: conversationId,
   name: Schema.optional(Schema.String),
   createdBy: agentId,
-  lastMessageTimestamp: Schema.optional(dateTimeString),
   createdAt: dateTimeString,
   updatedAt: dateTimeString,
 });
 
 /** Conversation row visible on conversation surfaces. */
 export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
-
-/** Participant row for a conversation. */
-export interface ConversationParticipant {
-  readonly conversationId: ConversationId;
-  readonly participant: { readonly type: "agent"; readonly id: string };
-  readonly joinedAt: string;
-  readonly lastReadMessageId?: MessageId;
-  readonly agentName?: string;
-  readonly agentDisplayName?: string;
-}
-
-/** Conversation summary row used by list surfaces. */
-export interface ConversationSummary {
-  readonly id: ConversationId;
-  readonly name?: string;
-  readonly lastMessagePreview?: string;
-  readonly lastMessageTimestamp?: string;
-  readonly unreadCount: number;
-  readonly participants?: ReadonlyArray<{
-    readonly type: "agent";
-    readonly id: string;
-  }>;
-}
 
 /**
  * Return the canonical conversation schema.

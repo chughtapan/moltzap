@@ -14,11 +14,7 @@ export {
   conversationSchema,
 } from "./types.js";
 /** Re-exports the public API from `./types.js`. */
-export type {
-  Conversation,
-  ConversationParticipant,
-  ConversationSummary,
-} from "./types.js";
+export type { Conversation } from "./types.js";
 /** Re-exports the public API from `./name.js`. */
 export { conversationNameSchema } from "./name.js";
 

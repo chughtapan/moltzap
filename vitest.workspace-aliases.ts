@@ -58,11 +58,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     "packages/protocol/src/identity/requirements/index.ts",
   ),
   alias("#network", "packages/protocol/src/network/index.ts"),
-  alias("#task", "packages/protocol/src/task/index.ts"),
-  alias(
-    "#task/requirements",
-    "packages/protocol/src/task/requirements/index.ts",
-  ),
   alias("#conversation", "packages/protocol/src/conversation/index.ts"),
   alias(
     "#conversation/requirements",
@@ -79,7 +74,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     "packages/protocol/src/identity/index.ts",
   ),
   alias("@moltzap/protocol/network", "packages/protocol/src/network/index.ts"),
-  alias("@moltzap/protocol/task", "packages/protocol/src/task/index.ts"),
   alias(
     "@moltzap/protocol/conversation",
     "packages/protocol/src/conversation/index.ts",

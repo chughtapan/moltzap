@@ -27,24 +27,18 @@ const AGENT_BOB = "agent:bob";
 const BOB = "bob";
 const EVALUATION_PEER = "evaluation-peer";
 const AGENT_MULTI_WORD = "agent:multi-word-name";
-const TASK_ABC = "task:t1:abc-123";
-const TASK_UUID =
-  "task:e12fe562-ed1f-4d2d-bed5-68b8edfa41cb:a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const PLAIN_ID = "plain-id";
 const EMPTY_TARGET = "";
 const UNKNOWN_USER_PREFIX = "user:someone";
 const HTTP_TARGET = "http://example.com";
 const EMPTY_AGENT = "agent:";
-const EMPTY_TASK = "task:";
 const INVALID_AGENT_NAME = "not a valid agent name";
 const EMPTY_CONVERSATION = "conv:";
-const OUTBOUND_TASK = "task:t1:abc";
 const CONVERSATION_ABC = "conv:abc-123";
 const CONVERSATION_ABC_DISPLAY = "abc-123";
 const UNKNOWN_PREFIX_TARGET = "unknown:foo";
 const SPACED_AGENT_BOB = "  agent:bob  ";
 const BOB_DISPLAY = "bob";
-const TASK_ABC_DISPLAY = "t1:abc-123";
 const USER_KIND = "user";
 const GROUP_KIND = "group";
 const NORMALIZED_SOURCE = "normalized";
@@ -112,18 +106,6 @@ function resolvesConversationTarget() {
   });
 }
 
-function resolvesTaskTarget() {
-  return Effect.gen(function* () {
-    const result = yield* tryResolveMessagingTarget(TASK_ABC, TASK_ABC);
-    expect(result).toEqual({
-      to: TASK_ABC,
-      kind: GROUP_KIND,
-      display: TASK_ABC_DISPLAY,
-      source: NORMALIZED_SOURCE,
-    });
-  });
-}
-
 function returnsNullForUnrecognizedFormats() {
   return Effect.gen(function* () {
     const result = yield* tryResolveMessagingTarget(
@@ -143,11 +125,6 @@ describe("isMoltZapTarget accepted ids", () => {
   vitestIt("recognizes conversation targets", () => {
     expect(looksLikeId(CONVERSATION_ABC)).toBe(true);
   });
-
-  vitestIt("recognizes task targets", () => {
-    expect(looksLikeId(TASK_ABC)).toBe(true);
-    expect(looksLikeId(TASK_UUID)).toBe(true);
-  });
 });
 
 describe("isMoltZapTarget rejected ids", () => {
@@ -163,7 +140,6 @@ describe("isMoltZapTarget rejected ids", () => {
 
   vitestIt("rejects empty identifier after prefix", () => {
     expect(looksLikeId(EMPTY_AGENT)).toBe(false);
-    expect(looksLikeId(EMPTY_TASK)).toBe(false);
     expect(looksLikeId(EMPTY_CONVERSATION)).toBe(false);
   });
 });
@@ -175,7 +151,6 @@ describe("messaging.targetResolver.resolveTarget", () => {
     "resolves conversation targets as group targets",
     resolvesConversationTarget,
   );
-  it("resolves task targets as group targets", resolvesTaskTarget);
   it(
     "returns null for unrecognized formats",
     returnsNullForUnrecognizedFormats,
@@ -194,13 +169,6 @@ describe("outbound.resolveTarget accepted targets", () => {
     expect(resolveOutboundTarget({ to: CONVERSATION_ABC })).toMatchObject({
       ok: true,
       to: CONVERSATION_ABC,
-    });
-  });
-
-  vitestIt("accepts task targets", () => {
-    expect(resolveOutboundTarget({ to: OUTBOUND_TASK })).toMatchObject({
-      ok: true,
-      to: OUTBOUND_TASK,
     });
   });
 

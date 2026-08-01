@@ -5,14 +5,12 @@ import {
   type DispatchId,
   type LeaseId,
 } from "@moltzap/protocol/message/dispatch";
-import type { TaskId } from "@moltzap/protocol/task";
 import { Schema } from "effect";
 import {
   agentId,
   conversationId,
   leaseId,
   messageId,
-  taskId,
 } from "@moltzap/protocol/testing";
 
 const UUID_RE =
@@ -90,14 +88,6 @@ export const testConversationId = (label: string): ConversationId =>
  */
 export const testMessageId = (label: string): MessageId =>
   messageId(uuidFor("message", label));
-
-/**
- * Provides the test task id runtime value.
- * @param label Value supplied to the operation.
- * @returns The test task id result.
- */
-export const testTaskId = (label: string): TaskId =>
-  taskId(uuidFor("task", label));
 
 /**
  * Provides the test lease id runtime value.

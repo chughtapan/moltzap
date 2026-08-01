@@ -7,11 +7,11 @@ import { agentId } from "#identity/agents";
 import { conversationId, messageId } from "#conversation";
 import { ConversationSendAccess } from "#conversation/requirements";
 import { DispatchNotFoundError, leaseId } from "#message/dispatch";
-import { HookBlockedError, taskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
   listLimitSchema,
   closedStructGuard,
+  errorPayloadFields,
   ForbiddenError,
   dateTimeStringSchema,
 } from "#transport";
@@ -31,16 +31,24 @@ export type { MessageParts, Part } from "./parts.js";
 const dateTimeString = dateTimeStringSchema();
 const messageParts = messagePartsSchema();
 
-// `taskId` is an opaque endpoint label the server carries and echoes; a
-// message pinned to no label omits it.
+/**
+ * The app that authorizes a conversation refused the dispatch. Raised by
+ * `agent/message/send` when the app's send hook returns a block verdict (or the
+ * fail-closed envelope synthesizes one on timeout, RPC error, or decode
+ * failure). The app's reason rides in the `data` arm when present.
+ */
+export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
+  "HookBlocked",
+  errorPayloadFields,
+) {
+  static readonly message = "Hook blocked the dispatch";
+}
+
 const messageSchema = Schema.Struct({
   id: messageId,
   conversationId: conversationId,
-  taskId: Schema.optional(taskId),
   senderId: agentId,
   parts: messageParts,
-  taggedEntities: Schema.optional(Schema.Array(agentId)),
-  patchedBy: Schema.optional(Schema.String),
   createdAt: dateTimeString,
 });
 
@@ -81,7 +89,6 @@ export const validateDispatchDecision = closedStructGuard(
 );
 
 const messagesSendParams = Schema.Struct({
-  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   parts: messageParts,
   dispatchLeaseId: Schema.optional(leaseId),
@@ -105,7 +112,6 @@ export const messagesSend = defineRpc({
 });
 
 const messagesListParams = Schema.Struct({
-  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   limit: listLimitSchema,
 });
@@ -134,7 +140,6 @@ export const agentCallableMessageRpcMethods = [
 ] as const;
 
 const messagesAuthorizeContextSchema = Schema.Struct({
-  taskId: Schema.optional(taskId),
   appId: Schema.String,
   conversationId: conversationId,
   message: Schema.Struct({
@@ -172,7 +177,6 @@ export const messagesAuthorize = defineRpc({
 export const messageCallbackMethods = [messagesAuthorize] as const;
 
 const messageReceivedNotificationSchema = Schema.Struct({
-  taskId: Schema.optional(taskId),
   message: messageSchema,
 });
 
