@@ -307,7 +307,7 @@ interface InboundDispatchWork {
  *   ws->>svc: subscribers.dispatch — fanout(message)
  *   svc->>core: message listener
  *   Note over core: dedup via recordMessageIdIfNew; Queue.unsafeOffer(inboundQueue, work)
- *   Note over core: consumer fiber — Queue.take; takeDispatchCandidate prefers parked[convId]
+ *   Note over core: consumer fiber waits for first onInbound registration, then Queue.take and takeDispatchCandidate prefers parked[convId]
  *   core->>server: agent/dispatch/request — dispatchAdmission
  *   server-->>core: ack {leaseId, dispatchId}
  *   Note over server,core: ack/release race absorbed via pendingDispatchesByLease (Deferred) and pendingReleasesByLease (ring 256, soft-TTL 30s)
@@ -374,10 +374,13 @@ export class MoltZapChannelCore {
 
   /**
    * Inbound messages enqueue synchronously; a single forked consumer fiber
-   * serialises delivery so handlers execute one-at-a-time in arrival order.
+   * waits for the first handler, then serialises delivery so handlers execute
+   * one-at-a-time in arrival order.
    */
   private readonly inboundQueue: Queue.Queue<InboundDispatchWork> =
     Effect.runSync(Queue.unbounded<InboundDispatchWork>());
+  private readonly inboundHandlerReady: Deferred.Deferred<undefined> =
+    Effect.runSync(Deferred.make<undefined>());
   private readonly consumerFiber: Fiber.RuntimeFiber<void>;
   private readonly disconnectHandlers: Array<() => void> = [];
 
@@ -403,12 +406,16 @@ export class MoltZapChannelCore {
   }
 
   private startConsumerFiber(): Fiber.RuntimeFiber<void> {
-    const consumer = Effect.forever(
-      Queue.take(this.inboundQueue).pipe(
-        Effect.flatMap((work) =>
-          this.dispatchInboundWork(work).pipe(
-            Effect.catchAllCause((cause) =>
-              this.logInboundFailure(work, cause),
+    const consumer = Deferred.await(this.inboundHandlerReady).pipe(
+      Effect.zipRight(
+        Effect.forever(
+          Queue.take(this.inboundQueue).pipe(
+            Effect.flatMap((work) =>
+              this.dispatchInboundWork(work).pipe(
+                Effect.catchAllCause((cause) =>
+                  this.logInboundFailure(work, cause),
+                ),
+              ),
             ),
           ),
         ),
@@ -515,6 +522,7 @@ export class MoltZapChannelCore {
    */
   onInbound<E>(handler: InboundHandler<E>): void {
     this.inboundHandler = handler;
+    Effect.runSync(Deferred.succeed(this.inboundHandlerReady, undefined));
   }
 
   onDisconnect(handler: () => void): void {
