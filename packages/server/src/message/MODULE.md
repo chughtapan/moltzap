@@ -177,7 +177,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L155)
+### [`messagesList`](./handlers.ts#L64)
 
 _Variable_
 
@@ -195,7 +195,7 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L141)
+### [`messagesSend`](./handlers.ts#L50)
 
 _Variable_
 

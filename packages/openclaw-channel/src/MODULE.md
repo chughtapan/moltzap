@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1344)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1282)
 
 _Function_
 
@@ -42,11 +42,10 @@ sequenceDiagram
   Core->>Plugin: enriched message arrives
   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
   note over OC: agent pipeline → LLM
-  OC->>Plugin: deliver(payload, opts) — createLeaseConsumingDeliver
+  OC->>Plugin: deliver(payload, opts) — createReplyGuardedDeliver
   Plugin->>Server: core.sendReply(conversationId, text)
-  alt LeaseInvalid wire error
-    Server-->>Plugin: RpcServerError reason=LeaseInvalid
-    Plugin->>Plugin: catchLeaseInvalid → LeaseAlreadyConsumed<br>onLeaseConsumed callback, return false
+  alt second final reply for the same turn
+    Plugin->>Plugin: ReplyGuard already stamped<br>onDuplicateReply callback, return false
   end
   OC->>Plugin: stopAccount(ctx)
   Plugin->>Core: core.disconnect()
@@ -54,11 +53,10 @@ sequenceDiagram
 ```
 
 `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
-false signals "not delivered" without throwing. The lease-guard
-is single-shot per inbound message: a retried `deliver` exercises
-the lease again, surfacing `LeaseAlreadyConsumed` as a typed
-callback (`MoltzapChannelPluginDeps.onLeaseConsumed`) rather than
-a throw.
+false signals "not delivered" without throwing. The reply guard is
+single-shot per inbound turn: a second final reply is suppressed locally
+and reported through `MoltzapChannelPluginDeps.onDuplicateReply` rather
+than a throw.
 
 `resolveTarget` accepts a plain agent name or `agent:&lt;name>` for a DM and
 `conv:&lt;conversationId>` for an existing conversation. Plain names normalize
@@ -66,7 +64,7 @@ to `agent:&lt;name>`. Other colon-prefixed shapes are rejected.
 
 **Returns:** The created moltzap channel plugin.
 
-### [`default`](./openclaw-entry.ts#L1374)
+### [`default`](./openclaw-entry.ts#L1312)
 
 _Variable_
 
@@ -74,7 +72,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1371)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1309)
 
 _Variable_
 
@@ -87,7 +85,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1362)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1300)
 
 _TypeAlias_
 

@@ -1,17 +1,6 @@
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import {
-  dispatchId,
-  type DispatchId,
-  type LeaseId,
-} from "@moltzap/protocol/message/dispatch";
-import { Schema } from "effect";
-import {
-  agentId,
-  conversationId,
-  leaseId,
-  messageId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -88,21 +77,3 @@ export const testConversationId = (label: string): ConversationId =>
  */
 export const testMessageId = (label: string): MessageId =>
   messageId(uuidFor("message", label));
-
-/**
- * Provides the test lease id runtime value.
- * @param label Value supplied to the operation.
- * @returns The test lease id result.
- */
-export const testLeaseId = (label: string): LeaseId =>
-  leaseId(uuidFor("lease", label));
-
-const decodeDispatchId = Schema.decodeSync(dispatchId);
-
-/**
- * Provides the test dispatch id runtime value.
- * @param label Value supplied to the operation.
- * @returns The test dispatch id result.
- */
-export const testDispatchId = (label: string): DispatchId =>
-  decodeDispatchId(uuidFor("dispatch", label));

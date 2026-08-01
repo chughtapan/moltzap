@@ -70,7 +70,6 @@ function makeInertParser(op: string): RpcSerialization.Parser {
 function makeDefaultAppEndpoint(): AppEndpoint {
   const originator: Originator = {
     call: () => inertOriginatorOp("originator.call"),
-    callback: () => inertOriginatorOp("originator.callback"),
     notify: () => inertOriginatorOp("originator.notify"),
     // The inert endpoint serves no inbound s2c frames; its sink is never
     // routed to (the default app makes no round-trips).

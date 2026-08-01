@@ -1,9 +1,7 @@
 import type { RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
-import { Effect } from "effect";
+import type { Effect } from "effect";
 import type { AgentKey } from "#identity/agents";
-import { messagesAuthorize } from "#message";
-import { dispatchAuthorize } from "#message/dispatch";
 import { agentConnect, PROTOCOL_VERSION } from "#network";
 import type { agentCallableGroup } from "#socket/catalog";
 import type { CloseInfo } from "./close-info.js";
@@ -20,21 +18,11 @@ import {
   RPC_TIMEOUT_MS,
   type RpcCallOptions,
   ProtocolClientLifecycle,
-  type ReverseCallbackHandlers,
 } from "./lifecycle.js";
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];
 type AgentClientDispatch = TypedDispatchMap<AgentCallableRpcs, RpcClientError>;
-
-const makeAgentCallbackHandlers = (): ReverseCallbackHandlers => {
-  const reject = (method: string) => () =>
-    Effect.dieMessage(`agent client received unexpected callback ${method}`);
-  return {
-    [dispatchAuthorize.name]: reject(dispatchAuthorize.name),
-    [messagesAuthorize.name]: reject(messagesAuthorize.name),
-  };
-};
 
 /** Configures agent client. */
 export interface AgentClientOptions {
@@ -58,7 +46,6 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
         maxProtocol: PROTOCOL_VERSION,
       },
       openSession: openProtocolAgentClientSocket,
-      callbackHandlers: makeAgentCallbackHandlers,
       onDisconnect: options.onDisconnect,
     });
   }

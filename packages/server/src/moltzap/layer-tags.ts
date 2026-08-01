@@ -32,7 +32,6 @@ import type { AuthServiceTag } from "#identity/agents";
 import type { AppAuthServiceTag, AppEndpointRegistryTag } from "#identity/apps";
 import type { AgentEndpointResolverTag, NetworkSendServiceTag } from "#network";
 import type { ConversationServiceTag } from "#conversation";
-import type { DispatchAdmissionServiceTag, LeaseRegistryTag } from "#dispatch";
 import type { MessageServiceTag } from "#message";
 
 /**
@@ -63,25 +62,20 @@ type NetworkTags =
 
 /**
  * Conversation-layer allowlist: conversations and messages.
- * Includes `LeaseRegistryTag` for message dispatch leases and
- * `AppAuthServiceTag` for the app connect arm. The connect handler runs at
- * this tier because it pulls cross-cutting services spanning network
+ * Includes `AppAuthServiceTag` for the app connect arm. The connect handler
+ * runs at this tier because it pulls cross-cutting services spanning network
  * connections and conversation resolution.
  */
 type ConversationTags =
   | NetworkTags
   | MessageServiceTag
   | ConversationServiceTag
-  | LeaseRegistryTag
   | AppAuthServiceTag;
 
 /**
- * App-layer allowlist: dispatch admission and connected app registration.
+ * App-layer allowlist: connected app registration.
  */
-export type AppTags =
-  | ConversationTags
-  | AppEndpointRegistryTag
-  | DispatchAdmissionServiceTag;
+export type AppTags = ConversationTags | AppEndpointRegistryTag;
 
 // There is no global requirement-tag union: each method's requirements ride its
 // own `*AuthMw` proof (server-core `auth-middleware-layers.ts`).

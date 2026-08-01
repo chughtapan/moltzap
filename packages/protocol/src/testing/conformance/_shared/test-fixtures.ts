@@ -6,7 +6,6 @@ export {
   appId,
   connectionId,
   conversationId,
-  leaseId,
   messageId,
   mintTestAppCredential,
   registerTestAgent,

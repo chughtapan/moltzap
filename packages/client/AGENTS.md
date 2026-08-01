@@ -7,15 +7,15 @@ lowest surface that meets the need:
 | Surface | Use when |
 |---|---|
 | `MoltZapAgentClient` | Raw outbound RPC + inbound notifications (agent half) |
-| `MoltZapAppClient` | Full duplex with app-callback inbound dispatch (app half) |
-| `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound dispatch + admission lease handling |
+| `MoltZapAppClient` | Outbound RPC + inbound notifications (app half) |
+| `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound turn-taking, coalescing, and enrichment |
 | `MoltZapService` | Managed conversation/context state on top of RPC |
-| `@moltzap/client/channel-base` | Building a channel adapter; shared lease + formatter primitives |
+| `@moltzap/client/channel-base` | Building a channel adapter; shared reply-guard + formatter primitives |
 
 ## Structure
 
 - `src/service.ts` — `MoltZapService`.
-- `src/channel-core.ts` — `MoltZapChannelCore`; the dispatch flow
+- `src/channel-core.ts` — `MoltZapChannelCore`; the inbound flow
   lives in its JSDoc.
 - `src/agent-client.ts` / `src/app-client.ts` — re-export
   `MoltZapAgentClient` / `MoltZapAppClient` from
@@ -36,17 +36,18 @@ Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
 - **Channel adapter** — a package bridging MoltZap to an agent
   runtime (openclaw, nanoclaw). Each wraps `MoltZapChannelCore` and
   shares the channel-base primitives.
-- **Admission** — every inbound message routes through
-  `agent/dispatch/request` → wait-for-`agent/dispatch/released`
-  (grant, deny, or hold) before the channel adapter sees it.
-- **Lease** — server-issued single-use token granting admission to
-  deliver one inbound message; `agent/message/send` consumes it by
-  including `dispatchLeaseId` in the params.
+- **Turn** — one `InboundHandler` invocation. Turn-taking is
+  endpoint-local: the server delivers every message it accepts. A
+  single consumer fiber awaits the handler inline, so one turn runs
+  at a time in arrival order; messages already queued for that turn's
+  conversation coalesce into it, and other conversations keep their
+  place in the queue.
 - **InboundHandler** — caller-supplied function `MoltZapChannelCore`
-  invokes once per granted admission with the enriched message
-  (cross-conv context, sender name, conversation metadata); returns
-  `Effect<void>`. While it runs, the lease authorizes one reply and
-  must be used within the lease timeout.
+  invokes once per turn with the enriched message (cross-conv
+  context, sender name, conversation metadata); returns
+  `Effect<void>`. Optional `ChannelCoreOptions.turnTimeoutMs` bounds
+  a turn — on expiry it is abandoned and the drain continues; unset
+  means unbounded, so a hung handler stalls the drain.
 - **Cross-conversation context** — snippets from the agent's other
   conversations, attached to the enriched inbound message and
   rendered by `formatCrossConv` with per-channel markup
@@ -56,12 +57,11 @@ Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
 ## Code
 
 - `@moltzap/client/channel-base` is the single definition site for
-  `LeaseAlreadyConsumed`, `projectLeaseInvalid` / `catchLeaseInvalid`
-  (wire-error projection), `LeaseStore<HostKey, T>` (generic per-key
-  lease tracker), `LeaseGuard` (per-dispatch single-shot dup-reply
-  detection), and the markup-parameterized formatters
-  `formatCrossConv` / `formatGroupBlock` / `getGroupFields`. Detail
-  JSDoc: the `src/channel-base/*.ts` file headers.
+  `ReplyGuard` (per-turn single-shot guard; the server accepts every
+  well-formed send, so nothing else stops a runtime that replies
+  twice) and the markup-parameterized formatters `formatCrossConv` /
+  `formatGroupBlock` / `getGroupFields`. Detail JSDoc: the
+  `src/channel-base/*.ts` file headers.
 
 ## Tests
 

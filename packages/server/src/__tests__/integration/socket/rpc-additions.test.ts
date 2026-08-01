@@ -12,12 +12,6 @@ import {
   HTTP_BAD_REQUEST,
 } from "../helpers.js";
 
-import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { messagesAuthorize } from "@moltzap/protocol/message";
-import type {
-  AppCallbackContext,
-  AppCallbackHandlers,
-} from "@moltzap/protocol/socket";
 import type { AppManifest } from "@moltzap/protocol/identity";
 
 const APP_ID = "00000000-0000-4000-8000-000000010008";
@@ -27,19 +21,6 @@ beforeAll(() => Effect.runPromise(startTestServerEffect()));
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
-
-function unexpectedAppCallbacks(): AppCallbackHandlers<AppCallbackContext> {
-  return {
-    [dispatchAuthorize.name]: {
-      definition: dispatchAuthorize,
-      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
-    },
-    [messagesAuthorize.name]: {
-      definition: messagesAuthorize,
-      handle: () => Effect.dieMessage("unexpected app/message/authorize"),
-    },
-  };
-}
 
 it("apps/register: HTTP registers a valid manifest and the app can connect", () =>
   Effect.gen(function* () {
@@ -60,11 +41,7 @@ it("apps/register: HTTP registers a valid manifest and the app can connect", () 
 
     // The minted `appKey` authenticates an `AppConnection` (implicit
     // moderator-endpoint registration) — proves the credential is live.
-    yield* connectAppClient(
-      registered.appId,
-      registered.appKey,
-      unexpectedAppCallbacks(),
-    );
+    yield* connectAppClient(registered.appId, registered.appKey);
   }));
 
 it("apps/register: HTTP rejects a manifest missing required fields", () =>

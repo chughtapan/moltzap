@@ -6,14 +6,9 @@
 export {
   messagesSend,
   messagesList,
-  messagesAuthorize,
-  HookBlockedError,
   messageReceivedNotificationDefinition,
   agentCallableMessageRpcMethods,
-  messageCallbackMethods,
   messageNotifications,
-  dispatchDecisionSchema,
-  validateDispatchDecision,
   validateMessage,
   decodeMessageParts,
   decodeMessagePartsText,
@@ -22,7 +17,6 @@ export {
 } from "./messages.js";
 /** Re-exports the public API from `./messages.js`. */
 export type {
-  DispatchDecision,
   Message,
   MessageParts,
   MessageReceivedNotification,

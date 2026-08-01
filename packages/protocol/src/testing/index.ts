@@ -20,7 +20,6 @@ export {
   appId,
   connectionId,
   conversationId,
-  leaseId,
   messageId,
   agentKeyArbitrary,
   agentKeyString,

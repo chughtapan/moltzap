@@ -57,31 +57,32 @@ import {
   type NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
 import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { dispatchLeaseExpired } from "@moltzap/protocol/message/dispatch";
+import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import {
   buildMessage,
+  testAgentId,
   testConversationId,
-  testDispatchId,
-  testLeaseId,
 } from "../../test-utils/index.js";
 import { subscribe, subscribeAll } from "../stream.js";
 
 const PROP_TEST_FRAME_COUNT = 6;
 const PROP_TEST_CANCEL_AT = 3;
 
-type LeaseExpiredParams = NotificationParamsOf<typeof dispatchLeaseExpired>;
+type ConversationCreatedParams = NotificationParamsOf<
+  typeof conversationCreatedNotificationDefinition
+>;
 
-const leaseIds = [...Array.from({ length: PROP_TEST_FRAME_COUNT }).keys()].map(
-  (sequence) => testLeaseId(`lease-${sequence}`),
+const conversationIds = [
+  ...Array.from({ length: PROP_TEST_FRAME_COUNT }).keys(),
+].map((sequence) => testConversationId(`snapshot-conv-${sequence}`));
+
+const conversationIndex = new Map(
+  conversationIds.map((conversationId, seq) => [conversationId, seq] as const),
 );
 
-const leaseIndex = new Map(
-  leaseIds.map((leaseId, seq) => [leaseId, seq] as const),
-);
-
-function sequenceForLeaseExpiry(params: LeaseExpiredParams): number {
-  return leaseIndex.get(params.leaseId) ?? Number.NaN;
+function sequenceForCreated(params: ConversationCreatedParams): number {
+  return conversationIndex.get(params.conversationId) ?? Number.NaN;
 }
 
 const makeSubscriberRegistry = () =>
@@ -93,17 +94,16 @@ const makeSubscriberRegistry = () =>
       new NotConnectedError({ message: "WebSocket not connected" }),
   });
 
-function leaseExpiredDelivery(
+function conversationCreatedDelivery(
   seq: number,
-): NotificationDelivery<typeof dispatchLeaseExpired> {
+): NotificationDelivery<typeof conversationCreatedNotificationDefinition> {
   return {
-    definition: dispatchLeaseExpired,
-    method: dispatchLeaseExpired.name,
+    definition: conversationCreatedNotificationDefinition,
+    method: conversationCreatedNotificationDefinition.name,
     params: {
-      dispatchId: testDispatchId(`dispatch-${seq}`),
-      leaseId: leaseIds[seq] ?? testLeaseId(`lease-${seq}`),
-      conversationId: testConversationId("snapshot-conv"),
-      expiredAt: new Date(seq).toISOString(),
+      conversationId:
+        conversationIds[seq] ?? testConversationId(`snapshot-conv-${seq}`),
+      participants: [testAgentId("snapshot-agent")],
     },
   };
 }
@@ -132,25 +132,28 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const targetSeen = yield* Ref.make<readonly number[]>([]);
 
         const observerFiber = yield* Effect.fork(
-          subscribe(registry, dispatchLeaseExpired).pipe(
+          subscribe(registry, conversationCreatedNotificationDefinition).pipe(
             Stream.runForEach((params) =>
               Ref.update(observerSeen, (xs) => [
                 ...xs,
-                sequenceForLeaseExpiry(params),
+                sequenceForCreated(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
           ),
         );
 
-        const targetStream = subscribe(registry, dispatchLeaseExpired);
+        const targetStream = subscribe(
+          registry,
+          conversationCreatedNotificationDefinition,
+        );
         const targetFiber = yield* Effect.fork(
           targetStream.pipe(
             Stream.take(PROP_TEST_CANCEL_AT),
             Stream.runForEach((params) =>
               Ref.update(targetSeen, (xs) => [
                 ...xs,
-                sequenceForLeaseExpiry(params),
+                sequenceForCreated(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
@@ -164,7 +167,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         yield* Effect.yieldNow();
 
         for (let i = 0; i < PROP_TEST_FRAME_COUNT; i++) {
-          yield* registry.dispatch(leaseExpiredDelivery(i));
+          yield* registry.dispatch(conversationCreatedDelivery(i));
         }
         yield* Effect.yieldNow();
 
@@ -205,25 +208,28 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const receivedByS2 = yield* Ref.make<readonly number[]>([]);
 
         const s1Fiber = yield* Effect.fork(
-          subscribe(registry, dispatchLeaseExpired).pipe(
+          subscribe(registry, conversationCreatedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
         const s3Fiber = yield* Effect.fork(
-          subscribe(registry, dispatchLeaseExpired).pipe(
+          subscribe(registry, conversationCreatedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
 
-        const s2Stream = subscribe(registry, dispatchLeaseExpired);
+        const s2Stream = subscribe(
+          registry,
+          conversationCreatedNotificationDefinition,
+        );
         const s2Fiber = yield* Effect.fork(
           s2Stream.pipe(
             Stream.runForEach((params) =>
               Ref.update(receivedByS2, (xs) => [
                 ...xs,
-                sequenceForLeaseExpiry(params),
+                sequenceForCreated(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
@@ -234,7 +240,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // register callback commits before the first dispatch reads
         // the snapshot. Deterministic — see file header.
         yield* Effect.yieldNow();
-        yield* registry.dispatch(leaseExpiredDelivery(0));
+        yield* registry.dispatch(conversationCreatedDelivery(0));
         // Drain s2's onFrame Effect into receivedByS2 deterministically.
         yield* Effect.yieldNow();
 
@@ -242,7 +248,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // synchronously. Subsequent dispatch's snapshot must exclude s2.
         yield* Fiber.interrupt(s2Fiber);
 
-        yield* registry.dispatch(leaseExpiredDelivery(1));
+        yield* registry.dispatch(conversationCreatedDelivery(1));
         yield* Effect.yieldNow();
 
         const seen = yield* Ref.get(receivedByS2);
@@ -278,7 +284,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const releaseS1 = yield* Deferred.make<undefined>();
         const s2Received = yield* Ref.make<readonly number[]>([]);
 
-        yield* registry.register(dispatchLeaseExpired, {
+        yield* registry.register(conversationCreatedNotificationDefinition, {
           onFrame: () =>
             Effect.gen(function* () {
               yield* Deferred.succeed(enteredS1, void 0);
@@ -286,18 +292,21 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
             }),
           onClose: () => Effect.void,
         });
-        const s2Handle = yield* registry.register(dispatchLeaseExpired, {
-          onFrame: (params) =>
-            Ref.update(s2Received, (xs) => [
-              ...xs,
-              sequenceForLeaseExpiry(params),
-            ]),
-          onClose: () => Effect.void,
-        });
+        const s2Handle = yield* registry.register(
+          conversationCreatedNotificationDefinition,
+          {
+            onFrame: (params) =>
+              Ref.update(s2Received, (xs) => [
+                ...xs,
+                sequenceForCreated(params),
+              ]),
+            onClose: () => Effect.void,
+          },
+        );
 
         // Fork dispatch. Snapshot at fork time has both s1 and s2.
         const dispatchFiber = yield* Effect.fork(
-          registry.dispatch(leaseExpiredDelivery(0)),
+          registry.dispatch(conversationCreatedDelivery(0)),
         );
 
         // Wait until s1's handler enters (dispatch is parked mid-flight).
@@ -318,7 +327,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         // Sanity: confirm s2's unregister DID commit to subsRef — a
         // subsequent dispatch must NOT deliver to s2.
-        yield* registry.dispatch(leaseExpiredDelivery(1));
+        yield* registry.dispatch(conversationCreatedDelivery(1));
         expect(yield* Ref.get(s2Received)).toEqual([0]);
 
         yield* registry.closeAll;
@@ -376,7 +385,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // Single-tick yield ensures the forked subscribeAll consumer's
         // register callback commits before dispatch reads the snapshot.
         yield* Effect.yieldNow();
-        yield* registry.dispatch(leaseExpiredDelivery(0));
+        yield* registry.dispatch(conversationCreatedDelivery(0));
         yield* registry.dispatch(messageReceivedDelivery());
 
         // Drain the consumer's onFrame Effect into `observed` before
@@ -387,7 +396,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const names = yield* Ref.get(observed);
         expect(names).toEqual([
-          dispatchLeaseExpired.name,
+          conversationCreatedNotificationDefinition.name,
           messageReceivedNotificationDefinition.name,
         ]);
       }),

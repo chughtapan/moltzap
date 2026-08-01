@@ -18,10 +18,6 @@ import {
 import { DEFAULT_TEST_ADMIN_USER_ID, getCoreDb, getWsUrl } from "./server.js";
 import { AuthService } from "#identity/agents";
 
-import type {
-  AppCallbackContext,
-  AppCallbackHandlers,
-} from "@moltzap/protocol/socket";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   type AgentId,
@@ -329,19 +325,16 @@ export function registerApp(
  * Executes the connect app client operation.
  * @param appId Value supplied to the operation.
  * @param appKey Value supplied to the operation.
- * @param handlers Value supplied to the operation.
  * @returns The connect app client result.
  */
 export function connectAppClient(
   appId: AppId,
   appKey: AppKey,
-  handlers: AppCallbackHandlers<AppCallbackContext>,
 ): Effect.Effect<TestAppClient, Error> {
   return Effect.gen(function* () {
     const client = yield* makeTestAppClient(appId, {
       serverUrl: testClientServerUrl(getWsUrl()),
       appKey,
-      handlers,
     }).pipe(Effect.mapError(toError));
     openClients.push(client);
     return client;

@@ -367,7 +367,7 @@ Callers (`app/network/connect`, `installDefaultApp`) map a
 `false` return to whatever surfacing they need — typed
 `ForbiddenError` for the connect path, an exception for boot.
 
-### [`installDefaultApp`](./default-app.ts#L99)
+### [`installDefaultApp`](./default-app.ts#L98)
 
 _Function_
 

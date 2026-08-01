@@ -14,27 +14,13 @@ _Interface_
 
 Configures agent client.
 
-### [`AppCallbackContext`](./../../../protocol/dist/socket/app-client.d.ts#L14)
-
-_Interface_
-
-Carries context for app callback.
-
-### [`AppCallbackHandlers`](./../../../protocol/dist/socket/app-callbacks.d.ts#L26)
-
-_TypeAlias_
-
-Closed handler table for an app moderating one or more conversations. Every
-app callback member is required; vacuous-deny moderators still write the
-handler explicitly.
-
-### [`AppClientOptions`](./../../../protocol/dist/socket/app-client.d.ts#L18)
+### [`AppClientOptions`](./../../../protocol/dist/socket/app-client.d.ts#L13)
 
 _Interface_
 
 Configures app client.
 
-### [`ContextOptions`](./service.ts#L140)
+### [`ContextOptions`](./service.ts#L131)
 
 _Interface_
 
@@ -48,7 +34,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](./service.ts#L132)
+### [`ConversationMeta`](./service.ts#L123)
 
 _Interface_
 
@@ -69,13 +55,13 @@ _Class_
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](./../../../protocol/dist/socket/app-client.d.ts#L25)
+### [`MoltZapAppClient`](./../../../protocol/dist/socket/app-client.d.ts#L19)
 
 _Class_
 
 Implements molt zap app client.
 
-### [`MoltZapService`](./service.ts#L278)
+### [`MoltZapService`](./service.ts#L262)
 
 _Class_
 
@@ -134,9 +120,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    dispatchRelease: [],
-    dispatchLeaseConsumed: [],
-    dispatchLeaseExpired: [],
   };
 
   private readonly ownAgentIdValue: AgentId;
@@ -200,6 +183,9 @@ export class MoltZapService {
           },
         });
         this.client = client;
+
+        // `subscribeAll().pipe(Stream.runForEach, …)` is forked into a
+        // service-owned scope. The Stream is materialized BEFORE `connect()` so
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -216,7 +202,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L120)
+### [`ServiceRpcError`](./service.ts#L111)
 
 _TypeAlias_
 

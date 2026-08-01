@@ -1,10 +1,11 @@
 /**
- * Channel-base `LeaseGuard` — per-dispatch single-shot client-side dup-reply
- * detection.
+ * Channel-base `ReplyGuard` — per-turn single-shot duplicate-reply detection.
  *
- * One `LeaseGuard` instance per inbound message (created inside the deliver
+ * One `ReplyGuard` instance per inbound turn (created inside the deliver
  * wrapper); `consume()` returns true exactly once, false on every subsequent
- * call.
+ * call. This is the only enforcement of "one final reply per inbound turn":
+ * the server accepts every well-formed send, so a runtime that delivers twice
+ * would otherwise double-post.
  *
  * Backed by a private `number | null` field that records
  * `Clock.currentTimeMillis` on the first consume.
@@ -12,8 +13,8 @@
 
 import { Clock, Effect, Option } from "effect";
 
-/** Implements lease guard. */
-export class LeaseGuard {
+/** Implements reply guard. */
+export class ReplyGuard {
   private consumedAtMillis: number | null = null;
 
   /**
@@ -24,7 +25,7 @@ export class LeaseGuard {
    */
   consume(): Effect.Effect<boolean> {
     return Effect.gen(
-      function* (this: LeaseGuard) {
+      function* (this: ReplyGuard) {
         if (this.consumedAtMillis !== null) {
           return false;
         }

@@ -215,7 +215,6 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     onDisconnection: (hook) => options.disconnectionHooks.push(hook),
     networkSendService: services.networkSendService,
     connections: services.connections,
-    leaseRegistry: services.leaseRegistry,
     close: () =>
       Effect.runPromise(closeCoreAppEffect(options).pipe(Effect.as(undefined))),
   };
@@ -227,35 +226,21 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  *
  * ```mermaid
  * flowchart LR
- *   A[leaseRegistry.shutdown — fail-closed leases + interrupt TTL/round-trip fibers] --> B[messageService.close — interrupt webhook retries]
- *   B --> C[for each conn — conn.shutdown signals closeRequested]
- *   C --> D[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
- *   D --> E[Scope.close appScope — NodeHttpServer + upgrade wiring]
- *   E --> F[dispatchRuntime.dispose — finalize service Layers]
- *   F --> G[config.dbCleanup — optional caller hook]
+ *   A[messageService.close — interrupt webhook retries] --> B[for each conn — conn.shutdown signals closeRequested]
+ *   B --> C[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
+ *   C --> D[Scope.close appScope — NodeHttpServer + upgrade wiring]
+ *   D --> E[dispatchRuntime.dispose — finalize service Layers]
+ *   E --> F[config.dbCleanup — optional caller hook]
  * ```
  *
- * `leaseRegistry.shutdown()` runs FIRST, before any socket teardown.
- * `messageService.close()` runs next so pending delivery-webhook POSTs
+ * `messageService.close()` runs FIRST so pending delivery-webhook POSTs
  * do not race the HTTP server teardown.
- *
- * `leaseRegistry.shutdown()` runs BEFORE `Scope.close(appScope)`:
- * it atomically closes and drains lease state, stops background notification
- * and retention work, and interrupts live TTL/moderator round-trip fibers.
- * Later per-connection disconnect cleanup therefore observes an empty,
- * closed registry and cannot schedule new lease work during scope teardown.
- * See
- * `dispatch/lease-registry.ts → LeaseRegistry.shutdown`.
  * @param options Options that control the operation.
  * @returns The close core app effect result.
  */
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;
   return Effect.gen(function* () {
-    // Drain the lease runtime before socket teardown. Subsequent disconnect
-    // cleanup observes an empty, closed registry; background notification,
-    // retention, TTL, and moderator round-trip work is stopped first.
-    yield* services.leaseRegistry.shutdown();
     yield* services.messageService.close();
     for (const conn of yield* services.connections.allConnections()) {
       yield* conn.socket.shutdown;

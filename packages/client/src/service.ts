@@ -6,13 +6,6 @@ import {
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
-import {
-  dispatchRequest,
-  dispatchRelease,
-  dispatchLeaseConsumed,
-  dispatchLeaseExpired,
-  type LeaseId,
-} from "@moltzap/protocol/message/dispatch";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type {
   AnyAgentCallableRpcDefinition,
@@ -43,11 +36,9 @@ import {
   type RpcTimeoutError,
   isNotificationDeliveryFor,
   type NotificationDelivery,
-  type NotificationParamsOf,
   type ListCursor,
   type PayloadForTag,
   type ParamsOf,
-  type ResultOf,
   type SuccessForTag,
 } from "@moltzap/protocol/rpc";
 import type { RpcGroup, Rpc } from "@effect/rpc";
@@ -206,18 +197,11 @@ interface ServiceHandlerPayloads {
   /**
    * The "raw notification" surface receives the descriptor-tagged delivery
    * emitted after the native reverse RPC handler has Schema-decoded params.
-   * Subscribers that want specific payloads register typed `on(...)` handlers
-   * such as `dispatchRelease`.
+   * Subscribers that want a specific payload narrow the delivery themselves
+   * with `isNotificationDeliveryFor`.
    */
   readonly rawNotification: ClientNotificationDelivery;
   readonly disconnect: undefined;
-  readonly dispatchRelease: NotificationParamsOf<typeof dispatchRelease>;
-  readonly dispatchLeaseConsumed: NotificationParamsOf<
-    typeof dispatchLeaseConsumed
-  >;
-  readonly dispatchLeaseExpired: NotificationParamsOf<
-    typeof dispatchLeaseExpired
-  >;
 }
 
 type ServiceHandlerName = keyof ServiceHandlerPayloads;
@@ -329,9 +313,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    dispatchRelease: [],
-    dispatchLeaseConsumed: [],
-    dispatchLeaseExpired: [],
   };
 
   private readonly ownAgentIdValue: AgentId;
@@ -766,43 +747,20 @@ export class MoltZapService {
    *   svc-->>caller: Effect.void
    * ```
    *
-   * `opts.dispatchLeaseId` (when set) is forwarded verbatim in the
-   * params frame. The server marks the lease consumed, blocking the
-   * app authorization timeout sweep. `MoltZapChannelCore.sendReply` forwards
-   * `leaseIdInFlight` automatically when the caller omits it.
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
-   * @param opts Value supplied to the operation.
-   * @param opts.dispatchLeaseId Value supplied to the operation.
    * @returns The send result.
    */
   send(
     conversationId: ConversationId,
     text: string,
-    opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
     return Effect.asVoid(
       this.call(messagesSend.name, {
         conversationId,
         parts: [{ type: "text", text }],
-        ...(opts?.dispatchLeaseId !== undefined
-          ? { dispatchLeaseId: opts.dispatchLeaseId }
-          : {}),
       }),
     );
-  }
-
-  /**
-   * Issue `agent/dispatch/request`. The server returns the ack
-   * `{leaseId, dispatchId}` immediately; the recipient observes the
-   * verdict asynchronously via the `dispatchRelease` event.
-   * @param params Request payload to process.
-   * @returns The cache result.
-   */
-  requestDispatch(
-    params: ParamsOf<typeof dispatchRequest>,
-  ): Effect.Effect<ResultOf<typeof dispatchRequest>, ServiceRpcError> {
-    return this.call(dispatchRequest.name, params);
   }
 
   /**
@@ -1159,10 +1117,7 @@ export class MoltZapService {
     if (this.dispatchMessageNotification(notification)) {
       return;
     }
-    if (this.dispatchConversationNotification(notification)) {
-      return;
-    }
-    this.dispatchAppNotification(notification);
+    this.dispatchConversationNotification(notification);
   }
 
   private dispatchMessageNotification(
@@ -1193,22 +1148,6 @@ export class MoltZapService {
       return true;
     }
     return false;
-  }
-
-  private dispatchAppNotification(
-    notification: ClientNotificationDelivery,
-  ): void {
-    if (isNotificationDeliveryFor(notification, dispatchRelease)) {
-      fanout(this.handlers.dispatchRelease, notification.params);
-      return;
-    }
-    if (isNotificationDeliveryFor(notification, dispatchLeaseConsumed)) {
-      fanout(this.handlers.dispatchLeaseConsumed, notification.params);
-      return;
-    }
-    if (isNotificationDeliveryFor(notification, dispatchLeaseExpired)) {
-      fanout(this.handlers.dispatchLeaseExpired, notification.params);
-    }
   }
 
   /**

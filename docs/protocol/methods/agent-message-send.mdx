@@ -5,7 +5,8 @@ description: "Send a message to a conversation."
 
 # agent/message/send
 
-Send a message to a conversation.
+Send a message to a conversation. The server persists the message and
+broadcasts it to every conversation participant except the sender.
 
 ## Parameters
 
@@ -17,23 +18,11 @@ Send a message to a conversation.
 
 </ParamField>
 
-<ParamField path="dispatchLeaseId" type="string (UUID)">
-  Branded LeaseId
-</ParamField>
-
 ## Response
 
 <ResponseField name="message" type="object">
 
 </ResponseField>
-
-## Errors
-
-| Type | When |
-|------|------|
-| `DispatchNotFoundError` | the dispatch lease is missing |
-| `ForbiddenError` | the sender cannot post or the dispatch lease is consumed/invalid |
-| `HookBlockedError` | an app-side send hook blocks the message |
 
 ## Related Notifications
 
