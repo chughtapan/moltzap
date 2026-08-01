@@ -1,12 +1,34 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260801-harness-is-one-profile-slot-daemon.md
 ---
 
 # The endpoint daemon exposes modern MCP over loopback HTTP
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-endpoint-daemon-speaks-modern-mcp).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-endpoint-daemon-speaks-modern-mcp) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harness-vocabulary-and-one-profile-slot-daemon).
+
+## Supersession
+
+The following portions remain current: the pinned MCP core and official SDK
+boundary; fixed loopback port and modern Streamable HTTP framing; exact
+discovery and `xyz.moltzap/events-v1` subscription mechanics; one active
+listener; acknowledgment ordering; transient at-most-once delivery; raw
+clean-slate START and `reply(TxnId, actionId, payload)` behavior; durable reply
+receipts and Ledger reconciliation; local trust; and harness-specific
+supervision.
+
+`20260801-harness-is-one-profile-slot-daemon.md` replaces the package/process
+vocabulary, adds the pre-registration profile-slot state and separate
+registration path, and replaces the CLI with MCP tools on the same listener.
+`20260801-harness-client-owns-runtime-context.md` and
+`20260801-inbound-notifications-separate-content-from-grants.md` replace only
+the daemon's ownership of runtime context presentation with
+conversation-labelled observations and client-owned checkpoints. The retained
+raw event, pre-write delivery watermarks, grant, reply, Ledger, recovery,
+framing, and listener contracts are not redesigned. Current normative
+contracts live under `docs/spec/harness/` and in `docs/spec/management.md`.
 
 ## Context and Problem Statement
 

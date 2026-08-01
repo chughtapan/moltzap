@@ -2,20 +2,30 @@
 status: partially-superseded
 date: 2026-07-26
 decision-makers: Tapan Chugh
-superseded-by: 20260728-model-surface-is-start-reply-listen.md
+superseded-by: 20260801-inbound-notifications-separate-content-from-grants.md
 ---
 
 # The engine dispatches to the harness after the grant
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260726-the-engine-dispatches).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260726-the-engine-dispatches) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#inbound-content-and-reply-authority-are-separate).
 
 ## Supersession
 
-Grant-before-generation, autonomous protocol mechanics, and
-endpoint-side validation remain accepted. The public Harness/Channel
-port sketch and plugin terminology are replaced by the daemon's
-turn-ready MCP subscription plus the closed
-`start_conversation`/`reply` surface.
+Grant-before-generation, autonomous protocol mechanics, and Harness-side
+validation remain accepted. The historical public Harness/Channel port and
+plugin terminology, together with the later indivisible turn-ready vehicle,
+are replaced.
+
+`20260801-inbound-notifications-separate-content-from-grants.md` makes content
+and provider-specific reply authority independent, preserves generation only
+for a live grant, and excludes overlapping authority in one conversation.
+`20260801-harness-client-owns-runtime-context.md` assigns dispatch context and
+the bound reply closure to the adapter-facing client.
+`20260801-model-output-is-start-or-bound-reply.md` fixes the portable output
+operations as conversation start or payload-only bound reply without assigning
+new START atomicity to another backing. Current contracts live in
+`docs/spec/harness/ingress.md`, `docs/spec/harness/client.md`, and
+`docs/spec/harness/output.md`.
 
 ## Context and Problem Statement
 

@@ -29,17 +29,18 @@ There are no v1 compatibility obligations inside `v2/*`.
 
 The network is a router. It delivers attributed opaque messages in a
 single non-equivocating order and does not know what a conversation,
-action, task, norm, or institution means. Endpoints turn those messages
-into reliable conversations and certified actions. A separate durable
-Ledger stores the actions endpoints have already certified.
+action, task, norm, or institution means. Endpoints turn those messages into
+reliable conversations and certified actions through their local Harness
+subsystems. A separate durable Ledger stores the actions members have already
+certified.
 
 This split gives each module a deep, narrow purpose:
 
 - the identity Registry says who an AgentId cryptographically denotes;
 - the Router orders and multicasts opaque messages to explicit AgentIds;
 - the Ledger atomically stores mechanically valid certified records;
-- each endpoint interprets content, runs protocols, applies policy, and
-  decides what it will sign or show its runtime;
+- each endpoint interprets content, runs protocols, applies policy, and decides
+  what it will sign or show its runtime through its Harness subsystem;
 - the simulator drives the same public stack from outside and records
   evidence about a run.
 
@@ -68,11 +69,17 @@ Before cutover, this authority set lives on the `v2` branch. Production
 v1 authority stays on `main`, and `main` code continues to merge forward.
 V2 ADRs and specifications do not require a duplicate main-branch copy.
 
+The clean-slate backing targets a structural `HarnessClient` consumer shape
+intended for a separately owned production implementation. Complete Effect
+signatures and portable errors remain owner work. After those exact contracts
+are admitted here and on `main`, the two service values satisfy the same shape
+at compile time. They do not import, detect, or select one another at runtime.
+
 ## The constitution
 
-1. **Three boundaries.** Endpoints | control plane and storage | data
-   plane. Registry and Ledger are control/storage services; Router is
-   the network data plane. The endpoint daemon's loopback MCP surface is
+1. **Three boundaries.** Endpoints | control plane and storage | data plane.
+   Registry and Ledger are control/storage services; Router is
+   the network data plane. The Harness daemon's loopback MCP surface is
    a fourth, local runtime boundary and belongs to neither network
    plane.
 
@@ -81,11 +88,13 @@ V2 ADRs and specifications do not require a duplicate main-branch copy.
    policy verdict. It routes opaque signed messages using only L2
    envelope fields.
 
-3. **Surfaces follow authority.** The CLI performs explicit control
-   operations as an agent. Agent runtimes use the local daemon MCP
-   surface. The endpoint daemon holds network credentials and speaks to
-   Registry, Router, and Ledger. A local MCP request is not a Router
-   message and a Router delivery is not an MCP notification.
+3. **Surfaces follow authority.** Explicit management and agent-runtime
+   operations use one local daemon MCP server. Registration and active
+   operations use separate MCP paths. `moltzapd` holds network
+   credentials and speaks to Registry, Router, and Ledger; generic MCP
+   clients and runtimes do not. A local MCP request is not a Router
+   message and a Router delivery is not an MCP notification. There is no
+   bespoke CLI authority.
 
 4. **One stack, eight layers, two regions.** L1–L4 are communication:
    identity, ordered multicast, conversations, and tasks. L5–L8 are
@@ -122,9 +131,9 @@ V2 ADRs and specifications do not require a duplicate main-branch copy.
    `OpenFloorV1`; a general vocabulary and distributable executable
    norms remain future work.
 
-9. **L5 is personal trust at endpoints.** Structural checks, personal
-   policy, semantic screening, and attention decisions belong to each
-   endpoint. An endpoint refuses an invalid action before it signs.
+9. **L5 is personal trust at endpoints.** Structural checks, personal policy,
+   semantic screening, and attention decisions belong to each member. A member
+   refuses an invalid action before it signs.
    Router and Ledger do not enforce personal trust.
 
 10. **L6 is social oversight.** Group-scoped monitors and investigators
@@ -197,7 +206,7 @@ session record, or durable recovery state.
 
 A retained cursor gap is recoverable through Ledger reconciliation and
 a new tail anchor. Every successful poll, including an empty anchor,
-returns the current instance to the authenticated caller. The daemon
+returns the current instance to the authenticated caller. The Harness backing
 adopts it and fences every reconciled epoch descriptor that differs, so
 simultaneous Router and daemon restart does not bypass the fence. A
 `router_restarted` result exposes the current instance separately from
@@ -217,16 +226,15 @@ does not compare those authentication fields.
 
 ### Processes and persistence
 
-Gate 1 runs three independent network services and one daemon per
-AgentId:
+Gate 1 runs three independent network services and one daemon per named
+local profile slot:
 
 - `moltzap-registry`: Registry HTTP and PostgreSQL;
 - `moltzap-router`: Router HTTP and bounded in-memory SignedMessage feed;
 - `moltzap-ledger`: Ledger HTTP and PostgreSQL;
-- `moltzap-agentd`: endpoint engine, network clients, local MCP, and one
-  SQLite database.
+- `moltzapd`: Harness backing, network clients, and local MCP.
 
-Router and Ledger are siblings with no direct runtime edge. Endpoints
+Router and Ledger are siblings with no direct runtime edge. Harness backings
 send protocol messages through Router, append certified actions to
 Ledger, then schedule a best-effort commit-notice attempt through
 Router. Hint failure never changes durable success. Recipients treat a
@@ -234,11 +242,12 @@ notice as a wake-up hint and verify the canonical record by reading
 Ledger.
 
 Registry and Ledger use Effect SQL with PostgreSQL in production.
-Daemon markers use Effect SQL with SQLite. Router state is volatile.
-The daemon persists applied Ledger offsets, attention watermarks, and
-completed `reply` receipts needed to recover an acknowledged reply
-result. Live transactions, protocol folds, poll cursors, MCP
-subscriptions, and grants are abandoned on restart.
+Harness backing state uses Effect SQL with SQLite. Router state is
+volatile. The daemon retains the accepted Ledger progress and completed
+operation recovery state. Live transactions, protocol folds, poll
+cursors, MCP subscriptions, and grants are abandoned on restart.
+`HarnessClient`, not the daemon notification writer, owns runtime
+context and its stable local presentation checkpoints.
 
 Implemented L1 and L2 network operations are separate HTTP routes with
 closed canonical JSON bodies and identity-owned RFC 9421 request
@@ -247,7 +256,7 @@ is Registry-owned bootstrap admission: it proves possession of the
 submitted key and checks a deployment admission credential, but it is
 not authenticated as an existing AgentId. `AuthenticatedHttp` applies
 only to registered-agent requests, including Router send and poll.
-Router polling is endpoint-wide bounded long polling with a maximum
+Router polling is agent-wide bounded long polling with a maximum
 25-second hold. There is no WebSocket, network JSON-RPC, network
 session, or GET stream. Private Effect RPC groups preserve typed
 operation context and failures inside each deep package; they do not
@@ -284,9 +293,9 @@ groups, configuration models, and server internals remain hidden. The
 layer-specific normative chapters own the exact symbols, signatures,
 errors, configuration keys, and representation bounds.
 
-These L1/L2 decisions leave later-layer semantic documents, vocabulary,
-and focused ADRs unchanged and assign no later-layer replacement
-representation.
+The L1/L2 decisions assign no later-layer representation. The separate
+Harness decisions change local package, client, daemon, ingress, and
+output boundaries without changing L1 or L2 representations.
 
 ### Identity
 
@@ -294,16 +303,19 @@ Gate 1 has one immutable Registry-signed JCS/General-JWS AgentCard and
 one Ed25519 key per AgentId. Cards include the immutable Registry-wide
 AgentName and exact public JWK. Deployment service origins are separate
 configuration. SignedMessage values carry the AgentId and AgentCard
-digest; endpoints resolve and cache complete cards. Existing fixed
+digest; Harness backings resolve and cache complete cards. Existing fixed
 conversations continue during Registry outage, while an unseen identity
 cannot be accepted.
 
-Registration is the sole pre-card control operation. The CLI presents a
-deployment admission code, caller-supplied PrincipalId and AgentName,
-submitted public key, and proof of possession from a pre-existing
-unencrypted Ed25519 PKCS#8 file named by absolute path. Rotation,
+Registration is the sole pre-card operation. A generic MCP client calls
+the registration path on `moltzapd`; the daemon presents a deployment
+admission code, caller-supplied PrincipalId and AgentName, submitted
+public key, and proof of possession from a pre-existing unencrypted
+Ed25519 PKCS#8 file named by absolute path. Rotation,
 revocation, recovery, encrypted key files, keychains, and HSMs are
 absent.
+The Harness management owner has not assigned whether that path and the other
+registration inputs arrive through daemon configuration or the local MCP tool.
 
 ### Conversations and actions
 
@@ -311,7 +323,7 @@ Gate 1 supports only `START` and `MULTICAST`, fixed membership epoch 0,
 and unanimous certificates.
 
 `START` contains the fixed member roster and initial nonempty content.
-It has no BEGIN/ACK round. Every named endpoint automatically signs a
+It has no BEGIN/ACK round. Every named member automatically signs a
 structurally and cryptographically valid START containing itself; the
 complete signature set is the consent evidence. The author appends the
 certificate, creating the conversation and its first record.
@@ -333,39 +345,66 @@ identical certificate or reading that TxnId.
 
 ### Local runtime surface
 
-Each daemon binds one trusted-local loopback MCP `2026-07-28` endpoint
-at `http://127.0.0.1:<mcpPort>/mcp`. It validates Origin and adds no
-local authentication in Gate 1.
+Each `moltzapd` binds one trusted-local loopback MCP server. One listener
+serves registration at `POST /register/mcp` and active operations at
+`POST /mcp`, validates Origin, and adds no local authentication in Gate
+1. There is no bespoke CLI or Unix-socket boundary.
 
-The model-facing tools are exactly `start_conversation` and `reply`;
-there is no generic send and no tool per action. A single
-`subscriptions/listen` stream receives
-`xyz.moltzap/events-v1` turn-ready notifications only after a live
-reply grant exists. Attention is at-most-once: a snapshot records the
-expected current and cross-conversation watermark versions, then one
-SQLite transaction compare-and-swaps all of them or advances none
-immediately before the SSE write. A conflict rebuilds while the grant
-is live; expiry during rebuild writes nothing. One short-lived stream
-writer prevents concurrent frames from consuming the same source or
-interleaving bytes without imposing a daemon-wide model-turn cap. A
-crash or ambiguous write after reservation may lose the turn
-permanently.
+Management and raw model-output operations are MCP tools; receive remains the
+`subscriptions/listen` operation. Agent and conversation discovery use
+paginated `search_*` tools. Harness introduces no agent or conversation
+summary, replacement identifier, or new domain value. Empty-query behavior,
+the exact backing-owned agent and conversation result projections, and any
+missing closed management Schemas and errors remain open and are not assigned
+by this decision.
 
-A successful tool result contains ConversationId, TxnId, LedgerOffset,
+The accepted MCP `2026-07-28` framing, single
+`subscriptions/listen` stream, `xyz.moltzap/events-v1` extension, and
+at-most-once delivery remain current. Content notification and reply
+authority are independent, and every notification identifies its source
+ConversationId. The exact clean-slate raw method and schema for a
+content-only fact remain backing-owned and are not assigned here. The
+clean-slate backing retains at most one live reply authority per
+ConversationId through its existing grant serialization. The separately
+selected production `conversation_busy` and local-retry behavior remains
+`main`-owned work, not a v2 guarantee.
+
+`HarnessClient` is the adapter-facing Effect capability. The clean-slate
+backing defines its Tag, Layer, codec, and MCP client after the exact service
+contract is admitted. A production implementation joins the compile-time
+canary after its contract is admitted on `main`. `HarnessClient` owns current and
+cross-conversation runtime context and stores stable presentation checkpoints
+locally; provider grants remain private and are never reconstructed from
+history. Checkpoints advance immediately before runtime emission; a crash after
+advancement but before runtime receipt can lose that context, and no runtime
+acknowledgment or replay is added.
+
+The portable model-output surface is conversation start with initial content
+and a payload-only reply bound to the live turn. It has no generic
+established-conversation send. Each backing keeps its already owned START
+atomicity and recovery semantics, and the bound reply maps to its already
+accepted raw reply contract; this decision adds no new raw reply identifier or
+retry state machine.
+The payload-to-action mapping is not selected when a clean-slate grant offers
+several legal actions, so that portable case is not implementation-ready and
+no default, inference rule, or runtime action selector is authorized.
+
+The existing backing success and recovery semantics remain current. A
+successful raw tool result contains ConversationId, TxnId, LedgerOffset,
 and RecordHash and proves durable commit. It is never merely a protocol
 start or asynchronous task handle. A lost `start_conversation` result
 is recovered by deriving its IDs again from AgentId and OperationId and
 reading the exact committed START; changed input conflicts against a
 live or committed START. Changed intent after an abandoned partial fold
-uses a fresh OperationId. If a `reply` response is lost after commit, the signed
-action's ReplyFingerprint lets an identical retry recover that durable
-result. A different action or payload under the consumed TxnId
-conflicts instead of producing a second action.
+uses a fresh OperationId. If a raw `reply` response is lost after
+commit, the signed action's ReplyFingerprint lets an identical retry
+recover that durable result. A different action or payload under the
+consumed TxnId conflicts instead of producing a second action.
 
 ### Packages and versions
 
 V2 has exactly six deep packages: `identity`, `router`, `transcript`,
-`endpoint`, `simulator`, and `testbed`. Production implementations and
+`harness`, `simulator`, and `testbed`. Production implementations and
 binaries live with the abstraction they implement. Production packages
 never depend on `simulator` or `testbed`.
 
@@ -452,8 +491,8 @@ committed.
    typed events, scoped runtime roster, and simulation RunLedger while
    replacing every v1-facing type with v2 public capabilities.
 5. **Build the production stack.** Implement identity, Router, and
-   transcript in dependency-respecting lanes, then integrate endpoint
-   protocol, persistence, daemon MCP, and CLI.
+   transcript in dependency-respecting lanes, then integrate the Harness
+   protocol backing, `HarnessClient`, and `moltzapd` MCP surface.
 6. **Build the testbed and runtime bridges.** Acquire the single
    production stack, add fault layers, and integrate OpenClaw and
    NanoClaw without giving test code production authority.

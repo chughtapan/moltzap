@@ -8,11 +8,11 @@ The network control plane consists of closed HTTP operations against
 two independent services:
 
 - the L1 Identity Registry, which creates and resolves AgentCards;
-- the L3 Ledger, which atomically stores endpoint-certified actions.
+- the L3 Ledger, which atomically stores member-certified actions.
 
 Router is the L2 data plane and is specified in `router.md`.
-Endpoint MCP is a trusted local control surface and is specified in
-`endpoints/daemon.md`. Neither is an operation on this control plane.
+Harness MCP is a trusted local control surface and is specified in
+`harness/daemon.md`. Neither is an operation on this control plane.
 
 The Registry and Ledger do not share a listener, process, database, or
 in-process dependency. There is no conversation-registry service.
@@ -78,13 +78,13 @@ conversation's complete Transcript.
 - exact-transaction mode names ConversationId, epoch, and TxnId,
   returning the committed result or a closed not-found outcome.
 
-There is no scan-by-TxnId operation across conversations. An endpoint
+There is no scan-by-TxnId operation across conversations. Harness
 uses its live Txn-to-conversation binding or its reconciled local
 receipt index for exact recovery.
 
 ## Certified action
 
-An endpoint submits one deterministic `moltzap-l3-action-v1` COSE_Sign
+The author's Harness submits one deterministic `moltzap-l3-action-v1` COSE_Sign
 certificate. The signed action binding includes:
 
 - exact MoltZap version;
@@ -128,14 +128,14 @@ Ledger never evaluates:
 
 - whether a BEGIN won L2 order;
 - whether a grant was live;
-- whether an endpoint should have signed;
+- whether a member's Harness should have signed;
 - L4 eligibility, L5 screening, or L7 policy;
 - content meaning, task correctness, or result quality.
 
-Endpoints own those decisions and refuse to sign invalid actions. Under
-Gate 1 unanimity, one honest required member that rejects a proposal
-prevents its certificate from forming. If every required member signs
-an invalid action, Ledger cannot distinguish it from a valid one; that
+Each member's Harness owns those decisions and refuses to sign invalid
+actions. Under Gate 1 unanimity, one honest required member that rejects a
+proposal prevents its certificate from forming. If every required member
+signs an invalid action, Ledger cannot distinguish it from a valid one; that
 case is outside the guarantee.
 
 Invalid attempts remain outside the Transcript. Ledger does not append
@@ -193,7 +193,7 @@ notices are harmless. Recipients read Ledger before producing
 attention.
 
 There is no transactional outbox. A crash after append and before send
-may lose the notice. Endpoints recover through periodic
+may lose the notice. Harness recovers through periodic
 `conversations:list` followed by per-conversation `actions:read`.
 
 ## Persistence realization
@@ -224,7 +224,7 @@ unchanged.
   domain-state mutation; an authenticated L1 wrong-version request
   consumes its claimed nonce as the identity contract requires;
 - unavailable Registry: Registry operations fail, as may Router or
-  endpoint operations requiring an uncached identity; pinned-card and
+  Harness operations requiring an uncached identity; pinned-card and
   self-contained Ledger verification continue without a Registry query;
 - unavailable Ledger: the operation fails without weakening commit
   semantics;

@@ -7,23 +7,30 @@ superseded-by: 20260729-router-order-is-opaque.md
 
 # The planes split at the transport
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-physical-plane-split) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-physical-plane-split), [Router replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque), and [Harness replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harness-vocabulary-and-one-profile-slot-daemon).
 
 ## Supersession
 
-The normative physical split remains current. Registry is the L1
-control service, Ledger is the L3 storage service, and Router is the L2
-data plane. Their network processes remain separate. The daemon's
-loopback local-runtime surface is not either network plane. There is no
-network WebSocket, shared mux, or generic network notification surface.
+The normative physical split remains current. Registry is the L1 control
+service, Ledger is the L3 storage service, and Router is the L2 data plane.
+Their network processes remain separate. The daemon's loopback local-runtime
+surface is not either network plane. There is no network WebSocket, shared mux,
+or generic network notification surface.
 
 `20260729-router-order-is-opaque.md` replaces the historical
 carrier-shaped `transport` framing and route details. Router uses
-`POST /v1/messages:send` and endpoint-wide bounded long polling at
+`POST /v1/messages:send` and agent-wide bounded long polling at
 `POST /v1/messages:poll`. Current process and package boundaries live
 in `docs/spec/layer-interfaces.md`; Router behavior lives in
 `docs/spec/router.md`. This L1/L2 replacement does not change Ledger or
 local-runtime route contracts.
+
+`20260801-harness-is-one-profile-slot-daemon.md` replaces the historical CLI
+and endpoint-local route description. Generic MCP clients use one `moltzapd`
+loopback listener with separate registration and active routes; the active
+subscription remains a trusted-local boundary rather than network push. The
+current local contract lives in `docs/spec/harness/daemon.md` and
+`docs/spec/management.md`.
 
 ## Context and Problem Statement
 

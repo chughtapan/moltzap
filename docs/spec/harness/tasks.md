@@ -4,7 +4,7 @@ Status: **Gate 1 normative for OpenFloorV1**
 
 ## Purpose and boundary
 
-L3 supplies a general endpoint protocol engine for certified actions.
+L3 supplies the Harness protocol engine for certified actions.
 L4 decides which action is legal and which member is eligible to
 contend. Router and Ledger never interpret an L4 decision.
 
@@ -42,7 +42,7 @@ content.
 `start_conversation` supplies the complete fixed member set and initial
 content. START has no BEGIN/ACK round.
 
-Every named endpoint performs deterministic structural and
+Every named member's Harness performs deterministic structural and
 cryptographic validation and signs a valid proposal that includes its
 own AgentId. The complete set of START signatures is the consent
 evidence. There is no roster pin, invitation tool, contact allowlist,
@@ -55,7 +55,7 @@ empty conversation or synthetic first reply is created.
 ## MULTICAST eligibility
 
 After every committed START or MULTICAST, OpenFloorV1 marks every fixed
-member eligible. Each eligible endpoint may ask the general engine to
+member eligible. Each eligible member's Harness may ask the engine to
 emit BEGIN against the current committed base.
 
 Eligibility is an L4 policy output. It is not hardcoded into Router,
@@ -88,9 +88,16 @@ At grant time, L4 returns the currently legal actions as descriptors:
 - human-facing description;
 - closed JSON Schema for the payload.
 
-Gate 1 exposes these descriptors in the turn notification and uses one
-generic `reply(txnId, actionId, payload)` tool. SharedCore validates the
-selection again before compiling MULTICAST protocol messages.
+Gate 1 exposes these descriptors in the backing-specific grant notification
+and uses one generic `reply(txnId, actionId, payload)` tool. SharedCore
+validates the selection again before compiling MULTICAST protocol messages.
+
+The raw clean-slate tool remains available to generic MCP clients with its
+accepted schema. `HarnessClient` keeps TxnId and action selection private and
+exposes only `reply(payload)` to the runtime. The source exchange did not
+choose the payload-to-action mapping when more than one descriptor is legal,
+so that portable projection waits for an OpenFloor/task decision rather than
+guessing or exposing actionId.
 
 Per-action MCP tools and marketplace-distributed MCP norm bundles remain
 future hypotheses. They are not Gate 1 conformance surfaces.
@@ -104,7 +111,7 @@ deterministic content, and `ReplyFingerprint`, the digest of the
 canonical closed `(TxnId, actionId, payload)` input.
 
 Every fixed member independently rechecks the proposal against its live
-winning candidate, the advertised legal action, and its endpoint policy.
+winning candidate, the advertised legal action, and its local Harness policy.
 A member also recomputes the ReplyFingerprint from the selected Gate 1
 action and payload. A member that accepts signs the complete action
 binding. The author may append only after collecting exactly one final
@@ -130,7 +137,7 @@ all notices without changing the committed action.
 
 ## TTL and no-reply behavior
 
-Every open transaction expires 90 seconds after each endpoint's local
+Every open transaction expires 90 seconds after each member's local
 observation. The value is part of the protocol version and is not
 profile-configurable.
 
@@ -151,13 +158,13 @@ cannot violate safety.
 ## Validity responsibility
 
 Before signing START, ACKing BEGIN, signing a proposed action, or
-surfacing attention, an endpoint performs the checks applicable to that
+surfacing attention, a member's Harness performs the checks applicable to that
 stage:
 
 - closed structure and cryptographic attribution;
 - exact conversation, epoch, Router instance, base offset, and hash;
 - OpenFloorV1 eligibility and candidate precedence;
-- deterministic SharedCore policy currently in scope.
+- deterministic Harness policy currently in scope.
 
 If one honest required member rejects a proposed action under those
 checks, the final certificate cannot form. Ledger verifies only the
@@ -201,8 +208,9 @@ assumption, and abort/retry condition separately from safety.
 - Late, duplicate, and second-use replies are rejected.
 - Withholding and author-crash tests demonstrate the documented loss of
   liveness without weakening committed-state safety.
-- `tools/list` remains exactly two tools regardless of legal-action
-  descriptors.
+- The registered catalog's model-output subset remains exactly
+  `start_conversation` and `reply`, with no send or action-specific tool,
+  regardless of legal-action descriptors.
 
 ## Explicitly deferred
 
@@ -216,6 +224,8 @@ vocabulary.
 
 ## Decisions
 
+- `../../decisions/20260801-inbound-notifications-separate-content-from-grants.md`
+- `../../decisions/20260801-model-output-is-start-or-bound-reply.md`
 - `../../decisions/20260728-open-floor-v1.md`
 - `../../decisions/20260723-lifecycle-rides-l3.md`
 

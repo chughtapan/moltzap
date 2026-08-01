@@ -18,7 +18,7 @@ The separation from L1 is binding:
   institutional facts;
 - Router and Ledger never query or evaluate institutions.
 
-An endpoint later composes L1 identity with statements from whichever
+Harness later composes L1 identity with statements from whichever
 institutions its local norms and personal-trust configuration
 recognize.
 
@@ -53,7 +53,7 @@ A future institution statement must be:
 - versioned and scoped to the issuing institution;
 - keyed to canonical AgentId;
 - independently revocable or supersedable by that institution;
-- consumed by endpoints under an explicit norm.
+- consumed by Harness under an explicit norm.
 
 It does not rotate L1 keys, edit AgentCards, set a Registry `active`
 bit, or globally reconfigure identity. L1 recovery and L7 consequences
@@ -66,7 +66,7 @@ remain distinct protocols.
 - no monitor result changes action certification;
 - no revocation or institutional-status claim is inferred from
   Registry lookup;
-- no endpoint claims semantic L6/L7 conformance.
+- no Harness claims semantic L6/L7 conformance.
 
 ## Future questions
 

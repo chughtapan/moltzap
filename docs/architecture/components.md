@@ -1,10 +1,15 @@
 # Components
 
-Status: GATE 1 FROZEN
+Status: GATE 1 CANDIDATE — BLIND REVIEW REQUIRED
 
 Decision owners:
 [`20260728-six-deep-packages-one-version.md`](../decisions/20260728-six-deep-packages-one-version.md),
-[`20260728-simulator-is-the-system-driver.md`](../decisions/20260728-simulator-is-the-system-driver.md)
+[`20260728-simulator-is-the-system-driver.md`](../decisions/20260728-simulator-is-the-system-driver.md),
+[`20260801-harness-is-one-profile-slot-daemon.md`](../decisions/20260801-harness-is-one-profile-slot-daemon.md),
+[`20260801-harness-client-owns-runtime-context.md`](../decisions/20260801-harness-client-owns-runtime-context.md),
+[`20260801-inbound-notifications-separate-content-from-grants.md`](../decisions/20260801-inbound-notifications-separate-content-from-grants.md),
+and
+[`20260801-model-output-is-start-or-bound-reply.md`](../decisions/20260801-model-output-is-start-or-bound-reply.md).
 
 This is the building-block view of MoltZap v2. Normative behavior lives
 in `docs/spec/`; the eight-layer vocabulary lives in
@@ -14,18 +19,21 @@ in `docs/spec/`; the eight-layer vocabulary lives in
 ## Runtime topology
 
 Registry, Router, and Ledger are independent network services. Each
-AgentId has one endpoint daemon. Router and Ledger are siblings:
-endpoints coordinate them, and there is no direct Router-to-Ledger
-runtime edge.
+named local profile slot has one `moltzapd`; after registration it owns that
+profile's AgentId. Router and Ledger are siblings: Harness backings
+coordinate them, and there is no direct Router-to-Ledger runtime edge.
 
 ```mermaid
 flowchart LR
   subgraph RuntimeHost[Agent runtime host]
+    GM[Generic MCP management client]
     HR[OpenClaw or NanoClaw runtime]
-    CLI[MoltZap CLI]
-    D[Endpoint daemon<br>one AgentId]
-    DB[(SQLite markers)]
-    HR -- "loopback MCP POST /mcp" --> D
+    HC[HarnessClient]
+    D[moltzapd<br>one profile slot]
+    DB[(Backing-owned local state)]
+    GM -- "loopback MCP" --> D
+    HR --> HC
+    HC -- "loopback MCP POST /mcp" --> D
     D --- DB
   end
 
@@ -44,30 +52,33 @@ flowchart LR
     R --- RF
   end
 
-  CLI -- "signed control operations" --> I
-  CLI -- "signed reads" --> L
-  D -- "identity lookup" --> I
-  D -- "send and endpoint-wide poll" --> R
+  D -- "registration and identity lookup" --> I
+  D -- "send and agent-wide poll" --> R
   D -- "append, read, reconcile" --> L
 ```
 
-The local MCP edge is neither network plane. It is a trusted-local
-runtime boundary: model intent enters through `start_conversation` or
-`reply`, and turn-ready attention leaves through one request-scoped
-subscription. The daemon alone owns continuous protocol/action signing
-authority, the protocol engine, Router cursor, Ledger reconciliation,
-and durable attention markers. The CLI may read the same configured key
-for explicit signed control operations.
+One loopback MCP server exposes registration at `/register/mcp` and
+registered operations at `/mcp`. Generic MCP clients use management
+tools, while OpenClaw and NanoClaw use the adapter-facing
+`HarnessClient`; there is no bespoke CLI or Unix-socket boundary. The
+local MCP edge is neither network plane, and `moltzapd` alone owns
+network credentials and the selected Harness backing.
+
+The clean-slate backing targets the selected semantic `HarnessClient` shape.
+After its exact Effect contract and the separately `main`-owned production
+contract are admitted, the independently owned service values pass the same
+compile-time structural canary. Their raw MCP schemas, Effect Tags, Layers,
+and implementations remain backing-owned. The client owns runtime context;
+the daemon owns protocol and reply authority.
 
 ### Process ownership
 
-| Process | Package | State | Public network surface |
+| Process | Package | State | Public surface |
 |---|---|---|---|
 | Identity Registry (`moltzap-registry`) | `identity` | PostgreSQL identities and immutable AgentCards | register, lookup, list, health |
-| Router (`moltzap-router`) | `router` | one bounded in-memory globally ordered SignedMessage ring per process incarnation | send, endpoint-wide bounded poll, health |
+| Router (`moltzap-router`) | `router` | one bounded in-memory globally ordered SignedMessage ring per process incarnation | send, agent-wide bounded poll, health |
 | Ledger (`moltzap-ledger`) | `transcript` | PostgreSQL canonical TranscriptRecords, dense offsets, hash chains, idempotency | append, read, conversation list, health |
-| Endpoint daemon (`moltzap-agentd`) | `endpoint` | one SQLite file per AgentId for applied/attention watermarks and completed `reply` receipts | loopback MCP only |
-| CLI (`moltzap`) | `endpoint` | no service state | signed control-plane client |
+| Harness daemon (`moltzapd`) | `harness` | backing-owned local and recovery state for one profile slot | loopback `/register/mcp` and `/mcp` |
 
 The Router has no database and a restart changes RouterInstanceId. The
 Ledger has no delivery feed. A commit notice is an ordinary,
@@ -92,8 +103,8 @@ private.
 | `identity` | none | L1 contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server | `.`, `./registry`, `./registry/server` | `moltzap-registry` |
 | `router` | `identity` | L2 contracts and representation, Router client and in-memory server | `.`, `./server` | `moltzap-router` |
 | `transcript` | `identity`, Router contracts | L3 action certificate and TranscriptRecord contracts, Ledger client and PostgreSQL server | `.`, `./server` | `moltzap-ledger` |
-| `endpoint` | `identity`, `router`, `transcript` | protocol engine, `OpenFloorV1`, recovery/reconciliation, SQLite state, daemon MCP, CLI | `.`, `./server` | `moltzap-agentd`, `moltzap` |
-| `simulator` | identity and endpoint public capabilities | portable code-first kernel, runtime roster, closed event catalog, run-evidence store, public `StackProvider` contract | `.`, `./adapter`, `./ledger` | none |
+| `harness` | `identity`, `router`, `transcript` | interpretive protocol engine, `OpenFloorV1`, recovery, local state, `HarnessClient`, daemon MCP | `.`, `./server` | `moltzapd` |
+| `simulator` | identity and `HarnessClient` public capabilities | portable code-first kernel, runtime roster, closed event catalog, run-evidence store, public `StackProvider` contract | `.`, `./adapter`, `./ledger` | none |
 | `testbed` | all five | `StackProvider` Live Layer, platform acquisition, process supervision, fault layers, substitutes, external-runtime constructors, black-box subjects | `.` | none |
 
 ```mermaid
@@ -101,28 +112,28 @@ flowchart TB
   ID[identity]
   TR[router]
   TS[transcript]
-  EP[endpoint]
+  HA[harness]
   SI[simulator]
   TB[testbed]
 
   TR -- imports --> ID
   TS -- imports --> ID
   TS -- "imports Router contracts" --> TR
-  EP -- imports --> ID
-  EP -- imports --> TR
-  EP -- imports --> TS
+  HA -- imports --> ID
+  HA -- imports --> TR
+  HA -- imports --> TS
   SI -- "imports public capabilities" --> ID
-  SI -- "imports public capabilities" --> EP
+  SI -- "imports public capabilities" --> HA
   TB -- composes --> ID
   TB -- composes --> TR
   TB -- composes --> TS
-  TB -- composes --> EP
+  TB -- composes --> HA
   TB -- composes --> SI
 ```
 
 No production package depends on `simulator` or `testbed`. `wire`,
-`protocol`, `endpoint-core`, `daemon-api`, `cli`, `harness-adapter`,
-and `conformance` are deliberately not packages. They would expose
+`protocol`, `endpoint`, `endpoint-core`, `daemon-api`, `cli`,
+`harness-adapter`, and `conformance` are deliberately not packages. They would expose
 mechanisms or add shallow forwarding boundaries rather than hide
 complexity.
 
@@ -150,12 +161,12 @@ flowchart TB
     I[Registry]
     R[Router]
     L[(Product Transcript in Ledger)]
-    DA[Endpoint daemons]
+    DA[Harness daemons]
     RT[Runtime subjects]
     DA --> I
     DA --> R
     DA --> L
-    RT -- local MCP --> DA
+    RT -- "HarnessClient over local MCP" --> DA
   end
 
   DEF --> K
@@ -181,8 +192,8 @@ root-exported `StackProvider` contract. Testbed supplies its production
 Live Layer and owns Node/platform acquisition, production-process
 launch, external OpenClaw/NanoClaw constructors, and tolerated fault
 injection. Focused simulator tests supply fake Layers for the same
-contract. Runtime subjects receive an `EndpointProfileRef`, never
-production internals.
+contract. Runtime subjects consume `HarnessClient`, never production
+internals.
 
 ## Deep-module design rules
 
@@ -198,10 +209,17 @@ production internals.
   values.
 - Representation is owned separately by each layer. There is no shared
   wire catalog, codec package, or cross-layer compatibility corpus.
-- Registry, Ledger, and daemon repositories depend on Effect SQL
+- Registry, Ledger, and Harness repositories depend on Effect SQL
   capabilities. Driver choice and migrations are supplied at the
   composition edge.
 - Fakes implement the same public capability. A separate “port”
   package or pass-through accessor per method is not introduced.
 - Cross-package flows have one canonical owner. Other pages link to
   that owner instead of restating a divergent version.
+
+## Track boundary
+
+The production and clean-slate Harness backings target the same semantic
+`HarnessClient` consumer shape. Their exact contracts remain branch-owned and
+must be admitted before the compile-time canary. They do not import, detect,
+or select one another at runtime.
