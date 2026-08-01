@@ -15,7 +15,7 @@
   ],
   "references": [
     {
-      "path": "../endpoint"
+      "path": "../harness"
     },
     {
       "path": "../identity"

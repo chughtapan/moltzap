@@ -46,21 +46,21 @@ const V2_PACKAGES = {
     exports: [".", "./server"],
     bin: ["moltzap-ledger"],
   },
-  endpoint: {
-    npmName: "@moltzap/v2-endpoint",
+  harness: {
+    npmName: "@moltzap/v2-harness",
     deps: ["identity", "router", "transcript"],
     exports: [".", "./server"],
-    bin: ["moltzap", "moltzap-agentd"],
+    bin: ["moltzapd"],
   },
   simulator: {
     npmName: "@moltzap/v2-simulator",
-    deps: ["identity", "endpoint"],
+    deps: ["identity", "harness"],
     exports: [".", "./adapter", "./ledger"],
     bin: [],
   },
   testbed: {
     npmName: "@moltzap/v2-testbed",
-    deps: ["identity", "router", "transcript", "endpoint", "simulator"],
+    deps: ["identity", "router", "transcript", "harness", "simulator"],
     exports: ["."],
     bin: [],
   },

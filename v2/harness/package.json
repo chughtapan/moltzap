@@ -1,8 +1,8 @@
 {
-  "name": "@moltzap/v2-endpoint",
+  "name": "@moltzap/v2-harness",
   "version": "2026.729.1",
   "private": true,
-  "description": "Protocol engine, OpenFloorV1, recovery/reconciliation, SQLite state, daemon MCP, CLI",
+  "description": "Interpretive protocol engine, local state, HarnessClient, and moltzapd MCP boundary",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,26 +18,25 @@
     }
   },
   "bin": {
-    "moltzap": "./bin/moltzap",
-    "moltzap-agentd": "./bin/moltzap-agentd"
+    "moltzapd": "./bin/moltzapd"
   },
   "scripts": {
-    "build": "nx run @moltzap/v2-endpoint:build",
-    "lint": "nx run @moltzap/v2-endpoint:lint"
+    "build": "nx run @moltzap/v2-harness:build",
+    "lint": "nx run @moltzap/v2-harness:lint"
   },
   "nx": {
     "targets": {
       "build": {
         "executor": "nx:run-commands",
         "options": {
-          "cwd": "v2/endpoint",
+          "cwd": "v2/harness",
           "command": "tsc -b"
         }
       },
       "lint": {
         "executor": "nx:run-commands",
         "options": {
-          "cwd": "v2/endpoint",
+          "cwd": "v2/harness",
           "command": "eslint . --cache --max-warnings=0"
         }
       }
