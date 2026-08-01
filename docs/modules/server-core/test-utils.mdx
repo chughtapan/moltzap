@@ -346,28 +346,6 @@ Loads core schema sql.
 
 **Returns:** The load core schema sql result.
 
-### [`makeFakeService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/fakes.ts#L44)
-
-_Function_
-
-```ts
-export const makeFakeService = <S extends object>(impl: Partial<S>): S
-```
-
-Build a typed test double for an interface `S` from a partial implementation.
-The cast is intentional: tests typically implement only the methods the
-system under test actually calls. Unused methods throw at runtime via the
-`Proxy` trap so a missing implementation becomes a clear test failure
-instead of `undefined is not a function`.
-
-Because the generic parameter `S` is invariant, TypeScript still enforces
-that every method you *do* implement matches the real signature — this is
-the compile-time contract-drift insurance. Adding a field to the real
-interface does NOT fail compilation (tests are a Partial), but changing an
-existing field's signature does.
-
-**Returns:** The created fake service.
-
 ### [`makeHandlerAppEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L95)
 
 _Function_
@@ -655,7 +633,6 @@ Executes the track client operation.
 
 - `app-endpoint.ts`
 - `core-schema-sql.ts`
-- `fakes.ts`
 - `helpers.ts`
 - `index.ts`
 - `pglite-harness.ts`

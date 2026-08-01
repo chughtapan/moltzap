@@ -33,8 +33,7 @@ export type PropertyCategory =
   | "rpc-semantics"
   | "delivery"
   | "adversity"
-  | "boundary"
-  | "dispatch-admission";
+  | "boundary";
 
 /** Fast-check / runtime assertion failed for a specific property. */
 export class PropertyAssertionFailure extends Data.TaggedError(

@@ -13,38 +13,7 @@ Dispatch-domain service barrel.
 
 ## Public surface
 
-### [`DispatchAdmissionConversations`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L105)
-
-_Interface_
-
-```ts
-export interface DispatchAdmissionConversations {
-  removeParticipant(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<unknown, unknown, NetworkSendServiceTag>;
-}
-```
-
-Describes dispatch admission conversations.
-
-### [`DispatchAdmissionResult`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L72)
-
-_TypeAlias_
-
-```ts
-export type DispatchAdmissionResult =
-  | {
-      readonly decision: "grant";
-      readonly leaseId?: LeaseId;
-      readonly leaseTimeoutMs?: number;
-      readonly dispatchMessageId?: MessageId;
-    }
-```
-
-Represents the result of dispatch admission.
-
-### [`DispatchAdmissionService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L158)
+### [`DispatchAdmissionService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L95)
 
 _Class_
 
@@ -53,27 +22,17 @@ export class DispatchAdmissionService {
   private readonly db: Db;
   private readonly apps: AppEndpointRegistry;
   private readonly registry: LeaseRegistry;
-  private readonly conversations: DispatchAdmissionConversations;
 
-  constructor(
-    db: Db,
-    apps: AppEndpointRegistry,
-    registry: LeaseRegistry,
-    conversations: DispatchAdmissionConversations,
-  ) {
+  constructor(db: Db, apps: AppEndpointRegistry, registry: LeaseRegistry) {
     this.db = db;
     this.apps = apps;
     this.registry = registry;
-    this.conversations = conversations;
   }
 
-  enqueue(
-    args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<
-    { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
-    never,
-    NetworkSendServiceTag
-  > {
+  enqueue(args: EnqueueDispatchRequestArgs): Effect.Effect<{
+    readonly leaseId: LeaseId;
+    readonly dispatchId: DispatchId;
+  }> {
     return catchSqlErrorAsDefect(this.enqueueEffect(args));
   }
 
@@ -81,8 +40,7 @@ export class DispatchAdmissionService {
     args: EnqueueDispatchRequestArgs,
   ): Effect.Effect<
     { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
-    SqlError,
-    NetworkSendServiceTag
+    SqlError
   > {
     return Effect.gen(
       function* (this: DispatchAdmissionService) {
@@ -92,17 +50,9 @@ export class DispatchAdmissionService {
         );
         const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
         const minted = yield* this.registry.mint(binding);
-
-        yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
-          conversationId: args.conversationId,
-          recipientAgentId: args.recipientAgentId,
-          messageId: args.messageId,
-          senderAgentId: args.senderAgentId,
-          parts: args.parts,
-          attempt: args.attempt,
-          receivedAt: args.receivedAt,
-          pending: args.pending,
-        });
+        yield* this.registry
+          .resolve(minted.leaseId, { _tag: "grant" })
+          .pipe(Effect.ignore);
         return minted;
       }.bind(this),
     );
@@ -131,48 +81,15 @@ export class DispatchAdmissionService {
       moderatorConnectionId: entry.endpoint.connId,
     });
   }
-
-  private attachDispatchRoundTripFiber(
-    leaseId: LeaseId,
-    lookup: AppBoundConversationLookup,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    return Effect.gen(
-      function* (this: DispatchAdmissionService) {
-        const fiber = yield* Effect.forkDaemon(
-          this.runForkedDispatchRoundTrip(leaseId, lookup, params),
-        );
-        yield* this.registry.attachRoundTripFiber(leaseId, fiber);
-      }.bind(this),
-    );
-  }
-
-  private runForkedDispatchRoundTrip(
-    leaseId: LeaseId,
-    lookup: AppBoundConversationLookup,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    return catchSqlErrorAsDefect(
-      this.runAppBoundDispatchRoundTrip(leaseId, lookup, params),
-    );
-  }
-
-  private runAppBoundDispatchRoundTrip(
-    leaseId: LeaseId,
-    lookup: AppBoundConversationLookup,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<void, SqlError, NetworkSendServiceTag> {
-    if (this.apps.lookupApp(lookup.appId) === undefined) {
-      return this.resolveLease(leaseId, {
-        _tag: "deny",
-        reason: "app_unavailable",
-      });
-    }
+}
 ```
 
-Implements dispatch admission service.
+Dispatch admission is a static grant: every `agent/dispatch/request`
+mints a lease and resolves it granted before the ack returns. The
+server applies no admission policy — pacing decisions are the
+receiving endpoint's.
 
-### [`dispatchAdmissionServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/layer.ts#L43)
+### [`dispatchAdmissionServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/layer.ts#L42)
 
 _Variable_
 
@@ -183,20 +100,14 @@ export const dispatchAdmissionServiceLive = Layer.effect(
     const db = yield* DbTag;
     const appEndpointRegistry = yield* AppEndpointRegistryTag;
     const leaseRegistry = yield* LeaseRegistryTag;
-    const conversations = yield* ConversationServiceTag;
-    return new DispatchAdmissionService(
-      db,
-      appEndpointRegistry,
-      leaseRegistry,
-      conversations,
-    );
+    return new DispatchAdmissionService(db, appEndpointRegistry, leaseRegistry);
   }).pipe(Effect.withSpan("DispatchAdmissionServiceLive")),
 )
 ```
 
 Provides the dispatch admission service live runtime value.
 
-### [`DispatchAdmissionServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/layer.ts#L26)
+### [`DispatchAdmissionServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/layer.ts#L25)
 
 _Class_
 
@@ -207,16 +118,6 @@ export class DispatchAdmissionServiceTag extends Context.Tag(
 ```
 
 Implements dispatch admission service tag.
-
-### [`DispatchAuthorizeContext`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L28)
-
-_TypeAlias_
-
-```ts
-export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
-```
-
-Represents dispatch authorize context values.
 
 ### [`dispatchLeaseGet`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/handlers.ts#L77)
 
@@ -247,7 +148,7 @@ Provides the dispatch request runtime value.
 
 **Returns:** The dispatch request result.
 
-### [`EnqueueDispatchRequestArgs`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L92)
+### [`EnqueueDispatchRequestArgs`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L66)
 
 _Interface_
 
@@ -523,7 +424,7 @@ the immutable record version that created it, so a stale pre-rollback timer
 cannot expire a newer GRANTED epoch. The timeout comes from the grant
 verdict's `leaseTimeoutMs`.
 
-### [`leaseRegistryLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/layer.ts#L31)
+### [`leaseRegistryLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/layer.ts#L30)
 
 _Variable_
 
@@ -542,7 +443,7 @@ export const leaseRegistryLive = Layer.effect(
 
 Provides the lease registry live runtime value.
 
-### [`LeaseRegistryTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/layer.ts#L20)
+### [`LeaseRegistryTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/layer.ts#L19)
 
 _Class_
 
@@ -574,17 +475,6 @@ export type LeaseState =
 Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
-
-### [`LeaseVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/lease-registry.ts#L123)
-
-_TypeAlias_
-
-```ts
-export type LeaseVerdict =
-  | { readonly _tag: "grant"; readonly leaseTimeoutMs?: number }
-```
-
-Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
 ### [`makeLeaseRegistry`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/lease-registry.ts#L1296)
 

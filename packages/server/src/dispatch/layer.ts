@@ -5,7 +5,6 @@ import { Context, Effect, Layer } from "effect";
 import { DbTag } from "#db";
 import { ConnectionManagerTag } from "#socket";
 import { AppEndpointRegistryTag } from "#identity/apps";
-import { ConversationServiceTag } from "#conversation";
 
 import { DispatchAdmissionService } from "./admission.service.js";
 import { makeLeaseRegistry, type LeaseRegistry } from "./lease-registry.js";
@@ -46,12 +45,6 @@ export const dispatchAdmissionServiceLive = Layer.effect(
     const db = yield* DbTag;
     const appEndpointRegistry = yield* AppEndpointRegistryTag;
     const leaseRegistry = yield* LeaseRegistryTag;
-    const conversations = yield* ConversationServiceTag;
-    return new DispatchAdmissionService(
-      db,
-      appEndpointRegistry,
-      leaseRegistry,
-      conversations,
-    );
+    return new DispatchAdmissionService(db, appEndpointRegistry, leaseRegistry);
   }).pipe(Effect.withSpan("DispatchAdmissionServiceLive")),
 );

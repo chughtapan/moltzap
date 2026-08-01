@@ -37,7 +37,6 @@ import {
 import { TRANSPORT_PROPERTIES } from "../transport/index.js";
 import { IDENTITY_PROPERTIES } from "../identity/index.js";
 import { DELIVERY_PROPERTIES } from "../delivery/index.js";
-import { APP_PROPERTIES } from "../app/index.js";
 import type { RealServerAcquireError, ToxicControlError } from "./errors.js";
 import {
   isAllowedCoverageGap,
@@ -45,7 +44,6 @@ import {
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 import type { ToxiproxyNetworkConfig } from "../../toxics/client.js";
-import { MISSING_TOPOLOGY_REASON } from "../app/app-disconnect-fail-policy.js";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
@@ -53,10 +51,6 @@ const BASE_ALLOWED_SERVER_COVERAGE_GAPS: readonly AllowedCoverageGap[] = [
   {
     id: "adversity/reset-peer-recovery",
     reasonIncludes: "reset_peer toxic did not close",
-  },
-  {
-    id: "boundary/app-disconnect-fail-policy",
-    reasonIncludes: MISSING_TOPOLOGY_REASON,
   },
 ];
 const TOXIPROXY_MISSING_ALLOWED_COVERAGE_GAPS: readonly AllowedCoverageGap[] = [
@@ -152,7 +146,6 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
     ...TRANSPORT_PROPERTIES,
     ...IDENTITY_PROPERTIES,
     ...DELIVERY_PROPERTIES,
-    ...APP_PROPERTIES,
   ]) {
     fn(ctx);
   }

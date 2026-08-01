@@ -7,21 +7,17 @@ import {
   takeFirstOrFail,
 } from "#db";
 import {
-  type DispatchDecision,
   type Message,
   type MessageParts,
   type Part,
   decodeMessageParts,
   decodeMessagePartsText,
-  validateDispatchDecision,
   messageReceivedNotificationDefinition,
-  HookBlockedError,
 } from "@moltzap/protocol/message";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import {
   messageId as MessageIdSchema,
   type ConversationId,
-  type MessageId,
 } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import {
@@ -32,7 +28,6 @@ import {
 import { type Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import type { ConversationService } from "#conversation";
-import type { MessageAuthorizationService } from "./authorization.js";
 import type { NetworkSendService } from "#network";
 import {
   type EnvelopeEncryption,
@@ -104,14 +99,6 @@ interface SendCommitInput {
   readonly senderAgentId: AgentId;
 }
 
-interface ResolveSendVerdictInput {
-  readonly messageId: MessageId;
-  readonly appId: AppId;
-  readonly conversationId: ConversationId;
-  readonly senderAgentId: AgentId;
-  readonly parts: MessageParts;
-}
-
 interface SendConversationRow {
   readonly app_id: AppId;
 }
@@ -147,92 +134,29 @@ interface MessageServiceDeps {
   readonly conversations: ConversationService;
   readonly networkSend: NetworkSendService;
   readonly encryption: EnvelopeEncryption | null;
-
-  readonly messageAuthorization: MessageAuthorizationService;
 }
 
 /**
- * `agent/message/send` server entry point. The `send` method resolves the
- * conversation's authorizing app, persists the message, then resolves the
- * dispatch-authorization verdict via the `app/message/authorize` round-trip
- * and broadcasts per verdict.
- *
- * The `app/message/authorize` round-trip is the authorization gate:
- * `MessageAuthorizationService` fails closed (`Block { reason:
- * "app_unreachable" }`) on timeout, handler error, or RPC failure. On
- * Forward, `network.send` broadcasts to `verdict.recipients`; on Block, the
- * call fails with `HookBlocked`.
+ * `agent/message/send` server entry point. The `send` method persists the
+ * message durably, then broadcasts it to every conversation participant
+ * except the sender. The router is content-blind: it applies no
+ * interpretation or policy to the message body.
  */
 export class MessageService {
   private readonly db: Db;
   private readonly conversations: ConversationService;
   private readonly networkSendService: NetworkSendService;
   private readonly encryption: EnvelopeEncryption | null;
-  private readonly messageAuthorization: MessageAuthorizationService;
 
   constructor(deps: MessageServiceDeps) {
     this.db = deps.db;
     this.conversations = deps.conversations;
     this.networkSendService = deps.networkSend;
     this.encryption = deps.encryption;
-    this.messageAuthorization = deps.messageAuthorization;
   }
 
   close(): Effect.Effect<void> {
     return Effect.void;
-  }
-
-  /**
-   * CAS-guarded UPDATE of `messages.dispatch_decision` after the
-   * `app/message/authorize` gate resolves.
-   *
-   * Each row inserts with `{tag: "pending"}` in {@link sendInsert};
-   * this method transitions to `{tag: "forward", recipients}` or
-   * `{tag: "block", reason}` exactly once.
-   *
-   * The CAS guard restricts the UPDATE to rows currently in the
-   * `pending` tag. Two concurrent transitions (real verdict racing a
-   * timeout-synthesized fallback) cannot both succeed: whichever
-   * commits first wins, the loser sees `committed: false` and
-   * skips the dependent broadcast.
-   * @param messageId Value supplied to the operation.
-   * @param verdict Value supplied to the operation.
-   * @returns The result result.
-   */
-  recordDispatchDecision(
-    messageId: MessageId,
-    verdict: DispatchDecision,
-  ): Effect.Effect<{ committed: boolean }> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: MessageService) {
-          // CAS predicate via JSONB containment (`@>`), which Postgres
-          // binds as a query parameter. The UPDATE returns one row iff the
-          // row was still `pending` at UPDATE time; concurrent transitions
-          // see committed=false and skip the dependent broadcast.
-          const result = yield* Effect.tryPromise({
-            try: () =>
-              this.db
-                .updateTable("messages")
-                .set({ dispatch_decision: verdict })
-                .where("id", "=", messageId)
-                .where(
-                  "dispatch_decision",
-                  "@>",
-                  JSON.stringify({ tag: "pending" }),
-                )
-                .returning("id")
-                .execute(),
-            catch: (cause) =>
-              new SqlError({
-                cause,
-                message: "recordDispatchDecision UPDATE failed",
-              }),
-          });
-          return { committed: result.length === 1 };
-        }.bind(this),
-      ),
-    );
   }
 
   sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult> {
@@ -263,8 +187,8 @@ export class MessageService {
 
   /**
    * Send-conversation projection consumed by the `ConversationSendAccess`
-   * `obtain` AND `MessageService.sendCommit`'s `app/message/authorize`
-   * verdict route. `app_id` identifies the app authorizing the conversation.
+   * `obtain` to prove the conversation row exists before the send handler
+   * runs.
    * @param conversationId Value supplied to the operation.
    * @internal
    * @returns The send-conversation row.
@@ -313,18 +237,7 @@ export class MessageService {
   }
 
   /**
-   * Authorization routing, broadcast, and trace tail.
-   *
-   * Sequencing is: authorize route -> fan-out -> trace.
-   *
-   * The `app/message/authorize` gate:
-   *   1. Resolve the dispatch-authorization verdict via
-   *      `MessageAuthorizationService.authorize`.
-   *   2. CAS-guarded `recordDispatchDecision` writes the verdict to
-   *      `messages.dispatch_decision`; loser of the race no-ops.
-   *   3. (winner only) On Block, fail closed with `HookBlockedError`.
-   *      On Forward, broadcast to `verdict.recipients` (not all
-   *      participants).
+   * Broadcast and trace tail: participants-minus-sender fan-out.
    *
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
@@ -333,13 +246,13 @@ export class MessageService {
    * @param carrier Value supplied to the operation.
    * @param conversationId Value supplied to the operation.
    * @param senderAgentId Value supplied to the operation.
-   * @returns The verdict result.
+   * @returns The committed message.
    */
   sendCommit(
     carrier: SendInsertResult,
     conversationId: ConversationId,
     senderAgentId: AgentId,
-  ): Effect.Effect<Message, HookBlockedError> {
+  ): Effect.Effect<Message> {
     return catchSqlErrorAsDefect(
       this.sendCommitEffect({ carrier, conversationId, senderAgentId }),
     );
@@ -347,17 +260,15 @@ export class MessageService {
 
   private sendCommitEffect(
     input: SendCommitInput,
-  ): Effect.Effect<Message, HookBlockedError | SqlError> {
+  ): Effect.Effect<Message, SqlError> {
     return Effect.gen(
       function* (this: MessageService) {
-        const verdict = yield* this.resolveCommitVerdict(input);
-        const effectiveVerdict = yield* this.commitDispatchDecision(
-          input.carrier.message.id,
-          verdict,
+        const participants = yield* this.conversations.getParticipantAgentIds(
+          input.conversationId,
         );
-        yield* this.failBlockedVerdict(input, effectiveVerdict);
-
-        const recipientList = recipientsFromVerdict(effectiveVerdict);
+        const recipientList = participants.filter(
+          (id) => id !== input.senderAgentId,
+        );
         const delivered = yield* this.broadcastCommittedMessage(
           input,
           recipientList,
@@ -366,53 +277,6 @@ export class MessageService {
         yield* this.logMessageSent(input);
         return input.carrier.message;
       }.bind(this),
-    );
-  }
-
-  private resolveCommitVerdict(
-    input: SendCommitInput,
-  ): Effect.Effect<DispatchDecision> {
-    return this.resolveSendVerdict({
-      messageId: input.carrier.message.id,
-      appId: input.carrier.conv.app_id,
-      conversationId: input.conversationId,
-      senderAgentId: input.senderAgentId,
-      parts: input.carrier.parts,
-    });
-  }
-
-  private commitDispatchDecision(
-    messageId: MessageId,
-    verdict: DispatchDecision,
-  ): Effect.Effect<DispatchDecision> {
-    return Effect.gen(
-      function* (this: MessageService) {
-        const { committed } = yield* this.recordDispatchDecision(
-          messageId,
-          verdict,
-        );
-        if (committed) {
-          return verdict;
-        }
-        return yield* this.readDispatchDecision(messageId);
-      }.bind(this),
-    );
-  }
-
-  private failBlockedVerdict(
-    input: SendCommitInput,
-    verdict: DispatchDecision,
-  ): Effect.Effect<void, HookBlockedError> {
-    if (verdict.tag !== "block") {
-      return Effect.void;
-    }
-    const reason = verdict.reason ?? "blocked";
-    const error = new HookBlockedError({
-      message: "Message blocked by owning app",
-      data: { reason, messageId: input.carrier.message.id },
-    });
-    return this.recordBlockedTrace(input, reason).pipe(
-      Effect.zipRight(Effect.fail(error)),
     );
   }
 
@@ -472,40 +336,6 @@ export class MessageService {
     );
   }
 
-  private recordBlockedTrace(
-    input: SendCommitInput,
-    reason: string,
-  ): Effect.Effect<void> {
-    return Effect.gen(
-      function* (this: MessageService) {
-        const traceMetadata = yield* this.getTraceMessageMetadata(
-          input.conversationId,
-          input.senderAgentId,
-        );
-        const { textPartCount, textLength } = textPartsMetadata(
-          input.carrier.parts,
-        );
-        yield* Effect.void.pipe(
-          Effect.withSpan("moltzap.message.blocked", {
-            attributes: {
-              "moltzap.hook.name": "before_message_delivery",
-              "moltzap.message.id": input.carrier.message.id,
-              "moltzap.message.conversation_id": input.conversationId,
-              "moltzap.message.sender_id": input.senderAgentId,
-              "moltzap.message.created_at": input.carrier.message.createdAt,
-              "moltzap.message.part_count": input.carrier.parts.length,
-              "moltzap.message.text_part_count": textPartCount,
-              "moltzap.message.text_length": textLength,
-              "moltzap.channel.key": traceMetadata.channelKey,
-              "moltzap.sender.display_name": traceMetadata.senderDisplayName,
-              "moltzap.block.reason": reason,
-            },
-          }),
-        );
-      }.bind(this),
-    );
-  }
-
   private logMessageSent(input: SendCommitInput): Effect.Effect<void> {
     return Effect.logInfo("Message sent").pipe(
       Effect.annotateLogs({
@@ -515,81 +345,7 @@ export class MessageService {
     );
   }
 
-  /**
-   * Run the `app/message/authorize` gate and translate the verdict into the
-   * `DispatchDecision` shape persisted on `messages.dispatch_decision`.
-   * The authorization service fails closed (`Block { reason:
-   * "app_unreachable" }`) on timeout / handler error / RPC failure.
-   * @param input Input value to process.
-   * @returns The result result.
-   */
-  private resolveSendVerdict(
-    input: ResolveSendVerdictInput,
-  ): Effect.Effect<DispatchDecision> {
-    return Effect.gen(
-      function* (this: MessageService) {
-        const result = yield* this.messageAuthorization.authorize(input.appId, {
-          conversationId: input.conversationId,
-          message: {
-            id: input.messageId,
-            senderAgentId: input.senderAgentId,
-            parts: input.parts,
-          },
-          appId: input.appId,
-        });
-        switch (result.decision) {
-          case "Forward":
-            return {
-              tag: "forward" as const,
-              recipients: [...result.recipients],
-            };
-          case "Block":
-            return {
-              tag: "block" as const,
-              ...(result.reason !== undefined ? { reason: result.reason } : {}),
-            };
-          default: {
-            const absurd: never = result;
-            return absurd;
-          }
-        }
-      }.bind(this),
-    );
-  }
-
-  /**
-   * Race-loser path: re-read `dispatch_decision` after CAS UPDATE fails
-   * (committed=false). The winner has already committed; this returns
-   * the current persisted state so the loser mirrors the winner's
-   * outcome on the wire.
-   * @param messageId Value supplied to the operation.
-   * @returns The row opt result.
-   */
-  private readDispatchDecision(
-    messageId: MessageId,
-  ): Effect.Effect<DispatchDecision> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: MessageService) {
-          const rowOpt = yield* takeFirstOption(
-            this.db
-              .selectFrom("messages")
-              .select("dispatch_decision")
-              .where("id", "=", messageId),
-          );
-          if (Option.isNone(rowOpt)) {
-            // Shouldn't happen — the row is durably inserted before
-            // sendCommit. Treat as Block for fail-closed posture.
-            return { tag: "block" as const, reason: "row_missing" };
-          }
-          // dispatch_decision is `Generated<Json>`; protocol owns the schema.
-          return yield* decodeDispatchDecision(rowOpt.value.dispatch_decision);
-        }.bind(this),
-      ),
-    );
-  }
-
-  send(input: SendMessageInput): Effect.Effect<Message, HookBlockedError> {
+  send(input: SendMessageInput): Effect.Effect<Message> {
     return Effect.gen(
       function* (this: MessageService) {
         const carrier = yield* this.sendInsert(input);
@@ -622,7 +378,6 @@ export class MessageService {
           );
           const rows = yield* this.visibleMessageRows({
             conversationId,
-            requesterAgentId,
             limit,
           });
           const messages = yield* this.messageRowsToMessages(rows);
@@ -634,36 +389,21 @@ export class MessageService {
 
   private visibleMessageRows(args: {
     readonly conversationId: ConversationId;
-    readonly requesterAgentId: AgentId;
     readonly limit: number;
   }): Effect.Effect<readonly MessageRow[], SqlError> {
-    const { conversationId, requesterAgentId, limit } = args;
+    const { conversationId, limit } = args;
     return Effect.gen(
       function* (this: MessageService) {
-        // The participant-scoped `dispatch_decision` view always applies: a
-        // participant sees their own sends plus messages the authorizing app
-        // forwarded to them. There is no app-moderator full-log branch — apps
-        // are never `conversation_participants` and observe via the
-        // `onBeforeMessageDelivery` hook, not `messages/list`.
-        let qb = this.db
+        // Participation is the whole read gate (asserted in `list` before
+        // this query runs): every participant sees every non-deleted message
+        // in the conversation — the router broadcasts to all participants.
+        return yield* this.db
           .selectFrom("messages")
           .selectAll()
           .where("conversation_id", "=", conversationId)
-          .where("is_deleted", "=", false);
-        qb = qb.where((eb) =>
-          eb.or([
-            eb("sender_id", "=", requesterAgentId),
-            eb.and([
-              eb("dispatch_decision", "@>", JSON.stringify({ tag: "forward" })),
-              eb(
-                "dispatch_decision",
-                "@>",
-                JSON.stringify({ recipients: [requesterAgentId] }),
-              ),
-            ]),
-          ]),
-        );
-        return yield* qb.orderBy("seq", "desc").limit(limit);
+          .where("is_deleted", "=", false)
+          .orderBy("seq", "desc")
+          .limit(limit);
       }.bind(this),
     );
   }
@@ -943,13 +683,6 @@ export class MessageService {
   }
 }
 
-function recipientsFromVerdict(verdict: DispatchDecision): readonly AgentId[] {
-  if (verdict.tag !== "forward") {
-    return [];
-  }
-  return verdict.recipients;
-}
-
 function plaintextEncryptedParts(parts: MessageParts): EncryptedParts {
   return {
     encrypted: Buffer.from(JSON.stringify(parts), "utf-8"),
@@ -970,11 +703,4 @@ function unwrapConversationDek(
     dekVersion: row.dek_version,
     kekVersion: row.kek_version,
   };
-}
-
-function decodeDispatchDecision(raw: unknown): Effect.Effect<DispatchDecision> {
-  if (validateDispatchDecision(raw)) {
-    return Effect.succeed(raw);
-  }
-  return Effect.die(`malformed dispatch_decision: ${JSON.stringify(raw)}`);
 }

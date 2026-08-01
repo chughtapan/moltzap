@@ -1,61 +1,10 @@
 // safer-arch-ignore folder-explicit-api-required: ConnectionManager and connection arms form the socket runtime boundary consumed by server composition.
 import { Data, Effect, HashMap, HashSet, Match, Option, Ref } from "effect";
 import type { SocketError } from "@effect/platform/Socket";
-import type {
-  ReverseCallError,
-  ReverseCallbackError,
-  ReverseCallbackRequest,
-  ReverseCallbackSuccess,
-  ReverseClient,
-  ConnectionId,
-} from "@moltzap/protocol/socket";
-import type { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import type { messagesAuthorize } from "@moltzap/protocol/message";
+import type { ReverseClient, ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentContext, AppContext } from "./context.js";
-
-/**
- * Send an awaitable RPC from server → client over the connection's reverse
- * client. Narrows `D` to the moderator-callback union so a client→server method
- * cannot be fired on the reverse channel by mistake. Domain callback services
- * source the {@link Originator} from the registered app's `AppEndpoint`, minted
- * from the live `AppConnection` arm. Caller controls timeout via
- * `Effect.timeout` at the call site.
- * @param originator Value supplied to the operation.
- * @param request Value supplied to the operation.
- * @returns The send rpc to client result.
- */
-export function sendRpcToClient(
-  originator: Originator,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof dispatchAuthorize }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof dispatchAuthorize>,
-  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError
->;
-export function sendRpcToClient(
-  originator: Originator,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof messagesAuthorize }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof messagesAuthorize>,
-  ReverseCallbackError<typeof messagesAuthorize> | ReverseCallError
->;
-export function sendRpcToClient(
-  originator: Originator,
-  request: ReverseCallbackRequest,
-): ReturnType<Originator["callback"]>;
-export function sendRpcToClient(
-  originator: Originator,
-  request: ReverseCallbackRequest,
-): ReturnType<Originator["callback"]> {
-  return originator.callback(request);
-}
 
 /**
  * The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires

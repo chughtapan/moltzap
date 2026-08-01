@@ -8,7 +8,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](./connection.ts#L101)
+### [`AgentConnection`](./connection.ts#L50)
 
 _Interface_
 
@@ -68,7 +68,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`AppConnection`](./connection.ts#L107)
+### [`AppConnection`](./connection.ts#L56)
 
 _Interface_
 
@@ -94,7 +94,7 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 
 Implements app context.
 
-### [`Connection`](./connection.ts#L117)
+### [`Connection`](./connection.ts#L66)
 
 _TypeAlias_
 
@@ -107,7 +107,7 @@ export type Connection =
 
 The three-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L221)
+### [`ConnectionManager`](./connection.ts#L170)
 
 _Class_
 
@@ -274,7 +274,7 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`Originator`](./connection.ts#L66)
+### [`Originator`](./connection.ts#L15)
 
 _TypeAlias_
 
@@ -319,33 +319,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`sendRpcToClient`](./connection.ts#L29)
-
-_Function_
-
-```ts
-export function sendRpcToClient(
-  originator: Originator,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof dispatchAuthorize }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof dispatchAuthorize>,
-  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError
->
-```
-
-Send an awaitable RPC from server → client over the connection's reverse
-client. Narrows `D` to the moderator-callback union so a client→server method
-cannot be fired on the reverse channel by mistake. Domain callback services
-source the Originator from the registered app's `AppEndpoint`, minted
-from the live `AppConnection` arm. Caller controls timeout via
-`Effect.timeout` at the call site.
-
-**Returns:** The send rpc to client result.
-
-### [`TransitionOutcome`](./connection.ts#L128)
+### [`TransitionOutcome`](./connection.ts#L77)
 
 _TypeAlias_
 
@@ -359,7 +333,7 @@ success arms are split per minted arm so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](./connection.ts#L95)
+### [`UnauthenticatedConnection`](./connection.ts#L44)
 
 _Interface_
 
@@ -373,7 +347,7 @@ class UnauthenticatedConnection extends Data.TaggedClass(
 
 Re-exports the public API from `current module`.
 
-### [`WebSocketRef`](./connection.ts#L71)
+### [`WebSocketRef`](./connection.ts#L20)
 
 _Interface_
 
