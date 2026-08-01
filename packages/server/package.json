@@ -82,10 +82,10 @@
     }
   },
   "dependencies": {
-    "@effect/opentelemetry": "0.64.0",
+    "@effect/opentelemetry": "^0.64.0",
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
-    "@effect/rpc": "0.76.0",
+    "@effect/rpc": "^0.76.0",
     "@effect/sql": "^0.52.0",
     "@effect/sql-kysely": "^0.48.0",
     "@electric-sql/pglite": "^0.4.4",
