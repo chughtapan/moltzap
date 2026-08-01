@@ -2,6 +2,7 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   type ConnectedAgent,
+  expectEitherLeft,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -15,10 +16,10 @@ import {
   type ConversationId,
   conversationList,
 } from "@moltzap/protocol/conversation";
-import { messagesSend } from "@moltzap/protocol/message";
 
 const PAGE_SIZE = 1;
-const MAX_PAGES = 4;
+const CONVERSATION_COUNT = 3;
+const PAGE_CEILING = CONVERSATION_COUNT + 1;
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
@@ -65,50 +66,55 @@ function drainConversationPages(
       seen.push(...page.items.map((item) => item.conversation.id));
       cursor = page.nextCursor;
       pages += 1;
-    } while (cursor !== undefined && pages < MAX_PAGES);
+    } while (cursor !== undefined && pages < PAGE_CEILING);
     return seen;
   });
 }
 
-it("pages every conversation exactly once when a message reorders the oldest one", () =>
+// The page orders on `(updated_at, id)` and the cursor pages on the same pair.
+// When those two disagree a conversation can cross the page boundary between
+// requests and never appear on any page.
+it("returns every conversation exactly once across single-item pages", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    // Created oldest-first, so `conversations.updated_at` ascends first → third.
     const first = yield* openConversation(alice.client, bob.agentId);
     const second = yield* openConversation(alice.client, bob.agentId);
     const third = yield* openConversation(alice.client, bob.agentId);
 
-    // A message does not touch the conversation row, so `first` now has the
-    // newest activity while keeping the oldest `updated_at`. Paging on
-    // `updated_at` would put it on page one and then exclude every other
-    // conversation from page two.
-    yield* alice.client.sendRpc(messagesSend, {
-      conversationId: first,
-      parts: [{ type: "text", text: "revives the oldest conversation" }],
-    });
-
     const seen = yield* drainConversationPages(alice.client);
 
-    expect(seen).toEqual([first, third, second]);
+    expect(seen).toEqual([third, second, first]);
+    expect(new Set(seen).size).toBe(CONVERSATION_COUNT);
   }));
 
-it("orders by last activity rather than conversation update time", () =>
+it("returns a single page whole when the limit covers every conversation", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const older = yield* openConversation(alice.client, bob.agentId);
-    const newer = yield* openConversation(alice.client, bob.agentId);
-
-    yield* alice.client.sendRpc(messagesSend, {
-      conversationId: older,
-      parts: [{ type: "text", text: "most recent activity" }],
-    });
+    const first = yield* openConversation(alice.client, bob.agentId);
+    const second = yield* openConversation(alice.client, bob.agentId);
 
     const page = yield* alice.client.sendRpc(conversationList, { limit: 10 });
 
     expect(page.items.map((item) => item.conversation.id)).toEqual([
-      older,
-      newer,
+      second,
+      first,
     ]);
+    expect(page.nextCursor).toBeUndefined();
+  }));
+
+it("rejects a cursor that is not a timestamp and conversation id", () =>
+  Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    yield* openConversation(alice.client, bob.agentId);
+
+    const result = yield* Effect.either(
+      alice.client.sendRpc(conversationList, {
+        limit: PAGE_SIZE,
+        cursor: "not-a-cursor",
+      }),
+    );
+
+    expect(expectEitherLeft(result)).toBeDefined();
   }));

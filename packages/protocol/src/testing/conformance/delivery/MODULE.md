@@ -1,11 +1,6 @@
----
-title: "protocol/testing/conformance/task"
-description: "Public barrel for delivery-layer conformance properties."
----
+# protocol/testing/conformance/delivery
 
-# protocol/testing/conformance/task
-
-_`packages/protocol/src/testing/conformance/task`_
+_`packages/protocol/src/testing/conformance/delivery`_
 
 ## Purpose
 
@@ -15,12 +10,12 @@ Conversation / message delivery invariants — fan-out cardinality,
 store-and-replay, payload opacity.
 
 Each `register*` lives in its own file. This barrel re-exports them
-by name AND aggregates them into `TASK_PROPERTIES` for the
+by name AND aggregates them into `DELIVERY_PROPERTIES` for the
 `_shared/suite.ts` aggregator.
 
 ## Public surface
 
-### [`acquireConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L423)
+### [`acquireConversation`](./_helpers.ts#L423)
 
 _Function_
 
@@ -36,7 +31,7 @@ Executes the acquire conversation operation.
 
 **Returns:** The acquire conversation result.
 
-### [`ConversationActor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L59)
+### [`ConversationActor`](./_helpers.ts#L59)
 
 _Interface_
 
@@ -61,7 +56,7 @@ export interface ConversationActor {
 
 Describes conversation actor.
 
-### [`ConversationFixture`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L44)
+### [`ConversationFixture`](./_helpers.ts#L44)
 
 _Interface_
 
@@ -83,7 +78,7 @@ export interface ConversationFixture {
 
 Describes conversation fixture.
 
-### [`DELIVERY_CATEGORY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L36)
+### [`DELIVERY_CATEGORY`](./_helpers.ts#L36)
 
 _Variable_
 
@@ -93,7 +88,7 @@ export const DELIVERY_CATEGORY = "delivery"
 
 Provides the delivery category runtime value.
 
-### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L40)
+### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L40)
 
 _Variable_
 
@@ -103,7 +98,7 @@ export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
 
 Provides the delivery default property num runs runtime value.
 
-### [`DELIVERY_DEFAULT_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L38)
+### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L38)
 
 _Variable_
 
@@ -113,7 +108,19 @@ export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 
 Provides the delivery default timeout ms runtime value.
 
-### [`deliveryViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L150)
+### [`DELIVERY_PROPERTIES`](./index.ts#L25)
+
+_Variable_
+
+```ts
+export const DELIVERY_PROPERTIES: ReadonlyArray<
+  (ctx: ConformanceRunContext) => void
+> = [registerFanOutCardinality, registerStoreAndReplay, registerPayloadOpacity]
+```
+
+All delivery-layer property registrars.
+
+### [`deliveryViolation`](./_helpers.ts#L150)
 
 _Function_
 
@@ -128,7 +135,7 @@ Executes the delivery violation operation.
 
 **Returns:** The delivery violation result.
 
-### [`fixtureN`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L166)
+### [`fixtureN`](./_helpers.ts#L166)
 
 _Function_
 
@@ -140,7 +147,7 @@ Executes the fixture n operation.
 
 **Returns:** The fixture n result.
 
-### [`NotificationBuffer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L86)
+### [`NotificationBuffer`](./_helpers.ts#L86)
 
 _Interface_
 
@@ -162,7 +169,7 @@ Scope finalizer installed by `makeNotificationBuffer`. `closed` is
 set to true when the transport-side stream terminates (either via
 `TransportClosedError` or normal exhaustion).
 
-### [`registerFanOutCardinality`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/fan-out-cardinality.ts#L35)
+### [`registerFanOutCardinality`](./fan-out-cardinality.ts#L35)
 
 _Function_
 
@@ -172,7 +179,7 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void
 
 Registers fan out cardinality.
 
-### [`registerPayloadOpacity`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/payload-opacity.ts#L31)
+### [`registerPayloadOpacity`](./payload-opacity.ts#L31)
 
 _Function_
 
@@ -182,7 +189,7 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void
 
 Registers payload opacity.
 
-### [`registerStoreAndReplay`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/store-and-replay.ts#L35)
+### [`registerStoreAndReplay`](./store-and-replay.ts#L35)
 
 _Function_
 
@@ -191,18 +198,6 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void
 ```
 
 Registers store and replay.
-
-### [`TASK_PROPERTIES`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/index.ts#L25)
-
-_Variable_
-
-```ts
-export const TASK_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext) => void
-> = [registerFanOutCardinality, registerStoreAndReplay, registerPayloadOpacity]
-```
-
-All delivery-layer property registrars.
 
 ## Files
 

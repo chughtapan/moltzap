@@ -3,7 +3,7 @@
  */
 import * as transport from "./transport/index.js";
 import * as identity from "./identity/index.js";
-import * as task from "./task/index.js";
+import * as delivery from "./delivery/index.js";
 import * as app from "./app/index.js";
 
 /** Re-exports the public API from `./_shared/runner.js`. */
@@ -34,4 +34,4 @@ export {
   runConformanceSuite,
 } from "./_shared/suite.js";
 /** Re-exports the public API from `current module`. */
-export { transport, identity, task, app };
+export { transport, identity, delivery, app };

@@ -76,7 +76,7 @@ interface ConversationListEntry {
   readonly participants: readonly AgentId[];
 }
 
-/** One page of the caller's conversations, most recent activity first. */
+/** One page of the caller's conversations, most recently updated first. */
 interface ConversationPage {
   readonly items: readonly ConversationListEntry[];
   readonly cursor?: string;
@@ -139,7 +139,7 @@ function queryParticipantsFor(
 // expression than the one that orders the page lets a row move across the
 // boundary between requests and vanish from every later page.
 interface ListCursor {
-  readonly activityAt: string;
+  readonly updatedAt: string;
   readonly id: string;
 }
 
@@ -163,14 +163,14 @@ function parseListCursor(
   if (cursor == null) {
     return Effect.succeed(null);
   }
-  const [activityAt, id, ...rest] = cursor.split(CURSOR_SEPARATOR);
-  if (activityAt === undefined || id === undefined || rest.length > 0) {
+  const [updatedAt, id, ...rest] = cursor.split(CURSOR_SEPARATOR);
+  if (updatedAt === undefined || id === undefined || rest.length > 0) {
     return Effect.fail(malformedCursor());
   }
-  if (!isIsoTimestamp(activityAt)) {
+  if (!isIsoTimestamp(updatedAt)) {
     return Effect.fail(malformedCursor());
   }
-  return Effect.succeed({ activityAt, id });
+  return Effect.succeed({ updatedAt, id });
 }
 
 interface ListRowsInput {
@@ -179,58 +179,44 @@ interface ListRowsInput {
   readonly cursorParam: ListCursor | null;
 }
 
-interface ConversationListRow extends ConversationColumns {
-  readonly last_activity_at: Date;
-}
-
-// The lateral projects the newest live message's timestamp so a conversation
-// sorts by its last message, falling back to `c.updated_at` when it has none.
-// A message insert does not touch the conversation row, so that expression —
-// not `c.updated_at` — is the sort key, and `c.id` breaks ties between rows
-// sharing a timestamp.
+// Sort key and cursor key are the same stored pair, so the page boundary lands
+// exactly where the previous page stopped and `idx_conversations_listing`
+// serves the ordering. `c.id` breaks ties between rows sharing a timestamp.
 function queryConversationListRows(
   db: Db,
   input: ListRowsInput,
-): Effect.Effect<readonly ConversationListRow[], SqlError> {
+): Effect.Effect<readonly ConversationColumns[], SqlError> {
   return rawQuery(
     db,
-    sql<ConversationListRow>`
-      SELECT c.id, c.name, c.created_by_id, c.created_at, c.updated_at,
-             COALESCE(m.created_at, c.updated_at) AS last_activity_at
+    sql<ConversationColumns>`
+      SELECT c.id, c.name, c.created_by_id, c.created_at, c.updated_at
       FROM conversation_participants cp
       JOIN conversations c ON c.id = cp.conversation_id
-      LEFT JOIN LATERAL (
-        SELECT created_at FROM messages
-        WHERE conversation_id = c.id AND is_deleted = false
-        ORDER BY seq DESC LIMIT 1
-      ) m ON true
       WHERE cp.agent_id = ${input.agentId}
         ${cursorListFilter(input.cursorParam)}
-      ORDER BY COALESCE(m.created_at, c.updated_at) DESC, c.id DESC
+      ORDER BY c.updated_at DESC, c.id DESC
       LIMIT ${input.limit + 1}
     `,
   );
 }
 
-// Row-value comparison against the same pair the ORDER BY uses, so the page
-// boundary is exactly where the previous page stopped.
 function cursorListFilter(cursorParam: ListCursor | null) {
   if (cursorParam === null) {
     return sql``;
   }
-  return sql`AND (COALESCE(m.created_at, c.updated_at), c.id)
-      < (${cursorParam.activityAt}::timestamptz, ${cursorParam.id}::uuid)`;
+  return sql`AND (c.updated_at, c.id)
+      < (${cursorParam.updatedAt}::timestamptz, ${cursorParam.id}::uuid)`;
 }
 
 function nextConversationListCursor(
   hasMore: boolean,
-  rows: readonly ConversationListRow[],
+  rows: readonly ConversationColumns[],
 ): string | undefined {
   const last = rows[rows.length - 1];
   if (!hasMore || last === undefined) {
     return undefined;
   }
-  return `${last.last_activity_at.toISOString()}${CURSOR_SEPARATOR}${last.id}`;
+  return `${last.updated_at.toISOString()}${CURSOR_SEPARATOR}${last.id}`;
 }
 
 /** Implements conversation service. */

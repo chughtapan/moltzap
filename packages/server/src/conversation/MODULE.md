@@ -40,7 +40,7 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](./conversation.service.ts#L237)
+### [`ConversationService`](./conversation.service.ts#L223)
 
 _Class_
 
