@@ -8,7 +8,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L209)
+### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L216)
 
 _Variable_
 
@@ -31,7 +31,7 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`appCallableDispatchRpcMethods`](./dispatch.ts#L212)
+### [`appCallableDispatchRpcMethods`](./dispatch.ts#L219)
 
 _Variable_
 
@@ -81,7 +81,7 @@ export type DispatchAdmissionDecision = Schema.Schema.Type<
 
 Represents dispatch admission decision values.
 
-### [`dispatchAuthorize`](./dispatch.ts#L124)
+### [`dispatchAuthorize`](./dispatch.ts#L131)
 
 _Variable_
 
@@ -97,7 +97,7 @@ export const dispatchAuthorize = defineRpc({
 
 Defines the `app/dispatch/authorize` RPC contract.
 
-### [`dispatchCallbackMethods`](./dispatch.ts#L215)
+### [`dispatchCallbackMethods`](./dispatch.ts#L222)
 
 _Variable_
 
@@ -156,7 +156,7 @@ export type DispatchId = string & Brand.Brand<"DispatchId">;
 
 Represents dispatch id values.
 
-### [`dispatchLeaseConsumed`](./dispatch.ts#L146)
+### [`dispatchLeaseConsumed`](./dispatch.ts#L153)
 
 _Variable_
 
@@ -175,7 +175,7 @@ export const dispatchLeaseConsumed = defineNotification({
 
 Defines the `app/dispatch/lease-consumed` notification contract.
 
-### [`dispatchLeaseExpired`](./dispatch.ts#L158)
+### [`dispatchLeaseExpired`](./dispatch.ts#L165)
 
 _Variable_
 
@@ -193,7 +193,7 @@ export const dispatchLeaseExpired = defineNotification({
 
 Defines the `app/dispatch/lease-expired` notification contract.
 
-### [`dispatchLeaseGet`](./dispatch.ts#L200)
+### [`dispatchLeaseGet`](./dispatch.ts#L207)
 
 _Variable_
 
@@ -224,7 +224,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 
 Reports dispatch not found failures.
 
-### [`dispatchNotifications`](./dispatch.ts#L218)
+### [`dispatchNotifications`](./dispatch.ts#L225)
 
 _Variable_
 
@@ -238,7 +238,7 @@ export const dispatchNotifications = [
 
 Lists the dispatch notification definitions.
 
-### [`dispatchRelease`](./dispatch.ts#L133)
+### [`dispatchRelease`](./dispatch.ts#L140)
 
 _Variable_
 
@@ -258,7 +258,7 @@ export const dispatchRelease = defineNotification({
 
 Defines the `agent/dispatch/released` notification contract.
 
-### [`dispatchRequest`](./dispatch.ts#L91)
+### [`dispatchRequest`](./dispatch.ts#L95)
 
 _Variable_
 
@@ -276,14 +276,22 @@ export const dispatchRequest = defineRpc({
       Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
     ),
   }),
-  result: Schema.Struct({ leaseId: leaseId, dispatchId: dispatchId }),
+  result: Schema.Union(
+    Schema.Struct({ leaseId: leaseId, dispatchId: dispatchId }),
+    Schema.Struct({ outcome: Schema.Literal("conversation_busy") }),
+  ),
   requires: [AgentPrincipal, ActiveAgent],
   errors: [],
 })
 ```
 
-Recipient admission request. The server acks immediately and emits
-`agent/dispatch/released` when the moderator verdict resolves.
+Recipient admission request. The server returns immediately. A minted lease
+emits `agent/dispatch/released` when the moderator verdict resolves;
+`conversation_busy` creates no lease and emits no release.
+
+**Returns:** `{ leaseId, dispatchId }` when the conversation is reserved, or
+`{ outcome: "conversation_busy" }` without a lease when it is already
+reserved.
 
 ### [`HookBlockedError`](./messages.ts#L40)
 

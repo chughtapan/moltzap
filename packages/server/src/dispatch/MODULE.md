@@ -8,7 +8,7 @@ Dispatch-domain service barrel.
 
 ## Public surface
 
-### [`DispatchAdmissionConversations`](./admission.service.ts#L105)
+### [`DispatchAdmissionConversations`](./admission.service.ts#L106)
 
 _Interface_
 
@@ -23,7 +23,7 @@ export interface DispatchAdmissionConversations {
 
 Describes dispatch admission conversations.
 
-### [`DispatchAdmissionResult`](./admission.service.ts#L72)
+### [`DispatchAdmissionResult`](./admission.service.ts#L73)
 
 _TypeAlias_
 
@@ -39,7 +39,7 @@ export type DispatchAdmissionResult =
 
 Represents the result of dispatch admission.
 
-### [`DispatchAdmissionService`](./admission.service.ts#L158)
+### [`DispatchAdmissionService`](./admission.service.ts#L159)
 
 _Class_
 
@@ -64,21 +64,13 @@ export class DispatchAdmissionService {
 
   enqueue(
     args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<
-    { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
-    never,
-    NetworkSendServiceTag
-  > {
+  ): Effect.Effect<DispatchRequestResult, never, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(this.enqueueEffect(args));
   }
 
   private enqueueEffect(
     args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<
-    { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
-    SqlError,
-    NetworkSendServiceTag
-  > {
+  ): Effect.Effect<DispatchRequestResult, SqlError, NetworkSendServiceTag> {
     return Effect.gen(
       function* (this: DispatchAdmissionService) {
         const lookup = yield* lookupAppBoundForConversation(
@@ -87,17 +79,18 @@ export class DispatchAdmissionService {
         );
         const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
         const minted = yield* this.registry.mint(binding);
-
-        yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
-          conversationId: args.conversationId,
-          recipientAgentId: args.recipientAgentId,
-          messageId: args.messageId,
-          senderAgentId: args.senderAgentId,
-          parts: args.parts,
-          attempt: args.attempt,
-          receivedAt: args.receivedAt,
-          pending: args.pending,
-        });
+        if (!("outcome" in minted)) {
+          yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
+            conversationId: args.conversationId,
+            recipientAgentId: args.recipientAgentId,
+            messageId: args.messageId,
+            senderAgentId: args.senderAgentId,
+            parts: args.parts,
+            attempt: args.attempt,
+            receivedAt: args.receivedAt,
+            pending: args.pending,
+          });
+        }
         return minted;
       }.bind(this),
     );
@@ -163,6 +156,14 @@ export class DispatchAdmissionService {
         reason: "app_unavailable",
       });
     }
+
+    return Effect.gen(
+      function* (this: DispatchAdmissionService) {
+        const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
+        const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
+        yield* this.resolveLease(
+          leaseId,
+          dispatchVerdictToLeaseVerdict(verdict),
 ```
 
 Implements dispatch admission service.
@@ -213,7 +214,7 @@ export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 
 Represents dispatch authorize context values.
 
-### [`dispatchLeaseGet`](./handlers.ts#L77)
+### [`dispatchLeaseGet`](./handlers.ts#L78)
 
 _Variable_
 
@@ -227,7 +228,7 @@ Provides the dispatch lease get runtime value.
 
 **Returns:** The dispatch lease get result.
 
-### [`dispatchRequest`](./handlers.ts#L67)
+### [`dispatchRequest`](./handlers.ts#L68)
 
 _Variable_
 
@@ -242,7 +243,7 @@ Provides the dispatch request runtime value.
 
 **Returns:** The dispatch request result.
 
-### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L92)
+### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L93)
 
 _Interface_
 
@@ -262,7 +263,7 @@ export interface EnqueueDispatchRequestArgs {
 
 Describes enqueue dispatch request args.
 
-### [`LeaseInvalidError`](./lease-registry.ts#L163)
+### [`LeaseInvalidError`](./lease-registry.ts#L173)
 
 _Class_
 
@@ -285,7 +286,7 @@ surface a precise wire-error code, e.g. Typed-CONSUMED /
 typed-EXPIRED) and `expected` carries the set of states the
 operation would have accepted.
 
-### [`LeaseRecord`](./lease-registry.ts#L133)
+### [`LeaseRecord`](./lease-registry.ts#L137)
 
 _Interface_
 
@@ -309,7 +310,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L512)
+### [`leaseRecordToWire`](./lease-registry.ts#L543)
 
 _Function_
 
@@ -322,21 +323,24 @@ Translation point between the in-process nested `LeaseRecord` and the wire
 
 **Returns:** The lease record to wire result.
 
-### [`LeaseRegistry`](./lease-registry.ts#L287)
+### [`LeaseRegistry`](./lease-registry.ts#L303)
 
 _Interface_
 
 ```ts
 export interface LeaseRegistry {
   /**
-   * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
-   * registry is in-process. Records the moderator-bound binding for audit,
-   * `app/dispatch/lease/get`, and connection-close cleanup.
+   * Atomically reserve the binding's ConversationId and mint a new PENDING
+   * lease. If the conversation is already reserved, returns
+   * `conversation_busy` without creating lease or dispatch records.
+   * Synchronous (`Effect&lt;..., never>`) — the registry is in-process. Records
+   * the moderator-bound binding for audit, `app/dispatch/lease/get`, and
+   * connection-close cleanup.
    *
    * Both ids are minted via `crypto.randomUUID()`; the brand on
    * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
    */
-  mint(binding: ModeratorBoundLeaseBinding): Effect.Effect<LeaseMintResult>;
+  mint(binding: ModeratorBoundLeaseBinding): Effect.Effect<LeaseMintOutcome>;
 
   /**
    * Settle a PENDING lease into a terminal-or-near-terminal state via
@@ -444,13 +448,13 @@ export interface LeaseRegistry {
    * shutdown is best-effort.
    */
   shutdown(): Effect.Effect<void>;
-}
 ```
 
 Public contract of the lease registry. One instance per server lifetime,
 shared by dispatch admission and message send. Backed by an in-process
-`Ref&lt;LeaseRegistryData>` containing entries, dispatch index, and the closed
-flag — no DB row. State transitions are atomic via `Ref.modify`.
+`Ref&lt;LeaseRegistryData>` containing entries, dispatch index, conversation
+reservations, and the closed flag — no DB row. State transitions are atomic
+via `Ref.modify`.
 
 Lease state machine (eight states; `LeaseState` in this file is the
 normative enumeration):.
@@ -477,7 +481,7 @@ Mint + claim + finalize sequence (recipient + moderator round-trip):
 
 ```mermaid
 sequenceDiagram
-  participant Recv as Recipient (client)
+  participant Recv as Recipient client
   participant DA as DispatchAdmissionService
   participant LR as LeaseRegistry
   participant Mod as Moderator
@@ -485,20 +489,25 @@ sequenceDiagram
 
   Recv->>DA: agent/dispatch/request (C→S)
   DA->>LR: mint(binding) — PENDING
-  LR-->>DA: {leaseId, dispatchId}
-  DA-->>Recv: ack returned immediately
-  DA->>Mod: Effect.forkDaemon — app/dispatch/authorize
-  Mod-->>DA: verdict
-  DA->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
-  LR->>Recv: agent/dispatch/released {verdict}
-  Recv->>MS: agent/message/send with dispatchLeaseId
-  MS->>LR: claim(leaseId) — GRANTED → CLAIMED
-  Note over MS: Effect.acquireUseRelease owns the claim
-  MS->>MS: sendInsert
-  alt insert succeeds
-    MS->>LR: finalize(messageId), CLAIMED to CONSUMED
-  else insert fails
-    MS->>LR: rollback, CLAIMED to GRANTED
+  alt conversation already reserved
+    LR-->>DA: {outcome: conversation_busy}
+    DA-->>Recv: busy returned without a lease
+  else conversation available
+    LR-->>DA: {leaseId, dispatchId}
+    DA-->>Recv: ack returned immediately
+    DA->>Mod: Effect.forkDaemon — app/dispatch/authorize
+    Mod-->>DA: verdict
+    DA->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
+    LR->>Recv: agent/dispatch/released {verdict}
+    Recv->>MS: agent/message/send with dispatchLeaseId
+    MS->>LR: claim(leaseId) — GRANTED → CLAIMED
+    Note over MS: Effect.acquireUseRelease owns the claim
+    MS->>MS: sendInsert
+    alt insert succeeds
+      MS->>LR: finalize(messageId), CLAIMED to CONSUMED
+    else insert fails
+      MS->>LR: rollback, CLAIMED to GRANTED
+    end
   end
   MS->>MS: sendCommit — post-insert side effects
 ```
@@ -550,7 +559,7 @@ export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
 
 Implements lease registry tag.
 
-### [`LeaseState`](./lease-registry.ts#L112)
+### [`LeaseState`](./lease-registry.ts#L116)
 
 _TypeAlias_
 
@@ -570,7 +579,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L123)
+### [`LeaseVerdict`](./lease-registry.ts#L127)
 
 _TypeAlias_
 
@@ -581,7 +590,7 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1296)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1343)
 
 _Function_
 
@@ -595,13 +604,13 @@ Construct the registry. The constructor is the only public factory
 — `LeaseRegistry` is referenced as an interface from call sites.
 
 Implementation: one `Ref&lt;LeaseRegistryData>` atomically owns entries,
-dispatch index, and closed state; network notifications and fiber
-interruption run after the commit. A shared shutdown signal cancels parked
-notification and retention effects.
+dispatch index, conversation reservations, and closed state; network
+notifications and fiber interruption run after the commit. A shared shutdown
+signal cancels parked notification and retention effects.
 
 **Returns:** The created lease registry.
 
-### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L98)
+### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L102)
 
 _Interface_
 

@@ -43,6 +43,10 @@ const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
  *   The state machine below names every transition.
  * - Lease and dispatch ids are branded (`LeaseId` / `DispatchId` from
  *   `@moltzap/protocol`); raw strings cannot be confused at call sites.
+ * - A ConversationId has at most one PENDING, GRANTED, or CLAIMED lease.
+ *   Minting against an existing reservation returns `conversation_busy`
+ *   without creating a lease. HOLD retains its record but releases the
+ *   reservation because a held dispatch retries through a fresh request.
  *
  * ─── State machine ──────────────────────────────────────────────────.
  *
@@ -153,6 +157,12 @@ interface LeaseMintResult {
   readonly dispatchId: DispatchId;
 }
 
+interface ConversationBusyResult {
+  readonly outcome: "conversation_busy";
+}
+
+type LeaseMintOutcome = LeaseMintResult | ConversationBusyResult;
+
 /**
  * Tagged error channel for the registry's transition-rejecting paths.
  * The `state` carries the lease's CURRENT state (so callers can
@@ -215,8 +225,9 @@ interface Claim {
 /**
  * Public contract of the lease registry. One instance per server lifetime,
  * shared by dispatch admission and message send. Backed by an in-process
- * `Ref&lt;LeaseRegistryData>` containing entries, dispatch index, and the closed
- * flag — no DB row. State transitions are atomic via `Ref.modify`.
+ * `Ref&lt;LeaseRegistryData>` containing entries, dispatch index, conversation
+ * reservations, and the closed flag — no DB row. State transitions are atomic
+ * via `Ref.modify`.
  *
  * Lease state machine (eight states; `LeaseState` in this file is the
  * normative enumeration):.
@@ -243,7 +254,7 @@ interface Claim {
  *
  * ```mermaid
  * sequenceDiagram
- *   participant Recv as Recipient (client)
+ *   participant Recv as Recipient client
  *   participant DA as DispatchAdmissionService
  *   participant LR as LeaseRegistry
  *   participant Mod as Moderator
@@ -251,20 +262,25 @@ interface Claim {
  *
  *   Recv->>DA: agent/dispatch/request (C→S)
  *   DA->>LR: mint(binding) — PENDING
- *   LR-->>DA: {leaseId, dispatchId}
- *   DA-->>Recv: ack returned immediately
- *   DA->>Mod: Effect.forkDaemon — app/dispatch/authorize
- *   Mod-->>DA: verdict
- *   DA->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
- *   LR->>Recv: agent/dispatch/released {verdict}
- *   Recv->>MS: agent/message/send with dispatchLeaseId
- *   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
- *   Note over MS: Effect.acquireUseRelease owns the claim
- *   MS->>MS: sendInsert
- *   alt insert succeeds
- *     MS->>LR: finalize(messageId), CLAIMED to CONSUMED
- *   else insert fails
- *     MS->>LR: rollback, CLAIMED to GRANTED
+ *   alt conversation already reserved
+ *     LR-->>DA: {outcome: conversation_busy}
+ *     DA-->>Recv: busy returned without a lease
+ *   else conversation available
+ *     LR-->>DA: {leaseId, dispatchId}
+ *     DA-->>Recv: ack returned immediately
+ *     DA->>Mod: Effect.forkDaemon — app/dispatch/authorize
+ *     Mod-->>DA: verdict
+ *     DA->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
+ *     LR->>Recv: agent/dispatch/released {verdict}
+ *     Recv->>MS: agent/message/send with dispatchLeaseId
+ *     MS->>LR: claim(leaseId) — GRANTED → CLAIMED
+ *     Note over MS: Effect.acquireUseRelease owns the claim
+ *     MS->>MS: sendInsert
+ *     alt insert succeeds
+ *       MS->>LR: finalize(messageId), CLAIMED to CONSUMED
+ *     else insert fails
+ *       MS->>LR: rollback, CLAIMED to GRANTED
+ *     end
  *   end
  *   MS->>MS: sendCommit — post-insert side effects
  * ```
@@ -286,14 +302,17 @@ interface Claim {
  */
 export interface LeaseRegistry {
   /**
-   * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
-   * registry is in-process. Records the moderator-bound binding for audit,
-   * `app/dispatch/lease/get`, and connection-close cleanup.
+   * Atomically reserve the binding's ConversationId and mint a new PENDING
+   * lease. If the conversation is already reserved, returns
+   * `conversation_busy` without creating lease or dispatch records.
+   * Synchronous (`Effect&lt;..., never>`) — the registry is in-process. Records
+   * the moderator-bound binding for audit, `app/dispatch/lease/get`, and
+   * connection-close cleanup.
    *
    * Both ids are minted via `crypto.randomUUID()`; the brand on
    * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
    */
-  mint(binding: ModeratorBoundLeaseBinding): Effect.Effect<LeaseMintResult>;
+  mint(binding: ModeratorBoundLeaseBinding): Effect.Effect<LeaseMintOutcome>;
 
   /**
    * Settle a PENDING lease into a terminal-or-near-terminal state via
@@ -440,6 +459,7 @@ interface LeaseEntry {
 interface LeaseRegistryData {
   readonly entries: ReadonlyMap<LeaseId, LeaseEntry>;
   readonly dispatchIndex: ReadonlyMap<DispatchId, LeaseId>;
+  readonly conversationReservations: ReadonlyMap<ConversationId, LeaseId>;
 
   /**
    * Set by {@link shutdownRegistry} at `CoreApp.close`. Once `true`, new
@@ -455,14 +475,25 @@ interface LeaseRegistryState {
   readonly shutdownSignal: Deferred.Deferred<undefined>;
 }
 
+function leaseHoldsConversationReservation(state: LeaseState): boolean {
+  return state === "PENDING" || state === "GRANTED" || state === "CLAIMED";
+}
+
 function withLeaseEntry(
   data: LeaseRegistryData,
   leaseId: LeaseId,
   entry: LeaseEntry,
 ): LeaseRegistryData {
   const entries = new Map(data.entries);
+  const conversationReservations = new Map(data.conversationReservations);
+  const conversationId = entry.record.binding.conversationId;
   entries.set(leaseId, entry);
-  return { ...data, entries };
+  if (leaseHoldsConversationReservation(entry.record.state)) {
+    conversationReservations.set(conversationId, leaseId);
+  } else if (conversationReservations.get(conversationId) === leaseId) {
+    conversationReservations.delete(conversationId);
+  }
+  return { ...data, entries, conversationReservations };
 }
 
 function modifyRegistry<A, E>(
@@ -707,9 +738,14 @@ function removeEntry(
     }
     const entries = new Map(data.entries);
     const dispatchIndex = new Map(data.dispatchIndex);
+    const conversationReservations = new Map(data.conversationReservations);
     entries.delete(leaseId);
     dispatchIndex.delete(dispatchId);
-    return { ...data, entries, dispatchIndex };
+    const conversationId = entry.record.binding.conversationId;
+    if (conversationReservations.get(conversationId) === leaseId) {
+      conversationReservations.delete(conversationId);
+    }
+    return { ...data, entries, dispatchIndex, conversationReservations };
   });
 }
 
@@ -932,7 +968,7 @@ function makeMintedLeaseRecord(
 function mintLease(
   state: LeaseRegistryState,
   binding: ModeratorBoundLeaseBinding,
-): Effect.Effect<LeaseMintResult> {
+): Effect.Effect<LeaseMintOutcome> {
   return Effect.gen(function* () {
     const leaseId = decodeLeaseId(crypto.randomUUID());
     const dispatchId = decodeDispatchId(crypto.randomUUID());
@@ -945,16 +981,26 @@ function mintLease(
     const entry: LeaseEntry = { record, ttlFiber: null, roundTripFiber: null };
     const inserted = yield* Ref.modify(state.dataRef, (data) => {
       if (data.closed) {
-        return [false, data];
+        return ["closed" as const, data];
       }
-      const entries = new Map(data.entries);
+      if (data.conversationReservations.has(binding.conversationId)) {
+        return ["conversation_busy" as const, data];
+      }
       const dispatchIndex = new Map(data.dispatchIndex);
-      entries.set(leaseId, entry);
       dispatchIndex.set(dispatchId, leaseId);
-      return [true, { ...data, entries, dispatchIndex }];
+      return [
+        "inserted" as const,
+        {
+          ...withLeaseEntry(data, leaseId, entry),
+          dispatchIndex,
+        },
+      ];
     });
-    if (!inserted) {
+    if (inserted === "closed") {
       return yield* Effect.interrupt;
+    }
+    if (inserted === "conversation_busy") {
+      return { outcome: "conversation_busy" };
     }
     return { leaseId, dispatchId };
   });
@@ -1171,7 +1217,7 @@ function commitDisconnectTransitions(
 ): Effect.Effect<readonly DisconnectTransition[]> {
   const transitionedAt = new Date().toISOString();
   return Ref.modify(state.dataRef, (data) => {
-    const entries = new Map(data.entries);
+    let nextData = data;
     const actions: DisconnectTransition[] = [];
     for (const [leaseId, entry] of data.entries) {
       const action = makeDisconnectTransition(
@@ -1182,14 +1228,14 @@ function commitDisconnectTransitions(
       );
       if (action !== null) {
         actions.push(action);
-        entries.set(leaseId, {
+        nextData = withLeaseEntry(nextData, leaseId, {
           record: action.record,
           ttlFiber: null,
           roundTripFiber: null,
         });
       }
     }
-    return [actions, actions.length === 0 ? data : { ...data, entries }];
+    return [actions, nextData];
   });
 }
 
@@ -1254,6 +1300,7 @@ function shutdownRegistry(state: LeaseRegistryState): Effect.Effect<void> {
       {
         entries: new Map(),
         dispatchIndex: new Map(),
+        conversationReservations: new Map(),
         closed: true,
       },
     ]);
@@ -1287,9 +1334,9 @@ function makeLeaseRegistryFromState(state: LeaseRegistryState): LeaseRegistry {
  * — `LeaseRegistry` is referenced as an interface from call sites.
  *
  * Implementation: one `Ref&lt;LeaseRegistryData>` atomically owns entries,
- * dispatch index, and closed state; network notifications and fiber
- * interruption run after the commit. A shared shutdown signal cancels parked
- * notification and retention effects.
+ * dispatch index, conversation reservations, and closed state; network
+ * notifications and fiber interruption run after the commit. A shared shutdown
+ * signal cancels parked notification and retention effects.
  * @param deps Value supplied to the operation.
  * @returns The created lease registry.
  */
@@ -1300,6 +1347,7 @@ export function makeLeaseRegistry(
     const dataRef = yield* Ref.make<LeaseRegistryData>({
       entries: new Map(),
       dispatchIndex: new Map(),
+      conversationReservations: new Map(),
       closed: false,
     });
     const shutdownSignal = yield* Deferred.make<undefined>();

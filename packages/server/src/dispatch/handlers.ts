@@ -10,8 +10,9 @@ import { DispatchAdmissionServiceTag, LeaseRegistryTag } from "./layer.js";
 import { leaseRecordToWire } from "./lease-registry.js";
 import { agentArm } from "#moltzap/runtime";
 
-// `agent/dispatch/request` — returns ack immediately, forks the moderator round-trip,
-// recipient observes the verdict via `agent/dispatch/released` notification.
+// `agent/dispatch/request` — returns immediately. A successful mint forks the
+// moderator round-trip and later emits `agent/dispatch/released`; a busy result
+// carries no lease and starts no round-trip.
 // Agent-called: its `requires` head is `AgentPrincipal`, so the body receives a
 // narrowed `AgentContext` and reads `ctx.agentId` as `recipientAgentId`. The
 // `ActiveAgent` is load-bearing: suspended agents cannot dispatch.

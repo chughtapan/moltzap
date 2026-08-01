@@ -793,9 +793,9 @@ export class MoltZapService {
   }
 
   /**
-   * Issue `agent/dispatch/request`. The server returns the ack
-   * `{leaseId, dispatchId}` immediately; the recipient observes the
-   * verdict asynchronously via the `dispatchRelease` event.
+   * Issue `agent/dispatch/request`. The server immediately returns either a
+   * minted `{leaseId, dispatchId}` ack or `conversation_busy`; the recipient
+   * observes a minted lease's verdict asynchronously via `dispatchRelease`.
    * @param params Request payload to process.
    * @returns The cache result.
    */

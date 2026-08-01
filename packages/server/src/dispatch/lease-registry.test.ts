@@ -24,11 +24,13 @@ import {
 const TEST_TTL_MS = 1_000;
 const OLD_TTL_ELAPSED_MS = 900;
 const OLD_TTL_REMAINING_MS = TEST_TTL_MS - OLD_TTL_ELAPSED_MS;
+const STATE_ABANDONED = "ABANDONED";
 const STATE_CLAIMED = "CLAIMED";
 const STATE_CONSUMED = "CONSUMED";
 const STATE_DENIED = "DENIED";
 const STATE_EXPIRED = "EXPIRED";
 const STATE_GRANTED = "GRANTED";
+const STATE_PENDING = "PENDING";
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-00000000b737");
 
 const BINDING = {
@@ -38,6 +40,22 @@ const BINDING = {
   moderatorConnectionId: connectionId("00000000-0000-4000-8000-00000000c738"),
   conversationId: conversationId("00000000-0000-4000-8000-00000000d737"),
   appId: appId("00000000-0000-4000-8000-00000000f737"),
+} satisfies ModeratorBoundLeaseBinding;
+
+const OTHER_CONVERSATION_BINDING = {
+  ...BINDING,
+  conversationId: conversationId("00000000-0000-4000-8000-00000000d738"),
+} satisfies ModeratorBoundLeaseBinding;
+
+const OTHER_RECIPIENT_BINDING = {
+  ...BINDING,
+  recipientAgentId: agentId("00000000-0000-4000-8000-00000000a738"),
+  recipientConnectionId: connectionId("00000000-0000-4000-8000-00000000c739"),
+} satisfies ModeratorBoundLeaseBinding;
+
+const REPLACEMENT_CONNECTION_BINDING = {
+  ...BINDING,
+  recipientConnectionId: connectionId("00000000-0000-4000-8000-00000000c740"),
 } satisfies ModeratorBoundLeaseBinding;
 
 const it = effectIt.effect;
@@ -82,8 +100,36 @@ const UNUSED_SOCKET: WebSocketRef = {
   shutdown: Effect.void,
 };
 
+function mintLeaseFor(
+  registry: LeaseRegistry,
+  binding: ModeratorBoundLeaseBinding,
+): Effect.Effect<LeaseId> {
+  return registry
+    .mint(binding)
+    .pipe(
+      Effect.flatMap((outcome) =>
+        "outcome" in outcome
+          ? Effect.dieMessage(
+              "expected conversation reservation to be available",
+            )
+          : Effect.succeed(outcome.leaseId),
+      ),
+    );
+}
+
 function mintLease(registry: LeaseRegistry): Effect.Effect<LeaseId> {
-  return registry.mint(BINDING).pipe(Effect.map(({ leaseId }) => leaseId));
+  return mintLeaseFor(registry, BINDING);
+}
+
+function expectConversationBusy(registry: LeaseRegistry): Effect.Effect<void> {
+  return registry.mint(BINDING).pipe(
+    Effect.tap((outcome) =>
+      Effect.sync(() => {
+        expect(outcome).toEqual({ outcome: "conversation_busy" });
+      }),
+    ),
+    Effect.asVoid,
+  );
 }
 
 function grantLease(registry: LeaseRegistry, leaseId: LeaseId) {
@@ -275,7 +321,162 @@ function hangingNotificationDoesNotBlockFinalizeOrRetention() {
   });
 }
 
+function concurrentMintsReserveConversationAtomically() {
+  return withRegistry((registry) =>
+    Effect.gen(function* () {
+      const outcomes = yield* Effect.all(
+        [registry.mint(BINDING), registry.mint(OTHER_RECIPIENT_BINDING)],
+        { concurrency: 2 },
+      );
+      expect(outcomes.filter((outcome) => "outcome" in outcome)).toHaveLength(
+        1,
+      );
+      expect(
+        outcomes.filter((outcome) => !("outcome" in outcome)),
+      ).toHaveLength(1);
+    }),
+  );
+}
+
+function distinctConversationsReserveIndependently() {
+  return withRegistry((registry) =>
+    Effect.gen(function* () {
+      const outcomes = yield* Effect.all(
+        [registry.mint(BINDING), registry.mint(OTHER_CONVERSATION_BINDING)],
+        { concurrency: 2 },
+      );
+      expect(outcomes.every((outcome) => !("outcome" in outcome))).toBe(true);
+    }),
+  );
+}
+
+function deniedLeaseReleasesConversation() {
+  return withRegistry((registry) =>
+    Effect.gen(function* () {
+      const leaseId = yield* mintLease(registry);
+      yield* expectConversationBusy(registry);
+      yield* registry.resolve(leaseId, { _tag: "deny" });
+      yield* mintLease(registry);
+    }),
+  );
+}
+
+function consumedLeaseReleasesConversation() {
+  return withRegistry((registry) =>
+    Effect.gen(function* () {
+      const leaseId = yield* mintLease(registry);
+      yield* grantLease(registry, leaseId);
+      yield* expectConversationBusy(registry);
+      const claim = yield* registry.claim(leaseId);
+      yield* expectConversationBusy(registry);
+      yield* claim.rollback;
+      yield* expectConversationBusy(registry);
+      const retriedClaim = yield* registry.claim(leaseId);
+      yield* retriedClaim.finalize(MESSAGE_ID);
+      yield* mintLease(registry);
+    }),
+  );
+}
+
+function ttlExpiryReleasesConversation() {
+  return withRegistry((registry) =>
+    Effect.gen(function* () {
+      const leaseId = yield* mintLease(registry);
+      yield* grantLease(registry, leaseId);
+      yield* expectConversationBusy(registry);
+      yield* TestClock.adjust(TEST_TTL_MS);
+      expect(
+        (yield* registry.read({ _tag: "leaseId", value: leaseId })).state,
+      ).toBe(STATE_EXPIRED);
+      yield* mintLease(registry);
+    }),
+  );
+}
+
+function disconnectReleasesPendingAndGrantedConversations() {
+  return withRegistry((registry) =>
+    Effect.gen(function* () {
+      const pendingLeaseId = yield* mintLease(registry);
+      yield* registry.abandon(BINDING.recipientConnectionId);
+      expect(
+        (yield* registry.read({ _tag: "leaseId", value: pendingLeaseId }))
+          .state,
+      ).toBe(STATE_ABANDONED);
+
+      const grantedLeaseId = yield* mintLease(registry);
+      yield* registry.resolve(grantedLeaseId, { _tag: "grant" });
+      yield* expectConversationBusy(registry);
+      yield* registry.abandon(BINDING.recipientConnectionId);
+      expect(
+        (yield* registry.read({ _tag: "leaseId", value: grantedLeaseId }))
+          .state,
+      ).toBe(STATE_EXPIRED);
+
+      yield* mintLease(registry);
+    }),
+  );
+}
+
+function holdReleasesConversationWithoutLosingANewerReservation() {
+  return withRegistry((registry) =>
+    Effect.gen(function* () {
+      const heldLeaseId = yield* mintLease(registry);
+      yield* registry.resolve(heldLeaseId, { _tag: "hold" });
+      const replacementLeaseId = yield* mintLeaseFor(
+        registry,
+        REPLACEMENT_CONNECTION_BINDING,
+      );
+      yield* expectConversationBusy(registry);
+
+      yield* registry.abandon(BINDING.recipientConnectionId);
+      expect(
+        (yield* registry.read({ _tag: "leaseId", value: heldLeaseId })).state,
+      ).toBe(STATE_EXPIRED);
+      expect(
+        (yield* registry.read({
+          _tag: "leaseId",
+          value: replacementLeaseId,
+        })).state,
+      ).toBe(STATE_PENDING);
+      yield* expectConversationBusy(registry);
+
+      yield* TestClock.adjust(TEST_TTL_MS);
+      yield* expectConversationBusy(registry);
+
+      yield* registry.abandon(
+        REPLACEMENT_CONNECTION_BINDING.recipientConnectionId,
+      );
+      yield* mintLease(registry);
+    }),
+  );
+}
+
 describe("LeaseRegistry", () => {
+  it(
+    "atomically reserves one lease per conversation",
+    concurrentMintsReserveConversationAtomically,
+  );
+  it(
+    "reserves distinct conversations independently",
+    distinctConversationsReserveIndependently,
+  );
+  it("releases the conversation after deny", deniedLeaseReleasesConversation);
+  it(
+    "keeps the reservation through claim rollback and releases after consume",
+    consumedLeaseReleasesConversation,
+  );
+  it(
+    "releases the conversation after TTL expiry",
+    ttlExpiryReleasesConversation,
+  );
+  it(
+    "releases pending and granted conversations on disconnect",
+    disconnectReleasesPendingAndGrantedConversations,
+  );
+  it(
+    "releases on hold without losing a newer reservation",
+    holdReleasesConversationWithoutLosingANewerReservation,
+  );
   it("allows exactly one concurrent claim", concurrentClaimsAreSingleUse);
   it(
     "allows exactly one concurrent resolution",

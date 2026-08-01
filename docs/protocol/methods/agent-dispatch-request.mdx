@@ -5,8 +5,9 @@ description: "Recipient admission request."
 
 # agent/dispatch/request
 
-Recipient admission request. The server acks immediately and emits
-`agent/dispatch/released` when the moderator verdict resolves.
+Recipient admission request. The server returns immediately. A minted lease
+emits `agent/dispatch/released` when the moderator verdict resolves;
+`conversation_busy` creates no lease and emits no release.
 
 ## Parameters
 
@@ -40,10 +41,18 @@ Recipient admission request. The server acks immediately and emits
 
 ## Response
 
+`{ leaseId, dispatchId }` when the conversation is reserved, or
+`{ outcome: "conversation_busy" }` without a lease when it is already
+reserved.
+
 <ResponseField name="leaseId" type="string (UUID)">
   Branded LeaseId
 </ResponseField>
 
 <ResponseField name="dispatchId" type="string (UUID)">
   Branded DispatchId
+</ResponseField>
+
+<ResponseField name="outcome" type="conversation_busy">
+
 </ResponseField>
