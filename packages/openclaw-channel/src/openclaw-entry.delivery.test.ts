@@ -5,6 +5,8 @@ import {
   flushDispatchChainEffect,
   testAgentId,
   testConversationId,
+  testDispatchId,
+  testLeaseId,
   testMessageId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
@@ -33,6 +35,12 @@ const DEFAULT_MESSAGE_ID = testMessageId(
 );
 const DEFAULT_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440404",
+);
+const DEFAULT_DISPATCH_LEASE_ID = testLeaseId(
+  "550e8400-e29b-41d4-a716-446655440407",
+);
+const DEFAULT_DISPATCH_ID = testDispatchId(
+  "550e8400-e29b-41d4-a716-446655440408",
 );
 const OUTBOUND_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440406",
@@ -88,7 +96,11 @@ interface DispatchCall {
 type SendFn = (
   conversationId: ConversationId,
   text: string,
-  opts?: { readonly dispatchLeaseId?: LeaseId },
+) => Effect.Effect<void, ServiceRpcError>;
+type ReplyFn = (
+  conversationId: ConversationId,
+  text: string,
+  dispatchLeaseId: LeaseId,
 ) => Effect.Effect<void, ServiceRpcError>;
 type SendToAgentFn = (
   agentName: string,
@@ -100,6 +112,7 @@ type SendRpcFn = <D extends RpcDefinitionAny>(
 ) => Effect.Effect<ResultOf<D>, ServiceRpcError>;
 type TestService = FakeChannelService["service"] & {
   readonly send: SendFn;
+  readonly reply: ReplyFn;
   readonly sendRpc: SendRpcFn;
   readonly sendToAgent: SendToAgentFn;
 };
@@ -120,6 +133,7 @@ class SendToAgentTestFailure extends Data.TaggedError(
 }
 
 const mockSend = vi.fn<SendFn>();
+const mockReply = vi.fn<ReplyFn>();
 const mockSendToAgent = vi.fn<SendToAgentFn>();
 
 let started: {
@@ -183,6 +197,23 @@ function startGateway() {
   mockDispatch = vi.fn().mockResolvedValue({ queuedFinal: true });
   mockLogger = testLogger();
   const fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
+  fixture.service.requestDispatch = () =>
+    Effect.sync(() => {
+      queueMicrotask(() => {
+        fixture.emit.dispatchRelease({
+          dispatchId: DEFAULT_DISPATCH_ID,
+          leaseId: DEFAULT_DISPATCH_LEASE_ID,
+          verdict: {
+            decision: "grant",
+            leaseId: DEFAULT_DISPATCH_LEASE_ID,
+          },
+        });
+      });
+      return {
+        leaseId: DEFAULT_DISPATCH_LEASE_ID,
+        dispatchId: DEFAULT_DISPATCH_ID,
+      };
+    });
   fixture.state.setConversation(DEFAULT_CONVERSATION_ID, defaultConversation());
   fixture.state.setAgentName(SENDER_AGENT_ID, "Atlas");
   const service = createTestService(fixture);
@@ -213,10 +244,12 @@ function startGateway() {
 
 function createTestService(fixture: FakeChannelService): TestService {
   mockSend.mockImplementation(fixture.service.send.bind(fixture.service));
+  mockReply.mockImplementation(fixture.service.reply.bind(fixture.service));
   mockSendToAgent.mockReturnValue(Effect.void);
   return {
     ...fixture.service,
     send: mockSend,
+    reply: mockReply,
     sendRpc: sendRpcDefault,
     sendToAgent: mockSendToAgent,
   };
@@ -405,14 +438,14 @@ function rejectsDuplicateFinal() {
   return Effect.gen(function* () {
     yield* emitMessage();
     yield* waitForDispatchTimes(1);
-    const sendBefore = mockSend.mock.calls.length;
+    const sendBefore = mockReply.mock.calls.length;
     const first = yield* deliverFinal(FIRST_REPLY_TEXT);
-    const sendAfterFirst = mockSend.mock.calls.length;
+    const sendAfterFirst = mockReply.mock.calls.length;
     const second = yield* deliverFinal(SECOND_REPLY_TEXT);
     expect(first).toBe(true);
     expect(sendAfterFirst).toBe(sendBefore + 1);
     expect(second).toBe(false);
-    expect(mockSend.mock.calls.length).toBe(sendAfterFirst);
+    expect(mockReply.mock.calls.length).toBe(sendAfterFirst);
   });
 }
 
@@ -569,7 +602,7 @@ function serverRejected(): Effect.Effect<void, ServiceRpcError> {
 
 function hookBlockIsConsumed() {
   return Effect.gen(function* () {
-    mockSend.mockReturnValueOnce(hookBlocked());
+    mockReply.mockReturnValueOnce(hookBlocked());
     yield* emitMessage();
     yield* waitForDispatchTimes(1);
     const result = yield* deliverFinal(REPLY_TEXT);
@@ -587,7 +620,7 @@ function hookBlocked(): Effect.Effect<void, ServiceRpcError> {
 
 function sendFailureIsReported() {
   return Effect.gen(function* () {
-    mockSend.mockReturnValueOnce(
+    mockReply.mockReturnValueOnce(
       Effect.fail(
         new ForbiddenError({
           message: INTERNAL_SERVER_ERROR_MESSAGE,
@@ -612,13 +645,13 @@ function sendFailureIsReported() {
  * `false` without ever re-calling `core.sendReply`.
  *
  * This test exercises that invariant by failing the first send, then making
- * the second send succeed, and asserting `mockSend` was invoked twice and
+ * the second reply succeed, and asserting `mockReply` was invoked twice and
  * the second deliver returned `true`.
  * @returns The lease guard unconsumed on transient failure result.
  */
 function leaseGuardUnconsumedOnTransientFailure() {
   return Effect.gen(function* () {
-    mockSend.mockReturnValueOnce(
+    mockReply.mockReturnValueOnce(
       Effect.fail(
         new ForbiddenError({
           message: INTERNAL_SERVER_ERROR_MESSAGE,
@@ -627,17 +660,17 @@ function leaseGuardUnconsumedOnTransientFailure() {
     );
     yield* emitMessage();
     yield* waitForDispatchTimes(1);
-    const sendBefore = mockSend.mock.calls.length;
+    const sendBefore = mockReply.mock.calls.length;
     const first = yield* deliverFinal(FIRST_REPLY_TEXT);
     expect(first).toBe(false);
-    expect(mockSend.mock.calls.length).toBe(sendBefore + 1);
+    expect(mockReply.mock.calls.length).toBe(sendBefore + 1);
     // Second deliver: send is now configured to succeed (default
-    // `mockSend.mockImplementation(fixture.service.send)` from `startGateway`).
+    // `mockReply.mockImplementation(fixture.service.reply)` from `startGateway`).
     // The guard MUST NOT have been stamped by the first failure, so this
     // retry exercises the lease and returns true.
     const second = yield* deliverFinal(SECOND_REPLY_TEXT);
     expect(second).toBe(true);
-    expect(mockSend.mock.calls.length).toBe(sendBefore + 2);
+    expect(mockReply.mock.calls.length).toBe(sendBefore + 2);
   });
 }
 

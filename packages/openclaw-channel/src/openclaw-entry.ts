@@ -289,6 +289,7 @@ interface InboundDispatchInput {
 }
 
 interface OpenClawClientService extends ChannelService {
+  readonly send: MoltZapService["send"];
   /**
    * The agent service's descriptor-based call. Optional because the fake
    * channel service used in tests may omit it.

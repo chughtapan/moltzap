@@ -139,6 +139,53 @@ function seedMessageSendResponse(service: FakeMoltZapService): void {
   });
 }
 
+function genericSendOmitsDispatchLease() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    seedMessageSendResponse(service);
+
+    yield* service.send(CONVERSATION_ALICE_ID, HELLO_TEXT);
+
+    expect(service.calls).toEqual([
+      {
+        method: messagesSend.name,
+        params: {
+          conversationId: CONVERSATION_ALICE_ID,
+          parts: [{ type: "text", text: HELLO_TEXT }],
+        },
+      },
+    ]);
+  });
+}
+
+function replyCarriesRequiredDispatchLease() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    seedMessageSendResponse(service);
+
+    yield* service.reply(CONVERSATION_ALICE_ID, HELLO_TEXT, DISPATCH_LEASE_ID);
+
+    expect(service.calls).toEqual([
+      {
+        method: messagesSend.name,
+        params: {
+          conversationId: CONVERSATION_ALICE_ID,
+          parts: [{ type: "text", text: HELLO_TEXT }],
+          dispatchLeaseId: DISPATCH_LEASE_ID,
+        },
+      },
+    ]);
+  });
+}
+
+describe("MoltZapService message authority", () => {
+  effectTest("keeps generic send unleased", genericSendOmitsDispatchLease);
+  effectTest(
+    "requires and forwards reply lease authority",
+    replyCarriesRequiredDispatchLease,
+  );
+});
+
 function seedAgentLookup(
   service: FakeMoltZapService,
   id = AGENT_ALICE_ID,

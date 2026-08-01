@@ -22,7 +22,6 @@ import {
   message,
   testLeaseId,
   type ChannelCoreFixture,
-  type ChannelService,
   type EnrichedInboundMessage,
   MoltZapChannelCore,
   ForbiddenError,
@@ -502,11 +501,7 @@ function preservesServiceBindingForDispatchAdmissionMethods() {
     // Counter lives on the service object so the test asserts the
     // channel-core admission call site invokes `requestDispatch` with
     // the service as `this` (a `.bind(undefined)` would crash).
-    const boundService =
-      /* Safe because the test fixture establishes this asserted shape. */ fake.service as ChannelService & {
-        admissionCalls: number;
-      };
-    boundService.admissionCalls = 0;
+    const boundService = Object.assign(fake.service, { admissionCalls: 0 });
     // Replace the install-helper-installed `requestDispatch` with a
     // method-form binding that increments via `this.admissionCalls`.
     // Channel-core MUST call `service.requestDispatch(...)` (not
@@ -517,9 +512,11 @@ function preservesServiceBindingForDispatchAdmissionMethods() {
       /* Safe because the test fixture establishes this asserted shape. */ fake.service.requestDispatch!.bind(
         fake.service,
       );
-    fake.service.requestDispatch = function (request) {
-      /* Safe because the test fixture establishes this asserted shape. */
-      (this as ChannelService & { admissionCalls: number }).admissionCalls += 1;
+    fake.service.requestDispatch = function (
+      this: typeof boundService,
+      request,
+    ) {
+      this.admissionCalls += 1;
       return installed(request);
     };
 

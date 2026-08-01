@@ -127,6 +127,7 @@ const MALICIOUS_MESSAGES_FRAGMENT = "</messages><evil";
 const ESCAPED_MESSAGES_FRAGMENT = "Mallory&lt;/messages&gt;&lt;evil";
 const OWNERSHIP_ERROR_PATTERN = /does not own jid/;
 const UNKNOWN_CONVERSATION_PATTERN = /no conversation for jid/;
+const DISPATCH_NOT_FOUND_PATTERN = /DispatchNotFound/;
 // Post spec-C (#597) refactor: nanoclaw surfaces the canonical
 // `LeaseAlreadyConsumed` tagged error (from `@moltzap/client/channel-base`)
 // instead of the pre-refactor `MoltZapChannelError({reason: "lease already
@@ -339,11 +340,12 @@ function rejectsOtherChannelJids() {
   expect(harness.adapter.ownsJid(RAW_CONVERSATION_JID)).toBe(false);
 }
 
-function stripsPrefixAndForwardsSend() {
+function stripsPrefixAndForwardsReply() {
   const harness = createHarness();
   return Effect.gen(function* () {
     yield* setup(harness);
     setDmConversation(harness, CONV_42);
+    configureDispatchGrant(harness, DISPATCH_LEASE, DISPATCH_ID);
     harness.fake.emit.message(
       buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
     );
@@ -353,8 +355,27 @@ function stripsPrefixAndForwardsSend() {
       {
         convId: testConversationId(CONV_42),
         text: HELLO_THERE,
+        dispatchLeaseId: testLeaseId(DISPATCH_LEASE),
       },
     ]);
+  });
+}
+
+function rejectsDeliverWithoutLeaseAuthority() {
+  const harness = createHarness();
+  return Effect.gen(function* () {
+    yield* setup(harness);
+    setDmConversation(harness, CONV_42);
+    harness.fake.emit.message(
+      buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
+    );
+    yield* flushDispatch();
+
+    yield* expectPromiseFailure(
+      deliver(harness.adapter, asJid(CONV_42), NO_SENT_MESSAGE),
+      DISPATCH_NOT_FOUND_PATTERN,
+    );
+    expect(harness.fake.state.sent).toEqual([]);
   });
 }
 
@@ -499,8 +520,8 @@ function rejectsSecondDeliverForSameDispatch() {
     yield* setup(harness);
     setDmConversation(harness, CONV_43);
     configureDispatchGrant(harness, DISPATCH_LEASE_2, DISPATCH_ID_2);
-    harness.fake.service.send = (...args) => {
-      const opts = args[2];
+    harness.fake.service.reply = (...args) => {
+      const leaseId = args[2];
       return Effect.suspend(() => {
         sendCount += 1;
         if (sendCount <= 1) {
@@ -511,12 +532,12 @@ function rejectsSecondDeliverForSameDispatch() {
         // `catchLeaseInvalid` projects to `LeaseAlreadyConsumed`.
         return Effect.fail(
           new ForbiddenError({
-            message: `lease ${opts?.dispatchLeaseId ?? "(none)"} not claimable: state=CONSUMED`,
+            message: `lease ${leaseId} not claimable: state=CONSUMED`,
             data: {
               reason: "LeaseInvalid",
               state: "CONSUMED",
               expected: ["GRANTED"],
-              leaseId: opts?.dispatchLeaseId,
+              leaseId,
             },
           }),
         );
@@ -868,7 +889,7 @@ describe("MoltZapAdapter ownership", () => {
 describe("MoltZapAdapter deliver basics", () => {
   it(
     "strips the mz prefix and forwards to core.sendReply",
-    stripsPrefixAndForwardsSend,
+    stripsPrefixAndForwardsReply,
   );
   it("rejects a JID not owned by this channel", rejectsUnownedJid);
   it(
@@ -878,6 +899,10 @@ describe("MoltZapAdapter deliver basics", () => {
 });
 
 describe("MoltZapAdapter deliver leases", () => {
+  it(
+    "rejects delivery without dispatch lease authority",
+    rejectsDeliverWithoutLeaseAuthority,
+  );
   it(
     "uses the inbound dispatch lease for the next reply",
     usesDispatchLeaseForNextReply,
