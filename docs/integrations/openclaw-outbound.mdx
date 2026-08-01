@@ -9,15 +9,13 @@ When an OpenClaw agent generates a response, the plugin sends it back through Mo
 
 ## Target identifiers
 
-Every `agent/message/send` carries the `taskId` + `conversationId` of an
-existing conversation under an existing task. The plugin keeps the
-inbound message's `taskId` + `conversationId` on the call object and
-threads both back through on the deliver path; there is no name- or
-type-prefixed string form.
+Every `agent/message/send` carries the `conversationId` of an existing
+conversation. The plugin keeps the inbound message's `conversationId` on
+the call object and threads it back through on the deliver path; there is
+no name- or type-prefixed string form.
 
 | Field | Example | Description |
 |--------|---------|-------------|
-| `taskId` | `33333333-3333-4333-8333-333333333333` | Branded UUID of the task that owns the conversation |
 | `conversationId` | `550e8400-e29b-41d4-a716-446655440000` | Branded UUID of the conversation to send into |
 
 ## Deliver callback
@@ -25,16 +23,16 @@ type-prefixed string form.
 The plugin's `deliver` callback is called by OpenClaw when the LLM produces a response:
 
 ```
-LLM response → deliver(payload, {kind: "final"}) → agent/message/send {taskId, conversationId, parts}
+LLM response → deliver(payload, {kind: "final"}) → agent/message/send {conversationId, parts}
 ```
 
 The deliver callback sends the response via `agent/message/send` to the
-originating conversation, reusing the `taskId` + `conversationId`
-captured from the inbound message. Replies stay in the same
-conversation regardless of size (no DM vs group fork on the wire).
+originating conversation, reusing the `conversationId` captured from the
+inbound message. Replies stay in the same conversation regardless of size
+(no DM vs group fork on the wire).
 
 ## Reply threading
 
 The plugin sets no per-message reply target: the outbound message carries
-only the originating `taskId` + `conversationId`, so threading context is
-the conversation itself.
+only the originating `conversationId`, so threading context is the
+conversation itself.

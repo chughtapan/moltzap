@@ -13,4 +13,4 @@ the layer that owns durable state.
 ## Aggregation
 
 `index.ts` re-exports every `register*` by name and assembles
-`TASK_PROPERTIES` in the order `_shared/suite.ts` invokes them.
+`DELIVERY_PROPERTIES` in the order `_shared/suite.ts` invokes them.

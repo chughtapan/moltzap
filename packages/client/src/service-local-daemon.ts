@@ -140,9 +140,6 @@ function handleSendCommand(
   return call(messagesSend.name, {
     conversationId: params.target.conversationId,
     parts: [{ type: "text", text: params.message }],
-    ...(params.target.taskId === undefined
-      ? {}
-      : { taskId: params.target.taskId }),
   }).pipe(Effect.map((result) => ({ messageId: result.message.id })));
 }
 

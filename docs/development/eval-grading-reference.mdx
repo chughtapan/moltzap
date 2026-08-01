@@ -23,8 +23,7 @@ facts:
 
 - all customer evaluation events identify one case;
 - every code-peer send or receive observation has exactly one
-  `RouterMessageCommitted` record for the same task, conversation, and
-  message;
+  `RouterMessageCommitted` record for the same conversation and message;
 - endpoint testimony and router evidence agree on the social sender;
 - each selection references evidence recorded earlier in the ledger; and
 - the same evidence identity is not selected twice.
@@ -57,7 +56,7 @@ because every `EvaluationCaseProgram` returns exactly one
 | Item | Meaning |
 |---|---|
 | `GatewayTranscriptItem` | Recorded native principal input or correlated output, target identity, and normalized parts |
-| `SocialTranscriptItem` | Code-peer observation, direction relative to the target, peer endpoint, task and conversation identities, router-commit evidence identity, and parts |
+| `SocialTranscriptItem` | Code-peer observation, direction relative to the target, peer endpoint, conversation identity, router-commit evidence identity, and parts |
 | `PeerTimeoutTranscriptItem` | A required autonomous peer exchange was not complete at its configured deadline |
 
 `transcriptFromLedger` refuses grading unless native gateway observations

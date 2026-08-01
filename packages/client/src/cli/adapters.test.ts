@@ -3,7 +3,7 @@ import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
 import { describe, expect, expectTypeOf } from "vitest";
-import { taskId as taskIdSchema } from "@moltzap/protocol/task";
+import { conversationId as conversationIdSchema } from "@moltzap/protocol/conversation";
 import { messagesListOptions } from "./commands/messages.js";
 import { startOptions } from "./commands/start.js";
 import { optionsFromSchema } from "./adapters.js";
@@ -33,12 +33,15 @@ describe("schema option presentation", () => {
   it("derives renamed and kebab-cased scalar options", () =>
     Effect.gen(function* () {
       const params = Schema.Struct({
-        taskId: taskIdSchema,
+        conversationId: conversationIdSchema,
         sessionKey: Schema.optional(Schema.String),
         limit: Schema.optional(pageLimit),
       });
       const options = optionsFromSchema(params, {
-        taskId: { name: "task", description: "Task id" },
+        conversationId: {
+          name: "conversation",
+          description: "Conversation id",
+        },
       });
       expectTypeOf(options).toEqualTypeOf<
         Options.Options<Schema.Schema.Type<typeof params>>
@@ -47,10 +50,10 @@ describe("schema option presentation", () => {
         INTEGER_USAGE_PLACEHOLDER,
       );
 
-      const taskId = "00000000-0000-4000-8000-000000000001";
+      const conversationId = "00000000-0000-4000-8000-000000000001";
       const parsed = yield* parseOptions(options, [
-        "--task",
-        taskId,
+        "--conversation",
+        conversationId,
         "--session-key",
         "demo",
         "--limit",
@@ -58,7 +61,7 @@ describe("schema option presentation", () => {
       ]);
       expect(parsed).toEqual({
         rest: [],
-        value: { taskId, sessionKey: "demo", limit: 25 },
+        value: { conversationId, sessionKey: "demo", limit: 25 },
       });
     }));
 });
@@ -67,25 +70,33 @@ describe("schema option validation", () => {
   it("omits absent fields and retains whole-schema validation", () =>
     Effect.gen(function* () {
       const paramsValue = Schema.Struct({
-        taskId: taskIdSchema,
+        conversationId: conversationIdSchema,
         limit: Schema.optional(pageLimit),
       });
       const options = optionsFromSchema(paramsValue, {
-        taskId: { name: "task" },
+        conversationId: { name: "conversation" },
       });
-      const taskId = "00000000-0000-4000-8000-000000000002";
+      const conversationId = "00000000-0000-4000-8000-000000000002";
 
-      const parsed = yield* parseOptions(options, ["--task", taskId]);
-      expect(parsed.value).toEqual({ taskId });
+      const parsed = yield* parseOptions(options, [
+        "--conversation",
+        conversationId,
+      ]);
+      expect(parsed.value).toEqual({ conversationId });
       expect(parsed.value).not.toHaveProperty("limit");
 
       const invalidId = yield* Effect.flip(
-        parseOptions(options, ["--task", "not-a-task-id"]),
+        parseOptions(options, ["--conversation", "not-a-conversation-id"]),
       );
       expect(ValidationError.isInvalidValue(invalidId)).toBe(true);
 
       const invalidLimit = yield* Effect.flip(
-        parseOptions(options, ["--task", taskId, "--limit", "201"]),
+        parseOptions(options, [
+          "--conversation",
+          conversationId,
+          "--limit",
+          "201",
+        ]),
       );
       expect(ValidationError.isInvalidValue(invalidLimit)).toBe(true);
     }));
@@ -135,8 +146,8 @@ describe("unsupported schema options", () => {
         );
       const renamed = () =>
         optionsFromSchema(
-          Schema.Struct({ taskId: Schema.String }).pipe(
-            Schema.rename({ taskId: "task" }),
+          Schema.Struct({ conversationId: Schema.String }).pipe(
+            Schema.rename({ conversationId: "conversation" }),
           ),
         );
       const collision = () =>

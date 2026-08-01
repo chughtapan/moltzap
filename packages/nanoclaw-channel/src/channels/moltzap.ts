@@ -3,7 +3,6 @@ import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { TaskId } from "@moltzap/protocol/task";
 import {
   BoundedMap,
   type LeaseAlreadyConsumed,
@@ -175,13 +174,12 @@ export class MoltZapAdapter implements ChannelAdapter {
   // `LeaseAlreadyConsumed`.
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
   // Per-jid memory of the branded conversation id from the most recent
-  // inbound, plus the grouping label that message carried so a reply can
-  // re-stamp it. Keeping the branded id avoids re-decoding it on every
-  // reply. Bounded: an evicted conversation degrades to the unknown-jid
-  // deliver error until its next inbound refreshes the entry.
+  // inbound. Keeping the branded id avoids re-decoding it on every reply.
+  // Bounded: an evicted conversation degrades to the unknown-jid deliver
+  // error until its next inbound refreshes the entry.
   private readonly conversationsByJid = new BoundedMap<
     string,
-    { readonly conversationId: ConversationId; readonly taskId?: TaskId }
+    { readonly conversationId: ConversationId }
   >(MAX_TRACKED_CONVERSATIONS);
   private ownAgentId: string;
   private core: MoltZapChannelCore | null;
@@ -337,12 +335,11 @@ export class MoltZapAdapter implements ChannelAdapter {
           });
         }
         yield* core
-          .sendReply(conversation.conversationId, text, {
-            ...(leaseId === undefined ? {} : { dispatchLeaseId: leaseId }),
-            ...(conversation.taskId === undefined
-              ? {}
-              : { taskId: conversation.taskId }),
-          })
+          .sendReply(
+            conversation.conversationId,
+            text,
+            leaseId === undefined ? {} : { dispatchLeaseId: leaseId },
+          )
           .pipe(
             catchLeaseInvalid(leaseId !== undefined ? { leaseId } : undefined),
           );
@@ -359,7 +356,6 @@ export class MoltZapAdapter implements ChannelAdapter {
   ): void {
     this.conversationsByJid.set(jid, {
       conversationId: enriched.conversationId,
-      ...(enriched.taskId === undefined ? {} : { taskId: enriched.taskId }),
     });
   }
 

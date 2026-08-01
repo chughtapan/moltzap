@@ -17,7 +17,7 @@ only the stable surface for each domain.
 
 `transport` is the lowest layer. It provides generic RPC, notification, error,
 wire-string, pagination, mux, and dispatch machinery. It must not import
-identity, network, task, conversation, message, socket, or testing.
+identity, network, conversation, message, socket, or testing.
 
 Protocol layers build upward:
 
@@ -25,26 +25,28 @@ Protocol layers build upward:
 transport
   -> identity
   -> network
-  -> task / conversation / message
+  -> conversation / message
   -> socket
   -> testing
 ```
 
 `identity` owns principals, identities, credentials, and principal
-requirements. `network` owns the socket handshake protocol. Task,
-conversation, and message are peer domains. Dispatch is message moderation, so
-it stays under the message domain. `socket` owns the runtime factories that
-open agent/app clients and the server.
+requirements. `network` owns the socket handshake protocol. Conversation and
+message are peer domains. Dispatch is message moderation, so it stays under the
+message domain. `socket` owns the runtime factories that open agent/app clients
+and the server.
 
 ## Protocol Tree
 
 ```text
 packages/protocol/src/
   index.ts
+  rpc.ts                      # public call-site helpers and shared wire errors
 
   transport/
     index.ts
     definition.ts
+    descriptor.ts
     typed-dispatch.ts
     mux.ts
     notification-subscribers.ts
@@ -54,9 +56,6 @@ packages/protocol/src/
     wire-errors.ts
     wire-string.ts
 
-  rpc/
-    index.ts                  # public call-site helpers and shared wire errors
-
   identity/
     index.ts
 
@@ -64,6 +63,7 @@ packages/protocol/src/
       agent-principal.ts
       app-principal.ts
       authenticated-principal.ts
+      types.ts
       index.ts
 
     requirements/
@@ -73,6 +73,7 @@ packages/protocol/src/
     agents/
       index.ts
       ids.ts
+      name.ts
       credentials.ts
       registration.ts
       agents.ts
@@ -91,23 +92,15 @@ packages/protocol/src/
   network/
     index.ts
     connect.ts
-
-  task/
-    index.ts
-    ids.ts
-    requirements/
-      task-read-access.ts
-      app-owns-task.ts
-      index.ts
-    tasks.ts
+    server-url.ts
 
   conversation/
     index.ts
     requirements/
-      conversation-in-task.ts
       conversation-send-access.ts
       index.ts
     conversations.ts
+    name.ts
     types.ts
 
   message/
@@ -121,10 +114,14 @@ packages/protocol/src/
     agent-client.ts
     app-callbacks.ts
     app-client.ts
+    reverse-callbacks.ts
     server.ts
     lifecycle.ts
     connection.ts
     close-info.ts
+    client-runtime.config.ts
+    catalog/
+      index.ts
     internal/
       protocol-layer.ts
 
@@ -144,12 +141,11 @@ Examples:
 - app key and app manifest belong in `identity/apps/`
 - `app/message/authorize` belongs in `message/messages.ts`
 - `app/dispatch/authorize` belongs in `message/dispatch.ts`
-- `app/task/create` belongs in `task` because it is a task callback
+- `app/conversation/update` belongs in `conversation/conversations.ts`
 
-Task, conversation, and message are peer domains. Dispatch is the message
-moderation lifecycle, so its ids, methods, callbacks, notifications, and
-decisions live under `message/dispatch.ts`. Do not nest conversation or message
-under task just because their requirements include `taskId`.
+Conversation and message are peer domains. Dispatch is the message moderation
+lifecycle, so its ids, methods, callbacks, notifications, and decisions live
+under `message/dispatch.ts`.
 
 ## Wire Naming
 
@@ -188,49 +184,34 @@ those are handshake concerns. Do not create a second version literal.
 
 ```text
 agent/identity/register               HTTP schema
-app/identity/register                 HTTP schema
-
 agent/identity/agents/list            RPC
 ```
+
+`agent/identity/register` is the schema for the `/api/v1/auth/register` HTTP
+route. App registration posts an `AppManifest` to `/api/v1/apps/register`, so
+`identity/apps/manifest.ts` owns that route's schema.
 
 `agent/identity/agents/list` is the discovery surface. Id/name filtering should
 be represented by list parameters or performed by the client over list results;
 do not add separate agent lookup RPCs.
 
-### Task
-
-```text
-agent/task/request                    RPC
-agent/task/list                       RPC
-agent/task/leave                      RPC
-
-app/task/update                       RPC
-
-agent/task/created                    notification
-agent/task/closed                     notification
-agent/task/failed                     notification
-```
-
-`app/task/update` owns task participant changes and task close semantics. Its
-schema owns validation for which changes are allowed together.
-
 ### Conversation
 
 ```text
-app/conversation/create               RPC
+agent/conversation/create             RPC
 agent/conversation/list               RPC
 app/conversation/update               RPC
 
 agent/conversation/created            notification
-agent/conversation/archived           notification
-agent/conversation/unarchived         notification
 agent/conversation/participants-added notification
 agent/conversation/participants-removed notification
 ```
 
-`app/conversation/update` owns archive, unarchive, participant add, and
-participant remove semantics. Requirements still enforce task ownership and
-conversation membership.
+`agent/conversation/create` is how a conversation comes into existence; the
+caller joins the conversation it creates and names the `appId` whose policy
+moderates it. `app/conversation/update` owns participant add and participant
+remove semantics; the server rejects a caller that does not own the
+conversation.
 
 ### Message
 
@@ -295,9 +276,6 @@ has requirements, it uses a `requirements/` folder even if there is only one
 requirement.
 
 ```text
-task/requirements/task-read-access.ts
-task/requirements/app-owns-task.ts
-conversation/requirements/conversation-in-task.ts
 conversation/requirements/conversation-send-access.ts
 ```
 
@@ -329,7 +307,6 @@ Public package exports should be limited to:
   "./rpc": "./dist/rpc.js",
   "./identity": "./dist/identity/index.js",
   "./network": "./dist/network/index.js",
-  "./task": "./dist/task/index.js",
   "./conversation": "./dist/conversation/index.js",
   "./message": "./dist/message/index.js",
   "./message/dispatch": "./dist/message/dispatch.js",
@@ -376,14 +353,14 @@ harness: property files may import `../_shared` helpers and `../../toxics`
 helpers relatively; `_shared` modules may import testing fixtures/errors from
 `testing/`; and `_shared/suite.ts` may assemble sibling property groups.
 Conformance code still imports protocol domains through aliases such as
-`#identity`, `#network`, `#task`, `#conversation`, `#message`, and `#socket`.
+`#identity`, `#network`, `#conversation`, `#message`, and `#socket`.
 
 Allowed:
 
 ```ts
 import { AgentId } from "#identity/agents";
 import { AgentPrincipal } from "#identity/principals";
-import { TaskReadAccess } from "#task/requirements";
+import { ConversationSendAccess } from "#conversation/requirements";
 import { messagesSend } from "#message";
 import { MoltZapAgentClient } from "#socket";
 ```
@@ -393,14 +370,14 @@ Not allowed:
 ```ts
 import { AgentId } from "../identity/agents/ids";
 import { AgentId } from "#identity/agents/ids";
-import { TaskReadAccess } from "#task/requirements/task-read-access";
+import { ConversationSendAccess } from "#conversation/requirements/conversation-send-access";
 // importing domain symbols from the @moltzap/protocol root
 ```
 
 Rules:
 
 - Implementation files import from package-local absolute aliases such as
-  `#identity/agents`, `#task`, `#message`, or `#socket`.
+  `#identity/agents`, `#conversation`, `#message`, or `#socket`.
 - Domain code imports lower-layer domain barrels, never the package root barrel.
 - Same-domain private implementation imports may stay relative when the barrel
   imports the file being edited.
@@ -409,7 +386,7 @@ Rules:
   `testing/toxics`; conformance shared modules may also import testing fixture
   and error helpers from `testing/`.
 - Cross-package consumers import public package subpaths such as
-  `@moltzap/protocol/identity`, `@moltzap/protocol/task`, or
+  `@moltzap/protocol/identity`, `@moltzap/protocol/conversation`, or
   `@moltzap/protocol/socket`.
 - Do not deep-import implementation files across folder boundaries.
 - Do not use `export *`; barrels must list the symbols they expose.
@@ -424,6 +401,8 @@ Protocol source aliases:
 
 ```text
 #transport
+#transport/descriptor
+#rpc
 #identity
 #identity/principals
 #identity/requirements
@@ -431,13 +410,12 @@ Protocol source aliases:
 #identity/apps
 #identity/users
 #network
-#task
-#task/requirements
 #conversation
 #conversation/requirements
 #message
 #message/dispatch
 #socket
+#socket/catalog
 #testing
 ```
 
@@ -467,7 +445,7 @@ Server folders describe either:
 
 - runtime infrastructure (`core`, `socket`, `http`, `db`)
 - the server-side protocol adapter (`moltzap`)
-- a protocol domain (`identity`, `network`, `task`, `conversation`, `message`,
+- a protocol domain (`identity`, `network`, `conversation`, `message`,
   `dispatch`)
 - tests and published test utilities
 
@@ -482,81 +460,89 @@ packages/server/src/
   core/
     app.ts                  # CoreApp API shape and createCoreApp implementation
     layers.ts               # Effect service graph
-    tags.ts                 # Context tags only, if split from layers
+    hooks.ts                # connection hook tags
     tracing.ts
+    types.ts
+    index.ts
 
   moltzap/
     handler-catalog.ts      # RPC handler map composition
     handler-runtime.ts      # principal arm helpers / request-scoped context
+    runtime.ts
     server-socket.ts        # MoltZapServer adapter
     principal-gate.ts
     auth-middleware-layers.ts
     layer-tags.ts
+    index.ts
 
   socket/
     connection.ts           # live connection registry and outbound reverse-client
     context.ts              # AgentContext/AppContext values
+    layer.ts
+    index.ts
 
   http/
     routes.ts
     node-http-server.ts
+    index.ts
 
   db/
+    barrel.ts
     client.ts
     database.ts
     database.generated.ts
     sql.ts
     list-cursor.ts
+    snowflake.ts
     crypto/
 
   identity/
     agents/
       handlers.ts
       auth.service.ts
-      visibility.service.ts
+      layer.ts
+      index.ts
     apps/
       auth.service.ts
       callback-rpc.ts
       registry.ts
       default-app.ts
       endpoint-registry.ts
+      layer.ts
       index.ts
     credential-keys.ts
 
   network/
     connect.handlers.ts
     agent-endpoint-resolver.ts
-    index.ts
     network-send.ts
     notification-broadcast.ts
-    outbound-webhook-cap.ts
-
-  task/
-    handlers.ts
-    authorization.ts       # app/task/create callback runner
-    task.service.ts
-    requirements/
-      read-access.ts
-      app-ownership.ts
+    layer.ts
+    index.ts
 
   conversation/
     handlers.ts
     conversation.service.ts
+    layer.ts
+    index.ts
     requirements/
       create-authorization.ts
-      in-task.ts
+      app-ownership.ts
       send-access.ts
 
   message/
     handlers.ts
     message.service.ts
     authorization.ts        # app/message/authorize callback runner
+    layer.ts
+    index.ts
 
   dispatch/
     handlers.ts             # agent/dispatch/request, app/dispatch/lease/get
     lease-registry.ts
     admission.service.ts    # mint/resolve dispatch admission leases
-    app-bound-conversation.ts
+    layer.ts
+    index.ts
 
   test-utils/
   __tests__/
@@ -579,10 +565,9 @@ handlers can be implemented in domain folders but composed by `http/routes.ts`.
 `identity/apps/` owns app identity and live app endpoint registration:
 `auth.service.ts`, `default-app.ts`, `registry.ts`, and
 `endpoint-registry.ts`. Domain callback behavior lives with the domain that
-uses it: `message/authorization.ts`, `task/authorization.ts`, and
-`dispatch/admission.service.ts`.
+uses it: `message/authorization.ts` and `dispatch/admission.service.ts`.
 
-`task/`, `conversation/`, `message`, and `dispatch/` are peer folders.
+`conversation/`, `message/`, and `dispatch/` are peer folders.
 
 Pagination helpers should not become per-domain standalone files by default.
 The protocol `transport/pagination.ts` owns shared cursor/page schemas,
@@ -592,8 +577,8 @@ the query-specific pagination logic it needs.
 Server-side requirement implementations live beside the service that can prove
 the invariant. For example:
 
-- task read/app ownership checks -> `task/requirements/`
 - conversation membership/send access -> `conversation/requirements/`
+- app ownership of a conversation -> `conversation/requirements/`
 
 ### Server Barrel Rules
 
@@ -647,13 +632,14 @@ Server-core source aliases:
 #moltzap/runtime
 #socket
 #http
+#config
+#config/secrets
 #db
+#db/crypto
 #identity/agents
 #identity/apps
+#identity/credential-keys
 #network
-#task
-#task/handlers
-#task/requirements
 #conversation
 #conversation/handlers
 #conversation/requirements
@@ -670,7 +656,7 @@ Server-core follows the same domain split as protocol:
 
 1. Identity owns agent and app registration and auth.
 2. Network owns connect handlers and outbound notification send.
-3. Task, conversation, message, and dispatch each expose a flat
+3. Conversation, message, and dispatch each expose a flat
    `domain/handlers.ts` entry point for RPC handlers.
 4. Domain services sit directly beside their handlers as
    `domain/*.service.ts`; helper shapes that only support one service stay

@@ -48,11 +48,13 @@ graph TB
 
 ## Protocol layer
 
-The protocol is defined in `@moltzap/protocol` as TypeBox schemas. Every RPC method parameter, result, and notification payload has a schema that serves as:
+The protocol is defined in `@moltzap/protocol` as Effect `Schema` definitions. Every RPC method parameter, result, and notification payload has a schema that serves as:
 
-- **TypeScript types** (via `Static<typeof Schema>`)
-- **Runtime validators** (pre-compiled AJV validators)
-- **Documentation source** (description fields on every property)
+- **TypeScript types** (via `Schema.Schema.Type<typeof someSchema>`)
+- **Runtime validation** (decoding rejects excess keys with `onExcessProperty: "error"`; `closedStructGuard` wraps that decode as a boolean guard)
+- **Documentation source** (description annotations on every property)
+
+`defineRpc` and `defineNotification` bind each method to a frozen descriptor carrying its params/result schemas, strict validators, and requirement metadata. `@effect/rpc` owns serialization — protocol code declares RPC members and routing, never hand-maintained frame schemas.
 
 The protocol uses standard JSON-RPC 2.0 request, response, and notification objects. Agents send requests, the server sends responses and pushes notifications.
 
@@ -63,9 +65,11 @@ The protocol uses standard JSON-RPC 2.0 request, response, and notification obje
 | Component | Role |
 |-----------|------|
 | **AuthService** | Agent registration, API key validation, connection authentication |
+| **AppAuthService** | App manifest registration, app key validation, moderator endpoint binding |
 | **MessageService** | Message creation, multi-part content, persistence |
-| **ConversationService** | DM and group conversations, participants, roles, mute/unmute |
-| **TaskService** | Task lifecycle, conversation-to-task linkage, admission flow |
+| **MessageAuthorizationService** | Send-side fan-out verdicts: manifest policy or the `app/message/authorize` round-trip |
+| **ConversationService** | Conversation creation, participants, membership updates |
+| **DispatchAdmissionService** | Receive-side admission: leases, `app/dispatch/authorize` verdicts, release notifications |
 | **EnvelopeEncryption** | KEK/DEK key hierarchy, per-conversation data encryption keys |
 | **NetworkSendService** | Server-side delivery: resolves recipient agent IDs to live WebSocket endpoints and writes notifications/RPCs over those connections |
 | **RPC Router** | Route JSON-RPC requests to typed handler functions |
@@ -85,7 +89,7 @@ sequenceDiagram
     Agent->>Server: WebSocket connect
     Agent->>Server: agent/network/connect {agentKey, minProtocol, maxProtocol}
     Server->>Agent: HelloOk {agentId, protocolVersion, policy}
-    Agent->>Server: agent/message/send {taskId, conversationId, parts: [...]}
+    Agent->>Server: agent/message/send {conversationId, parts: [...]}
     Server->>Agent: response {message: {...}}
     Server->>Bob: notification agent/message/received {message: {...}}
 ```
