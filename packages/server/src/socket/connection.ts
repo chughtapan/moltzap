@@ -11,7 +11,6 @@ import type {
 } from "@moltzap/protocol/socket";
 import type { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import type { messagesAuthorize } from "@moltzap/protocol/message";
-import type { taskCreate } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentContext, AppContext } from "./context.js";
@@ -46,16 +45,6 @@ export function sendRpcToClient(
 ): Effect.Effect<
   ReverseCallbackSuccess<typeof messagesAuthorize>,
   ReverseCallbackError<typeof messagesAuthorize> | ReverseCallError
->;
-export function sendRpcToClient(
-  originator: Originator,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof taskCreate }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof taskCreate>,
-  ReverseCallbackError<typeof taskCreate> | ReverseCallError
 >;
 export function sendRpcToClient(
   originator: Originator,

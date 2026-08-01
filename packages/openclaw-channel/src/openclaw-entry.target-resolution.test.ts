@@ -37,7 +37,10 @@ const HTTP_TARGET = "http://example.com";
 const EMPTY_AGENT = "agent:";
 const EMPTY_TASK = "task:";
 const INVALID_AGENT_NAME = "not a valid agent name";
+const EMPTY_CONVERSATION = "conv:";
 const OUTBOUND_TASK = "task:t1:abc";
+const CONVERSATION_ABC = "conv:abc-123";
+const CONVERSATION_ABC_DISPLAY = "abc-123";
 const UNKNOWN_PREFIX_TARGET = "unknown:foo";
 const SPACED_AGENT_BOB = "  agent:bob  ";
 const BOB_DISPLAY = "bob";
@@ -96,6 +99,21 @@ function resolvesPlainAgentName() {
 
 function resolvesConversationTarget() {
   return Effect.gen(function* () {
+    const result = yield* tryResolveMessagingTarget(
+      CONVERSATION_ABC,
+      CONVERSATION_ABC,
+    );
+    expect(result).toEqual({
+      to: CONVERSATION_ABC,
+      kind: GROUP_KIND,
+      display: CONVERSATION_ABC_DISPLAY,
+      source: NORMALIZED_SOURCE,
+    });
+  });
+}
+
+function resolvesTaskTarget() {
+  return Effect.gen(function* () {
     const result = yield* tryResolveMessagingTarget(TASK_ABC, TASK_ABC);
     expect(result).toEqual({
       to: TASK_ABC,
@@ -122,6 +140,10 @@ describe("isMoltZapTarget accepted ids", () => {
     expect(looksLikeId(AGENT_MULTI_WORD)).toBe(true);
   });
 
+  vitestIt("recognizes conversation targets", () => {
+    expect(looksLikeId(CONVERSATION_ABC)).toBe(true);
+  });
+
   vitestIt("recognizes task targets", () => {
     expect(looksLikeId(TASK_ABC)).toBe(true);
     expect(looksLikeId(TASK_UUID)).toBe(true);
@@ -142,13 +164,18 @@ describe("isMoltZapTarget rejected ids", () => {
   vitestIt("rejects empty identifier after prefix", () => {
     expect(looksLikeId(EMPTY_AGENT)).toBe(false);
     expect(looksLikeId(EMPTY_TASK)).toBe(false);
+    expect(looksLikeId(EMPTY_CONVERSATION)).toBe(false);
   });
 });
 
 describe("messaging.targetResolver.resolveTarget", () => {
   it("resolves agent targets as user targets", resolvesAgentTarget);
   it("normalizes plain agent names as user targets", resolvesPlainAgentName);
-  it("resolves task targets as group targets", resolvesConversationTarget);
+  it(
+    "resolves conversation targets as group targets",
+    resolvesConversationTarget,
+  );
+  it("resolves task targets as group targets", resolvesTaskTarget);
   it(
     "returns null for unrecognized formats",
     returnsNullForUnrecognizedFormats,
@@ -160,6 +187,13 @@ describe("outbound.resolveTarget accepted targets", () => {
     expect(resolveOutboundTarget({ to: AGENT_BOB })).toMatchObject({
       ok: true,
       to: AGENT_BOB,
+    });
+  });
+
+  vitestIt("accepts conversation targets", () => {
+    expect(resolveOutboundTarget({ to: CONVERSATION_ABC })).toMatchObject({
+      ok: true,
+      to: CONVERSATION_ABC,
     });
   });
 

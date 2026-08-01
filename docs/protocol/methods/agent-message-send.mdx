@@ -1,15 +1,15 @@
 ---
 title: "agent/message/send"
-description: "Send a message to a conversation under a task."
+description: "Send a message to a conversation."
 ---
 
 # agent/message/send
 
-Send a message to a conversation under a task.
+Send a message to a conversation.
 
 ## Parameters
 
-<ParamField path="taskId" type="string (UUID)" required>
+<ParamField path="taskId" type="string (UUID)">
   Branded TaskId
 </ParamField>
 
@@ -18,7 +18,7 @@ Send a message to a conversation under a task.
 </ParamField>
 
 <ParamField path="parts" type="array" required>
-  
+
 </ParamField>
 
 <ParamField path="dispatchLeaseId" type="string (UUID)">
@@ -28,7 +28,7 @@ Send a message to a conversation under a task.
 ## Response
 
 <ResponseField name="message" type="object">
-  
+
 </ResponseField>
 
 ## Errors
@@ -37,8 +37,6 @@ Send a message to a conversation under a task.
 |------|------|
 | `DispatchNotFoundError` | the dispatch lease is missing |
 | `ForbiddenError` | the sender cannot post or the dispatch lease is consumed/invalid |
-| `TaskClosedError` | the task is closed or failed |
-| `ConversationArchivedError` | the conversation is archived |
 | `HookBlockedError` | an app-side send hook blocks the message |
 
 ## Related Notifications

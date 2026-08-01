@@ -9,12 +9,12 @@ Server callback asking an app for the per-message fan-out verdict.
 
 ## Parameters
 
-<ParamField path="taskId" type="string (UUID)" required>
+<ParamField path="taskId" type="string (UUID)">
   Branded TaskId
 </ParamField>
 
 <ParamField path="appId" type="string" required>
-  
+
 </ParamField>
 
 <ParamField path="conversationId" type="string (UUID)" required>
@@ -22,17 +22,17 @@ Server callback asking an app for the per-message fan-out verdict.
 </ParamField>
 
 <ParamField path="message" type="object" required>
-  
+
 </ParamField>
 
 <ParamField path="receivedAt" type="string (ISO 8601)">
-  
+
 </ParamField>
 
 ## Response
 
 <ResponseField name="verdict" type="union">
-  
+
 </ResponseField>
 
 ## Errors

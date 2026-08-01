@@ -26,7 +26,7 @@ export function registerSameConversationDispatchRequestsConcurrent(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     name,
-    "two agent/dispatch/request calls in same (taskId, conversationId) reach the moderator without server-side serialization",
+    "two agent/dispatch/request calls in the same conversation reach the moderator without server-side serialization",
     withDriver(ctx, (driver) =>
       runSameConversationDispatchRequestsConcurrent(name, driver),
     ).pipe(

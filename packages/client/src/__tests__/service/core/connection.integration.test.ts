@@ -1,6 +1,5 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -25,28 +24,19 @@ it("agent/conversation/list returns existing conversations after connect", () =>
 
     // Connect agent-a and create a conversation before agent-b connects as service
     yield* regA.client.connect();
-    const conv = yield* regA.client.call(taskRequest.name, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [regB.agentId],
-      initialConversation: { participants: [regB.agentId] },
+    const conv = yield* regA.client.call(H.agentConversationCreate.name, {
+      appId: H.DEFAULT_APP_ID,
+      participants: [regB.agentId],
     });
 
     // The handshake carries no task-layer state. Existing conversations are
     // fetched explicitly via `agent/conversation/list`.
     const service = yield* H.connectService(regB.apiKey, regB.agentId);
-    expect(
-      service.getConversation(
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
-      ),
-    ).toBeUndefined();
+    expect(service.getConversation(conv.conversation.id)).toBeUndefined();
 
     const list = yield* service.call(H.conversationList.name, {});
     const found = list.items.find(
-      (c) =>
-        c.conversation.id ===
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
+      (c) => c.conversation.id === conv.conversation.id,
     );
     expect(found).toBeDefined();
 
@@ -66,10 +56,9 @@ it("on('message') fires for incoming message from another agent", () =>
       regReceiver.agentId,
     );
 
-    const conv = yield* regSender.client.call(taskRequest.name, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [regReceiver.agentId],
-      initialConversation: { participants: [regReceiver.agentId] },
+    const conv = yield* regSender.client.call(H.agentConversationCreate.name, {
+      appId: H.DEFAULT_APP_ID,
+      participants: [regReceiver.agentId],
     });
 
     const received: unknown[] = [];
@@ -77,19 +66,16 @@ it("on('message') fires for incoming message from another agent", () =>
 
     yield* H.sendAndSettle(
       regSender.client,
-      conv.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
+      conv.conversation.id,
       H.HELLO_RECEIVER,
     );
 
     expect(received.length).toBe(1);
     const event =
       /* Safe because the test fixture establishes this asserted shape. */ received[0] as {
-        taskId: string;
-        message: { parts: Array<{ text: string }> };
+        message: { conversationId: string; parts: Array<{ text: string }> };
       };
-    expect(event.taskId).toBe(conv.task.id);
+    expect(event.message.conversationId).toBe(conv.conversation.id);
     expect(
       /* Safe because the test fixture establishes this asserted shape. */ event
         .message.parts[0]!.text,

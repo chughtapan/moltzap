@@ -7,11 +7,11 @@ import {
   RuntimeFailed,
   type RuntimeTermination,
 } from "./runtime.js";
-import type { AgentConnection } from "../network/router.js";
-import { type Duration, Effect, Redacted, Schema } from "effect";
+import { Duration, Effect, Redacted, Schedule, Schema } from "effect";
 import { attachChildOutput } from "./command.js";
 
 const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
+const READY_POLL_INTERVAL = Duration.millis(100);
 
 /** Runtime-specific observations exposed by one acquired process resource. */
 export interface ProcessObservation<WaitFailure> {
@@ -25,11 +25,15 @@ interface ProcessIdentity {
   readonly runtimeName: string;
 }
 
-interface ProcessReadiness<Name extends string, WaitFailure>
-  extends ProcessIdentity {
-  readonly connection: AgentConnection<Name>;
+interface ProcessReadiness<WaitFailure> extends ProcessIdentity {
   readonly within: Duration.Duration;
   readonly observation: ProcessObservation<WaitFailure>;
+
+  /**
+   * Recognizes the agent's readiness line in the child's accumulated output.
+   * Each runtime owns its own line, so this module never names one.
+   */
+  readonly readyWhen: (output: string) => boolean;
 }
 
 /** An external runtime did not become a ready participant. */
@@ -68,39 +72,53 @@ function acquisitionFailed(
 }
 
 /**
- * Race the router's single readiness contract against actual process exit.
- * The runtime-specific owner supplies process observations, not lifecycle
- * configuration or teardown.
+ * Wait for the child to announce readiness on its own output, racing that
+ * announcement against actual process exit so an agent that dies during
+ * startup fails immediately instead of burning the whole budget. The
+ * runtime-specific owner supplies process observations and its readiness
+ * predicate, not lifecycle configuration or teardown.
  * @param input Input value to process.
  * @returns The await process ready result.
  */
-export function awaitProcessReady<Name extends string, WaitFailure>(
-  input: ProcessReadiness<Name, WaitFailure>,
+export function awaitProcessReady<WaitFailure>(
+  input: ProcessReadiness<WaitFailure>,
 ): Effect.Effect<void, RuntimeAcquisitionFailed> {
   const exited = input.observation.exitCode.pipe(
     Effect.matchEffect({
       onFailure: () =>
         Effect.fail(
           acquisitionFailed(input, input.observation, {
-            detail: `Agent "${input.agentName}" stopped before becoming router-visible without an observable exit code`,
+            detail: `Agent "${input.agentName}" stopped before announcing readiness without an observable exit code`,
           }),
         ),
       onSuccess: (code) =>
         Effect.fail(
           acquisitionFailed(input, input.observation, {
-            detail: `Agent "${input.agentName}" exited before becoming router-visible (exitCode=${String(code)})`,
+            detail: `Agent "${input.agentName}" exited before announcing readiness (exitCode=${String(code)})`,
           }),
         ),
     }),
   );
-  const ready = input.connection.awaitReady(input.within).pipe(
-    Effect.mapError((cause) =>
-      acquisitionFailed(input, input.observation, {
-        detail: `Agent "${input.agentName}" did not become router-visible: ${String(cause)}`,
-      }),
-    ),
+  // The accumulated window is matched whole: a readiness line can arrive split
+  // across stream chunks, and the buffer retains the startup head verbatim.
+  const ready = Effect.sync(() =>
+    input.readyWhen(input.observation.output()),
+  ).pipe(
+    Effect.repeat({
+      schedule: Schedule.spaced(READY_POLL_INTERVAL),
+      until: (announced) => announced,
+    }),
+    Effect.asVoid,
   );
-  return Effect.raceFirst(ready, exited);
+  return Effect.raceFirst(ready, exited).pipe(
+    Effect.timeoutFail({
+      duration: input.within,
+      onTimeout: () =>
+        acquisitionFailed(input, input.observation, {
+          detail: `Agent "${input.agentName}" did not announce readiness within ${Duration.format(input.within)}`,
+        }),
+    }),
+  );
 }
 
 /**

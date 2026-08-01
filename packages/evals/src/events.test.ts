@@ -124,7 +124,6 @@ const CODE_RECEIVED = CodePeerMessageReceived.make({
 });
 
 const ROUTER_COMMIT = RouterMessageCommitted.make({
-  taskId: TASK_ID,
   conversationId: CONVERSATION_ID,
   messageId: MESSAGE_ID,
   senderId: ALICE_ID,

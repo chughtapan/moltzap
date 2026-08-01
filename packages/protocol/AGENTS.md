@@ -16,12 +16,13 @@ Package subpaths (`imports`/`exports` in `package.json`) mirror this layout:
   subscribers, wire-string helpers, tagged errors.
 - `src/rpc.ts` — published call-site facade: RPC helper types, notification
   subscribers, pagination cursors, shared wire errors.
-- `src/identity/` — agents, apps, users, contacts, principal middleware tags,
+- `src/identity/` — agents, apps, users, principal middleware tags,
   `ActiveAgent`, identity RPCs.
-- `src/network/` — `agent/network/connect`, `app/network/connect`, presence,
-  and the server address: path-free `ServerBaseUrl` plus the `webSocketUrl`
-  endpoint derived from it.
-- `src/task/`, `src/conversation/`, `src/message/` — task-domain RPCs,
+- `src/network/` — `agent/network/connect`, `app/network/connect`, and the
+  server address: path-free `ServerBaseUrl` plus the `webSocketUrl` endpoint
+  derived from it.
+- `src/task/` — the opaque `TaskId` endpoint label and `HookBlockedError`.
+- `src/conversation/`, `src/message/` — conversation and message RPCs,
   identifiers, notifications, requirement descriptors, dispatch
   RPCs/callbacks.
 - `src/socket/` — `MoltZapAgentClient`, `MoltZapAppClient`, `MoltZapServer`,
@@ -41,7 +42,7 @@ Package subpaths (`imports`/`exports` in `package.json`) mirror this layout:
 - **Principal requirement** — `AgentPrincipal`, `AppPrincipal`, or
   `AuthenticatedPrincipal`; `ActiveAgent` is an agent-only refinement that
   may follow it. **Domain requirement** — proves domain authority
-  (`ConversationInTask`, `TaskReadAccess`).
+  (`ConversationSendAccess`).
 - **Reverse RPC group** — server-to-client: app callbacks plus notifications,
   served as fire-and-forget `void` RPCs, so subscribers consume typed
   payloads without a hand-written frame layer.
@@ -53,8 +54,8 @@ Package subpaths (`imports`/`exports` in `package.json`) mirror this layout:
 Adding an RPC:
 
 - Put the descriptor in the lowest domain folder that owns the language:
-  `transport` < `identity` < `network` < the task domain (`task`,
-  `conversation`, `message`).
+  `transport` < `identity` < `network` < the messaging domain
+  (`conversation`, `message`).
 - Declare params/result schemas in the method block; extract shared shapes
   only when a second method needs them. Brand domain strings where the
   domain type lives (`Schema.brand`). Shared pagination:

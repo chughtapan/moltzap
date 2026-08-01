@@ -1,6 +1,5 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -20,12 +19,7 @@ it("on('message') skips own agent's messages", () =>
     service.on("message", (msg) => received.push(msg));
 
     // Send from the service (own agent) — should NOT fire on("message")
-    yield* service.send(
-      conv.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-      "Self message",
-    );
+    yield* service.send(conv.conversation.id, "Self message");
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     expect(received.length).toBe(0);
@@ -46,31 +40,15 @@ it("getHistory() stores received messages", () =>
       regReceiver.agentId,
     );
 
-    const conv = yield* regSender.client.call(taskRequest.name, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [regReceiver.agentId],
-      initialConversation: { participants: [regReceiver.agentId] },
+    const conv = yield* regSender.client.call(H.agentConversationCreate.name, {
+      appId: H.DEFAULT_APP_ID,
+      participants: [regReceiver.agentId],
     });
 
-    yield* H.sendAndSettle(
-      regSender.client,
-      conv.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-      "msg 1",
-    );
-    yield* H.sendAndSettle(
-      regSender.client,
-      conv.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-      "msg 2",
-    );
+    yield* H.sendAndSettle(regSender.client, conv.conversation.id, "msg 1");
+    yield* H.sendAndSettle(regSender.client, conv.conversation.id, "msg 2");
 
-    const history = service.getHistory(
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-    );
+    const history = service.getHistory(conv.conversation.id);
     expect(history.length).toBe(2);
 
     service.close();

@@ -1,6 +1,8 @@
 import { assert, beforeEach, it } from "@effect/vitest";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   agentsList,
+  DEFAULT_APP_ID,
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
@@ -10,7 +12,6 @@ import {
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
 import { serverBaseUrl } from "@moltzap/protocol/network";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
   agentId,
   agentName,
@@ -18,7 +19,6 @@ import {
   conversationId,
   messageId,
   redactedAgentKey,
-  taskId,
 } from "@moltzap/protocol/testing";
 import { Array as Arr, Deferred, Effect, Stream } from "effect";
 import { vi } from "vitest";
@@ -48,7 +48,6 @@ interface FakeClientState {
   readonly sendCompletions: Array<Deferred.Deferred<undefined>>;
 }
 
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000811");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000821");
 
 const clientState = vi.hoisted(
@@ -136,10 +135,12 @@ function fakeCallDefinition(
   if (definition.name === messagesSend.name) {
     return fakeSend(payload);
   }
-  if (definition.name === taskRequest.name) {
-    clientState.calls.push({ definition: taskRequest.name, payload });
+  if (definition.name === agentConversationCreate.name) {
+    clientState.calls.push({
+      definition: agentConversationCreate.name,
+      payload,
+    });
     return Effect.succeed({
-      task: { id: TASK_ID },
       conversation: { id: CONVERSATION_ID },
     });
   }
@@ -246,7 +247,6 @@ function connection<Name extends string>(
     agent: makeAgentHandle(name, id),
     key: AGENT_KEY,
     routerUrl: ROUTER_URL,
-    awaitReady: () => Effect.void,
   };
 }
 
@@ -257,7 +257,6 @@ function notification(
   selectedConversationId = CONVERSATION_ID,
 ): MessageReceivedNotification {
   return {
-    taskId: TASK_ID,
     message: {
       id: messageId(id),
       conversationId: selectedConversationId,
@@ -291,7 +290,6 @@ function expectedSend(text: string): readonly ClientCall[] {
     {
       definition: messagesSend.name,
       payload: {
-        taskId: TASK_ID,
         conversationId: CONVERSATION_ID,
         parts: [{ type: "text", text }],
       },
@@ -511,17 +509,16 @@ function assertQuestionExchange(
 const orderedGroupPolicyTest = Effect.fn(function* () {
   const fixture = yield* acquireQuestionPeer();
   assert.deepStrictEqual(
-    clientState.calls.filter((call) => call.definition === taskRequest.name),
+    clientState.calls.filter(
+      (call) => call.definition === agentConversationCreate.name,
+    ),
     [
       {
-        definition: taskRequest.name,
+        definition: agentConversationCreate.name,
         payload: {
           appId: DEFAULT_APP_ID,
-          invitedAgentIds: [TARGET_ID, SOURCE_ID, OBSERVER_ID],
-          initialConversation: {
-            name: GROUP_NAME,
-            participants: [TARGET_ID, SOURCE_ID, OBSERVER_ID],
-          },
+          name: GROUP_NAME,
+          participants: [TARGET_ID, SOURCE_ID, OBSERVER_ID],
         },
       },
     ],

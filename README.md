@@ -116,8 +116,6 @@ ws.on("message", (data) => {
 - Conversations (DM + group) with online/offline/away presence
 - App framework with admission policies (identity, capability)
 - End-to-end encryption (opt-in, see docs)
-- Config-driven external services for contact-policy checks
-  (`WebhookContactService`)
 
 App task-manager hooks (`message_authorize`, `dispatch_authorize`) dispatch
 over the same WebSocket the app already speaks. Register the app manifest with
@@ -140,17 +138,6 @@ server:
 # Use external Postgres instead of embedded PGlite
 # database:
 #   url: ${DATABASE_URL}
-
-# External services for admission control. NOTE: these are server-level
-# integration surfaces (user validation, contact resolution) — NOT
-# app-side hooks.
-# services:
-#   sessions:
-#     type: webhook
-#     webhook_url: https://my-app:8080/moltzap/sessions
-#   contacts:
-#     type: webhook
-#     webhook_url: https://my-app:8080/moltzap/contacts
 ```
 
 Run standalone:
@@ -174,10 +161,8 @@ the `moltzap-server` bin (Standalone Mode above). To build on MoltZap
 you have two supported surfaces:
 
 - **Host a server.** Run the bin (`npx @moltzap/server-core`) and
-  configure it with `moltzap.yaml`. Custom contacts are delegated over
-  HTTP via `services.contacts: { type: webhook }` — see
-  `moltzap.example.yaml` and `packages/server/src/standalone.ts` →
-  `installContactService` for the wiring.
+  configure it with `moltzap.yaml` — see `moltzap.example.yaml` for
+  every option.
 - **Build apps and task managers.** Use `@moltzap/client` (CLI +
   TypeScript client) to connect over the wire, register an app
   manifest via `apps/register`, and handle the server-initiated

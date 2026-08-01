@@ -6,7 +6,7 @@ import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { RpcTimeoutError } from "../_shared/errors.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
-import { taskList } from "#task";
+import { conversationList } from "#conversation";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import type { PropertyInvariantViolation } from "../_shared/registry.js";
 import {
@@ -73,7 +73,9 @@ function measureTimeoutOutcome(
     Effect.gen(function* () {
       yield* attachToxic;
       const start = yield* Clock.currentTimeMillis;
-      const outcome = yield* client.sendRpc(taskList, {}).pipe(Effect.either);
+      const outcome = yield* client
+        .sendRpc(conversationList, {})
+        .pipe(Effect.either);
       const elapsed = (yield* Clock.currentTimeMillis) - start;
       const error = Either.match(outcome, {
         onLeft: (failure) => failure,

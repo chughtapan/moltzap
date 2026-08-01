@@ -8,7 +8,7 @@ Narrow core wiring barrel for server-core internals.
 
 ## Public surface
 
-### [`ConnectionHook`](./types.ts#L9)
+### [`ConnectionHook`](./types.ts#L8)
 
 _TypeAlias_
 
@@ -50,7 +50,7 @@ export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
 
 Implements connection hooks tag.
 
-### [`CoreApp`](./types.ts#L25)
+### [`CoreApp`](./types.ts#L24)
 
 _Interface_
 
@@ -81,17 +81,10 @@ export interface CoreApp {
 
   /**
    * Live ConnectionManager instance. Apps can query `getByParticipant` to
-   * check whether an agent has any live connections (for presence-gated
+   * check whether an agent has any live connections (for liveness-gated
    * push decisions, etc.). Stable identity.
    */
   readonly connections: ConnectionManager;
-
-  /**
-   * Wire a contact-policy gate for app-session admission and
-   * conversation-creation paths. Absence of a checker means "allow all";
-   * operators that need real policy decisions inject their resolver here.
-   */
-  setContactService: (checker: ContactService) => void;
 
   /**
    * Server-local lease registry for the
@@ -118,7 +111,7 @@ Creates core app.
 
 **Returns:** The created core app.
 
-### [`DisconnectionHook`](./types.ts#L18)
+### [`DisconnectionHook`](./types.ts#L17)
 
 _TypeAlias_
 
@@ -180,7 +173,7 @@ precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
 returns `null` — the caller falls through to a no-op tracing Layer (spans
 stay in Effect's fiber context but are not exported).
 
-### [`ResolvedServices`](./layers.ts#L119)
+### [`ResolvedServices`](./layers.ts#L93)
 
 _Interface_
 
@@ -193,19 +186,16 @@ export interface ResolvedServices {
   readonly authService: AuthService;
   readonly appAuthService: AppAuthService;
   readonly conversationService: ConversationService;
-  readonly contactService: ContactsService;
-  readonly presenceService: PresenceService;
   readonly appEndpointRegistry: AppEndpointRegistry;
   readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
-  readonly taskService: TaskService;
   readonly encryption: EnvelopeEncryption | null;
 }
 ```
 
 Describes resolved services.
 
-### [`resolveServices`](./layers.ts#L137)
+### [`resolveServices`](./layers.ts#L108)
 
 _Variable_
 
@@ -219,12 +209,9 @@ export const resolveServices = Effect.all({
   authService: AuthServiceTag,
   appAuthService: AppAuthServiceTag,
   conversationService: ConversationServiceTag,
-  contactService: ContactsServiceTag,
-  presenceService: PresenceServiceTag,
   appEndpointRegistry: AppEndpointRegistryTag,
   leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
-  taskService: TaskServiceTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>
 ```
 
@@ -269,14 +256,14 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`servicesLive`](./layers.ts#L113)
+### [`servicesLive`](./layers.ts#L87)
 
 _Variable_
 
 ```ts
 export const servicesLive = Layer.provideMerge(
-  taskServiceLive,
-  messageDomainLive,
+  messageServiceLive,
+  domainAuthorizationLive,
 )
 ```
 

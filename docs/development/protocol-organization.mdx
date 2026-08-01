@@ -31,7 +31,7 @@ transport
 ```
 
 `identity` owns principals, identities, credentials, and principal
-requirements. `network` owns socket handshake and presence protocol. Task,
+requirements. `network` owns the socket handshake protocol. Task,
 conversation, and message are peer domains. Dispatch is message moderation, so
 it stays under the message domain. `socket` owns the runtime factories that
 open agent/app clients and the server.
@@ -88,15 +88,9 @@ packages/protocol/src/
       index.ts
       ids.ts
 
-    contacts/
-      index.ts
-      ids.ts
-      contacts.ts
-
   network/
     index.ts
     connect.ts
-    presence.ts
 
   task/
     index.ts
@@ -184,9 +178,6 @@ Rules:
 ```text
 agent/network/connect                 RPC
 app/network/connect                   RPC
-
-agent/network/presence/subscribe      RPC
-app/network/presence/subscribe        RPC
 ```
 
 `packages/protocol/package.json` owns the protocol version. `network/connect.ts`
@@ -200,22 +191,11 @@ agent/identity/register               HTTP schema
 app/identity/register                 HTTP schema
 
 agent/identity/agents/list            RPC
-
-agent/identity/contacts/list          RPC
-agent/identity/contacts/add           RPC
-agent/identity/contacts/accept        RPC
-
-agent/identity/contact-requested      notification
-agent/identity/contact-accepted       notification
 ```
 
 `agent/identity/agents/list` is the discovery surface. Id/name filtering should
 be represented by list parameters or performed by the client over list results;
 do not add separate agent lookup RPCs.
-
-`agent/identity/contacts/list` is the contacts read surface. Do not add a
-separate contact-by-id/get RPC unless there is a server-side authorization or
-consistency boundary that list cannot represent.
 
 ### Task
 
@@ -315,7 +295,6 @@ has requirements, it uses a `requirements/` folder even if there is only one
 requirement.
 
 ```text
-identity/contacts/requirements/contact-policy-allows-reach.ts
 task/requirements/task-read-access.ts
 task/requirements/app-owns-task.ts
 conversation/requirements/conversation-in-task.ts
@@ -451,8 +430,6 @@ Protocol source aliases:
 #identity/agents
 #identity/apps
 #identity/users
-#identity/contacts
-#identity/contacts/requirements
 #network
 #task
 #task/requirements
@@ -544,22 +521,10 @@ packages/server/src/
       default-app.ts
       endpoint-registry.ts
       index.ts
-    contacts/
-      handlers.ts
-      contact.service.ts
-      contact-policy.ts
-      webhook-contact-service.ts
-      requirements/
-        reach.ts
-        index.ts
     credential-keys.ts
 
   network/
     connect.handlers.ts
-    presence/
-      handlers.ts
-      presence.service.ts
-      presence-types.ts
     agent-endpoint-resolver.ts
     index.ts
     network-send.ts
@@ -629,7 +594,6 @@ the invariant. For example:
 
 - task read/app ownership checks -> `task/requirements/`
 - conversation membership/send access -> `conversation/requirements/`
-- contact reachability -> `identity/contacts/requirements/` if needed
 
 ### Server Barrel Rules
 
@@ -686,10 +650,7 @@ Server-core source aliases:
 #db
 #identity/agents
 #identity/apps
-#identity/contacts
-#identity/contacts/requirements
 #network
-#network/presence
 #task
 #task/handlers
 #task/requirements
@@ -707,8 +668,8 @@ Server-core source aliases:
 
 Server-core follows the same domain split as protocol:
 
-1. Identity owns agent/app/contact registration, auth, and contact policy.
-2. Network owns connect handlers, presence, and outbound notification send.
+1. Identity owns agent and app registration and auth.
+2. Network owns connect handlers and outbound notification send.
 3. Task, conversation, message, and dispatch each expose a flat
    `domain/handlers.ts` entry point for RPC handlers.
 4. Domain services sit directly beside their handlers as

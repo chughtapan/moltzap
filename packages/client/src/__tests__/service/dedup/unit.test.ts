@@ -4,7 +4,6 @@ import {
   type Message,
   messageReceivedNotificationDefinition,
 } from "@moltzap/protocol/message";
-import { conversationArchivedNotificationDefinition } from "@moltzap/protocol/conversation";
 import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
 import {
   buildMessage,
@@ -18,7 +17,6 @@ const CONV_A = testConversationId("dedup-conv-a");
 const CONV_B = testConversationId("dedup-conv-b");
 const SENDER = testAgentId("dedup-sender");
 const TASK_DEDUP = testTaskId("dedup-task");
-const ARCHIVED_AT = "2026-05-01T00:00:00.000Z";
 const DEDUP_WINDOW_SIZE = 1000;
 const DEDUP_OVERFLOW_COUNT = DEDUP_WINDOW_SIZE + 1;
 const EMPTY_SEEN_COUNT = 0;
@@ -45,10 +43,6 @@ describe("MoltZapService — inbound messageId dedup", () => {
   it(
     "does not refresh a duplicate before the next FIFO eviction",
     duplicateDoesNotRefresh,
-  );
-  it(
-    "clears the dedup window when the conversation is archived",
-    clearsOnArchive,
   );
   it("clears the dedup window on close", clearsOnClose);
 });
@@ -133,15 +127,6 @@ function duplicateDoesNotRefresh(): void {
   expect(seen).toHaveLength(DOUBLE_SEEN_COUNT);
 }
 
-function clearsOnArchive(): void {
-  const { seen, service } = makeObservedService();
-  emitMessage(service, "archived-msg", CONV_A);
-  archiveConversation(service);
-  seen.length = 0;
-  emitMessage(service, "archived-msg", CONV_A);
-  expect(seen).toHaveLength(1);
-}
-
 function clearsOnClose(): void {
   const { seen, service } = makeObservedService();
   emitMessage(service, "pre-close-msg", CONV_A);
@@ -182,12 +167,4 @@ function saturateDedupWindow(service: FakeMoltZapService): void {
   for (let i = 1; i <= DEDUP_OVERFLOW_COUNT; i++) {
     emitMessage(service, `evict-msg-${i}`, CONV_A);
   }
-}
-
-function archiveConversation(service: FakeMoltZapService): void {
-  service.emitEvent(conversationArchivedNotificationDefinition, {
-    taskId: TASK_DEDUP,
-    conversationId: CONV_A,
-    archivedAt: ARCHIVED_AT,
-  });
 }

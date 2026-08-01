@@ -26,12 +26,6 @@
       "#identity/users": [
         "./src/identity/users/index.ts"
       ],
-      "#identity/contacts": [
-        "./src/identity/contacts/index.ts"
-      ],
-      "#identity/contacts/requirements": [
-        "./src/identity/contacts/requirements/index.ts"
-      ],
       "#identity/principals": [
         "./src/identity/principals/index.ts"
       ],
@@ -43,9 +37,6 @@
       ],
       "#task": [
         "./src/task/index.ts"
-      ],
-      "#task/requirements": [
-        "./src/task/requirements/index.ts"
       ],
       "#conversation": [
         "./src/conversation/index.ts"

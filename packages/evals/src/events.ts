@@ -83,7 +83,7 @@ export class CodePeerMessageSent extends Schema.TaggedClass<CodePeerMessageSent>
     caseId: evaluationCaseId,
     agentName: agentName,
     agentId: agentId,
-    taskId: taskId,
+    taskId: Schema.optional(taskId),
     conversationId: conversationId,
     messageId: messageId,
     parts: messageParts,
@@ -100,7 +100,7 @@ export class CodePeerMessageReceived extends Schema.TaggedClass<CodePeerMessageR
     caseId: evaluationCaseId,
     agentName: agentName,
     agentId: agentId,
-    taskId: taskId,
+    taskId: Schema.optional(taskId),
     conversationId: conversationId,
     messageId: messageId,
     senderId: agentId,
@@ -319,7 +319,7 @@ function evidenceCaseId(
 }
 
 function messageKey(event: SocialObservation | RouterMessageCommitted): string {
-  return JSON.stringify([event.taskId, event.conversationId, event.messageId]);
+  return JSON.stringify([event.conversationId, event.messageId]);
 }
 
 function routerCommits(

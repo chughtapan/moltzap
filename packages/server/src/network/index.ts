@@ -10,5 +10,3 @@ export { connectAgent, connectApp } from "./connect.handlers.js";
 export { NetworkSendService } from "./network-send.js";
 /** Re-exports the public API from `./notification-broadcast.js`. */
 export { broadcastNotificationToAgents } from "./notification-broadcast.js";
-/** Re-exports the public API from `./outbound-webhook-cap.js`. */
-export { applyOutboundWebhookCap } from "./outbound-webhook-cap.js";

@@ -37,7 +37,7 @@ export const messageId: Schema.Schema<MessageId, string> = formatString(
   Schema.annotations({ description: "Branded MessageId" }),
 );
 
-/** The referenced conversation does not exist under the task (or is not visible). */
+/** The referenced conversation does not exist (or is not visible to the caller). */
 export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(
   "ConversationNotFound",
   errorPayloadFields,
@@ -53,14 +53,6 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
   static readonly message = "Not a participant in the conversation";
 }
 
-/** The conversation is archived and cannot accept the requested mutation. */
-export class ConversationArchivedError extends Schema.TaggedError<ConversationArchivedError>()(
-  "ConversationArchived",
-  errorPayloadFields,
-) {
-  static readonly message = "Conversation is archived";
-}
-
 /** The conversation has reached its participant capacity. */
 export class ConversationFullError extends Schema.TaggedError<ConversationFullError>()(
   "ConversationFull",
@@ -69,41 +61,16 @@ export class ConversationFullError extends Schema.TaggedError<ConversationFullEr
   static readonly message = "Conversation is full";
 }
 
-/**
- * A requested conversation participant is not admitted to the task that owns
- * the conversation.
- */
-export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantNotAdmittedError>()(
-  "ParticipantNotAdmitted",
-  errorPayloadFields,
-) {
-  static readonly message = "Agent is not admitted to the task";
-}
-
-const conversationMetadataSchema = Schema.Struct({
-  tags: Schema.optional(
-    Schema.Array(Schema.Record({ key: Schema.String, value: Schema.String })),
-  ),
-});
-
 const conversationSchemaValue = Schema.Struct({
   id: conversationId,
   name: Schema.optional(Schema.String),
   createdBy: agentId,
-  metadata: Schema.optional(conversationMetadataSchema),
   lastMessageTimestamp: Schema.optional(dateTimeString),
   createdAt: dateTimeString,
   updatedAt: dateTimeString,
-  // Present iff the conversation is archived. Clients filter
-  // `archivedAt !== undefined` to exclude archived rows from a
-  // `ConversationList` response; the server returns archived rows
-  // unfiltered, since the visibility contract for
-  // `ConversationList` is "caller in `conversation_participants`",
-  // not "archived excluded".
-  archivedAt: Schema.optional(dateTimeString),
 });
 
-/** Conversation row visible on task conversation surfaces. */
+/** Conversation row visible on conversation surfaces. */
 export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 /** Participant row for a conversation. */
@@ -123,7 +90,6 @@ export interface ConversationSummary {
   readonly lastMessagePreview?: string;
   readonly lastMessageTimestamp?: string;
   readonly unreadCount: number;
-  readonly metadata?: Schema.Schema.Type<typeof conversationMetadataSchema>;
   readonly participants?: ReadonlyArray<{
     readonly type: "agent";
     readonly id: string;

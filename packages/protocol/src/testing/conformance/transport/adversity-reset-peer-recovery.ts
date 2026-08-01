@@ -9,7 +9,7 @@ import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { TransportClosedError } from "../_shared/errors.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
-import { taskList } from "#task";
+import { conversationList } from "#conversation";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable } from "../_shared/registry.js";
 import {
@@ -88,7 +88,9 @@ function observeResetClose(
 
 function rpcClosedByTransport(client: AgentTestClient) {
   return Effect.gen(function* () {
-    const outcome = yield* client.sendRpc(taskList, {}).pipe(Effect.either);
+    const outcome = yield* client
+      .sendRpc(conversationList, {})
+      .pipe(Effect.either);
     return Either.match(outcome, {
       onLeft: (error) => error instanceof TransportClosedError,
       onRight: () => false,

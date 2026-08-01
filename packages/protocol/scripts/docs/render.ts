@@ -59,7 +59,8 @@ function renderParametersSection(params: readonly SchemaPropertyDoc[]): string {
       .map((p) => {
         const req = p.required ? " required" : "";
         const desc = p.description ?? `The ${p.name} field.`;
-        return `<ParamField path="${p.name}" type="${p.type}"${req}>\n  ${desc}\n</ParamField>\n\n`;
+        const body = desc === "" ? "" : `  ${desc}`;
+        return `<ParamField path="${p.name}" type="${p.type}"${req}>\n${body}\n</ParamField>\n\n`;
       })
       .join("")
   );
@@ -79,7 +80,8 @@ function renderResponseSection(
     result
       .map((r) => {
         const desc = r.description ?? `The ${r.name} field.`;
-        return `<ResponseField name="${r.name}" type="${r.type}">\n  ${desc}\n</ResponseField>\n\n`;
+        const body = desc === "" ? "" : `  ${desc}`;
+        return `<ResponseField name="${r.name}" type="${r.type}">\n${body}\n</ResponseField>\n\n`;
       })
       .join("")
   );

@@ -2,7 +2,6 @@ import { conversationId, messageId } from "@moltzap/protocol/conversation";
 import { agentId, agentName } from "@moltzap/protocol/identity";
 import { messagePartsSchema } from "@moltzap/protocol/message";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
-import { taskId } from "@moltzap/protocol/task";
 import { Schema } from "effect";
 import { EventCatalog } from "./catalog.js";
 import { CommittedRouterMessage } from "../network/router.js";
@@ -109,7 +108,6 @@ export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()
   "moltzap.conversation-opened/v1",
   {
     openedBy: agentId,
-    taskId: taskId,
     conversationId: conversationId,
     participants: Schema.NonEmptyArray(agentId),
   },
@@ -120,7 +118,6 @@ export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>
   "moltzap.endpoint-message-sent/v1",
   {
     endpointId: agentId,
-    taskId: taskId,
     conversationId: conversationId,
     messageId: messageId,
     parts: messageParts,
@@ -132,7 +129,6 @@ export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageR
   "moltzap.endpoint-message-received/v1",
   {
     endpointId: agentId,
-    taskId: taskId,
     conversationId: conversationId,
     messageId: messageId,
     senderId: agentId,

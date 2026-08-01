@@ -132,10 +132,14 @@ function awaitStartup<Name extends string>(
   client: MoltZapAgentClient,
   startupTimeout: Duration.Duration,
 ): Effect.Effect<void, EffectRuntimeStartFailed> {
-  return Effect.all(
-    [client.connect(), input.connection.awaitReady(startupTimeout)],
-    { concurrency: 2, discard: true },
-  ).pipe(Effect.mapError((cause) => startFailure(input, cause)));
+  return client.connect().pipe(
+    Effect.timeoutFail({
+      duration: startupTimeout,
+      onTimeout: () =>
+        `connect did not complete within ${Duration.format(startupTimeout)}`,
+    }),
+    Effect.mapError((cause) => startFailure(input, cause)),
+  );
 }
 
 interface ConnectedEffectClient {

@@ -54,8 +54,8 @@ export class AppRegistry {
    * `AppConnection.auth.appId`, or `DEFAULT_APP_ID` at boot), NOT by
    * `manifest.appId`. The DB issues `app_id` via `gen_random_uuid()`;
    * the manifest's `appId` field does not participate in routing.
-   * `agent/task/request` targets the appId the registrant received from
-   * `/api/v1/apps/register`, which is this same server-minted identity.
+   * `agent/conversation/create` targets the appId the registrant received
+   * from `/api/v1/apps/register`, which is this same server-minted identity.
    * @param appId Value supplied to the operation.
    * @param manifest Value supplied to the operation.
    * @param endpoint Value supplied to the operation.

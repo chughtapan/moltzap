@@ -46,7 +46,6 @@ const connection: AgentConnection<"alice"> = {
   agent: makeAgentHandle("alice", ALICE_ID),
   key,
   routerUrl,
-  awaitReady: () => Effect.void,
 };
 
 // @agent-code-guard/regression-only: exact scoped acquisition and invalid declaration cases pin runtime construction invariants

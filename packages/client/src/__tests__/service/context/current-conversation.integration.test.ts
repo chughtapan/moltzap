@@ -15,19 +15,10 @@ it("excludes current conversation's messages", () =>
 
     const conv = yield* H.createDm(service, regB.agentId);
 
-    yield* H.sendAndSettle(
-      regB.client,
-      conv.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-      "Same conv msg",
-    );
+    yield* H.sendAndSettle(regB.client, conv.conversation.id, "Same conv msg");
 
     // getContext for the same conversation — should NOT include its own messages
-    const ctx = service.getContext(
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-    );
+    const ctx = service.getContext(conv.conversation.id);
     expect(ctx).toBeNull();
 
     service.close();
@@ -50,18 +41,11 @@ it("shows resolved agent name, not UUID", () =>
     const convB = yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);
 
-    yield* H.sendAndSettle(
-      regC.client,
-      convC.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convC
-        .conversation!.id,
-      "Named msg",
-    );
+    yield* H.sendAndSettle(regC.client, convC.conversation.id, "Named msg");
 
     const ctx =
       /* Safe because the test fixture establishes this asserted shape. */ service.getContext(
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
+        convB.conversation.id,
       )!;
     expect(ctx).toContain(H.RESOLVED_AGENT_CONTEXT_NAME);
     expect(ctx).not.toContain(regC.agentId);
@@ -85,39 +69,20 @@ it("new message between calls produces new context", () =>
     const convB = yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);
 
-    yield* H.sendAndSettle(
-      regC.client,
-      convC.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convC
-        .conversation!.id,
-      H.FIRST_MESSAGE,
-    );
-    const first = service.getContext(
-      /* Safe because the test fixture establishes this asserted shape. */ convB
-        .conversation!.id,
-    );
+    yield* H.sendAndSettle(regC.client, convC.conversation.id, H.FIRST_MESSAGE);
+    const first = service.getContext(convB.conversation.id);
     expect(first).toContain(H.FIRST_MESSAGE);
 
     // Marker advanced — second call returns null
-    expect(
-      service.getContext(
-        /* Safe because the test fixture establishes this asserted shape. */ convB
-          .conversation!.id,
-      ),
-    ).toBeNull();
+    expect(service.getContext(convB.conversation.id)).toBeNull();
 
     // New message arrives
     yield* H.sendAndSettle(
       regC.client,
-      convC.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convC
-        .conversation!.id,
+      convC.conversation.id,
       H.SECOND_MESSAGE,
     );
-    const third = service.getContext(
-      /* Safe because the test fixture establishes this asserted shape. */ convB
-        .conversation!.id,
-    );
+    const third = service.getContext(convB.conversation.id);
     expect(third).not.toBeNull();
     expect(third).toContain(H.SECOND_MESSAGE);
 

@@ -4,35 +4,11 @@ _`packages/protocol/src/task`_
 
 ## Purpose
 
-Public barrel for task protocol descriptors.
+Public barrel for the opaque task label and the app send-hook failure.
 
 ## Public surface
 
-### [`agentCallableTaskRpcMethods`](./tasks.ts#L385)
-
-_Variable_
-
-```ts
-export const agentCallableTaskRpcMethods = [
-  taskRequest,
-  taskList,
-  taskLeave,
-] as const
-```
-
-Task RPC catalog callable by agent clients.
-
-### [`appCallableTaskRpcMethods`](./tasks.ts#L392)
-
-_Variable_
-
-```ts
-export const appCallableTaskRpcMethods = [taskUpdate] as const
-```
-
-Task RPC catalog callable by app clients.
-
-### [`HookBlockedError`](./tasks.ts#L88)
+### [`HookBlockedError`](./hooks.ts#L14)
 
 _Class_
 
@@ -45,117 +21,12 @@ export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
 }
 ```
 
-Reports hook blocked failures.
+The app that authorizes a conversation refused the dispatch. Raised by
+`agent/message/send` when the app's send hook returns a block verdict (or the
+fail-closed envelope synthesizes one on timeout, RPC error, or decode
+failure). The app's reason rides in the `data` arm when present.
 
-### [`InitialConversationInput`](./tasks.ts#L163)
-
-_TypeAlias_
-
-```ts
-export type InitialConversationInput = Schema.Schema.Type<
-  typeof initialConversationSchema
->;
-```
-
-Represents initial conversation input values.
-
-### [`Task`](./tasks.ts#L112)
-
-_TypeAlias_
-
-```ts
-export type Task = Schema.Schema.Type<typeof taskSchema>;
-```
-
-Represents task values.
-
-### [`taskCallbackMethods`](./tasks.ts#L395)
-
-_Variable_
-
-```ts
-export const taskCallbackMethods = [taskCreate] as const
-```
-
-Task callback catalog served by app clients for server-initiated calls.
-
-### [`TaskClosedError`](./tasks.ts#L64)
-
-_Class_
-
-```ts
-export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
-  "TaskClosed",
-  errorPayloadFields,
-) {
-  static readonly message = "Task is closed";
-}
-```
-
-Reports task closed failures.
-
-### [`taskClosedNotificationDefinition`](./tasks.ts#L379)
-
-_Variable_
-
-```ts
-export const taskClosedNotificationDefinition = defineNotification({
-  name: "agent/task/closed",
-  params: taskClosedNotificationSchema,
-})
-```
-
-Pushed when a task closes.
-
-### [`taskCreate`](./tasks.ts#L248)
-
-_Variable_
-
-```ts
-export const taskCreate = defineRpc({
-  name: "app/task/create",
-  params: taskCreateContextSchema,
-  result: Schema.Struct({ verdict: taskCreateVerdictSchema }),
-  requires: [],
-  errors: [ForbiddenError],
-})
-```
-
-Server → app round-trip asking whether the app accepts a newly requested
-task.
-
-- **Principal:** none — a server→client reverse callback.
-
-### [`taskCreatedNotificationDefinition`](./tasks.ts#L370)
-
-_Variable_
-
-```ts
-export const taskCreatedNotificationDefinition = defineNotification({
-  name: "agent/task/created",
-  params: taskCreatedNotificationSchema,
-})
-```
-
-Pushed to the task initiator + invited participants after the app accepts via
-the `app/task/create` wire callback and the task transitions from `waiting`
-to `active`. Carries the full Task row (matching `agent/task/closed`'s shape) so
-subscribers don't need a second read to discover the post-transition state.
-
-### [`taskFailedNotificationDefinition`](./tasks.ts#L359)
-
-_Variable_
-
-```ts
-export const taskFailedNotificationDefinition = defineNotification({
-  name: "agent/task/failed",
-  params: taskFailedNotificationSchema,
-})
-```
-
-Pushed when a task fails before becoming ready.
-
-### [`taskId`](./ids.ts#L7)
+### [`taskId`](./ids.ts#L10)
 
 _Variable_
 
@@ -168,7 +39,7 @@ export const taskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(
 
 Validates and decodes task id values.
 
-### [`TaskId`](./ids.ts#L5)
+### [`TaskId`](./ids.ts#L8)
 
 _TypeAlias_
 
@@ -176,215 +47,10 @@ _TypeAlias_
 export type TaskId = string & Brand.Brand<"TaskId">;
 ```
 
-Represents task id values.
-
-### [`taskLeave`](./tasks.ts#L273)
-
-_Variable_
-
-```ts
-export const taskLeave = defineRpc({
-  name: "agent/task/leave",
-  params: Schema.Struct({ taskId: taskId }),
-  result: Schema.Struct({}),
-  requires: [AgentPrincipal, ActiveAgent],
-  errors: [TaskNotFoundError],
-})
-```
-
-Self-only: caller removes themselves from `task_participants` AND
-every `conversation_participants` row under the task.
-
-Notification emission for each conversation the caller leaves uses
-`ConversationParticipantsRemovedNotificationDefinition` with
-`reason: "task_leave"`. If removal empties `task_participants` the task
-transitions to `status = 'closed'` and `TaskClosedNotificationDefinition`
-fires alongside in the same transaction.
-
-- **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
-
-### [`taskList`](./tasks.ts#L139)
-
-_Variable_
-
-```ts
-export const taskList = defineRpc({
-  name: "agent/task/list",
-  params: Schema.Struct({
-    limit: listLimitSchema,
-    cursor: Schema.optional(listCursorSchema()),
-  }),
-  result: Schema.Struct({
-    tasks: Schema.Array(taskSchema),
-    nextCursor: Schema.optional(listCursorSchema()),
-  }),
-  requires: [AgentPrincipal],
-  errors: [InvalidParamsError],
-})
-```
-
-List the caller's own tasks, cursor-paginated.
-
-- **Principal:** `AgentPrincipal` head.
-
-### [`TaskNotFoundError`](./ids.ts#L17)
-
-_Class_
-
-```ts
-export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
-  "TaskNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Task not found";
-}
-```
-
-The referenced task does not exist (or the caller cannot see it). Lives in the
-task-id leaf so the `TaskReadAccess` requirement can declare it as its
-fail-closed not-found without a `requirements -> tasks` runtime import cycle.
-
-### [`taskNotifications`](./tasks.ts#L398)
-
-_Variable_
-
-```ts
-export const taskNotifications = [
-  taskClosedNotificationDefinition,
-  taskCreatedNotificationDefinition,
-  taskFailedNotificationDefinition,
-] as const
-```
-
-Task notification catalog emitted by the server.
-
-### [`TaskParticipant`](./tasks.ts#L127)
-
-_TypeAlias_
-
-```ts
-export type TaskParticipant = Schema.Schema.Type<typeof taskParticipantSchema>;
-```
-
-Represents task participant values.
-
-### [`TaskRejectedError`](./tasks.ts#L80)
-
-_Class_
-
-```ts
-export class TaskRejectedError extends Schema.TaggedError<TaskRejectedError>()(
-  "TaskRejected",
-  errorPayloadFields,
-) {
-  static readonly message = "Task request was rejected by the owning app";
-}
-```
-
-`agent/task/request` failed because the owning app rejected the
-server-initiated `app/task/create` callback (or the fail-closed
-envelope synthesized a reject on timeout / RPC error / decode
-failure). The tag lets a requester distinguish "my task was
-rejected by the moderator" — an expected, actionable outcome —
-from an opaque internal error. The app's reason rides in the
-`data` arm when present.
-
-### [`taskRequest`](./tasks.ts#L191)
-
-_Variable_
-
-```ts
-export const taskRequest = defineRpc({
-  name: "agent/task/request",
-  params: Schema.Struct({
-    appId: appId,
-    invitedAgentIds: Schema.Array(agentId),
-    initialConversation: Schema.optional(initialConversationSchema),
-  }),
-  result: Schema.Struct({
-    task: taskSchema,
-    conversation: Schema.Union(conversationSchemaValue, Schema.Null),
-  }),
-  requires: [AgentPrincipal, ActiveAgent, ContactPolicyAllowsReach],
-  errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
-})
-```
-
-Open to any active agent. Returns `{ task, conversation }` where
-`conversation` is `null` when `initialConversation` is omitted.
-
-Dedup is a client-side concern: clients that want "one DM per
-participant set" semantics list their tasks and filter locally
-before creating a new one.
-
-The agent-facing entry RPC is `agent/task/request`; the app-facing wire
-callback `app/task/create` lives in this task domain. The server
-forks `app/task/create` to the owning app after inserting the task in
-`waiting`; the app verdict drives the lifecycle (accept → active +
-`agent/task/created`; reject → failed + `agent/task/failed`). The
-synchronous `{ task, conversation }`
-result is returned after the verdict resolves (the handler awaits it).
-
-- **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
-- **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
-  reach every invited agent and initial-conversation participant under the
-  recipient's contact policy.
-
-### [`TaskStatus`](./tasks.ts#L99)
-
-_TypeAlias_
-
-```ts
-export type TaskStatus = Schema.Schema.Type<typeof taskStatusEnum>;
-```
-
-Represents task status values.
-
-### [`taskUpdate`](./tasks.ts#L330)
-
-_Variable_
-
-```ts
-export const taskUpdate = defineRpc({
-  name: "app/task/update",
-  params: taskUpdateParamsSchema,
-  result: taskUpdateResultSchema,
-  requires: [AppPrincipal],
-  errors: [ForbiddenError, TaskNotFoundError],
-})
-```
-
-App-only task mutation surface. `app/task/update` owns task close,
-participant admit, and participant remove semantics.
-
-- **Principal:** `AppPrincipal` head. The app-arm handler runs
-  `assertCallerAppOwnsTask` before dispatching the selected action.
-
-### [`TaskUpdateParams`](./tasks.ts#L313)
-
-_TypeAlias_
-
-```ts
-export type TaskUpdateParams = Schema.Schema.Type<
-  typeof taskUpdateParamsSchema
->;
-```
-
-Represents task update params values.
-
-### [`TaskUpdateResult`](./tasks.ts#L317)
-
-_TypeAlias_
-
-```ts
-export type TaskUpdateResult = Schema.Schema.Type<
-  typeof taskUpdateResultSchema
->;
-```
-
-Represents the result of task update.
+Opaque endpoint label a caller may pin to a message or conversation. The
+server carries and echoes it without interpretation.
 
 ## Files
 
+- `hooks.ts`
 - `ids.ts`
-- `tasks.ts`

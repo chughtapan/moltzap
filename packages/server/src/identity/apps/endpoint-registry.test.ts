@@ -4,7 +4,6 @@ import { connectionIdSchema } from "@moltzap/protocol/socket";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize } from "@moltzap/protocol/message";
-import { taskCreate } from "@moltzap/protocol/task";
 import { appId as makeAppId } from "@moltzap/protocol/testing";
 import { AppEndpointRegistry } from "./endpoint-registry.js";
 import { makeHandlerAppEndpoint } from "../../test-utils/app-endpoint.js";
@@ -23,7 +22,6 @@ const APP_MANIFEST = {
   hooks: {
     dispatch_authorize: { kind: "hook", timeoutMs: 5_000 },
     message_authorize: { kind: "hook", timeoutMs: 5_000 },
-    task_create: { kind: "hook", timeoutMs: 5_000 },
   },
 } satisfies AppManifest;
 
@@ -40,8 +38,6 @@ function makeTestEndpoint(id: typeof CONN_ID) {
             recipients: [],
           },
         }),
-      [taskCreate.name]: () =>
-        Effect.succeed({ verdict: { decision: "accept" } }),
     },
   });
 }

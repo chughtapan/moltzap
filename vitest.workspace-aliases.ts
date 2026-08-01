@@ -50,14 +50,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   alias("#identity/apps", "packages/protocol/src/identity/apps/index.ts"),
   alias("#identity/users", "packages/protocol/src/identity/users/index.ts"),
   alias(
-    "#identity/contacts",
-    "packages/protocol/src/identity/contacts/index.ts",
-  ),
-  alias(
-    "#identity/contacts/requirements",
-    "packages/protocol/src/identity/contacts/requirements/index.ts",
-  ),
-  alias(
     "#identity/principals",
     "packages/protocol/src/identity/principals/index.ts",
   ),
@@ -133,16 +125,7 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
     "#identity/credential-keys",
     "packages/server/src/identity/credential-keys.ts",
   ),
-  alias("#identity/contacts", "packages/server/src/identity/contacts/index.ts"),
-  alias(
-    "#identity/contacts/requirements",
-    "packages/server/src/identity/contacts/requirements/index.ts",
-  ),
   alias("#network", "packages/server/src/network/index.ts"),
-  alias("#network/presence", "packages/server/src/network/presence/index.ts"),
-  alias("#task", "packages/server/src/task/index.ts"),
-  alias("#task/handlers", "packages/server/src/task/handlers.ts"),
-  alias("#task/requirements", "packages/server/src/task/requirements/index.ts"),
   alias("#conversation", "packages/server/src/conversation/index.ts"),
   alias(
     "#conversation/handlers",

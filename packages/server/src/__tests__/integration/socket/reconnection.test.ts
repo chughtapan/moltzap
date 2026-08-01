@@ -14,17 +14,15 @@ import {
 } from "../helpers.js";
 
 import {
-  DEFAULT_APP_ID,
-  taskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
-import {
   messageReceivedNotificationDefinition,
   messagesList,
   messagesSend,
 } from "@moltzap/protocol/message";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import { DEFAULT_APP_ID, type AgentId } from "@moltzap/protocol/identity";
+import {
+  agentConversationCreate,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
 
 const PRE_DISCONNECT_TEXT = "Pre-disconnect";
 const OFFLINE_TEXT = "Sent while you were away";
@@ -46,7 +44,6 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 interface DmBinding {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -86,23 +83,16 @@ function createDm(
   participantAgentId: AgentId,
 ): Effect.Effect<DmBinding, unknown> {
   return Effect.gen(function* () {
-    const conv = yield* client.sendRpc(taskRequest, {
+    const conv = yield* client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [participantAgentId],
-      initialConversation: { participants: [participantAgentId] },
+      participants: [participantAgentId],
     });
-    return {
-      taskId: conv.task.id,
-      conversationId:
-        /* Safe because the test fixture establishes this asserted shape. */ conv
-          .conversation!.id,
-    };
+    return { conversationId: conv.conversation.id };
   });
 }
 
 function sendText(client: TestAgentClient, binding: DmBinding, text: string) {
   return client.sendRpc(messagesSend, {
-    taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
   });
@@ -111,7 +101,6 @@ function sendText(client: TestAgentClient, binding: DmBinding, text: string) {
 function expectReconnectedHistory(client: TestAgentClient, binding: DmBinding) {
   return Effect.gen(function* () {
     const msgs = yield* client.sendRpc(messagesList, {
-      taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
 
