@@ -21,10 +21,10 @@ import {
   Ref,
   Schema,
   Scope,
-  TestClock,
 } from "effect";
 import { describe } from "vitest";
 import { RuntimeAcquisitionFailed } from "../process.js";
+import { expireStartupDeadline } from "../process.test-utils.js";
 import type {
   OpenClawProcessInput,
   OpenClawProcessOptions,
@@ -49,7 +49,10 @@ const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
 const READY_OUTPUT = "MoltZap: connected as alice (agent-1)";
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43123");
 const PROCESS_EXIT_CODE = 23;
-const STARTUP_TIMEOUT = Duration.seconds(17);
+// `awaitProcessReady` polls readiness on a fixed interval, and expiring this
+// budget on the test clock costs one round of real timers per poll it covers.
+// A small multiple of that interval still exercises repeated polling.
+const STARTUP_TIMEOUT = Duration.millis(500);
 const MODEL_ID = "test/model";
 const OPENCLAW_BIN = "/opt/openclaw/bin/openclaw";
 const CHANNEL_DIST_DIR = "/opt/moltzap/openclaw-channel/dist";
@@ -354,8 +357,7 @@ function readinessFailureTest() {
         connection,
       }),
     ).pipe(Effect.flip, Effect.fork);
-    yield* Deferred.await(fixture.acquired);
-    yield* TestClock.adjust(STARTUP_TIMEOUT);
+    yield* expireStartupDeadline(STARTUP_TIMEOUT);
     const observed = yield* Fiber.join(acquiring);
 
     assert.instanceOf(observed, RuntimeAcquisitionFailed);
