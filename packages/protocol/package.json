@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/protocol",
-  "version": "2026.801.0",
+  "version": "2026.801.1",
   "description": "Protocol types and validators for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -118,8 +118,8 @@
   "dependencies": {
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
-    "@effect/rpc": "0.76.0",
-    "effect": "3.22.0"
+    "@effect/rpc": "^0.76.0",
+    "effect": "^3.22.0"
   },
   "devDependencies": {
     "@typescript/native": "npm:typescript@^7.0.2",
