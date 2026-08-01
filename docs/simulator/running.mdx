@@ -3,6 +3,12 @@ title: "Running simulator programs"
 description: "Run code-first society experiments through your existing TypeScript and job tooling."
 ---
 
+> **Implementation transition:** The [accepted main-track Kubernetes
+> contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
+> governs new work. The entry points and host-run examples below describe the
+> pre-cutover implementation. New execution work uses schema-bound `RunSpec`
+> modules and the single Kubernetes `Run.execute` path.
+
 The simulator runs through ordinary TypeScript entrypoints and task runners.
 Experiment owners expose the command or operator surface that fits their
 domain.
