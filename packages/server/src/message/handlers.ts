@@ -70,7 +70,6 @@ const sendWithDispatchLease = Effect.fn("messages.sendWithDispatchLease")(
             conversationId: input.params.conversationId,
             parts: input.params.parts,
             senderAgentId: input.ctx.agentId,
-            taskId: input.params.taskId,
             excludeConnectionId: input.connId,
           });
           yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
@@ -113,7 +112,6 @@ const handleMessageSend = Effect.fn("messages.send")(function* (
     conversationId: params.conversationId,
     parts: params.parts,
     senderAgentId: ctx.agentId,
-    taskId: params.taskId,
     excludeConnectionId: connection.connId,
   });
   return { message };

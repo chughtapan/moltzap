@@ -35,13 +35,7 @@ import {
   type TypedDispatchMap,
   NotConnectedError,
 } from "#transport";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  redactedAgentKey,
-  taskId,
-} from "#testing";
+import { agentId, conversationId, messageId, redactedAgentKey } from "#testing";
 
 type TestRpc = Extract<
   RpcGroup.Rpcs<typeof agentCallableGroup>,
@@ -257,7 +251,6 @@ function receivedNotification(): NotificationParamsOf<
   typeof messageReceivedNotificationDefinition
 > {
   return {
-    taskId: taskId("00000000-0000-0000-0000-000000000001"),
     message: {
       id: messageId("00000000-0000-0000-0000-000000000002"),
       conversationId: conversationId("00000000-0000-0000-0000-000000000003"),

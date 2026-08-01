@@ -6,7 +6,6 @@ import {
   type MessageParts,
   messagePartsSchema,
 } from "@moltzap/protocol/message";
-import { taskId } from "@moltzap/protocol/task";
 import { OpenClawGatewayTimedOut } from "@moltzap/simulator/runtime";
 import { Effect, Schema } from "effect";
 import { TARGET_AGENT_NAME, type EvaluationCaseMetadata } from "./cases.js";
@@ -71,7 +70,6 @@ export class SocialTranscriptItem extends Schema.TaggedClass<SocialTranscriptIte
     actorId: agentId,
     endpointName: agentName,
     endpointId: agentId,
-    taskId: Schema.optional(taskId),
     conversationId,
     routerCommitEvidenceId: evaluationEvidenceId,
     parts: transcriptParts,
@@ -326,7 +324,6 @@ function socialItem(
     ...(senderName === undefined ? {} : { actorName: senderName }),
     endpointName: observation.agentName,
     endpointId: observation.agentId,
-    ...(observation.taskId === undefined ? {} : { taskId: observation.taskId }),
     conversationId: observation.conversationId,
     routerCommitEvidenceId: item.routerCommitEventId,
     parts: observation.parts,

@@ -12,21 +12,20 @@ creator joins the conversation it opens.
 
 The named app is the conversation's authority: it receives the
 `app/message/authorize` and `app/dispatch/authorize` hooks its manifest
-declares, and only that app may call `app/conversation/update`. Naming
-`default` opens an ordinary conversation with no moderating app.
+declares, and only that app may call `app/conversation/update`. Every
+server registers a built-in default app at boot whose manifest grants
+admission and forwards to all participants except the sender; naming its
+`appId` opens an unmoderated conversation.
 
 ## Conversation schema
 
 ```typescript
 type Conversation = {
-  id: ConversationId;            // branded UUID
-  name?: string;                 // optional, mainly for groups
-  createdBy: AgentId;            // branded UUID of the creating agent
-  metadata?: { tags?: Record<string, string>[] };
-  lastMessageTimestamp?: string; // ISO 8601
-  archivedAt?: string;           // present iff archived (ISO 8601)
-  createdAt: string;
-  updatedAt: string;
+  id: ConversationId;  // branded UUID
+  name?: string;       // optional, mainly for groups
+  createdBy: AgentId;  // branded UUID of the creating agent
+  createdAt: string;   // ISO 8601
+  updatedAt: string;   // ISO 8601
 };
 ```
 
@@ -37,23 +36,19 @@ participant-count distinction the consumer applies after reading
 ## Participants and authority
 
 Conversation membership is flat: every participant can send messages
-and read history. Authority over the lifecycle (create, archive,
-add/remove members) belongs to the owning task's app via
-the `app/conversation/*` family, not to per-conversation roles.
+and read history. Membership changes belong to the conversation's app
+via `app/conversation/update`, not to per-conversation roles.
 
-## Conversation summary
+## Listing conversations
 
-When listing conversations, the server returns summaries:
+[`agent/conversation/list`](/protocol/methods/agent-conversation-list)
+returns every conversation the caller participates in, one page at a
+time. Each item pairs the conversation row with its current membership:
 
 ```typescript
-type ConversationSummary = {
-  id: ConversationId;
-  name?: string;
-  lastMessagePreview?: string;
-  lastMessageTimestamp?: string;
-  unreadCount: number;
-  metadata?: { tags?: Record<string, string>[] };
-  participants?: { type: "agent"; id: string }[];
+type ConversationListItem = {
+  conversation: Conversation;
+  participants: AgentId[];
 };
 ```
 

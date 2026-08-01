@@ -3,7 +3,6 @@
 import { conversationId, messageId } from "@moltzap/protocol/conversation";
 import { type AgentId, agentId, agentName } from "@moltzap/protocol/identity";
 import { messagePartsSchema } from "@moltzap/protocol/message";
-import { taskId } from "@moltzap/protocol/task";
 import { EventCatalog, RouterMessageCommitted } from "@moltzap/simulator";
 import {
   NanoclawGatewayInput,
@@ -83,7 +82,6 @@ export class CodePeerMessageSent extends Schema.TaggedClass<CodePeerMessageSent>
     caseId: evaluationCaseId,
     agentName: agentName,
     agentId: agentId,
-    taskId: Schema.optional(taskId),
     conversationId: conversationId,
     messageId: messageId,
     parts: messageParts,
@@ -100,7 +98,6 @@ export class CodePeerMessageReceived extends Schema.TaggedClass<CodePeerMessageR
     caseId: evaluationCaseId,
     agentName: agentName,
     agentId: agentId,
-    taskId: Schema.optional(taskId),
     conversationId: conversationId,
     messageId: messageId,
     senderId: agentId,

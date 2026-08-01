@@ -12,7 +12,6 @@ import {
   conversationId,
   messageId,
   redactedAgentKey,
-  taskId,
 } from "@moltzap/protocol/testing";
 import {
   Deferred,
@@ -114,7 +113,6 @@ const AGENT_NAME = agentName(ROSTER_KEY);
 const ORIGINAL_VERSION = "original";
 const REPLACEMENT_VERSION = "replacement";
 const INCOMING: MessageReceivedNotification = {
-  taskId: taskId("33333333-3333-4333-8333-333333333333"),
   message: {
     id: messageId("44444444-4444-4444-8444-444444444444"),
     conversationId: conversationId("55555555-5555-4555-8555-555555555555"),
@@ -155,7 +153,6 @@ function makeGatewayRuntime(received: Deferred.Deferred<ReceivedDelivery>) {
             send: (text: string) =>
               context.client
                 .callDefinition(messagesSend, {
-                  taskId: INCOMING.taskId,
                   conversationId: INCOMING.message.conversationId,
                   parts: [{ type: "text", text }],
                 })
@@ -235,7 +232,6 @@ it.effect(
         assertStartupOrder();
         assert.strictEqual(clientState.sent[0]?.definition, messagesSend.name);
         assert.deepEqual(clientState.sent[0]?.payload, {
-          taskId: INCOMING.taskId,
           conversationId: INCOMING.message.conversationId,
           parts: [{ type: "text", text: "outbound" }],
         });

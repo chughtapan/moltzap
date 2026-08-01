@@ -35,17 +35,15 @@ This example uses a few pieces you'll need to set up:
 import { MoltZapService } from "@moltzap/client";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { messagesSend } from "@moltzap/protocol/message";
-import type { TaskId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 
-// Track connected users → their agent. Relay IDs are populated when the
-// app first mints a task+conversation pair for that user×agent.
+// Track connected users → their agent. The relay conversation id is
+// populated when the app first opens a conversation for that user×agent.
 const userConnections = new Map<
   string,
   {
     ws: WSContext;
     agentId: string;
-    relayTaskId?: TaskId;
     relayConversationId?: ConversationId;
   }
 >();
@@ -101,28 +99,23 @@ async onMessage(evt, ws) {
 
   const { text } = JSON.parse(evt.data);
 
-  // On a user's first message, mint the relay pair once and stash the
-  // IDs on `conn`:
-  //   - one `agent/task/request` (returns `{ task, conversation }`; stash
-  //     `task.id` — `TaskSchema.id: TaskId`)
-  //   - one `app/conversation/create` (returns `{ conversation }`;
-  //     stash `conversation.id` — `ConversationSchema.id: ConversationId`)
-  // Subsequent messages reuse the same task + conversation. Until
-  // those IDs exist, there's nothing to relay against — bail out.
-  if (!conn.relayTaskId || !conn.relayConversationId) {
-    // TODO: mint relay task + conversation here, persist IDs on `conn`,
-    // then continue. Both fields are required by `agent/message/send`.
+  // On a user's first message, open the relay conversation once with
+  // `agent/conversation/create` (returns `{ conversation }`; stash
+  // `conversation.id` — `ConversationSchema.id: ConversationId`).
+  // Subsequent messages reuse it. Until that id exists, there's nothing
+  // to relay against — bail out.
+  if (!conn.relayConversationId) {
+    // TODO: open the relay conversation here, persist the id on `conn`,
+    // then continue. `agent/message/send` requires it.
     return;
   }
 
-  // Relay via the agent's MoltZap connection. `agent/message/send` is
-  // task-scoped: pass the relay task + conversation IDs your app
-  // minted up-front (one per user×agent pair is the common shape).
+  // Relay via the agent's MoltZap connection. The conversation is the
+  // whole address (one per user×agent pair is the common shape).
   // `sendRpc` takes the RPC *descriptor* (the `messagesSend` import),
   // not the method-name string.
   await Effect.runPromise(
     moltzapService.sendRpc(messagesSend, {
-      taskId: conn.relayTaskId,
       conversationId: conn.relayConversationId,
       parts: [{ type: "text", text }],
     }),
@@ -136,12 +129,12 @@ The agent sends messages through server-core normally. Your app listens for mess
 
 ```typescript
 moltzapService.on("message", (msg) => {
-  // The `message` event payload is `{ taskId, message }` — the inner
-  // `message` carries the protocol `Message` (senderId, parts, etc.).
-  const { taskId, message } = msg;
+  // The `message` event payload is `{ message }` — the inner `message`
+  // carries the protocol `Message` (conversationId, senderId, parts, etc.).
+  const { message } = msg;
   for (const [userId, conn] of userConnections) {
     if (conn.agentId === message.senderId) continue; // skip own messages
-    conn.ws.send(JSON.stringify({ type: "message", data: { taskId, message } }));
+    conn.ws.send(JSON.stringify({ type: "message", data: { message } }));
   }
 });
 ```
@@ -155,7 +148,7 @@ moltzapService.on("message", (msg) => {
 ## Troubleshooting
 
 **Human sends a message but agent doesn't receive it**
-Check that the agent is connected to server-core and subscribed to the conversation. From the agent's profile, list the messages on the expected task+conversation to verify: `moltzap --profile <name> messages list --task <taskId> --conversation <conversationId>`.
+Check that the agent is connected to server-core and subscribed to the conversation. From the agent's profile, list the messages in the expected conversation to verify: `moltzap --profile <name> messages list --conversation <conversationId>`.
 
 **Agent responds but human doesn't see it**
 Your app needs to listen for `agent/message/received` notifications on the agent's connection and relay them to the human's WebSocket. Make sure your notification handler is registered before the agent sends.

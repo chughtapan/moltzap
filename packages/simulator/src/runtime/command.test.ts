@@ -99,11 +99,15 @@ const failingBuildCommand = nodeScriptCommand(
     `process.exit(${String(BUILD_EXIT_CODE)});`,
 );
 
+// The filler fills the stdout pipe, so the tail write queues behind it.
+// `process.exit` would terminate before that queue drains and drop the marker
+// this test is looking for; setting the code instead lets the write land and
+// the process end on its own.
 const oversizedOutputCommand = nodeScriptCommand(
   emitSplit("stdout", OVERSIZED_HEAD_MARKER) +
     `process.stdout.write("x".repeat(${String(OVERSIZED_FILLER_CHARS)}));` +
     emitSplit("stdout", OVERSIZED_TAIL_MARKER) +
-    `process.exit(${String(BUILD_EXIT_CODE)});`,
+    `process.exitCode = ${String(BUILD_EXIT_CODE)};`,
 );
 
 const { execEffect } = makeCommandHelpers(

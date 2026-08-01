@@ -28,24 +28,56 @@ behave as before.
 
 ### Removed: task lifecycle from the control plane
 
-Tasks are an endpoint convention with no network representation. `taskId`
-survives only as an opaque optional label: the server stamps it on the message
-row from the caller's own value and echoes it back, and never reads it.
+Tasks are an endpoint convention with no network representation. Nothing named
+task remains on the wire, in storage, or in the client surface.
 
 - **Wire (`@moltzap/protocol`):** `agent/task/list|request|leave`,
   `app/task/update`, and the `app/task/create` reverse callback are removed,
   along with `Task`, `TaskStatus`, `TaskParticipant`, `TaskClosedError`,
   `TaskRejectedError`, `TaskNotFoundError`, and the task notifications.
   `TaskReadAccess` and `ConversationInTask` are gone; `agent/message/list`
-  gates on conversation participation alone. `taskId` is optional wherever it
-  still appears, and `app/conversation/create` and `app/conversation/update`
-  no longer take one.
+  gates on conversation participation alone. `TaskId` and the `./task` subpath
+  are removed, so `agent/message/send`, `agent/message/list`,
+  `app/message/authorize`, `app/dispatch/authorize`, the dispatch lease record,
+  `agent/message/received`, `ConversationListItem`, and the three
+  `agent/conversation/*` notifications no longer carry `taskId`.
+  `HookBlockedError` moves to `@moltzap/protocol/message`.
 - **Server (`@moltzap/server-core`):** drops the `tasks` and
   `task_participants` tables, the `task_status` enum, `conversations.task_id`,
-  and the whole task domain including `TaskService` and the task-active send
-  guard. `messages.task_id` remains as the opaque label.
+  `messages.task_id`, and the whole task domain including `TaskService` and the
+  task-active send guard.
+- **Client (`@moltzap/client`):** `send` and the local daemon address a
+  conversation only. The `task:<taskId>:<conversationId>` target form is gone;
+  `conv:<conversationId>` remains. The openclaw and nanoclaw channels drop the
+  same form.
 Fresh-schema: `core-schema.sql` no longer declares the dropped tables and
 columns, and no migration shim is emitted.
+
+### Removed: wire fields with no writer
+
+A field the server never populates is not part of the contract. These read as
+optional on the wire but no code path ever set them.
+
+- **Wire (`@moltzap/protocol`):** `Message` drops `taggedEntities` and
+  `patchedBy`; `Conversation` drops `lastMessageTimestamp`. The
+  `ConversationParticipant` and `ConversationSummary` types are removed —
+  `conversation_participants` carries only a conversation and an agent, so the
+  join time, last-read message, and agent names those types named had no
+  source. `agent/conversation/list` is unchanged: it still returns
+  `{ conversation, participants }` items.
+- **Server (`@moltzap/server-core`):** the conversation-list projection
+  collapses to identifiers, dropping a last-message preview cache that was
+  written on every send and read by nothing, the participant prefetch whose
+  result the handler discarded, and an unread `has_last_message` column.
+- **Client (`@moltzap/client`):** local history drops the `metadata` field and
+  its `tags` shape, which the conversation record never carried.
+
+### Changed: `BoundedMap` moves to the client
+
+`@moltzap/protocol` states wire contracts. It never used this store, and every
+caller is client-side, so the `./bounded-map` subpath is removed and the module
+lives in `@moltzap/client`. Channel adapters keep importing it from
+`@moltzap/client/channel-base`, unchanged.
 
 ### Removed: contacts from the control plane
 
