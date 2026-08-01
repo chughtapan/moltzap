@@ -46,6 +46,12 @@ export {
 export {
   LinkController,
   LinkDriver,
+  linkPolicy,
+  linkVerdict,
   type LinkControllerService,
+  type LinkDelivery,
   type LinkDriverService,
+  type LinkPolicy,
+  type LinkPolicyLease,
+  type LinkVerdict,
 } from "./network/link.js";

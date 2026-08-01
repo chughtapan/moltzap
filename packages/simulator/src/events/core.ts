@@ -162,6 +162,61 @@ export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
   to: agentId,
 }) {}
 
+/** A described policy became active on one directed participant link. */
+export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
+  "moltzap.link-policy-set/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+
+/** A described policy stopped shaping one directed participant link. */
+export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
+  "moltzap.link-policy-cleared/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+
+/** An active link policy discarded one committed message before delivery. */
+export class LinkMessageDropped extends Schema.TaggedClass<LinkMessageDropped>()(
+  "moltzap.link-message-dropped/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+    reason: Schema.optional(Schema.String),
+  },
+) {}
+
+/** Active link policies deferred one delivery by a known total duration. */
+export class LinkMessageDelayed extends Schema.TaggedClass<LinkMessageDelayed>()(
+  "moltzap.link-message-delayed/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+    delayMillis: Schema.NonNegative,
+  },
+) {}
+
+/** An active link policy parked one delivery until its lease clears. */
+export class LinkMessageHeld extends Schema.TaggedClass<LinkMessageHeld>()(
+  "moltzap.link-message-held/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+  },
+) {}
+
 /** The customer program returned successfully. */
 export class ProgramSucceeded extends Schema.TaggedClass<ProgramSucceeded>()(
   "moltzap.program-succeeded/v1",
@@ -217,8 +272,16 @@ export const endpointEvents = EventCatalog.make(
   EndpointMessageReceived,
 );
 
-/** Directed-link state events emitted by the network controller. */
-export const linkEvents = EventCatalog.make(LinkDown, LinkUp);
+/** Directed-link state and delivery events emitted by link control. */
+export const linkEvents = EventCatalog.make(
+  LinkDown,
+  LinkUp,
+  LinkPolicySet,
+  LinkPolicyCleared,
+  LinkMessageDropped,
+  LinkMessageDelayed,
+  LinkMessageHeld,
+);
 
 /** The exact event classes readable from every simulator run ledger. */
 export const coreEvents = EventCatalog.merge(
