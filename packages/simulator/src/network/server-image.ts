@@ -50,6 +50,30 @@ const imagePinLine = Schema.parseJson(
   Schema.Struct({ imageDigest: imageDigestSchema }),
 );
 
+/**
+ * Select the bind-mount owner for a Docker daemon's user-namespace mode.
+ * Rootless container root already maps to the daemon owner; passing the host
+ * numeric ID there maps it into the subordinate range instead. Daemon-wide
+ * user namespace remapping cannot safely write a host-user-owned bind mount.
+ * @param uid Numeric host user ID.
+ * @param gid Numeric host group ID.
+ * @param securityOptions Docker daemon security options.
+ * @returns The explicit user, no user for rootless, or null when unsupported.
+ * @internal
+ */
+export function moltZapServerContainerUser(
+  uid: number,
+  gid: number,
+  securityOptions: readonly string[],
+): string | null | undefined {
+  if (securityOptions.some((option) => option.startsWith("name=userns"))) {
+    return null;
+  }
+  return securityOptions.some((option) => option.startsWith("name=rootless"))
+    ? undefined
+    : `${String(uid)}:${String(gid)}`;
+}
+
 function failureOutput(result: {
   readonly stdout: string;
   readonly stderr: string;
@@ -207,18 +231,21 @@ export function resolveServerImage(
  * @param image Value supplied to the operation.
  * @param volumePath Value supplied to the operation.
  * @param containerName Value supplied to the operation.
+ * @param containerUser Numeric host user and group that own the bind mount.
  * @returns The molt zap server run args result.
  */
 export function moltZapServerRunArgs(
   image: string,
   volumePath: string,
   containerName: string,
+  containerUser?: string,
 ): readonly string[] {
   return [
     "docker",
     "run",
     "--detach",
     "--rm",
+    ...(containerUser === undefined ? [] : ["--user", containerUser]),
     "--label",
     SERVER_CONTAINER_LABEL,
     "--label",

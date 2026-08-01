@@ -26,7 +26,11 @@ import {
   MoltZapServerFailed,
   makeMoltZapServerAcquirer,
 } from "./server.js";
-import { imageDigest, moltZapServerRunArgs } from "./server-image.js";
+import {
+  imageDigest,
+  moltZapServerContainerUser,
+  moltZapServerRunArgs,
+} from "./server-image.js";
 
 const it = effectIt.scoped;
 const IMAGE_TEXT = `sha256:${"a".repeat(64)}`;
@@ -334,12 +338,15 @@ describe("MoltZap server", () => {
         IMAGE_TEXT,
         VOLUME_PATH,
         "named-container",
+        "1000:1001",
       );
       assert.deepStrictEqual(args, [
         "docker",
         "run",
         "--detach",
         "--rm",
+        "--user",
+        "1000:1001",
         "--label",
         "moltzap-simulator-run=1",
         "--label",
@@ -361,6 +368,24 @@ describe("MoltZap server", () => {
       assert.strictEqual(
         args.some((part) => part.includes("MCP")),
         false,
+      );
+      const nonPosixArgs = moltZapServerRunArgs(
+        IMAGE_TEXT,
+        VOLUME_PATH,
+        "non-posix-container",
+      );
+      assert.strictEqual(nonPosixArgs.includes("--user"), false);
+      assert.strictEqual(
+        moltZapServerContainerUser(1000, 1001, ["name=seccomp"]),
+        "1000:1001",
+      );
+      assert.strictEqual(
+        moltZapServerContainerUser(1000, 1001, ["name=rootless"]),
+        undefined,
+      );
+      assert.strictEqual(
+        moltZapServerContainerUser(1000, 1001, ["name=userns"]),
+        null,
       );
     }));
 });

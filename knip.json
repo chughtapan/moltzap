@@ -6,6 +6,14 @@
       "project": ["*.mjs", "*.ts"],
       "ignoreDependencies": ["@mermaid-js/mermaid-cli", "typedoc"]
     },
+    "examples/simulator": {
+      "entry": [
+        "hello.ts",
+        "openclaw-container.mjs",
+        "openclaw-container.test.mjs"
+      ],
+      "project": ["*.{mjs,ts}"]
+    },
     "packages/client": {
       "entry": [
         "src/**/*.test.ts",

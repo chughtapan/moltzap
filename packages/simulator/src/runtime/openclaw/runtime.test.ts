@@ -198,6 +198,7 @@ function makeFixture(
 function fullRuntimeOptions(): OpenClawRuntimeOptions {
   return {
     startupTimeout: STARTUP_TIMEOUT,
+    seedOperatorAuth: false,
     installMode: "workspace",
     openclawBin: OPENCLAW_BIN,
     channelDistDir: CHANNEL_DIST_DIR,
@@ -221,6 +222,7 @@ function assertProcessAcquisition(acquired: AcquiredOpenClaw): void {
   assert.strictEqual(acquired.input.agentId, AGENT_ID);
   assert.strictEqual(acquired.input.apiKey, AGENT_KEY);
   assert.strictEqual(acquired.input.serverUrl, ROUTER_URL);
+  assert.strictEqual(acquired.input.seedOperatorAuth, false);
   assert.strictEqual(acquired.input.modelId, MODEL_ID);
   assert.deepStrictEqual(acquired.input.workspaceFiles, [
     { relativePath: "IDENTITY.md", content: "Alice" },
@@ -237,6 +239,7 @@ function assertProcessAcquisition(acquired: AcquiredOpenClaw): void {
       "apiKey",
       "modelId",
       "sandbox",
+      "seedOperatorAuth",
       "serverUrl",
       "tools",
       "workspaceFiles",
@@ -462,6 +465,7 @@ function sanitizedConfigurationTest() {
     assert.include(serialized, "definitionDigest");
     assert.include(serialized, "environmentValues");
     assert.include(serialized, '"installPolicy":"workspace"');
+    assert.include(serialized, '"seedOperatorAuth":false');
     assert.include(serialized, `"modelOverride":"${MODEL_ID}"`);
     assert.include(serialized, "openclawBinOverride");
     assert.include(serialized, "channelDistDirOverride");
@@ -487,6 +491,7 @@ function omittedPolicyConfigurationTest() {
 
     assert.notProperty(encoded, "tools");
     assert.notProperty(encoded, "sandbox");
+    assert.strictEqual(encoded.seedOperatorAuth, true);
   });
 }
 

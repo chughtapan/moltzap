@@ -107,6 +107,7 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   "OpenClawRuntimeConfiguration",
 )({
   startupTimeout: Schema.DurationFromMillis,
+  seedOperatorAuth: Schema.Boolean,
   workspaceFiles: Schema.Array(OpenClawWorkspaceFileConfiguration),
   modelOverride: Schema.optional(Schema.String),
   installPolicy: Schema.Literal("automatic", "published", "workspace"),
@@ -120,6 +121,8 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
 /** Configuration captured by one reusable OpenClaw runtime value. */
 export interface OpenClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
+  /** Copy the operator's default OpenClaw model-auth store into this runtime. */
+  readonly seedOperatorAuth?: boolean;
   readonly workspaceFiles?: readonly OpenClawWorkspaceFile[];
   readonly modelId?: string;
   readonly installMode?: InstallMode;
@@ -132,6 +135,7 @@ export interface OpenClawRuntimeOptions {
 
 interface OpenClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
+  readonly seedOperatorAuth: boolean;
   readonly workspaceFiles: readonly OpenClawWorkspaceFile[];
   readonly modelId?: string;
   readonly installMode?: InstallMode;
@@ -244,6 +248,7 @@ function snapshotOptions(
 ): OpenClawRuntimeSettings {
   return Object.freeze({
     startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
+    seedOperatorAuth: options.seedOperatorAuth ?? true,
     workspaceFiles: snapshotWorkspaceFiles(options.workspaceFiles),
     modelId: options.modelId,
     installMode: options.installMode,
@@ -315,6 +320,7 @@ function runtimeConfiguration(
   const sandbox = nativePolicyConfiguration(settings.sandbox);
   return OpenClawRuntimeConfiguration.make({
     startupTimeout: settings.startupTimeout,
+    seedOperatorAuth: settings.seedOperatorAuth,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
     installPolicy: settings.installMode ?? "automatic",
     mcpServers: mcpConfiguration(settings.mcpServers),
@@ -369,6 +375,7 @@ function processInput<Name extends string>(
     agentId: input.connection.agent.id,
     apiKey: input.connection.key,
     serverUrl: input.connection.routerUrl,
+    seedOperatorAuth: settings.seedOperatorAuth,
     workspaceFiles: settings.workspaceFiles,
     ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
     ...(settings.tools === undefined ? {} : { tools: settings.tools }),
