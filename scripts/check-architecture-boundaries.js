@@ -240,7 +240,6 @@ for (const file of sourceFiles) checkSourceFile(file);
 
 assertExportMap("packages/protocol", [
   ".",
-  "./bounded-map",
   "./conversation",
   "./identity",
   "./message",
@@ -249,7 +248,6 @@ assertExportMap("packages/protocol", [
   "./rpc",
   "./socket",
   "./socket/catalog",
-  "./task",
   "./testing",
 ]);
 assertExportMap("packages/server", [".", "./test-utils"]);

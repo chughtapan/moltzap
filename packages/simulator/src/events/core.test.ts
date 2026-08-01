@@ -5,6 +5,8 @@ import {
   AgentProcessSignaled,
   coreEvents,
   endpointEvents,
+  EndpointMessageReceived,
+  EndpointMessageSent,
   linkEvents,
   RouterMessageCommitted,
   routerEvents,
@@ -25,7 +27,12 @@ test("declares one exact versioned core event universe", () =>
       ...endpointEvents.tags,
       ...linkEvents.tags,
     ]);
-    assert.isTrue(coreEvents.tags.every((tag) => tag.endsWith("/v1")));
+    assert.deepStrictEqual(endpointEvents.tags, [
+      "moltzap.conversation-opened/v1",
+      EndpointMessageSent._tag,
+      EndpointMessageReceived._tag,
+    ]);
+    assert.isTrue(coreEvents.tags.every((tag) => /\/v\d+$/u.test(tag)));
   }));
 
 test("represents process exit and signal as distinct classes", () =>

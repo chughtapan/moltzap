@@ -15,6 +15,10 @@
       "reason": "Published ledger contract for records, storage, live runs, and offline inspection"
     },
     {
+      "file": "runtime.ts",
+      "reason": "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations"
+    },
+    {
       "file": "events/catalog.ts",
       "reason": "Nominal event-catalog boundary shared by definitions, ledger persistence, and event services"
     },
@@ -130,6 +134,14 @@
     {
       "package": "@effect/platform",
       "reason": "Effect platform abstractions used at boundaries"
+    },
+    {
+      "package": "@effect/rpc",
+      "reason": "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client"
+    },
+    {
+      "package": "openclaw",
+      "reason": "OpenClaw runtime options intentionally accept the runtime's native tools and sandbox policies"
     },
     {
       "package": "@moltzap/protocol",

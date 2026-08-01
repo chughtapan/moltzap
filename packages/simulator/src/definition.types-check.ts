@@ -6,7 +6,7 @@
  * before returning, so its in-memory streams cannot fail.
  */
 
-import { Context, Data, Effect, type Exit, type Stream } from "effect";
+import { Context, Data, Effect, type Exit, Schema, type Stream } from "effect";
 import type { MessageParts } from "@moltzap/protocol/message";
 import {
   LinkController,
@@ -17,7 +17,7 @@ import {
 import { RuntimeCompleted, defineRuntime } from "./runtime/runtime.js";
 import type { LedgerStorage } from "./ledger/storage.js";
 import { simulator } from "./definition.js";
-import type { SimulatorRunOptions } from "./kernel/run.js";
+import type { ProgramFinished, SimulatorRunOptions } from "./kernel/run.js";
 
 class RuntimeRequirement extends Context.Tag(
   "@moltzap/simulator/test/RuntimeRequirement",
@@ -31,12 +31,23 @@ class RuntimeUnavailable extends Data.TaggedError("RuntimeUnavailable")<{
   readonly detail: string;
 }> {}
 
-const runtime = defineRuntime<RuntimeUnavailable, RuntimeRequirement>({
+const runtimeConfiguration = Schema.Struct({});
+const runtime = defineRuntime<
+  undefined,
+  RuntimeUnavailable,
+  RuntimeRequirement,
+  typeof runtimeConfiguration
+>({
   name: "type-canary",
+  configuration: {
+    schema: runtimeConfiguration,
+    value: {},
+  },
   acquire: () =>
     Effect.gen(function* () {
       yield* RuntimeRequirement;
       return {
+        gateway: undefined,
         termination: Effect.succeed(RuntimeCompleted.make({})),
       };
     }),
@@ -55,10 +66,10 @@ const program = Effect.gen(function* () {
   const links = yield* LinkController;
   yield* ProgramRequirement;
   const probe = yield* network.endpoint("probe");
-  const conversation = yield* probe.open(agents.alice);
+  const conversation = yield* probe.open(agents.alice.agent);
   yield* conversation.send("hello");
-  yield* links.disable(agents.alice, probe.participant);
-  return [agents.alice.name, probe.participant.name] as const;
+  yield* links.disable(agents.alice.agent, probe.participant);
+  return [agents.alice.agent.name, probe.participant.name] as const;
 });
 
 /** Representative definition run retained for compile-time contract checks. */
@@ -68,6 +79,10 @@ type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 type ExitSuccess<Outcome> =
   Outcome extends Exit.Success<infer Success, unknown> ? Success : never;
+type ProgramExit<Outcome> =
+  Outcome extends ProgramFinished<infer Success, infer Failure>
+    ? Exit.Exit<Success, Failure>
+    : never;
 
 type RunRequirementsAreExact = Expect<
   Equal<
@@ -81,7 +96,7 @@ type RunRequirementsAreExact = Expect<
 >;
 type ResultKeepsLiteralNames = Expect<
   Equal<
-    ExitSuccess<Effect.Effect.Success<typeof definitionCanaryRun>["exit"]>,
+    ExitSuccess<ProgramExit<Effect.Effect.Success<typeof definitionCanaryRun>>>,
     readonly ["alice", "probe"]
   >
 >;

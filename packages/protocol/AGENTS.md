@@ -21,10 +21,9 @@ Package subpaths (`imports`/`exports` in `package.json`) mirror this layout:
 - `src/network/` — `agent/network/connect`, `app/network/connect`, and the
   server address: path-free `ServerBaseUrl` plus the `webSocketUrl` endpoint
   derived from it.
-- `src/task/` — the opaque `TaskId` endpoint label and `HookBlockedError`.
 - `src/conversation/`, `src/message/` — conversation and message RPCs,
   identifiers, notifications, requirement descriptors, dispatch
-  RPCs/callbacks.
+  RPCs/callbacks, and `HookBlockedError`.
 - `src/socket/` — `MoltZapAgentClient`, `MoltZapAppClient`, `MoltZapServer`,
   lifecycle helpers, `ConnectionId`, the `appCallbackMethods` catalog and
   the derived `AgentCallableGroup`, `AppCallableGroup`, `ServerInboundGroup`,

@@ -9,9 +9,8 @@
  * conversations.
  */
 import { Duration, Effect, Ref, type Scope, type Schema } from "effect";
-import type { AppManifest } from "#identity/apps";
+import type { AppManifest, appId as appIdSchema } from "#identity/apps";
 import { messagesAuthorize as messagesAuthorizeDefinition } from "#message";
-import type { appId as appIdSchema } from "#task";
 import { dispatchAuthorize as dispatchAuthorizeDefinition } from "#message/dispatch";
 import {
   makeAppTestClient,

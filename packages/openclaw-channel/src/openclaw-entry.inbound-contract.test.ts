@@ -9,11 +9,9 @@ import {
   testAgentId,
   testConversationId,
   testMessageId,
-  testTaskId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { Message } from "@moltzap/protocol/message";
-import type { TaskId } from "@moltzap/protocol/task";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 
 // Header literal from channel-base's `json-header` markup variant (per spec
@@ -35,7 +33,6 @@ const DEFAULT_CONVERSATION_ID = testConversationId(
 const ORIGINATING_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440201",
 );
-const ORIGINATING_TASK_ID = testTaskId("inbound-originating");
 const GROUP_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440202",
 );
@@ -234,9 +231,9 @@ function waitForExpectation(assertion: () => void, label: string) {
   });
 }
 
-function emitMessage(message?: Message, taskId?: TaskId) {
+function emitMessage(message?: Message) {
   return Effect.gen(function* () {
-    started.fixture.emit.message(message ?? makeMessage(), taskId);
+    started.fixture.emit.message(message ?? makeMessage());
     yield* flushDispatchChainEffect;
   });
 }
@@ -294,11 +291,10 @@ function originatingToIsConversationId() {
   return Effect.gen(function* () {
     yield* emitMessage(
       makeMessage({ conversationId: ORIGINATING_CONVERSATION_ID }),
-      ORIGINATING_TASK_ID,
     );
     yield* waitForDispatchTimes(1);
     expect(firstDispatchContext().OriginatingTo).toBe(
-      `task:${ORIGINATING_TASK_ID}:${ORIGINATING_CONVERSATION_ID}`,
+      `conv:${ORIGINATING_CONVERSATION_ID}`,
     );
   });
 }

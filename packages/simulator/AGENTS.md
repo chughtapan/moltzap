@@ -59,10 +59,10 @@ edge.
 - `src/definition.ts` — public definition assembly.
 - `src/layer.ts` — the single concrete host composition boundary.
 
-Only `src/index.ts`, `src/network.ts`, and `src/ledger.ts` are
-published facades. Programs use the root; platform implementations use
-`./network`; offline tooling uses `./ledger`. Do not export kernel
-implementation modules.
+Only `src/index.ts`, `src/runtime.ts`, `src/network.ts`, and `src/ledger.ts`
+are published facades. Programs use the root and `./runtime`; platform
+implementations use `./network`; offline tooling uses `./ledger`. Do not
+export kernel implementation modules.
 
 Folders are capability boundaries, not namespaces. Keep a type with its
 construction rules and merge single-consumer helpers into their owner. Do not

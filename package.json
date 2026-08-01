@@ -8,7 +8,10 @@
   "pnpm": {
     "overrides": {
       "eslint-plugin-sonarjs>typescript": "5.9.3"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   },
   "scripts": {
     "build": "nx run-many -t build",
@@ -37,7 +40,7 @@
     "simulator:example": "pnpm simulator:example:check && node --experimental-strip-types examples/simulator/hello.ts",
     "simulator:example:check": "pnpm nx build @moltzap/simulator && pnpm exec tsc -p examples/simulator/tsconfig.json",
     "test:pack:simulator": "pnpm nx build @moltzap/simulator && node scripts/test-simulator-packages.mjs",
-    "prepare": "husky",
+    "prepare": "husky && node scripts/restore-tsgo-exec-bit.mjs",
     "effect:source": "./scripts/prepare-effect.sh",
     "test:affected": "nx affected -t test"
   },

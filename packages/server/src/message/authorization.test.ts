@@ -11,7 +11,6 @@ import {
   appId as makeAppId,
   conversationId,
   messageId,
-  taskId,
 } from "@moltzap/protocol/testing";
 import { AppEndpointRegistry } from "#identity/apps";
 import { makeFakeService } from "../test-utils/fakes.js";
@@ -31,7 +30,6 @@ const CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
 );
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000c560");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-00000000e560");
-const TASK_ID = taskId("00000000-0000-4000-8000-00000000a560");
 const SENDER = agentId("00000000-0000-4000-8000-00000000b001");
 const RECIPIENT = agentId("00000000-0000-4000-8000-00000000b002");
 
@@ -54,7 +52,6 @@ function messageAuthorizeContext(
       senderAgentId,
       parts: [{ type: "text", text: "hello" }],
     },
-    taskId: TASK_ID,
     appId: APP_ID,
     receivedAt: "2026-05-12T00:00:00.000Z",
   };

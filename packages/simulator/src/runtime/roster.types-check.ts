@@ -4,41 +4,78 @@
  * types let the run Layer provide one exact Agents service without erasure.
  */
 
-import { Context, Effect } from "effect";
+import { Context, Effect, Schema } from "effect";
 import { RuntimeCompleted, defineRuntime } from "./runtime.js";
 import {
+  type AgentRosterAcquisitionError,
   type AgentRosterRequirements,
   makeAgentRosterBuilder,
-  type StartedAgentHandles,
+  type StartedAgents,
 } from "./roster.js";
+
+interface AlphaGateway {
+  readonly runtime: "alpha";
+}
+
+interface BetaGateway {
+  readonly runtime: "beta";
+}
+
+interface AlphaAcquisitionError {
+  readonly alphaFailure: true;
+}
+
+interface BetaAcquisitionError {
+  readonly betaFailure: true;
+}
 
 class AlphaRequirement extends Context.Tag(
   "@moltzap/simulator/test/AlphaRequirement",
-)<AlphaRequirement, { readonly alpha: true }>() {}
+)<
+  AlphaRequirement,
+  { readonly ready: Effect.Effect<void, AlphaAcquisitionError> }
+>() {}
 
 class BetaRequirement extends Context.Tag(
   "@moltzap/simulator/test/BetaRequirement",
-)<BetaRequirement, { readonly beta: true }>() {}
+)<
+  BetaRequirement,
+  { readonly ready: Effect.Effect<void, BetaAcquisitionError> }
+>() {}
 
-const completed = {
-  termination: Effect.succeed(RuntimeCompleted.make({})),
+const alphaGateway: AlphaGateway = { runtime: "alpha" };
+const betaGateway: BetaGateway = { runtime: "beta" };
+const runtimeConfiguration = Schema.Struct({});
+const configuration = {
+  schema: runtimeConfiguration,
+  value: {},
 };
 
-const alphaRuntime = defineRuntime<never, AlphaRequirement>({
+const alphaRuntime = defineRuntime({
   name: "alpha",
+  configuration,
   acquire: () =>
     Effect.gen(function* () {
-      yield* AlphaRequirement;
-      return completed;
+      const requirement = yield* AlphaRequirement;
+      yield* requirement.ready;
+      return {
+        gateway: alphaGateway,
+        termination: Effect.succeed(RuntimeCompleted.make({})),
+      };
     }),
 });
 
-const betaRuntime = defineRuntime<never, BetaRequirement>({
+const betaRuntime = defineRuntime({
   name: "beta",
+  configuration,
   acquire: () =>
     Effect.gen(function* () {
-      yield* BetaRequirement;
-      return completed;
+      const requirement = yield* BetaRequirement;
+      yield* requirement.ready;
+      return {
+        gateway: betaGateway,
+        termination: Effect.succeed(RuntimeCompleted.make({})),
+      };
     }),
 });
 
@@ -51,13 +88,25 @@ type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
 type Definitions = typeof roster.definitions;
-type Handles = StartedAgentHandles<Definitions>;
+type Agents = StartedAgents<Definitions>;
 
 type DefinitionIdIsExact = Expect<
   Equal<typeof roster.definitionId, "acme.society/v1">
 >;
-type HandleKeysAreExact = Expect<Equal<keyof Handles, "alice" | "bob">>;
-type AliceNameIsExact = Expect<Equal<Handles["alice"]["name"], "alice">>;
+type AgentKeysAreExact = Expect<Equal<keyof Agents, "alice" | "bob">>;
+type AliceNameIsExact = Expect<
+  Equal<Agents["alice"]["agent"]["name"], "alice">
+>;
+type AliceGatewayIsExact = Expect<
+  Equal<Agents["alice"]["gateway"], AlphaGateway>
+>;
+type BobGatewayIsExact = Expect<Equal<Agents["bob"]["gateway"], BetaGateway>>;
+type AcquisitionErrorsAreCombined = Expect<
+  Equal<
+    AgentRosterAcquisitionError<Definitions>,
+    AlphaAcquisitionError | BetaAcquisitionError
+  >
+>;
 type RequirementsAreCombined = Expect<
   Equal<
     AgentRosterRequirements<Definitions>,
@@ -67,19 +116,22 @@ type RequirementsAreCombined = Expect<
 
 /** Representative roster program retained for compile-time inference checks. */
 export const rosterCanaryProgram = Effect.gen(function* () {
-  const handles = yield* roster.startedAgents;
-  return handles.alice.name;
+  const agents = yield* roster.startedAgents;
+  return agents.alice.gateway;
 }).pipe(Effect.withSpan("rosterCanaryProgram"));
 
 type ServiceSuccessIsExact = Expect<
-  Equal<Effect.Effect.Success<typeof rosterCanaryProgram>, "alice">
+  Equal<Effect.Effect.Success<typeof rosterCanaryProgram>, AlphaGateway>
 >;
 
 /** Compile-time assertions for exact roster inference. */
 export type RosterCanaries = [
   DefinitionIdIsExact,
-  HandleKeysAreExact,
+  AgentKeysAreExact,
   AliceNameIsExact,
+  AliceGatewayIsExact,
+  BobGatewayIsExact,
+  AcquisitionErrorsAreCombined,
   RequirementsAreCombined,
   ServiceSuccessIsExact,
 ];

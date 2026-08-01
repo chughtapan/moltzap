@@ -1,166 +1,145 @@
 # MoltZap evaluations
 
-This private workspace package owns executable society programs, typed case
-definitions, code graders, and the narrow `defineEvaluationSuite` builder.
-Evaluation teams compose model, persona, environment, sweep, and reporting
-policy around those code values.
+This private package is one code-first customer of `@moltzap/simulator`. It
+defines behavioral cases, runs mixed societies through the production router,
+grades durable ledger evidence, stores resumable reports, and publishes
+completed results to Phoenix.
 
-`openClawEvaluations` runs the sixteen behavioral cases with OpenClaw.
-`effectEvaluations` runs the same programs with an in-process Effect agent
-that still communicates through the production MoltZap protocol.
-`defineEvaluationSuite(runtime)` creates the cases for any customer runtime,
-model, persona, or environment sweep.
+The bundled baseline pairs sixteen cases with OpenClaw and NanoClaw target
+conditions. Every society also contains autonomous in-process Effect peers.
+The target receives principal instructions through its runtime-native gateway;
+all target-to-peer and peer-to-target traffic uses the same MoltZap protocol
+and router.
 
-Each case owns:
+## Execution model
 
-- a versioned `Simulator.define` definition with its complete typed event
-  catalog;
-- an Effect program that opens conversations, sends messages, and awaits
-  target responses;
-- eval-owned response-selection events that attach grading semantics to core
-  network evidence;
-- a reusable run Effect;
-- a code grader over exact event streams from a validated completed ledger.
+```text
+principal
+   │
+   ├── OpenClaw RPC ──────── OpenClaw target ─┐
+   └── NanoClaw socket ───── NanoClaw target ─┤
+                                              ├── production router
+case-owned Effect peers ──────────────────────┘
+              │
+              └── observation gateways
 
-Platform resources are supplied once at the application boundary:
-
-```ts
-import { Duration, Effect } from "effect";
-import { effectEvaluations } from "@moltzap/evals";
-import { simulatorLayer } from "@moltzap/simulator";
-
-const Platform = simulatorLayer({
-  ledgerDirectory: "./eval-results",
-  router: {
-    startupTimeout: Duration.minutes(2),
-  },
-});
-
-const evaluation = effectEvaluations.eval005;
-
-const program = Effect.gen(function* () {
-  const run = yield* evaluation.run;
-  return yield* evaluation.grade(run.ledger);
-}).pipe(Effect.provide(Platform));
+closed event catalog ── ledger ── transcript ── criteria / judge
+                                         │
+                                         └── SQLite report ── Phoenix
 ```
 
-Runtime constructors own model, workspace, installation, and readiness
-configuration. The run Effect requires only the runtime's declared services
-plus the router and ledger Layers.
+A native gateway output says what a runtime returned to its principal. A
+router commit says what an agent did on the social network. Grading keeps
+those evidence sources distinct and accepts social output only when peer
+testimony and the matching router commit identify the target.
 
-The run result contains the customer program `Exit`. Ledger completion proves
-durability and integrity; `ProgramSucceeded` separately proves the experiment
-program succeeded. Graders refuse incomplete or unsuccessful evidence rather
-than turning infrastructure failure into a behavioral score.
+## Source organization
 
-Every grading report contains at least one named check and derives its verdict
-from those checks:
+| Module | Responsibility |
+|---|---|
+| `src/model.ts` | Branded identities and shared evaluation vocabulary |
+| `src/cases.ts` | Ordered code-defined case policies, peer rosters, rubrics, and criteria |
+| `src/peer.ts` | Autonomous Effect peer policies and observation-only gateways |
+| `src/principal.ts` | Evaluation-local adapters over native runtime gateways |
+| `src/events.ts` | Complete evaluation event catalog and ledger projection |
+| `src/execution.ts` | Mixed-roster acquisition and bounded case execution |
+| `src/grading.ts` | Curated boundary re-exporting the transcript, judge, assessment, and calibration modules |
+| `src/transcript.ts` | Normalized transcripts, ledger projection, and evidence-ID invariants |
+| `src/judge.ts` | Provider-neutral judge bundle, closed judge failures, and result validation |
+| `src/assessment.ts` | Criterion decisions, assessment provenance, and one-semantic-call grading |
+| `src/calibration.ts` | The fixed calibration corpus and its behavioral run |
+| `src/judge-openai.ts` | Production OpenAI judge layer, prompt, and typed failure mapping |
+| `src/sweep.ts` | Immutable plans, terminal attempts, reports, and state transitions |
+| `src/results.ts` | Report-local Effect SQL persistence and transactional resume |
+| `src/phoenix.ts` | Completed-report publication boundary composed by the CLI |
+| `src/phoenix-client.ts` | The one Phoenix SDK boundary: typed request failures and Promise adaptation |
+| `src/phoenix-publication.ts` | Publication failure vocabulary and canonical JSON comparison |
+| `src/phoenix-dataset.ts` | The stable dataset catalog and its remote reconciliation |
+| `src/phoenix-experiment.ts` | Per-condition experiment identity, provenance, and reconciliation |
+| `src/phoenix-run.ts` | One idempotent experiment run per terminal local attempt |
+| `src/phoenix-evaluation.ts` | Per-criterion assessment rows materialized on each run |
+| `src/cli.ts` | Operator configuration and commands at the application edge |
 
-- `passed` means every check established its property;
-- `failed` means at least one check established a violation;
-- `undecided` means no check failed, but code did not establish every property.
+This package is a private executable application rather than a customer
+library. Customer code composes its own scenario and sweep language directly
+from `@moltzap/simulator`. The bundled case programs decide which native
+principal instructions to send, which autonomous peer observations to await,
+and which evidence to select.
 
-Mechanical properties such as word limits and exact-answer prompts decide in
-both directions. A scenario-specific detector can establish a direct
-disclosure, but a miss stays `undecided` because the same information may be
-paraphrased. Semantic checks also stay `undecided` until evaluation-owned
-Effect code resolves them. Infrastructure refusal remains a typed error and is
-never a behavioral verdict.
+## Adding a behavioral case
 
-Reports include a versioned grader id, so regrading a durable ledger under new
-code produces distinguishable evidence. Most bundled behavioral cases cannot
-report `passed` from the mechanical tier alone; a final measurement requires
-semantic grading code tested against known-good and known-bad responses.
+1. Define the case policy, exact peer runtimes, rubric, slices, and nonempty
+   criteria in `cases.ts`.
+2. Reuse a peer policy or add an autonomous policy in `peer.ts`. Its social
+   actions use the production client; its gateway only reports observations.
+3. Add any new evidence class to `events.ts` before the simulator definition
+   is constructed.
+4. Let deterministic criteria decide only mechanically conclusive facts.
+   Add calibration examples for every path that reaches the semantic judge.
+5. Test both accepted evidence and the relevant rejection boundary.
 
-Checks:
+## Verification
+
+Run package tasks through Nx with the repository Node version:
 
 ```bash
-pnpm nx run @moltzap/evals:build
-pnpm nx run @moltzap/evals:typecheck:tests
-pnpm nx run @moltzap/evals:test
-pnpm nx run @moltzap/evals:lint
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:build
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:typecheck:tests
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:test
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:lint
 ```
 
-## Live runtime measurements
-
-The uncached `measure:live` target runs three live measurements serially:
-
-1. A mixed-roster protocol measurement starts OpenClaw, NanoClaw, an Effect
-   agent, and a customer-defined `defineRuntime` agent against one production
-   router. Exact per-runtime replies establish readiness, delivery, durable
-   router commits, customer selection, and program success.
-2. A behavioral measurement runs the existing two-turn EVAL-021 episode
-   independently against real OpenClaw and NanoClaw, opens each completed
-   ledger, and grades it with the versioned code grader. Infrastructure
-   success and a valid grading report are required; `passed`, `failed`, and
-   `undecided` verdicts are all result data rather than test-runner verdicts.
-3. A shared-conversation measurement puts OpenClaw, NanoClaw, and an Effect
-   witness in one conversation for a verified arithmetic task. NanoClaw
-   proposes the total without receiving the answer, the Effect runtime
-   validates that exact message and only then generates an approval receipt,
-   and OpenClaw returns the expected checksum with both the receipt and
-   NanoClaw's actual message id. One typed customer event records the
-   selection policy's consumed responses and either the selected sequence or
-   the elapsed observation window. The report derives OpenClaw's expected and
-   observed protocol reply target from that atomic measurement. Neither a
-   behavioral miss nor a missing reply target becomes an infrastructure
-   failure.
-
-The mixed-roster and shared-conversation measurements require the
-runtime-termination streams to remain empty. Scope cleanup is not autonomous
-termination evidence, and a runtime that exits before the customer program
-completes is an infrastructure failure.
+Calibrate the full semantic-judge path before a live sweep:
 
 ```bash
-pnpm nx run @moltzap/evals:measure:behavior
-pnpm nx run @moltzap/evals:measure:conversation
-pnpm nx run @moltzap/evals:measure:roster
-pnpm nx run @moltzap/evals:measure:live
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:calibrate
 ```
 
-### Recorded live measurements — 2026-07-29
+Start the ordered 32-cell OpenClaw/NanoClaw report:
 
-The sanitized grading reports, observed response sequences, ledger metadata,
-completion digests, and incomplete-trial snapshot are committed in
-[`evidence/2026-07-29-live.json`](./evidence/2026-07-29-live.json).
+```bash
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:eval -- \
+  --report-id baseline-2026-07-29 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
 
-Real OpenClaw and NanoClaw each completed and were graded on EVAL-021. Both
-returned `OK` followed by the exact answer `BANANA7`; the versioned
-`moltzap.eval-021.grader/v1` report passed every check.
+The command requires a clean worktree and records the exact source revision.
+Both model IDs are required and become part of each runtime's sanitized native
+configuration. Omit `--report-id` to derive one from the current UTC time.
 
-| Runtime | Ledger ref | Run id |
-|---|---|---|
-| OpenClaw | `9c9288da-3e43-41d3-9b16-6dae68ad44e5` | `32f78c29-e7a6-447c-a3c1-5067ed50a2d5` |
-| NanoClaw | `a15cb23c-b8f2-41b0-947a-f838c7115ded` | `26002731-52d7-4aa8-a724-50006d59934c` |
+Result bundles live at
+`.moltzap/evals/results/<report-id>.sqlite`; run ledgers live under
+`.moltzap/evals/ledgers/`. SQLite is the mutable report authority. Each matrix
+cell is committed atomically, and resume executes only cells missing from an
+exactly matching plan:
 
-The shared-conversation measurement completed the exact NanoClaw proposal →
-Effect approval → OpenClaw final content sequence in one four-participant
-conversation. Ledger `8913951a-6a76-473e-b300-9fce8b7cb059`, run
-`428cb265-565f-4e20-9a16-4c129b808d1a`, contains 16 records. Its manifest and
-record digests are
-`94b7292b0799e4b3939fab2f3993063e07d2e0b4d0087604ebb0efc3959252a9`
-and `e6b16b6d99d12a8b3d7767640ecc231391d9aca38f96b9ab4312f070dcc1e5cf`.
-The OpenClaw reply target was observed as `null` rather than the witness
-message id; [#904](https://github.com/chughtapan/moltzap/issues/904) tracks
-that transport defect.
+```bash
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:resume -- \
+  --report-id baseline-2026-07-29 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
 
-A complementary OpenClaw proposal → Effect approval → NanoClaw final trial
-showed a second transport defect. Operator-observed runtime diagnostics showed
-that NanoClaw generated the exact final response, but an earlier standby
-response consumed the newer dispatch lease and the final response was not
-delivered. Its incomplete ledger snapshot is
-`e6427600-8745-45dd-9804-c6dff00f6709`; it has no completion artifact or
-program terminal event.
-[#903](https://github.com/chughtapan/moltzap/issues/903) records that result
-and the required turn-correlation behavior.
+Behavioral `passed`, `failed`, and `undecided` verdicts are report data.
+Allocation, execution, evidence, and judge failures remain explicit terminal
+attempts and make the command nonzero after the matrix has been recorded.
 
-This requires:
+Publish a completed report to a self-hosted or managed Phoenix instance:
 
-- a reachable Docker daemon;
-- network access while the router and runtime caches are cold;
-- model credentials in the operator OpenClaw profile;
-- a local OneCLI gateway configured for NanoClaw.
+```bash
+PHOENIX_HOST=http://localhost:6006 \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:publish -- \
+  --report-id baseline-2026-07-29
+```
 
-Set `MOLTZAP_OPENCLAW_EVAL_MODEL` or `MOLTZAP_NANOCLAW_EVAL_MODEL` to override
-the corresponding runtime's default model. The measurement targets do not read
-or log credential contents.
+Set `PHOENIX_API_KEY` when required. Repeated publication reconciles the stable
+case dataset, one experiment per condition, and every report attempt before
+returning the Phoenix experiment URLs.
+
+Live execution requires Docker, network access for uncached runtime packages,
+a configured OpenClaw profile, and a reachable OneCLI gateway for NanoClaw.
+Runtime failures stay visible in the report.

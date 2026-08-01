@@ -3,7 +3,6 @@ import { Effect, ParseResult, Schema } from "effect";
 import type * as SchemaAST from "effect/SchemaAST";
 import { agentId, agentsList, appId } from "@moltzap/protocol/identity";
 import { agentCallableMethods } from "@moltzap/protocol/socket/catalog";
-import { taskId } from "@moltzap/protocol/task";
 import { conversationId, messageId } from "@moltzap/protocol/conversation";
 import { messagesList } from "@moltzap/protocol/message";
 import { NotConnectedError, RpcTimeoutError } from "@moltzap/protocol/rpc";
@@ -17,7 +16,6 @@ const MAX_NAME_LOOKUP_BATCH = 100;
 const UUID_V4_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CONVERSATION_TARGET_PREFIX = "conv:";
-const TASK_TARGET_PREFIX = "task:";
 const PARTICIPANT_PREFIX = "agent:";
 
 const emptyPayload = Schema.Struct({});
@@ -52,49 +50,27 @@ const parseStringIssue = (
 
 const sendTargetParts = Schema.Struct({
   conversationId: conversationId,
-  taskId: Schema.optional(taskId),
 });
 
-const SEND_TARGET_EXPECTED = `expected ${CONVERSATION_TARGET_PREFIX}<conversationId> or ${TASK_TARGET_PREFIX}<taskId>:<conversationId>`;
+const SEND_TARGET_EXPECTED = `expected ${CONVERSATION_TARGET_PREFIX}<conversationId>`;
 
-/**
- * A conversation is the whole address. `task:&lt;taskId>:&lt;conversationId>`
- * is also accepted so a caller holding a task label can pass it through; the
- * label rides along to `agent/message/send` untouched and never selects the
- * destination.
- */
+/** A conversation is the whole address. */
 export const sendTarget = Schema.transformOrFail(
   Schema.String,
   sendTargetParts,
   {
     strict: true,
     decode: (raw, ...[, ast]) => {
-      if (raw.startsWith(CONVERSATION_TARGET_PREFIX)) {
-        const rest = raw.slice(CONVERSATION_TARGET_PREFIX.length);
-        return rest === "" || rest.includes(":")
-          ? parseStringIssue(ast, raw, SEND_TARGET_EXPECTED)
-          : Effect.succeed({ conversationId: rest });
-      }
-      if (!raw.startsWith(TASK_TARGET_PREFIX)) {
+      if (!raw.startsWith(CONVERSATION_TARGET_PREFIX)) {
         return parseStringIssue(ast, raw, SEND_TARGET_EXPECTED);
       }
-      const parts = raw.slice(TASK_TARGET_PREFIX.length).split(":");
-      if (parts.length !== 2 || parts[0] === "" || parts[1] === "") {
-        return parseStringIssue(ast, raw, SEND_TARGET_EXPECTED);
-      }
-      return Effect.succeed({
-        taskId:
-          /* Safe because the surrounding invariant establishes this asserted shape. */ parts[0]!,
-        conversationId:
-          /* Safe because the surrounding invariant establishes this asserted shape. */ parts[1]!,
-      });
+      const rest = raw.slice(CONVERSATION_TARGET_PREFIX.length);
+      return rest === "" || rest.includes(":")
+        ? parseStringIssue(ast, raw, SEND_TARGET_EXPECTED)
+        : Effect.succeed({ conversationId: rest });
     },
     encode: (target) =>
-      Effect.succeed(
-        target.taskId === undefined
-          ? `${CONVERSATION_TARGET_PREFIX}${target.conversationId}`
-          : `${TASK_TARGET_PREFIX}${target.taskId}:${target.conversationId}`,
-      ),
+      Effect.succeed(`${CONVERSATION_TARGET_PREFIX}${target.conversationId}`),
   },
 );
 /** Represents send target values. */

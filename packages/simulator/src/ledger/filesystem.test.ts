@@ -141,6 +141,11 @@ function completionIdempotencyTest() {
     const repeated = yield* allocated.complete(1);
     expect(concurrent[0]).toEqual(concurrent[1]);
     expect(repeated).toEqual(concurrent[0]);
+    expect(
+      (yield* fileSystem.readDirectory(root, { recursive: true })).some(
+        (entry) => entry.includes(".completion-"),
+      ),
+    ).toBe(false);
 
     const conflict = yield* allocated.complete(2).pipe(Effect.flip);
     expect(conflict).toBeInstanceOf(LedgerStorageError);
