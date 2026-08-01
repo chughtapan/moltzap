@@ -403,6 +403,102 @@ function usesDispatchLeaseForNextReply() {
   });
 }
 
+interface GatedChannelSetup extends ChannelSetup {
+  readonly startedTurns: string[];
+  releaseTurn(): void;
+}
+
+/**
+ * Holds every inbound turn open until released, so a reply can be observed
+ * while its own turn is still the one in flight.
+ * @returns A setup whose turns block until `releaseTurn` is called.
+ */
+function createGatedSetup(): GatedChannelSetup {
+  const startedTurns: string[] = [];
+  const pending: Array<() => void> = [];
+  return {
+    onInbound: (jid) => {
+      startedTurns.push(jid);
+      // The host contract is promise-based, so a held turn is a pending promise.
+      return new Promise<undefined>((resolve) => {
+        pending.push(() => {
+          resolve(undefined);
+        });
+      });
+    },
+    onMetadata: () => {},
+    startedTurns,
+    releaseTurn: () => {
+      pending.shift()?.();
+    },
+  };
+}
+
+function configureDispatchGrantSequence(
+  harness: Harness,
+  grants: ReadonlyArray<readonly [leaseLabel: string, dispatchId: string]>,
+): void {
+  let issued = 0;
+  harness.fake.service.requestDispatch = () =>
+    Effect.sync(() => {
+      const grant = grants[Math.min(issued, grants.length - 1)];
+      issued += 1;
+      const leaseId = testLeaseId(grant?.[0] ?? DISPATCH_LEASE);
+      const dispatchId = grant?.[1] ?? DISPATCH_ID;
+      queueMicrotask(() => {
+        harness.fake.emit.dispatchRelease({
+          dispatchId,
+          leaseId,
+          verdict: { decision: "grant", leaseId },
+        });
+      });
+      return { leaseId, dispatchId };
+    });
+}
+
+function overlappingTurnsKeepTheirOwnLease() {
+  const harness = createHarness();
+  const gate = createGatedSetup();
+  return Effect.gen(function* () {
+    yield* runPromise(() => harness.adapter.setup(gate));
+    setDmConversation(harness, CONV_42);
+    configureDispatchGrantSequence(harness, [
+      [DISPATCH_LEASE, DISPATCH_ID],
+      [DISPATCH_LEASE_2, DISPATCH_ID_2],
+    ]);
+
+    harness.fake.emit.message(
+      buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
+    );
+    yield* flushDispatch();
+    expect(gate.startedTurns).toHaveLength(1);
+
+    // A second inbound arrives while the first turn is still running. The
+    // adapter must not start it: doing so would overwrite the per-jid lease
+    // and the still-pending first reply would consume the second lease.
+    harness.fake.emit.message(
+      buildMessage({ id: MSG_LEASE_2, conversationId: CONV_42 }),
+    );
+    yield* flushDispatch();
+    expect(gate.startedTurns).toHaveLength(1);
+
+    // The first turn replies late, and must still hold its own lease.
+    yield* deliver(harness.adapter, asJid(CONV_42), FIRST_REPLY);
+    expect(harness.fake.state.sent[0]?.dispatchLeaseId).toEqual(
+      testLeaseId(DISPATCH_LEASE),
+    );
+
+    gate.releaseTurn();
+    yield* flushDispatch();
+    expect(gate.startedTurns).toHaveLength(2);
+
+    yield* deliver(harness.adapter, asJid(CONV_42), SECOND_REPLY);
+    expect(harness.fake.state.sent[1]?.dispatchLeaseId).toEqual(
+      testLeaseId(DISPATCH_LEASE_2),
+    );
+  });
+}
+
 function rejectsSecondDeliverForSameDispatch() {
   const harness = createHarness();
   let sendCount = 0;
@@ -796,6 +892,10 @@ describe("MoltZapAdapter deliver leases", () => {
   it(
     "rejects a second deliver for the same dispatch",
     rejectsSecondDeliverForSameDispatch,
+  );
+  it(
+    "keeps each overlapping turn on its own lease",
+    overlappingTurnsKeepTheirOwnLease,
   );
 });
 
