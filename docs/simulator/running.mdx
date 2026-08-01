@@ -16,7 +16,8 @@ execution path.
 
 | Import | Purpose |
 |---|---|
-| `@moltzap/simulator` | Definitions, event catalogs, services, shipped runtimes, and the default host Layer |
+| `@moltzap/simulator` | Definitions, event catalogs, services, and the default host Layer |
+| `@moltzap/simulator/runtime` | Runtime contracts and the Effect, OpenClaw, and NanoClaw implementations |
 | `@moltzap/simulator/network` | Router, transport, link-driver, endpoint, and nominal capability contracts |
 | `@moltzap/simulator/ledger` | Completed-ledger types, the storage port, and manifest inspection |
 
@@ -28,29 +29,66 @@ and its complete event catalog.
 A normal module is an executable experiment:
 
 ```ts
+import { messagesSend } from "@moltzap/protocol/message";
 import {
-  effectRuntime,
   Network,
   simulator,
   simulatorLayer,
 } from "@moltzap/simulator";
-import { Duration, Effect, Schema } from "effect";
+import {
+  effectRuntime,
+} from "@moltzap/simulator/runtime";
+import {
+  Duration,
+  Effect,
+  Ref,
+  Schema,
+  Stream,
+} from "effect";
 
 const Society = simulator.define("acme.echo/v1");
 
 const roster = Society.agents({
   echo: effectRuntime({
-    onMessage: ({ message }) =>
-      Effect.succeed(message.parts),
+    build: (context) =>
+      Effect.gen(function* () {
+        const prefix = yield* Ref.make("echo: ");
+        return {
+          gateway: Object.freeze({
+            setPrefix: (value: string) => Ref.set(prefix, value),
+          }),
+          behavior: context.messages.pipe(
+            Stream.runForEach((notification) =>
+              Ref.get(prefix).pipe(
+                Effect.flatMap((value) =>
+                  context.client.callDefinition(messagesSend, {
+                    taskId: notification.taskId,
+                    conversationId:
+                      notification.message.conversationId,
+                    parts: [
+                      {
+                        type: "text",
+                        text: `${value}${context.agent.name}`,
+                      },
+                    ],
+                  }),
+                ),
+                Effect.asVoid,
+              ),
+            ),
+          ),
+        };
+      }),
   }),
 });
 
 const experiment = Effect.gen(function* () {
-  const agents = yield* roster.Agents;
+  const agents = yield* roster.startedAgents;
   const network = yield* Network;
-  const probe = yield* network.endpoint("probe");
-  const conversation = yield* probe.open(agents.echo);
+  yield* agents.echo.gateway.setPrefix("diagnostic reply: ");
 
+  const workload = yield* network.endpoint("diagnostics");
+  const conversation = yield* workload.open(agents.echo.agent);
   yield* conversation.send("hello");
   return yield* conversation.receive();
 });
@@ -74,12 +112,28 @@ const main = Society.run(
 void Effect.runPromise(main);
 ```
 
+Customer provenance is additive. The kernel always writes the reserved
+`agents` key last with each roster name, runtime name, and sanitized
+definition-time runtime configuration, so a caller-provided `agents` value
+cannot replace execution evidence.
+
 Run the module with the repository's build target, Node entrypoint, test
 runner, workflow system, or scheduler.
 
 Construct `simulatorLayer` once at the application boundary and provide
 it around the complete run or suite. Runtime constructors remain values in
 the roster; they own runtime-specific installation and readiness settings.
+
+`roster.startedAgents` becomes available only after every runtime is ready.
+Each value separates its router-issued `.agent`, exact runtime-native
+`.gateway`, and `.termination` observation. OpenClaw and NanoClaw retain their
+existing owner-local gateways. An `effectRuntime` exposes exactly the gateway
+returned by `build`; its autonomous `behavior` uses the production client and
+router for social actions.
+
+`Network.endpoint` creates only experiment-controlled diagnostics, workloads,
+and observers. It is not a substitute principal interface for a roster
+runtime.
 
 ## Express completion policy in the program
 
@@ -108,15 +162,27 @@ A runtime exit after readiness is committed as typed ledger evidence. It does
 not implicitly end the customer Effect. This lets one policy fail fast on an
 agent exit while another continues to observe the remaining society.
 
-## Interpret both Effect layers
+## Interpret allocation and run outcomes separately
 
-There are two distinct results:
+The outer `Society.run` Effect fails only when ledger allocation fails before
+an active ledger capability reaches kernel ownership. That typed
+`LedgerStorageError` may identify a reference minted during the unsuccessful
+allocation. When allowed to complete after that ownership handoff, the Effect
+returns one of two closed outcomes:
 
-- The outer `Society.run` Effect can fail while acquiring the router or
-  roster, or while writing and completing the ledger.
-- A successful outer Effect returns `SimulatorRunResult`, whose `exit` is the
-  customer program's `Exit`, `ledger` is the completed ledger reference, and
-  `completion` carries the record count and artifact digests.
+- `ProgramFinished` carries the customer program's `Exit` and a
+  `CompletedLedgerReceipt`.
+- `RunInfrastructureFailed` carries the exact infrastructure `Cause` and
+  either a completed or incomplete ledger receipt.
+
+Program failure and interruption are values inside `ProgramFinished.exit`.
+Router, runtime-acquisition, append, teardown, and completion failures are
+`RunInfrastructureFailed` values. In both cases, the caller receives the exact
+physical ledger reference retained after allocation; it never has to scan a
+directory to recover evidence.
+
+Interrupting the outer `Society.run` Effect remains caller interruption after
+the kernel's finalization attempt and does not return a receipt.
 
 A customer command can map these typed values to its own exit codes,
 structured output, retries, and operator messages. The simulator package does
@@ -133,7 +199,7 @@ preset, and prompt family, then compile each case into:
 1. customer event classes and an `EventCatalog`;
 2. one versioned `simulator.define` value;
 3. a keyed mixed-runtime roster;
-4. an Effect program using `roster.Agents`, `Network`,
+4. an Effect program using `roster.startedAgents`, `Network`,
    `Society.Events`, and `Society.Ledger`;
 5. code graders composed over `Society.openLedger`.
 

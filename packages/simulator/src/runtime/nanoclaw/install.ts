@@ -848,7 +848,9 @@ function requireExactMoltzapPackageKeys(
   packages: Readonly<Record<string, unknown>>,
 ): void {
   const actual = Object.keys(packages)
-    .filter((location) => location.includes("node_modules/@moltzap/"))
+    .filter((location) =>
+      /(?:^|\/)node_modules\/@moltzap\/[^/]+$/u.test(location),
+    )
     .sort((left, right) => left.localeCompare(right));
   const expected = [
     `node_modules/${CLIENT_PACKAGE_NAME}`,

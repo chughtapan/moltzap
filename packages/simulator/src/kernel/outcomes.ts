@@ -1,6 +1,6 @@
 /** @file Conversion of Effect/runtime outcomes into exact ledger events. */
 
-import type { AgentName } from "@moltzap/protocol/identity";
+import type { AgentId, AgentName } from "@moltzap/protocol/identity";
 import { Cause, Exit } from "effect";
 import {
   AgentProcessExited,
@@ -11,15 +11,13 @@ import {
   ProgramInterrupted,
   ProgramSucceeded,
 } from "../events/core.js";
-import type { AgentConnection } from "../network/router.js";
 import type { RuntimeTermination } from "../runtime/runtime.js";
 
 /** Describes runtime evidence input. */
 export interface RuntimeEvidenceInput {
-  readonly name: string;
   readonly agentName: AgentName;
+  readonly agentId: AgentId;
   readonly runtimeName: string;
-  readonly connection: AgentConnection;
 }
 
 /**
@@ -44,7 +42,7 @@ export function runtimeEvent(
 ) {
   const common = {
     agentName: acquired.agentName,
-    agentId: acquired.connection.agent.id,
+    agentId: acquired.agentId,
     runtime: acquired.runtimeName,
   };
   switch (termination._tag) {
@@ -92,24 +90,4 @@ export function programEvent<A, E>(exit: Exit.Exit<A, E>) {
     : ProgramFailed.make({
         cause: nonEmptyCause(exit.cause),
       });
-}
-
-/**
- * Executes the combined failure operation.
- * @param exits Value supplied to the operation.
- * @returns The combined failure result.
- */
-export function combinedFailure(
-  exits: ReadonlyArray<Exit.Exit<unknown, unknown>>,
-): Cause.Cause<unknown> | undefined {
-  let combined: Cause.Cause<unknown> | undefined;
-  for (const exit of exits) {
-    if (Exit.isFailure(exit)) {
-      combined =
-        combined === undefined
-          ? exit.cause
-          : Cause.sequential(combined, exit.cause);
-    }
-  }
-  return combined;
 }

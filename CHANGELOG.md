@@ -187,22 +187,38 @@ build on.
   OpenClaw and NanoClaw processes, in-process Effect agents, and
   customer-defined runtimes through the same router and protocol.
   Each society declares its exact event catalog, keyed agent roster, Effect
-  program, and completion policy in TypeScript.
+  program, and run policy in TypeScript.
 - **Typed run evidence.** Every run writes a durable-then-deliver ledger whose
   event values are limited to the society's declared catalog. Code-based
   graders open and validate completed ledgers. Evaluation packages own their
-  scenario vocabulary, completion policy, sweeps, and grader composition.
+  case programs, deadlines, sweeps, and grader composition.
 - **Production-path architecture gate.** The mixed-runtime evaluation launches
-  the production server image and proves OpenClaw, NanoClaw, Effect,
-  and customer-defined participants can exchange messages in one run.
+  the production server image. OpenClaw and NanoClaw receive principal input
+  through their native gateways while autonomous Effect peers exchange social
+  traffic with them through the production protocol and router.
 
-- **A grader vocabulary customers can reach.** `@moltzap/evals` now exports the
-  checks a grader composes — `detectsFailure`, `requiresJudgment`,
-  `exactFinalText`, `atMostWords`, `validMessages`, `responseText`, and
-  `defineCodeGrader` — alongside `CodeCheck`, `CodeGraderDefinition`, and
-  `EvaluationEvidence`. The package documented composing graders while the
-  checks stayed module-private. A reference page states every outcome, report
-  type, and constructor, and a how-to walks the files an evaluation touches.
+- **Effect-native evaluation reports.** The private `@moltzap/evals`
+  application now runs a resumable 16-case OpenClaw/NanoClaw matrix, validates
+  native-gateway and router-corroborated social evidence, separates behavioral
+  verdicts from operational failures, and commits each terminal attempt to a
+  report-local SQLite bundle through Effect SQL.
+- **Auditable semantic assessment.** Deterministic criteria settle only facts
+  code can establish; unresolved questions use a provider-neutral Effect
+  service with typed failures, strict citations, an untrusted-evidence
+  boundary, and a discrimination corpus for disclosure, group behavior,
+  injection resistance, and conversation awareness.
+- **Policy-selected transcript evidence.** Each code-defined case returns one
+  selected evidence identity. Grading keeps native principal input,
+  gateway-correlated output, autonomous peer observations, bounded peer
+  timeouts, and durable router commits distinct while preserving ledger order.
+  NanoClaw input is recorded without attributing its uncorrelated output
+  stream; social cases select router-bound evidence, while its two
+  principal-output cases remain explicit failed execution attempts.
+- **Visible experiment results.** Completed reports publish explicitly through
+  the Phoenix TypeScript client into a stable case dataset, one experiment per
+  runtime condition, typed attempt outputs or errors, code and model
+  assessments, and comparison URLs. The local SQLite bundle remains
+  authoritative.
 
 ### Changed: explicit networking and lifecycle boundaries
 
@@ -211,6 +227,12 @@ build on.
   connection retry policy and create a fresh scoped client for each attempt.
   Server addresses use the branded `ServerBaseUrl` constructor so paths,
   queries, and fragments cannot cross the transport boundary.
+- **BREAKING: message reply targets removed.** `replyToId` is removed from
+  protocol message and send schemas, server validation and storage, client and
+  channel types, simulator events, and evaluation grading. Conversation order
+  and customer-declared evidence remain available without imposing a universal
+  causal field. Existing development databases created with the earlier clean
+  schema must be rebuilt.
 - **One simulator package.** `@moltzap/simulator` now owns the typed kernel,
   network and ledger contracts, production router, filesystem storage,
   process host, and OpenClaw, NanoClaw, and Effect runtimes. Network and ledger
@@ -226,10 +248,11 @@ build on.
 
 ### Changed: customer-owned experiment policy
 
-- **Code-defined experiments.** Customers express scenarios, terminal policy,
-  parameter sweeps, and graders as TypeScript and Effect programs. The legacy
-  simulator documents, bundles, CLI, recording layer, and their bespoke
-  storage and queue machinery are retired.
+- **Code-defined experiments.** Customers express autonomous runtimes, case
+  programs, deadlines, parameter sweeps, and graders as TypeScript and Effect
+  values. They may build a domain-specific authoring language directly around
+  those values. The legacy simulator documents, bundles, CLI, recording layer,
+  and their bespoke storage and queue machinery are retired.
 
 ### Fixed: scoped shutdown
 

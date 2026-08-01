@@ -1,5 +1,3 @@
-/* eslint-disable sonarjs/no-nested-functions -- lifecycle tests pin acquisition, scoped teardown, and exact process-status transitions whose causal order is clearest in Effect generators. */
-
 import { assert, it as effectIt } from "@effect/vitest";
 import {
   ExitCode as processExitCode,
@@ -8,7 +6,11 @@ import {
 import { type AgentConnection, makeAgentHandle } from "../../network.js";
 import { RuntimeExited, RuntimeFailed } from "../runtime.js";
 import { serverBaseUrl } from "@moltzap/protocol/network";
-import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  agentName,
+  redactedAgentKey,
+} from "@moltzap/protocol/testing";
 import {
   Cause,
   Deferred,
@@ -17,6 +19,7 @@ import {
   Exit,
   Fiber,
   Ref,
+  Schema,
   Scope,
   TestClock,
 } from "effect";
@@ -26,18 +29,22 @@ import type {
   OpenClawProcessInput,
   OpenClawProcessOptions,
 } from "./process.js";
+import { OpenClawGatewaySucceeded, type OpenClawGateway } from "./gateway.js";
 import {
   makeOpenClawRuntimeWith,
   type OpenClawRuntimeDriver,
   type OpenClawRuntimeOptions,
+  type OpenClawSandboxConfig,
+  type OpenClawToolsConfig,
 } from "./runtime.js";
 
 const test = effectIt.effect;
-const AGENT_NAME = "alice";
+const ROSTER_KEY = "alice";
+const AGENT_NAME = agentName(ROSTER_KEY);
 const AGENT_KEY_TEXT =
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";
-const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
 const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
+const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
 const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
 const READY_OUTPUT = "MoltZap: connected as alice (agent-1)";
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43123");
@@ -48,6 +55,18 @@ const OPENCLAW_BIN = "/opt/openclaw/bin/openclaw";
 const CHANNEL_DIST_DIR = "/opt/moltzap/openclaw-channel/dist";
 const PROCESS_WAIT_FAILURE = "process wait failed";
 type ProcessWaitFailure = typeof PROCESS_WAIT_FAILURE;
+const RUNTIME_TOOLS = {
+  deny: ["*"],
+  elevated: { enabled: false },
+  exec: { mode: "deny" },
+} satisfies OpenClawToolsConfig;
+const RUNTIME_SANDBOX = {
+  mode: "all",
+  backend: "docker",
+  scope: "session",
+  workspaceAccess: "none",
+  docker: { network: "none" },
+} satisfies OpenClawSandboxConfig;
 
 interface FakeSession {
   readonly exitCode: Deferred.Deferred<ExitCode, ProcessWaitFailure>;
@@ -66,10 +85,32 @@ interface Fixture {
   readonly acquired: Deferred.Deferred<AcquiredOpenClaw>;
   readonly session: FakeSession;
   readonly teardownCount: Ref.Ref<number>;
+  readonly gatewayEntered: Deferred.Deferred<undefined>;
+  readonly gatewayTeardownCount: Ref.Ref<number>;
 }
 
+interface FakeDriverState {
+  readonly acquired: Deferred.Deferred<AcquiredOpenClaw>;
+  readonly session: FakeSession;
+  readonly teardownCount: Ref.Ref<number>;
+  readonly gatewayEntered: Deferred.Deferred<undefined>;
+  readonly gatewayTeardownCount: Ref.Ref<number>;
+}
+
+const PRINCIPAL_GATEWAY: OpenClawGateway = Object.freeze({
+  agent: () =>
+    Effect.succeed(
+      OpenClawGatewaySucceeded.make({
+        runId: "unused",
+        status: "ok",
+        summary: "completed",
+        result: {},
+      }),
+    ),
+});
+
 const connection: AgentConnection<"alice"> = {
-  agent: makeAgentHandle(AGENT_NAME, AGENT_ID),
+  agent: makeAgentHandle(ROSTER_KEY, AGENT_ID),
   key: AGENT_KEY,
   routerUrl: ROUTER_URL,
 };
@@ -87,9 +128,42 @@ function fakeProcessOptions(
   };
 }
 
+function fakeDriver(
+  state: FakeDriverState,
+): OpenClawRuntimeDriver<FakeSession, ProcessWaitFailure> {
+  return {
+    resolveInstallMode: (requested) => Effect.succeed(requested ?? "workspace"),
+    resolveProcessOptions: (input) => Effect.succeed(fakeProcessOptions(input)),
+    acquire: (processOptions, processInput) =>
+      Effect.acquireRelease(
+        Deferred.succeed(state.acquired, {
+          input: processInput,
+          options: processOptions,
+        }).pipe(Effect.as(state.session)),
+        (running) =>
+          Ref.update(state.teardownCount, (count) => count + 1).pipe(
+            Effect.zipRight(
+              Deferred.succeed(running.exitCode, processExitCode(0)),
+            ),
+            Effect.asVoid,
+          ),
+      ),
+    acquireGateway: () =>
+      Effect.acquireRelease(
+        Deferred.succeed(state.gatewayEntered, undefined).pipe(
+          Effect.as(PRINCIPAL_GATEWAY),
+        ),
+        () => Ref.update(state.gatewayTeardownCount, (count) => count + 1),
+      ),
+    exitCode: (running) => Deferred.await(running.exitCode),
+    output: (running) => running.output,
+    readyWhen: (output) => output.includes("connected as"),
+  };
+}
+
 function makeFixture(
   options: OpenClawRuntimeOptions,
-  output = "",
+  output = READY_OUTPUT,
 ): Effect.Effect<Fixture> {
   return Effect.gen(function* () {
     const acquired = yield* Deferred.make<AcquiredOpenClaw>();
@@ -98,34 +172,22 @@ function makeFixture(
       output,
     };
     const teardownCount = yield* Ref.make(0);
-    const driver: OpenClawRuntimeDriver<FakeSession, ProcessWaitFailure> = {
-      resolveInstallMode: (requested) =>
-        Effect.succeed(requested ?? "workspace"),
-      resolveProcessOptions: (input) =>
-        Effect.succeed(fakeProcessOptions(input)),
-      acquire: (processOptions, processInput) =>
-        Effect.acquireRelease(
-          Deferred.succeed(acquired, {
-            input: processInput,
-            options: processOptions,
-          }).pipe(Effect.as(session)),
-          (running) =>
-            Ref.update(teardownCount, (count) => count + 1).pipe(
-              Effect.zipRight(
-                Deferred.succeed(running.exitCode, processExitCode(0)),
-              ),
-              Effect.asVoid,
-            ),
-        ),
-      exitCode: (running) => Deferred.await(running.exitCode),
-      output: (running) => running.output,
-      readyWhen: (text) => text.includes("connected as"),
-    };
+    const gatewayEntered = yield* Deferred.make<undefined>();
+    const gatewayTeardownCount = yield* Ref.make(0);
+    const driver = fakeDriver({
+      acquired,
+      session,
+      teardownCount,
+      gatewayEntered,
+      gatewayTeardownCount,
+    });
     return {
       runtime: makeOpenClawRuntimeWith(options, driver),
       acquired,
       session,
       teardownCount,
+      gatewayEntered,
+      gatewayTeardownCount,
     };
   });
 }
@@ -146,6 +208,8 @@ function fullRuntimeOptions(): OpenClawRuntimeOptions {
         env: { MEMORY_SCOPE: "alice" },
       },
     ],
+    tools: RUNTIME_TOOLS,
+    sandbox: RUNTIME_SANDBOX,
   };
 }
 
@@ -158,6 +222,8 @@ function assertProcessAcquisition(acquired: AcquiredOpenClaw): void {
   assert.deepStrictEqual(acquired.input.workspaceFiles, [
     { relativePath: "IDENTITY.md", content: "Alice" },
   ]);
+  assert.deepStrictEqual(acquired.input.tools, RUNTIME_TOOLS);
+  assert.deepStrictEqual(acquired.input.sandbox, RUNTIME_SANDBOX);
   assert.deepStrictEqual(
     Object.keys(acquired.input).sort((left, right) =>
       left.localeCompare(right),
@@ -167,7 +233,9 @@ function assertProcessAcquisition(acquired: AcquiredOpenClaw): void {
       "agentName",
       "apiKey",
       "modelId",
+      "sandbox",
       "serverUrl",
+      "tools",
       "workspaceFiles",
     ],
   );
@@ -183,27 +251,57 @@ function assertProcessAcquisition(acquired: AcquiredOpenClaw): void {
   ]);
 }
 
-function returnsAfterReadyLineTest() {
+function returnsAfterReadinessTest() {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture(fullRuntimeOptions(), READY_OUTPUT);
+    const fixture = yield* makeFixture(fullRuntimeOptions());
     yield* Effect.scoped(
       Effect.gen(function* () {
-        yield* fixture.runtime.acquire({ connection });
+        const running = yield* fixture.runtime.acquire({
+          agentName: AGENT_NAME,
+          connection,
+        });
         assertProcessAcquisition(yield* Deferred.await(fixture.acquired));
+        assert.strictEqual(running.gateway, PRINCIPAL_GATEWAY);
       }),
     );
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+    assert.strictEqual(yield* Ref.get(fixture.gatewayTeardownCount), 1);
   });
 }
 
-function exitsBeforeReadyLineTest() {
+function interruptedAcquisitionTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeFixture({}, "still booting");
+    const acquired = yield* Effect.scoped(
+      fixture.runtime.acquire({
+        agentName: AGENT_NAME,
+        connection,
+      }),
+    ).pipe(Effect.fork);
+    yield* Deferred.await(fixture.acquired);
+    yield* Deferred.await(fixture.gatewayEntered);
+
+    const interrupted = yield* Fiber.interrupt(acquired);
+    assert.isTrue(Exit.isFailure(interrupted));
+    if (Exit.isFailure(interrupted)) {
+      assert.isTrue(Cause.isInterruptedOnly(interrupted.cause));
+    }
+    assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+    assert.strictEqual(yield* Ref.get(fixture.gatewayTeardownCount), 1);
+  });
+}
+
+function exitsBeforeReadinessTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture(
       {},
       `startup failed apiKey=${AGENT_KEY_TEXT}`,
     );
     const acquiring = yield* Effect.scoped(
-      fixture.runtime.acquire({ connection }),
+      fixture.runtime.acquire({
+        agentName: AGENT_NAME,
+        connection,
+      }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.acquired);
     yield* Deferred.succeed(
@@ -218,17 +316,21 @@ function exitsBeforeReadyLineTest() {
     assert.notInclude(failure.detail, AGENT_KEY_TEXT);
     assert.include(failure.detail, "startup failed");
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+    assert.strictEqual(yield* Ref.get(fixture.gatewayTeardownCount), 1);
   });
 }
 
-function waitFailsBeforeReadyLineTest() {
+function waitFailsBeforeReadinessTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture(
       {},
       `startup failed apiKey=${AGENT_KEY_TEXT}`,
     );
     const acquiring = yield* Effect.scoped(
-      fixture.runtime.acquire({ connection }),
+      fixture.runtime.acquire({
+        agentName: AGENT_NAME,
+        connection,
+      }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.acquired);
     yield* Deferred.fail(fixture.session.exitCode, PROCESS_WAIT_FAILURE);
@@ -239,32 +341,38 @@ function waitFailsBeforeReadyLineTest() {
     assert.include(failure.detail, AGENT_KEY_REDACTION_MARKER);
     assert.notInclude(failure.detail, AGENT_KEY_TEXT);
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+    assert.strictEqual(yield* Ref.get(fixture.gatewayTeardownCount), 1);
   });
 }
 
-function readyLineTimeoutTest() {
+function readinessFailureTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture(fullRuntimeOptions(), "still booting");
     const acquiring = yield* Effect.scoped(
-      fixture.runtime.acquire({ connection }),
+      fixture.runtime.acquire({
+        agentName: AGENT_NAME,
+        connection,
+      }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.acquired);
     yield* TestClock.adjust(STARTUP_TIMEOUT);
-    const failure = yield* Fiber.join(acquiring);
+    const observed = yield* Fiber.join(acquiring);
 
-    assert.instanceOf(failure, RuntimeAcquisitionFailed);
-    assert.include(failure.detail, "did not announce readiness");
-    assert.include(failure.detail, "still booting");
+    assert.instanceOf(observed, RuntimeAcquisitionFailed);
+    assert.include(observed.detail, "did not announce readiness");
+    assert.include(observed.detail, "still booting");
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+    assert.strictEqual(yield* Ref.get(fixture.gatewayTeardownCount), 1);
   });
 }
 
 function teardownIsNotTerminationTest() {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({}, READY_OUTPUT);
+    const fixture = yield* makeFixture({});
     const scope = yield* Scope.make();
     const running = yield* fixture.runtime
       .acquire({
+        agentName: AGENT_NAME,
         connection,
       })
       .pipe(Scope.extend(scope));
@@ -277,16 +385,18 @@ function teardownIsNotTerminationTest() {
       assert.isTrue(Cause.isInterruptedOnly(observed.cause));
     }
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+    assert.strictEqual(yield* Ref.get(fixture.gatewayTeardownCount), 1);
   });
 }
 
 function observeTermination(exitCode: ExitCode) {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({}, READY_OUTPUT);
+    const fixture = yield* makeFixture({});
     const observation = yield* Effect.scoped(
       Effect.gen(function* () {
         const acquiring = yield* fixture.runtime
           .acquire({
+            agentName: AGENT_NAME,
             connection,
           })
           .pipe(Effect.fork);
@@ -297,17 +407,19 @@ function observeTermination(exitCode: ExitCode) {
       }),
     );
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+    assert.strictEqual(yield* Ref.get(fixture.gatewayTeardownCount), 1);
     return observation;
   });
 }
 
 function observeWaitFailure() {
   return Effect.gen(function* () {
-    const fixture = yield* makeFixture({}, READY_OUTPUT);
+    const fixture = yield* makeFixture({});
     const observation = yield* Effect.scoped(
       Effect.gen(function* () {
         const acquiring = yield* fixture.runtime
           .acquire({
+            agentName: AGENT_NAME,
             connection,
           })
           .pipe(Effect.fork);
@@ -318,6 +430,7 @@ function observeWaitFailure() {
       }),
     );
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
+    assert.strictEqual(yield* Ref.get(fixture.gatewayTeardownCount), 1);
     return observation;
   });
 }
@@ -335,29 +448,133 @@ function exactTerminationTest() {
   });
 }
 
-// @agent-code-guard/regression-only: controlled sessions pin acquisition, scoped teardown, private host configuration, and exact process evidence
+function sanitizedConfigurationTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeFixture(fullRuntimeOptions());
+    const encoded = yield* Schema.encode(fixture.runtime.configuration.schema)(
+      fixture.runtime.configuration.value,
+    );
+    const serialized = JSON.stringify(encoded);
+
+    assert.include(serialized, "contentDigest");
+    assert.include(serialized, "definitionDigest");
+    assert.include(serialized, "environmentValues");
+    assert.include(serialized, '"installPolicy":"workspace"');
+    assert.include(serialized, `"modelOverride":"${MODEL_ID}"`);
+    assert.include(serialized, "openclawBinOverride");
+    assert.include(serialized, "channelDistDirOverride");
+    assert.include(serialized, '"tools":{"definitionDigest"');
+    assert.include(serialized, '"sandbox":{"definitionDigest"');
+    assert.include(serialized, '"redacted":["configuration"]');
+    assert.notInclude(serialized, "Alice");
+    assert.notInclude(serialized, "MEMORY_SCOPE");
+    assert.notInclude(serialized, OPENCLAW_BIN);
+    assert.notInclude(serialized, CHANNEL_DIST_DIR);
+    assert.notInclude(serialized, AGENT_KEY_TEXT);
+    assert.notInclude(serialized, '"deny"');
+    assert.notInclude(serialized, '"network"');
+  });
+}
+
+function omittedPolicyConfigurationTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeFixture({});
+    const encoded = yield* Schema.encode(fixture.runtime.configuration.schema)(
+      fixture.runtime.configuration.value,
+    );
+
+    assert.notProperty(encoded, "tools");
+    assert.notProperty(encoded, "sandbox");
+  });
+}
+
+function snapshotsNativePolicyTest() {
+  return Effect.gen(function* () {
+    const tools: OpenClawToolsConfig = {
+      deny: ["read"],
+      elevated: { enabled: false },
+      exec: { mode: "deny" },
+    };
+    const sandbox: OpenClawSandboxConfig = {
+      mode: "all",
+      backend: "docker",
+      scope: "session",
+      workspaceAccess: "none",
+      docker: { network: "none" },
+    };
+    const fixture = yield* makeFixture({ tools, sandbox });
+
+    tools.deny?.push("exec");
+    sandbox.mode = "off";
+    if (sandbox.docker !== undefined) {
+      sandbox.docker.network = "host";
+    }
+
+    const acquiring = yield* Effect.scoped(
+      fixture.runtime.acquire({
+        agentName: AGENT_NAME,
+        connection,
+      }),
+    ).pipe(Effect.fork);
+    const acquired = yield* Deferred.await(fixture.acquired);
+
+    assert.deepStrictEqual(acquired.input.tools, {
+      deny: ["read"],
+      elevated: { enabled: false },
+      exec: { mode: "deny" },
+    });
+    assert.deepStrictEqual(acquired.input.sandbox, {
+      mode: "all",
+      backend: "docker",
+      scope: "session",
+      workspaceAccess: "none",
+      docker: { network: "none" },
+    });
+    assert.isTrue(Object.isFrozen(acquired.input.tools));
+    assert.isTrue(Object.isFrozen(acquired.input.tools?.deny));
+    assert.isTrue(Object.isFrozen(acquired.input.sandbox));
+    assert.isTrue(Object.isFrozen(acquired.input.sandbox?.docker));
+    yield* Fiber.interrupt(acquiring);
+  });
+}
+
+// @agent-code-guard/regression-only: controlled sessions pin readiness, cancellation, scoped teardown, private host configuration, and exact process evidence
 describe("native OpenClaw runtime", () => {
   test(
-    "returns after the gateway logs its readiness line",
-    returnsAfterReadyLineTest,
+    "requires process readiness and exposes the scoped principal gateway",
+    returnsAfterReadinessTest,
   );
   test(
-    "fails and releases when the process exits before the readiness line",
-    exitsBeforeReadyLineTest,
+    "releases an interrupted process acquisition through its Scope",
+    interruptedAcquisitionTest,
   );
   test(
-    "reports an unavailable exit code when the process wait fails before the readiness line",
-    waitFailsBeforeReadyLineTest,
+    "fails and releases when the process exits before readiness",
+    exitsBeforeReadinessTest,
+  );
+  test(
+    "reports an unavailable exit code when the process wait fails before readiness",
+    waitFailsBeforeReadinessTest,
   );
   test(
     "fails when no readiness line arrives within the startup timeout",
-    readyLineTimeoutTest,
+    readinessFailureTest,
   );
   test(
     "does not report scoped teardown as autonomous termination",
     teardownIsNotTerminationTest,
   );
   test("reports the exact observed process exit status", exactTerminationTest);
+  test(
+    "publishes definition-time policy with digested workspace, MCP, and host paths",
+    sanitizedConfigurationTest,
+  );
+  test(
+    "preserves omitted native policy for customer-owned runtimes",
+    omittedPolicyConfigurationTest,
+  );
+  test(
+    "snapshots native policy before caller mutation",
+    snapshotsNativePolicyTest,
+  );
 });
-
-/* eslint-enable sonarjs/no-nested-functions -- Restore strict defaults after the scoped file-level exception. */

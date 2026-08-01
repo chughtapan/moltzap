@@ -6,7 +6,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": "packages/evals",
-        "command": "tsc -b"
+        "command": "node scripts/clean-dist.mjs && tsc -b"
       }
     },
     "lint": {
@@ -17,13 +17,17 @@
       }
     },
     "test": {
+      "dependsOn": [
+        "build",
+        "^build"
+      ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": "packages/evals",
         "command": "vitest run"
       }
     },
-    "measure:live": {
+    "eval": {
       "cache": false,
       "parallelism": false,
       "dependsOn": [
@@ -31,11 +35,11 @@
       ],
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "packages/evals",
-        "command": "MOLTZAP_AGENT_EVAL_ITEST=1 MOLTZAP_BEHAVIORAL_EVAL_ITEST=1 MOLTZAP_SHARED_CONVERSATION_ITEST=1 vitest run --no-file-parallelism src/mixed-roster.integration.test.ts src/behavioral-runtime.integration.test.ts src/shared-conversation.integration.test.ts"
+        "cwd": ".",
+        "command": "node packages/evals/dist/cli.js run"
       }
     },
-    "measure:roster": {
+    "resume": {
       "cache": false,
       "parallelism": false,
       "dependsOn": [
@@ -43,11 +47,11 @@
       ],
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "packages/evals",
-        "command": "MOLTZAP_AGENT_EVAL_ITEST=1 vitest run src/mixed-roster.integration.test.ts"
+        "cwd": ".",
+        "command": "node packages/evals/dist/cli.js resume"
       }
     },
-    "measure:behavior": {
+    "calibrate": {
       "cache": false,
       "parallelism": false,
       "dependsOn": [
@@ -55,11 +59,11 @@
       ],
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "packages/evals",
-        "command": "MOLTZAP_BEHAVIORAL_EVAL_ITEST=1 vitest run src/behavioral-runtime.integration.test.ts"
+        "cwd": ".",
+        "command": "node packages/evals/dist/cli.js calibrate"
       }
     },
-    "measure:conversation": {
+    "publish": {
       "cache": false,
       "parallelism": false,
       "dependsOn": [
@@ -67,8 +71,8 @@
       ],
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "packages/evals",
-        "command": "MOLTZAP_SHARED_CONVERSATION_ITEST=1 vitest run src/shared-conversation.integration.test.ts"
+        "cwd": ".",
+        "command": "node packages/evals/dist/cli.js publish"
       }
     },
     "typecheck:tests": {

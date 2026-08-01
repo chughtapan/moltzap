@@ -2,22 +2,39 @@
 status: partially-superseded
 date: 2026-07-27
 decision-makers: Tapan Chugh
-superseded-by: 20260728-simulator-is-the-system-driver.md
+superseded-by: 20260729-principal-io-uses-runtime-gateways.md
 ---
 
 # The simulator is code-first with a closed event catalog
 
-Decision provenance: [source-gap report](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#simulator-provenance-source-gap), [Gate 1 simulator-system-driver trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-simulator-is-the-system-driver), [six-package trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-six-deep-packages-one-version), and [Router replacement trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
+Decision provenance: [stored code-first simulator trajectory](../decision-evidence/20260727-code-first-simulator-trajectory.md#code-first-simulator-closed-event-catalog), [stored principal-gateway trajectory](../decision-evidence/20260729-principal-runtime-gateway-trajectory.md#principal-io-uses-each-runtime-gateway), [source-gap report](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#simulator-provenance-source-gap), [Gate 1 simulator-system-driver trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-simulator-is-the-system-driver), [six-package trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-six-deep-packages-one-version), and [Router replacement trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
 
 ## Supersession
 
 The following scope remains current: the code-first TypeScript/Effect
 approach; `Simulator.define`; an immutable closed typed EventCatalog;
-the typed run-evidence RunLedger; a scoped runtime roster and private
-lifecycle kernel; Effect programs and services; customer-owned
+the typed run-evidence RunLedger; a scoped runtime roster and lifecycle
+kernel; Effect programs and services; customer-owned
 scenario languages, sweeps, completion policy, and graders; and the
 requirement that OpenClaw, NanoClaw, Effect, and custom runtimes use one
 public stack without callback shortcuts.
+
+For the v1 implementation, `20260729-principal-io-uses-runtime-gateways.md`
+replaces the private-gateway and router-authentication readiness claims.
+Successful acquisition exposes each runtime's exact principal gateway and
+termination through the keyed roster alongside the router-issued agent handle.
+Network identity remains distinct from runtime lifetime. A behavioral runtime
+is ready only when its principal gateway and configured MoltZap capabilities
+are usable. Experiment-controlled endpoints remain network participants for
+probes and workloads, but do not represent a principal instructing an
+autonomous agent. Synthetic-endpoint OpenClaw and NanoClaw runs are network
+diagnostics rather than behavioral acceptance.
+The earlier three-entry-point v1 package list is also replaced: the root
+remains the society definition, execution, and evidence surface, while runtime
+contracts and shipped implementations are grouped at
+`@moltzap/simulator/runtime` inside the same package. The current v1 boundary
+lives in
+[`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md).
 
 `20260728-simulator-is-the-system-driver.md` replaces the historical
 single-package ownership and source-layout plan with the V2 simulator
