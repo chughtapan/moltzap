@@ -113,20 +113,23 @@ const TAG_CLASS_FACTORIES = [
   "RpcMiddleware.Tag",
 ];
 
-// Sorting rules are limited to axes where declaration order carries no
-// meaning. Deliberately NOT enabled: sort-modules and sort-classes (they
-// fight the band layout and the stepdown rule), sort-union-types and
-// sort-enums-as-unions (a union like LeaseState reads as a lifecycle), and
-// sort-interfaces / sort-object-types (wire shapes whose field order flows
-// into the generated protocol docs).
+// Sorting rules are limited to axes where order provably carries no meaning.
+// Deliberately NOT enabled: sort-modules and sort-classes (they fight the band
+// layout and the stepdown rule), sort-union-types and sort-enums (a union like
+// LeaseState reads as a lifecycle), sort-interfaces / sort-object-types (wire
+// shapes whose field order flows into the generated protocol docs), and
+// sort-objects (2586 sites mixing arbitrary config with semantic ordering).
 const orderingRules = {
-  // NOT enabled: sort-imports and sort-exports. Both treat a module's `@file`
-  // docblock as trivia belonging to the statement below it, so sorting hoists
-  // a statement over the block and strands the file's own documentation —
-  // which `jsdoc/require-file-overview` then rejects. `partitionByComment`
-  // does not prevent it for sort-exports. Enabling them needs a one-time pass
-  // moving every docblock above all imports/exports first; until then the
-  // statement-internal sorters below carry the value without the risk.
+  // NOT enabled: sort-imports and sort-exports. `@moltzap/protocol` contains a
+  // `conversation` <-> `task` import cycle, so import order decides module
+  // evaluation order and is load-bearing: `task/tasks.ts` reaches
+  // `conversationSchema()` at module scope, which resolves only because
+  // `#conversation` is imported after `#transport`. Sorting moves it first and
+  // the call throws `conversationSchema is not a function` at import time (15
+  // test files). Enabling these needs the cycle broken first — `TaskId` and
+  // `TaskNotFoundError` moved somewhere both halves can depend on. The
+  // statement-internal sorters below cannot change evaluation order, so they
+  // carry the value without the risk.
   "perfectionist/sort-named-imports": [
     "error",
     { type: "alphabetical", ignoreCase: true },
