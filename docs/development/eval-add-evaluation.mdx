@@ -3,6 +3,12 @@ title: "How to add an evaluation"
 description: "Add a typed case, exact peer roster, executable policy, criterion, and calibration fixture to the private evaluation application."
 ---
 
+> **Implementation transition:** The [accepted main-track Kubernetes
+> contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
+> governs new execution work. The peer-runtime construction below describes
+> the pre-cutover implementation. New peers are eval-owned container policies
+> and bridge configurations submitted through the core simulator path.
+
 `packages/evals` is a private, code-first customer of
 `@moltzap/simulator`. A bundled case is an immutable TypeScript value with
 the exact autonomous peers and policy it needs.

@@ -52,8 +52,9 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
-| [Principal I/O uses runtime-native gateways](20260729-principal-io-uses-runtime-gateways.md) | 2026-07-29 | accepted | — |
-| [Evaluation runs produce typed reports published to Phoenix](20260729-effect-native-evaluation-results.md) | 2026-07-29 | partially-superseded | [Principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md) |
+| [The main simulator runs container societies on Kubernetes](20260801-main-simulator-runs-container-societies-on-kubernetes.md) | 2026-08-01 | accepted | — |
+| [Principal I/O uses runtime-native gateways](20260729-principal-io-uses-runtime-gateways.md) | 2026-07-29 | partially-superseded | [Main Kubernetes society execution](20260801-main-simulator-runs-container-societies-on-kubernetes.md) |
+| [Evaluation runs produce typed reports published to Phoenix](20260729-effect-native-evaluation-results.md) | 2026-07-29 | partially-superseded | [Main Kubernetes society execution](20260801-main-simulator-runs-container-societies-on-kubernetes.md), [principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md) |
 | [Representation limits are fixed or derived](20260729-representation-limits-are-fixed-or-derived.md) | 2026-07-29 | accepted | — |
 | [Identity and Router expose deep Effect capabilities](20260729-identity-and-router-expose-deep-effect-capabilities.md) | 2026-07-29 | accepted | — |
 | [Registration is Registry bootstrap admission](20260729-registration-is-registry-bootstrap-admission.md) | 2026-07-29 | accepted | — |
@@ -73,7 +74,7 @@ planning database as continuing authority.
 | [The model surface is start_conversation, reply, and listen](20260728-model-surface-is-start-reply-listen.md) | 2026-07-28 | accepted | — |
 | [V2 has six deep packages and one Moltzap version](20260728-six-deep-packages-one-version.md) | 2026-07-28 | partially-superseded | [Opaque Router order](20260729-router-order-is-opaque.md) |
 | [V2 owns one simulator as the system driver](20260728-simulator-is-the-system-driver.md) | 2026-07-28 | accepted | — |
-| [The simulator is code-first with a closed event catalog](20260727-code-first-simulator-kernel.md) | 2026-07-27 | partially-superseded | [Principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md), [Simulator system driver](20260728-simulator-is-the-system-driver.md), [six packages and one version](20260728-six-deep-packages-one-version.md), [opaque Router order](20260729-router-order-is-opaque.md) |
+| [The simulator is code-first with a closed event catalog](20260727-code-first-simulator-kernel.md) | 2026-07-27 | partially-superseded | [Main Kubernetes society execution](20260801-main-simulator-runs-container-societies-on-kubernetes.md), [principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md), [Simulator system driver](20260728-simulator-is-the-system-driver.md), [six packages and one version](20260728-six-deep-packages-one-version.md), [opaque Router order](20260729-router-order-is-opaque.md) |
 | [Registration is out of band; the plane knows one caller](20260727-registration-is-out-of-band.md) | 2026-07-27 | superseded | [Registry bootstrap admission](20260729-registration-is-registry-bootstrap-admission.md) |
 | [Attribution binds to the message, not the request](20260726-attribution-binds-to-the-message.md) | 2026-07-26 | partially-superseded | [JCS, JOSE, and AuthenticatedHttp](20260729-identity-uses-jcs-jose-authenticated-http.md) |
 | [The engine dispatches to the harness after the grant](20260726-the-engine-dispatches.md) | 2026-07-26 | partially-superseded | [Endpoint daemon](20260728-endpoint-daemon-speaks-modern-mcp.md), [model surface](20260728-model-surface-is-start-reply-listen.md) |

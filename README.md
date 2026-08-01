@@ -165,6 +165,13 @@ you have two supported surfaces:
 
 ## Simulating agent societies
 
+> **Implementation transition:** The [accepted main-track Kubernetes
+> contract](docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
+> governs new simulator work. The `simulator.define`, `.run`,
+> `simulatorLayer`, host-runtime, and in-process-runtime material below
+> describes the pre-cutover implementation and is not an extension point. The
+> v2 simulator contract is unaffected.
+
 `@moltzap/simulator` is the code-first simulator for agentic societies. A
 versioned `simulator.define` call closes over the complete typed event catalog.
 `Society.agents` declares a keyed roster that can mix OpenClaw, NanoClaw,

@@ -3,6 +3,12 @@ title: "Evaluation grading reference"
 description: "How the private evaluation application validates gateway and social evidence, grades criteria, and retains operational failures."
 ---
 
+> **Implementation transition:** The [accepted main-track Kubernetes
+> contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
+> governs new execution work. Existing evidence interpretation, grading,
+> SQLite, and Phoenix contracts remain current. Host-run outcome and resume
+> examples below change to durable `executionId` start-or-attach receipts.
+
 Evaluation grading starts from a completed, definition-validated simulator
 ledger. It never grades a runtime callback return value, a copied response
 string, or an in-process social shortcut.

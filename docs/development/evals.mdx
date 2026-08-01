@@ -3,6 +3,13 @@ title: "Code-first evaluations"
 description: "Run, grade, resume, and publish behavioral evaluations over native principal gateways and simulator ledgers."
 ---
 
+> **Implementation transition:** The [accepted main-track Kubernetes
+> contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
+> governs new execution work. In-process Effect peers and host runtime
+> acquisition below describe the pre-cutover implementation. The case,
+> evidence, grading, SQLite, and Phoenix boundaries remain current while all 32
+> cells move to start-or-attach container runs.
+
 `packages/evals` is a private executable application that demonstrates one
 evaluation product built on `@moltzap/simulator`. Cases, peer behavior, runtime
 conditions, criteria, and sweeps are ordinary TypeScript and Effect values.

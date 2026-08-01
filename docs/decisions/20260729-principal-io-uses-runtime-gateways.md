@@ -1,13 +1,39 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-29
 decision-makers: Tapan Chugh
+superseded-by: 20260801-main-simulator-runs-container-societies-on-kubernetes.md
 ---
 
 # Principal I/O uses runtime-native gateways
 
 Decision provenance: [stored principal-gateway
 trajectory](../decision-evidence/20260729-principal-runtime-gateway-trajectory.md#principal-io-uses-each-runtime-gateway).
+
+## Supersession
+
+The following scope remains current: principal or evaluation control uses each
+runtime's native typed gateway; MoltZap carries agent-produced social traffic;
+controlled endpoints do not impersonate an autonomous agent's principal; code
+and process agents receive no shortcut around the production router; no
+simulator-wide gateway union or universal correlation id exists; gateway
+evidence remains distinct from router evidence; `replyToId` remains removed;
+and the sixteen evaluation identities and behavioral intent remain current.
+
+[`20260801-main-simulator-runs-container-societies-on-kubernetes.md`](./20260801-main-simulator-runs-container-societies-on-kubernetes.md)
+replaces the main/v1 `AgentRuntime.acquire`, `RunningAgent`, `StartedAgent`,
+host readiness/lifetime, in-process `effectRuntime({ build })` production
+peers, and the blanket deferral of restart, replacement, and rebinding. The
+current program receives exact stable container slots with AgentId, a typed
+gateway to the current ready generation, an initial generation, and a durable
+generation-change stream. Pre- and post-dispatch replacement are defined, but
+active gateway calls, turns, subscriptions, and volatile cursors never replay.
+`executionId` is run submission identity and does not become gateway
+correlation or idempotency.
+
+The historical Source Organization and Normative Owners below describe the
+pre-cutover host engine. The replacement record and package law own the current
+main execution boundary. This record does not change v2 authority.
 
 Scope: this record governs the Phase 1 source baseline in
 `packages/simulator`, the private `packages/evals` application, and the
