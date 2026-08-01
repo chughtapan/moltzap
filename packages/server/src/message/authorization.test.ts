@@ -10,8 +10,8 @@ import { MessagesAuthorize } from "@moltzap/protocol/message";
 import { TaskCreate } from "@moltzap/protocol/task";
 import {
   agentId,
-  appId as makeAppId,
   conversationId,
+  appId as makeAppId,
   messageId,
   taskId,
 } from "@moltzap/protocol/testing";

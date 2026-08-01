@@ -1,5 +1,5 @@
 /** Integration coverage for the `app/message/authorize` send-side gate. */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
@@ -20,16 +20,16 @@ import type { AppId, TaskId } from "@moltzap/protocol/task";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
+  connectAppClient,
+  type ConnectedAgent,
+  getBaseUrl,
+  getKyselyDb,
+  registerAndConnect,
+  registerApp,
+  resetTestDbEffect,
+  setupAgentPair,
   startTestServerEffect,
   stopTestServerEffect,
-  resetTestDbEffect,
-  registerAndConnect,
-  setupAgentPair,
-  registerApp,
-  connectAppClient,
-  getKyselyDb,
-  getBaseUrl,
-  type ConnectedAgent,
   type TestAppClient,
 } from "../../helpers.js";
 import {

@@ -13,8 +13,8 @@ import { describe, expect, it } from "vitest";
 import { Effect, Either, Equal, Match, TestClock, TestContext } from "effect";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import {
-  LeaseAlreadyConsumed,
   catchLeaseInvalid,
+  LeaseAlreadyConsumed,
   projectLeaseInvalid,
 } from "../../channel-base/lease.js";
 

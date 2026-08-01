@@ -18,9 +18,9 @@ import { DispatchNotFoundError, LeaseId } from "#message/dispatch";
 import { HookBlockedError, TaskClosedError, TaskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
-  ListLimitSchema,
   closedStructGuard,
   errorPayloadFields,
+  ListLimitSchema,
 } from "#transport";
 import { AgentPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";

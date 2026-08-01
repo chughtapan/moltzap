@@ -5,63 +5,63 @@ import { Effect, Layer } from "effect";
 import type { Db } from "#db";
 import type { EnvelopeEncryption } from "#db/crypto";
 import {
+  type ConnectionManager,
   ConnectionManagerLive,
   ConnectionManagerTag,
-  type ConnectionManager,
 } from "#socket";
 import {
+  type AgentEndpointResolver,
   AgentEndpointResolverLive,
   AgentEndpointResolverTag,
+  type NetworkSendService,
   NetworkSendServiceLive,
   NetworkSendServiceTag,
-  type AgentEndpointResolver,
-  type NetworkSendService,
 } from "#network";
 import {
+  type AuthService,
   AuthServiceLive,
   AuthServiceTag,
-  type AuthService,
 } from "#identity/agents";
 import {
+  type AppAuthService,
   AppAuthServiceLive,
   AppAuthServiceTag,
+  type AppEndpointRegistry,
   AppEndpointRegistryLive,
   AppEndpointRegistryTag,
-  type AppAuthService,
-  type AppEndpointRegistry,
 } from "#identity/apps";
 import {
+  type ContactsService,
   ContactsServiceLive,
   ContactsServiceTag,
-  type ContactsService,
 } from "#identity/contacts";
 import {
+  type ConversationService,
   ConversationServiceLive,
   ConversationServiceTag,
-  type ConversationService,
 } from "#conversation";
 import {
+  type PresenceService,
   PresenceServiceLive,
   PresenceServiceTag,
-  type PresenceService,
 } from "#network/presence";
 import {
   DispatchAdmissionServiceLive,
+  type LeaseRegistry,
   LeaseRegistryLive,
   LeaseRegistryTag,
-  type LeaseRegistry,
 } from "#dispatch";
 import {
   MessageAuthorizationServiceLive,
+  type MessageService,
   MessageServiceLive,
   MessageServiceTag,
-  type MessageService,
 } from "#message";
 import {
   TaskAuthorizationServiceLive,
+  type TaskService,
   TaskServiceLive,
   TaskServiceTag,
-  type TaskService,
 } from "#task";
 import { DbTag } from "#db";
 import { EncryptionTag } from "#db/crypto";

@@ -27,15 +27,15 @@ import {
   Effect,
   Exit,
   Queue,
+  Schema,
   Scope,
   Stream,
-  Schema,
 } from "effect";
 import { RpcResponseError } from "../_shared/errors.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
-  PropertyInvariantViolation,
   type PropertyFailure,
+  PropertyInvariantViolation,
 } from "../_shared/registry.js";
 import type { AgentId } from "#identity";
 import { AppId, TaskRequest, TaskUpdate } from "@moltzap/protocol/task";
@@ -49,21 +49,21 @@ import { MessagesSend } from "@moltzap/protocol/message";
 import type { TaskId } from "#task";
 import {
   DispatchAuthorize,
-  DispatchRelease,
-  DispatchRequest,
+  type DispatchId,
   DispatchLeaseConsumed,
   DispatchLeaseExpired,
   DispatchLeaseGet,
-  type DispatchId,
+  DispatchRelease,
+  DispatchRequest,
 } from "#message/dispatch";
 import type { NotificationDelivery } from "#transport";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
-  makeAgentTestClient,
-  makeCloseableAgentTestClient,
   type AgentTestClient,
   type AppTestClient,
   type CloseableAgentTestClient,
+  makeAgentTestClient,
+  makeCloseableAgentTestClient,
   type ServerRpcParams,
   type ServerRpcResult,
 } from "../_shared/driver/test-client.js";
@@ -1206,7 +1206,7 @@ function advanceTime(durationMs: number): Effect.Effect<void> {
 // ── Re-export wire types for property authors ─────────────────────────
 
 export type {
-  DispatchRelease,
   DispatchLeaseConsumed,
   DispatchLeaseExpired,
+  DispatchRelease,
 } from "#message/dispatch";

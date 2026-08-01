@@ -7,8 +7,8 @@ import type {
   AppCallableGroup,
 } from "#socket/catalog";
 import type { NotificationDelivery, NotificationParamsOf } from "#transport";
-import { MoltZapAgentClient, type AgentClientOptions } from "#socket";
-import { MoltZapAppClient, type AppClientOptions } from "#socket";
+import { type AgentClientOptions, MoltZapAgentClient } from "#socket";
+import { type AppClientOptions, MoltZapAppClient } from "#socket";
 import {
   type ClientDefinitionError,
   type ClientDefinitionPayload,

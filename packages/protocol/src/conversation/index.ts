@@ -7,10 +7,10 @@ export {
   ConversationFullError,
   ConversationId,
   ConversationNotFoundError,
+  conversationSchema,
   MessageId,
   NotAParticipantError,
   ParticipantNotAdmittedError,
-  conversationSchema,
 } from "./types.js";
 export type {
   Conversation,
@@ -28,17 +28,17 @@ export type {
 } from "./requirements/index.js";
 
 export {
-  ConversationCreate,
-  ConversationList,
-  ConversationUpdate,
+  agentCallableConversationRpcMethods,
+  appCallableConversationRpcMethods,
   ConversationArchivedNotificationDefinition,
+  ConversationCreate,
   ConversationCreatedNotificationDefinition,
+  ConversationList,
+  conversationNotifications,
   ConversationParticipantsAddedNotificationDefinition,
   ConversationParticipantsRemovedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
-  agentCallableConversationRpcMethods,
-  appCallableConversationRpcMethods,
-  conversationNotifications,
+  ConversationUpdate,
 } from "./conversations.js";
 export type {
   ConversationArchivedNotification,
@@ -46,6 +46,6 @@ export type {
   ConversationListItem,
   ConversationParticipantsAddedNotification,
   ConversationParticipantsRemovedNotification,
-  ConversationUpdateParams,
   ConversationUnarchivedNotification,
+  ConversationUpdateParams,
 } from "./conversations.js";

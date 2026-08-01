@@ -10,22 +10,22 @@ import {
   Fiber,
   Option,
   Ref,
-  Stream,
-  Scope,
   Schema,
+  Scope,
+  Stream,
 } from "effect";
 import type { AnyNotificationDefinition } from "#socket/catalog";
 import type { NotificationDelivery, NotificationParamsOf } from "#transport";
 import { isNotificationDeliveryFor } from "#transport";
 import { TaskCreate, TaskId, TaskRequest } from "#task";
 import {
-  ConversationId,
   ConversationArchivedNotificationDefinition,
   ConversationCreatedNotificationDefinition,
+  ConversationId,
   ConversationParticipantsAddedNotificationDefinition,
   ConversationParticipantsRemovedNotificationDefinition,
-  ConversationUpdate,
   ConversationUnarchivedNotificationDefinition,
+  ConversationUpdate,
 } from "#conversation";
 import {
   MessageReceivedNotificationDefinition,
@@ -41,9 +41,9 @@ import {
 } from "../_shared/test-fixtures.js";
 import { RpcResponseError } from "../_shared/errors.js";
 import {
-  makeAgentTestClient,
   type AgentTestClient,
   type AppTestClient,
+  makeAgentTestClient,
   type NotificationClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";

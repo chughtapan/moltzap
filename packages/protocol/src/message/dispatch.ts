@@ -1,4 +1,4 @@
-import { Schema, type Brand } from "effect";
+import { type Brand, Schema } from "effect";
 import { AgentId, agentOwnershipSchema } from "#identity/agents";
 import { ConversationId, MessageId } from "#conversation";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
@@ -6,7 +6,7 @@ import { ActiveAgent } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
 import { TaskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
-import { ForbiddenError, errorPayloadFields } from "#transport";
+import { errorPayloadFields, ForbiddenError } from "#transport";
 import { dateTimeStringSchema, formatString, stringEnum } from "#transport";
 
 export type LeaseId = string & Brand.Brand<"LeaseId">;

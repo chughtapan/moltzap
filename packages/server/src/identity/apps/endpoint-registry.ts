@@ -3,9 +3,9 @@ import type { AppId, AppManifest } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ContactService } from "#identity/contacts";
 import {
-  AppRegistry,
   type AppEndpoint,
   type AppRegistration,
+  AppRegistry,
 } from "./registry.js";
 
 export class AppEndpointRegistry {

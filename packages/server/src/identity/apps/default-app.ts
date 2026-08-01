@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import type { RpcSerialization } from "@effect/rpc";
-import { DEFAULT_APP_ID, type AppManifest } from "@moltzap/protocol/identity";
+import { type AppManifest, DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import { ConnectionId } from "@moltzap/protocol/socket";
 import type { AppEndpointRegistry } from "./endpoint-registry.js";
 import type { AppEndpoint } from "./registry.js";

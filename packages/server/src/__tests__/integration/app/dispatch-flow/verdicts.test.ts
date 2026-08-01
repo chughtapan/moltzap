@@ -10,21 +10,21 @@ import type { AppManifest } from "@moltzap/protocol/identity";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
+  attachDispatchAuthorizeHook,
+  createConversationOnApp,
+  createDispatchFlowFixture,
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_VERDICT_DENY,
   DISPATCH_VERDICT_HOLD,
-  MODERATOR_TIMEOUT_REASON,
-  createDispatchFlowFixture,
   MODERATED_HOOKS,
-  attachDispatchAuthorizeHook,
-  createConversationOnApp,
+  MODERATOR_TIMEOUT_REASON,
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
   waitForDispatchRelease,
   waitForParticipantsRemoved,
 } from "./fixture.js";
-import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
+import { type ConnectedAgent, setupAgentPair } from "../../helpers.js";
 
 const it = effectIt.live;
 

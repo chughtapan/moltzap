@@ -6,8 +6,8 @@ import fc from "fast-check";
 import packageJson from "../../package.json" with { type: "json" };
 
 import {
-  compareProtocolVersion,
   checkProtocolRange,
+  compareProtocolVersion,
   InvalidProtocolVersionError,
   PROTOCOL_VERSION,
   ProtocolMismatchError,

@@ -30,7 +30,7 @@ export interface RpcJsDoc {
   readonly line: number;
 }
 
-const DEFINER_NAMES = new Set(["defineRpc", "defineNotification"]);
+const DEFINER_NAMES = new Set(["defineNotification", "defineRpc"]);
 
 interface ParsedJsDoc {
   readonly description: string | null;

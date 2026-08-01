@@ -13,9 +13,9 @@ import { visibleAgentIds } from "./visibility.service.js";
 import {
   decodeListCursor,
   keysetWhere,
+  type ListCursorPosition,
   paginate,
   sortKeyExpr,
-  type ListCursorPosition,
 } from "#db";
 
 interface AgentsListPageInput {

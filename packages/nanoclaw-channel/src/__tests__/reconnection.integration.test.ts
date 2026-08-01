@@ -31,9 +31,9 @@ import { AgentKey } from "@moltzap/protocol/identity";
 import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 import type { Message } from "@moltzap/protocol/message";
 import {
-  TaskRequest,
   DEFAULT_APP_ID,
   type TaskId,
+  TaskRequest,
 } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";

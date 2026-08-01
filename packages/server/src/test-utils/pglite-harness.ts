@@ -13,10 +13,10 @@
  */
 import { Data, Effect } from "effect";
 import { KyselyPGlite } from "kysely-pglite";
-import { makeEffectKysely, type Database, type EffectKysely } from "#db";
+import { type Database, type EffectKysely, makeEffectKysely } from "#db";
 import {
-  loadCoreSchemaSql,
   type CoreSchemaSqlLoadError,
+  loadCoreSchemaSql,
 } from "./core-schema-sql.js";
 
 /** Suggested timeout for pglite-backed beforeEach/afterEach hooks. */

@@ -22,14 +22,14 @@ import {
   agentPresenceSubscribe,
   appPresenceSubscribe,
 } from "#network/presence";
-import { messagesSend, messagesList } from "#message/handlers";
-import { taskList, taskLeave, taskRequest, taskUpdate } from "#task/handlers";
+import { messagesList, messagesSend } from "#message/handlers";
+import { taskLeave, taskList, taskRequest, taskUpdate } from "#task/handlers";
 import {
   conversationCreate,
   conversationList,
   conversationUpdate,
 } from "#conversation/handlers";
-import { dispatchRequest, dispatchLeaseGet } from "#dispatch/handlers";
+import { dispatchLeaseGet, dispatchRequest } from "#dispatch/handlers";
 import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
 
 /**

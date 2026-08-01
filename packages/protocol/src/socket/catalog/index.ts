@@ -5,19 +5,19 @@
  * derived method/notification catalogs and group types needed by client,
  * server-core, conformance, and generated protocol reference docs.
  */
-import { RpcGroup, type Rpc } from "@effect/rpc";
-import { identityRpcMethods, identityNotifications } from "#identity";
+import { type Rpc, RpcGroup } from "@effect/rpc";
+import { identityNotifications, identityRpcMethods } from "#identity";
 import {
   agentCallableNetworkRpcMethods,
   appCallableNetworkRpcMethods,
-  networkRpcMethods,
   networkNotifications,
+  networkRpcMethods,
 } from "#network";
 import {
-  taskNotifications,
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
   taskCallbackMethods,
+  taskNotifications,
 } from "#task";
 import {
   agentCallableConversationRpcMethods,

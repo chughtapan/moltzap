@@ -11,8 +11,8 @@ import {
   registerProperty,
 } from "../_shared/registry.js";
 import {
-  DELIVERY_CATEGORY,
   acquireConversation,
+  DELIVERY_CATEGORY,
   deliveryViolation,
 } from "./_helpers.js";
 

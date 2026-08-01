@@ -18,9 +18,9 @@ import { getMoltZapAgentServiceSocketPath } from "../local-paths.js";
 import { requestDaemonCommand, SocketRequestError } from "./socket-client.js";
 import { type LocalDaemonError, LocalDaemonRpcs } from "../local-daemon-rpc.js";
 import {
-  resolveProfileRecord,
   type ProfileError,
   type ProfileName,
+  resolveProfileRecord,
 } from "../profile.js";
 import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/rpc";
 

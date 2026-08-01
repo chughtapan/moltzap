@@ -3,13 +3,13 @@
  */
 export { ContactId } from "./ids.js";
 export {
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
-  NotInContactsError,
   ContactNotFoundError,
+  ContactRequestNotificationDefinition,
+  ContactsAccept,
+  ContactsAdd,
+  ContactsList,
+  NotInContactsError,
 } from "./contacts.js";
 export { ContactPolicyAllowsReach } from "./requirements/index.js";
 export type { ContactPolicyAllowsReachValue } from "./requirements/index.js";

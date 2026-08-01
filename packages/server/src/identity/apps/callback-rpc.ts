@@ -3,10 +3,10 @@ import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
 import { TaskCreate } from "@moltzap/protocol/task";
 import type {
-  ReverseCallError,
   ReverseCallbackError,
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
+  ReverseCallError,
 } from "@moltzap/protocol/socket";
 import { sendRpcToClient } from "#socket";
 import type { AppRegistration } from "./registry.js";

@@ -1,14 +1,14 @@
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { Effect, Exit } from "effect";
 import {
+  connectTestClient,
+  createTestAgent,
+  getKyselyDb,
   it,
+  registerAndConnect,
+  resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
-  resetTestDbEffect,
-  registerAndConnect,
-  getKyselyDb,
-  createTestAgent,
-  connectTestClient,
 } from "../helpers.js";
 
 import { ConversationList } from "@moltzap/protocol/conversation";

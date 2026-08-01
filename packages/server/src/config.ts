@@ -412,8 +412,8 @@ function resolveConfigDir(
 // Env reading + StandaloneBootPlan build
 // ─────────────────────────────────────────────────────────────────────
 
-const TRUE_BOOLEAN_VALUES = new Set(["true", "1", "yes", "on"]);
-const FALSE_BOOLEAN_VALUES = new Set(["false", "0", "no", "off"]);
+const TRUE_BOOLEAN_VALUES = new Set(["1", "on", "true", "yes"]);
+const FALSE_BOOLEAN_VALUES = new Set(["0", "false", "no", "off"]);
 const DEFAULT_SERVER_PORT = 3000;
 const DECIMAL_RADIX = 10;
 

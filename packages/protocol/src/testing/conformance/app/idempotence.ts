@@ -14,8 +14,8 @@ import { AgentsList } from "#identity";
 import { TaskList } from "#task";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import {
-  makeAgentTestClient,
   type AgentTestClient,
+  makeAgentTestClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type {

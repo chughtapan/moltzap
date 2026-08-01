@@ -5,16 +5,16 @@ import type { RpcGroup } from "@effect/rpc";
 import { Data, Effect, Layer } from "effect";
 import {
   isLocalDaemonError,
-  type LocalDaemonError,
   LocalDaemonCommands,
+  type LocalDaemonError,
   LocalDaemonRpcs,
 } from "../local-daemon-rpc.js";
 import { MoltZapService } from "../service.js";
 import {
   dispatchCall,
-  type TypedDispatchMap,
   type PayloadForTag,
   type SuccessForTag,
+  type TypedDispatchMap,
 } from "@moltzap/protocol/rpc";
 
 type DaemonRpcs = RpcGroup.Rpcs<typeof LocalDaemonRpcs>;

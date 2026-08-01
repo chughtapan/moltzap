@@ -21,17 +21,17 @@ import { Effect, Either } from "effect";
 import type { AgentId } from "#identity";
 import {
   DEFAULT_APP_ID,
+  type Task,
+  TaskCreate,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  TaskRequest,
-  TaskLeave,
-  TaskCreate,
-  type Task,
   type TaskId,
+  TaskLeave,
+  TaskRequest,
 } from "#task";
 import {
-  ConversationList,
   type Conversation,
+  ConversationList,
   type ConversationListItem,
 } from "#conversation";
 import { registerTestApp } from "../_shared/test-app.js";
@@ -39,12 +39,12 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
 import {
-  DELIVERY_CATEGORY,
-  DELIVERY_DEFAULT_TIMEOUT_MS,
   acquireClient,
   awaitOneNotification,
-  deliveryViolation,
   type ConversationActor,
+  DELIVERY_CATEGORY,
+  DELIVERY_DEFAULT_TIMEOUT_MS,
+  deliveryViolation,
 } from "./_helpers.js";
 
 const CATEGORY = DELIVERY_CATEGORY;

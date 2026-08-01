@@ -2,8 +2,8 @@ export {
   RealServerAcquireError,
   RpcResponseError,
   RpcTimeoutError,
+  type TestingError,
   ToxicControlError,
   TransportClosedError,
   TransportIoError,
-  type TestingError,
 } from "../../errors.js";

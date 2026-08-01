@@ -37,10 +37,10 @@ export {
   SECOND_MESSAGE,
   SERVICE_NAME_TEST,
   SHARED_UPDATE,
+  SOCK_HIST_B_NAME,
   SOCKET_HISTORY_LIMIT,
   SOCKET_PAGE_MESSAGE_COUNT,
   SOCKET_RESPONSE_TIMEOUT_MS,
-  SOCK_HIST_B_NAME,
   SYSTEM_REMINDER_CLOSE,
   SYSTEM_REMINDER_OPEN,
   TRACK_NEW_MESSAGE,
@@ -57,8 +57,8 @@ export type { SocketHistoryResponse } from "./socket.js";
 
 export {
   ConversationArchivedError,
-  ConversationUpdate,
   ConversationList,
+  ConversationUpdate,
 } from "@moltzap/protocol/conversation";
 export { DEFAULT_APP_ID, TaskLeave, TaskRequest } from "@moltzap/protocol/task";
 export {

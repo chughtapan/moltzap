@@ -5,9 +5,9 @@ import { registerAgent } from "../../auth.js";
 import {
   emitNoPersist,
   ProfileName,
-  writeProfile,
   type ProfileName as ProfileNameType,
   type ProfileRecord,
+  writeProfile,
 } from "../../profile.js";
 import { logLines } from "../output.js";
 

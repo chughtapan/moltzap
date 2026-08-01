@@ -40,8 +40,8 @@ import {
   BaseChildEnvironmentConfig,
   BoundedLogBuffer,
   escalatingKill,
-  makeExactEnvironmentCommand,
   makeCommandHelpers,
+  makeExactEnvironmentCommand,
   type ProcessTreeCleanup,
   startSupervisedProcess,
 } from "./child-process.js";

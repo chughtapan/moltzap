@@ -10,8 +10,8 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { TaskId } from "@moltzap/protocol/task";
 import type { NetworkSendServiceTag } from "#network";
 import {
-  callAppRpc,
   type AppEndpointRegistry,
+  callAppRpc,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
 import type { Db } from "#db";

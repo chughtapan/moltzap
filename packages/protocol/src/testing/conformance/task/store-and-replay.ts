@@ -20,10 +20,10 @@ import {
   registerProperty,
 } from "../_shared/registry.js";
 import {
-  DELIVERY_CATEGORY,
   acquireConversation,
-  deliveryViolation,
   type ConversationFixture,
+  DELIVERY_CATEGORY,
+  deliveryViolation,
 } from "./_helpers.js";
 
 const PROPERTY = "store-and-replay";

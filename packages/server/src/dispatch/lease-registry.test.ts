@@ -19,8 +19,8 @@ import {
   type WebSocketRef,
 } from "../socket/connection.js";
 import {
-  makeLeaseRegistry,
   type LeaseRegistry,
+  makeLeaseRegistry,
   type ModeratorBoundLeaseBinding,
 } from "./lease-registry.js";
 

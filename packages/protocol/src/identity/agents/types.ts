@@ -3,8 +3,8 @@ import { Schema } from "effect";
 import {
   closedStructGuard,
   dateTimeStringSchema,
-  stringEnum,
   errorPayloadFields,
+  stringEnum,
 } from "#transport";
 import { AgentId } from "./ids.js";
 import { UserId } from "#identity/users";

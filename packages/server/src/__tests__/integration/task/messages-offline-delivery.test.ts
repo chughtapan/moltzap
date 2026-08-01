@@ -4,7 +4,7 @@
  * `agent/message/send` is durable first and participant fan-out is best-effort:
  * an offline non-sender participant must not block insertion.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Fiber } from "effect";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
@@ -20,14 +20,14 @@ import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
   awaitOneNotification,
-  startTestServerEffect,
-  stopTestServerEffect,
-  resetTestDbEffect,
-  trackClient,
   connectTestClient,
   createTestAgent,
   getKyselyDb,
+  resetTestDbEffect,
+  startTestServerEffect,
+  stopTestServerEffect,
   type TestAgentClient,
+  trackClient,
 } from "../helpers.js";
 
 const it = effectIt.live;

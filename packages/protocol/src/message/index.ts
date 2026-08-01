@@ -3,18 +3,18 @@
  */
 
 export {
-  MessageNotFoundError,
-  MessagesSend,
-  MessagesList,
-  MessagesAuthorize,
-  MessageReceivedNotificationDefinition,
   agentCallableMessageRpcMethods,
-  messageCallbackMethods,
-  messageNotifications,
-  validateDispatchDecision,
-  validateMessage,
   decodeMessageParts,
   decodeMessagePartsText,
+  messageCallbackMethods,
+  MessageNotFoundError,
+  messageNotifications,
+  MessageReceivedNotificationDefinition,
+  MessagesAuthorize,
+  MessagesList,
+  MessagesSend,
+  validateDispatchDecision,
+  validateMessage,
   validateTextPart,
 } from "./messages.js";
 export type {

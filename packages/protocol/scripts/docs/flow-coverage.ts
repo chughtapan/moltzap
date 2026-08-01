@@ -22,11 +22,11 @@ export interface FlowCoverageGap {
 
 const EFFECT_LIKE_TYPE_NAMES = new Set([
   "Effect",
-  "Layer",
-  "Stream",
-  "Scope",
-  "Schedule",
   "Fiber",
+  "Layer",
+  "Schedule",
+  "Scope",
+  "Stream",
 ]);
 
 /**

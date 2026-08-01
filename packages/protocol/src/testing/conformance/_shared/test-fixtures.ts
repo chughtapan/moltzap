@@ -1,7 +1,6 @@
 export {
-  AgentRegistrationError,
-  TestAppHttpRegistrationError,
   agentId,
+  AgentRegistrationError,
   appId,
   connectionId,
   contactId,
@@ -11,6 +10,7 @@ export {
   mintTestAppCredential,
   registerTestAgent,
   taskId,
+  TestAppHttpRegistrationError,
   userId,
 } from "../../test-fixtures.js";
-export type { TestAppCredential, TestAgent } from "../../test-fixtures.js";
+export type { TestAgent, TestAppCredential } from "../../test-fixtures.js";

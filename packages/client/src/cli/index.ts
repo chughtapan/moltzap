@@ -31,9 +31,9 @@ import {
 import {
   ProfileConfigReadError,
   ProfileInvalidNameError,
-  ProfileNotFoundError,
   ProfileName,
   type ProfileName as ProfileNameType,
+  ProfileNotFoundError,
 } from "../profile.js";
 
 const { version } = packageJson;

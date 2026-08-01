@@ -1,16 +1,16 @@
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import {
+  type AgentId,
   AgentId as AgentIdSchema,
   AgentNotFoundError,
   AgentsList,
-  type AgentId,
 } from "@moltzap/protocol/identity";
 import {
-  DispatchRequest,
-  DispatchRelease,
   DispatchLeaseConsumed,
   DispatchLeaseExpired,
+  DispatchRelease,
+  DispatchRequest,
   type LeaseId,
 } from "@moltzap/protocol/message/dispatch";
 import type { HelloOk } from "@moltzap/protocol/network";
@@ -23,13 +23,13 @@ import type {
   ClientDefinitionSuccess,
 } from "@moltzap/protocol/socket";
 import {
-  type ConversationCreatedNotification,
   type ConversationArchivedNotification,
-  type ConversationUnarchivedNotification,
-  ConversationCreatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  type ConversationCreatedNotification,
+  ConversationCreatedNotificationDefinition,
   ConversationList,
+  type ConversationUnarchivedNotification,
+  ConversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
@@ -45,18 +45,18 @@ import {
   MessagesSend,
 } from "@moltzap/protocol/message";
 import {
-  NotConnectedError,
-  RpcTimeoutError,
   isNotificationDeliveryFor,
+  NotConnectedError,
   type NotificationDelivery,
   type NotificationParamsOf,
-  type PayloadForTag,
   type ParamsOf,
+  type PayloadForTag,
   type ResultOf,
+  RpcTimeoutError,
   type SuccessForTag,
 } from "@moltzap/protocol/rpc";
 import { AgentCallableGroup } from "@moltzap/protocol/socket/catalog";
-import type { RpcGroup, Rpc } from "@effect/rpc";
+import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { TaskId } from "@moltzap/protocol/task";
 import { BoundedMap } from "@moltzap/protocol/bounded-map";
 import {

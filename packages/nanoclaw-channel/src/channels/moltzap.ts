@@ -6,15 +6,15 @@ import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
   BoundedMap,
-  LeaseAlreadyConsumed,
-  LeaseStore,
-  MoltZapChannelCore,
   catchLeaseInvalid,
+  type ChannelService,
+  type EnrichedInboundMessage,
   formatCrossConv,
   formatGroupBlock,
   getGroupFields,
-  type ChannelService,
-  type EnrichedInboundMessage,
+  LeaseAlreadyConsumed,
+  LeaseStore,
+  MoltZapChannelCore,
 } from "@moltzap/client/channel-base";
 
 import type {

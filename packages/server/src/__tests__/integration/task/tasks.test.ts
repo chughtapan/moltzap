@@ -1,4 +1,4 @@
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { Effect } from "effect";
 import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
@@ -16,17 +16,17 @@ import type {
 import type { AppManifest } from "@moltzap/protocol/identity";
 import { agentId } from "@moltzap/protocol/testing";
 import {
+  connectAppClient,
+  connectTestClient,
+  createTestUser,
   it,
+  registerApp,
+  registerOwnedAgent,
+  resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
-  resetTestDbEffect,
-  trackClient,
-  connectTestClient,
-  connectAppClient,
-  registerApp,
-  createTestUser,
-  registerOwnedAgent,
   type TestAgentClient,
+  trackClient,
 } from "../helpers.js";
 
 const REGISTRATION_SECRET = "tasks-test-secret-mnop";

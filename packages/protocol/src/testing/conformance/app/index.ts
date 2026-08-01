@@ -32,22 +32,22 @@ import { registerAppDisconnectFailPolicy } from "./app-disconnect-fail-policy.js
 import { registerIdempotence } from "./idempotence.js";
 
 export {
-  registerDispatchRequestAckMintsLease,
-  registerDispatchRequestRecipientDisconnectAbandons,
-  registerDispatchAuthorizeVerdictResolves,
+  registerAppDisconnectFailPolicy,
   registerDispatchAuthorizeTimeoutSynthesizesDeny,
-  registerDispatchReleaseFiresAfterResolve,
-  registerDispatchReleaseSkippedOnAbandoned,
+  registerDispatchAuthorizeVerdictResolves,
   registerDispatchLeaseConsumedFiresOnFirstSend,
   registerDispatchLeaseConsumedSuppressedOnSecondSend,
   registerDispatchLeaseExpiredFiresOnTtl,
   registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl,
   registerDispatchLeaseGetModeratorSeesRecord,
+  registerDispatchReleaseFiresAfterResolve,
+  registerDispatchReleaseSkippedOnAbandoned,
+  registerDispatchRequestAckMintsLease,
+  registerDispatchRequestRecipientDisconnectAbandons,
+  registerIdempotence,
+  registerReleaseForOneLeaseDoesNotWaitOnAnother,
   registerSameConversationDispatchRequestsConcurrent,
   registerSlowFirstDoesNotDelaySecondAck,
-  registerReleaseForOneLeaseDoesNotWaitOnAnother,
-  registerAppDisconnectFailPolicy,
-  registerIdempotence,
 };
 
 /**

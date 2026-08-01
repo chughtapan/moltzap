@@ -3,11 +3,11 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
   DISPATCH_ADMISSION_CATEGORY,
-  SHORT_LEASE_TIMEOUT_MS,
-  TTL_OBSERVATION_BUFFER_MS,
   dispatchAdmissionViolation,
   freshMessageId,
   type LeaseIdOnlyView,
+  SHORT_LEASE_TIMEOUT_MS,
+  TTL_OBSERVATION_BUFFER_MS,
   withDriver,
 } from "./_helpers.js";
 

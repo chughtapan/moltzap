@@ -10,9 +10,9 @@ import { MoltZapAgentClient, type ServiceRpcError } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test-utils";
 import { getLogs } from "../test-utils/container-core.js";
 import {
-  registerTestAgent,
   extractTaskBinding,
   extractText,
+  registerTestAgent,
   type TaskBinding,
 } from "./test-helpers.js";
 import type { AgentId } from "@moltzap/protocol/identity";

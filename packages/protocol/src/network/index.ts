@@ -6,10 +6,10 @@ import { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
 export {
   AgentConnect,
   AppConnect,
-  PROTOCOL_VERSION,
-  compareProtocolVersion,
   checkProtocolRange,
+  compareProtocolVersion,
   InvalidProtocolVersionError,
+  PROTOCOL_VERSION,
   ProtocolMismatchError,
 } from "./connect.js";
 export type { HelloOk, ProtocolMismatchReason } from "./connect.js";

@@ -1,10 +1,10 @@
 import { Data, Effect, HashMap, HashSet, Match, Option, Ref } from "effect";
 import type { SocketError } from "@effect/platform/Socket";
 import type {
-  ReverseCallError,
   ReverseCallbackError,
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
+  ReverseCallError,
   ReverseClient,
 } from "@moltzap/protocol/socket";
 import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
@@ -151,7 +151,7 @@ export function sendRpcToClient(
   return originator.callback(request);
 }
 
-export type { UnauthenticatedConnection, AgentConnection, AppConnection };
+export type { AgentConnection, AppConnection, UnauthenticatedConnection };
 
 export class ConnectionManager {
   /**

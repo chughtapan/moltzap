@@ -6,7 +6,7 @@
  * dial `/ws/ws`, and the resulting socket never opens. `ServerBaseUrl` is the
  * type that makes such a value unconstructible.
  */
-import { ParseResult, Schema, type Brand } from "effect";
+import { type Brand, ParseResult, Schema } from "effect";
 
 /** Route the server serves the WebSocket upgrade on. */
 const SOCKET_ROUTE = "/ws";

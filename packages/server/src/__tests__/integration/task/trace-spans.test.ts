@@ -1,18 +1,18 @@
 import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import { Effect, Either, Fiber } from "effect";
 import type { CoreTestSpanExporterPort } from "../../../test-utils/index.js";
 
 import {
   awaitOneNotification,
-  it,
-  startTestServerEffect,
-  stopTestServerEffect,
-  resetTestDbEffect,
-  registerAndConnect,
-  registerApp,
   connectAppClient,
   getBaseUrl,
+  it,
+  registerAndConnect,
+  registerApp,
+  resetTestDbEffect,
+  startTestServerEffect,
+  stopTestServerEffect,
 } from "../helpers.js";
 import {
   DEFAULT_APP_ID,

@@ -7,9 +7,9 @@ import type { ParamsOf, ResultOf } from "@moltzap/protocol/rpc";
 
 import { DbTag } from "#db";
 import {
+  type AppEndpointRegistry,
   AppEndpointRegistryTag,
   callAppRpc,
-  type AppEndpointRegistry,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
 import { ConversationServiceTag } from "#conversation";

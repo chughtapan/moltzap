@@ -1,4 +1,4 @@
-import { Schema, type Brand, type Redacted } from "effect";
+import { type Brand, type Redacted, Schema } from "effect";
 
 import { defineRpc } from "#transport/descriptor";
 import { ConflictError } from "#transport";

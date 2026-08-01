@@ -18,8 +18,8 @@ import {
 import {
   ConversationFullError,
   ConversationNotFoundError,
-  NotAParticipantError,
   ConversationParticipantsRemovedNotificationDefinition,
+  NotAParticipantError,
 } from "@moltzap/protocol/conversation";
 import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
 import { broadcastNotificationToAgents } from "#network";

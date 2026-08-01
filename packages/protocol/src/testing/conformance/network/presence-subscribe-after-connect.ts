@@ -6,12 +6,12 @@ import { AgentPresenceSubscribe } from "#network";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
-  PRESENCE_CATEGORY,
   acquireClient,
   acquireCloseableClient,
+  PRESENCE_CATEGORY,
+  type PresenceStatusEntry,
   presenceViolation,
   registerAgent,
-  type PresenceStatusEntry,
 } from "./_helpers.js";
 
 export function registerSubscribeAfterConnect(

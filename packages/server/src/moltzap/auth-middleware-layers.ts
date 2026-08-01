@@ -25,15 +25,15 @@ import {
   ActiveAgent,
   AgentPrincipal,
   AppPrincipal,
-  ContactPolicyAllowsReach,
   AuthenticatedPrincipal,
+  ContactPolicyAllowsReach,
   type PrincipalRequirement,
 } from "@moltzap/protocol/identity";
 import {
   ConversationInTask,
   ConversationSendAccess,
 } from "@moltzap/protocol/conversation";
-import { TaskReadAccess, type TaskId } from "@moltzap/protocol/task";
+import { type TaskId, TaskReadAccess } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";

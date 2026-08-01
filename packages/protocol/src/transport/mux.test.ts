@@ -16,10 +16,10 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import {
+  type ChannelSink,
   makeClientChannelProtocol,
   makeServerChannelProtocol,
   routeInbound,
-  type ChannelSink,
 } from "./mux.js";
 
 // The engine `write` injector each builder takes; the send tests never

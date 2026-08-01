@@ -4,9 +4,9 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
-  callAppRpc,
   type AppEndpointRegistry,
   type AppRegistration,
+  callAppRpc,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
 

@@ -12,9 +12,9 @@ import { fileURLToPath } from "node:url";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
-  formatCrossConv,
   type CrossConvFormatter,
   type CrossConvMarkup,
+  formatCrossConv,
 } from "../../channel-base/format-cross-conv.js";
 import type { CrossConvMessage } from "../../service.js";
 

@@ -6,20 +6,20 @@
 // descriptors own per-method payload/result schemas and the client subscription
 // notification envelope produced after native decode.
 export type {
-  RpcDefinition,
-  RpcDefinitionAny,
-  NotificationDefinition,
-  NotificationDefinitionAny,
-  ParamsOf,
-  ResultOf,
-  NotificationPayloadOf,
-  NotificationParamsOf,
-  NotificationDelivery,
-  RpcErrorClass,
   CallErrorsOf,
   DomainErrorsOf,
+  NotificationDefinition,
+  NotificationDefinitionAny,
+  NotificationDelivery,
+  NotificationParamsOf,
+  NotificationPayloadOf,
+  ParamsOf,
   RequirementErrorsOf,
   ResponseErrorsOf,
+  ResultOf,
+  RpcDefinition,
+  RpcDefinitionAny,
+  RpcErrorClass,
 } from "./definition.js";
 export { isNotificationDeliveryFor } from "./definition.js";
 
@@ -39,18 +39,18 @@ export type {
 // dispatch. Shared by the production client and the server's reverse client.
 export { dispatchCall, makeTypedTransportCall } from "./typed-dispatch.js";
 export type {
-  TypedDispatchMap,
-  RpcForTag,
-  PayloadForTag,
-  SuccessForTag,
   ErrorForTag,
+  PayloadForTag,
+  RpcForTag,
+  SuccessForTag,
+  TypedDispatchMap,
 } from "./typed-dispatch.js";
 
 export {
   DEFAULT_PAGE_LIMIT,
-  MAX_PAGE_LIMIT,
-  ListLimitSchema,
   listCursorSchema,
+  ListLimitSchema,
+  MAX_PAGE_LIMIT,
 } from "./pagination.js";
 export type { ListCursor } from "./pagination.js";
 
@@ -72,16 +72,16 @@ export { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
 // the runtime failure constructor AND a wire `Schema` whose `_tag` is the
 // per-method error-union discriminant the engine decodes against.
 export {
-  UnauthorizedError,
-  ForbiddenError,
-  NotFoundError,
-  ConflictError,
-  InvalidParamsError,
   // Connect-handler wire error.
   AlreadyConnected,
-  principalGateErrorClasses,
+  ConflictError,
   // Shared optional `message`/`data` fields every wire tagged-error carries.
   errorPayloadFields,
+  ForbiddenError,
+  InvalidParamsError,
+  NotFoundError,
+  principalGateErrorClasses,
+  UnauthorizedError,
 } from "./wire-errors.js";
 export type { RpcErrorPayload } from "./wire-errors.js";
 

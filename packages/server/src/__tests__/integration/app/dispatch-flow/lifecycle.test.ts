@@ -4,14 +4,14 @@ import type { AppManifest } from "@moltzap/protocol/identity";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
+  attachDispatchAuthorizeHook,
+  createConversationOnApp,
+  createDispatchFlowFixture,
   DISPATCH_STATE_ABANDONED,
   DISPATCH_STATE_CONSUMED,
   DISPATCH_STATE_EXPIRED,
   DISPATCH_STATE_GRANTED,
-  createDispatchFlowFixture,
   MODERATED_HOOKS,
-  attachDispatchAuthorizeHook,
-  createConversationOnApp,
   readLeaseByDispatchId,
   readLeaseByLeaseId,
   requestDispatch,
@@ -21,9 +21,9 @@ import {
   waitForDispatchRelease,
 } from "./fixture.js";
 import {
+  type ConnectedAgent,
   registerAndConnect,
   setupAgentPair,
-  type ConnectedAgent,
 } from "../../helpers.js";
 
 const it = effectIt.live;

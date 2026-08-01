@@ -6,8 +6,8 @@ import { Effect, type Scope } from "effect";
 import type { ToxiproxyProxy } from "../../toxics/client.js";
 import type { ToxicProfile } from "../../toxics/profile.js";
 import {
-  makeAgentTestClient,
   type AgentTestClient,
+  makeAgentTestClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -16,7 +16,7 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
-import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import type { TaskId } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { conversationId, taskId } from "../_shared/test-fixtures.js";

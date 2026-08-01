@@ -1,13 +1,13 @@
 /**
  * @file Public barrel for Toxiproxy toxic profiles and control helpers.
  */
-export { type ToxicProfile, type ToxicTag, allToxicTags } from "./profile.js";
+export { allToxicTags, type ToxicProfile, type ToxicTag } from "./profile.js";
 export { defaultToxicProfile } from "./defaults.js";
 export {
+  makeToxiproxyClient,
+  type ToxicHandle,
   type ToxiproxyClient,
   type ToxiproxyConfig,
   type ToxiproxyProxy,
-  type ToxicHandle,
-  makeToxiproxyClient,
 } from "./client.js";
 export { ToxicControlError } from "./errors.js";

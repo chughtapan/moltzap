@@ -1,5 +1,5 @@
 import * as fc from "fast-check";
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   ContactAcceptedNotificationDefinition,
@@ -9,16 +9,16 @@ import {
   ContactsList,
 } from "@moltzap/protocol/identity";
 import {
-  it,
-  startTestServerEffect,
-  stopTestServerEffect,
-  resetTestDbEffect,
-  trackClient,
   connectTestClient,
   createTestUser,
-  registerOwnedAgent,
   expectEitherLeft,
+  it,
+  registerOwnedAgent,
+  resetTestDbEffect,
+  startTestServerEffect,
+  stopTestServerEffect,
   type TestAgentClient,
+  trackClient,
 } from "../helpers.js";
 
 const REGISTRATION_SECRET = "contacts-test-secret-zxcv";

@@ -4,7 +4,7 @@
  * keys (`APP_KEY_PREFIX`). `generateKeyWithPrefix` / `parseKeyWithPrefix` are
  * the prefix-parameterized core both principal credentials share.
  */
-import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Redacted, Schema } from "effect";
 import { AgentKey, AppKey } from "@moltzap/protocol/identity";
 

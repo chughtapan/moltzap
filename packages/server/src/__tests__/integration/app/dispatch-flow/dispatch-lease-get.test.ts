@@ -18,11 +18,11 @@ import type { DispatchId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
-  DISPATCH_RELEASE_TIMEOUT_MS,
-  DISPATCH_STATE_GRANTED,
   attachDispatchAuthorizeHook,
   createConversationOnApp,
   createDispatchFlowFixture,
+  DISPATCH_RELEASE_TIMEOUT_MS,
+  DISPATCH_STATE_GRANTED,
   MODERATED_HOOKS,
   moderatorAppClient,
   readLeaseByDispatchId,
@@ -32,9 +32,9 @@ import {
   waitForDispatchRelease,
 } from "./fixture.js";
 import {
+  type ConnectedAgent,
   registerAndConnect,
   setupAgentPair,
-  type ConnectedAgent,
 } from "../../helpers.js";
 
 const it = effectIt.live;

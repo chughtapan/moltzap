@@ -3,18 +3,18 @@
  * Replaces the in-process startTestServer() with no import dependency on `@moltzap/server`.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { Effect } from "effect";
 import {
+  type AdminPool,
   closeAdminPool as closeAdminPoolBoundary,
   createAdminPool,
   healthRequest,
   runAdminQuery as runAdminQueryBoundary,
   SERVER_ENTRY,
   serverEntryExists,
-  type AdminPool,
 } from "./node-boundary.js";
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 30_000;

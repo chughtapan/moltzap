@@ -13,22 +13,22 @@ export {
   type RealServerHandle,
 } from "./_shared/runner.js";
 export {
-  type PropertyCategory,
-  type PropertyFailure,
-  type PropertyRun,
-  type RegisteredProperty,
-  PropertyAssertionFailure,
-  PropertyInvariantViolation,
-  PropertyUnavailable,
   assertProperty,
   collectProperties,
+  PropertyAssertionFailure,
+  type PropertyCategory,
+  type PropertyFailure,
+  PropertyInvariantViolation,
+  type PropertyRun,
+  PropertyUnavailable,
+  type RegisteredProperty,
   registerProperty,
 } from "./_shared/registry.js";
 export {
   type ConformanceSuiteOptions,
-  type SuiteResult,
   registerAllProperties,
   runAllProperties,
   runConformanceSuite,
+  type SuiteResult,
 } from "./_shared/suite.js";
-export { transport, identity, network, task, app };
+export { app, identity, network, task, transport };

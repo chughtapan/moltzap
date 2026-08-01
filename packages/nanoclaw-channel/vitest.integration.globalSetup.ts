@@ -10,7 +10,7 @@
  * the test via vitest `provide()`.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { execPath } from "node:process";
 import { dirname, join, resolve } from "node:path";

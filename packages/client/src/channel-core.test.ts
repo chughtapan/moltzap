@@ -2,23 +2,23 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 
 import {
+  agent,
   ALICE_CACHED_NAME,
   ALICE_RESOLVED_NAME,
-  CAPTION_TEXT,
-  MULTILINE_TEXT,
-  TestInboundHandlerError,
-  agent,
   buildMessage,
+  CAPTION_TEXT,
+  type ChannelCoreFixture,
   conversation,
   createChannelCoreFixture,
   customSetup,
   effectTest,
+  type EnrichedInboundMessage,
   flushDispatchChainEffect,
   forceResolveAgentNamePath,
   message,
-  type ChannelCoreFixture,
-  type EnrichedInboundMessage,
   type Message,
+  MULTILINE_TEXT,
+  TestInboundHandlerError,
 } from "./channel-core-test-support.js";
 
 let fake: ChannelCoreFixture["fake"];

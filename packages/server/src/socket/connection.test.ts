@@ -5,7 +5,7 @@ import { Effect, Schema } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { ConnectionId } from "@moltzap/protocol/socket";
 import { agentId, conversationId, userId } from "@moltzap/protocol/testing";
-import { agentContextFrom, type AgentContext } from "./context.js";
+import { type AgentContext, agentContextFrom } from "./context.js";
 import {
   ConnectionManager,
   type Originator,

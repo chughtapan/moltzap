@@ -9,11 +9,11 @@ import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import type {
+  LogSlice,
+  ReadyOutcome,
   Runtime,
   RuntimeServerHandle,
   SpawnInput,
-  LogSlice,
-  ReadyOutcome,
 } from "./runtime.js";
 import { SpawnFailed, spawnFailed } from "./errors.js";
 import { raceReadiness } from "./adapter-readiness.js";

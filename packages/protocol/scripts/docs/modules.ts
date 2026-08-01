@@ -592,9 +592,9 @@ const FUNCTION_KINDS = new Set<number>([
 
 const KEEP_BODY_KINDS = new Set<number>([
   ReflectionKind.Class,
+  ReflectionKind.Enum,
   ReflectionKind.Interface,
   ReflectionKind.TypeAlias,
-  ReflectionKind.Enum,
 ]);
 
 /**

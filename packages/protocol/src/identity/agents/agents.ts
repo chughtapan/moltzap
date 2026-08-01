@@ -4,9 +4,9 @@ import { AgentPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { defineRpc } from "#transport/descriptor";
 import {
-  ListLimitSchema,
-  listCursorSchema,
   InvalidParamsError,
+  listCursorSchema,
+  ListLimitSchema,
 } from "#transport";
 import { AgentCardSchema } from "./types.js";
 

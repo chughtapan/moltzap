@@ -2,6 +2,7 @@
 import guard from "eslint-plugin-agent-code-guard";
 import tsParser from "@typescript-eslint/parser";
 import comments from "@eslint-community/eslint-plugin-eslint-comments";
+import perfectionist from "eslint-plugin-perfectionist";
 
 const tsLanguageOptions = {
   parser: tsParser,
@@ -112,8 +113,38 @@ const TAG_CLASS_FACTORIES = [
   "RpcMiddleware.Tag",
 ];
 
+// Sorting rules are limited to axes where declaration order carries no
+// meaning. Deliberately NOT enabled: sort-modules and sort-classes (they
+// fight the band layout and the stepdown rule), sort-union-types and
+// sort-enums-as-unions (a union like LeaseState reads as a lifecycle), and
+// sort-interfaces / sort-object-types (wire shapes whose field order flows
+// into the generated protocol docs).
+const orderingRules = {
+  // NOT enabled: sort-imports and sort-exports. Both treat a module's `@file`
+  // docblock as trivia belonging to the statement below it, so sorting hoists
+  // a statement over the block and strands the file's own documentation —
+  // which `jsdoc/require-file-overview` then rejects. `partitionByComment`
+  // does not prevent it for sort-exports. Enabling them needs a one-time pass
+  // moving every docblock above all imports/exports first; until then the
+  // statement-internal sorters below carry the value without the risk.
+  "perfectionist/sort-named-imports": [
+    "error",
+    { type: "alphabetical", ignoreCase: true },
+  ],
+  "perfectionist/sort-named-exports": [
+    "error",
+    { type: "alphabetical", ignoreCase: true },
+  ],
+  "perfectionist/sort-heritage-clauses": "error",
+  "perfectionist/sort-variable-declarations": "error",
+  "perfectionist/sort-array-includes": "error",
+  "perfectionist/sort-sets": "error",
+  "perfectionist/sort-maps": "error",
+};
+
 const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   ...guard.configs.strict.rules,
+  ...orderingRules,
   "agent-code-guard/max-non-trivial-classes-per-file": [
     "error",
     { max: 1, factories: TAG_CLASS_FACTORIES },
@@ -140,7 +171,11 @@ const makeTestSupportRules = (strictRules) => ({
     "src/test-utils/**/*.ts",
   ],
   languageOptions: tsLanguageOptions,
-  plugins: { ...guard.configs.strict.plugins, "local-guard": localGuardPlugin },
+  plugins: {
+    ...guard.configs.strict.plugins,
+    "local-guard": localGuardPlugin,
+    perfectionist,
+  },
   settings: guard.configs.strict.settings,
   rules: strictRules,
 });
@@ -191,6 +226,7 @@ export function packageEslintConfig(options = {}) {
       plugins: {
         ...guard.configs.strict.plugins,
         "local-guard": localGuardPlugin,
+        perfectionist,
       },
       settings: guard.configs.strict.settings,
       rules: { ...strictRules, ...tagRules },
@@ -212,6 +248,7 @@ export function rootEslintConfig() {
       plugins: {
         ...guard.configs.strict.plugins,
         "local-guard": localGuardPlugin,
+        perfectionist,
       },
       settings: guard.configs.strict.settings,
       rules: strictRules,

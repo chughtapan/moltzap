@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { makeInstallModeResolver, type InstallMode } from "./install-mode.js";
+import { type InstallMode, makeInstallModeResolver } from "./install-mode.js";
 
 const WORKSPACE_PACKAGES_DIR = join("/workspace", "packages");
 const WORKSPACE_CHANNEL_ROOT = join(WORKSPACE_PACKAGES_DIR, "openclaw-channel");

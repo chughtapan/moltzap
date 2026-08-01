@@ -3,12 +3,12 @@
  * Uses the shared testcontainers Postgres from vitest globalSetup.
  */
 import {
-  startCoreTestServerFull,
-  stopCoreTestServer,
-  resetCoreTestDb,
+  getBaseUrl,
   getCoreDb,
   getCoreEncryptionEnvelope,
-  getBaseUrl,
+  resetCoreTestDb,
+  startCoreTestServerFull,
+  stopCoreTestServer,
 } from "../../test-utils/server.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { AgentKey } from "@moltzap/protocol/identity";
@@ -18,17 +18,17 @@ import type { Part } from "@moltzap/protocol/message";
 import type { TestAgentClient, TestAppClient } from "@moltzap/protocol/testing";
 import {
   awaitOneNotification,
-  registerAndConnect,
-  setupAgentPair,
-  setupAgentGroup,
   closeAllClients,
-  createTestAgent,
-  trackClient,
-  registerAgent,
-  registerApp,
   connectAppClient,
   connectTestClient,
+  createTestAgent,
   postJson,
+  registerAgent,
+  registerAndConnect,
+  registerApp,
+  setupAgentGroup,
+  setupAgentPair,
+  trackClient,
 } from "../../test-utils/helpers.js";
 import type { CoreApp } from "#core";
 import { Effect, Either, Schema } from "effect";
@@ -53,10 +53,10 @@ export {
   getBaseUrl,
   postJson,
   registerAgent,
-  registerApp,
   registerAndConnect,
-  setupAgentPair,
+  registerApp,
   setupAgentGroup,
+  setupAgentPair,
   trackClient,
 };
 export type { TestAgentClient, TestAppClient };

@@ -7,8 +7,8 @@
 import * as fc from "fast-check";
 import { Data } from "effect";
 import {
-  serverInboundMethods,
   type AnyServerRpcDefinition,
+  serverInboundMethods,
 } from "#socket/catalog";
 import { arbitraryFromSchema } from "./schema-arbitrary.js";
 

@@ -12,10 +12,10 @@ import type { ListCursor, ResultOf } from "@moltzap/protocol/rpc";
 import type { ContactId, UserId } from "@moltzap/protocol/identity";
 import {
   decodeListCursor,
+  type InvalidCursorError,
   keysetWhere,
   paginate,
   sortKeyExpr,
-  type InvalidCursorError,
 } from "#db";
 
 type Contact = ResultOf<typeof ContactsAdd>["contact"];

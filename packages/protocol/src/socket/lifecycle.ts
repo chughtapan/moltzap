@@ -1,6 +1,6 @@
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
-import { RpcClient, RpcServer, type Rpc, type RpcGroup } from "@effect/rpc";
+import { type Rpc, RpcClient, type RpcGroup, RpcServer } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import {
   Cause,
@@ -29,15 +29,15 @@ import {
 } from "#network";
 import {
   AgentCallableGroup,
-  AppCallableGroup,
-  ReverseRpcGroup,
-  appCallbackMethods,
   type AnyNotificationDefinition,
+  AppCallableGroup,
+  appCallbackMethods,
+  ReverseRpcGroup,
 } from "#socket/catalog";
 import {
-  DispatchRelease,
   DispatchLeaseConsumed,
   DispatchLeaseExpired,
+  DispatchRelease,
 } from "#message/dispatch";
 import {
   ContactAcceptedNotificationDefinition,
@@ -57,9 +57,9 @@ import {
   TaskFailedNotificationDefinition,
 } from "#task";
 import {
+  type CloseInfo,
   DEFAULT_GRACEFUL_CLOSE,
   extractCloseInfo,
-  type CloseInfo,
 } from "./close-info.js";
 import type {
   NotificationDelivery,
@@ -75,14 +75,14 @@ import {
 import { NotConnectedError, RpcTimeoutError } from "#transport";
 import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
 import {
+  type ChannelSink,
   makeClientChannelProtocol,
   runMuxReader,
-  type ChannelSink,
   type WireWrite,
 } from "#transport";
 import {
-  makeTypedTransportCall,
   type ErrorForTag,
+  makeTypedTransportCall,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,

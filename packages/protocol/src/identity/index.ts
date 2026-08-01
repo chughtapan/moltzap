@@ -3,47 +3,47 @@
  */
 
 import {
+  AgentCardSchema,
   AgentId,
   AgentKey,
+  AgentNotFoundError,
+  agentOwnershipSchema,
+  AgentsList,
   InviteCode,
   Register,
-  AgentCardSchema,
-  AgentsList,
-  AgentNotFoundError,
   validateAgent,
   validateAgentCard,
-  agentOwnershipSchema,
 } from "./agents/index.js";
 import {
-  ContactId,
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
-  NotInContactsError,
+  ContactId,
   ContactNotFoundError,
   ContactPolicyAllowsReach,
+  ContactRequestNotificationDefinition,
+  ContactsAccept,
+  ContactsAdd,
+  ContactsList,
+  NotInContactsError,
 } from "./contacts/index.js";
 
 export {
+  AgentCardSchema,
   AgentId,
   AgentKey,
+  AgentNotFoundError,
+  agentOwnershipSchema,
+  AgentsList,
   InviteCode,
   Register,
-  AgentCardSchema,
-  AgentsList,
-  AgentNotFoundError,
   validateAgent,
   validateAgentCard,
-  agentOwnershipSchema,
 };
 export type { Agent, AgentCard } from "./agents/index.js";
 
 export {
   AppId,
-  DEFAULT_APP_ID,
   AppKey,
+  DEFAULT_APP_ID,
   validateAppManifest,
 } from "./apps/index.js";
 export type { AppManifest, AppManifestValidationResult } from "./apps/index.js";
@@ -59,15 +59,15 @@ export type { PrincipalRequirement } from "./principals/index.js";
 export { ActiveAgent } from "./requirements/index.js";
 
 export {
-  ContactId,
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
-  NotInContactsError,
+  ContactId,
   ContactNotFoundError,
   ContactPolicyAllowsReach,
+  ContactRequestNotificationDefinition,
+  ContactsAccept,
+  ContactsAdd,
+  ContactsList,
+  NotInContactsError,
 };
 export type { ContactPolicyAllowsReachValue } from "./contacts/index.js";
 

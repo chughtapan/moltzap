@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
-  resolveInstalledPackageDependency,
   resolveInstalledPackageBin,
+  resolveInstalledPackageDependency,
   resolveInstalledPackageRoot,
   resolvePackageRoot,
 } from "./package-resolution.js";

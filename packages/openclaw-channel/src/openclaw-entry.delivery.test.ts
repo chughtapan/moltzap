@@ -2,12 +2,12 @@ import { live as it } from "@effect/vitest";
 import {
   buildMessage,
   createFakeChannelService,
+  type FakeChannelService,
   flushDispatchChainEffect,
   testAgentId,
   testConversationId,
   testMessageId,
   testTaskId,
-  type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
 import { AgentsList } from "@moltzap/protocol/identity";

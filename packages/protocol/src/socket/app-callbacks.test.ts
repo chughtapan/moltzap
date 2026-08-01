@@ -7,7 +7,7 @@
  * `app/dispatch/authorize` manifest references the same shared decision schema.
  * `app/message/authorize` coverage pins the send-side fan-out gate.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { Schema } from "effect";
 import { DispatchAuthorize } from "#message/dispatch";
 import { MessagesAuthorize } from "#message";

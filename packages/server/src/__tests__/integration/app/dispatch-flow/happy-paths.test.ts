@@ -16,12 +16,12 @@ import type { AppManifest } from "@moltzap/protocol/identity";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
-  DISPATCH_RELEASE_TIMEOUT_MS,
-  DISPATCH_VERDICT_GRANT,
-  EXPECTED_TYPE_STRING,
   attachDispatchAuthorizeHook,
   createConversationOnApp,
   createDispatchFlowFixture,
+  DISPATCH_RELEASE_TIMEOUT_MS,
+  DISPATCH_VERDICT_GRANT,
+  EXPECTED_TYPE_STRING,
   MODERATED_HOOKS,
   requestDispatch,
   startDispatchFlowServer,

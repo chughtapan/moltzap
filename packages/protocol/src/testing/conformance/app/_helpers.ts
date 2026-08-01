@@ -1,14 +1,14 @@
 /**
  * App-layer helpers shared across the 15 dispatch-admission properties.
  */
-import { Effect, type Scope, Schema } from "effect";
+import { Effect, Schema, type Scope } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
-  PropertyInvariantViolation,
   type PropertyFailure,
+  PropertyInvariantViolation,
   type PropertyRun,
 } from "../_shared/registry.js";
-import { makeDispatchTestDriver, type DispatchTestDriver } from "./_driver.js";
+import { type DispatchTestDriver, makeDispatchTestDriver } from "./_driver.js";
 import type { MessageId } from "@moltzap/protocol/conversation";
 import { messageId as makeMessageId } from "../_shared/test-fixtures.js";
 

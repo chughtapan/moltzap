@@ -10,9 +10,9 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
 import type { PropertyAssertionFailure } from "../_shared/registry.js";
 import {
+  acquireConversation,
   DELIVERY_CATEGORY,
   DELIVERY_DEFAULT_PROPERTY_NUM_RUNS,
-  acquireConversation,
   deliveryViolation,
 } from "./_helpers.js";
 

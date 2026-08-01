@@ -19,8 +19,8 @@ import { TaskId, TaskNotFoundError } from "#task";
 import {
   ConversationFullError,
   ConversationId,
-  conversationSchema,
   ConversationNotFoundError,
+  conversationSchema,
   ParticipantNotAdmittedError,
 } from "./types.js";
 

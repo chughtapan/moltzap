@@ -3,8 +3,8 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
   DISPATCH_ADMISSION_CATEGORY,
-  FAST_ACK_THRESHOLD_MS,
   dispatchAdmissionViolation,
+  FAST_ACK_THRESHOLD_MS,
   freshMessageId,
   withDriver,
 } from "./_helpers.js";

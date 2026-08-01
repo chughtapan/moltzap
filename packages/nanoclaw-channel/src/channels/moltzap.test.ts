@@ -5,13 +5,13 @@ import { ForbiddenError } from "@moltzap/protocol/rpc";
 import {
   buildMessage,
   createFakeChannelService,
+  type FakeChannelService,
   flushDispatchChain,
   testAgentId,
   testConversationId,
   testLeaseId,
   testMessageId,
   testTaskId,
-  type FakeChannelService,
 } from "@moltzap/client/test-utils";
 
 import {

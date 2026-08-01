@@ -7,18 +7,18 @@ import { MessagesAuthorize } from "#message";
 import { DispatchAuthorize } from "#message/dispatch";
 import { AppConnect, PROTOCOL_VERSION } from "#network";
 import {
-  AppCallableGroup,
   type AnyAppCallbackRpcDefinition,
+  AppCallableGroup,
 } from "#socket/catalog";
 import { type CloseInfo } from "./close-info.js";
 import { NotConnectedError, RpcTimeoutError } from "#transport";
 import {
-  openProtocolAppClientSocket,
-  RPC_TIMEOUT_MS,
   type ConnectResult,
-  type RpcCallOptions,
+  openProtocolAppClientSocket,
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
+  RPC_TIMEOUT_MS,
+  type RpcCallOptions,
 } from "./lifecycle.js";
 import {
   type ErrorForTag,

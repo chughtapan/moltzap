@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { JSONSchema, Schema } from "effect";
 import {
-  stringEnum,
-  formatString,
   dateTimeStringSchema,
+  formatString,
+  stringEnum,
 } from "./wire-string.js";
 import { decodesStrictly } from "./strict-decode.js";
 

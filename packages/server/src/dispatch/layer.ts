@@ -9,7 +9,7 @@ import { ConversationServiceTag } from "#conversation";
 import { PresenceServiceTag } from "#network/presence";
 
 import { DispatchAdmissionService } from "./admission.service.js";
-import { makeLeaseRegistry, type LeaseRegistry } from "./lease-registry.js";
+import { type LeaseRegistry, makeLeaseRegistry } from "./lease-registry.js";
 
 const LEASE_RETENTION_MINUTES = 5;
 const SECONDS_PER_MINUTE = 60;

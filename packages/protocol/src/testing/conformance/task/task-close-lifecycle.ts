@@ -17,14 +17,14 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
 import {
-  DELIVERY_DEFAULT_TIMEOUT_MS,
   acquireClient,
   assertConversationRejectsMessages,
   awaitOneNotification,
+  type ConversationActor,
+  DELIVERY_DEFAULT_TIMEOUT_MS,
   deliveryViolation,
   moderateAs,
   waitForArchivedEvent,
-  type ConversationActor,
 } from "./_helpers.js";
 
 // Property ID stays `delivery/task-close-lifecycle`: the registry

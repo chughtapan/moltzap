@@ -20,7 +20,7 @@ import { MoltZapService } from "@moltzap/client";
 import { withTestServiceConfig } from "@moltzap/client/test-utils";
 import { AgentKey } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
-import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";

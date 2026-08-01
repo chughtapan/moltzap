@@ -1,4 +1,4 @@
-import { Schema, type Brand, type Redacted } from "effect";
+import { type Brand, type Redacted, Schema } from "effect";
 
 const APP_KEY_PREFIX = "moltzap_app_";
 const KEY_ID_HEX_CHARS = 16;

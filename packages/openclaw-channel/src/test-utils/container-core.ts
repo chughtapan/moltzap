@@ -4,9 +4,9 @@
  */
 
 import {
+  type ChildProcessWithoutNullStreams,
   execFileSync,
   spawn,
-  type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { randomInt } from "node:crypto";
 import path from "node:path";

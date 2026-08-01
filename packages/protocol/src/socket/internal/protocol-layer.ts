@@ -1,8 +1,8 @@
 import { RpcServer } from "@effect/rpc";
 import { Deferred, Effect, Layer, Mailbox } from "effect";
 import {
-  makeServerChannelProtocol,
   type ChannelSink,
+  makeServerChannelProtocol,
   type WireWrite,
 } from "#transport";
 

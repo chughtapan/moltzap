@@ -1,7 +1,7 @@
 import type { AgentContext } from "#socket";
 import {
-  DispatchRequest,
   DispatchLeaseGet,
+  DispatchRequest,
 } from "@moltzap/protocol/message/dispatch";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";

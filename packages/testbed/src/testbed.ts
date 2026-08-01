@@ -4,9 +4,9 @@ import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import { ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   RuntimeExitedBeforeReady,
+  type RuntimeLaunchFailed,
   RuntimeReadyTimedOut,
   spawnFailed,
-  type RuntimeLaunchFailed,
   type SpawnFailed,
 } from "./errors.js";
 import {
@@ -24,7 +24,7 @@ import {
   type SpawnInput,
   type WorkspaceFile,
 } from "./runtime.js";
-import { resolveInstallMode, type InstallMode } from "./install-mode.js";
+import { type InstallMode, resolveInstallMode } from "./install-mode.js";
 
 const LOG_START_OFFSET = 0;
 

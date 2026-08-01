@@ -1,12 +1,12 @@
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { Effect } from "effect";
 import {
+  getKyselyDb,
   it,
+  registerAndConnect,
+  resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
-  resetTestDbEffect,
-  registerAndConnect,
-  getKyselyDb,
 } from "../helpers.js";
 
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";

@@ -7,13 +7,13 @@ import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { agentArm } from "#moltzap/runtime";
 import { Effect, Exit } from "effect";
-import { ConnectionTag, type AgentContext } from "#socket";
+import { type AgentContext, ConnectionTag } from "#socket";
 import { LeaseRegistryTag } from "#dispatch";
 import { MessageServiceTag } from "./layer.js";
 import {
-  guardTaskActive,
   guardConversationNotArchived,
   guardReplyTarget,
+  guardTaskActive,
   obtainConversationSendAccess,
 } from "#conversation/requirements";
 import { LeaseInvalidError } from "#dispatch";

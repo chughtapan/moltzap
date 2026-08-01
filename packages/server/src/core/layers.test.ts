@@ -13,7 +13,7 @@ import { PresenceService } from "#network/presence";
 import { AppEndpointRegistry } from "#identity/apps";
 import { DbTag } from "#db";
 import { EncryptionTag } from "#db/crypto";
-import { ServicesLive, resolveServices } from "#core";
+import { resolveServices, ServicesLive } from "#core";
 
 const it = effectIt.effect;
 

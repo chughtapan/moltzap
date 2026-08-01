@@ -17,11 +17,11 @@ import {
 import {
   launchTestbed,
   launchTestbedWithProcessSignals,
-  TestbedStartupInterrupted,
-  startRuntimeAgent,
   type RuntimeStartOptions,
+  startRuntimeAgent,
   type TestbedAgentSpec,
   type TestbedLaunchOptions,
+  TestbedStartupInterrupted,
 } from "./testbed.js";
 import type {
   ReadyOutcome,

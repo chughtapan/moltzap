@@ -8,32 +8,32 @@ import type { TaskId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 
 import {
-  MoltZapChannelCore,
   type ChannelService,
   type DispatchAdmissionDecision,
   type DispatchAdmissionRequest,
   type DispatchReleaseFrame,
   type EnrichedInboundMessage,
+  MoltZapChannelCore,
 } from "./channel-core.js";
 import type { CrossConversationEntry, ServiceRpcError } from "./service.js";
 import {
   buildMessage,
   createFakeChannelService,
+  type FakeChannelService,
   flushDispatchChainEffect,
   testAgentId,
   testConversationId,
   testLeaseId,
   testMessageId,
   testTaskId,
-  type FakeChannelService,
 } from "./test-utils/index.js";
 
 export {
-  MoltZapChannelCore,
-  ForbiddenError,
   buildMessage,
   createFakeChannelService,
   flushDispatchChainEffect,
+  ForbiddenError,
+  MoltZapChannelCore,
 };
 export type {
   ChannelService,

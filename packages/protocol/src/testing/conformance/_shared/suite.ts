@@ -44,8 +44,8 @@ import type {
   ToxicControlError,
 } from "../_shared/errors.js";
 import {
-  isAllowedCoverageGap,
   type AllowedCoverageGap,
+  isAllowedCoverageGap,
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 import type { ToxiproxyNetworkConfig } from "../../toxics/client.js";

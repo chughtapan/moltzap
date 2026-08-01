@@ -3,8 +3,8 @@
  */
 export { arbitraryFromSchema } from "./schema-arbitrary.js";
 export {
-  arbitraryCallFor,
-  arbitraryAnyCall,
   allRpcMethods,
+  arbitraryAnyCall,
+  arbitraryCallFor,
   type ArbitraryRpcCall,
 } from "./rpc.js";

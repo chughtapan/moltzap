@@ -8,7 +8,7 @@ import {
 } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
 
-import { startEchoServer, type EchoServer } from "./echo-server.js";
+import { type EchoServer, startEchoServer } from "./echo-server.js";
 
 interface EchoCompletionBody {
   readonly id: string;

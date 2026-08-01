@@ -1,11 +1,11 @@
 /** @file Server WebSocket connection/session runtime primitives. */
 
 export {
-  ConnectionManager,
-  sendRpcToClient,
   type AgentConnection,
   type Connection,
+  ConnectionManager,
   type Originator,
+  sendRpcToClient,
 } from "./connection.js";
 export {
   ConnectionManagerLive,
@@ -13,4 +13,4 @@ export {
   ConnectionTag,
 } from "./layer.js";
 
-export { AgentContext, AppContext, agentContextFrom } from "./context.js";
+export { AgentContext, agentContextFrom, AppContext } from "./context.js";

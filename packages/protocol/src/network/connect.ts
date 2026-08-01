@@ -4,9 +4,9 @@ import { AgentKey } from "#identity/agents";
 import { AppKey } from "#identity/apps";
 import { defineRpc } from "#transport/descriptor";
 import {
-  UnauthorizedError,
   AlreadyConnected,
   InvalidParamsError,
+  UnauthorizedError,
 } from "#transport";
 
 /** The published package version is also the wire-protocol version. */

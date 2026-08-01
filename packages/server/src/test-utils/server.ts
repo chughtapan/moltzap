@@ -7,8 +7,8 @@ import {
   ServerEncryptionMasterSecret,
 } from "#config/secrets";
 import {
-  UserId,
   type AgentId,
+  UserId,
   type UserId as UserIdValue,
 } from "@moltzap/protocol/identity";
 import {
@@ -16,9 +16,9 @@ import {
   SimpleSpanProcessor,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { createCoreApp, type CoreApp } from "#core";
+import { type CoreApp, createCoreApp } from "#core";
 import { EnvelopeEncryption, seedInitialKek } from "#db/crypto";
-import { makeEffectKysely, type Database, type EffectKysely } from "#db";
+import { type Database, type EffectKysely, makeEffectKysely } from "#db";
 import { loadCoreSchemaSql } from "./core-schema-sql.js";
 import type {
   CoreTestDatabasePort,

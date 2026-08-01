@@ -22,8 +22,8 @@ import { describe, expect, it } from "vitest";
 import * as fc from "fast-check";
 import { Effect, Fiber, Ref, Stream } from "effect";
 import {
-  NotConnectedError,
   makeNotificationSubscriberRegistry,
+  NotConnectedError,
 } from "@moltzap/protocol/rpc";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { TaskFailedNotificationDefinition } from "@moltzap/protocol/task";

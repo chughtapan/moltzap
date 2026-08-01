@@ -5,10 +5,10 @@ import { Effect, type Scope } from "effect";
 
 import type { AgentId } from "#identity";
 import {
-  makeAgentTestClient,
-  makeCloseableAgentTestClient,
   type AgentTestClient,
   type CloseableAgentTestClient,
+  makeAgentTestClient,
+  makeCloseableAgentTestClient,
 } from "../_shared/driver/test-client.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";

@@ -1,4 +1,4 @@
-import { Schema, type Brand } from "effect";
+import { type Brand, Schema } from "effect";
 
 export const DEFAULT_PAGE_LIMIT = 50;
 export const MAX_PAGE_LIMIT = 200;

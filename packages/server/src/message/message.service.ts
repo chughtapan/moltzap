@@ -6,9 +6,9 @@ import type {
 } from "@moltzap/protocol/message";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import {
-  MessageId as MessageIdSchema,
   type ConversationId,
   type MessageId,
+  MessageId as MessageIdSchema,
 } from "@moltzap/protocol/conversation";
 import type { TaskId, TaskStatus } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
@@ -33,8 +33,8 @@ import { nextSnowflakeId } from "#db";
 import type { ConversationService } from "#conversation";
 import type { MessageAuthorizationService } from "./authorization.js";
 import type { NetworkSendService } from "#network";
-import { type EnvelopeEncryption, type Dek } from "#db/crypto";
-import { serializePayload, deserializePayload } from "#db/crypto";
+import { type Dek, type EnvelopeEncryption } from "#db/crypto";
+import { deserializePayload, serializePayload } from "#db/crypto";
 import { sql } from "#db";
 import type { MessageRow } from "#db";
 import { catchSqlErrorAsDefect, takeFirstOption, takeFirstOrFail } from "#db";

@@ -18,12 +18,12 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import { Chunk, Duration, Effect, Either, Fiber, Stream } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
-  DISPATCH_RELEASE_TIMEOUT_MS,
-  DISPATCH_REQUEST_CONCURRENCY,
-  DISPATCH_STATE_CONSUMED,
   attachDispatchAuthorizeHook,
   createConversationOnApp,
   createDispatchFlowFixture,
+  DISPATCH_RELEASE_TIMEOUT_MS,
+  DISPATCH_REQUEST_CONCURRENCY,
+  DISPATCH_STATE_CONSUMED,
   MODERATED_HOOKS,
   readLeaseByLeaseId,
   requestDispatch,
@@ -33,9 +33,9 @@ import {
   waitForDispatchRelease,
 } from "./fixture.js";
 import {
+  type ConnectedAgent,
   getKyselyDb,
   setupAgentPair,
-  type ConnectedAgent,
 } from "../../helpers.js";
 
 const it = effectIt.live;

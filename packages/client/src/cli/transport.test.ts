@@ -14,8 +14,8 @@ import {
 } from "../local-paths.js";
 import {
   parseProfileName,
-  writeProfile,
   type ProfileRecord,
+  writeProfile,
 } from "../profile.js";
 import {
   makeTransportLayer,

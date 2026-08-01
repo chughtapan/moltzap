@@ -182,8 +182,8 @@ function shouldEmit(node: RawReflection): boolean {
 
 const STRUCTURAL_LEAF_KINDS = new Set<number>([
   ReflectionKind.Class,
-  ReflectionKind.Interface,
   ReflectionKind.Enum,
+  ReflectionKind.Interface,
   ReflectionKind.TypeLiteral,
 ]);
 

@@ -3,8 +3,8 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import type { PropertyInvariantViolation } from "../_shared/registry.js";
 import {
-  DISPATCH_ADMISSION_CATEGORY,
   type ConsumedFrameView,
+  DISPATCH_ADMISSION_CATEGORY,
   dispatchAdmissionViolation,
   freshMessageId,
   isUuidV4,

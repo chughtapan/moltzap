@@ -7,23 +7,23 @@ import { registerStandaloneAgentPair } from "@moltzap/client/test-utils";
 import { Data, Effect, Redacted } from "effect";
 import type { GlobalSetupContext } from "vitest/node";
 import {
-  startEchoServer,
   type EchoServer,
+  startEchoServer,
 } from "./src/__tests__/echo-server.js";
 import { echoModelConfig } from "./src/__tests__/openclaw-container.js";
 import {
-  isImageAvailable,
   buildOpenClawConfig,
+  isImageAvailable,
   normalizeContainerServerUrl,
-  startRawContainer,
-  waitForReady,
-  stopContainer,
   type OpenClawContainer,
+  startRawContainer,
+  stopContainer,
+  waitForReady,
 } from "./src/test-utils/container-core.js";
 import {
+  type SpawnedServer,
   spawnTestServer,
   stopSpawnedServer,
-  type SpawnedServer,
 } from "./src/__tests__/spawn-server.js";
 
 const POSTGRES_IMAGE = "postgres:16-alpine";

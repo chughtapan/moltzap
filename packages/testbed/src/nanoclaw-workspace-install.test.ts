@@ -11,9 +11,9 @@ import {
   assertPackedWorkspaceVersions,
   materializeNanoclawWorkspaceDependencies,
   nanoclawCacheFingerprint,
-  rewriteNanoclawWorkspaceManifest,
   type NanoclawWorkspaceDependencies,
   type NanoclawWorkspaceTarball,
+  rewriteNanoclawWorkspaceManifest,
 } from "./nanoclaw-install.js";
 
 const NANOCLAW_SHA = "641963c1e4b7ba4f000a18dfc5e2fea29069feec";

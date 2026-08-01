@@ -15,13 +15,13 @@ import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
 import { DbTag } from "#db";
 import { EncryptionTag, EnvelopeEncryption } from "#db/crypto";
 
-import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
+import type { ConnectionHook, CoreApp, DisconnectionHook } from "./types.js";
 import type { CoreConfig } from "#config";
 import { AppEndpointRegistryTag } from "#identity/apps";
 import { ConnectionHooksTag } from "./hooks.js";
-import { ServicesLive, resolveServices } from "./layers.js";
+import { resolveServices, ServicesLive } from "./layers.js";
 import { installDefaultApp } from "#identity/apps";
-import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
+import { makeCoreHttpApp, makeNodeHttpServer } from "#http";
 import { makeMoltzapSocketHandler } from "#moltzap";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */

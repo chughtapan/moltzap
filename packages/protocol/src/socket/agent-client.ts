@@ -10,12 +10,12 @@ import { TaskCreate } from "#task";
 import { type CloseInfo } from "./close-info.js";
 import { NotConnectedError, RpcTimeoutError } from "#transport";
 import {
-  openProtocolAgentClientSocket,
-  RPC_TIMEOUT_MS,
   type ConnectResult,
-  type RpcCallOptions,
+  openProtocolAgentClientSocket,
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
+  RPC_TIMEOUT_MS,
+  type RpcCallOptions,
 } from "./lifecycle.js";
 import {
   type ErrorForTag,

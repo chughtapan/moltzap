@@ -2,10 +2,10 @@ import { JSONSchema, type Schema } from "effect";
 import { appCallbackMethods, serverInboundMethods } from "#socket/catalog";
 import * as protocolSchema from "../../src/index.js";
 import {
-  SORT_KEY_PAD_WIDTH,
   type AnyRpcDocDefinition,
   type JsonSchemaNode,
   type SchemaPropertyDoc,
+  SORT_KEY_PAD_WIDTH,
 } from "./types.js";
 
 type RpcDefinitionField = readonly [

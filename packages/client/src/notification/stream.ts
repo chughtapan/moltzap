@@ -38,10 +38,10 @@ import { Stream } from "effect";
 import {
   type NotConnectedError,
   type NotificationDelivery,
+  type NotificationParamsOf,
   notificationSubscribe,
   notificationSubscribeAll,
   type NotificationSubscriberRegistry,
-  type NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 

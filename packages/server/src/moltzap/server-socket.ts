@@ -1,8 +1,8 @@
 import type { Socket as EffectSocket } from "@effect/platform/Socket";
 import { Effect, Layer } from "effect";
 import {
-  MoltZapServer,
   type ConnectionId,
+  MoltZapServer,
   type MoltZapServerSession,
 } from "@moltzap/protocol/socket";
 

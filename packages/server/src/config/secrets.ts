@@ -1,4 +1,4 @@
-import { Schema, type Brand, type Redacted } from "effect";
+import { type Brand, type Redacted, Schema } from "effect";
 
 const SERVER_MASTER_SECRET_BASE64_CHARS = 44;
 const SERVER_MASTER_SECRET_BASE64_PATTERN = `[A-Za-z0-9+/]{43}=`;

@@ -3,8 +3,8 @@
  */
 
 export {
-  NotificationTimeoutError,
-  StreamClosedError as NotificationStreamClosedError,
-  type StreamCloseReason,
   type NotificationConsumerError,
+  StreamClosedError as NotificationStreamClosedError,
+  NotificationTimeoutError,
+  type StreamCloseReason,
 } from "./errors.js";

@@ -18,16 +18,16 @@
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import { drainPaginatedList } from "@moltzap/client/pagination";
 import {
-  LeaseAlreadyConsumed,
-  LeaseGuard,
-  MoltZapChannelCore,
   catchLeaseInvalid,
-  formatCrossConv,
-  getGroupFields,
   type ChannelService,
   type CrossConvMessage,
   type EnrichedInboundMessage,
+  formatCrossConv,
+  getGroupFields,
   type GroupFields,
+  LeaseAlreadyConsumed,
+  LeaseGuard,
+  MoltZapChannelCore,
 } from "@moltzap/client/channel-base";
 import {
   Config,
@@ -39,8 +39,8 @@ import {
   Schema,
 } from "effect";
 import {
-  writeOpenClawContextLog,
   type OpenClawContextLogInput,
+  writeOpenClawContextLog,
 } from "./context-log.js";
 import { AgentsList } from "@moltzap/protocol/identity";
 import {

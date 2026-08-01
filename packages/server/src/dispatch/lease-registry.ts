@@ -13,16 +13,16 @@ import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import type {
-  DispatchLeaseGet,
   DispatchId,
+  DispatchLeaseGet,
 } from "@moltzap/protocol/message/dispatch";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   DispatchId as DispatchIdSchema,
-  LeaseId as LeaseIdSchema,
-  DispatchRelease,
   DispatchLeaseConsumed,
   DispatchLeaseExpired,
+  DispatchRelease,
+  LeaseId as LeaseIdSchema,
 } from "@moltzap/protocol/message/dispatch";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { NotificationParamsOf } from "@moltzap/protocol/rpc";

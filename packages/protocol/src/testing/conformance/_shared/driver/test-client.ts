@@ -27,21 +27,21 @@ import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "#task";
 import { DispatchAuthorize } from "#message/dispatch";
 import {
-  MoltZapAgentClient,
-  MoltZapAppClient,
   type AppCallbackContext,
   type AppCallbackHandlers,
   type ClientDefinitionPayload,
   type ClientDefinitionSuccess,
   type CloseInfo,
+  MoltZapAgentClient,
+  MoltZapAppClient,
 } from "#socket";
 import { serverBaseUrl } from "#network";
 import {
-  NotConnectedError,
-  RpcTimeoutError as ProtocolRpcTimeoutError,
   type DomainErrorsOf,
+  NotConnectedError,
   type NotificationDelivery,
   type ParamsOf,
+  RpcTimeoutError as ProtocolRpcTimeoutError,
   type ResultOf,
 } from "#transport";
 import { AgentKey, AppKey } from "#identity";

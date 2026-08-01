@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type {
-  AgentNotFoundError,
   AgentId,
+  AgentNotFoundError,
   ContactPolicyAllowsReachValue,
   NotInContactsError,
 } from "@moltzap/protocol/identity";

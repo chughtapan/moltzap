@@ -63,7 +63,7 @@ const VALID_DISPATCH_DECISIONS = [
   { tag: "block", reason: "spam" },
 ] as const;
 
-const RESERVED_DECISION_KEYS = new Set(["tag", "recipients", "reason"]);
+const RESERVED_DECISION_KEYS = new Set(["reason", "recipients", "tag"]);
 
 // `validateDispatchDecision` guards the `app_decision` JSONB re-read at
 // `server/.../message.service.ts → decodeDispatchDecision`. The strict

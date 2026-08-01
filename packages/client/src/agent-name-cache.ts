@@ -8,11 +8,11 @@
  * adapters) go through {@link AgentNameCache.resolve}, which is cache-first and
  * never fails.
  */
-import { HashMap, Effect, Option, Ref } from "effect";
+import { Effect, HashMap, Option, Ref } from "effect";
 import {
-  AgentsList,
   type AgentCard,
   type AgentId,
+  AgentsList,
 } from "@moltzap/protocol/identity";
 import type { ListCursor, ParamsOf, ResultOf } from "@moltzap/protocol/rpc";
 

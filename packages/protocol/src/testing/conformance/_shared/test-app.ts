@@ -8,14 +8,14 @@
  * `app/message/authorize`, but it does not know about tasks, leases, or
  * conversations beyond manifest defaults.
  */
-import { Duration, Effect, Ref, type Scope, Schema } from "effect";
+import { Duration, Effect, Ref, Schema, type Scope } from "effect";
 import type { AppManifest } from "#identity/apps";
 import { MessagesAuthorize } from "#message";
 import { AppId, TaskCreate } from "#task";
 import { DispatchAuthorize } from "#message/dispatch";
 import {
-  makeAppTestClient,
   type AppTestClient,
+  makeAppTestClient,
   type ServerRpcDefinition,
   type ServerRpcParams,
   type ServerRpcResult,

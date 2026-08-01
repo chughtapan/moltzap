@@ -26,7 +26,7 @@
  * The two-source-of-truth shape is intentional: it keeps the structural lint
  * and the type system in agreement without a codegen pipeline.
  */
-import type { ConnectionTag, ConnectionManagerTag } from "#socket";
+import type { ConnectionManagerTag, ConnectionTag } from "#socket";
 import type { DbTag } from "#db";
 import type { AuthServiceTag } from "#identity/agents";
 import type { AppAuthServiceTag, AppEndpointRegistryTag } from "#identity/apps";

@@ -4,19 +4,19 @@
 export { BoundedMap } from "@moltzap/protocol/bounded-map";
 
 export {
-  LeaseAlreadyConsumed,
-  projectLeaseInvalid,
   catchLeaseInvalid,
+  LeaseAlreadyConsumed,
   type LeaseInvalidProjectionError,
+  projectLeaseInvalid,
 } from "./lease.js";
 
 export { LeaseStore } from "./lease-store.js";
 export { LeaseGuard } from "./lease-guard.js";
 
 export {
-  formatCrossConv,
   type CrossConvFormatter,
   type CrossConvMarkup,
+  formatCrossConv,
 } from "./format-cross-conv.js";
 
 export {
@@ -27,7 +27,6 @@ export {
 } from "./format-group-block.js";
 
 export {
-  MoltZapChannelCore,
   type ChannelCoreOptions,
   type ChannelService,
   type ContextBlocks,
@@ -38,11 +37,12 @@ export {
   type EnrichedInboundMessage,
   type EnrichedSender,
   type InboundHandler,
+  MoltZapChannelCore,
   type PendingDispatchMessage,
 } from "../channel-core.js";
 
 export {
-  sanitizeForSystemReminder,
   type CrossConversationEntry,
   type CrossConvMessage,
+  sanitizeForSystemReminder,
 } from "../service.js";

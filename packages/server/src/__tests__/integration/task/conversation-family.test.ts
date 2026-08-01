@@ -24,7 +24,7 @@
  * | ConversationUpdate remove-participant | app-only + idempotency + dual-emit |
  */
 
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { Effect, Exit } from "effect";
 import {
   DEFAULT_APP_ID,
@@ -47,19 +47,19 @@ import type {
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { UserId } from "@moltzap/protocol/identity";
 import {
-  it,
-  startTestServerEffect,
-  stopTestServerEffect,
-  resetTestDbEffect,
-  trackClient,
-  connectTestClient,
   connectAppClient,
-  registerApp,
-  createTestUser,
+  connectTestClient,
   createTestAgent,
+  createTestUser,
   expectEitherLeft,
   getTestCoreApp,
+  it,
+  registerApp,
+  resetTestDbEffect,
+  startTestServerEffect,
+  stopTestServerEffect,
   type TestAgentClient,
+  trackClient,
 } from "../helpers.js";
 import { agentId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { awaitOneNotification } from "../../../test-utils/helpers.js";

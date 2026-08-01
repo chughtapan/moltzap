@@ -3,9 +3,9 @@
  */
 // safer-arch-ignore no-public-test-helper-leak: this dedicated test-utils subpath intentionally exposes fixtures for downstream package integration tests.
 export {
-  createFakeChannelService,
   type ChannelServiceEmit,
   type ChannelServiceState,
+  createFakeChannelService,
   type CreateFakeChannelServiceOptions,
   type FakeChannelService,
 } from "./channel-service-fixture.js";
@@ -15,9 +15,9 @@ export {
   type StandaloneAgentPairNames,
 } from "./standalone-provisioning.js";
 export {
-  registerAndConnect,
   type ConnectedHarnessAgent,
   type HarnessAgentClient,
+  registerAndConnect,
 } from "./harness.js";
 export { registerAgent, type RegisterResponse } from "../auth.js";
 

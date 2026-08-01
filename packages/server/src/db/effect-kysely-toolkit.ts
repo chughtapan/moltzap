@@ -21,12 +21,12 @@ import {
   DropViewBuilder,
   InsertQueryBuilder,
   Kysely,
-  sql,
-  UpdateQueryBuilder,
-  WheneableMergeQueryBuilder,
   type KyselyConfig,
   type RawBuilder,
+  sql,
   type Transaction,
+  UpdateQueryBuilder,
+  WheneableMergeQueryBuilder,
 } from "./kysely-vendor.js";
 
 // Pulls in `declare module "kysely"` augmentations so `yield* qb` type-checks.

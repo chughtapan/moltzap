@@ -6,8 +6,8 @@ import { NodeContext } from "@effect/platform-node";
 import { Data, Duration, Effect, Ref } from "effect";
 import { makeCommandHelpers } from "./child-process.js";
 import {
-  cacheFingerprint,
   CACHE_BUILD_PERMIT,
+  cacheFingerprint,
   makeImmutableCache,
   MOLTZAP_TESTBED_CACHE_ROOT,
 } from "./immutable-cache.js";

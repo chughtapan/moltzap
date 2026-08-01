@@ -1,4 +1,4 @@
-import { describe, beforeAll, afterAll, inject, expect } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 
 import { Effect, Exit } from "effect";

@@ -13,20 +13,20 @@ import * as toxics from "./toxics/index.js";
 // Brand-decoders for test fixtures. Production code does not validate IDs
 // at the caller.
 export {
-  userId,
   agentId,
+  agentKeyArbitrary,
+  agentKeyString,
+  agentKeyStringArbitrary,
   appId,
   connectionId,
   contactId,
   conversationId,
   leaseId,
   messageId,
-  agentKeyArbitrary,
-  agentKeyString,
-  agentKeyStringArbitrary,
   redactedAgentKey,
   redactedAppKey,
   taskId,
+  userId,
 } from "./test-fixtures.js";
 
 // Effect RPC owns frame encoding/decoding. The testing surface exposes
@@ -46,30 +46,30 @@ export type {
   TestServer,
 } from "./lifecycle.js";
 export {
-  runConformanceSuite,
   type ConformanceSuiteOptions,
+  runConformanceSuite,
   type SuiteResult,
 } from "./conformance/index.js";
 export type { ToxiproxyNetworkConfig } from "./toxics/client.js";
 
 // Errors.
 export {
+  RealServerAcquireError,
+  RpcResponseError,
+  RpcTimeoutError,
   type TestingError,
   TransportClosedError,
   TransportIoError,
-  RpcTimeoutError,
-  RpcResponseError,
-  RealServerAcquireError,
 } from "./errors.js";
 
 // Test-agent registration helper.
 export {
-  type TestAgent,
-  type TestAppCredential,
   AgentRegistrationError,
-  TestAppHttpRegistrationError,
   mintTestAppCredential,
   registerTestAgent,
+  type TestAgent,
+  type TestAppCredential,
+  TestAppHttpRegistrationError,
 } from "./test-fixtures.js";
 
 // Arbitraries, toxics — namespaced to keep names scoped.

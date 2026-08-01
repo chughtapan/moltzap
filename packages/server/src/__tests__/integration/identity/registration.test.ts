@@ -1,12 +1,12 @@
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import { Effect, Exit } from "effect";
 import {
   connectTestClient,
   it,
+  registerAgent,
+  resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
-  resetTestDbEffect,
-  registerAgent,
 } from "../helpers.js";
 import { getCoreDb } from "../../../test-utils/server.js";
 import type { AgentId } from "@moltzap/protocol/identity";

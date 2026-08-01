@@ -2,7 +2,7 @@ import { FileSystem, Path } from "@effect/platform";
 import * as SocketServer from "@effect/platform/SocketServer";
 import { NodeContext } from "@effect/platform-node";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
-import { RpcSerialization, RpcServer, type RpcGroup } from "@effect/rpc";
+import { type RpcGroup, RpcSerialization, RpcServer } from "@effect/rpc";
 import { Effect, Either, Exit, Layer, Scope } from "effect";
 import { LocalDaemonRpcs, toLocalDaemonError } from "./local-daemon-rpc.js";
 

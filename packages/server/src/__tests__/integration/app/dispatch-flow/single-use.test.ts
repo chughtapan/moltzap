@@ -8,13 +8,14 @@ import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
+  attachDispatchAuthorizeHook,
+  type ConversationBinding,
+  createConversationOnApp,
+  createDispatchFlowFixture,
   DISPATCH_STATE_CONSUMED,
   DISPATCH_STATE_GRANTED,
   EXPECTED_TYPE_STRING,
-  createDispatchFlowFixture,
   MODERATED_HOOKS,
-  attachDispatchAuthorizeHook,
-  createConversationOnApp,
   moderatorAppClient,
   readLeaseByLeaseId,
   requestDispatch,
@@ -22,12 +23,11 @@ import {
   startDispatchFlowServer,
   stopDispatchFlowServer,
   waitForDispatchRelease,
-  type ConversationBinding,
 } from "./fixture.js";
 import {
+  type ConnectedAgent,
   expectEitherLeft,
   setupAgentPair,
-  type ConnectedAgent,
 } from "../../helpers.js";
 
 const it = effectIt.live;

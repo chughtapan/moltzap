@@ -4,13 +4,13 @@ import { FileSystem } from "@effect/platform";
 import { Data, Effect, Ref, Schema } from "effect";
 import {
   BaseChildEnvironmentConfig,
+  type CapturedCommandOutput,
   makeCommandHelpers,
   makeExactEnvironmentCommand,
-  type CapturedCommandOutput,
 } from "./child-process.js";
 import {
-  cacheFingerprint,
   CACHE_BUILD_PERMIT,
+  cacheFingerprint,
   makeImmutableCache,
   MOLTZAP_TESTBED_CACHE_ROOT,
 } from "./immutable-cache.js";

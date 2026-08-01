@@ -2,26 +2,26 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 
 import {
-  DEVS_GROUP_NAME,
-  FIRST_TEXT,
-  FIRST_VISIT_TEXT,
-  SECOND_TEXT,
-  TestInboundHandlerError,
   agent,
   buildMessage,
+  type ChannelCoreFixture,
   conversation,
   createChannelCoreFixture,
+  type CrossConversationEntry,
   customSetup,
+  DEVS_GROUP_NAME,
   effectTest,
+  type EnrichedInboundMessage,
+  FIRST_TEXT,
+  FIRST_VISIT_TEXT,
   flushDispatchChainEffect,
   forceResolveAgentNamePath,
   message,
-  participant,
-  task,
-  type ChannelCoreFixture,
-  type CrossConversationEntry,
-  type EnrichedInboundMessage,
   MoltZapChannelCore,
+  participant,
+  SECOND_TEXT,
+  task,
+  TestInboundHandlerError,
 } from "./channel-core-test-support.js";
 
 let fake: ChannelCoreFixture["fake"];

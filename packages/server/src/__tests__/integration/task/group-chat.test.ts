@@ -1,11 +1,11 @@
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { Effect } from "effect";
 import {
   it,
+  registerAndConnect,
+  resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
-  resetTestDbEffect,
-  registerAndConnect,
 } from "../helpers.js";
 
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";

@@ -8,10 +8,10 @@ import * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import {
-  Register,
-  validateAppManifest,
   type AgentKey,
   type AppManifest,
+  Register,
+  validateAppManifest,
 } from "@moltzap/protocol/identity";
 
 import type { AppTags } from "#moltzap";

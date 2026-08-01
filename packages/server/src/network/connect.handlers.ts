@@ -2,8 +2,8 @@ import { Effect, Match, Option } from "effect";
 import {
   AgentConnect,
   AppConnect,
-  PROTOCOL_VERSION,
   checkProtocolRange,
+  PROTOCOL_VERSION,
 } from "@moltzap/protocol/network";
 import { UnauthorizedError } from "@moltzap/protocol/rpc";
 import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
@@ -12,8 +12,8 @@ import type { HelloOk } from "@moltzap/protocol/network";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import {
-  agentContextFrom,
   AgentContext,
+  agentContextFrom,
   AppContext,
   ConnectionManagerTag,
   ConnectionTag,

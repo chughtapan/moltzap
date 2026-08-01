@@ -13,10 +13,10 @@ import { assertProperty, registerProperty } from "../_shared/registry.js";
 import type { PropertyAssertionFailure } from "../_shared/registry.js";
 import { leftOrNull } from "../_shared/_helpers.js";
 import {
-  DELIVERY_CATEGORY,
-  DELIVERY_DEFAULT_PROPERTY_NUM_RUNS,
   acquireConversation,
   type ConversationFixture,
+  DELIVERY_CATEGORY,
+  DELIVERY_DEFAULT_PROPERTY_NUM_RUNS,
   deliveryViolation,
   fixtureN,
 } from "./_helpers.js";

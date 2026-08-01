@@ -3,19 +3,19 @@ import { NodeContext } from "@effect/platform-node";
 import { Effect } from "effect";
 
 import type {
+  LogSlice,
+  ReadyOutcome,
   Runtime,
   RuntimeServerHandle,
   SpawnInput,
-  LogSlice,
-  ReadyOutcome,
 } from "./runtime.js";
 import { SpawnFailed, spawnFailed } from "./errors.js";
 import { raceReadiness } from "./adapter-readiness.js";
 import { pollFiberExitCode } from "./child-process.js";
 import {
+  type NanoclawRuntimeHandle,
   startNanoclawRuntimeEffect,
   stopNanoclawRuntimeEffect,
-  type NanoclawRuntimeHandle,
 } from "./nanoclaw-process.js";
 import { ensureNanoclawRuntimeInstalledEffect } from "./nanoclaw-install.js";
 import { type InstallMode } from "./install-mode.js";

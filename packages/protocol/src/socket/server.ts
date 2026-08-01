@@ -1,5 +1,5 @@
 import * as Socket from "@effect/platform/Socket";
-import { RpcClient, RpcGroup, RpcServer, type Rpc } from "@effect/rpc";
+import { type Rpc, RpcClient, RpcGroup, RpcServer } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Cause, Deferred, Effect, Exit, Layer, Mailbox, Scope } from "effect";
 import { ConnectionId, newConnectionId } from "./connection.js";
@@ -9,25 +9,25 @@ import {
   isTaskCreateRequest,
 } from "./reverse-callbacks.js";
 import {
-  ReverseRpcGroup,
-  ServerInboundGroup,
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
+  ReverseRpcGroup,
   type ServerHandlers,
+  ServerInboundGroup,
 } from "#socket/catalog";
 import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "#task";
 import { DispatchAuthorize } from "#message/dispatch";
 import {
+  type ChannelSink,
   makeClientChannelProtocol,
   runMuxReader,
-  type ChannelSink,
   type WireWrite,
 } from "#transport";
 import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
 import {
-  makeTypedTransportCall,
   type ErrorForTag,
+  makeTypedTransportCall,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,

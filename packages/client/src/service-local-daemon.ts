@@ -1,18 +1,18 @@
 import type { RpcGroup } from "@effect/rpc";
 import { Effect, Either } from "effect";
 import {
+  type AgentId,
   AgentsList,
   ContactsAccept,
   ContactsAdd,
   ContactsList,
-  type AgentId,
 } from "@moltzap/protocol/identity";
 import { AgentCallableGroup } from "@moltzap/protocol/socket/catalog";
 import { ConversationList } from "@moltzap/protocol/conversation";
 import {
   DEFAULT_APP_ID,
-  TaskRequest,
   type TaskId,
+  TaskRequest,
 } from "@moltzap/protocol/task";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
@@ -27,14 +27,14 @@ import type { ServiceRpcError } from "./service.js";
 import type { HistoryRequest, HistoryResponse } from "./local-history.js";
 import {
   LocalDaemonCommands,
-  ServiceInputError,
-  StartTaskPartialFailure,
-  StartTaskUsageError,
   type LocalDaemonHandlers,
   type SendCommandPayload,
+  ServiceInputError,
   type StartParticipant,
   type StartTaskCommandPayload,
   type StartTaskCommandResult,
+  StartTaskPartialFailure,
+  StartTaskUsageError,
 } from "./local-daemon-rpc.js";
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;

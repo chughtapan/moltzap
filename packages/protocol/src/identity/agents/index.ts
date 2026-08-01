@@ -7,9 +7,9 @@ export { InviteCode, Register } from "./registration.js";
 export {
   AgentCardSchema,
   AgentNotFoundError,
+  agentOwnershipSchema,
   validateAgent,
   validateAgentCard,
-  agentOwnershipSchema,
 } from "./types.js";
 export { AgentsList } from "./agents.js";
 export type { Agent, AgentCard } from "./types.js";

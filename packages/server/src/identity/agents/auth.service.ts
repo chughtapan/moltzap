@@ -6,8 +6,8 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import {
   generateApiKey,
-  parseApiKey,
   hashSecret,
+  parseApiKey,
 } from "#identity/credential-keys";
 import { catchSqlErrorAsDefect, takeFirstOption, takeFirstOrFail } from "#db";
 

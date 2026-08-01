@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 import * as fc from "fast-check";
 import {
-  InvalidCursorError,
   decodeListCursor,
   encodeListCursor,
-  paginate,
+  InvalidCursorError,
   type ListCursorPosition,
+  paginate,
 } from "./list-cursor.js";
 
 // Arbitrary valid `(sortKey, id)` positions: ISO-8601 timestamp + UUID.

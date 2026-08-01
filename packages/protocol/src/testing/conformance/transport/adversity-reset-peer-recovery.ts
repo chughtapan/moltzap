@@ -13,8 +13,8 @@ import { TaskList } from "#task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable } from "../_shared/registry.js";
 import {
-  ADVERSITY_CATEGORY,
   acquireProxiedClient,
+  ADVERSITY_CATEGORY,
   proxyName,
   type ToxicBodyParams,
   withToxicProxy,

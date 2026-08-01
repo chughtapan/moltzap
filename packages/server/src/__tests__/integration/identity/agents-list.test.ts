@@ -1,15 +1,15 @@
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 
 import { Effect } from "effect";
 import {
-  startTestServerEffect,
-  stopTestServerEffect,
-  resetTestDbEffect,
-  trackClient,
   connectTestClient,
   createTestUser,
   registerOwnedAgent,
+  resetTestDbEffect,
+  startTestServerEffect,
+  stopTestServerEffect,
+  trackClient,
 } from "../helpers.js";
 import type { AgentCard } from "@moltzap/protocol/identity";
 import { userId } from "@moltzap/protocol/testing";

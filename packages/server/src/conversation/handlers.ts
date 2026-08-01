@@ -6,8 +6,8 @@ import {
   ConversationList,
   ConversationParticipantsAddedNotificationDefinition,
   ConversationParticipantsRemovedNotificationDefinition,
-  ConversationUpdate,
   ConversationUnarchivedNotificationDefinition,
+  ConversationUpdate,
 } from "@moltzap/protocol/conversation";
 import type {
   Conversation,
@@ -20,7 +20,7 @@ import type {
   AnyNotificationDefinition,
   ServerHandler,
 } from "@moltzap/protocol/socket/catalog";
-import type { AppContext, AgentContext } from "#socket";
+import type { AgentContext, AppContext } from "#socket";
 import { ConversationServiceTag } from "./layer.js";
 import { TaskServiceTag } from "#task";
 import { agentArm, appArm } from "#moltzap/runtime";

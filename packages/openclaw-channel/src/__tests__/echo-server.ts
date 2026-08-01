@@ -8,8 +8,8 @@ import http from "node:http";
 import type {
   ChatCompletion,
   ChatCompletionChunk,
-  ChatCompletionCreateParams,
   ChatCompletionContentPartText,
+  ChatCompletionCreateParams,
 } from "./openai-shapes.js";
 
 export type EchoServer = { port: number; close: () => void };

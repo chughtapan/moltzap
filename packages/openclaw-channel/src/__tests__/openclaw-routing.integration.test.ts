@@ -14,10 +14,10 @@ import { stripWsPath } from "@moltzap/client/test-utils";
 import { getLogs } from "../test-utils/container-core.js";
 import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 import {
-  registerTestAgent,
   extractMessage,
   extractTaskBinding,
   extractText,
+  registerTestAgent,
   type TaskBinding,
 } from "./test-helpers.js";
 

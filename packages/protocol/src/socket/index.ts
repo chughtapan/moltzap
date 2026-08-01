@@ -14,10 +14,10 @@ export type { AppCallbackContext, AppClientOptions } from "./app-client.js";
 export type { AppCallbackHandlers, HandlerSlot } from "./app-callbacks.js";
 
 export {
-  RPC_TIMEOUT_MS,
   openProtocolAgentClientSocket,
   openProtocolAppClientSocket,
   ProtocolClientLifecycle,
+  RPC_TIMEOUT_MS,
 } from "./lifecycle.js";
 export type {
   ClientConnectError,
@@ -34,12 +34,12 @@ export { MoltZapServer } from "./server.js";
 export type {
   MoltZapServerOptions,
   MoltZapServerSession,
-  ReverseCallError,
   ReverseCallbackError,
   ReverseCallbackPayload,
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
   ReverseCallbackTag,
+  ReverseCallError,
   ReverseClient,
   ServerSocketWrite,
 } from "./server.js";

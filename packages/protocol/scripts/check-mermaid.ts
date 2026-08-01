@@ -6,7 +6,7 @@
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
-import { resolve, dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   extractMermaidBlocks,
@@ -118,7 +118,7 @@ function collectMarkdownFiles(
   });
 }
 
-const SKIP_DIRS = new Set(["node_modules", "dist", ".git"]);
+const SKIP_DIRS = new Set([".git", "dist", "node_modules"]);
 
 interface WalkCtx {
   readonly fs: FileSystem.FileSystem;

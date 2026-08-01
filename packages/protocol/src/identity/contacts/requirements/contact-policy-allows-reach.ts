@@ -1,6 +1,6 @@
 import { RpcMiddleware } from "@effect/rpc";
 import { Schema } from "effect";
-import { AgentNotFoundError, type AgentId } from "#identity/agents";
+import { type AgentId, AgentNotFoundError } from "#identity/agents";
 import { NotInContactsError } from "../contacts.js";
 
 export interface ContactPolicyAllowsReachValue {

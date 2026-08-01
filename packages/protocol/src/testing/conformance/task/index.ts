@@ -26,22 +26,22 @@ import {
   CONVERSATION_FAMILY_PROPERTIES,
   registerConversationCreateAndList,
   registerTaskCreate,
-  registerTaskRequestReject,
   registerTaskLeave,
+  registerTaskRequestReject,
 } from "./conversation-family.js";
 
 export {
-  registerFanOutCardinality,
-  registerStoreAndReplay,
-  registerPayloadOpacity,
-  registerTaskBoundaryIsolation,
-  registerConversationLifecycle,
-  registerTaskCloseLifecycle,
   registerArchiveLifecycle,
   registerConversationCreateAndList,
+  registerConversationLifecycle,
+  registerFanOutCardinality,
+  registerPayloadOpacity,
+  registerStoreAndReplay,
+  registerTaskBoundaryIsolation,
+  registerTaskCloseLifecycle,
   registerTaskCreate,
-  registerTaskRequestReject,
   registerTaskLeave,
+  registerTaskRequestReject,
 };
 
 /**

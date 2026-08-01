@@ -19,10 +19,10 @@ import { DEFAULT_TEST_ADMIN_USER_ID, getCoreDb, getWsUrl } from "./server.js";
 import { AuthService } from "#identity/agents";
 
 import {
-  DEFAULT_APP_ID,
-  TaskRequest,
   type AppId,
+  DEFAULT_APP_ID,
   type TaskId,
+  TaskRequest,
 } from "@moltzap/protocol/task";
 import type {
   AppCallbackContext,

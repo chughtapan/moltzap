@@ -2,11 +2,11 @@
  * @file Conversation identifiers, wire shapes, and domain errors.
  */
 
-import { Schema, type Brand } from "effect";
+import { type Brand, Schema } from "effect";
 import {
   dateTimeStringSchema,
-  formatString,
   errorPayloadFields,
+  formatString,
 } from "#transport";
 import { AgentId } from "#identity/agents";
 

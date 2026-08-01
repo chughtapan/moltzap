@@ -1,4 +1,4 @@
-import { Schema, type Brand } from "effect";
+import { type Brand, Schema } from "effect";
 
 /**
  * Server-internal WebSocket connection identifier. Minted at WS accept

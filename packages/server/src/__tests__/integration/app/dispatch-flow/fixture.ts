@@ -15,19 +15,19 @@ import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { DispatchId, LeaseId } from "@moltzap/protocol/message/dispatch";
 import {
-  agentId as protocolAgentId,
   messageId,
+  agentId as protocolAgentId,
 } from "@moltzap/protocol/testing";
 import { Effect } from "effect";
 import {
   awaitOneNotification,
   connectAppClient,
+  type ConnectedAgent,
   getTestCoreApp,
   registerApp,
   resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
-  type ConnectedAgent,
   type TestAppClient,
 } from "../../helpers.js";
 import { getBaseUrl } from "../../../../test-utils/server.js";

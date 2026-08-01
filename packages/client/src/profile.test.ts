@@ -17,10 +17,10 @@ import {
   loadLayeredConfig,
   parseProfileName,
   ProfileInvalidNameError,
-  ProfileNotFoundError,
-  writeProfile,
   type ProfileName,
+  ProfileNotFoundError,
   type ProfileRecord,
+  writeProfile,
 } from "./profile.js";
 
 const it = effectIt.scoped;

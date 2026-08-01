@@ -1,4 +1,4 @@
-import { Schema, type Brand } from "effect";
+import { type Brand, Schema } from "effect";
 
 import { formatString } from "#transport";
 

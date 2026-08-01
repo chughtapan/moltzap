@@ -6,8 +6,8 @@ import type { ConnectionId } from "@moltzap/protocol/socket";
 
 import {
   type AgentPresenceEntry,
-  deriveEntryStatus,
   type DerivedPresenceStatus,
+  deriveEntryStatus,
   type LeaseTransitionObserver,
   type PresenceAuditEvent,
 } from "./presence-types.js";

@@ -1,17 +1,17 @@
 /* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case names a specific live-server contract (HTTP apps/register manifest validation, agent/message/send replyToId threading + orphan rejection). These are scenario-shaped integration checks against the running server, not an input domain to generate over. */
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { Effect, Exit } from "effect";
 import {
-  it,
-  startTestServerEffect,
-  stopTestServerEffect,
-  resetTestDbEffect,
-  setupAgentPair,
-  registerApp,
   connectAppClient,
-  postJson,
   getBaseUrl,
   HTTP_BAD_REQUEST,
+  it,
+  postJson,
+  registerApp,
+  resetTestDbEffect,
+  setupAgentPair,
+  startTestServerEffect,
+  stopTestServerEffect,
 } from "../helpers.js";
 
 import {

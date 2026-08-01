@@ -5,9 +5,9 @@ import { AgentKey, AppKey } from "@moltzap/protocol/identity";
 import {
   generateApiKey,
   generateAppKey,
+  hashSecret,
   parseApiKey,
   parseAppKey,
-  hashSecret,
   safeEqual,
 } from "./credential-keys.js";
 

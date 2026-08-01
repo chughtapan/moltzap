@@ -2,7 +2,7 @@
 
 import { Context, Layer } from "effect";
 
-import { ConnectionManager, type Connection } from "./connection.js";
+import { type Connection, ConnectionManager } from "./connection.js";
 
 export class ConnectionTag extends Context.Tag("moltzap/Connection")<
   ConnectionTag,

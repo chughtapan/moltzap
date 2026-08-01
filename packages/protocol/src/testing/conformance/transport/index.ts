@@ -20,8 +20,8 @@ import { registerSlowCloseCleanup } from "./adversity-slow-close-cleanup.js";
 export {
   registerLatencyResilience,
   registerResetPeerRecovery,
-  registerTimeoutSurface,
   registerSlowCloseCleanup,
+  registerTimeoutSurface,
 };
 
 /**

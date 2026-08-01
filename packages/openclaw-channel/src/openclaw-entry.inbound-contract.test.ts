@@ -5,12 +5,12 @@ import { Data, Effect } from "effect";
 import type { CrossConvMessage } from "@moltzap/client/channel-base";
 import {
   createFakeChannelService,
+  type FakeChannelService,
   flushDispatchChainEffect,
   testAgentId,
   testConversationId,
   testMessageId,
   testTaskId,
-  type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { Message } from "@moltzap/protocol/message";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";

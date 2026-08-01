@@ -1,21 +1,21 @@
 /** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
 
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Data, Effect, Layer } from "effect";
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
-import { createCoreApp, type CoreApp } from "#core";
+import { type CoreApp, createCoreApp } from "#core";
 import { applyOutboundWebhookCap } from "#network";
 import {
-  loadStandaloneConfig,
-  type CoreConfig,
   type ConfigLoadError,
+  type CoreConfig,
+  loadStandaloneConfig,
   type StandaloneBootPlan,
 } from "#config";
 import type { ServerEncryptionMasterSecret } from "#config/secrets";
-import { seedInitialKek, EnvelopeEncryption } from "#db/crypto";
-import { sql, makeEffectKysely, PostgresDialect } from "#db";
+import { EnvelopeEncryption, seedInitialKek } from "#db/crypto";
+import { makeEffectKysely, PostgresDialect, sql } from "#db";
 import type { Database, Db } from "#db";
 import { WebhookContactService } from "#identity/contacts";
 

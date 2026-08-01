@@ -1,8 +1,8 @@
 import { live as it } from "@effect/vitest";
 import {
   createFakeChannelService,
-  testAgentId,
   type FakeChannelService,
+  testAgentId,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
 import type { ChannelService } from "@moltzap/client/channel-base";

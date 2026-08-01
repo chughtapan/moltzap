@@ -3,11 +3,11 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
   DISPATCH_ADMISSION_CATEGORY,
-  TIMEOUT_RELEASE_WAIT_MS,
-  TINY_MODERATOR_TIMEOUT_MS,
   dispatchAdmissionViolation,
   freshMessageId,
   type ReleaseFrameView,
+  TIMEOUT_RELEASE_WAIT_MS,
+  TINY_MODERATOR_TIMEOUT_MS,
   withDriver,
 } from "./_helpers.js";
 

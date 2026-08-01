@@ -11,18 +11,18 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
 import {
-  DELIVERY_CATEGORY,
   acquirePropertyConversation,
   archiveConversation,
   assertConversationRejectsMessages,
+  type ConversationActor,
+  type ConversationFixture,
+  DELIVERY_CATEGORY,
   deliveryViolation,
   firstParticipant,
   sendText,
   unarchiveConversation,
   waitForArchivedEvent,
   waitForUnarchivedEvent,
-  type ConversationActor,
-  type ConversationFixture,
 } from "./_helpers.js";
 
 const PROPERTY = "archive-lifecycle";

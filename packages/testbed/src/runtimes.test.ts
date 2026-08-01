@@ -2,7 +2,7 @@ import { FileSystem, Path } from "@effect/platform";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import { NodeContext } from "@effect/platform-node";
 import { tmpdir } from "node:os";
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   Deferred,
   Effect,
@@ -33,12 +33,12 @@ import {
 } from "./nanoclaw-adapter.js";
 import {
   AgentName,
-  ServerUrl,
-  type Runtime,
-  type RuntimeServerHandle,
-  type SpawnInput,
   type LogSlice,
   type ReadyOutcome,
+  type Runtime,
+  type RuntimeServerHandle,
+  ServerUrl,
+  type SpawnInput,
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 

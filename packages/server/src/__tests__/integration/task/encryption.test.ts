@@ -1,15 +1,15 @@
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Data, Effect } from "effect";
 import {
+  type ConnectedAgent,
+  firstTextPart,
+  getEncryptionEnvelope,
+  getKyselyDb,
+  registerAndConnect,
+  resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
-  resetTestDbEffect,
-  registerAndConnect,
-  firstTextPart,
-  getKyselyDb,
-  getEncryptionEnvelope,
-  type ConnectedAgent,
 } from "../helpers.js";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import { MessagesList, MessagesSend } from "@moltzap/protocol/message";

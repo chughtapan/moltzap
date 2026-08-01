@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import type { RpcGroup } from "@effect/rpc";
 import {
+  type TransportError,
   TransportRpcError,
   type Transport as TransportSurface,
-  type TransportError,
 } from "../transport.js";
 import { LocalDaemonRpcs } from "../../local-daemon-rpc.js";
 import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/rpc";
