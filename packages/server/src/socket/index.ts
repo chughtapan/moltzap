@@ -3,7 +3,6 @@
 /** Re-exports the public API from `./connection.js`. */
 export {
   ConnectionManager,
-  sendRpcToClient,
   type AgentConnection,
   type Connection,
   type Originator,

@@ -367,27 +367,6 @@ Callers (`app/network/connect`, `installDefaultApp`) map a
 `false` return to whatever surfacing they need — typed
 `ForbiddenError` for the connect path, an exception for boot.
 
-### [`callAppRpc`](./callback-rpc.ts#L17)
-
-_Function_
-
-```ts
-export function callAppRpc(
-  entry: AppRegistration,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof dispatchAuthorize }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof dispatchAuthorize>,
-  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError
->
-```
-
-Executes the call app rpc operation.
-
-**Returns:** The call app rpc result.
-
 ### [`installDefaultApp`](./default-app.ts#L99)
 
 _Function_
@@ -406,31 +385,9 @@ because no client `AppConnection` can ever own the default app — its
 endpoint is a server-minted inert endpoint, not a connected
 HTTP-registered app.
 
-### [`wrapHookEffectWithEnvelope`](./callback-rpc.ts#L63)
-
-_Function_
-
-```ts
-export function wrapHookEffectWithEnvelope<Verdict, E = never>(opts: {
-  readonly raw: Effect.Effect<Verdict, E>;
-  readonly timeoutMs: number;
-  readonly timeoutLogMessage: string;
-  readonly timeoutLogContext: Record<string, unknown>;
-  readonly errorLogMessage: string;
-  readonly errorLogContext: Record<string, unknown>;
-  readonly onTimeout: () => Verdict;
-  readonly onError: () => Verdict;
-}): Effect.Effect<Verdict>
-```
-
-Executes the wrap hook effect with envelope operation.
-
-**Returns:** The wrap hook effect with envelope result.
-
 ## Files
 
 - `auth.service.ts`
-- `callback-rpc.ts`
 - `default-app.ts`
 - `endpoint-registry.ts`
 - `layer.ts`

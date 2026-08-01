@@ -20,7 +20,6 @@
     "modules/protocol/testing/arbitraries",
     "modules/protocol/testing/conformance",
     "modules/protocol/testing/conformance/_shared/driver",
-    "modules/protocol/testing/conformance/app",
     "modules/protocol/testing/conformance/delivery",
     "modules/protocol/testing/conformance/identity",
     "modules/protocol/testing/conformance/transport",

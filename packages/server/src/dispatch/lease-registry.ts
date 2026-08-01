@@ -120,7 +120,7 @@ export type LeaseState =
   | "HOLD";
 
 /** Verdict shapes accepted by `resolve` — mirrors the wire decision. */
-export type LeaseVerdict =
+type LeaseVerdict =
   | { readonly _tag: "grant"; readonly leaseTimeoutMs?: number }
   | { readonly _tag: "deny"; readonly reason?: string }
   | { readonly _tag: "hold"; readonly reason?: string };

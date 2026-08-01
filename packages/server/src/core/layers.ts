@@ -40,11 +40,7 @@ import {
   LeaseRegistryTag,
 } from "../dispatch/layer.js";
 import type { LeaseRegistry } from "../dispatch/lease-registry.js";
-import {
-  messageAuthorizationServiceLive,
-  messageServiceLive,
-  MessageServiceTag,
-} from "../message/layer.js";
+import { messageServiceLive, MessageServiceTag } from "../message/layer.js";
 import type { MessageService } from "../message/message.service.js";
 
 const coreRuntimeServicesLive = Layer.mergeAll(
@@ -79,7 +75,7 @@ const conversationWithAppRegistryLive = Layer.provideMerge(
 );
 
 const domainAuthorizationLive = Layer.provideMerge(
-  Layer.mergeAll(dispatchAdmissionServiceLive, messageAuthorizationServiceLive),
+  dispatchAdmissionServiceLive,
   conversationWithAppRegistryLive,
 );
 

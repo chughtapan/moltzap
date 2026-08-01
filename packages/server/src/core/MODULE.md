@@ -173,7 +173,7 @@ precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
 returns `null` — the caller falls through to a no-op tracing Layer (spans
 stay in Effect's fiber context but are not exported).
 
-### [`ResolvedServices`](./layers.ts#L93)
+### [`ResolvedServices`](./layers.ts#L89)
 
 _Interface_
 
@@ -195,7 +195,7 @@ export interface ResolvedServices {
 
 Describes resolved services.
 
-### [`resolveServices`](./layers.ts#L108)
+### [`resolveServices`](./layers.ts#L104)
 
 _Variable_
 
@@ -256,7 +256,7 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`servicesLive`](./layers.ts#L87)
+### [`servicesLive`](./layers.ts#L83)
 
 _Variable_
 

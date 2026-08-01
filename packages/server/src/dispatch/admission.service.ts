@@ -1,31 +1,16 @@
 import { Data, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
-import {
-  dispatchAuthorize,
-  type DispatchId,
-  type LeaseId,
-} from "@moltzap/protocol/message/dispatch";
+import type { DispatchId, LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { MessageParts } from "@moltzap/protocol/message";
-import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
+import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { NetworkSendServiceTag } from "#network";
-import {
-  callAppRpc,
-  type AppEndpointRegistry,
-  type AppRegistration,
-  wrapHookEffectWithEnvelope,
-} from "#identity/apps";
+import type { AppEndpointRegistry } from "#identity/apps";
 import { type Db, catchSqlErrorAsDefect, takeFirstOption } from "#db";
 import type {
   LeaseRegistry,
-  LeaseVerdict,
   ModeratorBoundLeaseBinding,
 } from "./lease-registry.js";
-
-/** Represents dispatch authorize context values. */
-export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 
 interface AppBoundConversationLookup {
   readonly _tag: "AppBound";
@@ -68,17 +53,6 @@ function lookupAppBoundForConversation(
   );
 }
 
-/** Represents the result of dispatch admission. */
-export type DispatchAdmissionResult =
-  | {
-      readonly decision: "grant";
-      readonly leaseId?: LeaseId;
-      readonly leaseTimeoutMs?: number;
-      readonly dispatchMessageId?: MessageId;
-    }
-  | { readonly decision: "deny"; readonly reason?: string }
-  | { readonly decision: "hold"; readonly reason?: string };
-
 type PendingDispatchMessage = Readonly<{
   messageId: MessageId;
   conversationId: ConversationId;
@@ -101,25 +75,6 @@ export interface EnqueueDispatchRequestArgs {
   readonly pending?: readonly PendingDispatchMessage[];
 }
 
-/** Describes dispatch admission conversations. */
-export interface DispatchAdmissionConversations {
-  removeParticipant(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<unknown, unknown, NetworkSendServiceTag>;
-}
-
-interface DispatchRoundTripParams {
-  readonly conversationId: ConversationId;
-  readonly recipientAgentId: AgentId;
-  readonly messageId: MessageId;
-  readonly senderAgentId: AgentId;
-  readonly parts?: MessageParts;
-  readonly attempt?: number;
-  readonly receivedAt?: string;
-  readonly pending?: readonly PendingDispatchMessage[];
-}
-
 class DispatchAppUnavailableError extends Data.TaggedError(
   "DispatchAppUnavailableError",
 )<{
@@ -131,55 +86,27 @@ class DispatchAppUnavailableError extends Data.TaggedError(
   }
 }
 
-function dispatchVerdictToLeaseVerdict(
-  verdict: DispatchAdmissionResult,
-): LeaseVerdict {
-  switch (verdict.decision) {
-    case "grant":
-      return verdict.leaseTimeoutMs === undefined
-        ? { _tag: "grant" }
-        : { _tag: "grant", leaseTimeoutMs: verdict.leaseTimeoutMs };
-    case "deny":
-      return verdict.reason === undefined
-        ? { _tag: "deny" }
-        : { _tag: "deny", reason: verdict.reason };
-    case "hold":
-      return verdict.reason === undefined
-        ? { _tag: "hold" }
-        : { _tag: "hold", reason: verdict.reason };
-    default: {
-      const exhaustive: never = verdict;
-      return exhaustive;
-    }
-  }
-}
-
-/** Implements dispatch admission service. */
+/**
+ * Dispatch admission is a static grant: every `agent/dispatch/request`
+ * mints a lease and resolves it granted before the ack returns. The
+ * server applies no admission policy — pacing decisions are the
+ * receiving endpoint's.
+ */
 export class DispatchAdmissionService {
   private readonly db: Db;
   private readonly apps: AppEndpointRegistry;
   private readonly registry: LeaseRegistry;
-  private readonly conversations: DispatchAdmissionConversations;
 
-  constructor(
-    db: Db,
-    apps: AppEndpointRegistry,
-    registry: LeaseRegistry,
-    conversations: DispatchAdmissionConversations,
-  ) {
+  constructor(db: Db, apps: AppEndpointRegistry, registry: LeaseRegistry) {
     this.db = db;
     this.apps = apps;
     this.registry = registry;
-    this.conversations = conversations;
   }
 
-  enqueue(
-    args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<
-    { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
-    never,
-    NetworkSendServiceTag
-  > {
+  enqueue(args: EnqueueDispatchRequestArgs): Effect.Effect<{
+    readonly leaseId: LeaseId;
+    readonly dispatchId: DispatchId;
+  }> {
     return catchSqlErrorAsDefect(this.enqueueEffect(args));
   }
 
@@ -187,8 +114,7 @@ export class DispatchAdmissionService {
     args: EnqueueDispatchRequestArgs,
   ): Effect.Effect<
     { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
-    SqlError,
-    NetworkSendServiceTag
+    SqlError
   > {
     return Effect.gen(
       function* (this: DispatchAdmissionService) {
@@ -198,17 +124,9 @@ export class DispatchAdmissionService {
         );
         const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
         const minted = yield* this.registry.mint(binding);
-
-        yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
-          conversationId: args.conversationId,
-          recipientAgentId: args.recipientAgentId,
-          messageId: args.messageId,
-          senderAgentId: args.senderAgentId,
-          parts: args.parts,
-          attempt: args.attempt,
-          receivedAt: args.receivedAt,
-          pending: args.pending,
-        });
+        yield* this.registry
+          .resolve(minted.leaseId, { _tag: "grant" })
+          .pipe(Effect.ignore);
         return minted;
       }.bind(this),
     );
@@ -236,233 +154,5 @@ export class DispatchAdmissionService {
       appId: lookup.appId,
       moderatorConnectionId: entry.endpoint.connId,
     });
-  }
-
-  private attachDispatchRoundTripFiber(
-    leaseId: LeaseId,
-    lookup: AppBoundConversationLookup,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    return Effect.gen(
-      function* (this: DispatchAdmissionService) {
-        const fiber = yield* Effect.forkDaemon(
-          this.runForkedDispatchRoundTrip(leaseId, lookup, params),
-        );
-        yield* this.registry.attachRoundTripFiber(leaseId, fiber);
-      }.bind(this),
-    );
-  }
-
-  private runForkedDispatchRoundTrip(
-    leaseId: LeaseId,
-    lookup: AppBoundConversationLookup,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    return catchSqlErrorAsDefect(
-      this.runAppBoundDispatchRoundTrip(leaseId, lookup, params),
-    );
-  }
-
-  private runAppBoundDispatchRoundTrip(
-    leaseId: LeaseId,
-    lookup: AppBoundConversationLookup,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<void, SqlError, NetworkSendServiceTag> {
-    if (this.apps.lookupApp(lookup.appId) === undefined) {
-      return this.resolveLease(leaseId, {
-        _tag: "deny",
-        reason: "app_unavailable",
-      });
-    }
-
-    return Effect.gen(
-      function* (this: DispatchAdmissionService) {
-        const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
-        const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
-        yield* this.resolveLease(
-          leaseId,
-          dispatchVerdictToLeaseVerdict(verdict),
-        );
-        yield* this.removeDeniedParticipant(verdict, params);
-      }.bind(this),
-    );
-  }
-
-  private dispatchAuthorizeContext(
-    lookup: AppBoundConversationLookup,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<DispatchAuthorizeContext, SqlError> {
-    return Effect.gen(
-      function* (this: DispatchAdmissionService) {
-        const ownerUserId = yield* this.recipientOwnerId(
-          params.recipientAgentId,
-        );
-        return {
-          conversationId: params.conversationId,
-          recipient: { agentId: params.recipientAgentId, ownerUserId },
-          message: {
-            id: params.messageId,
-            senderAgentId: params.senderAgentId,
-            parts: params.parts,
-          },
-          appId: lookup.appId,
-          attempt: params.attempt ?? 0,
-          receivedAt: params.receivedAt,
-          pending:
-            params.pending === undefined ? undefined : [...params.pending],
-        };
-      }.bind(this),
-    );
-  }
-
-  private recipientOwnerId(agentId: AgentId): Effect.Effect<UserId, SqlError> {
-    return takeFirstOption(
-      this.db
-        .selectFrom("agents")
-        .select("owner_user_id")
-        .where("id", "=", agentId),
-    ).pipe(
-      Effect.flatMap((agentOpt) =>
-        Option.match(agentOpt, {
-          onNone: () =>
-            Effect.dieMessage(`recipient agent ${agentId} not found`),
-          onSome: (agent) => Effect.succeed(agent.owner_user_id),
-        }),
-      ),
-    );
-  }
-
-  private resolveLease(
-    leaseId: LeaseId,
-    verdict: LeaseVerdict,
-  ): Effect.Effect<void> {
-    return this.registry.resolve(leaseId, verdict).pipe(Effect.ignore);
-  }
-
-  private removeDeniedParticipant(
-    verdict: DispatchAdmissionResult,
-    params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never, NetworkSendServiceTag> {
-    if (verdict.decision !== "deny") {
-      return Effect.void;
-    }
-    return this.conversations
-      .removeParticipant(params.conversationId, params.recipientAgentId)
-      .pipe(
-        Effect.catchAll((cause) =>
-          Effect.logWarning("deny removeParticipant failed").pipe(
-            Effect.annotateLogs({
-              conversationId: params.conversationId,
-              recipientAgentId: params.recipientAgentId,
-              cause: String(cause),
-            }),
-          ),
-        ),
-      );
-  }
-
-  private dispatchAuthorize(
-    appId: AppId,
-    ctx: DispatchAuthorizeContext,
-  ): Effect.Effect<DispatchAdmissionResult> {
-    const entry = this.apps.lookupApp(appId);
-    if (entry === undefined) {
-      return Effect.succeed({
-        decision: "deny",
-        reason: "app_unavailable",
-      });
-    }
-    const policy = entry.manifest.hooks.dispatch_authorize;
-    switch (policy.kind) {
-      case "grant":
-        return Effect.succeed({ decision: "grant" });
-      case "deny":
-        return Effect.succeed({
-          decision: "deny",
-          reason: policy.reason,
-        });
-      case "hook":
-        return this.dispatchAuthorizeViaHook(
-          appId,
-          ctx,
-          entry,
-          policy.timeoutMs,
-        );
-      default: {
-        const exhaustive: never = policy;
-        return exhaustive;
-      }
-    }
-  }
-
-  /**
-   * Round-trip the app's `dispatch_authorize` hook. Fails closed: an
-   * unreachable app, a timeout, or a handler error all deny admission.
-   * @param appId Value supplied to the operation.
-   * @param ctx Value supplied to the operation.
-   * @param entry Value supplied to the operation.
-   * @param timeoutMs Value supplied to the operation.
-   * @returns The dispatch admission result.
-   */
-  private dispatchAuthorizeViaHook(
-    appId: AppId,
-    ctx: DispatchAuthorizeContext,
-    entry: AppRegistration,
-    timeoutMs: number,
-  ): Effect.Effect<DispatchAdmissionResult> {
-    return wrapHookEffectWithEnvelope({
-      raw: callAppRpc(entry, {
-        definition: dispatchAuthorize,
-        params: this.dispatchAuthorizeParamsForWire(ctx),
-      }).pipe(Effect.map((envelope) => envelope.admission)),
-      timeoutMs,
-      timeoutLogMessage: "app/dispatch/authorize timed out",
-      timeoutLogContext: {
-        conversationId: ctx.conversationId,
-        appId,
-        timeoutMs,
-      },
-      errorLogMessage: "app/dispatch/authorize error",
-      errorLogContext: { conversationId: ctx.conversationId, appId },
-      onTimeout: () => ({
-        decision: "deny",
-        reason: "timeout",
-      }),
-      onError: () => ({
-        decision: "deny",
-        reason: "app/dispatch/authorize error",
-      }),
-    });
-  }
-
-  private dispatchAuthorizeParamsForWire(
-    ctx: DispatchAuthorizeContext,
-  ): ParamsOf<typeof dispatchAuthorize> {
-    return {
-      appId: ctx.appId,
-      conversationId: ctx.conversationId,
-      recipient: ctx.recipient,
-      message: {
-        id: ctx.message.id,
-        senderAgentId: ctx.message.senderAgentId,
-        ...(ctx.message.parts !== undefined
-          ? { parts: ctx.message.parts }
-          : {}),
-      },
-      attempt: ctx.attempt,
-      ...(ctx.receivedAt !== undefined ? { receivedAt: ctx.receivedAt } : {}),
-      ...(ctx.pending !== undefined
-        ? {
-            pending: ctx.pending.map((pending) => ({
-              messageId: pending.messageId,
-              conversationId: pending.conversationId,
-              senderAgentId: pending.senderAgentId,
-              createdAt: pending.createdAt,
-              receivedAt: pending.receivedAt,
-              ...(pending.parts !== undefined ? { parts: pending.parts } : {}),
-            })),
-          }
-        : {}),
-    };
   }
 }
