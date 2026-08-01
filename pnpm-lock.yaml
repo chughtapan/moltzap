@@ -75,22 +75,22 @@ importers:
         specifier: ^0.108.0
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
       '@effect/printer':
-        specifier: 0.50.0
+        specifier: ^0.50.0
         version: 0.50.0(@effect/typeclass@0.41.0(effect@3.22.0))(effect@3.22.0)
       '@effect/printer-ansi':
-        specifier: 0.50.0
+        specifier: ^0.50.0
         version: 0.50.0(@effect/typeclass@0.41.0(effect@3.22.0))(effect@3.22.0)
       '@effect/rpc':
-        specifier: 0.76.0
+        specifier: ^0.76.0
         version: 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       '@effect/typeclass':
-        specifier: 0.41.0
+        specifier: ^0.41.0
         version: 0.41.0(effect@3.22.0)
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
     devDependencies:
       '@effect/vitest':
@@ -151,7 +151,7 @@ importers:
         specifier: workspace:*
         version: link:../simulator
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
     devDependencies:
       '@effect/vitest':
@@ -179,7 +179,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
     devDependencies:
       '@effect/platform':
@@ -219,7 +219,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       openclaw:
         specifier: '>=2026.0.0'
@@ -265,10 +265,10 @@ importers:
         specifier: ^0.108.0
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
       '@effect/rpc':
-        specifier: 0.76.0
+        specifier: ^0.76.0
         version: 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
     devDependencies:
       '@typescript/native':
@@ -299,7 +299,7 @@ importers:
   packages/server:
     dependencies:
       '@effect/opentelemetry':
-        specifier: 0.64.0
+        specifier: ^0.64.0
         version: 0.64.0(@effect/platform@0.97.0(effect@3.22.0))(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.7.1(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-logs@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-metrics@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.7.1(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-node@2.7.1(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-web@2.7.1(@opentelemetry/api@1.9.1))(@opentelemetry/semantic-conventions@1.41.1)(effect@3.22.0)
       '@effect/platform':
         specifier: ^0.97.0
@@ -308,7 +308,7 @@ importers:
         specifier: ^0.108.0
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
       '@effect/rpc':
-        specifier: 0.76.0
+        specifier: ^0.76.0
         version: 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       '@effect/sql':
         specifier: ^0.52.0
@@ -341,7 +341,7 @@ importers:
         specifier: 1.41.1
         version: 1.41.1
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       kysely:
         specifier: ^0.28.2
@@ -414,7 +414,7 @@ importers:
         specifier: workspace:*
         version: link:../server
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       openclaw:
         specifier: 2026.6.33
@@ -464,28 +464,28 @@ importers:
   v2/identity:
     dependencies:
       '@effect/experimental':
-        specifier: 0.61.0
+        specifier: ^0.61.0
         version: 0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       '@effect/platform':
-        specifier: 0.97.0
+        specifier: ^0.97.0
         version: 0.97.0(effect@3.22.0)
       '@effect/platform-node':
-        specifier: 0.108.0
+        specifier: ^0.108.0
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
       '@effect/rpc':
-        specifier: 0.76.0
+        specifier: ^0.76.0
         version: 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       '@effect/sql':
-        specifier: 0.52.0
+        specifier: ^0.52.0
         version: 0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       '@effect/sql-pg':
-        specifier: 0.53.0
+        specifier: ^0.53.0
         version: 0.53.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
       canonicalize:
         specifier: 3.0.0
         version: 3.0.0
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       http-message-signatures:
         specifier: 1.0.6
@@ -498,7 +498,7 @@ importers:
         version: 2.0.3
     devDependencies:
       '@effect/vitest':
-        specifier: 0.30.0
+        specifier: ^0.30.0
         version: 0.30.0(effect@3.22.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
       '@electric-sql/pglite':
         specifier: 0.4.4
@@ -528,13 +528,13 @@ importers:
   v2/router:
     dependencies:
       '@effect/platform':
-        specifier: 0.97.0
+        specifier: ^0.97.0
         version: 0.97.0(effect@3.22.0)
       '@effect/platform-node':
-        specifier: 0.108.0
+        specifier: ^0.108.0
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
       '@effect/rpc':
-        specifier: 0.76.0
+        specifier: ^0.76.0
         version: 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       '@moltzap/v2-identity':
         specifier: workspace:*
@@ -543,14 +543,14 @@ importers:
         specifier: 3.0.0
         version: 3.0.0
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       jose:
         specifier: 6.2.5
         version: 6.2.5
     devDependencies:
       '@effect/vitest':
-        specifier: 0.30.0
+        specifier: ^0.30.0
         version: 0.30.0(effect@3.22.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
       '@typescript/native':
         specifier: npm:typescript@^7.0.2
