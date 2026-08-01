@@ -6,6 +6,7 @@ import {
 import {
   createMcpHandler,
   McpServer,
+  type Implementation,
   type McpHttpHandler,
 } from "@modelcontextprotocol/server";
 import {
@@ -14,6 +15,10 @@ import {
   type Server as NodeServer,
 } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
+import { agentId } from "@moltzap/protocol/testing";
+import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
+import { localDaemonCommands } from "./local-daemon-rpc.js";
+import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
 import { makeHarnessMcpRequestListener } from "./harness-mcp-server.js";
 
 const LOCALHOST = "127.0.0.1";
@@ -25,6 +30,10 @@ const POST_METHOD = "POST";
 const FORBIDDEN_STATUS = 403;
 const NOT_FOUND_STATUS = 404;
 const METHOD_NOT_ALLOWED_STATUS = 405;
+const SERVER_IMPLEMENTATION = {
+  name: "harness-boundary-test",
+  version: "1.0.0",
+} satisfies Implementation;
 
 const openServers = new Set<NodeServer>();
 const openHandlers = new Set<McpHttpHandler>();
@@ -60,6 +69,19 @@ const listen = async (server: NodeServer) => {
   return address.port;
 };
 
+const makeServerWithHandlers = async (
+  registration: McpHttpHandler,
+  harness: McpHttpHandler,
+) => {
+  openHandlers.add(registration);
+  openHandlers.add(harness);
+  const server = createServer(
+    makeHarnessMcpRequestListener(registration, harness),
+  );
+  const port = await listen(server);
+  return `http://${LOCALHOST}:${port}`;
+};
+
 const makeServer = async (
   onRegistrationCreate?: () => void,
   onHarnessCreate?: () => void,
@@ -68,11 +90,7 @@ const makeServer = async (
   const harnessCreate = onHarnessCreate ?? noOp;
   const registration = makeHandler("registration-test", registrationCreate);
   const harness = makeHandler("harness-test", harnessCreate);
-  const server = createServer(
-    makeHarnessMcpRequestListener(registration, harness),
-  );
-  const port = await listen(server);
-  return `http://${LOCALHOST}:${port}`;
+  return await makeServerWithHandlers(registration, harness);
 };
 
 const connectModernClient = async (url: URL) => {
@@ -191,6 +209,50 @@ const appliesLocalhostGuards = async () => {
   expect(localhostOrigin.status).toBe(METHOD_NOT_ALLOWED_STATUS);
 };
 
+const exposesOnlyExistingStatusBehavior = async () => {
+  const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
+  const localHandlers = makeLocalDaemonHandlers({
+    ownAgentId,
+    connected: true,
+    conversationCount: () => 3,
+    call: () => {
+      throw new Error("status must not call an agent RPC");
+    },
+    handleHistoryRequest: () => {
+      throw new Error("status must not read local history");
+    },
+  });
+  const handlers = makeHarnessMcpHttpHandlers({
+    implementation: SERVER_IMPLEMENTATION,
+    status: localHandlers[localDaemonCommands.status],
+  });
+  const baseUrl = await makeServerWithHandlers(
+    handlers.registration,
+    handlers.active,
+  );
+  const registrationClient = await connectModernClient(
+    new URL(REGISTER_MCP_PATH, baseUrl),
+  );
+  const harnessClient = await connectModernClient(
+    new URL(HARNESS_MCP_PATH, baseUrl),
+  );
+
+  expect((await registrationClient.listTools()).tools).toEqual([]);
+  expect(
+    (await harnessClient.listTools()).tools.map((tool) => tool.name),
+  ).toEqual(["status"]);
+
+  const result = await harnessClient.callTool({
+    name: "status",
+    arguments: {},
+  });
+  const expected = { agentId: ownAgentId, connected: true, conversations: 3 };
+  expect(result.structuredContent).toEqual(expected);
+  expect(result.content).toEqual([
+    { type: "text", text: JSON.stringify(expected) },
+  ]);
+};
+
 // @agent-code-guard/regression-only: this finite matrix pins the two HTTP routes and the official SDK's interoperability and guard behavior.
 describe("makeHarnessMcpRequestListener", () => {
   it("serves modern discovery on both MCP paths", servesModernDiscovery);
@@ -202,6 +264,10 @@ describe("makeHarnessMcpRequestListener", () => {
   it(
     "applies localhost Host and Origin guards before routing",
     appliesLocalhostGuards,
+  );
+  it(
+    "serves only the existing status behavior through the active catalog",
+    exposesOnlyExistingStatusBehavior,
   );
 });
 
