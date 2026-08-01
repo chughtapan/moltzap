@@ -106,7 +106,7 @@
     "@effect/sql": "0.52.0",
     "@effect/sql-pg": "0.53.0",
     "canonicalize": "3.0.0",
-    "effect": "3.22.0",
+    "effect": "^3.22.0",
     "http-message-signatures": "1.0.6",
     "jose": "6.2.5",
     "structured-headers": "2.0.3"

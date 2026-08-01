@@ -85,7 +85,7 @@
     "@effect/rpc": "0.76.0",
     "@effect/typeclass": "0.41.0",
     "@moltzap/protocol": "workspace:*",
-    "effect": "3.22.0"
+    "effect": "^3.22.0"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",

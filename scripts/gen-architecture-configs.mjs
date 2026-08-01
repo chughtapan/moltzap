@@ -124,6 +124,14 @@ const packageDefinitions = {
   evals: {
     beforeShared: {
       maxPublicExports: 20,
+      folderChildCountOverrides: [
+        {
+          folder: ".",
+          maxChildren: 13,
+          reason:
+            "The evaluation application keeps its layered pipeline flat at the source root; each stage is one module named for the artifact it owns",
+        },
+      ],
       facadeFiles: [
         {
           file: "src/cases.ts",
@@ -144,6 +152,36 @@ const packageDefinitions = {
           file: "src/grading.ts",
           reason:
             "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary",
+        },
+        {
+          file: "src/transcript.ts",
+          reason:
+            "Normalized transcript vocabulary and evidence-ID invariants every grading stage binds to",
+        },
+        {
+          file: "src/judge.ts",
+          reason:
+            "Provider-neutral semantic judge contract shared by grading, calibration, and the OpenAI judge layer",
+        },
+        {
+          file: "src/assessment.ts",
+          reason:
+            "Assessment provenance and criterion decisions shared by case grading and calibration binding",
+        },
+        {
+          file: "src/phoenix.ts",
+          reason:
+            "Completed-report publication boundary the CLI composes; the Phoenix protocol modules stay behind it",
+        },
+        {
+          file: "src/phoenix-publication.ts",
+          reason:
+            "Publication failure vocabulary and canonical JSON comparison every Phoenix protocol module binds to",
+        },
+        {
+          file: "src/phoenix-experiment.ts",
+          reason:
+            "Per-condition experiment identity and reconciliation shared by dataset versioning and report publication",
         },
         {
           file: "src/peer.ts",

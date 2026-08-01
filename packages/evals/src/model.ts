@@ -1,4 +1,5 @@
 /** @file Shared schema-backed identities and report vocabulary for evaluations. */
+// safer-arch-ignore shared-kernel-cohesion: identity and vocabulary schemas are a foundation every evaluation module binds to, so disjoint consumer sets are expected rather than a sign of an accidental grab-bag.
 
 import { Schema } from "effect";
 
@@ -46,6 +47,9 @@ export const calibrationFixtureId = Schema.NonEmptyString.pipe(
   Schema.pattern(/^calibration-[a-z0-9][a-z0-9-]*\/v[1-9]\d*$/u),
   Schema.brand("CalibrationFixtureId"),
 );
+
+/** Schema for whole counts and millisecond deadlines, which are never zero. */
+export const positiveInteger = Schema.Int.pipe(Schema.positive());
 
 /** Schema for the complete per-criterion verdict vocabulary. */
 // eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- judge and report schemas compose this complete verdict vocabulary.

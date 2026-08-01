@@ -43,10 +43,21 @@ testimony and the matching router commit identify the target.
 | `src/principal.ts` | Evaluation-local adapters over native runtime gateways |
 | `src/events.ts` | Complete evaluation event catalog and ledger projection |
 | `src/execution.ts` | Mixed-roster acquisition and bounded case execution |
-| `src/grading.ts` | Transcript validation, deterministic checks, semantic judging, and calibration |
+| `src/grading.ts` | Curated boundary re-exporting the transcript, judge, assessment, and calibration modules |
+| `src/transcript.ts` | Normalized transcripts, ledger projection, and evidence-ID invariants |
+| `src/judge.ts` | Provider-neutral judge bundle, closed judge failures, and result validation |
+| `src/assessment.ts` | Criterion decisions, assessment provenance, and one-semantic-call grading |
+| `src/calibration.ts` | The fixed calibration corpus and its behavioral run |
+| `src/judge-openai.ts` | Production OpenAI judge layer, prompt, and typed failure mapping |
 | `src/sweep.ts` | Immutable plans, terminal attempts, reports, and state transitions |
 | `src/results.ts` | Report-local Effect SQL persistence and transactional resume |
-| `src/phoenix.ts` | Idempotent materialization into externally managed Phoenix |
+| `src/phoenix.ts` | Completed-report publication boundary composed by the CLI |
+| `src/phoenix-client.ts` | The one Phoenix SDK boundary: typed request failures and Promise adaptation |
+| `src/phoenix-publication.ts` | Publication failure vocabulary and canonical JSON comparison |
+| `src/phoenix-dataset.ts` | The stable dataset catalog and its remote reconciliation |
+| `src/phoenix-experiment.ts` | Per-condition experiment identity, provenance, and reconciliation |
+| `src/phoenix-run.ts` | One idempotent experiment run per terminal local attempt |
+| `src/phoenix-evaluation.ts` | Per-criterion assessment rows materialized on each run |
 | `src/cli.ts` | Operator configuration and commands at the application edge |
 
 This package is a private executable application rather than a customer
