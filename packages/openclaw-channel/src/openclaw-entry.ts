@@ -42,22 +42,21 @@ import {
   writeOpenClawContextLog,
   type OpenClawContextLogInput,
 } from "./context-log.js";
-import { agentsList } from "@moltzap/protocol/identity";
+import { agentName, agentsList } from "@moltzap/protocol/identity";
 import {
   type ConversationId,
   conversationId,
   conversationList,
 } from "@moltzap/protocol/conversation";
 import type { ResultOf } from "@moltzap/protocol/rpc";
-import { HookBlockedError, type TaskId, taskId } from "@moltzap/protocol/task";
+import { HookBlockedError } from "@moltzap/protocol/message";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 
 const CHANNEL_ID = "moltzap";
 const TARGET_PREFIX_AGENT = "agent:";
 const TARGET_PREFIX_CONVERSATION = "conv:";
-const TARGET_PREFIX_TASK = "task:";
 const TARGET_HINT =
-  'Use "agent:<name>" for DMs or "conv:<conversationId>" for existing conversations';
+  'Use an agent name or "agent:<name>" for DMs or "conv:<conversationId>" for conversations';
 const INBOUND_LOG_PREVIEW_CHARS = 80;
 const BODY_FOR_AGENT_LOG_PREVIEW_CHARS = 500;
 const OUTBOUND_LOG_PREVIEW_CHARS = 80;
@@ -67,13 +66,55 @@ class DispatchInboundError extends Data.TaggedError("DispatchInboundError")<{
   readonly message: string;
 }> {}
 
-const MOLTZAP_TARGET_RE = /^(agent:.+|conv:[^:]+|task:[^:]+:.+)$/;
+const isAgentName = Schema.is(agentName);
 const openClawContextLogDir = Config.option(
   Config.string("MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"),
 );
 
+interface ResolvedMoltZapTarget {
+  readonly to: string;
+  readonly kind: "user" | "group";
+  readonly display: string;
+}
+
+function normalizeConversationTarget(
+  target: string,
+): ResolvedMoltZapTarget | null | undefined {
+  if (!target.startsWith(TARGET_PREFIX_CONVERSATION)) {
+    return undefined;
+  }
+  const id = target.slice(TARGET_PREFIX_CONVERSATION.length);
+  return id.length === 0 || id.includes(":")
+    ? null
+    : { to: target, kind: "group", display: id };
+}
+
+function normalizeAgentTarget(target: string): ResolvedMoltZapTarget | null {
+  let name: string | null;
+  if (target.startsWith(TARGET_PREFIX_AGENT)) {
+    name = target.slice(TARGET_PREFIX_AGENT.length);
+  } else if (target.includes(":")) {
+    name = null;
+  } else {
+    name = target;
+  }
+  return name === null || !isAgentName(name)
+    ? null
+    : { to: `${TARGET_PREFIX_AGENT}${name}`, kind: "user", display: name };
+}
+
+function normalizeMoltZapTarget(raw: string): ResolvedMoltZapTarget | null {
+  const target = raw.trim();
+  const conversation = normalizeConversationTarget(target);
+  if (conversation !== undefined) {
+    return conversation;
+  }
+  return normalizeAgentTarget(target);
+}
+
 function isMoltZapTarget(raw: string): boolean {
-  return MOLTZAP_TARGET_RE.test(raw);
+  const target = raw.trim();
+  return normalizeMoltZapTarget(target)?.to === target;
 }
 
 function readOpenClawContextLogDir(): string | undefined {
@@ -406,7 +447,6 @@ function handleReplyFailure(
 
 function sendDeliveredReply(params: {
   readonly core: MoltZapChannelCore;
-  readonly taskId?: TaskId;
   readonly conversationId: ConversationId;
   readonly text: string;
   readonly leaseId?: LeaseId;
@@ -415,12 +455,11 @@ function sendDeliveredReply(params: {
   readonly guard: LeaseGuard;
 }): Effect.Effect<boolean> {
   return params.core
-    .sendReply(params.conversationId, params.text, {
-      ...(params.leaseId === undefined
-        ? {}
-        : { dispatchLeaseId: params.leaseId }),
-      ...(params.taskId === undefined ? {} : { taskId: params.taskId }),
-    })
+    .sendReply(
+      params.conversationId,
+      params.text,
+      params.leaseId === undefined ? {} : { dispatchLeaseId: params.leaseId },
+    )
     .pipe(
       catchLeaseInvalid(
         params.leaseId !== undefined ? { leaseId: params.leaseId } : undefined,
@@ -503,9 +542,6 @@ function createLeaseConsumingDeliver(params: {
         }
         return yield* sendDeliveredReply({
           core: params.core,
-          ...(params.enriched.taskId === undefined
-            ? {}
-            : { taskId: params.enriched.taskId }),
           conversationId: params.enriched.conversationId,
           text,
           leaseId: params.enriched.dispatchLeaseId,
@@ -519,16 +555,13 @@ function createLeaseConsumingDeliver(params: {
 }
 
 /**
- * Render the reply-to target for an inbound message. A message carrying a
- * task label round-trips through the `task:` form so the reply keeps the
- * sender's grouping; everything else addresses the conversation directly.
+ * Render the reply-to target for an inbound message. The conversation is the
+ * whole address.
  * @param enriched Value supplied to the operation.
  * @returns The originating target string.
  */
 function originatingTarget(enriched: EnrichedInboundMessage): string {
-  return enriched.taskId === undefined
-    ? `${TARGET_PREFIX_CONVERSATION}${enriched.conversationId}`
-    : `${TARGET_PREFIX_TASK}${enriched.taskId}:${enriched.conversationId}`;
+  return `${TARGET_PREFIX_CONVERSATION}${enriched.conversationId}`;
 }
 
 function buildInboundDispatchContext(
@@ -629,17 +662,12 @@ function createMessagingSection() {
       },
       hint: TARGET_HINT,
       resolveTarget(params: OpenClawResolveTargetParams) {
-        const { normalized } = params;
-        if (!isMoltZapTarget(normalized)) {
+        const target = normalizeMoltZapTarget(params.normalized);
+        if (target === null) {
           return Promise.resolve(null);
         }
-        const kind = normalized.startsWith(TARGET_PREFIX_AGENT)
-          ? ("user" as const)
-          : ("group" as const);
         return Promise.resolve({
-          to: normalized,
-          kind,
-          display: normalized.split(":").slice(1).join(":"),
+          ...target,
           source: "normalized",
         });
       },
@@ -1167,71 +1195,45 @@ function resolveOutboundTarget(toInput?: string) {
       error: new Error("MoltZap: target is required"),
     });
   }
-  if (to.includes(":") && !isMoltZapTarget(to)) {
+  const target = normalizeMoltZapTarget(to);
+  if (target === null) {
     return new OpenClawTargetRejected({
       error: new Error(
-        `MoltZap: unsupported target format "${to}" — use agent:<name> or conv:<conversationId>`,
+        `MoltZap: unsupported target "${to}" — ${TARGET_HINT.toLowerCase()}`,
       ),
     });
   }
-  return new OpenClawTargetResolved({ to });
+  return new OpenClawTargetResolved({ to: target.to });
 }
 
 class MoltZapTargetMalformedError extends Data.TaggedError(
   "MoltZapTargetMalformedError",
 )<{ readonly target: string }> {
   override get message(): string {
-    return `MoltZap: invalid target "${this.target}" — expected conv:<conversationId>`;
+    return `MoltZap: invalid target "${this.target}" — ${TARGET_HINT.toLowerCase()}`;
   }
 }
 
 interface ConversationTarget {
   readonly conversationId: ConversationId;
-  readonly taskId?: TaskId;
 }
 
 /**
- * Decode an outbound target into the conversation to send to, plus the
- * optional grouping label a `task:` target carries through untouched.
+ * Decode an outbound target into the conversation to send to.
  * @param to Value supplied to the operation.
  * @returns The parsed conversation target.
  */
 function parseConversationTarget(
   to: string,
 ): Effect.Effect<ConversationTarget, MoltZapTargetMalformedError> {
-  const malformed = new MoltZapTargetMalformedError({ target: to });
-  if (!to.startsWith(TARGET_PREFIX_TASK)) {
-    const body = to.startsWith(TARGET_PREFIX_CONVERSATION)
-      ? to.slice(TARGET_PREFIX_CONVERSATION.length)
-      : to;
-    return Effect.try({
-      try: () => ({
-        conversationId: Schema.decodeUnknownSync(conversationId)(body),
-      }),
-      catch: () => malformed,
-    });
-  }
-  const body = to.slice(TARGET_PREFIX_TASK.length);
-  const sep = body.indexOf(":");
-  if (sep <= 0 || sep === body.length - 1) {
-    return Effect.fail(malformed);
-  }
-  return Effect.gen(function* () {
-    const parsedTaskId = yield* Schema.decodeUnknown(taskId)(
-      body.slice(0, sep),
-    ).pipe(
-      Effect.catchTag("ParseError", () =>
-        Effect.fail(new MoltZapTargetMalformedError({ target: to })),
-      ),
-    );
-    const parsedConversationId = yield* Schema.decodeUnknown(conversationId)(
-      body.slice(sep + 1),
-    ).pipe(
-      Effect.catchTag("ParseError", () =>
-        Effect.fail(new MoltZapTargetMalformedError({ target: to })),
-      ),
-    );
-    return { taskId: parsedTaskId, conversationId: parsedConversationId };
+  const body = to.startsWith(TARGET_PREFIX_CONVERSATION)
+    ? to.slice(TARGET_PREFIX_CONVERSATION.length)
+    : to;
+  return Effect.try({
+    try: () => ({
+      conversationId: Schema.decodeUnknownSync(conversationId)(body),
+    }),
+    catch: () => new MoltZapTargetMalformedError({ target: to }),
   });
 }
 
@@ -1244,21 +1246,20 @@ function dispatchOutbound(
   },
 ) {
   return Effect.gen(function* () {
-    if (ctx.to.startsWith(TARGET_PREFIX_AGENT)) {
+    const target = normalizeMoltZapTarget(ctx.to);
+    if (target === null) {
+      return yield* Effect.fail(
+        new MoltZapTargetMalformedError({ target: ctx.to }),
+      );
+    }
+    if (target.kind === "user") {
       if (!service.sendToAgent) {
         return yield* new MoltZapAgentTargetUnsupportedError({ accountId });
       }
-      return yield* service.sendToAgent(
-        ctx.to.slice(TARGET_PREFIX_AGENT.length),
-        ctx.text,
-      );
+      return yield* service.sendToAgent(target.display, ctx.text);
     }
-    const parsed = yield* parseConversationTarget(ctx.to);
-    return yield* service.send(
-      parsed.conversationId,
-      ctx.text,
-      parsed.taskId === undefined ? undefined : { taskId: parsed.taskId },
-    );
+    const parsed = yield* parseConversationTarget(target.to);
+    return yield* service.send(parsed.conversationId, ctx.text);
   });
 }
 
@@ -1334,11 +1335,9 @@ function sendTextEffect(
  * callback (`MoltzapChannelPluginDeps.onLeaseConsumed`) rather than
  * a throw.
  *
- * `resolveTarget` accepts `agent:&lt;name>` (DM with named agent) and
- * `conv:&lt;conversationId>` (existing conversation).
- * `task:&lt;taskId>:&lt;conversationId>` also resolves and carries the task
- * label onto the sent message. A target containing `:` in any other shape
- * is rejected.
+ * `resolveTarget` accepts a plain agent name or `agent:&lt;name>` for a DM and
+ * `conv:&lt;conversationId>` for an existing conversation. Plain names normalize
+ * to `agent:&lt;name>`. Other colon-prefixed shapes are rejected.
  * @param deps Value supplied to the operation.
  * @returns The created moltzap channel plugin.
  */

@@ -62,6 +62,20 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
 
 Provides the agent key string arbitrary runtime value.
 
+### [`agentName`](./test-fixtures.ts#L103)
+
+_Function_
+
+```ts
+export const agentName = (
+  value: string,
+): Schema.Schema.Type<typeof agentNameSchema>
+```
+
+Validates and decodes agent name values.
+
+**Returns:** The agent name result.
+
 ### [`AgentRegistrationError`](./test-fixtures.ts#L216)
 
 _Class_
@@ -101,7 +115,7 @@ export const connectionId = decodeConnectionId
 
 Provides the connection id runtime value.
 
-### [`conversationId`](./test-fixtures.ts#L103)
+### [`conversationId`](./test-fixtures.ts#L112)
 
 _Function_
 
@@ -159,7 +173,7 @@ Creates test app client.
 
 **Returns:** The created test app client.
 
-### [`messageId`](./test-fixtures.ts#L112)
+### [`messageId`](./test-fixtures.ts#L121)
 
 _Function_
 
@@ -283,20 +297,6 @@ export class RpcTimeoutError extends Data.TaggedError(
 ```
 
 Wall-clock deadline for a request expired before a response.
-
-### [`taskId`](./test-fixtures.ts#L121)
-
-_Function_
-
-```ts
-export const taskId = (
-  value: string,
-): Schema.Schema.Type<typeof taskIdSchema>
-```
-
-Validates and decodes task id values.
-
-**Returns:** The task id result.
 
 ### [`TestAgent`](./test-fixtures.ts#L192)
 

@@ -1,34 +1,169 @@
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CommandExecutor } from "@effect/platform";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
-import { Cause, Deferred, Duration, Effect, Either, Exit, Fiber } from "effect";
+import {
+  Cause,
+  Deferred,
+  Duration,
+  Effect,
+  Either,
+  Exit,
+  Fiber,
+  Redacted,
+} from "effect";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
+  agentName,
   agentKeyString,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
+import { OpenClawSchema } from "openclaw/plugin-sdk/config-schema";
+import { isToolAllowed } from "openclaw/plugin-sdk/sandbox";
 import { describe, expect, it } from "vitest";
 import {
   acquireOpenClawProcess,
+  buildOpenClawConfig,
+  buildOpenClawProcessPlan,
   leaseOpenClawPort,
   type OpenClawProcessInput,
+  type OpenClawSandboxConfig,
+  type OpenClawToolsConfig,
 } from "./process.js";
 
 const EPHEMERAL_PORT = 0;
 const PORT_LEASE_CONCURRENCY = 64;
 const ACQUISITION_INTERRUPT_TIMEOUT_MS = 1_000;
+const PROCESS_PORT = 44_321;
+const STATE_DIR = "/run/moltzap/openclaw/alice";
+const OPERATOR_HOME = "/home/operator";
 const CHANNEL_DIST_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../../../../openclaw-channel/dist",
 );
 const PROCESS_INPUT: OpenClawProcessInput = {
-  agentName: "alice",
+  agentName: agentName("alice"),
   agentId: agentId("00000000-0000-4000-8000-000000000001"),
   apiKey: redactedAgentKey(agentKeyString(97)),
   serverUrl: serverBaseUrl("http://127.0.0.1:43123"),
 };
+const FAIL_CLOSED_TOOLS = {
+  deny: ["*"],
+  elevated: { enabled: false },
+  exec: { mode: "deny" },
+} satisfies OpenClawToolsConfig;
+const MESSAGE_ONLY_TOOLS = {
+  allow: ["message"],
+  sandbox: {
+    tools: {
+      allow: ["message"],
+    },
+  },
+  elevated: { enabled: false },
+  exec: { mode: "deny" },
+} satisfies OpenClawToolsConfig;
+const FAIL_CLOSED_SANDBOX = {
+  mode: "all",
+  backend: "docker",
+  scope: "session",
+  workspaceAccess: "none",
+  docker: { network: "none" },
+} satisfies OpenClawSandboxConfig;
+
+function rendersFailClosedPolicy(): void {
+  const config = buildOpenClawConfig(
+    {
+      agentName: PROCESS_INPUT.agentName,
+      installMode: "workspace",
+      tools: FAIL_CLOSED_TOOLS,
+      sandbox: FAIL_CLOSED_SANDBOX,
+      gatewayToken: Redacted.make("test-gateway-token"),
+    },
+    join(STATE_DIR, "workspace"),
+  );
+
+  expect(OpenClawSchema.safeParse(config).success).toBe(true);
+  expect(config.tools).toEqual(FAIL_CLOSED_TOOLS);
+  expect(config.agents?.defaults?.sandbox).toEqual(FAIL_CLOSED_SANDBOX);
+  for (const tool of [
+    "exec",
+    "read",
+    "web_fetch",
+    "session_status",
+    "moltzap_custom",
+  ]) {
+    expect(isToolAllowed(config.tools ?? {}, tool)).toBe(false);
+  }
+}
+
+function preservesOmittedPolicy(): void {
+  const config = buildOpenClawConfig(
+    {
+      agentName: PROCESS_INPUT.agentName,
+      installMode: "workspace",
+      gatewayToken: Redacted.make("test-gateway-token"),
+    },
+    join(STATE_DIR, "workspace"),
+  );
+
+  expect(config).not.toHaveProperty("tools");
+  expect(config.agents?.defaults).not.toHaveProperty("sandbox");
+  expect(config.agents?.list).toEqual([
+    { id: PROCESS_INPUT.agentName, default: true },
+  ]);
+}
+
+function allowsOnlyNativeMessageTool(): void {
+  const config = buildOpenClawConfig(
+    {
+      agentName: PROCESS_INPUT.agentName,
+      installMode: "workspace",
+      tools: MESSAGE_ONLY_TOOLS,
+      gatewayToken: Redacted.make("test-gateway-token"),
+    },
+    join(STATE_DIR, "workspace"),
+  );
+
+  expect(isToolAllowed(config.tools ?? {}, "message")).toBe(true);
+  expect(isToolAllowed(config.tools?.sandbox?.tools ?? {}, "message")).toBe(
+    true,
+  );
+  for (const tool of ["exec", "read", "web_fetch", "moltzap_custom"]) {
+    expect(isToolAllowed(config.tools ?? {}, tool)).toBe(false);
+  }
+}
+
+function usesIsolatedStateDirectory(): void {
+  const plan = buildOpenClawProcessPlan({
+    openclawBin: "openclaw",
+    port: PROCESS_PORT,
+    stateDir: STATE_DIR,
+    input: PROCESS_INPUT,
+    baseEnvironment: {
+      PATH: "/usr/bin",
+      HOME: OPERATOR_HOME,
+    },
+  });
+
+  expect(plan.cwd).toBe(STATE_DIR);
+  expect(plan.env.HOME).toBe(STATE_DIR);
+  expect(plan.env.HOME).not.toBe(OPERATOR_HOME);
+  expect(plan.env.OPENCLAW_CONFIG_PATH).toBe(join(STATE_DIR, "openclaw.json"));
+}
+
+describe("OpenClaw generated policy", () => {
+  it(
+    "renders a native fail-closed tool and sandbox policy",
+    rendersFailClosedPolicy,
+  );
+  it("allows only the native social message tool", allowsOnlyNativeMessageTool);
+  it("preserves omitted customer policy", preservesOmittedPolicy);
+  it(
+    "uses the isolated state directory as the child HOME",
+    usesIsolatedStateDirectory,
+  );
+});
 
 describe("OpenClaw port claims", () => {
   it(

@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 
 const publicTypePackage = {
   effect: {
@@ -19,10 +20,6 @@ const publicTypePackage = {
     reason:
       "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design",
   },
-  typebox: {
-    package: "@sinclair/typebox",
-    reason: "Schema runtime; types are the contract",
-  },
   protocol: {
     package: "@moltzap/protocol",
     reason: "Intra-monorepo protocol; foundational shared contract",
@@ -31,15 +28,20 @@ const publicTypePackage = {
     package: "@moltzap/client",
     reason: "Intra-monorepo client SDK; channels depend on its public surface",
   },
+  openclaw: {
+    package: "openclaw",
+    reason:
+      "OpenClaw runtime options intentionally accept the runtime's native tools and sandbox policies",
+  },
   simulator: {
     package: "@moltzap/simulator",
     reason:
-      "Simulator contracts, implementations, and executable evaluations share one public package",
+      "The private evaluation application is built directly on the simulator's public contracts",
   },
 };
 
 const publicTypePackages = Object.entries(publicTypePackage)
-  .filter(([name]) => name !== "simulator")
+  .filter(([name]) => name !== "openclaw" && name !== "simulator")
   .map(([, definition]) => definition);
 
 const allowedTestPublicSubpaths = [
@@ -72,7 +74,10 @@ const packageDefinitions = {
     beforeShared: {
       minExportedSiblingModules: 6,
       maxPublicExports: 29,
-      minPublicFacadeModules: 8,
+      // channel-base names the adapter primitives, and BoundedMap is one of
+      // them; the rule counts local re-exports, so owning that module in-package
+      // rather than importing it raises the count without widening the contract.
+      minPublicFacadeModules: 9,
       folderChildCountOverrides: [
         {
           folder: ".",
@@ -118,17 +123,86 @@ const packageDefinitions = {
   },
   evals: {
     beforeShared: {
-      maxPublicExports: 22,
+      maxPublicExports: 20,
+      folderChildCountOverrides: [
+        {
+          folder: ".",
+          maxChildren: 13,
+          reason:
+            "The evaluation application keeps its layered pipeline flat at the source root; each stage is one module named for the artifact it owns",
+        },
+      ],
       facadeFiles: [
         {
-          file: "grading-checks.ts",
+          file: "src/cases.ts",
           reason:
-            "Published check vocabulary a customer grader composes; the grading reference cites each constructor by name",
+            "Code-defined case policies, exact peer rosters, and criteria form the private evaluation application's case boundary",
+        },
+        {
+          file: "src/events.ts",
+          reason:
+            "Closed evaluation event catalog shared by case execution, transcript projection, and the simulator definition",
+        },
+        {
+          file: "src/execution.ts",
+          reason:
+            "Mixed-roster execution and runtime-native condition adapters form the application execution boundary",
+        },
+        {
+          file: "src/grading.ts",
+          reason:
+            "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary",
+        },
+        {
+          file: "src/transcript.ts",
+          reason:
+            "Normalized transcript vocabulary and evidence-ID invariants every grading stage binds to",
+        },
+        {
+          file: "src/judge.ts",
+          reason:
+            "Provider-neutral semantic judge contract shared by grading, calibration, and the OpenAI judge layer",
+        },
+        {
+          file: "src/assessment.ts",
+          reason:
+            "Assessment provenance and criterion decisions shared by case grading and calibration binding",
+        },
+        {
+          file: "src/phoenix.ts",
+          reason:
+            "Completed-report publication boundary the CLI composes; the Phoenix protocol modules stay behind it",
+        },
+        {
+          file: "src/phoenix-publication.ts",
+          reason:
+            "Publication failure vocabulary and canonical JSON comparison every Phoenix protocol module binds to",
+        },
+        {
+          file: "src/phoenix-experiment.ts",
+          reason:
+            "Per-condition experiment identity and reconciliation shared by dataset versioning and report publication",
+        },
+        {
+          file: "src/peer.ts",
+          reason:
+            "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary",
+        },
+        {
+          file: "src/sweep.ts",
+          reason:
+            "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher",
         },
       ],
     },
     afterShared: {
-      publicTypePackages: [...publicTypePackages, publicTypePackage.simulator],
+      publicTypePackages: [
+        publicTypePackage.effect,
+        publicTypePackage.platform,
+        publicTypePackage.protocol,
+        publicTypePackage.simulator,
+      ],
+      allowedTestPublicSubpaths: [],
     },
   },
   "nanoclaw-channel": {
@@ -156,7 +230,7 @@ const packageDefinitions = {
     config: {
       minExportedSiblingModules: 10,
       maxSubpathExports: 11,
-      maxPublicExports: 42,
+      maxPublicExports: 43,
       maxPublicReexports: 13,
       minPublicFacadeModules: 14,
       folderChildCountOverrides: [
@@ -189,16 +263,6 @@ const packageDefinitions = {
             "Agent record schemas and validation form the identity descriptor boundary consumed by the agent-list RPC while identity/agents/index.ts curates the published surface",
         },
         {
-          file: "task/tasks.ts",
-          reason:
-            "Task value schemas, errors, RPC descriptors, and notification catalogs form one protocol-domain boundary while task/index.ts curates the published surface",
-        },
-        {
-          file: "task/requirements/task-read-access.ts",
-          reason:
-            "TaskReadAccess is the task-domain capability boundary consumed by descriptors and implemented by the server",
-        },
-        {
           file: "transport/definition.ts",
           reason:
             "Descriptor definitions are the stable transport boundary used by every higher protocol domain",
@@ -213,7 +277,6 @@ const packageDefinitions = {
           reason:
             "RPC definitions are the protocol's public contract; Rpc/RpcGroup types cross the boundary by design",
         },
-        publicTypePackage.typebox,
       ],
       allowedTestPublicSubpaths: [
         {
@@ -224,39 +287,40 @@ const packageDefinitions = {
       ],
       layers: [
         {
-          name: "engine",
-          folders: ["engine"],
+          name: "socket",
+          folders: ["socket"],
           reason:
-            "RpcServer engine + descriptor-aggregate; couples to the full rpc-registry catalog + task-layer capability tags, so it sits above the domains",
+            "Composition layer: the clients, the server, and the catalog that derives its RPC groups from every domain below it",
         },
         {
-          name: "app",
-          folders: ["app"],
+          name: "message",
+          folders: ["message"],
           reason:
-            "Composition layer: app RPCs composed over task, network, identity, transport descriptors",
+            "Message domain: payloads, send and list descriptors, dispatch admission; addresses conversations, so it sits above them",
         },
         {
-          name: "task",
-          folders: ["task"],
+          name: "conversation",
+          folders: ["conversation"],
           reason:
-            "Task domain: conversations, messages, dispatch, TM authority",
+            "Conversation domain: addressing, participant membership, and the identifiers the message domain references",
         },
         {
           name: "network",
           folders: ["network"],
           reason:
-            "Network domain: ping, presence, connection liveness, actor-model types",
+            "Network domain: connect descriptors, protocol version, and the server address",
         },
         {
           name: "identity",
           folders: ["identity"],
-          reason: "Identity domain: agents, users, sessions, contact policy",
+          reason:
+            "Identity domain: agents, apps, users, and the principal requirements every domain above composes",
         },
         {
           name: "transport",
           folders: ["transport"],
           reason:
-            "Wire layer: Ajv frames, RpcDefinition primitives, dispatch; no domain semantics",
+            "Wire layer: descriptor primitives, strict decode, mux routing, tagged errors; no domain semantics",
         },
       ],
     },
@@ -279,6 +343,11 @@ const packageDefinitions = {
           file: "ledger.ts",
           reason:
             "Published ledger contract for records, storage, live runs, and offline inspection",
+        },
+        {
+          file: "runtime.ts",
+          reason:
+            "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations",
         },
         {
           file: "events/catalog.ts",
@@ -408,6 +477,12 @@ const packageDefinitions = {
       publicTypePackages: [
         publicTypePackage.effect,
         publicTypePackage.platform,
+        {
+          ...publicTypePackage.rpc,
+          reason:
+            "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client",
+        },
+        publicTypePackage.openclaw,
         publicTypePackage.protocol,
       ],
       allowedTestPublicSubpaths: [],
@@ -453,11 +528,6 @@ const packageDefinitions = {
           file: "network/layer.ts",
           reason:
             "The network layer module is the composition facade for its Effect service tags and live implementations",
-        },
-        {
-          file: "task/layer.ts",
-          reason:
-            "The task layer module is the composition facade for its Effect service tags and live implementations",
         },
         {
           file: "dispatch/lease-registry.ts",
@@ -619,12 +689,59 @@ const architectureConfigDefinitions = [
   },
 ];
 
-for (const { packageRoot, definition } of architectureConfigDefinitions) {
-  const config = definition.config ?? {
-    ...definition.beforeShared,
-    ...sharedConfig,
-    ...definition.afterShared,
-  };
+// Nothing in the analyzer complains about an allowance whose target does not
+// exist, so a renamed or deleted path keeps passing while guarding nothing.
+// These two helpers mirror how the analyzer resolves each key: a facade file is
+// package-root relative and gains an implicit `src/` when it lacks one, while a
+// folder key is relative to `src/`, with `.` naming `src/` itself.
+const facadePath = (file) => {
+  const trimmed = file.replace(/^\.\//, "");
+  return trimmed.startsWith("src/") ? trimmed : `src/${trimmed}`;
+};
+
+const folderPath = (folder) => (folder === "." ? "src" : `src/${folder}`);
+
+function pathClaims(config) {
+  return [
+    ...(config.facadeFiles ?? []).map((entry) => facadePath(entry.file)),
+    ...(config.folderChildCountOverrides ?? []).map((entry) =>
+      folderPath(entry.folder),
+    ),
+    ...(config.layers ?? []).flatMap((layer) => layer.folders.map(folderPath)),
+  ];
+}
+
+const resolved = architectureConfigDefinitions.map(
+  ({ packageRoot, definition }) => ({
+    packageRoot,
+    config: definition.config ?? {
+      ...definition.beforeShared,
+      ...sharedConfig,
+      ...definition.afterShared,
+    },
+  }),
+);
+
+const danglingClaims = resolved.flatMap(({ packageRoot, config }) =>
+  pathClaims(config)
+    .map((claim) => `${packageRoot}/${claim}`)
+    .filter((claim) => !existsSync(new URL(claim, workspaceRoot))),
+);
+
+if (danglingClaims.length > 0) {
+  throw new Error(
+    [
+      "Architecture config names paths that do not exist:",
+      ...danglingClaims.map((claim) => `  ${claim}`),
+      "",
+      "Every facadeFiles.file, folderChildCountOverrides.folder, and",
+      "layers[].folders entry must name a real path. Fix the entry in",
+      "scripts/gen-architecture-configs.mjs or restore the path it claims.",
+    ].join("\n"),
+  );
+}
+
+for (const { packageRoot, config } of resolved) {
   const configUrl = new URL(
     `${packageRoot}/safer-architecture.config.json`,
     workspaceRoot,

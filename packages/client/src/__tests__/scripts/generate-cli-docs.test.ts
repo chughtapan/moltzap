@@ -9,9 +9,9 @@ const SAMPLE_VERSION = "2026.524.1";
 const SAMPLE_VERSION_SRC = `export const PROTOCOL_VERSION = "${SAMPLE_VERSION}";`;
 const VERSION_IDENTIFIER = "PROTOCOL_VERSION";
 const RAW_HELP_PROSE =
-  "Use <name> or task:<taskId>:<conversationId>; keep `profiles.<name>` literal.";
+  "Use <name> or conv:<conversationId>; keep `profiles.<name>` literal.";
 const ESCAPED_HELP_PROSE =
-  "Use &lt;name&gt; or task:&lt;taskId&gt;:&lt;conversationId&gt;; keep `profiles.<name>` literal.";
+  "Use &lt;name&gt; or conv:&lt;conversationId&gt;; keep `profiles.<name>` literal.";
 
 describe("escapeMdxProse", () => {
   it("escapes placeholders in prose while preserving inline code", () => {

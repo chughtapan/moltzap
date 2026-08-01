@@ -16,6 +16,7 @@ import * as toxics from "./toxics/index.js";
 export {
   userId,
   agentId,
+  agentName,
   appId,
   connectionId,
   conversationId,
@@ -26,7 +27,6 @@ export {
   agentKeyStringArbitrary,
   redactedAgentKey,
   redactedAppKey,
-  taskId,
 } from "./test-fixtures.js";
 
 // Effect RPC owns frame encoding/decoding. The testing surface exposes

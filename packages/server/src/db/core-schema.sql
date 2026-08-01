@@ -73,6 +73,9 @@ CREATE TABLE conversations (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_conversations_app ON conversations(app_id);
+-- The list surface sorts and pages on (updated_at, id).
+CREATE INDEX idx_conversations_listing
+  ON conversations(updated_at DESC, id DESC);
 CREATE TRIGGER conversations_updated_at BEFORE UPDATE ON conversations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
@@ -97,11 +100,6 @@ CREATE TABLE messages (
   parts_tag BYTEA NOT NULL,
   dek_version INT NOT NULL DEFAULT 1,
   kek_version INT NOT NULL,
-  -- Opaque endpoint-supplied label, stamped from the sender's own params and
-  -- echoed back verbatim. The server never reads, joins, or validates it:
-  -- grouping messages this way is an endpoint convention with no network
-  -- representation.
-  task_id UUID,
   is_deleted BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(conversation_id, seq)

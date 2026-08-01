@@ -120,42 +120,6 @@ export function makeExactEnvironmentCommand(
   );
 }
 
-function execEffectWith<E>(
-  makeError: ErrorFactory<E>,
-  commandText: string,
-  options: CommandRunOptions,
-): Effect.Effect<void, E, CommandExecutor> {
-  const { cwd, timeout } = options;
-  const command =
-    cwd === undefined
-      ? makeShellCommand(commandText)
-      : makeShellCommandInDirectory(commandText, cwd);
-  const exitCode = Command.exitCode(command).pipe(
-    Effect.mapError((cause) =>
-      makeError(`command failed: ${commandText}`, cause),
-    ),
-  );
-  const boundedExitCode =
-    timeout === undefined
-      ? exitCode
-      : exitCode.pipe(
-          Effect.timeoutFail({
-            duration: Duration.millis(timeout),
-            onTimeout: () =>
-              makeError(`command timed out after ${timeout}ms: ${commandText}`),
-          }),
-        );
-  return boundedExitCode.pipe(
-    Effect.flatMap((code) =>
-      Number(code) === 0
-        ? Effect.void
-        : Effect.fail(
-            makeError(`command failed with exit code ${code}: ${commandText}`),
-          ),
-    ),
-  );
-}
-
 function makeShellCommand(commandText: string) {
   return Command.make(commandText).pipe(Command.runInShell(true));
 }
@@ -216,17 +180,35 @@ function captureCommandOutput(command: Command.Command) {
   );
 }
 
+/**
+ * How much of each stream a failed command carries into its typed error.
+ * The bound is per stream and keeps the tail, where the first real error
+ * surfaces after a wall of progress output.
+ */
+const COMMAND_DIAGNOSTICS_TAIL_CHARS = 16 * 1024;
+
+// Both streams are retained because build tools split diagnostics across them:
+// npm writes its lifecycle summary to stderr while the compiler it invoked
+// writes the actual errors to stdout. Keeping only the non-empty one collapses
+// a diagnosable failure back into a bare exit code.
 function commandFailureReason(
   description: string,
   output: CapturedCommandOutput,
   exitCode: number,
 ): string {
-  const diagnostics = (output.stderr.trim() || output.stdout.trim()).slice(
-    -LOG_TAIL_CAPACITY,
-  );
+  const streams: ReadonlyArray<readonly [string, string]> = [
+    ["stderr", output.stderr.trim()],
+    ["stdout", output.stdout.trim()],
+  ];
+  const diagnostics = streams
+    .filter(([, text]) => text.length > 0)
+    .map(
+      ([name, text]) =>
+        `${name}:\n${text.slice(-COMMAND_DIAGNOSTICS_TAIL_CHARS)}`,
+    );
   return (
     `command failed with exit code ${exitCode}: ${description}` +
-    (diagnostics ? `\n${diagnostics}` : "")
+    (diagnostics.length === 0 ? "" : `\n${diagnostics.join("\n")}`)
   );
 }
 
@@ -274,6 +256,27 @@ function unboundedCommandOutputEffectWith<E>(
           ),
     ),
   );
+}
+
+// Output is captured rather than discarded even though no caller reads it on
+// success: a runtime install runs `npm ci`, `npm run build`, and image builds
+// whose staging directory is deleted during cleanup, so a failure that carries
+// only an exit code cannot be diagnosed from the durable evaluation result.
+function execEffectWith<E>(
+  makeError: ErrorFactory<E>,
+  commandText: string,
+  options: CommandRunOptions,
+): Effect.Effect<void, E, CommandExecutor> {
+  const { cwd, timeout } = options;
+  const command =
+    cwd === undefined
+      ? makeShellCommand(commandText)
+      : makeShellCommandInDirectory(commandText, cwd);
+  const captured =
+    timeout === undefined
+      ? unboundedCommandOutputEffectWith(makeError, commandText, command)
+      : commandOutputEffectWith(makeError, commandText, command, timeout);
+  return captured.pipe(Effect.asVoid);
 }
 
 /**

@@ -35,9 +35,6 @@
       "#network": [
         "./src/network/index.ts"
       ],
-      "#task": [
-        "./src/task/index.ts"
-      ],
       "#conversation": [
         "./src/conversation/index.ts"
       ],
