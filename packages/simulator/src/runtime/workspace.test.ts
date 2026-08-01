@@ -43,7 +43,10 @@ const CHANNEL_ENTRY_FILE = "openclaw-entry.js";
 const PROFILE_CONFIG_FILE_NAME = "config.json";
 const PROFILE_FILE_PERMISSION_MASK = 0o777;
 const PROFILE_FILE_MODE = 0o600;
-const NPM_FIXTURE_TIMEOUT_MS = 15_000;
+// Staging a real npm consumer layout costs seconds of filesystem work, and the
+// budget is sized for a machine already running the rest of the suite rather
+// than for an idle one.
+const NPM_FIXTURE_TIMEOUT_MS = 60_000;
 const TEST_AGENT_NAME = agentName("network-agent");
 const WORKSPACE_FILE_CONTENT = "review";
 const WORKSPACE_FILE_PATH = "skills/reviewer.md";

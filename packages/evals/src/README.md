@@ -13,11 +13,17 @@ The source graph has four layers:
 2. `cases.ts` owns the ordered code-defined policies, exact peer rosters, and
    criteria. `execution.ts` interprets one case against one concrete target
    runtime and the production router.
-3. `grading.ts` validates ledger evidence, runs deterministic criteria, and
-   delegates unresolved questions to the semantic judge.
-4. `sweep.ts`, `results.ts`, and `phoenix.ts` own report state, Effect SQL
-   persistence, resume, and external materialization. `cli.ts` supplies the
-   platform and concrete service layers once.
+3. `transcript.ts` validates ledger evidence, `assessment.ts` runs
+   deterministic criteria and delegates unresolved questions to the
+   provider-neutral judge in `judge.ts`, `judge-openai.ts` supplies the
+   production judge layer, and `calibration.ts` holds the fixed corpus that
+   keeps a live judge honest. `grading.ts` is the curated boundary over all
+   five; nothing outside this layer imports the modules directly.
+4. `sweep.ts` and `results.ts` own report state, Effect SQL persistence, and
+   resume. The `phoenix-*` modules adapt a completed report to the Phoenix
+   protocol behind the `phoenix.ts` publication boundary, with every SDK
+   Promise entering Effect through `phoenix-client.ts` alone. `cli.ts`
+   supplies the platform and concrete service layers once.
 
 Gateway evidence describes principal interaction with the target runtime.
 Social evidence describes traffic committed through the router. Peer gateways

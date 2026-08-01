@@ -74,8 +74,8 @@ row passed from a cached or vacuous invocation.
 | eval test typecheck | `pnpm nx run @moltzap/evals:typecheck:tests --skip-nx-cache` | pending |
 | eval lint | `pnpm nx run @moltzap/evals:lint --skip-nx-cache` | pending |
 | eval unit tests | `pnpm nx run @moltzap/evals:test --skip-nx-cache` | pending |
-| mixed-roster measurement | `pnpm nx run @moltzap/evals:measure:roster --skip-nx-cache` | pending |
-| all live measurements | `pnpm nx run @moltzap/evals:measure:live --skip-nx-cache` | pending |
+| semantic-judge calibration | `OPENAI_API_KEY=... pnpm nx run @moltzap/evals:calibrate --skip-nx-cache` | pending |
+| live evaluation matrix | `OPENAI_API_KEY=... pnpm nx run @moltzap/evals:eval --skip-nx-cache -- --report-id <report-id> --openclaw-model <model-id> --nanoclaw-model <model-id>` | pending |
 
 ## Preserve in the v2 port
 

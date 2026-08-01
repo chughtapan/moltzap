@@ -381,15 +381,20 @@ function uncommittedCallbackTest(
   }).pipe(Effect.provide(NodeContext.layer));
 }
 
+const PROCESS_DEATH_TIMEOUT_MS = 45_000;
+
 describe("evaluation result storage", () => {
-  it(
+  // Committing a cell drives a real SQLite bundle, whose retry paths sleep on
+  // the live clock. A virtual clock would freeze such a sleep forever, so this
+  // case observes real time even though it never waits on a deadline itself.
+  liveIt(
     "commits each terminal cell and resumes without rerunning it",
     checkpointResumeTest,
   );
   liveIt(
     "keeps committed cells and resumes after process death",
     processDeathResumeTest,
-    45_000,
+    PROCESS_DEATH_TIMEOUT_MS,
   );
   it(
     "rejects a resume when immutable runtime configuration changed",
