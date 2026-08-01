@@ -19,27 +19,13 @@ _Interface_
 
 Configures agent client.
 
-### [`AppCallbackContext`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-client.d.ts#L14)
-
-_Interface_
-
-Carries context for app callback.
-
-### [`AppCallbackHandlers`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-callbacks.d.ts#L26)
-
-_TypeAlias_
-
-Closed handler table for an app moderating one or more conversations. Every
-app callback member is required; vacuous-deny moderators still write the
-handler explicitly.
-
-### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-client.d.ts#L18)
+### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-client.d.ts#L13)
 
 _Interface_
 
 Configures app client.
 
-### [`ContextOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L140)
+### [`ContextOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L131)
 
 _Interface_
 
@@ -53,7 +39,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L132)
+### [`ConversationMeta`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L123)
 
 _Interface_
 
@@ -74,13 +60,13 @@ _Class_
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-client.d.ts#L25)
+### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-client.d.ts#L19)
 
 _Class_
 
 Implements molt zap app client.
 
-### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L278)
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L262)
 
 _Class_
 
@@ -139,9 +125,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    dispatchRelease: [],
-    dispatchLeaseConsumed: [],
-    dispatchLeaseExpired: [],
   };
 
   private readonly ownAgentIdValue: AgentId;
@@ -205,6 +188,9 @@ export class MoltZapService {
           },
         });
         this.client = client;
+
+        // `subscribeAll().pipe(Stream.runForEach, …)` is forked into a
+        // service-owned scope. The Stream is materialized BEFORE `connect()` so
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -221,7 +207,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L120)
+### [`ServiceRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L111)
 
 _TypeAlias_
 

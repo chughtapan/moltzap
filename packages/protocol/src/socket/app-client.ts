@@ -1,15 +1,9 @@
-import type { Rpc, RpcGroup } from "@effect/rpc";
+import type { RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
-import { Effect } from "effect";
-import type { AppCallbackHandlers, HandlerSlot } from "./app-callbacks.js";
+import type { Effect } from "effect";
 import type { AppKey } from "#identity/apps";
-import { messagesAuthorize } from "#message";
-import { dispatchAuthorize } from "#message/dispatch";
 import { appConnect, PROTOCOL_VERSION } from "#network";
-import type {
-  appCallableGroup,
-  AnyAppCallbackRpcDefinition,
-} from "#socket/catalog";
+import type { appCallableGroup } from "#socket/catalog";
 import type { CloseInfo } from "./close-info.js";
 import type {
   ErrorForTag,
@@ -24,56 +18,17 @@ import {
   RPC_TIMEOUT_MS,
   type RpcCallOptions,
   ProtocolClientLifecycle,
-  type ReverseCallbackHandlers,
 } from "./lifecycle.js";
 
 type AppCallableRpcs = RpcGroup.Rpcs<typeof appCallableGroup>;
 type AppCallableTag = AppCallableRpcs["_tag"];
 type AppClientDispatch = TypedDispatchMap<AppCallableRpcs, RpcClientError>;
 
-/** Carries context for app callback. */
-export interface AppCallbackContext {
-  readonly requestId: string;
-}
-
-const CALLBACK_CONTEXT: AppCallbackContext = {
-  requestId: "reverse-rpc",
-};
-
-function isCallbackParams<D extends AnyAppCallbackRpcDefinition>(
-  slot: HandlerSlot<D, AppCallbackContext>,
-  params: unknown,
-): params is Parameters<HandlerSlot<D, AppCallbackContext>["handle"]>[0] {
-  return slot.definition.validateParams(params);
-}
-
-function makeAppCallbackHandlers(
-  handlers: AppCallbackHandlers<AppCallbackContext>,
-): ReverseCallbackHandlers {
-  const adapt =
-    <D extends AnyAppCallbackRpcDefinition>(
-      slot: HandlerSlot<D, AppCallbackContext>,
-    ) =>
-    (params: Rpc.Payload<D["clientRpc"]>) => {
-      if (!isCallbackParams(slot, params)) {
-        return Effect.die(
-          new Error(`Invalid callback payload for ${slot.definition.name}`),
-        );
-      }
-      return slot.handle(params, CALLBACK_CONTEXT);
-    };
-  return {
-    [dispatchAuthorize.name]: adapt(handlers[dispatchAuthorize.name]),
-    [messagesAuthorize.name]: adapt(handlers[messagesAuthorize.name]),
-  };
-}
-
 /** Configures app client. */
 export interface AppClientOptions {
   readonly serverUrl: string;
   readonly appKey: AppKey;
   readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 }
 
 /** Implements molt zap app client. */
@@ -91,7 +46,6 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
         maxProtocol: PROTOCOL_VERSION,
       },
       openSession: openProtocolAppClientSocket,
-      callbackHandlers: () => makeAppCallbackHandlers(options.handlers),
       onDisconnect: options.onDisconnect,
     });
   }

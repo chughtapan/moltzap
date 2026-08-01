@@ -33,10 +33,6 @@
       "types": "./dist/message/index.d.ts",
       "import": "./dist/message/index.js"
     },
-    "./message/dispatch": {
-      "types": "./dist/message/dispatch.d.ts",
-      "import": "./dist/message/dispatch.js"
-    },
     "./rpc": {
       "types": "./dist/rpc.d.ts",
       "import": "./dist/rpc.js"
@@ -72,7 +68,6 @@
     "#conversation": "./src/conversation/index.ts",
     "#conversation/requirements": "./src/conversation/requirements/index.ts",
     "#message": "./src/message/index.ts",
-    "#message/dispatch": "./src/message/dispatch.ts",
     "#socket": "./src/socket/index.ts",
     "#socket/catalog": "./src/socket/catalog/index.ts",
     "#testing": "./src/testing/index.ts"

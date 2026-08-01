@@ -1,9 +1,9 @@
 /**
  * @file Bounded insertion-ordered map backing the client's per-key caches.
  *
- * The service dedup window, the channel-core pending-release table, and
- * channel adapters' own per-host tables all need the same fixed-capacity
- * store. It sits at the package root rather than in `channel-base/` because
+ * The service dedup window and channel adapters' own per-host tables need the
+ * same fixed-capacity store. It sits at the package root rather than in
+ * `channel-base/` because
  * that barrel re-exports the root modules, so owning it there would close a
  * folder cycle; `channel-base` re-exports it for adapters instead.
  */

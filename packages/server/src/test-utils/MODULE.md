@@ -8,23 +8,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](./app-endpoint.ts#L49)
-
-_TypeAlias_
-
-```ts
-export type AppEndpointHandlers = {
-  readonly [D in AnyAppCallbackRpcDefinition as D["name"]]: AppEndpointHandler<D>;
-};
-```
-
-Mapped over the closed `AnyAppCallbackRpcDefinition` union, keyed
-by each definition's wire name. Mandates one handler per
-app-callback RPC at construction time — adding a new entry to
-`appCallbackMethods` becomes a compile error at every endpoint
-construction site.
-
-### [`AwaitNotificationError`](./helpers.ts#L58)
+### [`AwaitNotificationError`](./helpers.ts#L54)
 
 _TypeAlias_
 
@@ -36,7 +20,7 @@ export type AwaitNotificationError =
 
 Represents await notification error conditions.
 
-### [`awaitOneNotification`](./helpers.ts#L73)
+### [`awaitOneNotification`](./helpers.ts#L69)
 
 _Function_
 
@@ -56,7 +40,7 @@ connection from masquerading as a missing notification.
 
 **Returns:** The await one notification result.
 
-### [`closeAllClients`](./helpers.ts#L185)
+### [`closeAllClients`](./helpers.ts#L181)
 
 _Function_
 
@@ -68,7 +52,7 @@ Executes the close all clients operation.
 
 **Returns:** The close all clients result.
 
-### [`connectAppClient`](./helpers.ts#L335)
+### [`connectAppClient`](./helpers.ts#L330)
 
 _Function_
 
@@ -76,7 +60,6 @@ _Function_
 export function connectAppClient(
   appId: AppId,
   appKey: AppKey,
-  handlers: AppCallbackHandlers<AppCallbackContext>,
 ): Effect.Effect<TestAppClient, Error>
 ```
 
@@ -84,7 +67,7 @@ Executes the connect app client operation.
 
 **Returns:** The connect app client result.
 
-### [`ConnectedAgent`](./helpers.ts#L113)
+### [`ConnectedAgent`](./helpers.ts#L109)
 
 _Interface_
 
@@ -99,7 +82,7 @@ export interface ConnectedAgent {
 
 Describes connected agent.
 
-### [`connectTestClient`](./helpers.ts#L262)
+### [`connectTestClient`](./helpers.ts#L258)
 
 _Function_
 
@@ -251,7 +234,7 @@ export interface CoreTestSpanExporterPort {
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](./helpers.ts#L228)
+### [`createTestAgent`](./helpers.ts#L224)
 
 _Function_
 
@@ -341,32 +324,6 @@ Loads core schema sql.
 
 **Returns:** The load core schema sql result.
 
-### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L95)
-
-_Function_
-
-```ts
-export function makeHandlerAppEndpoint(args: {
-  readonly id: ConnectionId;
-  readonly handlers: AppEndpointHandlers;
-}): AppEndpoint
-```
-
-Build an AppEndpoint whose outbound `originator.call` dispatches to
-in-process handlers instead of going over a WebSocket. The endpoint
-satisfies the same `{ connId, originator }` shape a connected app's
-arm carries so `AppEndpointRegistry`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
-
-  - `originator.callback({ definition, params })` indexes `handlers` by
-    `definition.name`. The
-    mapped type guarantees every member of `AnyAppCallbackRpcDefinition`
-    has a handler — no runtime "method not found" branch exists.
-  - `originator.notify` / `failAllPending` are no-ops.
-  - `originator.handle` / `originator.resolve` defect — an in-process
-    endpoint never receives inbound frames; a call here is a wiring bug.
-
-**Returns:** The created handler app endpoint.
-
 ### [`makePgliteHarness`](./pglite-harness.ts#L73)
 
 _Function_
@@ -428,7 +385,7 @@ export type PgliteHarnessError =
 
 Represents pglite harness error conditions.
 
-### [`postJson`](./helpers.ts#L376)
+### [`postJson`](./helpers.ts#L369)
 
 _Function_
 
@@ -446,7 +403,7 @@ repeated request/JSON boilerplate.
 
 **Returns:** The post json result.
 
-### [`registerAgent`](./helpers.ts#L203)
+### [`registerAgent`](./helpers.ts#L199)
 
 _Function_
 
@@ -462,7 +419,7 @@ Registers agent.
 
 **Returns:** The register agent result.
 
-### [`registerAndConnect`](./helpers.ts#L356)
+### [`registerAndConnect`](./helpers.ts#L349)
 
 _Function_
 
@@ -476,7 +433,7 @@ Register and connect an agent. Tracked for automatic cleanup.
 
 **Returns:** The register and connect result.
 
-### [`registerApp`](./helpers.ts#L303)
+### [`registerApp`](./helpers.ts#L299)
 
 _Function_
 
@@ -507,7 +464,7 @@ Executes the reset core test db operation.
 
 **Returns:** The reset core test db result.
 
-### [`setupAgentGroup`](./helpers.ts#L485)
+### [`setupAgentGroup`](./helpers.ts#L478)
 
 _Function_
 
@@ -528,7 +485,7 @@ Create N agents, all connected. Optionally create a group conversation.
 
 **Returns:** The setup agent group result.
 
-### [`setupAgentPair`](./helpers.ts#L467)
+### [`setupAgentPair`](./helpers.ts#L460)
 
 _Function_
 
@@ -614,7 +571,7 @@ Executes the stop core test server operation.
 
 **Returns:** The stop core test server result.
 
-### [`trackClient`](./helpers.ts#L177)
+### [`trackClient`](./helpers.ts#L173)
 
 _Function_
 
@@ -626,7 +583,6 @@ Executes the track client operation.
 
 ## Files
 
-- `app-endpoint.ts`
 - `core-schema-sql.ts`
 - `helpers.ts`
 - `index.ts`

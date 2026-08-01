@@ -31,7 +31,6 @@ import {
   conversationId as conversationIdSchema,
   messageId as messageIdSchema,
 } from "#conversation";
-import { leaseId as leaseIdSchema } from "#message/dispatch";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
@@ -122,15 +121,6 @@ export const messageId = (
   value: string,
 ): Schema.Schema.Type<typeof messageIdSchema> =>
   Schema.decodeUnknownSync(messageIdSchema)(value);
-/**
- * Validates and decodes lease id values.
- * @param value Value to process.
- * @returns The lease id result.
- */
-export const leaseId = (
-  value: string,
-): Schema.Schema.Type<typeof leaseIdSchema> =>
-  Schema.decodeUnknownSync(leaseIdSchema)(value);
 /**
  * Validates and decodes app id values.
  * @param value Value to process.

@@ -23,7 +23,6 @@ import {
   conversationList,
   conversationUpdate,
 } from "#conversation/handlers";
-import { dispatchRequest, dispatchLeaseGet } from "#dispatch/handlers";
 import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
 
 /**
@@ -39,6 +38,4 @@ export const serverHandlers: ServerHandlers = {
   "agent/conversation/list": conversationList,
   "agent/conversation/create": agentConversationCreate,
   "app/conversation/update": conversationUpdate,
-  "agent/dispatch/request": dispatchRequest,
-  "app/dispatch/lease/get": dispatchLeaseGet,
 } as const;

@@ -18,10 +18,8 @@
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import { drainPaginatedList } from "@moltzap/client/pagination";
 import {
-  LeaseAlreadyConsumed,
-  LeaseGuard,
   MoltZapChannelCore,
-  catchLeaseInvalid,
+  ReplyGuard,
   formatCrossConv,
   getGroupFields,
   type ChannelService,
@@ -49,8 +47,6 @@ import {
   conversationList,
 } from "@moltzap/protocol/conversation";
 import type { ResultOf } from "@moltzap/protocol/rpc";
-import { HookBlockedError } from "@moltzap/protocol/message";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 
 const CHANNEL_ID = "moltzap";
 const TARGET_PREFIX_AGENT = "agent:";
@@ -305,16 +301,15 @@ interface MoltzapChannelPluginDeps {
   readonly createCore?: (service: ChannelService) => MoltZapChannelCore;
 
   /**
-   * Invoked when the dispatch lease was already consumed (single-use
-   * semantics). Deliver still returns `false` per the
+   * Invoked when a second final reply for the same inbound turn is suppressed
+   * locally. Deliver still returns `false` per the
    * `OpenClawDeliver: PromiseLike&lt;boolean&gt;` contract; this callback is
-   * the side-channel for hosts that want the typed `LeaseAlreadyConsumed`
-   * error without violating that contract. Threaded from
-   * `createMoltzapChannelPlugin` deps through `createGatewaySection` and
-   * `registerInboundHandler` into the `createLeaseConsumingDeliver`
-   * closure.
+   * the side-channel for hosts that want to observe the duplicate without
+   * violating that contract. Threaded from `createMoltzapChannelPlugin` deps
+   * through `createGatewaySection` and `registerInboundHandler` into the
+   * `createReplyGuardedDeliver` closure.
    */
-  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
+  readonly onDuplicateReply?: (conversationId: string) => void;
 }
 
 interface OpenClawDirectoryParams {
@@ -338,7 +333,7 @@ interface InboundHandlerParams {
   readonly service: OpenClawClientService;
   readonly contextLogDir?: string;
   readonly enriched: EnrichedInboundMessage;
-  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
+  readonly onDuplicateReply?: (conversationId: string) => void;
 }
 
 interface InboundRuntimeData {
@@ -409,15 +404,10 @@ function logOutboundReply(
   });
 }
 
-function isTerminalSendRejection(err: unknown): err is HookBlockedError {
-  return err instanceof HookBlockedError;
-}
-
 /**
- * Project a failed reply into the deliver contract's boolean. An app hook
- * block is the server's final verdict on this message, so the reply is
- * reported as handled and never retried; every other failure is transient
- * from the plugin's side and reports not-delivered so the host may retry.
+ * Project a failed reply into the deliver contract's boolean. Every send
+ * failure is transient from the plugin's side, so the reply reports
+ * not-delivered and the host may retry.
  * @param conversationId Value supplied to the operation.
  * @param err Error to inspect.
  * @param log Value supplied to the operation.
@@ -429,17 +419,6 @@ function handleReplyFailure(
   log?: OpenClawLogger,
 ): Effect.Effect<boolean> {
   return Effect.sync(() => {
-    if (isTerminalSendRejection(err)) {
-      log?.warn?.(
-        {
-          conversationId,
-          tag: err._tag,
-          msg: err.message,
-        },
-        "MoltZap: send rejected by an app hook, dropping without retry",
-      );
-      return true;
-    }
     log?.error?.(`MoltZap: failed to send reply to ${conversationId}: ${err}`);
     return false;
   });
@@ -449,80 +428,40 @@ function sendDeliveredReply(params: {
   readonly core: MoltZapChannelCore;
   readonly conversationId: ConversationId;
   readonly text: string;
-  readonly leaseId?: LeaseId;
   readonly log?: OpenClawLogger;
-  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
-  readonly guard: LeaseGuard;
+  readonly guard: ReplyGuard;
 }): Effect.Effect<boolean> {
-  return params.core
-    .sendReply(
-      params.conversationId,
-      params.text,
-      params.leaseId === undefined ? {} : { dispatchLeaseId: params.leaseId },
-    )
-    .pipe(
-      catchLeaseInvalid(
-        params.leaseId !== undefined ? { leaseId: params.leaseId } : undefined,
-      ),
-      // Stamp the guard only on a successful `core.sendReply`. Transient send
-      // failures fall through to `Effect.catchAll` below WITHOUT stamping, so a
-      // retried deliver call still exercises the lease.
-      Effect.tap(() => params.guard.consume()),
-      Effect.tap(() =>
-        logOutboundReply(params.conversationId, params.text, params.log),
-      ),
-      Effect.map(() => true),
-      Effect.catchAll((err) =>
-        handleDeliverFailure({
-          log: params.log,
-          conversationId: params.conversationId,
-          onLeaseConsumed: params.onLeaseConsumed,
-          err,
-        }),
-      ),
-    );
+  return params.core.sendReply(params.conversationId, params.text).pipe(
+    // Stamp the guard only on a successful `core.sendReply`. Transient send
+    // failures fall through to `Effect.catchAll` below WITHOUT stamping, so a
+    // retried deliver call still gets to send.
+    Effect.tap(() => params.guard.consume()),
+    Effect.tap(() =>
+      logOutboundReply(params.conversationId, params.text, params.log),
+    ),
+    Effect.map(() => true),
+    Effect.catchAll((err) =>
+      handleReplyFailure(params.conversationId, err, params.log),
+    ),
+  );
 }
 
-interface HandleDeliverFailureParams {
-  readonly log?: OpenClawLogger;
-  readonly conversationId: string;
-  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
-  readonly err: unknown;
-}
-
-function handleDeliverFailure(
-  params: HandleDeliverFailureParams,
-): Effect.Effect<boolean> {
-  const { log, conversationId, onLeaseConsumed, err } = params;
-  if (err instanceof LeaseAlreadyConsumed) {
-    return Effect.sync(() => {
-      log?.warn?.(
-        `MoltZap: lease ${err.leaseId} already consumed for ${conversationId} at ts=${err.consumedAt.toString()}; surfacing via onLeaseConsumed`,
-      );
-      onLeaseConsumed?.(err);
-      // Deliver contract: PromiseLike<boolean>. False signals "not delivered"
-      // without violating the type.
-      return false;
-    });
-  }
-  return handleReplyFailure(conversationId, err, log);
-}
-
-function createLeaseConsumingDeliver(params: {
+function createReplyGuardedDeliver(params: {
   readonly core: MoltZapChannelCore;
   readonly enriched: EnrichedInboundMessage;
   readonly log?: OpenClawLogger;
-  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
+  readonly onDuplicateReply?: (conversationId: string) => void;
 }): OpenClawDeliver {
-  // One LeaseGuard per inbound message: stamped exactly once, on the FIRST
-  // successful `core.sendReply`.
+  // One ReplyGuard per inbound turn: stamped exactly once, on the FIRST
+  // successful `core.sendReply`. It is the only thing keeping a runtime that
+  // delivers twice from double-posting — the server accepts every send.
   //
   // Ordering matters: pre-check `guard.consumedAt` BEFORE sending so duplicate
   // delivers are short-circuited; the actual stamp happens inside
   // `sendDeliveredReply` via `Effect.tap(() => guard.consume())` AFTER
   // `core.sendReply` succeeds. A transient send failure therefore leaves the
-  // guard unconsumed, and a retried deliver call still exercises the lease.
-  const guard = new LeaseGuard();
+  // guard unconsumed, and a retried deliver call still gets to send.
+  const guard = new ReplyGuard();
   return (payload, info) => {
     if (info?.kind !== "final") {
       return Promise.resolve(true);
@@ -536,17 +475,18 @@ function createLeaseConsumingDeliver(params: {
         const stamped = yield* guard.consumedAt;
         if (Option.isSome(stamped)) {
           params.log?.warn?.(
-            `MoltZap: duplicate-reply rejected for ${params.enriched.conversationId} (lease already consumed at ts=${stamped.value.toString()})`,
+            `MoltZap: duplicate reply rejected for ${params.enriched.conversationId} (first reply sent at ts=${stamped.value.toString()})`,
           );
+          params.onDuplicateReply?.(params.enriched.conversationId);
+          // Deliver contract: PromiseLike<boolean>. False signals
+          // "not delivered" without violating the type.
           return false;
         }
         return yield* sendDeliveredReply({
           core: params.core,
           conversationId: params.enriched.conversationId,
           text,
-          leaseId: params.enriched.dispatchLeaseId,
           log: params.log,
-          onLeaseConsumed: params.onLeaseConsumed,
           guard,
         });
       }),
@@ -602,7 +542,7 @@ function dispatchInboundReply(params: {
   readonly input: InboundDispatchInput;
   readonly core: MoltZapChannelCore;
   readonly log?: OpenClawLogger;
-  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
+  readonly onDuplicateReply?: (conversationId: string) => void;
 }): Effect.Effect<{ queuedFinal: boolean }, unknown> {
   return Effect.tryPromise({
     try: () =>
@@ -610,11 +550,11 @@ function dispatchInboundReply(params: {
         ctx: buildInboundDispatchContext(params.input),
         cfg: params.input.cfg,
         dispatcherOptions: {
-          deliver: createLeaseConsumingDeliver({
+          deliver: createReplyGuardedDeliver({
             core: params.core,
             enriched: params.input.enriched,
             log: params.log,
-            onLeaseConsumed: params.onLeaseConsumed,
+            onDuplicateReply: params.onDuplicateReply,
           }),
         },
       }),
@@ -862,7 +802,7 @@ function startGatewayAccountEffect(
       ctx,
       service,
       contextLogDir,
-      onLeaseConsumed: deps.onLeaseConsumed,
+      onDuplicateReply: deps.onDuplicateReply,
     });
     registerConnectionStatus(core, ctx);
     activeClients.set(accountId, service);
@@ -916,7 +856,7 @@ interface RegisterInboundHandlerParams {
   readonly ctx: OpenClawStartAccountContext;
   readonly service: OpenClawClientService;
   readonly contextLogDir?: string;
-  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
+  readonly onDuplicateReply?: (conversationId: string) => void;
 }
 
 function registerInboundHandler(params: RegisterInboundHandlerParams): void {
@@ -927,7 +867,7 @@ function registerInboundHandler(params: RegisterInboundHandlerParams): void {
       service: params.service,
       contextLogDir: params.contextLogDir,
       enriched,
-      onLeaseConsumed: params.onLeaseConsumed,
+      onDuplicateReply: params.onDuplicateReply,
     }).pipe(Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch")),
   );
 }
@@ -951,7 +891,7 @@ function handleInboundMessage(params: InboundHandlerParams) {
       input: inboundDispatchInput(params.ctx, params.enriched, data),
       core: params.core,
       log: params.ctx.log,
-      onLeaseConsumed: params.onLeaseConsumed,
+      onDuplicateReply: params.onDuplicateReply,
     });
     logDispatchFinished(params.enriched, params.ctx.log);
     logUnqueuedDispatch(params.enriched, result, params.ctx.log);
@@ -1317,11 +1257,10 @@ function sendTextEffect(
  *   Core->>Plugin: enriched message arrives
  *   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
  *   note over OC: agent pipeline → LLM
- *   OC->>Plugin: deliver(payload, opts) — createLeaseConsumingDeliver
+ *   OC->>Plugin: deliver(payload, opts) — createReplyGuardedDeliver
  *   Plugin->>Server: core.sendReply(conversationId, text)
- *   alt LeaseInvalid wire error
- *     Server-->>Plugin: RpcServerError reason=LeaseInvalid
- *     Plugin->>Plugin: catchLeaseInvalid → LeaseAlreadyConsumed<br>onLeaseConsumed callback, return false
+ *   alt second final reply for the same turn
+ *     Plugin->>Plugin: ReplyGuard already stamped<br>onDuplicateReply callback, return false
  *   end
  *   OC->>Plugin: stopAccount(ctx)
  *   Plugin->>Core: core.disconnect()
@@ -1329,11 +1268,10 @@ function sendTextEffect(
  * ```
  *
  * `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
- * false signals "not delivered" without throwing. The lease-guard
- * is single-shot per inbound message: a retried `deliver` exercises
- * the lease again, surfacing `LeaseAlreadyConsumed` as a typed
- * callback (`MoltzapChannelPluginDeps.onLeaseConsumed`) rather than
- * a throw.
+ * false signals "not delivered" without throwing. The reply guard is
+ * single-shot per inbound turn: a second final reply is suppressed locally
+ * and reported through `MoltzapChannelPluginDeps.onDuplicateReply` rather
+ * than a throw.
  *
  * `resolveTarget` accepts a plain agent name or `agent:&lt;name>` for a DM and
  * `conv:&lt;conversationId>` for an existing conversation. Plain names normalize

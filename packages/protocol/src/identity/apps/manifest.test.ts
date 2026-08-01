@@ -1,17 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { Either, type Schema } from "effect";
+import { Either } from "effect";
 import * as fc from "fast-check";
 import { validateAppManifest } from "./manifest.js";
-import { dispatchAuthorize, dispatchRequest } from "#message/dispatch";
-import { decodesStrictly } from "#transport";
 
-const decodes = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
-  decodesStrictly(schema, value);
-
-const validateAuthorizeResult = (value: unknown): boolean =>
-  decodes(dispatchAuthorize.resultSchema, value);
-const validateRequestParams = (value: unknown): boolean =>
-  decodes(dispatchRequest.paramsSchema, value);
 const MANIFEST_PROPERTY_RUNS = 25;
 
 const manifestIsValid = (manifest: unknown): boolean =>
@@ -200,65 +191,5 @@ describe("AppManifestSchema retired hooks", () => {
       };
       expect(manifestIsInvalid(manifest)).toBe(true);
     }
-  });
-});
-
-describe("DispatchAuthorize verdict union", () => {
-  it("rejects retry/defer admission results", () => {
-    expect(
-      validateAuthorizeResult({
-        admission: {
-          decision: "defer",
-          retryAfterMs: 100,
-          reason: "slot busy",
-        },
-      }),
-    ).toBe(false);
-  });
-
-  it("accepts grant, hold, and deny admission results", () => {
-    expect(
-      validateAuthorizeResult({
-        admission: {
-          decision: "grant",
-          leaseId: "550e8400-e29b-41d4-a716-446655440011",
-          leaseTimeoutMs: 90_000,
-          dispatchMessageId: "550e8400-e29b-41d4-a716-446655440010",
-        },
-      }),
-    ).toBe(true);
-    expect(
-      validateAuthorizeResult({
-        admission: { decision: "deny", reason: "phase closed" },
-      }),
-    ).toBe(true);
-    expect(
-      validateAuthorizeResult({
-        admission: { decision: "hold", reason: "waiting for turn" },
-      }),
-    ).toBe(true);
-  });
-});
-
-describe("DispatchRequest params", () => {
-  it("accepts pending message parts", () => {
-    expect(
-      validateRequestParams({
-        conversationId: "550e8400-e29b-41d4-a716-446655440002",
-        messageId: "550e8400-e29b-41d4-a716-446655440003",
-        senderAgentId: "550e8400-e29b-41d4-a716-446655440004",
-        parts: [{ type: "text", text: "old discussion" }],
-        pending: [
-          {
-            messageId: "550e8400-e29b-41d4-a716-446655440010",
-            conversationId: "550e8400-e29b-41d4-a716-446655440002",
-            senderAgentId: "550e8400-e29b-41d4-a716-446655440001",
-            createdAt: "2026-04-29T22:00:00.000Z",
-            receivedAt: "2026-04-29T22:00:00.000Z",
-            parts: [{ type: "text", text: "Time to vote" }],
-          },
-        ],
-      }),
-    ).toBe(true);
   });
 });

@@ -12,7 +12,7 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentClientOptions`](./agent-client.ts#L40)
+### [`AgentClientOptions`](./agent-client.ts#L28)
 
 _Interface_
 
@@ -26,34 +26,7 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`AppCallbackContext`](./app-client.ts#L35)
-
-_Interface_
-
-```ts
-export interface AppCallbackContext {
-  readonly requestId: string;
-}
-```
-
-Carries context for app callback.
-
-### [`AppCallbackHandlers`](./app-callbacks.ts#L43)
-
-_TypeAlias_
-
-```ts
-export type AppCallbackHandlers<Ctx> = HandlerTable<
-  AnyAppCallbackRpcDefinition,
-  Ctx
->;
-```
-
-Closed handler table for an app moderating one or more conversations. Every
-app callback member is required; vacuous-deny moderators still write the
-handler explicitly.
-
-### [`AppClientOptions`](./app-client.ts#L72)
+### [`AppClientOptions`](./app-client.ts#L28)
 
 _Interface_
 
@@ -62,7 +35,6 @@ export interface AppClientOptions {
   readonly serverUrl: string;
   readonly appKey: AppKey;
   readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 }
 ```
 
@@ -82,7 +54,7 @@ Executes the classify close cause operation.
 
 **Returns:** The classify close cause result.
 
-### [`ClientConnectError`](./lifecycle.ts#L114)
+### [`ClientConnectError`](./lifecycle.ts#L108)
 
 _TypeAlias_
 
@@ -92,7 +64,7 @@ export type ClientConnectError<Rpcs extends ProtocolRpc> =
 
 Represents client connect error conditions.
 
-### [`ClientDefinitionError`](./lifecycle.ts#L101)
+### [`ClientDefinitionError`](./lifecycle.ts#L95)
 
 _TypeAlias_
 
@@ -102,7 +74,7 @@ export type ClientDefinitionError<D extends ClientRpcDefinition> =
 
 Represents client definition error conditions.
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L95)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L89)
 
 _TypeAlias_
 
@@ -112,7 +84,7 @@ export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 
 Represents client definition payload values.
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L98)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L92)
 
 _TypeAlias_
 
@@ -122,7 +94,7 @@ export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 
 Represents client definition success values.
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L193)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L187)
 
 _Interface_
 
@@ -141,14 +113,13 @@ export interface ClientLifecycleOptions<
     NotConnectedError,
     Socket.WebSocketConstructor
   >;
-  readonly callbackHandlers: () => ReverseCallbackHandlers;
   readonly onDisconnect?: (close: CloseInfo) => void;
 }
 ```
 
 Configures client lifecycle.
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L91)
+### [`ClientRpcDefinition`](./lifecycle.ts#L85)
 
 _Interface_
 
@@ -241,7 +212,7 @@ export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
 
 Validates and decodes connection id values.
 
-### [`ConnectResult`](./lifecycle.ts#L107)
+### [`ConnectResult`](./lifecycle.ts#L101)
 
 _TypeAlias_
 
@@ -271,19 +242,6 @@ export const DEFAULT_GRACEFUL_CLOSE: CloseInfo =
 
 Default value for graceful close.
 
-### [`DispatchAuthorizeRequest`](./reverse-callbacks.ts#L14)
-
-_TypeAlias_
-
-```ts
-export type DispatchAuthorizeRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof dispatchAuthorize }
->;
-```
-
-Represents dispatch authorize request values.
-
 ### [`extractCloseInfo`](./close-info.ts#L99)
 
 _Function_
@@ -298,65 +256,7 @@ Executes the extract close info operation.
 
 **Returns:** The extract close info result.
 
-### [`HandlerSlot`](./app-callbacks.ts#L20)
-
-_Interface_
-
-```ts
-export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
-  readonly definition: D;
-  readonly handle: (
-    params: ParamsOf<D>,
-    ctx: Ctx,
-  ) => Effect.Effect<ResultOf<D>, DomainErrorsOf<D>>;
-}
-```
-
-Per-definition app-callback handler slot. `Ctx` is the per-frame context the
-client hands every handler.
-
-### [`isDispatchAuthorizeRequest`](./reverse-callbacks.ts#L28)
-
-_Function_
-
-```ts
-export const isDispatchAuthorizeRequest = (
-  request: ReverseCallbackRequest,
-): request is DispatchAuthorizeRequest
-```
-
-Provides the is dispatch authorize request runtime value.
-
-**Returns:** Whether dispatch authorize request.
-
-### [`isMessagesAuthorizeRequest`](./reverse-callbacks.ts#L38)
-
-_Function_
-
-```ts
-export const isMessagesAuthorizeRequest = (
-  request: ReverseCallbackRequest,
-): request is MessagesAuthorizeRequest
-```
-
-Provides the is messages authorize request runtime value.
-
-**Returns:** Whether messages authorize request.
-
-### [`MessagesAuthorizeRequest`](./reverse-callbacks.ts#L19)
-
-_TypeAlias_
-
-```ts
-export type MessagesAuthorizeRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof messagesAuthorize }
->;
-```
-
-Represents messages authorize request values.
-
-### [`MoltZapAgentClient`](./agent-client.ts#L47)
+### [`MoltZapAgentClient`](./agent-client.ts#L35)
 
 _Class_
 
@@ -375,7 +275,6 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
         maxProtocol: PROTOCOL_VERSION,
       },
       openSession: openProtocolAgentClientSocket,
-      callbackHandlers: makeAgentCallbackHandlers,
       onDisconnect: options.onDisconnect,
     });
   }
@@ -396,7 +295,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](./app-client.ts#L80)
+### [`MoltZapAppClient`](./app-client.ts#L35)
 
 _Class_
 
@@ -415,7 +314,6 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
         maxProtocol: PROTOCOL_VERSION,
       },
       openSession: openProtocolAppClientSocket,
-      callbackHandlers: () => makeAppCallbackHandlers(options.handlers),
       onDisconnect: options.onDisconnect,
     });
   }
@@ -436,7 +334,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 
 Implements molt zap app client.
 
-### [`MoltZapServer`](./server.ts#L298)
+### [`MoltZapServer`](./server.ts#L238)
 
 _Class_
 
@@ -564,7 +462,7 @@ export class MoltZapServer<
 
 Implements molt zap server.
 
-### [`MoltZapServerOptions`](./server.ts#L63)
+### [`MoltZapServerOptions`](./server.ts#L56)
 
 _Interface_
 
@@ -594,7 +492,7 @@ export interface MoltZapServerOptions<
 
 Configures molt zap server.
 
-### [`MoltZapServerSession`](./server.ts#L48)
+### [`MoltZapServerSession`](./server.ts#L41)
 
 _Interface_
 
@@ -622,7 +520,7 @@ Provides the new connection id runtime value.
 
 **Returns:** The new connection id result.
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L506)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L459)
 
 _Function_
 
@@ -640,7 +538,7 @@ Provides the open protocol agent client socket runtime value.
 
 **Returns:** The open protocol agent client socket result.
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L523)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L476)
 
 _Function_
 
@@ -658,7 +556,7 @@ Provides the open protocol app client socket runtime value.
 
 **Returns:** The open protocol app client socket result.
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L628)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L581)
 
 _Class_
 
@@ -804,79 +702,7 @@ stateDiagram-v2
   Stopping --> Stopped: OwnerDone completes terminal close
 ```
 
-### [`ReverseCallbackError`](./server.ts#L153)
-
-_TypeAlias_
-
-```ts
-export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
-```
-
-Represents reverse callback error conditions.
-
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L229)
-
-_TypeAlias_
-
-```ts
-export type ReverseCallbackHandlers = {
-  readonly [D in ReverseCallbackDefinition as D["name"]]: Rpc.ToHandlerFn<
-    D["clientRpc"],
-    never
-  >;
-};
-```
-
-Represents reverse callback handlers values.
-
-### [`ReverseCallbackPayload`](./server.ts#L147)
-
-_TypeAlias_
-
-```ts
-export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
-```
-
-Represents reverse callback payload values.
-
-### [`ReverseCallbackRequest`](./server.ts#L156)
-
-_TypeAlias_
-
-```ts
-export type ReverseCallbackRequest =
-  | {
-      readonly definition: typeof dispatchAuthorize;
-      readonly params: ReverseCallbackPayload<typeof dispatchAuthorize>;
-    }
-```
-
-Represents reverse callback request values.
-
-### [`ReverseCallbackSuccess`](./server.ts#L150)
-
-_TypeAlias_
-
-```ts
-export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
-```
-
-Represents reverse callback success values.
-
-### [`ReverseCallbackTag`](./server.ts#L142)
-
-_TypeAlias_
-
-```ts
-export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
-  D["clientRpc"]["_tag"],
-  ReverseTag
->;
-```
-
-Represents reverse callback tag values.
-
-### [`ReverseCallError`](./server.ts#L137)
+### [`ReverseCallError`](./server.ts#L130)
 
 _TypeAlias_
 
@@ -886,7 +712,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
 Represents reverse call error conditions.
 
-### [`ReverseClient`](./server.ts#L201)
+### [`ReverseClient`](./server.ts#L148)
 
 _Interface_
 
@@ -899,12 +725,6 @@ export interface ReverseClient {
     SuccessForTag<ReverseRpcs, Tag>,
     ErrorForTag<ReverseRpcs, Tag> | ReverseCallError
   >;
-  readonly callback: (
-    request: ReverseCallbackRequest,
-  ) => Effect.Effect<
-    ReverseCallbackRequestSuccess,
-    ReverseCallbackRequestError | ReverseCallError
-  >;
   readonly notify: <D extends AnyNotificationDefinition>(
     definition: D,
     params: NotificationPayloadOf<D>,
@@ -915,7 +735,7 @@ export interface ReverseClient {
 
 Describes reverse client.
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L77)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L71)
 
 _Variable_
 
@@ -925,7 +745,7 @@ export const RPC_TIMEOUT_MS = 30_000
 
 Provides the rpc timeout ms runtime value.
 
-### [`RpcCallOptions`](./lifecycle.ts#L86)
+### [`RpcCallOptions`](./lifecycle.ts#L80)
 
 _Interface_
 
@@ -937,7 +757,7 @@ export interface RpcCallOptions {
 
 Configures rpc call.
 
-### [`ServerSocketWrite`](./server.ts#L43)
+### [`ServerSocketWrite`](./server.ts#L36)
 
 _TypeAlias_
 
@@ -952,10 +772,8 @@ Represents server socket write values.
 ## Files
 
 - `agent-client.ts`
-- `app-callbacks.ts`
 - `app-client.ts`
 - `close-info.ts`
 - `connection.ts`
 - `lifecycle.ts`
-- `reverse-callbacks.ts`
 - `server.ts`

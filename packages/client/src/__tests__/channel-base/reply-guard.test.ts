@@ -1,5 +1,5 @@
 /**
- * Unit tests for `LeaseGuard` initial state, first consume, and repeated
+ * Unit tests for `ReplyGuard` initial state, first consume, and repeated
  * consume behavior.
  *
  * Uses Effect's TestClock so the timestamp on first consume is deterministic.
@@ -8,7 +8,7 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { Effect, Option, TestClock, TestContext } from "effect";
-import { LeaseGuard } from "../../channel-base/lease-guard.js";
+import { ReplyGuard } from "../../channel-base/reply-guard.js";
 
 const FIXED_TS = 1_700_000_000_500;
 const LATER_TS = FIXED_TS + 999;
@@ -18,7 +18,7 @@ const PROPERTY_ATTEMPT_MAX = 8;
 // exercising the attempt-range boundaries with multiple shuffles.
 const PROPERTY_NUM_RUNS = 20;
 
-describe("LeaseGuard", () => {
+describe("ReplyGuard", () => {
   it(
     "property: only the first consume returns true; consumedAt is stamped exactly once",
     propertySingleShot,
@@ -39,7 +39,7 @@ function runSingleShotAttempts(attempts: number) {
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* TestClock.setTime(FIXED_TS);
-      const guard = new LeaseGuard();
+      const guard = new ReplyGuard();
       const results: boolean[] = [];
       for (let i = 0; i < attempts; i += 1) {
         results.push(yield* guard.consume());
@@ -65,7 +65,7 @@ function propertySingleShot() {
 }
 
 function initialConsumedAtIsNone(): void {
-  const guard = new LeaseGuard();
+  const guard = new ReplyGuard();
   expect(Option.isNone(Effect.runSync(guard.consumedAt))).toBe(true);
 }
 
@@ -73,7 +73,7 @@ function firstConsumeStamps() {
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* TestClock.setTime(FIXED_TS);
-      const guard = new LeaseGuard();
+      const guard = new ReplyGuard();
       const consumed = yield* guard.consume();
       const stamped = yield* guard.consumedAt;
       expect(consumed).toBe(true);
@@ -86,7 +86,7 @@ function secondConsumeIsFalse() {
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* TestClock.setTime(FIXED_TS);
-      const guard = new LeaseGuard();
+      const guard = new ReplyGuard();
       const first = yield* guard.consume();
       yield* TestClock.setTime(LATER_TS);
       const second = yield* guard.consume();
@@ -100,7 +100,7 @@ function secondConsumeIsFalse() {
 }
 
 function consumedAtIdempotent(): void {
-  const guard = new LeaseGuard();
+  const guard = new ReplyGuard();
   expect(Option.isNone(Effect.runSync(guard.consumedAt))).toBe(true);
   expect(Option.isNone(Effect.runSync(guard.consumedAt))).toBe(true);
 }

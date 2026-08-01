@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
 import { connectionIdSchema } from "@moltzap/protocol/socket";
 import type { AppManifest } from "@moltzap/protocol/identity";
-import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { messagesAuthorize } from "@moltzap/protocol/message";
 import { appId as makeAppId } from "@moltzap/protocol/testing";
+import type { Originator } from "#socket";
 import { AppEndpointRegistry } from "./endpoint-registry.js";
-import { makeHandlerAppEndpoint } from "../../test-utils/app-endpoint.js";
+import type { AppEndpoint } from "./registry.js";
 
 const APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
 const CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
@@ -20,26 +19,32 @@ const APP_MANIFEST = {
   appId: APP_ID,
   name: "test app",
   hooks: {
-    dispatch_authorize: { kind: "hook", timeoutMs: 5_000 },
-    message_authorize: { kind: "hook", timeoutMs: 5_000 },
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: { kind: "forwardAllExceptSender" },
   },
 } satisfies AppManifest;
 
-function makeTestEndpoint(id: typeof CONN_ID) {
-  return makeHandlerAppEndpoint({
-    id,
-    handlers: {
-      [dispatchAuthorize.name]: () =>
-        Effect.succeed({ admission: { decision: "grant" } }),
-      [messagesAuthorize.name]: () =>
-        Effect.succeed({
-          verdict: {
-            decision: "Forward",
-            recipients: [],
-          },
-        }),
+// Registry tests only exercise registration keying; the originator is
+// never invoked, so every channel defects on use.
+function makeTestEndpoint(id: typeof CONN_ID): AppEndpoint {
+  const die = (op: string) =>
+    Effect.die(new Error(`test endpoint: unexpected ${op}`));
+  const originator: Originator = {
+    call: () => die("call"),
+    notify: () => die("notify"),
+    sink: {
+      parser: {
+        decode: () => {
+          throw new Error("test endpoint: unexpected sink.parser.decode");
+        },
+        encode: () => {
+          throw new Error("test endpoint: unexpected sink.parser.encode");
+        },
+      },
+      inject: () => die("sink.inject"),
     },
-  });
+  };
+  return { connId: id, originator };
 }
 
 describe("AppEndpointRegistry.registerApp", () => {

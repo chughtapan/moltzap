@@ -34,12 +34,6 @@ import {
   ConversationServiceTag,
 } from "../conversation/layer.js";
 import type { ConversationService } from "../conversation/conversation.service.js";
-import {
-  dispatchAdmissionServiceLive,
-  leaseRegistryLive,
-  LeaseRegistryTag,
-} from "../dispatch/layer.js";
-import type { LeaseRegistry } from "../dispatch/lease-registry.js";
 import { messageServiceLive, MessageServiceTag } from "../message/layer.js";
 import type { MessageService } from "../message/message.service.js";
 
@@ -59,30 +53,20 @@ const networkSendLive = Layer.provideMerge(
   endpointResolverLive,
 );
 
-const leaseRegistryWithNetworkLive = Layer.provideMerge(
-  leaseRegistryLive,
-  networkSendLive,
-);
-
-const appEndpointRegistryWithLeasesLive = Layer.provideMerge(
+const appEndpointRegistryWithNetworkLive = Layer.provideMerge(
   appEndpointRegistryLive,
-  leaseRegistryWithNetworkLive,
+  networkSendLive,
 );
 
 const conversationWithAppRegistryLive = Layer.provideMerge(
   conversationServiceLive,
-  appEndpointRegistryWithLeasesLive,
-);
-
-const domainAuthorizationLive = Layer.provideMerge(
-  dispatchAdmissionServiceLive,
-  conversationWithAppRegistryLive,
+  appEndpointRegistryWithNetworkLive,
 );
 
 /** Provides the services live runtime value. */
 export const servicesLive = Layer.provideMerge(
   messageServiceLive,
-  domainAuthorizationLive,
+  conversationWithAppRegistryLive,
 );
 
 /** Describes resolved services. */
@@ -95,7 +79,6 @@ export interface ResolvedServices {
   readonly appAuthService: AppAuthService;
   readonly conversationService: ConversationService;
   readonly appEndpointRegistry: AppEndpointRegistry;
-  readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
   readonly encryption: EnvelopeEncryption | null;
 }
@@ -111,6 +94,5 @@ export const resolveServices = Effect.all({
   appAuthService: AppAuthServiceTag,
   conversationService: ConversationServiceTag,
   appEndpointRegistry: AppEndpointRegistryTag,
-  leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;
