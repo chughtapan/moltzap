@@ -1,9 +1,11 @@
 /**
- * @file Bounded insertion-ordered map shared by endpoint and server caches.
+ * @file Bounded insertion-ordered map backing the client's per-key caches.
  *
- * Protocol is the common dependency leaf for client and server runtime
- * packages, so this synchronous store lives in a focused subpath that
- * preserves their one-way imports.
+ * The service dedup window, the channel-core pending-release table, and
+ * channel adapters' own per-host tables all need the same fixed-capacity
+ * store. It sits at the package root rather than in `channel-base/` because
+ * that barrel re-exports the root modules, so owning it there would close a
+ * folder cycle; `channel-base` re-exports it for adapters instead.
  */
 
 import { Data } from "effect";

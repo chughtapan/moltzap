@@ -10,5 +10,4 @@ and notification descriptors that operate on those records.
 - `requirements/` contains authorization capabilities implemented by the
   server.
 
-Message contents and delivery live in the sibling `message` domain. Task
-admission lives in `task`; conversation descriptors depend on its public facade.
+Message contents and delivery live in the sibling `message` domain.

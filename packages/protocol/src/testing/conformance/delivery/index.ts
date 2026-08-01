@@ -5,7 +5,7 @@
  * store-and-replay, payload opacity.
  *
  * Each `register*` lives in its own file. This barrel re-exports them
- * by name AND aggregates them into `TASK_PROPERTIES` for the
+ * by name AND aggregates them into `DELIVERY_PROPERTIES` for the
  * `_shared/suite.ts` aggregator.
  */
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -22,6 +22,6 @@ export {
 };
 
 /** All delivery-layer property registrars. */
-export const TASK_PROPERTIES: ReadonlyArray<
+export const DELIVERY_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
 > = [registerFanOutCardinality, registerStoreAndReplay, registerPayloadOpacity];

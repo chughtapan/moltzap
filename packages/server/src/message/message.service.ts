@@ -15,6 +15,7 @@ import {
   decodeMessagePartsText,
   validateDispatchDecision,
   messageReceivedNotificationDefinition,
+  HookBlockedError,
 } from "@moltzap/protocol/message";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import {
@@ -22,7 +23,6 @@ import {
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
-import { type TaskId, HookBlockedError } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import {
   DEFAULT_PAGE_LIMIT,
@@ -93,8 +93,6 @@ interface SendMessageInput {
   readonly conversationId: ConversationId;
   readonly parts: MessageParts;
   readonly senderAgentId: AgentId;
-  /** Opaque caller-supplied label; stamped on the row and echoed back. */
-  readonly taskId?: TaskId;
   readonly excludeConnectionId?: ConnectionId;
 }
 
@@ -112,7 +110,6 @@ interface ResolveSendVerdictInput {
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
   readonly parts: MessageParts;
-  readonly taskId?: TaskId;
 }
 
 interface SendConversationRow {
@@ -306,7 +303,6 @@ export class MessageService {
             parts_tag: encryptedParts.tag,
             dek_version: encryptedParts.dekVersion,
             kek_version: encryptedParts.kekVersion,
-            task_id: input.taskId ?? null,
             created_at: new Date(createdAtIso),
           })
           .returningAll()
@@ -319,7 +315,7 @@ export class MessageService {
   /**
    * Authorization routing, broadcast, and trace tail.
    *
-   * Sequencing is: authorize route -> preview -> fan-out -> trace.
+   * Sequencing is: authorize route -> fan-out -> trace.
    *
    * The `app/message/authorize` gate:
    *   1. Resolve the dispatch-authorization verdict via
@@ -354,8 +350,6 @@ export class MessageService {
   ): Effect.Effect<Message, HookBlockedError | SqlError> {
     return Effect.gen(
       function* (this: MessageService) {
-        this.updatePreview(input);
-
         const verdict = yield* this.resolveCommitVerdict(input);
         const effectiveVerdict = yield* this.commitDispatchDecision(
           input.carrier.message.id,
@@ -375,19 +369,6 @@ export class MessageService {
     );
   }
 
-  private updatePreview(input: SendCommitInput): void {
-    const firstTextPart = input.carrier.parts.find(
-      (part) => part.type === "text",
-    );
-    if (firstTextPart?.type !== "text") {
-      return;
-    }
-    this.conversations.updatePreviewCache(
-      input.conversationId,
-      firstTextPart.text,
-    );
-  }
-
   private resolveCommitVerdict(
     input: SendCommitInput,
   ): Effect.Effect<DispatchDecision> {
@@ -397,9 +378,6 @@ export class MessageService {
       conversationId: input.conversationId,
       senderAgentId: input.senderAgentId,
       parts: input.carrier.parts,
-      ...(input.carrier.message.taskId === undefined
-        ? {}
-        : { taskId: input.carrier.message.taskId }),
     });
   }
 
@@ -449,12 +427,7 @@ export class MessageService {
       .broadcastNotification(
         audience,
         messageReceivedNotificationDefinition,
-        {
-          ...(input.carrier.message.taskId === undefined
-            ? {}
-            : { taskId: input.carrier.message.taskId }),
-          message: input.carrier.message,
-        },
+        { message: input.carrier.message },
         {
           forConversation: input.conversationId,
           excludeConnectionId: input.carrier.excludeConnectionId,
@@ -562,7 +535,6 @@ export class MessageService {
             senderAgentId: input.senderAgentId,
             parts: input.parts,
           },
-          ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
           appId: input.appId,
         });
         switch (result.decision) {
@@ -964,7 +936,6 @@ export class MessageService {
     return {
       id: row.id,
       conversationId: row.conversation_id,
-      ...(row.task_id === null ? {} : { taskId: row.task_id }),
       senderId: row.sender_id,
       parts,
       createdAt: row.created_at.toISOString(),

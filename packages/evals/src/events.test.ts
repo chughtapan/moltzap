@@ -1,11 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { agentName } from "@moltzap/protocol/identity";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  taskId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { ProgramSucceeded, RouterMessageCommitted } from "@moltzap/simulator";
 import {
   NanoclawGatewayInput,
@@ -41,7 +36,6 @@ const CASE_ID = decodeEvaluationCaseId("EVAL-005");
 const OTHER_CASE_ID = decodeEvaluationCaseId("EVAL-006");
 const ALICE_ID = agentId("00000000-0000-4000-8000-000000000001");
 const BOB_ID = agentId("00000000-0000-4000-8000-000000000002");
-const TASK_ID = taskId("00000000-0000-4000-8000-000000000003");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000004");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000005");
 const ALICE_NAME = makeAgentName("alice");
@@ -106,7 +100,6 @@ const CODE_SENT = CodePeerMessageSent.make({
   caseId: CASE_ID,
   agentName: ALICE_NAME,
   agentId: ALICE_ID,
-  taskId: TASK_ID,
   conversationId: CONVERSATION_ID,
   messageId: MESSAGE_ID,
   parts: [{ type: "text", text: SOCIAL_TEXT }],
@@ -116,7 +109,6 @@ const CODE_RECEIVED = CodePeerMessageReceived.make({
   caseId: CASE_ID,
   agentName: BOB_NAME,
   agentId: BOB_ID,
-  taskId: TASK_ID,
   conversationId: CONVERSATION_ID,
   messageId: MESSAGE_ID,
   senderId: ALICE_ID,

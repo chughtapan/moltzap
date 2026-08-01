@@ -32,7 +32,6 @@ import {
   messageId as messageIdSchema,
 } from "#conversation";
 import { leaseId as leaseIdSchema } from "#message/dispatch";
-import { taskId as taskIdSchema } from "#task";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
@@ -123,15 +122,6 @@ export const messageId = (
   value: string,
 ): Schema.Schema.Type<typeof messageIdSchema> =>
   Schema.decodeUnknownSync(messageIdSchema)(value);
-/**
- * Validates and decodes task id values.
- * @param value Value to process.
- * @returns The task id result.
- */
-export const taskId = (
-  value: string,
-): Schema.Schema.Type<typeof taskIdSchema> =>
-  Schema.decodeUnknownSync(taskIdSchema)(value);
 /**
  * Validates and decodes lease id values.
  * @param value Value to process.
