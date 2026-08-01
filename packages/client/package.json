@@ -84,6 +84,9 @@
     "@effect/printer-ansi": "^0.50.0",
     "@effect/rpc": "^0.76.0",
     "@effect/typeclass": "^0.41.0",
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
+    "@modelcontextprotocol/node": "2.0.0-beta.5",
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
     "@moltzap/protocol": "workspace:*",
     "effect": "^3.22.0"
   },
