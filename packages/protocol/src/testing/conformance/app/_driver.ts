@@ -38,7 +38,7 @@ import {
   type PropertyFailure,
 } from "../_shared/registry.js";
 import type { agentId } from "#identity";
-import type { appId as appIdSchema } from "@moltzap/protocol/task";
+import type { appId as appIdSchema } from "@moltzap/protocol/identity";
 import {
   agentConversationCreate,
   conversationUpdate,

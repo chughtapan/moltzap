@@ -7,6 +7,7 @@ export {
   messagesSend,
   messagesList,
   messagesAuthorize,
+  HookBlockedError,
   messageReceivedNotificationDefinition,
   agentCallableMessageRpcMethods,
   messageCallbackMethods,

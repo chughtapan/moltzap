@@ -27,7 +27,6 @@ export {
   agentKeyStringArbitrary,
   redactedAgentKey,
   redactedAppKey,
-  taskId,
 } from "./test-fixtures.js";
 
 // Effect RPC owns frame encoding/decoding. The testing surface exposes

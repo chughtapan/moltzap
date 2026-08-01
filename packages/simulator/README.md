@@ -46,7 +46,6 @@ const roster = Society.agents({
               Ref.get(prefix).pipe(
                 Effect.flatMap((value) =>
                   context.client.callDefinition(messagesSend, {
-                    taskId: notification.taskId,
                     conversationId:
                       notification.message.conversationId,
                     parts: [

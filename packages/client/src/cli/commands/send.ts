@@ -16,10 +16,7 @@ interface SendCommandParsed {
 
 const targetArg = Args.text({ name: "target" }).pipe(
   Args.withSchema(sendTarget),
-  Args.withDescription(
-    "Target conversation as conv:<convId>, or task:<taskId>:<convId> to " +
-      "stamp a task label on the message",
-  ),
+  Args.withDescription("Target conversation as conv:<convId>"),
 );
 
 const messageArg = Args.text({ name: "message" }).pipe(
@@ -29,9 +26,7 @@ const messageArg = Args.text({ name: "message" }).pipe(
 /**
  * `moltzap send conv:&lt;convId> &lt;message>` — socket-call into the local
  * MoltZapService to enqueue an outbound `agent/message/send` against an
- * existing conversation. The conversation is the whole address;
- * `task:&lt;taskId>:&lt;convId>` is also accepted and forwards the task label
- * verbatim for endpoints that group by one.
+ * existing conversation. The conversation is the whole address.
  *
  * Identity selection is driven by the parent `@effect/cli` options
  * wired in `cli/index.ts`:
