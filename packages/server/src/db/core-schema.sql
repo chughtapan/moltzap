@@ -97,11 +97,6 @@ CREATE TABLE messages (
   parts_tag BYTEA NOT NULL,
   dek_version INT NOT NULL DEFAULT 1,
   kek_version INT NOT NULL,
-  -- Opaque endpoint-supplied label, stamped from the sender's own params and
-  -- echoed back verbatim. The server never reads, joins, or validates it:
-  -- grouping messages this way is an endpoint convention with no network
-  -- representation.
-  task_id UUID,
   is_deleted BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(conversation_id, seq)

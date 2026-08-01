@@ -1,8 +1,8 @@
 /** @file Shared channel-adapter primitives for `@moltzap/client/channel-base`. */
 
 // Channel adapters import per-key store primitives through channel-base.
-/** Re-exports the public API from `@moltzap/protocol/bounded-map`. */
-export { BoundedMap } from "@moltzap/protocol/bounded-map";
+/** Re-exports the public API from `../bounded-map.js`. */
+export { BoundedMap } from "../bounded-map.js";
 
 /** Re-exports the public API from `./lease.js`. */
 export {

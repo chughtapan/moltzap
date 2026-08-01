@@ -11,7 +11,7 @@ arbitrary derivation, and Toxiproxy adversity helpers.
 
 ## Public surface
 
-### [`agentId`](./test-fixtures.ts#L95)
+### [`agentId`](./test-fixtures.ts#L94)
 
 _Function_
 
@@ -25,7 +25,7 @@ Validates and decodes agent id values.
 
 **Returns:** The agent id result.
 
-### [`agentKeyArbitrary`](./test-fixtures.ts#L177)
+### [`agentKeyArbitrary`](./test-fixtures.ts#L167)
 
 _Variable_
 
@@ -36,7 +36,7 @@ export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
 
 Provides the agent key arbitrary runtime value.
 
-### [`agentKeyString`](./test-fixtures.ts#L184)
+### [`agentKeyString`](./test-fixtures.ts#L174)
 
 _Function_
 
@@ -48,7 +48,7 @@ Provides the agent key string runtime value.
 
 **Returns:** The agent key string result.
 
-### [`agentKeyStringArbitrary`](./test-fixtures.ts#L171)
+### [`agentKeyStringArbitrary`](./test-fixtures.ts#L161)
 
 _Variable_
 
@@ -62,7 +62,7 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
 
 Provides the agent key string arbitrary runtime value.
 
-### [`agentName`](./test-fixtures.ts#L104)
+### [`agentName`](./test-fixtures.ts#L103)
 
 _Function_
 
@@ -76,7 +76,7 @@ Validates and decodes agent name values.
 
 **Returns:** The agent name result.
 
-### [`AgentRegistrationError`](./test-fixtures.ts#L226)
+### [`AgentRegistrationError`](./test-fixtures.ts#L216)
 
 _Class_
 
@@ -93,7 +93,7 @@ export class AgentRegistrationError extends Data.TaggedError(
 
 HTTP registration failed (network, non-2xx, malformed response).
 
-### [`appId`](./test-fixtures.ts#L149)
+### [`appId`](./test-fixtures.ts#L139)
 
 _Function_
 
@@ -105,7 +105,7 @@ Validates and decodes app id values.
 
 **Returns:** The app id result.
 
-### [`connectionId`](./test-fixtures.ts#L192)
+### [`connectionId`](./test-fixtures.ts#L182)
 
 _Variable_
 
@@ -115,7 +115,7 @@ export const connectionId = decodeConnectionId
 
 Provides the connection id runtime value.
 
-### [`conversationId`](./test-fixtures.ts#L113)
+### [`conversationId`](./test-fixtures.ts#L112)
 
 _Function_
 
@@ -129,7 +129,7 @@ Validates and decodes conversation id values.
 
 **Returns:** The conversation id result.
 
-### [`leaseId`](./test-fixtures.ts#L140)
+### [`leaseId`](./test-fixtures.ts#L130)
 
 _Function_
 
@@ -173,7 +173,7 @@ Creates test app client.
 
 **Returns:** The created test app client.
 
-### [`messageId`](./test-fixtures.ts#L122)
+### [`messageId`](./test-fixtures.ts#L121)
 
 _Function_
 
@@ -187,7 +187,7 @@ Validates and decodes message id values.
 
 **Returns:** The message id result.
 
-### [`mintTestAppCredential`](./test-fixtures.ts#L380)
+### [`mintTestAppCredential`](./test-fixtures.ts#L370)
 
 _Function_
 
@@ -226,7 +226,7 @@ export class RealServerAcquireError extends Data.TaggedError(
 
 Consumer-supplied real-server factory threw or returned an unusable handle.
 
-### [`redactedAgentKey`](./test-fixtures.ts#L156)
+### [`redactedAgentKey`](./test-fixtures.ts#L146)
 
 _Function_
 
@@ -238,7 +238,7 @@ Validates and decodes redacted agent key values.
 
 **Returns:** The redacted agent key result.
 
-### [`redactedAppKey`](./test-fixtures.ts#L163)
+### [`redactedAppKey`](./test-fixtures.ts#L153)
 
 _Function_
 
@@ -250,7 +250,7 @@ Validates and decodes redacted app key values.
 
 **Returns:** The redacted app key result.
 
-### [`registerTestAgent`](./test-fixtures.ts#L432)
+### [`registerTestAgent`](./test-fixtures.ts#L422)
 
 _Function_
 
@@ -298,21 +298,7 @@ export class RpcTimeoutError extends Data.TaggedError(
 
 Wall-clock deadline for a request expired before a response.
 
-### [`taskId`](./test-fixtures.ts#L131)
-
-_Function_
-
-```ts
-export const taskId = (
-  value: string,
-): Schema.Schema.Type<typeof taskIdSchema>
-```
-
-Validates and decodes task id values.
-
-**Returns:** The task id result.
-
-### [`TestAgent`](./test-fixtures.ts#L202)
+### [`TestAgent`](./test-fixtures.ts#L192)
 
 _Interface_
 
@@ -398,7 +384,7 @@ export interface TestAppClient {
 
 Describes test app client.
 
-### [`TestAppCredential`](./test-fixtures.ts#L318)
+### [`TestAppCredential`](./test-fixtures.ts#L308)
 
 _Interface_
 
@@ -411,7 +397,7 @@ export interface TestAppCredential {
 
 Server-minted app principal credentials.
 
-### [`TestAppHttpRegistrationError`](./test-fixtures.ts#L342)
+### [`TestAppHttpRegistrationError`](./test-fixtures.ts#L332)
 
 _Class_
 
@@ -488,7 +474,7 @@ export class TransportIoError extends Data.TaggedError(
 
 Underlying transport raised (socket error, DNS, TLS, etc.).
 
-### [`userId`](./test-fixtures.ts#L86)
+### [`userId`](./test-fixtures.ts#L85)
 
 _Function_
 

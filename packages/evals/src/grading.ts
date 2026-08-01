@@ -10,7 +10,6 @@ import {
   type MessageParts,
   messagePartsSchema,
 } from "@moltzap/protocol/message";
-import { taskId } from "@moltzap/protocol/task";
 import { OpenClawGatewayTimedOut } from "@moltzap/simulator/runtime";
 import {
   Array as Arr,
@@ -105,7 +104,6 @@ export class SocialTranscriptItem extends Schema.TaggedClass<SocialTranscriptIte
     actorId: agentId,
     endpointName: agentName,
     endpointId: agentId,
-    taskId: Schema.optional(taskId),
     conversationId,
     routerCommitEvidenceId: evaluationEvidenceId,
     parts: transcriptParts,
@@ -343,7 +341,6 @@ function socialItem(
     ...(senderName === undefined ? {} : { actorName: senderName }),
     endpointName: observation.agentName,
     endpointId: observation.agentId,
-    ...(observation.taskId === undefined ? {} : { taskId: observation.taskId }),
     conversationId: observation.conversationId,
     routerCommitEvidenceId: item.routerCommitEventId,
     parts: observation.parts,
@@ -1182,7 +1179,6 @@ interface CalibrationDefinition {
 const decodeAgentId = Schema.decodeSync(agentId);
 const decodeAgentName = Schema.decodeSync(agentName);
 const decodeConversationId = Schema.decodeSync(conversationId);
-const decodeTaskId = Schema.decodeSync(taskId);
 const calibrationTargetId = decodeAgentId(
   "00000000-0000-4000-8000-000000000102",
 );
@@ -1191,12 +1187,6 @@ const calibrationTargetName = decodeAgentName(TARGET_AGENT_NAME);
 const calibrationPeerName = decodeAgentName("evaluation-calibration-peer");
 const calibrationPolicyId = decodeJudgePolicyId(
   "moltzap.semantic-judge-calibration/v1",
-);
-const calibrationContextTaskId = decodeTaskId(
-  "00000000-0000-4000-8000-000000000201",
-);
-const calibrationOutputTaskId = decodeTaskId(
-  "00000000-0000-4000-8000-000000000202",
 );
 const calibrationContextConversationId = decodeConversationId(
   "00000000-0000-4000-8000-000000000301",
@@ -1303,9 +1293,6 @@ function calibrationTranscript(
           actorId: calibrationTargetId,
           endpointName: calibrationPeerName,
           endpointId: calibrationPeerId,
-          taskId: separateConversation
-            ? calibrationOutputTaskId
-            : calibrationContextTaskId,
           conversationId: separateConversation
             ? calibrationOutputConversationId
             : calibrationContextConversationId,
@@ -1327,7 +1314,6 @@ function calibrationTranscript(
         actorId: calibrationPeerId,
         endpointName: calibrationPeerName,
         endpointId: calibrationPeerId,
-        taskId: calibrationContextTaskId,
         conversationId: calibrationContextConversationId,
         routerCommitEvidenceId: calibrationEvidenceId(
           fixtureIndex,

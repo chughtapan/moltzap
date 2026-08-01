@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./handlers.ts#L189)
+### [`agentConversationCreate`](./handlers.ts#L177)
 
 _Variable_
 
@@ -24,7 +24,7 @@ Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationList`](./handlers.ts#L178)
+### [`conversationList`](./handlers.ts#L166)
 
 _Variable_
 
@@ -40,38 +40,18 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](./conversation.service.ts#L236)
+### [`ConversationService`](./conversation.service.ts#L237)
 
 _Class_
 
 ```ts
 export class ConversationService {
-  /** In-memory cache for last-message previews, avoiding repeated decryption. */
-  private readonly previewCache = new BoundedMap<ConversationId, string>(
-    PREVIEW_CACHE_MAX,
-  );
-
   private readonly db: Db;
   private readonly connections: ConnectionManager;
 
   constructor(db: Db, connections: ConnectionManager) {
     this.db = db;
     this.connections = connections;
-  }
-
-  /**
-   * Writes the plaintext preview before message-part encryption.
-   * @param conversationId Value supplied to the operation.
-   * @param firstPartText Value supplied to the operation.
-   */
-  updatePreviewCache(
-    conversationId: ConversationId,
-    firstPartText: string,
-  ): void {
-    this.previewCache.set(
-      conversationId,
-      firstPartText.slice(0, PREVIEW_CACHE_TEXT_CHARS),
-    );
   }
 
   create(input: CreateConversationOptions): Effect.Effect<Conversation> {
@@ -165,6 +145,26 @@ export class ConversationService {
             agentId,
             conversationId,
           );
+          yield* broadcastNotificationToAgents(
+            participantsSnapshot,
+            conversationParticipantsRemovedNotificationDefinition,
+            {
+              conversationId,
+              removedAgentId: agentId,
+              reason: "app_remove" as const,
+            },
+          );
+        }.bind(this),
+      ),
+    );
+  }
+
+  /**
+   * Rejects a membership that exceeds the group limit. Callers pass the
+   * resulting member count, so creation and participant addition share one
+   * capacity rule.
+   * @param memberCount Value supplied to the operation.
+   * @internal
 ```
 
 Implements conversation service.
@@ -198,7 +198,7 @@ export class ConversationServiceTag extends Context.Tag(
 
 Implements conversation service tag.
 
-### [`conversationUpdate`](./handlers.ts#L200)
+### [`conversationUpdate`](./handlers.ts#L188)
 
 _Variable_
 

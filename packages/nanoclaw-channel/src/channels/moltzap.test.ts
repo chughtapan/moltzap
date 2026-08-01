@@ -10,7 +10,6 @@ import {
   testConversationId,
   testLeaseId,
   testMessageId,
-  testTaskId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 
@@ -342,13 +341,11 @@ function rejectsOtherChannelJids() {
 
 function stripsPrefixAndForwardsSend() {
   const harness = createHarness();
-  const taskId = testTaskId("strips-prefix");
   return Effect.gen(function* () {
     yield* setup(harness);
     setDmConversation(harness, CONV_42);
     harness.fake.emit.message(
       buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
-      taskId,
     );
     yield* flushDispatch();
     yield* deliver(harness.adapter, asJid(CONV_42), HELLO_THERE);
@@ -356,7 +353,6 @@ function stripsPrefixAndForwardsSend() {
       {
         convId: testConversationId(CONV_42),
         text: HELLO_THERE,
-        taskId,
       },
     ]);
   });
@@ -380,14 +376,12 @@ function rejectsDeliverWithoutInboundConversation() {
 
 function usesDispatchLeaseForNextReply() {
   const harness = createHarness();
-  const taskId = testTaskId("uses-dispatch-lease");
   return Effect.gen(function* () {
     yield* setup(harness);
     setDmConversation(harness, CONV_42);
     configureDispatchGrant(harness, DISPATCH_LEASE, DISPATCH_ID);
     harness.fake.emit.message(
       buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
-      taskId,
     );
     yield* flushDispatch();
     yield* deliver(harness.adapter, asJid(CONV_42), HELLO_WITH_LEASE);
@@ -397,7 +391,6 @@ function usesDispatchLeaseForNextReply() {
         convId: testConversationId(CONV_42),
         text: HELLO_WITH_LEASE,
         dispatchLeaseId: testLeaseId(DISPATCH_LEASE),
-        taskId,
       },
     ]);
   });

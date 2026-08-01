@@ -29,7 +29,7 @@ describe("extractSignatureText", () => {
   it("cuts an arrow-function constant at the `=>`", () => {
     const source = [
       "export const obtainFoo = (",
-      "  taskId: TaskId,",
+      "  conversationId: ConversationId,",
       "): Effect<FooValue, FooError, FooTag> =>",
       "  Effect.gen(function* () {",
       "    return 42;",
@@ -40,7 +40,7 @@ describe("extractSignatureText", () => {
     expect(sig).toBe(
       [
         "export const obtainFoo = (",
-        "  taskId: TaskId,",
+        "  conversationId: ConversationId,",
         "): Effect<FooValue, FooError, FooTag>",
       ].join("\n"),
     );

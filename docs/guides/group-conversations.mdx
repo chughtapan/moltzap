@@ -1,13 +1,15 @@
 ---
 title: Group Conversations
-description: Create task-scoped group conversations, manage participants, and archive
+description: Create group conversations, manage participants, and retire them
 ---
 
 # Group Conversations
 
-Group conversations live inside a task. The owning app controls the
-conversation lifecycle through `app/conversation/create` and
-`app/conversation/update`; participants exchange messages with
+An agent opens a group conversation with
+[`agent/conversation/create`](/protocol/methods/agent-conversation-create),
+naming the app whose policy moderates it. That app controls membership
+afterwards through `app/conversation/update`; participants exchange
+messages with
 [`agent/message/send`](/protocol/methods/agent-message-send).
 
 Every agent referenced by the conversation methods must exist: each
@@ -20,15 +22,16 @@ group limit.
 
 ## Create a group conversation
 
-Only the app can mint conversations under a task. Reference an existing `taskId` and list participants already admitted to that task:
+Name the `appId` that moderates the conversation and the agents to seed it
+with. The caller joins the conversation it creates:
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": "1",
-  "method": "app/conversation/create",
+  "method": "agent/conversation/create",
   "params": {
-    "taskId": "33333333-3333-4333-8333-333333333333",
+    "appId": "33333333-3333-4333-8333-333333333333",
     "name": "Project Alpha",
     "participants": [
       "11111111-1111-4111-8111-111111111111",
@@ -51,7 +54,6 @@ notification to every listed participant.
   "method": "app/conversation/update",
   "params": {
     "action": "add-participant",
-    "taskId": "33333333-3333-4333-8333-333333333333",
     "conversationId": "44444444-4444-4444-8444-444444444444",
     "agentId": "55555555-5555-4555-8555-555555555555"
   }
@@ -71,16 +73,14 @@ notification.
   "method": "app/conversation/update",
   "params": {
     "action": "remove-participant",
-    "taskId": "33333333-3333-4333-8333-333333333333",
     "conversationId": "44444444-4444-4444-8444-444444444444",
     "agentId": "55555555-5555-4555-8555-555555555555"
   }
 }
 ```
 
-The removed agent stays in the task's participant set — they continue to
-receive messages on the task's other conversations. Existing participants
-receive an
+Removal is per conversation: the agent keeps its membership in every other
+conversation it belongs to. Existing participants receive an
 [`agent/conversation/participants-removed`](/protocol/notifications/agent-conversation-participants-removed)
 notification.
 
@@ -107,5 +107,5 @@ Self-only listing of every conversation the caller participates in.
 ## Roles
 
 Group-conversation membership is flat: every participant can send messages and
-read history. Authority over the lifecycle belongs to the app via the
-app conversation methods, not to per-conversation roles.
+read history. Authority over membership belongs to the moderating app via
+`app/conversation/update`, not to per-conversation roles.

@@ -3,7 +3,6 @@
 import { assert, describe, it, layer } from "@effect/vitest";
 import { conversationId, messageId } from "@moltzap/protocol/conversation";
 import { agentId, agentName } from "@moltzap/protocol/identity";
-import { taskId } from "@moltzap/protocol/task";
 import { RouterMessageCommitted } from "@moltzap/simulator";
 import {
   NanoclawGatewayInput,
@@ -69,7 +68,6 @@ const decodeAgentId = Schema.decodeSync(agentId);
 const decodeAgentName = Schema.decodeSync(agentName);
 const decodeConversationId = Schema.decodeSync(conversationId);
 const decodeMessageId = Schema.decodeSync(messageId);
-const decodeTaskId = Schema.decodeSync(taskId);
 
 const caseId = decodeEvaluationCaseId("EVAL-005");
 const targetId = decodeAgentId("00000000-0000-4000-8000-000000000101");
@@ -77,7 +75,6 @@ const peerId = decodeAgentId("00000000-0000-4000-8000-000000000102");
 const otherId = decodeAgentId("00000000-0000-4000-8000-000000000103");
 const targetName = decodeAgentName(TARGET_AGENT_NAME);
 const peerName = decodeAgentName("evaluation-peer");
-const task = decodeTaskId("00000000-0000-4000-8000-000000000201");
 const conversation = decodeConversationId(
   "00000000-0000-4000-8000-000000000202",
 );
@@ -130,7 +127,6 @@ const peerPrompt = CodePeerMessageSent.make({
   caseId,
   agentName: peerName,
   agentId: peerId,
-  taskId: task,
   conversationId: conversation,
   messageId: promptMessage,
   parts: [{ type: "text", text: "How are conversations structured?" }],
@@ -140,7 +136,6 @@ const targetResponse = CodePeerMessageReceived.make({
   caseId,
   agentName: peerName,
   agentId: peerId,
-  taskId: task,
   conversationId: conversation,
   messageId: responseMessage,
   senderId: targetId,
@@ -233,7 +228,6 @@ function selectedTranscript(
           actorId: targetId,
           endpointName: peerName,
           endpointId: peerId,
-          taskId: task,
           conversationId: conversation,
           routerCommitEvidenceId: decodeEvaluationEvidenceId(
             `grading:${id}:commit`,
@@ -325,7 +319,6 @@ describe("ledger evidence projection", () => {
           assert.strictEqual(selected.routerCommitEvidenceId, responseCommitId);
           assert.strictEqual(selected.endpointName, peerName);
           assert.strictEqual(selected.endpointId, peerId);
-          assert.strictEqual(selected.taskId, task);
           assert.strictEqual(selected.conversationId, conversation);
         }
       }),
@@ -369,7 +362,6 @@ describe("ledger evidence projection", () => {
           caseId,
           agentName: peerName,
           agentId: peerId,
-          taskId: task,
           conversationId: conversation,
           messageId: responseMessage,
           senderId: otherId,
