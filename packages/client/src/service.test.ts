@@ -14,6 +14,8 @@ import {
   buildMessage,
   testAgentId,
   testConversationId,
+  testDispatchId,
+  testLeaseId,
   testMessageId,
 } from "./test-utils/index.js";
 
@@ -47,8 +49,8 @@ const VIEWER_TWO_ID = testConversationId("viewer-2");
 const MESSAGE_ONE_ID = testMessageId("m-1");
 const MESSAGE_TWO_ID = testMessageId("m-2");
 const MESSAGE_THREE_ID = testMessageId("m-3");
-const DISPATCH_LEASE_ID = testAgentId("lease-1");
-const DISPATCH_ID = testAgentId("dispatch-1");
+const DISPATCH_LEASE_ID = testLeaseId("lease-1");
+const DISPATCH_ID = testDispatchId("dispatch-1");
 const decodeAgentName = Schema.decodeSync(agentName);
 const SEND_TO_AGENT_NAME = decodeAgentName("alice");
 const BOB_AGENT_NAME = decodeAgentName("bob");
@@ -392,11 +394,16 @@ describe("sanitizeForSystemReminder containment", () => {
   );
 });
 
-function dispatchRequestAck(): ResultOf<typeof dispatchRequest> {
-  const value: unknown = {
+type DispatchRequestAck = Extract<
+  ResultOf<typeof dispatchRequest>,
+  { readonly leaseId: unknown }
+>;
+
+function dispatchRequestAck(): DispatchRequestAck {
+  const value = {
     leaseId: DISPATCH_LEASE_ID,
     dispatchId: DISPATCH_ID,
-  };
+  } satisfies DispatchRequestAck;
   if (!dispatchRequest.validateResult(value)) {
     expect.fail("invalid agent/dispatch/request ack fixture");
   }
@@ -418,6 +425,10 @@ function requestDispatchReturnsAck() {
       pending: [],
       parts: [{ type: "text", text: "Time to vote!" }],
     });
+
+    if ("outcome" in result) {
+      return expect.fail("expected a minted dispatch lease");
+    }
 
     expect(result.leaseId).toBe(ack.leaseId);
     expect(result.dispatchId).toBe(ack.dispatchId);

@@ -11,7 +11,7 @@ App-layer conformance properties.
 Dispatch / lease / app-callback invariants — the 14
 `dispatch-admission` properties (request / authorize / release /
 dispatch-lease-consumed / dispatch-lease-expired / dispatch-lease-get / slow-first
-/ same-conv-concurrent / release-for-one-lease) plus app-disconnect
+/ same-conv-busy / release-for-one-lease) plus app-disconnect
 fail-policy and idempotence.
 
 Each `register*` lives in its own file. The `dispatch-admission`
@@ -58,7 +58,7 @@ export const APP_PROPERTIES: ReadonlyArray<
   registerDispatchLeaseExpiredFiresOnTtl,
   registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl,
   registerDispatchLeaseGetModeratorSeesRecord,
-  registerSameConversationDispatchRequestsConcurrent,
+  registerSameConversationDispatchRequestBusy,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
   registerAppDisconnectFailPolicy,
@@ -108,7 +108,7 @@ Executes the dispatch admission violation operation.
 
 **Returns:** The dispatch admission violation result.
 
-### [`DispatchTestDriver`](./_driver.ts#L265)
+### [`DispatchTestDriver`](./_driver.ts#L277)
 
 _Interface_
 
@@ -122,13 +122,18 @@ export interface DispatchTestDriver {
 
   /**
    * Spin up an additional recipient client under a fresh agent identity.
-   * Used by `same-conversation-dispatch-requests-reach-moderator-concurrently`
-   * (two recipients in the same conversation issue `agent/dispatch/request`
-   * back-to-back).
+   * Used by `same-conversation-second-dispatch-returns-busy` (two recipients
+   * in the same conversation issue `agent/dispatch/request` concurrently).
    */
   readonly addRecipient: (opts: {
     readonly agentName?: string;
   }) => Effect.Effect<RecipientHandle, PropertyFailure, Scope.Scope>;
+
+  /** Creates another app-bound conversation for the existing recipient. */
+  readonly createConversation: () => Effect.Effect<
+    Schema.Schema.Type<typeof conversationIdSchema>,
+    PropertyFailure
+  >;
 
   /**
    * Poll `app/dispatch/lease/get` until the lease reaches `expected` or the
@@ -267,7 +272,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L927)
+### [`makeDispatchTestDriver`](./_driver.ts#L964)
 
 _Function_
 
@@ -299,14 +304,14 @@ export const MISSING_TOPOLOGY_REASON =
 Reason this property reports as unavailable. The suite's allowed
 coverage-gap table matches on this text, so both sides read one constant.
 
-### [`ModeratorHandle`](./_driver.ts#L194)
+### [`ModeratorHandle`](./_driver.ts#L206)
 
 _Interface_
 
 ```ts
 export interface ModeratorHandle {
   readonly agentId: Schema.Schema.Type<typeof agentId>;
-  readonly appId: string;
+  readonly appId: Schema.Schema.Type<typeof appIdSchema>;
 
   /**
    * Park until a `app/dispatch/authorize` S→C request arrives that matches
@@ -394,7 +399,7 @@ export const NO_SECOND_RELEASE_WINDOW_MS = 250
 
 Provides the no second release window ms runtime value.
 
-### [`RecipientHandle`](./_driver.ts#L113)
+### [`RecipientHandle`](./_driver.ts#L119)
 
 _Interface_
 
@@ -413,13 +418,19 @@ export interface RecipientHandle {
     readonly messageId: Schema.Schema.Type<typeof messageId>;
     readonly senderAgentId: Schema.Schema.Type<typeof agentId>;
     readonly attempt?: number;
-  }) => Effect.Effect<
-    {
-      readonly leaseId: Schema.Schema.Type<typeof leaseId>;
-      readonly dispatchId: Schema.Schema.Type<typeof dispatchIdSchema>;
-    },
-    PropertyFailure
-  >;
+  }) => Effect.Effect<DispatchLeaseAck, PropertyFailure>;
+
+  /**
+   * Issue `agent/dispatch/request` without narrowing its declared result union.
+   * The busy conformance property uses this surface to observe the no-lease
+   * outcome; lease lifecycle properties use `requestDispatch` above.
+   */
+  readonly requestDispatchOutcome: (params: {
+    readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
+    readonly messageId: Schema.Schema.Type<typeof messageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof agentId>;
+    readonly attempt?: number;
+  }) => Effect.Effect<DispatchRequestOutcome, PropertyFailure>;
 
   /**
    * Park until a `agent/dispatch/released` notification arrives that matches
@@ -632,17 +643,17 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
 
 Registers release for one lease does not wait on another.
 
-### [`registerSameConversationDispatchRequestsConcurrent`](./same-conv-dispatch-requests-concurrent.ts#L20)
+### [`registerSameConversationDispatchRequestBusy`](./same-conv-dispatch-request-busy.ts#L17)
 
 _Function_
 
 ```ts
-export function registerSameConversationDispatchRequestsConcurrent(
+export function registerSameConversationDispatchRequestBusy(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-Registers same conversation dispatch requests concurrent.
+Registers the one-live-dispatch-per-conversation property.
 
 ### [`registerSlowFirstDoesNotDelaySecondAck`](./slow-first-does-not-delay-second-ack.ts#L16)
 
@@ -747,5 +758,5 @@ driver, runs `body`, releases on completion.
 - `idempotence.ts`
 - `index.ts`
 - `release-for-one-lease-does-not-wait.ts`
-- `same-conv-dispatch-requests-concurrent.ts`
+- `same-conv-dispatch-request-busy.ts`
 - `slow-first-does-not-delay-second-ack.ts`

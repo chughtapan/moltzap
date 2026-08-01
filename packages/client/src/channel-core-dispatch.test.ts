@@ -491,6 +491,54 @@ effectTest(
   holdsHeadOfLineWorkUntilANewInboundMessageRefreshesTheSnapshot,
 );
 
+function parksConversationBusyWorkForTheExistingRetryPath() {
+  return Effect.gen(function* () {
+    const { fake, received } = customSetup();
+    setGroupConversation(fake, "conv-1");
+    setAgentNames(fake, [
+      ["agent-alice", "Alice"],
+      ["agent-bob", "Bob"],
+    ]);
+    installAdmission(fake, () =>
+      Effect.succeed({
+        _tag: "grant" as const,
+        leaseId: testLeaseId("lease-after-busy"),
+      }),
+    );
+    const requestWithLease =
+      /* Safe because installAdmission installs this method before it is captured. */ fake.service.requestDispatch!.bind(
+        fake.service,
+      );
+    let calls = 0;
+    fake.service.requestDispatch = (request) => {
+      calls += 1;
+      return calls === 1
+        ? Effect.succeed({ outcome: "conversation_busy" as const })
+        : requestWithLease(request);
+    };
+
+    emitConv1TextMessage(fake, "msg-1", "agent-alice", FIRST_TEXT);
+    yield* flushDispatchChainEffect;
+    expect(calls).toBe(1);
+    expect(received).toHaveLength(0);
+
+    emitConv1TextMessage(fake, "msg-2", "agent-bob", SECOND_TEXT);
+    yield* flushDispatchChainEffect;
+    expect(calls).toBe(2);
+    expectSingleCoalescedMessage(received, {
+      id: "msg-1",
+      includes: [FIRST_TEXT, SECOND_TEXT],
+      coalescedIds: ["msg-1", "msg-2"],
+      dispatchLeaseId: testLeaseId("lease-after-busy"),
+    });
+  });
+}
+
+effectTest(
+  "parks conversation_busy work for the existing retry path",
+  parksConversationBusyWorkForTheExistingRetryPath,
+);
+
 function doesNotLetHeldWorkInOneConversationBlockAnotherConversation() {
   return Effect.gen(function* () {
     const { fake, received } = customSetup();

@@ -1,7 +1,7 @@
 /**
  * Cross-impl `dispatch-admission` test driver.
  *
- * The 15 `dispatch-admission` properties cannot execute against a single
+ * The 14 `dispatch-admission` properties cannot execute against a single
  * one client: the round-trip needs agent and app clients scripted in lockstep
  * against the same real server — a recipient that issues
  * `agent/dispatch/request`, and a moderator that receives `app/dispatch/authorize`
@@ -102,6 +102,12 @@ export type LeaseState =
   | "ABANDONED"
   | "HOLD";
 
+type DispatchRequestOutcome = ResultOf<typeof dispatchRequest>;
+type DispatchLeaseAck = Extract<
+  DispatchRequestOutcome,
+  { readonly leaseId: unknown }
+>;
+
 // ── Recipient handle ──────────────────────────────────────────────────
 
 /**
@@ -124,13 +130,19 @@ export interface RecipientHandle {
     readonly messageId: Schema.Schema.Type<typeof messageId>;
     readonly senderAgentId: Schema.Schema.Type<typeof agentId>;
     readonly attempt?: number;
-  }) => Effect.Effect<
-    {
-      readonly leaseId: Schema.Schema.Type<typeof leaseId>;
-      readonly dispatchId: Schema.Schema.Type<typeof dispatchIdSchema>;
-    },
-    PropertyFailure
-  >;
+  }) => Effect.Effect<DispatchLeaseAck, PropertyFailure>;
+
+  /**
+   * Issue `agent/dispatch/request` without narrowing its declared result union.
+   * The busy conformance property uses this surface to observe the no-lease
+   * outcome; lease lifecycle properties use `requestDispatch` above.
+   */
+  readonly requestDispatchOutcome: (params: {
+    readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
+    readonly messageId: Schema.Schema.Type<typeof messageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof agentId>;
+    readonly attempt?: number;
+  }) => Effect.Effect<DispatchRequestOutcome, PropertyFailure>;
 
   /**
    * Park until a `agent/dispatch/released` notification arrives that matches
@@ -193,7 +205,7 @@ type SendWithLeaseResult =
  */
 export interface ModeratorHandle {
   readonly agentId: Schema.Schema.Type<typeof agentId>;
-  readonly appId: string;
+  readonly appId: Schema.Schema.Type<typeof appIdSchema>;
 
   /**
    * Park until a `app/dispatch/authorize` S→C request arrives that matches
@@ -271,13 +283,18 @@ export interface DispatchTestDriver {
 
   /**
    * Spin up an additional recipient client under a fresh agent identity.
-   * Used by `same-conversation-dispatch-requests-reach-moderator-concurrently`
-   * (two recipients in the same conversation issue `agent/dispatch/request`
-   * back-to-back).
+   * Used by `same-conversation-second-dispatch-returns-busy` (two recipients
+   * in the same conversation issue `agent/dispatch/request` concurrently).
    */
   readonly addRecipient: (opts: {
     readonly agentName?: string;
   }) => Effect.Effect<RecipientHandle, PropertyFailure, Scope.Scope>;
+
+  /** Creates another app-bound conversation for the existing recipient. */
+  readonly createConversation: () => Effect.Effect<
+    Schema.Schema.Type<typeof conversationIdSchema>,
+    PropertyFailure
+  >;
 
   /**
    * Poll `app/dispatch/lease/get` until the lease reaches `expected` or the
@@ -529,6 +546,8 @@ function buildRecipientHandle(
     return {
       agentId: acquired.agent.agentId,
       requestDispatch: (params) => requestDispatch(acquired, params),
+      requestDispatchOutcome: (params) =>
+        requestDispatchOutcome(acquired, params),
       waitForRelease: (predicate, timeoutMs) =>
         waitForRelease(buffer, predicate, timeoutMs),
       sendWithLease: (params) => sendWithLease(acquired, params),
@@ -541,6 +560,24 @@ function requestDispatch(
   acquired: AcquiredCloseableClient,
   params: Parameters<RecipientHandle["requestDispatch"]>[0],
 ): ReturnType<RecipientHandle["requestDispatch"]> {
+  return requestDispatchOutcome(acquired, params).pipe(
+    Effect.flatMap((outcome) =>
+      "outcome" in outcome
+        ? Effect.fail(
+            violation(
+              "recipient.requestDispatch",
+              "expected a minted dispatch lease but received conversation_busy",
+            ),
+          )
+        : Effect.succeed(outcome),
+    ),
+  );
+}
+
+function requestDispatchOutcome(
+  acquired: AcquiredCloseableClient,
+  params: Parameters<RecipientHandle["requestDispatchOutcome"]>[0],
+): ReturnType<RecipientHandle["requestDispatchOutcome"]> {
   return acquired.client
     .sendRpc(dispatchRequest, {
       conversationId: params.conversationId,
@@ -684,7 +721,7 @@ interface DispatchAuthorizePredicateInput {
 interface ModeratorHandleOptions {
   readonly agent: TestAgent;
   readonly client: AppTestClient;
-  readonly appId: string;
+  readonly appId: Schema.Schema.Type<typeof appIdSchema>;
   readonly app: TestApp;
 }
 
@@ -1076,6 +1113,12 @@ function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
         conversationId: parts.fixtures.conversationId,
         opts,
       }),
+    createConversation: () =>
+      createDriverConversation(
+        parts.clients.moderatorClient,
+        parts.moderator.appId,
+        parts.clients.recipientAcquired.agent,
+      ),
     assertLeaseState: (dispatchId, expected, opts) =>
       assertLeaseState(parts.moderator, dispatchId, expected, opts),
     advanceTime,

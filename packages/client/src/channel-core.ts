@@ -189,9 +189,9 @@ export interface ChannelService {
   };
 
   /**
-   * Issue `agent/dispatch/request` and receive the immediate
-   * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
-   * via the `dispatchRelease` event.
+   * Issue `agent/dispatch/request` and receive either the immediate
+   * `{leaseId, dispatchId}` ack or `conversation_busy`. The verdict for a
+   * minted lease arrives asynchronously via the `dispatchRelease` event.
    *
    * The argument shape mirrors `ParamsOf&lt;DispatchRequest>` from the
    * protocol (the channel core does not depend on the protocol
@@ -210,7 +210,8 @@ export interface ChannelService {
     readonly pending?: readonly unknown[];
     readonly attempt?: number;
   }): Effect.Effect<
-    { readonly leaseId: LeaseId; readonly dispatchId: string },
+    | { readonly leaseId: LeaseId; readonly dispatchId: string }
+    | { readonly outcome: "conversation_busy" },
     ServiceRpcError
   >;
 }
@@ -690,7 +691,11 @@ export class MoltZapChannelCore {
             timeoutMs: this.dispatchAdmissionTimeoutMs,
           }),
       }),
-      Effect.flatMap(({ leaseId }) => this.awaitDispatchRelease(work, leaseId)),
+      Effect.flatMap((result) =>
+        "outcome" in result
+          ? Effect.succeed(MoltZapChannelCore.holdDecision(result.outcome))
+          : this.awaitDispatchRelease(work, result.leaseId),
+      ),
       Effect.catchAll((err) =>
         Effect.gen(function* () {
           yield* effectLogWarning(
