@@ -20,7 +20,7 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
-import { DEFAULT_APP_ID } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import {
   agentConversationCreate,
   type ConversationId,

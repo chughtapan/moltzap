@@ -21,10 +21,8 @@ surface.
 - **Account** — OpenClaw channel identity; its `id` is the MoltZap
   profile name from `~/.moltzap/config.json`; OpenClaw stores no
   MoltZap API keys.
-- **Target** — `agent:<name>` or `conv:<conversationId>`;
-  `task:<taskId>:<conversationId>` is also accepted and stamps the task
-  label onto the sent message. `isMoltZapTarget` is the accepting
-  predicate.
+- **Target** — `agent:<name>` or `conv:<conversationId>`.
+  `isMoltZapTarget` is the accepting predicate.
 - **Dispatch lease** — single-use admission token from the MoltZap
   server, threaded through OpenClaw's `deliver` → reply flow.
 - **Context log** — per-message JSONL dump of the enriched inbound

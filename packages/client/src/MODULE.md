@@ -34,7 +34,7 @@ _Interface_
 
 Configures app client.
 
-### [`ContextOptions`](./service.ts#L141)
+### [`ContextOptions`](./service.ts#L140)
 
 _Interface_
 
@@ -48,7 +48,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](./service.ts#L133)
+### [`ConversationMeta`](./service.ts#L132)
 
 _Interface_
 
@@ -75,7 +75,7 @@ _Class_
 
 Implements molt zap app client.
 
-### [`MoltZapService`](./service.ts#L279)
+### [`MoltZapService`](./service.ts#L278)
 
 _Class_
 
@@ -216,7 +216,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L121)
+### [`ServiceRpcError`](./service.ts#L120)
 
 _TypeAlias_
 

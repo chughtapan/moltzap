@@ -31,7 +31,6 @@ import {
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 import {
   type Message,
   type MessageReceivedNotification,
@@ -52,7 +51,7 @@ import {
   type SuccessForTag,
 } from "@moltzap/protocol/rpc";
 import type { RpcGroup, Rpc } from "@effect/rpc";
-import { BoundedMap } from "@moltzap/protocol/bounded-map";
+import { BoundedMap } from "./bounded-map.js";
 import {
   Effect,
   Exit,
@@ -202,7 +201,7 @@ type ClientNotificationDelivery =
   NotificationDelivery<AnyNotificationDefinition>;
 
 interface ServiceHandlerPayloads {
-  readonly message: { readonly taskId?: TaskId; readonly message: Message };
+  readonly message: { readonly message: Message };
 
   /**
    * The "raw notification" surface receives the descriptor-tagged delivery
@@ -771,22 +770,16 @@ export class MoltZapService {
    * params frame. The server marks the lease consumed, blocking the
    * app authorization timeout sweep. `MoltZapChannelCore.sendReply` forwards
    * `leaseIdInFlight` automatically when the caller omits it.
-   *
-   * `opts.taskId` is an endpoint-chosen label stamped onto the message and
-   * echoed back to recipients. The server stores it without reading it, so
-   * it groups messages for whoever set the convention and never affects
-   * routing or authorization.
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
    * @param opts Value supplied to the operation.
    * @param opts.dispatchLeaseId Value supplied to the operation.
-   * @param opts.taskId Value supplied to the operation.
    * @returns The send result.
    */
   send(
     conversationId: ConversationId,
     text: string,
-    opts?: { dispatchLeaseId?: LeaseId; taskId?: TaskId },
+    opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
     return Effect.asVoid(
       this.call(messagesSend.name, {
@@ -795,7 +788,6 @@ export class MoltZapService {
         ...(opts?.dispatchLeaseId !== undefined
           ? { dispatchLeaseId: opts.dispatchLeaseId }
           : {}),
-        ...(opts?.taskId !== undefined ? { taskId: opts.taskId } : {}),
       }),
     );
   }
@@ -1267,12 +1259,7 @@ export class MoltZapService {
     // via resolveAgentName(), which populates agentNamesRef on first miss and
     // hits the cache on every subsequent message.
     if (msg.senderId !== this.ownAgentIdValue) {
-      fanout(this.handlers.message, {
-        ...(notification.taskId !== undefined
-          ? { taskId: notification.taskId }
-          : {}),
-        message: msg,
-      });
+      fanout(this.handlers.message, { message: msg });
     }
   }
 

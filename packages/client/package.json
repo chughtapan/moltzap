@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.731.0",
+  "version": "2026.801.2",
   "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
@@ -80,12 +80,12 @@
     "@effect/cli": "^0.76.0",
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
-    "@effect/printer": "0.50.0",
-    "@effect/printer-ansi": "0.50.0",
-    "@effect/rpc": "0.76.0",
-    "@effect/typeclass": "0.41.0",
+    "@effect/printer": "^0.50.0",
+    "@effect/printer-ansi": "^0.50.0",
+    "@effect/rpc": "^0.76.0",
+    "@effect/typeclass": "^0.41.0",
     "@moltzap/protocol": "workspace:*",
-    "effect": "3.22.0"
+    "effect": "^3.22.0"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",

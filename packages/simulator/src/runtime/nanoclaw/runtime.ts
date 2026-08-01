@@ -1,20 +1,23 @@
 /** @file Scoped NanoClaw runtime. */
 
-import type { FileSystem, HttpClient, Path } from "@effect/platform";
+import { Path, type FileSystem, type HttpClient } from "@effect/platform";
+import { createHash } from "node:crypto";
 import type {
   CommandExecutor,
   ExitCode,
 } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import type { ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   defineRuntime,
   type AgentRuntime,
   type AgentRuntimeInput,
   type RunningAgent,
+  RuntimeFailed,
+  type RuntimeTermination,
 } from "../runtime.js";
-import { Duration, Effect, Fiber, type Scope } from "effect";
+import { Duration, Effect, Fiber, Schema, type Scope } from "effect";
 import { resolveInstallMode, type InstallMode } from "../packages.js";
 import {
   ensureNanoclawRuntimeInstalledEffect,
@@ -31,10 +34,14 @@ import {
   type ProcessObservation,
   RuntimeAcquisitionFailed,
 } from "../process.js";
+import {
+  acquireNanoclawGateway,
+  type NanoclawGateway,
+  type NanoclawGatewaySession,
+} from "./gateway.js";
 
 const NANOCLAW_RUNTIME_NAME = "nanoclaw";
-// The injected channel (`@moltzap/nanoclaw-channel` → `src/channels/moltzap.ts`)
-// logs `MoltZap connected` once its server session is live.
+// The injected channel emits this after its server session is live.
 const NANOCLAW_READY_MARKER = "MoltZap connected";
 const DEFAULT_NANOCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
 
@@ -49,6 +56,46 @@ interface NanoclawMcpServer {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
 }
+
+const configurationDigest = Schema.String.pipe(
+  Schema.pattern(/^[\da-f]{64}$/u),
+  Schema.brand("NanoclawConfigurationDigest"),
+);
+
+class NanoclawWorkspaceFileConfiguration extends Schema.Class<NanoclawWorkspaceFileConfiguration>(
+  "NanoclawWorkspaceFileConfiguration",
+)({
+  relativePath: Schema.String,
+  contentDigest: configurationDigest,
+  redacted: Schema.Tuple(Schema.Literal("content")),
+}) {}
+
+class NanoclawMcpServerConfiguration extends Schema.Class<NanoclawMcpServerConfiguration>(
+  "NanoclawMcpServerConfiguration",
+)({
+  name: Schema.String,
+  definitionDigest: configurationDigest,
+  redacted: Schema.Tuple(
+    Schema.Literal("command"),
+    Schema.Literal("args"),
+    Schema.Literal("environmentValues"),
+  ),
+}) {}
+
+/**
+ * Sanitized definition-time policy and overrides for a NanoClaw runtime.
+ * Acquisition may resolve different host facts from automatic policy.
+ */
+export class NanoclawRuntimeConfiguration extends Schema.Class<NanoclawRuntimeConfiguration>(
+  "NanoclawRuntimeConfiguration",
+)({
+  startupTimeout: Schema.DurationFromMillis,
+  workspaceFiles: Schema.Array(NanoclawWorkspaceFileConfiguration),
+  modelOverride: Schema.optional(Schema.String),
+  installPolicy: Schema.Literal("automatic", "published", "workspace"),
+  autoRegisterConversations: Schema.Boolean,
+  mcpServers: Schema.Array(NanoclawMcpServerConfiguration),
+}) {}
 
 /** Configuration captured by one reusable NanoClaw runtime value. */
 export interface NanoclawRuntimeOptions {
@@ -81,7 +128,7 @@ interface NanoclawRuntimeSettings {
  * @internal
  */
 export interface NanoclawProcessInput {
-  readonly agentName: string;
+  readonly agentName: AgentName;
   readonly agentId: AgentId;
   readonly apiKey: AgentKey;
   readonly serverUrl: ServerBaseUrl;
@@ -90,6 +137,11 @@ export interface NanoclawProcessInput {
   readonly modelId?: string;
   readonly mcpServers?: readonly NanoclawMcpServer[];
 }
+
+type NanoclawGatewayAcquirer<Handle, Requirements> = (
+  handle: Handle,
+  within: Duration.Duration,
+) => Effect.Effect<NanoclawGatewaySession, unknown, Scope.Scope | Requirements>;
 
 /**
  * NanoClaw-specific process seam. Production binds this to the immutable
@@ -114,14 +166,13 @@ export interface NanoclawRuntimeDriver<
     install: Install,
   ) => Effect.Effect<Handle, unknown, Requirements>;
   readonly stop: (handle: Handle) => Effect.Effect<void, never, Requirements>;
+  readonly gateway: NanoclawGatewayAcquirer<Handle, Requirements>;
   readonly exitCode: (handle: Handle) => Effect.Effect<ExitCode, WaitFailure>;
   readonly output: (handle: Handle) => string;
-
-  /** Recognizes the channel's connect line in the container runner's output. */
   readonly readyWhen: (output: string) => boolean;
 }
 
-/** Failure returned when a NanoClaw process cannot be acquired. */
+/** Failure returned when NanoClaw cannot become router-visible. */
 export type NanoclawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
 
 type NanoclawHostServices =
@@ -143,6 +194,15 @@ const nativeNanoclawDriver: NanoclawRuntimeDriver<
     stopNanoclawRuntimeEffect(handle).pipe(
       Effect.catchAll((cause) =>
         Effect.logWarning("failed to tear down NanoClaw runtime", cause),
+      ),
+    ),
+  gateway: (handle, within) =>
+    Path.Path.pipe(
+      Effect.flatMap((path) =>
+        acquireNanoclawGateway(
+          path.join(handle.runtimeDir, "data", "cli.sock"),
+          within,
+        ),
       ),
     ),
   exitCode: (handle) => Fiber.join(handle.exitFiber),
@@ -189,12 +249,68 @@ function snapshotOptions(
   });
 }
 
+function digestText(value: string): typeof configurationDigest.Type {
+  return Schema.decodeUnknownSync(configurationDigest)(
+    createHash("sha256").update(value, "utf8").digest("hex"),
+  );
+}
+
+function workspaceConfiguration(
+  files: readonly NanoclawWorkspaceFile[],
+): readonly NanoclawWorkspaceFileConfiguration[] {
+  return files.map((file) =>
+    NanoclawWorkspaceFileConfiguration.make({
+      relativePath: file.relativePath,
+      contentDigest: digestText(file.content),
+      redacted: ["content"],
+    }),
+  );
+}
+
+function mcpServerDefinition(server: NanoclawMcpServer): string {
+  return JSON.stringify({
+    name: server.name,
+    command: server.command,
+    args: server.args,
+    environmentKeys: Object.keys(server.env).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+  });
+}
+
+function mcpConfiguration(
+  servers?: readonly NanoclawMcpServer[],
+): readonly NanoclawMcpServerConfiguration[] {
+  return (servers ?? []).map((server) =>
+    NanoclawMcpServerConfiguration.make({
+      name: server.name,
+      definitionDigest: digestText(mcpServerDefinition(server)),
+      redacted: ["command", "args", "environmentValues"],
+    }),
+  );
+}
+
+function runtimeConfiguration(
+  settings: NanoclawRuntimeSettings,
+): NanoclawRuntimeConfiguration {
+  return NanoclawRuntimeConfiguration.make({
+    startupTimeout: settings.startupTimeout,
+    workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
+    installPolicy: settings.installMode ?? "automatic",
+    autoRegisterConversations: settings.autoRegisterConversations,
+    mcpServers: mcpConfiguration(settings.mcpServers),
+    ...(settings.modelId === undefined
+      ? {}
+      : { modelOverride: settings.modelId }),
+  });
+}
+
 function processInput<Name extends string>(
   input: AgentRuntimeInput<Name>,
   settings: NanoclawRuntimeSettings,
 ): NanoclawProcessInput {
   return {
-    agentName: input.connection.agent.name,
+    agentName: input.agentName,
     agentId: input.connection.agent.id,
     apiKey: input.connection.key,
     serverUrl: input.connection.routerUrl,
@@ -286,6 +402,63 @@ function acquireNanoclawProcess<
   });
 }
 
+function awaitNanoclawGateway<Handle, WaitFailure, Requirements>(
+  process: AcquiredNanoclawProcess<Handle, WaitFailure>,
+  within: Duration.Duration,
+  acquireGateway: NanoclawGatewayAcquirer<Handle, Requirements>,
+  readyWhen: (output: string) => boolean,
+): Effect.Effect<
+  NanoclawGatewaySession,
+  NanoclawRuntimeAcquisitionError,
+  Scope.Scope | Requirements
+> {
+  const gateway = acquireGateway(process.handle, within).pipe(
+    Effect.mapError((cause) =>
+      acquisitionFailure(
+        process.input.agentName,
+        "connect principal gateway",
+        cause,
+      ),
+    ),
+  );
+  const ready = awaitProcessReady({
+    within,
+    agentName: process.input.agentName,
+    agentKey: process.input.apiKey,
+    runtimeName: NANOCLAW_RUNTIME_NAME,
+    observation: process.observation,
+    readyWhen,
+  });
+  return Effect.all([gateway, ready] as const, { concurrency: 2 }).pipe(
+    Effect.map(([session]) => session),
+  );
+}
+
+function nanoclawTermination<Handle, WaitFailure>(
+  process: AcquiredNanoclawProcess<Handle, WaitFailure>,
+  gateway: NanoclawGatewaySession,
+): Effect.Effect<RuntimeTermination> {
+  const gatewayTermination = gateway.failure.pipe(
+    Effect.catchAll((cause) =>
+      Effect.succeed(
+        RuntimeFailed.make({
+          detail: `NanoClaw principal gateway for agent "${process.input.agentName}" disconnected: ${String(cause)}`,
+        }),
+      ),
+    ),
+  );
+  return Effect.raceFirst(
+    processTermination(
+      {
+        agentName: process.input.agentName,
+        runtimeName: NANOCLAW_RUNTIME_NAME,
+      },
+      process.observation,
+    ),
+    gatewayTermination,
+  );
+}
+
 function acquireNanoclawRuntime<
   Name extends string,
   Install,
@@ -297,28 +470,21 @@ function acquireNanoclawRuntime<
   driver: NanoclawRuntimeDriver<Install, Handle, WaitFailure, Requirements>,
   input: AgentRuntimeInput<Name>,
 ): Effect.Effect<
-  RunningAgent,
+  RunningAgent<NanoclawGateway>,
   NanoclawRuntimeAcquisitionError,
   Scope.Scope | Requirements
 > {
   return Effect.gen(function* () {
     const process = yield* acquireNanoclawProcess(settings, driver, input);
-    yield* awaitProcessReady({
-      within: settings.startupTimeout,
-      agentName: process.input.agentName,
-      agentKey: process.input.apiKey,
-      runtimeName: NANOCLAW_RUNTIME_NAME,
-      observation: process.observation,
-      readyWhen: driver.readyWhen,
-    });
+    const gateway = yield* awaitNanoclawGateway(
+      process,
+      settings.startupTimeout,
+      driver.gateway,
+      driver.readyWhen,
+    );
     return {
-      termination: processTermination(
-        {
-          agentName: process.input.agentName,
-          runtimeName: NANOCLAW_RUNTIME_NAME,
-        },
-        process.observation,
-      ),
+      gateway: gateway.gateway,
+      termination: nanoclawTermination(process, gateway),
     };
   }).pipe(
     Effect.withSpan("nanoclawRuntime.acquire", {
@@ -347,22 +513,36 @@ export function makeNanoclawRuntimeWith<
 >(
   options: NanoclawRuntimeOptions,
   driver: NanoclawRuntimeDriver<Install, Handle, WaitFailure, Requirements>,
-): AgentRuntime<NanoclawRuntimeAcquisitionError, Requirements> {
+): AgentRuntime<
+  NanoclawGateway,
+  NanoclawRuntimeAcquisitionError,
+  Requirements,
+  typeof NanoclawRuntimeConfiguration
+> {
   const settings = snapshotOptions(options);
-  return defineRuntime<NanoclawRuntimeAcquisitionError, Requirements>({
+  return defineRuntime({
     name: NANOCLAW_RUNTIME_NAME,
+    configuration: {
+      schema: NanoclawRuntimeConfiguration,
+      value: runtimeConfiguration(settings),
+    },
     acquire: (input) => acquireNanoclawRuntime(settings, driver, input),
   });
 }
 
 /**
  * Construct a NanoClaw runtime that binds each roster identity to one
- * scoped container-backed process and waits for its readiness line.
+ * scoped container-backed process and waits for router-visible readiness.
  * @param options Options that control the operation.
  * @returns The nanoclaw runtime result.
  */
 export function nanoclawRuntime(
   options: NanoclawRuntimeOptions = {},
-): AgentRuntime<NanoclawRuntimeAcquisitionError, NanoclawHostServices> {
+): AgentRuntime<
+  NanoclawGateway,
+  NanoclawRuntimeAcquisitionError,
+  NanoclawHostServices,
+  typeof NanoclawRuntimeConfiguration
+> {
   return makeNanoclawRuntimeWith(options, nativeNanoclawDriver);
 }

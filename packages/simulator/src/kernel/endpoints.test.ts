@@ -137,6 +137,21 @@ function router(
   };
 }
 
+function assertEndpointEvidence(events: readonly EndpointEvent[]): void {
+  assert.deepStrictEqual(
+    events.map((event) => event._tag),
+    [
+      ConversationOpened._tag,
+      EndpointMessageReceived._tag,
+      EndpointMessageReceived._tag,
+      EndpointMessageSent._tag,
+    ],
+  );
+  const [, firstReceived, , sent] = events;
+  assert.instanceOf(firstReceived, EndpointMessageReceived);
+  assert.instanceOf(sent, EndpointMessageSent);
+}
+
 function observedNetworkTest() {
   return Effect.gen(function* () {
     const deliveries = yield* PubSub.unbounded<ReceivedMessage>();
@@ -171,15 +186,7 @@ function observedNetworkTest() {
     assert.strictEqual(endpointMessages.length, 2);
     assert.strictEqual(first.message.id, RECEIVED_ID);
     assert.strictEqual(second.message.id, SECOND_RECEIVED_ID);
-    assert.deepStrictEqual(
-      events.map((event) => event._tag),
-      [
-        ConversationOpened._tag,
-        EndpointMessageReceived._tag,
-        EndpointMessageReceived._tag,
-        EndpointMessageSent._tag,
-      ],
-    );
+    assertEndpointEvidence(events);
   });
 }
 

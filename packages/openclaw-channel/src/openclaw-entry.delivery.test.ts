@@ -6,12 +6,11 @@ import {
   testAgentId,
   testConversationId,
   testMessageId,
-  testTaskId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
 import { agentsList } from "@moltzap/protocol/identity";
-import { messagesSend } from "@moltzap/protocol/message";
+import { HookBlockedError, messagesSend } from "@moltzap/protocol/message";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import {
@@ -20,7 +19,6 @@ import {
   type RpcDefinitionAny,
   ForbiddenError,
 } from "@moltzap/protocol/rpc";
-import { HookBlockedError, type TaskId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
@@ -36,21 +34,14 @@ const DEFAULT_MESSAGE_ID = testMessageId(
 const DEFAULT_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440404",
 );
-const TARGET_CONVERSATION_ID = testConversationId(
-  "550e8400-e29b-41d4-a716-446655440405",
-);
-const DEFAULT_TASK_ID = testTaskId("delivery-default");
-const TARGET_TASK_ID = testTaskId("delivery-target");
 const OUTBOUND_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440406",
 );
 const STOP_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440409",
 );
-const OUTBOUND_TASK_ID = testTaskId("delivery-outbound");
-const STOP_TASK_ID = testTaskId("delivery-stop");
-const OUTBOUND_TARGET = `task:${OUTBOUND_TASK_ID}:${OUTBOUND_CONVERSATION_ID}`;
-const STOP_TARGET = `task:${STOP_TASK_ID}:${STOP_CONVERSATION_ID}`;
+const OUTBOUND_TARGET = `conv:${OUTBOUND_CONVERSATION_ID}`;
+const STOP_TARGET = `conv:${STOP_CONVERSATION_ID}`;
 const AGENT_NOVA_TARGET = "agent:nova";
 const AGENT_NOVA_NAME = "nova";
 const TRIGGER_TEXT = "Trigger message";
@@ -94,16 +85,10 @@ interface DispatchCall {
     readonly deliver: Deliver;
   };
 }
-type DispatchCallWithContext = DispatchCall & {
-  readonly ctx: {
-    // eslint-disable-next-line @typescript-eslint/naming-convention -- OpenClaw injects this exact context key.
-    readonly OriginatingTo?: unknown;
-  };
-};
 type SendFn = (
   conversationId: ConversationId,
   text: string,
-  opts?: { readonly dispatchLeaseId?: LeaseId; readonly taskId?: TaskId },
+  opts?: { readonly dispatchLeaseId?: LeaseId },
 ) => Effect.Effect<void, ServiceRpcError>;
 type SendToAgentFn = (
   agentName: string,
@@ -167,12 +152,13 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
     rejectsDuplicateFinal,
   );
   it("deliver callback returns true for non-final replies", nonFinalIsIgnored);
-  it("sendText uses OriginatingTo as conversation id", usesOriginatingTo);
   it("sendText sends to the right conversation", sendsToConversation);
   it("resolveTarget accepts agent targets", acceptsAgentTarget);
+  it("resolveTarget normalizes plain agent names", normalizesPlainAgentName);
   it("resolveTarget accepts conversation IDs", acceptsConversationTarget);
   it("resolveTarget rejects empty strings", rejectsEmptyTarget);
   it("sendText delegates agent targets", delegatesAgentTarget);
+  it("sendText delegates plain agent names", delegatesPlainAgentName);
   it("sendText reports sendToAgent failures", reportsSendToAgentFailure);
   it("sendText reports disconnected clients", reportsDisconnectedClient);
   it("sendText reports send failures", reportsSendFailure);
@@ -186,7 +172,10 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
     leaseGuardUnconsumedOnTransientFailure,
   );
   it("stopAccount removes client from active pool", stopRemovesClient);
-  it("property: resolveTarget accepts generated plain ids", plainIdsResolve);
+  it(
+    "property: resolveTarget normalizes generated agent names",
+    plainAgentNamesResolve,
+  );
 });
 
 function startGateway() {
@@ -304,12 +293,9 @@ function makeDeliveryMessage(
   });
 }
 
-function emitMessage(
-  overrides: Parameters<typeof buildMessage>[0] = {},
-  taskId = DEFAULT_TASK_ID,
-) {
+function emitMessage(overrides: Parameters<typeof buildMessage>[0] = {}) {
   return Effect.gen(function* () {
-    started.fixture.emit.message(makeDeliveryMessage(overrides), taskId);
+    started.fixture.emit.message(makeDeliveryMessage(overrides));
     yield* flushDispatchChainEffect;
   });
 }
@@ -331,11 +317,6 @@ function waitForDispatchTimes(count: number) {
 function firstDispatchCall(): DispatchCall {
   return /* Safe because the test fixture establishes this asserted shape. */ mockDispatch
     .mock.calls[0]?.[0] as DispatchCall;
-}
-
-function firstDispatchCallWithContext(): DispatchCallWithContext {
-  return /* Safe because the test fixture establishes this asserted shape. */ mockDispatch
-    .mock.calls[0]?.[0] as DispatchCallWithContext;
 }
 
 function deliverFinal(text: string) {
@@ -450,20 +431,6 @@ function nonFinalIsIgnored() {
   });
 }
 
-function usesOriginatingTo() {
-  return Effect.gen(function* () {
-    yield* emitMessage(
-      { conversationId: TARGET_CONVERSATION_ID },
-      TARGET_TASK_ID,
-    );
-    yield* waitForDispatchTimes(1);
-    const ctx = firstDispatchCallWithContext().ctx;
-    expect(ctx.OriginatingTo).toBe(
-      `task:${TARGET_TASK_ID}:${TARGET_CONVERSATION_ID}`,
-    );
-  });
-}
-
 function sendsToConversation() {
   return Effect.gen(function* () {
     const result = yield* sendText({
@@ -476,7 +443,6 @@ function sendsToConversation() {
     expect(mockSend).toHaveBeenCalledWith(
       OUTBOUND_CONVERSATION_ID,
       OUTBOUND_TEXT,
-      { taskId: OUTBOUND_TASK_ID },
     );
   });
 }
@@ -486,6 +452,17 @@ function acceptsAgentTarget() {
     expect(
       started.plugin.outbound.resolveTarget({
         to: AGENT_NOVA_TARGET,
+        cfg: makeCfg(),
+      }),
+    ).toMatchObject({ ok: true, to: AGENT_NOVA_TARGET });
+  });
+}
+
+function normalizesPlainAgentName() {
+  return Effect.sync(() => {
+    expect(
+      started.plugin.outbound.resolveTarget({
+        to: AGENT_NOVA_NAME,
         cfg: makeCfg(),
       }),
     ).toMatchObject({ ok: true, to: AGENT_NOVA_TARGET });
@@ -527,6 +504,19 @@ function delegatesAgentTarget() {
   });
 }
 
+function delegatesPlainAgentName() {
+  return Effect.gen(function* () {
+    const result = yield* sendText({
+      cfg: makeCfg(),
+      to: AGENT_NOVA_NAME,
+      text: AGENT_TEXT,
+      accountId: ACCOUNT_ID,
+    });
+    expectSuccessfulSend(result);
+    expect(mockSendToAgent).toHaveBeenCalledWith(AGENT_NOVA_NAME, AGENT_TEXT);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+}
 function reportsSendToAgentFailure() {
   return Effect.gen(function* () {
     mockSendToAgent.mockReturnValue(
@@ -671,20 +661,17 @@ function stopRemovesClient() {
   });
 }
 
-function plainIdsResolve() {
+function plainAgentNamesResolve() {
   return Effect.sync(() => {
     fc.assert(
       fc.property(
-        fc
-          .string({ minLength: 1 })
-          .filter((value) => value.trim().length > 0 && !value.includes(":")),
+        fc.stringMatching(/^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$/),
         (target) => {
-          const normalizedTarget = target.trim();
           const result = started.plugin.outbound.resolveTarget({
             to: target,
             cfg: makeCfg(),
           });
-          expect(result).toMatchObject({ ok: true, to: normalizedTarget });
+          expect(result).toMatchObject({ ok: true, to: `agent:${target}` });
         },
       ),
     );

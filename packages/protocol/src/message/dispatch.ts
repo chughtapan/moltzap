@@ -4,7 +4,6 @@ import { conversationId, messageId } from "#conversation";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
-import { taskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
   ForbiddenError,
@@ -108,7 +107,6 @@ export const dispatchRequest = defineRpc({
 });
 
 const dispatchAuthorizeContextSchema = Schema.Struct({
-  taskId: Schema.optional(taskId),
   appId: Schema.String,
   conversationId: conversationId,
   recipient: agentOwnershipSchemaValue,
@@ -182,7 +180,6 @@ const leaseRecordSchema = Schema.Struct({
   dispatchId: dispatchId,
   leaseId: leaseId,
   conversationId: conversationId,
-  taskId: Schema.optional(taskId),
   appId: Schema.String,
   recipientAgentId: agentId,
   moderatorConnectionId: Schema.String,

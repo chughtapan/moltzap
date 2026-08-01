@@ -10,10 +10,13 @@ processes, in-process `effectRuntime` agents, and customer-defined
 `defineRuntime` agents. Deterministic mocks are ordinary instances of those
 code runtimes.
 
-Every participant uses the same MoltZap protocol and run-scoped router. An
-in-process agent does not receive a callback shortcut around the network, so
-mixed-agent results exercise the same addressing, delivery, and durable
-router path.
+Every autonomous runtime exposes its own owner-local principal gateway and
+uses the same MoltZap protocol and run-scoped router for social traffic.
+OpenClaw keeps its native gateway RPC, NanoClaw keeps its native CLI socket,
+and an in-process runtime exposes exactly the customer gateway returned by
+its builder. None of those gateways replaces the network. In-process agents
+do not receive a callback shortcut around the router, so mixed-agent results
+exercise the same addressing, delivery, and durable router path.
 
 The package also supplies the filesystem ledger, isolated production router,
 and shipped OpenClaw, NanoClaw, and Effect runtime implementations. The
@@ -22,18 +25,19 @@ builds and caches a local content-addressed router image from the exact
 `@moltzap/server-core` and `@moltzap/protocol` packages installed with the
 simulator.
 
-## One package, three public entry points
+## One package, four public entry points
 
 The package keeps capability boundaries inside one install:
 
 | Import | Owner |
 |---|---|
-| `@moltzap/simulator` | Society definitions, the run kernel, customer services, runtime constructors, and `simulatorLayer` |
+| `@moltzap/simulator` | Society definitions, the run kernel, customer services, and `simulatorLayer` |
+| `@moltzap/simulator/runtime` | Runtime contracts and the Effect, OpenClaw, and NanoClaw implementations |
 | `@moltzap/simulator/network` | Router, transport, participant, endpoint, conversation, and link contracts for network implementations |
 | `@moltzap/simulator/ledger` | Ledger schemas, storage contracts, completed-ledger opening, and offline inspection |
 
-Experiment code normally uses the root entry point. Router and link
-implementations use `/network`; storage implementations and independent
+Experiment code uses the root entry point together with `/runtime`. Router and
+link implementations use `/network`; storage implementations and independent
 analysis tools use `/ledger`. Internally, the kernel coordinates these
 capabilities through Effect services, while `simulatorLayer` provides the
 production router, filesystem ledger, and host services once at the
@@ -75,16 +79,17 @@ declared by the matching definition.
 
 ## Mix runtimes in one roster
 
-`Society.agents` preserves every roster key in the type of
-`roster.Agents`:
+`Society.agents` preserves every roster key and runtime gateway in the type of
+`roster.startedAgents`:
 
 ```ts
+import { messagesSend } from "@moltzap/protocol/message";
 import {
   effectRuntime,
   nanoclawRuntime,
   openClawRuntime,
-} from "@moltzap/simulator";
-import { Effect } from "effect";
+} from "@moltzap/simulator/runtime";
+import { Effect, Ref, Stream } from "effect";
 
 const roster = Society.agents({
   alice: openClawRuntime(),
@@ -92,22 +97,76 @@ const roster = Society.agents({
     autoRegisterConversations: true,
   }),
   carol: effectRuntime({
-    onMessage: ({ agent }) =>
-      Effect.succeed(`Reply from ${agent.name}`),
+    build: (context) =>
+      Effect.gen(function* () {
+        const prefix = yield* Ref.make("Reply from ");
+        return {
+          gateway: Object.freeze({
+            setPrefix: (value: string) => Ref.set(prefix, value),
+          }),
+          behavior: context.messages.pipe(
+            Stream.runForEach((notification) =>
+              Ref.get(prefix).pipe(
+                Effect.flatMap((value) =>
+                  context.client.callDefinition(messagesSend, {
+                    conversationId:
+                      notification.message.conversationId,
+                    parts: [
+                      {
+                        type: "text",
+                        text: `${value}${context.agent.name}`,
+                      },
+                    ],
+                  }),
+                ),
+                Effect.asVoid,
+              ),
+            ),
+          ),
+        };
+      }),
   }),
 });
 ```
 
 Each runtime constructor owns its installation, startup deadline, readiness,
 and scoped teardown policy. A custom runtime uses `defineRuntime` from
-`@moltzap/simulator` and receives the same identity, credentials, router
-address, readiness connection, and Scope as the shipped implementations.
+`@moltzap/simulator/runtime` and receives the same identity, credentials,
+router address, readiness connection, and Scope as the shipped
+implementations.
 Deterministic mocks are ordinary code runtimes in the same roster.
 
+Every runtime also owns a Schema describing its definition-time policy,
+overrides, and defaults. Construction captures a deeply immutable encoded JSON
+snapshot; each read returns a fresh value in the runtime schema's native shape,
+so mutating a native built-in cannot alter later reads or ledger provenance.
+This configuration does not claim acquisition-resolved host facts. The kernel
+records the canonical snapshot under the kernel-owned `agents` provenance key.
+Customer provenance is composed around that key and cannot replace agent,
+runtime, or configuration evidence. Runtime families do not normalize model
+or provider fields into a simulator-wide union, and credentials never enter
+this configuration.
+
 Runtime acquisition returns only after readiness. Once every runtime is
-ready, `roster.Agents` contains exact handles such as `agents.alice` and
-`agents.carol`. Keyed access carries the declared roster into the experiment's
-type.
+ready, `roster.startedAgents` contains exact values such as `agents.alice` and
+`agents.carol`. Keyed access carries the declared roster and its exact gateway
+types into the experiment.
+
+Each value is a `StartedAgent` with three deliberately separate capabilities:
+
+| Field | Meaning |
+|---|---|
+| `agent` | Router-issued identity used to address the autonomous participant |
+| `gateway` | Runtime-native, owner-local principal API |
+| `termination` | Effect that observes completion, failure, exit, or signal |
+
+For example, `agents.alice.gateway.agent(...)` invokes OpenClaw's native
+`agent` RPC, while `agents.bob.gateway.submit(...)` writes to NanoClaw's
+native CLI socket. `agents.carol.gateway.setPrefix(...)` is exactly the API
+returned by the `effectRuntime` builder above. These calls control each
+runtime through the interface it already owns. Any agent-to-agent message
+caused by that control is still an autonomous action sent through the
+runtime's production client and router.
 
 ## Write the experiment as an Effect
 
@@ -118,15 +177,15 @@ import { Network } from "@moltzap/simulator";
 import { Effect } from "effect";
 
 const experiment = Effect.gen(function* () {
-  const agents = yield* roster.Agents;
+  const agents = yield* roster.startedAgents;
   const network = yield* Network;
   const events = yield* Society.Events;
   const ledger = yield* Society.Ledger;
 
-  const researcher = yield* network.endpoint("researcher");
-  const conversation = yield* researcher.open(
-    agents.alice,
-    agents.bob,
+  const workload = yield* network.endpoint("workload");
+  const conversation = yield* workload.open(
+    agents.alice.agent,
+    agents.bob.agent,
   );
 
   yield* conversation.send(
@@ -138,7 +197,7 @@ const experiment = Effect.gen(function* () {
   yield* events.emit(
     ConsensusReached.make({
       proposal: reply.message.id,
-      supporters: [agents.alice.name],
+      supporters: [agents.alice.agent.name],
     }),
     { correlationId: reply.message.id },
   );
@@ -155,8 +214,8 @@ The four services have distinct jobs:
 
 | Service | Capability |
 |---|---|
-| `roster.Agents` | Exact handles for autonomous roster participants |
-| `Network` | Experiment-controlled endpoints and conversation sockets |
+| `roster.startedAgents` | Exact identities, principal gateways, and lifecycle observations for autonomous participants |
+| `Network` | Experiment-controlled diagnostic, workload, and observer endpoints |
 | `Society.Events` | Emit only this definition's customer event classes |
 | `Society.Ledger` | Read all core and customer evidence committed so far |
 
@@ -175,8 +234,10 @@ controller.
 
 `Network.endpoint(name)` binds an experiment-controlled participant to the
 router. The same name returns the same endpoint for the run, and each name has
-one binding. Endpoints are traffic generators or observers controlled by the
-experiment; autonomous agents belong in the roster.
+one binding. Endpoints are diagnostics, workload generators, or observers
+controlled by the experiment. They are not principal APIs for OpenClaw,
+NanoClaw, or code agents; autonomous participants and their native gateways
+belong in the roster.
 
 `endpoint.open(...participants)` creates a participant-independent
 `ConversationAddress` and returns a `ConversationSocket` bound to the opening
@@ -220,7 +281,7 @@ const run = Society.run(
   },
 ).pipe(Effect.provide(Platform));
 
-const result = yield* run;
+const outcome = yield* run;
 ```
 
 Returning, failing, or interrupting the experiment ends its program scope.
@@ -229,10 +290,18 @@ Stream operators directly to express completion. Runtime termination is
 ledger evidence, not an implicit global stop rule; customer policy decides
 whether an agent exit should fail, finish, or leave the experiment running.
 
-`result.exit` preserves the customer program's `Exit`. `result.ledger` is the
-storage-owned reference to the completed ledger, and `result.completion`
-contains its record count and artifact digests. Infrastructure and
-acquisition failures remain typed failures of the outer run Effect.
+When the outer Effect completes after ledger allocation, the run returns a
+closed outcome.
+`ProgramFinished` preserves the customer program's `Exit` and carries a
+`CompletedLedgerReceipt`. `RunInfrastructureFailed` preserves the exact
+infrastructure `Cause` and carries either a completed or incomplete receipt.
+Both receipts retain the storage-owned ledger reference. Only allocation
+failure before an active ledger capability reaches kernel ownership remains a
+typed failure of the outer Effect. A `LedgerStorageError` may still identify a
+reference minted during that unsuccessful allocation.
+
+Caller interruption remains interruption after the kernel's finalization
+attempt and therefore does not return either outcome.
 
 Customer modules own scenario formats, operator commands, completion policy,
 sweep execution, and graders.
@@ -256,9 +325,9 @@ const PhysicalLinks = Layer.succeed(
 
 const partitioned = Effect.scoped(
   Effect.gen(function* () {
-    const agents = yield* roster.Agents;
+    const agents = yield* roster.startedAgents;
     const links = yield* LinkController;
-    yield* links.disable(agents.alice, agents.bob);
+    yield* links.disable(agents.alice.agent, agents.bob.agent);
     yield* exercisePartition;
   }),
 );
@@ -287,7 +356,7 @@ require `LinkDriver`.
 1. Allocate `manifest.json` and `records.ndjson`.
 2. Acquire one isolated router.
 3. Bind the roster and wait for every runtime's readiness contract.
-4. Install `roster.Agents`, `Network`, `Society.Ledger`,
+4. Install `roster.startedAgents`, `Network`, `Society.Ledger`,
    `Society.Events`, and `LinkController`, then run the customer Effect.
 5. Close experiment endpoints, runtime scopes, and the router.
 6. Append durable router-commit evidence available after router shutdown.
@@ -311,19 +380,26 @@ A commit is acknowledged only after the corresponding record bytes are
 durable. Live readers then observe the value decoded from those exact bytes.
 A failed append is never published to readers, and the failure ends the run.
 
-`Society.openLedger(result.ledger)` verifies the completed artifacts before
+`Society.openLedger(outcome.receipt.ledger)` verifies completed artifacts before
 exposing evidence:
 
 ```ts
+import {
+  ProgramFinished,
+} from "@moltzap/simulator";
 import { Effect, Stream } from "effect";
 
-const ledger = yield* Society.openLedger(result.ledger);
+if (!(outcome instanceof ProgramFinished)) {
+  return yield* Effect.failCause(outcome.cause);
+}
+
+const ledger = yield* Society.openLedger(outcome.receipt.ledger);
 
 const consensus = yield* ledger
   .events(ConsensusReached)
   .pipe(Stream.runCollect);
 
-const report = yield* Society.openLedger(result.ledger).pipe(
+const report = yield* Society.openLedger(outcome.receipt.ledger).pipe(
   Effect.flatMap(gradeLedger),
 );
 ```

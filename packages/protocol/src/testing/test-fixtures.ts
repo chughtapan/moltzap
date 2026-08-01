@@ -17,6 +17,7 @@ import {
 import { Data, Effect, Either, FastCheck, Schema } from "effect";
 import {
   agentId as agentIdSchema,
+  agentName as agentNameSchema,
   type AgentKey,
   agentKey,
   appId as appIdSchema,
@@ -31,7 +32,6 @@ import {
   messageId as messageIdSchema,
 } from "#conversation";
 import { leaseId as leaseIdSchema } from "#message/dispatch";
-import { taskId as taskIdSchema } from "#task";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
@@ -96,6 +96,15 @@ export const agentId = (
 ): Schema.Schema.Type<typeof agentIdSchema> =>
   Schema.decodeUnknownSync(agentIdSchema)(value);
 /**
+ * Validates and decodes agent name values.
+ * @param value Value to process.
+ * @returns The agent name result.
+ */
+export const agentName = (
+  value: string,
+): Schema.Schema.Type<typeof agentNameSchema> =>
+  Schema.decodeUnknownSync(agentNameSchema)(value);
+/**
  * Validates and decodes conversation id values.
  * @param value Value to process.
  * @returns The conversation id result.
@@ -113,15 +122,6 @@ export const messageId = (
   value: string,
 ): Schema.Schema.Type<typeof messageIdSchema> =>
   Schema.decodeUnknownSync(messageIdSchema)(value);
-/**
- * Validates and decodes task id values.
- * @param value Value to process.
- * @returns The task id result.
- */
-export const taskId = (
-  value: string,
-): Schema.Schema.Type<typeof taskIdSchema> =>
-  Schema.decodeUnknownSync(taskIdSchema)(value);
 /**
  * Validates and decodes lease id values.
  * @param value Value to process.

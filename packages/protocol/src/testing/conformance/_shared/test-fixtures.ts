@@ -10,7 +10,6 @@ export {
   messageId,
   mintTestAppCredential,
   registerTestAgent,
-  taskId,
   userId,
 } from "../../test-fixtures.js";
 /** Re-exports the public API from `../../test-fixtures.js`. */

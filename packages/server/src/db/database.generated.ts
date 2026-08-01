@@ -111,12 +111,6 @@ export interface Messages {
   seq: Int8;
 
   /**
-   * Opaque endpoint-supplied label carried on the send params and echoed
-   * back verbatim. The server never reads, joins, or validates it.
-   */
-  task_id: string | null;
-
-  /**
    * Per-message dispatch-authorization verdict, written by
    * `MessageService.sendInsert` as `{tag: "pending"}` and updated by
    * `recordDispatchDecision` to `{tag: "forward", recipients: [...]}`

@@ -13,9 +13,9 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { agentName } from "@moltzap/protocol/identity";
 import { httpBaseUrl } from "@moltzap/protocol/network";
-import { Config, Duration, Effect, Layer, Redacted, Schema } from "effect";
+import { agentName } from "@moltzap/protocol/testing";
+import { Config, Duration, Effect, Layer, Redacted } from "effect";
 import { describe, expect, it } from "vitest";
 import { acquireMoltZapServer } from "./server.js";
 
@@ -29,7 +29,7 @@ const SIM_INTEGRATION_ENABLED = Effect.runSync(
 const RUN_TIMEOUT_MS = 1_200_000;
 const HTTP_FORBIDDEN = 403;
 const REGISTER_ROUTE = "/api/v1/auth/register";
-const ROSTER_PARTICIPANT = Schema.decodeSync(agentName)("roster-participant");
+const ROSTER_PARTICIPANT = agentName("roster-participant");
 const hostLayer = Layer.merge(NodeContext.layer, FetchHttpClient.layer);
 
 const verifyRegistrationBoundary = Effect.scoped(

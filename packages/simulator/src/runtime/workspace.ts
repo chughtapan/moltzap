@@ -3,7 +3,7 @@
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { Cause, Data, Effect, Redacted, Schema } from "effect";
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import { resolvePackageRoot } from "./packages.js";
 
 const PROFILE_CONFIG_INDENT_SPACES = 2;
@@ -31,7 +31,7 @@ const channelPackageManifest = Schema.parseJson(
  * @returns The serialize molt zap profile config result.
  */
 export function serializeMoltZapProfileConfig(profile: {
-  readonly agentName: string;
+  readonly agentName: AgentName;
   readonly agentId: AgentId;
   readonly apiKey: AgentKey;
 }): string {
@@ -62,7 +62,7 @@ export function serializeMoltZapProfileConfig(profile: {
 export function writeMoltZapProfileConfig(
   configHome: string,
   profile: {
-    readonly agentName: string;
+    readonly agentName: AgentName;
     readonly agentId: AgentId;
     readonly apiKey: AgentKey;
   },

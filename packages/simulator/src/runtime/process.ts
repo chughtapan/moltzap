@@ -1,7 +1,7 @@
 /** @file Shared observation of already-acquired autonomous processes. */
 
 import type { ExitCode } from "@effect/platform/CommandExecutor";
-import type { AgentKey } from "@moltzap/protocol/identity";
+import type { AgentKey, AgentName } from "@moltzap/protocol/identity";
 import {
   RuntimeExited,
   RuntimeFailed,
@@ -20,7 +20,7 @@ export interface ProcessObservation<WaitFailure> {
 }
 
 interface ProcessIdentity {
-  readonly agentName: string;
+  readonly agentName: AgentName;
   readonly agentKey: AgentKey;
   readonly runtimeName: string;
 }

@@ -259,7 +259,13 @@ export function rootEslintConfig(options = {}) {
   );
   return [
     {
-      ignores: [".claude/**", "packages/**", "scripts/**", "v2/**"],
+      ignores: [
+        ".claude/**",
+        ".repos/**",
+        "packages/**",
+        "scripts/**",
+        "v2/**",
+      ],
     },
     packageIgnores,
     {

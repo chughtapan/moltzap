@@ -27,10 +27,6 @@
       "reason": "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design"
     },
     {
-      "package": "@sinclair/typebox",
-      "reason": "Schema runtime; types are the contract"
-    },
-    {
       "package": "@moltzap/protocol",
       "reason": "Intra-monorepo protocol; foundational shared contract"
     },

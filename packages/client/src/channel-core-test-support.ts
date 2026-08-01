@@ -4,7 +4,6 @@ import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { Message } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 
 import {
@@ -24,7 +23,6 @@ import {
   testConversationId,
   testLeaseId,
   testMessageId,
-  testTaskId,
   type FakeChannelService,
 } from "./test-utils/index.js";
 
@@ -209,8 +207,6 @@ export const conversation: (conversationLabel: string) => ConversationId =
   testConversationId;
 /** Provides the message runtime value. */
 export const message: (messageLabel: string) => MessageId = testMessageId;
-/** Provides the task runtime value. */
-export const task: (taskLabel: string) => TaskId = testTaskId;
 /** Re-exports the public API from `current module`. */
 export { testLeaseId };
 /**

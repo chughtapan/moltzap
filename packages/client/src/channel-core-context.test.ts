@@ -17,7 +17,6 @@ import {
   forceResolveAgentNamePath,
   message,
   participant,
-  task,
   type ChannelCoreFixture,
   type CrossConversationEntry,
   type EnrichedInboundMessage,
@@ -329,14 +328,11 @@ effectTest(
 
 function delegatesToServiceSendWithConversationIdAndText() {
   return Effect.gen(function* () {
-    yield* core.sendReply(conversation("conv-42"), "hello there", {
-      taskId: task("task-42"),
-    });
+    yield* core.sendReply(conversation("conv-42"), "hello there");
     expect(fake.state.sent).toEqual([
       {
         convId: conversation("conv-42"),
         text: "hello there",
-        taskId: task("task-42"),
       },
     ]);
   });
@@ -372,9 +368,7 @@ function returnsTheSameShapeAsTheInstanceHandlerPath() {
     });
 
     const { enriched: staticResult, commitContext } =
-      yield* MoltZapChannelCore.enrichMessage(service, msg, {
-        taskId: task("task-1"),
-      });
+      yield* MoltZapChannelCore.enrichMessage(service, msg);
 
     expect(staticResult).toMatchObject({
       id: message("msg-static"),
@@ -409,7 +403,6 @@ function staticHelperToleratesResolveAgentNameThrowingDisconnectedService() {
     const { enriched: result } = yield* MoltZapChannelCore.enrichMessage(
       fake.service,
       buildMessage({ senderId: "agent-unknown" }),
-      { taskId: task("task-unknown") },
     );
 
     expect(result.sender.name).toBe(agent("agent-unknown"));

@@ -1,6 +1,6 @@
 /** @file Mixed-roster acquisition and runtime-termination observation. */
 
-import type { AgentName } from "@moltzap/protocol/identity";
+import type { AgentId, AgentName } from "@moltzap/protocol/identity";
 import { Cause, Effect, Exit, type Scope } from "effect";
 import {
   AgentRuntimeReady,
@@ -13,7 +13,9 @@ import type {
   AgentRoster,
   AgentRosterAcquisitionError,
   AgentRosterRequirements,
-  StartedAgentHandles,
+  RuntimeGatewayOf,
+  StartedAgent,
+  StartedAgents,
 } from "../runtime/roster.js";
 import {
   RuntimeFailed,
@@ -25,12 +27,12 @@ import { nonEmptyCause, runtimeEvent } from "./outcomes.js";
 const MAX_PARALLEL_RUNTIME_ACQUISITIONS = 32;
 type RuntimeEventWriter = LedgerWriter<typeof runtimeEvents>;
 
-interface AcquiredAgent<Name extends string = string> {
+interface AcquiredAgent<Name extends string = string, Gateway = unknown> {
   readonly name: Name;
   readonly agentName: AgentName;
+  readonly agentId: AgentId;
   readonly runtimeName: string;
-  readonly connection: AgentConnection<Name>;
-  readonly running: RunningAgent;
+  readonly started: StartedAgent<Name, Gateway>;
 }
 
 interface AcquireAgentInput<
@@ -40,7 +42,7 @@ interface AcquireAgentInput<
   readonly router: Router;
   readonly name: Name;
   readonly agentName: AgentName;
-  readonly runtime: AgentRuntimeLike;
+  readonly runtime: Definitions[Name];
   readonly writer: RuntimeEventWriter;
 }
 
@@ -57,22 +59,17 @@ function runtimeAcquire<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
   Name extends Extract<keyof Definitions, string>,
 >(
-  runtime: AgentRuntimeLike,
+  runtime: Definitions[Name],
+  agentName: AgentName,
   connection: AgentConnection<Name>,
 ): Effect.Effect<
-  RunningAgent,
+  RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
   AgentRosterAcquisitionError<Definitions>,
   AgentRosterRequirements<Definitions> | Scope.Scope
 > {
-  // Heterogeneous record iteration erases each runtime definition's E and R.
-  // AgentRoster construction proves this union by accepting nominal runtimes.
-  return /* Safe because the surrounding invariant establishes this asserted shape. */ runtime.acquire(
-    { connection },
-  ) as Effect.Effect<
-    RunningAgent,
-    AgentRosterAcquisitionError<Definitions>,
-    AgentRosterRequirements<Definitions> | Scope.Scope
-  >;
+  // The keyed entry keeps its exact gateway while this supervisor widens its
+  // failure and service requirements to the complete roster unions.
+  return runtime.acquire({ agentName, connection });
 }
 
 function attemptAgent<
@@ -91,15 +88,21 @@ function attemptAgent<
     );
     const running = yield* runtimeAcquire<Definitions, Name>(
       input.runtime,
+      input.agentName,
       connection,
     );
+    const started = Object.freeze({
+      agent: connection.agent,
+      gateway: running.gateway,
+      termination: running.termination,
+    });
     return {
       name: input.name,
       agentName: input.agentName,
+      agentId: connection.agent.id,
       runtimeName: input.runtime.name,
-      connection,
-      running,
-    } satisfies AcquiredAgent<Name>;
+      started,
+    } satisfies AcquiredAgent<Name, RuntimeGatewayOf<Definitions[Name]>>;
   });
 }
 
@@ -107,25 +110,28 @@ function monitorRuntime(
   acquired: AcquiredAgent,
   writer: RuntimeEventWriter,
 ): Effect.Effect<void, LedgerFailure> {
-  return acquired.running.termination.pipe(
+  return acquired.started.termination.pipe(
     Effect.matchCauseEffect({
       onFailure: (cause) =>
         Cause.isInterruptedOnly(cause)
           ? Effect.void
-          : writer.write({
-              event: runtimeEvent(
-                acquired,
-                RuntimeFailed.make({
-                  detail: nonEmptyCause(cause),
-                }),
-              ),
-            }),
+          : writer
+              .write({
+                event: runtimeEvent(
+                  acquired,
+                  RuntimeFailed.make({
+                    detail: nonEmptyCause(cause),
+                  }),
+                ),
+              })
+              .pipe(Effect.asVoid),
       onSuccess: (termination) =>
-        writer.write({
-          event: runtimeEvent(acquired, termination),
-        }),
+        writer
+          .write({
+            event: runtimeEvent(acquired, termination),
+          })
+          .pipe(Effect.asVoid),
     }),
-    Effect.asVoid,
     Effect.withSpan("Simulator.runtimeTermination", {
       attributes: {
         "agent.name": acquired.name,
@@ -151,7 +157,7 @@ function recordReady(acquired: AcquiredAgent, writer: RuntimeEventWriter) {
   return writer.write({
     event: AgentRuntimeReady.make({
       agentName: acquired.agentName,
-      agentId: acquired.connection.agent.id,
+      agentId: acquired.agentId,
       runtime: acquired.runtimeName,
     }),
   });
@@ -209,14 +215,24 @@ function acquireAgent<
   );
 }
 
-function startedHandles<
+function startedAgents<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(acquired: readonly AcquiredAgent[]): StartedAgentHandles<Definitions> {
+>(acquired: readonly AcquiredAgent[]): StartedAgents<Definitions> {
   return /* Safe because the surrounding invariant establishes this asserted shape. */ Object.freeze(
-    Object.fromEntries(
-      acquired.map((entry) => [entry.name, entry.connection.agent]),
-    ),
-  ) as StartedAgentHandles<Definitions>;
+    Object.fromEntries(acquired.map((entry) => [entry.name, entry.started])),
+  ) as StartedAgents<Definitions>;
+}
+
+function withoutPeerCancellation<Failure>(
+  cause: Cause.Cause<Failure>,
+): Cause.Cause<Failure> {
+  // Parallel acquisition cancels unfinished peers after a primary failure.
+  // A primary interruption has no non-interrupt cause and remains unchanged.
+  const primary = Cause.filter(
+    cause,
+    (current) => !Cause.isInterruptType(current),
+  );
+  return Cause.isEmpty(primary) ? cause : primary;
 }
 
 /**
@@ -234,11 +250,16 @@ export function acquireRoster<
     (entry) =>
       acquireAgent<Definitions, Name>({
         router: input.router,
-        name: /* Safe because the surrounding invariant establishes this asserted shape. */ entry.name as Name,
+        name: entry.name,
         agentName: entry.agentName,
         runtime: entry.runtime,
         writer: input.writer,
       }),
     { concurrency: MAX_PARALLEL_RUNTIME_ACQUISITIONS },
-  ).pipe(Effect.map(startedHandles<Definitions>));
+  ).pipe(
+    Effect.catchAllCause((cause) =>
+      Effect.failCause(withoutPeerCancellation(cause)),
+    ),
+    Effect.map(startedAgents<Definitions>),
+  );
 }
