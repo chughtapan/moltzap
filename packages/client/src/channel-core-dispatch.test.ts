@@ -305,6 +305,104 @@ function expectOnePendingSnapshot(
   ).toEqual([[message("msg-1")]]);
 }
 
+interface HandlerGateFixture {
+  readonly fake: FakeChannelCoreService;
+  readonly core: MoltZapChannelCore;
+  readonly received: EnrichedInboundMessage[];
+  readonly admissionCallCount: () => number;
+}
+
+function createHandlerGateFixture(): HandlerGateFixture {
+  const fake = createFakeChannelService({ ownAgentId: "agent-self" });
+  const received: EnrichedInboundMessage[] = [];
+  fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+  fake.state.setAgentName("agent-alice", "Alice");
+  let admissionCalls = 0;
+  installAdmission(fake, () =>
+    Effect.sync(() => {
+      admissionCalls += 1;
+      return {
+        _tag: "grant" as const,
+        leaseId: testLeaseId("lease-handler-ready"),
+      };
+    }),
+  );
+  return {
+    fake,
+    core: new MoltZapChannelCore({ service: fake.service }),
+    received,
+    admissionCallCount: () => admissionCalls,
+  };
+}
+
+function doesNotRequestDispatchBeforeAnInboundHandlerIsRegistered() {
+  return Effect.gen(function* () {
+    const fixture = createHandlerGateFixture();
+    yield* fixture.core.connect();
+
+    fixture.fake.emit.message(buildMessage({ id: "msg-before-handler" }));
+    yield* flushDispatchChainEffect;
+
+    expect(fixture.admissionCallCount()).toBe(0);
+    yield* fixture.core.disconnect();
+  });
+}
+
+effectTest(
+  "does not request dispatch before an inbound handler is registered",
+  doesNotRequestDispatchBeforeAnInboundHandlerIsRegistered,
+);
+
+function dispatchesQueuedWorkOnceAfterTheFirstHandlerIsRegistered() {
+  return Effect.gen(function* () {
+    const fixture = createHandlerGateFixture();
+    yield* fixture.core.connect();
+
+    fixture.fake.emit.message(buildMessage({ id: "msg-queued-for-handler" }));
+    yield* flushDispatchChainEffect;
+    expect(fixture.admissionCallCount()).toBe(0);
+
+    installReceivedRecorder(fixture.core, fixture.received);
+    yield* flushDispatchChainEffect;
+    yield* flushDispatchChainEffect;
+
+    expect(fixture.admissionCallCount()).toBe(1);
+    expect(fixture.received.map((entry) => entry.id)).toEqual([
+      message("msg-queued-for-handler"),
+    ]);
+    yield* fixture.core.disconnect();
+  });
+}
+
+effectTest(
+  "dispatches already queued work exactly once after the first handler is registered",
+  dispatchesQueuedWorkOnceAfterTheFirstHandlerIsRegistered,
+);
+
+function disconnectBeforeHandlerRegistrationPreventsQueuedDispatch() {
+  return Effect.gen(function* () {
+    const fixture = createHandlerGateFixture();
+    yield* fixture.core.connect();
+
+    fixture.fake.emit.message(
+      buildMessage({ id: "msg-disconnected-before-handler" }),
+    );
+    yield* flushDispatchChainEffect;
+    yield* fixture.core.disconnect();
+
+    installReceivedRecorder(fixture.core, fixture.received);
+    yield* flushDispatchChainEffect;
+
+    expect(fixture.admissionCallCount()).toBe(0);
+    expect(fixture.received).toHaveLength(0);
+  });
+}
+
+effectTest(
+  "does not dispatch queued work when disconnected before handler registration",
+  disconnectBeforeHandlerRegistrationPreventsQueuedDispatch,
+);
+
 function asksOptionalDispatchAdmissionBeforeDeliveringInboundWork() {
   return Effect.gen(function* () {
     const { fake, received } = customSetup();
