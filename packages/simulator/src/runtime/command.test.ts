@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   escalatingKill,
+  makeCommandHelpers,
   makeExactEnvironmentCommand,
   startSupervisedProcess,
 } from "./command.js";
@@ -65,6 +66,96 @@ setTimeout(
 );
 setTimeout(() => process.exit(0), 100);
 `;
+
+// Mirrors a NanoClaw workspace build: npm summarizes the lifecycle failure on
+// stderr while the compiler it invoked reports the real cause on stdout.
+const BUILD_STDERR_SUMMARY = "npm error Lifecycle script build failed";
+const BUILD_STDOUT_DIAGNOSTIC =
+  "src/index.ts(1,1): error TS2304: Cannot find name foo.";
+const BUILD_EXIT_CODE = 2;
+const OVERSIZED_HEAD_MARKER = "OLDEST_OUTPUT_MARKER";
+const OVERSIZED_TAIL_MARKER = "NEWEST_OUTPUT_MARKER";
+const OVERSIZED_FILLER_CHARS = 64 * 1024;
+
+function nodeScriptCommand(script: string): string {
+  return `"${execPath}" -e ${JSON.stringify(script)}`;
+}
+
+// A failure reason echoes the command text, so a script that names its expected
+// output verbatim would satisfy every assertion below without any output being
+// retained. Emitting each string from halves keeps the whole literal reachable
+// only through the captured stream.
+function emitSplit(stream: "stdout" | "stderr", text: string): string {
+  const half = Math.floor(text.length / 2);
+  return (
+    `process.${stream}.write(${JSON.stringify(text.slice(0, half))} +` +
+    ` ${JSON.stringify(text.slice(half))});`
+  );
+}
+
+const failingBuildCommand = nodeScriptCommand(
+  emitSplit("stderr", BUILD_STDERR_SUMMARY) +
+    emitSplit("stdout", BUILD_STDOUT_DIAGNOSTIC) +
+    `process.exit(${String(BUILD_EXIT_CODE)});`,
+);
+
+const oversizedOutputCommand = nodeScriptCommand(
+  emitSplit("stdout", OVERSIZED_HEAD_MARKER) +
+    `process.stdout.write("x".repeat(${String(OVERSIZED_FILLER_CHARS)}));` +
+    emitSplit("stdout", OVERSIZED_TAIL_MARKER) +
+    `process.exit(${String(BUILD_EXIT_CODE)});`,
+);
+
+const { execEffect } = makeCommandHelpers(
+  (reason: string) => new Error(reason),
+);
+
+function execFailure(commandText: string) {
+  return execEffect(commandText).pipe(
+    Effect.flip,
+    Effect.provide(NodeContext.layer),
+  );
+}
+
+describe("execEffect", () => {
+  it("retains both streams when a build command fails", retainsBothStreams);
+  it("keeps the newest output when a command floods", boundsDiagnostics);
+  it("stays silent when the command succeeds", succeedsWithoutDiagnostics);
+});
+
+function retainsBothStreams() {
+  return Effect.runPromise(
+    execFailure(failingBuildCommand).pipe(
+      Effect.tap((failure) => {
+        expect(failure.message).toContain(String(BUILD_EXIT_CODE));
+        expect(failure.message).toContain(BUILD_STDERR_SUMMARY);
+        expect(failure.message).toContain(BUILD_STDOUT_DIAGNOSTIC);
+      }),
+      Effect.asVoid,
+    ),
+  );
+}
+
+function boundsDiagnostics() {
+  return Effect.runPromise(
+    execFailure(oversizedOutputCommand).pipe(
+      Effect.tap((failure) => {
+        expect(failure.message).toContain(OVERSIZED_TAIL_MARKER);
+        expect(failure.message).not.toContain(OVERSIZED_HEAD_MARKER);
+        expect(failure.message.length).toBeLessThan(OVERSIZED_FILLER_CHARS);
+      }),
+      Effect.asVoid,
+    ),
+  );
+}
+
+function succeedsWithoutDiagnostics() {
+  return Effect.runPromise(
+    execEffect(nodeScriptCommand("process.stdout.write(String(1));")).pipe(
+      Effect.provide(NodeContext.layer),
+    ),
+  );
+}
 
 describe("makeExactEnvironmentCommand", () => {
   it(

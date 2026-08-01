@@ -90,7 +90,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
     devDependencies:
       '@effect/vitest':
@@ -151,7 +151,7 @@ importers:
         specifier: workspace:*
         version: link:../simulator
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
     devDependencies:
       '@effect/vitest':
@@ -179,7 +179,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
     devDependencies:
       '@effect/platform':
@@ -219,7 +219,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       openclaw:
         specifier: '>=2026.0.0'
@@ -268,7 +268,7 @@ importers:
         specifier: 0.76.0
         version: 0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0)
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
     devDependencies:
       '@typescript/native':
@@ -341,7 +341,7 @@ importers:
         specifier: 1.41.1
         version: 1.41.1
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       kysely:
         specifier: ^0.28.2
@@ -414,7 +414,7 @@ importers:
         specifier: workspace:*
         version: link:../server
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       openclaw:
         specifier: 2026.6.33
@@ -485,7 +485,7 @@ importers:
         specifier: 3.0.0
         version: 3.0.0
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       http-message-signatures:
         specifier: 1.0.6
@@ -543,7 +543,7 @@ importers:
         specifier: 3.0.0
         version: 3.0.0
       effect:
-        specifier: 3.22.0
+        specifier: ^3.22.0
         version: 3.22.0
       jose:
         specifier: 6.2.5

@@ -128,7 +128,7 @@
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
     "@effect/rpc": "0.76.0",
-    "effect": "3.22.0"
+    "effect": "^3.22.0"
   },
   "devDependencies": {
     "@typescript/native": "npm:typescript@^7.0.2",

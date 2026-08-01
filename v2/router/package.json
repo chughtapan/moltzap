@@ -104,7 +104,7 @@
     "@effect/rpc": "0.76.0",
     "@moltzap/v2-identity": "workspace:*",
     "canonicalize": "3.0.0",
-    "effect": "3.22.0",
+    "effect": "^3.22.0",
     "jose": "6.2.5"
   },
   "devDependencies": {
