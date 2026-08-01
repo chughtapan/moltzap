@@ -99,16 +99,16 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "0.97.0",
-    "@effect/platform-node": "0.108.0",
-    "@effect/rpc": "0.76.0",
+    "@effect/platform": "^0.97.0",
+    "@effect/platform-node": "^0.108.0",
+    "@effect/rpc": "^0.76.0",
     "@moltzap/v2-identity": "workspace:*",
     "canonicalize": "3.0.0",
     "effect": "^3.22.0",
     "jose": "6.2.5"
   },
   "devDependencies": {
-    "@effect/vitest": "0.30.0",
+    "@effect/vitest": "^0.30.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
     "fast-check": "3.23.2",
