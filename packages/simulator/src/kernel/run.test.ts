@@ -1,4 +1,6 @@
 import { assert, effect as test } from "@effect/vitest";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { AgentId } from "@moltzap/protocol/identity";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {
   conversationId,
@@ -11,12 +13,16 @@ import {
   Chunk,
   DateTime,
   Deferred,
+  Duration,
   Effect,
   Exit,
   Fiber,
+  Mailbox,
   Ref,
   Schema,
+  type Scope,
   Stream,
+  TestClock,
 } from "effect";
 import {
   AgentProcessExited,
@@ -25,7 +31,14 @@ import {
   AgentRuntimeFailed,
   AgentRuntimeReady,
   AgentRuntimeStartFailed,
+  EndpointMessageReceived,
   EndpointMessageSent,
+  LinkDown,
+  LinkMessageDelayed,
+  LinkMessageDropped,
+  LinkPolicyCleared,
+  LinkPolicySet,
+  LinkUp,
   RouterMessageCommitted,
   RouterStarted,
   RunStarted,
@@ -44,6 +57,8 @@ import {
   type LedgerStorageService,
 } from "../ledger/storage.js";
 import {
+  LinkController,
+  linkPolicy,
   Network,
   NetworkFailure,
   RouterProvider,
@@ -52,6 +67,9 @@ import {
   makeParticipantHandle,
   makeRouterStopReport,
   type AttachedEndpoint,
+  type EndpointTransport,
+  type MessageParts,
+  type ReceivedMessage,
   type Router,
   type RouterProviderService,
 } from "../network.js";
@@ -208,35 +226,96 @@ function observeCompletions(
   };
 }
 
-function attachFakeEndpoint<const Name extends string>(
+function hubMessage(
+  endpointId: AgentId,
+  currentConversationId: ConversationId,
+  parts: MessageParts,
+  sequence: number,
+) {
+  return {
+    id: messageId(
+      `00000000-0000-4000-8000-${String(400 + sequence).padStart(12, "0")}`,
+    ),
+    conversationId: currentConversationId,
+    senderId: endpointId,
+    parts,
+    createdAt: "2026-07-28T00:00:00.000Z",
+  };
+}
+
+interface Counter {
+  value: number;
+}
+
+// In-memory loopback hub: every endpoint send fans out into every other
+// attachment's received stream, so kernel tests observe real deliveries.
+interface FakeHubState {
+  readonly inboxes: Map<AgentId, Mailbox.Mailbox<ReceivedMessage>>;
+  readonly endpoints: Counter;
+  readonly messages: Counter;
+  readonly committedSends?: Ref.Ref<number>;
+}
+
+function hubSend(
+  hub: FakeHubState,
+  endpointId: AgentId,
+): EndpointTransport["send"] {
+  return (currentConversationId, parts) =>
+    Effect.gen(function* () {
+      if (hub.committedSends !== undefined) {
+        yield* Ref.update(hub.committedSends, increment);
+      }
+      hub.messages.value += 1;
+      const message = hubMessage(
+        endpointId,
+        currentConversationId,
+        parts,
+        hub.messages.value,
+      );
+      yield* Effect.forEach(
+        hub.inboxes,
+        ([id, inbox]) =>
+          id === endpointId ? Effect.void : inbox.offer({ message }),
+        { concurrency: 1, discard: true },
+      );
+      return message;
+    });
+}
+
+function hubAttachment<const Name extends string>(
   name: Name,
-  committedSends?: Ref.Ref<number>,
-): Effect.Effect<AttachedEndpoint<Name>> {
-  const endpointId = agentId(100);
-  return Effect.succeed({
+  endpointId: AgentId,
+  mailbox: Mailbox.Mailbox<ReceivedMessage>,
+  send: EndpointTransport["send"],
+): AttachedEndpoint<Name> {
+  return {
     participant: makeParticipantHandle(name, endpointId),
     transport: {
-      received: Stream.never,
+      received: Mailbox.toStream(mailbox),
       openConversation: () =>
         Effect.succeed({
           conversationId: conversationId(
             "00000000-0000-4000-8000-000000000102",
           ),
         }),
-      send: (currentConversationId, parts) =>
-        (committedSends === undefined
-          ? Effect.void
-          : Ref.update(committedSends, (count) => count + 1)
-        ).pipe(
-          Effect.as({
-            id: messageId("00000000-0000-4000-8000-000000000103"),
-            conversationId: currentConversationId,
-            senderId: endpointId,
-            parts,
-            createdAt: "2026-07-28T00:00:00.000Z",
-          }),
-        ),
+      send,
     },
+  };
+}
+
+function hubAttach<const Name extends string>(
+  hub: FakeHubState,
+  name: Name,
+): Effect.Effect<AttachedEndpoint<Name>, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    hub.endpoints.value += 1;
+    const endpointId = agentId(100 + hub.endpoints.value);
+    const mailbox = yield* Mailbox.make<ReceivedMessage>();
+    hub.inboxes.set(endpointId, mailbox);
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => hub.inboxes.delete(endpointId)),
+    );
+    return hubAttachment(name, endpointId, mailbox, hubSend(hub, endpointId));
   });
 }
 
@@ -246,6 +325,12 @@ function fakeRouterProvider(
   return {
     acquire: Effect.gen(function* () {
       const stopped = yield* Deferred.make<RouterStopped>();
+      const hub: FakeHubState = {
+        inboxes: new Map(),
+        endpoints: { value: 0 },
+        messages: { value: 0 },
+        committedSends,
+      };
       let nextIdentity = 0;
       const router: Router = {
         address: ROUTER_URL,
@@ -259,7 +344,7 @@ function fakeRouterProvider(
               routerUrl: ROUTER_URL,
             };
           }),
-        attachEndpoint: (name) => attachFakeEndpoint(name, committedSends),
+        attachEndpoint: (name) => hubAttach(hub, name),
       };
       yield* Effect.addFinalizer(() =>
         Deferred.succeed(stopped, makeRouterStopReport([])).pipe(Effect.asVoid),
@@ -871,4 +956,143 @@ test("releases an acquired peer when parallel roster acquisition fails", () =>
       Effect.provideService(LedgerStorage, memoryStorage()),
       Effect.provideService(RouterProvider, fakeRouterProvider()),
     ),
+  ));
+
+const SHAPE_DESCRIPTION = "delay under shape";
+const SHAPED_DELAY = Duration.millis(100);
+const SHAPED_DELAY_MILLIS = 100;
+
+function textOf(received: ReceivedMessage): string {
+  return received.message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("");
+}
+
+function awaitSleepers(count: number): Effect.Effect<void> {
+  return TestClock.sleeps().pipe(
+    Effect.flatMap((sleeps) =>
+      Chunk.size(sleeps) >= count
+        ? Effect.void
+        : Effect.yieldNow().pipe(
+            Effect.zipRight(Effect.suspend(() => awaitSleepers(count))),
+          ),
+    ),
+  );
+}
+
+function openPair() {
+  return Effect.gen(function* () {
+    const network = yield* Network;
+    const sender = yield* network.endpoint("sender");
+    const receiver = yield* network.endpoint("receiver");
+    const socket = yield* sender.open(receiver.participant);
+    return { sender, receiver, socket };
+  });
+}
+
+function disableRoundTripProgram() {
+  return Effect.gen(function* () {
+    const links = yield* LinkController;
+    const ledger = yield* society.ledger;
+    const { sender, receiver, socket } = yield* openPair();
+    const received = yield* receiver
+      .messages()
+      .pipe(Stream.take(2), Stream.runCollect, Effect.fork);
+    yield* Effect.yieldNow();
+    yield* socket.send("baseline");
+    yield* ledger
+      .events(EndpointMessageReceived)
+      .pipe(Stream.take(1), Stream.runDrain);
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* links.disable(sender.participant, receiver.participant);
+        yield* socket.send("blocked");
+        yield* ledger
+          .events(LinkMessageDropped)
+          .pipe(Stream.take(1), Stream.runDrain);
+      }),
+    );
+    yield* socket.send("after");
+    const messages = yield* Fiber.join(received);
+    return Chunk.toReadonlyArray(messages).map(textOf);
+  });
+}
+
+test("scoped link disable drops deliveries with evidence and restores delivery", () =>
+  Effect.gen(function* () {
+    const result = yield* society.run(
+      society.agents({}),
+      disableRoundTripProgram(),
+    );
+    assert.instanceOf(result, ProgramFinished);
+    if (!(result instanceof ProgramFinished)) {
+      return;
+    }
+    assert.deepStrictEqual(result.exit, Exit.succeed(["baseline", "after"]));
+
+    const ledger = yield* society.openLedger(result.receipt.ledger);
+    assert.lengthOf(yield* Stream.runCollect(ledger.events(LinkDown)), 1);
+    assert.lengthOf(yield* Stream.runCollect(ledger.events(LinkUp)), 1);
+    const dropped = yield* Stream.runCollect(ledger.events(LinkMessageDropped));
+    assert.strictEqual(dropped.length, 1);
+  }).pipe(
+    Effect.provideService(LedgerStorage, memoryStorage()),
+    Effect.provideService(RouterProvider, fakeRouterProvider()),
+  ));
+
+function delayUnderShapeProgram() {
+  return Effect.gen(function* () {
+    const links = yield* LinkController;
+    const ledger = yield* society.ledger;
+    const { sender, receiver, socket } = yield* openPair();
+    const received = yield* receiver
+      .messages()
+      .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
+    yield* Effect.yieldNow();
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* links.shape(
+          sender.participant,
+          receiver.participant,
+          linkPolicy.delay(SHAPED_DELAY),
+          SHAPE_DESCRIPTION,
+        );
+        yield* socket.send("delayed");
+        yield* ledger
+          .events(LinkMessageDelayed)
+          .pipe(Stream.take(1), Stream.runDrain);
+        yield* awaitSleepers(1);
+        yield* TestClock.adjust(SHAPED_DELAY);
+      }),
+    );
+    const messages = yield* Fiber.join(received);
+    return Chunk.toReadonlyArray(messages).map(textOf);
+  });
+}
+
+test("a shaped delay defers delivery until the ambient clock advances", () =>
+  Effect.gen(function* () {
+    const result = yield* society.run(
+      society.agents({}),
+      delayUnderShapeProgram(),
+    );
+    assert.instanceOf(result, ProgramFinished);
+    if (!(result instanceof ProgramFinished)) {
+      return;
+    }
+    assert.deepStrictEqual(result.exit, Exit.succeed(["delayed"]));
+
+    const ledger = yield* society.openLedger(result.receipt.ledger);
+    const set = yield* Stream.runCollect(ledger.events(LinkPolicySet));
+    assert.strictEqual(Chunk.unsafeGet(set, 0).policy, SHAPE_DESCRIPTION);
+    const cleared = yield* Stream.runCollect(ledger.events(LinkPolicyCleared));
+    assert.strictEqual(Chunk.unsafeGet(cleared, 0).policy, SHAPE_DESCRIPTION);
+    const delayed = yield* Stream.runCollect(ledger.events(LinkMessageDelayed));
+    assert.strictEqual(
+      Chunk.unsafeGet(delayed, 0).delayMillis,
+      SHAPED_DELAY_MILLIS,
+    );
+  }).pipe(
+    Effect.provideService(LedgerStorage, memoryStorage()),
+    Effect.provideService(RouterProvider, fakeRouterProvider()),
   ));

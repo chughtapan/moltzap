@@ -154,7 +154,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`CompletedLedgerReceipt`](./kernel/run.ts#L61)
+### [`CompletedLedgerReceipt`](./kernel/run.ts#L67)
 
 _Class_
 
@@ -693,7 +693,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](./kernel/run.ts#L70)
+### [`IncompleteLedgerReceipt`](./kernel/run.ts#L76)
 
 _Class_
 
@@ -721,7 +721,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt`](./kernel/run.ts#L85)
+### [`LedgerReceipt`](./kernel/run.ts#L91)
 
 _TypeAlias_
 
@@ -731,7 +731,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt`](./kernel/run.ts#L79)
+### [`LedgerReceipt`](./kernel/run.ts#L85)
 
 _Variable_
 
@@ -1076,7 +1076,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](./kernel/run.ts#L88)
+### [`ProgramFinished`](./kernel/run.ts#L94)
 
 _Class_
 
@@ -1207,7 +1207,7 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
 
 Router release or stopped-router evidence collection failed.
 
-### [`RunInfrastructureFailed`](./kernel/run.ts#L94)
+### [`RunInfrastructureFailed`](./kernel/run.ts#L100)
 
 _Class_
 
@@ -1340,7 +1340,7 @@ export interface SimulatorLayerOptions {
 
 Host configuration shared by every run provided with this Layer.
 
-### [`SimulatorRunFailure`](./kernel/run.ts#L109)
+### [`SimulatorRunFailure`](./kernel/run.ts#L115)
 
 _TypeAlias_
 
@@ -1352,7 +1352,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOptions`](./kernel/run.ts#L55)
+### [`SimulatorRunOptions`](./kernel/run.ts#L61)
 
 _Interface_
 
@@ -1365,7 +1365,7 @@ export interface SimulatorRunOptions {
 
 Optional run metadata; platform and runtime policy belong in Layers.
 
-### [`SimulatorRunOutcome`](./kernel/run.ts#L102)
+### [`SimulatorRunOutcome`](./kernel/run.ts#L108)
 
 _TypeAlias_
 
