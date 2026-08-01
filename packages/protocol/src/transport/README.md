@@ -9,6 +9,6 @@ This is the protocol package's lowest, content-neutral layer.
 - Notification subscribers, pagination, wire-string helpers, and shared
   transport and wire errors support every higher protocol domain.
 
-Identity, task, conversation, and message semantics do not belong here.
+Identity, conversation, and message semantics do not belong here.
 External consumers use the curated `rpc.ts` and domain facades; direct
 transport imports are for protocol internals.

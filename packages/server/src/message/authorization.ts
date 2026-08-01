@@ -96,7 +96,6 @@ export class MessageAuthorizationService {
     ctx: MessageAuthorizeContext,
     timeoutMs: number,
   ): Effect.Effect<MessageAuthorizeResult> {
-    const taskId = ctx.taskId;
     return wrapHookEffectWithEnvelope({
       raw: callAppRpc(entry, {
         definition: messagesAuthorize,
@@ -104,9 +103,9 @@ export class MessageAuthorizationService {
       }).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
       timeoutLogMessage: "app/message/authorize timed out",
-      timeoutLogContext: { taskId, appId, timeoutMs },
+      timeoutLogContext: { appId, timeoutMs },
       errorLogMessage: "app/message/authorize error",
-      errorLogContext: { taskId, appId },
+      errorLogContext: { appId },
       onTimeout: () => APP_UNREACHABLE_BLOCK,
       onError: () => APP_UNREACHABLE_BLOCK,
     });
@@ -116,7 +115,6 @@ export class MessageAuthorizationService {
     ctx: MessageAuthorizeContext,
   ): ParamsOf<typeof messagesAuthorize> {
     return {
-      taskId: ctx.taskId,
       appId: ctx.appId,
       conversationId: ctx.conversationId,
       message: {

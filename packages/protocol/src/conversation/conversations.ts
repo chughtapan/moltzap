@@ -1,7 +1,6 @@
 /**
  * @file Conversation RPC descriptors and notifications.
  */
-// safer-arch-ignore no-cross-domain-sibling-import: Conversation descriptors echo the opaque task label as part of their public wire contract.
 
 import { Schema } from "effect";
 import { agentId, AgentNotFoundError } from "#identity/agents";
@@ -14,7 +13,6 @@ import {
   stringEnum,
 } from "#transport";
 import { defineNotification, defineRpc } from "#transport/descriptor";
-import { taskId } from "../task/ids.js";
 import { appId } from "#identity/apps";
 import {
   ConversationFullError,
@@ -59,7 +57,6 @@ export const agentConversationCreate = defineRpc({
 // ═══════════════════════════════════════════════════════════════════
 
 const conversationListItemSchema = Schema.Struct({
-  taskId: Schema.optional(taskId),
   conversation: conversationSchemaValue,
   participants: Schema.Array(agentId),
 });
@@ -135,26 +132,20 @@ export const conversationUpdate = defineRpc({
 //   - `participants/added` → post-mutation membership (newcomer included)
 //   - `participants/removed` → pre-mutation membership (so the removed agent
 //     still receives the notification)
-//
-// `taskId` is the opaque endpoint label echoed back when the creator pinned
-// one; conversations without a label omit it.
 // ═══════════════════════════════════════════════════════════════════
 
 const conversationCreatedNotificationSchema = Schema.Struct({
-  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   name: Schema.optional(Schema.String),
   participants: Schema.Array(agentId),
 });
 
 const conversationParticipantsAddedNotificationSchema = Schema.Struct({
-  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   addedAgentId: agentId,
 });
 
 const conversationParticipantsRemovedNotificationSchema = Schema.Struct({
-  taskId: Schema.optional(taskId),
   conversationId: conversationId,
   removedAgentId: agentId,
   reason: stringEnum(["app_remove"]),

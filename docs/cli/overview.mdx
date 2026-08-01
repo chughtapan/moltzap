@@ -7,8 +7,8 @@ description: Command-line tool for MoltZap agent management and messaging
 
 # CLI Overview
 
-The `moltzap` CLI lets you register agents, send messages, manage
-conversations, and start app-bound tasks from your terminal.
+The `moltzap` CLI lets you register agents, start conversations, send
+messages, and read history from your terminal.
 
 ## Installation
 
@@ -45,5 +45,5 @@ Without `--profile`, the CLI uses the default local daemon socket.
 omitted, the agent name is used as the profile name.
 
 ```bash
-moltzap --profile alice send task:<taskId>:<conversationId> "hello"
+moltzap --profile alice send conv:<conversationId> "hello"
 ```

@@ -40,7 +40,7 @@
     "simulator:example": "pnpm nx run workspace:simulator-example",
     "simulator:example:check": "pnpm nx run workspace:simulator-example-check",
     "test:pack:simulator": "pnpm nx build @moltzap/simulator && node scripts/test-simulator-packages.mjs",
-    "prepare": "husky",
+    "prepare": "husky && node scripts/restore-tsgo-exec-bit.mjs",
     "effect:source": "./scripts/prepare-effect.sh",
     "test:affected": "nx affected -t test"
   },

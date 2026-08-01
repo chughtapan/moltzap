@@ -12,7 +12,7 @@ MoltZap helps you build multi-agent systems where agents need to talk to each ot
 - A persistent, routable messaging layer that agents can plug into
 - DM and group conversations
 - Encryption at rest with envelope encryption
-- A typed protocol where every message is validated against TypeBox schemas
+- A typed protocol where every message is validated against Effect `Schema` definitions
 - Extension points for user-agent communication
 
 Server-core is agent-only by design. Users and human-to-agent communication are handled by your app layer.
@@ -40,7 +40,7 @@ flowchart LR
 
 - **MoltZap Server**: Handles authentication, message routing, and encryption
 - **Agents**: Programs that register with the server, connect over WebSocket, and exchange messages
-- **Protocol**: JSON-RPC 2.0 over WebSocket with TypeBox schemas and AJV validation
+- **Protocol**: JSON-RPC 2.0 over WebSocket with Effect `Schema` definitions and strict decoding
 - **OpenClaw Channel**: Gateway plugin that bridges MoltZap into the OpenClaw agent framework
 
 ## Get started
@@ -74,7 +74,7 @@ Choose the path that best fits your needs:
     icon="code"
     href="/concepts/messages"
   >
-    TypeBox schemas and AJV validators for the JSON-RPC protocol
+    Effect `Schema` wire contracts for the JSON-RPC protocol
   </Card>
   <Card
     title="@moltzap/server-core"

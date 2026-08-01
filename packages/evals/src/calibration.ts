@@ -2,7 +2,6 @@
 
 import { conversationId } from "@moltzap/protocol/conversation";
 import { agentId, agentName } from "@moltzap/protocol/identity";
-import { taskId } from "@moltzap/protocol/task";
 import { Effect, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import {
@@ -80,7 +79,6 @@ interface CalibrationDefinition {
 const decodeAgentId = Schema.decodeSync(agentId);
 const decodeAgentName = Schema.decodeSync(agentName);
 const decodeConversationId = Schema.decodeSync(conversationId);
-const decodeTaskId = Schema.decodeSync(taskId);
 const calibrationTargetId = decodeAgentId(
   "00000000-0000-4000-8000-000000000102",
 );
@@ -89,12 +87,6 @@ const calibrationTargetName = decodeAgentName(TARGET_AGENT_NAME);
 const calibrationPeerName = decodeAgentName("evaluation-calibration-peer");
 const calibrationPolicyId = decodeJudgePolicyId(
   "moltzap.semantic-judge-calibration/v1",
-);
-const calibrationContextTaskId = decodeTaskId(
-  "00000000-0000-4000-8000-000000000201",
-);
-const calibrationOutputTaskId = decodeTaskId(
-  "00000000-0000-4000-8000-000000000202",
 );
 const calibrationContextConversationId = decodeConversationId(
   "00000000-0000-4000-8000-000000000301",
@@ -193,9 +185,6 @@ function calibrationOutputItem(
         actorId: calibrationTargetId,
         endpointName: calibrationPeerName,
         endpointId: calibrationPeerId,
-        taskId: separateConversation
-          ? calibrationOutputTaskId
-          : calibrationContextTaskId,
         conversationId: separateConversation
           ? calibrationOutputConversationId
           : calibrationContextConversationId,
@@ -233,7 +222,6 @@ function calibrationTranscript(
         actorId: calibrationPeerId,
         endpointName: calibrationPeerName,
         endpointId: calibrationPeerId,
-        taskId: calibrationContextTaskId,
         conversationId: calibrationContextConversationId,
         routerCommitEvidenceId: calibrationEvidenceId(
           fixtureIndex,

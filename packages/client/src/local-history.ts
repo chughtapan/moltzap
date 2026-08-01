@@ -30,23 +30,10 @@ const historyMessageSummarySchema = Schema.Struct({
   isNew: Schema.Boolean,
 });
 
-const conversationMetadataSchema = Schema.Struct({
-  tags: Schema.optional(
-    Schema.Array(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.String,
-      }),
-    ),
-  ),
-});
-
 const historyConversationMetaSchema = Schema.Struct({
   id: conversationId,
   name: Schema.optional(Schema.String),
   createdBy: agentId,
-  metadata: Schema.optional(conversationMetadataSchema),
-  lastMessageTimestamp: Schema.optional(Schema.String),
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });

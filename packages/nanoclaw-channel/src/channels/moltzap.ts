@@ -3,7 +3,6 @@ import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { TaskId } from "@moltzap/protocol/task";
 import {
   BoundedMap,
   type LeaseAlreadyConsumed,
@@ -149,7 +148,13 @@ interface MoltZapAdapterState {
  *   note over Handler: Step 3 — ensureEvalWiring (eval mode only)<br>conversation rows target the harness-seeded agent
  *   Handler->>Router: Step 4 — setup.onMetadata(jid, name, isGroup)
  *   Handler->>Router: Step 5 — setup.onInbound(jid, null, message)
+ *   Router-->>Handler: Step 6 — turn resolves<br>awaited, so the lease outlives the reply
  * ```
+ *
+ * The per-jid lease and conversation entries are only sound because Step 6 is
+ * awaited: they hold the newest inbound, so a reply that outlived its own turn
+ * would read a lease it did not earn. Awaiting keeps at most one turn per
+ * adapter in flight, which matches the core's single-fiber inbound drain.
  *
  * Lease-store stale-entry semantic: uses `peek` (not `consume`) so a second
  * `deliver` on the same jid after a consumed lease receives the typed
@@ -169,13 +174,12 @@ export class MoltZapAdapter implements ChannelAdapter {
   // `LeaseAlreadyConsumed`.
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
   // Per-jid memory of the branded conversation id from the most recent
-  // inbound, plus the grouping label that message carried so a reply can
-  // re-stamp it. Keeping the branded id avoids re-decoding it on every
-  // reply. Bounded: an evicted conversation degrades to the unknown-jid
-  // deliver error until its next inbound refreshes the entry.
+  // inbound. Keeping the branded id avoids re-decoding it on every reply.
+  // Bounded: an evicted conversation degrades to the unknown-jid deliver
+  // error until its next inbound refreshes the entry.
   private readonly conversationsByJid = new BoundedMap<
     string,
-    { readonly conversationId: ConversationId; readonly taskId?: TaskId }
+    { readonly conversationId: ConversationId }
   >(MAX_TRACKED_CONVERSATIONS);
   private ownAgentId: string;
   private core: MoltZapChannelCore | null;
@@ -292,11 +296,7 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   private attachCore(core: MoltZapChannelCore): void {
-    core.onInbound((msg: EnrichedInboundMessage) =>
-      Effect.sync(() => {
-        this.handleInbound(msg);
-      }),
-    );
+    core.onInbound((msg: EnrichedInboundMessage) => this.handleInbound(msg));
     core.onDisconnect(() => {
       Effect.runFork(
         Effect.logWarning("MoltZap disconnected").pipe(
@@ -335,12 +335,11 @@ export class MoltZapAdapter implements ChannelAdapter {
           });
         }
         yield* core
-          .sendReply(conversation.conversationId, text, {
-            ...(leaseId === undefined ? {} : { dispatchLeaseId: leaseId }),
-            ...(conversation.taskId === undefined
-              ? {}
-              : { taskId: conversation.taskId }),
-          })
+          .sendReply(
+            conversation.conversationId,
+            text,
+            leaseId === undefined ? {} : { dispatchLeaseId: leaseId },
+          )
           .pipe(
             catchLeaseInvalid(leaseId !== undefined ? { leaseId } : undefined),
           );
@@ -357,36 +356,52 @@ export class MoltZapAdapter implements ChannelAdapter {
   ): void {
     this.conversationsByJid.set(jid, {
       conversationId: enriched.conversationId,
-      ...(enriched.taskId === undefined ? {} : { taskId: enriched.taskId }),
     });
   }
 
-  private handleInbound(enriched: EnrichedInboundMessage): void {
-    // Own outbound replies echo back through the notification stream; the
-    // router has no is-from-me concept, so they are dropped here.
-    if (enriched.isFromMe) {
-      return;
-    }
-    const config = this.setupConfig;
-    if (config === null) {
-      return;
-    }
-    const jid = jidFromConversationId(enriched.conversationId);
-    this.rememberDispatchLease(jid, enriched);
-    this.rememberConversation(jid, enriched);
-    const isGroup = enriched.conversationMeta?.type === "group";
-    if (this.evalMode) {
-      this.ensureEvalWiring(jid, enriched, isGroup);
-    }
-    config.onMetadata(jid, enriched.conversationMeta?.name, isGroup);
-    // onInbound may return a promise; a rejection surfaces as a logged fiber
-    // failure instead of an unhandled rejection.
-    const dispatched = config.onInbound(
-      jid,
-      null,
-      this.toInboundMessage(enriched, isGroup),
-    );
-    Effect.runFork(Effect.tryPromise(() => Promise.resolve(dispatched)));
+  // The host turn is awaited rather than forked, which is what keeps the
+  // dispatch lease paired with the turn that earned it. The core holds one
+  // lease in flight and drains inbound work on a single fiber, so returning
+  // before the turn finishes would release that cell while the reply is still
+  // pending: a later inbound would overwrite the per-jid lease and conversation
+  // entries, and the earlier reply would then consume the newer lease. Awaiting
+  // costs conversation-level concurrency, which the core does not offer anyway.
+  private handleInbound(
+    enriched: EnrichedInboundMessage,
+  ): Effect.Effect<void, MoltZapChannelError> {
+    return Effect.suspend(() => {
+      // Own outbound replies echo back through the notification stream; the
+      // router has no is-from-me concept, so they are dropped here.
+      if (enriched.isFromMe) {
+        return Effect.void;
+      }
+      const config = this.setupConfig;
+      if (config === null) {
+        return Effect.void;
+      }
+      const jid = jidFromConversationId(enriched.conversationId);
+      this.rememberDispatchLease(jid, enriched);
+      this.rememberConversation(jid, enriched);
+      const isGroup = enriched.conversationMeta?.type === "group";
+      if (this.evalMode) {
+        this.ensureEvalWiring(jid, enriched, isGroup);
+      }
+      config.onMetadata(jid, enriched.conversationMeta?.name, isGroup);
+      return Effect.tryPromise({
+        try: () =>
+          Promise.resolve(
+            config.onInbound(
+              jid,
+              null,
+              this.toInboundMessage(enriched, isGroup),
+            ),
+          ),
+        catch: (cause) =>
+          new MoltZapChannelError({
+            reason: `nanoclaw inbound dispatch failed for ${jid}: ${String(cause)}`,
+          }),
+      }).pipe(Effect.asVoid);
+    });
   }
 
   private rememberDispatchLease(

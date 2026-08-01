@@ -88,7 +88,6 @@ export class MessageAuthorizationService {
     ctx: MessageAuthorizeContext,
     timeoutMs: number,
   ): Effect.Effect<MessageAuthorizeResult> {
-    const taskId = ctx.taskId;
     return wrapHookEffectWithEnvelope({
       raw: callAppRpc(entry, {
         definition: messagesAuthorize,
@@ -96,9 +95,9 @@ export class MessageAuthorizationService {
       }).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
       timeoutLogMessage: "app/message/authorize timed out",
-      timeoutLogContext: { taskId, appId, timeoutMs },
+      timeoutLogContext: { appId, timeoutMs },
       errorLogMessage: "app/message/authorize error",
-      errorLogContext: { taskId, appId },
+      errorLogContext: { appId },
       onTimeout: () => APP_UNREACHABLE_BLOCK,
       onError: () => APP_UNREACHABLE_BLOCK,
     });
@@ -108,7 +107,6 @@ export class MessageAuthorizationService {
     ctx: MessageAuthorizeContext,
   ): ParamsOf<typeof messagesAuthorize> {
     return {
-      taskId: ctx.taskId,
       appId: ctx.appId,
       conversationId: ctx.conversationId,
       message: {
@@ -179,7 +177,7 @@ export type MessageAuthorizeResult =
 
 Represents the result of message authorize.
 
-### [`MessageService`](./message.service.ts#L169)
+### [`MessageService`](./message.service.ts#L166)
 
 _Class_
 
@@ -355,7 +353,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L157)
+### [`messagesList`](./handlers.ts#L155)
 
 _Variable_
 
@@ -373,7 +371,7 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L143)
+### [`messagesSend`](./handlers.ts#L141)
 
 _Variable_
 
