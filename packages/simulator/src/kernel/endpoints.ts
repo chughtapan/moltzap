@@ -40,6 +40,7 @@ import {
   type ReceivedMessage,
   type Router,
 } from "../network/router.js";
+import type { InboundLinkInterceptor } from "./link-fabric.js";
 
 type DeliveryMailbox = Mailbox.Mailbox<ReceivedMessage, NetworkFailure>;
 type EndpointEventWriter = LedgerWriter<typeof endpointEvents>;
@@ -315,21 +316,59 @@ function observeAttachment<Name extends string>(
   );
 }
 
+interface EndpointAcquisitionContext {
+  readonly router: Router;
+  readonly writer: EndpointEventWriter;
+  readonly interceptor: InboundLinkInterceptor;
+  readonly scope: Scope.Scope;
+}
+
+/**
+ * Registers the receiver with the link fabric and wraps the raw receive
+ * ingress with its stage before the kernel observes the attachment, so
+ * received evidence and inbox delivery both reflect post-policy deliveries.
+ * @param attachment Raw scope-owned router attachment.
+ * @param interceptor Link-fabric receiver registration.
+ * @returns The attachment with a policy-shaped receive ingress.
+ */
+function shapeAttachment<Name extends string>(
+  attachment: AttachedEndpoint<Name>,
+  interceptor: InboundLinkInterceptor,
+): Effect.Effect<AttachedEndpoint<Name>, never, Scope.Scope> {
+  return interceptor.attach(attachment.participant.id).pipe(
+    Effect.map((stage) => ({
+      participant: attachment.participant,
+      transport: {
+        received: stage(attachment.transport.received),
+        openConversation: (participants: ParticipantIds) =>
+          attachment.transport.openConversation(participants),
+        send: (conversationId, parts) =>
+          attachment.transport.send(conversationId, parts),
+      } satisfies EndpointTransport,
+    })),
+  );
+}
+
 function acquireEndpoint(
-  router: Router,
-  writer: EndpointEventWriter,
-  runScope: Scope.Scope,
+  context: EndpointAcquisitionContext,
   name: string,
 ): Effect.Effect<Exit.Exit<Endpoint, NetworkFailure>> {
   const acquire = Schema.decodeUnknown(agentName)(name).pipe(
     Effect.mapError((cause) => networkFailure("attach-endpoint", cause)),
-    Effect.flatMap((agentName) => router.attachEndpoint(name, agentName)),
-    Effect.flatMap((attachment) => observeAttachment(attachment, writer)),
+    Effect.flatMap((agentName) =>
+      context.router.attachEndpoint(name, agentName),
+    ),
+    Effect.flatMap((attachment) =>
+      shapeAttachment(attachment, context.interceptor),
+    ),
+    Effect.flatMap((attachment) =>
+      observeAttachment(attachment, context.writer),
+    ),
   );
   return Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
       const attemptScope = yield* Scope.fork(
-        runScope,
+        context.scope,
         ExecutionStrategy.sequential,
       );
       const exit = yield* restore(
@@ -362,17 +401,25 @@ function cachedEndpoint<const Name extends string>(
  * Creates network service.
  * @param router Value supplied to the operation.
  * @param writer Value supplied to the operation.
+ * @param interceptor Link-fabric registration applied to every endpoint.
  * @returns The created network service.
  */
 export function makeNetworkService(
   router: Router,
   writer: EndpointEventWriter,
+  interceptor: InboundLinkInterceptor,
 ): Effect.Effect<NetworkService, never, Scope.Scope> {
   return Effect.gen(function* () {
     const scope = yield* Effect.scope;
+    const context: EndpointAcquisitionContext = {
+      router,
+      writer,
+      interceptor,
+      scope,
+    };
     const endpoints = yield* Cache.make({
       capacity: Number.POSITIVE_INFINITY,
-      lookup: (name: string) => acquireEndpoint(router, writer, scope, name),
+      lookup: (name: string) => acquireEndpoint(context, name),
       timeToLive: Duration.infinity,
     });
     return {

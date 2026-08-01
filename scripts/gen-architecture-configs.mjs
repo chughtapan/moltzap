@@ -384,6 +384,11 @@ const packageDefinitions = {
           reason: "Completed-ledger validation and offline opening boundary",
         },
         {
+          file: "kernel/link-fabric.ts",
+          reason:
+            "Link-fabric boundary coupling the platform link driver, receiver registration, and the policy interpreter",
+        },
+        {
           file: "kernel/outcomes.ts",
           reason:
             "Causal outcome conversion shared by runtime, router, and program lifecycle modules",

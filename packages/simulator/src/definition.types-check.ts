@@ -10,7 +10,7 @@ import { Context, Data, Effect, type Exit, Schema, type Stream } from "effect";
 import type { MessageParts } from "@moltzap/protocol/message";
 import {
   LinkController,
-  type LinkDriver,
+  linkPolicy,
   Network,
   type RouterProvider,
 } from "./network.js";
@@ -69,6 +69,13 @@ const program = Effect.gen(function* () {
   const conversation = yield* probe.open(agents.alice.agent);
   yield* conversation.send("hello");
   yield* links.disable(agents.alice.agent, probe.participant);
+  yield* links.delay(agents.alice.agent, probe.participant, "10 millis");
+  yield* links.shape(
+    agents.alice.agent,
+    probe.participant,
+    linkPolicy.passthrough,
+    "noop",
+  );
   return [agents.alice.agent.name, probe.participant.name] as const;
 });
 
@@ -87,11 +94,7 @@ type ProgramExit<Outcome> =
 type RunRequirementsAreExact = Expect<
   Equal<
     Effect.Effect.Context<typeof definitionCanaryRun>,
-    | RuntimeRequirement
-    | ProgramRequirement
-    | LinkDriver
-    | RouterProvider
-    | LedgerStorage
+    RuntimeRequirement | ProgramRequirement | RouterProvider | LedgerStorage
   >
 >;
 type ResultKeepsLiteralNames = Expect<
