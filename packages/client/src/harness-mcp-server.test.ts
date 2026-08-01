@@ -9,17 +9,15 @@ import {
   type Implementation,
   type McpHttpHandler,
 } from "@modelcontextprotocol/server";
-import {
-  createServer,
-  request as nodeRequest,
-  type Server as NodeServer,
-} from "node:http";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These loopback contract tests require raw Host headers and connection-refusal assertions that the Effect client does not expose.
+import { request as nodeRequest } from "node:http";
+import { Effect, Exit, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { agentId } from "@moltzap/protocol/testing";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
 import { localDaemonCommands } from "./local-daemon-rpc.js";
 import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
-import { makeHarnessMcpRequestListener } from "./harness-mcp-server.js";
+import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 
 const LOCALHOST = "127.0.0.1";
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
@@ -35,7 +33,7 @@ const SERVER_IMPLEMENTATION = {
   version: "1.0.0",
 } satisfies Implementation;
 
-const openServers = new Set<NodeServer>();
+const openServerScopes = new Set<Scope.CloseableScope>();
 const openHandlers = new Set<McpHttpHandler>();
 const openClients = new Set<Client>();
 const noOp = (): undefined => undefined;
@@ -49,38 +47,42 @@ const makeHandler = (name: string, onCreate?: () => void): McpHttpHandler => {
   return handler;
 };
 
-const listen = async (server: NodeServer) => {
-  openServers.add(server);
-  await new Promise<undefined>((resolve, reject) => {
-    const onError = (error: Error): void => {
-      reject(error);
-    };
-    server.once("error", onError);
-    server.listen(0, LOCALHOST, () => {
-      server.off("error", onError);
-      resolve(undefined);
-    });
-  });
-
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("expected a TCP test server address");
-  }
-  return address.port;
+const releaseServerScope = async (scope: Scope.CloseableScope) => {
+  openServerScopes.delete(scope);
+  await Effect.runPromise(Scope.close(scope, Exit.void));
 };
 
-const makeServerWithHandlers = async (
+const acquireServerWithHandlers = async (
   registration: McpHttpHandler,
   harness: McpHttpHandler,
 ) => {
   openHandlers.add(registration);
   openHandlers.add(harness);
-  const server = createServer(
-    makeHarnessMcpRequestListener(registration, harness),
+  const scope = Effect.runSync(Scope.make());
+  const server = await Effect.runPromise(
+    acquireHarnessMcpHttpServer({
+      port: 0,
+      registrationHandler: registration,
+      harnessHandler: harness,
+    }).pipe(Scope.extend(scope)),
   );
-  const port = await listen(server);
-  return `http://${LOCALHOST}:${port}`;
+  openServerScopes.add(scope);
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    await releaseServerScope(scope);
+    throw new Error("expected a TCP test server address");
+  }
+  return {
+    baseUrl: `http://${LOCALHOST}:${address.port}`,
+    server,
+    scope,
+  };
 };
+
+const makeServerWithHandlers = async (
+  registration: McpHttpHandler,
+  harness: McpHttpHandler,
+) => (await acquireServerWithHandlers(registration, harness)).baseUrl;
 
 const makeServer = async (
   onRegistrationCreate?: () => void,
@@ -107,12 +109,24 @@ const connectModernClient = async (url: URL) => {
   return client;
 };
 
-const requestStatus = (url: URL, headers: Readonly<Record<string, string>>) =>
-  new Promise<number>((resolve, reject) => {
-    const request = nodeRequest(url, { headers }, (response) => {
+interface LoopbackResponse {
+  readonly allow?: string;
+  readonly status: number;
+}
+
+const requestLoopback = (
+  url: URL,
+  method = "GET",
+  headers: Readonly<Record<string, string>> = {},
+) =>
+  new Promise<LoopbackResponse>((resolve, reject) => {
+    const request = nodeRequest(url, { headers, method }, (response) => {
       response.resume();
       response.once("end", () => {
-        resolve(response.statusCode ?? 0);
+        resolve({
+          allow: response.headers.allow,
+          status: response.statusCode ?? 0,
+        });
       });
     });
     request.once("error", reject);
@@ -120,25 +134,18 @@ const requestStatus = (url: URL, headers: Readonly<Record<string, string>>) =>
   });
 
 afterEach(async () => {
-  await Promise.all([...openClients].map((client) => client.close()));
+  for (const client of openClients) {
+    await client.close();
+  }
   openClients.clear();
-  await Promise.all([...openHandlers].map((handler) => handler.close()));
+  for (const scope of openServerScopes) {
+    await releaseServerScope(scope);
+  }
+  openServerScopes.clear();
+  for (const handler of openHandlers) {
+    await handler.close();
+  }
   openHandlers.clear();
-  await Promise.all(
-    [...openServers].map(
-      (server) =>
-        new Promise<undefined>((resolve, reject) => {
-          server.close((error) => {
-            if (error === undefined) {
-              resolve(undefined);
-            } else {
-              reject(error);
-            }
-          });
-        }),
-    ),
-  );
-  openServers.clear();
 });
 
 const servesModernDiscovery = async () => {
@@ -173,19 +180,18 @@ const rejectsUnsupportedMethods = async () => {
 
   for (const path of [REGISTER_MCP_PATH, HARNESS_MCP_PATH]) {
     for (const method of ["GET", "DELETE", "PUT"]) {
-      const response = await fetch(new URL(path, baseUrl), { method });
+      const response = await requestLoopback(new URL(path, baseUrl), method);
       expect(response.status).toBe(METHOD_NOT_ALLOWED_STATUS);
-      expect(response.headers.get("allow")).toBe(POST_METHOD);
+      expect(response.allow).toBe(POST_METHOD);
     }
   }
 };
 
 const rejectsUnknownPaths = async () => {
   const baseUrl = await makeServer();
-  const postResponse = await fetch(new URL("/elsewhere", baseUrl), {
-    method: POST_METHOD,
-  });
-  const getResponse = await fetch(new URL("/elsewhere", baseUrl));
+  const unknownUrl = new URL("/elsewhere", baseUrl);
+  const postResponse = await requestLoopback(unknownUrl, POST_METHOD);
+  const getResponse = await requestLoopback(unknownUrl);
 
   expect(postResponse.status).toBe(NOT_FOUND_STATUS);
   expect(getResponse.status).toBe(NOT_FOUND_STATUS);
@@ -193,20 +199,44 @@ const rejectsUnknownPaths = async () => {
 
 const appliesLocalhostGuards = async () => {
   const baseUrl = await makeServer();
-  const hostileHostStatus = await requestStatus(
+  const hostileHost = await requestLoopback(
     new URL("/elsewhere", baseUrl),
+    "GET",
     { host: "example.com" },
   );
-  const hostileOrigin = await fetch(new URL(HARNESS_MCP_PATH, baseUrl), {
-    headers: { origin: "https://example.com" },
-  });
-  const localhostOrigin = await fetch(new URL(REGISTER_MCP_PATH, baseUrl), {
-    headers: { origin: "http://localhost:4312" },
-  });
+  const hostileOrigin = await requestLoopback(
+    new URL(HARNESS_MCP_PATH, baseUrl),
+    "GET",
+    { origin: "https://example.com" },
+  );
+  const localhostOrigin = await requestLoopback(
+    new URL(REGISTER_MCP_PATH, baseUrl),
+    "GET",
+    { origin: "http://localhost:4312" },
+  );
 
-  expect(hostileHostStatus).toBe(FORBIDDEN_STATUS);
+  expect(hostileHost.status).toBe(FORBIDDEN_STATUS);
   expect(hostileOrigin.status).toBe(FORBIDDEN_STATUS);
   expect(localhostOrigin.status).toBe(METHOD_NOT_ALLOWED_STATUS);
+};
+
+const closesListenerWhenScopeReleases = async () => {
+  const running = await acquireServerWithHandlers(
+    makeHandler("registration-scope-test"),
+    makeHandler("harness-scope-test"),
+  );
+  const harnessUrl = new URL(HARNESS_MCP_PATH, running.baseUrl);
+
+  expect(running.server.listening).toBe(true);
+  expect(running.server.address()).toMatchObject({ address: LOCALHOST });
+  expect((await requestLoopback(harnessUrl)).status).toBe(
+    METHOD_NOT_ALLOWED_STATUS,
+  );
+
+  await releaseServerScope(running.scope);
+
+  expect(running.server.listening).toBe(false);
+  await expect(requestLoopback(harnessUrl)).rejects.toBeDefined();
 };
 
 const exposesOnlyExistingStatusBehavior = async () => {
@@ -254,7 +284,7 @@ const exposesOnlyExistingStatusBehavior = async () => {
 };
 
 // @agent-code-guard/regression-only: this finite matrix pins the two HTTP routes and the official SDK's interoperability and guard behavior.
-describe("makeHarnessMcpRequestListener", () => {
+describe("scoped Harness MCP HTTP server", () => {
   it("serves modern discovery on both MCP paths", servesModernDiscovery);
   it("allows only POST on known MCP paths", rejectsUnsupportedMethods);
   it(
@@ -265,6 +295,8 @@ describe("makeHarnessMcpRequestListener", () => {
     "applies localhost Host and Origin guards before routing",
     appliesLocalhostGuards,
   );
+  it("closes the loopback listener when its scope releases", () =>
+    closesListenerWhenScopeReleases());
   it(
     "serves only the existing status behavior through the active catalog",
     exposesOnlyExistingStatusBehavior,
