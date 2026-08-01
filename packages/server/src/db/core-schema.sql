@@ -73,6 +73,9 @@ CREATE TABLE conversations (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_conversations_app ON conversations(app_id);
+-- The list surface sorts and pages on (updated_at, id).
+CREATE INDEX idx_conversations_listing
+  ON conversations(updated_at DESC, id DESC);
 CREATE TRIGGER conversations_updated_at BEFORE UPDATE ON conversations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
