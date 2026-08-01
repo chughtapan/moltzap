@@ -17,9 +17,8 @@ import {
   RuntimeFailed,
   type RuntimeTermination,
 } from "../runtime.js";
-import { Deferred, Duration, Effect, Fiber, Schema, type Scope } from "effect";
+import { Duration, Effect, Fiber, Schema, type Scope } from "effect";
 import { resolveInstallMode, type InstallMode } from "../packages.js";
-import { type AgentConnection, NetworkFailure } from "../../network/router.js";
 import {
   ensureNanoclawRuntimeInstalledEffect,
   type NanoclawRuntimeInstall,
@@ -42,6 +41,8 @@ import {
 } from "./gateway.js";
 
 const NANOCLAW_RUNTIME_NAME = "nanoclaw";
+// The injected channel emits this after its server session is live.
+const NANOCLAW_READY_MARKER = "MoltZap connected";
 const DEFAULT_NANOCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
 
 interface NanoclawWorkspaceFile {
@@ -168,6 +169,7 @@ export interface NanoclawRuntimeDriver<
   readonly gateway: NanoclawGatewayAcquirer<Handle, Requirements>;
   readonly exitCode: (handle: Handle) => Effect.Effect<ExitCode, WaitFailure>;
   readonly output: (handle: Handle) => string;
+  readonly readyWhen: (output: string) => boolean;
 }
 
 /** Failure returned when NanoClaw cannot become router-visible. */
@@ -205,6 +207,7 @@ const nativeNanoclawDriver: NanoclawRuntimeDriver<
     ),
   exitCode: (handle) => Fiber.join(handle.exitFiber),
   output: (handle) => handle.logs.text,
+  readyWhen: (output) => output.includes(NANOCLAW_READY_MARKER),
 };
 
 function snapshotWorkspaceFiles(
@@ -399,73 +402,36 @@ function acquireNanoclawProcess<
   });
 }
 
-function connectionWithGatewayReadiness<Name extends string>(
-  connection: AgentConnection<Name>,
-  gatewayReady: Deferred.Deferred<NanoclawGatewaySession, unknown>,
-): AgentConnection<Name> {
-  return {
-    ...connection,
-    awaitReady: (within) =>
-      Effect.all(
-        [
-          connection.awaitReady(within),
-          Deferred.await(gatewayReady).pipe(
-            Effect.mapError((cause) =>
-              NetworkFailure.make({
-                operation: "socket",
-                detail: String(cause),
-              }),
-            ),
-            Effect.asVoid,
-          ),
-        ],
-        { concurrency: 2, discard: true },
-      ),
-  };
-}
-
-function awaitNanoclawGateway<
-  Name extends string,
-  Handle,
-  WaitFailure,
-  Requirements,
->(
+function awaitNanoclawGateway<Handle, WaitFailure, Requirements>(
   process: AcquiredNanoclawProcess<Handle, WaitFailure>,
-  connection: AgentConnection<Name>,
   within: Duration.Duration,
   acquireGateway: NanoclawGatewayAcquirer<Handle, Requirements>,
+  readyWhen: (output: string) => boolean,
 ): Effect.Effect<
   NanoclawGatewaySession,
   NanoclawRuntimeAcquisitionError,
   Scope.Scope | Requirements
 > {
-  return Effect.gen(function* () {
-    const gatewayReady = yield* Deferred.make<
-      NanoclawGatewaySession,
-      unknown
-    >();
-    yield* acquireGateway(process.handle, within).pipe(
-      Effect.intoDeferred(gatewayReady),
-      Effect.forkScoped,
-    );
-    yield* awaitProcessReady({
-      connection: connectionWithGatewayReadiness(connection, gatewayReady),
-      within,
-      agentName: process.input.agentName,
-      agentKey: process.input.apiKey,
-      runtimeName: NANOCLAW_RUNTIME_NAME,
-      observation: process.observation,
-    });
-    return yield* Deferred.await(gatewayReady).pipe(
-      Effect.mapError((cause) =>
-        acquisitionFailure(
-          process.input.agentName,
-          "connect principal gateway",
-          cause,
-        ),
+  const gateway = acquireGateway(process.handle, within).pipe(
+    Effect.mapError((cause) =>
+      acquisitionFailure(
+        process.input.agentName,
+        "connect principal gateway",
+        cause,
       ),
-    );
+    ),
+  );
+  const ready = awaitProcessReady({
+    within,
+    agentName: process.input.agentName,
+    agentKey: process.input.apiKey,
+    runtimeName: NANOCLAW_RUNTIME_NAME,
+    observation: process.observation,
+    readyWhen,
   });
+  return Effect.all([gateway, ready] as const, { concurrency: 2 }).pipe(
+    Effect.map(([session]) => session),
+  );
 }
 
 function nanoclawTermination<Handle, WaitFailure>(
@@ -512,9 +478,9 @@ function acquireNanoclawRuntime<
     const process = yield* acquireNanoclawProcess(settings, driver, input);
     const gateway = yield* awaitNanoclawGateway(
       process,
-      input.connection,
       settings.startupTimeout,
       driver.gateway,
+      driver.readyWhen,
     );
     return {
       gateway: gateway.gateway,

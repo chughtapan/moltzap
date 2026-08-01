@@ -11,7 +11,7 @@
  */
 import { Effect, Either } from "effect";
 import { agentsList } from "#identity";
-import { taskList } from "#task";
+import { conversationList } from "#conversation";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import {
   makeAgentTestClient,
@@ -35,7 +35,7 @@ import { eitherTag } from "../_shared/_helpers.js";
 const CATEGORY = "rpc-semantics";
 const PROPERTY = "idempotence";
 const DEFAULT_TIMEOUT_MS = 3000;
-const EMPTY_PARAM_IDEMPOTENTS = [agentsList, taskList] as const;
+const EMPTY_PARAM_IDEMPOTENTS = [agentsList, conversationList] as const;
 
 type EmptyParamIdempotentDefinition = (typeof EMPTY_PARAM_IDEMPOTENTS)[number];
 type ReplayError =
@@ -132,7 +132,7 @@ function unavailable(reason: string): PropertyUnavailable {
 }
 
 function assertReplayOutcomeTags(
-  method: typeof agentsList.name | typeof taskList.name,
+  method: typeof agentsList.name | typeof conversationList.name,
   pair: ReplayPair,
 ) {
   const aTag = eitherTag(pair.a);
@@ -149,7 +149,7 @@ function assertReplayOutcomeTags(
 }
 
 function assertReplayBodies(
-  method: typeof agentsList.name | typeof taskList.name,
+  method: typeof agentsList.name | typeof conversationList.name,
   pair: ReplayPair,
 ) {
   const successPair = successPairOrNull(pair);
@@ -182,8 +182,8 @@ function successPairOrNull(pair: ReplayPair) {
 /**
  * Idempotence canonical projection.
  *
- * `agent/identity/agents/list.agents` and `agent/task/list.tasks` are
- * unordered row sets across replays. Every OTHER array
+ * `agent/identity/agents/list.agents` and `agent/conversation/list.items`
+ * are unordered row sets across replays. Every OTHER array
  * (including any nested `participants` and every payload field that is
  * not one of the two named arrays) remains order-sensitive.
  *
@@ -197,7 +197,7 @@ function successPairOrNull(pair: ReplayPair) {
  * @returns Whether on idempotence result.
  */
 function canonIdempotenceResult(
-  method: typeof agentsList.name | typeof taskList.name,
+  method: typeof agentsList.name | typeof conversationList.name,
   result: unknown,
 ): string {
   const record: Record<string, unknown> =
@@ -213,9 +213,9 @@ function canonIdempotenceResult(
       agents: Array.isArray(agents) ? sortJsonArray(agents) : agents,
     });
   }
-  const tasks = record.tasks;
+  const items = record.items;
   return canonicalJson({
     ...record,
-    tasks: Array.isArray(tasks) ? sortJsonArray(tasks) : tasks,
+    items: Array.isArray(items) ? sortJsonArray(items) : items,
   });
 }

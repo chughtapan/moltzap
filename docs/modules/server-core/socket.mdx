@@ -13,7 +13,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L112)
+### [`AgentConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L101)
 
 _Interface_
 
@@ -73,7 +73,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`AppConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L118)
+### [`AppConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L107)
 
 _Interface_
 
@@ -99,7 +99,7 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 
 Implements app context.
 
-### [`Connection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L128)
+### [`Connection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L117)
 
 _TypeAlias_
 
@@ -112,7 +112,7 @@ export type Connection =
 
 The three-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L232)
+### [`ConnectionManager`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L221)
 
 _Class_
 
@@ -279,7 +279,7 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`Originator`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L77)
+### [`Originator`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L66)
 
 _TypeAlias_
 
@@ -324,7 +324,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`sendRpcToClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L30)
+### [`sendRpcToClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L29)
 
 _Function_
 
@@ -350,7 +350,7 @@ from the live `AppConnection` arm. Caller controls timeout via
 
 **Returns:** The send rpc to client result.
 
-### [`TransitionOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L139)
+### [`TransitionOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L128)
 
 _TypeAlias_
 
@@ -364,7 +364,7 @@ success arms are split per minted arm so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L106)
+### [`UnauthenticatedConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L95)
 
 _Interface_
 
@@ -378,7 +378,7 @@ class UnauthenticatedConnection extends Data.TaggedClass(
 
 Re-exports the public API from `current module`.
 
-### [`WebSocketRef`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L82)
+### [`WebSocketRef`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L71)
 
 _Interface_
 

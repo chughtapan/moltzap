@@ -44,6 +44,8 @@ import {
 export type { OpenClawSandboxConfig, OpenClawToolsConfig } from "./process.js";
 
 const OPENCLAW_RUNTIME_NAME = "openclaw";
+// The MoltZap channel emits this after its server session is live.
+const OPENCLAW_READY_MARKER = "connected as";
 const DEFAULT_OPENCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
 
 interface OpenClawWorkspaceFile {
@@ -167,6 +169,7 @@ export interface OpenClawRuntimeDriver<
   ) => Effect.Effect<OpenClawGateway, unknown, Scope.Scope | Requirements>;
   readonly exitCode: (session: Session) => Effect.Effect<ExitCode, WaitFailure>;
   readonly output: (session: Session) => string;
+  readonly readyWhen: (output: string) => boolean;
 }
 
 /** Failure returned when OpenClaw cannot become router-visible. */
@@ -189,6 +192,7 @@ const nativeOpenClawDriver: OpenClawRuntimeDriver<
   acquireGateway: acquireOpenClawGateway,
   exitCode: (session) => session.exitCode,
   output: (session) => session.output(),
+  readyWhen: (output) => output.includes(OPENCLAW_READY_MARKER),
 };
 
 function snapshotWorkspaceFiles(
@@ -451,12 +455,7 @@ function acquireOpenClawRuntime<
 > {
   return Effect.gen(function* () {
     const process = yield* acquireOpenClawSession(settings, driver, input);
-    const gateway = yield* awaitOpenClawRuntimeReady(
-      settings,
-      driver,
-      input,
-      process,
-    );
+    const gateway = yield* awaitOpenClawRuntimeReady(settings, driver, process);
     return {
       gateway,
       termination: processTermination(
@@ -477,15 +476,9 @@ function acquireOpenClawRuntime<
   );
 }
 
-function awaitOpenClawRuntimeReady<
-  Name extends string,
-  Session,
-  WaitFailure,
-  Requirements,
->(
+function awaitOpenClawRuntimeReady<Session, WaitFailure, Requirements>(
   settings: OpenClawRuntimeSettings,
   driver: OpenClawRuntimeDriver<Session, WaitFailure, Requirements>,
-  input: AgentRuntimeInput<Name>,
   process: AcquiredOpenClawProcess<Session, WaitFailure>,
 ): Effect.Effect<
   OpenClawGateway,
@@ -503,15 +496,15 @@ function awaitOpenClawRuntimeReady<
         ),
       ),
     );
-  const router = awaitProcessReady({
-    connection: input.connection,
+  const ready = awaitProcessReady({
     within: settings.startupTimeout,
     agentName: process.input.agentName,
     agentKey: process.input.apiKey,
     runtimeName: OPENCLAW_RUNTIME_NAME,
     observation: process.observation,
+    readyWhen: driver.readyWhen,
   });
-  return Effect.all([gateway, router] as const, {
+  return Effect.all([gateway, ready] as const, {
     concurrency: 2,
   }).pipe(Effect.map(([principalGateway]) => principalGateway));
 }

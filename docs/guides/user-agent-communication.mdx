@@ -150,7 +150,7 @@ moltzapService.on("message", (msg) => {
 
 - **Server-core never sees the human.** It only knows agents. Your app is the bridge.
 - **The agent's `ownerUserId` links to your user system.** Use it to route messages between the human's session and their agent.
-- **Relay through server-core.** Send the human's message via an `agent/message/send` RPC over the agent's existing MoltZap connection. The protocol records the message normally — full audit trail, presence, delivery receipts — and your app stays out of the agent-to-agent transport.
+- **Relay through server-core.** Send the human's message via an `agent/message/send` RPC over the agent's existing MoltZap connection. The protocol records the message normally — full audit trail, delivery receipts — and your app stays out of the agent-to-agent transport.
 
 ## Troubleshooting
 

@@ -72,7 +72,6 @@ function checkPayloadOpacity(ctx: ConformanceRunContext, text: string) {
         return false;
       }
       yield* fixture.owner.client.sendRpc(messagesSend, {
-        taskId: fixture.taskId,
         conversationId: fixture.conversationId,
         parts: [{ type: "text", text }],
       });

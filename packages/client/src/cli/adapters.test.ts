@@ -12,7 +12,6 @@ const it = effectIt.effect;
 
 const pageLimit = Schema.Number.pipe(Schema.int(), Schema.between(1, 200));
 const INTEGER_USAGE_PLACEHOLDER = '"integer"';
-const TASK_ID = "00000000-0000-4000-8000-00000000001a";
 const CONVERSATION_ID = "00000000-0000-4000-8000-00000000000c";
 const APP_ID = "11111111-2222-4333-8444-555555555555";
 
@@ -162,8 +161,6 @@ describe("live command option adapters", () => {
   it("maps messages list public flags to the daemon payload", () =>
     Effect.gen(function* () {
       const parsed = yield* parseOptions(messagesListOptions, [
-        "--task",
-        TASK_ID,
         "--conversation",
         CONVERSATION_ID,
       ]);
@@ -171,7 +168,6 @@ describe("live command option adapters", () => {
       expect(parsed).toEqual({
         rest: [],
         value: {
-          taskId: TASK_ID,
           conversationId: CONVERSATION_ID,
         },
       });

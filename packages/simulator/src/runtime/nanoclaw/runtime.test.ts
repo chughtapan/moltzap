@@ -3,11 +3,7 @@ import {
   ExitCode as processExitCode,
   type ExitCode,
 } from "@effect/platform/CommandExecutor";
-import {
-  NetworkFailure,
-  type AgentConnection,
-  makeAgentHandle,
-} from "../../network.js";
+import { type AgentConnection, makeAgentHandle } from "../../network.js";
 import { RuntimeExited, RuntimeFailed } from "../runtime.js";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
@@ -27,6 +23,7 @@ import {
   Schema,
   Scope,
   Stream,
+  TestClock,
 } from "effect";
 import { describe } from "vitest";
 import { RuntimeAcquisitionFailed } from "../process.js";
@@ -47,12 +44,11 @@ const AGENT_KEY_TEXT =
 const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
 const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
+const READY_OUTPUT = 'level=INFO message="MoltZap connected" channel=moltzap';
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43123");
 const PROCESS_EXIT_CODE = 23;
 const STARTUP_TIMEOUT = Duration.seconds(17);
 const MODEL_ID = "test/model";
-const READY_FAILURE_OPERATION = "attach-agent";
-const READY_FAILURE_DETAIL = "alice was not router-visible";
 const PROCESS_WAIT_FAILURE = "process wait failed";
 type ProcessWaitFailure = typeof PROCESS_WAIT_FAILURE;
 
@@ -84,16 +80,11 @@ interface FakeDriverInput {
   readonly teardownCount: Ref.Ref<number>;
 }
 
-function makeConnection(
-  awaitReady: AgentConnection<"alice">["awaitReady"],
-): AgentConnection<"alice"> {
-  return {
-    agent: makeAgentHandle(ROSTER_KEY, AGENT_ID),
-    key: AGENT_KEY,
-    routerUrl: ROUTER_URL,
-    awaitReady,
-  };
-}
+const connection: AgentConnection<"alice"> = {
+  agent: makeAgentHandle(ROSTER_KEY, AGENT_ID),
+  key: AGENT_KEY,
+  routerUrl: ROUTER_URL,
+};
 
 function makeFakeDriver(
   input: FakeDriverInput,
@@ -125,12 +116,13 @@ function makeFakeDriver(
       ),
     exitCode: (running) => Deferred.await(running.exitCode),
     output: (running) => running.output,
+    readyWhen: (output) => output.includes("MoltZap connected"),
   };
 }
 
 function makeFixture(
   options: NanoclawRuntimeOptions,
-  output = "",
+  output = READY_OUTPUT,
   gatewayStartsReady = true,
 ): Effect.Effect<Fixture> {
   return Effect.gen(function* () {
@@ -203,54 +195,36 @@ function assertProcessInput(process: NanoclawProcessInput): void {
 
 function returnsAfterReadinessTest() {
   return Effect.gen(function* () {
-    const readyEntered = yield* Deferred.make<Duration.Duration>();
-    const becomeReady = yield* Deferred.make<undefined>();
     const fixture = yield* makeFixture(fullRuntimeOptions());
-    const acquired = yield* Effect.scoped(
-      fixture.runtime.acquire({
-        agentName: AGENT_NAME,
-        connection: makeConnection((within) =>
-          Deferred.succeed(readyEntered, within).pipe(
-            Effect.zipRight(Deferred.await(becomeReady)),
-          ),
-        ),
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* fixture.runtime.acquire({
+          agentName: AGENT_NAME,
+          connection,
+        });
+        assertProcessInput(yield* Deferred.await(fixture.processInput));
       }),
-    ).pipe(Effect.fork);
-    const process = yield* Deferred.await(fixture.processInput);
-    const readyWithin = yield* Deferred.await(readyEntered);
+    );
     const gatewayWithin = yield* Deferred.await(fixture.gatewayWithin);
 
-    assert.isTrue(Option.isNone(yield* Fiber.poll(acquired)));
-    assert.strictEqual(
-      Duration.toMillis(readyWithin),
-      Duration.toMillis(STARTUP_TIMEOUT),
-    );
     assert.strictEqual(
       Duration.toMillis(gatewayWithin),
       Duration.toMillis(STARTUP_TIMEOUT),
     );
-    assertProcessInput(process);
-    yield* Deferred.succeed(becomeReady, undefined);
-    yield* Fiber.join(acquired);
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
   });
 }
 
 function interruptedAcquisitionTest() {
   return Effect.gen(function* () {
-    const readyEntered = yield* Deferred.make<undefined>();
-    const fixture = yield* makeFixture({});
+    const fixture = yield* makeFixture({}, "still booting");
     const acquired = yield* Effect.scoped(
       fixture.runtime.acquire({
         agentName: AGENT_NAME,
-        connection: makeConnection(() =>
-          Deferred.succeed(readyEntered, undefined).pipe(
-            Effect.zipRight(Effect.never),
-          ),
-        ),
+        connection,
       }),
     ).pipe(Effect.fork);
-    yield* Deferred.await(readyEntered);
+    yield* Deferred.await(fixture.processInput);
 
     const interrupted = yield* Fiber.interrupt(acquired);
     assert.isTrue(Exit.isFailure(interrupted));
@@ -271,7 +245,7 @@ function exitsBeforeReadinessTest() {
     const acquiring = yield* Effect.scoped(
       fixture.runtime.acquire({
         agentName: AGENT_NAME,
-        connection: makeConnection(() => Effect.void),
+        connection,
       }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.processInput);
@@ -291,17 +265,17 @@ function exitsBeforeReadinessTest() {
   });
 }
 
-function waitsForGatewayAndRouterTest() {
+function waitsForPrincipalGatewayTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture(
       { startupTimeout: STARTUP_TIMEOUT },
-      "",
+      READY_OUTPUT,
       false,
     );
     const acquiring = yield* Effect.scoped(
       fixture.runtime.acquire({
         agentName: AGENT_NAME,
-        connection: makeConnection(() => Effect.void),
+        connection,
       }),
     ).pipe(Effect.fork);
 
@@ -327,7 +301,7 @@ function waitFailsBeforeReadinessTest() {
     const acquiring = yield* Effect.scoped(
       fixture.runtime.acquire({
         agentName: AGENT_NAME,
-        connection: makeConnection(() => Effect.never),
+        connection,
       }),
     ).pipe(Effect.flip, Effect.fork);
     yield* Deferred.await(fixture.processInput);
@@ -344,31 +318,23 @@ function waitFailsBeforeReadinessTest() {
 
 function readinessFailureTest() {
   return Effect.gen(function* () {
-    const readyWithin = yield* Deferred.make<Duration.Duration>();
-    const expected = NetworkFailure.make({
-      operation: READY_FAILURE_OPERATION,
-      detail: READY_FAILURE_DETAIL,
-    });
-    const fixture = yield* makeFixture({
-      startupTimeout: STARTUP_TIMEOUT,
-    });
-    const observed = yield* Effect.scoped(
+    const fixture = yield* makeFixture(
+      { startupTimeout: STARTUP_TIMEOUT },
+      "still booting",
+    );
+    const acquiring = yield* Effect.scoped(
       fixture.runtime.acquire({
         agentName: AGENT_NAME,
-        connection: makeConnection((within) =>
-          Deferred.succeed(readyWithin, within).pipe(
-            Effect.zipRight(Effect.fail(expected)),
-          ),
-        ),
+        connection,
       }),
-    ).pipe(Effect.flip);
+    ).pipe(Effect.flip, Effect.fork);
+    yield* Deferred.await(fixture.processInput);
+    yield* TestClock.adjust(STARTUP_TIMEOUT);
+    const observed = yield* Fiber.join(acquiring);
 
     assert.instanceOf(observed, RuntimeAcquisitionFailed);
-    assert.include(observed.detail, READY_FAILURE_DETAIL);
-    assert.strictEqual(
-      Duration.toMillis(yield* Deferred.await(readyWithin)),
-      Duration.toMillis(STARTUP_TIMEOUT),
-    );
+    assert.include(observed.detail, "did not announce readiness");
+    assert.include(observed.detail, "still booting");
     assert.strictEqual(yield* Ref.get(fixture.teardownCount), 1);
   });
 }
@@ -380,7 +346,7 @@ function teardownIsNotTerminationTest() {
     const running = yield* fixture.runtime
       .acquire({
         agentName: AGENT_NAME,
-        connection: makeConnection(() => Effect.void),
+        connection,
       })
       .pipe(Scope.extend(scope));
     const observing = yield* running.termination.pipe(Effect.forkIn(scope));
@@ -403,7 +369,7 @@ function observeTermination(exitCode: ExitCode) {
         const acquiring = yield* fixture.runtime
           .acquire({
             agentName: AGENT_NAME,
-            connection: makeConnection(() => Effect.void),
+            connection,
           })
           .pipe(Effect.fork);
         yield* Deferred.await(fixture.processInput);
@@ -425,7 +391,7 @@ function observeWaitFailure() {
         const acquiring = yield* fixture.runtime
           .acquire({
             agentName: AGENT_NAME,
-            connection: makeConnection(() => Effect.void),
+            connection,
           })
           .pipe(Effect.fork);
         yield* Deferred.await(fixture.processInput);
@@ -474,12 +440,12 @@ function sanitizedConfigurationTest() {
 // @agent-code-guard/regression-only: controlled handles expose process readiness, cancellation, teardown, and exact exit evidence deterministically
 describe("native NanoClaw runtime", () => {
   test(
-    "returns only after router and principal gateway readiness",
+    "returns only after process and principal gateway readiness",
     returnsAfterReadinessTest,
   );
   test(
-    "does not treat router visibility as principal gateway readiness",
-    waitsForGatewayAndRouterTest,
+    "does not treat process readiness as principal gateway readiness",
+    waitsForPrincipalGatewayTest,
   );
   test(
     "releases an interrupted process acquisition through its Scope",
@@ -494,7 +460,7 @@ describe("native NanoClaw runtime", () => {
     waitFailsBeforeReadinessTest,
   );
   test(
-    "propagates router readiness failure and releases the process",
+    "fails when no readiness line arrives within the startup timeout",
     readinessFailureTest,
   );
   test(

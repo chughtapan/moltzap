@@ -1,8 +1,13 @@
 /** @file Autonomous Effect policies for bundled mixed-agent evaluations. */
 
 import {
+  agentConversationCreate,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
+import {
   agentName,
   agentsList,
+  DEFAULT_APP_ID,
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
@@ -11,7 +16,7 @@ import {
   type Message,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import type { TaskId } from "@moltzap/protocol/task";
 import type { ListCursor } from "@moltzap/protocol/rpc";
 import {
   type AgentRuntime,
@@ -77,8 +82,8 @@ export type EvaluationPeerRuntime = AgentRuntime<
 >;
 
 interface PeerConversation {
-  readonly taskId: MessageReceivedNotification["taskId"];
-  readonly conversationId: Message["conversationId"];
+  readonly taskId?: TaskId;
+  readonly conversationId: ConversationId;
 }
 
 interface PreparedGroup {
@@ -178,7 +183,9 @@ function receivedObservation(
     caseId,
     agentName: decodeAgentName(context.agent.name),
     agentId: context.agent.id,
-    taskId: notification.taskId,
+    ...(notification.taskId === undefined
+      ? {}
+      : { taskId: notification.taskId }),
     conversationId: notification.message.conversationId,
     messageId: notification.message.id,
     senderId: notification.message.senderId,
@@ -189,14 +196,14 @@ function receivedObservation(
 function sentObservation(
   caseId: EvaluationCaseId,
   context: PeerContext,
-  taskId: MessageReceivedNotification["taskId"],
   message: Message,
+  taskId?: TaskId,
 ): CodePeerMessageSent {
   return CodePeerMessageSent.make({
     caseId,
     agentName: decodeAgentName(context.agent.name),
     agentId: context.agent.id,
-    taskId,
+    ...(taskId === undefined ? {} : { taskId }),
     conversationId: message.conversationId,
     messageId: message.id,
     parts: message.parts,
@@ -211,13 +218,15 @@ function send(
 ): Effect.Effect<CodePeerMessageSent, EvaluationPeerFailed> {
   return context.client
     .callDefinition(messagesSend, {
-      taskId: conversation.taskId,
       conversationId: conversation.conversationId,
       parts: [{ type: "text", text }],
+      ...(conversation.taskId === undefined
+        ? {}
+        : { taskId: conversation.taskId }),
     })
     .pipe(
       Effect.map((result) =>
-        sentObservation(caseId, context, conversation.taskId, result.message),
+        sentObservation(caseId, context, result.message, conversation.taskId),
       ),
       Effect.mapError((cause) => failure("send", cause)),
     );
@@ -240,8 +249,8 @@ function reactiveExchange({
 }: ReactiveExchangeInput): Effect.Effect<PeerExchange, EvaluationPeerFailed> {
   return Effect.gen(function* () {
     const conversation: PeerConversation = {
-      taskId: contact.taskId,
       conversationId: contact.message.conversationId,
+      ...(contact.taskId === undefined ? {} : { taskId: contact.taskId }),
     };
     const [firstMessage, ...remainingMessages] = messages;
     const observations: [
@@ -297,22 +306,12 @@ function openingPolicy(
     Effect.gen(function* () {
       const target = yield* resolveAgent(context.client, targetName);
       const opened = yield* context.client
-        .callDefinition(taskRequest, {
+        .callDefinition(agentConversationCreate, {
           appId: DEFAULT_APP_ID,
-          invitedAgentIds: [target.id],
-          initialConversation: { participants: [target.id] },
+          participants: [target.id],
         })
         .pipe(Effect.mapError((cause) => failure("open-conversation", cause)));
-      if (opened.conversation === null) {
-        return yield* Effect.fail(
-          failure(
-            "open-conversation",
-            "the router returned no initial conversation",
-          ),
-        );
-      }
       const conversation: PeerConversation = {
-        taskId: opened.task.id,
         conversationId: opened.conversation.id,
       };
       const sent = yield* send(context, caseId, conversation, text);
@@ -343,24 +342,15 @@ function prepareGroup(
       ...participants.map((participant) => participant.id),
     ];
     const opened = yield* context.client
-      .callDefinition(taskRequest, {
+      .callDefinition(agentConversationCreate, {
         appId: DEFAULT_APP_ID,
-        invitedAgentIds,
-        initialConversation: { name, participants: invitedAgentIds },
+        name,
+        participants: invitedAgentIds,
       })
       .pipe(Effect.mapError((cause) => failure("open-conversation", cause)));
-    if (opened.conversation === null) {
-      return yield* Effect.fail(
-        failure(
-          "open-conversation",
-          "the router returned no initial conversation",
-        ),
-      );
-    }
     return {
       target,
       conversation: {
-        taskId: opened.task.id,
         conversationId: opened.conversation.id,
       },
     };
@@ -377,8 +367,8 @@ function sourceAnnouncementPolicy(
       const target = yield* resolveAgent(context.client, targetName);
       const contact = yield* receiveFrom(context, target.id);
       const conversation: PeerConversation = {
-        taskId: contact.taskId,
         conversationId: contact.message.conversationId,
+        ...(contact.taskId === undefined ? {} : { taskId: contact.taskId }),
       };
       const announcement = yield* send(context, caseId, conversation, text);
       return new PeerExchange({

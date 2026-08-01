@@ -153,7 +153,6 @@ const targetResponse = CodePeerMessageReceived.make({
 });
 
 const promptCommit = RouterMessageCommitted.make({
-  taskId: task,
   conversationId: conversation,
   messageId: promptMessage,
   senderId: peerId,
@@ -161,7 +160,6 @@ const promptCommit = RouterMessageCommitted.make({
 });
 
 const responseCommit = RouterMessageCommitted.make({
-  taskId: task,
   conversationId: conversation,
   messageId: responseMessage,
   senderId: targetId,
@@ -378,7 +376,6 @@ describe("ledger evidence projection", () => {
           parts: targetResponse.parts,
         });
         const wrongCommit = RouterMessageCommitted.make({
-          taskId: task,
           conversationId: conversation,
           messageId: responseMessage,
           senderId: otherId,

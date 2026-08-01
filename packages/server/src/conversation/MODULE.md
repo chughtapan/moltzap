@@ -8,23 +8,23 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`conversationCreate`](./handlers.ts#L317)
+### [`agentConversationCreate`](./handlers.ts#L189)
 
 _Variable_
 
 ```ts
-export const conversationCreate: ServerHandler<
-  typeof conversationCreateDefinition
-> = Effect.fn("conversationCreate")(function* (params) {
-  return yield* conversationCreateBody((yield* appArm).appId, params);
+export const agentConversationCreate: ServerHandler<
+  typeof agentConversationCreateDefinition
+> = Effect.fn("agentConversationCreate")(function* (params) {
+  return yield* agentConversationCreateBody(params, yield* agentArm);
 })
 ```
 
-Provides the conversation create runtime value.
+Provides the agent conversation create runtime value.
 
-**Returns:** The conversation create result.
+**Returns:** The agent conversation create result.
 
-### [`conversationList`](./handlers.ts#L306)
+### [`conversationList`](./handlers.ts#L178)
 
 _Variable_
 
@@ -40,7 +40,7 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](./conversation.service.ts#L281)
+### [`ConversationService`](./conversation.service.ts#L236)
 
 _Class_
 
@@ -53,17 +53,10 @@ export class ConversationService {
 
   private readonly db: Db;
   private readonly connections: ConnectionManager;
-  private readonly resolveContactPolicy: ContactPolicyResolver;
 
-  constructor(
-    db: Db,
-    connections: ConnectionManager,
-    resolveContactPolicy?: ContactPolicyResolver,
-  ) {
+  constructor(db: Db, connections: ConnectionManager) {
     this.db = db;
     this.connections = connections;
-    this.resolveContactPolicy =
-      resolveContactPolicy ?? NO_CONTACT_POLICY_RESOLVER;
   }
 
   /**
@@ -81,19 +74,16 @@ export class ConversationService {
     );
   }
 
-  create<TaskMintError = never>(
-    input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<Conversation, TaskMintError> {
+  create(input: CreateConversationOptions): Effect.Effect<Conversation> {
     return catchSqlErrorAsDefect(this.createConversationEffect(input));
   }
 
-  private createConversationEffect<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<Conversation, TaskMintError | SqlError> {
+  private createConversationEffect(
+    input: CreateConversationOptions,
+  ): Effect.Effect<Conversation, SqlError> {
     return Effect.gen(
       function* (this: ConversationService) {
-        const task = yield* input.mintTask;
-        const created = yield* this.insertConversation(input, task.id);
+        const created = yield* this.insertConversation(input);
         yield* this.subscribeCreatedConversation(input, created.id);
         yield* this.logConversationCreated(input, created.id);
         return created;
@@ -139,37 +129,47 @@ export class ConversationService {
   }
 
   /**
-   * Enforces creator-to-target contact policy for a new conversation.
-   * @param creatorAgentId Value supplied to the operation.
-   * @param targetAgentIds Value supplied to the operation.
-   * @param ownerByAgentId Value supplied to the operation.
-   * @internal
-   * @returns The policy result.
-   */
-  assertContactPolicyForCreate(
-    creatorAgentId: AgentId,
-    targetAgentIds: readonly AgentId[],
-    ownerByAgentId: ReadonlyMap<AgentId, UserId>,
-  ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
-    const policy = this.resolveContactPolicy();
-    if (policy === null || targetAgentIds.length === 0) {
-      return Effect.void;
-    }
-    return this.assertCreatorContactsAll({
-      creatorAgentId,
-      targetAgentIds,
-      ownerByAgentId,
-      policy,
-    });
-  }
-
-  /**
    * Reduced-surface participant removal: NO authority gate. Used by
+   * `AppEndpointRegistry.removeDeniedParticipant` for dispatch-deny eviction
+   * (runs server-internally, not via a wire RPC). Broadcasts
+   * `ConversationParticipantsRemoved` with `reason: "app_remove"`
+   * so the evicted agent and the remaining participants observe the
+   * removal.
+   * @param conversationId Value supplied to the operation.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @internal
+   * @returns The participants snapshot result.
+   */
+  removeParticipant(
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<void, NotAParticipantError, NetworkSendServiceTag> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(
+        function* (this: ConversationService) {
+          // Snapshot membership BEFORE delete so the evicted agent
+          // is included in the fan-out target list.
+          const participantsSnapshot =
+            yield* this.getParticipantAgentIds(conversationId);
+          const deleted = yield* this.db
+            .deleteFrom("conversation_participants")
+            .where("conversation_id", "=", conversationId)
+            .where("agent_id", "=", agentId)
+            .returning("conversation_id");
+          if (deleted.length === 0) {
+            return yield* new NotAParticipantError({
+              message: "Participant not found",
+            });
+          }
+          yield* this.connections.removeConversationFromAgent(
+            agentId,
+            conversationId,
+          );
 ```
 
 Implements conversation service.
 
-### [`conversationServiceLive`](./layer.ts#L17)
+### [`conversationServiceLive`](./layer.ts#L16)
 
 _Variable_
 
@@ -179,21 +179,14 @@ export const conversationServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     const connections = yield* ConnectionManagerTag;
-    const appEndpointRegistry = yield* AppEndpointRegistryTag;
-    return new ConversationService(db, connections, () => {
-      const contacts = appEndpointRegistry.getContactService();
-      if (!contacts) {
-        return null;
-      }
-      return (a, b) => contacts.areInContact(a, b);
-    });
+    return new ConversationService(db, connections);
   }).pipe(Effect.withSpan("ConversationServiceLive")),
 )
 ```
 
 Provides the conversation service live runtime value.
 
-### [`ConversationServiceTag`](./layer.ts#L12)
+### [`ConversationServiceTag`](./layer.ts#L11)
 
 _Class_
 
@@ -205,7 +198,7 @@ export class ConversationServiceTag extends Context.Tag(
 
 Implements conversation service tag.
 
-### [`conversationUpdate`](./handlers.ts#L328)
+### [`conversationUpdate`](./handlers.ts#L200)
 
 _Variable_
 

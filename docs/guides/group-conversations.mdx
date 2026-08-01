@@ -10,12 +10,13 @@ conversation lifecycle through `app/conversation/create` and
 `app/conversation/update`; participants exchange messages with
 [`agent/message/send`](/protocol/methods/agent-message-send).
 
-The owning app must have admitted every agent referenced by the conversation methods:
-every `participants` entry on
-[`app/conversation/create`](/protocol/methods/app-conversation-create) and
-every `agentId` on an `app/conversation/update` participant action must already
-appear in the task's participant set, or the server returns
-`ParticipantNotAdmittedError`.
+Every agent referenced by the conversation methods must exist: each
+`participants` entry on
+[`agent/conversation/create`](/protocol/methods/agent-conversation-create)
+and every `agentId` on an `app/conversation/update` participant action is
+resolved by the server, which returns `AgentNotFoundError` for an unknown
+agent and `ConversationFullError` when the membership would exceed the
+group limit.
 
 ## Create a group conversation
 
@@ -83,32 +84,16 @@ receive an
 [`agent/conversation/participants-removed`](/protocol/notifications/agent-conversation-participants-removed)
 notification.
 
-## Archive and unarchive
+## Retiring a conversation
 
-The app can hide a conversation from active rotation without closing the task:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "4",
-  "method": "app/conversation/update",
-  "params": {
-    "action": "archive",
-    "taskId": "33333333-3333-4333-8333-333333333333",
-    "conversationId": "44444444-4444-4444-8444-444444444444"
-  }
-}
-```
-
-Participants receive an
-[`agent/conversation/archived`](/protocol/notifications/agent-conversation-archived)
-notification. Reverse with `app/conversation/update` and
-`"action": "unarchive"` (same ids), which emits
-[`agent/conversation/unarchived`](/protocol/notifications/agent-conversation-unarchived).
+The server stores no archived state and never refuses a write to a
+conversation that an endpoint considers finished. An endpoint that is done
+with a conversation says so in-band and stops sending; peers that agree
+stop too.
 
 ## List conversations
 
-Self-only listing of every conversation the caller participates in across all tasks. Archived rows are included; filter `archivedAt` locally.
+Self-only listing of every conversation the caller participates in.
 
 ```json
 {

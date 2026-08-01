@@ -133,19 +133,11 @@ beforeEach(() => {
   clientState.closes = 0;
 });
 
-function connection(
-  observeReady: (within: Duration.Duration) => void,
-): AgentConnection<"alice"> {
-  return {
-    agent: makeAgentHandle(ROSTER_KEY, AGENT_ID),
-    key: AGENT_KEY,
-    routerUrl: ROUTER_URL,
-    awaitReady: (within) =>
-      Effect.sync(() => {
-        observeReady(within);
-      }),
-  };
-}
+const connection: AgentConnection<"alice"> = {
+  agent: makeAgentHandle(ROSTER_KEY, AGENT_ID),
+  key: AGENT_KEY,
+  routerUrl: ROUTER_URL,
+};
 
 interface ReceivedDelivery {
   readonly context: EffectRuntimeContext;
@@ -191,10 +183,6 @@ function assertStartupOrder(): void {
     clientState.events.indexOf("connect"),
     clientState.events.indexOf("build"),
   );
-  assert.isBelow(
-    clientState.events.indexOf("ready"),
-    clientState.events.indexOf("build"),
-  );
 }
 
 it("publishes definition-time policy without exposing customer code", () => {
@@ -223,16 +211,12 @@ it.effect(
       Effect.gen(function* () {
         const delivery = yield* Deferred.make<MessageReceivedNotification>();
         const received = yield* Deferred.make<ReceivedDelivery>();
-        let readyWithin: Duration.Duration | undefined;
         clientState.received = Stream.fromEffect(Deferred.await(delivery));
         const runtime = makeGatewayRuntime(received);
 
         const running = yield* runtime.acquire({
           agentName: AGENT_NAME,
-          connection: connection((within) => {
-            clientState.events.push("ready");
-            readyWithin = within;
-          }),
+          connection,
         });
         yield* running.gateway.send("outbound");
         yield* Deferred.succeed(delivery, INCOMING);
@@ -244,7 +228,6 @@ it.effect(
         assert.strictEqual(observed.context.agent.name, AGENT_NAME);
         assert.deepStrictEqual(observed.notification, INCOMING);
         assert.strictEqual(clientState.connects, 1);
-        assert.deepStrictEqual(readyWithin, STARTUP_TIMEOUT);
         assert.strictEqual(
           clientState.constructed[0]?.serverUrl,
           httpBaseUrl(ROUTER_URL),
@@ -273,7 +256,7 @@ it.effect("turns behavior failure into a runtime observation", () =>
       });
       const running = yield* runtime.acquire({
         agentName: AGENT_NAME,
-        connection: connection(() => undefined),
+        connection,
       });
 
       const termination = yield* running.termination;
@@ -299,7 +282,7 @@ it.effect("reports autonomous interruption as runtime failure", () =>
       });
       const running = yield* runtime.acquire({
         agentName: AGENT_NAME,
-        connection: connection(() => undefined),
+        connection,
       });
 
       const termination = yield* running.termination;
@@ -321,7 +304,7 @@ it.effect("maps builder failure to acquisition failure", () =>
       runtime
         .acquire({
           agentName: AGENT_NAME,
-          connection: connection(() => undefined),
+          connection,
         })
         .pipe(Effect.flip),
     );
@@ -345,7 +328,7 @@ it.effect("scope teardown closes the client without reporting completion", () =>
           }),
       }).acquire({
         agentName: AGENT_NAME,
-        connection: connection(() => undefined),
+        connection,
       }),
     );
     const termination = yield* Effect.fork(running.termination);
@@ -378,7 +361,7 @@ it.effect("snapshots the builder at runtime construction", () =>
 
       const running = yield* runtime.acquire({
         agentName: AGENT_NAME,
-        connection: connection(() => undefined),
+        connection,
       });
 
       assert.strictEqual(running.gateway.version, ORIGINAL_VERSION);

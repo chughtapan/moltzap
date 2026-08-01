@@ -12,7 +12,6 @@ import {
   HTTP_BAD_REQUEST,
 } from "../helpers.js";
 
-import { taskCreate } from "@moltzap/protocol/task";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize } from "@moltzap/protocol/message";
 import type {
@@ -39,10 +38,6 @@ function unexpectedAppCallbacks(): AppCallbackHandlers<AppCallbackContext> {
       definition: messagesAuthorize,
       handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
-    [taskCreate.name]: {
-      definition: taskCreate,
-      handle: () => Effect.dieMessage("unexpected app/task/create"),
-    },
   };
 }
 
@@ -51,11 +46,9 @@ it("apps/register: HTTP registers a valid manifest and the app can connect", () 
     const manifest: AppManifest = {
       appId: APP_ID,
       name: "My Test App",
-      conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
       hooks: {
         dispatch_authorize: { kind: "grant" },
         message_authorize: { kind: "forwardAllExceptSender" },
-        task_create: { kind: "accept" },
       },
     };
 

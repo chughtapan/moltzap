@@ -5,14 +5,12 @@ import {
   agentId as protocolAgentId,
   messageId,
   redactedAgentKey,
-  taskId,
 } from "@moltzap/protocol/testing";
 import {
   Cause,
   Chunk,
   DateTime,
   Deferred,
-  Duration,
   Effect,
   Exit,
   Fiber,
@@ -84,7 +82,6 @@ const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
 );
 const OBSERVED_EXIT_CODE = 7;
 const PRIMARY_AGENT_NAME = "alice";
-const READY = () => Effect.void;
 const testRuntimeConfiguration = Schema.Struct({
   kind: Schema.String,
 });
@@ -162,8 +159,7 @@ function memoryStorage(failOnEventTag?: string): LedgerStorageService {
         runId: manifest.runId,
         manifest,
         append: (record: string) =>
-          failOnEventTag !== undefined &&
-          record.includes(`"_tag":"${failOnEventTag}"`)
+          failOnEventTag !== undefined && record.includes(failOnEventTag)
             ? Effect.fail(
                 LedgerStorageError.make({
                   operation: "append",
@@ -223,12 +219,11 @@ function attachFakeEndpoint<const Name extends string>(
       received: Stream.never,
       openConversation: () =>
         Effect.succeed({
-          taskId: taskId("00000000-0000-4000-8000-000000000101"),
           conversationId: conversationId(
             "00000000-0000-4000-8000-000000000102",
           ),
         }),
-      send: (...[, currentConversationId, parts]) =>
+      send: (currentConversationId, parts) =>
         (committedSends === undefined
           ? Effect.void
           : Ref.update(committedSends, (count) => count + 1)
@@ -262,7 +257,6 @@ function fakeRouterProvider(
               agent: makeAgentHandle(name, agentId(nextIdentity)),
               key: agentKey(nextIdentity),
               routerUrl: ROUTER_URL,
-              awaitReady: READY,
             };
           }),
         attachEndpoint: (name) => attachFakeEndpoint(name, committedSends),
@@ -278,25 +272,21 @@ function fakeRouterProvider(
 const codeRuntime = defineRuntime({
   name: "effect",
   configuration: configuration("in-process"),
-  acquire: (input) =>
-    input.connection.awaitReady(Duration.seconds(1)).pipe(
-      Effect.as({
-        gateway: undefined,
-        termination: Effect.succeed(RuntimeCompleted.make({})),
-      }),
-    ),
+  acquire: () =>
+    Effect.succeed({
+      gateway: undefined,
+      termination: Effect.succeed(RuntimeCompleted.make({})),
+    }),
 });
 
 const processRuntime = defineRuntime({
   name: "process",
   configuration: configuration("external-process"),
-  acquire: (input) =>
-    input.connection.awaitReady(Duration.seconds(1)).pipe(
-      Effect.as({
-        gateway: undefined,
-        termination: Effect.succeed(RuntimeExited.make({ code: 0 })),
-      }),
-    ),
+  acquire: () =>
+    Effect.succeed({
+      gateway: undefined,
+      termination: Effect.succeed(RuntimeExited.make({ code: 0 })),
+    }),
 });
 
 const roster = society.agents({
@@ -307,10 +297,8 @@ const roster = society.agents({
 const ongoingRuntime = defineRuntime({
   name: "ongoing",
   configuration: configuration("ongoing"),
-  acquire: (input) =>
-    input.connection
-      .awaitReady(Duration.seconds(1))
-      .pipe(Effect.as({ gateway: undefined, termination: Effect.never })),
+  acquire: () =>
+    Effect.succeed({ gateway: undefined, termination: Effect.never }),
 });
 
 const ongoingRoster = society.agents({
@@ -448,13 +436,11 @@ test("records genuine runtime termination while policy remains active", () =>
     const observedRuntime = defineRuntime({
       name: "observed-process",
       configuration: configuration("observed-process"),
-      acquire: (input) =>
-        input.connection.awaitReady(Duration.seconds(1)).pipe(
-          Effect.as({
-            gateway: undefined,
-            termination: Deferred.await(termination),
-          }),
-        ),
+      acquire: () =>
+        Effect.succeed({
+          gateway: undefined,
+          termination: Deferred.await(termination),
+        }),
     });
     const observedRoster = society.agents({
       alice: observedRuntime,
@@ -491,13 +477,11 @@ test("records a defective termination observer as runtime failure", () =>
     const defectiveRuntime = defineRuntime({
       name: "defective-termination-observer",
       configuration: configuration("defective-observer"),
-      acquire: (input) =>
-        input.connection.awaitReady(Duration.seconds(1)).pipe(
-          Effect.as({
-            gateway: undefined,
-            termination: Effect.dieMessage("termination observer defect"),
-          }),
-        ),
+      acquire: () =>
+        Effect.succeed({
+          gateway: undefined,
+          termination: Effect.dieMessage("termination observer defect"),
+        }),
     });
     const defectiveRoster = society.agents({
       alice: defectiveRuntime,

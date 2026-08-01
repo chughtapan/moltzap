@@ -22,7 +22,6 @@ const MANIFEST_NAME = "test app";
 const OPEN_HOOKS = {
   dispatch_authorize: { kind: "grant" },
   message_authorize: { kind: "forwardAllExceptSender" },
-  task_create: { kind: "accept" },
 } as const;
 const MANIFEST = {
   appId: "ignored",

@@ -1,20 +1,17 @@
 import { RpcMiddleware } from "@effect/rpc";
 import { Schema } from "effect";
 import type { AppId } from "#identity/apps";
-import type { TaskId, TaskStatus } from "#task";
 import type { ConversationId } from "../types.js";
 import { ForbiddenError } from "#transport";
 
 /**
  * Permission: the caller may send to this conversation, proven by participant
- * membership. The server obtain performs the joined read that feeds send guards.
+ * membership. The server obtain performs the joined read that feeds send
+ * guards; `appId` is the conversation's authorizing app.
  */
 export interface ConversationSendAccessValue {
   readonly conversationId: ConversationId;
-  readonly taskId: TaskId;
-  readonly appId: AppId | null;
-  readonly taskStatus: TaskStatus;
-  readonly archivedAt: Date | null;
+  readonly appId: AppId;
 }
 
 /** Implements conversation send access. */

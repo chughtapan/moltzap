@@ -4,40 +4,28 @@ import { Effect } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
-import { testAgentId, testConversationId, testTaskId } from "./ids.js";
+import { testAgentId, testConversationId } from "./ids.js";
 import type { ChannelService, DispatchReleaseFrame } from "../channel-core.js";
 import type { CrossConversationEntry, CrossConvMessage } from "../service.js";
 
-type MessageHandler = (payload: { taskId: TaskId; message: Message }) => void;
+type MessageHandler = (payload: { taskId?: TaskId; message: Message }) => void;
 type VoidHandler = () => void;
-type ConversationArchivedHandler = (data: { conversationId: string }) => void;
-type ConversationUnarchivedHandler = (data: { conversationId: string }) => void;
 type DispatchReleaseHandler = (frame: DispatchReleaseFrame) => void;
-type ServiceEvent =
-  | "message"
-  | "disconnect"
-  | "conversationArchived"
-  | "conversationUnarchived"
-  | "dispatchRelease";
-type ServiceHandler =
-  | MessageHandler
-  | VoidHandler
-  | ConversationArchivedHandler
-  | ConversationUnarchivedHandler
-  | DispatchReleaseHandler;
+type ServiceEvent = "message" | "disconnect" | "dispatchRelease";
+type ServiceHandler = MessageHandler | VoidHandler | DispatchReleaseHandler;
 
 interface SentReply {
-  taskId: string;
   convId: string;
   text: string;
   dispatchLeaseId?: string;
+  taskId?: string;
 }
 
 interface SendFixtureReplyInput {
-  readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly text: string;
   readonly dispatchLeaseId?: string;
+  readonly taskId?: TaskId;
 }
 
 interface FixtureConversationMeta {
@@ -49,22 +37,18 @@ interface FixtureConversationMeta {
 interface ChannelServiceFixtureStore {
   readonly messageHandlers: MessageHandler[];
   readonly disconnectHandlers: VoidHandler[];
-  readonly conversationArchivedHandlers: ConversationArchivedHandler[];
-  readonly conversationUnarchivedHandlers: ConversationUnarchivedHandler[];
   readonly dispatchReleaseHandlers: DispatchReleaseHandler[];
   readonly conversations: Map<string, FixtureConversationMeta>;
   readonly agentNames: Map<string, string>;
   readonly contextEntriesByConv: Map<string, CrossConversationEntry[]>;
   readonly fullMessagesByConv: Map<string, CrossConvMessage[]>;
   readonly resolveFailures: Map<string, Error>;
-  readonly archivedConversationIds: Set<string>;
   readonly resolveCalls: string[];
   readonly sent: SentReply[];
   readonly connectCalls: { count: number };
   readonly closeCalls: { count: number };
   connectResult: unknown;
   ownAgentId?: string;
-  fallbackTaskId: TaskId;
 }
 
 const agentKey = (id: string): string => testAgentId(id);
@@ -84,8 +68,6 @@ function participantKey(participant: string): string {
 export interface ChannelServiceEmit {
   message(msg: Message, taskId?: TaskId): void;
   disconnect(): void;
-  conversationArchived(data: { conversationId: string }): void;
-  conversationUnarchived(data: { conversationId: string }): void;
   dispatchRelease(frame: DispatchReleaseFrame): void;
 }
 
@@ -100,11 +82,7 @@ export interface ChannelServiceState {
   setFullMessages(currentConvId: string, messages: CrossConvMessage[]): void;
   setResolveAgentNameFailure(agentId: string, err: Error): void;
   setConnectResult(result: unknown): void;
-  readonly sent: ReadonlyArray<{
-    convId: string;
-    text: string;
-    dispatchLeaseId?: string;
-  }>;
+  readonly sent: readonly SentReply[];
   readonly connectCalls: { count: number };
   readonly closeCalls: { count: number };
   resolveAgentNameCallCount(agentId: string): number;
@@ -130,22 +108,18 @@ function createFixtureStore(
   return {
     messageHandlers: [],
     disconnectHandlers: [],
-    conversationArchivedHandlers: [],
-    conversationUnarchivedHandlers: [],
     dispatchReleaseHandlers: [],
     conversations: new Map(),
     agentNames: new Map(),
     contextEntriesByConv: new Map(),
     fullMessagesByConv: new Map(),
     resolveFailures: new Map(),
-    archivedConversationIds: new Set(),
     resolveCalls: [],
     sent: [],
     connectCalls: { count: 0 },
     closeCalls: { count: 0 },
     connectResult: {},
     ownAgentId,
-    fallbackTaskId: testTaskId("fixture-task"),
   };
 }
 
@@ -161,14 +135,6 @@ function registerServiceHandler(
   } else if (event === "disconnect") {
     store.disconnectHandlers.push(
       /* Safe because the surrounding invariant establishes this asserted shape. */ handler as VoidHandler,
-    );
-  } else if (event === "conversationArchived") {
-    store.conversationArchivedHandlers.push(
-      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as ConversationArchivedHandler,
-    );
-  } else if (event === "conversationUnarchived") {
-    store.conversationUnarchivedHandlers.push(
-      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as ConversationUnarchivedHandler,
     );
   } else if (event === "dispatchRelease") {
     store.dispatchReleaseHandlers.push(
@@ -192,12 +158,12 @@ function sendFixtureReply(
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     store.sent.push({
-      taskId: input.taskId,
       convId: input.conversationId,
       text: input.text,
       ...(input.dispatchLeaseId !== undefined
         ? { dispatchLeaseId: input.dispatchLeaseId }
         : {}),
+      ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
     });
   });
 }
@@ -205,15 +171,15 @@ function sendFixtureReply(
 function makeFixtureSend(
   store: ChannelServiceFixtureStore,
 ): ChannelService["send"] {
-  return (taskId, conversationId, text, opts) => {
-    const dispatchLeaseId = opts?.dispatchLeaseId;
-    return sendFixtureReply(store, {
-      taskId,
+  return (conversationId, text, opts) =>
+    sendFixtureReply(store, {
       conversationId,
       text,
-      dispatchLeaseId,
+      ...(opts?.dispatchLeaseId !== undefined
+        ? { dispatchLeaseId: opts.dispatchLeaseId }
+        : {}),
+      ...(opts?.taskId !== undefined ? { taskId: opts.taskId } : {}),
     });
-  };
 }
 
 function getFixtureConversation(
@@ -269,10 +235,6 @@ function makeService(store: ChannelServiceFixtureStore): ChannelService {
       return store.agentNames.get(agentId);
     },
 
-    isConversationArchived(convId: string) {
-      return store.archivedConversationIds.has(convId);
-    },
-
     resolveAgentName(agentId: string) {
       return resolveFixtureAgentName(store, agentId);
     },
@@ -298,32 +260,13 @@ function makeService(store: ChannelServiceFixtureStore): ChannelService {
 function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
   const emit: ChannelServiceEmit = {
     message(msg, taskId) {
-      const fallback = store.fallbackTaskId;
-      const tid = taskId ?? fallback;
       for (const h of store.messageHandlers) {
-        h({ taskId: tid, message: msg });
+        h({ ...(taskId === undefined ? {} : { taskId }), message: msg });
       }
     },
     disconnect() {
       for (const h of store.disconnectHandlers) {
         h();
-      }
-    },
-    conversationArchived(data) {
-      const conversationId = conversationKey(data.conversationId);
-      store.archivedConversationIds.add(conversationId);
-      store.conversations.delete(conversationId);
-      for (const h of store.conversationArchivedHandlers) {
-        h({ conversationId });
-      }
-    },
-    conversationUnarchived(data) {
-      const conversationId = conversationKey(data.conversationId);
-      store.archivedConversationIds.delete(conversationId);
-      for (const h of store.conversationUnarchivedHandlers) {
-        h({
-          conversationId,
-        });
       }
     },
     dispatchRelease(frame) {

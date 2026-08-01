@@ -4,19 +4,16 @@ _`packages/protocol/src/network`_
 
 ## Purpose
 
-Public barrel for connect and presence protocol descriptors.
+Public barrel for connect protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L32)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L28)
 
 _Variable_
 
 ```ts
-export const agentCallableNetworkRpcMethods = [
-  agentConnect,
-  agentPresenceSubscribe,
-] as const
+export const agentCallableNetworkRpcMethods = [agentConnect] as const
 ```
 
 Network RPCs callable by agent clients.
@@ -55,31 +52,12 @@ new agent client connection.
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
-### [`agentPresenceSubscribe`](./presence.ts#L36)
+### [`appCallableNetworkRpcMethods`](./index.ts#L31)
 
 _Variable_
 
 ```ts
-export const agentPresenceSubscribe = defineRpc({
-  name: "agent/network/presence/subscribe",
-  params: presenceSubscribeParamsSchema,
-  result: presenceSubscribeResultSchema,
-  requires: [AgentPrincipal],
-  errors: [NotInContactsError],
-})
-```
-
-Defines the `agent/network/presence/subscribe` RPC contract.
-
-### [`appCallableNetworkRpcMethods`](./index.ts#L38)
-
-_Variable_
-
-```ts
-export const appCallableNetworkRpcMethods = [
-  appConnect,
-  appPresenceSubscribe,
-] as const
+export const appCallableNetworkRpcMethods = [appConnect] as const
 ```
 
 Network RPCs callable by app clients.
@@ -117,22 +95,6 @@ app client connection.
   own id).
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
-
-### [`appPresenceSubscribe`](./presence.ts#L45)
-
-_Variable_
-
-```ts
-export const appPresenceSubscribe = defineRpc({
-  name: "app/network/presence/subscribe",
-  params: presenceSubscribeParamsSchema,
-  result: presenceSubscribeResultSchema,
-  requires: [AppPrincipal],
-  errors: [],
-})
-```
-
-Defines the `app/network/presence/subscribe` RPC contract.
 
 ### [`checkProtocolRange`](./connect.ts#L120)
 
@@ -199,7 +161,7 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 
 Reports invalid protocol version failures.
 
-### [`networkNotifications`](./index.ts#L52)
+### [`networkNotifications`](./index.ts#L37)
 
 _Variable_
 
@@ -209,17 +171,12 @@ export const networkNotifications = [] as const
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](./index.ts#L44)
+### [`networkRpcMethods`](./index.ts#L34)
 
 _Variable_
 
 ```ts
-export const networkRpcMethods = [
-  agentConnect,
-  appConnect,
-  agentPresenceSubscribe,
-  appPresenceSubscribe,
-] as const
+export const networkRpcMethods = [agentConnect, appConnect] as const
 ```
 
 Network RPCs accepted by the server.
@@ -363,6 +320,5 @@ The socket endpoint a client dials for the given server.
 
 - `connect.ts`
 - `index.ts`
-- `presence.ts`
 - `server-url.ts`
 - `server-url.types-check.ts`

@@ -21,9 +21,10 @@ surface.
 - **Account** — OpenClaw channel identity; its `id` is the MoltZap
   profile name from `~/.moltzap/config.json`; OpenClaw stores no
   MoltZap API keys.
-- **Target** — an agent name, `agent:<name>`, or
-  `task:<taskId>:<conversationId>`. Plain agent names normalize to the
-  canonical `agent:<name>` form at the OpenClaw boundary.
+- **Target** — `agent:<name>` or `conv:<conversationId>`;
+  `task:<taskId>:<conversationId>` is also accepted and stamps the task
+  label onto the sent message. `isMoltZapTarget` is the accepting
+  predicate.
 - **Dispatch lease** — single-use admission token from the MoltZap
   server, threaded through OpenClaw's `deliver` → reply flow.
 - **Context log** — per-message JSONL dump of the enriched inbound
@@ -36,7 +37,7 @@ surface.
   (`channelRuntime.reply`); OpenClaw calls `deliver` directly, never
   `routeReply()` (`OriginatingChannel === Surface` always holds for
   MoltZap→MoltZap), so the deliver callback MUST send the reply via
-  `core.sendReply(taskId, conversationId, text, {dispatchLeaseId})`.
+  `core.sendReply(conversationId, text, {dispatchLeaseId})`.
 - Lease handling comes from `@moltzap/client/channel-base`:
   `LeaseGuard` (single-shot per inbound message, stamped after the
   first successful `core.sendReply`) and `catchLeaseInvalid`
@@ -44,11 +45,13 @@ surface.
   Host opt-in `MoltzapChannelPluginDeps.onLeaseConsumed` receives
   the typed error; deliver still returns `false` per
   `OpenClawDeliver: PromiseLike<boolean>`.
-- Target resolution: `messaging.targetResolver` and
-  `outbound.resolveTarget` normalize a plain, valid agent name to
-  `agent:<name>` and validate explicit agent and task targets without a
-  server round-trip. `directory` (`listPeers`, `listGroups` — named groups
-  only) is live RPC returning `[]` on failure.
+- Target resolution: `messaging.targetResolver` validates both
+  target formats with no server round-trip; `directory` (`listPeers`,
+  `listGroups` — named groups only) is live RPC returning `[]` on
+  failure; `outbound.resolveTarget` requires a non-empty target and
+  rejects `:`-containing targets in no known format — a colon-free
+  string passes resolution and `parseConversationTarget` reads it as a
+  bare conversation id.
 - Notification routing keys on the typed definitions from
   `@moltzap/protocol`: `agent/message/received` enters dispatch,
   non-message notifications update channel state. Sender identity

@@ -6,18 +6,14 @@ description: "App-only conversation mutation surface."
 # app/conversation/update
 
 App-only conversation mutation surface. `app/conversation/update` owns
-archive, unarchive, participant add, and participant remove semantics.
+participant add and participant remove semantics.
 
-- **Principal:** `AppPrincipal` head + `ConversationInTask`.
+- **Principal:** `AppPrincipal` head.
 
 ## Parameters
 
-<ParamField path="action" type="archive">
-  
-</ParamField>
+<ParamField path="action" type="add-participant">
 
-<ParamField path="taskId" type="string (UUID)">
-  Branded TaskId
 </ParamField>
 
 <ParamField path="conversationId" type="string (UUID)">
@@ -36,7 +32,6 @@ This method returns an empty object.
 
 | Type | When |
 |------|------|
-| `ForbiddenError` | the caller does not own the task |
-| `TaskNotFoundError` | the task does not exist or is not open |
-| `ConversationNotFoundError` | the conversation does not exist under the task |
-| `ParticipantNotAdmittedError` | the agent is not admitted to the task |
+| `ForbiddenError` | the caller does not own the conversation |
+| `ConversationNotFoundError` | the conversation does not exist |
+| `ConversationFullError` | adding the agent would exceed capacity |

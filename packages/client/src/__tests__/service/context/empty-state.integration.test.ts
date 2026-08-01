@@ -15,19 +15,10 @@ it("returns null with only one conversation active", () =>
 
     const conv = yield* H.createDm(service, regB.agentId);
 
-    yield* H.sendAndSettle(
-      regB.client,
-      conv.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-      "Hello",
-    );
+    yield* H.sendAndSettle(regB.client, conv.conversation.id, "Hello");
 
     // Only one conversation — no "other" conversations to report
-    const ctx = service.getContext(
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id,
-    );
+    const ctx = service.getContext(conv.conversation.id);
     expect(ctx).toBeNull();
 
     service.close();
@@ -50,18 +41,9 @@ it("returns null when other conversations have no messages", () =>
     // Create conv with C but don't send any messages in it
     yield* H.createDm(service, regC.agentId);
 
-    yield* H.sendAndSettle(
-      regB.client,
-      convB.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convB
-        .conversation!.id,
-      "msg in B",
-    );
+    yield* H.sendAndSettle(regB.client, convB.conversation.id, "msg in B");
 
-    const ctx = service.getContext(
-      /* Safe because the test fixture establishes this asserted shape. */ convB
-        .conversation!.id,
-    );
+    const ctx = service.getContext(convB.conversation.id);
     // Conv C has no messages → no context
     expect(ctx).toBeNull();
 
@@ -85,19 +67,10 @@ it("returns system-reminder with new messages from other conversation", () =>
     const convC = yield* H.createDm(service, regC.agentId);
 
     // Send message in conv C
-    yield* H.sendAndSettle(
-      regC.client,
-      convC.task.id,
-      /* Safe because the test fixture establishes this asserted shape. */ convC
-        .conversation!.id,
-      H.HELLO_FROM_C,
-    );
+    yield* H.sendAndSettle(regC.client, convC.conversation.id, H.HELLO_FROM_C);
 
     // Get context from conv B's perspective — should see conv C's message
-    const ctx = service.getContext(
-      /* Safe because the test fixture establishes this asserted shape. */ convB
-        .conversation!.id,
-    );
+    const ctx = service.getContext(convB.conversation.id);
     expect(ctx).not.toBeNull();
     expect(ctx).toContain(H.SYSTEM_REMINDER_OPEN);
     expect(ctx).toContain(H.SYSTEM_REMINDER_CLOSE);

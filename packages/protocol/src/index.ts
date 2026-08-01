@@ -17,5 +17,4 @@ export type {
   MoltZapServerSession,
   RpcCallOptions,
 } from "#socket";
-// safer-arch-ignore no-folder-cycle: Task and conversation wire contracts mutually reference task ownership and initial-conversation payloads by protocol design.
-// safer-arch-ignore no-package-mesh: The protocol package is a catalog of peer wire domains; the sparse task/conversation cycle is explicit and schema-only.
+// safer-arch-ignore no-package-mesh: The protocol package is a catalog of peer wire domains; each cross-domain edge is explicit and schema-only.

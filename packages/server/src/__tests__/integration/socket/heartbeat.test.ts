@@ -11,7 +11,8 @@ import {
   DEFAULT_NOTIFICATION_TIMEOUT_MS,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
@@ -30,15 +31,11 @@ it("connection survives idle period and still delivers messages", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(taskRequest, {
+    const conv = yield* alice.client.sendRpc(agentConversationCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
+      participants: [bob.agentId],
     });
-    const taskId = conv.task.id;
-    const conversationId =
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id;
+    const conversationId = conv.conversation.id;
 
     // Wait 5 seconds of idle time
     yield* Effect.sleep(DEFAULT_NOTIFICATION_TIMEOUT_MS);
@@ -49,7 +46,6 @@ it("connection survives idle period and still delivers messages", () =>
 
     // After idle period, Alice sends a message
     yield* alice.client.sendRpc(messagesSend, {
-      taskId,
       conversationId,
       parts: [{ type: "text", text: ALIVE_AFTER_IDLE_TEXT }],
     });
@@ -64,7 +60,6 @@ it("connection survives idle period and still delivers messages", () =>
 
     // Verify bidirectional: Bob replies after idle
     yield* bob.client.sendRpc(messagesSend, {
-      taskId,
       conversationId,
       parts: [{ type: "text", text: REPLY_AFTER_IDLE_TEXT }],
     });

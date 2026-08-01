@@ -70,7 +70,13 @@ export interface ContextBlocks {
 /** Describes enriched inbound message. */
 export interface EnrichedInboundMessage {
   id: string;
-  taskId: TaskId;
+
+  /**
+   * Opaque grouping label the sender stamped on the message. Present only
+   * when the sender set one; adapters echo it back on a reply and never
+   * interpret it.
+   */
+  taskId?: TaskId;
   conversationId: ConversationId;
   sender: EnrichedSender;
   /** Text parts joined with newlines. Non-text parts dropped. */
@@ -165,13 +171,9 @@ export interface ChannelService {
   readonly ownAgentId?: string;
   on(
     event: "message",
-    handler: (payload: { taskId: TaskId; message: Message }) => void,
+    handler: (payload: { taskId?: TaskId; message: Message }) => void,
   ): void;
   on(event: "disconnect", handler: () => void): void;
-  on(
-    event: "conversationArchived" | "conversationUnarchived",
-    handler: (data: { conversationId: string }) => void,
-  ): void;
   on(
     event: "dispatchRelease",
     handler: (frame: DispatchReleaseFrame) => void,
@@ -179,12 +181,10 @@ export interface ChannelService {
   connect(): Effect.Effect<unknown, ServiceRpcError>;
   close(): void;
   send(
-    taskId: TaskId,
     conversationId: ConversationId,
     text: string,
-    opts?: { dispatchLeaseId?: LeaseId },
+    opts?: { dispatchLeaseId?: LeaseId; taskId?: TaskId },
   ): Effect.Effect<void, ServiceRpcError>;
-  isConversationArchived?(conversationId: string): boolean;
   getConversation(
     convId: string,
   ): { type: string; name?: string; participants: string[] } | undefined;
@@ -292,7 +292,7 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
 }
 
 interface InboundDispatchWork {
-  taskId: TaskId;
+  taskId?: TaskId;
   message: Message;
   attempt: number;
   receivedAtMs: number;
@@ -378,7 +378,6 @@ export class MoltZapChannelCore {
     string,
     PendingReleaseEntry
   >(DISPATCH_RELEASE_RING_CAPACITY);
-  private readonly closedConversationIds = new Set<string>();
   private readonly parkedByConversation = new Map<
     string,
     InboundDispatchWork[]
@@ -401,26 +400,13 @@ export class MoltZapChannelCore {
     this.registerMessageListener();
     this.consumerFiber = this.startConsumerFiber();
     this.registerConnectionListeners();
-    this.registerConversationLifecycleListeners();
     this.registerDispatchReleaseListener();
   }
 
   private registerMessageListener(): void {
     this.service.on("message", ({ taskId, message }) => {
-      if (this.closedConversationIds.has(message.conversationId)) {
-        runBackgroundLog(
-          effectLogInfo(
-            "MoltZapChannelCore: dropping inbound message for closed conversation",
-            {
-              messageId: message.id,
-              conversationId: message.conversationId,
-            },
-          ),
-        );
-        return;
-      }
       Queue.unsafeOffer(this.inboundQueue, {
-        taskId,
+        ...(taskId === undefined ? {} : { taskId }),
         message,
         attempt: 0,
         receivedAtMs: Date.now(),
@@ -459,16 +445,6 @@ export class MoltZapChannelCore {
     this.service.on("disconnect", () => {
       this.connected = false;
       this.fanout(this.disconnectHandlers, "disconnect");
-    });
-  }
-
-  private registerConversationLifecycleListeners(): void {
-    this.service.on("conversationArchived", ({ conversationId }) => {
-      this.closeConversation(conversationId);
-    });
-
-    this.service.on("conversationUnarchived", ({ conversationId }) => {
-      this.closedConversationIds.delete(conversationId);
     });
   }
 
@@ -599,51 +575,26 @@ export class MoltZapChannelCore {
     return this.connected;
   }
 
+  /**
+   * Reply into a conversation, consuming the in-flight dispatch lease unless
+   * the caller names another. `opts.taskId` re-stamps a grouping label the
+   * adapter carried over from the inbound message.
+   * @param conversationId Value supplied to the operation.
+   * @param text Text to process.
+   * @param opts Value supplied to the operation.
+   * @param opts.dispatchLeaseId Value supplied to the operation.
+   * @param opts.taskId Value supplied to the operation.
+   * @returns The send result.
+   */
   sendReply(
-    taskId: TaskId,
     conversationId: ConversationId,
     text: string,
-    opts?: { dispatchLeaseId?: LeaseId },
+    opts?: { dispatchLeaseId?: LeaseId; taskId?: TaskId },
   ): Effect.Effect<void, ServiceRpcError> {
-    if (
-      this.closedConversationIds.has(conversationId) ||
-      this.service.isConversationArchived?.(conversationId)
-    ) {
-      return effectLogInfo(
-        "MoltZapChannelCore: dropping reply for closed conversation",
-        { conversationId },
-      );
-    }
-    return this.service.send(taskId, conversationId, text, {
+    return this.service.send(conversationId, text, {
       dispatchLeaseId: opts?.dispatchLeaseId ?? this.leaseIdInFlight,
+      ...(opts?.taskId === undefined ? {} : { taskId: opts.taskId }),
     });
-  }
-
-  private closeConversation(conversationId: string): void {
-    this.closedConversationIds.add(conversationId);
-    this.parkedByConversation.delete(conversationId);
-
-    const queued = Chunk.toReadonlyArray(
-      Effect.runSync(Queue.takeAll(this.inboundQueue)),
-    );
-    let droppedQueued = 0;
-    for (const work of queued) {
-      if (work.message.conversationId === conversationId) {
-        droppedQueued += 1;
-      } else {
-        Queue.unsafeOffer(this.inboundQueue, work);
-      }
-    }
-
-    runBackgroundLog(
-      effectLogInfo(
-        "MoltZapChannelCore: closed conversation dispatch work purged",
-        {
-          conversationId,
-          droppedQueued,
-        },
-      ),
-    );
   }
 
   private takeDispatchCandidate(
@@ -896,10 +847,6 @@ export class MoltZapChannelCore {
     return Effect.gen(
       function* (this: MoltZapChannelCore) {
         const current = this.takeDispatchCandidate(work);
-        if (this.closedConversationIds.has(current.message.conversationId)) {
-          yield* this.logClosedDispatchDrop(current);
-          return;
-        }
         const decision = yield* this.dispatchAdmission(current);
         yield* this.handleDispatchDecision(current, decision);
       }.bind(this),
@@ -972,7 +919,7 @@ export class MoltZapChannelCore {
     decision: DispatchGrantDecision,
   ): Effect.Effect<boolean, unknown> {
     const dispatch = this.dispatchWithLease(
-      current.taskId,
+      current,
       messages,
       decision.leaseId,
     );
@@ -998,7 +945,7 @@ export class MoltZapChannelCore {
   }
 
   private dispatchWithLease(
-    taskId: TaskId,
+    work: InboundDispatchWork,
     messages: readonly Message[],
     leaseId?: LeaseId,
   ): Effect.Effect<void, unknown> {
@@ -1008,7 +955,7 @@ export class MoltZapChannelCore {
       return previous;
     }).pipe(
       Effect.flatMap((previous) =>
-        this.dispatchInboundEffect(taskId, messages).pipe(
+        this.dispatchInboundEffect(work, messages).pipe(
           Effect.ensuring(
             Effect.sync(() => {
               this.leaseIdInFlight = previous;
@@ -1052,19 +999,6 @@ export class MoltZapChannelCore {
         });
         this.parkDispatchWork(current);
       }.bind(this),
-    );
-  }
-
-  private logClosedDispatchDrop(
-    current: InboundDispatchWork,
-  ): Effect.Effect<void> {
-    return effectLogInfo(
-      "MoltZapChannelCore: dropping dispatch for closed conversation",
-      {
-        messageId: current.message.id,
-        conversationId: current.message.conversationId,
-        attempt: current.attempt,
-      },
     );
   }
 
@@ -1206,23 +1140,24 @@ export class MoltZapChannelCore {
    * Stateless enrichment helper. Falls back to `sender.id` if
    * `resolveAgentName` throws (e.g. Service not yet connected).
    * @param service Value supplied to the operation.
-   * @param taskId Value supplied to the operation.
    * @param messageOrMessages Value supplied to the operation.
+   * @param labels Grouping labels carried alongside the message.
+   * @param labels.taskId Value supplied to the operation.
    * @returns The leased result.
    */
   static enrichMessage(
     service: ChannelService,
-    taskId: TaskId,
     messageOrMessages: Message | readonly Message[],
+    labels: { readonly taskId?: TaskId } = {},
   ): Effect.Effect<{
     enriched: EnrichedInboundMessage;
     commitContext?: () => void;
   }> {
-    return enrichChannelMessage(service, taskId, messageOrMessages);
+    return enrichChannelMessage(service, messageOrMessages, labels);
   }
 
   private dispatchInboundEffect(
-    taskId: TaskId,
+    work: InboundDispatchWork,
     messages: readonly Message[],
   ): Effect.Effect<void, unknown> {
     return Effect.gen(
@@ -1233,8 +1168,8 @@ export class MoltZapChannelCore {
         const { enriched, commitContext } =
           yield* MoltZapChannelCore.enrichMessage(
             this.service,
-            taskId,
             messages,
+            work.taskId === undefined ? {} : { taskId: work.taskId },
           );
         const leased =
           this.leaseIdInFlight !== undefined

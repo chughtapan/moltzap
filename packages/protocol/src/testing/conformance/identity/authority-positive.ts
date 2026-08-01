@@ -1,11 +1,11 @@
 /**
  * Authorized caller → typed success on at least one known-safe RPC.
  * Registers a fresh agent, completes the handshake, calls
- * `agent/task/list` (empty-collection result is defined for every
+ * `agent/conversation/list` (empty-collection result is defined for every
  * newly-registered agent), and asserts a Right outcome.
  */
 import { Effect } from "effect";
-import { taskList } from "@moltzap/protocol/task";
+import { conversationList } from "@moltzap/protocol/conversation";
 import { makeAgentTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -35,7 +35,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     PROPERTY,
-    "authorized agent -> typed success on agent/task/list",
+    "authorized agent -> typed success on agent/conversation/list",
     Effect.scoped(
       Effect.gen(function* () {
         const agent = yield* registerTestAgent({
@@ -55,11 +55,13 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
             invariant(`client acquire failed: ${String(e)}`),
           ),
         );
-        const outcome = yield* client.sendRpc(taskList, {}).pipe(Effect.either);
+        const outcome = yield* client
+          .sendRpc(conversationList, {})
+          .pipe(Effect.either);
         const failure = leftOrNull(outcome);
         if (failure !== null) {
           return yield* invariant(
-            `authorized agent/task/list failed: ${failure._tag}`,
+            `authorized agent/conversation/list failed: ${failure._tag}`,
           );
         }
       }).pipe(Effect.withSpan("registerAuthorityPositive")),
