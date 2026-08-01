@@ -11,7 +11,14 @@
       "!{projectRoot}/src/**/__tests__/**",
       "!{projectRoot}/tsconfig.test.json",
       "!{projectRoot}/vitest.config.mjs",
-      "!{projectRoot}/vitest.integration.config.mjs"
+      "!{projectRoot}/vitest.integration.config.mjs",
+      "!{projectRoot}/**/MODULE.md",
+      "!{projectRoot}/safer-architecture.config.json"
+    ],
+    "sources": [
+      "default",
+      "!{projectRoot}/**/MODULE.md",
+      "!{projectRoot}/safer-architecture.config.json"
     ],
     "v2Production": [
       "production",
@@ -106,7 +113,7 @@
         "^build"
       ],
       "inputs": [
-        "default",
+        "sources",
         "^production"
       ],
       "cache": true
@@ -116,7 +123,7 @@
         "^build"
       ],
       "inputs": [
-        "default",
+        "sources",
         "^production"
       ],
       "cache": true
