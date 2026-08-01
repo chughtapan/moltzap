@@ -32,6 +32,7 @@ import {
 } from "./message-store.js";
 import {
   type ImageDigest,
+  moltZapServerContainerUser,
   moltZapServerRunArgs,
   resolveServerImage,
   runServerCommand,
@@ -50,6 +51,7 @@ const SERVER_VOLUME_ROOT = join(
   "moltzap-simulator",
   "server-volumes",
 );
+const dockerSecurityOptions = Schema.parseJson(Schema.Array(Schema.String));
 
 const moltZapServerOperation = Schema.Literal(
   "resolve-image",
@@ -337,6 +339,68 @@ export type MoltZapServerHost =
   | FileSystem.FileSystem
   | HttpClient.HttpClient;
 
+function resolveServerContainerUser(): Effect.Effect<
+  string | undefined,
+  unknown,
+  CommandExecutor
+> {
+  if (
+    process.platform !== "linux" ||
+    process.getuid === undefined ||
+    process.getgid === undefined
+  ) {
+    return Effect.succeed(undefined);
+  }
+  const uid = process.getuid();
+  const gid = process.getgid();
+  return runServerCommand([
+    "docker",
+    "info",
+    "--format",
+    "{{json .SecurityOptions}}",
+  ]).pipe(
+    Effect.flatMap(Schema.decodeUnknown(dockerSecurityOptions)),
+    Effect.flatMap((securityOptions) => {
+      const containerUser = moltZapServerContainerUser(
+        uid,
+        gid,
+        securityOptions,
+      );
+      return containerUser === null
+        ? Effect.fail(
+            "Docker userns-remap cannot safely write the simulator's host-owned server volume",
+          )
+        : Effect.succeed(containerUser);
+    }),
+  );
+}
+
+function startServerContainer(
+  image: ImageDigest,
+  volumePath: string,
+  containerName: string,
+  registrationSecret: RunRegistrationSecret,
+): Effect.Effect<string, unknown, CommandExecutor> {
+  return resolveServerContainerUser().pipe(
+    Effect.flatMap((containerUser) =>
+      runServerCommand(
+        moltZapServerRunArgs(image, volumePath, containerName, containerUser),
+        {
+          environment: {
+            [SERVER_REGISTRATION_SECRET_ENV]:
+              Redacted.value(registrationSecret),
+          },
+        },
+      ),
+    ),
+    Effect.map((output) => output.trim()),
+    Effect.filterOrFail(
+      (containerId) => containerId.length > 0,
+      () => "docker run printed no container id",
+    ),
+  );
+}
+
 function makeMoltZapServerOperations(
   host: Context.Context<MoltZapServerHost>,
 ): MoltZapServerOperations {
@@ -355,20 +419,11 @@ function makeMoltZapServerOperations(
       ),
     startContainer: (image, volumePath, containerName, registrationSecret) =>
       provideHost(
-        runServerCommand(
-          moltZapServerRunArgs(image, volumePath, containerName),
-          {
-            environment: {
-              [SERVER_REGISTRATION_SECRET_ENV]:
-                Redacted.value(registrationSecret),
-            },
-          },
-        ),
-      ).pipe(
-        Effect.map((output) => output.trim()),
-        Effect.filterOrFail(
-          (containerId) => containerId.length > 0,
-          () => "docker run printed no container id",
+        startServerContainer(
+          image,
+          volumePath,
+          containerName,
+          registrationSecret,
         ),
       ),
     resolveServerUrl: (containerId) =>

@@ -243,6 +243,8 @@ export interface OpenClawProcessInput {
   readonly apiKey: AgentKey;
   readonly agentId: AgentId;
   readonly serverUrl: ServerBaseUrl;
+  /** Omit only when a runtime must not inherit the operator's model auth. */
+  readonly seedOperatorAuth?: boolean;
   readonly workspaceFiles?: ReadonlyArray<{
     readonly relativePath: string;
     readonly content: string;
@@ -519,6 +521,10 @@ function configureOpenClawStateDir(
   unknown,
   CommandExecutor.CommandExecutor | FileSystem.FileSystem | Path.Path
 > {
+  const seedOperatorAuth =
+    input.seedOperatorAuth === false
+      ? Effect.void
+      : seedModelAuthProfile(stateDir);
   return Effect.all(
     [
       writeOpenClawConfig({
@@ -534,7 +540,7 @@ function configureOpenClawStateDir(
         gatewayToken,
       }),
       seedWorkspaceFiles(openClawWorkspaceDir(stateDir), input.workspaceFiles),
-      seedModelAuthProfile(stateDir),
+      seedOperatorAuth,
       disarmOpenClawAttestationGuard(stateDir),
     ],
     { concurrency: 4, discard: true },

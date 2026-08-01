@@ -6,9 +6,11 @@
  * Gate: `MOLTZAP_SIM_ITEST=1`, with a container engine that can mount the
  * simulator cache directory.
  */
-/* eslint-disable sonarjs/assertions-in-tests -- assertions execute inside the scoped Effect so the container is always released */
+/* eslint-disable sonarjs/assertions-in-tests -- assertions stay in the Effect whose scope owns and releases the container */
+import { dirname } from "node:path";
 import {
   FetchHttpClient,
+  FileSystem,
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
@@ -32,26 +34,33 @@ const REGISTER_ROUTE = "/api/v1/auth/register";
 const ROSTER_PARTICIPANT = agentName("roster-participant");
 const hostLayer = Layer.merge(NodeContext.layer, FetchHttpClient.layer);
 
-const verifyRegistrationBoundary = Effect.scoped(
-  Effect.gen(function* () {
-    const server = yield* acquireMoltZapServer({
-      readyTimeout: Duration.minutes(2),
-    });
-    const request = yield* HttpClientRequest.post(
-      new URL(REGISTER_ROUTE, httpBaseUrl(server.serverUrl)).toString(),
-    ).pipe(HttpClientRequest.bodyJson({ name: "uncredentialed-participant" }));
-    const response = yield* HttpClient.HttpClient.pipe(
-      Effect.flatMap((client) => client.execute(request)),
-    );
-    yield* response.text;
+const verifyRegistrationBoundary = Effect.gen(function* () {
+  const volumeRoot = yield* Effect.scoped(
+    Effect.gen(function* () {
+      const server = yield* acquireMoltZapServer({
+        readyTimeout: Duration.minutes(2),
+      });
+      const request = yield* HttpClientRequest.post(
+        new URL(REGISTER_ROUTE, httpBaseUrl(server.serverUrl)).toString(),
+      ).pipe(
+        HttpClientRequest.bodyJson({ name: "uncredentialed-participant" }),
+      );
+      const response = yield* HttpClient.HttpClient.pipe(
+        Effect.flatMap((client) => client.execute(request)),
+      );
+      yield* response.text;
 
-    expect(response.status).toBe(HTTP_FORBIDDEN);
+      expect(response.status).toBe(HTTP_FORBIDDEN);
 
-    const authorized = yield* server.register(ROSTER_PARTICIPANT);
-    expect(authorized.agentId.length).toBeGreaterThan(0);
-    expect(Redacted.isRedacted(authorized.key)).toBe(true);
-  }),
-).pipe(Effect.provide(hostLayer), Effect.orDie);
+      const authorized = yield* server.register(ROSTER_PARTICIPANT);
+      expect(authorized.agentId.length).toBeGreaterThan(0);
+      expect(Redacted.isRedacted(authorized.key)).toBe(true);
+      return dirname(server.messageDatabasePath);
+    }),
+  );
+  const fileSystem = yield* FileSystem.FileSystem;
+  expect(yield* fileSystem.exists(volumeRoot)).toBe(false);
+}).pipe(Effect.provide(hostLayer), Effect.orDie);
 
 describe.skipIf(!SIM_INTEGRATION_ENABLED)(
   "MoltZap registration boundary",

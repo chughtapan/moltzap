@@ -28,6 +28,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: node scripts/test-simulator-packages.mjs
+      - run: pnpm simulator:example:check
       - run: pnpm typecheck
       - run: pnpm lint
       # Exact runs fail when a required project target disappears; run-many

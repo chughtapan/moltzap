@@ -1,5 +1,5 @@
 {
-  "extends": "./tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "composite": false,
     "declaration": false,
@@ -7,7 +7,7 @@
     "noEmit": true
   },
   "include": [
-    "*.ts",
-    "examples/**/*.ts"
+    "hello.ts",
+    "openclaw-image.json"
   ]
 }
