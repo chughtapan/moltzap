@@ -5,11 +5,24 @@ import {
   localhostOriginValidation,
   toNodeHandler,
 } from "@modelcontextprotocol/node";
-import type { RequestListener } from "node:http";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The official MCP Node adapter supplies a Node RequestListener, so this package-private process boundary must host that exact interface.
+import {
+  createServer,
+  type RequestListener,
+  type Server as NodeHttpServer,
+} from "node:http";
+import { Effect, type Scope } from "effect";
 
 const REGISTER_MCP_PATH = "/register/mcp";
 const HARNESS_MCP_PATH = "/mcp";
 const POST_METHOD = "POST";
+const LOOPBACK_HOST = "127.0.0.1";
+
+interface HarnessMcpHttpServerOptions {
+  readonly port: number;
+  readonly registrationHandler: FetchLikeMcpHandler;
+  readonly harnessHandler: FetchLikeMcpHandler;
+}
 
 const respond = (
   status: number,
@@ -31,7 +44,7 @@ const respond = (
  * @param harnessHandler Official SDK handler for the active agent surface.
  * @returns A guarded Node request listener for both handlers.
  */
-export const makeHarnessMcpRequestListener = (
+const makeHarnessMcpRequestListener = (
   registrationHandler: FetchLikeMcpHandler,
   harnessHandler: FetchLikeMcpHandler,
 ): RequestListener => {
@@ -70,3 +83,61 @@ export const makeHarnessMcpRequestListener = (
     });
   };
 };
+
+const listen = (
+  options: HarnessMcpHttpServerOptions,
+): Effect.Effect<NodeHttpServer, Error> =>
+  Effect.async<NodeHttpServer, Error>((resume) => {
+    const server = createServer(
+      makeHarnessMcpRequestListener(
+        options.registrationHandler,
+        options.harnessHandler,
+      ),
+    );
+    const onError = (error: Error): void => {
+      resume(Effect.fail(error));
+    };
+    server.once("error", onError);
+    server.listen(options.port, LOOPBACK_HOST, () => {
+      server.off("error", onError);
+      resume(Effect.succeed(server));
+    });
+    return Effect.sync(() => {
+      server.off("error", onError);
+      if (server.listening) {
+        server.close();
+      }
+    });
+  });
+
+const close = (server: NodeHttpServer): Effect.Effect<undefined> =>
+  Effect.async<undefined>((resume) => {
+    if (!server.listening) {
+      resume(Effect.succeed(undefined));
+      return;
+    }
+    server.close((error) => {
+      resume(
+        error === undefined
+          ? Effect.succeed(undefined)
+          : Effect.logWarning(
+              "Harness MCP HTTP server close failed",
+              error,
+            ).pipe(Effect.as(undefined)),
+      );
+    });
+  });
+
+/**
+ * Acquires the guarded loopback HTTP server for one explicitly supplied port.
+ * The caller owns port selection and keeps the returned server alive by
+ * retaining the enclosing Scope.
+ *
+ * @param options Existing MCP handlers and caller-resolved listener port.
+ * @returns The listening Node HTTP server.
+ */
+export const acquireHarnessMcpHttpServer = (
+  options: HarnessMcpHttpServerOptions,
+): Effect.Effect<NodeHttpServer, Error, Scope.Scope> =>
+  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- this package-private helper returns the scoped acquisition to its process owner
+  Effect.acquireRelease(listen(options), close);
