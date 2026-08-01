@@ -22,8 +22,6 @@ import {
 } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 
-const EMPTY_AGENT_IDS: readonly AgentId[] = [];
-
 type ConversationUpdateParams = ParamsOf<typeof conversationUpdateDefinition>;
 type ConversationAddParticipantParams = Extract<
   ConversationUpdateParams,
@@ -80,25 +78,15 @@ const conversationListBody = Effect.fn("conversation.list")(function* (
   ctx: AgentContext,
 ) {
   const conversationService = yield* ConversationServiceTag;
-  const { conversations, cursor: nextCursor } = yield* conversationService.list(
+  const { items: page, cursor: nextCursor } = yield* conversationService.list(
     ctx.agentId,
     params.limit,
     params.cursor,
   );
-  const items: ConversationListItem[] = [];
-  for (const summary of conversations) {
-    // The two per-conversation reads are independent; run them together.
-    const { conversation, participants } = yield* Effect.all({
-      conversation: conversationService.loadById(summary.id),
-      participants: conversationService
-        .getParticipantAgentIds(summary.id)
-        .pipe(Effect.orElseSucceed(() => EMPTY_AGENT_IDS)),
-    });
-    items.push({
-      conversation,
-      participants: [...participants],
-    });
-  }
+  const items: ConversationListItem[] = page.map((entry) => ({
+    conversation: entry.conversation,
+    participants: [...entry.participants],
+  }));
   return { items, ...(nextCursor !== undefined ? { nextCursor } : {}) };
 });
 

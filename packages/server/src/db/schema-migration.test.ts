@@ -1,12 +1,7 @@
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import { describe, expect } from "vitest";
-import {
-  agentId,
-  conversationId,
-  taskId,
-  userId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, userId } from "@moltzap/protocol/testing";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -18,7 +13,6 @@ const it = effectIt.scoped;
 
 const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
 const OWNER_USER_ID = userId("00000000-0000-4000-8000-00000000a9e0");
-const TASK_ID = taskId("00000000-0000-4000-8000-0000000fa5c0");
 const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
 const API_KEY_SECRET_HASH_LENGTH = 64;
 const APP_KEY_ID = "fedcba9876543210";
@@ -26,8 +20,6 @@ const APP_MANIFEST_JSON = { name: "schema-fixture-app" };
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WEREWOLF_APP_ID = "werewolf";
-const DEFAULT_APP_ID = "default";
-const MESSAGE_SEQ = "1";
 const REMOVED_SCHEMA_TABLES = [
   "app_sessions",
   "app_session_participants",
@@ -53,12 +45,6 @@ describe("conversations schema constraints", () => {
   it(
     "rejects a conversation insert that omits app_id",
     rejectsConversationWithoutApp,
-    PGLITE_HOOK_TIMEOUT_MS,
-  );
-
-  it(
-    "carries the caller's opaque task label on a message",
-    carriesOpaqueTaskLabelOnMessage,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 });
@@ -123,23 +109,6 @@ function rejectsConversationWithoutApp() {
         ),
       );
       expect(Exit.isFailure(exit)).toBe(true);
-    }),
-  );
-}
-
-function carriesOpaqueTaskLabelOnMessage() {
-  return withCoreSchemaHarness((harness) =>
-    Effect.gen(function* () {
-      yield* insertConversation(harness, DEFAULT_APP_ID);
-      yield* insertMessage(harness);
-
-      const message = yield* takeFirstOrFail(
-        harness.db
-          .selectFrom("messages")
-          .select(["task_id"])
-          .where("conversation_id", "=", CONV_ID),
-      );
-      expect(message.task_id).toBe(TASK_ID);
     }),
   );
 }
@@ -281,18 +250,5 @@ function insertConversation(harness: PgliteHarness, appId: string) {
     id: CONV_ID,
     created_by_id: AGENT_ID,
     app_id: appId,
-  });
-}
-
-function insertMessage(harness: PgliteHarness) {
-  return harness.db.insertInto("messages").values({
-    conversation_id: CONV_ID,
-    sender_id: AGENT_ID,
-    seq: MESSAGE_SEQ,
-    parts_encrypted: Buffer.from(""),
-    parts_iv: Buffer.from(""),
-    parts_tag: Buffer.from(""),
-    kek_version: 1,
-    task_id: TASK_ID,
   });
 }

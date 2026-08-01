@@ -88,9 +88,6 @@ packages/server/src/
   `moltzap/auth-middleware-layers.ts`. Obtain helpers that touch
   server services live beside the owning domain
   (`conversation/requirements`).
-- `messages.task_id` is an opaque endpoint label: the sender supplies it
-  on `agent/message/send`, the server stamps and echoes it, and no read
-  path joins, filters, or validates it.
 
 ## Tests
 

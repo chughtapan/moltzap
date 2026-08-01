@@ -16,7 +16,6 @@ import {
   type Message,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
-import type { TaskId } from "@moltzap/protocol/task";
 import type { ListCursor } from "@moltzap/protocol/rpc";
 import {
   type AgentRuntime,
@@ -82,7 +81,6 @@ export type EvaluationPeerRuntime = AgentRuntime<
 >;
 
 interface PeerConversation {
-  readonly taskId?: TaskId;
   readonly conversationId: ConversationId;
 }
 
@@ -147,10 +145,7 @@ function sameConversation(
   notification: MessageReceivedNotification,
   conversation: PeerConversation,
 ): boolean {
-  return (
-    notification.taskId === conversation.taskId &&
-    notification.message.conversationId === conversation.conversationId
-  );
+  return notification.message.conversationId === conversation.conversationId;
 }
 
 function receiveFrom(
@@ -183,9 +178,6 @@ function receivedObservation(
     caseId,
     agentName: decodeAgentName(context.agent.name),
     agentId: context.agent.id,
-    ...(notification.taskId === undefined
-      ? {}
-      : { taskId: notification.taskId }),
     conversationId: notification.message.conversationId,
     messageId: notification.message.id,
     senderId: notification.message.senderId,
@@ -197,13 +189,11 @@ function sentObservation(
   caseId: EvaluationCaseId,
   context: PeerContext,
   message: Message,
-  taskId?: TaskId,
 ): CodePeerMessageSent {
   return CodePeerMessageSent.make({
     caseId,
     agentName: decodeAgentName(context.agent.name),
     agentId: context.agent.id,
-    ...(taskId === undefined ? {} : { taskId }),
     conversationId: message.conversationId,
     messageId: message.id,
     parts: message.parts,
@@ -220,14 +210,9 @@ function send(
     .callDefinition(messagesSend, {
       conversationId: conversation.conversationId,
       parts: [{ type: "text", text }],
-      ...(conversation.taskId === undefined
-        ? {}
-        : { taskId: conversation.taskId }),
     })
     .pipe(
-      Effect.map((result) =>
-        sentObservation(caseId, context, result.message, conversation.taskId),
-      ),
+      Effect.map((result) => sentObservation(caseId, context, result.message)),
       Effect.mapError((cause) => failure("send", cause)),
     );
 }
@@ -250,7 +235,6 @@ function reactiveExchange({
   return Effect.gen(function* () {
     const conversation: PeerConversation = {
       conversationId: contact.message.conversationId,
-      ...(contact.taskId === undefined ? {} : { taskId: contact.taskId }),
     };
     const [firstMessage, ...remainingMessages] = messages;
     const observations: [
@@ -368,7 +352,6 @@ function sourceAnnouncementPolicy(
       const contact = yield* receiveFrom(context, target.id);
       const conversation: PeerConversation = {
         conversationId: contact.message.conversationId,
-        ...(contact.taskId === undefined ? {} : { taskId: contact.taskId }),
       };
       const announcement = yield* send(context, caseId, conversation, text);
       return new PeerExchange({

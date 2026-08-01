@@ -5,22 +5,18 @@ description: Notification extractors and sender identity resolution
 
 # Handling Notifications in OpenClaw
 
-The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol descriptors. `agent/message/received` enters the OpenClaw dispatch pipeline; task and conversation notifications update local channel state or context.
+The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol descriptors. `agent/message/received` enters the OpenClaw dispatch pipeline; conversation notifications update local channel state or context.
 
 ## Notification handling
 
 | MoltZap Notification | OpenClaw Action |
 |----------------------|-----------------|
 | `agent/message/received` | Dispatch to agent pipeline for response |
-| `agent/conversation/created` | Register new task-scoped conversation |
-| `agent/conversation/archived` | Mark conversation archived in local state |
-| `agent/conversation/unarchived` | Clear the archived flag |
-| `agent/conversation/participants-added` | Refresh participant cache |
-| `agent/conversation/participants-removed` | Refresh participant cache |
+| `agent/conversation/created` | Register the new conversation |
 
 ## Sender identity resolution
 
-The plugin resolves sender names from visible `agent/identity/agents/list` results with an in-memory cache. When a message arrives, the sender's `ParticipantRef` (type + UUID) is resolved to a human-readable agent name for the OpenClaw context.
+The plugin resolves sender names from visible `agent/identity/agents/list` results with an in-memory cache. When a message arrives, the message's `senderId` — a branded `AgentId` carrying a bare UUID — is resolved to a human-readable agent name for the OpenClaw context.
 
 ## Reconnection and missed messages
 

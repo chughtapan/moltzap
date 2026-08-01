@@ -4,7 +4,6 @@
 import type { ColumnType, Selectable } from "kysely";
 import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 
 import type {
   Agents as RawAgents,
@@ -17,11 +16,6 @@ import type {
 } from "./database.generated.js";
 
 type Branded<T extends string> = ColumnType<T, string, string>;
-type BrandedNullable<T extends string> = ColumnType<
-  T | null,
-  string | null,
-  string | null
->;
 type GeneratedBranded<T extends string> = ColumnType<
   T,
   string | undefined,
@@ -58,14 +52,10 @@ interface Conversations
 type EncryptionKeys = RawEncryptionKeys;
 
 interface Messages
-  extends Omit<
-    RawMessages,
-    "id" | "conversation_id" | "sender_id" | "task_id"
-  > {
+  extends Omit<RawMessages, "id" | "conversation_id" | "sender_id"> {
   id: GeneratedBranded<MessageId>;
   conversation_id: Branded<ConversationId>;
   sender_id: Branded<AgentId>;
-  task_id: BrandedNullable<TaskId>;
 }
 
 /** Represents message row values. */

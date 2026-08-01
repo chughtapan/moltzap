@@ -5,7 +5,7 @@
 import { Effect, Fiber, Ref, Stream, type Scope, type Schema } from "effect";
 import type { AnyNotificationDefinition } from "#socket/catalog";
 import type { NotificationDelivery, NotificationParamsOf } from "#transport";
-import type { appId as AppIdSchema } from "#task";
+import type { appId as AppIdSchema } from "#identity/apps";
 import {
   type ConversationId,
   agentConversationCreate,

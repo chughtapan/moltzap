@@ -3,12 +3,11 @@
 import { Effect } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
-import type { TaskId } from "@moltzap/protocol/task";
 import { testAgentId, testConversationId } from "./ids.js";
 import type { ChannelService, DispatchReleaseFrame } from "../channel-core.js";
 import type { CrossConversationEntry, CrossConvMessage } from "../service.js";
 
-type MessageHandler = (payload: { taskId?: TaskId; message: Message }) => void;
+type MessageHandler = (payload: { message: Message }) => void;
 type VoidHandler = () => void;
 type DispatchReleaseHandler = (frame: DispatchReleaseFrame) => void;
 type ServiceEvent = "message" | "disconnect" | "dispatchRelease";
@@ -18,14 +17,12 @@ interface SentReply {
   convId: string;
   text: string;
   dispatchLeaseId?: string;
-  taskId?: string;
 }
 
 interface SendFixtureReplyInput {
   readonly conversationId: ConversationId;
   readonly text: string;
   readonly dispatchLeaseId?: string;
-  readonly taskId?: TaskId;
 }
 
 interface FixtureConversationMeta {
@@ -66,7 +63,7 @@ function participantKey(participant: string): string {
 
 /** Fire events on the fixture service. */
 export interface ChannelServiceEmit {
-  message(msg: Message, taskId?: TaskId): void;
+  message(msg: Message): void;
   disconnect(): void;
   dispatchRelease(frame: DispatchReleaseFrame): void;
 }
@@ -163,7 +160,6 @@ function sendFixtureReply(
       ...(input.dispatchLeaseId !== undefined
         ? { dispatchLeaseId: input.dispatchLeaseId }
         : {}),
-      ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
     });
   });
 }
@@ -178,7 +174,6 @@ function makeFixtureSend(
       ...(opts?.dispatchLeaseId !== undefined
         ? { dispatchLeaseId: opts.dispatchLeaseId }
         : {}),
-      ...(opts?.taskId !== undefined ? { taskId: opts.taskId } : {}),
     });
 }
 
@@ -259,9 +254,9 @@ function makeService(store: ChannelServiceFixtureStore): ChannelService {
 
 function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
   const emit: ChannelServiceEmit = {
-    message(msg, taskId) {
+    message(msg) {
       for (const h of store.messageHandlers) {
-        h({ ...(taskId === undefined ? {} : { taskId }), message: msg });
+        h({ message: msg });
       }
     },
     disconnect() {

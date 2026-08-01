@@ -10,13 +10,11 @@ import {
   testAgentId,
   testConversationId,
   testMessageId,
-  testTaskId,
 } from "../../../test-utils/index.js";
 
 const CONV_A = testConversationId("dedup-conv-a");
 const CONV_B = testConversationId("dedup-conv-b");
 const SENDER = testAgentId("dedup-sender");
-const TASK_DEDUP = testTaskId("dedup-task");
 const DEDUP_WINDOW_SIZE = 1000;
 const DEDUP_OVERFLOW_COUNT = DEDUP_WINDOW_SIZE + 1;
 const EMPTY_SEEN_COUNT = 0;
@@ -156,10 +154,7 @@ function emitMessage(
     conversationId,
     senderId: SENDER,
   });
-  service.emitEvent(messageReceivedNotificationDefinition, {
-    taskId: TASK_DEDUP,
-    message: msg,
-  });
+  service.emitEvent(messageReceivedNotificationDefinition, { message: msg });
   return msg;
 }
 

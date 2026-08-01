@@ -29,7 +29,7 @@ it does not unwrap the profile apiKey for operational commands.
 moltzap --profile alice status
 moltzap --profile alice agents lookup bob
 moltzap --profile alice start "alice-bob chat" agent:bob --message "hello"
-moltzap --profile bob messages list --task "$TASK_ID" --conversation "$CONV_ID"
+moltzap --profile bob messages list --conversation "$CONV_ID"
 ```
 
 The corresponding channel daemon for that profile must be running. Without
