@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { Effect } from "effect";
+import { testLeaseId } from "./test-utils/index.js";
 
 import {
   DEVS_GROUP_NAME,
@@ -326,21 +327,44 @@ effectTest(
   commitsFullMessageMarkersAfterInboundHandlerSucceeds,
 );
 
-function delegatesToServiceSendWithConversationIdAndText() {
+function delegatesToServiceReplyWithRequiredLease() {
   return Effect.gen(function* () {
-    yield* core.sendReply(conversation("conv-42"), "hello there");
+    const leaseId = testLeaseId("lease-reply");
+    yield* core.sendReply(conversation("conv-42"), "hello there", {
+      dispatchLeaseId: leaseId,
+    });
     expect(fake.state.sent).toEqual([
       {
         convId: conversation("conv-42"),
         text: "hello there",
+        dispatchLeaseId: leaseId,
       },
     ]);
   });
 }
 
 effectTest(
-  "delegates to service.send with conversationId and text",
-  delegatesToServiceSendWithConversationIdAndText,
+  "delegates to service.reply with required lease authority",
+  delegatesToServiceReplyWithRequiredLease,
+);
+
+function rejectsReplyWithoutLeaseAuthority() {
+  return Effect.gen(function* () {
+    const error = yield* Effect.flip(
+      core.sendReply(conversation("conv-42"), "hello there"),
+    );
+
+    expect(error).toMatchObject({
+      _tag: "DispatchNotFound",
+      message: "Dispatch not found",
+    });
+    expect(fake.state.sent).toEqual([]);
+  });
+}
+
+effectTest(
+  "rejects a reply without explicit or in-flight lease authority",
+  rejectsReplyWithoutLeaseAuthority,
 );
 
 function returnsTheSameShapeAsTheInstanceHandlerPath() {

@@ -16,7 +16,10 @@ import {
 } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { BoundedMap } from "./bounded-map.js";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import {
+  DispatchNotFoundError,
+  type LeaseId,
+} from "@moltzap/protocol/message/dispatch";
 import type { Message } from "@moltzap/protocol/message";
 import type {
   CrossConversationEntry,
@@ -169,10 +172,10 @@ export interface ChannelService {
   ): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
   close(): void;
-  send(
+  reply(
     conversationId: ConversationId,
     text: string,
-    opts?: { dispatchLeaseId?: LeaseId },
+    dispatchLeaseId: LeaseId,
   ): Effect.Effect<void, ServiceRpcError>;
   getConversation(
     convId: string,
@@ -585,9 +588,15 @@ export class MoltZapChannelCore {
     text: string,
     opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
-    return this.service.send(conversationId, text, {
-      dispatchLeaseId: opts?.dispatchLeaseId ?? this.leaseIdInFlight,
-    });
+    const dispatchLeaseId = opts?.dispatchLeaseId ?? this.leaseIdInFlight;
+    if (dispatchLeaseId === undefined) {
+      return Effect.fail(
+        new DispatchNotFoundError({
+          message: DispatchNotFoundError.message,
+        }),
+      );
+    }
+    return this.service.reply(conversationId, text, dispatchLeaseId);
   }
 
   private takeDispatchCandidate(

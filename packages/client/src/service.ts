@@ -755,7 +755,7 @@ export class MoltZapService {
    *   participant ws as MoltZapAgentClient
    *   participant server
    *
-   *   caller->>svc: send(convId, text, opts?)
+   *   caller->>svc: send(convId, text)
    *   svc->>ws: sendRpc(MessagesSend, params)
    *   Note over ws: stateRef None → fail NotConnectedError; otherwise allocate request id, encode frame
    *   ws->>server: {jsonrpc, method agent/message/send, id, params}
@@ -766,28 +766,42 @@ export class MoltZapService {
    *   svc-->>caller: Effect.void
    * ```
    *
-   * `opts.dispatchLeaseId` (when set) is forwarded verbatim in the
-   * params frame. The server marks the lease consumed, blocking the
-   * app authorization timeout sweep. `MoltZapChannelCore.sendReply` forwards
-   * `leaseIdInFlight` automatically when the caller omits it.
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
-   * @param opts Value supplied to the operation.
-   * @param opts.dispatchLeaseId Value supplied to the operation.
    * @returns The send result.
    */
   send(
     conversationId: ConversationId,
     text: string,
-    opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
     return Effect.asVoid(
       this.call(messagesSend.name, {
         conversationId,
         parts: [{ type: "text", text }],
-        ...(opts?.dispatchLeaseId !== undefined
-          ? { dispatchLeaseId: opts.dispatchLeaseId }
-          : {}),
+      }),
+    );
+  }
+
+  /**
+   * Reply into a conversation using a granted dispatch lease.
+   *
+   * The required lease keeps reply authority distinct from unleased generic
+   * sends while both operations still use the current message RPC.
+   * @param conversationId Conversation receiving the reply.
+   * @param text Text content emitted for the active turn.
+   * @param dispatchLeaseId Granted lease consumed by the reply.
+   * @returns The reply result.
+   */
+  reply(
+    conversationId: ConversationId,
+    text: string,
+    dispatchLeaseId: LeaseId,
+  ): Effect.Effect<void, ServiceRpcError> {
+    return Effect.asVoid(
+      this.call(messagesSend.name, {
+        conversationId,
+        parts: [{ type: "text", text }],
+        dispatchLeaseId,
       }),
     );
   }

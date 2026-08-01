@@ -5,7 +5,11 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import { testAgentId, testConversationId } from "./ids.js";
 import type { ChannelService, DispatchReleaseFrame } from "../channel-core.js";
-import type { CrossConversationEntry, CrossConvMessage } from "../service.js";
+import type {
+  CrossConversationEntry,
+  CrossConvMessage,
+  ServiceRpcError,
+} from "../service.js";
 
 type MessageHandler = (payload: { message: Message }) => void;
 type VoidHandler = () => void;
@@ -30,6 +34,13 @@ interface FixtureConversationMeta {
   name?: string;
   participants: string[];
 }
+
+type FixtureChannelService = ChannelService & {
+  readonly send: (
+    conversationId: ConversationId,
+    text: string,
+  ) => Effect.Effect<void, ServiceRpcError>;
+};
 
 interface ChannelServiceFixtureStore {
   readonly messageHandlers: MessageHandler[];
@@ -87,7 +98,7 @@ export interface ChannelServiceState {
 
 /** Describes fake channel service. */
 export interface FakeChannelService {
-  service: ChannelService;
+  service: FixtureChannelService;
   emit: ChannelServiceEmit;
   state: ChannelServiceState;
 }
@@ -166,15 +177,19 @@ function sendFixtureReply(
 
 function makeFixtureSend(
   store: ChannelServiceFixtureStore,
-): ChannelService["send"] {
-  return (conversationId, text, opts) =>
+): FixtureChannelService["send"] {
+  return (conversationId, text) =>
     sendFixtureReply(store, {
       conversationId,
       text,
-      ...(opts?.dispatchLeaseId !== undefined
-        ? { dispatchLeaseId: opts.dispatchLeaseId }
-        : {}),
     });
+}
+
+function makeFixtureReply(
+  store: ChannelServiceFixtureStore,
+): ChannelService["reply"] {
+  return (conversationId, text, dispatchLeaseId) =>
+    sendFixtureReply(store, { conversationId, text, dispatchLeaseId });
 }
 
 function getFixtureConversation(
@@ -202,7 +217,7 @@ function resolveFixtureAgentName(
   });
 }
 
-function makeService(store: ChannelServiceFixtureStore): ChannelService {
+function makeService(store: ChannelServiceFixtureStore): FixtureChannelService {
   return {
     get ownAgentId() {
       return store.ownAgentId;
@@ -221,6 +236,7 @@ function makeService(store: ChannelServiceFixtureStore): ChannelService {
     },
 
     send: makeFixtureSend(store),
+    reply: makeFixtureReply(store),
 
     getConversation(convId: string) {
       return getFixtureConversation(store, convId);
