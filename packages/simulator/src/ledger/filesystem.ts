@@ -550,46 +550,33 @@ function stageCompletion(
   active: ActiveLedger,
   candidate: EncodedCompletion,
 ): Effect.Effect<LedgerCompletion, LedgerStorageError> {
-  const acquire = active.runtime.fileSystem
-    .makeTempFile({
-      directory: active.directory,
-      prefix: ".completion-",
-      suffix: ".tmp",
-    })
-    .pipe(
-      Effect.mapError((cause) =>
-        storageError("complete", cause, active.ref, "completion"),
-      ),
-    );
-  return Effect.acquireUseRelease(
-    acquire,
-    (temporary) =>
-      Effect.gen(function* () {
-        yield* writeDurably(
-          active.runtime,
-          {
-            path: temporary,
-            text: candidate.text,
-            operation: "complete",
-            ref: active.ref,
-            artifact: "completion",
-          },
-          "w",
-        );
-        yield* syncPath(
-          active.runtime,
-          active.directory,
-          "complete",
-          active.ref,
-        );
-        return yield* linkCompletion(active, temporary, candidate);
-      }),
-    (temporary) =>
-      active.runtime.fileSystem
-        .remove(temporary, {
-          force: true,
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const temporary = yield* active.runtime.fileSystem
+        .makeTempFileScoped({
+          directory: active.directory,
+          prefix: ".completion-",
+          suffix: ".tmp",
         })
-        .pipe(Effect.ignore),
+        .pipe(
+          Effect.mapError((cause) =>
+            storageError("complete", cause, active.ref, "completion"),
+          ),
+        );
+      yield* writeDurably(
+        active.runtime,
+        {
+          path: temporary,
+          text: candidate.text,
+          operation: "complete",
+          ref: active.ref,
+          artifact: "completion",
+        },
+        "w",
+      );
+      yield* syncPath(active.runtime, active.directory, "complete", active.ref);
+      return yield* linkCompletion(active, temporary, candidate);
+    }),
   );
 }
 

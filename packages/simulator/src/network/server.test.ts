@@ -1,9 +1,9 @@
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/assertions-in-tests, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- regression-only lifecycle suite: each case fixes one ownership transition or cleanup ordering guarantee. Assertions run inside Effect generators, and the timelines remain together so interruption and release order stay auditable. */
 import { it as effectIt } from "@effect/vitest";
-import { agentName } from "@moltzap/protocol/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
+  agentName,
   agentKeyString,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
@@ -16,7 +16,6 @@ import {
   Exit,
   Fiber,
   Logger,
-  Schema,
   Scope,
   type Redacted,
   TestClock,
@@ -38,7 +37,7 @@ const CONTAINER_ID = "container-id";
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
 const AGENT_KEY = redactedAgentKey(agentKeyString(31));
 const READY_TIMEOUT = Duration.seconds(1);
-const ALICE = Schema.decodeSync(agentName)("alice");
+const ALICE = agentName("alice");
 
 class FakeOperationFailed extends Data.TaggedError("FakeOperationFailed")<{
   readonly operation: string;

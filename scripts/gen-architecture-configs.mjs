@@ -31,15 +31,20 @@ const publicTypePackage = {
     package: "@moltzap/client",
     reason: "Intra-monorepo client SDK; channels depend on its public surface",
   },
+  openclaw: {
+    package: "openclaw",
+    reason:
+      "OpenClaw runtime options intentionally accept the runtime's native tools and sandbox policies",
+  },
   simulator: {
     package: "@moltzap/simulator",
     reason:
-      "Simulator contracts, implementations, and executable evaluations share one public package",
+      "The private evaluation application is built directly on the simulator's public contracts",
   },
 };
 
 const publicTypePackages = Object.entries(publicTypePackage)
-  .filter(([name]) => name !== "simulator")
+  .filter(([name]) => name !== "openclaw" && name !== "simulator")
   .map(([, definition]) => definition);
 
 const allowedTestPublicSubpaths = [
@@ -118,17 +123,48 @@ const packageDefinitions = {
   },
   evals: {
     beforeShared: {
-      maxPublicExports: 22,
+      maxPublicExports: 20,
       facadeFiles: [
         {
-          file: "grading-checks.ts",
+          file: "src/cases.ts",
           reason:
-            "Published check vocabulary a customer grader composes; the grading reference cites each constructor by name",
+            "Code-defined case policies, exact peer rosters, and criteria form the private evaluation application's case boundary",
+        },
+        {
+          file: "src/events.ts",
+          reason:
+            "Closed evaluation event catalog shared by case execution, transcript projection, and the simulator definition",
+        },
+        {
+          file: "src/execution.ts",
+          reason:
+            "Mixed-roster execution and runtime-native condition adapters form the application execution boundary",
+        },
+        {
+          file: "src/grading.ts",
+          reason:
+            "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary",
+        },
+        {
+          file: "src/peer.ts",
+          reason:
+            "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary",
+        },
+        {
+          file: "src/sweep.ts",
+          reason:
+            "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher",
         },
       ],
     },
     afterShared: {
-      publicTypePackages: [...publicTypePackages, publicTypePackage.simulator],
+      publicTypePackages: [
+        publicTypePackage.effect,
+        publicTypePackage.platform,
+        publicTypePackage.protocol,
+        publicTypePackage.simulator,
+      ],
+      allowedTestPublicSubpaths: [],
     },
   },
   "nanoclaw-channel": {
@@ -156,7 +192,7 @@ const packageDefinitions = {
     config: {
       minExportedSiblingModules: 10,
       maxSubpathExports: 11,
-      maxPublicExports: 42,
+      maxPublicExports: 43,
       maxPublicReexports: 13,
       minPublicFacadeModules: 14,
       folderChildCountOverrides: [
@@ -279,6 +315,11 @@ const packageDefinitions = {
           file: "ledger.ts",
           reason:
             "Published ledger contract for records, storage, live runs, and offline inspection",
+        },
+        {
+          file: "runtime.ts",
+          reason:
+            "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations",
         },
         {
           file: "events/catalog.ts",
@@ -408,6 +449,12 @@ const packageDefinitions = {
       publicTypePackages: [
         publicTypePackage.effect,
         publicTypePackage.platform,
+        {
+          ...publicTypePackage.rpc,
+          reason:
+            "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client",
+        },
+        publicTypePackage.openclaw,
         publicTypePackage.protocol,
       ],
       allowedTestPublicSubpaths: [],

@@ -3,6 +3,7 @@ import { NodeContext } from "@effect/platform-node";
 import { Effect } from "effect";
 import {
   agentId,
+  agentName,
   agentKeyString,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
@@ -51,7 +52,7 @@ const SECOND_CONTAINER_ID = "fedcba987654";
 const DOCKER_COMMAND = "docker";
 const NODE_COMMAND = "node";
 const EVAL_PROVISION_ENTRYPOINT = "dist/moltzap-eval-provision.js";
-const TEST_AGENT_NAME = "nanoclaw-agent";
+const TEST_AGENT_NAME = agentName("nanoclaw-agent");
 const EXPECTED_CONTAINER_LIST_ARGS = [
   "ps",
   "--quiet",

@@ -173,18 +173,27 @@ you have two supported surfaces:
 ## Simulating agent societies
 
 `@moltzap/simulator` is the code-first simulator for agentic societies. A
-versioned `Simulator.define` call closes over the complete typed event catalog.
+versioned `simulator.define` call closes over the complete typed event catalog.
 `Society.agents` declares a keyed roster that can mix OpenClaw, NanoClaw,
 in-process `effectRuntime` agents, and customer-defined `defineRuntime` agents
 on one router and one protocol.
 
-The experiment is an Effect program. It receives exact agent handles through
-`roster.Agents`, controls traffic through `Network`, emits customer events
-through `Society.Events`, and reads committed evidence through
-`Society.Ledger`.
-`Society.run` returns the program `Exit` and a durable ledger reference;
-customer code decides when the experiment is done and how the ledger is
-graded or swept.
+The experiment is an Effect program. It receives exact started-agent values
+through `roster.startedAgents`, emits customer events through `Society.Events`,
+and reads committed evidence through `Society.Ledger`. Each started value
+separates the participant's router-issued `.agent`, runtime-native `.gateway`,
+and `.termination` observation. OpenClaw keeps its gateway RPC, NanoClaw keeps
+its CLI socket, and `effectRuntime({ build })` exposes exactly the customer
+gateway returned beside its autonomous `behavior`.
+
+All autonomous social behavior still uses the production client, protocol,
+and router. `Network` creates experiment-controlled diagnostic, workload, and
+observer endpoints; it is not a replacement principal API for roster agents.
+When the outer Effect completes after the kernel acquires an active ledger,
+`Society.run` returns either `ProgramFinished` or `RunInfrastructureFailed`.
+`ProgramFinished` carries the program `Exit`; both outcomes carry the durable
+ledger receipt retained during finalization. Customer code decides when the
+experiment is done and how the ledger is graded or swept.
 
 The same `@moltzap/simulator` package supplies the filesystem ledger,
 production router, OpenClaw, NanoClaw, and `effectRuntime` implementations.
@@ -193,9 +202,11 @@ router requires Docker and caches an image built from the exact server and
 protocol packages installed with the simulator. Start with the
 [simulator guide](docs/simulator/overview.mdx).
 
-Router authors import network ports and nominal capability factories from
-`@moltzap/simulator/network`. Storage authors and offline analysis tools use
-`@moltzap/simulator/ledger`. Experiment code stays on the root surface.
+The one package has four supported entry points. Experiment definitions and
+runs use `@moltzap/simulator`; autonomous runtime contracts and shipped
+implementations use `@moltzap/simulator/runtime`; router and link
+implementations use `@moltzap/simulator/network`; storage implementations and
+offline analysis tools use `@moltzap/simulator/ledger`.
 
 ## Packages
 

@@ -44,7 +44,11 @@
       "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/evals": {
-      "entry": ["src/**/*.test.ts", "src/**/*.types-check.ts"],
+      "entry": [
+        "src/cli.ts",
+        "src/**/*.test.ts",
+        "src/**/*.types-check.ts"
+      ],
       "project": ["src/**/*.ts", "*.mjs"]
     },
     "packages/simulator": {

@@ -1,9 +1,29 @@
 {
-  "maxPublicExports": 22,
+  "maxPublicExports": 20,
   "facadeFiles": [
     {
-      "file": "grading-checks.ts",
-      "reason": "Published check vocabulary a customer grader composes; the grading reference cites each constructor by name"
+      "file": "src/cases.ts",
+      "reason": "Code-defined case policies, exact peer rosters, and criteria form the private evaluation application's case boundary"
+    },
+    {
+      "file": "src/events.ts",
+      "reason": "Closed evaluation event catalog shared by case execution, transcript projection, and the simulator definition"
+    },
+    {
+      "file": "src/execution.ts",
+      "reason": "Mixed-roster execution and runtime-native condition adapters form the application execution boundary"
+    },
+    {
+      "file": "src/grading.ts",
+      "reason": "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary"
+    },
+    {
+      "file": "src/peer.ts",
+      "reason": "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary"
+    },
+    {
+      "file": "src/sweep.ts",
+      "reason": "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher"
     }
   ],
   "publicTypePackages": [
@@ -16,46 +36,13 @@
       "reason": "Effect platform abstractions used at boundaries"
     },
     {
-      "package": "@effect/platform-node",
-      "reason": "Effect Node integration used at boundaries"
-    },
-    {
-      "package": "@effect/rpc",
-      "reason": "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design"
-    },
-    {
-      "package": "@sinclair/typebox",
-      "reason": "Schema runtime; types are the contract"
-    },
-    {
       "package": "@moltzap/protocol",
       "reason": "Intra-monorepo protocol; foundational shared contract"
     },
     {
-      "package": "@moltzap/client",
-      "reason": "Intra-monorepo client SDK; channels depend on its public surface"
-    },
-    {
       "package": "@moltzap/simulator",
-      "reason": "Simulator contracts, implementations, and executable evaluations share one public package"
+      "reason": "The private evaluation application is built directly on the simulator's public contracts"
     }
   ],
-  "allowedTestPublicSubpaths": [
-    {
-      "subpath": "./test-utils",
-      "reason": "Test helpers exposed for cross-package integration testing"
-    },
-    {
-      "subpath": "./test",
-      "reason": "Test harness API for downstream packages"
-    },
-    {
-      "subpath": "./test-support",
-      "reason": "Channel test support exposed for integration tests"
-    },
-    {
-      "subpath": "./testing",
-      "reason": "Conformance + driver surface for cross-package integration testing"
-    }
-  ]
+  "allowedTestPublicSubpaths": []
 }
