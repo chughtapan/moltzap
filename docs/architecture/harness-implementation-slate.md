@@ -200,27 +200,27 @@ Common acceptance:
 
 ## Delivery order
 
-1. Admit and blind-review the narrowed ADR/spec candidate.
-2. Rename the clean-slate deep package and workspace references to Harness.
-3. Build the clean-slate `moltzapd` composition using only the retained
-   profile, transport, raw START/reply, and grant-listen contracts.
+1. Treat the admitted ADR/spec candidate and the clean-slate deep-package
+   rename as preparatory work already completed on the clean-slate branch.
+2. Refactor the production implementation in-line on `main`: enforce its
+   conversation dispatch authority, build the one-listener `moltzapd` MCP
+   boundary, move service/core ownership into the daemon, and implement its
+   `HarnessClient` projection.
+3. Implement the production model-output slice, migrate OpenClaw and NanoClaw
+   to `HarnessClient`, and remove generic send, the bespoke CLI, and Unix RPC
+   only after their MCP replacements are operational.
 4. Keep implementation of each unassigned surface out of scope until its
    owner admits it: exact `HarnessClient` Effect signatures/errors, management
    MCP Schemas/errors, agent/conversation search results and empty-query
    behavior, clean-slate content-only event representation, and
    payload-to-action mapping for plural legal actions.
-5. Implement the decided portions of the dispatch/ingress slice in the
-   production and clean-slate owners; production changes land under `main`
-   authority.
-6. Implement the decided portions of the model-output slice and remove generic
-   send under each branch's authority.
-7. Migrate OpenClaw and NanoClaw to their independently owned
-   `HarnessClient` Layers.
-8. Remove the CLI, Unix socket/RPC, adapter-owned service/core construction,
-   and obsolete compatibility exports.
-9. Forward-merge production changes according to the repository's branch
-   policy and finish the clean-slate implementation without `v2/* ->
-   packages/*` imports.
+5. Forward-merge the completed production changes according to the
+   repository's branch policy.
+6. Build the clean-slate `moltzapd` composition and its independently owned
+   `HarnessClient` using only retained profile, transport, raw START/reply,
+   grant-listen, Registry, Router, Ledger, SharedCore, and OpenFloor contracts.
+7. Finish clean-slate parity without `v2/* -> packages/*` imports, runtime
+   generation selection, or a shared backing implementation.
 
 ## Verification
 
