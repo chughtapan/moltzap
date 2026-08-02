@@ -1,6 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect, Exit, Schema } from "effect";
+import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
 import {
   type Message,
   messageReceivedNotificationDefinition,
@@ -156,6 +156,41 @@ function shutdownMutatesStateOnlyWhenItsEffectRuns() {
 effectTest(
   "shutdown mutates state only when its Effect runs",
   shutdownMutatesStateOnlyWhenItsEffectRuns,
+);
+
+function concurrentShutdownCallersAwaitTheSameCleanup() {
+  return Effect.gen(function* () {
+    const closeStarted = yield* Deferred.make<undefined>();
+    const allowClose = yield* Deferred.make<undefined>();
+    const service = new FakeMoltZapService();
+    let clientCloseCalls = 0;
+    Reflect.set(service, "client", {
+      close: () =>
+        Effect.sync(() => {
+          clientCloseCalls += 1;
+        }).pipe(
+          Effect.zipRight(Deferred.succeed(closeStarted, undefined)),
+          Effect.zipRight(Deferred.await(allowClose)),
+        ),
+    });
+
+    const first = yield* Effect.fork(service.shutdown());
+    yield* Deferred.await(closeStarted);
+    const second = yield* Effect.fork(service.shutdown());
+    yield* Effect.yieldNow();
+
+    expect(Option.isNone(yield* Fiber.poll(second))).toBe(true);
+    expect(clientCloseCalls).toBe(1);
+
+    yield* Deferred.succeed(allowClose, undefined);
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
+  });
+}
+
+effectTest(
+  "concurrent shutdown callers await the same cleanup",
+  concurrentShutdownCallersAwaitTheSameCleanup,
 );
 
 function genericSendOmitsDispatchLease() {

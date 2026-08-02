@@ -39,7 +39,7 @@ _Interface_
 
 Configures app client.
 
-### [`ContextOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L140)
+### [`ContextOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L141)
 
 _Interface_
 
@@ -53,7 +53,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L132)
+### [`ConversationMeta`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L133)
 
 _Interface_
 
@@ -80,7 +80,7 @@ _Class_
 
 Implements molt zap app client.
 
-### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L278)
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L279)
 
 _Class_
 
@@ -88,6 +88,7 @@ _Class_
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
   private connectedValue = false;
+  private shutdownCompletion: Deferred.Deferred<undefined> | null = null;
 
   /**
    * Service-owned scope. Opened in `connect()`, owns the
@@ -193,6 +194,7 @@ export class MoltZapService {
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
       function* (this: MoltZapService) {
+        this.shutdownCompletion = null;
         const client = new MoltZapAgentClient({
           serverUrl: this.opts.serverUrl,
           agentKey: this.opts.agentKey,
@@ -203,8 +205,6 @@ export class MoltZapService {
             this.connectedValue = false;
             fanout(this.handlers.disconnect, undefined);
           },
-        });
-        this.client = client;
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -221,7 +221,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L120)
+### [`ServiceRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L121)
 
 _TypeAlias_
 
