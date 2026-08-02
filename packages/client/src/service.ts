@@ -385,7 +385,15 @@ export class MoltZapService {
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
       function* (this: MoltZapService) {
-        this.shutdownCompletion = null;
+        // A new connection never takes ownership while resources from the
+        // preceding lifecycle are still closing.
+        while (this.shutdownCompletion !== null) {
+          const priorShutdown = this.shutdownCompletion;
+          yield* Deferred.await(priorShutdown);
+          if (this.shutdownCompletion === priorShutdown) {
+            this.shutdownCompletion = null;
+          }
+        }
         const client = new MoltZapAgentClient({
           serverUrl: this.opts.serverUrl,
           agentKey: this.opts.agentKey,
