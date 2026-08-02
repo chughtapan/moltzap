@@ -8,7 +8,7 @@ Code-first simulator API.
 
 ## Public surface
 
-### [`AgentConnection`](./network/router.ts#L120)
+### [`AgentConnection`](./network/router.ts#L121)
 
 _Interface_
 
@@ -154,7 +154,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`CompletedLedgerReceipt`](./kernel/run.ts#L61)
+### [`CompletedLedgerReceipt`](./kernel/run.ts#L67)
 
 _Class_
 
@@ -312,7 +312,7 @@ export class ConversationSocket {
 
 A conversation address bound to exactly one controlled endpoint.
 
-### [`coreEvents`](./events/core.ts#L224)
+### [`coreEvents`](./events/core.ts#L287)
 
 _Variable_
 
@@ -693,7 +693,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](./kernel/run.ts#L70)
+### [`IncompleteLedgerReceipt`](./kernel/run.ts#L76)
 
 _Class_
 
@@ -721,7 +721,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt`](./kernel/run.ts#L85)
+### [`LedgerReceipt`](./kernel/run.ts#L91)
 
 _TypeAlias_
 
@@ -731,7 +731,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt`](./kernel/run.ts#L79)
+### [`LedgerReceipt`](./kernel/run.ts#L85)
 
 _Variable_
 
@@ -744,7 +744,7 @@ export const LedgerReceipt = Schema.Union(
 
 Schema for the complete physical ledger-receipt universe.
 
-### [`LinkController`](./network/link.ts#L49)
+### [`LinkController`](./network/link.ts#L132)
 
 _Class_
 
@@ -756,7 +756,7 @@ export class LinkController extends Context.Tag(
 
 Experiment-facing directed-link control installed by the run kernel.
 
-### [`LinkControllerService`](./network/link.ts#L37)
+### [`LinkControllerService`](./network/link.ts#L102)
 
 _Interface_
 
@@ -770,10 +770,45 @@ export interface LinkControllerService {
     from: ParticipantHandle,
     to: ParticipantHandle,
   ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  /** Delay every delivery on one directed link for the current Scope. */
+  readonly delay: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+    duration: Duration.DurationInput,
+  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  /** Park every delivery on one directed link for the current Scope. */
+  readonly hold: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  /** Install one custom policy on a directed link for the current Scope. */
+  readonly shape: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+    policy: LinkPolicy,
+    description: string,
+  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
 }
 ```
 
 Run-scoped, evidence-producing directed-link control.
+
+### [`LinkDelivery`](./network/link.ts#L10)
+
+_Interface_
+
+```ts
+export interface LinkDelivery {
+  /** Message sender identity. */
+  readonly from: AgentId;
+  /** Receiving participant identity. */
+  readonly to: AgentId;
+  /** Router message carried by the delivery. */
+  readonly message: Message;
+}
+```
+
+One committed message about to cross a directed link.
 
 ### [`LinkDown`](./events/core.ts#L151)
 
@@ -791,6 +826,118 @@ export class LinkDown extends Schema.TaggedClass<LinkDown>()(
 
 A directed participant link transitioned from available to unavailable.
 
+### [`LinkMessageDelayed`](./events/core.ts#L198)
+
+_Class_
+
+```ts
+export class LinkMessageDelayed extends Schema.TaggedClass<LinkMessageDelayed>()(
+  "moltzap.link-message-delayed/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+    delayMillis: Schema.NonNegative,
+  },
+) {}
+```
+
+Active link policies deferred one delivery by a known total duration.
+
+### [`LinkMessageDropped`](./events/core.ts#L186)
+
+_Class_
+
+```ts
+export class LinkMessageDropped extends Schema.TaggedClass<LinkMessageDropped>()(
+  "moltzap.link-message-dropped/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+    reason: Schema.optional(Schema.String),
+  },
+) {}
+```
+
+An active link policy discarded one committed message before delivery.
+
+### [`LinkMessageHeld`](./events/core.ts#L210)
+
+_Class_
+
+```ts
+export class LinkMessageHeld extends Schema.TaggedClass<LinkMessageHeld>()(
+  "moltzap.link-message-held/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+  },
+) {}
+```
+
+An active link policy parked one delivery until its lease clears.
+
+### [`linkPolicy`](./network/link.ts#L38)
+
+_Variable_
+
+```ts
+export const linkPolicy:
+```
+
+Canonical link policies for the common traffic shapes.
+
+### [`LinkPolicy`](./network/link.ts#L35)
+
+_TypeAlias_
+
+```ts
+export type LinkPolicy = (delivery: LinkDelivery) => Effect.Effect<LinkVerdict>;
+```
+
+Decides one delivery on a directed link. A policy reads only its input and
+the ambient Clock; the link interpreter, never the policy, spends time and
+records evidence.
+
+### [`LinkPolicyCleared`](./events/core.ts#L176)
+
+_Class_
+
+```ts
+export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
+  "moltzap.link-policy-cleared/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+```
+
+A described policy stopped shaping one directed participant link.
+
+### [`LinkPolicySet`](./events/core.ts#L166)
+
+_Class_
+
+```ts
+export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
+  "moltzap.link-policy-set/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+```
+
+A described policy became active on one directed participant link.
+
 ### [`LinkUp`](./events/core.ts#L160)
 
 _Class_
@@ -803,6 +950,31 @@ export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
 ```
 
 A directed participant link transitioned from unavailable to available.
+
+### [`linkVerdict`](./network/link.ts#L28)
+
+_Variable_
+
+```ts
+export const linkVerdict = Data.taggedEnum<LinkVerdict>()
+```
+
+Constructors and matchers for the closed verdict union.
+
+### [`LinkVerdict`](./network/link.ts#L20)
+
+_TypeAlias_
+
+```ts
+export type LinkVerdict = Data.TaggedEnum<{
+  deliver: Record<never, never>;
+  drop: { readonly reason?: string };
+  delay: { readonly duration: Duration.Duration };
+  hold: Record<never, never>;
+}>;
+```
+
+Closed per-delivery decision returned by a link policy.
 
 ### [`MessageParts`](./../../protocol/dist/message/parts.d.ts#L41)
 
@@ -827,7 +999,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`NetworkFailure`](./network/router.ts#L49)
+### [`NetworkFailure`](./network/router.ts#L50)
 
 _Class_
 
@@ -889,7 +1061,7 @@ export class ParticipantHandle<Name extends string = string> {
 A router-issued network identity. The hidden symbol prevents structurally
 similar protocol data from being used as an identity handle.
 
-### [`ProgramFailed`](./events/core.ts#L172)
+### [`ProgramFailed`](./events/core.ts#L227)
 
 _Class_
 
@@ -904,7 +1076,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](./kernel/run.ts#L88)
+### [`ProgramFinished`](./kernel/run.ts#L94)
 
 _Class_
 
@@ -917,7 +1089,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L180)
+### [`ProgramInterrupted`](./events/core.ts#L235)
 
 _Class_
 
@@ -932,7 +1104,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L166)
+### [`ProgramSucceeded`](./events/core.ts#L221)
 
 _Class_
 
@@ -962,7 +1134,7 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`ReceivedMessage`](./network/router.ts#L75)
+### [`ReceivedMessage`](./network/router.ts#L76)
 
 _Interface_
 
@@ -1035,7 +1207,7 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
 
 Router release or stopped-router evidence collection failed.
 
-### [`RunInfrastructureFailed`](./kernel/run.ts#L94)
+### [`RunInfrastructureFailed`](./kernel/run.ts#L100)
 
 _Class_
 
@@ -1168,7 +1340,7 @@ export interface SimulatorLayerOptions {
 
 Host configuration shared by every run provided with this Layer.
 
-### [`SimulatorRunFailure`](./kernel/run.ts#L109)
+### [`SimulatorRunFailure`](./kernel/run.ts#L115)
 
 _TypeAlias_
 
@@ -1180,7 +1352,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOptions`](./kernel/run.ts#L55)
+### [`SimulatorRunOptions`](./kernel/run.ts#L61)
 
 _Interface_
 
@@ -1193,7 +1365,7 @@ export interface SimulatorRunOptions {
 
 Optional run metadata; platform and runtime policy belong in Layers.
 
-### [`SimulatorRunOutcome`](./kernel/run.ts#L102)
+### [`SimulatorRunOutcome`](./kernel/run.ts#L108)
 
 _TypeAlias_
 
