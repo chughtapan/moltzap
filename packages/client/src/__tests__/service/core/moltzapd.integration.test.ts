@@ -7,7 +7,7 @@ import {
 import { live as it } from "@effect/vitest";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This integration test needs a passive TCP port blocker to force the package-private Node listener's real bind-failure path.
 import { createServer, type Server as NodeHttpServer } from "node:http";
-import { Data, Effect, Exit, Schema, Scope } from "effect";
+import { Cause, Data, Effect, Exit, Schema, Scope } from "effect";
 import { expect } from "vitest";
 import { withTestServiceConfig } from "../../../config.test-utils.js";
 import { getMoltZapAgentServiceSocketPath } from "../../../local-paths.js";
@@ -179,6 +179,11 @@ const runFailedAcquisition = Effect.gen(function* () {
   );
 
   expect(Exit.isFailure(attempted)).toBe(true);
+  if (Exit.isFailure(attempted)) {
+    expect(Cause.squash(attempted.cause)).toMatchObject({
+      code: "EADDRINUSE",
+    });
+  }
   expect(yield* healthConnections()).toBe(0);
 });
 

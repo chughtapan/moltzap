@@ -432,13 +432,17 @@ export class MoltZapService {
   }
 
   /**
-   * Tears down the service and resolves after its owned transports and
-   * notification scope close.
+   * Returns a lazy teardown effect that resolves after the service's owned
+   * transports and notification scope close.
    *
    * @returns Completion of the service-owned cleanup.
    * @internal
    */
   shutdown(): Effect.Effect<void> {
+    return Effect.suspend(() => this.beginShutdown());
+  }
+
+  private beginShutdown(): Effect.Effect<void> {
     this.connectedValue = false;
     const stopSocketServer = this.stopSocketServer();
     const scopeToClose = this.serviceScope;
@@ -476,7 +480,7 @@ export class MoltZapService {
    * lifecycle boundary.
    */
   close(): void {
-    Effect.runFork(this.shutdown());
+    Effect.runFork(this.beginShutdown());
   }
 
   // --- Socket Server ---

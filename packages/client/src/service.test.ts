@@ -139,6 +139,25 @@ function seedMessageSendResponse(service: FakeMoltZapService): void {
   });
 }
 
+function shutdownMutatesStateOnlyWhenItsEffectRuns() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    const stored = buildMessage();
+    service.addMessage(stored.conversationId, stored);
+
+    const shutdown = service.shutdown();
+    expect(service.getHistory(stored.conversationId)).toEqual([stored]);
+
+    yield* shutdown;
+    expect(service.getHistory(stored.conversationId)).toEqual([]);
+  });
+}
+
+effectTest(
+  "shutdown mutates state only when its Effect runs",
+  shutdownMutatesStateOnlyWhenItsEffectRuns,
+);
+
 function genericSendOmitsDispatchLease() {
   return Effect.gen(function* () {
     const service = new FakeMoltZapService();

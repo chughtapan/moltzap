@@ -560,13 +560,17 @@ export class MoltZapChannelCore {
         this.connected = false;
         // Interrupt the consumer fiber so any queued inbound messages are
         // dropped rather than delivered after the channel is torn down.
-        yield* Fiber.interrupt(this.consumerFiber);
+        const stopConsumer = Fiber.interrupt(this.consumerFiber);
         const shutdown = this.service.shutdown?.();
         if (shutdown === undefined) {
           this.service.close();
+          yield* stopConsumer;
           return;
         }
-        yield* shutdown;
+        yield* Effect.all([stopConsumer, shutdown], {
+          concurrency: 2,
+          discard: true,
+        });
       }.bind(this),
     );
   }

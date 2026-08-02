@@ -11,8 +11,8 @@ import {
 } from "@modelcontextprotocol/server";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These loopback contract tests require raw Host headers and connection-refusal assertions that the Effect client does not expose.
 import { request as nodeRequest } from "node:http";
-import { Effect, Exit, Fiber, Scope } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { Cause, Effect, Exit, Fiber, Scope } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentId } from "@moltzap/protocol/testing";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
 import { localDaemonCommands } from "./local-daemon-rpc.js";
@@ -272,6 +272,40 @@ const closesListenerWhenAcquisitionIsInterrupted = async () => {
   expect(rebound.server.listening).toBe(true);
 };
 
+const closesHandlersWhenListenerBindFails = async () => {
+  const occupied = await acquireServerWithHandlers(
+    makeHandler("registration-occupied-port"),
+    makeHandler("harness-occupied-port"),
+  );
+  const address = occupied.server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("expected a TCP test server address");
+  }
+
+  const registration = makeHandler("registration-bind-failure");
+  const harness = makeHandler("harness-bind-failure");
+  const registrationClose = vi.spyOn(registration, "close");
+  const harnessClose = vi.spyOn(harness, "close");
+  const acquisition = await Effect.runPromiseExit(
+    Effect.scoped(
+      acquireHarnessMcpHttpServer({
+        port: address.port,
+        registrationHandler: registration,
+        harnessHandler: harness,
+      }),
+    ),
+  );
+
+  expect(Exit.isFailure(acquisition)).toBe(true);
+  if (Exit.isFailure(acquisition)) {
+    expect(Cause.squash(acquisition.cause)).toMatchObject({
+      code: "EADDRINUSE",
+    });
+  }
+  expect(registrationClose).toHaveBeenCalledOnce();
+  expect(harnessClose).toHaveBeenCalledOnce();
+};
+
 const closesActiveSubscriptionWhenScopeReleases = async () => {
   const running = await acquireServerWithHandlers(
     makeHandler("registration-subscription-test"),
@@ -348,6 +382,8 @@ describe("scoped Harness MCP HTTP server", () => {
     closesListenerWhenScopeReleases());
   it("closes the loopback listener when acquisition is interrupted", () =>
     closesListenerWhenAcquisitionIsInterrupted());
+  it("closes MCP handlers when listener binding fails", () =>
+    closesHandlersWhenListenerBindFails());
   it("closes an active MCP subscription when its scope releases", () =>
     closesActiveSubscriptionWhenScopeReleases());
   it(
