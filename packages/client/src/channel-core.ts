@@ -17,7 +17,7 @@ import {
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { BoundedMap } from "./bounded-map.js";
 import {
-  DispatchNotFoundError,
+  DEFAULT_DISPATCH_LEASE_TIMEOUT_MS,
   type LeaseId,
 } from "@moltzap/protocol/message/dispatch";
 import type { Message } from "@moltzap/protocol/message";
@@ -172,10 +172,10 @@ export interface ChannelService {
   ): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
   close(): void;
-  reply(
+  send(
     conversationId: ConversationId,
     text: string,
-    dispatchLeaseId: LeaseId,
+    opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError>;
   getConversation(
     convId: string,
@@ -236,7 +236,6 @@ export type InboundHandler<E = unknown> = (
 ) => Effect.Effect<void, E>;
 
 const DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS = 30_000;
-const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000;
 const DISPATCH_RELEASE_RING_CAPACITY = 256;
 const DISPATCH_RELEASE_RING_SOFT_TTL_MS = 30_000;
 
@@ -310,7 +309,7 @@ interface InboundDispatchWork {
  *   ws->>svc: subscribers.dispatch — fanout(message)
  *   svc->>core: message listener
  *   Note over core: dedup via recordMessageIdIfNew; Queue.unsafeOffer(inboundQueue, work)
- *   Note over core: consumer fiber waits for first onInbound registration, then Queue.take and takeDispatchCandidate prefers parked[convId]
+ *   Note over core: messages observed without an inbound handler are transiently dropped; consumer fiber uses Queue.take and takeDispatchCandidate prefers parked[convId]
  *   core->>server: agent/dispatch/request — dispatchAdmission
  *   server-->>core: ack {leaseId, dispatchId}
  *   Note over server,core: ack/release race absorbed via pendingDispatchesByLease (Deferred) and pendingReleasesByLease (ring 256, soft-TTL 30s)
@@ -376,14 +375,11 @@ export class MoltZapChannelCore {
   >();
 
   /**
-   * Inbound messages enqueue synchronously; a single forked consumer fiber
-   * waits for the first handler, then serialises delivery so handlers execute
-   * one-at-a-time in arrival order.
+   * Inbound messages with an installed handler enqueue synchronously; a single
+   * forked consumer fiber serialises delivery in arrival order.
    */
   private readonly inboundQueue: Queue.Queue<InboundDispatchWork> =
     Effect.runSync(Queue.unbounded<InboundDispatchWork>());
-  private readonly inboundHandlerReady: Deferred.Deferred<undefined> =
-    Effect.runSync(Deferred.make<undefined>());
   private readonly consumerFiber: Fiber.RuntimeFiber<void>;
   private readonly disconnectHandlers: Array<() => void> = [];
 
@@ -400,6 +396,9 @@ export class MoltZapChannelCore {
 
   private registerMessageListener(): void {
     this.service.on("message", ({ message }) => {
+      if (this.inboundHandler === null) {
+        return;
+      }
       Queue.unsafeOffer(this.inboundQueue, {
         message,
         attempt: 0,
@@ -409,16 +408,12 @@ export class MoltZapChannelCore {
   }
 
   private startConsumerFiber(): Fiber.RuntimeFiber<void> {
-    const consumer = Deferred.await(this.inboundHandlerReady).pipe(
-      Effect.zipRight(
-        Effect.forever(
-          Queue.take(this.inboundQueue).pipe(
-            Effect.flatMap((work) =>
-              this.dispatchInboundWork(work).pipe(
-                Effect.catchAllCause((cause) =>
-                  this.logInboundFailure(work, cause),
-                ),
-              ),
+    const consumer = Effect.forever(
+      Queue.take(this.inboundQueue).pipe(
+        Effect.flatMap((work) =>
+          this.dispatchInboundWork(work).pipe(
+            Effect.catchAllCause((cause) =>
+              this.logInboundFailure(work, cause),
             ),
           ),
         ),
@@ -525,7 +520,6 @@ export class MoltZapChannelCore {
    */
   onInbound<E>(handler: InboundHandler<E>): void {
     this.inboundHandler = handler;
-    Effect.runSync(Deferred.succeed(this.inboundHandlerReady, undefined));
   }
 
   onDisconnect(handler: () => void): void {
@@ -588,15 +582,9 @@ export class MoltZapChannelCore {
     text: string,
     opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
-    const dispatchLeaseId = opts?.dispatchLeaseId ?? this.leaseIdInFlight;
-    if (dispatchLeaseId === undefined) {
-      return Effect.fail(
-        new DispatchNotFoundError({
-          message: DispatchNotFoundError.message,
-        }),
-      );
-    }
-    return this.service.reply(conversationId, text, dispatchLeaseId);
+    return this.service.send(conversationId, text, {
+      dispatchLeaseId: opts?.dispatchLeaseId ?? this.leaseIdInFlight,
+    });
   }
 
   private takeDispatchCandidate(

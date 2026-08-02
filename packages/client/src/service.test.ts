@@ -158,12 +158,14 @@ function genericSendOmitsDispatchLease() {
   });
 }
 
-function replyCarriesRequiredDispatchLease() {
+function leasedSendCarriesDispatchLease() {
   return Effect.gen(function* () {
     const service = new FakeMoltZapService();
     seedMessageSendResponse(service);
 
-    yield* service.reply(CONVERSATION_ALICE_ID, HELLO_TEXT, DISPATCH_LEASE_ID);
+    yield* service.send(CONVERSATION_ALICE_ID, HELLO_TEXT, {
+      dispatchLeaseId: DISPATCH_LEASE_ID,
+    });
 
     expect(service.calls).toEqual([
       {
@@ -181,8 +183,8 @@ function replyCarriesRequiredDispatchLease() {
 describe("MoltZapService message authority", () => {
   effectTest("keeps generic send unleased", genericSendOmitsDispatchLease);
   effectTest(
-    "requires and forwards reply lease authority",
-    replyCarriesRequiredDispatchLease,
+    "preserves the existing leased send call shape",
+    leasedSendCarriesDispatchLease,
   );
 });
 

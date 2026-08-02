@@ -5,6 +5,7 @@ import {
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
+import type { ChannelService } from "@moltzap/client/channel-base";
 import { agentsList } from "@moltzap/protocol/identity";
 import type {
   ParamsOf,
@@ -142,10 +143,10 @@ type ReceiverDependentCallDefinition = <D extends RpcDefinitionAny>(
   params: ParamsOf<D>,
 ) => Effect.Effect<ResultOf<D>, ServiceRpcError>;
 
-type ReceiverDependentService = FakeChannelService["service"] & {
+interface ReceiverDependentService extends ChannelService {
   readonly live: true;
   callDefinition: ReceiverDependentCallDefinition;
-};
+}
 
 function makeReceiverDependentCallDefinition(): ReceiverDependentCallDefinition {
   return function callDefinition<D extends RpcDefinitionAny>(
@@ -167,9 +168,7 @@ function makeReceiverDependentCallDefinition(): ReceiverDependentCallDefinition 
   };
 }
 
-function startGatewayWithService(
-  build: () => FakeChannelService["service"],
-): void {
+function startGatewayWithService(build: () => ChannelService): void {
   vi.clearAllMocks();
   agentsCallCount = 0;
   byzantineConstantCursor = false;
@@ -191,9 +190,9 @@ function startGatewayWithService(
   );
 }
 
-// The fake client service plus the optional `callDefinition` the directory
+// `ChannelService` plus the optional `callDefinition` the openclaw directory
 // reads (`OpenClawClientService.callDefinition`).
-type ServiceWithCallDefinition = FakeChannelService["service"] & {
+type ServiceWithCallDefinition = ChannelService & {
   readonly callDefinition: typeof directoryCallDefinition;
 };
 
@@ -203,7 +202,7 @@ function startDirectoryGateway(): void {
       /* Safe because the test fixture establishes this asserted shape. */ ({
         ...fixture.service,
         callDefinition: directoryCallDefinition,
-      }) satisfies ServiceWithCallDefinition as FakeChannelService["service"],
+      }) satisfies ServiceWithCallDefinition as ChannelService,
   );
 }
 
@@ -262,7 +261,7 @@ function startReceiverDependentGateway(): void {
         ...fixture.service,
         live: true,
         callDefinition: makeReceiverDependentCallDefinition(),
-      }) satisfies ReceiverDependentService as FakeChannelService["service"],
+      }) satisfies ReceiverDependentService as ChannelService,
   );
 }
 

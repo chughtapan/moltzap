@@ -11,7 +11,7 @@ import {
 } from "@modelcontextprotocol/server";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These loopback contract tests require raw Host headers and connection-refusal assertions that the Effect client does not expose.
 import { request as nodeRequest } from "node:http";
-import { Effect, Exit, Scope } from "effect";
+import { Effect, Exit, Fiber, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { agentId } from "@moltzap/protocol/testing";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
@@ -28,6 +28,7 @@ const POST_METHOD = "POST";
 const FORBIDDEN_STATUS = 403;
 const NOT_FOUND_STATUS = 404;
 const METHOD_NOT_ALLOWED_STATUS = 405;
+const GRACEFUL_SUBSCRIPTION_CLOSE = "graceful";
 const SERVER_IMPLEMENTATION = {
   name: "harness-boundary-test",
   version: "1.0.0",
@@ -55,13 +56,14 @@ const releaseServerScope = async (scope: Scope.CloseableScope) => {
 const acquireServerWithHandlers = async (
   registration: McpHttpHandler,
   harness: McpHttpHandler,
+  port = 0,
 ) => {
   openHandlers.add(registration);
   openHandlers.add(harness);
   const scope = Effect.runSync(Scope.make());
   const server = await Effect.runPromise(
     acquireHarnessMcpHttpServer({
-      port: 0,
+      port,
       registrationHandler: registration,
       harnessHandler: harness,
     }).pipe(Scope.extend(scope)),
@@ -239,6 +241,53 @@ const closesListenerWhenScopeReleases = async () => {
   await expect(requestLoopback(harnessUrl)).rejects.toBeDefined();
 };
 
+const closesListenerWhenAcquisitionIsInterrupted = async () => {
+  const seed = await acquireServerWithHandlers(
+    makeHandler("registration-cancel-port-seed"),
+    makeHandler("harness-cancel-port-seed"),
+  );
+  const address = seed.server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("expected a TCP test server address");
+  }
+  const port = address.port;
+  await releaseServerScope(seed.scope);
+
+  const acquisition = Effect.runFork(
+    Effect.scoped(
+      acquireHarnessMcpHttpServer({
+        port,
+        registrationHandler: makeHandler("registration-cancel-test"),
+        harnessHandler: makeHandler("harness-cancel-test"),
+      }).pipe(Effect.zipRight(Effect.never)),
+    ),
+  );
+  await Effect.runPromise(Fiber.interrupt(acquisition));
+
+  const rebound = await acquireServerWithHandlers(
+    makeHandler("registration-cancel-rebind"),
+    makeHandler("harness-cancel-rebind"),
+    port,
+  );
+  expect(rebound.server.listening).toBe(true);
+};
+
+const closesActiveSubscriptionWhenScopeReleases = async () => {
+  const running = await acquireServerWithHandlers(
+    makeHandler("registration-subscription-test"),
+    makeHandler("harness-subscription-test"),
+  );
+  const client = await connectModernClient(
+    new URL(HARNESS_MCP_PATH, running.baseUrl),
+  );
+  const subscription = await client.listen({ toolsListChanged: true });
+
+  await releaseServerScope(running.scope);
+
+  await expect(subscription.closed).resolves.toBe(GRACEFUL_SUBSCRIPTION_CLOSE);
+  expect(running.server.listening).toBe(false);
+};
+
 const exposesOnlyExistingStatusBehavior = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
   const localHandlers = makeLocalDaemonHandlers({
@@ -297,6 +346,10 @@ describe("scoped Harness MCP HTTP server", () => {
   );
   it("closes the loopback listener when its scope releases", () =>
     closesListenerWhenScopeReleases());
+  it("closes the loopback listener when acquisition is interrupted", () =>
+    closesListenerWhenAcquisitionIsInterrupted());
+  it("closes an active MCP subscription when its scope releases", () =>
+    closesActiveSubscriptionWhenScopeReleases());
   it(
     "serves only the existing status behavior through the active catalog",
     exposesOnlyExistingStatusBehavior,

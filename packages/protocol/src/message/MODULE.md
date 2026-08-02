@@ -8,7 +8,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L216)
+### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L219)
 
 _Variable_
 
@@ -31,7 +31,7 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`appCallableDispatchRpcMethods`](./dispatch.ts#L219)
+### [`appCallableDispatchRpcMethods`](./dispatch.ts#L222)
 
 _Variable_
 
@@ -69,7 +69,17 @@ Decode persisted plaintext message parts and die on malformed persisted data.
 
 **Returns:** The decoded message parts text.
 
-### [`DispatchAdmissionDecision`](./dispatch.ts#L70)
+### [`DEFAULT_DISPATCH_LEASE_TIMEOUT_MS`](./dispatch.ts#L39)
+
+_Variable_
+
+```ts
+export const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000
+```
+
+Lease lifetime used when a grant omits an explicit timeout.
+
+### [`DispatchAdmissionDecision`](./dispatch.ts#L73)
 
 _TypeAlias_
 
@@ -81,7 +91,7 @@ export type DispatchAdmissionDecision = Schema.Schema.Type<
 
 Represents dispatch admission decision values.
 
-### [`dispatchAuthorize`](./dispatch.ts#L131)
+### [`dispatchAuthorize`](./dispatch.ts#L134)
 
 _Variable_
 
@@ -97,7 +107,7 @@ export const dispatchAuthorize = defineRpc({
 
 Defines the `app/dispatch/authorize` RPC contract.
 
-### [`dispatchCallbackMethods`](./dispatch.ts#L222)
+### [`dispatchCallbackMethods`](./dispatch.ts#L225)
 
 _Variable_
 
@@ -156,7 +166,7 @@ export type DispatchId = string & Brand.Brand<"DispatchId">;
 
 Represents dispatch id values.
 
-### [`dispatchLeaseConsumed`](./dispatch.ts#L153)
+### [`dispatchLeaseConsumed`](./dispatch.ts#L156)
 
 _Variable_
 
@@ -175,7 +185,7 @@ export const dispatchLeaseConsumed = defineNotification({
 
 Defines the `app/dispatch/lease-consumed` notification contract.
 
-### [`dispatchLeaseExpired`](./dispatch.ts#L165)
+### [`dispatchLeaseExpired`](./dispatch.ts#L168)
 
 _Variable_
 
@@ -193,7 +203,7 @@ export const dispatchLeaseExpired = defineNotification({
 
 Defines the `app/dispatch/lease-expired` notification contract.
 
-### [`dispatchLeaseGet`](./dispatch.ts#L207)
+### [`dispatchLeaseGet`](./dispatch.ts#L210)
 
 _Variable_
 
@@ -209,7 +219,7 @@ export const dispatchLeaseGet = defineRpc({
 
 Defines the `app/dispatch/lease/get` RPC contract.
 
-### [`DispatchNotFoundError`](./dispatch.ts#L39)
+### [`DispatchNotFoundError`](./dispatch.ts#L42)
 
 _Class_
 
@@ -224,7 +234,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 
 Reports dispatch not found failures.
 
-### [`dispatchNotifications`](./dispatch.ts#L225)
+### [`dispatchNotifications`](./dispatch.ts#L228)
 
 _Variable_
 
@@ -238,7 +248,7 @@ export const dispatchNotifications = [
 
 Lists the dispatch notification definitions.
 
-### [`dispatchRelease`](./dispatch.ts#L140)
+### [`dispatchRelease`](./dispatch.ts#L143)
 
 _Variable_
 
@@ -258,7 +268,7 @@ export const dispatchRelease = defineNotification({
 
 Defines the `agent/dispatch/released` notification contract.
 
-### [`dispatchRequest`](./dispatch.ts#L95)
+### [`dispatchRequest`](./dispatch.ts#L98)
 
 _Variable_
 

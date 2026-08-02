@@ -84,7 +84,6 @@
     "@effect/printer-ansi": "^0.50.0",
     "@effect/rpc": "^0.76.0",
     "@effect/typeclass": "^0.41.0",
-    "@modelcontextprotocol/client": "2.0.0-beta.5",
     "@modelcontextprotocol/node": "2.0.0-beta.5",
     "@modelcontextprotocol/server": "2.0.0-beta.5",
     "@moltzap/protocol": "workspace:*",
@@ -92,6 +91,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
     "@moltzap/server-core": "workspace:*",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",

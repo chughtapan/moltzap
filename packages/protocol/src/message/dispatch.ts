@@ -35,6 +35,9 @@ export const dispatchId: Schema.Schema<DispatchId, string> = formatString(
   Schema.annotations({ description: "Branded DispatchId" }),
 );
 
+/** Lease lifetime used when a grant omits an explicit timeout. */
+export const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000;
+
 /** Reports dispatch not found failures. */
 export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
   "DispatchNotFound",
