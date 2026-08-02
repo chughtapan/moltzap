@@ -263,7 +263,7 @@ export interface EnqueueDispatchRequestArgs {
 
 Describes enqueue dispatch request args.
 
-### [`LeaseInvalidError`](./lease-registry.ts#L173)
+### [`LeaseInvalidError`](./lease-registry.ts#L175)
 
 _Class_
 
@@ -286,7 +286,7 @@ surface a precise wire-error code, e.g. Typed-CONSUMED /
 typed-EXPIRED) and `expected` carries the set of states the
 operation would have accepted.
 
-### [`LeaseRecord`](./lease-registry.ts#L137)
+### [`LeaseRecord`](./lease-registry.ts#L139)
 
 _Interface_
 
@@ -310,7 +310,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L543)
+### [`leaseRecordToWire`](./lease-registry.ts#L555)
 
 _Function_
 
@@ -323,7 +323,7 @@ Translation point between the in-process nested `LeaseRecord` and the wire
 
 **Returns:** The lease record to wire result.
 
-### [`LeaseRegistry`](./lease-registry.ts#L303)
+### [`LeaseRegistry`](./lease-registry.ts#L305)
 
 _Interface_
 
@@ -448,6 +448,7 @@ export interface LeaseRegistry {
    * shutdown is best-effort.
    */
   shutdown(): Effect.Effect<void>;
+}
 ```
 
 Public contract of the lease registry. One instance per server lifetime,
@@ -522,10 +523,10 @@ no-op. The CLAIMED no-op is load-bearing — without it, a recipient
 disconnect mid-insert could roll back a committed durable row,
 permitting a duplicate retry.
 
-Each timed GRANTED lease owns one daemon TTL fiber. The fiber is bound to
-the immutable record version that created it, so a stale pre-rollback timer
-cannot expire a newer GRANTED epoch. The timeout comes from the grant
-verdict's `leaseTimeoutMs`.
+Each GRANTED lease owns one daemon TTL fiber. The fiber is bound to the
+immutable record version that created it, so a stale pre-rollback timer
+cannot expire a newer GRANTED epoch. An explicit verdict timeout overrides
+the shared production default.
 
 ### [`leaseRegistryLive`](./layer.ts#L31)
 
@@ -559,7 +560,7 @@ export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
 
 Implements lease registry tag.
 
-### [`LeaseState`](./lease-registry.ts#L116)
+### [`LeaseState`](./lease-registry.ts#L118)
 
 _TypeAlias_
 
@@ -579,7 +580,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L127)
+### [`LeaseVerdict`](./lease-registry.ts#L129)
 
 _TypeAlias_
 
@@ -590,7 +591,7 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1343)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1360)
 
 _Function_
 
@@ -610,7 +611,7 @@ signal cancels parked notification and retention effects.
 
 **Returns:** The created lease registry.
 
-### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L102)
+### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L104)
 
 _Interface_
 

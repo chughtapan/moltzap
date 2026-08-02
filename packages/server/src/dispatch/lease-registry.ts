@@ -12,6 +12,7 @@ import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import {
+  DEFAULT_DISPATCH_LEASE_TIMEOUT_MS,
   type dispatchLeaseGet,
   type DispatchId,
   dispatchId as DispatchIdSchema,
@@ -67,9 +68,10 @@ const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
  *                                                              (terminal)
  * ```
  *
- * Only a GRANTED lease carrying `leaseTimeoutMs` owns a TTL. HOLD has no
- * timeout in the wire verdict and remains until recipient disconnect or
- * registry shutdown. CLAIMED and terminal states skip TTL.
+ * Every GRANTED lease owns a TTL. A verdict-provided `leaseTimeoutMs` wins;
+ * an omitted timeout uses the production default shared with the client.
+ * HOLD remains until recipient disconnect or registry shutdown. CLAIMED and
+ * terminal states skip TTL.
  *
  * Two load-bearing rules:
  *
@@ -295,10 +297,10 @@ interface Claim {
  * disconnect mid-insert could roll back a committed durable row,
  * permitting a duplicate retry.
  *
- * Each timed GRANTED lease owns one daemon TTL fiber. The fiber is bound to
- * the immutable record version that created it, so a stale pre-rollback timer
- * cannot expire a newer GRANTED epoch. The timeout comes from the grant
- * verdict's `leaseTimeoutMs`.
+ * Each GRANTED lease owns one daemon TTL fiber. The fiber is bound to the
+ * immutable record version that created it, so a stale pre-rollback timer
+ * cannot expire a newer GRANTED epoch. An explicit verdict timeout overrides
+ * the shared production default.
  */
 export interface LeaseRegistry {
   /**
@@ -428,8 +430,8 @@ export interface LeaseRegistry {
  *   helper to find the recipient and at `app/dispatch/lease-consumed` /
  *   `app/dispatch/lease-expired` emission to find the moderator's connection.
  * - `leaseRetentionMs`: terminal-state retention window (CONSUMED /
- *   DENIED / EXPIRED / ABANDONED). A GRANTED lease may separately carry the
- *   verdict's `leaseTimeoutMs`.
+ *   DENIED / EXPIRED / ABANDONED). GRANTED leases use an explicit verdict
+ *   timeout or the shared production default.
  */
 interface LeaseRegistryDeps {
   readonly connections: ConnectionManager;
@@ -531,7 +533,17 @@ function leaseTimeoutForVerdict(verdict: LeaseVerdict): number | null {
   if (verdict._tag !== "grant") {
     return null;
   }
-  return verdict.leaseTimeoutMs ?? null;
+  return verdict.leaseTimeoutMs ?? DEFAULT_DISPATCH_LEASE_TIMEOUT_MS;
+}
+
+function leaseVerdictWithEffectiveTimeout(verdict: LeaseVerdict): LeaseVerdict {
+  if (verdict._tag !== "grant" || verdict.leaseTimeoutMs !== undefined) {
+    return verdict;
+  }
+  return {
+    _tag: "grant",
+    leaseTimeoutMs: DEFAULT_DISPATCH_LEASE_TIMEOUT_MS,
+  };
 }
 
 /**
@@ -1057,12 +1069,17 @@ function resolveLease(
   verdict: LeaseVerdict,
 ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError> {
   return Effect.gen(function* () {
-    const nextEntry = yield* commitResolvedLease(state, leaseId, verdict);
+    const effectiveVerdict = leaseVerdictWithEffectiveTimeout(verdict);
+    const nextEntry = yield* commitResolvedLease(
+      state,
+      leaseId,
+      effectiveVerdict,
+    );
     yield* scheduleTtlForEntry(state, leaseId, nextEntry);
     if (nextEntry.record.state === "DENIED") {
       yield* scheduleRetention(state, leaseId, nextEntry.record.dispatchId);
     }
-    yield* emitDispatchRelease(state, nextEntry.record, verdict);
+    yield* emitDispatchRelease(state, nextEntry.record, effectiveVerdict);
   });
 }
 

@@ -22,6 +22,7 @@ import {
   message,
   testLeaseId,
   type ChannelCoreFixture,
+  type ChannelService,
   type EnrichedInboundMessage,
   MoltZapChannelCore,
   ForbiddenError,
@@ -352,30 +353,31 @@ effectTest(
   doesNotRequestDispatchBeforeAnInboundHandlerIsRegistered,
 );
 
-function dispatchesQueuedWorkOnceAfterTheFirstHandlerIsRegistered() {
+function dropsTransientWorkUntilTheFirstHandlerIsRegistered() {
   return Effect.gen(function* () {
     const fixture = createHandlerGateFixture();
     yield* fixture.core.connect();
 
-    fixture.fake.emit.message(buildMessage({ id: "msg-queued-for-handler" }));
+    fixture.fake.emit.message(buildMessage({ id: "msg-before-handler" }));
     yield* flushDispatchChainEffect;
     expect(fixture.admissionCallCount()).toBe(0);
 
     installReceivedRecorder(fixture.core, fixture.received);
+    fixture.fake.emit.message(buildMessage({ id: "msg-after-handler" }));
     yield* flushDispatchChainEffect;
     yield* flushDispatchChainEffect;
 
     expect(fixture.admissionCallCount()).toBe(1);
     expect(fixture.received.map((entry) => entry.id)).toEqual([
-      message("msg-queued-for-handler"),
+      message("msg-after-handler"),
     ]);
     yield* fixture.core.disconnect();
   });
 }
 
 effectTest(
-  "dispatches already queued work exactly once after the first handler is registered",
-  dispatchesQueuedWorkOnceAfterTheFirstHandlerIsRegistered,
+  "drops transient work until the first handler is registered",
+  dropsTransientWorkUntilTheFirstHandlerIsRegistered,
 );
 
 function disconnectBeforeHandlerRegistrationPreventsQueuedDispatch() {
@@ -501,7 +503,11 @@ function preservesServiceBindingForDispatchAdmissionMethods() {
     // Counter lives on the service object so the test asserts the
     // channel-core admission call site invokes `requestDispatch` with
     // the service as `this` (a `.bind(undefined)` would crash).
-    const boundService = Object.assign(fake.service, { admissionCalls: 0 });
+    const boundService =
+      /* Safe because the test fixture establishes this asserted shape. */ fake.service as ChannelService & {
+        admissionCalls: number;
+      };
+    boundService.admissionCalls = 0;
     // Replace the install-helper-installed `requestDispatch` with a
     // method-form binding that increments via `this.admissionCalls`.
     // Channel-core MUST call `service.requestDispatch(...)` (not
@@ -512,11 +518,9 @@ function preservesServiceBindingForDispatchAdmissionMethods() {
       /* Safe because the test fixture establishes this asserted shape. */ fake.service.requestDispatch!.bind(
         fake.service,
       );
-    fake.service.requestDispatch = function (
-      this: typeof boundService,
-      request,
-    ) {
-      this.admissionCalls += 1;
+    fake.service.requestDispatch = function (request) {
+      /* Safe because the test fixture establishes this asserted shape. */
+      (this as ChannelService & { admissionCalls: number }).admissionCalls += 1;
       return installed(request);
     };
 

@@ -5,6 +5,7 @@ import {
   localhostOriginValidation,
   toNodeHandler,
 } from "@modelcontextprotocol/node";
+import type { McpHttpHandler } from "@modelcontextprotocol/server";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The official MCP Node adapter supplies a Node RequestListener, so this package-private process boundary must host that exact interface.
 import {
   createServer,
@@ -20,8 +21,8 @@ const LOOPBACK_HOST = "127.0.0.1";
 
 interface HarnessMcpHttpServerOptions {
   readonly port: number;
-  readonly registrationHandler: FetchLikeMcpHandler;
-  readonly harnessHandler: FetchLikeMcpHandler;
+  readonly registrationHandler: McpHttpHandler;
+  readonly harnessHandler: McpHttpHandler;
 }
 
 const respond = (
@@ -102,10 +103,22 @@ const listen = (
       server.off("error", onError);
       resume(Effect.succeed(server));
     });
-    return Effect.sync(() => {
+    return Effect.async<undefined>((cancelResume) => {
       server.off("error", onError);
-      if (server.listening) {
+      const onClose = (): void => {
+        cancelResume(Effect.succeed(undefined));
+      };
+      server.once("close", onClose);
+      try {
         server.close();
+      } catch (error) {
+        server.off("close", onClose);
+        cancelResume(
+          Effect.logWarning("Harness MCP startup cancellation failed").pipe(
+            Effect.annotateLogs({ error: String(error) }),
+            Effect.as(undefined),
+          ),
+        );
       }
     });
   });
@@ -128,6 +141,34 @@ const close = (server: NodeHttpServer): Effect.Effect<undefined> =>
     });
   });
 
+const closeHandler = (handler: McpHttpHandler): Effect.Effect<void> =>
+  Effect.tryPromise({
+    try: () => handler.close(),
+    catch: (error) => error,
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.logWarning("Harness MCP handler close failed").pipe(
+        Effect.annotateLogs({ error: String(error) }),
+      ),
+    ),
+    Effect.asVoid,
+  );
+
+const closeHandlers = (
+  options: HarnessMcpHttpServerOptions,
+): Effect.Effect<void> =>
+  Effect.forEach(
+    new Set([options.registrationHandler, options.harnessHandler]),
+    closeHandler,
+    { concurrency: 2, discard: true },
+  );
+
+const release = (
+  server: NodeHttpServer,
+  options: HarnessMcpHttpServerOptions,
+): Effect.Effect<undefined> =>
+  closeHandlers(options).pipe(Effect.zipRight(close(server)));
+
 /**
  * Acquires the guarded loopback HTTP server for one explicitly supplied port.
  * The caller owns port selection and keeps the returned server alive by
@@ -140,4 +181,4 @@ export const acquireHarnessMcpHttpServer = (
   options: HarnessMcpHttpServerOptions,
 ): Effect.Effect<NodeHttpServer, Error, Scope.Scope> =>
   // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- this package-private helper returns the scoped acquisition to its process owner
-  Effect.acquireRelease(listen(options), close);
+  Effect.acquireRelease(listen(options), (server) => release(server, options));

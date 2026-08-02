@@ -1,6 +1,9 @@
 import { it as effectIt } from "@effect/vitest";
 import { RpcSerialization } from "@effect/rpc";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import {
+  DEFAULT_DISPATCH_LEASE_TIMEOUT_MS,
+  type LeaseId,
+} from "@moltzap/protocol/message/dispatch";
 import {
   agentId,
   appId,
@@ -393,6 +396,25 @@ function ttlExpiryReleasesConversation() {
   );
 }
 
+function defaultTtlExpiryReleasesConversation() {
+  return withRegistry((registry) =>
+    Effect.gen(function* () {
+      const leaseId = yield* mintLease(registry);
+      yield* registry.resolve(leaseId, { _tag: "grant" });
+      const granted = yield* registry.read({ _tag: "leaseId", value: leaseId });
+      expect(granted.leaseTimeoutMs).toBe(DEFAULT_DISPATCH_LEASE_TIMEOUT_MS);
+      yield* expectConversationBusy(registry);
+
+      yield* TestClock.adjust(DEFAULT_DISPATCH_LEASE_TIMEOUT_MS);
+
+      expect(
+        (yield* registry.read({ _tag: "leaseId", value: leaseId })).state,
+      ).toBe(STATE_EXPIRED);
+      yield* mintLease(registry);
+    }),
+  );
+}
+
 function disconnectReleasesPendingAndGrantedConversations() {
   return withRegistry((registry) =>
     Effect.gen(function* () {
@@ -468,6 +490,10 @@ describe("LeaseRegistry", () => {
   it(
     "releases the conversation after TTL expiry",
     ttlExpiryReleasesConversation,
+  );
+  it(
+    "applies the existing default TTL when a grant omits one",
+    defaultTtlExpiryReleasesConversation,
   );
   it(
     "releases pending and granted conversations on disconnect",

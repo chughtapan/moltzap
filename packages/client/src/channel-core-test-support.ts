@@ -36,6 +36,7 @@ export {
 };
 /** Re-exports the public API from `current module`. */
 export type {
+  ChannelService,
   CrossConversationEntry,
   EnrichedInboundMessage,
   FakeChannelService,
