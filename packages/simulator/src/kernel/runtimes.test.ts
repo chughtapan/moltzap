@@ -2,16 +2,17 @@ import { assert, effect as test } from "@effect/vitest";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, Schema } from "effect";
-import type { runtimeEvents } from "../events/core.js";
+import type { linkEvents, runtimeEvents } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import { makeAgentHandle } from "../network/participant.js";
-import type { Router } from "../network/router.js";
+import type { NetworkOperation, Router } from "../network/router.js";
 import {
   RuntimeCompleted,
   RuntimeExited,
   defineRuntime,
 } from "../runtime/runtime.js";
 import { makeAgentRosterBuilder } from "../runtime/roster.js";
+import { makeLinkFabric, type LinkFabric } from "./link-fabric.js";
 import { acquireRoster } from "./runtimes.js";
 
 const routerUrl = Schema.decodeUnknownSync(serverBaseUrlSchema)(
@@ -28,6 +29,7 @@ const configuration = {
   value: {},
 };
 
+const DISABLE_LINK_OPERATION: NetworkOperation = "disable-link";
 const alphaGateway = Object.freeze({ runtime: "alpha" });
 const betaGateway = Object.freeze({ runtime: "beta" });
 const alphaTermination = Effect.succeed(RuntimeCompleted.make({}));
@@ -91,15 +93,37 @@ function testWriter(): LedgerWriter<typeof runtimeEvents> {
   };
 }
 
+function testLinkWriter(): LedgerWriter<typeof linkEvents> {
+  return {
+    write: ({ event }) =>
+      Effect.succeed({
+        runId: "runtime-gateway-test",
+        eventId: "runtime-gateway-link-event",
+        logicalSequence: 0,
+        elapsedNanos: 0n,
+        observedAt: 0,
+        producer: "kernel.link",
+        event,
+      }),
+  };
+}
+
+function acquireTestRoster(fabric: LinkFabric) {
+  return acquireRoster({
+    router: testRouter(),
+    roster,
+    writer: testWriter(),
+    interceptor: fabric.interceptor,
+  });
+}
+
 // @agent-code-guard/regression-only: exact gateway identity and lifecycle capabilities must survive heterogeneous roster acquisition
 test("installs each runtime gateway beside its router identity", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const agents = yield* acquireRoster({
-        router: testRouter(),
-        roster,
-        writer: testWriter(),
-      });
+      const agents = yield* acquireTestRoster(
+        yield* makeLinkFabric(testLinkWriter()),
+      );
 
       assert.strictEqual(agents.alice.agent.id, aliceId);
       assert.strictEqual(agents.alice.gateway, alphaGateway);
@@ -110,5 +134,19 @@ test("installs each runtime gateway beside its router identity", () =>
       assert.isTrue(Object.isFrozen(agents));
       assert.isTrue(Object.isFrozen(agents.alice));
       assert.isTrue(Object.isFrozen(agents.bob));
+    }),
+  ));
+
+test("an agent whose runtime never acquires the stage is no policy target", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeLinkFabric(testLinkWriter());
+      yield* acquireTestRoster(fabric);
+
+      const failure = yield* fabric.driver
+        .disable(aliceId, bobId)
+        .pipe(Effect.flip);
+
+      assert.strictEqual(failure.operation, DISABLE_LINK_OPERATION);
     }),
   ));

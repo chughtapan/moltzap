@@ -308,46 +308,100 @@ sweep execution, and graders.
 
 ## Directed links are scoped
 
-The kernel installs `LinkController`. A program that disables a link also
-requires a platform `LinkDriver`, provided at the application boundary:
+The run kernel owns the link fabric and installs both `LinkController` and the
+`LinkDriver` behind it, so shaping traffic needs no additional layers:
 
 ```ts
 import {
   LinkController,
+  linkPolicy,
 } from "@moltzap/simulator";
-import { LinkDriver } from "@moltzap/simulator/network";
-import { Effect, Layer } from "effect";
-
-const PhysicalLinks = Layer.succeed(
-  LinkDriver,
-  physicalLinkDriver,
-);
+import { Effect } from "effect";
 
 const partitioned = Effect.scoped(
   Effect.gen(function* () {
     const agents = yield* roster.startedAgents;
     const links = yield* LinkController;
-    yield* links.disable(agents.alice.agent, agents.bob.agent);
+
+    yield* links.disable(
+      agents.alice.agent,
+      agents.bob.agent,
+    );
+    yield* links.delay(
+      agents.bob.agent,
+      agents.carol.agent,
+      "250 millis",
+    );
+    yield* links.hold(
+      agents.carol.agent,
+      agents.alice.agent,
+    );
+    yield* links.shape(
+      agents.alice.agent,
+      agents.carol.agent,
+      linkPolicy.dropAll("lossy uplink"),
+      "uplink loss",
+    );
+
     yield* exercisePartition;
   }),
-);
-
-const FaultPlatform = Layer.merge(
-  Platform,
-  PhysicalLinks,
 );
 
 const faultedRun = Society.run(
   roster,
   partitioned,
-).pipe(Effect.provide(FaultPlatform));
+).pipe(Effect.provide(Platform));
 ```
 
-The directed link remains disabled for the scope of the acquisition.
-Overlapping acquisitions share one physical transition down and one final
-transition up. The ledger contains `LinkDown` and `LinkUp` only after the
-driver completes those operations. Programs that never disable a link do not
-require `LinkDriver`.
+Every verb installs a policy on one directed pair for the lifetime of the
+enclosing Scope. `disable` drops every delivery; overlapping acquisitions share
+one transition down and one final transition up. `delay` defers each delivery
+by a fixed duration on the ambient `Clock`. `hold` parks deliveries until the
+scope ends. `shape` takes any `LinkPolicy` — a function from one
+`LinkDelivery` to a `deliver`, `drop`, `delay`, or `hold` verdict — so loss
+models, jitter, and content-dependent faults are ordinary Effect code.
+
+Policies stack on a pair in installation order. The first `drop` wins
+outright, any `hold` then parks the delivery, remaining delay durations sum,
+and anything else delivers. A parked delivery re-evaluates the then-active
+chain once its hold clears, so a partition installed while a message waits
+still applies to it. Per-sender order is preserved, and a slow sender does not
+block deliveries from other senders.
+
+The ledger records control and consequence separately:
+
+| Event | Guarantee |
+|---|---|
+| `LinkDown` / `LinkUp` | The driver completed a directed-link down or up transition |
+| `LinkPolicySet` / `LinkPolicyCleared` | A named policy was installed on, or removed from, one directed pair |
+| `LinkMessageDropped` | One message reached its receiver's link stage and was discarded |
+| `LinkMessageDelayed` | One message was deferred by the recorded total before delivery |
+| `LinkMessageHeld` | One message was parked until its holding lease cleared |
+
+### Policy applies at the receiver
+
+A directed pair is realized where the kernel can observe deliveries, which is
+the receiving side, in this process. Outbound traffic is never intercepted:
+`links.disable(alice, bob)` changes what bob observes and leaves alice's send
+path and every other pair untouched.
+
+| Receiver | Shaped | Why |
+|---|---|---|
+| Experiment endpoints | Yes | The kernel decorates the transport it hands every `Network.endpoint` |
+| `effectRuntime` roster agents | Yes | The runtime applies the kernel's `interceptInbound` stage to its own subscription |
+| `openClawRuntime` / `nanoclawRuntime` roster agents | No | The agent receives in its own process and the kernel has no control channel into it |
+
+Naming a receiver the kernel cannot reach fails instead of silently shaping
+nothing: `LinkController` verbs return a `NetworkFailure` when `to` is not an
+in-process receiver. A custom `defineRuntime` implementation is shapeable
+exactly when it acquires the `interceptInbound` stage offered in its runtime
+input and applies it to the stream it hands its agent.
+
+The router commits every message whatever the policy says. A dropped delivery
+is committed and never observed, so the ledger holds its
+`RouterMessageCommitted` with no matching `EndpointMessageReceived` for an
+endpoint receiver, and an agent receiver simply never acts on it. Read the
+pair of events, never either one alone.
 
 ## One run-owned lifecycle
 
@@ -355,12 +409,16 @@ require `LinkDriver`.
 
 1. Allocate `manifest.json` and `records.ndjson`.
 2. Acquire one isolated router.
-3. Bind the roster and wait for every runtime's readiness contract.
-4. Install `roster.startedAgents`, `Network`, `Society.Ledger`,
-   `Society.Events`, and `LinkController`, then run the customer Effect.
-5. Close experiment endpoints, runtime scopes, and the router.
-6. Append durable router-commit evidence available after router shutdown.
-7. Publish `completion.json`.
+3. Create the link fabric that owns policy state and per-message link evidence.
+4. Bind the roster and wait for every runtime's readiness contract. An
+   in-process runtime registers its agent with the fabric while it acquires
+   its inbound stream.
+5. Install `roster.startedAgents`, `Network`, `Society.Ledger`,
+   `Society.Events`, `LinkController`, and its `LinkDriver`, then run the
+   customer Effect.
+6. Close experiment endpoints, runtime scopes, and the router.
+7. Append durable router-commit evidence available after router shutdown.
+8. Publish `completion.json`.
 
 The v0 lifecycle has one binding per participant. Restart, replacement,
 rebinding, fencing, and offline delivery are outside the current contract.

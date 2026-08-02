@@ -23,6 +23,7 @@ import type { LedgerWriter } from "../ledger/live.js";
 import {
   linkPolicy,
   linkVerdict,
+  type InboundLinkStage,
   type LinkDelivery,
   type LinkDriverService,
   type LinkPolicy,
@@ -38,17 +39,11 @@ import {
 type LinkEventWriter = LedgerWriter<typeof linkEvents>;
 
 /**
- * Wraps one in-process inbound delivery stream with the fabric's active
- * policies for its receiver. The stage preserves per-sender FIFO order while
- * letting deliveries from different senders progress independently.
- */
-export type InboundLinkStage = <A extends { readonly message: Message }, E>(
-  inbound: Stream.Stream<A, E>,
-) => Stream.Stream<A, E>;
-
-/**
- * Registers in-process receivers with the link fabric. A registered receiver
- * is a valid policy target; releasing the registration scope removes it.
+ * Registers in-process receivers with the link fabric. Acquiring `attach` is
+ * what makes a receiver a valid policy target, so a consumer that cannot reach
+ * its own inbound deliveries leaves the agent unregistered and link control
+ * over it fails instead of shaping nothing. Releasing the acquisition scope
+ * removes the registration.
  */
 export interface InboundLinkInterceptor {
   readonly attach: (

@@ -41,7 +41,7 @@ import {
 } from "../runtime/runtime.js";
 import { programEvent } from "./outcomes.js";
 import { makeNetworkService } from "./endpoints.js";
-import { makeLinkFabric } from "./link-fabric.js";
+import { makeLinkFabric, type LinkFabric } from "./link-fabric.js";
 import { makeLinkController } from "./links.js";
 import { acquireRoster } from "./runtimes.js";
 import { acquireRouter, recordStoppedRouter } from "./router.js";
@@ -277,9 +277,9 @@ interface NetworkServiceWriters {
 function acquireNetworkServices(
   writers: NetworkServiceWriters,
   router: Router,
+  fabric: LinkFabric,
 ) {
   return Effect.gen(function* () {
-    const fabric = yield* makeLinkFabric(writers.linkWriter);
     const network = yield* makeNetworkService(
       router,
       writers.endpointWriter,
@@ -314,12 +314,16 @@ function executeProgram<
       event: RunStarted.make({ definitionId: context.input.definitionId }),
     });
     const router = yield* acquireRouter(context.routerWriter, context.router);
+    // The fabric precedes the roster so an in-process runtime can register its
+    // agent as a link-policy target while it acquires its inbound stream.
+    const fabric = yield* makeLinkFabric(context.linkWriter);
     const agents = yield* acquireRoster({
       router,
       roster: context.input.roster,
       writer: context.runtimeWriter,
+      interceptor: fabric.interceptor,
     });
-    const services = yield* acquireNetworkServices(context, router);
+    const services = yield* acquireNetworkServices(context, router, fabric);
     const layer = makeProgramLayer({
       eventServices: context.input.eventServices,
       roster: context.input.roster,

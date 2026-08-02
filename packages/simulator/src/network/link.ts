@@ -1,6 +1,13 @@
 /** @file Directed-link control contracts for router implementations. */
 
-import { Context, Data, Duration, Effect, type Scope } from "effect";
+import {
+  Context,
+  Data,
+  Duration,
+  Effect,
+  type Scope,
+  type Stream,
+} from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
 import type { ParticipantHandle } from "./participant.js";
@@ -54,6 +61,15 @@ export const linkPolicy: {
   },
   hold: () => Effect.succeed(linkVerdict.hold()),
 });
+
+/**
+ * Wraps one in-process inbound delivery stream with the active policies of its
+ * receiver. The stage preserves per-sender FIFO order while letting deliveries
+ * from different senders progress independently.
+ */
+export type InboundLinkStage = <A extends { readonly message: Message }, E>(
+  inbound: Stream.Stream<A, E>,
+) => Stream.Stream<A, E>;
 
 /** Removes one installed policy from its directed link. */
 export interface LinkPolicyLease {

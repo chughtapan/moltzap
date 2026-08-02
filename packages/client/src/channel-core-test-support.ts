@@ -8,6 +8,7 @@ import {
   MoltZapChannelCore,
   type ChannelService,
   type EnrichedInboundMessage,
+  type InboundInterceptDecision,
 } from "./channel-core.js";
 import type { CrossConversationEntry } from "./service.js";
 import {
@@ -32,6 +33,7 @@ export type {
   CrossConversationEntry,
   EnrichedInboundMessage,
   FakeChannelService,
+  InboundInterceptDecision,
   Message,
 };
 

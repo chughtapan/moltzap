@@ -88,16 +88,26 @@ export interface ChannelCoreOptions {
   service: ChannelService;
 
   /**
-   * Wall-clock bound on one inbound turn. On expiry the turn is abandoned
-   * and the consumer keeps draining.
+   * Wall-clock bound on one handler invocation. On expiry the turn is
+   * abandoned and the consumer keeps draining.
    *
    * Unset means unbounded, which is the safe default for runtimes whose
    * turns legitimately run for minutes: nothing else can interrupt the
    * handler, so a bound that is too tight silently drops real work. The
    * cost of leaving it unset is that a hung handler stalls the serial
    * drain forever — set it for runtimes that can wedge.
+   *
+   * The bound covers the handler only. Enrichment and
+   * {@link ChannelCoreOptions.inboundInterceptor} run outside it.
    */
   turnTimeoutMs?: number;
+
+  /**
+   * Endpoint-side gate consulted once per coalesced turn, after enrichment
+   * and before the handler. Unset is passthrough: every turn is delivered
+   * and the inbound path does no extra work.
+   */
+  inboundInterceptor?: InboundInterceptor;
 }
 
 /**
@@ -110,6 +120,41 @@ export type InboundHandler<E = unknown> = (
   msg: EnrichedInboundMessage,
 ) => Effect.Effect<void, E>;
 
+/**
+ * Verdict an {@link InboundInterceptor} returns for one coalesced turn.
+ *
+ * The union is closed at deliver and drop on purpose: there is no hold or
+ * delay verdict. An interceptor is an Effect, so pacing is expressed by
+ * suspending inside it — an ambient Clock sleep, a semaphore, a gate the
+ * embedder opens later — and the verdict says only whether the turn runs. A
+ * hold verdict would ask the core to park this turn and start the next one,
+ * which is the multi-turn concurrency the single consumer fiber exists to
+ * prevent.
+ */
+export type InboundInterceptDecision =
+  | { readonly _tag: "deliver" }
+  | { readonly _tag: "drop"; readonly reason?: string };
+
+/**
+ * Gate the embedder installs between enrichment and the handler. It receives
+ * the newest message of the coalesced batch — a gate deciding whether a turn
+ * is still worth running cares about the latest thing said — and its verdict
+ * governs the whole batch.
+ *
+ * It runs on the single consumer fiber, so suspending inside it delays this
+ * turn and every message queued behind it, and `turnTimeoutMs` does not bound
+ * that suspension. An interceptor that never resumes stalls the drain
+ * permanently.
+ *
+ * A defect, a failure, or a synchronous throw delivers. An embedder bug in a
+ * gate must not silently black-hole a production channel: a channel that
+ * over-delivers announces itself, one that has gone quiet looks like a network
+ * problem for hours.
+ */
+export type InboundInterceptor = (
+  message: Message,
+) => Effect.Effect<InboundInterceptDecision>;
+
 function errorSummary(err: unknown): Record<string, unknown> {
   if (err instanceof Error) {
     return {
@@ -121,6 +166,13 @@ function errorSummary(err: unknown): Record<string, unknown> {
   return {
     errorValue: String(err),
   };
+}
+
+function effectLogDebug(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void> {
+  return Effect.logDebug(message).pipe(Effect.annotateLogs(annotations));
 }
 
 function effectLogWarning(
@@ -167,6 +219,7 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
  *   Note over core: consumer fiber — Queue.take
  *   Note over core: takeCoalescedConversationMessages drains same-conv backlog into one turn
  *   Note over core: enrichMessage — sender name, conversation, context entries
+ *   Note over core: inboundInterceptor — deliver or drop this turn
  *   core->>handler: inboundHandler(enriched)
  *   handler-->>core: Effect.void
  *   Note over core: handler exceeds turnTimeoutMs — turn abandoned, drain continues
@@ -178,6 +231,7 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
 export class MoltZapChannelCore {
   private readonly service: ChannelService;
   private readonly turnTimeoutMs?: number;
+  private readonly inboundInterceptor?: InboundInterceptor;
   private connected = false;
   private inboundHandler: InboundHandler | null = null;
 
@@ -195,6 +249,9 @@ export class MoltZapChannelCore {
     this.service = opts.service;
     if (opts.turnTimeoutMs !== undefined) {
       this.turnTimeoutMs = opts.turnTimeoutMs;
+    }
+    if (opts.inboundInterceptor !== undefined) {
+      this.inboundInterceptor = opts.inboundInterceptor;
     }
 
     this.registerMessageListener();
@@ -313,26 +370,136 @@ export class MoltZapChannelCore {
     return Effect.gen(
       function* (this: MoltZapChannelCore) {
         const messages = yield* this.takeCoalescedConversationMessages(primary);
-        const turn = this.dispatchInboundEffect(messages);
-        const timeoutMs = this.turnTimeoutMs;
-        if (timeoutMs === undefined) {
-          yield* turn;
+        const handler = this.inboundHandler;
+        if (!handler) {
           return;
         }
-        const finished = yield* turn.pipe(
-          Effect.timeoutOption(Duration.millis(timeoutMs)),
+        const { enriched, commitContext } =
+          yield* MoltZapChannelCore.enrichMessage(this.service, messages);
+        if (!(yield* this.interceptTurn(messages))) {
+          return;
+        }
+        const completed = yield* this.awaitHandlerTurn(
+          handler,
+          enriched,
+          primary,
         );
-        if (Option.isNone(finished)) {
-          yield* effectLogWarning(
-            "MoltZapChannelCore: inbound turn abandoned after timeout",
-            {
-              messageId: primary.id,
-              conversationId: primary.conversationId,
-              timeoutMs,
-            },
-          );
+        // Context markers advance only for a turn the handler finished. A
+        // dropped or abandoned one leaves its entries for the next turn.
+        if (completed && commitContext) {
+          commitContext();
         }
       }.bind(this),
+    );
+  }
+
+  /**
+   * Consult the interceptor for this turn, if one is installed.
+   * @param messages The coalesced batch, primary first.
+   * @returns Whether the handler runs for this batch.
+   */
+  private interceptTurn(
+    messages: readonly Message[],
+  ): Effect.Effect<boolean, unknown> {
+    const interceptor = this.inboundInterceptor;
+    if (interceptor === undefined) {
+      return Effect.succeed(true);
+    }
+    const newest =
+      /* Safe because a coalesced batch always holds at least its primary. */ messages[
+        messages.length - 1
+      ]!;
+    // Suspended so an interceptor that throws before returning its Effect
+    // becomes a defect this pipeline can fail open on, not one the consumer
+    // fiber catches after the turn is already lost.
+    return Effect.suspend(() => interceptor(newest)).pipe(
+      Effect.flatMap((decision) =>
+        this.applyInterceptDecision(newest, decision),
+      ),
+      Effect.catchAllCause((cause) =>
+        // Interruption is teardown, not an interceptor bug: re-raise it so a
+        // disconnected channel stops draining instead of delivering the turn.
+        Cause.isInterruptedOnly(cause)
+          ? Effect.failCause(cause)
+          : this.logInterceptorFailure(newest, cause).pipe(Effect.as(true)),
+      ),
+    );
+  }
+
+  /**
+   * Apply a verdict, logging the drops at debug so a quiet channel can be
+   * traced back to its gate.
+   * @param newest Message the interceptor judged.
+   * @param decision Verdict for the whole coalesced batch.
+   * @returns Whether the handler runs.
+   */
+  private applyInterceptDecision(
+    newest: Message,
+    decision: InboundInterceptDecision,
+  ): Effect.Effect<boolean> {
+    if (decision._tag === "deliver") {
+      return Effect.succeed(true);
+    }
+    return effectLogDebug(
+      "MoltZapChannelCore: inbound turn dropped by interceptor",
+      {
+        messageId: newest.id,
+        conversationId: newest.conversationId,
+        ...(decision.reason !== undefined ? { reason: decision.reason } : {}),
+      },
+    ).pipe(Effect.as(false));
+  }
+
+  private logInterceptorFailure(
+    newest: Message,
+    cause: Cause.Cause<unknown>,
+  ): Effect.Effect<void> {
+    return effectLogWarning(
+      "MoltZapChannelCore: inbound interceptor failed, delivering anyway",
+      {
+        messageId: newest.id,
+        conversationId: newest.conversationId,
+        causePretty: Cause.pretty(cause),
+        ...errorSummary(Cause.squash(cause)),
+      },
+    );
+  }
+
+  /**
+   * Await the user handler, bounded by `turnTimeoutMs` when it is set.
+   * @param handler Installed inbound handler.
+   * @param enriched Enriched form of the coalesced batch.
+   * @param primary Message that opened this turn.
+   * @returns Whether the handler ran to completion.
+   */
+  private awaitHandlerTurn(
+    handler: InboundHandler,
+    enriched: EnrichedInboundMessage,
+    primary: Message,
+  ): Effect.Effect<boolean, unknown> {
+    // The handler is user code returning an Effect — yield it directly so its
+    // typed error channel propagates to the consumer fiber, which logs and
+    // continues. Awaiting it inline preserves arrival-order delivery.
+    const turn = handler(enriched);
+    const timeoutMs = this.turnTimeoutMs;
+    if (timeoutMs === undefined) {
+      return turn.pipe(Effect.as(true));
+    }
+    return turn.pipe(
+      Effect.timeoutOption(Duration.millis(timeoutMs)),
+      Effect.tap((finished) =>
+        Option.isNone(finished)
+          ? effectLogWarning(
+              "MoltZapChannelCore: inbound turn abandoned after timeout",
+              {
+                messageId: primary.id,
+                conversationId: primary.conversationId,
+                timeoutMs,
+              },
+            )
+          : Effect.void,
+      ),
+      Effect.map(Option.isSome),
     );
   }
 
@@ -381,26 +548,5 @@ export class MoltZapChannelCore {
     commitContext?: () => void;
   }> {
     return enrichChannelMessage(service, messageOrMessages);
-  }
-
-  private dispatchInboundEffect(
-    messages: readonly Message[],
-  ): Effect.Effect<void, unknown> {
-    return Effect.gen(
-      function* (this: MoltZapChannelCore) {
-        if (!this.inboundHandler) {
-          return;
-        }
-        const { enriched, commitContext } =
-          yield* MoltZapChannelCore.enrichMessage(this.service, messages);
-        // The handler is user code returning an Effect — yield it directly so
-        // its typed error channel propagates to the consumer fiber, which logs
-        // and continues. We await it inline to preserve arrival-order delivery.
-        yield* this.inboundHandler(enriched);
-        if (commitContext) {
-          commitContext();
-        }
-      }.bind(this),
-    );
   }
 }
