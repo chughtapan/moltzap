@@ -29,14 +29,8 @@
       "#db": [
         "./src/db/barrel.ts"
       ],
-      "#db/crypto": [
-        "./src/db/crypto/barrel.ts"
-      ],
       "#identity/agents": [
         "./src/identity/agents/index.ts"
-      ],
-      "#identity/apps": [
-        "./src/identity/apps/index.ts"
       ],
       "#identity/credential-keys": [
         "./src/identity/credential-keys.ts"

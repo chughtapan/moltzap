@@ -9,18 +9,14 @@ import { RpcGroup, type Rpc } from "@effect/rpc";
 import { identityRpcMethods } from "#identity";
 import {
   agentCallableNetworkRpcMethods,
-  appCallableNetworkRpcMethods,
   networkRpcMethods,
   networkNotifications,
 } from "#network";
 import {
   agentCallableConversationRpcMethods,
-  appCallableConversationRpcMethods,
   conversationNotifications,
 } from "#conversation";
 import { agentCallableMessageRpcMethods, messageNotifications } from "#message";
-
-const appOnlyCallableMethods = [...appCallableConversationRpcMethods] as const;
 
 /**
  * Client-to-server descriptors an agent principal may originate.
@@ -33,25 +29,16 @@ export const agentCallableMethods = [
 ] as const;
 
 /**
- * Client-to-server descriptors an app principal may originate.
- */
-export const appCallableMethods = [
-  ...appCallableNetworkRpcMethods,
-  ...appOnlyCallableMethods,
-] as const;
-
-/**
  * Full server inbound descriptor union.
  *
- * This is derived from the authored agent and app callable catalogs, with the
- * unauthenticated connect descriptors included once.
+ * This is derived from the authored agent callable catalog, with the
+ * unauthenticated connect descriptor included once.
  */
 export const serverInboundMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
   ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
-  ...appOnlyCallableMethods,
 ] as const;
 
 /**
@@ -69,9 +56,6 @@ export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 /** Any descriptor an agent client may call. */
 export type AnyAgentCallableRpcDefinition =
   (typeof agentCallableMethods)[number];
-
-/** Any descriptor an app client may call. */
-export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
 
 /** Any server-to-client notification descriptor. */
 export type AnyNotificationDefinition =
@@ -102,11 +86,6 @@ export type ServerHandler<D extends AnyServerRpcDefinition> =
 /** Effect RPC group for all agent-callable methods. */
 export const agentCallableGroup = makeRpcGroup(
   agentCallableMethods.map((definition) => definition.clientRpc),
-);
-
-/** Effect RPC group for all app-callable methods. */
-export const appCallableGroup = makeRpcGroup(
-  appCallableMethods.map((definition) => definition.clientRpc),
 );
 
 /**

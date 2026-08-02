@@ -17,7 +17,6 @@ export {
   userId,
   agentId,
   agentName,
-  appId,
   connectionId,
   conversationId,
   messageId,
@@ -25,7 +24,6 @@ export {
   agentKeyString,
   agentKeyStringArbitrary,
   redactedAgentKey,
-  redactedAppKey,
 } from "./test-fixtures.js";
 
 // Effect RPC owns frame encoding/decoding. The testing surface exposes
@@ -41,13 +39,9 @@ export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 export { waitForValue, waitUntil } from "./wait.js";
 
 /** Re-exports the public API from `./lifecycle.js`. */
-export { makeTestAgentClient, makeTestAppClient } from "./lifecycle.js";
+export { makeTestAgentClient } from "./lifecycle.js";
 /** Re-exports the public API from `./lifecycle.js`. */
-export type {
-  TestAgentClient,
-  TestAppClient,
-  TestServer,
-} from "./lifecycle.js";
+export type { TestAgentClient, TestServer } from "./lifecycle.js";
 /** Re-exports the public API from `./conformance/index.js`. */
 export {
   runConformanceSuite,
@@ -72,10 +66,7 @@ export {
 /** Re-exports the public API from `./test-fixtures.js`. */
 export {
   type TestAgent,
-  type TestAppCredential,
   AgentRegistrationError,
-  TestAppHttpRegistrationError,
-  mintTestAppCredential,
   registerTestAgent,
 } from "./test-fixtures.js";
 

@@ -78,9 +78,6 @@ const closeSocketSession = Effect.fn("socket.closeSession")(function* (
       session.connId,
     );
   }
-  options.services.appEndpointRegistry.unregisterAppsForConnection(
-    session.connId,
-  );
 });
 
 const runDisconnectionHooks = Effect.fn("socket.runDisconnectionHooks")(

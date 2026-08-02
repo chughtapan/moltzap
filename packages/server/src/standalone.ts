@@ -12,8 +12,6 @@ import {
   type ConfigLoadError,
   type StandaloneBootPlan,
 } from "#config";
-import type { ServerEncryptionMasterSecret } from "#config/secrets";
-import { seedInitialKek, EnvelopeEncryption } from "#db/crypto";
 import {
   sql,
   makeEffectKysely,
@@ -198,16 +196,13 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound> {
 
 /**
  * Run the schema migration. Effect-native: reads the schema file via the
- * platform `FileSystem` service, seeds the KEK row inside an Effect, and
- * bridges to `handle.runMigrationSql` at the Kysely boundary (which still
- * exposes a Promise API for raw DDL).
+ * platform `FileSystem` service and bridges to `handle.runMigrationSql` at the
+ * Kysely boundary (which still exposes a Promise API for raw DDL).
  * @param handle Value supplied to the operation.
- * @param encryptionSecret Value supplied to the operation.
  * @returns The auto migrate effect result.
  */
 function autoMigrateEffect(
   handle: DbHandle,
-  encryptionSecret?: ServerEncryptionMasterSecret,
 ): Effect.Effect<
   void,
   SchemaFileNotFound | StandaloneOperationFailed,
@@ -240,18 +235,6 @@ function autoMigrateEffect(
       .pipe(Effect.mapError((cause) => operationFailed("read schema", cause)));
 
     yield* handle.runMigrationSql(schema);
-
-    if (encryptionSecret !== undefined) {
-      const envelope = new EnvelopeEncryption(encryptionSecret);
-      yield* Effect.tryPromise({
-        try: () => seedInitialKek(handle.db, envelope),
-        catch: (cause) => operationFailed("seed encryption key", cause),
-      });
-    } else {
-      yield* Effect.logInfo(
-        "Encryption not configured — messages will be stored as plaintext",
-      );
-    }
 
     yield* Effect.logInfo("Database schema applied successfully");
   });
@@ -289,7 +272,7 @@ function startServerEffect(
     const bootPlan = yield* loadStandaloneConfig({ configPath });
     const database = yield* createStandaloneDatabase(bootPlan);
     yield* logDatabaseSelection(database.usePgLite);
-    yield* migrateStandaloneDatabase(database.handle, bootPlan);
+    yield* migrateStandaloneDatabase(database.handle);
     yield* Effect.logWarning("Boot admin user configured").pipe(
       Effect.annotateLogs({ adminUserId: bootPlan.adminUserId }),
     );
@@ -325,13 +308,8 @@ function logDatabaseSelection(usePgLite: boolean): Effect.Effect<void> {
   );
 }
 
-function migrateStandaloneDatabase(
-  handle: DbHandle,
-  bootPlan: StandaloneBootPlan,
-) {
-  return autoMigrateEffect(handle, bootPlan.encryptionMasterSecret).pipe(
-    Effect.provide(NodeFileSystem.layer),
-  );
+function migrateStandaloneDatabase(handle: DbHandle) {
+  return autoMigrateEffect(handle).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 function makeCoreConfig(options: {
@@ -343,7 +321,6 @@ function makeCoreConfig(options: {
     db: handle.db,
     dbCleanup: () =>
       Effect.runPromise(handle.cleanup().pipe(Effect.as(undefined))),
-    encryptionMasterSecret: bootPlan.encryptionMasterSecret,
     port: bootPlan.port,
     corsOrigins: bootPlan.corsOrigins,
     registrationSecret: bootPlan.registrationSecret,

@@ -5,7 +5,6 @@
 import { Effect, Layer } from "effect";
 
 import { type Db, DbTag } from "#db";
-import { type EnvelopeEncryption, EncryptionTag } from "#db/crypto";
 import {
   connectionManagerLive,
   ConnectionManagerTag,
@@ -22,14 +21,6 @@ import type { NetworkSendService } from "../network/network-send.js";
 import { authServiceLive, AuthServiceTag } from "../identity/agents/layer.js";
 import type { AuthService } from "../identity/agents/auth.service.js";
 import {
-  appAuthServiceLive,
-  AppAuthServiceTag,
-  appEndpointRegistryLive,
-  AppEndpointRegistryTag,
-} from "../identity/apps/layer.js";
-import type { AppAuthService } from "../identity/apps/auth.service.js";
-import type { AppEndpointRegistry } from "../identity/apps/endpoint-registry.js";
-import {
   conversationServiceLive,
   ConversationServiceTag,
 } from "../conversation/layer.js";
@@ -40,7 +31,6 @@ import type { MessageService } from "../message/message.service.js";
 const coreRuntimeServicesLive = Layer.mergeAll(
   connectionManagerLive,
   authServiceLive,
-  appAuthServiceLive,
 );
 
 const endpointResolverLive = Layer.provideMerge(
@@ -53,20 +43,15 @@ const networkSendLive = Layer.provideMerge(
   endpointResolverLive,
 );
 
-const appEndpointRegistryWithNetworkLive = Layer.provideMerge(
-  appEndpointRegistryLive,
-  networkSendLive,
-);
-
-const conversationWithAppRegistryLive = Layer.provideMerge(
+const conversationWithNetworkLive = Layer.provideMerge(
   conversationServiceLive,
-  appEndpointRegistryWithNetworkLive,
+  networkSendLive,
 );
 
 /** Provides the services live runtime value. */
 export const servicesLive = Layer.provideMerge(
   messageServiceLive,
-  conversationWithAppRegistryLive,
+  conversationWithNetworkLive,
 );
 
 /** Describes resolved services. */
@@ -76,23 +61,17 @@ export interface ResolvedServices {
   readonly agentEndpointResolver: AgentEndpointResolver;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
-  readonly appAuthService: AppAuthService;
   readonly conversationService: ConversationService;
-  readonly appEndpointRegistry: AppEndpointRegistry;
   readonly messageService: MessageService;
-  readonly encryption: EnvelopeEncryption | null;
 }
 
 /** Provides the resolve services runtime value. */
 export const resolveServices = Effect.all({
   db: DbTag,
-  encryption: EncryptionTag,
   connections: ConnectionManagerTag,
   agentEndpointResolver: AgentEndpointResolverTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
-  appAuthService: AppAuthServiceTag,
   conversationService: ConversationServiceTag,
-  appEndpointRegistry: AppEndpointRegistryTag,
   messageService: MessageServiceTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;

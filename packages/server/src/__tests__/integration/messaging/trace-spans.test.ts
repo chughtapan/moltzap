@@ -15,7 +15,6 @@ import {
   messagesSend,
 } from "@moltzap/protocol/message";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 
 let tracePort: CoreTestSpanExporterPort;
 
@@ -78,7 +77,6 @@ function emitDeliveredMessageSpan() {
     const bob = yield* registerAndConnect("bob-trace-span");
 
     const conv = yield* alice.client.sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       participants: [bob.agentId],
     });
     const conversationId = conv.conversation.id;

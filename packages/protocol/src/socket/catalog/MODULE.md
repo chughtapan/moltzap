@@ -12,7 +12,7 @@ server-core, conformance, and generated protocol reference docs.
 
 ## Public surface
 
-### [`agentCallableGroup`](./index.ts#L103)
+### [`agentCallableGroup`](./index.ts#L87)
 
 _Variable_
 
@@ -24,7 +24,7 @@ export const agentCallableGroup = makeRpcGroup(
 
 Effect RPC group for all agent-callable methods.
 
-### [`agentCallableMethods`](./index.ts#L28)
+### [`agentCallableMethods`](./index.ts#L24)
 
 _Variable_
 
@@ -39,7 +39,7 @@ export const agentCallableMethods = [
 
 Client-to-server descriptors an agent principal may originate.
 
-### [`AnyAgentCallableRpcDefinition`](./index.ts#L70)
+### [`AnyAgentCallableRpcDefinition`](./index.ts#L57)
 
 _TypeAlias_
 
@@ -50,17 +50,7 @@ export type AnyAgentCallableRpcDefinition =
 
 Any descriptor an agent client may call.
 
-### [`AnyAppCallableRpcDefinition`](./index.ts#L74)
-
-_TypeAlias_
-
-```ts
-export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
-```
-
-Any descriptor an app client may call.
-
-### [`AnyNotificationDefinition`](./index.ts#L77)
+### [`AnyNotificationDefinition`](./index.ts#L61)
 
 _TypeAlias_
 
@@ -71,7 +61,7 @@ export type AnyNotificationDefinition =
 
 Any server-to-client notification descriptor.
 
-### [`AnyServerRpcDefinition`](./index.ts#L67)
+### [`AnyServerRpcDefinition`](./index.ts#L54)
 
 _TypeAlias_
 
@@ -81,32 +71,7 @@ export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 
 Any client-to-server descriptor the server handles.
 
-### [`appCallableGroup`](./index.ts#L108)
-
-_Variable_
-
-```ts
-export const appCallableGroup = makeRpcGroup(
-  appCallableMethods.map((definition) => definition.clientRpc),
-)
-```
-
-Effect RPC group for all app-callable methods.
-
-### [`appCallableMethods`](./index.ts#L38)
-
-_Variable_
-
-```ts
-export const appCallableMethods = [
-  ...appCallableNetworkRpcMethods,
-  ...appOnlyCallableMethods,
-] as const
-```
-
-Client-to-server descriptors an app principal may originate.
-
-### [`notificationDefinitions`](./index.ts#L60)
+### [`notificationDefinitions`](./index.ts#L47)
 
 _Variable_
 
@@ -120,7 +85,7 @@ export const notificationDefinitions = [
 
 Every server-to-client notification descriptor.
 
-### [`notificationRpcGroup`](./index.ts#L118)
+### [`notificationRpcGroup`](./index.ts#L97)
 
 _Variable_
 
@@ -135,7 +100,7 @@ as a fire-and-forget `void`-result RPC on a target connection's reverse
 channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`.
 
-### [`reverseRpcGroup`](./index.ts#L129)
+### [`reverseRpcGroup`](./index.ts#L108)
 
 _Variable_
 
@@ -151,7 +116,7 @@ built as ONE `RpcGroup` over the member tuple. The server holds one
 fork-and-forget); clients stand one `RpcServer&lt;ReverseRpcGroup>` on the
 s2c sink, routing each payload into the `SubscriberRegistry`.
 
-### [`ServerHandler`](./index.ts#L99)
+### [`ServerHandler`](./index.ts#L83)
 
 _TypeAlias_
 
@@ -161,7 +126,7 @@ export type ServerHandler<D extends AnyServerRpcDefinition> =
 
 Handler type for one inbound RPC descriptor.
 
-### [`ServerHandlers`](./index.ts#L94)
+### [`ServerHandlers`](./index.ts#L78)
 
 _TypeAlias_
 
@@ -173,7 +138,7 @@ export type ServerHandlers = RpcGroup.HandlersFrom<
 
 Complete server handler table keyed by every inbound RPC tag.
 
-### [`serverInboundGroup`](./index.ts#L87)
+### [`serverInboundGroup`](./index.ts#L71)
 
 _Variable_
 
@@ -185,7 +150,7 @@ export const serverInboundGroup = makeRpcGroup(
 
 Effect RPC group for all client-to-server calls accepted by the server.
 
-### [`serverInboundMethods`](./index.ts#L49)
+### [`serverInboundMethods`](./index.ts#L37)
 
 _Variable_
 
@@ -195,14 +160,13 @@ export const serverInboundMethods = [
   ...networkRpcMethods,
   ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
-  ...appOnlyCallableMethods,
 ] as const
 ```
 
 Full server inbound descriptor union.
 
-This is derived from the authored agent and app callable catalogs, with the
-unauthenticated connect descriptors included once.
+This is derived from the authored agent callable catalog, with the
+unauthenticated connect descriptor included once.
 
 ## Files
 

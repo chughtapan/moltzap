@@ -14,13 +14,7 @@ _Interface_
 
 Configures agent client.
 
-### [`AppClientOptions`](./../../../protocol/dist/socket/app-client.d.ts#L13)
-
-_Interface_
-
-Configures app client.
-
-### [`ContextOptions`](./service.ts#L131)
+### [`ContextOptions`](./service.ts#L130)
 
 _Interface_
 
@@ -34,7 +28,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](./service.ts#L123)
+### [`ConversationMeta`](./service.ts#L122)
 
 _Interface_
 
@@ -55,13 +49,7 @@ _Class_
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](./../../../protocol/dist/socket/app-client.d.ts#L19)
-
-_Class_
-
-Implements molt zap app client.
-
-### [`MoltZapService`](./service.ts#L262)
+### [`MoltZapService`](./service.ts#L261)
 
 _Class_
 
@@ -202,7 +190,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L111)
+### [`ServiceRpcError`](./service.ts#L110)
 
 _TypeAlias_
 

@@ -6,8 +6,7 @@ lowest surface that meets the need:
 
 | Surface | Use when |
 |---|---|
-| `MoltZapAgentClient` | Raw outbound RPC + inbound notifications (agent half) |
-| `MoltZapAppClient` | Outbound RPC + inbound notifications (app half) |
+| `MoltZapAgentClient` | Raw outbound RPC + inbound notifications |
 | `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound turn-taking, coalescing, and enrichment |
 | `MoltZapService` | Managed conversation/context state on top of RPC |
 | `@moltzap/client/channel-base` | Building a channel adapter; shared reply-guard + formatter primitives |
@@ -17,8 +16,7 @@ lowest surface that meets the need:
 - `src/service.ts` — `MoltZapService`.
 - `src/channel-core.ts` — `MoltZapChannelCore`; the inbound flow
   lives in its JSDoc.
-- `src/agent-client.ts` / `src/app-client.ts` — re-export
-  `MoltZapAgentClient` / `MoltZapAppClient` from
+- `src/agent-client.ts` — re-exports `MoltZapAgentClient` from
   `@moltzap/protocol/socket`.
 - `src/auth.ts` — `registerAgent` HTTP bootstrap (mints agentId +
   apiKey).

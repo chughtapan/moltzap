@@ -24,11 +24,7 @@ import {
   type NotificationPayloadOf,
 } from "#transport";
 import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
-import type {
-  AgentPrincipal,
-  AppPrincipal,
-  AuthenticatedPrincipal,
-} from "#identity/principals";
+import type { AuthenticatedAgent } from "#identity/principals";
 import type { ActiveAgent } from "#identity/requirements";
 import type { ConversationSendAccess } from "#conversation/requirements";
 
@@ -76,9 +72,7 @@ export interface MoltZapServerOptions<
 }
 
 type ServerRequirementMiddleware =
-  | AgentPrincipal
-  | AppPrincipal
-  | AuthenticatedPrincipal
+  | AuthenticatedAgent
   | ActiveAgent
   | ConversationSendAccess;
 

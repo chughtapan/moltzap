@@ -5,7 +5,6 @@
 import { Effect, Fiber, Ref, Stream, type Scope } from "effect";
 import type { AnyNotificationDefinition } from "#socket/catalog";
 import type { NotificationDelivery } from "#transport";
-import { DEFAULT_APP_ID } from "#identity/apps";
 import { type ConversationId, agentConversationCreate } from "#conversation";
 import {
   conversationId as makeConversationId,
@@ -191,7 +190,6 @@ export function acquireConversation(
     );
     const createResult = yield* owner.client
       .sendRpc(agentConversationCreate, {
-        appId: DEFAULT_APP_ID,
         name: `${namePrefix}-conv`,
         participants: participants.map((p) => p.agent.agentId),
       })

@@ -2,7 +2,6 @@ import { Effect, Logger, Schema } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, vi } from "vitest";
 import {
-  type AppIdV4,
   localDaemonCommands,
   startParticipant,
   StartPartialFailure,
@@ -21,8 +20,6 @@ const silentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000002");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000003");
-const APP_ID =
-  /* Safe because the test fixture establishes this asserted shape. */ "11111111-2222-4333-8444-555555555555" as AppIdV4;
 const BOB_PARTICIPANT = Schema.decodeUnknownSync(startParticipant)("agent:bob");
 
 // eslint-disable-next-line @typescript-eslint/unbound-method -- The test snapshots process.exit solely to restore the original method.
@@ -59,7 +56,6 @@ function sendsStartDaemonCommand() {
         name: "demo",
         participants: [BOB_PARTICIPANT],
         message: "hello",
-        appId: APP_ID,
       },
     );
 
@@ -72,7 +68,6 @@ function sendsStartDaemonCommand() {
           name: "demo",
           participants: [BOB_PARTICIPANT],
           message: "hello",
-          appId: APP_ID,
         },
       },
     ]);
@@ -90,7 +85,6 @@ function mapsUsageErrorsToExit64() {
         name: "demo",
         participants: [BOB_PARTICIPANT],
         message: undefined,
-        appId: undefined,
       },
     );
 
@@ -115,7 +109,6 @@ function mapsFirstMessageFailureToExit2() {
         name: "demo",
         participants: [],
         message: "hello",
-        appId: undefined,
       },
     );
 

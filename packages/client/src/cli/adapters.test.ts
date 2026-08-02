@@ -13,7 +13,6 @@ const it = effectIt.effect;
 const pageLimit = Schema.Number.pipe(Schema.int(), Schema.between(1, 200));
 const INTEGER_USAGE_PLACEHOLDER = '"integer"';
 const CONVERSATION_ID = "00000000-0000-4000-8000-00000000000c";
-const APP_ID = "11111111-2222-4333-8444-555555555555";
 
 const parseOptions = <A>(
   options: Options.Options<A>,
@@ -193,12 +192,10 @@ describe("live command option adapters", () => {
       const explicit = yield* parseOptions(startOptions, [
         "--message",
         "hello",
-        "--app-id",
-        APP_ID,
       ]);
       expect(explicit).toEqual({
         rest: [],
-        value: { message: "hello", appId: APP_ID },
+        value: { message: "hello" },
       });
     }));
 });

@@ -3,7 +3,6 @@
 import { Context, Effect, Layer } from "effect";
 
 import { DbTag } from "#db";
-import { EncryptionTag } from "#db/crypto";
 import { ConversationServiceTag } from "#conversation";
 import { NetworkSendServiceTag } from "#network";
 
@@ -22,12 +21,10 @@ export const messageServiceLive = Layer.effect(
     const db = yield* DbTag;
     const conversations = yield* ConversationServiceTag;
     const networkSend = yield* NetworkSendServiceTag;
-    const encryption = yield* EncryptionTag;
     return new MessageService({
       db,
       conversations,
       networkSend,
-      encryption,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),
 );

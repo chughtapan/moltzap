@@ -21,24 +21,14 @@ import {
   String as StringOps,
   type Stream,
 } from "effect";
-import {
-  type agentConnect,
-  type appConnect,
-  serverBaseUrlSchema,
-  webSocketUrl,
-} from "#network";
+import { type agentConnect, serverBaseUrlSchema, webSocketUrl } from "#network";
 import {
   agentCallableGroup,
-  appCallableGroup,
   reverseRpcGroup,
   type AnyNotificationDefinition,
 } from "#socket/catalog";
 import { messageReceivedNotificationDefinition } from "#message";
-import {
-  conversationCreatedNotificationDefinition,
-  conversationParticipantsAddedNotificationDefinition,
-  conversationParticipantsRemovedNotificationDefinition,
-} from "#conversation";
+import { conversationCreatedNotificationDefinition } from "#conversation";
 import {
   DEFAULT_GRACEFUL_CLOSE,
   extractCloseInfo,
@@ -102,7 +92,7 @@ export type ConnectResult = ResultOf<typeof agentConnect>;
 type ProtocolRpc = Rpc.Any & { readonly _tag: string };
 type ConnectTag<Rpcs extends ProtocolRpc> = Extract<
   Rpcs["_tag"],
-  typeof agentConnect.name | typeof appConnect.name
+  typeof agentConnect.name
 >;
 /** Represents client connect error conditions. */
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
@@ -208,9 +198,7 @@ interface ClientSocketSessionOptions {
 }
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
-type AppCallableRpcs = RpcGroup.Rpcs<typeof appCallableGroup>;
 type AgentClientDispatch = TypedDispatchMap<AgentCallableRpcs, RpcClientError>;
-type AppClientDispatch = TypedDispatchMap<AppCallableRpcs, RpcClientError>;
 type SubscriberRegistry = NotificationSubscriberRegistry<
   NotConnectedError,
   AnyNotificationDefinition
@@ -224,9 +212,7 @@ type NotificationHandlersFor<D extends AnyNotificationDefinition> = {
 };
 type ConversationNotificationDefinition =
   | typeof messageReceivedNotificationDefinition
-  | typeof conversationCreatedNotificationDefinition
-  | typeof conversationParticipantsAddedNotificationDefinition
-  | typeof conversationParticipantsRemovedNotificationDefinition;
+  | typeof conversationCreatedNotificationDefinition;
 
 type ConversationNotificationHandlers =
   NotificationHandlersFor<ConversationNotificationDefinition>;
@@ -362,16 +348,6 @@ const buildConversationNotificationHandlers = (
     registry,
     conversationCreatedNotificationDefinition,
   ),
-  [conversationParticipantsAddedNotificationDefinition.name]:
-    notificationHandler(
-      registry,
-      conversationParticipantsAddedNotificationDefinition,
-    ),
-  [conversationParticipantsRemovedNotificationDefinition.name]:
-    notificationHandler(
-      registry,
-      conversationParticipantsRemovedNotificationDefinition,
-    ),
 });
 
 const buildNotificationHandlers = (
@@ -466,23 +442,6 @@ export const openProtocolAgentClientSocket = (
   openClientSocketSession({
     ...options,
     group: agentCallableGroup,
-  });
-
-/**
- * Provides the open protocol app client socket runtime value.
- * @param options Options that control the operation.
- * @returns The open protocol app client socket result.
- */
-export const openProtocolAppClientSocket = (
-  options: ClientSocketSessionOptions,
-): Effect.Effect<
-  ClientConnection<AppClientDispatch>,
-  NotConnectedError,
-  Socket.WebSocketConstructor
-> =>
-  openClientSocketSession({
-    ...options,
-    group: appCallableGroup,
   });
 
 type ConnectWaiter<Rpcs extends ProtocolRpc> = Deferred.Deferred<

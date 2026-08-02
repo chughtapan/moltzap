@@ -34,10 +34,10 @@ export class AgentContext extends Data.TaggedClass("AgentContext")<{
 }> {}
 ```
 
-Principal context arms stored on authenticated socket connections. Handlers
-receive the arm selected by each method's `requires` head.
+The principal context stored on an authenticated socket connection. Every
+gated method's `requires` head selects this arm.
 
-### [`agentContextFrom`](./context.ts#L37)
+### [`agentContextFrom`](./context.ts#L32)
 
 _Function_
 
@@ -68,46 +68,17 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`AppConnection`](./connection.ts#L56)
-
-_Interface_
-
-```ts
-class AppConnection extends Data.TaggedClass("AppConnection")<
-  ConnectionBase & { readonly auth: AppContext }
-> {
-  private readonly brandValue!: never;
-}
-```
-
-Re-exports the public API from `current module`.
-
-### [`AppContext`](./context.ts#L23)
-
-_Class_
-
-```ts
-export class AppContext extends Data.TaggedClass("AppContext")<{
-  readonly appId: AppId;
-}> {}
-```
-
-Implements app context.
-
-### [`Connection`](./connection.ts#L66)
+### [`Connection`](./connection.ts#L60)
 
 _TypeAlias_
 
 ```ts
-export type Connection =
-  | UnauthenticatedConnection
-  | AgentConnection
-  | AppConnection;
+export type Connection = UnauthenticatedConnection | AgentConnection;
 ```
 
-The three-arm connection state — the connections map's only entry shape.
+The two-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L170)
+### [`ConnectionManager`](./connection.ts#L137)
 
 _Class_
 
@@ -131,7 +102,7 @@ export class ConnectionManager {
 
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
-   * at WebSocket open. The Connect handler promotes it to the agent/app arm.
+   * at WebSocket open. The Connect handler promotes it to the agent arm.
    * @param connId Value supplied to the operation.
    * @param socket Value supplied to the operation.
    * @param originator Value supplied to the operation.
@@ -185,16 +156,16 @@ export class ConnectionManager {
   }
 
   /**
-   * Atomic per-connection authentication gate. Pattern-matches on
-   * `auth._tag` once to decide which arm to mint. Returns a split-per-arm
-   * `TransitionOutcome` so callers narrow without a cast.
+   * Atomic per-connection authentication gate. Mints the agent arm from the
+   * unauthenticated entry and returns a `TransitionOutcome` whose success arm
+   * carries the minted connection, so callers narrow without a cast.
    * @param connId Value supplied to the operation.
    * @param auth Value supplied to the operation.
    * @returns The current result.
    */
   authenticate(
     connId: ConnectionId,
-    auth: AgentContext | AppContext,
+    auth: AgentContext,
   ): Effect.Effect<TransitionOutcome> {
     return Ref.modify(this.stateRef, (state) => {
       const current = HashMap.get(state.connections, connId);
@@ -210,28 +181,27 @@ export class ConnectionManager {
           ],
         ),
         Match.tag(
-          "AppConnection",
-          (existing): [TransitionOutcome, typeof state] => [
-            { kind: "already-connected", existing },
-            state,
-          ],
-        ),
-        Match.tag(
           "UnauthenticatedConnection",
           (unauth): [TransitionOutcome, typeof state] => {
-            const { outcome, minted } = mintAuthedArm(
-              {
-                connId: unauth.connId,
-                socket: unauth.socket,
-                originator: unauth.originator,
-              },
+            const authed = new AgentConnection({
+              connId: unauth.connId,
+              socket: unauth.socket,
+              originator: unauth.originator,
               auth,
-            );
+            });
             return [
-              outcome,
+              { kind: "ok-agent", authed },
               {
                 ...state,
-                connections: HashMap.set(state.connections, connId, minted),
+                connections: HashMap.set(state.connections, connId, authed),
+              },
+            ];
+          },
+        ),
+        Match.exhaustive,
+      );
+    });
+  }
 ```
 
 Implements connection manager.
@@ -287,14 +257,12 @@ callbacks/notifications through. Constructed by protocol `MoltZapServer`
 during socket accept and passed to
 `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
 
-### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L101)
+### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L87)
 
 _TypeAlias_
 
 ```ts
 export type PrincipalBoundaryCanaries = [
-  AgentHasNoAppId,
-  AppHasNoAgentId,
   UnauthenticatedHasNoAuth,
   ForgedAgentRejected,
   InvalidBootPhaseRejected,
@@ -303,14 +271,13 @@ export type PrincipalBoundaryCanaries = [
 
 Compile-time assertions for the principal and boot-failure boundaries.
 
-### [`principalCanaryRefs`](./principal.types-check.ts#L112)
+### [`principalCanaryRefs`](./principal.types-check.ts#L96)
 
 _Variable_
 
 ```ts
 export const principalCanaryRefs: readonly unknown[] = [
   agentIdValue,
-  appIdValue,
   principalTag,
   narrowOutcome,
   bootFail,
@@ -319,7 +286,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`TransitionOutcome`](./connection.ts#L77)
+### [`TransitionOutcome`](./connection.ts#L68)
 
 _TypeAlias_
 
@@ -328,8 +295,8 @@ export type TransitionOutcome =
   | { readonly kind: "not-connected" }
 ```
 
-Outcome of `ConnectionManager.authenticate`'s atomic transition. The
-success arms are split per minted arm so the Connect handler's
+Outcome of `ConnectionManager.authenticate`'s atomic transition. The success
+arm carries the minted connection so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 

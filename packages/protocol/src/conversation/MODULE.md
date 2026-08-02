@@ -8,7 +8,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](./conversations.ts#L190)
+### [`agentCallableConversationRpcMethods`](./conversations.ts#L107)
 
 _Variable_
 
@@ -21,7 +21,7 @@ export const agentCallableConversationRpcMethods = [
 
 Agent-callable conversation RPC catalog.
 
-### [`agentConversationCreate`](./conversations.ts#L43)
+### [`agentConversationCreate`](./conversations.ts#L37)
 
 _Variable_
 
@@ -29,33 +29,22 @@ _Variable_
 export const agentConversationCreate = defineRpc({
   name: "agent/conversation/create",
   params: Schema.Struct({
-    appId: appId,
     name: Schema.optional(conversationNameSchema),
     participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
   }),
   result: Schema.Struct({ conversation: conversationSchemaValue }),
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [AgentNotFoundError, ConversationFullError],
 })
 ```
 
-Mint a conversation naming its participants and the app that authorizes
-it. The caller joins the conversation it creates.
+Mint a conversation naming its participants. The caller joins the
+conversation it creates; membership is fixed at creation.
 
-- **Principal:** `AgentPrincipal` + `ActiveAgent`. Reachability is the
+- **Principal:** `AuthenticatedAgent` + `ActiveAgent`. Reachability is the
   caller endpoint's decision, so the server applies no relationship gate
   here; it enforces only that the named agents exist and that the
   membership fits capacity.
-
-### [`appCallableConversationRpcMethods`](./conversations.ts#L196)
-
-_Variable_
-
-```ts
-export const appCallableConversationRpcMethods = [conversationUpdate] as const
-```
-
-App-callable conversation RPC catalog.
 
 ### [`Conversation`](./types.ts#L73)
 
@@ -67,7 +56,7 @@ export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 Conversation row visible on conversation surfaces.
 
-### [`ConversationCreatedNotification`](./conversations.ts#L155)
+### [`ConversationCreatedNotification`](./conversations.ts#L96)
 
 _TypeAlias_
 
@@ -79,7 +68,7 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/created`.
 
-### [`conversationCreatedNotificationDefinition`](./conversations.ts#L170)
+### [`conversationCreatedNotificationDefinition`](./conversations.ts#L101)
 
 _Variable_
 
@@ -131,7 +120,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`conversationList`](./conversations.ts#L78)
+### [`conversationList`](./conversations.ts#L71)
 
 _Variable_
 
@@ -146,7 +135,7 @@ export const conversationList = defineRpc({
     items: Schema.Array(conversationListItemSchema),
     nextCursor: Schema.optional(Schema.String),
   }),
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [InvalidParamsError, ConversationNotFoundError],
 })
 ```
@@ -155,9 +144,9 @@ Self-only listing of every conversation the caller participates in. No
 filter params: the visibility contract is "caller in
 `conversation_participants`", and any further narrowing is the endpoint's.
 
-- **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
+- **Principal:** `AuthenticatedAgent` head + `ActiveAgent` (active agent).
 
-### [`ConversationListItem`](./conversations.ts#L65)
+### [`ConversationListItem`](./conversations.ts#L58)
 
 _TypeAlias_
 
@@ -197,71 +186,17 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 
 The referenced conversation does not exist (or is not visible to the caller).
 
-### [`conversationNotifications`](./conversations.ts#L199)
+### [`conversationNotifications`](./conversations.ts#L113)
 
 _Variable_
 
 ```ts
 export const conversationNotifications = [
   conversationCreatedNotificationDefinition,
-  conversationParticipantsAddedNotificationDefinition,
-  conversationParticipantsRemovedNotificationDefinition,
 ] as const
 ```
 
 Conversation notification catalog.
-
-### [`ConversationParticipantsAddedNotification`](./conversations.ts#L160)
-
-_TypeAlias_
-
-```ts
-export type ConversationParticipantsAddedNotification = Schema.Schema.Type<
-  typeof conversationParticipantsAddedNotificationSchema
->;
-```
-
-Notification payload for `agent/conversation/participants-added`.
-
-### [`conversationParticipantsAddedNotificationDefinition`](./conversations.ts#L176)
-
-_Variable_
-
-```ts
-export const conversationParticipantsAddedNotificationDefinition =
-  defineNotification({
-    name: "agent/conversation/participants-added",
-    params: conversationParticipantsAddedNotificationSchema,
-  })
-```
-
-Pushed when a participant is added to a conversation.
-
-### [`ConversationParticipantsRemovedNotification`](./conversations.ts#L165)
-
-_TypeAlias_
-
-```ts
-export type ConversationParticipantsRemovedNotification = Schema.Schema.Type<
-  typeof conversationParticipantsRemovedNotificationSchema
->;
-```
-
-Notification payload for `agent/conversation/participants-removed`.
-
-### [`conversationParticipantsRemovedNotificationDefinition`](./conversations.ts#L183)
-
-_Variable_
-
-```ts
-export const conversationParticipantsRemovedNotificationDefinition =
-  defineNotification({
-    name: "agent/conversation/participants-removed",
-    params: conversationParticipantsRemovedNotificationSchema,
-  })
-```
-
-Pushed when a participant is removed from a conversation.
 
 ### [`conversationSchema`](./types.ts#L79)
 
@@ -274,37 +209,6 @@ export function conversationSchema(): typeof conversationSchemaValue
 Return the canonical conversation schema.
 
 **Returns:** The canonical conversation schema.
-
-### [`conversationUpdate`](./conversations.ts#L119)
-
-_Variable_
-
-```ts
-export const conversationUpdate = defineRpc({
-  name: "app/conversation/update",
-  params: conversationUpdateParamsSchema,
-  result: Schema.Struct({}),
-  requires: [AppPrincipal],
-  errors: [ForbiddenError, ConversationNotFoundError, ConversationFullError],
-})
-```
-
-App-only conversation mutation surface. `app/conversation/update` owns
-participant add and participant remove semantics.
-
-- **Principal:** `AppPrincipal` head.
-
-### [`ConversationUpdateParams`](./conversations.ts#L106)
-
-_TypeAlias_
-
-```ts
-export type ConversationUpdateParams = Schema.Schema.Type<
-  typeof conversationUpdateParamsSchema
->;
-```
-
-Represents conversation update params values.
 
 ### [`messageId`](./types.ts#L33)
 

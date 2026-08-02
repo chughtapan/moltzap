@@ -14,12 +14,9 @@ import {
   type ConversationId,
   ConversationFullError,
   ConversationNotFoundError,
-  NotAParticipantError,
-  conversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import {
   type AgentId,
-  type AppId,
   type UserId,
   AgentNotFoundError,
 } from "@moltzap/protocol/identity";
@@ -30,8 +27,6 @@ import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
 } from "@moltzap/protocol/rpc";
-import { broadcastNotificationToAgents } from "../network/notification-broadcast.js";
-import type { NetworkSendServiceTag } from "../network/layer.js";
 import type { ConnectionManager } from "#socket";
 
 const MAX_GROUP_PARTICIPANTS = 256;
@@ -50,8 +45,6 @@ interface CreateConversationOptions {
   readonly name?: string;
   readonly agentIds: readonly AgentId[];
   readonly creatorAgentId: AgentId;
-  /** Authorizing app; the routing key every send and dispatch resolves. */
-  readonly appId: AppId;
 }
 
 interface ListConversationsInput {
@@ -284,60 +277,9 @@ export class ConversationService {
   }
 
   /**
-   * Reduced-surface participant removal: NO authority gate. Used by
-   * `AppEndpointRegistry.removeDeniedParticipant` for dispatch-deny eviction
-   * (runs server-internally, not via a wire RPC). Broadcasts
-   * `ConversationParticipantsRemoved` with `reason: "app_remove"`
-   * so the evicted agent and the remaining participants observe the
-   * removal.
-   * @param conversationId Value supplied to the operation.
-   * @param agentId Identifier of the agent targeted by the operation.
-   * @internal
-   * @returns The participants snapshot result.
-   */
-  removeParticipant(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<void, NotAParticipantError, NetworkSendServiceTag> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: ConversationService) {
-          // Snapshot membership BEFORE delete so the evicted agent
-          // is included in the fan-out target list.
-          const participantsSnapshot =
-            yield* this.getParticipantAgentIds(conversationId);
-          const deleted = yield* this.db
-            .deleteFrom("conversation_participants")
-            .where("conversation_id", "=", conversationId)
-            .where("agent_id", "=", agentId)
-            .returning("conversation_id");
-          if (deleted.length === 0) {
-            return yield* new NotAParticipantError({
-              message: "Participant not found",
-            });
-          }
-          yield* this.connections.removeConversationFromAgent(
-            agentId,
-            conversationId,
-          );
-          yield* broadcastNotificationToAgents(
-            participantsSnapshot,
-            conversationParticipantsRemovedNotificationDefinition,
-            {
-              conversationId,
-              removedAgentId: agentId,
-              reason: "app_remove" as const,
-            },
-          );
-        }.bind(this),
-      ),
-    );
-  }
-
-  /**
-   * Rejects a membership that exceeds the group limit. Callers pass the
-   * resulting member count, so creation and participant addition share one
-   * capacity rule.
+   * Rejects a membership that exceeds the group limit. The caller passes the
+   * resulting member count; membership is fixed at creation, so this is the
+   * only capacity gate.
    * @param memberCount Value supplied to the operation.
    * @internal
    * @returns The capacity assertion result.
@@ -365,7 +307,6 @@ export class ConversationService {
               .values({
                 name: input.name ?? null,
                 created_by_id: input.creatorAgentId,
-                app_id: input.appId,
               })
               .returningAll(),
           );
@@ -438,82 +379,8 @@ export class ConversationService {
   }
 
   /**
-   * `app/conversation/update` add-participant body.
-   *
-   * Inserts a `conversation_participants` row (idempotent via
-   * `ON CONFLICT DO NOTHING`) AND captures the post-mutation membership so
-   * the handler can fan out the participants-added notification.
-   * @param conversationId Value supplied to the operation.
-   * @param agentId Identifier of the agent targeted by the operation.
-   * @internal
-   * @returns The post-mutation membership.
-   */
-  addConversationParticipant(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<{ postMutationParticipants: readonly AgentId[] }> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: ConversationService) {
-          yield* this.db
-            .insertInto("conversation_participants")
-            .values({ conversation_id: conversationId, agent_id: agentId })
-            .onConflict((oc) => oc.doNothing());
-          const rows = yield* this.db
-            .selectFrom("conversation_participants")
-            .select("agent_id")
-            .where("conversation_id", "=", conversationId);
-          return { postMutationParticipants: rows.map((row) => row.agent_id) };
-        }.bind(this),
-      ),
-    );
-  }
-
-  /**
-   * `app/conversation/update` remove-participant body.
-   *
-   * Returns the pre-mutation membership snapshot so the handler can fan out
-   * the participants-removed notification to the removed agent after their
-   * `conversation_participants` row is deleted. Idempotent: no-op when the
-   * agent is not currently in the conversation.
-   * @param conversationId Value supplied to the operation.
-   * @param agentId Identifier of the agent targeted by the operation.
-   * @internal
-   * @returns The pre-mutation membership and whether a row was deleted.
-   */
-  removeConversationParticipant(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<{
-    preMutationParticipants: readonly AgentId[];
-    wasParticipant: boolean;
-  }> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const preRows = yield* this.db
-          .selectFrom("conversation_participants")
-          .select("agent_id")
-          .where("conversation_id", "=", conversationId);
-        const preMutationParticipants: readonly AgentId[] = preRows.map(
-          (row) => row.agent_id,
-        );
-        const wasParticipant = preMutationParticipants.includes(agentId);
-        if (!wasParticipant) {
-          return { preMutationParticipants, wasParticipant };
-        }
-        yield* this.db
-          .deleteFrom("conversation_participants")
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", agentId);
-        return { preMutationParticipants, wasParticipant };
-      }),
-    );
-  }
-
-  /**
-   * By-id projection used by list and mutation surfaces to surface the
-   * `Conversation` row. Fails with `ConversationNotFoundError` when the
-   * row is missing.
+   * By-id projection used by the list surface to surface the `Conversation`
+   * row. Fails with `ConversationNotFoundError` when the row is missing.
    * @param conversationId Value supplied to the operation.
    * @internal
    * @returns The row opt result.
@@ -538,36 +405,6 @@ export class ConversationService {
           return mapConversation(rowOpt.value);
         }.bind(this),
       ),
-    );
-  }
-
-  /**
-   * Authorizing app for a conversation. The routing key every app-authority
-   * gate compares against.
-   * @param conversationId Value supplied to the operation.
-   * @internal
-   * @returns The authorizing app id.
-   */
-  loadAppId(
-    conversationId: ConversationId,
-  ): Effect.Effect<AppId, ConversationNotFoundError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* (this: ConversationService) {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("app_id")
-            .where("id", "=", conversationId),
-        );
-        if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(
-            new ConversationNotFoundError({
-              message: MSG_CONVERSATION_NOT_FOUND,
-            }),
-          );
-        }
-        return rowOpt.value.app_id;
-      }),
     );
   }
 

@@ -4,7 +4,7 @@ import type { SocketError } from "@effect/platform/Socket";
 import type { ReverseClient, ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { AgentContext, AppContext } from "./context.js";
+import type { AgentContext } from "./context.js";
 
 /**
  * The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
@@ -28,7 +28,7 @@ export interface WebSocketRef {
 }
 
 /**
- * Shared base fields across all three connection arms. Module-private — not
+ * Shared base fields across both connection arms. Module-private — not
  * exported. Every arm intersects this; the discriminator is the class tag.
  */
 interface ConnectionBase {
@@ -53,24 +53,15 @@ class AgentConnection extends Data.TaggedClass("AgentConnection")<
   private readonly brandValue!: never;
 }
 
-class AppConnection extends Data.TaggedClass("AppConnection")<
-  ConnectionBase & { readonly auth: AppContext }
-> {
-  private readonly brandValue!: never;
-}
-
 /** Re-exports the public API from `current module`. */
-export type { UnauthenticatedConnection, AgentConnection, AppConnection };
+export type { UnauthenticatedConnection, AgentConnection };
 
-/** The three-arm connection state — the connections map's only entry shape. */
-export type Connection =
-  | UnauthenticatedConnection
-  | AgentConnection
-  | AppConnection;
+/** The two-arm connection state — the connections map's only entry shape. */
+export type Connection = UnauthenticatedConnection | AgentConnection;
 
 /**
- * Outcome of `ConnectionManager.authenticate`'s atomic transition. The
- * success arms are split per minted arm so the Connect handler's
+ * Outcome of `ConnectionManager.authenticate`'s atomic transition. The success
+ * arm carries the minted connection so the Connect handler's
  * `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
  * `authed` structurally — no `as AgentConnection` cast.
  */
@@ -78,33 +69,9 @@ export type TransitionOutcome =
   | { readonly kind: "not-connected" }
   | {
       readonly kind: "already-connected";
-      readonly existing: AgentConnection | AppConnection;
+      readonly existing: AgentConnection;
     }
-  | { readonly kind: "ok-agent"; readonly authed: AgentConnection }
-  | { readonly kind: "ok-app"; readonly authed: AppConnection };
-
-/**
- * Mint the connection arm matching the resolved principal. This is the single
- * runtime check of `auth._tag`; callers narrow through `TransitionOutcome`.
- * @param base Value supplied to the operation.
- * @param auth Value supplied to the operation.
- * @returns The mint authed arm result.
- */
-const mintAuthedArm = (
-  base: ConnectionBase,
-  auth: AgentContext | AppContext,
-): { readonly outcome: TransitionOutcome; readonly minted: Connection } =>
-  Match.value(auth).pipe(
-    Match.tag("AgentContext", (agentAuth) => {
-      const authed = new AgentConnection({ ...base, auth: agentAuth });
-      return { outcome: { kind: "ok-agent", authed } as const, minted: authed };
-    }),
-    Match.tag("AppContext", (appAuth) => {
-      const authed = new AppConnection({ ...base, auth: appAuth });
-      return { outcome: { kind: "ok-app", authed } as const, minted: authed };
-    }),
-    Match.exhaustive,
-  );
+  | { readonly kind: "ok-agent"; readonly authed: AgentConnection };
 
 /**
  * Visit every agent-arm connection in `map`. Centralizes the
@@ -186,7 +153,7 @@ export class ConnectionManager {
 
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
-   * at WebSocket open. The Connect handler promotes it to the agent/app arm.
+   * at WebSocket open. The Connect handler promotes it to the agent arm.
    * @param connId Value supplied to the operation.
    * @param socket Value supplied to the operation.
    * @param originator Value supplied to the operation.
@@ -240,16 +207,16 @@ export class ConnectionManager {
   }
 
   /**
-   * Atomic per-connection authentication gate. Pattern-matches on
-   * `auth._tag` once to decide which arm to mint. Returns a split-per-arm
-   * `TransitionOutcome` so callers narrow without a cast.
+   * Atomic per-connection authentication gate. Mints the agent arm from the
+   * unauthenticated entry and returns a `TransitionOutcome` whose success arm
+   * carries the minted connection, so callers narrow without a cast.
    * @param connId Value supplied to the operation.
    * @param auth Value supplied to the operation.
    * @returns The current result.
    */
   authenticate(
     connId: ConnectionId,
-    auth: AgentContext | AppContext,
+    auth: AgentContext,
   ): Effect.Effect<TransitionOutcome> {
     return Ref.modify(this.stateRef, (state) => {
       const current = HashMap.get(state.connections, connId);
@@ -265,28 +232,19 @@ export class ConnectionManager {
           ],
         ),
         Match.tag(
-          "AppConnection",
-          (existing): [TransitionOutcome, typeof state] => [
-            { kind: "already-connected", existing },
-            state,
-          ],
-        ),
-        Match.tag(
           "UnauthenticatedConnection",
           (unauth): [TransitionOutcome, typeof state] => {
-            const { outcome, minted } = mintAuthedArm(
-              {
-                connId: unauth.connId,
-                socket: unauth.socket,
-                originator: unauth.originator,
-              },
+            const authed = new AgentConnection({
+              connId: unauth.connId,
+              socket: unauth.socket,
+              originator: unauth.originator,
               auth,
-            );
+            });
             return [
-              outcome,
+              { kind: "ok-agent", authed },
               {
                 ...state,
-                connections: HashMap.set(state.connections, connId, minted),
+                connections: HashMap.set(state.connections, connId, authed),
               },
             ];
           },
@@ -368,8 +326,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Read-only lookup narrowed to the agent arm. App lookups go through
-   * `AppRegistry` by `appId`; `UnauthenticatedConnection` and `AppConnection`
+   * Read-only lookup narrowed to the agent arm. `UnauthenticatedConnection`
    * entries are skipped structurally (no `auth.agentId` to compare).
    * @param agentId Identifier of the agent targeted by the operation.
    * @returns The found result.
@@ -471,37 +428,6 @@ export class ConnectionManager {
           current.value.auth.agentId,
           conversationIds,
         ),
-      };
-    });
-  }
-
-  /**
-   * Remove `conversationId` from the subscription index for `agentId` (the
-   * inverse of {@link addConversationToAgents}). Used by
-   * `ConversationService.removeParticipant`.
-   * @param agentId Identifier of the agent targeted by the operation.
-   * @param conversationId Value supplied to the operation.
-   * @returns The existing result.
-   */
-  removeConversationFromAgent(
-    agentId: AgentId,
-    conversationId: ConversationId,
-  ): Effect.Effect<void> {
-    return Ref.update(this.stateRef, (state) => {
-      const existing = HashMap.get(
-        state.agentConversationSubscriptions,
-        agentId,
-      );
-      if (Option.isNone(existing)) {
-        return state;
-      }
-      const next = HashSet.remove(existing.value, conversationId);
-      return {
-        ...state,
-        agentConversationSubscriptions:
-          HashSet.size(next) === 0
-            ? HashMap.remove(state.agentConversationSubscriptions, agentId)
-            : HashMap.set(state.agentConversationSubscriptions, agentId, next),
       };
     });
   }

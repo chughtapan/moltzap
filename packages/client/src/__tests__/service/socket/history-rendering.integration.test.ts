@@ -20,7 +20,6 @@ it("lastRead tracks seen message IDs across reads", () =>
     // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
     yield* Effect.gen(function* () {
       const conv = yield* service.call(H.agentConversationCreate.name, {
-        appId: H.DEFAULT_APP_ID,
         participants: [regB.agentId],
       });
 
@@ -67,7 +66,6 @@ it("non-text message parts render as markers in socket history", () =>
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
       const conv = yield* service.call(H.agentConversationCreate.name, {
-        appId: H.DEFAULT_APP_ID,
         participants: [regB.agentId],
       });
 

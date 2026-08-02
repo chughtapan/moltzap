@@ -14,12 +14,9 @@ import {
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
 import { DbTag } from "#db";
-import { EncryptionTag, EnvelopeEncryption } from "#db/crypto";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
 import type { CoreConfig } from "#config";
-import { AppEndpointRegistryTag } from "../identity/apps/layer.js";
-import { installDefaultApp } from "../identity/apps/default-app.js";
 import { ConnectionHooksTag } from "./hooks.js";
 import { servicesLive, resolveServices } from "./layers.js";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
@@ -33,21 +30,14 @@ class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
 }> {}
 
 /**
- * Typed fatal for boot failure. The `phase` discriminator names
- * which boot step failed:
- * - `"http-listen"` — step 5a's `NodeHttpServer.make` / `serverSvc.serve`
- *   typed `ServeError` (EADDRINUSE, EACCES, ...).
- * - `"default-app-connect"` — step 5c's `startDefaultApp` `BootDefaultAppError`
- *   (wrapping `client.connect()`'s `ConnectError`).
- *
- * Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
- * and flow through the boot-failure `catchAllCause` envelope without a phase
- * tag.
+ * Typed fatal for boot failure. The `phase` discriminator names which boot step
+ * failed: `"http-listen"` is `NodeHttpServer.make` / `serverSvc.serve`'s typed
+ * `ServeError` (EADDRINUSE, EACCES, ...).
  */
 export class ServerBootFailedError extends Data.TaggedError(
   "ServerBootFailedError",
 )<{
-  readonly phase: "http-listen" | "default-app-connect";
+  readonly phase: "http-listen";
   readonly cause: unknown;
 }> {}
 
@@ -99,24 +89,11 @@ function resolveSpanProcessor(
 }
 
 function makeCoreRuntime(config: CoreConfig) {
-  const envelope = config.encryptionMasterSecret
-    ? new EnvelopeEncryption(config.encryptionMasterSecret)
-    : null;
   const spanProcessor = resolveSpanProcessor(config.spanProcessor);
   const tracingLive =
     spanProcessor === null ? Layer.empty : makeTracingLayer({ spanProcessor });
-  const baseLive = Layer.mergeAll(
-    Layer.succeed(DbTag, config.db),
-    Layer.succeed(EncryptionTag, envelope),
-  );
-  const servicesWithBase = Layer.provideMerge(servicesLive, baseLive);
-  const installDefaultAppValue = Layer.effectDiscard(
-    Effect.gen(function* () {
-      const appEndpointRegistry = yield* AppEndpointRegistryTag;
-      installDefaultApp(appEndpointRegistry);
-    }).pipe(Effect.withSpan("makeCoreRuntime.installDefaultApp")),
-  );
-  const fullLive = Layer.provideMerge(installDefaultAppValue, servicesWithBase);
+  const baseLive = Layer.succeed(DbTag, config.db);
+  const fullLive = Layer.provideMerge(servicesLive, baseLive);
   // The connection/disconnection hook arrays are created here so the native
   // `agent/network/connect` handler can fire the connection hooks via
   // `ConnectionHooksTag`. They are mutable references the `CoreApp.onConnection`
@@ -155,7 +132,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const httpApp = makeCoreHttpApp({
     config,
     authService: services.authService,
-    appAuthService: services.appAuthService,
     connections: services.connections,
     handleSocket,
   });

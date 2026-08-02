@@ -130,7 +130,7 @@ export const messagesList = defineRpc({
   name: "agent/message/list",
   params: messagesListParams,
   result: messagesListResult,
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [ForbiddenError],
 })
 ```
@@ -147,7 +147,7 @@ export const messagesSend = defineRpc({
   name: "agent/message/send",
   params: messagesSendParams,
   result: messagesSendResult,
-  requires: [AgentPrincipal, ActiveAgent, ConversationSendAccess],
+  requires: [AuthenticatedAgent, ActiveAgent, ConversationSendAccess],
   errors: [],
 })
 ```

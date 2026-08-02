@@ -3,14 +3,14 @@
  * (`*.handlers.ts` exports, assembled in `server-handlers.ts`).
  *
  * Requirement middleware has already gated the frame. The body types its `ctx`
- * against the full {@link AgentContext} / {@link AppContext} so it can read
- * `ownerUserId` / `agentStatus`. The full arm is read off the request-scoped
+ * against the full {@link AgentContext} so it can read `ownerUserId` /
+ * `agentStatus`. The full arm is read off the request-scoped
  * {@link ConnectionTag}; principal requirements have already gated the arm, so
  * a non-matching `_tag` here is an impossible-state defect, not a
  * caller-actionable rejection.
  *
- * `agentArm`/`appArm` are the two narrowing reads: each reads `ConnectionTag`,
- * asserts the gated arm, and yields the full context the body types against.
+ * `agentArm` is the narrowing read: it reads `ConnectionTag`, asserts the gated
+ * arm, and yields the full context the body types against.
  * A handler fails with its declared tagged-error INSTANCES; the engine encodes
  * them against the method's per-method `errorSchema` union. There is no
  * domain-error→envelope projection — defects bypass typed errors and surface as
@@ -21,17 +21,16 @@ import {
   ConnectionManagerTag,
   ConnectionTag,
   type AgentContext,
-  type AppContext,
 } from "#socket";
 import { peekLiveArm } from "./principal-gate.js";
 
 /**
  * Read the LIVE connection arm for this request. `ConnectionTag` is a per-socket
- * BUILD-time snapshot (it predates `agent/network/connect` / `app/network/connect`, so its `_tag` is still
- * `UnauthenticatedConnection`); the connection arm transitions to
- * `AgentConnection` / `AppConnection` AFTER connect runs. The handler must read
- * the live arm; `ConnectionTag` only carries the stable `connId` used to
- * re-peek the live arm off the manager.
+ * BUILD-time snapshot (it predates `agent/network/connect`, so its `_tag` is
+ * still `UnauthenticatedConnection`); the connection arm transitions to
+ * `AgentConnection` AFTER connect runs. The handler must read the live arm;
+ * `ConnectionTag` only carries the stable `connId` used to re-peek the live arm
+ * off the manager.
  */
 const liveArm = Effect.gen(function* () {
   const snapshot = yield* ConnectionTag;
@@ -58,22 +57,3 @@ export const agentArm: Effect.Effect<
   }
   return connection.auth;
 }).pipe(Effect.withSpan("serverHandlers.agentArm"));
-
-/**
- * Read the request-scoped app context for a handler whose principal gate
- * narrowed the arm to `"app"`. A non-app arm is an impossible-state defect for
- * the same reason as {@link agentArm}.
- */
-export const appArm: Effect.Effect<
-  AppContext,
-  never,
-  ConnectionTag | ConnectionManagerTag
-> = Effect.gen(function* () {
-  const connection = yield* liveArm;
-  if (connection._tag !== "AppConnection") {
-    return yield* Effect.dieMessage(
-      `handler: app-gated method reached on ${connection._tag} arm`,
-    );
-  }
-  return connection.auth;
-}).pipe(Effect.withSpan("serverHandlers.appArm"));

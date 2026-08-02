@@ -12,16 +12,10 @@ export { MoltZapAgentClient } from "./agent-client.js";
 /** Re-exports the public API from `./agent-client.js`. */
 export type { AgentClientOptions } from "./agent-client.js";
 
-/** Re-exports the public API from `./app-client.js`. */
-export { MoltZapAppClient } from "./app-client.js";
-/** Re-exports the public API from `./app-client.js`. */
-export type { AppClientOptions } from "./app-client.js";
-
 /** Re-exports the public API from `./lifecycle.js`. */
 export {
   RPC_TIMEOUT_MS,
   openProtocolAgentClientSocket,
-  openProtocolAppClientSocket,
   ProtocolClientLifecycle,
 } from "./lifecycle.js";
 /** Re-exports the public API from `./lifecycle.js`. */

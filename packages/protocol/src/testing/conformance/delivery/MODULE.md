@@ -15,7 +15,7 @@ by name AND aggregates them into `DELIVERY_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireConversation`](./_helpers.ts#L179)
+### [`acquireConversation`](./_helpers.ts#L178)
 
 _Function_
 
@@ -31,7 +31,7 @@ Executes the acquire conversation operation.
 
 **Returns:** The acquire conversation result.
 
-### [`ConversationActor`](./_helpers.ts#L40)
+### [`ConversationActor`](./_helpers.ts#L39)
 
 _Interface_
 
@@ -56,7 +56,7 @@ export interface ConversationActor {
 
 Describes conversation actor.
 
-### [`ConversationFixture`](./_helpers.ts#L33)
+### [`ConversationFixture`](./_helpers.ts#L32)
 
 _Interface_
 
@@ -70,7 +70,7 @@ export interface ConversationFixture {
 
 Describes conversation fixture.
 
-### [`DELIVERY_CATEGORY`](./_helpers.ts#L25)
+### [`DELIVERY_CATEGORY`](./_helpers.ts#L24)
 
 _Variable_
 
@@ -80,7 +80,7 @@ export const DELIVERY_CATEGORY = "delivery"
 
 Provides the delivery category runtime value.
 
-### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L29)
+### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L28)
 
 _Variable_
 
@@ -90,7 +90,7 @@ export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
 
 Provides the delivery default property num runs runtime value.
 
-### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L27)
+### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L26)
 
 _Variable_
 
@@ -112,7 +112,7 @@ export const DELIVERY_PROPERTIES: ReadonlyArray<
 
 All delivery-layer property registrars.
 
-### [`deliveryViolation`](./_helpers.ts#L131)
+### [`deliveryViolation`](./_helpers.ts#L130)
 
 _Function_
 
@@ -127,7 +127,7 @@ Executes the delivery violation operation.
 
 **Returns:** The delivery violation result.
 
-### [`fixtureN`](./_helpers.ts#L147)
+### [`fixtureN`](./_helpers.ts#L146)
 
 _Function_
 
@@ -139,7 +139,7 @@ Executes the fixture n operation.
 
 **Returns:** The fixture n result.
 
-### [`NotificationBuffer`](./_helpers.ts#L67)
+### [`NotificationBuffer`](./_helpers.ts#L66)
 
 _Interface_
 

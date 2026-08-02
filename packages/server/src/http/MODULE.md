@@ -8,7 +8,7 @@ HTTP server construction barrel.
 
 ## Public surface
 
-### [`makeCoreHttpApp`](./routes.ts#L88)
+### [`makeCoreHttpApp`](./routes.ts#L85)
 
 _Function_
 
@@ -16,7 +16,7 @@ _Function_
 export function makeCoreHttpApp(options: CoreHttpAppOptions)
 ```
 
-Build the core HTTP app. Composes the three always-on routes
+Build the core HTTP app. Composes the two always-on routes
 (`/health`, `/ws`) with the auth surface
 (`/api/v1/auth/register`) and wraps the router in CORS.
 
@@ -25,8 +25,7 @@ Build the core HTTP app. Composes the three always-on routes
 | `/health`                          | always                 | GET    | —                             | 200 `{status, connections}`                                  |
 | `/ws`                              | always                 | GET    | WS Upgrade                    | 101                                                          |
 | `/api/v1/auth/register`            | `skipDefaultRegisterRoute` | POST | `Register.params`           | 201 `{agentId, apiKey}`; 400/403/500                         |
-| `/api/v1/apps/register`            | `skipDefaultRegisterRoute` | POST | `{ manifest, inviteCode? }` | 201 `{appId, appKey}`; 400/403/500                           |
-All bodied routes funnel through `readValidatedBody` for JSON
+The bodied route funnels through `readDecodedBody` for JSON
 decode + Effect-Schema strict (excess-rejecting) decode. Invite-gate
 checks use `safeEqual`
 (constant-time) to compare `inviteCode` against

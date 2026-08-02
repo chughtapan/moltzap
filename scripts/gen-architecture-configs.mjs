@@ -505,20 +505,10 @@ const packageDefinitions = {
           folder: "db",
           maxChildren: 11,
           reason:
-            "The database boundary keeps schema, client, migration, and crypto adapters together while each concern remains named and cohesive",
+            "The database boundary keeps schema, client, and migration adapters together while each concern remains named and cohesive",
         },
       ],
       facadeFiles: [
-        {
-          file: "db/crypto/envelope.ts",
-          reason:
-            "Envelope encryption is the crypto subsystem's explicit API over its key-material implementation files",
-        },
-        {
-          file: "dispatch/layer.ts",
-          reason:
-            "The dispatch layer module is the composition facade for its Effect service tags and live implementations",
-        },
         {
           file: "message/layer.ts",
           reason:
@@ -528,11 +518,6 @@ const packageDefinitions = {
           file: "network/layer.ts",
           reason:
             "The network layer module is the composition facade for its Effect service tags and live implementations",
-        },
-        {
-          file: "dispatch/lease-registry.ts",
-          reason:
-            "The lease registry module is the authoritative facade for the complete dispatch lease state machine and its wire projection",
         },
         {
           file: "moltzap/handler-catalog.ts",
