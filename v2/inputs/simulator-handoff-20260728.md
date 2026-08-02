@@ -99,12 +99,13 @@ are behavioral requirements, not permission to copy untracked files.
 - Replace v1 Router/provider contracts with one public `StackProvider`
   capability owned and root-exported by `simulator`; `testbed` supplies
   its production Live Layer.
-- Give runtime subjects `EndpointProfileRef`; never give them Router,
-  Ledger, database, key, or daemon internals.
+- Give runtime subjects the public `HarnessClient` capability; never give them
+  Router, Ledger, database, key, daemon, profile configuration, or platform
+  internals.
 - Replace v1 protocol and event types with v2-native public contracts.
 - Keep platform and external-process constructors in `testbed`.
-- Treat the production stack as one black-box subject with separate
-  Registry, Router, Ledger, and per-AgentId daemon processes.
+- Treat the production stack as one black-box subject with separate Registry,
+  Router, Ledger, and one `moltzapd` process per named profile slot.
 - Keep simulation RunLedger separate from the product Transcript in
   type ownership, persistence, offsets, hashes, and migrations.
 
