@@ -193,6 +193,27 @@ effectTest(
   concurrentShutdownCallersAwaitTheSameCleanup,
 );
 
+function connectWaitsForActiveShutdownBeforeStartingANewLifecycle() {
+  return Effect.gen(function* () {
+    const shutdownCompletion = yield* Deferred.make<undefined>();
+    const service = new FakeMoltZapService();
+    Reflect.set(service, "shutdownCompletion", shutdownCompletion);
+
+    const connecting = yield* Effect.fork(service.connect());
+    yield* Effect.yieldNow();
+
+    expect(Option.isNone(yield* Fiber.poll(connecting))).toBe(true);
+    expect(Reflect.get(service, "client")).toBeNull();
+
+    yield* Fiber.interrupt(connecting);
+  });
+}
+
+effectTest(
+  "connect waits for active shutdown before starting a new lifecycle",
+  connectWaitsForActiveShutdownBeforeStartingANewLifecycle,
+);
+
 function genericSendOmitsDispatchLease() {
   return Effect.gen(function* () {
     const service = new FakeMoltZapService();
