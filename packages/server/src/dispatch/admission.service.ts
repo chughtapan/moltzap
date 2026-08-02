@@ -2,14 +2,14 @@ import { Data, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
 import {
   dispatchAuthorize,
-  type DispatchId,
+  type dispatchRequest,
   type LeaseId,
 } from "@moltzap/protocol/message/dispatch";
 import type { MessageParts } from "@moltzap/protocol/message";
 import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
+import type { ParamsOf, ResultOf } from "@moltzap/protocol/rpc";
 import type { NetworkSendServiceTag } from "#network";
 import {
   callAppRpc,
@@ -26,6 +26,7 @@ import type {
 
 /** Represents dispatch authorize context values. */
 export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
+type DispatchRequestResult = ResultOf<typeof dispatchRequest>;
 
 interface AppBoundConversationLookup {
   readonly _tag: "AppBound";
@@ -175,21 +176,13 @@ export class DispatchAdmissionService {
 
   enqueue(
     args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<
-    { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
-    never,
-    NetworkSendServiceTag
-  > {
+  ): Effect.Effect<DispatchRequestResult, never, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(this.enqueueEffect(args));
   }
 
   private enqueueEffect(
     args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<
-    { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
-    SqlError,
-    NetworkSendServiceTag
-  > {
+  ): Effect.Effect<DispatchRequestResult, SqlError, NetworkSendServiceTag> {
     return Effect.gen(
       function* (this: DispatchAdmissionService) {
         const lookup = yield* lookupAppBoundForConversation(
@@ -198,17 +191,18 @@ export class DispatchAdmissionService {
         );
         const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
         const minted = yield* this.registry.mint(binding);
-
-        yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
-          conversationId: args.conversationId,
-          recipientAgentId: args.recipientAgentId,
-          messageId: args.messageId,
-          senderAgentId: args.senderAgentId,
-          parts: args.parts,
-          attempt: args.attempt,
-          receivedAt: args.receivedAt,
-          pending: args.pending,
-        });
+        if (!("outcome" in minted)) {
+          yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
+            conversationId: args.conversationId,
+            recipientAgentId: args.recipientAgentId,
+            messageId: args.messageId,
+            senderAgentId: args.senderAgentId,
+            parts: args.parts,
+            attempt: args.attempt,
+            receivedAt: args.receivedAt,
+            pending: args.pending,
+          });
+        }
         return minted;
       }.bind(this),
     );

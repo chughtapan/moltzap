@@ -35,6 +35,9 @@ export const dispatchId: Schema.Schema<DispatchId, string> = formatString(
   Schema.annotations({ description: "Branded DispatchId" }),
 );
 
+/** Lease lifetime used when a grant omits an explicit timeout. */
+export const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000;
+
 /** Reports dispatch not found failures. */
 export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
   "DispatchNotFound",
@@ -85,8 +88,12 @@ const pendingMessageArraySchema = Schema.Array(pendingMessageSchema).pipe(
 );
 
 /**
- * Recipient admission request. The server acks immediately and emits
- * `agent/dispatch/released` when the moderator verdict resolves.
+ * Recipient admission request. The server returns immediately. A minted lease
+ * emits `agent/dispatch/released` when the moderator verdict resolves;
+ * `conversation_busy` creates no lease and emits no release.
+ * @returns `{ leaseId, dispatchId }` when the conversation is reserved, or
+ * `{ outcome: "conversation_busy" }` without a lease when it is already
+ * reserved.
  */
 export const dispatchRequest = defineRpc({
   name: "agent/dispatch/request",
@@ -101,7 +108,10 @@ export const dispatchRequest = defineRpc({
       Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
     ),
   }),
-  result: Schema.Struct({ leaseId: leaseId, dispatchId: dispatchId }),
+  result: Schema.Union(
+    Schema.Struct({ leaseId: leaseId, dispatchId: dispatchId }),
+    Schema.Struct({ outcome: Schema.Literal("conversation_busy") }),
+  ),
   requires: [AgentPrincipal, ActiveAgent],
   errors: [],
 });

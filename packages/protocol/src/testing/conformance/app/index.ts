@@ -6,7 +6,7 @@
  * Dispatch / lease / app-callback invariants — the 14
  * `dispatch-admission` properties (request / authorize / release /
  * dispatch-lease-consumed / dispatch-lease-expired / dispatch-lease-get / slow-first
- * / same-conv-concurrent / release-for-one-lease) plus app-disconnect
+ * / same-conv-busy / release-for-one-lease) plus app-disconnect
  * fail-policy and idempotence.
  *
  * Each `register*` lives in its own file. The `dispatch-admission`
@@ -25,7 +25,7 @@ import { registerDispatchLeaseConsumedSuppressedOnSecondSend } from "./dispatch-
 import { registerDispatchLeaseExpiredFiresOnTtl } from "./dispatch-lease-expired-fires-on-ttl.js";
 import { registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl } from "./dispatch-lease-expired-suppressed-on-consume.js";
 import { registerDispatchLeaseGetModeratorSeesRecord } from "./dispatch-lease-get-moderator-sees.js";
-import { registerSameConversationDispatchRequestsConcurrent } from "./same-conv-dispatch-requests-concurrent.js";
+import { registerSameConversationDispatchRequestBusy } from "./same-conv-dispatch-request-busy.js";
 import { registerSlowFirstDoesNotDelaySecondAck } from "./slow-first-does-not-delay-second-ack.js";
 import { registerReleaseForOneLeaseDoesNotWaitOnAnother } from "./release-for-one-lease-does-not-wait.js";
 import { registerAppDisconnectFailPolicy } from "./app-disconnect-fail-policy.js";
@@ -44,7 +44,7 @@ export {
   registerDispatchLeaseExpiredFiresOnTtl,
   registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl,
   registerDispatchLeaseGetModeratorSeesRecord,
-  registerSameConversationDispatchRequestsConcurrent,
+  registerSameConversationDispatchRequestBusy,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
   registerAppDisconnectFailPolicy,
@@ -70,7 +70,7 @@ export const APP_PROPERTIES: ReadonlyArray<
   registerDispatchLeaseExpiredFiresOnTtl,
   registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl,
   registerDispatchLeaseGetModeratorSeesRecord,
-  registerSameConversationDispatchRequestsConcurrent,
+  registerSameConversationDispatchRequestBusy,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
   registerAppDisconnectFailPolicy,

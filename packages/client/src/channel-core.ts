@@ -16,7 +16,10 @@ import {
 } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { BoundedMap } from "./bounded-map.js";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import {
+  DEFAULT_DISPATCH_LEASE_TIMEOUT_MS,
+  type LeaseId,
+} from "@moltzap/protocol/message/dispatch";
 import type { Message } from "@moltzap/protocol/message";
 import type {
   CrossConversationEntry,
@@ -168,6 +171,8 @@ export interface ChannelService {
     handler: (frame: DispatchReleaseFrame) => void,
   ): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
+  /** Effectful teardown used by scoped process owners. */
+  shutdown?(): Effect.Effect<void>;
   close(): void;
   send(
     conversationId: ConversationId,
@@ -189,9 +194,9 @@ export interface ChannelService {
   };
 
   /**
-   * Issue `agent/dispatch/request` and receive the immediate
-   * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
-   * via the `dispatchRelease` event.
+   * Issue `agent/dispatch/request` and receive either the immediate
+   * `{leaseId, dispatchId}` ack or `conversation_busy`. The verdict for a
+   * minted lease arrives asynchronously via the `dispatchRelease` event.
    *
    * The argument shape mirrors `ParamsOf&lt;DispatchRequest>` from the
    * protocol (the channel core does not depend on the protocol
@@ -210,7 +215,8 @@ export interface ChannelService {
     readonly pending?: readonly unknown[];
     readonly attempt?: number;
   }): Effect.Effect<
-    { readonly leaseId: LeaseId; readonly dispatchId: string },
+    | { readonly leaseId: LeaseId; readonly dispatchId: string }
+    | { readonly outcome: "conversation_busy" },
     ServiceRpcError
   >;
 }
@@ -231,8 +237,11 @@ export type InboundHandler<E = unknown> = (
   msg: EnrichedInboundMessage,
 ) => Effect.Effect<void, E>;
 
+interface InboundHandlerRegistration {
+  readonly handler: InboundHandler;
+}
+
 const DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS = 30_000;
-const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000;
 const DISPATCH_RELEASE_RING_CAPACITY = 256;
 const DISPATCH_RELEASE_RING_SOFT_TTL_MS = 30_000;
 
@@ -306,7 +315,7 @@ interface InboundDispatchWork {
  *   ws->>svc: subscribers.dispatch — fanout(message)
  *   svc->>core: message listener
  *   Note over core: dedup via recordMessageIdIfNew; Queue.unsafeOffer(inboundQueue, work)
- *   Note over core: consumer fiber — Queue.take; takeDispatchCandidate prefers parked[convId]
+ *   Note over core: messages observed without an inbound handler are transiently dropped; consumer fiber uses Queue.take and takeDispatchCandidate prefers parked[convId]
  *   core->>server: agent/dispatch/request — dispatchAdmission
  *   server-->>core: ack {leaseId, dispatchId}
  *   Note over server,core: ack/release race absorbed via pendingDispatchesByLease (Deferred) and pendingReleasesByLease (ring 256, soft-TTL 30s)
@@ -318,7 +327,7 @@ interface InboundDispatchWork {
  *     Note over core: parkDispatchWork — front of parked[convId]
  *   else verdict grant
  *     Note over core: takeCoalescedConversationMessages; drains same-conv from queue + parked
- *     Note over core: dispatchWithLease; leaseIdInFlight = leaseId; enrichMessage — sender name, conversation, context entries
+ *     Note over core: dispatchWithLease; lease scoped to ConversationId; enrichMessage — sender name, conversation, context entries
  *     core->>handler: inboundHandler(enriched)
  *     handler-->>core: Effect.void
  *     Note over core: handler exceeds leaseTimeoutMs (90s) → DispatchLeaseExpired
@@ -333,16 +342,18 @@ export class MoltZapChannelCore {
   private readonly service: ChannelService;
   private readonly dispatchAdmissionTimeoutMs: number;
   private connected = false;
-  private inboundHandler: InboundHandler | null = null;
+  private inboundHandlerRegistration: InboundHandlerRegistration | null = null;
 
   /**
-   * Lease id scoped to the in-flight `dispatchInboundEffect` call
-   * (set immediately around the user-handler invocation). A single
-   * mutable cell because the consumer fiber processes inbound work
-   * strictly serially (one queue, one fiber); concurrent dispatches do
-   * not exist on this code path.
+   * Dispatch authority is keyed by conversation so work performed through
+   * the core for another conversation cannot inherit the active handler's
+   * lease. The single consumer prevents overlapping writes for the same
+   * conversation while set/restore cleanup is active.
    */
-  private leaseIdInFlight?: LeaseId;
+  private readonly leaseIdsInFlightByConversation = new Map<
+    ConversationId,
+    LeaseId
+  >();
 
   /**
    * Per-lease parking Deferreds for dispatches awaiting their
@@ -372,8 +383,8 @@ export class MoltZapChannelCore {
   >();
 
   /**
-   * Inbound messages enqueue synchronously; a single forked consumer fiber
-   * serialises delivery so handlers execute one-at-a-time in arrival order.
+   * Inbound messages with an installed handler enqueue synchronously; a single
+   * forked consumer fiber serialises delivery in arrival order.
    */
   private readonly inboundQueue: Queue.Queue<InboundDispatchWork> =
     Effect.runSync(Queue.unbounded<InboundDispatchWork>());
@@ -393,6 +404,9 @@ export class MoltZapChannelCore {
 
   private registerMessageListener(): void {
     this.service.on("message", ({ message }) => {
+      if (this.inboundHandlerRegistration === null) {
+        return;
+      }
       Queue.unsafeOffer(this.inboundQueue, {
         message,
         attempt: 0,
@@ -511,9 +525,16 @@ export class MoltZapChannelCore {
   /**
    * Replaces any previous handler.
    * @param handler Handler invoked for matching requests.
+   * @returns An idempotent disposer for this registration generation.
    */
-  onInbound<E>(handler: InboundHandler<E>): void {
-    this.inboundHandler = handler;
+  onInbound<E>(handler: InboundHandler<E>): () => void {
+    const registration: InboundHandlerRegistration = { handler };
+    this.inboundHandlerRegistration = registration;
+    return () => {
+      if (this.inboundHandlerRegistration === registration) {
+        this.inboundHandlerRegistration = null;
+      }
+    };
   }
 
   onDisconnect(handler: () => void): void {
@@ -549,11 +570,20 @@ export class MoltZapChannelCore {
   disconnect(): Effect.Effect<void> {
     return Effect.gen(
       function* (this: MoltZapChannelCore) {
-        this.service.close();
         this.connected = false;
         // Interrupt the consumer fiber so any queued inbound messages are
         // dropped rather than delivered after the channel is torn down.
-        yield* Fiber.interrupt(this.consumerFiber);
+        const stopConsumer = Fiber.interrupt(this.consumerFiber);
+        const shutdown = this.service.shutdown?.();
+        if (shutdown === undefined) {
+          this.service.close();
+          yield* stopConsumer;
+          return;
+        }
+        yield* Effect.all([stopConsumer, shutdown], {
+          concurrency: 2,
+          discard: true,
+        });
       }.bind(this),
     );
   }
@@ -563,8 +593,8 @@ export class MoltZapChannelCore {
   }
 
   /**
-   * Reply into a conversation, consuming the in-flight dispatch lease unless
-   * the caller names another.
+   * Reply into a conversation with an explicit dispatch lease when supplied,
+   * otherwise with only the active lease for `conversationId`.
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
    * @param opts Value supplied to the operation.
@@ -577,7 +607,9 @@ export class MoltZapChannelCore {
     opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
     return this.service.send(conversationId, text, {
-      dispatchLeaseId: opts?.dispatchLeaseId ?? this.leaseIdInFlight,
+      dispatchLeaseId:
+        opts?.dispatchLeaseId ??
+        this.leaseIdsInFlightByConversation.get(conversationId),
     });
   }
 
@@ -639,7 +671,7 @@ export class MoltZapChannelCore {
    *   GRANTED : proceed to enrichment
    *   DENIED : drop message — consumer fiber continues
    *   GRANTED --> IN_FLIGHT : dispatchWithLease
-   *   IN_FLIGHT : leaseIdInFlight set; handler executing; lease authorizes one agent/message/send
+   *   IN_FLIGHT : lease keyed by ConversationId; handler executing; lease authorizes one agent/message/send
    *   IN_FLIGHT --> CONSUMED : handler returns within leaseTimeoutMs; server marks via dispatchLeaseId
    *   IN_FLIGHT --> EXPIRED : handler exceeds leaseTimeoutMs; DispatchLeaseExpired logged
    *   CONSUMED --> [*]
@@ -647,9 +679,9 @@ export class MoltZapChannelCore {
    *   EXPIRED --> [*]
    * ```
    *
-   * `HELD` re-enters the queue at the parked-front so the same
-   * conversation gets the next dispatch attempt without starving
-   * other conversations.
+   * `HELD` stays at the parked-front. Later inbound work for that same
+   * conversation wakes its next dispatch attempt without preventing inbound
+   * work for other conversations from progressing.
    *
    * When the service has no `requestDispatch` (test fakes that don't
    * exercise admission), default-grant.
@@ -690,7 +722,11 @@ export class MoltZapChannelCore {
             timeoutMs: this.dispatchAdmissionTimeoutMs,
           }),
       }),
-      Effect.flatMap(({ leaseId }) => this.awaitDispatchRelease(work, leaseId)),
+      Effect.flatMap((result) =>
+        "outcome" in result
+          ? Effect.succeed(MoltZapChannelCore.holdDecision(result.outcome))
+          : this.awaitDispatchRelease(work, result.leaseId),
+      ),
       Effect.catchAll((err) =>
         Effect.gen(function* () {
           yield* effectLogWarning(
@@ -902,7 +938,11 @@ export class MoltZapChannelCore {
     messages: readonly Message[],
     decision: DispatchGrantDecision,
   ): Effect.Effect<boolean, unknown> {
-    const dispatch = this.dispatchWithLease(messages, decision.leaseId);
+    const dispatch = this.dispatchWithLease(
+      primaryMessage.conversationId,
+      messages,
+      decision.leaseId,
+    );
     const timeoutMs = MoltZapChannelCore.leaseTimeoutMs(decision);
     if (timeoutMs === undefined) {
       return dispatch.pipe(Effect.as(false));
@@ -925,19 +965,31 @@ export class MoltZapChannelCore {
   }
 
   private dispatchWithLease(
+    conversationId: ConversationId,
     messages: readonly Message[],
     leaseId?: LeaseId,
   ): Effect.Effect<void, unknown> {
     return Effect.sync(() => {
-      const previous = this.leaseIdInFlight;
-      this.leaseIdInFlight = leaseId;
+      const previous = this.leaseIdsInFlightByConversation.get(conversationId);
+      if (leaseId === undefined) {
+        this.leaseIdsInFlightByConversation.delete(conversationId);
+      } else {
+        this.leaseIdsInFlightByConversation.set(conversationId, leaseId);
+      }
       return previous;
     }).pipe(
       Effect.flatMap((previous) =>
         this.dispatchInboundEffect(messages).pipe(
           Effect.ensuring(
             Effect.sync(() => {
-              this.leaseIdInFlight = previous;
+              if (previous === undefined) {
+                this.leaseIdsInFlightByConversation.delete(conversationId);
+              } else {
+                this.leaseIdsInFlightByConversation.set(
+                  conversationId,
+                  previous,
+                );
+              }
             }),
           ),
         ),
@@ -1137,19 +1189,23 @@ export class MoltZapChannelCore {
   ): Effect.Effect<void, unknown> {
     return Effect.gen(
       function* (this: MoltZapChannelCore) {
-        if (!this.inboundHandler) {
+        const registration = this.inboundHandlerRegistration;
+        if (registration === null) {
           return;
         }
         const { enriched, commitContext } =
           yield* MoltZapChannelCore.enrichMessage(this.service, messages);
+        const leaseId = this.leaseIdsInFlightByConversation.get(
+          enriched.conversationId,
+        );
         const leased =
-          this.leaseIdInFlight !== undefined
-            ? { ...enriched, dispatchLeaseId: this.leaseIdInFlight }
+          leaseId !== undefined
+            ? { ...enriched, dispatchLeaseId: leaseId }
             : enriched;
         // The handler is user code returning an Effect — yield it directly so
         // its typed error channel propagates to the consumer fiber, which logs
         // and continues. We await it inline to preserve arrival-order delivery.
-        yield* this.inboundHandler(leased);
+        yield* registration.handler(leased);
         if (commitContext) {
           commitContext();
         }

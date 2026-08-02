@@ -5,6 +5,7 @@ import {
   validateMessage,
   validateTextPart,
 } from "#message";
+import { dispatchRequest } from "#message/dispatch";
 
 describe("TextPartSchema", () => {
   it("accepts valid text part", () => {
@@ -88,5 +89,29 @@ describe("DispatchDecisionSchema", () => {
     expect(validateDispatchDecision({ tag: "pending", extra: true })).toBe(
       false,
     );
+  });
+});
+
+describe("DispatchRequest result schema", () => {
+  it("accepts a minted lease acknowledgment", () => {
+    expect(
+      dispatchRequest.validateResult({
+        leaseId: "550e8400-e29b-41d4-a716-446655440001",
+        dispatchId: "550e8400-e29b-41d4-a716-446655440002",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts conversation_busy without lease identifiers", () => {
+    expect(
+      dispatchRequest.validateResult({ outcome: "conversation_busy" }),
+    ).toBe(true);
+    expect(
+      dispatchRequest.validateResult({
+        outcome: "conversation_busy",
+        leaseId: "550e8400-e29b-41d4-a716-446655440001",
+        dispatchId: "550e8400-e29b-41d4-a716-446655440002",
+      }),
+    ).toBe(false);
   });
 });

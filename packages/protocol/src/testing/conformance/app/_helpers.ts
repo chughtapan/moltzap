@@ -1,5 +1,5 @@
 /**
- * App-layer helpers shared across the 15 dispatch-admission properties.
+ * App-layer helpers shared across the 14 dispatch-admission properties.
  */
 import { Effect, type Scope, type Schema } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
