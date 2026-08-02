@@ -41,9 +41,9 @@ patch identity, abbreviated hash, or anticipated commit. It must be the
 
 All boxes must be checked before changing status to `verified`:
 
-- [ ] The Gate 0 repository-native architecture freeze has landed on
-      `main`.
-- [ ] Candidate work has been rebased onto that `main`.
+- [ ] The Gate 0 repository-native architecture freeze is current on the
+      `v2` track.
+- [ ] Candidate work has been rebased onto current `main`.
 - [ ] Every simulator, testbed, eval, configuration, fixture, and
       decision file needed to reconstruct the source is tracked.
 - [ ] The source no longer assumes a conversation-aware L2,
