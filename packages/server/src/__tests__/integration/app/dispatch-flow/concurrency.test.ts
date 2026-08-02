@@ -5,11 +5,13 @@
  * Bucket file: `concurrency` group. Each bucket owns its own server fixture so
  * vitest can execute buckets concurrently without sharing state.
  *
- * The recipient calls `agent/dispatch/request` over WS; server mints a lease, returns ack
- * synchronously, forks the moderator round-trip; recipient observes
- * the verdict via `agent/dispatch/released` notification. `agent/message/send(
- * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
- * claim, sendInsert+commit, finalize|rollback)`.
+ * The recipient calls `agent/dispatch/request` over WS. An available
+ * conversation returns a lease synchronously and forks the moderator
+ * round-trip; a reserved conversation returns `conversation_busy` without a
+ * lease. The recipient observes minted-lease verdicts via
+ * `agent/dispatch/released`. `agent/message/send(dispatchLeaseId=X)` consumes a
+ * lease via `Effect.acquireUseRelease(claim, sendInsert+commit,
+ * finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
 import { dispatchRelease } from "@moltzap/protocol/message/dispatch";
@@ -27,6 +29,7 @@ import {
   MODERATED_HOOKS,
   readLeaseByLeaseId,
   requestDispatch,
+  requestDispatchOutcome,
   sendMessageWithLease,
   startDispatchFlowServer,
   stopDispatchFlowServer,
@@ -65,16 +68,16 @@ function requestDispatchesInParallel(
 ) {
   return Effect.all(
     [
-      requestDispatch(bob, conversationIds[0], alice, "first"),
-      requestDispatch(bob, conversationIds[1], alice, "second"),
+      requestDispatchOutcome(bob, conversationIds[0], alice, "first"),
+      requestDispatchOutcome(bob, conversationIds[1], alice, "second"),
     ],
     { concurrency: DISPATCH_REQUEST_CONCURRENCY },
   );
 }
 
-function forkTwoReleaseCollector(recipient: ConnectedAgent) {
+function forkReleaseCollector(recipient: ConnectedAgent, count: number) {
   return recipient.client.subscribe(dispatchRelease).pipe(
-    Stream.take(2),
+    Stream.take(count),
     Stream.runCollect,
     Effect.map(Chunk.toReadonlyArray),
     Effect.timeoutFail({
@@ -91,37 +94,59 @@ function crossConversationRequestsRunConcurrently() {
     yield* attachDispatchAuthorizeHook(fixture);
     const conv1 = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
     const conv2 = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
-    const releasesFiber = yield* forkTwoReleaseCollector(bob);
-    const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
-      conv1.conversationId,
-      conv2.conversationId,
-    ]);
+    const releasesFiber = yield* forkReleaseCollector(bob, 2);
+    const [outcome1, outcome2] = yield* requestDispatchesInParallel(
+      alice,
+      bob,
+      [conv1.conversationId, conv2.conversationId],
+    );
+    if ("outcome" in outcome1 || "outcome" in outcome2) {
+      return yield* Effect.dieMessage(
+        "distinct conversations must both mint dispatch leases",
+      );
+    }
 
-    expect(ack1.leaseId).not.toBe(ack2.leaseId);
+    expect(outcome1.leaseId).not.toBe(outcome2.leaseId);
     const releases = yield* Fiber.join(releasesFiber);
     expect(releases).toHaveLength(EXPECTED_HOOK_CALLS);
     const seen = new Set(releases.map((release) => release.leaseId));
-    expect(seen.has(ack1.leaseId)).toBe(true);
-    expect(seen.has(ack2.leaseId)).toBe(true);
+    expect(seen.has(outcome1.leaseId)).toBe(true);
+    expect(seen.has(outcome2.leaseId)).toBe(true);
     expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
   });
 }
 
-function sameConversationRequestsRunConcurrently() {
+function sameConversationRequestsReturnBusy() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     yield* attachDispatchAuthorizeHook(fixture);
     const conv = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
-    const releasesFiber = yield* forkTwoReleaseCollector(bob);
-    const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
-      conv.conversationId,
-      conv.conversationId,
-    ]);
+    const releasesFiber = yield* forkReleaseCollector(bob, 1);
+    const [outcome1, outcome2] = yield* requestDispatchesInParallel(
+      alice,
+      bob,
+      [conv.conversationId, conv.conversationId],
+    );
+    const leaseOutcome = "outcome" in outcome1 ? outcome2 : outcome1;
+    const busyOutcome = "outcome" in outcome1 ? outcome1 : outcome2;
+    if ("outcome" in leaseOutcome || !("outcome" in busyOutcome)) {
+      return yield* Effect.dieMessage(
+        "same-conversation requests must return one lease and one busy outcome",
+      );
+    }
 
-    expect(ack1.leaseId).not.toBe(ack2.leaseId);
-    expect(ack1.dispatchId).not.toBe(ack2.dispatchId);
-    expect(yield* Fiber.join(releasesFiber)).toHaveLength(EXPECTED_HOOK_CALLS);
-    expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
+    expect(busyOutcome).toEqual({ outcome: "conversation_busy" });
+    const releases = yield* Fiber.join(releasesFiber);
+    expect(releases).toHaveLength(1);
+    expect(releases[0]?.leaseId).toBe(leaseOutcome.leaseId);
+    expect(fixture.hookCalls()).toBe(1);
+
+    yield* sendMessageWithLease(bob, conv, leaseOutcome.leaseId, "consume");
+    const nextReleaseFiber = yield* waitForDispatchRelease(bob);
+    const next = yield* requestDispatch(bob, conv.conversationId, alice);
+    yield* Fiber.join(nextReleaseFiber);
+    expect(next.leaseId).not.toBe(leaseOutcome.leaseId);
+    expect(fixture.hookCalls()).toBe(2);
   });
 }
 
@@ -204,8 +229,8 @@ describe("dispatch/* — concurrency", () => {
   );
 
   it(
-    "same-conversation concurrency: two agent/dispatch/request in the same conversation run concurrently",
-    sameConversationRequestsRunConcurrently,
+    "same-conversation concurrency: one request mints a lease and one returns conversation_busy",
+    sameConversationRequestsReturnBusy,
     25_000,
   );
 

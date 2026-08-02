@@ -40,8 +40,17 @@ function assertReleaseIndependence(
   return Effect.gen(function* () {
     const firstMsgId = freshMessageId();
     const secondMsgId = freshMessageId();
-    const ack1 = yield* requestHeldLease(driver, firstMsgId);
-    const ack2 = yield* requestFastLease(driver, secondMsgId);
+    const secondConversation = yield* driver.createConversation();
+    const ack1 = yield* requestHeldLease(
+      driver,
+      driver.fixtures.conversationId,
+      firstMsgId,
+    );
+    const ack2 = yield* requestFastLease(
+      driver,
+      secondConversation,
+      secondMsgId,
+    );
     yield* assertSecondReleaseArrivesFirst(propertyName, driver, ack2.leaseId);
     yield* driver.recipient.waitForRelease(
       matchesLeaseId(ack1.leaseId),
@@ -54,12 +63,17 @@ type MessageIdValue = Parameters<
   DispatchTestDriver["recipient"]["requestDispatch"]
 >[0]["messageId"];
 
+type ConversationIdValue = Parameters<
+  DispatchTestDriver["recipient"]["requestDispatch"]
+>[0]["conversationId"];
+
 type LeaseIdValue = Parameters<
   DispatchTestDriver["recipient"]["sendWithLease"]
 >[0]["leaseId"];
 
 function requestHeldLease(
   driver: DispatchTestDriver,
+  conversationId: ConversationIdValue,
   messageId: MessageIdValue,
 ) {
   return Effect.gen(function* () {
@@ -68,12 +82,13 @@ function requestHeldLease(
       holdResponseFor: HOLD_MS,
       predicate: (params) => params.messageId === messageId,
     });
-    return yield* requestDispatchForMessage(driver, messageId);
+    return yield* requestDispatchForMessage(driver, conversationId, messageId);
   });
 }
 
 function requestFastLease(
   driver: DispatchTestDriver,
+  conversationId: ConversationIdValue,
   messageId: MessageIdValue,
 ) {
   return Effect.gen(function* () {
@@ -81,16 +96,17 @@ function requestFastLease(
       respondWith: { _tag: "grant" },
       predicate: (params) => params.messageId === messageId,
     });
-    return yield* requestDispatchForMessage(driver, messageId);
+    return yield* requestDispatchForMessage(driver, conversationId, messageId);
   });
 }
 
 function requestDispatchForMessage(
   driver: DispatchTestDriver,
+  conversationId: ConversationIdValue,
   messageId: MessageIdValue,
 ) {
   return driver.recipient.requestDispatch({
-    conversationId: driver.fixtures.conversationId,
+    conversationId,
     messageId,
     senderAgentId: driver.moderator.agentId,
   });

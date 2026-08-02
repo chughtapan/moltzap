@@ -59,8 +59,6 @@ export const CAPTION_TEXT = "caption";
 export const FIRST_TEXT = "first";
 /** Provides the second text runtime value. */
 export const SECOND_TEXT = "second";
-/** Provides the denied lease id runtime value. */
-export const DENIED_LEASE_ID = testLeaseId("lease-den");
 /** Provides the time to vote text runtime value. */
 export const TIME_TO_VOTE_TEXT = "Time to vote";
 /** Provides the after marker text runtime value. */

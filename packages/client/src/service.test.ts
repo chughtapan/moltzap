@@ -1,6 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect, Exit, Schema } from "effect";
+import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
 import {
   type Message,
   messageReceivedNotificationDefinition,
@@ -14,6 +14,8 @@ import {
   buildMessage,
   testAgentId,
   testConversationId,
+  testDispatchId,
+  testLeaseId,
   testMessageId,
 } from "./test-utils/index.js";
 
@@ -47,8 +49,8 @@ const VIEWER_TWO_ID = testConversationId("viewer-2");
 const MESSAGE_ONE_ID = testMessageId("m-1");
 const MESSAGE_TWO_ID = testMessageId("m-2");
 const MESSAGE_THREE_ID = testMessageId("m-3");
-const DISPATCH_LEASE_ID = testAgentId("lease-1");
-const DISPATCH_ID = testAgentId("dispatch-1");
+const DISPATCH_LEASE_ID = testLeaseId("lease-1");
+const DISPATCH_ID = testDispatchId("dispatch-1");
 const decodeAgentName = Schema.decodeSync(agentName);
 const SEND_TO_AGENT_NAME = decodeAgentName("alice");
 const BOB_AGENT_NAME = decodeAgentName("bob");
@@ -136,6 +138,130 @@ function seedMessageSendResponse(service: FakeMoltZapService): void {
     }),
   });
 }
+
+function shutdownMutatesStateOnlyWhenItsEffectRuns() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    const stored = buildMessage();
+    service.addMessage(stored.conversationId, stored);
+
+    const shutdown = service.shutdown();
+    expect(service.getHistory(stored.conversationId)).toEqual([stored]);
+
+    yield* shutdown;
+    expect(service.getHistory(stored.conversationId)).toEqual([]);
+  });
+}
+
+effectTest(
+  "shutdown mutates state only when its Effect runs",
+  shutdownMutatesStateOnlyWhenItsEffectRuns,
+);
+
+function concurrentShutdownCallersAwaitTheSameCleanup() {
+  return Effect.gen(function* () {
+    const closeStarted = yield* Deferred.make<undefined>();
+    const allowClose = yield* Deferred.make<undefined>();
+    const service = new FakeMoltZapService();
+    let clientCloseCalls = 0;
+    Reflect.set(service, "client", {
+      close: () =>
+        Effect.sync(() => {
+          clientCloseCalls += 1;
+        }).pipe(
+          Effect.zipRight(Deferred.succeed(closeStarted, undefined)),
+          Effect.zipRight(Deferred.await(allowClose)),
+        ),
+    });
+
+    const first = yield* Effect.fork(service.shutdown());
+    yield* Deferred.await(closeStarted);
+    const second = yield* Effect.fork(service.shutdown());
+    yield* Effect.yieldNow();
+
+    expect(Option.isNone(yield* Fiber.poll(second))).toBe(true);
+    expect(clientCloseCalls).toBe(1);
+
+    yield* Deferred.succeed(allowClose, undefined);
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
+  });
+}
+
+effectTest(
+  "concurrent shutdown callers await the same cleanup",
+  concurrentShutdownCallersAwaitTheSameCleanup,
+);
+
+function connectWaitsForActiveShutdownBeforeStartingANewLifecycle() {
+  return Effect.gen(function* () {
+    const shutdownCompletion = yield* Deferred.make<undefined>();
+    const service = new FakeMoltZapService();
+    Reflect.set(service, "shutdownCompletion", shutdownCompletion);
+
+    const connecting = yield* Effect.fork(service.connect());
+    yield* Effect.yieldNow();
+
+    expect(Option.isNone(yield* Fiber.poll(connecting))).toBe(true);
+    expect(Reflect.get(service, "client")).toBeNull();
+
+    yield* Fiber.interrupt(connecting);
+  });
+}
+
+effectTest(
+  "connect waits for active shutdown before starting a new lifecycle",
+  connectWaitsForActiveShutdownBeforeStartingANewLifecycle,
+);
+
+function genericSendOmitsDispatchLease() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    seedMessageSendResponse(service);
+
+    yield* service.send(CONVERSATION_ALICE_ID, HELLO_TEXT);
+
+    expect(service.calls).toEqual([
+      {
+        method: messagesSend.name,
+        params: {
+          conversationId: CONVERSATION_ALICE_ID,
+          parts: [{ type: "text", text: HELLO_TEXT }],
+        },
+      },
+    ]);
+  });
+}
+
+function leasedSendCarriesDispatchLease() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    seedMessageSendResponse(service);
+
+    yield* service.send(CONVERSATION_ALICE_ID, HELLO_TEXT, {
+      dispatchLeaseId: DISPATCH_LEASE_ID,
+    });
+
+    expect(service.calls).toEqual([
+      {
+        method: messagesSend.name,
+        params: {
+          conversationId: CONVERSATION_ALICE_ID,
+          parts: [{ type: "text", text: HELLO_TEXT }],
+          dispatchLeaseId: DISPATCH_LEASE_ID,
+        },
+      },
+    ]);
+  });
+}
+
+describe("MoltZapService message authority", () => {
+  effectTest("keeps generic send unleased", genericSendOmitsDispatchLease);
+  effectTest(
+    "preserves the existing leased send call shape",
+    leasedSendCarriesDispatchLease,
+  );
+});
 
 function seedAgentLookup(
   service: FakeMoltZapService,
@@ -392,11 +518,16 @@ describe("sanitizeForSystemReminder containment", () => {
   );
 });
 
-function dispatchRequestAck(): ResultOf<typeof dispatchRequest> {
-  const value: unknown = {
+type DispatchRequestAck = Extract<
+  ResultOf<typeof dispatchRequest>,
+  { readonly leaseId: unknown }
+>;
+
+function dispatchRequestAck(): DispatchRequestAck {
+  const value = {
     leaseId: DISPATCH_LEASE_ID,
     dispatchId: DISPATCH_ID,
-  };
+  } satisfies DispatchRequestAck;
   if (!dispatchRequest.validateResult(value)) {
     expect.fail("invalid agent/dispatch/request ack fixture");
   }
@@ -418,6 +549,10 @@ function requestDispatchReturnsAck() {
       pending: [],
       parts: [{ type: "text", text: "Time to vote!" }],
     });
+
+    if ("outcome" in result) {
+      return expect.fail("expected a minted dispatch lease");
+    }
 
     expect(result.leaseId).toBe(ack.leaseId);
     expect(result.dispatchId).toBe(ack.dispatchId);

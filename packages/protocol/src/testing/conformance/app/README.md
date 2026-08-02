@@ -22,7 +22,7 @@ Each `register*` lives in its own file:
 - `dispatch-lease-expired-suppressed-on-consume.ts`
 - `dispatch-lease-get-moderator-sees.ts`
 - `slow-first-does-not-delay-second-ack.ts`
-- `same-conv-dispatch-requests-concurrent.ts`
+- `same-conv-dispatch-request-busy.ts`
 - `release-for-one-lease-does-not-wait.ts`
 - `app-disconnect-fail-policy.ts` — stays `PropertyUnavailable`
 - `idempotence.ts`

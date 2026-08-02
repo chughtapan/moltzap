@@ -265,6 +265,29 @@ export function requestDispatch(
   sender: ConnectedAgent,
   text = "probe",
 ) {
+  return requestDispatchOutcome(recipient, conversationId, sender, text).pipe(
+    Effect.flatMap((outcome) =>
+      "outcome" in outcome
+        ? Effect.dieMessage("expected a minted dispatch lease")
+        : Effect.succeed(outcome),
+    ),
+  );
+}
+
+/**
+ * Executes a dispatch request without narrowing the declared busy outcome.
+ * @param recipient Value supplied to the operation.
+ * @param conversationId Value supplied to the operation.
+ * @param sender Value supplied to the operation.
+ * @param text Text to process.
+ * @returns Minted lease identifiers, or `conversation_busy` with no lease.
+ */
+export function requestDispatchOutcome(
+  recipient: ConnectedAgent,
+  conversationId: ConversationId,
+  sender: ConnectedAgent,
+  text = "probe",
+) {
   return recipient.client.sendRpc(dispatchRequest, {
     conversationId,
     messageId: makeProbeMessageId(),

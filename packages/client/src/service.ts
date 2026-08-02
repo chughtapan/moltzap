@@ -53,6 +53,7 @@ import {
 import type { RpcGroup, Rpc } from "@effect/rpc";
 import { BoundedMap } from "./bounded-map.js";
 import {
+  Deferred,
   Effect,
   Exit,
   HashMap,
@@ -278,6 +279,7 @@ function fanout<T>(
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
   private connectedValue = false;
+  private shutdownCompletion: Deferred.Deferred<undefined> | null = null;
 
   /**
    * Service-owned scope. Opened in `connect()`, owns the
@@ -383,6 +385,15 @@ export class MoltZapService {
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
       function* (this: MoltZapService) {
+        // A new connection never takes ownership while resources from the
+        // preceding lifecycle are still closing.
+        while (this.shutdownCompletion !== null) {
+          const priorShutdown = this.shutdownCompletion;
+          yield* Deferred.await(priorShutdown);
+          if (this.shutdownCompletion === priorShutdown) {
+            this.shutdownCompletion = null;
+          }
+        }
         const client = new MoltZapAgentClient({
           serverUrl: this.opts.serverUrl,
           agentKey: this.opts.agentKey,
@@ -432,14 +443,24 @@ export class MoltZapService {
   }
 
   /**
-   * Tear down the service. `close()` is sync because it fans out to the
-   * socket server, Refs, and the ws-client. Effectful network/filesystem
-   * cleanup is forked at the edge so existing callers still get immediate
-   * shutdown.
+   * Returns a lazy teardown effect that resolves after the service's owned
+   * transports and notification scope close.
+   *
+   * @returns Completion of the service-owned cleanup.
+   * @internal
    */
-  close(): void {
+  shutdown(): Effect.Effect<void> {
+    return Effect.suspend(() => this.beginShutdown());
+  }
+
+  private beginShutdown(): Effect.Effect<void> {
+    if (this.shutdownCompletion !== null) {
+      return Deferred.await(this.shutdownCompletion);
+    }
+    const shutdownCompletion = Effect.runSync(Deferred.make<undefined>());
+    this.shutdownCompletion = shutdownCompletion;
     this.connectedValue = false;
-    Effect.runFork(this.stopSocketServer());
+    const stopSocketServer = this.stopSocketServer();
     const scopeToClose = this.serviceScope;
     const clientToClose = this.client;
     this.serviceScope = null;
@@ -450,7 +471,6 @@ export class MoltZapService {
         : Scope.close(scopeToClose, Exit.void);
     const closeClient =
       clientToClose === null ? Effect.void : clientToClose.close();
-    Effect.runFork(closeScope.pipe(Effect.zipRight(closeClient)));
     Effect.runSync(
       Effect.all([
         Ref.set(this.conversationsRef, HashMap.empty()),
@@ -465,6 +485,24 @@ export class MoltZapService {
     // Handlers are preserved across explicit close()/connect() cycles.
     // MoltZapChannelCore subscribes once in its constructor; clearing handlers
     // here would silently drop inbound dispatch after the next connect.
+    return Effect.uninterruptible(
+      Effect.all(
+        [stopSocketServer, closeScope.pipe(Effect.zipRight(closeClient))],
+        { concurrency: 2, discard: true },
+      ).pipe(
+        Effect.ensuring(
+          Deferred.succeed(shutdownCompletion, undefined).pipe(Effect.asVoid),
+        ),
+      ),
+    );
+  }
+
+  /**
+   * Starts service teardown for callers that use the legacy synchronous
+   * lifecycle boundary.
+   */
+  close(): void {
+    Effect.runFork(this.beginShutdown());
   }
 
   // --- Socket Server ---
@@ -769,7 +807,7 @@ export class MoltZapService {
    * `opts.dispatchLeaseId` (when set) is forwarded verbatim in the
    * params frame. The server marks the lease consumed, blocking the
    * app authorization timeout sweep. `MoltZapChannelCore.sendReply` forwards
-   * `leaseIdInFlight` automatically when the caller omits it.
+   * the conversation's active dispatch lease when the caller omits it.
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
    * @param opts Value supplied to the operation.
@@ -793,9 +831,9 @@ export class MoltZapService {
   }
 
   /**
-   * Issue `agent/dispatch/request`. The server returns the ack
-   * `{leaseId, dispatchId}` immediately; the recipient observes the
-   * verdict asynchronously via the `dispatchRelease` event.
+   * Issue `agent/dispatch/request`. The server immediately returns either a
+   * minted `{leaseId, dispatchId}` ack or `conversation_busy`; the recipient
+   * observes a minted lease's verdict asynchronously via `dispatchRelease`.
    * @param params Request payload to process.
    * @returns The cache result.
    */

@@ -185,9 +185,11 @@ Hold:
 }
 ```
 
-The recipient does not wait on the app RPC directly. The server
-acknowledges `agent/dispatch/request` with a lease handle, resolves the
-callback in the background, and emits
+The recipient does not wait on the app RPC directly. The server acknowledges
+`agent/dispatch/request` with a lease handle when it reserves the conversation.
+If that conversation already has a live dispatch, the result is
+`{ "outcome": "conversation_busy" }` and contains no lease. For a minted
+lease, the server resolves the callback in the background and emits
 [`agent/dispatch/released`](/protocol/notifications/agent-dispatch-released)
 with the final verdict.
 
