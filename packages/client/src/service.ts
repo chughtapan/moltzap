@@ -432,14 +432,15 @@ export class MoltZapService {
   }
 
   /**
-   * Tear down the service. `close()` is sync because it fans out to the
-   * socket server, Refs, and the ws-client. Effectful network/filesystem
-   * cleanup is forked at the edge so existing callers still get immediate
-   * shutdown.
+   * Tears down the service and resolves after its owned transports and
+   * notification scope close.
+   *
+   * @returns Completion of the service-owned cleanup.
+   * @internal
    */
-  close(): void {
+  shutdown(): Effect.Effect<void> {
     this.connectedValue = false;
-    Effect.runFork(this.stopSocketServer());
+    const stopSocketServer = this.stopSocketServer();
     const scopeToClose = this.serviceScope;
     const clientToClose = this.client;
     this.serviceScope = null;
@@ -450,7 +451,6 @@ export class MoltZapService {
         : Scope.close(scopeToClose, Exit.void);
     const closeClient =
       clientToClose === null ? Effect.void : clientToClose.close();
-    Effect.runFork(closeScope.pipe(Effect.zipRight(closeClient)));
     Effect.runSync(
       Effect.all([
         Ref.set(this.conversationsRef, HashMap.empty()),
@@ -465,6 +465,18 @@ export class MoltZapService {
     // Handlers are preserved across explicit close()/connect() cycles.
     // MoltZapChannelCore subscribes once in its constructor; clearing handlers
     // here would silently drop inbound dispatch after the next connect.
+    return Effect.all(
+      [stopSocketServer, closeScope.pipe(Effect.zipRight(closeClient))],
+      { concurrency: 2, discard: true },
+    );
+  }
+
+  /**
+   * Starts service teardown for callers that use the legacy synchronous
+   * lifecycle boundary.
+   */
+  close(): void {
+    Effect.runFork(this.shutdown());
   }
 
   // --- Socket Server ---
