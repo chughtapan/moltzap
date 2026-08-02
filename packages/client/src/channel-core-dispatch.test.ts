@@ -456,12 +456,64 @@ function attachesTheActiveDispatchLeaseToRepliesMadeDuringHandlerExecution() {
       text: "reply",
       dispatchLeaseId: testLeaseId("lease-active"),
     });
+
+    yield* core.sendReply(conversation("conv-1"), "after dispatch");
+    expect(fake.state.sent[1]).toEqual({
+      convId: conversation("conv-1"),
+      text: "after dispatch",
+    });
   });
 }
 
 effectTest(
   "attaches the active dispatch lease to replies made during handler execution",
   attachesTheActiveDispatchLeaseToRepliesMadeDuringHandlerExecution,
+);
+
+function doesNotLeakAnActiveDispatchLeaseIntoAnotherConversation() {
+  return Effect.gen(function* () {
+    const fake = createFakeChannelService({ ownAgentId: "agent-self" });
+    setGroupConversation(fake, "conv-1");
+    setGroupConversation(fake, "conv-2");
+    fake.state.setAgentName("agent-alice", "Alice");
+    installAdmission(fake, () =>
+      Effect.succeed({
+        _tag: "grant" as const,
+        leaseId: testLeaseId("lease-conv-1"),
+      }),
+    );
+    const core = new MoltZapChannelCore({ service: fake.service });
+    const handlerBarriers: Array<() => void> = [];
+    core.onInbound(() => waitForHandlerBarrier(handlerBarriers));
+
+    fake.emit.message(buildMessage({ id: "msg-conv-1" }));
+    yield* flushDispatchChainEffect;
+    expect(handlerBarriers).toHaveLength(1);
+
+    yield* core.sendReply(conversation("conv-2"), "other conversation");
+    yield* core.sendReply(conversation("conv-1"), "explicit authority", {
+      dispatchLeaseId: testLeaseId("lease-explicit"),
+    });
+    expect(fake.state.sent).toEqual([
+      {
+        convId: conversation("conv-2"),
+        text: "other conversation",
+      },
+      {
+        convId: conversation("conv-1"),
+        text: "explicit authority",
+        dispatchLeaseId: testLeaseId("lease-explicit"),
+      },
+    ]);
+
+    /* Safe because the test fixture establishes this asserted shape. */ handlerBarriers[0]!();
+    yield* flushDispatchChainEffect;
+  });
+}
+
+effectTest(
+  "does not leak an active dispatch lease into another conversation",
+  doesNotLeakAnActiveDispatchLeaseIntoAnotherConversation,
 );
 
 function passesTheActiveDispatchLeaseToTheInboundHandlerForAsyncRuntimes() {
@@ -831,6 +883,13 @@ it("continues draining inbound work after a dispatch lease expires", () =>
       yield* flushDispatchChainEffect;
 
       expect(received).toEqual([message("msg-next")]);
+      yield* core.sendReply(conversation("conv-1"), "after timeout");
+      expect(fake.state.sent).toEqual([
+        {
+          convId: conversation("conv-1"),
+          text: "after timeout",
+        },
+      ]);
     }),
   ));
 
@@ -878,6 +937,42 @@ function serializesHandlersSoMessageOrderIsPreservedAcrossAsyncResolution() {
 effectTest(
   "serializes handlers so message order is preserved across async resolution",
   serializesHandlersSoMessageOrderIsPreservedAcrossAsyncResolution,
+);
+
+function keepsAnInFlightDispatchBoundToItsCapturedHandlerRegistration() {
+  return Effect.gen(function* () {
+    const fake = createFakeChannelService({ ownAgentId: "agent-self" });
+    fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+    forceResolveAgentNamePath(fake);
+    const resolvers: NameResolver[] = [];
+    fake.service.resolveAgentName = queuedResolveAgentName(resolvers);
+    const core = new MoltZapChannelCore({ service: fake.service });
+    const firstReceived: string[] = [];
+    const secondReceived: string[] = [];
+    core.onInbound((inbound) =>
+      recordReceivedMessageId(firstReceived, inbound),
+    );
+
+    fake.emit.message(buildMessage({ id: "msg-in-flight" }));
+    yield* flushDispatchChainEffect;
+    expect(resolvers).toHaveLength(1);
+
+    core.onInbound((inbound) =>
+      recordReceivedMessageId(secondReceived, inbound),
+    );
+    /* Safe because the test fixture establishes this asserted shape. */ resolvers[0]!(
+      "agent-alice",
+    );
+    yield* flushDispatchChainEffect;
+
+    expect(firstReceived).toEqual([message("msg-in-flight")]);
+    expect(secondReceived).toEqual([]);
+  });
+}
+
+effectTest(
+  "keeps an in-flight dispatch bound to its captured handler registration",
+  keepsAnInFlightDispatchBoundToItsCapturedHandlerRegistration,
 );
 
 function awaitsAsyncHandlerFullyBeforeProcessingTheNextMessage() {
@@ -959,4 +1054,44 @@ function onInboundReplacesThePreviousHandlerInsteadOfAdding() {
 effectTest(
   "onInbound replaces the previous handler instead of adding",
   onInboundReplacesThePreviousHandlerInsteadOfAdding,
+);
+
+function onInboundDisposersAreScopedToTheirRegistrationGeneration() {
+  return Effect.gen(function* () {
+    fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+    fake.state.setAgentName("agent-alice", "Alice");
+    let admissionCalls = 0;
+    installAdmission(fake, () =>
+      Effect.sync(() => {
+        admissionCalls += 1;
+        return {
+          _tag: "grant" as const,
+          leaseId: testLeaseId(`lease-${admissionCalls}`),
+        };
+      }),
+    );
+    const received: string[] = [];
+    const handler = (inbound: EnrichedInboundMessage) =>
+      recordReceivedMessageId(received, inbound);
+    const disposeStale = core.onInbound(handler);
+    const disposeCurrent = core.onInbound(handler);
+
+    disposeStale();
+    disposeStale();
+    fake.emit.message(buildMessage({ id: "msg-current" }));
+    yield* flushDispatchChainEffect;
+
+    disposeCurrent();
+    disposeCurrent();
+    fake.emit.message(buildMessage({ id: "msg-after-dispose" }));
+    yield* flushDispatchChainEffect;
+
+    expect(received).toEqual([message("msg-current")]);
+    expect(admissionCalls).toBe(1);
+  });
+}
+
+effectTest(
+  "onInbound disposers are scoped to their registration generation",
+  onInboundDisposersAreScopedToTheirRegistrationGeneration,
 );

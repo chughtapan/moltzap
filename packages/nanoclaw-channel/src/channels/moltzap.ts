@@ -360,12 +360,13 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   // The host turn is awaited rather than forked, which is what keeps the
-  // dispatch lease paired with the turn that earned it. The core holds one
-  // lease in flight and drains inbound work on a single fiber, so returning
-  // before the turn finishes would release that cell while the reply is still
-  // pending: a later inbound would overwrite the per-jid lease and conversation
-  // entries, and the earlier reply would then consume the newer lease. Awaiting
-  // costs conversation-level concurrency, which the core does not offer anyway.
+  // dispatch lease paired with the turn that earned it. The core keeps
+  // conversation-scoped authority while draining inbound work on a single
+  // fiber, so returning before the turn finishes would end that authority while
+  // the reply is still pending: a later inbound would overwrite the per-jid
+  // lease and conversation entries, and the earlier reply would then consume
+  // the newer lease. Awaiting costs conversation-level concurrency, which the
+  // core does not offer anyway.
   private handleInbound(
     enriched: EnrichedInboundMessage,
   ): Effect.Effect<void, MoltZapChannelError> {

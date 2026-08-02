@@ -807,7 +807,7 @@ export class MoltZapService {
    * `opts.dispatchLeaseId` (when set) is forwarded verbatim in the
    * params frame. The server marks the lease consumed, blocking the
    * app authorization timeout sweep. `MoltZapChannelCore.sendReply` forwards
-   * `leaseIdInFlight` automatically when the caller omits it.
+   * the conversation's active dispatch lease when the caller omits it.
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
    * @param opts Value supplied to the operation.
