@@ -53,6 +53,7 @@ import {
 import type { RpcGroup, Rpc } from "@effect/rpc";
 import { BoundedMap } from "./bounded-map.js";
 import {
+  Deferred,
   Effect,
   Exit,
   HashMap,
@@ -278,6 +279,7 @@ function fanout<T>(
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
   private connectedValue = false;
+  private shutdownCompletion: Deferred.Deferred<undefined> | null = null;
 
   /**
    * Service-owned scope. Opened in `connect()`, owns the
@@ -383,6 +385,7 @@ export class MoltZapService {
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
       function* (this: MoltZapService) {
+        this.shutdownCompletion = null;
         const client = new MoltZapAgentClient({
           serverUrl: this.opts.serverUrl,
           agentKey: this.opts.agentKey,
@@ -443,6 +446,11 @@ export class MoltZapService {
   }
 
   private beginShutdown(): Effect.Effect<void> {
+    if (this.shutdownCompletion !== null) {
+      return Deferred.await(this.shutdownCompletion);
+    }
+    const shutdownCompletion = Effect.runSync(Deferred.make<undefined>());
+    this.shutdownCompletion = shutdownCompletion;
     this.connectedValue = false;
     const stopSocketServer = this.stopSocketServer();
     const scopeToClose = this.serviceScope;
@@ -469,9 +477,15 @@ export class MoltZapService {
     // Handlers are preserved across explicit close()/connect() cycles.
     // MoltZapChannelCore subscribes once in its constructor; clearing handlers
     // here would silently drop inbound dispatch after the next connect.
-    return Effect.all(
-      [stopSocketServer, closeScope.pipe(Effect.zipRight(closeClient))],
-      { concurrency: 2, discard: true },
+    return Effect.uninterruptible(
+      Effect.all(
+        [stopSocketServer, closeScope.pipe(Effect.zipRight(closeClient))],
+        { concurrency: 2, discard: true },
+      ).pipe(
+        Effect.ensuring(
+          Deferred.succeed(shutdownCompletion, undefined).pipe(Effect.asVoid),
+        ),
+      ),
     );
   }
 
