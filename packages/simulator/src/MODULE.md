@@ -744,7 +744,7 @@ export const LedgerReceipt = Schema.Union(
 
 Schema for the complete physical ledger-receipt universe.
 
-### [`LinkController`](./network/link.ts#L132)
+### [`LinkController`](./network/link.ts#L148)
 
 _Class_
 
@@ -756,7 +756,7 @@ export class LinkController extends Context.Tag(
 
 Experiment-facing directed-link control installed by the run kernel.
 
-### [`LinkControllerService`](./network/link.ts#L102)
+### [`LinkControllerService`](./network/link.ts#L118)
 
 _Interface_
 
@@ -793,7 +793,7 @@ export interface LinkControllerService {
 
 Run-scoped, evidence-producing directed-link control.
 
-### [`LinkDelivery`](./network/link.ts#L10)
+### [`LinkDelivery`](./network/link.ts#L17)
 
 _Interface_
 
@@ -882,7 +882,7 @@ export class LinkMessageHeld extends Schema.TaggedClass<LinkMessageHeld>()(
 
 An active link policy parked one delivery until its lease clears.
 
-### [`linkPolicy`](./network/link.ts#L38)
+### [`linkPolicy`](./network/link.ts#L45)
 
 _Variable_
 
@@ -892,7 +892,7 @@ export const linkPolicy:
 
 Canonical link policies for the common traffic shapes.
 
-### [`LinkPolicy`](./network/link.ts#L35)
+### [`LinkPolicy`](./network/link.ts#L42)
 
 _TypeAlias_
 
@@ -951,7 +951,7 @@ export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
 
 A directed participant link transitioned from unavailable to available.
 
-### [`linkVerdict`](./network/link.ts#L28)
+### [`linkVerdict`](./network/link.ts#L35)
 
 _Variable_
 
@@ -961,7 +961,7 @@ export const linkVerdict = Data.taggedEnum<LinkVerdict>()
 
 Constructors and matchers for the closed verdict union.
 
-### [`LinkVerdict`](./network/link.ts#L20)
+### [`LinkVerdict`](./network/link.ts#L27)
 
 _TypeAlias_
 

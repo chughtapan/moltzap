@@ -44,8 +44,13 @@ Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
   invokes once per turn with the enriched message (cross-conv
   context, sender name, conversation metadata); returns
   `Effect<void>`. Optional `ChannelCoreOptions.turnTimeoutMs` bounds
-  a turn — on expiry it is abandoned and the drain continues; unset
-  means unbounded, so a hung handler stalls the drain.
+  a handler invocation — on expiry it is abandoned and the drain
+  continues; unset means unbounded, so a hung handler stalls the drain.
+- **Inbound interceptor** — optional
+  `ChannelCoreOptions.inboundInterceptor`, the endpoint-side gate
+  between enrichment and the handler: deliver or drop, judged on the
+  batch's newest message and binding on the whole turn. Pacing is
+  suspension inside the gate, not a verdict; a broken gate delivers.
 - **Cross-conversation context** — snippets from the agent's other
   conversations, attached to the enriched inbound message and
   rendered by `formatCrossConv` with per-channel markup

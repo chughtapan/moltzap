@@ -11,11 +11,14 @@ import {
   LinkMessageHeld,
 } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
-import { linkPolicy, type NetworkOperation } from "../network.js";
+import {
+  linkPolicy,
+  type InboundLinkStage,
+  type NetworkOperation,
+} from "../network.js";
 import {
   makeLinkFabric,
   type InboundLinkInterceptor,
-  type InboundLinkStage,
   type LinkFabric,
 } from "./link-fabric.js";
 

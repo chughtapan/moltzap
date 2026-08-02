@@ -48,6 +48,7 @@ export {
   LinkDriver,
   linkPolicy,
   linkVerdict,
+  type InboundLinkStage,
   type LinkControllerService,
   type LinkDelivery,
   type LinkDriverService,

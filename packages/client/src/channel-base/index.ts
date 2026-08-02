@@ -32,6 +32,8 @@ export {
   type EnrichedInboundMessage,
   type EnrichedSender,
   type InboundHandler,
+  type InboundInterceptDecision,
+  type InboundInterceptor,
 } from "../channel-core.js";
 
 /** Re-exports the public API from `../service.js`. */

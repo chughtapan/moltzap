@@ -14,16 +14,22 @@ import {
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
 import {
+  Chunk,
   Deferred,
   Duration,
   Effect,
   Fiber,
   Option,
+  Ref,
   Schema,
   Stream,
 } from "effect";
 import { vi } from "vitest";
-import { type AgentConnection, makeAgentHandle } from "../network.js";
+import {
+  type AgentConnection,
+  type InboundLinkStage,
+  makeAgentHandle,
+} from "../network.js";
 import {
   EffectRuntimeStartFailed,
   effectRuntime,
@@ -104,6 +110,7 @@ vi.mock("@moltzap/client", () => ({
 
 const AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
 const SENDER_ID = agentId("22222222-2222-4222-8222-222222222222");
+const BLOCKED_SENDER_ID = agentId("33333333-3333-4333-8333-333333333333");
 const AGENT_KEY = redactedAgentKey(agentKeyString(80));
 const ROUTER_URL = serverBaseUrl("ws://127.0.0.1:3000");
 const STARTUP_TIMEOUT = Duration.seconds(3);
@@ -118,6 +125,15 @@ const INCOMING: MessageReceivedNotification = {
     conversationId: conversationId("55555555-5555-4555-8555-555555555555"),
     senderId: SENDER_ID,
     parts: [{ type: "text", text: "ping" }],
+    createdAt: "2026-07-28T00:00:00.000Z",
+  },
+};
+const BLOCKED: MessageReceivedNotification = {
+  message: {
+    id: messageId("66666666-6666-4666-8666-666666666666"),
+    conversationId: INCOMING.message.conversationId,
+    senderId: BLOCKED_SENDER_ID,
+    parts: [{ type: "text", text: "partitioned" }],
     createdAt: "2026-07-28T00:00:00.000Z",
   },
 };
@@ -167,6 +183,28 @@ function makeGatewayRuntime(received: Deferred.Deferred<ReceivedDelivery>) {
             ),
           ),
         };
+      }),
+  });
+}
+
+type Inbound = readonly MessageReceivedNotification[];
+
+const dropBlockedSender: InboundLinkStage = (inbound) =>
+  Stream.filter(inbound, (item) => item.message.senderId !== BLOCKED_SENDER_ID);
+
+function makeCollectingRuntime(collected: Deferred.Deferred<Inbound>) {
+  return effectRuntime({
+    startupTimeout: STARTUP_TIMEOUT,
+    build: (context) =>
+      Effect.succeed({
+        gateway: {},
+        behavior: context.messages.pipe(
+          Stream.runCollect,
+          Effect.flatMap((received) =>
+            Deferred.succeed(collected, Chunk.toReadonlyArray(received)),
+          ),
+          Effect.asVoid,
+        ),
       }),
   });
 }
@@ -237,6 +275,50 @@ it.effect(
         });
       }),
     ),
+);
+
+it.effect(
+  "shapes the agent's inbound stream with the kernel's link stage",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const acquired = yield* Ref.make(false);
+        const collected = yield* Deferred.make<Inbound>();
+        clientState.received = Stream.fromIterable([BLOCKED, INCOMING]);
+
+        const running = yield* makeCollectingRuntime(collected).acquire({
+          agentName: AGENT_NAME,
+          connection,
+          interceptInbound: Ref.set(acquired, true).pipe(
+            Effect.as(dropBlockedSender),
+          ),
+        });
+        const observed = yield* Deferred.await(collected);
+        const termination = yield* running.termination;
+
+        assert.instanceOf(termination, RuntimeCompleted);
+        assert.isTrue(yield* Ref.get(acquired));
+        assert.deepStrictEqual(observed, [INCOMING]);
+      }),
+    ),
+);
+
+it.effect("delivers every message when the run offers no link stage", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const collected = yield* Deferred.make<Inbound>();
+      clientState.received = Stream.fromIterable([BLOCKED, INCOMING]);
+
+      const running = yield* makeCollectingRuntime(collected).acquire({
+        agentName: AGENT_NAME,
+        connection,
+      });
+      const observed = yield* Deferred.await(collected);
+      yield* running.termination;
+
+      assert.deepStrictEqual(observed, [BLOCKED, INCOMING]);
+    }),
+  ),
 );
 
 it.effect("turns behavior failure into a runtime observation", () =>
