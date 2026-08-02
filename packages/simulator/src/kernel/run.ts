@@ -22,7 +22,12 @@ import {
   type JsonObject,
 } from "../ledger/model.js";
 import type { LedgerStorageError } from "../ledger/storage.js";
-import { LinkController, type LinkControllerService } from "../network/link.js";
+import {
+  LinkController,
+  LinkDriver,
+  type LinkControllerService,
+  type LinkDriverService,
+} from "../network/link.js";
 import { Network, type NetworkService } from "../network/endpoint.js";
 import type { NetworkFailure, Router } from "../network/router.js";
 import type {
@@ -36,6 +41,7 @@ import {
 } from "../runtime/runtime.js";
 import { programEvent } from "./outcomes.js";
 import { makeNetworkService } from "./endpoints.js";
+import { makeLinkFabric } from "./link-fabric.js";
 import { makeLinkController } from "./links.js";
 import { acquireRoster } from "./runtimes.js";
 import { acquireRouter, recordStoppedRouter } from "./router.js";
@@ -145,9 +151,15 @@ interface ProgramLayerInput<
   readonly active: ActiveRunLedger<
     DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["catalog"]
   >;
-  readonly network: NetworkService;
-  readonly links: LinkControllerService;
+  readonly services: ProgramNetworkServices;
   readonly agents: StartedAgents<Definitions>;
+}
+
+/** Run-scoped network-facing services installed for the customer program. */
+interface ProgramNetworkServices {
+  readonly driver: LinkDriverService;
+  readonly links: LinkControllerService;
+  readonly network: NetworkService;
 }
 
 function makeProgramLayer<
@@ -162,8 +174,9 @@ function makeProgramLayer<
   );
   return Layer.mergeAll(
     input.eventServices.layer(input.active.ledger, customerWriter),
-    Layer.succeed(Network, input.network),
-    Layer.succeed(LinkController, input.links),
+    Layer.succeed(Network, input.services.network),
+    Layer.succeed(LinkController, input.services.links),
+    Layer.succeed(LinkDriver, input.services.driver),
     Layer.succeed(input.roster.startedAgents, input.agents),
   );
 }
@@ -256,6 +269,27 @@ function makeContext<
   });
 }
 
+interface NetworkServiceWriters {
+  readonly endpointWriter: LedgerWriter<typeof endpointEvents>;
+  readonly linkWriter: LedgerWriter<typeof linkEvents>;
+}
+
+function acquireNetworkServices(
+  writers: NetworkServiceWriters,
+  router: Router,
+) {
+  return Effect.gen(function* () {
+    const fabric = yield* makeLinkFabric(writers.linkWriter);
+    const network = yield* makeNetworkService(
+      router,
+      writers.endpointWriter,
+      fabric.interceptor,
+    );
+    const links = yield* makeLinkController(writers.linkWriter);
+    return { driver: fabric.driver, network, links };
+  });
+}
+
 function executeProgram<
   Id extends string,
   CustomerSchema extends CatalogSchema,
@@ -285,14 +319,12 @@ function executeProgram<
       roster: context.input.roster,
       writer: context.runtimeWriter,
     });
-    const network = yield* makeNetworkService(router, context.endpointWriter);
-    const links = yield* makeLinkController(context.linkWriter);
+    const services = yield* acquireNetworkServices(context, router);
     const layer = makeProgramLayer({
       eventServices: context.input.eventServices,
       roster: context.input.roster,
       active: context.active,
-      network,
-      links,
+      services,
       agents,
     });
     const exit = yield* context.input.program.pipe(

@@ -35,6 +35,11 @@ import {
   type Router,
 } from "../network.js";
 import { makeNetworkService } from "./endpoints.js";
+import type { InboundLinkInterceptor } from "./link-fabric.js";
+
+const passthroughInterceptor: InboundLinkInterceptor = {
+  attach: () => Effect.succeed((inbound) => inbound),
+};
 
 type EndpointEventWriter = LedgerWriter<typeof endpointEvents>;
 const PROBE_ID = agentId("00000000-0000-4000-8000-000000000001");
@@ -163,6 +168,7 @@ function observedNetworkTest() {
     const network = yield* makeNetworkService(
       router(received, attachments),
       writer(events),
+      passthroughInterceptor,
     );
     const probe = yield* network.endpoint("probe");
     const sameProbe = yield* network.endpoint("probe");
@@ -194,6 +200,30 @@ function observedNetworkTest() {
 test("observes one ingress and advances ordered endpoint and conversation inboxes", () =>
   Effect.scoped(observedNetworkTest()));
 
+interface AttachmentGates {
+  readonly attachmentStarted: Deferred.Deferred<undefined>;
+  readonly releaseAttachment: Deferred.Deferred<undefined>;
+  readonly attempts: AttachmentCount;
+}
+
+function gatedRouter(baseRouter: Router, gates: AttachmentGates): Router {
+  return {
+    ...baseRouter,
+    attachEndpoint: (name, agentName) =>
+      Effect.sync(() => {
+        gates.attempts.value += 1;
+      }).pipe(
+        Effect.zipRight(
+          Deferred.succeed(gates.attachmentStarted, undefined).pipe(
+            Effect.asVoid,
+          ),
+        ),
+        Effect.zipRight(Deferred.await(gates.releaseAttachment)),
+        Effect.zipRight(baseRouter.attachEndpoint(name, agentName)),
+      ),
+  };
+}
+
 test("coalesces concurrent attachment of the same endpoint", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -204,22 +234,15 @@ test("coalesces concurrent attachment of the same endpoint", () =>
       const attempts = { value: 0 };
       const callers = { value: 0 };
       const baseRouter = router(Stream.never, attachments);
-      const gatedRouter: Router = {
-        ...baseRouter,
-        attachEndpoint: (name, agentName) =>
-          Effect.sync(() => {
-            attempts.value += 1;
-          }).pipe(
-            Effect.zipRight(
-              Deferred.succeed(attachmentStarted, undefined).pipe(
-                Effect.asVoid,
-              ),
-            ),
-            Effect.zipRight(Deferred.await(releaseAttachment)),
-            Effect.zipRight(baseRouter.attachEndpoint(name, agentName)),
-          ),
-      };
-      const network = yield* makeNetworkService(gatedRouter, writer([]));
+      const network = yield* makeNetworkService(
+        gatedRouter(baseRouter, {
+          attachmentStarted,
+          releaseAttachment,
+          attempts,
+        }),
+        writer([]),
+        passthroughInterceptor,
+      );
       const acquire = Effect.sync(() => {
         callers.value += 1;
         return callers.value;
@@ -303,6 +326,7 @@ function failedAttachmentRetryTest() {
     const network = yield* makeNetworkService(
       retryingRouter(baseRouter, attempts, gates),
       writer([]),
+      passthroughInterceptor,
     );
     const retrying = yield* network.endpoint("probe").pipe(
       Effect.catchAll(() => network.endpoint("probe")),
@@ -382,6 +406,7 @@ function canceledAttachmentTest(lifecycle: AttachmentLifecycle) {
     const network = yield* makeNetworkService(
       interruptibleRouter(baseRouter, lifecycle, firstStarted),
       writer([]),
+      passthroughInterceptor,
     );
     const first = yield* network.endpoint("probe").pipe(Effect.fork);
     yield* Deferred.await(firstStarted);
@@ -433,6 +458,7 @@ function deliveryBeforeBindingTest() {
     const network = yield* makeNetworkService(
       router(received, { value: 0 }),
       writer(events),
+      passthroughInterceptor,
     );
     const probe = yield* network.endpoint("probe");
     yield* Deferred.await(processed);
@@ -486,6 +512,7 @@ test("returns a committed send without fabricating a retryable network failure",
       const network = yield* makeNetworkService(
         router(Stream.never, { value: 0 }, sends),
         unavailableWriter(),
+        passthroughInterceptor,
       );
       const probe = yield* network.endpoint("probe");
       const socket = yield* probe.open(
@@ -509,6 +536,7 @@ test("does not deliver ingress whose ledger evidence failed", () =>
       const network = yield* makeNetworkService(
         router(received, { value: 0 }),
         unavailableWriter(attempted),
+        passthroughInterceptor,
       );
       const probe = yield* network.endpoint("probe");
       const delivery = yield* probe

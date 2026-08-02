@@ -1,12 +1,21 @@
 /** @file Evidence-producing scoped control for directed network links. */
 
-import { Cause, Effect, Either, Exit, Ref } from "effect";
-import { LinkDown, type linkEvents, LinkUp } from "../events/core.js";
+import { Cause, Duration, Effect, Either, Exit, Ref } from "effect";
+import {
+  LinkDown,
+  type linkEvents,
+  LinkPolicyCleared,
+  LinkPolicySet,
+  LinkUp,
+} from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import {
   LinkDriver,
+  linkPolicy,
   type LinkControllerService,
   type LinkDriverService,
+  type LinkPolicy,
+  type LinkPolicyLease,
 } from "../network/link.js";
 import type { ParticipantHandle } from "../network/participant.js";
 import { networkFailure, type NetworkFailure } from "../network/router.js";
@@ -199,6 +208,149 @@ function acquireLease(
   );
 }
 
+function recordPolicySet(
+  runtime: LinkControllerRuntime,
+  link: DirectedLink,
+  description: string,
+) {
+  return runtime.writer
+    .write({
+      event: LinkPolicySet.make({
+        from: link.from.id,
+        to: link.to.id,
+        policy: description,
+      }),
+    })
+    .pipe(Effect.asVoid);
+}
+
+function recordPolicyCleared(
+  runtime: LinkControllerRuntime,
+  link: DirectedLink,
+  description: string,
+) {
+  return runtime.writer
+    .write({
+      event: LinkPolicyCleared.make({
+        from: link.from.id,
+        to: link.to.id,
+        policy: description,
+      }),
+    })
+    .pipe(Effect.asVoid);
+}
+
+function rollbackPolicy(lease: LinkPolicyLease, cause: Cause.Cause<never>) {
+  return Effect.gen(function* () {
+    const rollback = yield* Effect.exit(lease.clear);
+    return yield* Exit.isFailure(rollback)
+      ? Effect.failCause(Cause.sequential(cause, rollback.cause))
+      : Effect.failCause(cause);
+  });
+}
+
+function rollbackPolicyLedgerFailure(lease: LinkPolicyLease) {
+  return Effect.gen(function* () {
+    const rollback = yield* Effect.exit(lease.clear);
+    return yield* Exit.isFailure(rollback)
+      ? Effect.failCause(rollback.cause)
+      : Effect.interrupt;
+  });
+}
+
+function releasePolicy(
+  runtime: LinkControllerRuntime,
+  link: DirectedLink,
+  lease: LinkPolicyLease,
+  description: string,
+): Effect.Effect<void, NetworkFailure> {
+  return lease.clear.pipe(
+    Effect.zipRight(
+      recordPolicyCleared(runtime, link, description).pipe(
+        Effect.catchAll(() => Effect.void),
+      ),
+    ),
+  );
+}
+
+interface PolicyInstallation {
+  readonly driver: LinkDriverService;
+  readonly policy: LinkPolicy;
+  readonly description: string;
+}
+
+function acquirePolicy(
+  runtime: LinkControllerRuntime,
+  link: DirectedLink,
+  installation: PolicyInstallation,
+) {
+  const { driver, policy, description } = installation;
+  return Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const lease = yield* restore(
+        driver.apply(link.from.id, link.to.id, policy, description),
+      );
+      const observed = yield* Effect.exit(
+        restore(recordPolicySet(runtime, link, description)),
+      );
+      if (Exit.isFailure(observed)) {
+        const failure = Cause.failureOrCause(observed.cause);
+        return yield* Either.match(failure, {
+          onLeft: () => rollbackPolicyLedgerFailure(lease),
+          onRight: (cause) => rollbackPolicy(lease, cause),
+        });
+      }
+      // The returned acquisition keeps Scope in the policy verbs'
+      // requirements; the customer program owns that enclosing scope.
+      // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- this helper returns the scoped acquisition to its caller
+      yield* Effect.acquireRelease(Effect.void, () =>
+        releasePolicy(runtime, link, lease, description).pipe(Effect.orDie),
+      );
+    }),
+  );
+}
+
+function shape(runtime: LinkControllerRuntime): LinkControllerService["shape"] {
+  return (from, to, policy, description) =>
+    Effect.gen(function* () {
+      if (from.id === to.id) {
+        return yield* networkFailure(
+          "shape-link",
+          "a directed link requires two different participants",
+        );
+      }
+      if (description.length === 0) {
+        return yield* networkFailure(
+          "shape-link",
+          "a link policy requires a nonempty description",
+        );
+      }
+      const driver = yield* LinkDriver;
+      const link: DirectedLink = {
+        key: keyOf(from, to),
+        from,
+        to,
+      };
+      yield* acquirePolicy(runtime, link, { driver, policy, description });
+    });
+}
+
+function delay(runtime: LinkControllerRuntime): LinkControllerService["delay"] {
+  return (from, to, duration) => {
+    const decoded = Duration.decode(duration);
+    return shape(runtime)(
+      from,
+      to,
+      linkPolicy.delay(decoded),
+      `delay ${Duration.format(decoded)}`,
+    );
+  };
+}
+
+function hold(runtime: LinkControllerRuntime): LinkControllerService["hold"] {
+  return (from, to) => shape(runtime)(from, to, linkPolicy.hold, "hold");
+}
+
 function disable(
   runtime: LinkControllerRuntime,
 ): LinkControllerService["disable"] {
@@ -236,6 +388,9 @@ export function makeLinkController(
     };
     return Object.freeze({
       disable: disable(runtime),
+      delay: delay(runtime),
+      hold: hold(runtime),
+      shape: shape(runtime),
     });
   }).pipe(Effect.withSpan("makeLinkController"));
 }
