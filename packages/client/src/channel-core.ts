@@ -679,9 +679,9 @@ export class MoltZapChannelCore {
    *   EXPIRED --> [*]
    * ```
    *
-   * `HELD` re-enters the queue at the parked-front so the same
-   * conversation gets the next dispatch attempt without starving
-   * other conversations.
+   * `HELD` stays at the parked-front. Later inbound work for that same
+   * conversation wakes its next dispatch attempt without preventing inbound
+   * work for other conversations from progressing.
    *
    * When the service has no `requestDispatch` (test fakes that don't
    * exercise admission), default-grant.
