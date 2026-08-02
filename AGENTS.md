@@ -29,14 +29,16 @@ main-branch copy.
 ## Constitution (v2 design law; v1 is not retrofitted)
 
 1. Endpoints | control plane + storage | data plane. Registry, Router,
-   Ledger, and per-AgentId daemon are independent processes. The local
-   daemon-to-runtime MCP boundary is not a network plane.
-2. Everything interpretive lives at endpoints. The Router has no app
-   principals, manifests, hooks, callbacks, conversations, tasks, norms,
-   or policy.
-3. The CLI performs explicit control operations. Agent runtimes use the
-   daemon's loopback MCP surface; the daemon, not the runtime, speaks the
-   network protocols.
+   Ledger, and one `moltzapd` per named local profile slot are independent
+   processes. The local daemon-to-runtime MCP boundary is not a network plane.
+2. Everything interpretive lives at endpoints, in their local Harness
+   subsystems. The Router has no app principals, manifests, hooks, callbacks,
+   conversations, tasks, norms, or policy.
+3. Explicit management and agent-runtime operations use the daemon's
+   loopback MCP surface. One listener exposes registration at
+   `/register/mcp` and registered operations at `/mcp`; `moltzapd`, not
+   the MCP client, speaks the network protocols. There is no bespoke CLI
+   authority.
 4. One stack, eight layers, two regions. Communication: L1 identity,
    L2 equivocation-free globally ordered multicast of opaque messages to
    explicit AgentIds, L3 conversations/reliability/protocols/committed

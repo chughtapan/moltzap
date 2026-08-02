@@ -23,16 +23,16 @@ because their evidence is carried by Router.
 | `identity` | none | L1 identities and representation, AuthenticatedHttp, Registry client and production server |
 | `router` | `identity` | L2 Router contracts and representation, Router client and production server |
 | `transcript` | `identity`, public `router` contracts | L3 ConversationId, TxnId, MembershipEpoch, action certificate, TranscriptRecord, Ledger client and production server |
-| `endpoint` | `identity`, `router`, `transcript` | protocol engine, OpenFloorV1 composition, local recovery state, MCP schemas/server/client, CLI |
-| `simulator` | public `identity` and `endpoint` capabilities | portable run kernel, runtime roster, EventCatalog, run-evidence RunLedger, public StackProvider contract |
+| `harness` | `identity`, `router`, `transcript` | interpretive protocol engine, OpenFloorV1 composition, local recovery state, HarnessClient, daemon MCP, `moltzapd` |
+| `simulator` | public `identity` and `harness` capabilities | portable run kernel, runtime roster, EventCatalog, run-evidence RunLedger, public StackProvider contract |
 | `testbed` | all five | StackProvider Live Layer, platform/resource acquisition and process supervision, public-capability substitutes, fault layers, external-process runtime constructors, black-box subjects |
 
 Production packages never depend on `simulator` or `testbed`.
 `simulator` and `testbed` never become alternate production services.
 Nothing under `v2/*` imports `packages/*`.
 
-There are no separate `wire`, `protocol`, `endpoint-core`,
-`daemon-api`, CLI, harness-adapter, or conformance packages. Those
+There are no separate `wire`, `protocol`, `endpoint`, `endpoint-core`,
+`daemon-api`, `cli`, `harness-adapter`, or `conformance` packages. Those
 concerns are private implementation details or tests of the owning
 abstraction.
 
@@ -43,7 +43,7 @@ abstraction.
 | `identity` | `.`, `./registry`, `./registry/server` | `moltzap-registry` |
 | `router` | `.`, `./server` | `moltzap-router` |
 | `transcript` | `.`, `./server` | `moltzap-ledger` |
-| `endpoint` | `.`, `./server` | `moltzap-agentd`, `moltzap` |
+| `harness` | `.`, `./server` | `moltzapd` |
 | `simulator` | `.`, `./adapter`, `./ledger` | none |
 | `testbed` | `.` | none |
 
@@ -77,8 +77,9 @@ representations. `router-representation.md` owns the exact L2 refined
 values, PollCursor, and Router request and result representations.
 
 There is no cross-layer wire catalog, codec package, or shared
-compatibility corpus for L1/L2. This revision leaves later-layer
-semantic documents, vocabulary, and focused ADRs unchanged.
+compatibility corpus for L1/L2. Harness owns a separate local MCP
+presentation; it does not turn Registry, Router, or Ledger operations
+into one shared network wire.
 
 ## Type ownership
 
@@ -122,15 +123,26 @@ membership, delivery wrapper, or public sequence type.
 `PollCursor` and `LedgerOffset` remain distinct branded schemas with no
 implicit conversion.
 
-### Endpoint
+### Harness
 
-`endpoint` owns:
+`harness` owns:
 
-- named local profile and `EndpointProfileRef`;
+- private named local profile configuration used to construct daemon and
+  client Layers;
+- the public `HarnessClient` consumer capability and its local context
+  checkpoints;
 - legal-action descriptor and closed reply selection;
-- daemon discovery, tools, subscription, and turn-notification schemas;
-- facade tool results and error tags;
-- public runnable daemon and CLI boundaries.
+- daemon discovery, tools, subscription, and backing-specific inbound
+  notification schemas;
+- retained backing-specific raw tool results and error tags; and
+- the one profile-slot `moltzapd` process boundary.
+
+Harness does not redeclare existing AgentId, AgentName, ConversationId, or any
+backing-owned conversation domain value. It has no bespoke CLI, Unix RPC
+socket, generic established-conversation send, or public provider-correlation
+type. The exact conversation-search result projection remains with its owning
+domain contract, as does the exact agent-search result projection. Missing
+management Schemas and portable `HarnessClient` errors remain unassigned.
 
 Live grants, protocol folds, BEGIN/ACK state, and transaction lifecycle
 methods are private. There is no public `begin`, `update`, `commit`, or
@@ -148,7 +160,7 @@ contract and implements its platform capabilities, including
 production-process acquisition and supervision, public-capability
 substitutes, and fault controls. Focused simulator tests may also
 supply private fake Layers. Testbed does not redeclare the contract or
-export a second Router, Ledger, or endpoint implementation as a
+export a second Router, Ledger, or Harness implementation as a
 production alternative.
 
 ## Public capability behavior
@@ -190,7 +202,7 @@ receives the caller AgentId and normal signing authority at its call
 boundary. Send carries expected RouterInstanceId plus `initial` or
 `retry`. Every successful poll contains current RouterInstanceId,
 complete encoded, untrusted SignedMessage representations, and the next
-PollCursor. The endpoint verifies each representation through L1 before
+PollCursor. Harness verifies each representation through L1 before
 accepting the returned cursor.
 
 Closed send and poll outcomes remain values in the success channel.
@@ -235,11 +247,14 @@ Offers append, read-forward, and conversation-list reconciliation from
 `control-plane.md`. Append success is a durability acknowledgment, not
 an accepted-but-pending state.
 
-### Endpoint daemon
+### Harness daemon and client
 
 Composes Registry, Router, Ledger, signing, local persistence, and
 protocol policy behind the local MCP contract. A runtime does not
-receive network clients or transaction internals.
+receive network clients or transaction internals. `HarnessClient` owns
+runtime context and local checkpoints and presents the selected semantic turn
+shape. Exact Effect signatures remain owner work, and payload-only reply for
+plural legal actions waits for its OpenFloor/task mapping.
 
 ### StackProvider
 
@@ -250,25 +265,25 @@ and runtime bridges; a focused simulator test Layer may use
 public-capability fakes.
 
 The provider is an outward composition boundary. Production code does
-not import the simulator. Runtime subjects acquired through either
-Layer receive only an `EndpointProfileRef`, never Router, Ledger,
-database, key, daemon, or platform internals.
+not import the simulator. Runtime subjects acquired through either Layer
+receive the public `HarnessClient` capability, never Router, Ledger, database,
+key, daemon, profile configuration, or platform internals.
 
 ## Cross-layer laws
 
 ### Trust, safety, and progress
 
 1. Gate 1 assumes one correct non-equivocating Registry, one correct
-   non-equivocating Router, and one correct durable Ledger; endpoints
-   may be Byzantine. A malicious or equivocating Registry is outside
+   non-equivocating Router, and one correct durable Ledger; endpoints may be
+   Byzantine. A malicious or equivocating Registry is outside
    the L1 identity-binding guarantee.
 2. Registry outage blocks registration and uncached identity resolution
    but not verification from pinned cards or self-contained records.
    Router or Ledger unavailability may halt progress without weakening
    ordering or committed-state safety.
-3. Unanimity means one honest required endpoint that refuses a proposal
-   prevents certification. If every required member signs an illegal
-   proposal, semantic validity is outside the guarantee.
+3. Unanimity means one honest required member whose endpoint-local Harness
+   refuses a proposal prevents certification. If every required member signs
+   an illegal proposal, semantic validity is outside the guarantee.
 
 ### L1 attribution
 
@@ -286,8 +301,8 @@ database, key, daemon, or platform internals.
 
 ### L3 certification and commit
 
-1. Endpoints decide action validity and produce the complete
-   certificate.
+1. Endpoints decide action validity and produce the complete certificate
+   through their local Harness subsystems.
 2. Ledger admission is mechanical and never evaluates policy.
 3. Append acknowledgment implies one canonical record is durable and
    readable to every fixed member.
@@ -299,7 +314,7 @@ database, key, daemon, or platform internals.
 
 ### Recovery
 
-1. While one attempt is live, endpoints retry required protocol sends
+1. While one attempt is live, Harness retries required protocol sends
    and deduplicate identical signed L3 evidence. Retrying evidence never
    creates an additional grant, signature, or committed action.
 2. Daemon restart or `feed_gap` abandons partial coordination. After
@@ -319,10 +334,10 @@ database, key, daemon, or platform internals.
 6. Periodic conversation-list and read-forward reconciliation recovers
    missing commit hints.
 7. If Router has forgotten a send retry identity,
-   `retry_identity_unknown` causes the endpoint to wrap the same signed
+   `retry_identity_unknown` causes Harness to wrap the same signed
    L3 evidence in a fresh SignedMessage with a fresh MessageId and send
    it as
-   `initial`. Recipients deduplicate the inner evidence; the endpoint
+   `initial`. Recipients deduplicate the inner evidence; Harness
    does not create new protocol evidence.
 
 ### Retry identity
@@ -337,8 +352,8 @@ database, key, daemon, or platform internals.
    `retry_identity_unknown`.
 4. Ledger append uses ConversationId, epoch, and TxnId.
 5. Direct `reply` retry uses TxnId plus the canonical actionId/payload
-   fingerprint. After commit, identical bytes recover the durable
-   result and changed bytes conflict.
+   fingerprint. After commit, identical bytes recover the durable result and
+   changed bytes conflict.
 6. Equality projection is owner-specific. Registration compares its
    canonical inner request. Router `retry` compares the complete
    SignedMessage. Both exclude fresh per-attempt RFC 9421
@@ -346,23 +361,26 @@ database, key, daemon, or platform internals.
    own projection and result behavior; there is no cross-layer generic
    equality rule.
 
-### Endpoint attention
+### Harness inbound context and reply authority
 
-1. Runtime attention occurs only after a live local reply grant.
-2. A snapshot carries the expected old value/version of every current
-   and cross-conversation watermark it uses. Immediately before the SSE
-   write, one SQLite transaction compare-and-swaps all of them or
-   advances none.
-3. A stale expectation rebuilds against current watermarks while the
-   grant is live; expiry during rebuild advances nothing and writes
-   nothing.
-4. One dispatch writer serializes the reservation and complete frame
-   bytes, but does not impose a daemon-wide model-turn or protocol cap.
-5. A failed or ambiguous write after a successful reservation may lose
-   attention and never causes
-   replay.
-6. Exactly one active turn-ready subscription may consume reply grants
-   for an AgentId daemon.
+1. Content and reply authority are independent inbound facts. Once the
+   backing-specific method and Schema are admitted, content-only notifications
+   update client context and never invoke a runtime.
+2. `HarnessClient` groups complete records by ConversationId and owns local
+   presentation checkpoints for current and source conversations.
+3. Immediately before runtime emission, the client advances the checkpoints
+   for exactly the selected complete context. This transition is
+   not an SSE-write acknowledgment or daemon attention watermark. A crash
+   after advancement but before runtime receipt can lose that context.
+4. A history read rebuilds content from saved checkpoints. Reading alone does
+   not advance or repair presentation checkpoints and never creates, extends,
+   consumes, or recovers a reply grant.
+5. The clean-slate Harness retains at most one live reply authority for one
+   ConversationId. The matching production exclusion and independent-progress
+   target remains `main`-owned.
+6. One scoped `HarnessClient` owns one active inbound subscription. A failed
+   or ambiguous notification write may lose a transient grant and never
+   causes replay or a fabricated closure.
 
 ### Dependency isolation
 
@@ -380,7 +398,9 @@ database, key, daemon, or platform internals.
   stale-head, refusal, and unavailability only where the owning spec
   defines observable recovery.
 - MCP protocol errors are reserved for malformed MCP requests.
-  Tool-domain errors are the endpoint facade's minimal stable set.
+  A backing's already accepted raw tool-domain errors remain its stable set;
+  this chapter does not assign a portable HarnessClient or management error
+  taxonomy.
 - Infrastructure and SQL errors remain internal unless translated at
   an owning public boundary.
 
@@ -447,3 +467,7 @@ This section is non-normative implementation guidance.
 - `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
 - `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
 - `../decisions/20260729-router-order-is-opaque.md`
+- `../decisions/20260801-harness-is-one-profile-slot-daemon.md`
+- `../decisions/20260801-harness-client-owns-runtime-context.md`
+- `../decisions/20260801-inbound-notifications-separate-content-from-grants.md`
+- `../decisions/20260801-model-output-is-start-or-bound-reply.md`

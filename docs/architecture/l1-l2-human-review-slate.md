@@ -2,7 +2,7 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **DRAFT — HUMAN REVIEW REQUIRED**
+Status: **DRAFT — HUMAN REVIEW REQUIRED; HARNESS PLACEHOLDER REPLACED**
 
 Implementation handoff:
 [`l1-l2-implementation-ask.md`](./l1-l2-implementation-ask.md)
@@ -27,6 +27,16 @@ frozen, and the repository blind-review gate passes.
 The slate is intentionally explicit. An omitted public name is not
 implementation discretion. A proposed change returns here before it
 enters source.
+
+The 2026-08-01 Harness authority resolves the later-layer placeholder
+that this L1/L2 review deliberately left open. The current contract uses
+the `harness` package, `moltzapd`, and `HarnessClient` as governed by
+`docs/spec/harness/` and
+[`harness-implementation-slate.md`](./harness-implementation-slate.md).
+The production and clean-slate clients target the same minimal semantic
+consumer shape. Their exact branch-owned Effect contracts must be admitted
+before the compile-time canary; raw MCP representations and implementations
+remain separate. Nothing below can revive the old placeholder spelling.
 
 ## Registration is Registry bootstrap admission
 
@@ -246,7 +256,7 @@ Other router-root exports are:
 - `RouterInvalidResponseError`
 
 Router poll results deliberately contain parsed, bounded, untrusted
-`SignedMessage` values. The endpoint verifies every returned message
+`SignedMessage` values. The Harness backing verifies every returned message
 before accepting the returned PollCursor.
 
 ## Refined value vocabulary
@@ -1228,8 +1238,10 @@ Forbidden generic or mechanism exports:
 - `/rpc`, JSON-RPC, or NDJSON production surfaces; and
 - `RegistryClient` or `RouterClient`.
 
-`HarnessEndpoin` is the exact human-selected future spelling. L1 and
-L2 do not introduce it. `HarnessEndpoint` remains unauthorized.
+The earlier `HarnessEndpoin` placeholder and any normalized
+`HarnessEndpoint` spelling are retired. The current later-layer
+subsystem and package name is `Harness`; L1 and L2 still do not
+introduce or own it.
 
 ## Explicit deferrals
 

@@ -14,7 +14,7 @@ recipient in that order. The order is a private Router mechanism.
 L2 is an unprogrammable, content-blind data plane. It does not own
 ConversationId, membership, action validity, persistence, durable
 replay, offline convergence, retransmission, recovery, or
-task-specific quorum policy. L3 endpoints own those responsibilities
+task-specific quorum policy. Harness subsystems own those responsibilities
 using Ledger and opaque protocol messages.
 
 The Gate 1 Router uses independently authenticated HTTP POST send and
@@ -37,7 +37,7 @@ Endpoints may be Byzantine. L2 prevents one accepted send from becoming
 different bytes or a different relative position for different
 recipients. It does not judge the opaque body.
 
-The L2 ordering guarantee assumes an endpoint receives the correct
+The L2 ordering guarantee assumes a Harness receives the correct
 Router response without network-path modification. Router responses
 are unsigned, so Gate 1 does not defend against a path attacker that
 reorders a batch or substitutes response fields. A deployment whose
@@ -89,7 +89,7 @@ The mapping is exclusive:
 
 Router poll results contain parsed and bounded, but untrusted,
 SignedMessage values. They therefore do not add
-`SignedMessageVerificationError` to `Router.poll`; the endpoint
+`SignedMessageVerificationError` to `Router.poll`; Harness
 verifies every returned message before accepting the PollCursor.
 
 ## Operations
@@ -195,7 +195,7 @@ middleware tag. Health remains a direct route outside RPC.
 
 A send contains:
 
-- the RouterInstanceId most recently learned by the endpoint;
+- the RouterInstanceId most recently learned by Harness;
 - mode `initial` or `retry`; and
 - one complete encoded SignedMessage.
 
@@ -244,7 +244,7 @@ entry conflicts, including one with identical bytes.
 After `retry_identity_unknown`, a live L3 attempt may wrap the same
 signed L3 evidence in a fresh SignedMessage with a fresh MessageId and
 send it as `initial`. This does not mint a new grant, protocol
-signature, or action. Endpoints deduplicate the inner L3 evidence.
+signature, or action. Harness deduplicates the inner L3 evidence.
 
 The accepted SignedMessageDigest is an immediate equality receipt for
 the retained live entry. It proves no position, delivery, durability,
@@ -330,11 +330,11 @@ deployment-configurable in Gate 1.
 
 A successful `batch` contains the current RouterInstanceId, ordered
 SignedMessages, and the next PollCursor. Retrying the same PollCursor
-may return an already observed complete batch. An endpoint advances its
+may return an already observed complete batch. Harness advances its
 volatile cursor only after accepting the entire result.
 
 The Router client parses and bounds returned SignedMessages but does
-not mark them verified. The endpoint verifies every returned
+not mark them verified. Harness verifies every returned
 SignedMessage before accepting the batch or its PollCursor.
 
 Router never treats an HTTP write, disconnect, timeout, or cancellation
@@ -343,11 +343,11 @@ as cursor advancement.
 ### Omitted cursor
 
 An omitted PollCursor atomically snapshots the current tail and returns
-an immediate empty batch anchored at that tail. A newly started endpoint
+an immediate empty batch anchored at that tail. A newly started Harness
 uses this only after reconciling durable Ledger state.
 
-The empty batch reveals the current RouterInstanceId and gives the
-endpoint the instance it binds into new L3 evidence and subsequent
+The empty batch reveals the current RouterInstanceId and gives Harness
+the instance it binds into new L3 evidence and subsequent
 sends. It does not replay retained volatile history.
 
 ### Continuation
@@ -385,7 +385,7 @@ keeps no per-recipient retention index.
 
 ## Feed gap and restart recovery
 
-After `feed_gap`, the endpoint:
+After `feed_gap`, Harness:
 
 1. abandons volatile protocol folds;
 2. reconciles every known conversation from Ledger;
@@ -394,7 +394,7 @@ After `feed_gap`, the endpoint:
 
 L2 performs none of those L3 steps.
 
-Router restart invalidates every old PollCursor. Endpoints learn the new
+Router restart invalidates every old PollCursor. Harness learns the new
 instance from an omitted-cursor batch or a send
 `router_restarted` result. They fence conversations whose epoch
 descriptor names the old instance from new actions. New STARTs may use

@@ -1,12 +1,23 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260801-harness-client-owns-runtime-context.md
 ---
 
 # V2 owns one simulator as the system driver
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-simulator-is-the-system-driver).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-simulator-is-the-system-driver) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harnessclient-owns-runtime-context).
+
+## Supersession
+
+Simulator ownership of the kernel, `StackProvider`, runtime roster,
+EventCatalog, RunLedger, source gate, and testbed/fake Layer split remains
+current. The `EndpointProfileRef` runtime handoff is replaced: runtime subjects
+receive the public `HarnessClient` capability and do not construct its daemon
+or transport from a public profile reference. The current handoff lives in
+`docs/spec/layer-interfaces.md` under StackProvider and
+`docs/spec/harness/client.md`.
 
 ## Context and Problem Statement
 

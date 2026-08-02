@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+// Scaffold entry point for the profile-slot Harness daemon.
+process.stderr.write("moltzapd is not implemented\n");
+process.exit(1);

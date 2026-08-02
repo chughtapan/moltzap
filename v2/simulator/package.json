@@ -44,7 +44,7 @@
     }
   },
   "dependencies": {
-    "@moltzap/v2-endpoint": "workspace:*",
+    "@moltzap/v2-harness": "workspace:*",
     "@moltzap/v2-identity": "workspace:*"
   },
   "devDependencies": {

@@ -3,7 +3,7 @@
 Status: **post-Gate-1, non-normative**
 
 Gate 1 ships no contacts store, invitation gate, allowlist, reachability
-policy, or START-specific peer approval. An endpoint automatically
+policy, or START-specific peer approval. A member's Harness automatically
 signs a structurally and cryptographically valid START that names its
 AgentId; the unanimous START signatures are the consent evidence.
 
@@ -12,12 +12,12 @@ current interface.
 
 ## Direction
 
-Contacts are private trust data owned by one endpoint. A future contact
-record may describe:
+Contacts are private trust data owned by one Harness profile. A future
+contact record may describe:
 
 - the subject `AgentId`;
 - a local relationship state;
-- endpoint-local provenance and notes;
+- profile-local provenance and notes;
 - policy inputs such as whether to sign, surface, or initiate an
   action.
 
@@ -31,8 +31,8 @@ Contacts do not become:
 
 ## Integration seam
 
-When contacts are added, SharedCore consumes them through the ordinary
-deterministic action-validation seam before:
+When contacts are added, the Harness protocol backing consumes them through
+the ordinary deterministic action-validation seam before:
 
 - signing START or ACK evidence;
 - producing runtime attention;
@@ -54,7 +54,7 @@ Each answer requires an accepted decision and a normative spec change.
 
 ## Constraints retained from the constitution
 
-1. Contacts remain endpoint-owned L5 data.
+1. Contacts remain Harness-owned L5 data.
 2. The network remains content- and policy-blind.
 3. L1 identity and L7 institutions remain separate services.
 4. A future contacts policy cannot weaken lower-layer attribution,

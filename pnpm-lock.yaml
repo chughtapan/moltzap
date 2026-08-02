@@ -439,7 +439,7 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
 
-  v2/endpoint:
+  v2/harness:
     dependencies:
       '@moltzap/v2-identity':
         specifier: workspace:*
@@ -570,9 +570,9 @@ importers:
 
   v2/simulator:
     dependencies:
-      '@moltzap/v2-endpoint':
+      '@moltzap/v2-harness':
         specifier: workspace:*
-        version: link:../endpoint
+        version: link:../harness
       '@moltzap/v2-identity':
         specifier: workspace:*
         version: link:../identity
@@ -589,9 +589,9 @@ importers:
 
   v2/testbed:
     dependencies:
-      '@moltzap/v2-endpoint':
+      '@moltzap/v2-harness':
         specifier: workspace:*
-        version: link:../endpoint
+        version: link:../harness
       '@moltzap/v2-identity':
         specifier: workspace:*
         version: link:../identity

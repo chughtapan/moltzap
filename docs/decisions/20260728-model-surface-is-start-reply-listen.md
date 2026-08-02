@@ -1,12 +1,32 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260801-model-output-is-start-or-bound-reply.md
 ---
 
 # The model surface is start_conversation, reply, and listen
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-model-surface-is-start-reply-listen).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-model-surface-is-start-reply-listen) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#model-output-is-start-or-bound-reply).
+
+## Supersession
+
+The clean-slate direct MCP contract remains current: START uses its stable
+OperationId and accepted deterministic recovery; raw reply accepts
+`(TxnId, actionId, payload)`; the ReplyFingerprint, durable result, receipt
+reconciliation, retry conflicts, and closed raw errors retain their accepted
+semantics; grant-before-generation, runtime-host queue and steer presentation
+within one granted batch, and the prohibition on generic send also remain
+current.
+
+`20260801-model-output-is-start-or-bound-reply.md` replaces only the
+runtime-adapter projection with `HarnessClient.startConversation(...)` and a
+turn-bound `reply(payload)` closure that hides those raw fields. Listen context
+projection moves to `20260801-harness-client-owns-runtime-context.md`, and
+content/grant separation moves to
+`20260801-inbound-notifications-separate-content-from-grants.md`. Current
+normative contracts live in `docs/spec/harness/output.md`,
+`docs/spec/harness/ingress.md`, and `docs/spec/harness/client.md`.
 
 ## Context and Problem Statement
 

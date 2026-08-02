@@ -7,21 +7,25 @@ superseded-by: 20260729-registration-is-registry-bootstrap-admission.md
 
 # Registration is out of band; the plane knows one caller
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260727-registration-is-out-of-band), [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp), and [approved registration ownership](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#exact-implementation-slate-approved).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260727-registration-is-out-of-band), [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp), [approved registration ownership](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#exact-implementation-slate-approved), and [Harness presentation refinement](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harness-vocabulary-and-one-profile-slot-daemon).
 
 ## Supersession
 
-This record is fully superseded. Registration is a concrete L1
-Registry HTTP control operation, not an out-of-band library call. It is
-authenticated directly by the Registry using a deployment admission
-credential and proof of possession of the submitted key. It remains
-absent from Router, Ledger, daemon MCP, and runtime events. The current
-registration outcome is
+This record is fully superseded. Registration is a concrete L1 Registry HTTP
+control operation, not an out-of-band library call. Registry authenticates it
+using a deployment admission credential and proof of possession of the
+submitted key. It remains absent from Router, Ledger, and runtime events.
+
+`20260801-harness-is-one-profile-slot-daemon.md` adds a local
+`/register/mcp` presentation through which `moltzapd` calls the same
+Registry-owned bootstrap operation; it does not move admission authority into
+Harness. The current registration outcome is
 `20260729-registration-is-registry-bootstrap-admission.md`; the normal
 registered-agent request profile remains in
-`20260729-identity-uses-jcs-jose-authenticated-http.md`. Exact behavior
-and representation live in `docs/spec/identity.md` and
-`docs/spec/identity-representation.md`.
+`20260729-identity-uses-jcs-jose-authenticated-http.md`. Exact behavior and
+representation live in `docs/spec/identity.md`,
+`docs/spec/identity-representation.md`, `docs/spec/harness/daemon.md`, and
+`docs/spec/management.md`.
 
 ## Context and Problem Statement
 

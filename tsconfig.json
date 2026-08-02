@@ -29,7 +29,7 @@
       "path": "v2/transcript"
     },
     {
-      "path": "v2/endpoint"
+      "path": "v2/harness"
     },
     {
       "path": "v2/simulator"

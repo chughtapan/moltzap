@@ -34,7 +34,7 @@ V2 has exactly six deep packages:
 | `identity` | L1 contracts and representation, AuthenticatedHttp, Registry client, PostgreSQL Registry server, `moltzap-registry` |
 | `router` | L2 contracts and representation, Router client, in-memory Router server, `moltzap-router` |
 | `transcript` | L3 record contracts, Ledger client, PostgreSQL Ledger server, `moltzap-ledger` |
-| `endpoint` | endpoint protocol engine, SQLite state, daemon MCP, CLI, `moltzap-agentd`, `moltzap` |
+| `harness` | interpretive protocol engine, SQLite state, `HarnessClient`, daemon MCP, `moltzapd` |
 | `simulator` | portable code-first kernel, runtime roster, event catalog, simulation `RunLedger` |
 | `testbed` | platform acquisition, external processes, fault layers, substitutes, black-box subjects |
 
@@ -43,15 +43,15 @@ The production dependency graph is:
 ```text
 router     -> identity
 transcript -> identity + router contracts
-endpoint   -> identity + router + transcript
-simulator  -> identity + endpoint public capabilities
-testbed    -> identity + router + transcript + endpoint + simulator
+harness    -> identity + router + transcript
+simulator  -> identity + harness public capabilities
+testbed    -> identity + router + transcript + harness + simulator
 ```
 
 `transcript` may depend on the Router contracts needed to retain L2
 evidence; it never depends on a Router implementation. `simulator` and
 `testbed` are never production dependencies. `wire`, `protocol`,
-`endpoint-core`, `daemon-api`, `cli`, `harness-adapter`, and
+`endpoint`, `endpoint-core`, `daemon-api`, `cli`, `harness-adapter`, and
 `conformance` are not packages.
 
 All six manifests and the MoltZap compatibility value match the exact
@@ -76,9 +76,9 @@ definition/event/RunLedger persisted-schema versions are independent.
 - **Layer-owned representation.** Each implemented layer owns a separate
   representation chapter and its private mechanisms. Do not create a
   cross-layer wire catalog, compatibility corpus, codec package, or
-  shared representation vocabulary for L1/L2. This implementation
-  candidate leaves later-layer semantic documents and focused ADRs
-  unchanged.
+  shared representation vocabulary for L1/L2. A representation change
+  never silently assigns another layer's representation; any later-layer
+  contract change requires its own current ADR and normative owner.
 - **Deep modules.** Each package owns its public contract, production
   implementation, binary where applicable, and tests. Keep mechanisms
   private; do not create pass-through packages or accessor layers.
@@ -90,15 +90,29 @@ definition/event/RunLedger persisted-schema versions are independent.
 - **Effect at the edge and through the core.** Define validated boundary
   models with Effect Schema, model dependencies as cohesive services,
   compose resource-owning implementations with scoped Layers at process
-  roots, use Effect SQL and Migrator for Registry/Ledger/daemon storage,
+  roots, use Effect SQL and Migrator for Registry/Ledger/Harness storage,
   and keep typed failures rather than throwing across boundaries.
 - **Network boundaries stay separate.** Registry, Router, and Ledger are
-  independent HTTP processes. Router and Ledger are siblings; endpoints
-  coordinate them. The daemon's loopback MCP surface is a local runtime
+  independent HTTP processes. Router and Ledger are siblings; Harness
+  subsystems coordinate them. The daemon's loopback MCP surface is a local runtime
   boundary, not the Router data plane.
-- **Endpoint authority.** Only endpoints interpret bodies, run protocols,
-  apply L4/L5/L7 rules, and decide which certificates to sign. Router is
-  opaque delivery; Ledger is mechanical atomic storage.
+- **One local profile slot.** One `moltzapd` owns one named profile slot and
+  one fixed-port loopback listener. It serves registration at
+  `/register/mcp` and registered management/runtime operations at `/mcp`.
+  Generic MCP clients and `HarnessClient` use those paths; there is no
+  bespoke CLI, Unix socket, stdio server, second MCP process, or bind
+  fallback.
+- **Compile-time client interoperability.** The clean-slate application targets
+  the minimal structural `HarnessClient` consumer shape. Its complete Effect
+  signatures and portable errors require an admitted owner. Production
+  adoption remains `main`-owned; after both exact contracts are admitted,
+  their independently owned service values pass a bidirectional compile-time
+  canary. Raw MCP schemas, Tags, Layers, and implementations remain
+  backing-owned; no runtime generation detection or cross-track import is
+  permitted.
+- **Harness authority.** Only endpoints' Harness subsystems interpret bodies,
+  run protocols, apply L4/L5/L7 rules, and decide which certificates to sign.
+  Router is opaque delivery; Ledger is mechanical atomic storage.
 - **One production stack.** The simulator surrounds the same production
   capabilities as a system driver. Testbed adds acquisition and faults;
   it never reimplements or wraps an umbrella production server.

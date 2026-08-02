@@ -96,7 +96,7 @@
     "v2/transcript": {
       "ignoreDependencies": ["@moltzap/v2-identity", "@moltzap/v2-router"]
     },
-    "v2/endpoint": {
+    "v2/harness": {
       "ignoreDependencies": [
         "@moltzap/v2-identity",
         "@moltzap/v2-transcript",
@@ -104,11 +104,11 @@
       ]
     },
     "v2/simulator": {
-      "ignoreDependencies": ["@moltzap/v2-endpoint", "@moltzap/v2-identity"]
+      "ignoreDependencies": ["@moltzap/v2-harness", "@moltzap/v2-identity"]
     },
     "v2/testbed": {
       "ignoreDependencies": [
-        "@moltzap/v2-endpoint",
+        "@moltzap/v2-harness",
         "@moltzap/v2-identity",
         "@moltzap/v2-simulator",
         "@moltzap/v2-transcript",

@@ -21,6 +21,14 @@ chapters remain authoritative in the order stated by `AGENTS.md` and
 must land atomically and pass the repository blind teammate review gate
 before implementation code starts.
 
+The later 2026-08-01 authority replaces this ask's former Harness name
+placeholder and package-map entries. The current package is `harness`,
+its daemon is `moltzapd`, and runtime adapters consume `HarnessClient`.
+See [`harness-implementation-slate.md`](./harness-implementation-slate.md)
+and `docs/spec/harness/`. This correction does not alter the reviewed
+L1/L2 representations or make the two backing applications share a raw
+MCP wire or runtime implementation.
+
 ## Goal
 
 Ship the reviewed L1 Registry and L2 Router end to end: deep public
@@ -378,11 +386,10 @@ Approved vocabulary:
 | digest of a complete SignedMessage JWS | `SignedMessageDigest` |
 | opaque client-held Router continuation | `PollCursor` |
 
-`HarnessEndpoin` is the literal human-selected name for the future
-public endpoint-facing harness concept. The current source does not
-authorize silently normalizing it to `HarnessEndpoint`. Neither name is
-introduced by the L1 or L2 slices, so a future slice confirms the exact
-spelling at its vocabulary gate.
+The former `HarnessEndpoin` placeholder and any normalized
+`HarnessEndpoint` spelling are retired. The later-layer package and
+subsystem are named `harness` and `Harness`; the L1/L2 slices still do
+not own their public runtime contract.
 
 Retired public vocabulary:
 
@@ -602,7 +609,7 @@ V2 continues to contain exactly six deep packages:
 | `identity` | L1 contracts, Registry client, PostgreSQL Registry server, `moltzap-registry` |
 | `router` | L2 contracts, Router client, in-memory Router server, `moltzap-router` |
 | `transcript` | L3 contracts, Ledger client and server |
-| `endpoint` | endpoint protocol engine, local state, daemon MCP, CLI |
+| `harness` | interpretive protocol engine, local state, `HarnessClient`, daemon MCP, `moltzapd` |
 | `simulator` | production-capability system driver and run evidence |
 | `testbed` | platform acquisition, processes, faults, and black-box subjects |
 
@@ -611,9 +618,9 @@ The production dependency graph becomes:
 ```text
 router     -> identity
 transcript -> identity + router contracts
-endpoint   -> identity + router + transcript
-simulator  -> identity + endpoint public capabilities
-testbed    -> identity + router + transcript + endpoint + simulator
+harness    -> identity + router + transcript
+simulator  -> identity + harness public capabilities
+testbed    -> identity + router + transcript + harness + simulator
 ```
 
 The package directory `v2/transport` becomes `v2/router`. Its npm name
@@ -883,7 +890,7 @@ The exact public-key representation is:
 ```
 
 Unknown fields are rejected. Private key loading accepts an absolute
-path to an unencrypted Ed25519 PKCS#8 document at the CLI or process
+path to an unencrypted Ed25519 PKCS#8 document at a process
 boundary. Private key material does not appear in logs, errors, public
 models, or Registry storage.
 
@@ -2217,7 +2224,7 @@ This ask does not decide or implement:
 
 - any change to L3 and later representation formats;
 - conversations, reliability, transactions, replay, or recovery at L2;
-- `HarnessEndpoin` and any normalized spelling;
+- implementation of the separately governed Harness subsystem;
 - Registry malicious-equivocation tolerance;
 - key rotation, revocation, recovery, delegation, HSMs, keychains, or
   external signers;

@@ -34,7 +34,7 @@ continuity. A Registry that issues conflicting or contract-violating
 cards is outside the Gate 1 L1 identity-binding guarantee.
 
 Correctness does not imply availability. Registry outage prevents
-registration and public lookup or list operations. A Router or endpoint
+registration and public lookup or list operations. A Router or Harness
 with a positively cached immutable card can continue verifying that
 identity. Pinned cards and self-contained Transcript records remain
 verifiable without a live Registry.
@@ -170,8 +170,9 @@ operation:
 It is not authenticated as an existing AgentId and is not part of
 `AuthenticatedHttp`. It proves possession of the submitted key and
 presents a deployment admission credential before Registry creates an
-identity. It does not traverse Router, Ledger, endpoint MCP, or a
-runtime bridge.
+identity. `moltzapd` presents this operation locally at `/register/mcp`,
+then calls Registry directly. Registration does not traverse Router,
+Ledger, the registered `/mcp` runtime path, or a runtime adapter.
 
 `RegistryRegisterRequest` contains exactly:
 
@@ -197,9 +198,12 @@ private Registry RPC middleware context, never an authenticated-agent
 context.
 
 Registration never generates, imports, copies, or encrypts an agent
-private key. CLI and daemon use a pre-existing unencrypted Ed25519
-PKCS#8 file at an absolute path, derive its public JWK, and require an
-exact match with the request and issued card.
+private key. `moltzapd` uses a pre-existing unencrypted Ed25519 PKCS#8
+file at an absolute path, derives its public JWK, and requires an exact
+match with the request and issued card. The MCP presentation never exposes key
+material. Whether the absolute path is supplied through daemon configuration
+or the registration tool remains unassigned until the Harness management
+representation owner is admitted.
 
 Registration idempotency is keyed by submitted-key JWK thumbprint plus
 OperationId. An identical canonical inner request returns the original

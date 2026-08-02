@@ -2,30 +2,32 @@
 status: partially-superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
-superseded-by: 20260728-model-surface-is-start-reply-listen.md
+superseded-by: 20260801-inbound-notifications-separate-content-from-grants.md
 ---
 
 # The firewall is the agent's boundary: two directions, everything crosses
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-firewall-two-directions).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-firewall-two-directions) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#inbound-content-and-reply-authority-are-separate).
 
 ## Supersession
 
-The core Decision Outcome — one inbound and one outbound agent-boundary
-direction — remains current. Later accepted records supersede body
-phrases about a generic plain-send path, pinned norm-bundle tools, and
-norm-bundle tool results; those phrases are historical context, not
-Gate 1 surfaces.
+The core Decision Outcome—one inbound and one outbound agent-boundary
+direction—remains current. Historical body phrases about generic plain send,
+pinned norm-bundle tools, and norm-bundle tool results are not current Gate 1
+surfaces.
 
-Gate 1 makes the crossings concrete. A verified committed record and
-live grant cross inbound as one MCP turn-ready notification. The
-runtime's `reply` selection crosses outbound before the endpoint
-compiles protocol messages. Peer protocol proposals and signature
-requests cross inbound through deterministic endpoint validation, and
-an endpoint signature crosses outbound only after that validation.
-There is no generic send tool and no Gate 1 norm-bundle MCP surface;
-`OpenFloorV1` is built into the endpoint. Runtime-specific semantic L5
-screening across local MCP remains explicitly deferred.
+`20260801-inbound-notifications-separate-content-from-grants.md` replaces the
+indivisible turn-ready crossing. Conversation-labelled committed content may
+cross inbound without reply authority; a provider-specific grant is a separate
+fact and only a grant-bearing client turn permits generation.
+`20260801-model-output-is-start-or-bound-reply.md` replaces outbound selection
+with conversation start or a bound payload-only reply and keeps generic send
+absent without assigning new START mechanics. Peer protocol proposals,
+validation, and signatures remain
+autonomous Harness behavior below the runtime-facing boundary. Runtime-specific
+semantic L5 screening across local MCP remains explicitly deferred. Current
+crossings live in `docs/spec/harness/ingress.md`,
+`docs/spec/harness/output.md`, and `docs/spec/harness/screening.md`.
 
 ## Context and Problem Statement
 

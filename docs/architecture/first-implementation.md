@@ -2,14 +2,15 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **APPROVED IMPLEMENTATION PLAN — AUTHORITY REVIEW REQUIRED BEFORE CODE**
+Status: **HARNESS AUTHORITY CANDIDATE — BLIND REVIEW REQUIRED BEFORE HARNESS CODE**
 
 The complete approved L1 and L2 handoff is
 [`l1-l2-implementation-ask.md`](./l1-l2-implementation-ask.md). That
-document is the durable implementation ask: exact contracts, defaults,
-dependency choices, tests, human gates, and slice boundaries live
-there. This page records the repository-wide order and prevents later
-work from racing ahead of its authority.
+document remains the durable L1/L2 implementation ask. The Harness
+implementation boundary is recorded in
+[`harness-implementation-slate.md`](./harness-implementation-slate.md).
+This page records the repository-wide order and prevents later work
+from racing ahead of its authority.
 
 Normative behavior lives in `v2/VISION.md`, current ADR outcomes, and
 `docs/spec/`. This plan never overrides them.
@@ -21,20 +22,22 @@ Gate 1 produces one stack with:
 - an L1 Registry and AuthenticatedHttp boundary;
 - an L2 content-blind Router with a private global order;
 - an L3 Ledger for mechanically admitted atomic Transcript commits;
-- one endpoint daemon per AgentId;
+- one `moltzapd` per named local profile slot;
 - one portable simulator driving the production capabilities;
 - one testbed acquiring the stack and adding faults; and
-- OpenClaw and NanoClaw as consumers of the same daemon contract.
+- OpenClaw and NanoClaw as consumers of the selected `HarnessClient` semantic
+  shape after its exact branch-owned contracts are admitted.
 
-The associated authority change makes L1 and L2 ready once its blind
-review is accepted. It leaves the L3, L4, daemon-persistence, and
-local-MCP semantic documents and focused ADRs unchanged.
+The L1/L2 authority remains unchanged. The Harness decisions rename the
+later package and daemon, move all local operations behind MCP, and add
+the shared client-facing semantics described below. They do not assign
+a missing L3 or backing-specific raw representation.
 
 ## Non-negotiable boundaries
 
-- Registry, Router, Ledger, and each endpoint daemon are independent
+- Registry, Router, Ledger, and each Harness daemon are independent
   processes.
-- Router and Ledger are siblings. Endpoints coordinate them.
+- Router and Ledger are siblings. Harness backings coordinate them.
 - Router sees only attributed L1 addressing and opaque body bytes.
 - L3 owns conversations, retries, recovery, certificates, and durable
   actions.
@@ -43,6 +46,18 @@ local-MCP semantic documents and focused ADRs unchanged.
 - One TranscriptRecord is atomically committed for all fixed members or
   for none.
 - The local daemon-to-runtime MCP surface is not a network plane.
+- Registration and active operations share one daemon but use separate
+  MCP paths. There is no bespoke CLI authority.
+- Production and clean-slate backings target the same semantic
+  `HarnessClient` consumer shape. Their exact branch-owned contracts must be
+  admitted before compile-time compatibility is checked; there is no runtime
+  selection.
+- Runtime context belongs to `HarnessClient`; content notification and
+  reply authority remain distinct.
+- At most one live reply authority exists for a conversation.
+- Model output is conversation start with initial content or turn-bound reply;
+  there is no generic established-conversation send, and this boundary assigns
+  no new START mechanics to another backing.
 - Each layer owns a separate representation chapter and private
   mechanisms.
 - V2 contains exactly six deep packages and imports nothing from
@@ -59,8 +74,8 @@ local-MCP semantic documents and focused ADRs unchanged.
 | `identity` | none | `moltzap-registry` |
 | `router` | `identity` | `moltzap-router` |
 | `transcript` | `identity`, Router contracts | `moltzap-ledger` |
-| `endpoint` | `identity`, `router`, `transcript` | `moltzap-agentd`, `moltzap` |
-| `simulator` | public `identity` and `endpoint` capabilities | none |
+| `harness` | `identity`, `router`, `transcript` | `moltzapd` |
+| `simulator` | public `identity` and `HarnessClient` capabilities | none |
 | `testbed` | all five | none |
 
 The authority slice renames `v2/transport` to `v2/router`,
@@ -94,6 +109,9 @@ Before product code:
 Any semantic correction creates a new candidate and requires a
 different fresh reviewer. No implementation commit may be based only on
 chat or on the unreviewed candidate.
+
+The Harness authority follows the same admission, traceability, and
+blind-review gate through its four focused 2026-08-01 ADRs.
 
 ## Gate 1 — immutable simulator source baseline
 
@@ -160,15 +178,35 @@ wrapper.
 Every slice has the same focused verification and human readability
 review gate as L1.
 
-## Gate 4 — later-layer handoff boundary
+## Gate 4 — Harness implementation boundary
 
-L3, L4, daemon persistence, local MCP, simulator, testbed, and runtime
-bridge implementation remain outside this L1/L2 candidate. Their
-semantic documents and focused ADRs are unchanged.
+The Harness work proceeds in narrow slices:
 
-The exact bridge symbol remains human-gated. The recorded source
-contains the literal `HarnessEndpoin`; no implementation silently
-normalizes or exports either spelling before a maintainer confirms it.
+1. rename `v2/endpoint` to `v2/harness`, the package to
+   `@moltzap/v2-harness`, and the daemon to `moltzapd` without retaining
+   public Endpoint aliases;
+2. after their backing-owned representations are admitted, expose registration
+   and active management/runtime tools through one daemon's MCP server,
+   including paginated `search_*` tools, without inventing empty-query behavior
+   or agent/conversation result values in Harness, and remove the bespoke CLI
+   boundary;
+3. after the exact `HarnessClient` Effect signatures and portable errors are
+   admitted, define the clean-slate Tag, Layer, and MCP client; add the
+   bidirectional compile-time canary only after the production contract lands
+   on `main`;
+4. keep content notification independent from reply authority, enforce
+   one live authority per conversation, and assemble current and
+   cross-conversation context in `HarnessClient`;
+5. expose conversation start with initial content and, for an unambiguous or
+   owner-mapped action, a payload-only reply bound to the live turn, with no
+   generic established-conversation send and no new cross-backing START
+   contract; and
+6. adapt OpenClaw and NanoClaw only through `HarnessClient`.
+
+Existing production and clean-slate protocol, Ledger, recovery, and MCP
+mechanics remain in place unless one of those decisions explicitly
+changes them. Missing L3 or backing-specific raw representations remain
+blocked rather than being invented by this plan.
 
 ## Future end-to-end proof
 
@@ -187,11 +225,12 @@ The final proof covers:
 - Ledger atomicity, signer-set mechanics, dense offsets, hash chain,
   restart, and ambiguous append recovery;
 - START and OpenFloorV1 safety and conditional liveness;
-- daemon restart, attention compare-and-swap, lost notifications,
+- Harness restart, lost notifications,
   reply recovery, and cross-conversation concurrency;
 - the accepted MCP contract;
 - simulator determinism and run-evidence integrity; and
-- OpenClaw and NanoClaw as public-interface-only consumers.
+- after the exact client contract is admitted, OpenClaw and NanoClaw as
+  `HarnessClient`-only consumers.
 
 Publishing, deployment, cutover, and v1 retirement are separate work.
 
@@ -226,6 +265,11 @@ The L1/L2 implementation is complete only when:
 - all focused and end-to-end checks pass non-vacuously; and
 - each implementation slice has a recorded human readability review.
 
+The Harness implementation additionally requires compile-time
+structural compatibility between its independent clients and proof that
+runtime adapters neither import nor construct Harness backing
+internals.
+
 ## Explicit deferrals
 
 Router replication and Byzantine sequencing; persistent or
@@ -233,4 +277,11 @@ per-recipient Router state; end-to-end encryption and key distribution;
 L1 rotation, revocation, and recovery; dynamic membership;
 non-unanimous certificates; append takeover and disputes; L6/L7/L8
 services; hostile-local-process security; event replay; deployment,
-publishing, and all later-layer implementation.
+publishing, and all later-layer implementation. Exact new Harness
+configuration, lifecycle, persistence, cursor, buffering, resource
+limit, retry, overload, and raw-wire rules remain deferred unless they
+are already owned by a current contract.
+
+Production adoption of `HarnessClient` and removal of the production line's
+legacy local surfaces remain `main`-owned dependencies rather than v2
+authority.
