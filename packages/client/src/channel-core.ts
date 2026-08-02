@@ -171,6 +171,8 @@ export interface ChannelService {
     handler: (frame: DispatchReleaseFrame) => void,
   ): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
+  /** Effectful teardown used by scoped process owners. */
+  shutdown?(): Effect.Effect<void>;
   close(): void;
   send(
     conversationId: ConversationId,
@@ -555,11 +557,16 @@ export class MoltZapChannelCore {
   disconnect(): Effect.Effect<void> {
     return Effect.gen(
       function* (this: MoltZapChannelCore) {
-        this.service.close();
         this.connected = false;
         // Interrupt the consumer fiber so any queued inbound messages are
         // dropped rather than delivered after the channel is torn down.
         yield* Fiber.interrupt(this.consumerFiber);
+        const shutdown = this.service.shutdown?.();
+        if (shutdown === undefined) {
+          this.service.close();
+          return;
+        }
+        yield* shutdown;
       }.bind(this),
     );
   }

@@ -12,7 +12,7 @@ import {
   type RequestListener,
   type Server as NodeHttpServer,
 } from "node:http";
-import { Effect, type Scope } from "effect";
+import { Effect, Exit, type Scope } from "effect";
 
 const REGISTER_MCP_PATH = "/register/mcp";
 const HARNESS_MCP_PATH = "/mcp";
@@ -181,4 +181,11 @@ export const acquireHarnessMcpHttpServer = (
   options: HarnessMcpHttpServerOptions,
 ): Effect.Effect<NodeHttpServer, Error, Scope.Scope> =>
   // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- this package-private helper returns the scoped acquisition to its process owner
-  Effect.acquireRelease(listen(options), (server) => release(server, options));
+  Effect.acquireRelease(
+    listen(options).pipe(
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit) ? Effect.void : closeHandlers(options),
+      ),
+    ),
+    (server) => release(server, options),
+  );

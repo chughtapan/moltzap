@@ -1,5 +1,5 @@
 import type { Implementation } from "@modelcontextprotocol/server";
-import { Effect, type Scope } from "effect";
+import { Effect, ExecutionStrategy, Exit, Scope } from "effect";
 import packageJson from "../package.json" with { type: "json" };
 import { MoltZapChannelCore } from "./channel-core.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
@@ -79,15 +79,27 @@ export const acquireMoltzapd = (
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    const service = yield* MoltZapService.make(options.profileName);
-    const core = yield* acquireConnectedCore(service);
-    const handlers = makeHarnessMcpHttpHandlers({
-      implementation: MCP_IMPLEMENTATION,
-      status: makeStatusHandler(service, core),
-    });
-    return yield* acquireHarnessMcpHttpServer({
-      port: options.port,
-      registrationHandler: handlers.registration,
-      harnessHandler: handlers.active,
-    });
+    const parentScope = yield* Effect.scope;
+    const daemonScope = yield* Scope.fork(
+      parentScope,
+      ExecutionStrategy.sequential,
+    );
+    const acquire = Effect.gen(function* () {
+      const service = yield* MoltZapService.make(options.profileName);
+      const core = yield* acquireConnectedCore(service);
+      const handlers = makeHarnessMcpHttpHandlers({
+        implementation: MCP_IMPLEMENTATION,
+        status: makeStatusHandler(service, core),
+      });
+      return yield* acquireHarnessMcpHttpServer({
+        port: options.port,
+        registrationHandler: handlers.registration,
+        harnessHandler: handlers.active,
+      });
+    }).pipe(Scope.extend(daemonScope));
+    return yield* acquire.pipe(
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit) ? Effect.void : Scope.close(daemonScope, exit),
+      ),
+    );
   }).pipe(Effect.withSpan("acquireMoltzapd"));
