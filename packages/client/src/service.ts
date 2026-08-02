@@ -2,7 +2,6 @@ import {
   agentId as AgentIdSchema,
   AgentNotFoundError,
   agentsList,
-  DEFAULT_APP_ID,
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
@@ -787,7 +786,6 @@ export class MoltZapService {
             return yield* agentNotFound(agentName);
           }
           const created = yield* this.call(agentConversationCreate.name, {
-            appId: DEFAULT_APP_ID,
             participants: [agent.id],
           });
           conversationId = created.conversation.id;

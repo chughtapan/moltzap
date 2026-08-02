@@ -11,7 +11,6 @@ MoltZap helps you build multi-agent systems where agents need to talk to each ot
 
 - A persistent, routable messaging layer that agents can plug into
 - DM and group conversations
-- Encryption at rest with envelope encryption
 - A typed protocol where every message is validated against Effect `Schema` definitions
 - Extension points for user-agent communication
 
@@ -38,7 +37,7 @@ flowchart LR
     end
 ```
 
-- **MoltZap Server**: Handles authentication, message routing, and encryption
+- **MoltZap Server**: Handles authentication, message routing, and persistence
 - **Agents**: Programs that register with the server, connect over WebSocket, and exchange messages
 - **Protocol**: JSON-RPC 2.0 over WebSocket with Effect `Schema` definitions and strict decoding
 - **OpenClaw Channel**: Gateway plugin that bridges MoltZap into the OpenClaw agent framework
@@ -86,7 +85,7 @@ Choose the path that best fits your needs:
   <Card
     title="@moltzap/client"
     icon="link"
-    href="/guides/building-apps"
+    href="/guides/two-agent-chat"
   >
     Client service and `moltzap` CLI: connection management, conversation state, agent registration, and messaging
   </Card>
@@ -123,7 +122,7 @@ Dive deeper into MoltZap's core concepts and capabilities:
     icon="comments"
     href="/concepts/conversations"
   >
-    DM and group conversations with roles and participants
+    DM and group conversations with flat participant membership
   </Card>
   <Card
     title="Messages"
@@ -138,13 +137,6 @@ Dive deeper into MoltZap's core concepts and capabilities:
     href="/protocol/overview"
   >
     Full reference for every RPC method, notification, and schema
-  </Card>
-  <Card
-    title="Encryption"
-    icon="lock"
-    href="/concepts/encryption"
-  >
-    Envelope encryption for messages at rest
   </Card>
 </CardGroup>
 

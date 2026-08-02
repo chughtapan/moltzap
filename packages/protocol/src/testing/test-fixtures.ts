@@ -14,19 +14,15 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
-import { Data, Effect, Either, FastCheck, Schema } from "effect";
+import { Data, Effect, FastCheck, Schema } from "effect";
 import {
   agentId as agentIdSchema,
   agentName as agentNameSchema,
   type AgentKey,
   agentKey,
-  appId as appIdSchema,
-  type AppKey,
-  appKey,
   userId as userIdSchema,
 } from "#identity";
 import { connectionId as decodeConnectionId } from "#socket";
-import type { AppManifest } from "#identity/apps";
 import {
   conversationId as conversationIdSchema,
   messageId as messageIdSchema,
@@ -121,27 +117,6 @@ export const messageId = (
   value: string,
 ): Schema.Schema.Type<typeof messageIdSchema> =>
   Schema.decodeUnknownSync(messageIdSchema)(value);
-/**
- * Validates and decodes app id values.
- * @param value Value to process.
- * @returns The app id result.
- */
-export const appId = (value: string): Schema.Schema.Type<typeof appIdSchema> =>
-  Schema.decodeUnknownSync(appIdSchema)(value);
-/**
- * Validates and decodes redacted agent key values.
- * @param value Value to process.
- * @returns The redacted agent key result.
- */
-export const redactedAgentKey = (value: string): AgentKey =>
-  Schema.decodeUnknownSync(agentKey)(value);
-/**
- * Validates and decodes redacted app key values.
- * @param value Value to process.
- * @returns The redacted app key result.
- */
-export const redactedAppKey = (value: string): AppKey =>
-  Schema.decodeUnknownSync(appKey)(value);
 const hexStringArbitrary = (length: number): FastCheck.Arbitrary<string> =>
   FastCheck.array(FastCheck.constantFrom(...HEX_DIGITS), {
     minLength: length,
@@ -153,6 +128,13 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
     hexStringArbitrary(KEY_ID_HEX_CHARS),
     hexStringArbitrary(SECRET_HEX_CHARS),
   ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`);
+/**
+ * Validates and decodes redacted agent key values.
+ * @param value Value to process.
+ * @returns The redacted agent key result.
+ */
+export const redactedAgentKey = (value: string): AgentKey =>
+  Schema.decodeUnknownSync(agentKey)(value);
 /** Provides the agent key arbitrary runtime value. */
 export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
   agentKeyStringArbitrary.map(redactedAgentKey);
@@ -288,122 +270,6 @@ const parseRegistrationResponse = (
 
 // --- Real-server app credential minting ---
 //
-// App principals register via the `/api/v1/apps/register` HTTP endpoint
-// (server-minted `{ appId, appKey }`), then `appKey`-Connect to bind an
-// `AppConnection`. The protocol package owns this helper for the same
-// reason it owns `registerTestAgent`: the HTTP shape is part of the
-// protocol contract and every implementation running the suite needs it.
-
-/** Server-minted app principal credentials. */
-export interface TestAppCredential {
-  readonly appId: Schema.Schema.Type<typeof appIdSchema>;
-  readonly appKey: AppKey;
-}
-
-interface RegisterTestAppOptions {
-  readonly baseUrl: string;
-  readonly manifest: AppManifest;
-  /** Required when the server boots with a `registrationSecret`. */
-  readonly inviteCode?: string;
-}
-
-const appRegistrationResponseSchema = Schema.Struct({
-  appId: appIdSchema,
-  appKey: appKey,
-});
-type AppRegistrationResponse = Schema.Schema.Type<
-  typeof appRegistrationResponseSchema
->;
-const appRegistrationResponseText = Schema.parseJson(
-  appRegistrationResponseSchema,
-);
-
-/** HTTP app registration failed (network, non-2xx, malformed response). */
-export class TestAppHttpRegistrationError extends Data.TaggedError(
-  "TestingAppHttpRegistrationError",
-)<{
-  readonly baseUrl: string;
-  readonly status: number;
-  readonly body: string;
-}> {}
-
-const appRegistrationBody = (
-  opts: RegisterTestAppOptions,
-): Record<string, unknown> =>
-  opts.inviteCode === undefined
-    ? { manifest: opts.manifest }
-    : { manifest: opts.manifest, inviteCode: opts.inviteCode };
-
-const appRegistrationError =
-  (opts: RegisterTestAppOptions) =>
-  (cause: unknown): TestAppHttpRegistrationError => {
-    if (cause instanceof TestAppHttpRegistrationError) {
-      return cause;
-    }
-    return new TestAppHttpRegistrationError({
-      baseUrl: opts.baseUrl,
-      status: 0,
-      body: cause instanceof Error ? cause.message : String(cause),
-    });
-  };
-
-/**
- * Register an app manifest against the real server's HTTP endpoint and
- * return the server-minted `{ appId, appKey }` (the `appId` is
- * `gen_random_uuid()`, NOT `manifest.appId`). The App-principal sibling of
- * {@link registerTestAgent}; the `appKey` is handed to a `TestClient` whose
- * `appKey` Connect arm binds an `AppConnection` through the implicit
- * moderator-endpoint registration path.
- * @param opts Value supplied to the operation.
- * @returns The mint test app credential result.
- */
-export function mintTestAppCredential(
-  opts: RegisterTestAppOptions,
-): Effect.Effect<TestAppCredential, TestAppHttpRegistrationError> {
-  const toError = appRegistrationError(opts);
-  return Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient;
-    const request = HttpClientRequest.post(
-      `${opts.baseUrl}/api/v1/apps/register`,
-    ).pipe(
-      HttpClientRequest.setHeader("Content-Type", "application/json"),
-      HttpClientRequest.bodyUnsafeJson(appRegistrationBody(opts)),
-    );
-    const response = yield* client
-      .execute(request)
-      .pipe(Effect.mapError(toError));
-    const body = yield* response.text.pipe(Effect.mapError(toError));
-    const parsed = yield* parseAppRegistration(opts, response.status, body);
-    return parsed;
-  }).pipe(
-    Effect.provide(FetchHttpClient.layer),
-    Effect.withSpan("mintTestAppCredential"),
-  );
-}
-
-function parseAppRegistration(
-  opts: RegisterTestAppOptions,
-  status: number,
-  body: string,
-): Effect.Effect<AppRegistrationResponse, TestAppHttpRegistrationError> {
-  const fail = (): Effect.Effect<never, TestAppHttpRegistrationError> =>
-    Effect.fail(
-      new TestAppHttpRegistrationError({ baseUrl: opts.baseUrl, status, body }),
-    );
-  if (status < HTTP_SUCCESS_MIN || status >= HTTP_SUCCESS_MAX_EXCLUSIVE) {
-    return fail();
-  }
-  return Schema.decodeUnknown(appRegistrationResponseText)(body).pipe(
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: fail,
-        onRight: Effect.succeed,
-      }),
-    ),
-  );
-}
-
 /**
  * Registers test agent.
  * @param opts Value supplied to the operation.

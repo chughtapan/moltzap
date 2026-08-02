@@ -1,10 +1,6 @@
 import type { RpcGroup } from "@effect/rpc";
 import { Effect, Either } from "effect";
-import {
-  agentsList,
-  DEFAULT_APP_ID,
-  type AgentId,
-} from "@moltzap/protocol/identity";
+import { agentsList, type AgentId } from "@moltzap/protocol/identity";
 import type { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
 import {
   agentConversationCreate,
@@ -222,7 +218,6 @@ function handleStartCommand(
   StartUsageError | StartPartialFailure | ServiceRpcError
 > {
   return Effect.gen(function* () {
-    const appId = params.appId ?? DEFAULT_APP_ID;
     const participants = yield* resolveStartParticipants(
       call,
       params.participants,
@@ -233,7 +228,6 @@ function handleStartCommand(
       });
     }
     const created = yield* call(agentConversationCreate.name, {
-      appId,
       name: params.name,
       participants,
     });

@@ -8,7 +8,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AwaitNotificationError`](./helpers.ts#L54)
+### [`AwaitNotificationError`](./helpers.ts#L47)
 
 _TypeAlias_
 
@@ -20,7 +20,7 @@ export type AwaitNotificationError =
 
 Represents await notification error conditions.
 
-### [`awaitOneNotification`](./helpers.ts#L69)
+### [`awaitOneNotification`](./helpers.ts#L62)
 
 _Function_
 
@@ -40,7 +40,7 @@ connection from masquerading as a missing notification.
 
 **Returns:** The await one notification result.
 
-### [`closeAllClients`](./helpers.ts#L181)
+### [`closeAllClients`](./helpers.ts#L174)
 
 _Function_
 
@@ -52,22 +52,7 @@ Executes the close all clients operation.
 
 **Returns:** The close all clients result.
 
-### [`connectAppClient`](./helpers.ts#L330)
-
-_Function_
-
-```ts
-export function connectAppClient(
-  appId: AppId,
-  appKey: AppKey,
-): Effect.Effect<TestAppClient, Error>
-```
-
-Executes the connect app client operation.
-
-**Returns:** The connect app client result.
-
-### [`ConnectedAgent`](./helpers.ts#L109)
+### [`ConnectedAgent`](./helpers.ts#L102)
 
 _Interface_
 
@@ -82,7 +67,7 @@ export interface ConnectedAgent {
 
 Describes connected agent.
 
-### [`connectTestClient`](./helpers.ts#L258)
+### [`connectTestClient`](./helpers.ts#L251)
 
 _Function_
 
@@ -159,7 +144,7 @@ export type CoreTestServer = CoreTestServerPort;
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](./server.ts#L108)
+### [`CoreTestServerHandle`](./server.ts#L99)
 
 _Interface_
 
@@ -234,7 +219,7 @@ export interface CoreTestSpanExporterPort {
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](./helpers.ts#L224)
+### [`createTestAgent`](./helpers.ts#L217)
 
 _Function_
 
@@ -249,7 +234,7 @@ Creates test agent.
 
 **Returns:** The created test agent.
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L53)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L45)
 
 _Variable_
 
@@ -261,7 +246,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 
 Validates and decodes default test admin user id values.
 
-### [`getBaseUrl`](./server.ts#L462)
+### [`getBaseUrl`](./server.ts#L405)
 
 _Function_
 
@@ -273,7 +258,7 @@ Returns base url.
 
 **Returns:** The get base url result.
 
-### [`getCoreDb`](./server.ts#L438)
+### [`getCoreDb`](./server.ts#L392)
 
 _Function_
 
@@ -285,19 +270,7 @@ Returns core db.
 
 **Returns:** The get core db result.
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L451)
-
-_Function_
-
-```ts
-export function getCoreEncryptionEnvelope(): EnvelopeEncryption
-```
-
-Returns core encryption envelope.
-
-**Returns:** The get core encryption envelope result.
-
-### [`getWsUrl`](./server.ts#L473)
+### [`getWsUrl`](./server.ts#L416)
 
 _Function_
 
@@ -385,7 +358,7 @@ export type PgliteHarnessError =
 
 Represents pglite harness error conditions.
 
-### [`postJson`](./helpers.ts#L369)
+### [`postJson`](./helpers.ts#L293)
 
 _Function_
 
@@ -403,7 +376,7 @@ repeated request/JSON boilerplate.
 
 **Returns:** The post json result.
 
-### [`registerAgent`](./helpers.ts#L199)
+### [`registerAgent`](./helpers.ts#L192)
 
 _Function_
 
@@ -419,7 +392,7 @@ Registers agent.
 
 **Returns:** The register agent result.
 
-### [`registerAndConnect`](./helpers.ts#L349)
+### [`registerAndConnect`](./helpers.ts#L273)
 
 _Function_
 
@@ -433,26 +406,7 @@ Register and connect an agent. Tracked for automatic cleanup.
 
 **Returns:** The register and connect result.
 
-### [`registerApp`](./helpers.ts#L299)
-
-_Function_
-
-```ts
-export function registerApp(
-  baseUrl: string,
-  manifest: AppManifest,
-  inviteCode?: string,
-): Effect.Effect<
-  { readonly appId: AppId; readonly appKey: AppKey },
-  AppRegistrationError
->
-```
-
-Registers app.
-
-**Returns:** The register app result.
-
-### [`resetCoreTestDb`](./server.ts#L410)
+### [`resetCoreTestDb`](./server.ts#L367)
 
 _Function_
 
@@ -464,7 +418,7 @@ Executes the reset core test db operation.
 
 **Returns:** The reset core test db result.
 
-### [`setupAgentGroup`](./helpers.ts#L478)
+### [`setupAgentGroup`](./helpers.ts#L402)
 
 _Function_
 
@@ -485,7 +439,7 @@ Create N agents, all connected. Optionally create a group conversation.
 
 **Returns:** The setup agent group result.
 
-### [`setupAgentPair`](./helpers.ts#L460)
+### [`setupAgentPair`](./helpers.ts#L384)
 
 _Function_
 
@@ -512,7 +466,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](./server.ts#L356)
+### [`startCoreTestServerEffect`](./server.ts#L315)
 
 _Variable_
 
@@ -521,8 +475,7 @@ export const startCoreTestServerEffect = Effect.fn("startCoreTestServer")(
   function* (opts: StartCoreTestServerOptions = {}) {
     yield* ensureNoCoreTestServerRunning();
     const db = yield* initializeTestDatabase();
-    const masterSecret = yield* configureEncryption(db, opts);
-    coreApp = createCoreTestApp(db, opts, masterSecret);
+    coreApp = createCoreTestApp(db, opts);
     yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
     return buildCoreTestServer(coreApp, db);
   },
@@ -531,7 +484,7 @@ export const startCoreTestServerEffect = Effect.fn("startCoreTestServer")(
 
 Executes the start core test server effect operation.
 
-### [`startCoreTestServerFull`](./server.ts#L372)
+### [`startCoreTestServerFull`](./server.ts#L330)
 
 _Function_
 
@@ -551,7 +504,6 @@ _Interface_
 export interface StartCoreTestServerOptions {
   readonly pgHost?: string;
   readonly pgPort?: number;
-  readonly encryption?: boolean;
   readonly registrationSecret?: string;
   readonly adminUserId?: UserId;
 }
@@ -559,7 +511,7 @@ export interface StartCoreTestServerOptions {
 
 Configures start core test server.
 
-### [`stopCoreTestServer`](./server.ts#L380)
+### [`stopCoreTestServer`](./server.ts#L338)
 
 _Function_
 
@@ -571,12 +523,12 @@ Executes the stop core test server operation.
 
 **Returns:** The stop core test server result.
 
-### [`trackClient`](./helpers.ts#L173)
+### [`trackClient`](./helpers.ts#L166)
 
 _Function_
 
 ```ts
-export function trackClient(client: TestAgentClient | TestAppClient): void
+export function trackClient(client: TestAgentClient): void
 ```
 
 Executes the track client operation.

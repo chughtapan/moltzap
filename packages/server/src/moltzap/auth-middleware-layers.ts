@@ -10,7 +10,7 @@
  *
  * Principal requirements are gate-only middleware: they narrow the live arm and
  * fail `Unauthorized` / `Forbidden`. They provide nothing; handlers read the
- * narrowed arm off `ConnectionTag` (`agentArm`/`appArm`).
+ * narrowed arm off `ConnectionTag` (`agentArm`).
  *
  * Each domain requirement impl peeks the live arm when it needs the caller's
  * agent id, derives input from the decoded `payload`, and runs the requirement's
@@ -23,9 +23,7 @@ import { Context, Effect, Layer, unsafeCoerce } from "effect";
 import type { RpcMiddleware } from "@effect/rpc";
 import {
   ActiveAgent,
-  AgentPrincipal,
-  AppPrincipal,
-  AuthenticatedPrincipal,
+  AuthenticatedAgent,
   type PrincipalRequirement,
   type AgentId,
 } from "@moltzap/protocol/identity";
@@ -97,17 +95,11 @@ const principalLayer = <Mw extends RpcMiddleware.TagClassAny>(
     ),
   );
 
-const makeAgentPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AgentPrincipal, connId, AgentPrincipal, false);
-
-const makeAppPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AppPrincipal, connId, AppPrincipal, false);
-
-const makeAuthenticatedPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AuthenticatedPrincipal, connId, AuthenticatedPrincipal, false);
+const makeAuthenticatedAgentLayer = (connId: ConnectionId) =>
+  principalLayer(AuthenticatedAgent, connId, AuthenticatedAgent, false);
 
 const makeActiveAgentLayer = (connId: ConnectionId) =>
-  principalLayer(ActiveAgent, connId, AgentPrincipal, true);
+  principalLayer(ActiveAgent, connId, AuthenticatedAgent, true);
 
 // ── Domain requirements ──────────────────────────────────────────────────────
 
@@ -244,9 +236,7 @@ const makeConversationSendAccessLayer = (connId: ConnectionId) =>
  */
 export const makeRequirementMiddlewareLayers = (connId: ConnectionId) =>
   Layer.mergeAll(
-    makeAgentPrincipalLayer(connId),
-    makeAppPrincipalLayer(connId),
-    makeAuthenticatedPrincipalLayer(connId),
+    makeAuthenticatedAgentLayer(connId),
     makeActiveAgentLayer(connId),
     makeConversationSendAccessLayer(connId),
   );

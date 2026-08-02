@@ -15,11 +15,7 @@ import {
   testMessageId,
 } from "./test-utils/index.js";
 
-import {
-  agentName,
-  agentsList,
-  DEFAULT_APP_ID,
-} from "@moltzap/protocol/identity";
+import { agentName, agentsList } from "@moltzap/protocol/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 
 const effectTest = effectIt.effect;
@@ -163,7 +159,6 @@ function sendToAgentCreatesConversation() {
       {
         method: agentConversationCreate.name,
         params: {
-          appId: DEFAULT_APP_ID,
           participants: [AGENT_ALICE_ID],
         },
       },

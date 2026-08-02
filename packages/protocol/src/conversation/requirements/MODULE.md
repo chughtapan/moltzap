@@ -8,7 +8,7 @@ Conversation-owned requirement middleware tags.
 
 ## Public surface
 
-### [`ConversationSendAccess`](./conversation-send-access.ts#L18)
+### [`ConversationSendAccess`](./conversation-send-access.ts#L15)
 
 _Class_
 
@@ -21,20 +21,18 @@ export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAc
 
 Implements conversation send access.
 
-### [`ConversationSendAccessValue`](./conversation-send-access.ts#L12)
+### [`ConversationSendAccessValue`](./conversation-send-access.ts#L10)
 
 _Interface_
 
 ```ts
 export interface ConversationSendAccessValue {
   readonly conversationId: ConversationId;
-  readonly appId: AppId;
 }
 ```
 
 Permission: the caller may send to this conversation, proven by participant
-membership. The server obtain performs the joined read that feeds send
-guards; `appId` is the conversation's authorizing app.
+membership. The server obtain performs the read that feeds send guards.
 
 ## Files
 

@@ -8,7 +8,6 @@ import {
   registerAndConnect,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
@@ -30,7 +29,6 @@ it("create group, send messages, verify seq monotonicity", () =>
 
     // Alice creates a group (3+ participants ⇒ "group", not "dm")
     const conv = yield* alice.client.sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       name: TEST_GROUP_NAME,
       participants: [bob.agentId, eve.agentId],
     });

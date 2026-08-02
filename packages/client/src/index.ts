@@ -8,10 +8,8 @@ export {
   type ServiceRpcError,
 } from "./service.js";
 /** Re-exports the public API from `./agent-client.js`. */
-export { MoltZapAgentClient, type AgentClientOptions } from "./agent-client.js";
-/** Re-exports the public API from `./app-client.js`. */
 export {
-  MoltZapAppClient,
-  type AppClientOptions,
+  MoltZapAgentClient,
+  type AgentClientOptions,
   type RpcCallOptions,
-} from "./app-client.js";
+} from "./agent-client.js";

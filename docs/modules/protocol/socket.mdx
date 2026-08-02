@@ -31,20 +31,6 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L28)
-
-_Interface_
-
-```ts
-export interface AppClientOptions {
-  readonly serverUrl: string;
-  readonly appKey: AppKey;
-  readonly onDisconnect?: (close: CloseInfo) => void;
-}
-```
-
-Configures app client.
-
 ### [`classifyCloseCause`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/close-info.ts#L50)
 
 _Function_
@@ -59,7 +45,7 @@ Executes the classify close cause operation.
 
 **Returns:** The classify close cause result.
 
-### [`ClientConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L108)
+### [`ClientConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L98)
 
 _TypeAlias_
 
@@ -69,7 +55,7 @@ export type ClientConnectError<Rpcs extends ProtocolRpc> =
 
 Represents client connect error conditions.
 
-### [`ClientDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L95)
+### [`ClientDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L85)
 
 _TypeAlias_
 
@@ -79,7 +65,7 @@ export type ClientDefinitionError<D extends ClientRpcDefinition> =
 
 Represents client definition error conditions.
 
-### [`ClientDefinitionPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L89)
+### [`ClientDefinitionPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L79)
 
 _TypeAlias_
 
@@ -89,7 +75,7 @@ export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 
 Represents client definition payload values.
 
-### [`ClientDefinitionSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L92)
+### [`ClientDefinitionSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L82)
 
 _TypeAlias_
 
@@ -99,7 +85,7 @@ export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 
 Represents client definition success values.
 
-### [`ClientLifecycleOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L187)
+### [`ClientLifecycleOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L177)
 
 _Interface_
 
@@ -124,7 +110,7 @@ export interface ClientLifecycleOptions<
 
 Configures client lifecycle.
 
-### [`ClientRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L85)
+### [`ClientRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L75)
 
 _Interface_
 
@@ -217,7 +203,7 @@ export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
 
 Validates and decodes connection id values.
 
-### [`ConnectResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L101)
+### [`ConnectResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L91)
 
 _TypeAlias_
 
@@ -300,46 +286,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L35)
-
-_Class_
-
-```ts
-export class MoltZapAppClient extends ProtocolClientLifecycle<
-  AppCallableRpcs,
-  AppClientDispatch
-> {
-  constructor(options: AppClientOptions) {
-    super({
-      serverUrl: options.serverUrl,
-      connectTag: appConnect.name,
-      connectPayload: {
-        appKey: options.appKey,
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
-      },
-      openSession: openProtocolAppClientSocket,
-      onDisconnect: options.onDisconnect,
-    });
-  }
-
-  call<Tag extends AppCallableTag>(
-    tag: Tag,
-    payload: PayloadForTag<AppCallableRpcs, Tag>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<
-    SuccessForTag<AppCallableRpcs, Tag>,
-    ErrorForTag<AppCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
-  > {
-    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
-    return this.callEffect(tag, payload, timeoutMs);
-  }
-}
-```
-
-Implements molt zap app client.
-
-### [`MoltZapServer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L238)
+### [`MoltZapServer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L232)
 
 _Class_
 
@@ -467,7 +414,7 @@ export class MoltZapServer<
 
 Implements molt zap server.
 
-### [`MoltZapServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L56)
+### [`MoltZapServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L52)
 
 _Interface_
 
@@ -497,7 +444,7 @@ export interface MoltZapServerOptions<
 
 Configures molt zap server.
 
-### [`MoltZapServerSession`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L41)
+### [`MoltZapServerSession`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L37)
 
 _Interface_
 
@@ -525,7 +472,7 @@ Provides the new connection id runtime value.
 
 **Returns:** The new connection id result.
 
-### [`openProtocolAgentClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L459)
+### [`openProtocolAgentClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L435)
 
 _Function_
 
@@ -543,25 +490,7 @@ Provides the open protocol agent client socket runtime value.
 
 **Returns:** The open protocol agent client socket result.
 
-### [`openProtocolAppClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L476)
-
-_Function_
-
-```ts
-export const openProtocolAppClientSocket = (
-  options: ClientSocketSessionOptions,
-): Effect.Effect<
-  ClientConnection<AppClientDispatch>,
-  NotConnectedError,
-  Socket.WebSocketConstructor
->
-```
-
-Provides the open protocol app client socket runtime value.
-
-**Returns:** The open protocol app client socket result.
-
-### [`ProtocolClientLifecycle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L581)
+### [`ProtocolClientLifecycle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L540)
 
 _Class_
 
@@ -707,7 +636,7 @@ stateDiagram-v2
   Stopping --> Stopped: OwnerDone completes terminal close
 ```
 
-### [`ReverseCallError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L130)
+### [`ReverseCallError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L124)
 
 _TypeAlias_
 
@@ -717,7 +646,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
 Represents reverse call error conditions.
 
-### [`ReverseClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L148)
+### [`ReverseClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L142)
 
 _Interface_
 
@@ -740,7 +669,7 @@ export interface ReverseClient {
 
 Describes reverse client.
 
-### [`RPC_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L71)
+### [`RPC_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L61)
 
 _Variable_
 
@@ -750,7 +679,7 @@ export const RPC_TIMEOUT_MS = 30_000
 
 Provides the rpc timeout ms runtime value.
 
-### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L80)
+### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L70)
 
 _Interface_
 
@@ -762,7 +691,7 @@ export interface RpcCallOptions {
 
 Configures rpc call.
 
-### [`ServerSocketWrite`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L36)
+### [`ServerSocketWrite`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L32)
 
 _TypeAlias_
 
@@ -777,7 +706,6 @@ Represents server socket write values.
 ## Files
 
 - `agent-client.ts`
-- `app-client.ts`
 - `close-info.ts`
 - `connection.ts`
 - `lifecycle.ts`

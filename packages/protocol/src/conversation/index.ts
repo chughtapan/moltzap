@@ -27,19 +27,12 @@ export type { ConversationSendAccessValue } from "./requirements/index.js";
 export {
   agentConversationCreate,
   conversationList,
-  conversationUpdate,
   conversationCreatedNotificationDefinition,
-  conversationParticipantsAddedNotificationDefinition,
-  conversationParticipantsRemovedNotificationDefinition,
   agentCallableConversationRpcMethods,
-  appCallableConversationRpcMethods,
   conversationNotifications,
 } from "./conversations.js";
 /** Re-exports the public API from `./conversations.js`. */
 export type {
   ConversationCreatedNotification,
   ConversationListItem,
-  ConversationParticipantsAddedNotification,
-  ConversationParticipantsRemovedNotification,
-  ConversationUpdateParams,
 } from "./conversations.js";

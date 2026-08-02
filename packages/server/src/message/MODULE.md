@@ -8,7 +8,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageService`](./message.service.ts#L145)
+### [`MessageService`](./message.service.ts#L91)
 
 _Class_
 
@@ -17,13 +17,11 @@ export class MessageService {
   private readonly db: Db;
   private readonly conversations: ConversationService;
   private readonly networkSendService: NetworkSendService;
-  private readonly encryption: EnvelopeEncryption | null;
 
   constructor(deps: MessageServiceDeps) {
     this.db = deps.db;
     this.conversations = deps.conversations;
     this.networkSendService = deps.networkSend;
-    this.encryption = deps.encryption;
   }
 
   close(): Effect.Effect<void> {
@@ -42,14 +40,12 @@ export class MessageService {
         // `ConversationSendAccess` gates this method in the engine middleware
         // stack before the handler runs, so `send` requires no permission token in
         // its Env and trusts `input` (the handler's already-gated params).
-        const conv = yield* this.readSendConversation(input.conversationId);
+        yield* this.readSendConversation(input.conversationId);
         const parts = input.parts;
-        const encrypted = yield* this.encryptParts(input.conversationId, parts);
-        const row = yield* this.insertMessageRow(input, encrypted);
+        const row = yield* this.insertMessageRow(input);
         return {
           message: this.mapMessage(row, parts),
           parts,
-          conv,
           excludeConnectionId: input.excludeConnectionId,
         };
       }.bind(this),
@@ -73,14 +69,13 @@ export class MessageService {
     return takeFirstOrFail(
       this.db
         .selectFrom("conversations")
-        .select(["app_id"])
+        .select(["id"])
         .where("id", "=", conversationId),
     );
   }
 
   private insertMessageRow(
     input: SendInsertInput,
-    encryptedParts: EncryptedParts,
   ): Effect.Effect<MessageRow, SqlError> {
     const messageIdValue = decodeMessageId(crypto.randomUUID());
     const createdAtIso = new Date().toISOString();
@@ -93,11 +88,7 @@ export class MessageService {
             conversation_id: input.conversationId,
             sender_id: input.senderAgentId,
             seq: nextSnowflakeId().toString(),
-            parts_encrypted: encryptedParts.encrypted,
-            parts_iv: encryptedParts.iv,
-            parts_tag: encryptedParts.tag,
-            dek_version: encryptedParts.dekVersion,
-            kek_version: encryptedParts.kekVersion,
+            parts: JSON.stringify(input.parts),
             created_at: new Date(createdAtIso),
           })
           .returningAll()
@@ -133,6 +124,15 @@ export class MessageService {
     input: SendCommitInput,
   ): Effect.Effect<Message, SqlError> {
     return Effect.gen(
+      function* (this: MessageService) {
+        const participants = yield* this.conversations.getParticipantAgentIds(
+          input.conversationId,
+        );
+        const recipientList = participants.filter(
+          (id) => id !== input.senderAgentId,
+        );
+        const delivered = yield* this.broadcastCommittedMessage(
+          input,
 ```
 
 `agent/message/send` server entry point. The `send` method persists the
@@ -140,7 +140,7 @@ message durably, then broadcasts it to every conversation participant
 except the sender. The router is content-blind: it applies no
 interpretation or policy to the message body.
 
-### [`messageServiceLive`](./layer.ts#L19)
+### [`messageServiceLive`](./layer.ts#L18)
 
 _Variable_
 
@@ -151,12 +151,10 @@ export const messageServiceLive = Layer.effect(
     const db = yield* DbTag;
     const conversations = yield* ConversationServiceTag;
     const networkSend = yield* NetworkSendServiceTag;
-    const encryption = yield* EncryptionTag;
     return new MessageService({
       db,
       conversations,
       networkSend,
-      encryption,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),
 )
@@ -164,7 +162,7 @@ export const messageServiceLive = Layer.effect(
 
 Provides the message service live runtime value.
 
-### [`MessageServiceTag`](./layer.ts#L13)
+### [`MessageServiceTag`](./layer.ts#L12)
 
 _Class_
 

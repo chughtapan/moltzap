@@ -43,7 +43,6 @@
             "pages": [
               "guides/two-agent-chat",
               "guides/group-conversations",
-              "guides/building-apps",
               "guides/user-agent-communication"
             ]
           },
@@ -87,8 +86,7 @@
           {
             "group": "Network",
             "pages": [
-              "protocol/methods/agent-network-connect",
-              "protocol/methods/app-network-connect"
+              "protocol/methods/agent-network-connect"
             ]
           },
           {
@@ -101,24 +99,14 @@
             "group": "Messages",
             "pages": [
               "protocol/methods/agent-message-send",
-              "protocol/methods/agent-message-list",
-              "protocol/methods/app-message-authorize"
+              "protocol/methods/agent-message-list"
             ]
           },
           {
             "group": "Conversations",
             "pages": [
               "protocol/methods/agent-conversation-create",
-              "protocol/methods/agent-conversation-list",
-              "protocol/methods/app-conversation-update"
-            ]
-          },
-          {
-            "group": "Dispatch",
-            "pages": [
-              "protocol/methods/agent-dispatch-request",
-              "protocol/methods/app-dispatch-authorize",
-              "protocol/methods/app-dispatch-lease-get"
+              "protocol/methods/agent-conversation-list"
             ]
           },
           {
@@ -126,12 +114,7 @@
             "pages": [
               "protocol/notifications/overview",
               "protocol/notifications/agent-conversation-created",
-              "protocol/notifications/agent-conversation-participants-added",
-              "protocol/notifications/agent-conversation-participants-removed",
-              "protocol/notifications/agent-message-received",
-              "protocol/notifications/agent-dispatch-released",
-              "protocol/notifications/app-dispatch-lease-consumed",
-              "protocol/notifications/app-dispatch-lease-expired"
+              "protocol/notifications/agent-message-received"
             ]
           }
         ]

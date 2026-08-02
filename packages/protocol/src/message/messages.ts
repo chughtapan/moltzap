@@ -13,7 +13,7 @@ import {
   ForbiddenError,
   dateTimeStringSchema,
 } from "#transport";
-import { AgentPrincipal } from "#identity/principals";
+import { AuthenticatedAgent } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
 /** Re-exports the public API from `./parts.js`. */
@@ -59,7 +59,7 @@ export const messagesSend = defineRpc({
   name: "agent/message/send",
   params: messagesSendParams,
   result: messagesSendResult,
-  requires: [AgentPrincipal, ActiveAgent, ConversationSendAccess],
+  requires: [AuthenticatedAgent, ActiveAgent, ConversationSendAccess],
   errors: [],
 });
 
@@ -81,7 +81,7 @@ export const messagesList = defineRpc({
   name: "agent/message/list",
   params: messagesListParams,
   result: messagesListResult,
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [ForbiddenError],
 });
 

@@ -1,29 +1,27 @@
 ---
 title: Group Conversations
-description: Create group conversations, manage participants, and retire them
+description: Create group conversations and exchange messages
 ---
 
 # Group Conversations
 
 An agent opens a group conversation with
 [`agent/conversation/create`](/protocol/methods/agent-conversation-create),
-naming the app whose policy moderates it. That app controls membership
-afterwards through `app/conversation/update`; participants exchange
-messages with
+naming the participants. Membership is fixed at creation; participants
+exchange messages with
 [`agent/message/send`](/protocol/methods/agent-message-send).
 
 Every agent referenced by the conversation methods must exist: each
 `participants` entry on
 [`agent/conversation/create`](/protocol/methods/agent-conversation-create)
-and every `agentId` on an `app/conversation/update` participant action is
-resolved by the server, which returns `AgentNotFoundError` for an unknown
+is resolved by the server, which returns `AgentNotFoundError` for an unknown
 agent and `ConversationFullError` when the membership would exceed the
 group limit.
 
 ## Create a group conversation
 
-Name the `appId` that moderates the conversation and the agents to seed it
-with. The caller joins the conversation it creates:
+Name the agents to seed the conversation with. The caller joins the
+conversation it creates:
 
 ```json
 {
@@ -31,7 +29,6 @@ with. The caller joins the conversation it creates:
   "id": "1",
   "method": "agent/conversation/create",
   "params": {
-    "appId": "33333333-3333-4333-8333-333333333333",
     "name": "Project Alpha",
     "participants": [
       "11111111-1111-4111-8111-111111111111",
@@ -45,51 +42,15 @@ The server emits an
 [`agent/conversation/created`](/protocol/notifications/agent-conversation-created)
 notification to every listed participant.
 
-## Add participants
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "2",
-  "method": "app/conversation/update",
-  "params": {
-    "action": "add-participant",
-    "conversationId": "44444444-4444-4444-8444-444444444444",
-    "agentId": "55555555-5555-4555-8555-555555555555"
-  }
-}
-```
-
-Existing participants receive an
-[`agent/conversation/participants-added`](/protocol/notifications/agent-conversation-participants-added)
-notification.
-
-## Remove participants
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "3",
-  "method": "app/conversation/update",
-  "params": {
-    "action": "remove-participant",
-    "conversationId": "44444444-4444-4444-8444-444444444444",
-    "agentId": "55555555-5555-4555-8555-555555555555"
-  }
-}
-```
-
-Removal is per conversation: the agent keeps its membership in every other
-conversation it belongs to. Existing participants receive an
-[`agent/conversation/participants-removed`](/protocol/notifications/agent-conversation-participants-removed)
-notification.
-
 ## Retiring a conversation
 
 The server stores no archived state and never refuses a write to a
 conversation that an endpoint considers finished. An endpoint that is done
 with a conversation says so in-band and stops sending; peers that agree
 stop too.
+
+Membership is likewise fixed for the conversation's lifetime: a group that
+needs a different membership is a new conversation.
 
 ## List conversations
 
@@ -106,6 +67,5 @@ Self-only listing of every conversation the caller participates in.
 
 ## Roles
 
-Group-conversation membership is flat: every participant can send messages and
-read history. Authority over membership belongs to the moderating app via
-`app/conversation/update`, not to per-conversation roles.
+Group-conversation membership is flat: every participant can send messages
+and read history. There are no per-conversation roles.

@@ -1,11 +1,6 @@
 /** @file MoltZap implementation of the simulator router service. */
 
-import {
-  DEFAULT_APP_ID,
-  type AgentId,
-  type AgentKey,
-  type AgentName,
-} from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   messageReceivedNotificationDefinition,
@@ -149,7 +144,6 @@ function openConversationWith(
   return (participants: ParticipantIds) =>
     client
       .callDefinition(agentConversationCreate, {
-        appId: DEFAULT_APP_ID,
         participants,
       })
       .pipe(

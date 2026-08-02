@@ -5,16 +5,11 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import type * as Socket from "@effect/platform/Socket";
-import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
+import { Cause, Data, Effect, Exit, Redacted, Schema } from "effect";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import {
-  register,
-  validateAppManifest,
-  type AgentKey,
-  type AppManifest,
-} from "@moltzap/protocol/identity";
+import { register, type AgentKey } from "@moltzap/protocol/identity";
 
-import type { AppTags } from "#moltzap";
+import type { ServerTags } from "#moltzap";
 import type { ResolvedServices } from "#core";
 import type { ConnectionTag } from "#socket";
 import { safeEqual } from "#identity/credential-keys";
@@ -54,11 +49,14 @@ class HttpEarlyResponse extends Data.TaggedError("HttpEarlyResponse")<{
 interface CoreHttpAppOptions {
   readonly config: CoreConfig;
   readonly authService: ResolvedServices["authService"];
-  readonly appAuthService: ResolvedServices["appAuthService"];
   readonly connections: ResolvedServices["connections"];
   readonly handleSocket: (
     socket: Socket.Socket,
-  ) => Effect.Effect<void, Socket.SocketError, Exclude<AppTags, ConnectionTag>>;
+  ) => Effect.Effect<
+    void,
+    Socket.SocketError,
+    Exclude<ServerTags, ConnectionTag>
+  >;
 }
 
 interface RegisterAgentSuccess {
@@ -67,7 +65,7 @@ interface RegisterAgentSuccess {
 }
 
 /**
- * Build the core HTTP app. Composes the three always-on routes
+ * Build the core HTTP app. Composes the two always-on routes
  * (`/health`, `/ws`) with the auth surface
  * (`/api/v1/auth/register`) and wraps the router in CORS.
  *
@@ -76,8 +74,7 @@ interface RegisterAgentSuccess {
  * | `/health`                          | always                 | GET    | —                             | 200 `{status, connections}`                                  |
  * | `/ws`                              | always                 | GET    | WS Upgrade                    | 101                                                          |
  * | `/api/v1/auth/register`            | `skipDefaultRegisterRoute` | POST | `Register.params`           | 201 `{agentId, apiKey}`; 400/403/500                         |
- * | `/api/v1/apps/register`            | `skipDefaultRegisterRoute` | POST | `{ manifest, inviteCode? }` | 201 `{appId, appKey}`; 400/403/500                           |
- * All bodied routes funnel through `readValidatedBody` for JSON
+ * The bodied route funnels through `readDecodedBody` for JSON
  * decode + Effect-Schema strict (excess-rejecting) decode. Invite-gate
  * checks use `safeEqual`
  * (constant-time) to compare `inviteCode` against
@@ -88,16 +85,10 @@ interface RegisterAgentSuccess {
 export function makeCoreHttpApp(options: CoreHttpAppOptions) {
   const healthRoute = makeHealthRoute(options.connections);
   const registerRoute = makeRegisterRoute(options);
-  const appsRegisterRoute = makeAppsRegisterRoute(options);
   const wsRoute = makeWsRoute(options.handleSocket);
   const router = options.config.skipDefaultRegisterRoute
     ? HttpRouter.empty.pipe(healthRoute, wsRoute)
-    : HttpRouter.empty.pipe(
-        healthRoute,
-        registerRoute,
-        appsRegisterRoute,
-        wsRoute,
-      );
+    : HttpRouter.empty.pipe(healthRoute, registerRoute, wsRoute);
   return withCors(router, options.config.corsOrigins);
 }
 
@@ -133,61 +124,6 @@ function makeRegisterRoute(options: CoreHttpAppOptions) {
     ),
   );
 }
-
-/**
- * App-credential minting. The App-principal sibling of
- * `/api/v1/auth/register`: an operator POSTs an `AppManifest` and receives
- * the server-minted `{ appId, appKey }` exactly once (the `app_id` is issued
- * by `gen_random_uuid()`, never client-controlled). The returned `appKey` is
- * the credential an app client presents on the third Connect arm
- * (`connect.handlers.ts → handleConnect`'s `appKey` branch), where implicit
- * registration binds the live `AppConnection` as the app's moderator
- * endpoint.
- * @param options Options that control the operation.
- * @returns The created apps register route.
- */
-function makeAppsRegisterRoute(options: CoreHttpAppOptions) {
-  return HttpRouter.post(
-    "/api/v1/apps/register",
-    handleEarlyResponse(
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const body = yield* readJsonRecord(request);
-        const manifest = yield* validateManifestBody(body.manifest);
-        yield* authorizeInviteCode(
-          extractInviteCode(body),
-          options.config.registrationSecret,
-        );
-        // eslint-disable-next-line @typescript-eslint/no-use-before-define -- route construction is declaration-order independent.
-        return yield* registerApp(manifest, options);
-      }).pipe(Effect.withSpan("http.apps.register")),
-    ),
-  );
-}
-
-function validateManifestBody(
-  raw: unknown,
-): Effect.Effect<AppManifest, HttpEarlyResponse> {
-  return Either.match(validateAppManifest(raw), {
-    onLeft: () => failResponse<AppManifest>(invalidParametersResponse()),
-    onRight: (manifest) => Effect.succeed(manifest),
-  });
-}
-
-function extractInviteCode(body: Record<string, unknown>): string | undefined {
-  const raw = body.inviteCode;
-  return typeof raw === "string" ? raw : undefined;
-}
-
-const registerApp = Effect.fn("http.registerApp")(function* (
-  manifest: AppManifest,
-  options: CoreHttpAppOptions,
-) {
-  const { appId, appKey } = yield* options.appAuthService.registerApp({
-    manifest,
-  });
-  return jsonResponse({ appId, appKey: Redacted.value(appKey) }, HTTP_CREATED);
-});
 
 function makeWsRoute(handleSocket: CoreHttpAppOptions["handleSocket"]) {
   return HttpRouter.get(
@@ -227,20 +163,6 @@ function readJsonBody(
   return request.json.pipe(
     Effect.catchAll(() => failResponse(invalidJsonResponse())),
   );
-}
-
-function readJsonRecord(
-  request: HttpServerRequest.HttpServerRequest,
-): Effect.Effect<Record<string, unknown>, HttpEarlyResponse> {
-  return Effect.gen(function* () {
-    const body = yield* readJsonBody(request);
-    if (!isStringKeyedRecord(body)) {
-      return yield* failResponse<Record<string, unknown>>(
-        invalidParametersResponse(),
-      );
-    }
-    return body;
-  });
 }
 
 function handleEarlyResponse<R>(
@@ -332,10 +254,6 @@ function makeAllowedOriginsPredicate(corsOrigins: readonly string[]) {
     );
     return false;
   };
-}
-
-function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function invalidJsonResponse() {

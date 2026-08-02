@@ -7,11 +7,10 @@
  */
 
 /** Re-exports the public API from `#socket`. */
-export { MoltZapAgentClient, MoltZapAppClient, MoltZapServer } from "#socket";
+export { MoltZapAgentClient, MoltZapServer } from "#socket";
 /** Re-exports the public API from `#socket`. */
 export type {
   AgentClientOptions,
-  AppClientOptions,
   ConnectResult,
   MoltZapServerOptions,
   MoltZapServerSession,

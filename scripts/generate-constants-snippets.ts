@@ -185,10 +185,6 @@ const collect = (): readonly Constant[] => {
   const v2ProtocolVersion = readVersionFile(
     resolve(workspaceRoot, "v2/VERSION"),
   );
-  const defaultAppId = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/protocol/src/identity/apps/ids.ts"),
-    "DEFAULT_APP_ID",
-  );
   const defaultServerPort = readTopLevelLiteral(
     resolve(workspaceRoot, "packages/server/src/config.ts"),
     "DEFAULT_SERVER_PORT",
@@ -251,12 +247,6 @@ const collect = (): readonly Constant[] => {
       "v2/VERSION",
       v2ProtocolVersion,
       "Current V2 MoltZap compatibility value shared by all six V2 packages and ready representations.",
-    ),
-    requireString(
-      "DEFAULT_APP_ID",
-      "packages/protocol/src/identity/apps/ids.ts",
-      defaultAppId,
-      "Built-in unmoderated default-app UUID. Conversations created without an explicit app bind here.",
     ),
     requireNumber(
       "DEFAULT_SERVER_PORT",

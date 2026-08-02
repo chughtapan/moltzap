@@ -29,12 +29,7 @@ import {
   Schema,
 } from "effect";
 import { TreeFormatter } from "effect/ParseResult";
-import {
-  type RegistrationSecret,
-  registrationSecret,
-  type ServerEncryptionMasterSecret,
-  serverEncryptionMasterSecret,
-} from "#config/secrets";
+import { type RegistrationSecret, registrationSecret } from "#config/secrets";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { type UserId, userId } from "@moltzap/protocol/identity";
 import type { Db } from "#db";
@@ -47,7 +42,6 @@ import type { Db } from "#db";
 export interface CoreConfig {
   db: Db;
   dbCleanup?: () => PromiseLike<undefined>;
-  encryptionMasterSecret?: ServerEncryptionMasterSecret;
   port: number;
   corsOrigins: string[];
   registrationSecret?: RegistrationSecret;
@@ -90,7 +84,6 @@ export interface StandaloneBootPlan {
   /** YAML `database.data_dir` for PGlite (ignored when `databaseUrl` is set). */
   readonly pgliteDataDir?: string;
 
-  readonly encryptionMasterSecret?: ServerEncryptionMasterSecret;
   readonly port: number;
   readonly corsOrigins: string[];
 
@@ -100,10 +93,7 @@ export interface StandaloneBootPlan {
 
   readonly registrationSecret?: RegistrationSecret;
 
-  /** YAML `apps[]` — manifest references carried through from the config file. */
-  readonly apps: ReadonlyArray<{ readonly manifest: string }>;
-
-  /** Directory of the loaded YAML file (for resolving relative app manifest paths). */
+  /** Directory the YAML file was loaded from. */
   readonly configDirectory: string;
 }
 
@@ -126,12 +116,10 @@ export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
 // Private: YAML schema — the single source of truth for the file shape
 //
 // `Schema.decodeUnknownEither` with `onExcessProperty: "error"` rejects
-// unknown keys and requires `master_secret`, so a camelCase typo
-// (`masterSecret`) or `encryption: {}` cannot pass and silently disable
-// at-rest encryption (plaintext storage). The same decode pins the port
-// range, the webhook URI, the `timeout_ms` floor, and every `minLength`
-// rule, and produces the typed `YamlConfig` value
-// the boot-plan build reads — one pass for both validation and shape.
+// unknown keys, so a typo or a retired block fails loudly instead of being
+// read as an absent setting. The same decode pins the port range and every
+// `minLength` rule, and produces the typed `YamlConfig` value the boot-plan
+// build reads — one pass for both validation and shape.
 // ─────────────────────────────────────────────────────────────────────
 
 const MAX_PORT_NUMBER = 65_535;
@@ -144,10 +132,6 @@ const portNumber = Schema.Number.pipe(
   Schema.greaterThanOrEqualTo(1),
   Schema.lessThanOrEqualTo(MAX_PORT_NUMBER),
 );
-
-const appRefShape = Schema.Struct({
-  manifest: Schema.String.pipe(Schema.minLength(1)),
-});
 
 const moltZapConfigShape = Schema.Struct({
   admin_user_id: Schema.optional(userId),
@@ -163,9 +147,6 @@ const moltZapConfigShape = Schema.Struct({
       data_dir: Schema.optional(Schema.String),
     }),
   ),
-  encryption: Schema.optional(
-    Schema.Struct({ master_secret: serverEncryptionMasterSecret }),
-  ),
   registration: Schema.optional(
     Schema.Struct({ secret: Schema.optional(registrationSecret) }),
   ),
@@ -174,7 +155,6 @@ const moltZapConfigShape = Schema.Struct({
       enabled: Schema.Boolean,
     }),
   ),
-  apps: Schema.optional(Schema.Array(appRefShape)),
 });
 
 type YamlConfig = Schema.Schema.Type<typeof moltZapConfigShape>;
@@ -476,59 +456,6 @@ interface BootPlanInputs {
   readonly configDirectory: string;
   readonly processEnv: ProcessEnvSnapshot;
   readonly configPath: string;
-  readonly encryptionMasterSecretFromEnv?: ServerEncryptionMasterSecret;
-}
-
-function decodeEnvSecret<A, I>(
-  schema: Schema.Schema<A, I>,
-  envKey: string,
-  configPath: string,
-  value?: string,
-): Effect.Effect<A | undefined, ConfigLoadError> {
-  if (value === undefined || value.length === 0) {
-    return Effect.void.pipe(Effect.as(undefined));
-  }
-  return Schema.decodeUnknown(schema)(value).pipe(
-    Effect.mapError((cause) =>
-      makeInvalidEnvError(
-        configPath,
-        `${envKey} is invalid: ${TreeFormatter.formatErrorSync(cause)}`,
-      ),
-    ),
-  );
-}
-
-function loadEncryptionMasterSecretFromEnv(
-  configPath: string,
-): Effect.Effect<ServerEncryptionMasterSecret | undefined, ConfigLoadError> {
-  return Config.option(Config.redacted("ENCRYPTION_MASTER_SECRET")).pipe(
-    Effect.withConfigProvider(ConfigProvider.fromEnv()),
-    Effect.mapError((cause) =>
-      makeInvalidEnvError(
-        configPath,
-        `ENCRYPTION_MASTER_SECRET is invalid: ${unknownErrorMessage(cause)}`,
-      ),
-    ),
-    Effect.flatMap(
-      Option.match({
-        onNone: () => Effect.void.pipe(Effect.as(undefined)),
-        onSome: (secret) =>
-          decodeEnvSecret(
-            serverEncryptionMasterSecret,
-            "ENCRYPTION_MASTER_SECRET",
-            configPath,
-            Redacted.value(secret),
-          ),
-      }),
-    ),
-  );
-}
-
-function unknownErrorMessage(cause: unknown): string {
-  if (cause instanceof Error) {
-    return cause.message;
-  }
-  return typeof cause === "string" ? cause : "configuration provider error";
 }
 
 function resolveDevMode(
@@ -651,36 +578,29 @@ interface ResolvedFields {
 
 interface YamlDerived {
   readonly pgliteDataDir?: string;
-  readonly encryptionFromYaml?: ServerEncryptionMasterSecret;
   readonly registrationSecret?: RegistrationSecret;
-  readonly apps: ReadonlyArray<{ readonly manifest: string }>;
 }
 
 function projectYaml(yaml: YamlConfig): YamlDerived {
   return {
     pgliteDataDir: yaml.database?.data_dir,
-    encryptionFromYaml: yaml.encryption?.master_secret,
     registrationSecret: yaml.registration?.secret,
-    apps: yaml.apps ?? [],
   };
 }
 
 function assembleBootPlan(
   inputs: BootPlanInputs,
   fields: ResolvedFields,
-  encryptionFromEnv?: ServerEncryptionMasterSecret,
 ): StandaloneBootPlan {
   const ymlDerived = projectYaml(inputs.yaml);
   return {
     databaseUrl: fields.databaseUrl,
     pgliteDataDir: ymlDerived.pgliteDataDir,
-    encryptionMasterSecret: encryptionFromEnv ?? ymlDerived.encryptionFromYaml,
     port: fields.port,
     corsOrigins: fields.corsOrigins,
     devMode: fields.devMode,
     adminUserId: fields.adminUserId,
     registrationSecret: ymlDerived.registrationSecret,
-    apps: ymlDerived.apps,
     configDirectory: inputs.configDirectory,
   };
 }
@@ -705,17 +625,13 @@ function buildBootPlan(
       configPath,
     );
     const adminUserId = yield* resolveAdminUserId(processEnv, yaml, configPath);
-    return assembleBootPlan(
-      inputs,
-      {
-        devMode,
-        port,
-        corsOrigins,
-        databaseUrl,
-        adminUserId,
-      },
-      inputs.encryptionMasterSecretFromEnv,
-    );
+    return assembleBootPlan(inputs, {
+      devMode,
+      port,
+      corsOrigins,
+      databaseUrl,
+      adminUserId,
+    });
   });
 }
 
@@ -752,22 +668,12 @@ export function loadStandaloneConfig(
       processEnv,
       explicit,
     ).pipe(Effect.provide(NodeContext.layer));
-    const encryptionMasterSecretFromEnv =
-      input.processEnv === undefined
-        ? yield* loadEncryptionMasterSecretFromEnv(configPath)
-        : yield* decodeEnvSecret(
-            serverEncryptionMasterSecret,
-            "ENCRYPTION_MASTER_SECRET",
-            configPath,
-            input.processEnv.ENCRYPTION_MASTER_SECRET,
-          );
 
     return yield* buildBootPlan({
       yaml,
       configDirectory,
       processEnv,
       configPath,
-      encryptionMasterSecretFromEnv,
     });
   }).pipe(Effect.withSpan("loadStandaloneConfig"));
 }

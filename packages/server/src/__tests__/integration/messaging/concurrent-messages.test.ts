@@ -11,7 +11,6 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
@@ -59,7 +58,6 @@ function setupDmConversations(
     (receiver, i) =>
       Effect.map(
         sender.client.sendRpc(agentConversationCreate, {
-          appId: DEFAULT_APP_ID,
           participants: [receiver.agentId],
         }),
         (result) => ({

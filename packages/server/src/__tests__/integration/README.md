@@ -1,42 +1,23 @@
 # Server integration tests
 
-Per-layer organization mirrors the server socket / identity / network /
-messaging / app decomposition.
+Per-layer organization mirrors the server socket / identity / messaging
+decomposition.
 
 ## Layout
 
 ```
 __tests__/integration/
-├── socket/      # WebSocket lifecycle, heartbeat, RPC plumbing
-├── identity/    # registration, claim, agents-list, auth
-├── network/     # agent endpoint resolver
-├── messaging/   # conversations, messages, encryption, trace
-└── app/         # app registration + dispatch-admission lease lifecycle
-    └── dispatch-flow/  # bucketed dispatch-admission scenarios
+├── socket/      # WebSocket lifecycle, heartbeat, reconnection
+├── identity/    # registration, agents-list, auth
+└── messaging/   # conversations, messages, trace spans
 ```
 
-`helpers.ts` lives at this directory's root. Tests under a layer subdir
-import it via `../helpers.js`; tests under `app/dispatch-flow/` import
-via `../../helpers.js`.
+`helpers.ts` lives at this directory's root; tests under a layer subdir import
+it via `../helpers.js`.
 
 ## Naming
 
 Each file is `<scenario>.test.ts`; the layer subdir provides the test context.
 
 The vitest discovery glob `src/__tests__/integration/**/*.test.ts`
-(`vitest.integration.config.ts`) already reaches subdirs; renaming
-`*.integration.test.ts` to `*.test.ts` does not break discovery because
-`.integration.test.ts` already matched the glob.
-
-## Dispatch-flow split rationale
-
-The original `dispatch-flow.integration.test.ts` (1197 LOC, 23 `it.live`
-scenarios) shared one server fixture across all scenarios. Splitting
-one-file-per scenario would multiply server startup cost 23×. Six
-group-bucketed files under `app/dispatch-flow/` preserve fixture sharing
-within each bucket while restoring per-bucket parallelism to vitest's
-`fileParallelism: true` runner. Each bucket file owns its own copy of
-the imports + module state + `beforeAll`/`afterAll`/`beforeEach` triad
-and gets its own `describe("dispatch/* — <bucket>", …)` wrapper.
-
-Bucket names describe the dispatch behavior they cover.
+(`vitest.integration.config.mjs`) reaches every subdir.

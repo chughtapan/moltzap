@@ -11,10 +11,9 @@ import {
   type MessageParts,
   type Part,
   decodeMessageParts,
-  decodeMessagePartsText,
   messageReceivedNotificationDefinition,
 } from "@moltzap/protocol/message";
-import type { AgentId, AppId } from "@moltzap/protocol/identity";
+import type { AgentId } from "@moltzap/protocol/identity";
 import {
   messageId as MessageIdSchema,
   type ConversationId,
@@ -29,25 +28,9 @@ import { type Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import type { ConversationService } from "#conversation";
 import type { NetworkSendService } from "#network";
-import {
-  type EnvelopeEncryption,
-  type Dek,
-  deserializePayload,
-  serializePayload,
-} from "#db/crypto";
-
-/**
- * Postgres returns bytea as Buffer, while PGlite returns Uint8Array. Normalize so .toString("utf-8") works.
- * @param v Value supplied to the operation.
- * @returns The to buf result.
- */
-function toBuf(v: Buffer | Uint8Array): Buffer {
-  return Buffer.isBuffer(v) ? v : Buffer.from(v);
-}
 
 // Content-free size metadata for OTel span attributes. Spans can egress to an
-// operator OTLP collector, so they MUST NOT carry message body plaintext — the
-// envelope is encrypted at rest and the body never belongs in telemetry. We
+// operator OTLP collector, so they MUST NOT carry message body plaintext. We
 // emit the text-part count and total text length (numbers) instead of the text
 // itself, so operators can see message shape without reading content.
 function textPartsMetadata(parts: readonly Part[]): {
@@ -65,22 +48,11 @@ function textPartsMetadata(parts: readonly Part[]): {
   return { textPartCount, textLength };
 }
 
-const PLAINTEXT_IV_BYTES = 12;
-const PLAINTEXT_TAG_BYTES = 16;
-const CONVERSATION_KEYS_ALIAS = "conversation_keys as ck";
-const ENCRYPTION_KEYS_ALIAS = "encryption_keys as ek";
-const COL_EK_VERSION = "ek.version";
-const COL_CK_KEK_VERSION = "ck.kek_version";
-const COL_CK_WRAPPED_DEK = "ck.wrapped_dek";
-const COL_CK_DEK_VERSION = "ck.dek_version";
-const COL_EK_ENCRYPTED_KEY = "ek.encrypted_key";
-const COL_CK_CONVERSATION_ID = "ck.conversation_id";
 const decodeMessageId = Schema.decodeUnknownSync(MessageIdSchema);
 
 interface SendInsertResult {
   readonly message: Message;
   readonly parts: MessageParts;
-  readonly conv: SendConversationRow;
   readonly excludeConnectionId?: ConnectionId;
 }
 
@@ -99,41 +71,15 @@ interface SendCommitInput {
   readonly senderAgentId: AgentId;
 }
 
+/** Existence projection of the conversation a send targets. */
 interface SendConversationRow {
-  readonly app_id: AppId;
-}
-
-interface EncryptedParts {
-  readonly encrypted: Buffer;
-  readonly iv: Buffer;
-  readonly tag: Buffer;
-  readonly dekVersion: number;
-  readonly kekVersion: number;
-}
-
-interface ConversationDek {
-  readonly dek: Dek;
-  readonly dekVersion: number;
-  readonly kekVersion: number;
-}
-
-interface ConversationKeyMaterialRow {
-  readonly wrapped_dek: string;
-  readonly dek_version: number;
-  readonly kek_version: number;
-  readonly encrypted_key: string;
-}
-
-interface ActiveKekRow {
-  readonly version: number;
-  readonly encrypted_key: string;
+  readonly id: ConversationId;
 }
 
 interface MessageServiceDeps {
   readonly db: Db;
   readonly conversations: ConversationService;
   readonly networkSend: NetworkSendService;
-  readonly encryption: EnvelopeEncryption | null;
 }
 
 /**
@@ -146,13 +92,11 @@ export class MessageService {
   private readonly db: Db;
   private readonly conversations: ConversationService;
   private readonly networkSendService: NetworkSendService;
-  private readonly encryption: EnvelopeEncryption | null;
 
   constructor(deps: MessageServiceDeps) {
     this.db = deps.db;
     this.conversations = deps.conversations;
     this.networkSendService = deps.networkSend;
-    this.encryption = deps.encryption;
   }
 
   close(): Effect.Effect<void> {
@@ -171,14 +115,12 @@ export class MessageService {
         // `ConversationSendAccess` gates this method in the engine middleware
         // stack before the handler runs, so `send` requires no permission token in
         // its Env and trusts `input` (the handler's already-gated params).
-        const conv = yield* this.readSendConversation(input.conversationId);
+        yield* this.readSendConversation(input.conversationId);
         const parts = input.parts;
-        const encrypted = yield* this.encryptParts(input.conversationId, parts);
-        const row = yield* this.insertMessageRow(input, encrypted);
+        const row = yield* this.insertMessageRow(input);
         return {
           message: this.mapMessage(row, parts),
           parts,
-          conv,
           excludeConnectionId: input.excludeConnectionId,
         };
       }.bind(this),
@@ -202,14 +144,13 @@ export class MessageService {
     return takeFirstOrFail(
       this.db
         .selectFrom("conversations")
-        .select(["app_id"])
+        .select(["id"])
         .where("id", "=", conversationId),
     );
   }
 
   private insertMessageRow(
     input: SendInsertInput,
-    encryptedParts: EncryptedParts,
   ): Effect.Effect<MessageRow, SqlError> {
     const messageIdValue = decodeMessageId(crypto.randomUUID());
     const createdAtIso = new Date().toISOString();
@@ -222,11 +163,7 @@ export class MessageService {
             conversation_id: input.conversationId,
             sender_id: input.senderAgentId,
             seq: nextSnowflakeId().toString(),
-            parts_encrypted: encryptedParts.encrypted,
-            parts_iv: encryptedParts.iv,
-            parts_tag: encryptedParts.tag,
-            dek_version: encryptedParts.dekVersion,
-            kek_version: encryptedParts.kekVersion,
+            parts: JSON.stringify(input.parts),
             created_at: new Date(createdAtIso),
           })
           .returningAll()
@@ -413,155 +350,17 @@ export class MessageService {
   ): Effect.Effect<Message[]> {
     return Effect.gen(
       function* (this: MessageService) {
-        const dekCache = new Map<number, Dek>();
         const messages: Message[] = [];
         for (const row of rows) {
-          const parts = yield* this.decryptPartsWithCache(row, dekCache);
+          // The `parts` column is stored plaintext; the strict decode is the
+          // read boundary that keeps a hand-edited row out of the wire result.
+          const parts = yield* decodeMessageParts(row.parts);
           messages.push(this.mapMessage(row, parts));
         }
         messages.reverse();
         return messages;
       }.bind(this),
     );
-  }
-
-  private encryptParts(
-    conversationId: ConversationId,
-    parts: MessageParts,
-  ): Effect.Effect<EncryptedParts> {
-    const encryption = this.encryption;
-    if (encryption === null) {
-      return Effect.succeed(plaintextEncryptedParts(parts));
-    }
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: MessageService) {
-          const conversationDek = yield* this.getOrCreateConversationDek(
-            conversationId,
-            encryption,
-          );
-          const { ciphertext, iv, tag } = encryption.encryptMessage(
-            parts,
-            conversationDek.dek,
-          );
-          return {
-            encrypted: ciphertext,
-            iv,
-            tag,
-            dekVersion: conversationDek.dekVersion,
-            kekVersion: conversationDek.kekVersion,
-          };
-        }.bind(this),
-      ),
-    );
-  }
-
-  private getOrCreateConversationDek(
-    conversationId: ConversationId,
-    encryption: EnvelopeEncryption,
-  ): Effect.Effect<ConversationDek, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(
-      function* (this: MessageService) {
-        const keyRowOpt = yield* this.readLatestConversationKey(conversationId);
-        if (Option.isSome(keyRowOpt)) {
-          return unwrapConversationDek(encryption, keyRowOpt.value);
-        }
-        return yield* this.createConversationDek(conversationId, encryption);
-      }.bind(this),
-    );
-  }
-
-  private readLatestConversationKey(
-    conversationId: ConversationId,
-  ): Effect.Effect<Option.Option<ConversationKeyMaterialRow>, SqlError> {
-    return takeFirstOption(
-      this.db
-        .selectFrom(CONVERSATION_KEYS_ALIAS)
-        .innerJoin(ENCRYPTION_KEYS_ALIAS, COL_EK_VERSION, COL_CK_KEK_VERSION)
-        .select([
-          COL_CK_WRAPPED_DEK,
-          COL_CK_DEK_VERSION,
-          COL_CK_KEK_VERSION,
-          COL_EK_ENCRYPTED_KEY,
-        ])
-        .where(COL_CK_CONVERSATION_ID, "=", conversationId)
-        .orderBy(COL_CK_DEK_VERSION, "desc")
-        .limit(1),
-    );
-  }
-
-  private createConversationDek(
-    conversationId: ConversationId,
-    encryption: EnvelopeEncryption,
-  ): Effect.Effect<ConversationDek, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(
-      function* (this: MessageService) {
-        const newDek = encryption.generateDek();
-        const kekRow = yield* this.activeKekRow();
-        const kek = encryption.decryptKek(
-          deserializePayload(kekRow.encrypted_key),
-        );
-        const wrappedDek = encryption.wrapDek(newDek, kek);
-        const insertedOpt = yield* takeFirstOption(
-          this.db
-            .insertInto("conversation_keys")
-            .values({
-              conversation_id: conversationId,
-              dek_version: 1,
-              wrapped_dek: serializePayload(wrappedDek),
-              kek_version: kekRow.version,
-            })
-            .onConflict((oc) => oc.doNothing())
-            .returningAll(),
-        );
-        if (Option.isSome(insertedOpt)) {
-          return { dek: newDek, dekVersion: 1, kekVersion: kekRow.version };
-        }
-        return yield* this.readWinningConversationDek(
-          conversationId,
-          encryption,
-        );
-      }.bind(this),
-    );
-  }
-
-  private activeKekRow(): Effect.Effect<ActiveKekRow, SqlError> {
-    return takeFirstOption(
-      this.db
-        .selectFrom("encryption_keys")
-        .select(["version", "encrypted_key"])
-        .where("status", "=", "active")
-        .orderBy("version", "desc")
-        .limit(1),
-    ).pipe(
-      Effect.flatMap((kekRowOpt) =>
-        Option.match(kekRowOpt, {
-          onNone: () => Effect.die("No encryption key configured"),
-          onSome: (row) => Effect.succeed(row),
-        }),
-      ),
-    );
-  }
-
-  private readWinningConversationDek(
-    conversationId: ConversationId,
-    encryption: EnvelopeEncryption,
-  ): Effect.Effect<ConversationDek, SqlError | Cause.NoSuchElementException> {
-    return takeFirstOrFail(
-      this.db
-        .selectFrom(CONVERSATION_KEYS_ALIAS)
-        .innerJoin(ENCRYPTION_KEYS_ALIAS, COL_EK_VERSION, COL_CK_KEK_VERSION)
-        .select([
-          COL_CK_WRAPPED_DEK,
-          COL_CK_DEK_VERSION,
-          COL_CK_KEK_VERSION,
-          COL_EK_ENCRYPTED_KEY,
-        ])
-        .where(COL_CK_CONVERSATION_ID, "=", conversationId)
-        .orderBy(COL_CK_DEK_VERSION, "desc")
-        .limit(1),
-      "winner DEK not found",
-    ).pipe(Effect.map((row) => unwrapConversationDek(encryption, row)));
   }
 
   private getTraceMessageMetadata(
@@ -595,83 +394,6 @@ export class MessageService {
     );
   }
 
-  private decryptPartsWithCache(
-    row: MessageRow,
-    dekCache: Map<number, Dek>,
-  ): Effect.Effect<MessageParts> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: MessageService) {
-          const dekVersion = row.dek_version;
-          const encryption = this.encryption;
-
-          if (encryption === null || dekVersion === 0) {
-            return yield* decodeMessagePartsText(
-              toBuf(row.parts_encrypted).toString("utf-8"),
-            );
-          }
-
-          const dek = yield* this.dekForMessageRow(
-            row,
-            dekVersion,
-            dekCache,
-            encryption,
-          );
-          return yield* decodeMessageParts(
-            encryption.decryptMessage(
-              {
-                ciphertext: toBuf(row.parts_encrypted),
-                iv: toBuf(row.parts_iv),
-                tag: toBuf(row.parts_tag),
-              },
-              dek,
-            ),
-          );
-        }.bind(this),
-      ),
-    );
-  }
-
-  private dekForMessageRow(
-    row: MessageRow,
-    dekVersion: number,
-    dekCache: Map<number, Dek>,
-    encryption: EnvelopeEncryption,
-  ): Effect.Effect<Dek, SqlError> {
-    const cachedDek = dekCache.get(dekVersion);
-    if (cachedDek !== undefined) {
-      return Effect.succeed(cachedDek);
-    }
-    return Effect.gen(
-      function* (this: MessageService) {
-        const keyRowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom(CONVERSATION_KEYS_ALIAS)
-            .innerJoin(
-              ENCRYPTION_KEYS_ALIAS,
-              COL_EK_VERSION,
-              COL_CK_KEK_VERSION,
-            )
-            .select([COL_CK_WRAPPED_DEK, COL_EK_ENCRYPTED_KEY])
-            .where(COL_CK_CONVERSATION_ID, "=", row.conversation_id)
-            .where(COL_CK_DEK_VERSION, "=", dekVersion),
-        );
-        if (Option.isNone(keyRowOpt)) {
-          return yield* Effect.die("Decryption key not found");
-        }
-        const kek = encryption.decryptKek(
-          deserializePayload(keyRowOpt.value.encrypted_key),
-        );
-        const dek = encryption.unwrapDek(
-          deserializePayload(keyRowOpt.value.wrapped_dek),
-          kek,
-        );
-        dekCache.set(dekVersion, dek);
-        return dek;
-      }.bind(this),
-    );
-  }
-
   private mapMessage(row: MessageRow, parts: MessageParts): Message {
     return {
       id: row.id,
@@ -681,26 +403,4 @@ export class MessageService {
       createdAt: row.created_at.toISOString(),
     };
   }
-}
-
-function plaintextEncryptedParts(parts: MessageParts): EncryptedParts {
-  return {
-    encrypted: Buffer.from(JSON.stringify(parts), "utf-8"),
-    iv: Buffer.alloc(PLAINTEXT_IV_BYTES),
-    tag: Buffer.alloc(PLAINTEXT_TAG_BYTES),
-    dekVersion: 0,
-    kekVersion: 0,
-  };
-}
-
-function unwrapConversationDek(
-  encryption: EnvelopeEncryption,
-  row: ConversationKeyMaterialRow,
-): ConversationDek {
-  const kek = encryption.decryptKek(deserializePayload(row.encrypted_key));
-  return {
-    dek: encryption.unwrapDek(deserializePayload(row.wrapped_dek), kek),
-    dekVersion: row.dek_version,
-    kekVersion: row.kek_version,
-  };
 }

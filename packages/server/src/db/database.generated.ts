@@ -7,8 +7,6 @@ import type { ColumnType } from "kysely";
 
 type AgentStatus = "active" | "suspended";
 
-type EncryptionKeyStatus = "active" | "deprecated" | "revoked";
-
 type Generated<T> =
   T extends ColumnType<infer S, infer I, infer U>
     ? ColumnType<S, I | undefined, U>
@@ -22,7 +20,7 @@ type Int8 = ColumnType<
 
 /**
  * Jsonb column type. Server code decodes the column into the typed
- * union (e.g. `DispatchDecision`) at the boundary; the generated type
+ * union (e.g. `MessageParts`) at the boundary; the generated type
  * stays `unknown` so a Principle-2 schema decode happens at every read
  * site.
  */
@@ -44,33 +42,6 @@ export interface Agents {
   updated_at: Generated<Timestamp>;
 }
 
-/** Describes apps. */
-export interface Apps {
-  api_key_id: string;
-  api_key_secret_hash: string;
-  app_id: Generated<string>;
-  created_at: Generated<Timestamp>;
-  id: Generated<string>;
-
-  /**
-   * Jsonb column holding the app's `AppManifest`. Decoded via
-   * `AppManifestSchema` at every read site (Principle 2: schemas at
-   * boundaries); the generated type stays `unknown` via the `Json`
-   * alias so no read path trusts the persisted shape unchecked.
-   */
-  manifest_json: Json;
-  updated_at: Generated<Timestamp>;
-}
-
-/** Describes conversation keys. */
-export interface ConversationKeys {
-  conversation_id: string;
-  created_at: Generated<Timestamp>;
-  dek_version: Generated<number>;
-  kek_version: number;
-  wrapped_dek: string;
-}
-
 /** Describes conversation participants. */
 export interface ConversationParticipants {
   agent_id: string;
@@ -79,7 +50,6 @@ export interface ConversationParticipants {
 
 /** Describes conversations. */
 export interface Conversations {
-  app_id: string;
   created_at: Generated<Timestamp>;
   created_by_id: string;
   id: Generated<string>;
@@ -87,36 +57,20 @@ export interface Conversations {
   updated_at: Generated<Timestamp>;
 }
 
-/** Describes encryption keys. */
-export interface EncryptionKeys {
-  created_at: Generated<Timestamp>;
-  encrypted_key: string;
-  rotated_at: Timestamp | null;
-  status: Generated<EncryptionKeyStatus>;
-  version: number;
-}
-
 /** Describes messages. */
 export interface Messages {
   conversation_id: string;
   created_at: Generated<Timestamp>;
-  dek_version: Generated<number>;
   id: Generated<string>;
   is_deleted: Generated<boolean>;
-  kek_version: number;
-  parts_encrypted: Buffer;
-  parts_iv: Buffer;
-  parts_tag: Buffer;
-  sender_id: string;
-  seq: Int8;
 
   /**
-   * Per-message dispatch-authorization verdict, written by
-   * `MessageService.sendInsert` as `{tag: "pending"}` and updated by
-   * `recordDispatchDecision` to `{tag: "forward", recipients: [...]}`
-   * or `{tag: "block", reason: "..."}`. Decoded via
-   * `DispatchDecisionSchema` at every read site (Principle 2: schemas
-   * at boundaries).
+   * Jsonb column holding the message's wire `MessageParts` array. Decoded
+   * via `decodeMessageParts` at every read site (Principle 2: schemas at
+   * boundaries); the generated type stays `unknown` via the `Json` alias so
+   * no read path trusts the persisted shape unchecked.
    */
-  dispatch_decision: Generated<Json>;
+  parts: Json;
+  sender_id: string;
+  seq: Int8;
 }

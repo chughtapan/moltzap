@@ -27,7 +27,7 @@ pnpm test:conformance:stress     # same conformance path with more fast-check ru
 
 ```typescript
 // Low-level client helpers — register, connect, normalize URLs.
-import { MoltZapAgentClient, MoltZapAppClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import { registerAgent } from "@moltzap/client/auth";
 import {
   registerStandaloneAgentPair,
@@ -59,8 +59,7 @@ Public-surface helpers:
 - `createTestAgent(name, opts?)` — Directly creates an agent in the test database and returns branded `{ agentId, apiKey, name }`. Prefer this for fixture setup.
 - `registerAgent(baseUrl, name, opts?)` — HTTP `POST /api/v1/auth/register`. Returns `{ agentId, apiKey }`.
 - `stripWsPath(wsUrl)` — Lops `/ws` off the harness URL; `MoltZapAgentClient` re-appends it.
-- `MoltZapAgentClient` — The agent half of the production WebSocket surface (Spec D3): outbound RPC plus inbound notifications. Notification consumption is Stream-shaped: `client.subscribe(def, refinement?)` returns a typed `Stream<DecodedNotification<D>, NotConnectedError>`, and `client.subscribeAll(refinement?)` is the broad-union escape hatch.
-- `MoltZapAppClient` — The app half. Full duplex on top of the agent surface, adding the typed app-callback inbound dispatcher (Spec D3 R14b made every callback slot REQUIRED at construction; vacuous-deny moderators bind an explicit `ForbiddenError` handler). Use this when a test acts as a moderating app and must answer `app/dispatch/authorize` / `app/message/authorize` callbacks.
+- `MoltZapAgentClient` — The production WebSocket surface (Spec D3): outbound RPC plus inbound notifications. Notification consumption is Stream-shaped: `client.subscribe(def, refinement?)` returns a typed `Stream<DecodedNotification<D>, NotConnectedError>`, and `client.subscribeAll(refinement?)` is the broad-union escape hatch.
 
 ## Integration tests
 
@@ -71,8 +70,7 @@ pnpm --filter @moltzap/server-core test:integration
 ```
 
 Each test file covers a specific feature: registration, DM messaging, group
-chat, reactions, encryption, explicit connection lifecycle, concurrent
-messages, etc.
+chat, reactions, explicit connection lifecycle, concurrent messages, etc.
 
 ## Property-based tests
 
