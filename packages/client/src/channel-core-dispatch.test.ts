@@ -3,7 +3,6 @@ import { Effect } from "effect";
 
 import {
   AFTER_MARKER_TEXT,
-  DENIED_LEASE_ID,
   FIRST_TEXT,
   MARKER_LEASE_ID,
   OLD_DISCUSSION_TEXT,
@@ -50,10 +49,10 @@ interface TextMessageSpec {
   readonly conversationId: string;
   readonly text: string;
 }
-interface AdmissionRequestRecord {
-  readonly messageId: string;
+interface BusyProgressRequest {
+  readonly attempt: number;
   readonly conversationId: string;
-  readonly pending: readonly string[];
+  readonly messageId: string;
 }
 
 interface CoalescedMessageExpectation {
@@ -68,6 +67,10 @@ const pendingMessageId = (entry: PendingDispatchEntry): string =>
   entry.messageId;
 
 const receivedMessageId = (entry: { readonly id: string }): string => entry.id;
+
+const TOWN_NIGHT_TEXT = "Night falls.";
+const DEN_KILL_PROMPT_TEXT = "Werewolves, choose a target.";
+const TOWN_WAKE_TEXT = "The town wakes.";
 
 const createResumeSlot = (): ResumeSlot => ({ resume: () => undefined });
 
@@ -229,42 +232,6 @@ function expectHeldDispatchRefresh(
     includes: [FIRST_TEXT, SECOND_TEXT],
     coalescedIds: ["msg-1", "msg-2"],
   });
-}
-
-function installCrossConversationAdmission(
-  fake: FakeChannelCoreService,
-  requests: AdmissionRequestRecord[],
-): void {
-  installAdmission(fake, (request) =>
-    Effect.sync(() => {
-      requests.push({
-        messageId: request.message.id,
-        conversationId: request.conversationId,
-        pending: request.pending.map(pendingMessageId),
-      });
-      if (request.conversationId === conversation("town-square")) {
-        return { _tag: "hold" as const, reason: "town_square_night" };
-      }
-      return { _tag: "grant" as const, leaseId: DENIED_LEASE_ID };
-    }),
-  );
-}
-
-function expectCrossConversationAdmissionRequests(
-  requests: readonly AdmissionRequestRecord[],
-): void {
-  expect(requests).toEqual([
-    {
-      messageId: message("town-night-narration"),
-      conversationId: conversation("town-square"),
-      pending: [message("town-night-narration")],
-    },
-    {
-      messageId: message("den-kill-prompt"),
-      conversationId: conversation("werewolf-den"),
-      pending: [message("den-kill-prompt"), message("town-night-narration")],
-    },
-  ]);
 }
 
 function installDelayedGrantAdmission(
@@ -642,95 +609,122 @@ effectTest(
   holdsHeadOfLineWorkUntilANewInboundMessageRefreshesTheSnapshot,
 );
 
-function parksConversationBusyWorkForTheExistingRetryPath() {
-  return Effect.gen(function* () {
-    const { fake, received } = customSetup();
-    setGroupConversation(fake, "conv-1");
-    setAgentNames(fake, [
-      ["agent-alice", "Alice"],
-      ["agent-bob", "Bob"],
-    ]);
-    installAdmission(fake, () =>
-      Effect.succeed({
-        _tag: "grant" as const,
-        leaseId: testLeaseId("lease-after-busy"),
-      }),
+function installBusyProgressAdmission(
+  fake: FakeChannelCoreService,
+  requests: BusyProgressRequest[],
+): void {
+  installAdmission(fake, (request) =>
+    Effect.succeed({
+      _tag: "grant" as const,
+      leaseId: testLeaseId(
+        request.conversationId === conversation("town-square")
+          ? "lease-town"
+          : "lease-den",
+      ),
+    }),
+  );
+  const requestWithLease =
+    /* Safe because installAdmission installs this method before it is captured. */ fake.service.requestDispatch!.bind(
+      fake.service,
     );
-    const requestWithLease =
-      /* Safe because installAdmission installs this method before it is captured. */ fake.service.requestDispatch!.bind(
-        fake.service,
-      );
-    let calls = 0;
-    fake.service.requestDispatch = (request) => {
-      calls += 1;
-      return calls === 1
-        ? Effect.succeed({ outcome: "conversation_busy" as const })
-        : requestWithLease(request);
-    };
-
-    emitConv1TextMessage(fake, "msg-1", "agent-alice", FIRST_TEXT);
-    yield* flushDispatchChainEffect;
-    expect(calls).toBe(1);
-    expect(received).toHaveLength(0);
-
-    emitConv1TextMessage(fake, "msg-2", "agent-bob", SECOND_TEXT);
-    yield* flushDispatchChainEffect;
-    expect(calls).toBe(2);
-    expectSingleCoalescedMessage(received, {
-      id: "msg-1",
-      includes: [FIRST_TEXT, SECOND_TEXT],
-      coalescedIds: ["msg-1", "msg-2"],
-      dispatchLeaseId: testLeaseId("lease-after-busy"),
+  fake.service.requestDispatch = (request) => {
+    requests.push({
+      attempt: request.attempt ?? 0,
+      conversationId: request.conversationId,
+      messageId: request.messageId,
     });
-  });
+    return request.conversationId === conversation("town-square") &&
+      (request.attempt ?? 0) === 0
+      ? Effect.succeed({ outcome: "conversation_busy" as const })
+      : requestWithLease(request);
+  };
 }
 
-effectTest(
-  "parks conversation_busy work for the existing retry path",
-  parksConversationBusyWorkForTheExistingRetryPath,
-);
+function makeBusyProgressFixture() {
+  const fixture = customSetup();
+  setGroupConversation(fixture.fake, "town-square");
+  setGroupConversation(fixture.fake, "werewolf-den");
+  setAgentNames(fixture.fake, [
+    ["agent-alice", "Alice"],
+    ["agent-gm", "GM"],
+  ]);
+  const requests: BusyProgressRequest[] = [];
+  installBusyProgressAdmission(fixture.fake, requests);
+  return { ...fixture, requests };
+}
 
-function doesNotLetHeldWorkInOneConversationBlockAnotherConversation() {
+const emitAndFlush = (fake: FakeChannelCoreService, spec: TextMessageSpec) =>
+  Effect.sync(() => {
+    emitTextMessage(fake, spec);
+  }).pipe(Effect.zipRight(flushDispatchChainEffect));
+
+function expectBusyProgress(
+  received: ReceivedMessages,
+  requests: readonly BusyProgressRequest[],
+): void {
+  expect(requests).toEqual([
+    {
+      attempt: 0,
+      conversationId: conversation("town-square"),
+      messageId: message("town-night-narration"),
+    },
+    {
+      attempt: 0,
+      conversationId: conversation("werewolf-den"),
+      messageId: message("den-kill-prompt"),
+    },
+    {
+      attempt: 1,
+      conversationId: conversation("town-square"),
+      messageId: message("town-night-narration"),
+    },
+  ]);
+  expect(received).toHaveLength(2);
+  const townDispatch =
+    /* Safe because the assertions establish the two delivered dispatches. */ received[1]!;
+  expect(townDispatch.id).toBe(message("town-night-narration"));
+  expect(townDispatch.text).toContain(TOWN_NIGHT_TEXT);
+  expect(townDispatch.text).toContain(TOWN_WAKE_TEXT);
+  expect(townDispatch.coalescedMessages?.map(receivedMessageId)).toEqual([
+    message("town-night-narration"),
+    message("town-follow-up"),
+  ]);
+}
+
+function keepsBusyWorkPendingWhileAnotherConversationProgresses() {
   return Effect.gen(function* () {
-    const { fake, received } = customSetup();
-    setGroupConversation(fake, "town-square");
-    setGroupConversation(fake, "werewolf-den");
-    fake.state.setAgentName("agent-gm", "GM");
-    const requests: AdmissionRequestRecord[] = [];
-    installCrossConversationAdmission(fake, requests);
-
-    emitTextMessage(fake, {
+    const { fake, received, requests } = makeBusyProgressFixture();
+    yield* emitAndFlush(fake, {
       id: "town-night-narration",
       senderId: "agent-gm",
       conversationId: "town-square",
-      text: "Night falls.",
+      text: TOWN_NIGHT_TEXT,
     });
-    yield* flushDispatchChainEffect;
-
-    emitTextMessage(fake, {
+    expect(received).toHaveLength(0);
+    yield* emitAndFlush(fake, {
       id: "den-kill-prompt",
       senderId: "agent-gm",
       conversationId: "werewolf-den",
-      text: "Werewolves, choose a target.",
+      text: DEN_KILL_PROMPT_TEXT,
     });
-    yield* flushDispatchChainEffect;
-
-    expectCrossConversationAdmissionRequests(requests);
-    expect(received.map((m) => m.id)).toEqual([message("den-kill-prompt")]);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ received[0]!
-        .conversationId,
-    ).toBe(conversation("werewolf-den"));
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ received[0]!
-        .dispatchLeaseId,
-    ).toBe(DENIED_LEASE_ID);
+    expect(received.map((entry) => entry.id)).toEqual([
+      message("den-kill-prompt"),
+    ]);
+    expect(received[0]?.conversationId).toBe(conversation("werewolf-den"));
+    expect(received[0]?.dispatchLeaseId).toBe(testLeaseId("lease-den"));
+    yield* emitAndFlush(fake, {
+      id: "town-follow-up",
+      senderId: "agent-alice",
+      conversationId: "town-square",
+      text: TOWN_WAKE_TEXT,
+    });
+    expectBusyProgress(received, requests);
   });
 }
 
 effectTest(
-  "does not let held work in one conversation block another conversation",
-  doesNotLetHeldWorkInOneConversationBlockAnotherConversation,
+  "keeps conversation_busy work pending while another conversation progresses",
+  keepsBusyWorkPendingWhileAnotherConversationProgresses,
 );
 
 function keepsBlockedAuthorizationHeadOfLineAndCoalescesSameConversationBacklogOnGrant() {
