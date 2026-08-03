@@ -14,7 +14,7 @@ _Interface_
 
 Configures agent client.
 
-### [`ContextOptions`](./service.ts#L130)
+### [`ContextOptions`](./service.ts#L131)
 
 _Interface_
 
@@ -28,7 +28,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](./service.ts#L122)
+### [`ConversationMeta`](./service.ts#L123)
 
 _Interface_
 
@@ -49,7 +49,7 @@ _Class_
 
 Implements molt zap agent client.
 
-### [`MoltZapService`](./service.ts#L261)
+### [`MoltZapService`](./service.ts#L262)
 
 _Class_
 
@@ -57,6 +57,7 @@ _Class_
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
   private connectedValue = false;
+  private shutdownCompletion: Deferred.Deferred<undefined> | null = null;
 
   /**
    * Service-owned scope. Opened in `connect()`, owns the
@@ -159,21 +160,20 @@ export class MoltZapService {
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
       function* (this: MoltZapService) {
+        // A new connection never takes ownership while resources from the
+        // preceding lifecycle are still closing.
+        while (this.shutdownCompletion !== null) {
+          const priorShutdown = this.shutdownCompletion;
+          yield* Deferred.await(priorShutdown);
+          if (this.shutdownCompletion === priorShutdown) {
+            this.shutdownCompletion = null;
+          }
+        }
         const client = new MoltZapAgentClient({
           serverUrl: this.opts.serverUrl,
           agentKey: this.opts.agentKey,
           // The body doesn't branch on close metadata today; the signature is
           // kept explicit so a future disconnect-handler chain can plumb
-          // code/reason through.
-          onDisconnect: () => {
-            this.connectedValue = false;
-            fanout(this.handlers.disconnect, undefined);
-          },
-        });
-        this.client = client;
-
-        // `subscribeAll().pipe(Stream.runForEach, …)` is forked into a
-        // service-owned scope. The Stream is materialized BEFORE `connect()` so
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -190,7 +190,7 @@ _Interface_
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L110)
+### [`ServiceRpcError`](./service.ts#L111)
 
 _TypeAlias_
 

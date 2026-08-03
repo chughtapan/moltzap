@@ -16,6 +16,9 @@ lowest surface that meets the need:
 - `src/service.ts` — `MoltZapService`.
 - `src/channel-core.ts` — `MoltZapChannelCore`; the inbound flow
   lives in its JSDoc.
+- `src/moltzapd.ts` — the daemon: agent ownership + single-flight
+  teardown; `src/harness-mcp-server.ts` / `harness-mcp-wire.ts` are its
+  MCP HTTP boundary.
 - `src/agent-client.ts` — re-exports `MoltZapAgentClient` from
   `@moltzap/protocol/socket`.
 - `src/auth.ts` — `registerAgent` HTTP bootstrap (mints agentId +

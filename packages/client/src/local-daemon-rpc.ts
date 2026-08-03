@@ -236,6 +236,13 @@ export const toLocalDaemonError = (error: unknown): LocalDaemonError =>
     ? error
     : new LocalDaemonInputError({ message: errorMessage(error) });
 
+/** Provides the status command rpc runtime value. */
+export const statusCommandRpc = Rpc.make(localDaemonCommands.status, {
+  payload: emptyPayload,
+  success: localDaemonStatusResultSchema,
+  error: localDaemonErrorSchema,
+});
+
 /** Provides the messages list command rpc runtime value. */
 export const messagesListCommandRpc = Rpc.make(
   localDaemonCommands.messagesList,
@@ -262,11 +269,7 @@ export const startCommandRpc = Rpc.make(localDaemonCommands.start, {
 
 /** Implements local daemon rpcs. */
 export class LocalDaemonRpcs extends RpcGroup.make(
-  Rpc.make(localDaemonCommands.status, {
-    payload: emptyPayload,
-    success: localDaemonStatusResultSchema,
-    error: localDaemonErrorSchema,
-  }),
+  statusCommandRpc,
   Rpc.make(localDaemonCommands.history, {
     payload: historyRequestSchema(),
     success: historyResponseSchema(),

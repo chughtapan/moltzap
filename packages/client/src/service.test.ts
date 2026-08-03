@@ -1,6 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect, Exit, Schema } from "effect";
+import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
 import {
   type Message,
   messageReceivedNotificationDefinition,
@@ -126,6 +126,107 @@ function seedMessageSendResponse(service: FakeMoltZapService): void {
     }),
   });
 }
+
+function shutdownMutatesStateOnlyWhenItsEffectRuns() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    const stored = buildMessage();
+    service.addMessage(stored.conversationId, stored);
+
+    const shutdown = service.shutdown();
+    expect(service.getHistory(stored.conversationId)).toEqual([stored]);
+
+    yield* shutdown;
+    expect(service.getHistory(stored.conversationId)).toEqual([]);
+  });
+}
+
+effectTest(
+  "shutdown mutates state only when its Effect runs",
+  shutdownMutatesStateOnlyWhenItsEffectRuns,
+);
+
+function concurrentShutdownCallersAwaitTheSameCleanup() {
+  return Effect.gen(function* () {
+    const closeStarted = yield* Deferred.make<undefined>();
+    const allowClose = yield* Deferred.make<undefined>();
+    const service = new FakeMoltZapService();
+    let clientCloseCalls = 0;
+    Reflect.set(service, "client", {
+      close: () =>
+        Effect.sync(() => {
+          clientCloseCalls += 1;
+        }).pipe(
+          Effect.zipRight(Deferred.succeed(closeStarted, undefined)),
+          Effect.zipRight(Deferred.await(allowClose)),
+        ),
+    });
+
+    const first = yield* Effect.fork(service.shutdown());
+    yield* Deferred.await(closeStarted);
+    const second = yield* Effect.fork(service.shutdown());
+    yield* Effect.yieldNow();
+
+    expect(Option.isNone(yield* Fiber.poll(second))).toBe(true);
+    expect(clientCloseCalls).toBe(1);
+
+    yield* Deferred.succeed(allowClose, undefined);
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
+  });
+}
+
+effectTest(
+  "concurrent shutdown callers await the same cleanup",
+  concurrentShutdownCallersAwaitTheSameCleanup,
+);
+
+function connectWaitsForActiveShutdownBeforeStartingANewLifecycle() {
+  return Effect.gen(function* () {
+    const shutdownCompletion = yield* Deferred.make<undefined>();
+    const service = new FakeMoltZapService();
+    Reflect.set(service, "shutdownCompletion", shutdownCompletion);
+
+    const connecting = yield* Effect.fork(service.connect());
+    yield* Effect.yieldNow();
+
+    expect(Option.isNone(yield* Fiber.poll(connecting))).toBe(true);
+    expect(Reflect.get(service, "client")).toBeNull();
+
+    yield* Fiber.interrupt(connecting);
+  });
+}
+
+effectTest(
+  "connect waits for active shutdown before starting a new lifecycle",
+  connectWaitsForActiveShutdownBeforeStartingANewLifecycle,
+);
+
+function sendCarriesOnlyTheConversationAndParts() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    seedMessageSendResponse(service);
+
+    yield* service.send(CONVERSATION_ALICE_ID, HELLO_TEXT);
+
+    expect(service.calls).toEqual([
+      {
+        method: messagesSend.name,
+        params: {
+          conversationId: CONVERSATION_ALICE_ID,
+          parts: [{ type: "text", text: HELLO_TEXT }],
+        },
+      },
+    ]);
+  });
+}
+
+describe("MoltZapService.send", () => {
+  effectTest(
+    "sends only the conversation and parts",
+    sendCarriesOnlyTheConversationAndParts,
+  );
+});
 
 function seedAgentLookup(
   service: FakeMoltZapService,

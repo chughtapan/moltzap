@@ -63,6 +63,12 @@ export interface ChannelService {
   on(event: "message", handler: (payload: { message: Message }) => void): void;
   on(event: "disconnect", handler: () => void): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
+  /**
+   * Effectful teardown for scoped process owners, which need the service's
+   * transports closed before the scope's release completes. Services that
+   * only offer the fire-and-forget {@link ChannelService.close} omit it.
+   */
+  shutdown?(): Effect.Effect<void>;
   close(): void;
   send(
     conversationId: ConversationId,
@@ -215,7 +221,7 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
  *   server->>ws: agent/message/received notification
  *   ws->>svc: subscribers.dispatch — fanout(message)
  *   svc->>core: message listener
- *   Note over core: dedup via recordMessageIdIfNew; Queue.unsafeOffer(inboundQueue, message)
+ *   Note over core: dedup via recordMessageIdIfNew, drop when no handler is installed, then Queue.unsafeOffer(inboundQueue, message)
  *   Note over core: consumer fiber — Queue.take
  *   Note over core: takeCoalescedConversationMessages drains same-conv backlog into one turn
  *   Note over core: enrichMessage — sender name, conversation, context entries
@@ -236,8 +242,9 @@ export class MoltZapChannelCore {
   private inboundHandler: InboundHandler | null = null;
 
   /**
-   * Inbound messages enqueue synchronously; a single forked consumer fiber
-   * serialises delivery so handlers execute one-at-a-time in arrival order.
+   * Inbound messages with an installed handler enqueue synchronously; a single
+   * forked consumer fiber serialises delivery so handlers execute
+   * one-at-a-time in arrival order.
    */
   private readonly inboundQueue: Queue.Queue<Message> = Effect.runSync(
     Queue.unbounded<Message>(),
@@ -261,6 +268,14 @@ export class MoltZapChannelCore {
 
   private registerMessageListener(): void {
     this.service.on("message", ({ message }) => {
+      // A core with no handler — a daemon that owns the connection without
+      // running a turn loop — observes messages it will never deliver.
+      // Dropping here keeps the queue from holding work nothing consumes, and
+      // makes the pre-registration window a definite drop rather than a race
+      // between the consumer fiber and the embedder's onInbound call.
+      if (this.inboundHandler === null) {
+        return;
+      }
       Queue.unsafeOffer(this.inboundQueue, message);
     });
   }
@@ -337,14 +352,34 @@ export class MoltZapChannelCore {
     );
   }
 
+  /**
+   * Tear the channel down, resolving only once the service's own transports
+   * are closed. A scoped owner releases this before its process exits, so
+   * fire-and-forget teardown would leave sockets open past the scope.
+   *
+   * Service shutdown runs concurrently with interrupting the consumer fiber
+   * because an in-flight turn's finalizer can take arbitrarily long. Awaiting
+   * the interrupt first would hold the transports open for exactly as long as
+   * that finalizer runs.
+   * @returns Completion of the channel-owned teardown.
+   */
   disconnect(): Effect.Effect<void> {
     return Effect.gen(
       function* (this: MoltZapChannelCore) {
-        this.service.close();
         this.connected = false;
         // Interrupt the consumer fiber so any queued inbound messages are
         // dropped rather than delivered after the channel is torn down.
-        yield* Fiber.interrupt(this.consumerFiber);
+        const stopConsumer = Fiber.interrupt(this.consumerFiber);
+        const shutdown = this.service.shutdown?.();
+        if (shutdown === undefined) {
+          this.service.close();
+          yield* stopConsumer;
+          return;
+        }
+        yield* Effect.all([stopConsumer, shutdown], {
+          concurrency: 2,
+          discard: true,
+        });
       }.bind(this),
     );
   }
