@@ -10,7 +10,6 @@ import {
   setupAgentPair,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   messageReceivedNotificationDefinition,
@@ -31,7 +30,6 @@ it("second message to existing DM delivers correctly with same conversationId", 
     const { alice, bob } = yield* setupAgentPair();
 
     const conv = yield* alice.client.sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       participants: [bob.agentId],
     });
     const conversationId = conv.conversation.id;

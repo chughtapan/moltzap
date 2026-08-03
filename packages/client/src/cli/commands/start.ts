@@ -1,7 +1,6 @@
 import { Args, Command } from "@effect/cli";
 import { Effect, Schema } from "effect";
 import {
-  type AppIdV4,
   localDaemonCommands,
   startCommandRpc,
   startParticipant,
@@ -26,7 +25,6 @@ export interface StartCommandArgs {
   readonly name: string;
   readonly participants: readonly StartParticipantType[];
   readonly message?: string;
-  readonly appId?: AppIdV4;
 }
 
 type StartCommandError = TransportError;
@@ -56,7 +54,6 @@ const startCommandHandler = (
     name: args.name,
     participants: args.participants,
     ...(args.message === undefined ? {} : { message: args.message }),
-    ...(args.appId === undefined ? {} : { appId: args.appId }),
   }).pipe(
     Effect.flatMap(logStartResult),
     Effect.withSpan("startCommandHandler"),
@@ -112,7 +109,6 @@ const startOptionsSchema = startCommandRpc.payloadSchema.pipe(
 /** Provides the start options runtime value. */
 export const startOptions = optionsFromSchema(startOptionsSchema, {
   message: { description: "First message body" },
-  appId: { description: "App UUID v4. Defaults to the MoltZap app." },
 });
 
 /**
@@ -143,7 +139,6 @@ export const startCommand: Command.Command<
       name,
       participants,
       message: options.message,
-      appId: options.appId,
     }),
 ).pipe(
   Command.withDescription(

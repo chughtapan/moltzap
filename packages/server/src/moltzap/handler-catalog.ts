@@ -15,15 +15,13 @@
  * Requirement middleware provides the per-method authority tags before the
  * handler body.
  */
-import { connectAgent, connectApp } from "#network";
+import { connectAgent } from "#network";
 import { agentsList } from "#identity/agents";
 import { messagesSend, messagesList } from "#message/handlers";
 import {
   agentConversationCreate,
   conversationList,
-  conversationUpdate,
 } from "#conversation/handlers";
-import { dispatchRequest, dispatchLeaseGet } from "#dispatch/handlers";
 import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
 
 /**
@@ -32,13 +30,9 @@ import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
  */
 export const serverHandlers: ServerHandlers = {
   "agent/network/connect": connectAgent,
-  "app/network/connect": connectApp,
   "agent/identity/agents/list": agentsList,
   "agent/message/send": messagesSend,
   "agent/message/list": messagesList,
   "agent/conversation/list": conversationList,
   "agent/conversation/create": agentConversationCreate,
-  "app/conversation/update": conversationUpdate,
-  "agent/dispatch/request": dispatchRequest,
-  "app/dispatch/lease/get": dispatchLeaseGet,
 } as const;

@@ -34,7 +34,6 @@ it("send command works via socket", () =>
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
       const conv = yield* service.call(H.agentConversationCreate.name, {
-        appId: H.DEFAULT_APP_ID,
         participants: [regB.agentId],
       });
       expect(conv.conversation.id).toBeDefined();

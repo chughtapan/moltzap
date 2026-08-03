@@ -6,31 +6,22 @@ import {
   messageReceivedNotificationDefinition,
   messagesSend,
 } from "@moltzap/protocol/message";
-import type { ResultOf } from "@moltzap/protocol/rpc";
-import { dispatchRequest } from "@moltzap/protocol/message/dispatch";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 import {
   buildMessage,
   testAgentId,
   testConversationId,
-  testDispatchId,
-  testLeaseId,
   testMessageId,
 } from "./test-utils/index.js";
 
-import {
-  agentName,
-  agentsList,
-  DEFAULT_APP_ID,
-} from "@moltzap/protocol/identity";
+import { agentName, agentsList } from "@moltzap/protocol/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 
 const effectTest = effectIt.effect;
 
 const AGENT_ALICE_ID = testAgentId("agent-alice-id");
 const AGENT_SELF_ID = testAgentId("agent-self");
-const AGENT_GM_ID = testAgentId("agent-gm");
 const AGENT_BOB_ID = testAgentId("agent-bob-id");
 const AGENT_BOB = testAgentId("agent-bob");
 const AGENT_ALICE = testAgentId("agent-alice");
@@ -49,8 +40,6 @@ const VIEWER_TWO_ID = testConversationId("viewer-2");
 const MESSAGE_ONE_ID = testMessageId("m-1");
 const MESSAGE_TWO_ID = testMessageId("m-2");
 const MESSAGE_THREE_ID = testMessageId("m-3");
-const DISPATCH_LEASE_ID = testLeaseId("lease-1");
-const DISPATCH_ID = testDispatchId("dispatch-1");
 const decodeAgentName = Schema.decodeSync(agentName);
 const SEND_TO_AGENT_NAME = decodeAgentName("alice");
 const BOB_AGENT_NAME = decodeAgentName("bob");
@@ -97,7 +86,6 @@ const MIXED_ESCAPE_OUTPUT = "A&amp;&lt;B&gt;C";
 const FULL_CONTEXT_MESSAGE = "hello from the other side";
 const SYSTEM_REMINDER_OPEN_TAG = "<system-reminder>";
 const SYSTEM_REMINDER_CLOSE_TAG = "</system-reminder>";
-const DISPATCH_RECEIVED_AT = "2026-04-29T22:00:00.000Z";
 const DATE_ONE = "2026-04-13T22:00:00Z";
 const DATE_TWO = "2026-04-13T22:00:01Z";
 const DATE_THREE = "2026-04-13T22:00:02Z";
@@ -214,7 +202,7 @@ effectTest(
   connectWaitsForActiveShutdownBeforeStartingANewLifecycle,
 );
 
-function genericSendOmitsDispatchLease() {
+function sendCarriesOnlyTheConversationAndParts() {
   return Effect.gen(function* () {
     const service = new FakeMoltZapService();
     seedMessageSendResponse(service);
@@ -233,33 +221,10 @@ function genericSendOmitsDispatchLease() {
   });
 }
 
-function leasedSendCarriesDispatchLease() {
-  return Effect.gen(function* () {
-    const service = new FakeMoltZapService();
-    seedMessageSendResponse(service);
-
-    yield* service.send(CONVERSATION_ALICE_ID, HELLO_TEXT, {
-      dispatchLeaseId: DISPATCH_LEASE_ID,
-    });
-
-    expect(service.calls).toEqual([
-      {
-        method: messagesSend.name,
-        params: {
-          conversationId: CONVERSATION_ALICE_ID,
-          parts: [{ type: "text", text: HELLO_TEXT }],
-          dispatchLeaseId: DISPATCH_LEASE_ID,
-        },
-      },
-    ]);
-  });
-}
-
-describe("MoltZapService message authority", () => {
-  effectTest("keeps generic send unleased", genericSendOmitsDispatchLease);
+describe("MoltZapService.send", () => {
   effectTest(
-    "preserves the existing leased send call shape",
-    leasedSendCarriesDispatchLease,
+    "sends only the conversation and parts",
+    sendCarriesOnlyTheConversationAndParts,
   );
 });
 
@@ -295,7 +260,6 @@ function sendToAgentCreatesConversation() {
       {
         method: agentConversationCreate.name,
         params: {
-          appId: DEFAULT_APP_ID,
           participants: [AGENT_ALICE_ID],
         },
       },
@@ -515,59 +479,6 @@ describe("sanitizeForSystemReminder containment", () => {
   it(
     "escapes all three substitutions in order",
     mixedSubstitutionsEscapeInOrder,
-  );
-});
-
-type DispatchRequestAck = Extract<
-  ResultOf<typeof dispatchRequest>,
-  { readonly leaseId: unknown }
->;
-
-function dispatchRequestAck(): DispatchRequestAck {
-  const value = {
-    leaseId: DISPATCH_LEASE_ID,
-    dispatchId: DISPATCH_ID,
-  } satisfies DispatchRequestAck;
-  if (!dispatchRequest.validateResult(value)) {
-    expect.fail("invalid agent/dispatch/request ack fixture");
-  }
-  return value;
-}
-
-function requestDispatchReturnsAck() {
-  return Effect.gen(function* () {
-    const service = new FakeMoltZapService();
-    const ack = dispatchRequestAck();
-    service.setResponse(dispatchRequest, ack);
-
-    const result = yield* service.requestDispatch({
-      conversationId: CONVERSATION_ALICE_ID,
-      messageId: testMessageId("msg-dispatch-req"),
-      senderAgentId: AGENT_GM_ID,
-      attempt: 0,
-      receivedAt: DISPATCH_RECEIVED_AT,
-      pending: [],
-      parts: [{ type: "text", text: "Time to vote!" }],
-    });
-
-    if ("outcome" in result) {
-      return expect.fail("expected a minted dispatch lease");
-    }
-
-    expect(result.leaseId).toBe(ack.leaseId);
-    expect(result.dispatchId).toBe(ack.dispatchId);
-    expect(service.calls).toHaveLength(1);
-    expect(service.calls[0]).toMatchObject({
-      method: dispatchRequest.name,
-    });
-    expect(service.calls[0]?.opts).toBeUndefined();
-  });
-}
-
-describe("MoltZapService.requestDispatch", () => {
-  effectTest(
-    "issues agent/dispatch/request and returns the {leaseId, dispatchId} ack",
-    requestDispatchReturnsAck,
   );
 });
 

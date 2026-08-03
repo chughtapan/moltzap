@@ -9,39 +9,14 @@ import { RpcGroup, type Rpc } from "@effect/rpc";
 import { identityRpcMethods } from "#identity";
 import {
   agentCallableNetworkRpcMethods,
-  appCallableNetworkRpcMethods,
   networkRpcMethods,
   networkNotifications,
 } from "#network";
 import {
   agentCallableConversationRpcMethods,
-  appCallableConversationRpcMethods,
   conversationNotifications,
 } from "#conversation";
-import {
-  agentCallableMessageRpcMethods,
-  messageCallbackMethods,
-  messageNotifications,
-} from "#message";
-import {
-  agentCallableDispatchRpcMethods,
-  appCallableDispatchRpcMethods,
-  dispatchCallbackMethods,
-  dispatchNotifications,
-} from "#message/dispatch";
-
-/**
- * Server-to-app callback descriptors the app client must serve.
- */
-export const appCallbackMethods = [
-  ...dispatchCallbackMethods,
-  ...messageCallbackMethods,
-] as const;
-
-const appOnlyCallableMethods = [
-  ...appCallableConversationRpcMethods,
-  ...appCallableDispatchRpcMethods,
-] as const;
+import { agentCallableMessageRpcMethods, messageNotifications } from "#message";
 
 /**
  * Client-to-server descriptors an agent principal may originate.
@@ -51,30 +26,19 @@ export const agentCallableMethods = [
   ...agentCallableNetworkRpcMethods,
   ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
-  ...agentCallableDispatchRpcMethods,
-] as const;
-
-/**
- * Client-to-server descriptors an app principal may originate.
- */
-export const appCallableMethods = [
-  ...appCallableNetworkRpcMethods,
-  ...appOnlyCallableMethods,
 ] as const;
 
 /**
  * Full server inbound descriptor union.
  *
- * This is derived from the authored agent and app callable catalogs, with the
- * unauthenticated connect descriptors included once.
+ * This is derived from the authored agent callable catalog, with the
+ * unauthenticated connect descriptor included once.
  */
 export const serverInboundMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
   ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
-  ...appOnlyCallableMethods,
-  ...agentCallableDispatchRpcMethods,
 ] as const;
 
 /**
@@ -84,7 +48,6 @@ export const notificationDefinitions = [
   ...networkNotifications,
   ...conversationNotifications,
   ...messageNotifications,
-  ...dispatchNotifications,
 ] as const;
 
 /** Any client-to-server descriptor the server handles. */
@@ -93,12 +56,6 @@ export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 /** Any descriptor an agent client may call. */
 export type AnyAgentCallableRpcDefinition =
   (typeof agentCallableMethods)[number];
-
-/** Any descriptor an app client may call. */
-export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
-
-/** Any callback descriptor the server may call on an app client. */
-export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 
 /** Any server-to-client notification descriptor. */
 export type AnyNotificationDefinition =
@@ -131,11 +88,6 @@ export const agentCallableGroup = makeRpcGroup(
   agentCallableMethods.map((definition) => definition.clientRpc),
 );
 
-/** Effect RPC group for all app-callable methods. */
-export const appCallableGroup = makeRpcGroup(
-  appCallableMethods.map((definition) => definition.clientRpc),
-);
-
 /**
  * Server-to-client reverse notification group. The server fires each notification
  * as a fire-and-forget `void`-result RPC on a target connection's reverse
@@ -147,17 +99,12 @@ export const notificationRpcGroup = makeRpcGroup(
 );
 
 /**
- * The full server-to-client reverse group: the moderator callbacks
- * (`appCallbackMethods`) plus the notifications ({@link notificationRpcGroup}),
- * built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
- * server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
- * awaiting a verdict, fires notifications fork-and-forget); the agent + app
- * clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent client
- * only ever receives notifications (its handlers for the three callback methods
- * are never invoked; an agent is not a moderator), but it serves the whole
- * group so the s2c engine binds one handler map.
+ * The full server-to-client reverse group: every notification descriptor,
+ * built as ONE `RpcGroup` over the member tuple. The server holds one
+ * `RpcClient&lt;ReverseRpcGroup>` per connection (fires notifications
+ * fork-and-forget); clients stand one `RpcServer&lt;ReverseRpcGroup>` on the
+ * s2c sink, routing each payload into the `SubscriberRegistry`.
  */
-export const reverseRpcGroup = makeRpcGroup([
-  ...appCallbackMethods.map((definition) => definition.clientRpc),
-  ...notificationDefinitions.map((definition) => definition.notificationRpc),
-]);
+export const reverseRpcGroup = makeRpcGroup(
+  notificationDefinitions.map((definition) => definition.notificationRpc),
+);

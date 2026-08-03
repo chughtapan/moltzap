@@ -5,7 +5,6 @@
 import { Effect, Layer } from "effect";
 
 import { type Db, DbTag } from "#db";
-import { type EnvelopeEncryption, EncryptionTag } from "#db/crypto";
 import {
   connectionManagerLive,
   ConnectionManagerTag,
@@ -22,35 +21,16 @@ import type { NetworkSendService } from "../network/network-send.js";
 import { authServiceLive, AuthServiceTag } from "../identity/agents/layer.js";
 import type { AuthService } from "../identity/agents/auth.service.js";
 import {
-  appAuthServiceLive,
-  AppAuthServiceTag,
-  appEndpointRegistryLive,
-  AppEndpointRegistryTag,
-} from "../identity/apps/layer.js";
-import type { AppAuthService } from "../identity/apps/auth.service.js";
-import type { AppEndpointRegistry } from "../identity/apps/endpoint-registry.js";
-import {
   conversationServiceLive,
   ConversationServiceTag,
 } from "../conversation/layer.js";
 import type { ConversationService } from "../conversation/conversation.service.js";
-import {
-  dispatchAdmissionServiceLive,
-  leaseRegistryLive,
-  LeaseRegistryTag,
-} from "../dispatch/layer.js";
-import type { LeaseRegistry } from "../dispatch/lease-registry.js";
-import {
-  messageAuthorizationServiceLive,
-  messageServiceLive,
-  MessageServiceTag,
-} from "../message/layer.js";
+import { messageServiceLive, MessageServiceTag } from "../message/layer.js";
 import type { MessageService } from "../message/message.service.js";
 
 const coreRuntimeServicesLive = Layer.mergeAll(
   connectionManagerLive,
   authServiceLive,
-  appAuthServiceLive,
 );
 
 const endpointResolverLive = Layer.provideMerge(
@@ -63,30 +43,15 @@ const networkSendLive = Layer.provideMerge(
   endpointResolverLive,
 );
 
-const leaseRegistryWithNetworkLive = Layer.provideMerge(
-  leaseRegistryLive,
-  networkSendLive,
-);
-
-const appEndpointRegistryWithLeasesLive = Layer.provideMerge(
-  appEndpointRegistryLive,
-  leaseRegistryWithNetworkLive,
-);
-
-const conversationWithAppRegistryLive = Layer.provideMerge(
+const conversationWithNetworkLive = Layer.provideMerge(
   conversationServiceLive,
-  appEndpointRegistryWithLeasesLive,
-);
-
-const domainAuthorizationLive = Layer.provideMerge(
-  Layer.mergeAll(dispatchAdmissionServiceLive, messageAuthorizationServiceLive),
-  conversationWithAppRegistryLive,
+  networkSendLive,
 );
 
 /** Provides the services live runtime value. */
 export const servicesLive = Layer.provideMerge(
   messageServiceLive,
-  domainAuthorizationLive,
+  conversationWithNetworkLive,
 );
 
 /** Describes resolved services. */
@@ -96,25 +61,17 @@ export interface ResolvedServices {
   readonly agentEndpointResolver: AgentEndpointResolver;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
-  readonly appAuthService: AppAuthService;
   readonly conversationService: ConversationService;
-  readonly appEndpointRegistry: AppEndpointRegistry;
-  readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
-  readonly encryption: EnvelopeEncryption | null;
 }
 
 /** Provides the resolve services runtime value. */
 export const resolveServices = Effect.all({
   db: DbTag,
-  encryption: EncryptionTag,
   connections: ConnectionManagerTag,
   agentEndpointResolver: AgentEndpointResolverTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
-  appAuthService: AppAuthServiceTag,
   conversationService: ConversationServiceTag,
-  appEndpointRegistry: AppEndpointRegistryTag,
-  leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;

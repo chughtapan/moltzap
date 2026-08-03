@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { AgentPrincipal } from "#identity/principals";
+import { AuthenticatedAgent } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { defineRpc } from "#transport/descriptor";
 import {
@@ -21,6 +21,6 @@ export const agentsList = defineRpc({
     agents: Schema.Array(agentCardSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [InvalidParamsError],
 });

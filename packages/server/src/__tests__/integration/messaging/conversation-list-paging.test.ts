@@ -10,7 +10,7 @@ import {
   setupAgentPair,
 } from "../helpers.js";
 
-import { type AgentId, DEFAULT_APP_ID } from "@moltzap/protocol/identity";
+import type { AgentId } from "@moltzap/protocol/identity";
 import {
   agentConversationCreate,
   type ConversationId,
@@ -39,7 +39,6 @@ function openConversation(
 ): Effect.Effect<ConversationId, unknown> {
   return client
     .sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       participants: [participant],
     })
     .pipe(Effect.map((result) => result.conversation.id));

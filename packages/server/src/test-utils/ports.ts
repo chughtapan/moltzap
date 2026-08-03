@@ -50,7 +50,6 @@ export interface CoreTestServerPort {
 export interface StartCoreTestServerOptions {
   readonly pgHost?: string;
   readonly pgPort?: number;
-  readonly encryption?: boolean;
   readonly registrationSecret?: string;
   readonly adminUserId?: UserId;
 }

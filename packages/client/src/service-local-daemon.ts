@@ -1,10 +1,6 @@
 import type { RpcGroup } from "@effect/rpc";
 import { Effect, Either } from "effect";
-import {
-  agentsList,
-  DEFAULT_APP_ID,
-  type AgentId,
-} from "@moltzap/protocol/identity";
+import { agentsList, type AgentId } from "@moltzap/protocol/identity";
 import type { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
 import {
   agentConversationCreate,
@@ -43,7 +39,7 @@ type ServiceCall = <Tag extends AgentCallableTag>(
 
 interface LocalDaemonHandlerOptions {
   readonly ownAgentId: AgentId;
-  readonly connected: boolean;
+  readonly connected: () => boolean;
   readonly conversationCount: () => number;
   readonly call: ServiceCall;
   readonly handleHistoryRequest: (
@@ -222,7 +218,6 @@ function handleStartCommand(
   StartUsageError | StartPartialFailure | ServiceRpcError
 > {
   return Effect.gen(function* () {
-    const appId = params.appId ?? DEFAULT_APP_ID;
     const participants = yield* resolveStartParticipants(
       call,
       params.participants,
@@ -233,7 +228,6 @@ function handleStartCommand(
       });
     }
     const created = yield* call(agentConversationCreate.name, {
-      appId,
       name: params.name,
       participants,
     });
@@ -271,7 +265,7 @@ export function makeLocalDaemonHandlers({
     [localDaemonCommands.status]: () =>
       Effect.succeed({
         agentId: ownAgentId,
-        connected,
+        connected: connected(),
         conversations: conversationCount(),
       }),
     [localDaemonCommands.history]: handleHistoryRequest,

@@ -2,9 +2,7 @@ import { Effect, Exit, type Stream } from "effect";
 import type {
   agentCallableGroup,
   AnyAgentCallableRpcDefinition,
-  AnyAppCallableRpcDefinition,
   AnyNotificationDefinition,
-  appCallableGroup,
 } from "#socket/catalog";
 import type {
   NotificationDelivery,
@@ -18,27 +16,18 @@ import type {
 import {
   MoltZapAgentClient,
   type AgentClientOptions,
-  MoltZapAppClient,
-  type AppClientOptions,
   type ClientDefinitionError,
   type ClientDefinitionPayload,
   type ClientDefinitionSuccess,
   type RpcCallOptions,
 } from "#socket";
 import type { AgentId } from "#identity/agents";
-import type { AppId } from "#identity/apps";
 import type { RpcGroup } from "@effect/rpc";
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
-type AppCallableRpcs = RpcGroup.Rpcs<typeof appCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];
-type AppCallableTag = AppCallableRpcs["_tag"];
 type AgentRpcError<Tag extends AgentCallableTag> =
   | ErrorForTag<AgentCallableRpcs, Tag>
-  | NotConnectedError
-  | RpcTimeoutError;
-type AppRpcError<Tag extends AppCallableTag> =
-  | ErrorForTag<AppCallableRpcs, Tag>
   | NotConnectedError
   | RpcTimeoutError;
 
@@ -78,36 +67,7 @@ export interface TestAgentClient {
   ): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, AgentRpcError<Tag>>;
 }
 
-/** Describes test app client. */
-export interface TestAppClient {
-  readonly principal: "app";
-  readonly appId?: AppId;
-  close(): Effect.Effect<void>;
-  subscribe<D extends AnyNotificationDefinition>(
-    definition: D,
-    refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError>;
-  subscribeAll(
-    refinement?: (
-      delivery: NotificationDelivery<AnyNotificationDefinition>,
-    ) => boolean,
-  ): Stream.Stream<
-    NotificationDelivery<AnyNotificationDefinition>,
-    NotConnectedError
-  >;
-  sendRpc<D extends AnyAppCallableRpcDefinition>(
-    definition: D,
-    params: ClientDefinitionPayload<D>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<ClientDefinitionSuccess<D>, ClientDefinitionError<D>>;
-  call<Tag extends AppCallableTag>(
-    tag: Tag,
-    payload: PayloadForTag<AppCallableRpcs, Tag>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<SuccessForTag<AppCallableRpcs, Tag>, AppRpcError<Tag>>;
-}
-
-type SubscribingClient = MoltZapAgentClient | MoltZapAppClient;
+type SubscribingClient = MoltZapAgentClient;
 
 function deliveryFor(
   definition: AnyNotificationDefinition,
@@ -189,53 +149,6 @@ function makeLiveTestAgentClient(input: {
   };
 }
 
-function makeLiveTestAppClient(input: {
-  readonly appId?: AppId;
-  readonly client: MoltZapAppClient;
-}): TestAppClient {
-  return {
-    principal: "app",
-    ...(input.appId !== undefined ? { appId: input.appId } : {}),
-    sendRpc<D extends AnyAppCallableRpcDefinition>(
-      definition: D,
-      params: ClientDefinitionPayload<D>,
-      opts?: RpcCallOptions,
-    ): Effect.Effect<ClientDefinitionSuccess<D>, ClientDefinitionError<D>> {
-      return input.client.callDefinition(definition, params, opts ?? {});
-    },
-    call<Tag extends AppCallableTag>(
-      tag: Tag,
-      payload: PayloadForTag<AppCallableRpcs, Tag>,
-      opts?: RpcCallOptions,
-    ): Effect.Effect<SuccessForTag<AppCallableRpcs, Tag>, AppRpcError<Tag>> {
-      return input.client.call(tag, payload, opts ?? {});
-    },
-    subscribe<D extends AnyNotificationDefinition>(
-      definition: D,
-      refinement?: (params: NotificationParamsOf<D>) => boolean,
-    ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError> {
-      if (refinement === undefined) {
-        return input.client.subscribe(definition);
-      }
-      return input.client.subscribe(definition, refinement);
-    },
-    subscribeAll(
-      refinement?: (
-        delivery: NotificationDelivery<AnyNotificationDefinition>,
-      ) => boolean,
-    ): Stream.Stream<
-      NotificationDelivery<AnyNotificationDefinition>,
-      NotConnectedError
-    > {
-      if (refinement === undefined) {
-        return subscribeAllFromClient(input.client);
-      }
-      return subscribeAllWithDeliveryRefinement(input.client, refinement);
-    },
-    close: () => input.client.close(),
-  };
-}
-
 /**
  * Creates test agent client.
  * @param agentId Identifier of the agent targeted by the operation.
@@ -264,31 +177,4 @@ export function makeTestAgentClient(
       );
     return wrapped;
   }).pipe(Effect.withSpan("makeTestAgentClient"));
-}
-
-/**
- * Creates test app client.
- * @param appId Value supplied to the operation.
- * @param options Options that control the operation.
- * @returns The created test app client.
- */
-export function makeTestAppClient(
-  appId: AppId,
-  options: AppClientOptions,
-): Effect.Effect<TestAppClient, unknown> {
-  return Effect.gen(function* () {
-    const client = new MoltZapAppClient(options);
-    const wrapped = makeLiveTestAppClient({
-      appId,
-      client,
-    });
-    yield* client
-      .connect()
-      .pipe(
-        Effect.onExit((exit) =>
-          Exit.isFailure(exit) ? client.close() : Effect.void,
-        ),
-      );
-    return wrapped;
-  }).pipe(Effect.withSpan("makeTestAppClient"));
 }

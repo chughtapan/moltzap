@@ -8,7 +8,7 @@ Public barrel for connect protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L28)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L27)
 
 _Variable_
 
@@ -18,7 +18,7 @@ export const agentCallableNetworkRpcMethods = [agentConnect] as const
 
 Network RPCs callable by agent clients.
 
-### [`agentConnect`](./connect.ts#L194)
+### [`agentConnect`](./connect.ts#L193)
 
 _Variable_
 
@@ -52,51 +52,7 @@ new agent client connection.
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
-### [`appCallableNetworkRpcMethods`](./index.ts#L31)
-
-_Variable_
-
-```ts
-export const appCallableNetworkRpcMethods = [appConnect] as const
-```
-
-Network RPCs callable by app clients.
-
-### [`appConnect`](./connect.ts#L226)
-
-_Variable_
-
-```ts
-export const appConnect = defineRpc({
-  name: "app/network/connect",
-  params: Schema.Struct({
-    appKey: appKey,
-    minProtocol: Schema.String,
-    maxProtocol: Schema.String,
-  }),
-  result: helloOkSchema,
-  requires: [],
-  errors: [
-    InvalidParamsError,
-    UnauthorizedError,
-    ProtocolMismatchError,
-    AlreadyConnected,
-  ],
-})
-```
-
-Authenticate an app WebSocket connection. Must be the first message on a new
-app client connection.
-
-- **Principal:** none — the unauthenticated handshake. No principal exists
-  pre-auth, so `requires` is empty and no gate runs before it.
-- **Params:** `appKey`, `minProtocol`, `maxProtocol`.
-- **Result:** an empty HelloOk; success is the signal (the client holds its
-  own id).
-
-**Returns:** An empty HelloOk; success is the signal (the client holds its own id).
-
-### [`checkProtocolRange`](./connect.ts#L120)
+### [`checkProtocolRange`](./connect.ts#L119)
 
 _Function_
 
@@ -111,7 +67,7 @@ Executes the check protocol range operation.
 
 **Returns:** The check protocol range result.
 
-### [`compareProtocolVersion`](./connect.ts#L95)
+### [`compareProtocolVersion`](./connect.ts#L94)
 
 _Function_
 
@@ -123,7 +79,7 @@ Executes the compare protocol version operation.
 
 **Returns:** The compare protocol version result.
 
-### [`HelloOk`](./connect.ts#L28)
+### [`HelloOk`](./connect.ts#L27)
 
 _TypeAlias_
 
@@ -145,7 +101,7 @@ The HTTP control-plane origin for the same server.
 
 **Returns:** The http base url result.
 
-### [`InvalidProtocolVersionError`](./connect.ts#L67)
+### [`InvalidProtocolVersionError`](./connect.ts#L66)
 
 _Class_
 
@@ -161,7 +117,7 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 
 Reports invalid protocol version failures.
 
-### [`networkNotifications`](./index.ts#L37)
+### [`networkNotifications`](./index.ts#L33)
 
 _Variable_
 
@@ -171,17 +127,17 @@ export const networkNotifications = [] as const
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](./index.ts#L34)
+### [`networkRpcMethods`](./index.ts#L30)
 
 _Variable_
 
 ```ts
-export const networkRpcMethods = [agentConnect, appConnect] as const
+export const networkRpcMethods = [agentConnect] as const
 ```
 
 Network RPCs accepted by the server.
 
-### [`PROTOCOL_VERSION`](./connect.ts#L13)
+### [`PROTOCOL_VERSION`](./connect.ts#L12)
 
 _Variable_
 
@@ -191,7 +147,7 @@ export const PROTOCOL_VERSION = packageJson.version
 
 The published package version is also the wire-protocol version.
 
-### [`ProtocolMismatchError`](./connect.ts#L48)
+### [`ProtocolMismatchError`](./connect.ts#L47)
 
 _Class_
 
@@ -222,7 +178,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](./connect.ts#L36)
+### [`ProtocolMismatchReason`](./connect.ts#L35)
 
 _TypeAlias_
 

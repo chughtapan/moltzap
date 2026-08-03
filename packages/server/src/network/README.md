@@ -8,14 +8,14 @@ Connect handlers, agent-endpoint resolution, outbound `send` and
 | Direction | Allowed |
 |---|---|
 | Imports FROM | db, core, socket, identity |
-| Imports TO   | conversation, message, dispatch |
+| Imports TO   | conversation, message |
 
 ## Files
 
 - `agent-endpoint-resolver.ts` — `AgentId → HashSet<ConnId>` multimap
   kept fresh by `agent/network/connect` success and the disconnect
   finalizer.
-- `connect.handlers.ts` — agent/app connect RPC handlers.
+- `connect.handlers.ts` — the agent connect RPC handler.
 - `network-send.ts` — `NetworkSendService` (the sole outbound
   routing surface; consumes the resolver + connection manager).
 

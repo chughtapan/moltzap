@@ -46,7 +46,9 @@ export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeSt
 /**
  * Runtime-owned capabilities available while constructing an in-process agent.
  * The message stream is registered before the client connects, so delivery
- * cannot race construction. Social traffic still goes through `client`.
+ * cannot race construction, and it already carries any directed-link policy
+ * the run installs against this agent. Social traffic still goes through
+ * `client`.
  */
 export interface EffectRuntimeContext<Name extends string = string> {
   readonly agent: AgentHandle<Name>;
@@ -147,6 +149,27 @@ interface ConnectedEffectClient {
   readonly messages: Stream.Stream<MessageReceivedNotification, unknown>;
 }
 
+/**
+ * Acquires the kernel's inbound link stage when the run offers one, which is
+ * also what registers this agent as a directed-link policy target.
+ * @param input Router attachment issued to this runtime.
+ * @param subscribed Raw notification stream owned by the connected client.
+ * @returns The subscribed stream, shaped by the run's link policies.
+ */
+function shapeInbound<Name extends string>(
+  input: AgentRuntimeInput<Name>,
+  subscribed: Stream.Stream<MessageReceivedNotification, unknown>,
+): Effect.Effect<
+  Stream.Stream<MessageReceivedNotification, unknown>,
+  never,
+  Scope.Scope
+> {
+  const intercept = input.interceptInbound;
+  return intercept === undefined
+    ? Effect.succeed(subscribed)
+    : intercept.pipe(Effect.map((stage) => stage(subscribed)));
+}
+
 function acquireClient<Name extends string>(
   input: AgentRuntimeInput<Name>,
   startupTimeout: Duration.Duration,
@@ -160,9 +183,10 @@ function acquireClient<Name extends string>(
         }),
       catch: (cause) => startFailure(input, cause),
     });
-    const messages = yield* client.subscribeScoped(
+    const subscribed = yield* client.subscribeScoped(
       messageReceivedNotificationDefinition,
     );
+    const messages = yield* shapeInbound(input, subscribed);
     yield* Effect.addFinalizer(() => client.close());
     yield* awaitStartup(input, client, startupTimeout);
     return { client, messages };

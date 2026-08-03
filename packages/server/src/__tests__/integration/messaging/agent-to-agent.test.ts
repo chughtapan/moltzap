@@ -10,7 +10,6 @@ import {
   registerAndConnect,
   type ConnectedAgent,
 } from "../helpers.js";
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import {
   messageReceivedNotificationDefinition,
   messagesList,
@@ -48,7 +47,6 @@ function createDm(
 ): Effect.Effect<ConversationId, unknown> {
   return creator.client
     .sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       participants: [participant.agentId],
     })
     .pipe(Effect.map((result) => result.conversation.id));
@@ -60,7 +58,6 @@ function createGroup(
 ): Effect.Effect<ConversationId, unknown> {
   return creator.client
     .sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       name: GROUP_NAME,
       participants: participants.map((p) => p.agentId),
     })

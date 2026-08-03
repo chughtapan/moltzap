@@ -1,10 +1,6 @@
 import { Effect } from "effect";
 import { messagesSend } from "@moltzap/protocol/message";
-import {
-  DEFAULT_APP_ID,
-  type AgentKey,
-  type AgentId,
-} from "@moltzap/protocol/identity";
+import type { AgentKey, AgentId } from "@moltzap/protocol/identity";
 import {
   agentConversationCreate,
   type ConversationId,
@@ -90,7 +86,6 @@ type TestClient = Effect.Effect.Success<
 export const createDm = (service: ConnectedService, agentId: AgentId) =>
   service
     .call(agentConversationCreate.name, {
-      appId: DEFAULT_APP_ID,
       participants: [agentId],
     })
     .pipe(Effect.withSpan("createDm"));

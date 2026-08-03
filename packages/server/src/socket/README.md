@@ -17,8 +17,6 @@ types used by server services.
 
 1. `moltzap/server-socket.ts` opens a protocol `MoltZapServer` session and
    registers an unauthenticated connection in `ConnectionManager`.
-2. `agent/network/connect` or `app/network/connect` authenticates the live
-   connection arm.
+2. `agent/network/connect` authenticates the live connection arm.
 3. Domain services read connection/context primitives through `#socket`.
-4. Socket close removes the connection, updates routing state, abandons
-   leases, and unregisters apps bound to the connection.
+4. Socket close removes the connection and updates routing state.

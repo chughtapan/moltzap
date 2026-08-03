@@ -20,7 +20,6 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import {
   agentConversationCreate,
   type ConversationId,
@@ -269,7 +268,6 @@ export function createOneOnOneConversation(
   return Effect.gen(function* () {
     const create = yield* owner.client
       .sendRpc(agentConversationCreate, {
-        appId: DEFAULT_APP_ID,
         name: `adv-conv-${owner.agent.name}`,
         participants: [participant.agent.agentId],
       })

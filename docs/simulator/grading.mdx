@@ -143,11 +143,15 @@ Core event classes make different claims:
 | `EndpointMessageSent` | An experiment-owned endpoint committed a message through its protocol attachment |
 | `EndpointMessageReceived` | An experiment-owned endpoint received a delivered message |
 | `RouterMessageCommitted` | Stopped-router storage contained the message as a durable commit |
-| `LinkDown` / `LinkUp` | The configured link driver completed the directed-link transition |
+| `LinkDown` / `LinkUp` | The run's link driver completed the directed-link transition |
+| `LinkPolicySet` / `LinkPolicyCleared` | A named policy was installed on, or removed from, one directed pair |
+| `LinkMessageDropped` / `LinkMessageDelayed` / `LinkMessageHeld` | A committed message reached its receiver's link stage and was discarded, deferred, or parked there |
 | Runtime terminal events | A ready runtime autonomously completed, failed, exited, or was signaled while observed |
 
 Do not infer endpoint delivery from router persistence, agent behavior from
-program completion, or a social action from native principal output.
+program completion, or a social action from native principal output. A link
+policy shapes only what its receiver observes, so a dropped message is still
+`RouterMessageCommitted`.
 Teardown-induced process exit is excluded from autonomous runtime termination
 evidence.
 

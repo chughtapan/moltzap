@@ -13,7 +13,7 @@ Public barrel for connect protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L28)
+### [`agentCallableNetworkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L27)
 
 _Variable_
 
@@ -23,7 +23,7 @@ export const agentCallableNetworkRpcMethods = [agentConnect] as const
 
 Network RPCs callable by agent clients.
 
-### [`agentConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L194)
+### [`agentConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L193)
 
 _Variable_
 
@@ -57,51 +57,7 @@ new agent client connection.
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
-### [`appCallableNetworkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L31)
-
-_Variable_
-
-```ts
-export const appCallableNetworkRpcMethods = [appConnect] as const
-```
-
-Network RPCs callable by app clients.
-
-### [`appConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L226)
-
-_Variable_
-
-```ts
-export const appConnect = defineRpc({
-  name: "app/network/connect",
-  params: Schema.Struct({
-    appKey: appKey,
-    minProtocol: Schema.String,
-    maxProtocol: Schema.String,
-  }),
-  result: helloOkSchema,
-  requires: [],
-  errors: [
-    InvalidParamsError,
-    UnauthorizedError,
-    ProtocolMismatchError,
-    AlreadyConnected,
-  ],
-})
-```
-
-Authenticate an app WebSocket connection. Must be the first message on a new
-app client connection.
-
-- **Principal:** none — the unauthenticated handshake. No principal exists
-  pre-auth, so `requires` is empty and no gate runs before it.
-- **Params:** `appKey`, `minProtocol`, `maxProtocol`.
-- **Result:** an empty HelloOk; success is the signal (the client holds its
-  own id).
-
-**Returns:** An empty HelloOk; success is the signal (the client holds its own id).
-
-### [`checkProtocolRange`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L120)
+### [`checkProtocolRange`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L119)
 
 _Function_
 
@@ -116,7 +72,7 @@ Executes the check protocol range operation.
 
 **Returns:** The check protocol range result.
 
-### [`compareProtocolVersion`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L95)
+### [`compareProtocolVersion`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L94)
 
 _Function_
 
@@ -128,7 +84,7 @@ Executes the compare protocol version operation.
 
 **Returns:** The compare protocol version result.
 
-### [`HelloOk`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L28)
+### [`HelloOk`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L27)
 
 _TypeAlias_
 
@@ -150,7 +106,7 @@ The HTTP control-plane origin for the same server.
 
 **Returns:** The http base url result.
 
-### [`InvalidProtocolVersionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L67)
+### [`InvalidProtocolVersionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L66)
 
 _Class_
 
@@ -166,7 +122,7 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 
 Reports invalid protocol version failures.
 
-### [`networkNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L37)
+### [`networkNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L33)
 
 _Variable_
 
@@ -176,17 +132,17 @@ export const networkNotifications = [] as const
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L34)
+### [`networkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L30)
 
 _Variable_
 
 ```ts
-export const networkRpcMethods = [agentConnect, appConnect] as const
+export const networkRpcMethods = [agentConnect] as const
 ```
 
 Network RPCs accepted by the server.
 
-### [`PROTOCOL_VERSION`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L13)
+### [`PROTOCOL_VERSION`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L12)
 
 _Variable_
 
@@ -196,7 +152,7 @@ export const PROTOCOL_VERSION = packageJson.version
 
 The published package version is also the wire-protocol version.
 
-### [`ProtocolMismatchError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L48)
+### [`ProtocolMismatchError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L47)
 
 _Class_
 
@@ -227,7 +183,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L36)
+### [`ProtocolMismatchReason`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L35)
 
 _TypeAlias_
 

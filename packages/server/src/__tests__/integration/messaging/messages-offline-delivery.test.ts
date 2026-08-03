@@ -13,11 +13,7 @@ import {
   messagesSend,
   type Message,
 } from "@moltzap/protocol/message";
-import {
-  DEFAULT_APP_ID,
-  type AgentKey,
-  type AgentId,
-} from "@moltzap/protocol/identity";
+import type { AgentKey, AgentId } from "@moltzap/protocol/identity";
 import {
   agentConversationCreate,
   type ConversationId,
@@ -111,7 +107,6 @@ function setupGroupConversation(
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
     const created = yield* agents.tm.sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       participants: [agents.senderAgentId, agents.recipientAgentId],
     });
     return { conversationId: created.conversation.id };

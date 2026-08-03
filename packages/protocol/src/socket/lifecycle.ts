@@ -21,30 +21,14 @@ import {
   String as StringOps,
   type Stream,
 } from "effect";
-import {
-  type agentConnect,
-  type appConnect,
-  serverBaseUrlSchema,
-  webSocketUrl,
-} from "#network";
+import { type agentConnect, serverBaseUrlSchema, webSocketUrl } from "#network";
 import {
   agentCallableGroup,
-  appCallableGroup,
   reverseRpcGroup,
-  type appCallbackMethods,
   type AnyNotificationDefinition,
 } from "#socket/catalog";
-import {
-  dispatchRelease,
-  dispatchLeaseConsumed,
-  dispatchLeaseExpired,
-} from "#message/dispatch";
 import { messageReceivedNotificationDefinition } from "#message";
-import {
-  conversationCreatedNotificationDefinition,
-  conversationParticipantsAddedNotificationDefinition,
-  conversationParticipantsRemovedNotificationDefinition,
-} from "#conversation";
+import { conversationCreatedNotificationDefinition } from "#conversation";
 import {
   DEFAULT_GRACEFUL_CLOSE,
   extractCloseInfo,
@@ -108,7 +92,7 @@ export type ConnectResult = ResultOf<typeof agentConnect>;
 type ProtocolRpc = Rpc.Any & { readonly _tag: string };
 type ConnectTag<Rpcs extends ProtocolRpc> = Extract<
   Rpcs["_tag"],
-  typeof agentConnect.name | typeof appConnect.name
+  typeof agentConnect.name
 >;
 /** Represents client connect error conditions. */
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
@@ -204,34 +188,21 @@ export interface ClientLifecycleOptions<
     NotConnectedError,
     Socket.WebSocketConstructor
   >;
-  readonly callbackHandlers: () => ReverseCallbackHandlers;
   readonly onDisconnect?: (close: CloseInfo) => void;
 }
 
 interface ClientSocketSessionOptions {
   readonly serverUrl: string;
   readonly registry: SubscriberRegistry;
-  readonly callbackHandlers: ReverseCallbackHandlers;
   readonly scope?: Scope.Scope;
 }
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
-type AppCallableRpcs = RpcGroup.Rpcs<typeof appCallableGroup>;
 type AgentClientDispatch = TypedDispatchMap<AgentCallableRpcs, RpcClientError>;
-type AppClientDispatch = TypedDispatchMap<AppCallableRpcs, RpcClientError>;
 type SubscriberRegistry = NotificationSubscriberRegistry<
   NotConnectedError,
   AnyNotificationDefinition
 >;
-type ReverseCallbackDefinition = (typeof appCallbackMethods)[number];
-
-/** Represents reverse callback handlers values. */
-export type ReverseCallbackHandlers = {
-  readonly [D in ReverseCallbackDefinition as D["name"]]: Rpc.ToHandlerFn<
-    D["clientRpc"],
-    never
-  >;
-};
 
 type NotificationHandlersFor<D extends AnyNotificationDefinition> = {
   readonly [Definition in D as Definition["name"]]: Rpc.ToHandlerFn<
@@ -241,34 +212,23 @@ type NotificationHandlersFor<D extends AnyNotificationDefinition> = {
 };
 type ConversationNotificationDefinition =
   | typeof messageReceivedNotificationDefinition
-  | typeof conversationCreatedNotificationDefinition
-  | typeof conversationParticipantsAddedNotificationDefinition
-  | typeof conversationParticipantsRemovedNotificationDefinition;
-type DispatchNotificationDefinition =
-  | typeof dispatchRelease
-  | typeof dispatchLeaseConsumed
-  | typeof dispatchLeaseExpired;
+  | typeof conversationCreatedNotificationDefinition;
 
 type ConversationNotificationHandlers =
   NotificationHandlersFor<ConversationNotificationDefinition>;
-type DispatchNotificationHandlers =
-  NotificationHandlersFor<DispatchNotificationDefinition>;
 
-type NotificationHandlerDefinition =
-  | ConversationNotificationDefinition
-  | DispatchNotificationDefinition;
 type ExpectTrue<T extends true> = T;
 type NotificationCatalogCoversAll = ExpectTrue<
   Exclude<
     AnyNotificationDefinition,
-    NotificationHandlerDefinition
+    ConversationNotificationDefinition
   > extends never
     ? true
     : false
 >;
 type NotificationCatalogHasNoExtra = ExpectTrue<
   Exclude<
-    NotificationHandlerDefinition,
+    ConversationNotificationDefinition,
     AnyNotificationDefinition
   > extends never
     ? true
@@ -282,8 +242,6 @@ type ReverseNotificationHandlers =
   NotificationCatalogIntegrity extends readonly [true, true]
     ? NotificationHandlersFor<AnyNotificationDefinition>
     : never;
-
-type ReverseHandlers = ReverseCallbackHandlers & ReverseNotificationHandlers;
 
 const buildSocketRpcClient = <Rpcs extends Rpc.Any>(options: {
   readonly group: RpcGroup.RpcGroup<Rpcs>;
@@ -390,50 +348,22 @@ const buildConversationNotificationHandlers = (
     registry,
     conversationCreatedNotificationDefinition,
   ),
-  [conversationParticipantsAddedNotificationDefinition.name]:
-    notificationHandler(
-      registry,
-      conversationParticipantsAddedNotificationDefinition,
-    ),
-  [conversationParticipantsRemovedNotificationDefinition.name]:
-    notificationHandler(
-      registry,
-      conversationParticipantsRemovedNotificationDefinition,
-    ),
-});
-
-const buildDispatchNotificationHandlers = (
-  registry: SubscriberRegistry,
-): DispatchNotificationHandlers => ({
-  [dispatchRelease.name]: notificationHandler(registry, dispatchRelease),
-  [dispatchLeaseConsumed.name]: notificationHandler(
-    registry,
-    dispatchLeaseConsumed,
-  ),
-  [dispatchLeaseExpired.name]: notificationHandler(
-    registry,
-    dispatchLeaseExpired,
-  ),
 });
 
 const buildNotificationHandlers = (
   registry: SubscriberRegistry,
 ): ReverseNotificationHandlers => ({
   ...buildConversationNotificationHandlers(registry),
-  ...buildDispatchNotificationHandlers(registry),
 });
 
 const buildReverseHandlers = (options: {
   readonly registry: SubscriberRegistry;
-  readonly callbackHandlers: ReverseCallbackHandlers;
-}): ReverseHandlers => ({
-  ...options.callbackHandlers,
+}): ReverseNotificationHandlers => ({
   ...buildNotificationHandlers(options.registry),
 });
 
 const buildReverseRpcServer = (options: {
   readonly registry: SubscriberRegistry;
-  readonly callbackHandlers: ReverseCallbackHandlers;
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
   readonly scope: Scope.Scope;
@@ -481,7 +411,6 @@ const openClientSocketSession = <Rpcs extends ProtocolRpc>(
     const disconnects = yield* Mailbox.make<number>();
     const reverse = yield* buildReverseRpcServer({
       registry: options.registry,
-      callbackHandlers: options.callbackHandlers,
       write: wireWrite,
       disconnects,
       scope,
@@ -513,23 +442,6 @@ export const openProtocolAgentClientSocket = (
   openClientSocketSession({
     ...options,
     group: agentCallableGroup,
-  });
-
-/**
- * Provides the open protocol app client socket runtime value.
- * @param options Options that control the operation.
- * @returns The open protocol app client socket result.
- */
-export const openProtocolAppClientSocket = (
-  options: ClientSocketSessionOptions,
-): Effect.Effect<
-  ClientConnection<AppClientDispatch>,
-  NotConnectedError,
-  Socket.WebSocketConstructor
-> =>
-  openClientSocketSession({
-    ...options,
-    group: appCallableGroup,
   });
 
 type ConnectWaiter<Rpcs extends ProtocolRpc> = Deferred.Deferred<
@@ -1319,7 +1231,6 @@ export class ProtocolClientLifecycle<
       this.options.openSession({
         serverUrl: this.options.serverUrl,
         registry: this.subscribers,
-        callbackHandlers: this.options.callbackHandlers(),
         scope,
       }),
     );

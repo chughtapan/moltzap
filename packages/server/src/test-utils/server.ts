@@ -1,13 +1,7 @@
 /** Test infrastructure — PGlite-based, no external Postgres needed. */
 
-import { randomBytes } from "node:crypto";
 import { Effect, pipe, Schema } from "effect";
-import {
-  type RegistrationSecret,
-  registrationSecret,
-  type ServerEncryptionMasterSecret,
-  serverEncryptionMasterSecret,
-} from "#config/secrets";
+import { type RegistrationSecret, registrationSecret } from "#config/secrets";
 import {
   type UserId,
   userId,
@@ -20,7 +14,6 @@ import {
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import { createCoreApp, type CoreApp } from "#core";
-import { EnvelopeEncryption, seedInitialKek } from "#db/crypto";
 import { makeEffectKysely, type Database, type EffectKysely } from "#db";
 import { loadCoreSchemaSql } from "./core-schema-sql.js";
 import type {
@@ -47,7 +40,6 @@ class CoreTestServerError extends Error {
   }
 }
 
-const ENCRYPTION_MASTER_SECRET_BYTES = 32;
 const PGLITE_BOOT_DELAY_MS = 200;
 /** Validates and decodes default test admin user id values. */
 export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
@@ -99,7 +91,6 @@ let pgliteClient: {
   close: () => PromiseLike<void>;
 } | null = null;
 /* eslint-enable @typescript-eslint/no-invalid-void-type -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */
-let masterSecretValue: ServerEncryptionMasterSecret | null = null;
 let baseUrlValue: string | null = null;
 let wsUrlValue: string | null = null;
 let spanExporter: InMemorySpanExporter | null = null;
@@ -133,7 +124,6 @@ export interface CoreTestServerHandle {
 interface StartCoreTestServerOptions {
   pgHost?: string;
   pgPort?: number;
-  encryption?: boolean;
 
   /**
    * When set, registration routes require `inviteCode` to match this value.
@@ -169,18 +159,6 @@ function closePglite(client: NonNullable<typeof pgliteClient>) {
   return Effect.tryPromise({
     try: () => client.close(),
     catch: (cause) => new CoreTestServerError("PGlite close failed", cause),
-  });
-}
-
-function seedEncryptionKey(
-  db: EffectKysely<Database>,
-  masterSecret: ServerEncryptionMasterSecret,
-) {
-  const envelope = new EnvelopeEncryption(masterSecret);
-  return Effect.tryPromise({
-    try: () => seedInitialKek(db, envelope),
-    catch: (cause) =>
-      new CoreTestServerError("Initial encryption key seed failed", cause),
   });
 }
 
@@ -230,23 +208,6 @@ function initializeTestDatabase() {
   });
 }
 
-function configureEncryption(
-  db: EffectKysely<Database>,
-  opts: StartCoreTestServerOptions,
-) {
-  if (!opts.encryption) {
-    return Effect.void.pipe(Effect.as(undefined));
-  }
-  const masterSecret = randomBytes(ENCRYPTION_MASTER_SECRET_BYTES).toString(
-    "base64",
-  );
-  const decoded = Schema.decodeUnknownSync(serverEncryptionMasterSecret)(
-    masterSecret,
-  );
-  masterSecretValue = decoded;
-  return seedEncryptionKey(db, decoded).pipe(Effect.as(decoded));
-}
-
 function resolveTestSpanProcessor(
   opts: StartCoreTestServerOptions,
 ): SpanProcessor | undefined {
@@ -272,12 +233,10 @@ function decodeRegistrationSecret(
 function createCoreTestApp(
   db: EffectKysely<Database>,
   opts: StartCoreTestServerOptions,
-  masterSecret?: ServerEncryptionMasterSecret,
 ): CoreApp {
   return createCoreApp({
     db,
     dbCleanup: destroyDb,
-    encryptionMasterSecret: masterSecret,
     port: 0,
     corsOrigins: ["*"],
     devMode: true,
@@ -357,8 +316,7 @@ export const startCoreTestServerEffect = Effect.fn("startCoreTestServer")(
   function* (opts: StartCoreTestServerOptions = {}) {
     yield* ensureNoCoreTestServerRunning();
     const db = yield* initializeTestDatabase();
-    const masterSecret = yield* configureEncryption(db, opts);
-    coreApp = createCoreTestApp(db, opts, masterSecret);
+    coreApp = createCoreTestApp(db, opts);
     yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
     return buildCoreTestServer(coreApp, db);
   },
@@ -386,7 +344,6 @@ export function stopCoreTestServer() {
       coreApp = null;
       appDb = null;
       pgliteClient = null;
-      masterSecretValue = null;
       baseUrlValue = null;
       wsUrlValue = null;
       spanExporter = null;
@@ -420,13 +377,10 @@ export function resetCoreTestDb() {
       yield* execPglite(`
     TRUNCATE TABLE
       messages,
-      conversation_participants, conversation_keys, conversations,
-      agents, encryption_keys
+      conversation_participants, conversations,
+      agents
     CASCADE;
   `);
-      if (masterSecretValue && appDb) {
-        yield* seedEncryptionKey(appDb, masterSecretValue);
-      }
     }).pipe(Effect.withSpan("resetCoreTestDb")),
   );
 }
@@ -442,17 +396,6 @@ export function getCoreDb(): EffectKysely<Database> {
     );
   }
   return appDb;
-}
-
-/**
- * Returns core encryption envelope.
- * @returns The get core encryption envelope result.
- */
-export function getCoreEncryptionEnvelope(): EnvelopeEncryption {
-  if (!masterSecretValue) {
-    throw new CoreTestServerError("Test server encryption not enabled.");
-  }
-  return new EnvelopeEncryption(masterSecretValue);
 }
 
 /**
