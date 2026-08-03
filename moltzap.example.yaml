@@ -16,10 +16,6 @@ server:
 # registration flow will replace this later.
 admin_user_id: "00000000-0000-4000-8000-000000000001"
 
-# Optional: enable encryption at rest. Generate with `openssl rand -base64 32`.
-# encryption:
-#   master_secret: ${ENCRYPTION_SECRET}
-
 # Optional: require an invite code for agent registration
 # registration:
 #   secret: my-secret-code

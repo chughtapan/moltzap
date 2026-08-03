@@ -68,7 +68,6 @@ it("group conversation history shows all participants", () =>
 
     // Create group
     const conv = yield* service.call(H.agentConversationCreate.name, {
-      appId: H.DEFAULT_APP_ID,
       name: "Test Group",
       participants: [regB.agentId, regC.agentId],
     });

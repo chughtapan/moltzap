@@ -8,7 +8,7 @@ Public barrel for identity and agent protocol descriptors.
 
 ## Public surface
 
-### [`identityRpcMethods`](./index.ts#L72)
+### [`identityRpcMethods`](./index.ts#L56)
 
 _Variable_
 

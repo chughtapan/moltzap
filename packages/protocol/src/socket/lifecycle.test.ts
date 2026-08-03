@@ -19,16 +19,11 @@ import {
   Stream,
 } from "effect";
 import { agentConnect, PROTOCOL_VERSION } from "#network";
-import {
-  messagesAuthorize,
-  messageReceivedNotificationDefinition,
-} from "#message";
-import { dispatchAuthorize } from "#message/dispatch";
+import { messageReceivedNotificationDefinition } from "#message";
 import type { agentCallableGroup } from "#socket/catalog";
 import {
   type ClientLifecycleOptions,
   ProtocolClientLifecycle,
-  type ReverseCallbackHandlers,
 } from "./lifecycle.js";
 import {
   type NotificationParamsOf,
@@ -72,15 +67,6 @@ const countingConnectClient = (counter: AuthCounter): TestDispatch => ({
     }),
 });
 
-const callbackHandlers = (): ReverseCallbackHandlers => {
-  const unexpected = (method: string) => () =>
-    Effect.dieMessage(`test client received unexpected callback ${method}`);
-  return {
-    [dispatchAuthorize.name]: unexpected(dispatchAuthorize.name),
-    [messagesAuthorize.name]: unexpected(messagesAuthorize.name),
-  };
-};
-
 class TestClient extends ProtocolClientLifecycle<TestRpc, TestDispatch> {
   constructor(
     openSession: OpenSession,
@@ -97,7 +83,6 @@ class TestClient extends ProtocolClientLifecycle<TestRpc, TestDispatch> {
         maxProtocol: PROTOCOL_VERSION,
       },
       openSession,
-      callbackHandlers,
       ...(onDisconnect === undefined ? {} : { onDisconnect }),
     });
   }

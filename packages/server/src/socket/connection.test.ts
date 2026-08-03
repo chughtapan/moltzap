@@ -40,7 +40,6 @@ function makeUnusedParser(): RpcSerialization.Parser {
 
 const originator: Originator = {
   call: unusedOriginatorOp,
-  callback: unusedOriginatorOp,
   notify: unusedOriginatorOp,
   sink: {
     parser: makeUnusedParser(),

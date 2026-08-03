@@ -14,12 +14,9 @@ import {
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
 import { DbTag } from "#db";
-import { EncryptionTag, EnvelopeEncryption } from "#db/crypto";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
 import type { CoreConfig } from "#config";
-import { AppEndpointRegistryTag } from "../identity/apps/layer.js";
-import { installDefaultApp } from "../identity/apps/default-app.js";
 import { ConnectionHooksTag } from "./hooks.js";
 import { servicesLive, resolveServices } from "./layers.js";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
@@ -33,21 +30,14 @@ class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
 }> {}
 
 /**
- * Typed fatal for boot failure. The `phase` discriminator names
- * which boot step failed:
- * - `"http-listen"` — step 5a's `NodeHttpServer.make` / `serverSvc.serve`
- *   typed `ServeError` (EADDRINUSE, EACCES, ...).
- * - `"default-app-connect"` — step 5c's `startDefaultApp` `BootDefaultAppError`
- *   (wrapping `client.connect()`'s `ConnectError`).
- *
- * Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
- * and flow through the boot-failure `catchAllCause` envelope without a phase
- * tag.
+ * Typed fatal for boot failure. The `phase` discriminator names which boot step
+ * failed: `"http-listen"` is `NodeHttpServer.make` / `serverSvc.serve`'s typed
+ * `ServeError` (EADDRINUSE, EACCES, ...).
  */
 export class ServerBootFailedError extends Data.TaggedError(
   "ServerBootFailedError",
 )<{
-  readonly phase: "http-listen" | "default-app-connect";
+  readonly phase: "http-listen";
   readonly cause: unknown;
 }> {}
 
@@ -99,24 +89,11 @@ function resolveSpanProcessor(
 }
 
 function makeCoreRuntime(config: CoreConfig) {
-  const envelope = config.encryptionMasterSecret
-    ? new EnvelopeEncryption(config.encryptionMasterSecret)
-    : null;
   const spanProcessor = resolveSpanProcessor(config.spanProcessor);
   const tracingLive =
     spanProcessor === null ? Layer.empty : makeTracingLayer({ spanProcessor });
-  const baseLive = Layer.mergeAll(
-    Layer.succeed(DbTag, config.db),
-    Layer.succeed(EncryptionTag, envelope),
-  );
-  const servicesWithBase = Layer.provideMerge(servicesLive, baseLive);
-  const installDefaultAppValue = Layer.effectDiscard(
-    Effect.gen(function* () {
-      const appEndpointRegistry = yield* AppEndpointRegistryTag;
-      installDefaultApp(appEndpointRegistry);
-    }).pipe(Effect.withSpan("makeCoreRuntime.installDefaultApp")),
-  );
-  const fullLive = Layer.provideMerge(installDefaultAppValue, servicesWithBase);
+  const baseLive = Layer.succeed(DbTag, config.db);
+  const fullLive = Layer.provideMerge(servicesLive, baseLive);
   // The connection/disconnection hook arrays are created here so the native
   // `agent/network/connect` handler can fire the connection hooks via
   // `ConnectionHooksTag`. They are mutable references the `CoreApp.onConnection`
@@ -155,7 +132,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const httpApp = makeCoreHttpApp({
     config,
     authService: services.authService,
-    appAuthService: services.appAuthService,
     connections: services.connections,
     handleSocket,
   });
@@ -215,7 +191,6 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     onDisconnection: (hook) => options.disconnectionHooks.push(hook),
     networkSendService: services.networkSendService,
     connections: services.connections,
-    leaseRegistry: services.leaseRegistry,
     close: () =>
       Effect.runPromise(closeCoreAppEffect(options).pipe(Effect.as(undefined))),
   };
@@ -227,35 +202,22 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  *
  * ```mermaid
  * flowchart LR
- *   A[leaseRegistry.shutdown — fail-closed leases + interrupt TTL/round-trip fibers] --> B[messageService.close — interrupt webhook retries]
- *   B --> C[for each conn — conn.shutdown signals closeRequested]
- *   C --> D[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
- *   D --> E[Scope.close appScope — NodeHttpServer + upgrade wiring]
- *   E --> F[dispatchRuntime.dispose — finalize service Layers]
- *   F --> G[config.dbCleanup — optional caller hook]
+ *   A[messageService.close — lifecycle seam] --> B[for each conn — conn.shutdown signals closeRequested]
+ *   B --> C[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
+ *   C --> D[Scope.close appScope — NodeHttpServer + upgrade wiring]
+ *   D --> E[dispatchRuntime.dispose — finalize service Layers]
+ *   E --> F[config.dbCleanup — optional caller hook]
  * ```
  *
- * `leaseRegistry.shutdown()` runs FIRST, before any socket teardown.
- * `messageService.close()` runs next so pending delivery-webhook POSTs
- * do not race the HTTP server teardown.
- *
- * `leaseRegistry.shutdown()` runs BEFORE `Scope.close(appScope)`:
- * it atomically closes and drains lease state, stops background notification
- * and retention work, and interrupts live TTL/moderator round-trip fibers.
- * Later per-connection disconnect cleanup therefore observes an empty,
- * closed registry and cannot schedule new lease work during scope teardown.
- * See
- * `dispatch/lease-registry.ts → LeaseRegistry.shutdown`.
+ * `messageService.close()` runs FIRST and holds the slot for message-side
+ * teardown that must precede socket and HTTP-server teardown. It is a no-op
+ * today: the send path owns no background work to stop.
  * @param options Options that control the operation.
  * @returns The close core app effect result.
  */
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;
   return Effect.gen(function* () {
-    // Drain the lease runtime before socket teardown. Subsequent disconnect
-    // cleanup observes an empty, closed registry; background notification,
-    // retention, TTL, and moderator round-trip work is stopped first.
-    yield* services.leaseRegistry.shutdown();
     yield* services.messageService.close();
     for (const conn of yield* services.connections.allConnections()) {
       yield* conn.socket.shutdown;

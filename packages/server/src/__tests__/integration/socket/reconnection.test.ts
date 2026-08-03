@@ -18,7 +18,7 @@ import {
   messagesList,
   messagesSend,
 } from "@moltzap/protocol/message";
-import { DEFAULT_APP_ID, type AgentId } from "@moltzap/protocol/identity";
+import type { AgentId } from "@moltzap/protocol/identity";
 import {
   agentConversationCreate,
   type ConversationId,
@@ -84,7 +84,6 @@ function createDm(
 ): Effect.Effect<DmBinding, unknown> {
   return Effect.gen(function* () {
     const conv = yield* client.sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       participants: [participantAgentId],
     });
     return { conversationId: conv.conversation.id };

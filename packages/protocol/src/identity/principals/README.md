@@ -1,10 +1,9 @@
 # Principal requirements
 
-This folder declares the `AgentPrincipal`, `AppPrincipal`, and
-`AuthenticatedPrincipal` RPC middleware tags and their shared requirement
-types. Descriptors use these tags to state which authenticated principal shape
-a call requires.
+This folder declares the `AuthenticatedAgent` RPC middleware tag and the
+shared `PrincipalRequirement` type. Descriptors list the tag in `requires` to
+state that a call runs as an authenticated agent.
 
-The tags are protocol contracts, not authentication implementations.
-`@moltzap/server-core` supplies the per-connection Layers that resolve them or
-raise their declared failures.
+The tag is a protocol contract, not an authentication implementation.
+`@moltzap/server-core` supplies the per-connection Layer that resolves it or
+raises its declared failure.

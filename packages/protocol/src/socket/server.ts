@@ -1,21 +1,14 @@
 import type * as Socket from "@effect/platform/Socket";
-import { RpcClient, type RpcGroup, RpcServer, type Rpc } from "@effect/rpc";
+import { RpcClient, type RpcGroup, RpcServer } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Cause, Deferred, Effect, Exit, Layer, Mailbox, Scope } from "effect";
 import { type ConnectionId, newConnectionId } from "./connection.js";
 import {
-  isDispatchAuthorizeRequest,
-  isMessagesAuthorizeRequest,
-} from "./reverse-callbacks.js";
-import {
   reverseRpcGroup,
   serverInboundGroup,
-  type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
   type ServerHandlers,
 } from "#socket/catalog";
-import { messagesAuthorize } from "#message";
-import { dispatchAuthorize } from "#message/dispatch";
 import {
   makeClientChannelProtocol,
   runMuxReader,
@@ -31,11 +24,7 @@ import {
   type NotificationPayloadOf,
 } from "#transport";
 import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
-import type {
-  AgentPrincipal,
-  AppPrincipal,
-  AuthenticatedPrincipal,
-} from "#identity/principals";
+import type { AuthenticatedAgent } from "#identity/principals";
 import type { ActiveAgent } from "#identity/requirements";
 import type { ConversationSendAccess } from "#conversation/requirements";
 
@@ -83,9 +72,7 @@ export interface MoltZapServerOptions<
 }
 
 type ServerRequirementMiddleware =
-  | AgentPrincipal
-  | AppPrincipal
-  | AuthenticatedPrincipal
+  | AuthenticatedAgent
   | ActiveAgent
   | ConversationSendAccess;
 
@@ -138,35 +125,6 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
 type ReverseRpcs = RpcGroup.Rpcs<typeof reverseRpcGroup>;
 type ReverseTag = ReverseRpcs["_tag"];
-/** Represents reverse callback tag values. */
-export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
-  D["clientRpc"]["_tag"],
-  ReverseTag
->;
-/** Represents reverse callback payload values. */
-export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
-  Rpc.PayloadConstructor<D["clientRpc"]>;
-/** Represents reverse callback success values. */
-export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
-  Rpc.Success<D["clientRpc"]>;
-/** Represents reverse callback error conditions. */
-export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
-  Rpc.Error<D["clientRpc"]>;
-/** Represents reverse callback request values. */
-export type ReverseCallbackRequest =
-  | {
-      readonly definition: typeof dispatchAuthorize;
-      readonly params: ReverseCallbackPayload<typeof dispatchAuthorize>;
-    }
-  | {
-      readonly definition: typeof messagesAuthorize;
-      readonly params: ReverseCallbackPayload<typeof messagesAuthorize>;
-    };
-type ReverseCallbackRequestDefinition = ReverseCallbackRequest["definition"];
-type ReverseCallbackRequestSuccess =
-  ReverseCallbackSuccess<ReverseCallbackRequestDefinition>;
-type ReverseCallbackRequestError =
-  ReverseCallbackError<ReverseCallbackRequestDefinition>;
 type ReverseTransportCall = <Tag extends ReverseTag>(
   tag: Tag,
   payload: PayloadForTag<ReverseRpcs, Tag>,
@@ -180,23 +138,6 @@ const makeReverseNotify =
   (definition, params) =>
     call(definition.notificationRpc._tag, params).pipe(Effect.asVoid);
 
-const makeReverseCallback =
-  (call: ReverseTransportCall): ReverseClient["callback"] =>
-  (
-    request,
-  ): Effect.Effect<
-    ReverseCallbackRequestSuccess,
-    ReverseCallbackRequestError | ReverseCallError
-  > => {
-    if (isDispatchAuthorizeRequest(request)) {
-      return call(dispatchAuthorize.clientRpc._tag, request.params);
-    }
-    if (isMessagesAuthorizeRequest(request)) {
-      return call(messagesAuthorize.clientRpc._tag, request.params);
-    }
-    return Effect.dieMessage("unknown reverse callback request");
-  };
-
 /** Describes reverse client. */
 export interface ReverseClient {
   readonly call: <Tag extends ReverseTag>(
@@ -205,12 +146,6 @@ export interface ReverseClient {
   ) => Effect.Effect<
     SuccessForTag<ReverseRpcs, Tag>,
     ErrorForTag<ReverseRpcs, Tag> | ReverseCallError
-  >;
-  readonly callback: (
-    request: ReverseCallbackRequest,
-  ) => Effect.Effect<
-    ReverseCallbackRequestSuccess,
-    ReverseCallbackRequestError | ReverseCallError
   >;
   readonly notify: <D extends AnyNotificationDefinition>(
     definition: D,
@@ -288,7 +223,6 @@ const buildReverseClient = (options: {
     );
     return {
       call,
-      callback: makeReverseCallback(call),
       notify: makeReverseNotify(call),
       sink,
     };

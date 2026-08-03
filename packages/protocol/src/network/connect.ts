@@ -1,7 +1,6 @@
 import { Data, Effect, Schema, String as StringOps } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
 import { agentKey } from "#identity/agents";
-import { appKey } from "#identity/apps";
 import { defineRpc } from "#transport/descriptor";
 import {
   UnauthorizedError,
@@ -13,15 +12,15 @@ import {
 export const PROTOCOL_VERSION = packageJson.version;
 
 // ═══════════════════════════════════════════════════════════════════
-// agent/network/connect + app/network/connect
+// agent/network/connect
 // ═══════════════════════════════════════════════════════════════════
 
 // The HelloOk carries no payload: a connecting client already knows its own
 // identity (an agent registers and stores its `agentId` via the
-// `agent/identity/register` HTTP flow; an app holds its appId), the protocol version is
-// fixed by the build, and the server policy is not read by any client. The
-// handshake's only observable outcome is success vs the typed
-// `UnauthorizedError` / `ProtocolMismatchError` failure channel.
+// `agent/identity/register` HTTP flow), the protocol version is fixed by the
+// build, and the server policy is not read by any client. The handshake's
+// only observable outcome is success vs the typed `UnauthorizedError` /
+// `ProtocolMismatchError` failure channel.
 const helloOkSchema = Schema.Struct({});
 
 /** Represents hello ok values. */
@@ -195,38 +194,6 @@ export const agentConnect = defineRpc({
   name: "agent/network/connect",
   params: Schema.Struct({
     agentKey: agentKey,
-    minProtocol: Schema.String,
-    maxProtocol: Schema.String,
-  }),
-  result: helloOkSchema,
-  requires: [],
-  errors: [
-    InvalidParamsError,
-    UnauthorizedError,
-    ProtocolMismatchError,
-    AlreadyConnected,
-  ],
-});
-
-/**
- * Authenticate an app WebSocket connection. Must be the first message on a new
- * app client connection.
- *
- * - **Principal:** none — the unauthenticated handshake. No principal exists
- *   pre-auth, so `requires` is empty and no gate runs before it.
- * - **Params:** `appKey`, `minProtocol`, `maxProtocol`.
- * - **Result:** an empty HelloOk; success is the signal (the client holds its
- *   own id).
- * @returns An empty HelloOk; success is the signal (the client holds its own id).
- * @error InvalidParamsError when the params are malformed
- * @error UnauthorizedError when the app key is well-formed but invalid
- * @error ProtocolMismatchError when the client protocol version is not supported
- * @error AlreadyConnected when the principal already holds a live connection
- */
-export const appConnect = defineRpc({
-  name: "app/network/connect",
-  params: Schema.Struct({
-    appKey: appKey,
     minProtocol: Schema.String,
     maxProtocol: Schema.String,
   }),

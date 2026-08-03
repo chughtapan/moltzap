@@ -8,6 +8,7 @@ import {
   type runtimeEvents,
 } from "../events/core.js";
 import type { LedgerFailure, LedgerWriter } from "../ledger/live.js";
+import type { InboundLinkStage } from "../network/link.js";
 import type { AgentConnection, Router } from "../network/router.js";
 import type {
   AgentRoster,
@@ -22,6 +23,7 @@ import {
   type AgentRuntimeLike,
   type RunningAgent,
 } from "../runtime/runtime.js";
+import type { InboundLinkInterceptor } from "./link-fabric.js";
 import { nonEmptyCause, runtimeEvent } from "./outcomes.js";
 
 const MAX_PARALLEL_RUNTIME_ACQUISITIONS = 32;
@@ -44,6 +46,7 @@ interface AcquireAgentInput<
   readonly agentName: AgentName;
   readonly runtime: Definitions[Name];
   readonly writer: RuntimeEventWriter;
+  readonly interceptor: InboundLinkInterceptor;
 }
 
 interface AcquireRosterInput<
@@ -53,6 +56,7 @@ interface AcquireRosterInput<
   readonly router: Router;
   readonly roster: AgentRoster<Id, Definitions>;
   readonly writer: RuntimeEventWriter;
+  readonly interceptor: InboundLinkInterceptor;
 }
 
 function runtimeAcquire<
@@ -62,6 +66,7 @@ function runtimeAcquire<
   runtime: Definitions[Name],
   agentName: AgentName,
   connection: AgentConnection<Name>,
+  interceptInbound: Effect.Effect<InboundLinkStage, never, Scope.Scope>,
 ): Effect.Effect<
   RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
   AgentRosterAcquisitionError<Definitions>,
@@ -69,7 +74,7 @@ function runtimeAcquire<
 > {
   // The keyed entry keeps its exact gateway while this supervisor widens its
   // failure and service requirements to the complete roster unions.
-  return runtime.acquire({ agentName, connection });
+  return runtime.acquire({ agentName, connection, interceptInbound });
 }
 
 function attemptAgent<
@@ -78,7 +83,7 @@ function attemptAgent<
 >(
   input: Pick<
     AcquireAgentInput<Definitions, Name>,
-    "router" | "name" | "agentName" | "runtime"
+    "router" | "name" | "agentName" | "runtime" | "interceptor"
   >,
 ) {
   return Effect.gen(function* () {
@@ -86,10 +91,14 @@ function attemptAgent<
       input.name,
       input.agentName,
     );
+    // The runtime, not this supervisor, acquires the stage: only a runtime
+    // that owns its agent's inbound stream can apply one, and acquisition is
+    // what registers the agent as a link-policy target.
     const running = yield* runtimeAcquire<Definitions, Name>(
       input.runtime,
       input.agentName,
       connection,
+      input.interceptor.attach(connection.agent.id),
     );
     const started = Object.freeze({
       agent: connection.agent,
@@ -254,6 +263,7 @@ export function acquireRoster<
         agentName: entry.agentName,
         runtime: entry.runtime,
         writer: input.writer,
+        interceptor: input.interceptor,
       }),
     { concurrency: MAX_PARALLEL_RUNTIME_ACQUISITIONS },
   ).pipe(

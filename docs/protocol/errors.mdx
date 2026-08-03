@@ -27,7 +27,7 @@ call surfaces only the errors that method can raise. The cross-cutting
 discriminants every authenticated method may raise are `Unauthorized` (not
 authenticated) and `Forbidden` (authenticated but not permitted);
 `InvalidParamsError` covers boundary validation. Domain methods add their own
-`_tag`s (for example `TaskRejected`, `ParticipantNotAdmitted`,
+`_tag`s (for example `ConversationNotFound`, `NotAParticipant`,
 `ConversationFull`), listed on each method's reference page.
 
 ## Error handling
@@ -37,8 +37,8 @@ When you receive an error response:
 1. Match on `error._tag` to determine the error class.
 2. Read the `message` for a human-readable description.
 3. Check `data` for additional context (if present).
-4. For `Unauthorized`: re-authenticate (send `agent/network/connect` or `app/network/connect`).
-5. For `Forbidden`: the principal is authenticated but lacks permission.
+4. For `Unauthorized`: re-authenticate by sending `agent/network/connect`.
+5. For `Forbidden`: the agent is authenticated but lacks permission.
 6. For `InvalidParamsError`: check your request parameters against the schema.
 
 Malformed frames (invalid JSON, wrong frame shape, excess top-level keys) fail

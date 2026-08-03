@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber, Option } from "effect";
 
 import {
   ALICE_CACHED_NAME,
@@ -53,6 +53,78 @@ function disconnectClosesTheServiceAndClearsTheConnectedFlag() {
 effectTest(
   "disconnect() closes the service and clears the connected flag",
   disconnectClosesTheServiceAndClearsTheConnectedFlag,
+);
+
+function disconnectAwaitsEffectfulServiceShutdown() {
+  return Effect.gen(function* () {
+    const shutdownStarted = yield* Deferred.make<undefined>();
+    const allowShutdown = yield* Deferred.make<undefined>();
+    fake.service.shutdown = () =>
+      Deferred.succeed(shutdownStarted, undefined).pipe(
+        Effect.zipRight(Deferred.await(allowShutdown)),
+      );
+
+    const disconnectFiber = yield* Effect.fork(core.disconnect());
+    yield* Deferred.await(shutdownStarted);
+
+    expect(Option.isNone(yield* Fiber.poll(disconnectFiber))).toBe(true);
+
+    yield* Deferred.succeed(allowShutdown, undefined);
+    yield* Fiber.join(disconnectFiber);
+    expect(core.isConnected()).toBe(false);
+  });
+}
+
+effectTest(
+  "disconnect() awaits effectful service shutdown",
+  disconnectAwaitsEffectfulServiceShutdown,
+);
+
+function disconnectStartsShutdownWhileInboundCleanupIsPending() {
+  return Effect.gen(function* () {
+    const handlerStarted = yield* Deferred.make<undefined>();
+    const allowHandlerCleanup = yield* Deferred.make<undefined>();
+    const shutdownStarted = yield* Deferred.make<undefined>();
+    const allowShutdown = yield* Deferred.make<undefined>();
+    let handlerCleanupCompleted = false;
+    const completeHandlerCleanup = Effect.sync(() => {
+      handlerCleanupCompleted = true;
+    });
+
+    fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+    fake.state.setAgentName("agent-alice", "Alice");
+    core.onInbound(() =>
+      Deferred.succeed(handlerStarted, undefined).pipe(
+        Effect.zipRight(Effect.never),
+        Effect.ensuring(
+          Deferred.await(allowHandlerCleanup).pipe(
+            Effect.zipRight(completeHandlerCleanup),
+          ),
+        ),
+      ),
+    );
+    fake.service.shutdown = () =>
+      Deferred.succeed(shutdownStarted, undefined).pipe(
+        Effect.zipRight(Deferred.await(allowShutdown)),
+      );
+
+    fake.emit.message(buildMessage());
+    yield* Deferred.await(handlerStarted);
+    const disconnectFiber = yield* Effect.fork(core.disconnect());
+    yield* Deferred.await(shutdownStarted);
+
+    expect(handlerCleanupCompleted).toBe(false);
+    yield* Deferred.succeed(allowShutdown, undefined);
+    expect(Option.isNone(yield* Fiber.poll(disconnectFiber))).toBe(true);
+
+    yield* Deferred.succeed(allowHandlerCleanup, undefined);
+    yield* Fiber.join(disconnectFiber);
+  });
+}
+
+effectTest(
+  "disconnect() starts shutdown while inbound cleanup is pending",
+  disconnectStartsShutdownWhileInboundCleanupIsPending,
 );
 
 function disconnectEventFromTheServiceClearsTheConnectedFlag() {

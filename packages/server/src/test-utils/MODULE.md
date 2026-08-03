@@ -8,23 +8,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](./app-endpoint.ts#L49)
-
-_TypeAlias_
-
-```ts
-export type AppEndpointHandlers = {
-  readonly [D in AnyAppCallbackRpcDefinition as D["name"]]: AppEndpointHandler<D>;
-};
-```
-
-Mapped over the closed `AnyAppCallbackRpcDefinition` union, keyed
-by each definition's wire name. Mandates one handler per
-app-callback RPC at construction time — adding a new entry to
-`appCallbackMethods` becomes a compile error at every endpoint
-construction site.
-
-### [`AwaitNotificationError`](./helpers.ts#L58)
+### [`AwaitNotificationError`](./helpers.ts#L47)
 
 _TypeAlias_
 
@@ -36,7 +20,7 @@ export type AwaitNotificationError =
 
 Represents await notification error conditions.
 
-### [`awaitOneNotification`](./helpers.ts#L73)
+### [`awaitOneNotification`](./helpers.ts#L62)
 
 _Function_
 
@@ -56,7 +40,7 @@ connection from masquerading as a missing notification.
 
 **Returns:** The await one notification result.
 
-### [`closeAllClients`](./helpers.ts#L185)
+### [`closeAllClients`](./helpers.ts#L174)
 
 _Function_
 
@@ -68,23 +52,7 @@ Executes the close all clients operation.
 
 **Returns:** The close all clients result.
 
-### [`connectAppClient`](./helpers.ts#L335)
-
-_Function_
-
-```ts
-export function connectAppClient(
-  appId: AppId,
-  appKey: AppKey,
-  handlers: AppCallbackHandlers<AppCallbackContext>,
-): Effect.Effect<TestAppClient, Error>
-```
-
-Executes the connect app client operation.
-
-**Returns:** The connect app client result.
-
-### [`ConnectedAgent`](./helpers.ts#L113)
+### [`ConnectedAgent`](./helpers.ts#L102)
 
 _Interface_
 
@@ -99,7 +67,7 @@ export interface ConnectedAgent {
 
 Describes connected agent.
 
-### [`connectTestClient`](./helpers.ts#L262)
+### [`connectTestClient`](./helpers.ts#L251)
 
 _Function_
 
@@ -176,7 +144,7 @@ export type CoreTestServer = CoreTestServerPort;
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](./server.ts#L108)
+### [`CoreTestServerHandle`](./server.ts#L99)
 
 _Interface_
 
@@ -251,7 +219,7 @@ export interface CoreTestSpanExporterPort {
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](./helpers.ts#L228)
+### [`createTestAgent`](./helpers.ts#L217)
 
 _Function_
 
@@ -266,7 +234,7 @@ Creates test agent.
 
 **Returns:** The created test agent.
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L53)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L45)
 
 _Variable_
 
@@ -278,7 +246,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 
 Validates and decodes default test admin user id values.
 
-### [`getBaseUrl`](./server.ts#L462)
+### [`getBaseUrl`](./server.ts#L405)
 
 _Function_
 
@@ -290,7 +258,7 @@ Returns base url.
 
 **Returns:** The get base url result.
 
-### [`getCoreDb`](./server.ts#L438)
+### [`getCoreDb`](./server.ts#L392)
 
 _Function_
 
@@ -302,19 +270,7 @@ Returns core db.
 
 **Returns:** The get core db result.
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L451)
-
-_Function_
-
-```ts
-export function getCoreEncryptionEnvelope(): EnvelopeEncryption
-```
-
-Returns core encryption envelope.
-
-**Returns:** The get core encryption envelope result.
-
-### [`getWsUrl`](./server.ts#L473)
+### [`getWsUrl`](./server.ts#L416)
 
 _Function_
 
@@ -340,54 +296,6 @@ export function loadCoreSchemaSql(): Effect.Effect<
 Loads core schema sql.
 
 **Returns:** The load core schema sql result.
-
-### [`makeFakeService`](./fakes.ts#L44)
-
-_Function_
-
-```ts
-export const makeFakeService = <S extends object>(impl: Partial<S>): S
-```
-
-Build a typed test double for an interface `S` from a partial implementation.
-The cast is intentional: tests typically implement only the methods the
-system under test actually calls. Unused methods throw at runtime via the
-`Proxy` trap so a missing implementation becomes a clear test failure
-instead of `undefined is not a function`.
-
-Because the generic parameter `S` is invariant, TypeScript still enforces
-that every method you *do* implement matches the real signature — this is
-the compile-time contract-drift insurance. Adding a field to the real
-interface does NOT fail compilation (tests are a Partial), but changing an
-existing field's signature does.
-
-**Returns:** The created fake service.
-
-### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L95)
-
-_Function_
-
-```ts
-export function makeHandlerAppEndpoint(args: {
-  readonly id: ConnectionId;
-  readonly handlers: AppEndpointHandlers;
-}): AppEndpoint
-```
-
-Build an AppEndpoint whose outbound `originator.call` dispatches to
-in-process handlers instead of going over a WebSocket. The endpoint
-satisfies the same `{ connId, originator }` shape a connected app's
-arm carries so `AppEndpointRegistry`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
-
-  - `originator.callback({ definition, params })` indexes `handlers` by
-    `definition.name`. The
-    mapped type guarantees every member of `AnyAppCallbackRpcDefinition`
-    has a handler — no runtime "method not found" branch exists.
-  - `originator.notify` / `failAllPending` are no-ops.
-  - `originator.handle` / `originator.resolve` defect — an in-process
-    endpoint never receives inbound frames; a call here is a wiring bug.
-
-**Returns:** The created handler app endpoint.
 
 ### [`makePgliteHarness`](./pglite-harness.ts#L73)
 
@@ -450,7 +358,7 @@ export type PgliteHarnessError =
 
 Represents pglite harness error conditions.
 
-### [`postJson`](./helpers.ts#L376)
+### [`postJson`](./helpers.ts#L293)
 
 _Function_
 
@@ -468,7 +376,7 @@ repeated request/JSON boilerplate.
 
 **Returns:** The post json result.
 
-### [`registerAgent`](./helpers.ts#L203)
+### [`registerAgent`](./helpers.ts#L192)
 
 _Function_
 
@@ -484,7 +392,7 @@ Registers agent.
 
 **Returns:** The register agent result.
 
-### [`registerAndConnect`](./helpers.ts#L356)
+### [`registerAndConnect`](./helpers.ts#L273)
 
 _Function_
 
@@ -498,26 +406,7 @@ Register and connect an agent. Tracked for automatic cleanup.
 
 **Returns:** The register and connect result.
 
-### [`registerApp`](./helpers.ts#L303)
-
-_Function_
-
-```ts
-export function registerApp(
-  baseUrl: string,
-  manifest: AppManifest,
-  inviteCode?: string,
-): Effect.Effect<
-  { readonly appId: AppId; readonly appKey: AppKey },
-  AppRegistrationError
->
-```
-
-Registers app.
-
-**Returns:** The register app result.
-
-### [`resetCoreTestDb`](./server.ts#L410)
+### [`resetCoreTestDb`](./server.ts#L367)
 
 _Function_
 
@@ -529,7 +418,7 @@ Executes the reset core test db operation.
 
 **Returns:** The reset core test db result.
 
-### [`setupAgentGroup`](./helpers.ts#L485)
+### [`setupAgentGroup`](./helpers.ts#L402)
 
 _Function_
 
@@ -550,7 +439,7 @@ Create N agents, all connected. Optionally create a group conversation.
 
 **Returns:** The setup agent group result.
 
-### [`setupAgentPair`](./helpers.ts#L467)
+### [`setupAgentPair`](./helpers.ts#L384)
 
 _Function_
 
@@ -577,7 +466,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](./server.ts#L356)
+### [`startCoreTestServerEffect`](./server.ts#L315)
 
 _Variable_
 
@@ -586,8 +475,7 @@ export const startCoreTestServerEffect = Effect.fn("startCoreTestServer")(
   function* (opts: StartCoreTestServerOptions = {}) {
     yield* ensureNoCoreTestServerRunning();
     const db = yield* initializeTestDatabase();
-    const masterSecret = yield* configureEncryption(db, opts);
-    coreApp = createCoreTestApp(db, opts, masterSecret);
+    coreApp = createCoreTestApp(db, opts);
     yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
     return buildCoreTestServer(coreApp, db);
   },
@@ -596,7 +484,7 @@ export const startCoreTestServerEffect = Effect.fn("startCoreTestServer")(
 
 Executes the start core test server effect operation.
 
-### [`startCoreTestServerFull`](./server.ts#L372)
+### [`startCoreTestServerFull`](./server.ts#L330)
 
 _Function_
 
@@ -616,7 +504,6 @@ _Interface_
 export interface StartCoreTestServerOptions {
   readonly pgHost?: string;
   readonly pgPort?: number;
-  readonly encryption?: boolean;
   readonly registrationSecret?: string;
   readonly adminUserId?: UserId;
 }
@@ -624,7 +511,7 @@ export interface StartCoreTestServerOptions {
 
 Configures start core test server.
 
-### [`stopCoreTestServer`](./server.ts#L380)
+### [`stopCoreTestServer`](./server.ts#L338)
 
 _Function_
 
@@ -636,21 +523,19 @@ Executes the stop core test server operation.
 
 **Returns:** The stop core test server result.
 
-### [`trackClient`](./helpers.ts#L177)
+### [`trackClient`](./helpers.ts#L166)
 
 _Function_
 
 ```ts
-export function trackClient(client: TestAgentClient | TestAppClient): void
+export function trackClient(client: TestAgentClient): void
 ```
 
 Executes the track client operation.
 
 ## Files
 
-- `app-endpoint.ts`
 - `core-schema-sql.ts`
-- `fakes.ts`
 - `helpers.ts`
 - `index.ts`
 - `pglite-harness.ts`

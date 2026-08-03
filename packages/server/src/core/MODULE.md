@@ -8,7 +8,7 @@ Narrow core wiring barrel for server-core internals.
 
 ## Public surface
 
-### [`ConnectionHook`](./types.ts#L8)
+### [`ConnectionHook`](./types.ts#L7)
 
 _TypeAlias_
 
@@ -50,7 +50,7 @@ export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
 
 Implements connection hooks tag.
 
-### [`CoreApp`](./types.ts#L24)
+### [`CoreApp`](./types.ts#L23)
 
 _Interface_
 
@@ -85,21 +85,13 @@ export interface CoreApp {
    * push decisions, etc.). Stable identity.
    */
   readonly connections: ConnectionManager;
-
-  /**
-   * Server-local lease registry for the
-   * `dispatch/{request, authorize, release}` admission surface.
-   * Stable identity across the server lifetime. Tests + advanced
-   * consumers can read lease state directly via this handle.
-   */
-  readonly leaseRegistry: LeaseRegistry;
   close: () => PromiseLike<undefined>;
 }
 ```
 
 Describes core app.
 
-### [`createCoreApp`](./app.ts#L148)
+### [`createCoreApp`](./app.ts#L125)
 
 _Function_
 
@@ -111,7 +103,7 @@ Creates core app.
 
 **Returns:** The created core app.
 
-### [`DisconnectionHook`](./types.ts#L17)
+### [`DisconnectionHook`](./types.ts#L16)
 
 _TypeAlias_
 
@@ -173,7 +165,7 @@ precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
 returns `null` — the caller falls through to a no-op tracing Layer (spans
 stay in Effect's fiber context but are not exported).
 
-### [`ResolvedServices`](./layers.ts#L93)
+### [`ResolvedServices`](./layers.ts#L58)
 
 _Interface_
 
@@ -184,33 +176,25 @@ export interface ResolvedServices {
   readonly agentEndpointResolver: AgentEndpointResolver;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
-  readonly appAuthService: AppAuthService;
   readonly conversationService: ConversationService;
-  readonly appEndpointRegistry: AppEndpointRegistry;
-  readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
-  readonly encryption: EnvelopeEncryption | null;
 }
 ```
 
 Describes resolved services.
 
-### [`resolveServices`](./layers.ts#L108)
+### [`resolveServices`](./layers.ts#L69)
 
 _Variable_
 
 ```ts
 export const resolveServices = Effect.all({
   db: DbTag,
-  encryption: EncryptionTag,
   connections: ConnectionManagerTag,
   agentEndpointResolver: AgentEndpointResolverTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
-  appAuthService: AppAuthServiceTag,
   conversationService: ConversationServiceTag,
-  appEndpointRegistry: AppEndpointRegistryTag,
-  leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>
 ```
@@ -232,7 +216,7 @@ Resolves traces endpoint.
 
 **Returns:** The resolve traces endpoint result.
 
-### [`ServerBootFailedError`](./app.ts#L47)
+### [`ServerBootFailedError`](./app.ts#L37)
 
 _Class_
 
@@ -240,30 +224,23 @@ _Class_
 export class ServerBootFailedError extends Data.TaggedError(
   "ServerBootFailedError",
 )<{
-  readonly phase: "http-listen" | "default-app-connect";
+  readonly phase: "http-listen";
   readonly cause: unknown;
 }> {}
 ```
 
-Typed fatal for boot failure. The `phase` discriminator names
-which boot step failed:
-- `"http-listen"` — step 5a's `NodeHttpServer.make` / `serverSvc.serve`
-  typed `ServeError` (EADDRINUSE, EACCES, ...).
-- `"default-app-connect"` — step 5c's `startDefaultApp` `BootDefaultAppError`
-  (wrapping `client.connect()`'s `ConnectError`).
+Typed fatal for boot failure. The `phase` discriminator names which boot step
+failed: `"http-listen"` is `NodeHttpServer.make` / `serverSvc.serve`'s typed
+`ServeError` (EADDRINUSE, EACCES, ...).
 
-Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
-and flow through the boot-failure `catchAllCause` envelope without a phase
-tag.
-
-### [`servicesLive`](./layers.ts#L87)
+### [`servicesLive`](./layers.ts#L52)
 
 _Variable_
 
 ```ts
 export const servicesLive = Layer.provideMerge(
   messageServiceLive,
-  domainAuthorizationLive,
+  conversationWithNetworkLive,
 )
 ```
 

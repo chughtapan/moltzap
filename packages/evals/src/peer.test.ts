@@ -2,7 +2,6 @@ import { assert, beforeEach, it } from "@effect/vitest";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   agentsList,
-  DEFAULT_APP_ID,
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
@@ -516,7 +515,6 @@ const orderedGroupPolicyTest = Effect.fn(function* () {
       {
         definition: agentConversationCreate.name,
         payload: {
-          appId: DEFAULT_APP_ID,
           name: GROUP_NAME,
           participants: [TARGET_ID, SOURCE_ID, OBSERVER_ID],
         },

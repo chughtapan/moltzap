@@ -2,37 +2,25 @@
  * @file The principal-kind gate, consumed by the per-method `AuthMiddleware`
  * impl Layers (`auth-middleware-layers.ts`).
  *
- * The gate narrows the live 3-arm `Connection` to the 2-arm `Principal` a
+ * The gate narrows the live 2-arm `Connection` to the `AgentContext` a gated
  * method's `requires` head demands, failing with a `ForbiddenError` INSTANCE.
  * The `@effect/rpc` engine encodes that tagged error against the method's
  * per-method error union (the middleware `failure` schema), so there is no
- * coded-envelope projection step. The narrowing and the `requires` head are the
- * SAME arm by construction: an `AgentPrincipal` head yields the agent arm, an
- * `AppPrincipal` head the app arm.
+ * coded-envelope projection step. `AuthenticatedAgent` is the only principal
+ * requirement, so the narrowing and the `requires` head are the SAME arm by
+ * construction.
  */
 import { Effect, Option } from "effect";
 import {
-  AgentPrincipal,
-  AppPrincipal,
-  AuthenticatedPrincipal,
+  AuthenticatedAgent,
   type PrincipalRequirement,
 } from "@moltzap/protocol/identity";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type {
-  ConnectionManager,
-  Connection,
-  AgentContext,
-  AppContext,
-} from "#socket";
-
-type Principal = AgentContext | AppContext;
+import type { ConnectionManager, Connection, AgentContext } from "#socket";
 
 const FORBIDDEN_AGENT_ONLY =
-  "This method is callable only by an agent principal";
-const FORBIDDEN_APP_ONLY = "This method is callable only by an app principal";
-const FORBIDDEN_AUTHENTICATED_ONLY =
-  "This method requires an authenticated principal";
+  "This method requires an authenticated agent principal";
 const FORBIDDEN_INACTIVE = "Agent must be active before performing this action";
 
 /**
@@ -69,7 +57,7 @@ export const peekLiveArm = (
   );
 
 /**
- * Narrow the live arm to the agent principal. Rejects a non-agent arm and,
+ * Narrow the live arm to the agent principal. Rejects the pre-connect arm and,
  * for `ActiveAgent` requirements, an inactive agent.
  * @param connection Value supplied to the operation.
  * @param requireActiveAgent Value supplied to the operation.
@@ -78,7 +66,7 @@ export const peekLiveArm = (
 const narrowAgentArm = (
   connection: Connection,
   requireActiveAgent: boolean,
-): Effect.Effect<Principal, ForbiddenError> => {
+): Effect.Effect<AgentContext, ForbiddenError> => {
   if (connection._tag !== "AgentConnection") {
     return Effect.fail(forbidden(FORBIDDEN_AGENT_ONLY));
   }
@@ -87,30 +75,6 @@ const narrowAgentArm = (
   }
   return Effect.succeed(connection.auth);
 };
-
-/**
- * Narrow the live arm to the app principal.
- * @param connection Value supplied to the operation.
- * @returns The narrow app arm result.
- */
-const narrowAppArm = (
-  connection: Connection,
-): Effect.Effect<Principal, ForbiddenError> =>
-  connection._tag === "AppConnection"
-    ? Effect.succeed(connection.auth)
-    : Effect.fail(forbidden(FORBIDDEN_APP_ONLY));
-
-/**
- * Admit either authenticated arm, rejecting the pre-connect arm.
- * @param connection Value supplied to the operation.
- * @returns The narrow authenticated arm result.
- */
-const narrowAuthenticatedArm = (
-  connection: Connection,
-): Effect.Effect<Principal, ForbiddenError> =>
-  connection._tag === "AgentConnection" || connection._tag === "AppConnection"
-    ? Effect.succeed(connection.auth)
-    : Effect.fail(forbidden(FORBIDDEN_AUTHENTICATED_ONLY));
 
 /**
  * Narrow the live arm to the principal a gated method's `requires` head demands.
@@ -126,15 +90,9 @@ export const narrowByPolicy = (
   requireActiveAgent: boolean,
   connection: Connection,
   principal?: PrincipalRequirement,
-): Effect.Effect<Principal, ForbiddenError> => {
-  if (principal === AgentPrincipal) {
+): Effect.Effect<AgentContext, ForbiddenError> => {
+  if (principal === AuthenticatedAgent) {
     return narrowAgentArm(connection, requireActiveAgent);
-  }
-  if (principal === AppPrincipal) {
-    return narrowAppArm(connection);
-  }
-  if (principal === AuthenticatedPrincipal) {
-    return narrowAuthenticatedArm(connection);
   }
   return Effect.dieMessage(
     "principal gate: a gated method carried no principal requirement",

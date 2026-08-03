@@ -25,7 +25,6 @@ it("agent/conversation/list returns existing conversations after connect", () =>
     // Connect agent-a and create a conversation before agent-b connects as service
     yield* regA.client.connect();
     const conv = yield* regA.client.call(H.agentConversationCreate.name, {
-      appId: H.DEFAULT_APP_ID,
       participants: [regB.agentId],
     });
 
@@ -57,7 +56,6 @@ it("on('message') fires for incoming message from another agent", () =>
     );
 
     const conv = yield* regSender.client.call(H.agentConversationCreate.name, {
-      appId: H.DEFAULT_APP_ID,
       participants: [regReceiver.agentId],
     });
 

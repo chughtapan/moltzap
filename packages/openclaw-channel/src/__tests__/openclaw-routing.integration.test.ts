@@ -23,7 +23,6 @@ import {
 
 import {
   agentsList,
-  DEFAULT_APP_ID,
   type AgentId,
   type AgentKey,
 } from "@moltzap/protocol/identity";
@@ -371,7 +370,6 @@ function createDm(
 ): Effect.Effect<ConversationBinding, unknown> {
   return client
     .call(agentConversationCreate.name, {
-      appId: DEFAULT_APP_ID,
       participants: [invitee],
     })
     .pipe(Effect.map(extractConversationBinding));
@@ -384,7 +382,6 @@ function createGroup(
 ): Effect.Effect<ConversationBinding, unknown> {
   return client
     .call(agentConversationCreate.name, {
-      appId: DEFAULT_APP_ID,
       name,
       participants: agentIds,
     })

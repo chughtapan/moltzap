@@ -14,11 +14,9 @@ that needs no server service is a pure guard in `@moltzap/protocol` instead.
 
 ### Obtains — resolve a requirement tag for the middleware layer
 - `send-access.ts` — `ConversationSendAccess` obtain: proves the caller
-  participates, then loads the conversation row every send path reads.
+  participates and that the conversation row still exists.
 
 ### Authority checks — called directly from handler bodies
-- `app-ownership.ts` — `assertCallerAppOwnsConversation`: compares the calling
-  AppConnection's appId against the conversation's routing key.
 - `create-authorization.ts` — `authorizeConversationCreateCapacityOnly`: the
   capacity gate for conversation creation.
 

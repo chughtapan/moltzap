@@ -13,35 +13,37 @@ import type {
   NotificationSubscriberRegistry,
 } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import { dispatchRelease } from "@moltzap/protocol/message/dispatch";
+import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { subscribe, type subscribeAll } from "../stream.js";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
-type ReleaseParams = NotificationParamsOf<typeof dispatchRelease>;
-type DeniedRelease = ReleaseParams & {
-  readonly verdict: { readonly decision: "deny" };
+type ReceivedParams = NotificationParamsOf<
+  typeof messageReceivedNotificationDefinition
+>;
+type GroupReceived = ReceivedParams & {
+  readonly message: { readonly conversationId: string };
 };
-type DeniedPredicate = (params: ReleaseParams) => params is DeniedRelease;
+type GroupPredicate = (params: ReceivedParams) => params is GroupReceived;
 
 /**
  * Exercise the type-guard overload with concrete protocol types.
  * @param registry Notification registry supplied by a connected client.
- * @param isDenied Predicate that narrows dispatch releases to denials.
- * @returns A stream narrowed to denied dispatch releases.
+ * @param isGroup Predicate that narrows received messages to group deliveries.
+ * @returns A stream narrowed to group message deliveries.
  */
-export function subscribeDeniedCanary(
+export function subscribeNarrowedCanary(
   registry: NotificationSubscriberRegistry<
     NotConnectedError,
     AnyNotificationDefinition
   >,
-  isDenied: DeniedPredicate,
+  isGroup: GroupPredicate,
 ) {
-  return subscribe(registry, dispatchRelease, isDenied);
+  return subscribe(registry, messageReceivedNotificationDefinition, isGroup);
 }
 
-type DeniedStream = ReturnType<typeof subscribeDeniedCanary>;
+type NarrowedStream = ReturnType<typeof subscribeNarrowedCanary>;
 
 /**
  * Exercise Stream consumption against the real subscription return type.
@@ -67,11 +69,11 @@ type SubscribeStreamShape = Expect<
     >
   >
 >;
-type DeniedOverloadResolves = Expect<
-  Equal<DeniedStream, Stream.Stream<DeniedRelease, NotConnectedError>>
+type NarrowedOverloadResolves = Expect<
+  Equal<NarrowedStream, Stream.Stream<GroupReceived, NotConnectedError>>
 >;
-type DeniedElementIsExact = Expect<
-  Equal<Stream.Stream.Success<DeniedStream>, DeniedRelease>
+type NarrowedElementIsExact = Expect<
+  Equal<Stream.Stream.Success<NarrowedStream>, GroupReceived>
 >;
 type SubscribeAllStreamShape = Expect<
   Equal<
@@ -97,8 +99,8 @@ type TypedErrorChannelIsExact = Expect<
 /** Compile-time assertions for notification subscription contracts. */
 export type NotificationSubscriptionCanaries = [
   SubscribeStreamShape,
-  DeniedOverloadResolves,
-  DeniedElementIsExact,
+  NarrowedOverloadResolves,
+  NarrowedElementIsExact,
   SubscribeAllStreamShape,
   RunForEachHasNoLeakedRequirements,
   TypedErrorChannelIsExact,

@@ -1,13 +1,11 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect, Exit, Schema } from "effect";
+import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
 import {
   type Message,
   messageReceivedNotificationDefinition,
   messagesSend,
 } from "@moltzap/protocol/message";
-import type { ResultOf } from "@moltzap/protocol/rpc";
-import { dispatchRequest } from "@moltzap/protocol/message/dispatch";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 import {
@@ -17,18 +15,13 @@ import {
   testMessageId,
 } from "./test-utils/index.js";
 
-import {
-  agentName,
-  agentsList,
-  DEFAULT_APP_ID,
-} from "@moltzap/protocol/identity";
+import { agentName, agentsList } from "@moltzap/protocol/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 
 const effectTest = effectIt.effect;
 
 const AGENT_ALICE_ID = testAgentId("agent-alice-id");
 const AGENT_SELF_ID = testAgentId("agent-self");
-const AGENT_GM_ID = testAgentId("agent-gm");
 const AGENT_BOB_ID = testAgentId("agent-bob-id");
 const AGENT_BOB = testAgentId("agent-bob");
 const AGENT_ALICE = testAgentId("agent-alice");
@@ -47,8 +40,6 @@ const VIEWER_TWO_ID = testConversationId("viewer-2");
 const MESSAGE_ONE_ID = testMessageId("m-1");
 const MESSAGE_TWO_ID = testMessageId("m-2");
 const MESSAGE_THREE_ID = testMessageId("m-3");
-const DISPATCH_LEASE_ID = testAgentId("lease-1");
-const DISPATCH_ID = testAgentId("dispatch-1");
 const decodeAgentName = Schema.decodeSync(agentName);
 const SEND_TO_AGENT_NAME = decodeAgentName("alice");
 const BOB_AGENT_NAME = decodeAgentName("bob");
@@ -95,7 +86,6 @@ const MIXED_ESCAPE_OUTPUT = "A&amp;&lt;B&gt;C";
 const FULL_CONTEXT_MESSAGE = "hello from the other side";
 const SYSTEM_REMINDER_OPEN_TAG = "<system-reminder>";
 const SYSTEM_REMINDER_CLOSE_TAG = "</system-reminder>";
-const DISPATCH_RECEIVED_AT = "2026-04-29T22:00:00.000Z";
 const DATE_ONE = "2026-04-13T22:00:00Z";
 const DATE_TWO = "2026-04-13T22:00:01Z";
 const DATE_THREE = "2026-04-13T22:00:02Z";
@@ -137,6 +127,107 @@ function seedMessageSendResponse(service: FakeMoltZapService): void {
   });
 }
 
+function shutdownMutatesStateOnlyWhenItsEffectRuns() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    const stored = buildMessage();
+    service.addMessage(stored.conversationId, stored);
+
+    const shutdown = service.shutdown();
+    expect(service.getHistory(stored.conversationId)).toEqual([stored]);
+
+    yield* shutdown;
+    expect(service.getHistory(stored.conversationId)).toEqual([]);
+  });
+}
+
+effectTest(
+  "shutdown mutates state only when its Effect runs",
+  shutdownMutatesStateOnlyWhenItsEffectRuns,
+);
+
+function concurrentShutdownCallersAwaitTheSameCleanup() {
+  return Effect.gen(function* () {
+    const closeStarted = yield* Deferred.make<undefined>();
+    const allowClose = yield* Deferred.make<undefined>();
+    const service = new FakeMoltZapService();
+    let clientCloseCalls = 0;
+    Reflect.set(service, "client", {
+      close: () =>
+        Effect.sync(() => {
+          clientCloseCalls += 1;
+        }).pipe(
+          Effect.zipRight(Deferred.succeed(closeStarted, undefined)),
+          Effect.zipRight(Deferred.await(allowClose)),
+        ),
+    });
+
+    const first = yield* Effect.fork(service.shutdown());
+    yield* Deferred.await(closeStarted);
+    const second = yield* Effect.fork(service.shutdown());
+    yield* Effect.yieldNow();
+
+    expect(Option.isNone(yield* Fiber.poll(second))).toBe(true);
+    expect(clientCloseCalls).toBe(1);
+
+    yield* Deferred.succeed(allowClose, undefined);
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
+  });
+}
+
+effectTest(
+  "concurrent shutdown callers await the same cleanup",
+  concurrentShutdownCallersAwaitTheSameCleanup,
+);
+
+function connectWaitsForActiveShutdownBeforeStartingANewLifecycle() {
+  return Effect.gen(function* () {
+    const shutdownCompletion = yield* Deferred.make<undefined>();
+    const service = new FakeMoltZapService();
+    Reflect.set(service, "shutdownCompletion", shutdownCompletion);
+
+    const connecting = yield* Effect.fork(service.connect());
+    yield* Effect.yieldNow();
+
+    expect(Option.isNone(yield* Fiber.poll(connecting))).toBe(true);
+    expect(Reflect.get(service, "client")).toBeNull();
+
+    yield* Fiber.interrupt(connecting);
+  });
+}
+
+effectTest(
+  "connect waits for active shutdown before starting a new lifecycle",
+  connectWaitsForActiveShutdownBeforeStartingANewLifecycle,
+);
+
+function sendCarriesOnlyTheConversationAndParts() {
+  return Effect.gen(function* () {
+    const service = new FakeMoltZapService();
+    seedMessageSendResponse(service);
+
+    yield* service.send(CONVERSATION_ALICE_ID, HELLO_TEXT);
+
+    expect(service.calls).toEqual([
+      {
+        method: messagesSend.name,
+        params: {
+          conversationId: CONVERSATION_ALICE_ID,
+          parts: [{ type: "text", text: HELLO_TEXT }],
+        },
+      },
+    ]);
+  });
+}
+
+describe("MoltZapService.send", () => {
+  effectTest(
+    "sends only the conversation and parts",
+    sendCarriesOnlyTheConversationAndParts,
+  );
+});
+
 function seedAgentLookup(
   service: FakeMoltZapService,
   id = AGENT_ALICE_ID,
@@ -169,7 +260,6 @@ function sendToAgentCreatesConversation() {
       {
         method: agentConversationCreate.name,
         params: {
-          appId: DEFAULT_APP_ID,
           participants: [AGENT_ALICE_ID],
         },
       },
@@ -389,50 +479,6 @@ describe("sanitizeForSystemReminder containment", () => {
   it(
     "escapes all three substitutions in order",
     mixedSubstitutionsEscapeInOrder,
-  );
-});
-
-function dispatchRequestAck(): ResultOf<typeof dispatchRequest> {
-  const value: unknown = {
-    leaseId: DISPATCH_LEASE_ID,
-    dispatchId: DISPATCH_ID,
-  };
-  if (!dispatchRequest.validateResult(value)) {
-    expect.fail("invalid agent/dispatch/request ack fixture");
-  }
-  return value;
-}
-
-function requestDispatchReturnsAck() {
-  return Effect.gen(function* () {
-    const service = new FakeMoltZapService();
-    const ack = dispatchRequestAck();
-    service.setResponse(dispatchRequest, ack);
-
-    const result = yield* service.requestDispatch({
-      conversationId: CONVERSATION_ALICE_ID,
-      messageId: testMessageId("msg-dispatch-req"),
-      senderAgentId: AGENT_GM_ID,
-      attempt: 0,
-      receivedAt: DISPATCH_RECEIVED_AT,
-      pending: [],
-      parts: [{ type: "text", text: "Time to vote!" }],
-    });
-
-    expect(result.leaseId).toBe(ack.leaseId);
-    expect(result.dispatchId).toBe(ack.dispatchId);
-    expect(service.calls).toHaveLength(1);
-    expect(service.calls[0]).toMatchObject({
-      method: dispatchRequest.name,
-    });
-    expect(service.calls[0]?.opts).toBeUndefined();
-  });
-}
-
-describe("MoltZapService.requestDispatch", () => {
-  effectTest(
-    "issues agent/dispatch/request and returns the {leaseId, dispatchId} ack",
-    requestDispatchReturnsAck,
   );
 });
 

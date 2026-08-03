@@ -19,7 +19,6 @@ it("history via socket returns messages with isOwn labels", () =>
     // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
     yield* Effect.gen(function* () {
       const conv = yield* service.call(H.agentConversationCreate.name, {
-        appId: H.DEFAULT_APP_ID,
         participants: [regB.agentId],
       });
 

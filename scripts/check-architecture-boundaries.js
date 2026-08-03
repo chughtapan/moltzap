@@ -243,7 +243,6 @@ assertExportMap("packages/protocol", [
   "./conversation",
   "./identity",
   "./message",
-  "./message/dispatch",
   "./network",
   "./rpc",
   "./socket",

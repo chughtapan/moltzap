@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/protocol",
-  "version": "2026.801.2",
+  "version": "2026.802.0",
   "description": "Protocol types and validators for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -33,10 +33,6 @@
       "types": "./dist/message/index.d.ts",
       "import": "./dist/message/index.js"
     },
-    "./message/dispatch": {
-      "types": "./dist/message/dispatch.d.ts",
-      "import": "./dist/message/dispatch.js"
-    },
     "./rpc": {
       "types": "./dist/rpc.d.ts",
       "import": "./dist/rpc.js"
@@ -64,7 +60,6 @@
     "#rpc": "./src/rpc.ts",
     "#identity": "./src/identity/index.ts",
     "#identity/agents": "./src/identity/agents/index.ts",
-    "#identity/apps": "./src/identity/apps/index.ts",
     "#identity/users": "./src/identity/users/index.ts",
     "#identity/principals": "./src/identity/principals/index.ts",
     "#identity/requirements": "./src/identity/requirements/index.ts",
@@ -72,7 +67,6 @@
     "#conversation": "./src/conversation/index.ts",
     "#conversation/requirements": "./src/conversation/requirements/index.ts",
     "#message": "./src/message/index.ts",
-    "#message/dispatch": "./src/message/dispatch.ts",
     "#socket": "./src/socket/index.ts",
     "#socket/catalog": "./src/socket/catalog/index.ts",
     "#testing": "./src/testing/index.ts"

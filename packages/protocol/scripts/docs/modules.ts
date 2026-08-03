@@ -1130,12 +1130,14 @@ export function extractSignatureText(
     return extractTypeAlias(lines, startIx);
   }
   if (KEEP_BODY_KINDS.has(kind)) {
-    return extractBalancedBody(lines, startIx);
+    return kind === ReflectionKind.Interface
+      ? extractBalancedBody(lines, startIx)
+      : extractBalancedBody(lines, startIx, 120);
   }
   if (FUNCTION_KINDS.has(kind)) {
     return extractFunctionSignature(lines, startIx);
   }
-  return extractBalancedBody(lines, startIx);
+  return extractBalancedBody(lines, startIx, 120);
 }
 
 /**
@@ -1226,13 +1228,21 @@ function extractTypeAlias(lines: readonly string[], startIx: number): string {
  * the comparison.
  * @param lines Value supplied to the operation.
  * @param startIx Value supplied to the operation.
+ * @param maxLines Optional scan cap for declaration kinds whose bodies are not
+ * rendered as complete public signatures.
  * @returns The extract balanced body result.
  */
 function extractBalancedBody(
   lines: readonly string[],
   startIx: number,
+  maxLines?: number,
 ): string {
-  const slice = lines.slice(startIx, Math.min(lines.length, startIx + 120));
+  const slice = lines.slice(
+    startIx,
+    maxLines === undefined
+      ? lines.length
+      : Math.min(lines.length, startIx + maxLines),
+  );
   const text = slice.join("\n");
   let depth = 0;
   let opened = false;

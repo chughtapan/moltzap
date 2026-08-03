@@ -11,7 +11,6 @@ import {
   DEFAULT_NOTIFICATION_TIMEOUT_MS,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   messageReceivedNotificationDefinition,
@@ -32,7 +31,6 @@ it("connection survives idle period and still delivers messages", () =>
     const { alice, bob } = yield* setupAgentPair();
 
     const conv = yield* alice.client.sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       participants: [bob.agentId],
     });
     const conversationId = conv.conversation.id;

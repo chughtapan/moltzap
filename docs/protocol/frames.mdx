@@ -71,11 +71,3 @@ name is the JSON-RPC `method`; the payload is `params`.
 | `jsonrpc` | `"2.0"` | JSON-RPC version, always `"2.0"` |
 | `method` | `string` | Notification name, for example `agent/message/received` |
 | `params` | `object` | Notification-specific payload |
-
-## App-callback RPC
-
-App hooks such as `apps/onBeforeDispatch` and
-`apps/onBeforeMessageDelivery` are request/response RPCs on the same
-WebSocket. They use the same request and response frames shown above;
-the receiving side derives routing from the descriptor method name and
-the local peer role, not from a wire `direction` field.

@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./handlers.ts#L177)
+### [`agentConversationCreate`](./handlers.ts#L96)
 
 _Variable_
 
@@ -24,7 +24,7 @@ Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationList`](./handlers.ts#L166)
+### [`conversationList`](./handlers.ts#L85)
 
 _Variable_
 
@@ -40,7 +40,7 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](./conversation.service.ts#L223)
+### [`ConversationService`](./conversation.service.ts#L225)
 
 _Class_
 
@@ -109,62 +109,62 @@ export class ConversationService {
   }
 
   /**
-   * Reduced-surface participant removal: NO authority gate. Used by
-   * `AppEndpointRegistry.removeDeniedParticipant` for dispatch-deny eviction
-   * (runs server-internally, not via a wire RPC). Broadcasts
-   * `ConversationParticipantsRemoved` with `reason: "app_remove"`
-   * so the evicted agent and the remaining participants observe the
-   * removal.
-   * @param conversationId Value supplied to the operation.
-   * @param agentId Identifier of the agent targeted by the operation.
+   * Rejects a membership that exceeds the group limit. The caller passes the
+   * resulting member count; membership is fixed at creation, so this is the
+   * only capacity gate.
+   * @param memberCount Value supplied to the operation.
    * @internal
-   * @returns The participants snapshot result.
+   * @returns The capacity assertion result.
    */
-  removeParticipant(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<void, NotAParticipantError, NetworkSendServiceTag> {
-    return catchSqlErrorAsDefect(
+  assertGroupCapacity(
+    memberCount: number,
+  ): Effect.Effect<void, ConversationFullError> {
+    if (memberCount <= MAX_GROUP_PARTICIPANTS) {
+      return Effect.void;
+    }
+    return Effect.fail(
+      new ConversationFullError({ message: GROUP_OVERFLOW_MSG }),
+    );
+  }
+
+  private insertConversation(
+    input: CreateConversationOptions,
+  ): Effect.Effect<Conversation, SqlError> {
+    return transaction(this.db, (trx) =>
       Effect.gen(
         function* (this: ConversationService) {
-          // Snapshot membership BEFORE delete so the evicted agent
-          // is included in the fan-out target list.
-          const participantsSnapshot =
-            yield* this.getParticipantAgentIds(conversationId);
-          const deleted = yield* this.db
-            .deleteFrom("conversation_participants")
-            .where("conversation_id", "=", conversationId)
-            .where("agent_id", "=", agentId)
-            .returning("conversation_id");
-          if (deleted.length === 0) {
-            return yield* new NotAParticipantError({
-              message: "Participant not found",
-            });
+          const conv = yield* takeFirstOrFail(
+            trx
+              .insertInto("conversations")
+              .values({
+                name: input.name ?? null,
+                created_by_id: input.creatorAgentId,
+              })
+              .returningAll(),
+          );
+          // The creator joins the conversation it opens; membership is the
+          // creator plus every named participant.
+          yield* trx.insertInto("conversation_participants").values({
+            conversation_id: conv.id,
+            agent_id: input.creatorAgentId,
+          });
+          for (const agentId of input.agentIds) {
+            yield* trx
+              .insertInto("conversation_participants")
+              .values({ conversation_id: conv.id, agent_id: agentId })
+              .onConflict((oc) => oc.doNothing());
           }
-          yield* this.connections.removeConversationFromAgent(
-            agentId,
-            conversationId,
-          );
-          yield* broadcastNotificationToAgents(
-            participantsSnapshot,
-            conversationParticipantsRemovedNotificationDefinition,
-            {
-              conversationId,
-              removedAgentId: agentId,
-              reason: "app_remove" as const,
-            },
-          );
+          return mapConversation(conv);
         }.bind(this),
       ),
     );
   }
 
-  /**
-   * Rejects a membership that exceeds the group limit. Callers pass the
-   * resulting member count, so creation and participant addition share one
-   * capacity rule.
-   * @param memberCount Value supplied to the operation.
-   * @internal
+  private subscribeCreatedConversation(
+    input: CreateConversationOptions,
+    conversationId: ConversationId,
+  ): Effect.Effect<void> {
+    // Mirrors `insertConversation`'s membership set.
 ```
 
 Implements conversation service.
@@ -197,22 +197,6 @@ export class ConversationServiceTag extends Context.Tag(
 ```
 
 Implements conversation service tag.
-
-### [`conversationUpdate`](./handlers.ts#L188)
-
-_Variable_
-
-```ts
-export const conversationUpdate: ServerHandler<
-  typeof conversationUpdateDefinition
-> = Effect.fn("conversationUpdate")(function* (params) {
-  return yield* conversationUpdateBody(params, yield* appArm);
-})
-```
-
-Provides the conversation update runtime value.
-
-**Returns:** The conversation update result.
 
 ## Files
 

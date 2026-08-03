@@ -31,7 +31,7 @@ const generatedDatabaseRules = {
     "src/conversation/conversation.service.ts",
     "src/message/message.service.ts",
     "src/identity/agents/handlers.ts",
-    "src/__tests__/integration/messaging/encryption.test.ts",
+    "src/db/schema-migration.test.ts",
     "src/standalone.ts",
     "src/test-utils/core-schema-sql.ts",
   ],
