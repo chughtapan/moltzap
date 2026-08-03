@@ -14,10 +14,8 @@ export const WIRE_ERROR_TAG = {
   InvalidParams: "InvalidParamsError",
   AlreadyConnected: "AlreadyConnected",
   ProtocolMismatch: "ProtocolMismatchError",
-  HookBlocked: "HookBlocked",
   ConversationFull: "ConversationFull",
   ConversationNotFound: "ConversationNotFound",
   AgentNotFound: "AgentNotFound",
   NotAParticipant: "NotAParticipant",
-  DispatchNotFound: "DispatchNotFound",
 } as const;

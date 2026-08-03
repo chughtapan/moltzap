@@ -1,18 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { Redacted, Schema } from "effect";
 import * as fc from "fast-check";
-import { agentKey, appKey } from "@moltzap/protocol/identity";
+import { agentKey } from "@moltzap/protocol/identity";
 import {
   generateApiKey,
-  generateAppKey,
   parseApiKey,
-  parseAppKey,
   hashSecret,
   safeEqual,
 } from "./credential-keys.js";
 
 const AGENT_PREFIX = "moltzap_agent_";
-const APP_PREFIX = "moltzap_app_";
 const KEY_ID_HEX_LEN = 16;
 const SECRET_HEX_LEN = 48;
 const SECRET_HASH_HEX_LEN = 64;
@@ -36,47 +33,13 @@ describe("generateApiKey / parseApiKey", () => {
     ).toBe(secretHash);
   });
 
-  it("rejects an app key", () => {
-    const { appKey } = generateAppKey();
+  it("rejects malformed agent keys", () => {
+    expect(() => Schema.decodeUnknownSync(agentKey)("")).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(agentKey)(Redacted.value(appKey)),
-    ).toThrow();
-  });
-});
-
-describe("generateAppKey / parseAppKey", () => {
-  it("roundtrips a freshly minted app key", () => {
-    const { appKey, keyId, secretHash } = generateAppKey();
-    expect(Redacted.value(appKey).startsWith(APP_PREFIX)).toBe(true);
-    expect(keyId).toHaveLength(KEY_ID_HEX_LEN);
-    expect(secretHash).toHaveLength(SECRET_HASH_HEX_LEN);
-
-    const parsed = parseAppKey(appKey);
-    expect(parsed).not.toBeNull();
-    expect(parsed?.keyId).toBe(keyId);
-    expect(parsed?.secret).toHaveLength(SECRET_HEX_LEN);
-    expect(
-      hashSecret(
-        /* Safe because the test fixture establishes this asserted shape. */ parsed!
-          .secret,
-      ),
-    ).toBe(secretHash);
-  });
-
-  it("rejects an agent key", () => {
-    const { apiKey } = generateApiKey();
-    expect(() =>
-      Schema.decodeUnknownSync(appKey)(Redacted.value(apiKey)),
-    ).toThrow();
-  });
-
-  it("rejects malformed app keys", () => {
-    expect(() => Schema.decodeUnknownSync(appKey)("")).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(appKey)("moltzap_app_short"),
+      Schema.decodeUnknownSync(agentKey)("moltzap_agent_short"),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(appKey)("moltzap_app_0123456789abcdef"),
+      Schema.decodeUnknownSync(agentKey)("moltzap_agent_0123456789abcdef"),
     ).toThrow();
   });
 });
@@ -92,7 +55,7 @@ describe("safeEqual", () => {
   });
 
   it("is reflexive on minted secrets", () => {
-    const { secretHash } = generateAppKey();
+    const { secretHash } = generateApiKey();
     expect(safeEqual(secretHash, secretHash)).toBe(true);
   });
 

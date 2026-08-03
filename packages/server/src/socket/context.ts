@@ -1,5 +1,5 @@
 import { Data, Effect } from "effect";
-import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 
 /**
  * Closed agent lifecycle states. Mirrors
@@ -10,18 +10,13 @@ import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 export type AgentStatus = "active" | "suspended";
 
 /**
- * Principal context arms stored on authenticated socket connections. Handlers
- * receive the arm selected by each method's `requires` head.
+ * The principal context stored on an authenticated socket connection. Every
+ * gated method's `requires` head selects this arm.
  */
 export class AgentContext extends Data.TaggedClass("AgentContext")<{
   readonly agentId: AgentId;
   readonly agentStatus: AgentStatus;
   readonly ownerUserId: UserId;
-}> {}
-
-/** Implements app context. */
-export class AppContext extends Data.TaggedClass("AppContext")<{
-  readonly appId: AppId;
 }> {}
 
 /**

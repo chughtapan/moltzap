@@ -62,11 +62,8 @@ export type { SocketHistoryResponse } from "./socket.js";
 /** Re-exports the public API from `@moltzap/protocol/conversation`. */
 export {
   agentConversationCreate,
-  conversationUpdate,
   conversationList,
 } from "@moltzap/protocol/conversation";
-/** Re-exports the public API from `@moltzap/protocol/identity`. */
-export { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 /** Re-exports the public API from `@moltzap/protocol/message`. */
 export {
   messageReceivedNotificationDefinition,

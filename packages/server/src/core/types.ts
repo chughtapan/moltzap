@@ -2,7 +2,6 @@ import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConnectionManager } from "#socket";
 import type { NetworkSendService } from "#network";
-import type { LeaseRegistry } from "#dispatch";
 
 /** Represents connection hook values. */
 export type ConnectionHook = (params: {
@@ -51,13 +50,5 @@ export interface CoreApp {
    * push decisions, etc.). Stable identity.
    */
   readonly connections: ConnectionManager;
-
-  /**
-   * Server-local lease registry for the
-   * `dispatch/{request, authorize, release}` admission surface.
-   * Stable identity across the server lifetime. Tests + advanced
-   * consumers can read lease state directly via this handle.
-   */
-  readonly leaseRegistry: LeaseRegistry;
   close: () => PromiseLike<undefined>;
 }

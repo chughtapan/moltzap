@@ -7,7 +7,6 @@ import {
   stopCoreTestServer,
   resetCoreTestDb,
   getCoreDb,
-  getCoreEncryptionEnvelope,
   getBaseUrl,
 } from "../../test-utils/server.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
@@ -18,7 +17,7 @@ import {
   type AgentId,
 } from "@moltzap/protocol/identity";
 import type { Part } from "@moltzap/protocol/message";
-import type { TestAgentClient, TestAppClient } from "@moltzap/protocol/testing";
+import type { TestAgentClient } from "@moltzap/protocol/testing";
 import {
   awaitOneNotification,
   registerAndConnect,
@@ -28,8 +27,6 @@ import {
   createTestAgent,
   trackClient,
   registerAgent,
-  registerApp,
-  connectAppClient,
   connectTestClient,
   postJson,
 } from "../../test-utils/helpers.js";
@@ -60,20 +57,18 @@ export type { ConnectedAgent } from "../../test-utils/helpers.js";
 /** Re-exports the public API from `current module`. */
 export {
   awaitOneNotification,
-  connectAppClient,
   connectTestClient,
   createTestAgent,
   getBaseUrl,
   postJson,
   registerAgent,
-  registerApp,
   registerAndConnect,
   setupAgentPair,
   setupAgentGroup,
   trackClient,
 };
 /** Re-exports the public API from `current module`. */
-export type { TestAgentClient, TestAppClient };
+export type { TestAgentClient };
 
 class IntegrationTestHelperError extends Error {
   override readonly name = "IntegrationTestHelperError";
@@ -126,7 +121,6 @@ let coreAppValue: CoreApp | null = null;
 
 interface StartTestServerOptions {
   devMode?: boolean;
-  encryption?: boolean;
 
   /** Optional registration secret forwarded to the core test server. */
   registrationSecret?: string;
@@ -175,7 +169,6 @@ export function startTestServerEffect(optsValue?: StartTestServerOptions) {
       startCoreTestServerFull({
         pgHost,
         pgPort,
-        encryption: opts.encryption,
         registrationSecret: opts.registrationSecret,
         adminUserId: opts.adminUserId,
         spanProcessor: opts.spanProcessor,
@@ -303,14 +296,6 @@ export function getKyselyDb(): ReturnType<typeof getCoreDb> {
  */
 export function getTestCoreApp() {
   return getCoreApp();
-}
-
-/**
- * Returns encryption envelope.
- * @returns The get encryption envelope result.
- */
-export function getEncryptionEnvelope() {
-  return getCoreEncryptionEnvelope();
 }
 
 /**

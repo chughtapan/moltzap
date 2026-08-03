@@ -35,13 +35,7 @@ import { Data, Effect } from "effect";
 import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
 /** Re-exports the public API from `./ids.js`. */
-export {
-  testAgentId,
-  testConversationId,
-  testDispatchId,
-  testLeaseId,
-  testMessageId,
-} from "./ids.js";
+export { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
 const FLUSH_DISPATCH_TURNS = 20;
 

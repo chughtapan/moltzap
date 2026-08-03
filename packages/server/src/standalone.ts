@@ -12,8 +12,6 @@ import {
   type ConfigLoadError,
   type StandaloneBootPlan,
 } from "#config";
-import type { ServerEncryptionMasterSecret } from "#config/secrets";
-import { seedInitialKek, EnvelopeEncryption } from "#db/crypto";
 import {
   sql,
   makeEffectKysely,
@@ -198,16 +196,55 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound> {
 
 /**
  * Run the schema migration. Effect-native: reads the schema file via the
- * platform `FileSystem` service, seeds the KEK row inside an Effect, and
- * bridges to `handle.runMigrationSql` at the Kysely boundary (which still
- * exposes a Promise API for raw DDL).
+ * platform `FileSystem` service and bridges to `handle.runMigrationSql` at the
+ * Kysely boundary (which still exposes a Promise API for raw DDL).
  * @param handle Value supplied to the operation.
- * @param encryptionSecret Value supplied to the operation.
  * @returns The auto migrate effect result.
  */
+/**
+ * A database whose `agents` table exists but whose `messages` table lacks
+ * the plaintext `parts` column predates the current schema generation (or
+ * was partially migrated by hand). Booting against it would pass the
+ * has-schema gate and then fail on every send at runtime, so the mismatch
+ * is a boot error, not a skip: there is no in-place migration path —
+ * recreate the database from the current schema. The check asserts the
+ * REQUIRED current shape in the connection's own schema rather than probing
+ * for retired artifacts, so unrelated tables in other schemas cannot
+ * trip it.
+ * @param handle Value supplied to the operation.
+ * @returns Failure when the schema predates the current generation.
+ */
+function rejectRetiredSchema(
+  handle: DbHandle,
+): Effect.Effect<void, StandaloneOperationFailed> {
+  return Effect.gen(function* () {
+    const shape = yield* Effect.tryPromise({
+      try: () =>
+        sql<{ has_current_shape: boolean }>`
+          SELECT EXISTS (
+            SELECT FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'messages'
+              AND column_name = 'parts'
+          ) AS has_current_shape
+        `.execute(handle.db),
+      catch: (cause) => operationFailed("check schema generation", cause),
+    });
+    if (shape.rows[0]?.has_current_shape !== true) {
+      return yield* Effect.fail(
+        operationFailed(
+          "verify schema generation",
+          new Error(
+            "database schema predates the app-principal/lease removal (messages.parts is missing) and has no in-place migration; recreate the database from db/core-schema.sql",
+          ),
+        ),
+      );
+    }
+  });
+}
+
 function autoMigrateEffect(
   handle: DbHandle,
-  encryptionSecret?: ServerEncryptionMasterSecret,
 ): Effect.Effect<
   void,
   SchemaFileNotFound | StandaloneOperationFailed,
@@ -225,6 +262,7 @@ function autoMigrateEffect(
     });
 
     if (result.rows[0]?.has_schema) {
+      yield* rejectRetiredSchema(handle);
       yield* Effect.logInfo(
         "Database schema already exists, skipping migration",
       );
@@ -240,18 +278,6 @@ function autoMigrateEffect(
       .pipe(Effect.mapError((cause) => operationFailed("read schema", cause)));
 
     yield* handle.runMigrationSql(schema);
-
-    if (encryptionSecret !== undefined) {
-      const envelope = new EnvelopeEncryption(encryptionSecret);
-      yield* Effect.tryPromise({
-        try: () => seedInitialKek(handle.db, envelope),
-        catch: (cause) => operationFailed("seed encryption key", cause),
-      });
-    } else {
-      yield* Effect.logInfo(
-        "Encryption not configured — messages will be stored as plaintext",
-      );
-    }
 
     yield* Effect.logInfo("Database schema applied successfully");
   });
@@ -289,7 +315,7 @@ function startServerEffect(
     const bootPlan = yield* loadStandaloneConfig({ configPath });
     const database = yield* createStandaloneDatabase(bootPlan);
     yield* logDatabaseSelection(database.usePgLite);
-    yield* migrateStandaloneDatabase(database.handle, bootPlan);
+    yield* migrateStandaloneDatabase(database.handle);
     yield* Effect.logWarning("Boot admin user configured").pipe(
       Effect.annotateLogs({ adminUserId: bootPlan.adminUserId }),
     );
@@ -325,13 +351,8 @@ function logDatabaseSelection(usePgLite: boolean): Effect.Effect<void> {
   );
 }
 
-function migrateStandaloneDatabase(
-  handle: DbHandle,
-  bootPlan: StandaloneBootPlan,
-) {
-  return autoMigrateEffect(handle, bootPlan.encryptionMasterSecret).pipe(
-    Effect.provide(NodeFileSystem.layer),
-  );
+function migrateStandaloneDatabase(handle: DbHandle) {
+  return autoMigrateEffect(handle).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 function makeCoreConfig(options: {
@@ -343,7 +364,6 @@ function makeCoreConfig(options: {
     db: handle.db,
     dbCleanup: () =>
       Effect.runPromise(handle.cleanup().pipe(Effect.as(undefined))),
-    encryptionMasterSecret: bootPlan.encryptionMasterSecret,
     port: bootPlan.port,
     corsOrigins: bootPlan.corsOrigins,
     registrationSecret: bootPlan.registrationSecret,

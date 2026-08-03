@@ -1,113 +1,22 @@
-import {
-  DispatchNotFoundError,
-  type LeaseId,
-} from "@moltzap/protocol/message/dispatch";
 import type {
   messagesList as messagesListDefinition,
   messagesSend as messagesSendDefinition,
 } from "@moltzap/protocol/message";
-import { ForbiddenError, type ParamsOf } from "@moltzap/protocol/rpc";
-import type { ConnectionId } from "@moltzap/protocol/socket";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { agentArm } from "#moltzap/runtime";
-import { Effect, Exit } from "effect";
+import { Effect } from "effect";
 import { ConnectionTag, type AgentContext } from "#socket";
-import {
-  LeaseRegistryTag,
-  type LeaseInvalidError,
-  type LeaseRegistry,
-} from "#dispatch";
 import { MessageServiceTag } from "./layer.js";
-import type { MessageService } from "./message.service.js";
 
 type MessagesSendParams = ParamsOf<typeof messagesSendDefinition>;
-
-function claimDispatchLease(leaseRegistry: LeaseRegistry, leaseId: LeaseId) {
-  return leaseRegistry.claim(leaseId).pipe(
-    Effect.catchTags({
-      LeaseInvalidError: (err: LeaseInvalidError) =>
-        Effect.fail(
-          new ForbiddenError({
-            message: `lease ${leaseId} not claimable: state=${err.state}`,
-            data: {
-              reason: "LeaseInvalid",
-              state: err.state,
-              expected:
-                /* Safe because the surrounding invariant establishes this asserted shape. */ err.expected as readonly string[],
-            },
-          }),
-        ),
-      LeaseNotFoundError: () =>
-        Effect.fail(
-          new DispatchNotFoundError({ message: `lease ${leaseId} not found` }),
-        ),
-    }),
-  );
-}
-
-interface LeaseSendInput {
-  readonly connId: ConnectionId;
-  readonly ctx: AgentContext;
-  readonly params: MessagesSendParams;
-  readonly messageService: MessageService;
-  readonly leaseRegistry: LeaseRegistry;
-}
-
-const sendWithDispatchLease = Effect.fn("messages.sendWithDispatchLease")(
-  function* (input: LeaseSendInput) {
-    const leaseId = input.params.dispatchLeaseId;
-    if (leaseId === undefined) {
-      return yield* Effect.dieMessage(
-        "agent/message/send dispatch lease path called without dispatchLeaseId",
-      );
-    }
-    let finalized = false;
-    const message = yield* Effect.scoped(
-      Effect.acquireUseRelease(
-        claimDispatchLease(input.leaseRegistry, leaseId),
-        Effect.fn("messages.sendWithLease")(function* (claim) {
-          const carrier = yield* input.messageService.sendInsert({
-            conversationId: input.params.conversationId,
-            parts: input.params.parts,
-            senderAgentId: input.ctx.agentId,
-            excludeConnectionId: input.connId,
-          });
-          yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
-          finalized = true;
-          return yield* input.messageService.sendCommit(
-            carrier,
-            input.params.conversationId,
-            input.ctx.agentId,
-          );
-        }),
-        (claim, exit) => {
-          if (Exit.isSuccess(exit) || finalized) {
-            return Effect.void;
-          }
-          return claim.rollback.pipe(Effect.ignore);
-        },
-      ),
-    );
-    return { message };
-  },
-);
 
 const handleMessageSend = Effect.fn("messages.send")(function* (
   params: MessagesSendParams,
   ctx: AgentContext,
 ) {
   const messageService = yield* MessageServiceTag;
-  const leaseRegistry = yield* LeaseRegistryTag;
   const connection = yield* ConnectionTag;
-  if (params.dispatchLeaseId !== undefined) {
-    return yield* sendWithDispatchLease({
-      connId: connection.connId,
-      ctx,
-      params,
-      messageService,
-      leaseRegistry,
-    });
-  }
   const message = yield* messageService.send({
     conversationId: params.conversationId,
     parts: params.parts,

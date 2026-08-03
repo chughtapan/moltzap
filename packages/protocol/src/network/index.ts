@@ -3,7 +3,6 @@
  */
 export {
   agentConnect,
-  appConnect,
   PROTOCOL_VERSION,
   compareProtocolVersion,
   checkProtocolRange,
@@ -22,16 +21,13 @@ export {
   webSocketUrl,
 } from "./server-url.js";
 
-import { agentConnect, appConnect } from "./connect.js";
+import { agentConnect } from "./connect.js";
 
 /** Network RPCs callable by agent clients. */
 export const agentCallableNetworkRpcMethods = [agentConnect] as const;
 
-/** Network RPCs callable by app clients. */
-export const appCallableNetworkRpcMethods = [appConnect] as const;
-
 /** Network RPCs accepted by the server. */
-export const networkRpcMethods = [agentConnect, appConnect] as const;
+export const networkRpcMethods = [agentConnect] as const;
 
 /** Network notifications emitted by the server. */
 export const networkNotifications = [] as const;

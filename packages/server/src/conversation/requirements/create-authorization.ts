@@ -5,10 +5,12 @@ import { catchSqlErrorAsDefect } from "#db";
 import type { ConversationFullError } from "@moltzap/protocol/conversation";
 
 /**
- * Capacity authorization for conversation creation. Validates that every
- * named target exists, then checks the resulting membership against the
- * group limit. The creator joins the conversation it opens, so it counts
- * toward the limit alongside the named targets.
+ * Capacity authorization for conversation creation. The capacity check runs
+ * BEFORE the existence lookup so an oversized participants list is rejected
+ * without reaching the database — the lookup's `IN` clause is bounded by the
+ * group limit, not by whatever the caller sent on the wire. The creator
+ * joins the conversation it opens, so it counts toward the limit alongside
+ * the named targets; duplicates collapse before either check.
  * @param agentIds Value supplied to the operation.
  * @returns The authorize conversation create capacity only result.
  */
@@ -22,7 +24,8 @@ export const authorizeConversationCreateCapacityOnly = (
   catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const conversations = yield* ConversationServiceTag;
-      yield* conversations.loadAgentOwners(agentIds);
-      yield* conversations.assertGroupCapacity(agentIds.length + 1);
+      const uniqueAgentIds = [...new Set(agentIds)];
+      yield* conversations.assertGroupCapacity(uniqueAgentIds.length + 1);
+      yield* conversations.loadAgentOwners(uniqueAgentIds);
     }),
   ).pipe(Effect.withSpan("authorizeConversationCreateCapacityOnly"));

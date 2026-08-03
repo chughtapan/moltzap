@@ -8,17 +8,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L219)
-
-_Variable_
-
-```ts
-export const agentCallableDispatchRpcMethods = [dispatchRequest] as const
-```
-
-Lists the agent callable dispatch rpc methods in dispatch order.
-
-### [`agentCallableMessageRpcMethods`](./messages.ts#L137)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L89)
 
 _Variable_
 
@@ -30,16 +20,6 @@ export const agentCallableMessageRpcMethods = [
 ```
 
 Agent-callable message RPC catalog.
-
-### [`appCallableDispatchRpcMethods`](./dispatch.ts#L222)
-
-_Variable_
-
-```ts
-export const appCallableDispatchRpcMethods = [dispatchLeaseGet] as const
-```
-
-Lists the app callable dispatch rpc methods in dispatch order.
 
 ### [`decodeMessageParts`](./parts.ts#L65)
 
@@ -69,284 +49,7 @@ Decode persisted plaintext message parts and die on malformed persisted data.
 
 **Returns:** The decoded message parts text.
 
-### [`DEFAULT_DISPATCH_LEASE_TIMEOUT_MS`](./dispatch.ts#L39)
-
-_Variable_
-
-```ts
-export const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000
-```
-
-Lease lifetime used when a grant omits an explicit timeout.
-
-### [`DispatchAdmissionDecision`](./dispatch.ts#L73)
-
-_TypeAlias_
-
-```ts
-export type DispatchAdmissionDecision = Schema.Schema.Type<
-  typeof dispatchAdmissionDecisionSchema
->;
-```
-
-Represents dispatch admission decision values.
-
-### [`dispatchAuthorize`](./dispatch.ts#L134)
-
-_Variable_
-
-```ts
-export const dispatchAuthorize = defineRpc({
-  name: "app/dispatch/authorize",
-  params: dispatchAuthorizeContextSchema,
-  result: Schema.Struct({ admission: dispatchAdmissionDecisionSchema }),
-  requires: [],
-  errors: [ForbiddenError],
-})
-```
-
-Defines the `app/dispatch/authorize` RPC contract.
-
-### [`dispatchCallbackMethods`](./dispatch.ts#L225)
-
-_Variable_
-
-```ts
-export const dispatchCallbackMethods = [dispatchAuthorize] as const
-```
-
-Lists the dispatch callback methods in dispatch order.
-
-### [`DispatchDecision`](./messages.ts#L74)
-
-_TypeAlias_
-
-```ts
-export type DispatchDecision = Schema.Schema.Type<
-  typeof dispatchDecisionSchemaValue
->;
-```
-
-Per-message dispatch authorization decision persisted with the message.
-
-### [`dispatchDecisionSchema`](./messages.ts#L82)
-
-_Function_
-
-```ts
-export function dispatchDecisionSchema(): typeof dispatchDecisionSchemaValue
-```
-
-Return the canonical persisted dispatch-authorization schema.
-
-**Returns:** A schema shared by storage and wire validation.
-
-### [`dispatchId`](./dispatch.ts#L31)
-
-_Variable_
-
-```ts
-export const dispatchId: Schema.Schema<DispatchId, string> = formatString(
-  "uuid",
-).pipe(
-  Schema.brand("DispatchId"),
-  Schema.annotations({ description: "Branded DispatchId" }),
-)
-```
-
-Validates and decodes dispatch id values.
-
-### [`DispatchId`](./dispatch.ts#L28)
-
-_TypeAlias_
-
-```ts
-export type DispatchId = string & Brand.Brand<"DispatchId">;
-```
-
-Represents dispatch id values.
-
-### [`dispatchLeaseConsumed`](./dispatch.ts#L156)
-
-_Variable_
-
-```ts
-export const dispatchLeaseConsumed = defineNotification({
-  name: "app/dispatch/lease-consumed",
-  params: Schema.Struct({
-    dispatchId: dispatchId,
-    leaseId: leaseId,
-    conversationId: conversationId,
-    messageId: messageId,
-    consumedAt: dateTimeString,
-  }),
-})
-```
-
-Defines the `app/dispatch/lease-consumed` notification contract.
-
-### [`dispatchLeaseExpired`](./dispatch.ts#L168)
-
-_Variable_
-
-```ts
-export const dispatchLeaseExpired = defineNotification({
-  name: "app/dispatch/lease-expired",
-  params: Schema.Struct({
-    dispatchId: dispatchId,
-    leaseId: leaseId,
-    conversationId: conversationId,
-    expiredAt: dateTimeString,
-  }),
-})
-```
-
-Defines the `app/dispatch/lease-expired` notification contract.
-
-### [`dispatchLeaseGet`](./dispatch.ts#L210)
-
-_Variable_
-
-```ts
-export const dispatchLeaseGet = defineRpc({
-  name: "app/dispatch/lease/get",
-  params: Schema.Struct({ dispatchId: dispatchId }),
-  result: Schema.Struct({ lease: leaseRecordSchema }),
-  requires: [AppPrincipal],
-  errors: [DispatchNotFoundError, ForbiddenError],
-})
-```
-
-Defines the `app/dispatch/lease/get` RPC contract.
-
-### [`DispatchNotFoundError`](./dispatch.ts#L42)
-
-_Class_
-
-```ts
-export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
-  "DispatchNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Dispatch not found";
-}
-```
-
-Reports dispatch not found failures.
-
-### [`dispatchNotifications`](./dispatch.ts#L228)
-
-_Variable_
-
-```ts
-export const dispatchNotifications = [
-  dispatchRelease,
-  dispatchLeaseConsumed,
-  dispatchLeaseExpired,
-] as const
-```
-
-Lists the dispatch notification definitions.
-
-### [`dispatchRelease`](./dispatch.ts#L143)
-
-_Variable_
-
-```ts
-export const dispatchRelease = defineNotification({
-  name: "agent/dispatch/released",
-  params: Schema.Struct({
-    dispatchId: dispatchId,
-    leaseId: leaseId,
-    verdict: dispatchAdmissionDecisionSchema,
-    leaseTimeoutMs: Schema.optional(
-      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
-    ),
-  }),
-})
-```
-
-Defines the `agent/dispatch/released` notification contract.
-
-### [`dispatchRequest`](./dispatch.ts#L98)
-
-_Variable_
-
-```ts
-export const dispatchRequest = defineRpc({
-  name: "agent/dispatch/request",
-  params: Schema.Struct({
-    conversationId: conversationId,
-    messageId: messageId,
-    senderAgentId: agentId,
-    parts: Schema.optional(messageParts),
-    receivedAt: Schema.optional(dateTimeString),
-    pending: Schema.optional(pendingMessageArraySchema),
-    attempt: Schema.optional(
-      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
-    ),
-  }),
-  result: Schema.Union(
-    Schema.Struct({ leaseId: leaseId, dispatchId: dispatchId }),
-    Schema.Struct({ outcome: Schema.Literal("conversation_busy") }),
-  ),
-  requires: [AgentPrincipal, ActiveAgent],
-  errors: [],
-})
-```
-
-Recipient admission request. The server returns immediately. A minted lease
-emits `agent/dispatch/released` when the moderator verdict resolves;
-`conversation_busy` creates no lease and emits no release.
-
-**Returns:** `{ leaseId, dispatchId }` when the conversation is reserved, or
-`{ outcome: "conversation_busy" }` without a lease when it is already
-reserved.
-
-### [`HookBlockedError`](./messages.ts#L40)
-
-_Class_
-
-```ts
-export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
-  "HookBlocked",
-  errorPayloadFields,
-) {
-  static readonly message = "Hook blocked the dispatch";
-}
-```
-
-The app that authorizes a conversation refused the dispatch. Raised by
-`agent/message/send` when the app's send hook returns a block verdict (or the
-fail-closed envelope synthesizes one on timeout, RPC error, or decode
-failure). The app's reason rides in the `data` arm when present.
-
-### [`leaseId`](./dispatch.ts#L20)
-
-_Variable_
-
-```ts
-export const leaseId: Schema.Schema<LeaseId, string> = formatString(
-  "uuid",
-).pipe(
-  Schema.brand("LeaseId"),
-  Schema.annotations({ description: "Branded LeaseId" }),
-)
-```
-
-Validates and decodes lease id values.
-
-### [`LeaseId`](./dispatch.ts#L17)
-
-_TypeAlias_
-
-```ts
-export type LeaseId = string & Brand.Brand<"LeaseId">;
-```
-
-Represents lease id values.
-
-### [`Message`](./messages.ts#L56)
+### [`Message`](./messages.ts#L41)
 
 _TypeAlias_
 
@@ -356,17 +59,7 @@ export type Message = Schema.Schema.Type<typeof messageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](./messages.ts#L177)
-
-_Variable_
-
-```ts
-export const messageCallbackMethods = [messagesAuthorize] as const
-```
-
-Message callback RPC catalog.
-
-### [`messageNotifications`](./messages.ts#L198)
+### [`messageNotifications`](./messages.ts#L113)
 
 _Variable_
 
@@ -403,7 +96,7 @@ directly so persisted bodies cannot drift from the wire contract.
 
 **Returns:** The nonempty schema shared by all message boundaries.
 
-### [`MessageReceivedNotification`](./messages.ts#L184)
+### [`MessageReceivedNotification`](./messages.ts#L99)
 
 _TypeAlias_
 
@@ -415,7 +108,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`messageReceivedNotificationDefinition`](./messages.ts#L192)
+### [`messageReceivedNotificationDefinition`](./messages.ts#L107)
 
 _Variable_
 
@@ -428,23 +121,7 @@ export const messageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`messagesAuthorize`](./messages.ts#L168)
-
-_Variable_
-
-```ts
-export const messagesAuthorize = defineRpc({
-  name: "app/message/authorize",
-  params: messagesAuthorizeContextSchema,
-  result: Schema.Struct({ verdict: messagesAuthorizeVerdictSchema }),
-  requires: [],
-  errors: [ForbiddenError],
-})
-```
-
-Server callback asking an app for the per-message fan-out verdict.
-
-### [`messagesList`](./messages.ts#L128)
+### [`messagesList`](./messages.ts#L80)
 
 _Variable_
 
@@ -453,7 +130,7 @@ export const messagesList = defineRpc({
   name: "agent/message/list",
   params: messagesListParams,
   result: messagesListResult,
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [ForbiddenError],
 })
 ```
@@ -461,7 +138,7 @@ export const messagesList = defineRpc({
 List the newest visible messages in a conversation, returned oldest-first.
 The server enforces conversation participation.
 
-### [`messagesSend`](./messages.ts#L106)
+### [`messagesSend`](./messages.ts#L58)
 
 _Variable_
 
@@ -470,12 +147,13 @@ export const messagesSend = defineRpc({
   name: "agent/message/send",
   params: messagesSendParams,
   result: messagesSendResult,
-  requires: [AgentPrincipal, ActiveAgent, ConversationSendAccess],
-  errors: [HookBlockedError, ForbiddenError, DispatchNotFoundError],
+  requires: [AuthenticatedAgent, ActiveAgent, ConversationSendAccess],
+  errors: [],
 })
 ```
 
-Send a message to a conversation.
+Send a message to a conversation. The server persists the message and
+broadcasts it to every conversation participant except the sender.
 
 ### [`Part`](./parts.ts#L34)
 
@@ -487,19 +165,7 @@ export type Part = Schema.Schema.Type<typeof partSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](./messages.ts#L87)
-
-_Variable_
-
-```ts
-export const validateDispatchDecision = closedStructGuard(
-  dispatchDecisionSchemaValue,
-)
-```
-
-Return true when a value is a closed dispatch decision.
-
-### [`validateMessage`](./messages.ts#L59)
+### [`validateMessage`](./messages.ts#L44)
 
 _Variable_
 
@@ -521,6 +187,5 @@ Return true when the value is a closed text part.
 
 ## Files
 
-- `dispatch.ts`
 - `messages.ts`
 - `parts.ts`

@@ -16,17 +16,14 @@ Package subpaths (`imports`/`exports` in `package.json`) mirror this layout:
   subscribers, wire-string helpers, tagged errors.
 - `src/rpc.ts` — published call-site facade: RPC helper types, notification
   subscribers, pagination cursors, shared wire errors.
-- `src/identity/` — agents, apps, users, principal middleware tags,
+- `src/identity/` — agents, users, the `AuthenticatedAgent` principal tag,
   `ActiveAgent`, identity RPCs.
-- `src/network/` — `agent/network/connect`, `app/network/connect`, and the
-  server address: path-free `ServerBaseUrl` plus the `webSocketUrl` endpoint
-  derived from it.
+- `src/network/` — `agent/network/connect` and the server address: path-free
+  `ServerBaseUrl` plus the `webSocketUrl` endpoint derived from it.
 - `src/conversation/`, `src/message/` — conversation and message RPCs,
-  identifiers, notifications, requirement descriptors, dispatch
-  RPCs/callbacks, and `HookBlockedError`.
-- `src/socket/` — `MoltZapAgentClient`, `MoltZapAppClient`, `MoltZapServer`,
-  lifecycle helpers, `ConnectionId`, the `appCallbackMethods` catalog and
-  the derived `AgentCallableGroup`, `AppCallableGroup`, `ServerInboundGroup`,
+  identifiers, notifications, and requirement descriptors.
+- `src/socket/` — `MoltZapAgentClient`, `MoltZapServer`, lifecycle helpers,
+  `ConnectionId`, and the derived `AgentCallableGroup`, `ServerInboundGroup`,
   `NotificationRpcGroup`, `ReverseRpcGroup`.
 - `src/testing/` — lifecycle fixtures, conformance suites, arbitraries,
   toxics.
@@ -38,13 +35,12 @@ Package subpaths (`imports`/`exports` in `package.json`) mirror this layout:
   and requirement metadata.
 - **Requirement** — protocol-owned `RpcMiddleware.Tag` listed by the
   descriptor; the server supplies the per-socket Layer implementing it.
-- **Principal requirement** — `AgentPrincipal`, `AppPrincipal`, or
-  `AuthenticatedPrincipal`; `ActiveAgent` is an agent-only refinement that
-  may follow it. **Domain requirement** — proves domain authority
-  (`ConversationSendAccess`).
-- **Reverse RPC group** — server-to-client: app callbacks plus notifications,
-  served as fire-and-forget `void` RPCs, so subscribers consume typed
-  payloads without a hand-written frame layer.
+- **Principal requirement** — `AuthenticatedAgent`, the single principal
+  gate; `ActiveAgent` is a refinement that may follow it. **Domain
+  requirement** — proves domain authority (`ConversationSendAccess`).
+- **Reverse RPC group** — server-to-client notifications, served as
+  fire-and-forget `void` RPCs, so subscribers consume typed payloads
+  without a hand-written frame layer.
 - **Conformance suite** — property-based tests under
   `src/testing/conformance/` consumed by protocol and server-core suites.
 
@@ -60,10 +56,9 @@ Adding an RPC:
   domain type lives (`Schema.brand`). Shared pagination:
   `transport/pagination.ts`; strict guards: `transport/strict-decode.ts`.
 - `defineRpc({ name, params, result, requires, errors })` — `requires` and
-  `errors` are both required. `requires` starts with one principal
-  requirement, optionally `ActiveAgent`, then domain requirements in run
-  order; `agent/network/connect`, `app/network/connect`, and
-  server-to-client callbacks use `requires: []`. `errors` lists only
+  `errors` are both required. `requires` starts with `AuthenticatedAgent`,
+  optionally `ActiveAgent`, then domain requirements in run order;
+  `agent/network/connect` uses `requires: []`. `errors` lists only
   handler-raised `Schema.TaggedError` classes (`[]` if none) — requirement
   failures come from the requirement tags; there is no numeric error-code
   registry.

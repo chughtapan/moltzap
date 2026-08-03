@@ -2,13 +2,9 @@
 import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import {
   BoundedMap,
-  type LeaseAlreadyConsumed,
-  LeaseStore,
   MoltZapChannelCore,
-  catchLeaseInvalid,
   formatCrossConv,
   formatGroupBlock,
   getGroupFields,
@@ -31,9 +27,9 @@ import {
 } from "../db/messaging-groups.js";
 import type { MessagingGroupAgent } from "../types.js";
 
-// `MoltZapChannelError` covers nanoclaw's host-shape failures that are NOT
-// lease-related (un-owned jid, unknown conversation). Lease errors flow
-// through channel-base's `LeaseAlreadyConsumed` instead.
+// `MoltZapChannelError` covers nanoclaw's host-shape failures: un-owned jid,
+// unknown conversation, disconnected channel. Send failures keep their own
+// `ServiceRpcError` type.
 class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
   readonly reason: string;
 }> {
@@ -144,23 +140,17 @@ interface MoltZapAdapterState {
  *   participant Router as nanoclaw router
  *   Core->>Handler: onInbound(enriched)<br>WS frame decoded + enriched
  *   note over Handler: Step 1 — jidFromConversationId<br>platformId = "mz:" + conversationId
- *   note over Handler: Step 2 — rememberDispatchLease<br>leaseStore.remember(jid, leaseId) if present
+ *   note over Handler: Step 2 — rememberConversation<br>conversationsByJid.set(jid, conversationId)
  *   note over Handler: Step 3 — ensureEvalWiring (eval mode only)<br>conversation rows target the harness-seeded agent
  *   Handler->>Router: Step 4 — setup.onMetadata(jid, name, isGroup)
  *   Handler->>Router: Step 5 — setup.onInbound(jid, null, message)
- *   Router-->>Handler: Step 6 — turn resolves<br>awaited, so the lease outlives the reply
+ *   Router-->>Handler: Step 6 — turn resolves<br>awaited, so the reply binds to its own turn
  * ```
  *
- * The per-jid lease and conversation entries are only sound because Step 6 is
- * awaited: they hold the newest inbound, so a reply that outlived its own turn
- * would read a lease it did not earn. Awaiting keeps at most one turn per
- * adapter in flight, which matches the core's single-fiber inbound drain.
- *
- * Lease-store stale-entry semantic: uses `peek` (not `consume`) so a second
- * `deliver` on the same jid after a consumed lease receives the typed
- * `LeaseAlreadyConsumed` from the server instead of silently sending
- * without a lease (delivery is server-enforced single-use; the local entry
- * is intentionally stale-after-consume).
+ * The per-jid conversation entry is only sound because Step 6 is awaited: it
+ * holds the newest inbound, so a reply that outlived its own turn would
+ * address a conversation it did not come from. Awaiting keeps at most one turn
+ * per adapter in flight, which matches the core's single-fiber inbound drain.
  */
 export class MoltZapAdapter implements ChannelAdapter {
   readonly name = MOLTZAP_CHANNEL;
@@ -168,11 +158,6 @@ export class MoltZapAdapter implements ChannelAdapter {
   readonly supportsThreads = false;
   readonly defaults = MOLTZAP_DEFAULTS;
 
-  // Stale-entry-on-retry semantic via `peek` (not `consume`): when a second
-  // deliver races a consumed lease, the entry stays in the store, the
-  // server returns the typed wire error, and channel-base projects it to
-  // `LeaseAlreadyConsumed`.
-  private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
   // Per-jid memory of the branded conversation id from the most recent
   // inbound. Keeping the branded id avoids re-decoding it on every reply.
   // Bounded: an evicted conversation degrades to the unknown-jid deliver
@@ -245,15 +230,9 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   /**
-   * Outbound reply path with single-use lease semantics: the FIRST deliver
-   * consumes the lease via `core.sendReply`. Any subsequent deliver for the
-   * same jid within the same dispatch finds the lease entry STILL in the
-   * store (peek-style, no removal) AND the lease in `CONSUMED` state
-   * server-side; the typed wire error flows through channel-base's
-   * `catchLeaseInvalid` and surfaces as the canonical `LeaseAlreadyConsumed`
-   * tagged error. Keeping the entry makes the duplicate-send surface
-   * uniform: a second deliver is rejected rather than silently re-sent
-   * unleased.
+   * Outbound reply path: the reply addresses the conversation recorded by the
+   * jid's most recent inbound, which is the turn the router is answering
+   * because `handleInbound` awaits that turn.
    * @param platformId Value supplied to the operation.
    * @param args Thread identifier and outbound message supplied by Nanoclaw.
    * @returns The text result.
@@ -309,10 +288,7 @@ export class MoltZapAdapter implements ChannelAdapter {
   private deliverEffect(
     jid: string,
     text: string,
-  ): Effect.Effect<
-    void,
-    LeaseAlreadyConsumed | MoltZapChannelError | ServiceRpcError
-  > {
+  ): Effect.Effect<void, MoltZapChannelError | ServiceRpcError> {
     return Effect.gen(
       function* (this: MoltZapAdapter) {
         if (!this.ownsJid(jid)) {
@@ -320,8 +296,6 @@ export class MoltZapAdapter implements ChannelAdapter {
             reason: `MoltZap channel does not own jid: ${jid}`,
           });
         }
-        const leaseEntry = yield* this.dispatchLeases.peek(jid);
-        const leaseId = Option.getOrUndefined(leaseEntry);
         const conversation = this.conversationsByJid.get(jid);
         if (conversation === undefined) {
           return yield* new MoltZapChannelError({
@@ -334,18 +308,7 @@ export class MoltZapAdapter implements ChannelAdapter {
             reason: "MoltZap channel is not connected",
           });
         }
-        yield* core
-          .sendReply(
-            conversation.conversationId,
-            text,
-            leaseId === undefined ? {} : { dispatchLeaseId: leaseId },
-          )
-          .pipe(
-            catchLeaseInvalid(leaseId !== undefined ? { leaseId } : undefined),
-          );
-        // Keep the lease entry: a second deliver for the same jid re-uses the
-        // consumed lease and triggers the server's CONSUMED rejection
-        // (single-use semantics).
+        yield* core.sendReply(conversation.conversationId, text);
       }.bind(this),
     );
   }
@@ -359,13 +322,12 @@ export class MoltZapAdapter implements ChannelAdapter {
     });
   }
 
-  // The host turn is awaited rather than forked, which is what keeps the
-  // dispatch lease paired with the turn that earned it. The core keeps
-  // conversation-scoped authority while draining inbound work on a single
-  // fiber, so returning before the turn finishes would end that authority while
-  // the reply is still pending: a later inbound would overwrite the per-jid
-  // lease and conversation entries, and the earlier reply would then consume
-  // the newer lease. Awaiting costs conversation-level concurrency, which the
+  // The host turn is awaited rather than forked, which is what keeps a reply
+  // bound to the turn that produced it. The core drains inbound work on a
+  // single fiber, so returning before the turn finishes would let a later
+  // inbound overwrite the per-jid conversation entry while the earlier reply
+  // is still pending, and that reply would then address the newer
+  // conversation. Awaiting costs conversation-level concurrency, which the
   // core does not offer anyway.
   private handleInbound(
     enriched: EnrichedInboundMessage,
@@ -381,7 +343,6 @@ export class MoltZapAdapter implements ChannelAdapter {
         return Effect.void;
       }
       const jid = jidFromConversationId(enriched.conversationId);
-      this.rememberDispatchLease(jid, enriched);
       this.rememberConversation(jid, enriched);
       const isGroup = enriched.conversationMeta?.type === "group";
       if (this.evalMode) {
@@ -403,17 +364,6 @@ export class MoltZapAdapter implements ChannelAdapter {
           }),
       }).pipe(Effect.asVoid);
     });
-  }
-
-  private rememberDispatchLease(
-    jid: string,
-    enriched: EnrichedInboundMessage,
-  ): void {
-    if (enriched.dispatchLeaseId) {
-      Effect.runSync(
-        this.dispatchLeases.remember(jid, enriched.dispatchLeaseId),
-      );
-    }
   }
 
   // Nanoclaw's router consumes the content text verbatim into prompt XML,

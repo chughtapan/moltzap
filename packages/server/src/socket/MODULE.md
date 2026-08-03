@@ -8,7 +8,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](./connection.ts#L101)
+### [`AgentConnection`](./connection.ts#L50)
 
 _Interface_
 
@@ -34,10 +34,10 @@ export class AgentContext extends Data.TaggedClass("AgentContext")<{
 }> {}
 ```
 
-Principal context arms stored on authenticated socket connections. Handlers
-receive the arm selected by each method's `requires` head.
+The principal context stored on an authenticated socket connection. Every
+gated method's `requires` head selects this arm.
 
-### [`agentContextFrom`](./context.ts#L37)
+### [`agentContextFrom`](./context.ts#L32)
 
 _Function_
 
@@ -68,46 +68,17 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`AppConnection`](./connection.ts#L107)
-
-_Interface_
-
-```ts
-class AppConnection extends Data.TaggedClass("AppConnection")<
-  ConnectionBase & { readonly auth: AppContext }
-> {
-  private readonly brandValue!: never;
-}
-```
-
-Re-exports the public API from `current module`.
-
-### [`AppContext`](./context.ts#L23)
-
-_Class_
-
-```ts
-export class AppContext extends Data.TaggedClass("AppContext")<{
-  readonly appId: AppId;
-}> {}
-```
-
-Implements app context.
-
-### [`Connection`](./connection.ts#L117)
+### [`Connection`](./connection.ts#L60)
 
 _TypeAlias_
 
 ```ts
-export type Connection =
-  | UnauthenticatedConnection
-  | AgentConnection
-  | AppConnection;
+export type Connection = UnauthenticatedConnection | AgentConnection;
 ```
 
-The three-arm connection state — the connections map's only entry shape.
+The two-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L221)
+### [`ConnectionManager`](./connection.ts#L137)
 
 _Class_
 
@@ -131,7 +102,7 @@ export class ConnectionManager {
 
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
-   * at WebSocket open. The Connect handler promotes it to the agent/app arm.
+   * at WebSocket open. The Connect handler promotes it to the agent arm.
    * @param connId Value supplied to the operation.
    * @param socket Value supplied to the operation.
    * @param originator Value supplied to the operation.
@@ -185,16 +156,16 @@ export class ConnectionManager {
   }
 
   /**
-   * Atomic per-connection authentication gate. Pattern-matches on
-   * `auth._tag` once to decide which arm to mint. Returns a split-per-arm
-   * `TransitionOutcome` so callers narrow without a cast.
+   * Atomic per-connection authentication gate. Mints the agent arm from the
+   * unauthenticated entry and returns a `TransitionOutcome` whose success arm
+   * carries the minted connection, so callers narrow without a cast.
    * @param connId Value supplied to the operation.
    * @param auth Value supplied to the operation.
    * @returns The current result.
    */
   authenticate(
     connId: ConnectionId,
-    auth: AgentContext | AppContext,
+    auth: AgentContext,
   ): Effect.Effect<TransitionOutcome> {
     return Ref.modify(this.stateRef, (state) => {
       const current = HashMap.get(state.connections, connId);
@@ -210,28 +181,27 @@ export class ConnectionManager {
           ],
         ),
         Match.tag(
-          "AppConnection",
-          (existing): [TransitionOutcome, typeof state] => [
-            { kind: "already-connected", existing },
-            state,
-          ],
-        ),
-        Match.tag(
           "UnauthenticatedConnection",
           (unauth): [TransitionOutcome, typeof state] => {
-            const { outcome, minted } = mintAuthedArm(
-              {
-                connId: unauth.connId,
-                socket: unauth.socket,
-                originator: unauth.originator,
-              },
+            const authed = new AgentConnection({
+              connId: unauth.connId,
+              socket: unauth.socket,
+              originator: unauth.originator,
               auth,
-            );
+            });
             return [
-              outcome,
+              { kind: "ok-agent", authed },
               {
                 ...state,
-                connections: HashMap.set(state.connections, connId, minted),
+                connections: HashMap.set(state.connections, connId, authed),
+              },
+            ];
+          },
+        ),
+        Match.exhaustive,
+      );
+    });
+  }
 ```
 
 Implements connection manager.
@@ -274,7 +244,7 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`Originator`](./connection.ts#L66)
+### [`Originator`](./connection.ts#L15)
 
 _TypeAlias_
 
@@ -287,14 +257,12 @@ callbacks/notifications through. Constructed by protocol `MoltZapServer`
 during socket accept and passed to
 `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
 
-### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L101)
+### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L87)
 
 _TypeAlias_
 
 ```ts
 export type PrincipalBoundaryCanaries = [
-  AgentHasNoAppId,
-  AppHasNoAgentId,
   UnauthenticatedHasNoAuth,
   ForgedAgentRejected,
   InvalidBootPhaseRejected,
@@ -303,14 +271,13 @@ export type PrincipalBoundaryCanaries = [
 
 Compile-time assertions for the principal and boot-failure boundaries.
 
-### [`principalCanaryRefs`](./principal.types-check.ts#L112)
+### [`principalCanaryRefs`](./principal.types-check.ts#L96)
 
 _Variable_
 
 ```ts
 export const principalCanaryRefs: readonly unknown[] = [
   agentIdValue,
-  appIdValue,
   principalTag,
   narrowOutcome,
   bootFail,
@@ -319,33 +286,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`sendRpcToClient`](./connection.ts#L29)
-
-_Function_
-
-```ts
-export function sendRpcToClient(
-  originator: Originator,
-  request: Extract<
-    ReverseCallbackRequest,
-    { readonly definition: typeof dispatchAuthorize }
-  >,
-): Effect.Effect<
-  ReverseCallbackSuccess<typeof dispatchAuthorize>,
-  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError
->
-```
-
-Send an awaitable RPC from server → client over the connection's reverse
-client. Narrows `D` to the moderator-callback union so a client→server method
-cannot be fired on the reverse channel by mistake. Domain callback services
-source the Originator from the registered app's `AppEndpoint`, minted
-from the live `AppConnection` arm. Caller controls timeout via
-`Effect.timeout` at the call site.
-
-**Returns:** The send rpc to client result.
-
-### [`TransitionOutcome`](./connection.ts#L128)
+### [`TransitionOutcome`](./connection.ts#L68)
 
 _TypeAlias_
 
@@ -354,12 +295,12 @@ export type TransitionOutcome =
   | { readonly kind: "not-connected" }
 ```
 
-Outcome of `ConnectionManager.authenticate`'s atomic transition. The
-success arms are split per minted arm so the Connect handler's
+Outcome of `ConnectionManager.authenticate`'s atomic transition. The success
+arm carries the minted connection so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](./connection.ts#L95)
+### [`UnauthenticatedConnection`](./connection.ts#L44)
 
 _Interface_
 
@@ -373,7 +314,7 @@ class UnauthenticatedConnection extends Data.TaggedClass(
 
 Re-exports the public API from `current module`.
 
-### [`WebSocketRef`](./connection.ts#L71)
+### [`WebSocketRef`](./connection.ts#L20)
 
 _Interface_
 

@@ -198,7 +198,6 @@ function standaloneEnv(configPath: string, port: number): NodeJS.ProcessEnv {
     MOLTZAP_ADMIN_USER_ID: "00000000-0000-4000-8000-000000000001",
     MOLTZAP_DEV_MODE: "true",
     PORT: String(port),
-    ENCRYPTION_MASTER_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   };
 }
 

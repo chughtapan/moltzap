@@ -1,7 +1,7 @@
 # @moltzap/server-core
 
 Standalone MoltZap server runtime: Effect Layers for the service
-graph, WebSocket + HTTP transport, dispatch/conversation/message domain
+graph, WebSocket + HTTP transport, conversation/message domain
 services, Kysely persistence on PostgreSQL or embedded PGlite (no
 database URL configured, and all tests). Ships as a binary
 (`bin/moltzap-server`); the root barrel is intentionally `export {}` —
@@ -15,11 +15,10 @@ packages/server/src/
 ├── moltzap/         # protocol adapter: handler catalog, requirement middleware layers
 ├── socket/          # WS connection/session primitives
 ├── http/            # HTTP routes + Node HTTP server
-├── identity/        # agents, apps, auth
+├── identity/        # agent auth + credential keys
 ├── network/         # connection liveness, send routing, outbound caps
 ├── conversation/    # conversation service + requirements
 ├── message/         # message service + message RPC handlers
-├── dispatch/        # LeaseRegistry + dispatch admission handlers
 ├── db/              # Kysely schema, snowflake IDs, effect-kysely-toolkit
 ├── config.ts        # YAML config loader; config/secrets.ts — secret material
 ├── test-utils/      # PGlite boot + test drivers
@@ -29,51 +28,42 @@ packages/server/src/
 
 ## Concepts
 
-- **Dispatch lease** — single-use token gating inbound message
-  processing; in-memory only, in `LeaseRegistry`
-  (`dispatch/lease-registry.ts`). States PENDING → GRANTED / DENIED /
-  HOLD → CLAIMED → CONSUMED / EXPIRED / ABANDONED; atomic transitions
-  via `Ref.modify`; CLAIMED rollback restores GRANTED on insert
-  failure.
-- **App authority** — authority over a conversation. `DEFAULT_APP_ID`
-  covers ordinary DMs/groups (no moderator); a registered app's UUID
-  covers app-moderated conversations. `conversations.app_id`
-  (`TEXT NOT NULL`) is the routing key; there is no separate
-  endpoint-address column — app endpoint identity derives from
-  `app_id` at routing time. The agent opening a conversation names the
-  server-minted `appId` that moderates it; `app/conversation/update`
-  compares the caller against the stored key via
-  `assertCallerAppOwnsConversation`.
+- **Conversation membership** — fixed at creation. The creator plus the
+  named participants become the `conversation_participants` rows, and
+  nothing on the wire mutates them afterwards. Participation is
+  therefore the whole read and send gate; conversations carry no
+  authority column.
 - **Domain requirement** — protocol-owned `RpcMiddleware.Tag` whose
   implementation resolves runtime IDs or already-fetched rows for a
   handler (e.g. `ConversationSendAccess` proves sender membership and
-  loads the conversation row the send path reads).
+  that the conversation row still exists).
   Implemented per socket in `moltzap/auth-middleware-layers.ts`.
+- **Principal gate** — `AuthenticatedAgent` is the only principal
+  requirement, so `moltzap/principal-gate.ts` narrows the live arm to
+  `AgentContext` or fails `Forbidden`. `ActiveAgent` reuses the same
+  narrowing with the active-status check.
 - **CoreApp / ManagedRuntime** — `createCoreApp` composes services +
   Kysely + Layers and builds the persistent runtime once from
   `FullLive`; all dispatch fibers run on it, so handler `yield* Tag`
   reads resolve structurally without per-frame `Effect.provide`.
-- **ConnectionManager** — live three-arm `Connection` records
-  (`UnauthenticatedConnection` / `AgentConnection` / `AppConnection`)
-  in a `Ref<HashMap<ConnectionId, Connection>>`. Mutate only via
+- **ConnectionManager** — live two-arm `Connection` records
+  (`UnauthenticatedConnection` / `AgentConnection`) in a
+  `Ref<HashMap<ConnectionId, Connection>>`. Mutate only via
   `addUnauthenticated`, `authenticate`, `rollbackToUnauthenticated`,
   `removeAndReturn`.
 - **AgentEndpointResolver** — `AgentId → HashSet<ConnectionId>`
   multimap kept fresh by `network/connect` success and the disconnect
   finalizer; read by `NetworkSendService` for O(1) outbound routing.
-- **AppEndpointRegistry** — live app endpoints keyed by server-minted
-  `AppId`; domain services look up registered endpoints through it.
-- **Hook envelope** — `wrapHookEffectWithEnvelope`
-  (`identity/apps/callback-rpc.ts`): fail-CLOSED wrapper adding
-  timeout, on-error, and on-timeout fallback verdicts to any hook
-  runner.
+- **Message storage** — `messages.parts` is plaintext JSONB. The write
+  side stringifies the wire `MessageParts`; the read side runs the
+  strict `decodeMessageParts` decode, so a hand-edited row cannot reach
+  the wire. There is no at-rest encryption or key rotation.
 - **Layer-tag hierarchy** — allowlist of the Effect Tags each protocol
   layer may pull (`TransportTags ⊂ IdentityTags ⊂ NetworkTags ⊂
-  ConversationTags ⊂ AppTags`, `moltzap/layer-tags.ts`). Only `AppTags`
-  is
-  enforced in types: `http/routes.ts` bounds the socket dispatch
-  effect's `R` to `Exclude<AppTags, ConnectionTag>`; the per-layer
-  subsets guide Tag placement.
+  ServerTags`, `moltzap/layer-tags.ts`). Only `ServerTags` is enforced
+  in types: `http/routes.ts` bounds the socket dispatch effect's `R` to
+  `Exclude<ServerTags, ConnectionTag>`; the per-layer subsets guide Tag
+  placement.
 
 ## Code
 

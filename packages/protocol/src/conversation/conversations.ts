@@ -5,15 +5,9 @@
 import { Schema } from "effect";
 import { agentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
-import { AgentPrincipal, AppPrincipal } from "#identity/principals";
-import {
-  ForbiddenError,
-  InvalidParamsError,
-  listLimitSchema,
-  stringEnum,
-} from "#transport";
+import { AuthenticatedAgent } from "#identity/principals";
+import { InvalidParamsError, listLimitSchema } from "#transport";
 import { defineNotification, defineRpc } from "#transport/descriptor";
-import { appId } from "#identity/apps";
 import {
   ConversationFullError,
   conversationId,
@@ -24,15 +18,21 @@ import { conversationNameSchema } from "./name.js";
 
 const conversationSchemaValue = conversationSchema();
 
+// Wire bound on the create participants list. Mirrors the server's group
+// capacity so an oversized request is rejected at decode, before any
+// handler or database work runs; the server still enforces the effective
+// limit (creator included) after deduplication.
+const MAX_CREATE_PARTICIPANTS = 256;
+
 // ═══════════════════════════════════════════════════════════════════
 // agent/conversation/create
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Mint a conversation naming its participants and the app that authorizes
- * it. The caller joins the conversation it creates.
+ * Mint a conversation naming its participants. The caller joins the
+ * conversation it creates; membership is fixed at creation.
  *
- * - **Principal:** `AgentPrincipal` + `ActiveAgent`. Reachability is the
+ * - **Principal:** `AuthenticatedAgent` + `ActiveAgent`. Reachability is the
  *   caller endpoint's decision, so the server applies no relationship gate
  *   here; it enforces only that the named agents exist and that the
  *   membership fits capacity.
@@ -43,12 +43,14 @@ const conversationSchemaValue = conversationSchema();
 export const agentConversationCreate = defineRpc({
   name: "agent/conversation/create",
   params: Schema.Struct({
-    appId: appId,
     name: Schema.optional(conversationNameSchema),
-    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
+    participants: Schema.Array(agentId).pipe(
+      Schema.minItems(1),
+      Schema.maxItems(MAX_CREATE_PARTICIPANTS),
+    ),
   }),
   result: Schema.Struct({ conversation: conversationSchemaValue }),
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [AgentNotFoundError, ConversationFullError],
 });
 
@@ -71,7 +73,7 @@ export type ConversationListItem = Schema.Schema.Type<
  * filter params: the visibility contract is "caller in
  * `conversation_participants`", and any further narrowing is the endpoint's.
  *
- * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
+ * - **Principal:** `AuthenticatedAgent` head + `ActiveAgent` (active agent).
  * @error InvalidParamsError when the `cursor` does not decode
  * @error ConversationNotFoundError when a listed conversation's row vanished mid-projection
  */
@@ -85,53 +87,12 @@ export const conversationList = defineRpc({
     items: Schema.Array(conversationListItemSchema),
     nextCursor: Schema.optional(Schema.String),
   }),
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [InvalidParamsError, ConversationNotFoundError],
-});
-
-const conversationUpdateParamsSchema = Schema.Union(
-  Schema.Struct({
-    action: Schema.Literal("add-participant"),
-    conversationId: conversationId,
-    agentId: agentId,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("remove-participant"),
-    conversationId: conversationId,
-    agentId: agentId,
-  }),
-);
-
-/** Represents conversation update params values. */
-export type ConversationUpdateParams = Schema.Schema.Type<
-  typeof conversationUpdateParamsSchema
->;
-
-/**
- * App-only conversation mutation surface. `app/conversation/update` owns
- * participant add and participant remove semantics.
- *
- * - **Principal:** `AppPrincipal` head.
- * @error ForbiddenError when the caller does not own the conversation
- * @error ConversationNotFoundError when the conversation does not exist
- * @error ConversationFullError when adding the agent would exceed capacity
- */
-export const conversationUpdate = defineRpc({
-  name: "app/conversation/update",
-  params: conversationUpdateParamsSchema,
-  result: Schema.Struct({}),
-  requires: [AppPrincipal],
-  errors: [ForbiddenError, ConversationNotFoundError, ConversationFullError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
 // agent/conversation/* notifications
-//
-// Recipient fan-out:
-//   - `created` → initial `participants` list
-//   - `participants/added` → post-mutation membership (newcomer included)
-//   - `participants/removed` → pre-mutation membership (so the removed agent
-//     still receives the notification)
 // ═══════════════════════════════════════════════════════════════════
 
 const conversationCreatedNotificationSchema = Schema.Struct({
@@ -140,30 +101,9 @@ const conversationCreatedNotificationSchema = Schema.Struct({
   participants: Schema.Array(agentId),
 });
 
-const conversationParticipantsAddedNotificationSchema = Schema.Struct({
-  conversationId: conversationId,
-  addedAgentId: agentId,
-});
-
-const conversationParticipantsRemovedNotificationSchema = Schema.Struct({
-  conversationId: conversationId,
-  removedAgentId: agentId,
-  reason: stringEnum(["app_remove"]),
-});
-
 /** Notification payload for `agent/conversation/created`. */
 export type ConversationCreatedNotification = Schema.Schema.Type<
   typeof conversationCreatedNotificationSchema
->;
-
-/** Notification payload for `agent/conversation/participants-added`. */
-export type ConversationParticipantsAddedNotification = Schema.Schema.Type<
-  typeof conversationParticipantsAddedNotificationSchema
->;
-
-/** Notification payload for `agent/conversation/participants-removed`. */
-export type ConversationParticipantsRemovedNotification = Schema.Schema.Type<
-  typeof conversationParticipantsRemovedNotificationSchema
 >;
 
 /** Pushed when a conversation is created. */
@@ -172,32 +112,13 @@ export const conversationCreatedNotificationDefinition = defineNotification({
   params: conversationCreatedNotificationSchema,
 });
 
-/** Pushed when a participant is added to a conversation. */
-export const conversationParticipantsAddedNotificationDefinition =
-  defineNotification({
-    name: "agent/conversation/participants-added",
-    params: conversationParticipantsAddedNotificationSchema,
-  });
-
-/** Pushed when a participant is removed from a conversation. */
-export const conversationParticipantsRemovedNotificationDefinition =
-  defineNotification({
-    name: "agent/conversation/participants-removed",
-    params: conversationParticipantsRemovedNotificationSchema,
-  });
-
 /** Agent-callable conversation RPC catalog. */
 export const agentCallableConversationRpcMethods = [
   conversationList,
   agentConversationCreate,
 ] as const;
 
-/** App-callable conversation RPC catalog. */
-export const appCallableConversationRpcMethods = [conversationUpdate] as const;
-
 /** Conversation notification catalog. */
 export const conversationNotifications = [
   conversationCreatedNotificationDefinition,
-  conversationParticipantsAddedNotificationDefinition,
-  conversationParticipantsRemovedNotificationDefinition,
 ] as const;

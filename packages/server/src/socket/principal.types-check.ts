@@ -1,6 +1,6 @@
 /**
- * @file Compile-time canary for the three-arm `Connection` discriminated union
- * and the principal context arms. These assertions encode the type-level
+ * @file Compile-time canary for the two-arm `Connection` discriminated union
+ * and the agent principal context. These assertions encode the type-level
  * invariants the runtime never re-checks: the nominal brand boundary, per-arm
  * `auth` narrowing, and exhaustive `Match.tag` discrimination. A regression in
  * `connection.ts` / `context.ts` surfaces here as a compile error, not at
@@ -12,36 +12,24 @@
 import { Match } from "effect";
 import type {
   AgentConnection,
-  AppConnection,
   Connection,
   TransitionOutcome,
   UnauthenticatedConnection,
 } from "./connection.js";
-import type { AgentContext, AppContext } from "./context.js";
+import type { AgentContext } from "./context.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ServerBootFailedError } from "#core";
 
 declare const agentConn: AgentConnection;
-declare const appConn: AppConnection;
 declare const conn: Connection;
 
 // --- per-arm `auth` narrowing -----------------------------------------
 
 type ExpectFalse<Value extends false> = Value;
 
-// AgentConnection.auth is AgentContext: agentId reads and appId is absent.
+// AgentConnection.auth is AgentContext: agentId reads off the authed arm.
 const agentAuth: AgentContext = agentConn.auth;
 const agentIdValue: AgentId = agentAuth.agentId;
-type AgentHasNoAppId = ExpectFalse<
-  "appId" extends keyof AgentConnection["auth"] ? true : false
->;
-
-// AppConnection.auth is AppContext: appId reads and agentId is absent.
-const appAuth: AppContext = appConn.auth;
-const appIdValue = appAuth.appId;
-type AppHasNoAgentId = ExpectFalse<
-  "agentId" extends keyof AppConnection["auth"] ? true : false
->;
 type UnauthenticatedHasNoAuth = ExpectFalse<
   "auth" extends keyof UnauthenticatedConnection ? true : false
 >;
@@ -64,24 +52,22 @@ type ForgedAgentRejected = ExpectFalse<
 
 // --- exhaustive Match.tag discrimination -------------------------------
 
-const principalOf = (c: Connection): "agent" | "app" | "anon" =>
+const principalOf = (c: Connection): "agent" | "anon" =>
   Match.value(c).pipe(
     Match.tag("AgentConnection", () => "agent" as const),
-    Match.tag("AppConnection", () => "app" as const),
     Match.tag("UnauthenticatedConnection", () => "anon" as const),
     Match.exhaustive,
   );
-const principalTag: "agent" | "app" | "anon" = principalOf(conn);
+const principalTag: "agent" | "anon" = principalOf(conn);
 
-// --- split-per-arm TransitionOutcome narrows `authed` without a cast ------
+// --- TransitionOutcome narrows `authed` without a cast ------------------
 
 declare const outcome: TransitionOutcome;
-const narrowOutcome = (): AgentConnection | AppConnection | null =>
+const narrowOutcome = (): AgentConnection | null =>
   Match.value(outcome).pipe(
     Match.when({ kind: "not-connected" }, () => null),
-    // app/agent arms expose the matching `authed` arm structurally — no cast.
+    // The success arm exposes `authed` structurally — no cast.
     Match.when({ kind: "ok-agent" }, ({ authed }): AgentConnection => authed),
-    Match.when({ kind: "ok-app" }, ({ authed }): AppConnection => authed),
     Match.when({ kind: "already-connected" }, ({ existing }) => existing),
     Match.exhaustive,
   );
@@ -99,8 +85,6 @@ type InvalidBootPhaseRejected = ExpectFalse<
 
 /** Compile-time assertions for the principal and boot-failure boundaries. */
 export type PrincipalBoundaryCanaries = [
-  AgentHasNoAppId,
-  AppHasNoAgentId,
   UnauthenticatedHasNoAuth,
   ForgedAgentRejected,
   InvalidBootPhaseRejected,
@@ -111,7 +95,6 @@ export type PrincipalBoundaryCanaries = [
 /** Provides the principal canary refs runtime value. */
 export const principalCanaryRefs: readonly unknown[] = [
   agentIdValue,
-  appIdValue,
   principalTag,
   narrowOutcome,
   bootFail,

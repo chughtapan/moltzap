@@ -78,10 +78,6 @@ const closeSocketSession = Effect.fn("socket.closeSession")(function* (
       session.connId,
     );
   }
-  yield* options.services.leaseRegistry.abandon(session.connId);
-  options.services.appEndpointRegistry.unregisterAppsForConnection(
-    session.connId,
-  );
 });
 
 const runDisconnectionHooks = Effect.fn("socket.runDisconnectionHooks")(
