@@ -18,6 +18,12 @@ import { conversationNameSchema } from "./name.js";
 
 const conversationSchemaValue = conversationSchema();
 
+// Wire bound on the create participants list. Mirrors the server's group
+// capacity so an oversized request is rejected at decode, before any
+// handler or database work runs; the server still enforces the effective
+// limit (creator included) after deduplication.
+const MAX_CREATE_PARTICIPANTS = 256;
+
 // ═══════════════════════════════════════════════════════════════════
 // agent/conversation/create
 // ═══════════════════════════════════════════════════════════════════
@@ -38,7 +44,10 @@ export const agentConversationCreate = defineRpc({
   name: "agent/conversation/create",
   params: Schema.Struct({
     name: Schema.optional(conversationNameSchema),
-    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
+    participants: Schema.Array(agentId).pipe(
+      Schema.minItems(1),
+      Schema.maxItems(MAX_CREATE_PARTICIPANTS),
+    ),
   }),
   result: Schema.Struct({ conversation: conversationSchemaValue }),
   requires: [AuthenticatedAgent, ActiveAgent],

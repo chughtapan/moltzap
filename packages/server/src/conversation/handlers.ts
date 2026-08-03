@@ -22,7 +22,11 @@ const agentConversationCreateBody = Effect.fn("conversation.create.agent")(
     ctx: AgentContext,
   ) {
     const conversationService = yield* ConversationServiceTag;
-    const participants = [...params.participants];
+    // Deduped once at the boundary: creation, the created notification's
+    // membership payload, and its fan-out all work from the same set, so a
+    // repeated participant id cannot amplify notifications or desync the
+    // payload from the stored membership.
+    const participants = [...new Set(params.participants)];
     yield* authorizeConversationCreateCapacityOnly(participants);
     const conversation = yield* conversationService.create({
       ...(params.name === undefined ? {} : { name: params.name }),
@@ -31,7 +35,7 @@ const agentConversationCreateBody = Effect.fn("conversation.create.agent")(
     });
     yield* fanoutConversationCreate({
       conversation,
-      participants: [ctx.agentId, ...participants],
+      participants: [...new Set([ctx.agentId, ...participants])],
       ...(params.name === undefined ? {} : { name: params.name }),
     });
     return { conversation };

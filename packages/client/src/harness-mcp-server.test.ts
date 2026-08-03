@@ -326,7 +326,7 @@ const exposesOnlyExistingStatusBehavior = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
   const localHandlers = makeLocalDaemonHandlers({
     ownAgentId,
-    connected: true,
+    connected: () => true,
     conversationCount: () => 3,
     call: () => {
       throw new Error("status must not call an agent RPC");

@@ -8,7 +8,7 @@ Conversation-domain requirement helpers.
 
 ## Public surface
 
-### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L15)
+### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L17)
 
 _Function_
 
@@ -22,10 +22,12 @@ export const authorizeConversationCreateCapacityOnly = (
 >
 ```
 
-Capacity authorization for conversation creation. Validates that every
-named target exists, then checks the resulting membership against the
-group limit. The creator joins the conversation it opens, so it counts
-toward the limit alongside the named targets.
+Capacity authorization for conversation creation. The capacity check runs
+BEFORE the existence lookup so an oversized participants list is rejected
+without reaching the database — the lookup's `IN` clause is bounded by the
+group limit, not by whatever the caller sent on the wire. The creator
+joins the conversation it opens, so it counts toward the limit alongside
+the named targets; duplicates collapse before either check.
 
 **Returns:** The authorize conversation create capacity only result.
 

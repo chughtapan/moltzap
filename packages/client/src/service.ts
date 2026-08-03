@@ -557,7 +557,10 @@ export class MoltZapService {
   private localDaemonHandlers(): LocalDaemonHandlers {
     return makeLocalDaemonHandlers({
       ownAgentId: this.ownAgentIdValue,
-      connected: this.connectedValue,
+      // A live thunk, not a snapshot: the handler table outlives connection
+      // cycles, and daemon/status must report the same liveness the MCP
+      // status tool reads.
+      connected: () => this.connectedValue,
       conversationCount: () => this.getConversations().length,
       call: this.call.bind(this),
       handleHistoryRequest: (request) => this.handleHistoryRequest(request),

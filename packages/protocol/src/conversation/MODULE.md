@@ -8,7 +8,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](./conversations.ts#L107)
+### [`agentCallableConversationRpcMethods`](./conversations.ts#L116)
 
 _Variable_
 
@@ -21,7 +21,7 @@ export const agentCallableConversationRpcMethods = [
 
 Agent-callable conversation RPC catalog.
 
-### [`agentConversationCreate`](./conversations.ts#L37)
+### [`agentConversationCreate`](./conversations.ts#L43)
 
 _Variable_
 
@@ -30,7 +30,10 @@ export const agentConversationCreate = defineRpc({
   name: "agent/conversation/create",
   params: Schema.Struct({
     name: Schema.optional(conversationNameSchema),
-    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
+    participants: Schema.Array(agentId).pipe(
+      Schema.minItems(1),
+      Schema.maxItems(MAX_CREATE_PARTICIPANTS),
+    ),
   }),
   result: Schema.Struct({ conversation: conversationSchemaValue }),
   requires: [AuthenticatedAgent, ActiveAgent],
@@ -56,7 +59,7 @@ export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 Conversation row visible on conversation surfaces.
 
-### [`ConversationCreatedNotification`](./conversations.ts#L96)
+### [`ConversationCreatedNotification`](./conversations.ts#L105)
 
 _TypeAlias_
 
@@ -68,7 +71,7 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/created`.
 
-### [`conversationCreatedNotificationDefinition`](./conversations.ts#L101)
+### [`conversationCreatedNotificationDefinition`](./conversations.ts#L110)
 
 _Variable_
 
@@ -120,7 +123,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`conversationList`](./conversations.ts#L71)
+### [`conversationList`](./conversations.ts#L80)
 
 _Variable_
 
@@ -146,7 +149,7 @@ filter params: the visibility contract is "caller in
 
 - **Principal:** `AuthenticatedAgent` head + `ActiveAgent` (active agent).
 
-### [`ConversationListItem`](./conversations.ts#L58)
+### [`ConversationListItem`](./conversations.ts#L67)
 
 _TypeAlias_
 
@@ -186,7 +189,7 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 
 The referenced conversation does not exist (or is not visible to the caller).
 
-### [`conversationNotifications`](./conversations.ts#L113)
+### [`conversationNotifications`](./conversations.ts#L122)
 
 _Variable_
 

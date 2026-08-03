@@ -23,14 +23,11 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..", "..");
 
 const PROTOCOL_SOURCE_FILES = [
-  "packages/protocol/src/identity/apps/manifest.ts",
   "packages/protocol/src/identity/agents/agents.ts",
   "packages/protocol/src/identity/agents/registration.ts",
   "packages/protocol/src/network/connect.ts",
   "packages/protocol/src/conversation/conversations.ts",
   "packages/protocol/src/message/messages.ts",
-  "packages/protocol/src/message/dispatch.ts",
-  "packages/protocol/src/task/tasks.ts",
 ];
 
 const program = Effect.gen(function* () {

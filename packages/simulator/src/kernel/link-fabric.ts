@@ -268,6 +268,15 @@ function laneStage(state: FabricState, to: AgentId) {
     lane: Stream.Stream<A, E>,
   ): Stream.Stream<A, E> =>
     lane.pipe(
+      // groupByKey feeds every lane from ONE sequential reader through a
+      // bounded per-lane queue (16 items). A held or delayed lane parks its
+      // serial interpreter below, so without this buffer the lane's queue
+      // fills, the shared reader suspends on offer, and every other sender's
+      // deliveries to this receiver stall behind the parked lane — a
+      // cross-sender deadlock when the hold's release depends on another
+      // sender's traffic. The unbounded buffer keeps each lane's backlog
+      // private to the lane; memory is bounded by the run's traffic volume.
+      Stream.buffer({ capacity: "unbounded" }),
       Stream.mapEffect((item) => interpretItem(state, to, item), {
         concurrency: 1,
       }),

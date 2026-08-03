@@ -202,15 +202,16 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  *
  * ```mermaid
  * flowchart LR
- *   A[messageService.close — interrupt webhook retries] --> B[for each conn — conn.shutdown signals closeRequested]
+ *   A[messageService.close — lifecycle seam] --> B[for each conn — conn.shutdown signals closeRequested]
  *   B --> C[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
  *   C --> D[Scope.close appScope — NodeHttpServer + upgrade wiring]
  *   D --> E[dispatchRuntime.dispose — finalize service Layers]
  *   E --> F[config.dbCleanup — optional caller hook]
  * ```
  *
- * `messageService.close()` runs FIRST so pending delivery-webhook POSTs
- * do not race the HTTP server teardown.
+ * `messageService.close()` runs FIRST and holds the slot for message-side
+ * teardown that must precede socket and HTTP-server teardown. It is a no-op
+ * today: the send path owns no background work to stop.
  * @param options Options that control the operation.
  * @returns The close core app effect result.
  */

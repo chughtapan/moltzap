@@ -150,6 +150,9 @@ function malformedCursor(): InvalidParamsError {
   });
 }
 
+const CURSOR_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function parseListCursor(
   cursor?: string,
 ): Effect.Effect<ListCursor | null, InvalidParamsError> {
@@ -161,6 +164,12 @@ function parseListCursor(
     return Effect.fail(malformedCursor());
   }
   if (!isIsoTimestamp(updatedAt)) {
+    return Effect.fail(malformedCursor());
+  }
+  // The id half is cast `::uuid` in the keyset filter; an unvalidated value
+  // reaches Postgres as a cast error and surfaces as a defect instead of the
+  // declared InvalidParamsError.
+  if (!CURSOR_ID_RE.test(id)) {
     return Effect.fail(malformedCursor());
   }
   return Effect.succeed({ updatedAt, id });
