@@ -574,17 +574,16 @@ interface ResolvedFields {
   readonly corsOrigins: string[];
   readonly databaseUrl: string;
   readonly adminUserId: UserId;
+  readonly registrationSecret?: RegistrationSecret;
 }
 
 interface YamlDerived {
   readonly pgliteDataDir?: string;
-  readonly registrationSecret?: RegistrationSecret;
 }
 
 function projectYaml(yaml: YamlConfig): YamlDerived {
   return {
     pgliteDataDir: yaml.database?.data_dir,
-    registrationSecret: yaml.registration?.secret,
   };
 }
 
@@ -600,9 +599,42 @@ function assembleBootPlan(
     corsOrigins: fields.corsOrigins,
     devMode: fields.devMode,
     adminUserId: fields.adminUserId,
-    registrationSecret: ymlDerived.registrationSecret,
+    registrationSecret: fields.registrationSecret,
     configDirectory: inputs.configDirectory,
   };
+}
+
+// Registration is the entire access-control story: one registered agent can
+// list every agent, open conversations naming any of them, and broadcast
+// into those conversations. An unset secret therefore may not fail open
+// outside dev mode — production boots refuse to serve open registration.
+function resolveRegistrationSecret(
+  processEnv: ProcessEnvSnapshot,
+  yaml: YamlConfig,
+  devMode: boolean,
+  configPath: string,
+): Effect.Effect<RegistrationSecret | undefined, ConfigLoadError> {
+  const fromEnv = processEnv.MOLTZAP_REGISTRATION_SECRET;
+  if (fromEnv !== undefined) {
+    return Schema.decodeUnknown(registrationSecret)(fromEnv).pipe(
+      Effect.mapError(() =>
+        makeInvalidEnvError(
+          configPath,
+          "MOLTZAP_REGISTRATION_SECRET is not a valid registration secret.",
+        ),
+      ),
+    );
+  }
+  const fromYaml = yaml.registration?.secret;
+  if (fromYaml !== undefined || devMode) {
+    return Effect.succeed(fromYaml);
+  }
+  return Effect.fail(
+    makeInvalidEnvError(
+      configPath,
+      "A registration secret is required in production. Set MOLTZAP_REGISTRATION_SECRET or registration.secret, or enable dev mode.",
+    ),
+  );
 }
 
 function buildBootPlan(
@@ -625,12 +657,19 @@ function buildBootPlan(
       configPath,
     );
     const adminUserId = yield* resolveAdminUserId(processEnv, yaml, configPath);
+    const registration = yield* resolveRegistrationSecret(
+      processEnv,
+      yaml,
+      devMode,
+      configPath,
+    );
     return assembleBootPlan(inputs, {
       devMode,
       port,
       corsOrigins,
       databaseUrl,
       adminUserId,
+      registrationSecret: registration,
     });
   });
 }

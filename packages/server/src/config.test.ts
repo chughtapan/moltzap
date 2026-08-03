@@ -116,9 +116,36 @@ function corsParsed() {
   return Effect.gen(function* () {
     const result = yield* envOnly({
       CORS_ORIGINS: `${APP_ORIGIN},${WWW_ORIGIN}`,
+      MOLTZAP_REGISTRATION_SECRET: INTERPOLATED,
     });
     expect(result.corsOrigins).toEqual([APP_ORIGIN, WWW_ORIGIN]);
     expect(result.devMode).toBe(false);
+  });
+}
+
+// One anonymous registration yields an active agent that can enumerate the
+// roster and broadcast into arbitrary conversations, so an unset secret must
+// refuse to boot rather than serve open registration.
+function registrationSecretRequiredInProd() {
+  return Effect.gen(function* () {
+    const exit = yield* Effect.exit(envOnly({ CORS_ORIGINS: APP_ORIGIN }));
+    const err = expectFailureValue(exit);
+    expect(String(err)).toMatch(/registration secret/i);
+  });
+}
+
+function registrationSecretFromEnvOnly() {
+  return Effect.gen(function* () {
+    const result = yield* envOnly({
+      CORS_ORIGINS: APP_ORIGIN,
+      MOLTZAP_REGISTRATION_SECRET: INTERPOLATED,
+    });
+    expect(result.registrationSecret).not.toBeUndefined();
+    expect(
+      Redacted.value(
+        /* Safe because the test fixture establishes this asserted shape. */ result.registrationSecret!,
+      ),
+    ).toBe(INTERPOLATED);
   });
 }
 
@@ -262,6 +289,14 @@ describe("loadStandaloneConfig env-only", () => {
   eff("PORT override respected", portOverride);
   eff("CORS_ORIGINS parsed as comma-separated list", corsParsed);
   eff("CORS_ORIGINS required outside dev mode", corsRequiredInProd);
+  eff(
+    "registration secret required outside dev mode",
+    registrationSecretRequiredInProd,
+  );
+  eff(
+    "MOLTZAP_REGISTRATION_SECRET alone satisfies the production guard",
+    registrationSecretFromEnvOnly,
+  );
   eff("Supabase rejected under dev mode", supabaseRejected);
 });
 

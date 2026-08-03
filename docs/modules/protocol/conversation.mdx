@@ -13,7 +13,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L107)
+### [`agentCallableConversationRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L116)
 
 _Variable_
 
@@ -26,7 +26,7 @@ export const agentCallableConversationRpcMethods = [
 
 Agent-callable conversation RPC catalog.
 
-### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L37)
+### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L43)
 
 _Variable_
 
@@ -35,7 +35,10 @@ export const agentConversationCreate = defineRpc({
   name: "agent/conversation/create",
   params: Schema.Struct({
     name: Schema.optional(conversationNameSchema),
-    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
+    participants: Schema.Array(agentId).pipe(
+      Schema.minItems(1),
+      Schema.maxItems(MAX_CREATE_PARTICIPANTS),
+    ),
   }),
   result: Schema.Struct({ conversation: conversationSchemaValue }),
   requires: [AuthenticatedAgent, ActiveAgent],
@@ -61,7 +64,7 @@ export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 Conversation row visible on conversation surfaces.
 
-### [`ConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L96)
+### [`ConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L105)
 
 _TypeAlias_
 
@@ -73,7 +76,7 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/created`.
 
-### [`conversationCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L101)
+### [`conversationCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L110)
 
 _Variable_
 
@@ -125,7 +128,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L71)
+### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L80)
 
 _Variable_
 
@@ -151,7 +154,7 @@ filter params: the visibility contract is "caller in
 
 - **Principal:** `AuthenticatedAgent` head + `ActiveAgent` (active agent).
 
-### [`ConversationListItem`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L58)
+### [`ConversationListItem`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L67)
 
 _TypeAlias_
 
@@ -191,7 +194,7 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 
 The referenced conversation does not exist (or is not visible to the caller).
 
-### [`conversationNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L113)
+### [`conversationNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L122)
 
 _Variable_
 

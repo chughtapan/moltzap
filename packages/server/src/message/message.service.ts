@@ -84,9 +84,11 @@ interface MessageServiceDeps {
 
 /**
  * `agent/message/send` server entry point. The `send` method persists the
- * message durably, then broadcasts it to every conversation participant
- * except the sender. The router is content-blind: it applies no
- * interpretation or policy to the message body.
+ * message durably, then broadcasts it to every conversation participant, the
+ * sender included; only the connection that issued the send is left out, so a
+ * sender holding several connections still sees its own message on the
+ * others. The router is content-blind: it applies no interpretation or policy
+ * to the message body.
  */
 export class MessageService {
   private readonly db: Db;

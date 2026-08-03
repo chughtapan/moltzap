@@ -433,15 +433,21 @@ function sendDeliveredReply(params: {
 }): Effect.Effect<boolean> {
   return params.core.sendReply(params.conversationId, params.text).pipe(
     // Stamp the guard only on a successful `core.sendReply`. Transient send
-    // failures fall through to `Effect.catchAll` below WITHOUT stamping, so a
-    // retried deliver call still gets to send.
+    // failures reopen the claimed guard via `abort()` below WITHOUT
+    // stamping, so a retried deliver call still gets to send.
     Effect.tap(() => params.guard.consume()),
     Effect.tap(() =>
       logOutboundReply(params.conversationId, params.text, params.log),
     ),
     Effect.map(() => true),
     Effect.catchAll((err) =>
-      handleReplyFailure(params.conversationId, err, params.log),
+      params.guard
+        .abort()
+        .pipe(
+          Effect.zipRight(
+            handleReplyFailure(params.conversationId, err, params.log),
+          ),
+        ),
     ),
   );
 }
@@ -472,10 +478,17 @@ function createReplyGuardedDeliver(params: {
     }
     return Effect.runPromise(
       Effect.gen(function* () {
-        const stamped = yield* guard.consumedAt;
-        if (Option.isSome(stamped)) {
+        // begin() claims the guard in one synchronous step, so two
+        // concurrent final delivers cannot both pass the duplicate check
+        // while a send is mid-flight.
+        const claimed = yield* guard.begin();
+        if (!claimed) {
+          const stamped = yield* guard.consumedAt;
+          const detail = Option.isSome(stamped)
+            ? ` (first reply sent at ts=${stamped.value.toString()})`
+            : " (another reply is in flight)";
           params.log?.warn?.(
-            `MoltZap: duplicate reply rejected for ${params.enriched.conversationId} (first reply sent at ts=${stamped.value.toString()})`,
+            `MoltZap: duplicate reply rejected for ${params.enriched.conversationId}${detail}`,
           );
           params.onDuplicateReply?.(params.enriched.conversationId);
           // Deliver contract: PromiseLike<boolean>. False signals

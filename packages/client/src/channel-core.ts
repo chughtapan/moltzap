@@ -1,5 +1,8 @@
 /**
- * Shared message-enrichment helper for MoltZap channel adapters.
+ * Channel core: serialized inbound turn delivery over a MoltZapService.
+ * Owns the inbound queue, same-conversation coalescing, the interceptor
+ * gate, the per-turn timeout, and channel teardown; enrichment lives in
+ * channel-core-enrichment.ts.
  */
 
 import { Cause, Chunk, Duration, Effect, Fiber, Option, Queue } from "effect";
@@ -221,7 +224,7 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
  *   server->>ws: agent/message/received notification
  *   ws->>svc: subscribers.dispatch — fanout(message)
  *   svc->>core: message listener
- *   Note over core: dedup via recordMessageIdIfNew, drop when no handler is installed, then Queue.unsafeOffer(inboundQueue, message)
+ *   Note over core: dedup via recordMessageIdIfNew, drop when stopped or no handler is installed, then Queue.unsafeOffer(inboundQueue, message)
  *   Note over core: consumer fiber — Queue.take
  *   Note over core: takeCoalescedConversationMessages drains same-conv backlog into one turn
  *   Note over core: enrichMessage — sender name, conversation, context entries
@@ -239,6 +242,13 @@ export class MoltZapChannelCore {
   private readonly turnTimeoutMs?: number;
   private readonly inboundInterceptor?: InboundInterceptor;
   private connected = false;
+  // Terminal stop: disconnect() interrupts the sole consumer fiber and it is
+  // never restarted, while the service deliberately keeps message listeners
+  // registered across close()/connect() cycles. Without this flag a
+  // reconnected service would keep offering inbound messages into a queue
+  // nothing drains — unbounded growth and silent non-delivery. Stopped means
+  // stopped: inbound observed after disconnect() is dropped at the listener.
+  private stopped = false;
   private inboundHandler: InboundHandler | null = null;
 
   /**
@@ -273,7 +283,7 @@ export class MoltZapChannelCore {
       // Dropping here keeps the queue from holding work nothing consumes, and
       // makes the pre-registration window a definite drop rather than a race
       // between the consumer fiber and the embedder's onInbound call.
-      if (this.inboundHandler === null) {
+      if (this.stopped || this.inboundHandler === null) {
         return;
       }
       Queue.unsafeOffer(this.inboundQueue, message);
@@ -342,6 +352,15 @@ export class MoltZapChannelCore {
   }
 
   connect(): Effect.Effect<void, ServiceRpcError> {
+    // A stopped core has no consumer fiber and its listener drops every
+    // inbound message; reporting a successful connect here would hand the
+    // embedder a healthy-looking channel that is permanently deaf. Stopped
+    // is terminal — reconnecting means constructing a new core.
+    if (this.stopped) {
+      return Effect.dieMessage(
+        "MoltZapChannelCore.connect called after disconnect; a stopped core cannot be reconnected — construct a new core",
+      );
+    }
     return this.service.connect().pipe(
       Effect.tap(() =>
         Effect.sync(() => {
@@ -367,6 +386,7 @@ export class MoltZapChannelCore {
     return Effect.gen(
       function* (this: MoltZapChannelCore) {
         this.connected = false;
+        this.stopped = true;
         // Interrupt the consumer fiber so any queued inbound messages are
         // dropped rather than delivered after the channel is torn down.
         const stopConsumer = Fiber.interrupt(this.consumerFiber);

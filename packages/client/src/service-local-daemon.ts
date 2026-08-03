@@ -39,7 +39,7 @@ type ServiceCall = <Tag extends AgentCallableTag>(
 
 interface LocalDaemonHandlerOptions {
   readonly ownAgentId: AgentId;
-  readonly connected: boolean;
+  readonly connected: () => boolean;
   readonly conversationCount: () => number;
   readonly call: ServiceCall;
   readonly handleHistoryRequest: (
@@ -265,7 +265,7 @@ export function makeLocalDaemonHandlers({
     [localDaemonCommands.status]: () =>
       Effect.succeed({
         agentId: ownAgentId,
-        connected,
+        connected: connected(),
         conversations: conversationCount(),
       }),
     [localDaemonCommands.history]: handleHistoryRequest,

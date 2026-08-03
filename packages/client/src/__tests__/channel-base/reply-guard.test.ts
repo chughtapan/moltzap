@@ -33,6 +33,11 @@ describe("ReplyGuard", () => {
     secondConsumeIsFalse,
   );
   it("consumedAt is idempotent on repeated reads", consumedAtIdempotent);
+  it(
+    "concurrent begin claims admit exactly one sender",
+    concurrentBeginAdmitsOne,
+  );
+  it("abort reopens an unclaimed-but-unconsumed guard", abortReopensGuard);
 });
 
 function runSingleShotAttempts(attempts: number) {
@@ -103,4 +108,39 @@ function consumedAtIdempotent(): void {
   const guard = new ReplyGuard();
   expect(Option.isNone(Effect.runSync(guard.consumedAt))).toBe(true);
   expect(Option.isNone(Effect.runSync(guard.consumedAt))).toBe(true);
+}
+
+// The send between claim and stamp is asynchronous, so exclusivity must be
+// decided at begin() time: N racing delivers admit exactly one sender even
+// though none has consumed yet.
+function concurrentBeginAdmitsOne() {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const guard = new ReplyGuard();
+      const concurrentAttempts = 8;
+      const claims = yield* Effect.all(
+        Array.from({ length: concurrentAttempts }, () => guard.begin()),
+        { concurrency: concurrentAttempts },
+      );
+      expect(claims.filter(Boolean)).toHaveLength(1);
+    }).pipe(Effect.provide(TestContext.TestContext)),
+  );
+}
+
+function abortReopensGuard() {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      yield* TestClock.setTime(FIXED_TS);
+      const guard = new ReplyGuard();
+      expect(yield* guard.begin()).toBe(true);
+      // A failed send aborts the claim without stamping: the next deliver
+      // may claim again, and consuming then stamps normally.
+      yield* guard.abort();
+      expect(yield* guard.begin()).toBe(true);
+      expect(yield* guard.consume()).toBe(true);
+      // Consumed is terminal: neither begin nor abort reopens it.
+      yield* guard.abort();
+      expect(yield* guard.begin()).toBe(false);
+    }).pipe(Effect.provide(TestContext.TestContext)),
+  );
 }
