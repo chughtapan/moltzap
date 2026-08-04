@@ -8,9 +8,32 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`AgentClientOptions`](./../../../protocol/dist/socket/agent-client.d.ts#L13)
+### [`acquireHarnessClient`](./harness-client.ts#L41)
+
+_Function_
+
+```ts
+export const acquireHarnessClient = (
+  options: HarnessClientOptions,
+): Effect.Effect<HarnessClientService, Error, Scope.Scope>
+```
+
+Acquires one turn-ready harness connection and receive stream for the
+lifetime of the enclosing scope. The private adapter owns MCP translation.
+
+**Returns:** The scoped adapter-facing service value.
+
+### [`AgentClientOptions`](./../../protocol/dist/socket/agent-client.d.ts#L13)
 
 _Interface_
+
+```ts
+export interface AgentClientOptions {
+    readonly serverUrl: string;
+    readonly agentKey: AgentKey;
+    readonly onDisconnect?: (close: CloseInfo) => void;
+}
+```
 
 Configures agent client.
 
@@ -43,9 +66,86 @@ export interface ConversationMeta {
 
 Describes conversation meta.
 
-### [`MoltZapAgentClient`](./../../../protocol/dist/socket/agent-client.d.ts#L19)
+### [`HarnessClient`](./harness-client.ts#L23)
 
 _Class_
+
+```ts
+export class HarnessClient extends Context.Tag("@moltzap/client/HarnessClient")<
+  HarnessClient,
+  HarnessClientService
+>() {}
+```
+
+Effect service tag consumed by runtime adapters.
+
+### [`HarnessClientOptions`](./harness-client.ts#L29)
+
+_Interface_
+
+```ts
+export interface HarnessClientOptions {
+  /** Loopback `POST /mcp` endpoint owned by one running `moltzapd`. */
+  readonly url: string;
+}
+```
+
+Inputs needed to connect one scoped harness client.
+
+### [`HarnessClientService`](./harness-client.ts#L17)
+
+_Interface_
+
+```ts
+export interface HarnessClientService {
+  /** The sole receive stream owned by this scoped client. */
+  readonly turns: Stream.Stream<HarnessTurn, Error>;
+}
+```
+
+Adapter-facing capability backed only by the daemon's loopback MCP surface.
+
+### [`HarnessTurn`](./harness-client.ts#L7)
+
+_Interface_
+
+```ts
+export interface HarnessTurn {
+  /** Existing conversation associated with every message in this turn. */
+  readonly conversationId: ConversationId;
+  /** Existing protocol messages in their daemon-provided order. */
+  readonly messages: readonly [Message, ...Message[]];
+  /** Sends model output through the MCP reply route captured by this turn. */
+  readonly reply: (payload: string) => Effect.Effect<void, Error>;
+}
+```
+
+One reply-capable batch emitted by the local harness daemon.
+
+### [`makeHarnessClientLayer`](./harness-client.ts#L52)
+
+_Function_
+
+```ts
+export const makeHarnessClientLayer = (
+  options: HarnessClientOptions,
+): Layer.Layer<HarnessClient, Error>
+```
+
+Builds the scoped runtime-adapter layer for one daemon endpoint.
+
+**Returns:** A Layer providing the scoped HarnessClient capability.
+
+### [`MoltZapAgentClient`](./../../protocol/dist/socket/agent-client.d.ts#L19)
+
+_Class_
+
+```ts
+export declare class MoltZapAgentClient extends ProtocolClientLifecycle<AgentCallableRpcs, AgentClientDispatch> {
+    constructor(options: AgentClientOptions);
+    call<Tag extends AgentCallableTag>(tag: Tag, payload: PayloadForTag<AgentCallableRpcs, Tag>, opts?: RpcCallOptions): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, ErrorForTag<AgentCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError>;
+}
+```
 
 Implements molt zap agent client.
 
@@ -184,9 +284,15 @@ Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
 callers compose failures and cancellation explicitly.
 
-### [`RpcCallOptions`](./../../../protocol/dist/socket/lifecycle.d.ts#L12)
+### [`RpcCallOptions`](./../../protocol/dist/socket/lifecycle.d.ts#L12)
 
 _Interface_
+
+```ts
+export interface RpcCallOptions {
+    readonly timeoutMs?: number;
+}
+```
 
 Configures rpc call.
 
@@ -207,4 +313,5 @@ to that method's errors at the `call` site.
 
 ## Files
 
+- `harness-client.ts`
 - `service.ts`

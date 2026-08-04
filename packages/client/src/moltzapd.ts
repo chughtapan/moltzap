@@ -2,6 +2,7 @@ import type { Implementation } from "@modelcontextprotocol/server";
 import { Effect, ExecutionStrategy, Exit, Scope } from "effect";
 import packageJson from "../package.json" with { type: "json" };
 import { MoltZapChannelCore } from "./channel-core.js";
+import type { HarnessTurnEvent } from "./harness/index.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
 import type {
@@ -37,14 +38,29 @@ const makeStatusHandler =
       conversations: service.getConversations().length,
     });
 
-const acquireConnectedCore = (
+const acquireCore = (
   service: MoltZapService,
 ): Effect.Effect<MoltZapChannelCore, ServiceRpcError, Scope.Scope> =>
   // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- the process scope owns the sole core and its network connection
   Effect.acquireRelease(
     Effect.sync(() => new MoltZapChannelCore({ service })),
     (core) => core.disconnect(),
-  ).pipe(Effect.tap((core) => core.connect()));
+  );
+
+const installTurnPublisher = (
+  core: MoltZapChannelCore,
+  publish: (turn: HarnessTurnEvent) => boolean,
+): void => {
+  core.onRawInbound((messages) =>
+    Effect.sync(() => {
+      const first = messages[0];
+      if (first === undefined) {
+        return;
+      }
+      publish({ messages: [first, ...messages.slice(1)] });
+    }),
+  );
+};
 
 /**
  * Owns one registered agent's service, channel core, network connection, and
@@ -59,8 +75,9 @@ const acquireConnectedCore = (
  *
  *   process->>service: make(profileName)
  *   process->>core: construct(service)
- *   process->>core: connect()
+ *   process->>core: install raw turn publisher
  *   process->>mcp: listen(port)
+ *   process->>core: connect()
  *   Note over core,mcp: Scope release closes MCP before disconnecting the core
  * ```
  *
@@ -86,16 +103,20 @@ export const acquireMoltzapd = (
     );
     const acquire = Effect.gen(function* () {
       const service = yield* MoltZapService.make(options.profileName);
-      const core = yield* acquireConnectedCore(service);
+      const core = yield* acquireCore(service);
       const handlers = makeHarnessMcpHttpHandlers({
         implementation: MCP_IMPLEMENTATION,
+        reply: core.sendReply.bind(core),
         status: makeStatusHandler(service, core),
       });
-      return yield* acquireHarnessMcpHttpServer({
+      installTurnPublisher(core, handlers.active.publish);
+      const server = yield* acquireHarnessMcpHttpServer({
         port: options.port,
         registrationHandler: handlers.registration,
         harnessHandler: handlers.active,
       });
+      yield* core.connect();
+      return server;
     }).pipe(Scope.extend(daemonScope));
     return yield* acquire.pipe(
       Effect.onExit((exit) =>

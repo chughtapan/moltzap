@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1295)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1226)
 
 _Function_
 
@@ -42,21 +42,15 @@ sequenceDiagram
   Core->>Plugin: enriched message arrives
   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
   note over OC: agent pipeline → LLM
-  OC->>Plugin: deliver(payload, opts) — createReplyGuardedDeliver
+  OC->>Plugin: deliver(payload, opts) — createReplyDeliver
   Plugin->>Server: core.sendReply(conversationId, text)
-  alt second final reply for the same turn
-    Plugin->>Plugin: ReplyGuard already stamped<br>onDuplicateReply callback, return false
-  end
   OC->>Plugin: stopAccount(ctx)
   Plugin->>Core: core.disconnect()
   Plugin->>Plugin: activeClients.delete(account)
 ```
 
 `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
-false signals "not delivered" without throwing. The reply guard is
-single-shot per inbound turn: a second final reply is suppressed locally
-and reported through `MoltzapChannelPluginDeps.onDuplicateReply` rather
-than a throw.
+false signals a failed send without throwing.
 
 `resolveTarget` accepts a plain agent name or `agent:&lt;name>` for a DM and
 `conv:&lt;conversationId>` for an existing conversation. Plain names normalize
@@ -64,7 +58,7 @@ to `agent:&lt;name>`. Other colon-prefixed shapes are rejected.
 
 **Returns:** The created moltzap channel plugin.
 
-### [`default`](./openclaw-entry.ts#L1325)
+### [`default`](./openclaw-entry.ts#L1256)
 
 _Variable_
 
@@ -72,7 +66,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1322)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1253)
 
 _Variable_
 
@@ -85,7 +79,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1313)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1244)
 
 _TypeAlias_
 
