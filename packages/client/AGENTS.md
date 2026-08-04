@@ -6,7 +6,7 @@ channel-core inbound handling, the packaged `moltzapd` daemon, and the
 
 | Surface | Use when |
 |---|---|
-| `HarnessClient` (via `@moltzap/client/harness-client`) | Runtime-adapter turns and conversation-bound reply over daemon MCP |
+| `HarnessClient` (via `@moltzap/client/harness-client`) | Runtime-adapter conversation start, turns, and conversation-bound reply over daemon MCP |
 | `MoltZapAgentClient` | Raw outbound RPC + inbound notifications |
 | `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound turn-taking, coalescing, and enrichment |
 | `MoltZapService` | Managed conversation/context state on top of RPC |

@@ -5,7 +5,7 @@ import {
   conversationSearch,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
-import { agentId } from "@moltzap/protocol/identity";
+import { agentId, agentName } from "@moltzap/protocol/identity";
 import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 
 /** Harness MCP extension carrying the runtime event contract. */
@@ -33,12 +33,26 @@ export const HARNESS_SEARCH_CONVERSATIONS_TOOL = "search_conversations";
 /** Tool reading one checkpointed conversation history. */
 export const HARNESS_READ_CONVERSATION_TOOL = "read_conversation";
 
+/** Tool creating a conversation and sending its initial content. */
+export const HARNESS_START_CONVERSATION_TOOL = "start_conversation";
+
 const messageSchema =
   messageReceivedNotificationDefinition.paramsSchema.fields.message;
 
 const conversationWithParticipantsSchema = Schema.Struct({
   ...conversationSchema().fields,
   participants: Schema.Array(agentId),
+});
+
+/** Arguments for creating a conversation through the harness. */
+const harnessStartConversationInputSchema = Schema.Struct({
+  otherAgentNames: Schema.NonEmptyArray(agentName),
+  initialContent: Schema.String.pipe(Schema.minLength(1)),
+});
+
+/** Conversation returned after its initial content has been sent. */
+const harnessStartConversationResultSchema = Schema.Struct({
+  conversation: conversationWithParticipantsSchema,
 });
 
 /** MCP-local search result used to reconstruct endpoint presentation. */
@@ -82,6 +96,16 @@ export type ConversationWithParticipants = Schema.Schema.Type<
   typeof conversationWithParticipantsSchema
 >;
 
+/** Decoded start-conversation input. */
+export type HarnessStartConversationInput = Schema.Schema.Type<
+  typeof harnessStartConversationInputSchema
+>;
+
+/** Decoded start-conversation result. */
+export type HarnessStartConversationResult = Schema.Schema.Type<
+  typeof harnessStartConversationResultSchema
+>;
+
 /** Decoded MCP-local conversation search page. */
 export type HarnessSearchConversationsResult = Schema.Schema.Type<
   typeof harnessSearchConversationsResultSchema
@@ -107,7 +131,22 @@ const decodeTurnEvent = Schema.decodeUnknown(harnessTurnEventSchema);
 const decodeSearchConversationsResult = Schema.decodeUnknown(
   harnessSearchConversationsResultSchema,
 );
+const decodeStartConversationResult = Schema.decodeUnknown(
+  harnessStartConversationResultSchema,
+);
 const decodeReplyRoute = Schema.decodeUnknown(harnessReplyRouteSchema);
+
+/** JSON Schema advertised for start-conversation arguments. */
+export const harnessStartConversationInputJsonSchema = JSONSchema.make(
+  harnessStartConversationInputSchema,
+  { target: "jsonSchema2020-12" },
+);
+
+/** JSON Schema advertised for the start-conversation result. */
+export const harnessStartConversationResultJsonSchema = JSONSchema.make(
+  harnessStartConversationResultSchema,
+  { target: "jsonSchema2020-12" },
+);
 
 /** JSON Schema advertised for the MCP-local conversation search result. */
 export const harnessSearchConversationsResultJsonSchema = JSONSchema.make(
@@ -142,6 +181,14 @@ export const decodeHarnessTurnEvent = (value: unknown) =>
  */
 export const decodeHarnessSearchConversationsResult = (value: unknown) =>
   decodeSearchConversationsResult(value, strictDecodeOptions);
+
+/**
+ * Strictly decode a conversation created through the harness MCP boundary.
+ * @param value Untrusted structured tool content.
+ * @returns The created conversation with MCP-local membership.
+ */
+export const decodeHarnessStartConversationResult = (value: unknown) =>
+  decodeStartConversationResult(value, strictDecodeOptions);
 
 /**
  * Build the private request metadata consumed by the production harness client.

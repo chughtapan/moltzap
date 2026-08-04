@@ -1,16 +1,23 @@
 import type { Implementation } from "@modelcontextprotocol/server";
 import { Effect, ExecutionStrategy, Exit, Scope } from "effect";
 import {
+  agentConversationCreate,
   conversationList,
   conversationSearch,
 } from "@moltzap/protocol/conversation";
-import { agentsSearch } from "@moltzap/protocol/identity";
-import { messagesRead } from "@moltzap/protocol/message";
+import {
+  AgentNotFoundError,
+  agentsSearch,
+  type AgentName,
+} from "@moltzap/protocol/identity";
+import { messagesRead, messagesSend } from "@moltzap/protocol/message";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import packageJson from "../package.json" with { type: "json" };
 import { MoltZapChannelCore } from "./channel-core.js";
 import type {
   HarnessSearchConversationsResult,
+  HarnessStartConversationInput,
+  HarnessStartConversationResult,
   HarnessTurnEvent,
 } from "./harness/index.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
@@ -100,6 +107,72 @@ const searchConversationsForHarness = (
     };
   }).pipe(Effect.withSpan("moltzapd.searchConversations"));
 
+const agentNotFound = (agentName: AgentName): AgentNotFoundError =>
+  new AgentNotFoundError({
+    message: `Agent not found: ${agentName}`,
+    data: { agentName },
+  });
+
+const resolveAgentByName = (service: MoltZapService, name: AgentName) =>
+  service.callDefinition(agentsSearch, { query: name }).pipe(
+    Effect.flatMap(({ agents }) => {
+      const agent = agents.find((candidate) => candidate.name === name);
+      return agent === undefined
+        ? Effect.fail(agentNotFound(name))
+        : Effect.succeed(agent);
+    }),
+  );
+
+const startConversationForHarness = (
+  service: MoltZapService,
+  input: HarnessStartConversationInput,
+): Effect.Effect<HarnessStartConversationResult, unknown> =>
+  Effect.gen(function* () {
+    if (new Set(input.otherAgentNames).size !== input.otherAgentNames.length) {
+      // eslint-disable-next-line agent-code-guard/effect-error-erasure -- Local MCP validation stays on the established broad Error boundary without adding a portable protocol error.
+      return yield* Effect.fail(
+        new Error("Conversation participants must be unique"),
+      );
+    }
+
+    const participants = yield* Effect.forEach(
+      input.otherAgentNames,
+      (name) => resolveAgentByName(service, name),
+      { concurrency: 2 },
+    );
+    const ownAgentId = service.ownAgentId;
+    if (ownAgentId === undefined) {
+      // eslint-disable-next-line agent-code-guard/effect-error-erasure -- A missing daemon identity is rejected at the local composition boundary whose existing contract is Error.
+      return yield* Effect.fail(new Error("Daemon has no agent identity"));
+    }
+    if (participants.some((participant) => participant.id === ownAgentId)) {
+      // eslint-disable-next-line agent-code-guard/effect-error-erasure -- Local MCP validation stays on the established broad Error boundary without adding a portable protocol error.
+      return yield* Effect.fail(
+        new Error("The daemon agent is an implicit conversation participant"),
+      );
+    }
+
+    const created = yield* service.callDefinition(agentConversationCreate, {
+      participants: participants.map((participant) => participant.id),
+    });
+    yield* service.callDefinition(messagesSend, {
+      conversationId: created.conversation.id,
+      parts: [{ type: "text", text: input.initialContent }],
+    });
+
+    // Participants are endpoint-owned context on the MCP boundary. The
+    // canonical Conversation value sent over the network remains closed.
+    return {
+      conversation: {
+        ...created.conversation,
+        participants: [
+          ownAgentId,
+          ...participants.map((participant) => participant.id),
+        ],
+      },
+    };
+  }).pipe(Effect.withSpan("moltzapd.startConversation"));
+
 /**
  * Owns one registered agent's service, channel core, network connection, and
  * guarded loopback MCP listener for the lifetime of the caller's scope.
@@ -151,6 +224,8 @@ export const acquireMoltzapd = (
           service.callDefinition(agentsSearch, payload),
         searchConversations: (payload) =>
           searchConversationsForHarness(service, payload),
+        startConversation: (payload) =>
+          startConversationForHarness(service, payload),
         status: makeStatusHandler(service, core),
       });
       installTurnPublisher(core, handlers.active.publish);

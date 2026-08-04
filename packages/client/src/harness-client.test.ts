@@ -22,7 +22,11 @@ import {
 } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { conversationSearch } from "@moltzap/protocol/conversation";
-import { agentsSearch, type AgentCard } from "@moltzap/protocol/identity";
+import {
+  agentsSearch,
+  type AgentCard,
+  type AgentName,
+} from "@moltzap/protocol/identity";
 import {
   conversationCheckpoint,
   messagesRead,
@@ -53,15 +57,20 @@ import {
   HARNESS_REPLY_TOOL,
   HARNESS_SEARCH_AGENTS_TOOL,
   HARNESS_SEARCH_CONVERSATIONS_TOOL,
+  HARNESS_START_CONVERSATION_TOOL,
   HARNESS_STATUS_TOOL,
   harnessSearchConversationsResultJsonSchema,
   harnessReplyInputJsonSchema,
   harnessReplyResultJsonSchema,
+  harnessStartConversationInputJsonSchema,
+  harnessStartConversationResultJsonSchema,
   type ConversationWithParticipants,
   type HarnessReplyInput,
   type HarnessReplyResult,
   type HarnessReplyRoute,
   type HarnessSearchConversationsResult,
+  type HarnessStartConversationInput,
+  type HarnessStartConversationResult,
   type HarnessTurnEvent,
 } from "./harness/index.js";
 import {
@@ -112,6 +121,21 @@ const CONVERSATIONS = [
     participants: [SELF_ID, SENDER_ID, THIRD_ID],
   },
 ] satisfies readonly ConversationWithParticipants[];
+
+const STARTED_CONVERSATION = {
+  id: conversationId("00000000-0000-4000-8000-000000000010"),
+  name: "started group",
+  createdBy: SELF_ID,
+  createdAt: CREATED_AT,
+  updatedAt: CREATED_AT,
+  participants: [SELF_ID, SENDER_ID, THIRD_ID],
+} satisfies ConversationWithParticipants;
+
+const STARTED_WITH = [
+  agentName("peer-agent"),
+  agentName("third-agent"),
+] satisfies readonly AgentName[];
+const INITIAL_CONTENT = "hello from self";
 
 const message = (
   id: string,
@@ -174,6 +198,14 @@ const searchConversationsResultSchema =
   fromJsonSchema<HarnessSearchConversationsResult>(
     /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */
     harnessSearchConversationsResultJsonSchema as JsonSchemaType,
+  );
+const startConversationInputSchema =
+  fromJsonSchema<HarnessStartConversationInput>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessStartConversationInputJsonSchema as JsonSchemaType,
+  );
+const startConversationResultSchema =
+  fromJsonSchema<HarnessStartConversationResult>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessStartConversationResultJsonSchema as JsonSchemaType,
   );
 
 const effectSchemaToMcpSchema = <A>(schema: Schema.Schema.AnyNoContext) =>
@@ -278,9 +310,33 @@ const registerReadPlaneTools = (server: McpServer): void => {
   );
 };
 
+const registerStartConversationTool = (
+  server: McpServer,
+  observed: HarnessStartConversationInput[],
+): void => {
+  server.registerTool(
+    HARNESS_START_CONVERSATION_TOOL,
+    {
+      inputSchema: startConversationInputSchema,
+      outputSchema: startConversationResultSchema,
+    },
+    (input) => {
+      observed.push(input);
+      const result = { conversation: STARTED_CONVERSATION };
+      return Effect.runPromise(
+        Effect.succeed({
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          structuredContent: result,
+        }),
+      );
+    },
+  );
+};
+
 const makeHarnessHandler = (
   observed: ObservedReply[],
   advertiseExtension = true,
+  observedStarts: HarnessStartConversationInput[] = [],
 ): HarnessMcpSubscriptionHandler<HarnessTurnEvent> => {
   const delegate = createMcpHandler(
     () => {
@@ -290,6 +346,7 @@ const makeHarnessHandler = (
           : {},
       });
       registerReadPlaneTools(server);
+      registerStartConversationTool(server, observedStarts);
       server.registerTool(
         HARNESS_REPLY_TOOL,
         {
@@ -512,6 +569,44 @@ const rejectsUnexpectedTurnFields = async () => {
   }
 };
 
+const startsConversationWithCanonicalProjection = async () => {
+  const observedStarts: HarnessStartConversationInput[] = [];
+  const running = await startHarnessServer(
+    makeHarnessHandler([], true, observedStarts),
+  );
+  try {
+    const started = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = yield* acquireHarnessClient({
+            url: running.url.href,
+          });
+          return yield* harness.startConversation(
+            STARTED_WITH,
+            INITIAL_CONTENT,
+          );
+        }),
+      ).pipe(Effect.provide(KeyValueStore.layerMemory)),
+    );
+    expect(observedStarts).toEqual([
+      {
+        otherAgentNames: STARTED_WITH,
+        initialContent: INITIAL_CONTENT,
+      },
+    ]);
+    expect(started).toEqual({
+      id: STARTED_CONVERSATION.id,
+      name: STARTED_CONVERSATION.name,
+      createdBy: STARTED_CONVERSATION.createdBy,
+      createdAt: STARTED_CONVERSATION.createdAt,
+      updatedAt: STARTED_CONVERSATION.updatedAt,
+    });
+    expect(started).not.toHaveProperty("participants");
+  } finally {
+    await Effect.runPromise(Scope.close(running.scope, Exit.void));
+  }
+};
+
 interface ReplyCallObservation {
   count: number;
   signal?: AbortSignal;
@@ -580,8 +675,10 @@ const abortsReplyCallWhenInterrupted = async () => {
   }
 };
 
-// @agent-code-guard/regression-only: the scoped loopback boundary pins every reply closure to its originating turn without suppression.
+// @agent-code-guard/regression-only: the scoped loopback boundary pins the canonical start projection and every reply closure to its originating turn without suppression.
 describe("HarnessClient", () => {
+  it("starts a conversation and projects its MCP-local result to the canonical shape", () =>
+    startsConversationWithCanonicalProjection());
   it("sends every reply through the originating conversation after later turns", () =>
     preservesBoundConversation());
   it("rejects a server without the harness events extension", () =>

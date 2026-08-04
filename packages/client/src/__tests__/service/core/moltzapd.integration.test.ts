@@ -29,6 +29,7 @@ import {
   type HarnessClientService,
   type HarnessTurn,
 } from "../../../harness-client.js";
+import { decodeHarnessStartConversationResult } from "../../../harness/index.js";
 import { getMoltZapAgentServiceSocketPath } from "../../../local-paths.js";
 import { acquireMoltzapd } from "../../../moltzapd.js";
 import * as H from "../../support/index.js";
@@ -39,6 +40,7 @@ const LOOPBACK_HOST = "127.0.0.1";
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const PEER_MESSAGE = "hello through the harness";
 const HARNESS_REPLY = "reply through the harness";
+const INITIAL_CONTENT = "start through the harness";
 const healthSchema = Schema.Struct({ connections: Schema.Number });
 
 type RegisteredAgent = Effect.Effect.Success<
@@ -313,6 +315,11 @@ const expectReadConversationResult = (
     messages: [
       {
         conversationId,
+        senderId: owner.agentId,
+        parts: [{ type: "text", text: INITIAL_CONTENT }],
+      },
+      {
+        conversationId,
         senderId: peer.agentId,
         parts: [{ type: "text", text: PEER_MESSAGE }],
       },
@@ -397,6 +404,35 @@ const runMcpMessageRoundTrip = ({
     });
   });
 
+const startConversationThroughMcp = (
+  mcp: Client,
+  owner: RegisteredAgent,
+  peer: RegisteredAgent,
+) =>
+  Effect.gen(function* () {
+    const toolResult = yield* callMcpTool(mcp, "start_conversation", {
+      otherAgentNames: [peer.name],
+      initialContent: INITIAL_CONTENT,
+    });
+    const { conversation } = yield* decodeHarnessStartConversationResult(
+      toolResult.structuredContent,
+    ).pipe(Effect.mapError(toError));
+
+    expect(conversation.participants).toEqual([owner.agentId, peer.agentId]);
+    const history = yield* peer.client.call(H.messagesList.name, {
+      conversationId: conversation.id,
+      limit: 10,
+    });
+    expect(history.messages).toHaveLength(1);
+    const initialMessage = history.messages[0];
+    if (initialMessage === undefined) {
+      throw new Error("initial conversation message was not persisted");
+    }
+    expect(initialMessage.senderId).toBe(owner.agentId);
+    expect(H.textContent(initialMessage)).toBe(INITIAL_CONTENT);
+    return conversation.id;
+  });
+
 function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
   return Effect.gen(function* () {
     const socketPath = getMoltZapAgentServiceSocketPath(owner.agentId);
@@ -416,16 +452,17 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
         const mcp = yield* acquireMcpClient(harnessUrl(server));
         yield* expectNoUnixSocket(socketPath);
 
-        const created = yield* peer.client.call(
-          H.agentConversationCreate.name,
-          { participants: [owner.agentId] },
+        const conversationId = yield* startConversationThroughMcp(
+          mcp,
+          owner,
+          peer,
         );
         yield* runMcpMessageRoundTrip({
           harness,
           mcp,
           owner,
           peer,
-          conversationId: created.conversation.id,
+          conversationId,
           socketPath,
         });
       }),
@@ -515,7 +552,7 @@ it("owns one agent connection and MCP listener without a Unix socket", () => {
   );
 });
 
-it("round-trips a peer message and bound reply through MCP only", () => {
+it("starts a conversation and round-trips a bound reply through MCP only", () => {
   expect.hasAssertions();
   return Effect.acquireUseRelease(
     Effect.all({

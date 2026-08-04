@@ -32,7 +32,7 @@ import {
 } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { conversationCheckpoint } from "@moltzap/protocol/message";
-import { agentId, conversationId } from "@moltzap/protocol/testing";
+import { agentId, agentName, conversationId } from "@moltzap/protocol/testing";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
 import { HARNESS_EVENTS_EXTENSION } from "./harness/index.js";
 import { localDaemonCommands } from "./local-daemon-rpc.js";
@@ -61,6 +61,17 @@ const SERVER_IMPLEMENTATION = {
 const READ_CHECKPOINT = Schema.decodeSync(conversationCheckpoint)(
   "harness-read-checkpoint",
 );
+const START_OTHER_AGENT_NAME = agentName("peer-agent");
+const START_CONVERSATION = {
+  id: conversationId("550e8400-e29b-41d4-a716-446655440043"),
+  createdBy: agentId("550e8400-e29b-41d4-a716-446655440044"),
+  participants: [
+    agentId("550e8400-e29b-41d4-a716-446655440044"),
+    agentId("550e8400-e29b-41d4-a716-446655440045"),
+  ],
+  createdAt: "2026-08-04T12:00:00.000Z",
+  updatedAt: "2026-08-04T12:00:00.000Z",
+};
 
 const openServerScopes = new Set<Scope.CloseableScope>();
 const openHandlers = new Set<McpHttpHandler>();
@@ -75,6 +86,10 @@ const makeReadPlaneHandlers = () => ({
   searchConversations: vi.fn(() => Effect.succeed({ conversations: [] })),
 });
 type ReadPlaneHandlers = ReturnType<typeof makeReadPlaneHandlers>;
+
+const makeStartConversationHandler = () =>
+  vi.fn(() => Effect.succeed({ conversation: START_CONVERSATION }));
+type StartConversationHandler = ReturnType<typeof makeStartConversationHandler>;
 
 const makeHandler = (name: string, onCreate?: () => void): McpHttpHandler => {
   const handler = createMcpHandler(() => {
@@ -376,6 +391,7 @@ const makeSubscriptionHarnessHandlers = () => {
     implementation: SERVER_IMPLEMENTATION,
     ...makeReadPlaneHandlers(),
     reply: () => Effect.void,
+    startConversation: makeStartConversationHandler(),
     status: localHandlers[localDaemonCommands.status],
   });
 };
@@ -534,6 +550,27 @@ const closesDespiteBackpressuredReader = async () => {
   expect(running.server.listening).toBe(false);
 };
 
+const expectStartConversationInputSchema = (inputSchema: unknown) => {
+  expect(inputSchema).toMatchObject({
+    additionalProperties: false,
+    properties: {
+      otherAgentNames: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "string",
+          minLength: 3,
+          maxLength: 32,
+          pattern: "^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$",
+        },
+      },
+      initialContent: { type: "string", minLength: 1 },
+    },
+    required: ["otherAgentNames", "initialContent"],
+    type: "object",
+  });
+};
+
 const expectActiveToolCatalog = async (harnessClient: Client) => {
   expect(harnessClient.getDiscoverResult()?.capabilities.extensions).toEqual({
     [HARNESS_EVENTS_EXTENSION]: {},
@@ -543,6 +580,7 @@ const expectActiveToolCatalog = async (harnessClient: Client) => {
     "status",
     "search_agents",
     "search_conversations",
+    "start_conversation",
     "read_conversation",
     "reply",
   ]);
@@ -564,6 +602,9 @@ const expectActiveToolCatalog = async (harnessClient: Client) => {
     tools.find(({ name }) => name === "search_conversations")?.inputSchema
       .properties,
   ).not.toHaveProperty("count");
+  expectStartConversationInputSchema(
+    tools.find(({ name }) => name === "start_conversation")?.inputSchema,
+  );
 };
 
 const expectStatusTool = async (harnessClient: Client, ownAgentId: string) => {
@@ -614,6 +655,31 @@ const expectReadPlaneTools = async (
   });
 };
 
+const expectStartConversationTool = async (
+  harnessClient: Client,
+  startConversation: StartConversationHandler,
+) => {
+  const input = {
+    otherAgentNames: [START_OTHER_AGENT_NAME],
+    initialContent: "Hello from the harness",
+  };
+  const result = await harnessClient.callTool({
+    name: "start_conversation",
+    arguments: input,
+  });
+
+  expect(startConversation).toHaveBeenCalledWith(input);
+  expect(result.structuredContent).toEqual({
+    conversation: START_CONVERSATION,
+  });
+  expect(result.content).toEqual([
+    {
+      type: "text",
+      text: JSON.stringify({ conversation: START_CONVERSATION }),
+    },
+  ]);
+};
+
 const exposesActiveTools = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
   const localHandlers = makeLocalDaemonHandlers({
@@ -628,10 +694,12 @@ const exposesActiveTools = async () => {
     },
   });
   const readPlane = makeReadPlaneHandlers();
+  const startConversation = makeStartConversationHandler();
   const handlers = makeHarnessMcpHttpHandlers({
     implementation: SERVER_IMPLEMENTATION,
     ...readPlane,
     reply: () => Effect.void,
+    startConversation,
     status: localHandlers[localDaemonCommands.status],
   });
   const baseUrl = await makeServerWithHandlers(
@@ -649,6 +717,7 @@ const exposesActiveTools = async () => {
   await expectActiveToolCatalog(harnessClient);
   await expectStatusTool(harnessClient, ownAgentId);
   await expectReadPlaneTools(harnessClient, readPlane);
+  await expectStartConversationTool(harnessClient, startConversation);
 };
 
 // @agent-code-guard/regression-only: this finite matrix pins the two HTTP routes and the official SDK's interoperability and guard behavior.
