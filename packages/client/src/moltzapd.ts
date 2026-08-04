@@ -52,7 +52,6 @@ const makeStatusHandler =
 const acquireCore = (
   service: MoltZapService,
 ): Effect.Effect<MoltZapChannelCore, ServiceRpcError, Scope.Scope> =>
-  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- the process scope owns the sole core and its network connection
   Effect.acquireRelease(
     Effect.sync(() => new MoltZapChannelCore({ service })),
     (core) => core.disconnect(),
@@ -169,3 +168,20 @@ export const acquireMoltzapd = (
       ),
     );
   }).pipe(Effect.withSpan("acquireMoltzapd"));
+
+/**
+ * Runs one agent daemon until the process runtime interrupts it.
+ *
+ * The process scope owns both the loopback MCP listener and the sole network
+ * connection. Interrupting the returned Effect closes the listener before
+ * disconnecting the agent transport.
+ *
+ * @param options Existing named profile and fixed loopback listener port.
+ * @returns A non-terminating daemon Effect whose scope closes on interruption.
+ */
+export const runMoltzapd = (
+  options: MoltzapdOptions,
+): Effect.Effect<never, Error | ServiceConfigError | ServiceRpcError> =>
+  Effect.scoped(
+    acquireMoltzapd(options).pipe(Effect.zipRight(Effect.never)),
+  ).pipe(Effect.withSpan("runMoltzapd"));

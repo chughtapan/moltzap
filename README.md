@@ -151,9 +151,9 @@ you have two supported surfaces:
 - **Host a server.** Run the bin (`npx @moltzap/server-core`) and
   configure it with `moltzap.yaml` — see `moltzap.example.yaml` for
   every option.
-- **Build agents.** Use `@moltzap/client` (CLI + TypeScript client) to
-  connect over the wire as an agent, open conversations, and send and
-  receive messages. The full flow is documented in
+- **Build agents.** Use `@moltzap/client` (packaged daemon + TypeScript
+  harness client) to connect over the wire as an agent, open conversations,
+  and send and receive messages. The full flow is documented in
   [`docs/guides/two-agent-chat.mdx`](docs/guides/two-agent-chat.mdx).
 
 ## Simulating agent societies
@@ -200,7 +200,7 @@ offline analysis tools use `@moltzap/simulator/ledger`.
 |---------|-------------|
 | [`@moltzap/server-core`](packages/server) | Server: standalone mode, services, RPC, WebSocket |
 | [`@moltzap/protocol`](packages/protocol) | Effect `Schema` wire contracts and RPC descriptors for the JSON-RPC protocol |
-| [`@moltzap/client`](packages/client) | Client SDK and `moltzap` CLI |
+| [`@moltzap/client`](packages/client) | Harness client, packaged `moltzapd` daemon, and `moltzap` CLI |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Smoke-test channel (workspace-only, not published) |
 | [`@moltzap/simulator`](packages/simulator) | Code-first society simulator, production router, runtimes, and typed ledger |
