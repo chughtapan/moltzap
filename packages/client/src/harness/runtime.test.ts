@@ -18,9 +18,11 @@ import { acquireHarnessMcpHttpServer } from "../harness-mcp-server.js";
 import {
   decodeHarnessReplyRoute,
   decodeHarnessSearchConversationsResult,
+  decodeHarnessStartConversationResult,
   decodeHarnessTurnEvent,
   HARNESS_EVENTS_EXTENSION,
   HARNESS_REPLY_TOOL,
+  harnessStartConversationInputJsonSchema,
   harnessReplyInputJsonSchema,
   harnessReplyRequestMeta,
   harnessReplyResultJsonSchema,
@@ -116,6 +118,47 @@ const keepsConversationMembershipOnMcpOnly = () => {
     page,
   );
   expect(conversationSearch.validateResult(page)).toBe(false);
+};
+
+const keepsStartConversationContractClosed = async () => {
+  const result = { conversation: conversationWithParticipants };
+  await expect(
+    Effect.runPromise(decodeHarnessStartConversationResult(result)),
+  ).resolves.toEqual(result);
+  await expect(
+    Effect.runPromise(
+      decodeHarnessStartConversationResult({
+        conversation: {
+          ...conversationWithParticipants,
+          participants: undefined,
+        },
+      }),
+    ),
+  ).rejects.toBeDefined();
+  await expect(
+    Effect.runPromise(
+      decodeHarnessStartConversationResult({ ...result, invented: true }),
+    ),
+  ).rejects.toBeDefined();
+
+  expect(harnessStartConversationInputJsonSchema).toMatchObject({
+    type: "object",
+    properties: {
+      otherAgentNames: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "string",
+          minLength: 3,
+          maxLength: 32,
+          pattern: "^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$",
+        },
+      },
+      initialContent: { type: "string", minLength: 1 },
+    },
+    required: ["otherAgentNames", "initialContent"],
+    additionalProperties: false,
+  });
 };
 
 interface ObservedReply {
@@ -227,6 +270,8 @@ describe("Harness MCP runtime contract", () => {
   it("adds conversation membership only on the MCP projection", () => {
     keepsConversationMembershipOnMcpOnly();
   });
+  it("keeps start input canonical and its enriched result closed", () =>
+    keepsStartConversationContractClosed());
   it("preserves the private route through an official MCP client call", () =>
     preservesPrivateRoute());
 });

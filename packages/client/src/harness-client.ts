@@ -1,7 +1,14 @@
 import * as KeyValueStore from "@effect/platform/KeyValueStore";
 import { Context, Effect, Layer, Schema, Stream, type Scope } from "effect";
-import type { conversationSearch } from "@moltzap/protocol/conversation";
-import { agentsSearch, type AgentId } from "@moltzap/protocol/identity";
+import type {
+  Conversation,
+  conversationSearch,
+} from "@moltzap/protocol/conversation";
+import {
+  agentsSearch,
+  type AgentId,
+  type AgentName,
+} from "@moltzap/protocol/identity";
 import { messagesRead } from "@moltzap/protocol/message";
 import type {
   ParamsOf,
@@ -18,8 +25,11 @@ import {
   HARNESS_READ_CONVERSATION_TOOL,
   HARNESS_SEARCH_AGENTS_TOOL,
   HARNESS_SEARCH_CONVERSATIONS_TOOL,
+  HARNESS_START_CONVERSATION_TOOL,
   HARNESS_STATUS_TOOL,
   decodeHarnessSearchConversationsResult,
+  decodeHarnessStartConversationResult,
+  type ConversationWithParticipants,
   type HarnessClientInternalService,
   type HarnessTurnInternal,
 } from "./harness/index.js";
@@ -35,6 +45,11 @@ export interface HarnessTurn extends EnrichedInboundMessage {
 export interface HarnessClientService {
   /** Active identity used by adapters when rendering self-authored context. */
   readonly agentId: AgentId;
+  /** Creates a conversation with named peers and sends its initial content. */
+  readonly startConversation: (
+    otherAgentNames: readonly AgentName[],
+    initialContent: string,
+  ) => Effect.Effect<Conversation, Error>;
   /** The sole receive stream owned by this scoped client. */
   readonly turns: Stream.Stream<HarnessTurn, Error>;
 }
@@ -105,6 +120,32 @@ const readActiveAgentId = (
       return Effect.succeed(status.agentId);
     }),
   );
+
+const projectConversation = (
+  conversation: ConversationWithParticipants,
+): Conversation => ({
+  id: conversation.id,
+  ...(conversation.name === undefined ? {} : { name: conversation.name }),
+  createdBy: conversation.createdBy,
+  createdAt: conversation.createdAt,
+  updatedAt: conversation.updatedAt,
+});
+
+const startConversation = (
+  session: HarnessClientInternalService,
+  otherAgentNames: readonly AgentName[],
+  initialContent: string,
+): Effect.Effect<Conversation, Error> =>
+  session
+    .callTool(HARNESS_START_CONVERSATION_TOOL, {
+      otherAgentNames,
+      initialContent,
+    })
+    .pipe(
+      Effect.flatMap(decodeHarnessStartConversationResult),
+      Effect.map(({ conversation }) => projectConversation(conversation)),
+      Effect.mapError(asError),
+    );
 
 const searchConversations = (
   session: HarnessClientInternalService,
@@ -180,6 +221,10 @@ export const acquireHarnessClient = (
     const agentId = yield* readActiveAgentId(session);
     return {
       agentId,
+      startConversation: (
+        otherAgentNames: readonly AgentName[],
+        initialContent: string,
+      ) => startConversation(session, otherAgentNames, initialContent),
       turns: session.turns.pipe(
         Stream.mapEffect((turn) =>
           projectTurn(session, checkpointStore, agentId, turn),

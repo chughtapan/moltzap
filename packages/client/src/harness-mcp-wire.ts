@@ -27,13 +27,18 @@ import {
   HARNESS_REPLY_TOOL,
   HARNESS_SEARCH_AGENTS_TOOL,
   HARNESS_SEARCH_CONVERSATIONS_TOOL,
+  HARNESS_START_CONVERSATION_TOOL,
   HARNESS_STATUS_TOOL,
   harnessSearchConversationsResultJsonSchema,
   harnessReplyInputJsonSchema,
   harnessReplyResultJsonSchema,
+  harnessStartConversationInputJsonSchema,
+  harnessStartConversationResultJsonSchema,
   type HarnessReplyInput,
   type HarnessReplyResult,
   type HarnessSearchConversationsResult,
+  type HarnessStartConversationInput,
+  type HarnessStartConversationResult,
   type HarnessTurnEvent,
 } from "./harness/index.js";
 import {
@@ -59,6 +64,9 @@ type DescriptorHandler<D extends RpcDefinitionAny> = (
 type SearchConversationsHandler = (
   payload: ParamsOf<typeof conversationSearch>,
 ) => Effect.Effect<HarnessSearchConversationsResult, unknown>;
+type StartConversationHandler = (
+  payload: HarnessStartConversationInput,
+) => Effect.Effect<HarnessStartConversationResult, unknown>;
 
 interface HarnessMcpHandlerOptions {
   readonly implementation: Implementation;
@@ -66,6 +74,7 @@ interface HarnessMcpHandlerOptions {
   readonly reply: ReplyHandler;
   readonly searchAgents: DescriptorHandler<typeof agentsSearch>;
   readonly searchConversations: SearchConversationsHandler;
+  readonly startConversation: StartConversationHandler;
   readonly status: StatusHandler;
 }
 
@@ -99,6 +108,14 @@ const replyOutputSchema = fromJsonSchema<HarnessReplyResult>(
 const searchConversationsOutputSchema =
   fromJsonSchema<HarnessSearchConversationsResult>(
     /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessSearchConversationsResultJsonSchema as JsonSchemaType,
+  );
+const startConversationInputSchema =
+  fromJsonSchema<HarnessStartConversationInput>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessStartConversationInputJsonSchema as JsonSchemaType,
+  );
+const startConversationOutputSchema =
+  fromJsonSchema<HarnessStartConversationResult>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessStartConversationResultJsonSchema as JsonSchemaType,
   );
 
 const registerDescriptorTool = <D extends RpcDefinitionAny>(
@@ -150,6 +167,29 @@ const registerSearchConversationsTool = (
         conversationSearch.paramsSchema,
       ),
       outputSchema: searchConversationsOutputSchema,
+    },
+    (payload, context) =>
+      Effect.runPromise(
+        handler(payload).pipe(
+          Effect.map((result) => ({
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            structuredContent: result,
+          })),
+        ),
+        { signal: context.mcpReq.signal },
+      ),
+  );
+};
+
+const registerStartConversationTool = (
+  server: McpServer,
+  handler: StartConversationHandler,
+): void => {
+  server.registerTool(
+    HARNESS_START_CONVERSATION_TOOL,
+    {
+      inputSchema: startConversationInputSchema,
+      outputSchema: startConversationOutputSchema,
     },
     (payload, context) =>
       Effect.runPromise(
@@ -224,6 +264,7 @@ const makeActiveServer = ({
   reply,
   searchAgents,
   searchConversations,
+  startConversation,
   status,
 }: HarnessMcpHandlerOptions): McpServer => {
   const server = new McpServer(implementation, {
@@ -239,6 +280,7 @@ const makeActiveServer = ({
     searchAgents,
   );
   registerSearchConversationsTool(server, searchConversations);
+  registerStartConversationTool(server, startConversation);
   registerDescriptorTool(
     server,
     HARNESS_READ_CONVERSATION_TOOL,
@@ -258,6 +300,7 @@ const makeActiveServer = ({
  * @param options.reply Conversation-bound raw reply handler.
  * @param options.searchAgents Agent directory search handler.
  * @param options.searchConversations Conversation directory search handler.
+ * @param options.startConversation Conversation creation and initial-content handler.
  * @param options.status Existing local daemon status handler.
  * @returns The registration and active-agent HTTP handlers.
  */
@@ -267,6 +310,7 @@ export const makeHarnessMcpHttpHandlers = ({
   reply,
   searchAgents,
   searchConversations,
+  startConversation,
   status,
 }: HarnessMcpHandlerOptions): {
   readonly registration: McpHttpHandler;
@@ -280,6 +324,7 @@ export const makeHarnessMcpHttpHandlers = ({
         reply,
         searchAgents,
         searchConversations,
+        startConversation,
         status,
       }),
     { legacy: "reject" },

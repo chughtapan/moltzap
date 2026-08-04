@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`acquireHarnessClient`](./harness-client.ts#L170)
+### [`acquireHarnessClient`](./harness-client.ts#L211)
 
 _Function_
 
@@ -71,7 +71,7 @@ export interface ConversationMeta {
 
 Describes conversation meta.
 
-### [`HarnessClient`](./harness-client.ts#L43)
+### [`HarnessClient`](./harness-client.ts#L58)
 
 _Class_
 
@@ -84,7 +84,7 @@ export class HarnessClient extends Context.Tag("@moltzap/client/HarnessClient")<
 
 Effect service tag consumed by runtime adapters.
 
-### [`HarnessClientOptions`](./harness-client.ts#L49)
+### [`HarnessClientOptions`](./harness-client.ts#L64)
 
 _Interface_
 
@@ -97,7 +97,7 @@ export interface HarnessClientOptions {
 
 Inputs needed to connect one scoped harness client.
 
-### [`HarnessClientService`](./harness-client.ts#L35)
+### [`HarnessClientService`](./harness-client.ts#L45)
 
 _Interface_
 
@@ -105,6 +105,11 @@ _Interface_
 export interface HarnessClientService {
   /** Active identity used by adapters when rendering self-authored context. */
   readonly agentId: AgentId;
+  /** Creates a conversation with named peers and sends its initial content. */
+  readonly startConversation: (
+    otherAgentNames: readonly AgentName[],
+    initialContent: string,
+  ) => Effect.Effect<Conversation, Error>;
   /** The sole receive stream owned by this scoped client. */
   readonly turns: Stream.Stream<HarnessTurn, Error>;
 }
@@ -112,7 +117,7 @@ export interface HarnessClientService {
 
 Adapter-facing capability backed only by the daemon's loopback MCP surface.
 
-### [`HarnessTurn`](./harness-client.ts#L29)
+### [`HarnessTurn`](./harness-client.ts#L39)
 
 _Interface_
 
@@ -125,7 +130,7 @@ export interface HarnessTurn extends EnrichedInboundMessage {
 
 Existing adapter presentation with reply authority bound to its live turn.
 
-### [`makeHarnessClientLayer`](./harness-client.ts#L197)
+### [`makeHarnessClientLayer`](./harness-client.ts#L242)
 
 _Function_
 

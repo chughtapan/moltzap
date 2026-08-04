@@ -13,7 +13,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`acquireHarnessClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L170)
+### [`acquireHarnessClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L211)
 
 _Function_
 
@@ -76,7 +76,7 @@ export interface ConversationMeta {
 
 Describes conversation meta.
 
-### [`HarnessClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L43)
+### [`HarnessClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L58)
 
 _Class_
 
@@ -89,7 +89,7 @@ export class HarnessClient extends Context.Tag("@moltzap/client/HarnessClient")<
 
 Effect service tag consumed by runtime adapters.
 
-### [`HarnessClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L49)
+### [`HarnessClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L64)
 
 _Interface_
 
@@ -102,7 +102,7 @@ export interface HarnessClientOptions {
 
 Inputs needed to connect one scoped harness client.
 
-### [`HarnessClientService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L35)
+### [`HarnessClientService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L45)
 
 _Interface_
 
@@ -110,6 +110,11 @@ _Interface_
 export interface HarnessClientService {
   /** Active identity used by adapters when rendering self-authored context. */
   readonly agentId: AgentId;
+  /** Creates a conversation with named peers and sends its initial content. */
+  readonly startConversation: (
+    otherAgentNames: readonly AgentName[],
+    initialContent: string,
+  ) => Effect.Effect<Conversation, Error>;
   /** The sole receive stream owned by this scoped client. */
   readonly turns: Stream.Stream<HarnessTurn, Error>;
 }
@@ -117,7 +122,7 @@ export interface HarnessClientService {
 
 Adapter-facing capability backed only by the daemon's loopback MCP surface.
 
-### [`HarnessTurn`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L29)
+### [`HarnessTurn`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L39)
 
 _Interface_
 
@@ -130,7 +135,7 @@ export interface HarnessTurn extends EnrichedInboundMessage {
 
 Existing adapter presentation with reply authority bound to its live turn.
 
-### [`makeHarnessClientLayer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L197)
+### [`makeHarnessClientLayer`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/harness-client.ts#L242)
 
 _Function_
 
