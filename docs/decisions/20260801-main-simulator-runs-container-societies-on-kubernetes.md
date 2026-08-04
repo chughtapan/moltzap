@@ -49,11 +49,8 @@ entry point.
 export default RunSpec.define({
   id: "acme.echo/v1",
   events: [echoEvents],
-  agents: {
-    alice: openClawRuntime({ /* portable runtime configuration */ }),
-    bob: scriptedRuntime({ /* portable runtime configuration */ }),
-  },
-  infrastructure: Kubernetes.local(),
+  agents: { alice, bob },
+  infrastructure: localKubernetes,
   execute: ({ agents, events, network, ledger }) =>
     Effect.gen(function* () {
       // Instruct agents through their native gateways, observe the society,
@@ -61,6 +58,9 @@ export default RunSpec.define({
     }),
 });
 ```
+
+The example receives already-constructed runtime descriptors and an Effect
+Layer. It does not select new constructor names for either one.
 
 The `infrastructure` field contains either the local-Kubernetes or GKE Effect
 Layer. It selects the host without exposing Kubernetes, Kueue, Agent Sandbox,
@@ -79,6 +79,32 @@ is removed after `packages/evals` and the local/GKE acceptance runs use
 compatibility facade after cutover. Docker may still build images and support a
 local Kubernetes cluster.
 
+### Container runtimes preserve exact native gateways
+
+On the Kubernetes path, every roster value is a container runtime descriptor.
+It preserves the runtime's exact `Gateway` type while privately owning two
+runtime-specific pieces: the portable application-container entrypoint and a
+controller-side bridge. After the Sandbox application is ready, that bridge
+attaches to the runtime and returns the existing `RunningAgent<Gateway>` shape:
+the exact gateway plus termination observation. Only then may the slot satisfy
+the cohort gate and become a `StartedAgent` for the customer Effect.
+
+Arbitrary JavaScript gateway values, Effect closures, and shared in-process
+state do not cross the container boundary. Each runtime implementation owns
+both ends of its bridge and may use its own fixed internal transport. The
+simulator defines no universal command, request, response, correlation,
+session, or model-configuration protocol and does not normalize gateway types.
+The kernel knows only the generic acquired shape it already consumes.
+
+For evaluation code peers, this replaces the host-only
+`effectRuntime({ build })` realization on the Kubernetes path. The peer policy
+runs as the application entrypoint in that peer's Sandbox container, and
+`packages/evals` owns the peer-specific observation bridge and its exact
+gateway adapter. Peer social behavior still uses the production MoltZap
+client and router. The in-process Effect runtime remains transitional host
+code until cutover; no public `scriptedRuntime` constructor or generic
+scripted-agent protocol is introduced.
+
 ### One execution is one experiment society
 
 Each call creates one society for one customer Effect and then tears it down:
@@ -87,8 +113,8 @@ Each call creates one society for one customer Effect and then tears it down:
 2. Kueue admits capacity for the complete roster.
 3. The controller creates one Agent Sandbox with one application container for
    each roster entry.
-4. The controller waits until the exact roster is ready at the same cohort
-   gate.
+4. Each runtime-specific controller bridge attaches, and the controller waits
+   until the exact roster is ready at the same cohort gate.
 5. The in-cluster controller invokes the `execute` Effect once.
 6. The existing simulator ledger and run outcome retain the experiment and
    infrastructure evidence.
@@ -119,10 +145,11 @@ and cache are private profile details, not a public artifact protocol.
 
 Dispatch requires the complete roster to be ready together. A backing Pod
 restart before dispatch simply keeps that slot outside the gate until its
-current runtime is ready; no generation API is exposed. An unrecoverable or
-never-ready agent fails acquisition and starts cleanup. After dispatch,
-runtime termination remains typed ledger evidence and the customer Effect's
-existing policy decides whether to finish, fail, or keep observing the run.
+current application and controller bridge are usable; no generation API is
+exposed. An unrecoverable or never-ready agent or bridge fails acquisition and
+starts cleanup. After dispatch, runtime termination remains typed ledger
+evidence and the customer Effect's existing policy decides whether to finish,
+fail, or keep observing the run.
 
 The controller invokes `execute` once for a run and never automatically
 replays it. Controller loss or infrastructure failure fails the run and starts
@@ -188,10 +215,13 @@ The following are not part of this decision or its first implementation:
   hashing algorithm;
 - a new immutable-data grammar, JCS contract, universal input/result/failure
   schema, or serialization rules beyond the simulator's existing schemas and
-  the checksums needed to move an experiment module or pinned image;
+  the fixed runtime-specific bridge schemas and checksums needed to move an
+  experiment module or pinned image;
 - a public Kubernetes object model, arbitrary Pod templates, per-agent
   Temporal workflows, or simulator APIs for Kueue, Sandbox, or Temporal
   internals;
+- a universal gateway proxy, command language, actor mailbox, cross-runtime
+  correlation model, or serialization of arbitrary JavaScript/Effect values;
 - warm societies, multi-run scheduling policy, fairness, borrowing,
   preemption, autoscaling, router high availability, or production Temporal
   high availability;
@@ -218,8 +248,12 @@ policy, and single-package boundary. This decision replaces only the v1
 execution path.
 
 [`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md)
-remains current and governs principal gateways, agent social traffic,
-termination policy, mixed societies, and behavioral-evaluation evidence.
+remains current for exact runtime-native gateway types, agent social traffic,
+termination policy, mixed societies, and behavioral-evaluation evidence. This
+decision replaces only its host-bound realization of code agents as
+`effectRuntime({ build })` closures sharing in-process state with their
+gateway. Container runtime implementations now own runtime-specific bridges;
+the ban on a simulator-wide gateway union or generic command protocol remains.
 
 [`20260729-effect-native-evaluation-results.md`](./20260729-effect-native-evaluation-results.md)
 remains current for cases, grading, report resume, SQLite, and Phoenix. This

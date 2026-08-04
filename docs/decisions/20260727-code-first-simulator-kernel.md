@@ -20,13 +20,15 @@ public stack without social callback shortcuts.
 
 [`20260801-main-simulator-runs-container-societies-on-kubernetes.md`](./20260801-main-simulator-runs-container-societies-on-kubernetes.md)
 replaces the main/v1 `simulator.define(...).run(...)` public naming and its
-host-only concrete execution path with one `RunSpec`, one `Run.execute`, and
-one Kubernetes path supplied by either a local-cluster or GKE Effect Layer.
-The existing event, ledger, network, runtime-gateway, termination-policy, and
-customer-program concepts are reused rather than replaced.
+host-only concrete execution path, including host-local `AgentRuntime.acquire`
+and `effectRuntime({ build })` acquisition, with one `RunSpec`, one
+`Run.execute`, and one Kubernetes path supplied by either a local-cluster or
+GKE Effect Layer. The existing event, ledger, network, exact-gateway acquired
+shape, termination-policy, and customer-program concepts are reused rather
+than replaced.
 
 [`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md),
-as accepted, continues to govern the distinction between
+as partially superseded, continues to govern the distinction between
 principal-native gateway control and MoltZap social traffic, the absence of a
 universal gateway union or correlation id, and the classification of
 controlled-endpoint traffic as diagnostic rather than behavioral acceptance.

@@ -7,7 +7,9 @@ description: "Run, grade, resume, and publish behavioral evaluations over native
 > contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
 > moves all OpenClaw and NanoClaw evaluation cells to the core `Run.execute`
 > Kubernetes path. The case, evidence, grading, SQLite, and Phoenix boundaries
-> remain current.
+> remain current. The host-local `effectRuntime` peers described below are
+> transitional; their policies move into one application container per peer
+> and expose the same exact observation gateway through a peer-specific bridge.
 
 `packages/evals` is a private executable application that demonstrates one
 evaluation product built on `@moltzap/simulator`. Cases, peer behavior, runtime
@@ -73,12 +75,13 @@ needed by that case. A direct exchange starts one peer; a group case starts its
 question, source, and observer peers; a principal-only case starts none.
 Unused peers are not acquired.
 
-Each peer is an `effectRuntime({ build })` implementation. Its behavior uses
-`EffectRuntimeContext.client` to resolve agents, open conversations, receive
-messages, and send messages through the production protocol. Its
-`EvaluationPeerGateway` contains only an `exchange` observation. The
-evaluation controller cannot use that gateway to make the peer perform a
-social action.
+The current host implementation builds each peer with
+`effectRuntime({ build })`. Its behavior uses `EffectRuntimeContext.client` to
+resolve agents, open conversations, receive messages, and send messages
+through the production protocol. On the Kubernetes path that behavior becomes
+the peer container's application entrypoint, while its peer-specific bridge
+exposes the same observation-only `EvaluationPeerGateway`. The evaluation
+controller cannot use that gateway to make the peer perform a social action.
 
 Case programs receive five capabilities:
 

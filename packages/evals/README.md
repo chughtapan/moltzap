@@ -4,7 +4,9 @@
 > contract](../../docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
 > moves all OpenClaw and NanoClaw conditions to the core `Run.execute`
 > Kubernetes path. Cases, grading, reports, SQLite, and Phoenix remain owned
-> here.
+> here. The in-process Effect peer implementation described below is the host
+> path being replaced; each peer policy moves into its own application
+> container with an evaluation-owned, peer-specific observation bridge.
 
 This private package is one code-first customer of `@moltzap/simulator`. It
 defines behavioral cases, runs mixed societies through the production router,
@@ -12,7 +14,9 @@ grades durable ledger evidence, stores resumable reports, and publishes
 completed results to Phoenix.
 
 The bundled baseline pairs sixteen cases with OpenClaw and NanoClaw target
-conditions. Every society also contains autonomous in-process Effect peers.
+conditions. The current host implementation also starts autonomous in-process
+Effect peers; the Kubernetes path packages the same policies as containerized
+code peers.
 The target receives principal instructions through its runtime-native gateway;
 all target-to-peer and peer-to-target traffic uses the same MoltZap protocol
 and router.

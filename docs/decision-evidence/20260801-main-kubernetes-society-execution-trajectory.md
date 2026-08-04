@@ -325,6 +325,22 @@ rationale or strengthen a proposal into a human statement.
    account `chughtapan`, records the acceptance checkpoint after the live user
    reply; the connector exposed no creation timestamp, so none is invented.
 
+   Source system: git and isolated Codex review. The simplified candidate was
+   frozen as commit `1939ee8b92e95151473c323de8dd702e880dbde5`, tree
+   `b2a487141545e4cced7bc7ab0e0d08f344cebea3`. Fresh reviewer
+   `/root/candidate_blind_review_2` ran from `2026-08-04T00:32:44Z` through
+   `2026-08-04T00:43:38Z` with no author intervention. Its overall result was
+   `FAIL`: questions 1, 2, and 4 passed; questions 3, 5, and 6 failed because
+   the candidate required every code peer to run in its own container while
+   retaining the earlier host-local `effectRuntime({ build })` gateway and
+   shared-state realization. The unedited result is retained at
+   [`20260804-main-kubernetes-society-execution-cold-review.md`](./20260804-main-kubernetes-society-execution-cold-review.md).
+
+   Source system: GitHub. Issue comment `5173321800`, stored under account
+   `chughtapan`, records the failed-review checkpoint and correction gate. The
+   connector exposed no creation timestamp, so none is invented. This is an
+   agent-published mechanical artifact, not human rationale.
+
 Source gaps, stated plainly:
 
 - The retained Codex events supply no parent locator. Their message id,
@@ -338,6 +354,13 @@ Source gaps, stated plainly:
   chooses the exact Layer-constructor spelling, so the example's
   `infrastructure` value remains the binding shape while its construction is
   ordinary implementation detail.
+- The accepted assistant proposal states that deterministic peer behavior
+  belongs inside agent containers, and the earlier retained selection requires
+  one container per agent. The source does not choose a bridge transport or
+  wire schema. The corrected candidate therefore admits only the minimum
+  runtime-specific controller bridge needed to expose each container
+  runtime's exact gateway and termination observation; exact transport details
+  remain private implementation choices, not a universal gateway contract.
 - The retained `start` reply is read only with the immediately preceding issue
   summary. That summary stated exactly-once customer-program invocation. The
   simplified candidate instead says that the controller invokes the customer

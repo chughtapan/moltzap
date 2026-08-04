@@ -6,7 +6,10 @@ description: "Add a typed case, exact peer roster, executable policy, criterion,
 > **Implementation transition:** The [main-track Kubernetes
 > contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
 > moves evaluation execution to the core simulator's Kubernetes path. Cases,
-> peer behavior, criteria, and grading remain evaluation-owned code.
+> peer behavior, criteria, and grading remain evaluation-owned code. The
+> current `effectRuntime` peer builder is transitional host machinery; the
+> Kubernetes runtime packages that policy as a peer-container entrypoint and
+> exposes its exact observation gateway through a peer-specific bridge.
 
 `packages/evals` is a private, code-first customer of
 `@moltzap/simulator`. A bundled case is an immutable TypeScript value with
@@ -67,10 +70,12 @@ The keys become the exact keys of `context.peers`. A case with no social peers
 uses an empty record. Do not add idle peers to a shared roster; only the
 runtimes in this record are started.
 
-Bundled peer implementations are autonomous `effectRuntime` policies. They
-send and receive through `EffectRuntimeContext.client`, so their social
-traffic traverses the production protocol and router. Their
-`EvaluationPeerGateway` reports a completed exchange to the evaluation
+The current host implementation builds bundled peers as autonomous
+`effectRuntime` policies. They send and receive through
+`EffectRuntimeContext.client`, so their social traffic traverses the
+production protocol and router. The Kubernetes path runs the same policy in
+the peer's application container. Its peer-specific bridge exposes an
+`EvaluationPeerGateway` that reports a completed exchange to the evaluation
 controller; it is not a command surface.
 
 ## 3. Write a policy that returns one selection
