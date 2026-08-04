@@ -34,8 +34,17 @@ export class OpenClawGatewayStoppedBeforeHello extends Schema.TaggedError<OpenCl
 export interface OpenClawGatewaySession {
   readonly gatewayUrl: `ws://${string}` | `wss://${string}`;
   readonly gatewayToken: Redacted.Redacted;
+  /** Run-private OpenClaw device identity pre-approved by the application. */
+  readonly deviceIdentity: OpenClawGatewayDeviceIdentity;
   readonly agentName: AgentName;
   readonly stopped: Effect.Effect<never, OpenClawGatewayStoppedBeforeHello>;
+}
+
+/** Native OpenClaw device keypair used by the controller bridge. */
+export interface OpenClawGatewayDeviceIdentity {
+  readonly deviceId: string;
+  readonly privateKeyPem: string;
+  readonly publicKeyPem: string;
 }
 
 const openClawGatewayText = Schema.String.pipe(
@@ -336,7 +345,7 @@ export function acquireOpenClawGatewayWith(
             mode: "backend",
             role: "operator",
             scopes: ["operator.write"],
-            deviceIdentity: null,
+            deviceIdentity: session.deviceIdentity,
             ...(environment === undefined ? {} : { env: environment }),
             onHelloOk: () => {
               Effect.runSync(Deferred.succeed(hello, undefined));

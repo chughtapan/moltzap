@@ -23,6 +23,11 @@ const test = effectIt.effect;
 const GATEWAY_URL = "ws://127.0.0.1:43124";
 const REMOTE_GATEWAY_URL = "ws://alice.society.svc:18789";
 const GATEWAY_TOKEN = "test-openclaw-gateway-token";
+const DEVICE_IDENTITY = Object.freeze({
+  deviceId: "a".repeat(64),
+  privateKeyPem: "private-key",
+  publicKeyPem: "public-key",
+});
 const STARTUP_TIMEOUT = Duration.seconds(2);
 const AGENT_METHOD = "agent";
 const OPERATOR_ROLE = "operator";
@@ -55,6 +60,7 @@ function processSession(
   return {
     gatewayUrl: GATEWAY_URL,
     gatewayToken: Redacted.make(GATEWAY_TOKEN),
+    deviceIdentity: DEVICE_IDENTITY,
     agentName: AGENT_NAME,
     stopped: observedExit.pipe(
       Effect.flatMap((code) =>
@@ -174,7 +180,7 @@ function assertRoundTrip(
   assert.strictEqual(clientOptions.token, GATEWAY_TOKEN);
   assert.strictEqual(clientOptions.role, OPERATOR_ROLE);
   assert.deepStrictEqual(clientOptions.scopes, [OPERATOR_WRITE_SCOPE]);
-  assert.isNull(clientOptions.deviceIdentity);
+  assert.strictEqual(clientOptions.deviceIdentity, DEVICE_IDENTITY);
   assert.isUndefined(clientOptions.env);
   assert.strictEqual(request.method, AGENT_METHOD);
   assert.deepStrictEqual(request.params, {
@@ -426,6 +432,7 @@ function privateNetworkGatewayTest() {
     const session: OpenClawGatewaySession = {
       gatewayUrl: REMOTE_GATEWAY_URL,
       gatewayToken: Redacted.make(GATEWAY_TOKEN),
+      deviceIdentity: DEVICE_IDENTITY,
       agentName: AGENT_NAME,
       stopped: Effect.never,
     };
