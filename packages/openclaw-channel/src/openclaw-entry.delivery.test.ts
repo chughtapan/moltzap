@@ -52,6 +52,9 @@ const OUTBOUND_TEXT = "Hello from outbound";
 const AGENT_TEXT = "Hello nova";
 const BEFORE_STOP_TEXT = "before stop";
 const AFTER_STOP_TEXT = "after stop";
+const AFTER_STATUS_FAILURE_TEXT = "after status failure";
+const STATUS_FAILURE_ACCOUNT_ID = "status-failure-test";
+const STATUS_CALLBACK_MESSAGE = "status callback failed";
 const LOOKUP_FAILED_MESSAGE = "lookup failed";
 const SERVER_REJECTED_MESSAGE = "Server rejected";
 const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error";
@@ -160,6 +163,10 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
   it("deliver reports transient RPC send failures", sendFailureIsReported);
   it("a later delivery retries after a send failure", retriesAfterSendFailure);
   it("stopAccount removes client from active pool", stopRemovesClient);
+  it(
+    "releases the gateway when the status callback throws",
+    statusFailureReleasesGateway,
+  );
   it(
     "property: resolveTarget normalizes generated agent names",
     plainAgentNamesResolve,
@@ -611,6 +618,54 @@ function stopRemovesClient() {
       accountId: ACCOUNT_ID,
     });
     expectFailureMessage(afterResult, /not connected/i);
+  });
+}
+
+// The host's setStatus is arbitrary caller code. Effect.sync surfaces a throw
+// from it as a defect, which the connect path's catchAll does not observe, so
+// this asserts on the binding rather than on the raised error.
+function statusFailureReleasesGateway() {
+  return Effect.gen(function* () {
+    const fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
+    const setStatus = vi.fn(() => {
+      throw new Error(STATUS_CALLBACK_MESSAGE);
+    });
+    const plugin = createMoltzapChannelPlugin({
+      createService: () => fixture.service,
+    });
+    const abortController = new AbortController();
+    abortControllers.push(abortController);
+
+    yield* Effect.ignore(
+      Effect.tryPromise({
+        try: () =>
+          plugin.gateway.startAccount({
+            cfg: makeCfg(),
+            accountId: STATUS_FAILURE_ACCOUNT_ID,
+            account: makeAccount(),
+            abortSignal: abortController.signal,
+            log: testLogger(),
+            setStatus,
+          }),
+        catch: (cause) => cause,
+      }),
+    );
+
+    expect(setStatus).toHaveBeenCalledTimes(1);
+    expect(fixture.state.closeCalls.count).toBe(1);
+
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        plugin.outbound.sendText({
+          cfg: makeCfg(),
+          to: STOP_TARGET,
+          text: AFTER_STATUS_FAILURE_TEXT,
+          accountId: STATUS_FAILURE_ACCOUNT_ID,
+        }),
+      catch: (cause) =>
+        new DeliveryTestError({ message: "sendText failed", cause }),
+    });
+    expectFailureMessage(result, /not connected/i);
   });
 }
 

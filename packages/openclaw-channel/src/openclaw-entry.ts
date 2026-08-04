@@ -769,7 +769,14 @@ function startGatewayAccountEffect(
       },
       { once: true },
     );
-    yield* connectGatewayCore(core, service, ctx, setStatus);
+    // The binding is registered before connecting, so anything that escapes the
+    // connect path — including a host setStatus callback that throws, which
+    // Effect.sync surfaces as a defect rather than a failure — must release it.
+    yield* connectGatewayCore(core, service, ctx, setStatus).pipe(
+      Effect.onError(() =>
+        Effect.ignore(disconnectAndRemove(core, activeClients, accountId)),
+      ),
+    );
   });
 }
 
@@ -799,9 +806,11 @@ function disconnectAndRemove(
   activeClients: Map<string, OpenClawClientService>,
   accountId: string,
 ) {
+  // A disconnect that fails must still drop the binding; leaving it registered
+  // would strand the account with no route to recovery.
   return core
     .disconnect()
-    .pipe(Effect.tap(() => Effect.sync(() => activeClients.delete(accountId))));
+    .pipe(Effect.ensuring(Effect.sync(() => activeClients.delete(accountId))));
 }
 
 interface RegisterInboundHandlerParams {
