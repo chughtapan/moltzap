@@ -21,6 +21,7 @@ const CONTROL_UI_PORT = 18789;
 const OPENCLAW_TOKEN_RADIX = 36;
 const DEFAULT_PORT_RANGE_START = 19000;
 const DEFAULT_PORT_RANGE_END = 19999;
+const CONTAINER_UNUSED_MCP_PORT = 1;
 const JSON_INDENT_SPACES = 2;
 const MS_PER_SECOND = 1000;
 const DEFAULT_READY_TIMEOUT_MS = 180_000;
@@ -287,9 +288,12 @@ function writeContainerMoltZapConfig(
       {
         profiles: {
           [opts.agentName]: {
+            agentName: opts.agentName,
+            // The container runs no daemon of its own; the slot needs a port to
+            // decode, and this one is deliberately never bound.
+            mcpPort: CONTAINER_UNUSED_MCP_PORT,
             agentId: opts.moltzapProfile.agentId,
             apiKey: Redacted.value(opts.moltzapProfile.apiKey),
-            agentName: opts.agentName,
           },
         },
       },

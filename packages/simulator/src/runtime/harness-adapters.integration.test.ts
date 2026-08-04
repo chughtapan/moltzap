@@ -12,6 +12,7 @@ import {
 } from "@moltzap/client/harness-client";
 import {
   acquirePackagedMoltzapd,
+  reserveTestMcpPort,
   registerAgent,
   registerAndConnect,
   withTestServiceConfig,
@@ -450,6 +451,10 @@ const runAdapterCase = (adapterCase: AdapterCase) =>
       const owner = yield* registerAgent(server.baseUrl, adapterCase.ownerName);
       const peer = yield* acquirePeer(server, adapterCase.peerName);
 
+      // The daemon binds exactly the port its slot records, so the port is
+      // chosen here and written into the slot before the child starts.
+      const mcpPort = yield* Effect.scoped(reserveTestMcpPort);
+
       yield* withTestServiceConfig(
         {
           profileName: adapterCase.profileName,
@@ -457,6 +462,7 @@ const runAdapterCase = (adapterCase: AdapterCase) =>
           agentId: owner.agentId,
           agentKey: owner.apiKey,
           serverUrl: server.baseUrl,
+          mcpPort,
         },
         Effect.scoped(
           Effect.gen(function* () {

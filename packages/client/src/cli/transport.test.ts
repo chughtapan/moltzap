@@ -24,6 +24,8 @@ import {
   type TransportOptions,
 } from "./transport.js";
 
+const SLOT_TEST_MCP_PORT = 41_973;
+
 const it = effectIt.scoped;
 
 const TEST_SOCKET_PATH = "/var/run/moltzap-test.sock";
@@ -36,6 +38,7 @@ const withNodeContext = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(NodeContext.layer));
 
 const profileRecord: ProfileRecord = {
+  mcpPort: SLOT_TEST_MCP_PORT,
   agentId: PROFILE_AGENT_ID,
   apiKey: PROFILE_KEY,
   agentName: PROFILE_AGENT_NAME,

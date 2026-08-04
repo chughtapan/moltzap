@@ -45,6 +45,7 @@ import {
   installChannelPlugin,
   seedWorkspaceFiles,
   SIMULATOR_PROFILE_NAME,
+  reserveSlotMcpPort,
   writeMoltZapProfileConfig,
 } from "../workspace.js";
 import {
@@ -982,7 +983,14 @@ function writeOpenClawConfig(opts: {
         path.join(opts.stateDir, "openclaw.json"),
         JSON.stringify(config, null, JSON_INDENT_SPACES),
       ),
-      writeMoltZapProfileConfig(path.join(opts.stateDir, ".moltzap"), opts),
+      reserveSlotMcpPort().pipe(
+        Effect.flatMap((mcpPort) =>
+          writeMoltZapProfileConfig(path.join(opts.stateDir, ".moltzap"), {
+            ...opts,
+            mcpPort,
+          }),
+        ),
+      ),
     ]);
   });
 }

@@ -15,6 +15,8 @@ import {
 } from "@moltzap/protocol/testing";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { registerCommand } from "./register.js";
+
+const SLOT_TEST_MCP_PORT = 41_973;
 import { parseProfileName, type ProfileName } from "../../profile.js";
 
 const it = effectIt.scoped;
@@ -33,9 +35,10 @@ const moltzapConfigText = Schema.parseJson(
     profiles: Schema.Record({
       key: Schema.String,
       value: Schema.Struct({
+        agentName: Schema.String,
+        mcpPort: Schema.Number,
         agentId: agentIdSchema,
         apiKey: agentKey,
-        agentName: Schema.String,
       }),
     }),
   }),
@@ -93,6 +96,7 @@ function registerInput() {
     inviteCode: INVITE_CODE,
     description: Option.none<string>(),
     profile: Option.none<ProfileName>(),
+    mcpPort: SLOT_TEST_MCP_PORT,
     noPersist: false,
   };
 }

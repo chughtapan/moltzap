@@ -17,6 +17,7 @@ import {
   loadLayeredConfig,
   parseProfileName,
   ProfileInvalidNameError,
+  isRegisteredProfile,
   ProfileNotFoundError,
   writeProfile,
   type ProfileName,
@@ -37,6 +38,7 @@ const ALICE_PROFILE_NAME =
 const BOB_PROFILE_NAME =
   /* Safe because the test fixture establishes this asserted shape. */ "bob" as ProfileName;
 const UNKNOWN_PROFILE_NAME = "nobody";
+const SLOT_MCP_PORT = 41_973;
 
 const DEFAULT_AGENT_NAME = "a";
 const ALICE_AGENT_NAME = "alice";
@@ -55,9 +57,10 @@ const PROFILE_INVALID_NAME_ERROR = "ProfileInvalidNameError";
 const PROFILE_CONFIG_READ_ERROR = "ProfileConfigReadError";
 
 const writtenProfileRecordSchema = Schema.Struct({
+  agentName: Schema.String,
+  mcpPort: Schema.Number,
   agentId: Schema.String,
   apiKey: Schema.String,
-  agentName: Schema.String,
 });
 const writtenConfigSchema = Schema.Struct({
   profiles: Schema.optional(
@@ -88,21 +91,24 @@ const withNodeContext = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(NodeContext.layer));
 
 const defaultRecord = (apiKey: string = DEFAULT_API_KEY): ProfileRecord => ({
+  agentName: DEFAULT_AGENT_NAME,
+  mcpPort: SLOT_MCP_PORT,
   agentId: DEFAULT_AGENT_ID,
   apiKey: redactedAgentKey(apiKey),
-  agentName: DEFAULT_AGENT_NAME,
 });
 
 const namedRecord = (apiKey: string, agentName: string): ProfileRecord => ({
+  agentName,
+  mcpPort: SLOT_MCP_PORT,
   agentId: agentName === BOB_AGENT_NAME ? BOB_AGENT_ID : ALICE_AGENT_ID,
   apiKey: redactedAgentKey(apiKey),
-  agentName,
 });
 
 const encodedNamedRecord = (apiKey: string, agentName: string) => ({
+  agentName,
+  mcpPort: SLOT_MCP_PORT,
   agentId: agentName === BOB_AGENT_NAME ? BOB_AGENT_ID : ALICE_AGENT_ID,
   apiKey,
-  agentName,
 });
 
 const namedProfilesConfig = () => ({
@@ -262,6 +268,71 @@ function topLevelConfigFailsSchemaDecode() {
   );
 }
 
+function slotWithoutMcpPortFailsDecode() {
+  return withNodeContext(
+    Effect.gen(function* () {
+      // The shape every config.json had before the slot carried its port.
+      yield* writeConfigText(
+        JSON.stringify({
+          profiles: {
+            [ALICE_PROFILE_NAME]: {
+              agentId: DEFAULT_AGENT_ID,
+              apiKey: DEFAULT_API_KEY,
+              agentName: DEFAULT_AGENT_NAME,
+            },
+          },
+        }),
+      );
+
+      const exit = yield* Effect.exit(loadLayeredConfig);
+      expectFailureContaining(exit, PROFILE_CONFIG_READ_ERROR);
+    }),
+  );
+}
+
+function halfCommittedSlotFailsDecode() {
+  return withNodeContext(
+    Effect.gen(function* () {
+      yield* writeConfigText(
+        JSON.stringify({
+          profiles: {
+            [ALICE_PROFILE_NAME]: {
+              agentName: DEFAULT_AGENT_NAME,
+              mcpPort: SLOT_MCP_PORT,
+              agentId: DEFAULT_AGENT_ID,
+            },
+          },
+        }),
+      );
+
+      const exit = yield* Effect.exit(loadLayeredConfig);
+      expectFailureContaining(exit, PROFILE_CONFIG_READ_ERROR);
+    }),
+  );
+}
+
+function uncommittedSlotDecodes() {
+  return withNodeContext(
+    Effect.gen(function* () {
+      yield* writeConfigText(
+        JSON.stringify({
+          profiles: {
+            [ALICE_PROFILE_NAME]: {
+              agentName: DEFAULT_AGENT_NAME,
+              mcpPort: SLOT_MCP_PORT,
+            },
+          },
+        }),
+      );
+
+      const view = yield* loadLayeredConfig;
+      const slot = view.profiles.get(ALICE_PROFILE_NAME);
+      expect(slot?.mcpPort).toBe(SLOT_MCP_PORT);
+      expect(slot === undefined ? true : isRegisteredProfile(slot)).toBe(false);
+    }),
+  );
+}
+
 function namedProfilesPopulateMap() {
   return withNodeContext(
     Effect.gen(function* () {
@@ -271,7 +342,7 @@ function namedProfilesPopulateMap() {
       expect(view.profiles.size).toBe(SINGLE_PROFILE_COUNT);
       const record = view.profiles.get(ALICE_PROFILE_NAME);
       expect(record).toBeDefined();
-      if (record !== undefined) {
+      if (record !== undefined && isRegisteredProfile(record)) {
         expect(record.agentId).toBe(ALICE_AGENT_ID);
         expect(Redacted.value(record.apiKey)).toBe(ALICE_API_KEY);
       }
@@ -390,6 +461,18 @@ describe("loadLayeredConfig top-level records", () => {
 
 describe("loadLayeredConfig named profiles", () => {
   it("profiles object populates the profiles map", namedProfilesPopulateMap);
+
+  it(
+    "a slot without mcpPort fails decode instead of defaulting",
+    slotWithoutMcpPortFailsDecode,
+  );
+
+  it(
+    "a slot with agentId but no apiKey fails decode",
+    halfCommittedSlotFailsDecode,
+  );
+
+  it("a slot with no committed identity decodes", uncommittedSlotDecodes);
 });
 
 describe("ProfileNotFoundError", () => {

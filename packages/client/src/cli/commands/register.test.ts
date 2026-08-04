@@ -6,6 +6,8 @@ import type { AgentKey } from "@moltzap/protocol/identity";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { parseProfileName, type ProfileName } from "../../profile.js";
 
+const SLOT_TEST_MCP_PORT = 41_973;
+
 const it = effectIt.effect;
 const AGENT_NAME = Effect.runSync(parseProfileName("my-agent"));
 const INVITE_CODE = "inv_abc123";
@@ -56,6 +58,7 @@ function registerHandlerInput(description: Option.Option<string>) {
     inviteCode: INVITE_CODE,
     description,
     profile: Option.none<ProfileName>(),
+    mcpPort: SLOT_TEST_MCP_PORT,
     noPersist: true,
   };
 }

@@ -7,8 +7,10 @@ import {
   type ServerBaseUrl as ServerBaseUrlType,
 } from "@moltzap/protocol/network";
 import {
+  isRegisteredProfile,
   loadLayeredConfig,
   parseProfileName,
+  ProfileNotRegisteredError,
   type ProfileConfigReadError,
   type ProfileInvalidNameError,
   ProfileNotFoundError,
@@ -28,7 +30,8 @@ const SERVER_URL_ENV = "MOLTZAP_SERVER_URL";
 export type ServiceConfigError =
   | ConfigReadError
   | ProfileInvalidNameError
-  | ProfileNotFoundError;
+  | ProfileNotFoundError
+  | ProfileNotRegisteredError;
 
 class ConfigReadError extends Data.TaggedError("ConfigReadError")<{
   readonly cause: unknown;
@@ -92,6 +95,12 @@ export const loadServiceConfig = (
     const profile = layered.profiles.get(name);
     if (profile === undefined) {
       return yield* new ProfileNotFoundError({ name });
+    }
+    // A slot exists before Registry commit, so absent identity is a distinct
+    // state from an absent slot: the daemon serves registration in the first
+    // case and refuses to start in the second.
+    if (!isRegisteredProfile(profile)) {
+      return yield* new ProfileNotRegisteredError({ name });
     }
     const serverUrl = yield* getServerUrl;
     return {

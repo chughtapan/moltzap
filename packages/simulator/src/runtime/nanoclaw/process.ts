@@ -24,6 +24,7 @@ import {
 import {
   seedWorkspaceFiles,
   SIMULATOR_PROFILE_NAME,
+  reserveSlotMcpPort,
   writeMoltZapProfileConfig,
 } from "../workspace.js";
 import type { NanoclawRuntimeInstall } from "./install.js";
@@ -428,11 +429,17 @@ function writeNanoclawMoltZapProfileConfig(
   runtimeDir: string,
 ) {
   const configDir = join(runtimeDir, ".moltzap");
-  return writeMoltZapProfileConfig(configDir, opts).pipe(
-    Effect.mapError((cause) =>
-      toRuntimeError(`write moltzap profile config ${configDir}`, cause),
-    ),
-  );
+  return reserveSlotMcpPort()
+    .pipe(
+      Effect.flatMap((mcpPort) =>
+        writeMoltZapProfileConfig(configDir, { ...opts, mcpPort }),
+      ),
+    )
+    .pipe(
+      Effect.mapError((cause) =>
+        toRuntimeError(`write moltzap profile config ${configDir}`, cause),
+      ),
+    );
 }
 
 function startNanoclawProcess(
