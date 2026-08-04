@@ -74,6 +74,10 @@ interface GatewayState {
   readonly output: Mailbox.Mailbox<NanoclawGatewayOutput, NanoclawGatewayError>;
 }
 
+type NanoclawGatewaySocketAddress =
+  | { readonly _tag: "Unix"; readonly path: string }
+  | { readonly _tag: "Tcp"; readonly host: string; readonly port: number };
+
 function gatewayError(
   operation: NanoclawGatewayError["operation"],
   cause: unknown,
@@ -202,7 +206,7 @@ function makeGatewaySession(
 }
 
 function initializeGatewayAttempt(
-  socketPath: string,
+  address: NanoclawGatewaySocketAddress,
   attemptScope: Scope.CloseableScope,
 ): Effect.Effect<NanoclawGatewaySession, NanoclawGatewayError> {
   return Effect.gen(function* () {
@@ -217,10 +221,15 @@ function initializeGatewayAttempt(
       ),
     };
     const writeLock = yield* Effect.makeSemaphore(1);
-    const socket = yield* NodeSocket.makeNet({
-      path: socketPath,
-      openTimeout: SOCKET_OPEN_TIMEOUT,
-    }).pipe(
+    const socket = yield* NodeSocket.makeNet(
+      address._tag === "Tcp"
+        ? {
+            host: address.host,
+            port: address.port,
+            openTimeout: SOCKET_OPEN_TIMEOUT,
+          }
+        : { path: address.path, openTimeout: SOCKET_OPEN_TIMEOUT },
+    ).pipe(
       Effect.mapError((cause) => gatewayError("connect", cause)),
       Scope.extend(attemptScope),
     );
@@ -241,7 +250,7 @@ function initializeGatewayAttempt(
 }
 
 function openGatewayAttempt(
-  socketPath: string,
+  address: NanoclawGatewaySocketAddress,
   parentScope: Scope.Scope,
 ): Effect.Effect<NanoclawGatewaySession, NanoclawGatewayError> {
   return Effect.gen(function* () {
@@ -249,12 +258,33 @@ function openGatewayAttempt(
       parentScope,
       ExecutionStrategy.sequential,
     );
-    return yield* initializeGatewayAttempt(socketPath, attemptScope).pipe(
+    return yield* initializeGatewayAttempt(address, attemptScope).pipe(
       Effect.onExit((exit) =>
         Exit.isSuccess(exit) ? Effect.void : Scope.close(attemptScope, exit),
       ),
     );
   });
+}
+
+function acquireGateway(
+  address: NanoclawGatewaySocketAddress,
+  label: string,
+  within: Duration.Duration,
+): Effect.Effect<NanoclawGatewaySession, NanoclawGatewayError, Scope.Scope> {
+  return Effect.gen(function* () {
+    const scope = yield* Effect.scope;
+    return yield* openGatewayAttempt(address, scope).pipe(
+      Effect.retry(Schedule.spaced(SOCKET_RETRY_INTERVAL)),
+      Effect.timeoutFail({
+        duration: within,
+        onTimeout: () =>
+          gatewayError(
+            "connect",
+            `the NanoClaw ${label} was not ready within ${Duration.format(within)}`,
+          ),
+      }),
+    );
+  }).pipe(Effect.withSpan("NanoclawGateway.acquire"));
 }
 
 /**
@@ -270,18 +300,31 @@ export function acquireNanoclawGateway(
   socketPath: string,
   within: Duration.Duration,
 ): Effect.Effect<NanoclawGatewaySession, NanoclawGatewayError, Scope.Scope> {
-  return Effect.gen(function* () {
-    const scope = yield* Effect.scope;
-    return yield* openGatewayAttempt(socketPath, scope).pipe(
-      Effect.retry(Schedule.spaced(SOCKET_RETRY_INTERVAL)),
-      Effect.timeoutFail({
-        duration: within,
-        onTimeout: () =>
-          gatewayError(
-            "connect",
-            `the NanoClaw CLI socket was not ready within ${Duration.format(within)}`,
-          ),
-      }),
-    );
-  }).pipe(Effect.withSpan("NanoclawGateway.acquire"));
+  return acquireGateway(
+    { _tag: "Unix", path: socketPath },
+    "CLI socket",
+    within,
+  );
+}
+
+/**
+ * Connect the controller to NanoClaw's runtime-owned TCP realization of the
+ * native CLI channel. The bytes and schemas are identical to the Unix-socket
+ * gateway; only the application-container transport differs.
+ * @param host Application-container service hostname.
+ * @param port Fixed NanoClaw bridge port.
+ * @param within Maximum time allowed for the first successful connection.
+ * @internal
+ * @returns The connected gateway and its failure observation.
+ */
+export function acquireDistributedNanoclawGateway(
+  host: string,
+  port: number,
+  within: Duration.Duration,
+): Effect.Effect<NanoclawGatewaySession, NanoclawGatewayError, Scope.Scope> {
+  return acquireGateway(
+    { _tag: "Tcp", host, port },
+    `application bridge at ${host}:${String(port)}`,
+    within,
+  );
 }

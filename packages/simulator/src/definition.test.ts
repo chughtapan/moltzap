@@ -1,15 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
-import {
-  Run,
-  RunSpec,
-  simulator,
-  SimulatorDefinitionError,
-} from "./definition.js";
+import { Run, RunSpec, SimulatorDefinitionError } from "./definition.js";
 import { EventCatalog } from "./events/catalog.js";
 import { LedgerStorage } from "./ledger/storage.js";
 import { RouterProvider } from "./network/router.js";
-import { RuntimeCompleted, defineRuntime } from "./runtime/runtime.js";
+import { SocietyPlatform } from "./platform/platform.js";
+import { defineRuntime } from "./runtime/runtime.js";
 
 const testRuntimeConfiguration = Schema.Struct({});
 const configuration = {
@@ -20,11 +16,6 @@ const configuration = {
 const runtime = defineRuntime({
   name: "definition-binding-test",
   configuration,
-  acquire: () =>
-    Effect.succeed({
-      gateway: undefined,
-      termination: Effect.succeed(RuntimeCompleted.make({})),
-    }),
 });
 
 class DefinitionObservation extends Schema.TaggedClass<DefinitionObservation>()(
@@ -35,22 +26,12 @@ class DefinitionObservation extends Schema.TaggedClass<DefinitionObservation>()(
 const definitionEvents = EventCatalog.make(DefinitionObservation);
 
 function definitionInfrastructure() {
-  return Layer.merge(
+  return Layer.mergeAll(
     Layer.effect(LedgerStorage, Effect.never),
     Layer.effect(RouterProvider, Effect.never),
+    Layer.effect(SocietyPlatform, Effect.never),
   );
 }
-
-it("rejects a roster owned by a distinct definition with the same id", () => {
-  const first = simulator.define("acme.definition-binding/v1");
-  const second = simulator.define("acme.definition-binding/v1");
-  const roster = first.agents({ alice: runtime });
-
-  assert.throws(
-    () => second.run(roster, Effect.void),
-    SimulatorDefinitionError,
-  );
-});
 
 it("captures an immutable RunSpec without freezing caller-owned input", () => {
   const events = [definitionEvents];
@@ -58,11 +39,6 @@ it("captures an immutable RunSpec without freezing caller-owned input", () => {
   const replacementRuntime = defineRuntime({
     name: "definition-binding-replacement",
     configuration,
-    acquire: () =>
-      Effect.succeed({
-        gateway: undefined,
-        termination: Effect.succeed(RuntimeCompleted.make({})),
-      }),
   });
   const infrastructure = definitionInfrastructure();
   const replacementInfrastructure = definitionInfrastructure();

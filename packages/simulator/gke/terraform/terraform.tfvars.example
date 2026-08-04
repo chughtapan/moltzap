@@ -1,0 +1,2 @@
+project_id           = "replace-with-project-id"
+artifact_bucket_name = "replace-with-globally-unique-moltzap-ledger-bucket"

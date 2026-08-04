@@ -33,6 +33,7 @@ import {
   EvaluationResumeMismatch,
   JudgePolicySnapshot,
   LedgerAllocationFailedAttempt,
+  LocalEvaluationInfrastructure,
   decodeEvaluationReportId,
   type EvaluationSweepCell,
 } from "./sweep.js";
@@ -48,7 +49,7 @@ const criterionId = decodeCriterionId;
 const judgePolicyId = decodeJudgePolicyId;
 const reportId = decodeEvaluationReportId;
 const effectConditionId = conditionId("effect/v1");
-const effectRuntimeName = "effect";
+const fixtureRuntimeName = "effect";
 const instant = DateTime.unsafeMake(0);
 
 class DeliberateExecutionFailure extends Schema.TaggedError<DeliberateExecutionFailure>()(
@@ -80,7 +81,7 @@ function plan(
     conditions: [
       EvaluationConditionPlan.make({
         id: effectConditionId,
-        runtimeName: effectRuntimeName,
+        runtimeName: fixtureRuntimeName,
         runtimeConfiguration: { mode: "deterministic" },
       }),
     ],
@@ -93,6 +94,14 @@ function plan(
       tools: "none",
       timeoutMillis: 1_000,
       maxRetries: 2,
+    }),
+    infrastructure: LocalEvaluationInfrastructure.make({
+      profile: "local",
+      controllerImage: `controller@sha256:${"a".repeat(64)}`,
+      peerApplicationImage: `peer@sha256:${"b".repeat(64)}`,
+      nanoclawApplicationImage: `nanoclaw@sha256:${"c".repeat(64)}`,
+      temporalAddress: "127.0.0.1:7233",
+      artifactDirectory: "/var/lib/moltzap/artifacts",
     }),
     samplesPerCell: 1,
   });
@@ -343,11 +352,12 @@ function resumeMismatchTest() {
         conditions: [
           EvaluationConditionPlan.make({
             id: effectConditionId,
-            runtimeName: effectRuntimeName,
+            runtimeName: fixtureRuntimeName,
             runtimeConfiguration: { mode: "changed" },
           }),
         ],
         judgePolicy: reportPlan.judgePolicy,
+        infrastructure: reportPlan.infrastructure,
         samplesPerCell: reportPlan.samplesPerCell,
       });
       const mismatch = yield* resumeStoredEvaluationReport(changedPlan).pipe(
@@ -356,6 +366,36 @@ function resumeMismatchTest() {
 
       assert.instanceOf(mismatch, EvaluationResumeMismatch);
       assert.strictEqual(mismatch.field, "runtimeConfigurations");
+    }).pipe(Effect.provide(evaluationResultStoreLayer(fixture.databasePath)));
+  }).pipe(Effect.provide(NodeContext.layer));
+}
+
+function infrastructureResumeMismatchTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* resultFixture("moltzap-evals-infrastructure-");
+    const reportPlan = plan(casePlan("EVAL-005"));
+    yield* Effect.gen(function* () {
+      yield* createStoredEvaluationReport(
+        reportId("infrastructure-mismatch-test"),
+        reportPlan,
+      );
+      const changedPlan = EvaluationReportPlan.make({
+        sourceRevision: reportPlan.sourceRevision,
+        cases: reportPlan.cases,
+        conditions: reportPlan.conditions,
+        judgePolicy: reportPlan.judgePolicy,
+        infrastructure: LocalEvaluationInfrastructure.make({
+          ...reportPlan.infrastructure,
+          artifactDirectory: "/var/lib/moltzap/other-artifacts",
+        }),
+        samplesPerCell: reportPlan.samplesPerCell,
+      });
+      const mismatch = yield* resumeStoredEvaluationReport(changedPlan).pipe(
+        Effect.flip,
+      );
+
+      assert.instanceOf(mismatch, EvaluationResumeMismatch);
+      assert.strictEqual(mismatch.field, "infrastructure");
     }).pipe(Effect.provide(evaluationResultStoreLayer(fixture.databasePath)));
   }).pipe(Effect.provide(NodeContext.layer));
 }
@@ -399,6 +439,10 @@ describe("evaluation result storage", () => {
   it(
     "rejects a resume when immutable runtime configuration changed",
     resumeMismatchTest,
+  );
+  it(
+    "rejects a resume when the selected infrastructure changed",
+    infrastructureResumeMismatchTest,
   );
   it("rolls back a typed callback failure", () =>
     uncommittedCallbackTest("callback-failure-", () =>

@@ -10,16 +10,18 @@ import {
   acquireOpenClawGatewayWith,
   OpenClawGatewayRequest,
   OpenClawGatewayRequestFailed,
+  OpenClawGatewayStoppedBeforeHello,
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
   type OpenClawGatewayClient,
   type OpenClawGatewayClientFactory,
   type OpenClawGatewayResponse,
+  type OpenClawGatewaySession,
 } from "./gateway.js";
-import type { OpenClawProcessSession } from "./process.js";
 
 const test = effectIt.effect;
 const GATEWAY_URL = "ws://127.0.0.1:43124";
+const REMOTE_GATEWAY_URL = "ws://alice.society.svc:18789";
 const GATEWAY_TOKEN = "test-openclaw-gateway-token";
 const STARTUP_TIMEOUT = Duration.seconds(2);
 const AGENT_METHOD = "agent";
@@ -48,13 +50,21 @@ interface RoundTripFixture {
 
 function processSession(
   exitCode: Deferred.Deferred<ExitCode>,
-): OpenClawProcessSession {
+): OpenClawGatewaySession {
+  const observedExit = Deferred.await(exitCode);
   return {
-    exitCode: Deferred.await(exitCode),
-    output: () => "",
     gatewayUrl: GATEWAY_URL,
     gatewayToken: Redacted.make(GATEWAY_TOKEN),
     agentName: AGENT_NAME,
+    stopped: observedExit.pipe(
+      Effect.flatMap((code) =>
+        Effect.fail(
+          OpenClawGatewayStoppedBeforeHello.make({
+            detail: `OpenClaw exited before its principal gateway exposed a hello response (exitCode=${String(code)})`,
+          }),
+        ),
+      ),
+    ),
   };
 }
 
@@ -165,6 +175,7 @@ function assertRoundTrip(
   assert.strictEqual(clientOptions.role, OPERATOR_ROLE);
   assert.deepStrictEqual(clientOptions.scopes, [OPERATOR_WRITE_SCOPE]);
   assert.isNull(clientOptions.deviceIdentity);
+  assert.isUndefined(clientOptions.env);
   assert.strictEqual(request.method, AGENT_METHOD);
   assert.deepStrictEqual(request.params, {
     message: INSTRUCTION,
@@ -409,6 +420,32 @@ function exitBeforeHelloTest() {
   });
 }
 
+function privateNetworkGatewayTest() {
+  return Effect.gen(function* () {
+    let clientOptions: Parameters<OpenClawGatewayClientFactory>[0] | undefined;
+    const session: OpenClawGatewaySession = {
+      gatewayUrl: REMOTE_GATEWAY_URL,
+      gatewayToken: Redacted.make(GATEWAY_TOKEN),
+      agentName: AGENT_NAME,
+      stopped: Effect.never,
+    };
+    const delegate = readyClient({});
+
+    yield* Effect.scoped(
+      acquireOpenClawGatewayWith(session, STARTUP_TIMEOUT, (options) => {
+        clientOptions = options;
+        return delegate(options);
+      }),
+    );
+
+    assert.isDefined(clientOptions);
+    assert.strictEqual(clientOptions?.url, REMOTE_GATEWAY_URL);
+    assert.deepStrictEqual(clientOptions?.env, {
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: "1",
+    });
+  });
+}
+
 describe("OpenClaw principal gateway", () => {
   test(
     "binds the scoped client to its principal agent and decodes the response",
@@ -431,5 +468,9 @@ describe("OpenClaw principal gateway", () => {
   test(
     "fails and releases the client when the process exits before hello",
     exitBeforeHelloTest,
+  );
+  test(
+    "opts into OpenClaw's private-network websocket client for a remote Pod",
+    privateNetworkGatewayTest,
   );
 });

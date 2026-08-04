@@ -6,9 +6,12 @@ import type { runtimeEvents } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import { makeAgentHandle } from "../network/participant.js";
 import type { Router } from "../network/router.js";
-import { SocietyPlatform } from "../platform/platform.js";
+import {
+  defineFakeRuntime,
+  makeFakeSocietyPlatform,
+} from "../platform/fake.js";
 import { SimulatorInfrastructureFailure } from "../platform/failure.js";
-import { RuntimeExited, defineRuntime } from "../runtime/runtime.js";
+import { RuntimeExited } from "../runtime/runtime.js";
 import { makeAgentRosterBuilder } from "../runtime/roster.js";
 import { acquireRoster } from "./runtimes.js";
 
@@ -31,7 +34,7 @@ const betaGateway = Object.freeze({ runtime: "beta" });
 const alphaTermination = Effect.never;
 const betaTermination = Effect.never;
 
-const alphaRuntime = defineRuntime({
+const alphaRuntime = defineFakeRuntime({
   name: "alpha",
   configuration,
   acquire: () =>
@@ -40,7 +43,7 @@ const alphaRuntime = defineRuntime({
       termination: alphaTermination,
     }),
 });
-const betaRuntime = defineRuntime({
+const betaRuntime = defineFakeRuntime({
   name: "beta",
   configuration,
   acquire: () =>
@@ -93,8 +96,7 @@ function testWriter(): LedgerWriter<typeof runtimeEvents> {
 test("installs each runtime gateway beside its router identity", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const platform = yield* SocietyPlatform;
-      const session = yield* platform.prepare(roster);
+      const session = yield* makeFakeSocietyPlatform().prepare(roster);
       const agents = yield* acquireRoster({
         router: testRouter(),
         roster,
@@ -114,10 +116,10 @@ test("installs each runtime gateway beside its router identity", () =>
     }),
   ));
 
-test("rejects an already-terminated runtime before the direct cohort gate", () =>
+test("rejects an already-terminated runtime before the fake cohort gate", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const terminated = defineRuntime({
+      const terminated = defineFakeRuntime({
         name: "terminated-before-cohort",
         configuration,
         acquire: () =>
@@ -129,8 +131,8 @@ test("rejects an already-terminated runtime before the direct cohort gate", () =
       const terminatedRoster = makeAgentRosterBuilder(
         "acme.runtime-pre-dispatch-loss/v1",
       )({ alice: terminated });
-      const platform = yield* SocietyPlatform;
-      const session = yield* platform.prepare(terminatedRoster);
+      const session =
+        yield* makeFakeSocietyPlatform().prepare(terminatedRoster);
       const failure = yield* acquireRoster({
         router: testRouter(),
         roster: terminatedRoster,

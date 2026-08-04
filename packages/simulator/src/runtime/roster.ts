@@ -31,17 +31,13 @@ type RuntimeTypesOf<Runtime extends AgentRuntimeLike> =
   Runtime extends AgentRuntime<
     infer Gateway,
     infer AcquisitionError,
-    infer Requirements,
     infer ConfigurationSchema
   >
-    ? readonly [Gateway, AcquisitionError, Requirements, ConfigurationSchema]
-    : readonly [never, never, never, never];
+    ? readonly [Gateway, AcquisitionError, ConfigurationSchema]
+    : readonly [never, never, never];
 
 type RuntimeAcquisitionErrorOf<Runtime extends AgentRuntimeLike> =
   RuntimeTypesOf<Runtime>[1];
-
-type RuntimeRequirementsOf<Runtime extends AgentRuntimeLike> =
-  RuntimeTypesOf<Runtime>[2];
 
 /** The principal gateway exposed by one acquired runtime definition. */
 export type RuntimeGatewayOf<Runtime extends AgentRuntimeLike> =
@@ -51,11 +47,6 @@ export type RuntimeGatewayOf<Runtime extends AgentRuntimeLike> =
 export type AgentRosterAcquisitionError<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = RuntimeAcquisitionErrorOf<Definitions[keyof Definitions]>;
-
-/** The union of every heterogeneous runtime's Effect requirements. */
-export type AgentRosterRequirements<
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-> = RuntimeRequirementsOf<Definitions[keyof Definitions]>;
 
 /** A ready autonomous runtime paired with its router-issued identity. */
 export interface StartedAgent<Name extends string, Gateway>

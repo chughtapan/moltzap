@@ -29,9 +29,8 @@ composed at the application edge.
 
 - One execution creates one experiment society, runs one customer Effect, and
   tears the society down. It is not a reusable warm pool.
-- Kubernetes is the only real distributed execution backend. Local Kubernetes
-  and GKE are two Layers for the same path. Docker may build images or support
-  the local cluster; it is not a second simulator backend.
+- Kubernetes is the only execution backend. Local Kubernetes and GKE are two
+  infrastructure Layers for the same controller and kernel path.
 - One roster entry maps to one Agent Sandbox application container.
   Infrastructure containers do not count as agents.
 - Kueue admits capacity for the complete roster before Sandboxes are created.
@@ -65,10 +64,10 @@ composed at the application edge.
 - Runtime bridges may use fixed runtime-specific transports. Never add a
   simulator-wide gateway proxy, command language, actor mailbox, correlation
   model, or gateway union.
-- Real and code/scripted agents may share one society. Code agents receive no
-  social shortcut around the production router. On the Kubernetes path their
-  policy runs inside their own application container; host-local
-  `effectRuntime({ build })` is transitional and is removed with the host path.
+- Real and code-driven agents may share one society. Code agents receive no
+  social shortcut around the production router. Their policy runs inside
+  their own application container and their bridge exposes only the exact
+  controller-side gateway owned by that runtime.
 - The stock digest-pinned OpenClaw image is the compatibility path. Experiment
   code and instructions are late-bound; a prebuilt MoltZap image is only an
   optimization.
@@ -79,9 +78,8 @@ composed at the application edge.
   post-dispatch recovery guarantees, customer Effect replay, artifact
   authorities, global execution identities, synthetic identity schemes, or a
   new serialization framework.
-- The root public execution path is `Run.execute(RunSpec)`. Remove the host
-  `simulator.define(...).run(...)` path after evaluations and local/GKE
-  acceptance runs have migrated; do not preserve compatibility aliases.
+- The root public execution path is `Run.execute(RunSpec)`. Do not add another
+  execution model or compatibility alias.
 
 ## Structure
 
@@ -90,8 +88,8 @@ composed at the application edge.
   implementation.
 - `src/network/` — participant, conversation, endpoint, router, transport,
   link, MoltZap server, and message-store capabilities.
-- `src/runtime/` — portable runtime definitions, exact gateway contracts, and
-  shipped OpenClaw, NanoClaw, and Effect implementations.
+- `src/runtime/` — portable container runtime definitions, exact gateway
+  contracts, and shipped OpenClaw and NanoClaw implementations.
 - `src/kernel/` — definition-bound services and platform-neutral execution
   sequencing.
 - private platform code — the smallest interface needed by the kernel, its

@@ -1,32 +1,17 @@
 /** @file MoltZap implementation of the simulator router service. */
 
-import {
-  DEFAULT_APP_ID,
-  type AgentId,
-  type AgentKey,
-  type AgentName,
-} from "@moltzap/protocol/identity";
-import { agentConversationCreate } from "@moltzap/protocol/conversation";
-import {
-  messageReceivedNotificationDefinition,
-  messagesSend,
-} from "@moltzap/protocol/message";
-import { httpBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
-import { MoltZapAgentClient } from "@moltzap/protocol/socket";
+import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
+import type { ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   type AgentConnection,
   type AttachedEndpoint,
-  type CommittedRouterMessage,
   type EndpointTransport,
   networkFailure,
   type NetworkFailure,
   type NetworkOperation,
-  type ParticipantIds,
   type Router,
-  RouterProvider,
   type RouterProviderService,
   type RouterStopped,
-  makeRouterStopReport,
 } from "./router.js";
 import { makeAgentHandle, makeParticipantHandle } from "./participant.js";
 import {
@@ -34,26 +19,13 @@ import {
   Deferred,
   type Duration,
   Effect,
-  Layer,
   Option,
   Ref,
   type Scope,
-  Stream,
 } from "effect";
-import {
-  type MessageDatabasePath,
-  readCommittedRouterMessages,
-} from "./message-store.js";
-import {
-  acquireMoltZapServer,
-  type MoltZapServer,
-  type MoltZapServerHost,
-} from "./server.js";
-import type { ImageDigest } from "./server-image.js";
 
 /** Configuration for one isolated MoltZap router per simulator run. */
 export interface MoltZapRouterOptions {
-  readonly image?: ImageDigest;
   readonly startupTimeout: Duration.Duration;
 }
 
@@ -110,103 +82,6 @@ function fail(operation: NetworkOperation, cause: unknown): NetworkFailure {
     cause instanceof Error ? cause.message : cause,
   );
 }
-
-function readCommittedMessages(
-  databasePath: MessageDatabasePath,
-): Effect.Effect<readonly CommittedRouterMessage[], NetworkFailure> {
-  return readCommittedRouterMessages(databasePath).pipe(
-    Effect.mapError((cause) => fail("stop-router", cause)),
-  );
-}
-
-function collectStoppedRouter(
-  server: MoltZapServer,
-): Effect.Effect<RouterStopped, NetworkFailure> {
-  return Effect.gen(function* () {
-    yield* server
-      .stop()
-      .pipe(Effect.mapError((cause) => fail("stop-router", cause)));
-    const messages = yield* readCommittedMessages(server.messageDatabasePath);
-    return makeRouterStopReport(messages);
-  });
-}
-
-function endpointMessages(
-  client: MoltZapAgentClient,
-): Effect.Effect<EndpointTransport["received"], never, Scope.Scope> {
-  return client
-    .subscribeScoped(messageReceivedNotificationDefinition)
-    .pipe(
-      Effect.map((received) =>
-        received.pipe(Stream.mapError((cause) => fail("receive", cause))),
-      ),
-    );
-}
-
-function openConversationWith(
-  client: MoltZapAgentClient,
-): EndpointTransport["openConversation"] {
-  return (participants: ParticipantIds) =>
-    client
-      .callDefinition(agentConversationCreate, {
-        appId: DEFAULT_APP_ID,
-        participants,
-      })
-      .pipe(
-        Effect.mapError((cause) => fail("open-conversation", cause)),
-        Effect.map((result) => ({ conversationId: result.conversation.id })),
-      );
-}
-
-function sendWith(client: MoltZapAgentClient): EndpointTransport["send"] {
-  return (conversationId, parts) =>
-    client
-      .callDefinition(messagesSend, {
-        conversationId,
-        parts,
-      })
-      .pipe(
-        Effect.map((result) => result.message),
-        Effect.mapError((cause) => fail("send", cause)),
-      );
-}
-
-function endpointTransport(
-  address: ServerBaseUrl,
-  key: AgentKey,
-): Effect.Effect<EndpointTransport, unknown, Scope.Scope> {
-  return Effect.gen(function* () {
-    const client = new MoltZapAgentClient({
-      serverUrl: httpBaseUrl(address),
-      agentKey: key,
-    });
-    yield* Effect.addFinalizer(() => client.close());
-    const received = yield* endpointMessages(client);
-    yield* client.connect();
-    return {
-      received,
-      openConversation: openConversationWith(client),
-      send: sendWith(client),
-    };
-  });
-}
-
-const acquireMoltZapDriver: MoltZapRouterDriverAcquirer<MoltZapServerHost> = (
-  options,
-) =>
-  acquireMoltZapServer({
-    image: options.image,
-    readyTimeout: options.startupTimeout,
-  }).pipe(
-    Effect.map(
-      (server): MoltZapRouterDriver => ({
-        address: server.serverUrl,
-        register: server.register,
-        attachEndpoint: (key) => endpointTransport(server.serverUrl, key),
-        stopAndCollect: collectStoppedRouter(server),
-      }),
-    ),
-  );
 
 function identityFor(
   runtime: RouterRuntime,
@@ -341,32 +216,4 @@ export function makeMoltZapRouterProviderWith(
   return {
     acquire: acquireRouter(options, acquireDriver),
   };
-}
-
-/**
- * Construct the MoltZap router service from host platform services.
- * @param options Options that control the operation.
- * @returns The created molt zap router provider.
- */
-function makeMoltZapRouterProvider(
-  options: MoltZapRouterOptions,
-): Effect.Effect<RouterProviderService, never, MoltZapServerHost> {
-  return Effect.context<MoltZapServerHost>().pipe(
-    Effect.map((host) =>
-      makeMoltZapRouterProviderWith(options, (driverOptions) =>
-        acquireMoltZapDriver(driverOptions).pipe(Effect.provide(host)),
-      ),
-    ),
-  );
-}
-
-/**
- * Provide the MoltZap router while leaving host services to the root layer.
- * @param options Options that control the operation.
- * @returns The molt zap router layer result.
- */
-export function moltZapRouterLayer(
-  options: MoltZapRouterOptions,
-): Layer.Layer<RouterProvider, never, MoltZapServerHost> {
-  return Layer.effect(RouterProvider, makeMoltZapRouterProvider(options));
 }

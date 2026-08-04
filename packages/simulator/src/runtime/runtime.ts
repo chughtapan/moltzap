@@ -1,7 +1,7 @@
 /** @file Scoped autonomous-agent runtime contract. */
 
 import type { AgentName } from "@moltzap/protocol/identity";
-import { type Effect, Either, Schema, type Scope } from "effect";
+import { type Effect, Either, Schema } from "effect";
 import { jsonValue, type JsonValue as JsonValueType } from "../ledger/model.js";
 import type { AgentConnection } from "../network/router.js";
 
@@ -18,12 +18,10 @@ const agentRuntimeTypesTypeId: unique symbol = Symbol(
 interface AgentRuntimeTypes<
   Gateway,
   AcquisitionError,
-  Requirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 > {
   readonly gateway?: Gateway;
   readonly acquisitionError?: AcquisitionError;
-  readonly requirements?: Requirements;
   readonly configurationSchema?: ConfigurationSchema;
 }
 
@@ -82,7 +80,7 @@ export interface RunningAgent<Gateway> {
   readonly termination: Effect.Effect<RuntimeTermination>;
 }
 
-/** Router attachment issued to every autonomous runtime implementation. */
+/** Router attachment presented to a runtime's private container realization. */
 export interface AgentRuntimeInput<Name extends string> {
   readonly agentName: AgentName;
   readonly connection: AgentConnection<Name>;
@@ -97,39 +95,33 @@ interface AgentRuntimeConfiguration<
 }
 
 /**
- * Scoped acquisition returns only after the runtime is ready. Implementations
- * own runtime-specific configuration and startup deadlines in their
- * constructors and register teardown in the acquisition Scope.
+ * Public metadata for a runtime whose container realization is owned by its
+ * implementation. Platform acquisition is deliberately absent here.
  */
 export interface AgentRuntimeDefinition<
   Gateway,
   AcquisitionError = never,
-  Requirements = never,
   ConfigurationSchema extends
     Schema.Schema.AnyNoContext = Schema.Schema.AnyNoContext,
 > {
+  readonly [agentRuntimeTypesTypeId]?: AgentRuntimeTypes<
+    Gateway,
+    AcquisitionError,
+    ConfigurationSchema
+  >;
   readonly name: string;
   readonly configuration: AgentRuntimeConfiguration<ConfigurationSchema>;
-  acquire<Name extends string>(
-    input: AgentRuntimeInput<Name>,
-  ): Effect.Effect<
-    RunningAgent<Gateway>,
-    AcquisitionError,
-    Scope.Scope | Requirements
-  >;
 }
 
 /** A runtime definition accepted by keyed society rosters. */
 export interface AgentRuntime<
   Gateway,
   AcquisitionError = never,
-  Requirements = never,
   ConfigurationSchema extends
     Schema.Schema.AnyNoContext = Schema.Schema.AnyNoContext,
 > extends AgentRuntimeDefinition<
     Gateway,
     AcquisitionError,
-    Requirements,
     ConfigurationSchema
   > {
   readonly [agentRuntimeTypeId]: typeof agentRuntimeTypeId;
@@ -137,7 +129,6 @@ export interface AgentRuntime<
   readonly [agentRuntimeTypesTypeId]: AgentRuntimeTypes<
     Gateway,
     AcquisitionError,
-    Requirements,
     ConfigurationSchema
   >;
 }
@@ -149,14 +140,10 @@ export interface AgentRuntimeLike {
   readonly [agentRuntimeTypesTypeId]: AgentRuntimeTypes<
     unknown,
     unknown,
-    unknown,
     Schema.Schema.AnyNoContext
   >;
   readonly name: string;
   readonly configuration: AgentRuntimeConfiguration<Schema.Schema.AnyNoContext>;
-  acquire<Name extends string>(
-    input: AgentRuntimeInput<Name>,
-  ): Effect.Effect<RunningAgent<unknown>, unknown, unknown>;
 }
 
 function invalidConfiguration(detail: string): AgentRuntimeDefinitionError {
@@ -235,24 +222,21 @@ export function runtimeConfigurationProjection(
 }
 
 /**
- * Preserve inferred gateway, acquisition error, requirement, and configuration
- * types.
+ * Preserve inferred gateway, acquisition error, and configuration types.
  * @param runtime Value supplied to the operation.
  * @returns The immutable runtime definition.
  */
 export function defineRuntime<
   Gateway,
   AcquisitionError,
-  Requirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 >(
   runtime: AgentRuntimeDefinition<
     Gateway,
     AcquisitionError,
-    Requirements,
     ConfigurationSchema
   >,
-): AgentRuntime<Gateway, AcquisitionError, Requirements, ConfigurationSchema> {
+): AgentRuntime<Gateway, AcquisitionError, ConfigurationSchema> {
   if (runtime.name.length === 0) {
     throw AgentRuntimeDefinitionError.make({
       detail: "a runtime name must not be empty",
@@ -260,21 +244,14 @@ export function defineRuntime<
   }
   const name = runtime.name;
   const captured = captureConfiguration(runtime.configuration);
-  const acquire = runtime.acquire.bind(runtime);
-  const defined: AgentRuntime<
-    Gateway,
-    AcquisitionError,
-    Requirements,
-    ConfigurationSchema
-  > = {
-    [agentRuntimeTypeId]: agentRuntimeTypeId,
-    [runtimeConfigurationProjectionTypeId]: captured.projection,
-    [agentRuntimeTypesTypeId]: {},
-    name,
-    configuration: captured.configuration,
-    acquire: <Name extends string>(input: AgentRuntimeInput<Name>) =>
-      acquire(input),
-  };
+  const defined: AgentRuntime<Gateway, AcquisitionError, ConfigurationSchema> =
+    {
+      [agentRuntimeTypeId]: agentRuntimeTypeId,
+      [runtimeConfigurationProjectionTypeId]: captured.projection,
+      [agentRuntimeTypesTypeId]: {},
+      name,
+      configuration: captured.configuration,
+    };
   Object.freeze(defined);
   return defined;
 }

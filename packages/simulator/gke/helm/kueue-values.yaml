@@ -1,0 +1,11 @@
+controllerManager:
+  nodeSelector:
+    moltzap.dev/pool: system
+  manager:
+    image:
+      repository: registry.k8s.io/kueue/kueue
+      tag: v0.17.8
+      pullPolicy: IfNotPresent
+
+enableKueueViz: false
+enablePrometheus: false

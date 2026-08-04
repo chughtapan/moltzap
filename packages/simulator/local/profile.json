@@ -1,0 +1,61 @@
+{
+  "apiVersion": "moltzap.local-profile/v1",
+  "clusterName": "moltzap-simulator",
+  "kind": {
+    "version": "v0.31.0",
+    "nodeImage": "kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f",
+    "binaries": {
+      "darwin-arm64": {
+        "url": "https://github.com/kubernetes-sigs/kind/releases/download/v0.31.0/kind-darwin-arm64",
+        "sha256": "88bf554fe9da6311c9f8c2d082613c002911a476f6b5090e9420b35d84e70c5c"
+      },
+      "darwin-x64": {
+        "url": "https://github.com/kubernetes-sigs/kind/releases/download/v0.31.0/kind-darwin-amd64",
+        "sha256": "a8b3cf77b2ad77aec5bf710d1a2589d9117576132af812885cad41e9dede4d4e"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/kubernetes-sigs/kind/releases/download/v0.31.0/kind-linux-arm64",
+        "sha256": "8e1014e87c34901cc422a1445866835d1e666f2a61301c27e722bdeab5a1f7e4"
+      },
+      "linux-x64": {
+        "url": "https://github.com/kubernetes-sigs/kind/releases/download/v0.31.0/kind-linux-amd64",
+        "sha256": "eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"
+      }
+    }
+  },
+  "kubectl": {
+    "version": "v1.35.0",
+    "binaries": {
+      "darwin-arm64": {
+        "url": "https://dl.k8s.io/release/v1.35.0/bin/darwin/arm64/kubectl",
+        "sha256": "cf699c56340dc775230fde4ef84237d27563ea6ef52164c7d078072b586c3918"
+      },
+      "darwin-x64": {
+        "url": "https://dl.k8s.io/release/v1.35.0/bin/darwin/amd64/kubectl",
+        "sha256": "2447cb78911b10a667202b078eeb30541ec78d1280c3682921dc81607e148d96"
+      },
+      "linux-arm64": {
+        "url": "https://dl.k8s.io/release/v1.35.0/bin/linux/arm64/kubectl",
+        "sha256": "58f82f9fe796c375c5c4b8439850b0f3f4d401a52434052f2df46035a8789e25"
+      },
+      "linux-x64": {
+        "url": "https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl",
+        "sha256": "a2e984a18a0c063279d692533031c1eff93a262afcc0afdc517375432d060989"
+      }
+    }
+  },
+  "kueue": {
+    "version": "v0.17.8",
+    "manifestUrl": "https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.8/manifests.yaml",
+    "manifestSha256": "060f579f1fda0812c3691b2c605eeb0d67ef27416e51d484793c60df2bdd366f"
+  },
+  "agentSandbox": {
+    "version": "v0.5.4",
+    "manifestUrl": "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.5.4/sandbox.yaml",
+    "manifestSha256": "51e3610f235b58abd465280682d366d3d0fed8972489bf6a800d707988d24c3e"
+  },
+  "temporalImage": "temporalio/temporal:1.8.2@sha256:cf86707827fac99e4d1c4a47dc11b105382d796199c7bd41fb3213fb0471628e",
+  "clusterQueue": "moltzap",
+  "localQueue": "society",
+  "artifactNodePath": "/var/lib/moltzap-artifacts"
+}

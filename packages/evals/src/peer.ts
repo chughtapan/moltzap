@@ -5,6 +5,8 @@ import {
   type ConversationId,
 } from "@moltzap/protocol/conversation";
 import {
+  agentId,
+  agentKey,
   agentName,
   agentsList,
   DEFAULT_APP_ID,
@@ -16,39 +18,201 @@ import {
   type Message,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
+import { httpBaseUrl } from "@moltzap/protocol/network";
 import type { ListCursor } from "@moltzap/protocol/rpc";
+import { HttpClient } from "@effect/platform";
+import { NodeHttpClient } from "@effect/platform-node";
+import type { MoltZapAgentClient } from "@moltzap/protocol/socket";
 import {
   type AgentRuntime,
-  type EffectRuntimeStartFailed,
-  effectRuntime,
-  type EffectRuntimeContext,
+  type AgentRuntimeInput,
+  defineDistributedRuntime,
+  type DistributedApplicationAttachment,
+  type DistributedApplicationContainer,
+  type DistributedApplicationSupport,
+  type DistributedBootstrapSecret,
+  type DistributedContainerImage,
+  RuntimeAcquisitionFailed,
 } from "@moltzap/simulator/runtime";
-import { Deferred, Data, Effect, Mailbox, Schedule, Schema } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Mailbox,
+  Option,
+  Schedule,
+  Schema,
+  type Stream,
+} from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import { CodePeerMessageReceived, CodePeerMessageSent } from "./events.js";
-import type { EvaluationCaseId } from "./model.js";
+import { evaluationCaseId, type EvaluationCaseId } from "./model.js";
 
 const AGENT_PAGE_SIZE = 100;
 const AGENT_POLL_INTERVAL = "100 millis";
 const GROUP_MEMBER_RESOLUTION_CONCURRENCY = 4;
+const EVALUATION_PEER_RUNTIME_NAME = "evaluation-peer";
+const EVALUATION_PEER_BRIDGE_POLL_INTERVAL = Duration.millis(100);
+const EVALUATION_PEER_APPLICATION_ENTRYPOINT =
+  "/opt/moltzap/node_modules/@moltzap/evals/dist/peer-application.js";
+/** Mounted application configuration read only inside one peer container. */
+const EVALUATION_PEER_BOOTSTRAP_PATH =
+  "/var/run/moltzap/bootstrap/evaluation-peer.json";
+/** Fixed controller bridge port exposed by every evaluation peer. */
+export const EVALUATION_PEER_BRIDGE_PORT = 4319;
+/** Application output observed by the platform before bridge attachment. */
+export const EVALUATION_PEER_READY_MARKER =
+  "MoltZap evaluation peer bridge ready";
+const EVALUATION_PEER_RESOURCES = Object.freeze({
+  cpuMillis: 100,
+  memoryBytes: 128 * 1024 * 1024,
+  ephemeralStorageBytes: 128 * 1024 * 1024,
+});
 const decodeAgentName = Schema.decodeSync(agentName);
+const distributedContainerImage = Schema.String.pipe(
+  Schema.pattern(/^.+@sha256:[0-9a-f]{64}$/u),
+);
+
+const evaluationPeerObservation = Schema.Union(
+  CodePeerMessageReceived,
+  CodePeerMessageSent,
+);
 
 /** Endpoint testimony produced by one bundled code peer. */
-export type EvaluationPeerObservation =
-  | CodePeerMessageReceived
-  | CodePeerMessageSent;
-type PeerClient = EffectRuntimeContext["client"];
+export type EvaluationPeerObservation = typeof evaluationPeerObservation.Type;
+type PeerClient = Pick<MoltZapAgentClient, "callDefinition">;
+
+/** Runtime context owned by the peer application process. */
+export interface EvaluationPeerApplicationContext {
+  readonly agent: Readonly<{
+    readonly name: string;
+    readonly id: AgentId;
+  }>;
+  readonly messages: Stream.Stream<MessageReceivedNotification, unknown>;
+  readonly client: PeerClient;
+}
 
 interface PeerContext {
-  readonly agent: EffectRuntimeContext["agent"];
+  readonly agent: EvaluationPeerApplicationContext["agent"];
   readonly client: PeerClient;
   readonly inbox: Mailbox.ReadonlyMailbox<MessageReceivedNotification, unknown>;
 }
 
+/** Respond in an existing target-created conversation. */
+class ReactivePeerPlan extends Schema.TaggedClass<ReactivePeerPlan>()(
+  "moltzap.eval-peer-reactive/v1",
+  {
+    caseId: evaluationCaseId,
+    targetName: agentName,
+    messages: Schema.NonEmptyArray(Schema.NonEmptyString),
+  },
+) {}
+
+/** Open a direct conversation and send the first message. */
+class OpeningPeerPlan extends Schema.TaggedClass<OpeningPeerPlan>()(
+  "moltzap.eval-peer-opening/v1",
+  {
+    caseId: evaluationCaseId,
+    targetName: agentName,
+    text: Schema.NonEmptyString,
+  },
+) {}
+
+/** Announce into the conversation identified by the target. */
+class AnnouncementPeerPlan extends Schema.TaggedClass<AnnouncementPeerPlan>()(
+  "moltzap.eval-peer-announcement/v1",
+  {
+    caseId: evaluationCaseId,
+    targetName: agentName,
+    text: Schema.NonEmptyString,
+  },
+) {}
+
+/** Observe the first delivery from the target without sending. */
+class ObserverPeerPlan extends Schema.TaggedClass<ObserverPeerPlan>()(
+  "moltzap.eval-peer-observer/v1",
+  {
+    caseId: evaluationCaseId,
+    targetName: agentName,
+  },
+) {}
+
+/** Prepare a group and preserve contact, announcement, question, response order. */
+class OrderedGroupPeerPlan extends Schema.TaggedClass<OrderedGroupPeerPlan>()(
+  "moltzap.eval-peer-ordered-group/v1",
+  {
+    caseId: evaluationCaseId,
+    targetName: agentName,
+    sourceName: agentName,
+    participantNames: Schema.NonEmptyArray(agentName),
+    groupName: Schema.NonEmptyString,
+    text: Schema.NonEmptyString,
+  },
+) {}
+
+/** Prepare a group and respond after the target's first delivery. */
+class GroupResponsePeerPlan extends Schema.TaggedClass<GroupResponsePeerPlan>()(
+  "moltzap.eval-peer-group-response/v1",
+  {
+    caseId: evaluationCaseId,
+    targetName: agentName,
+    participantNames: Schema.NonEmptyArray(agentName),
+    groupName: Schema.NonEmptyString,
+    messages: Schema.NonEmptyArray(Schema.NonEmptyString),
+  },
+) {}
+
+/** Closed policy universe executed by the distributed peer application. */
+// eslint-disable-next-line @typescript-eslint/naming-convention, agent-code-guard/no-exported-brand-constructor -- The container entrypoint decodes this closed boundary schema while case factories expose only decoded plan values.
+export const EvaluationPeerApplicationPlan = Schema.Union(
+  ReactivePeerPlan,
+  OpeningPeerPlan,
+  AnnouncementPeerPlan,
+  ObserverPeerPlan,
+  OrderedGroupPeerPlan,
+  GroupResponsePeerPlan,
+);
+/** Decoded distributed peer application policy. */
+// eslint-disable-next-line @typescript-eslint/no-redeclare -- the value is the runtime Schema and the type is its decoded result.
+export type EvaluationPeerApplicationPlan =
+  typeof EvaluationPeerApplicationPlan.Type;
+
+/** Non-secret runtime configuration committed with the RunSpec roster. */
+class EvaluationPeerRuntimeConfiguration extends Schema.Class<EvaluationPeerRuntimeConfiguration>(
+  "EvaluationPeerRuntimeConfiguration",
+)({
+  applicationImage: distributedContainerImage,
+  plan: EvaluationPeerApplicationPlan,
+}) {}
+
+/** Run-scoped secret configuration mounted into exactly one peer container. */
+export class EvaluationPeerBootstrap extends Schema.Class<EvaluationPeerBootstrap>(
+  "EvaluationPeerBootstrap",
+)({
+  apiVersion: Schema.Literal("moltzap.eval-peer-bootstrap/v1"),
+  agentName,
+  agentId,
+  agentKey,
+  serverUrl: Schema.NonEmptyString,
+  plan: EvaluationPeerApplicationPlan,
+}) {}
+
+const encodeEvaluationPeerBootstrap = Schema.encodeSync(
+  Schema.parseJson(EvaluationPeerBootstrap),
+);
+
+function mapNonEmpty<Input, Output>(
+  values: NonEmptyReadonlyArray<Input>,
+  transform: (value: Input) => Output,
+): NonEmptyReadonlyArray<Output> {
+  const [first, ...remaining] = values;
+  return Object.freeze([transform(first), ...remaining.map(transform)]);
+}
+
 /** One completed peer interaction in exact production-protocol order. */
-export class PeerExchange extends Data.Class<{
-  readonly observations: NonEmptyReadonlyArray<EvaluationPeerObservation>;
-}> {}
+export class PeerExchange extends Schema.Class<PeerExchange>("PeerExchange")({
+  observations: Schema.NonEmptyArray(evaluationPeerObservation),
+}) {}
 
 /** A bundled code peer could not complete its production-protocol policy. */
 export class EvaluationPeerFailed extends Schema.TaggedError<EvaluationPeerFailed>()(
@@ -59,10 +223,37 @@ export class EvaluationPeerFailed extends Schema.TaggedError<EvaluationPeerFaile
       "open-conversation",
       "receive",
       "send",
+      "bridge",
     ),
     detail: Schema.NonEmptyString,
   },
 ) {}
+
+/** The peer application completed its autonomous policy. */
+export class EvaluationPeerBridgeCompleted extends Schema.TaggedClass<EvaluationPeerBridgeCompleted>()(
+  "moltzap.eval-peer-bridge-completed/v1",
+  {
+    exchange: PeerExchange,
+  },
+) {}
+
+/** The peer application terminated its autonomous policy with a typed failure. */
+export class EvaluationPeerBridgeFailed extends Schema.TaggedClass<EvaluationPeerBridgeFailed>()(
+  "moltzap.eval-peer-bridge-failed/v1",
+  {
+    failure: EvaluationPeerFailed,
+  },
+) {}
+
+/** Closed application-to-controller result carried by the peer-specific bridge. */
+// eslint-disable-next-line @typescript-eslint/naming-convention, agent-code-guard/no-exported-brand-constructor -- The container bridge and controller attachment share this exact closed transport schema.
+export const EvaluationPeerBridgeResult = Schema.Union(
+  EvaluationPeerBridgeCompleted,
+  EvaluationPeerBridgeFailed,
+);
+/** Decoded peer-specific bridge result. */
+// eslint-disable-next-line @typescript-eslint/no-redeclare -- the value is the runtime Schema and the type is its decoded result.
+export type EvaluationPeerBridgeResult = typeof EvaluationPeerBridgeResult.Type;
 
 /**
  * Exact principal surface for bundled evaluation peers.
@@ -74,11 +265,39 @@ export interface EvaluationPeerGateway {
   readonly exchange: Effect.Effect<PeerExchange, EvaluationPeerFailed>;
 }
 
-/** Reusable in-process runtime shape shared by bundled autonomous peers. */
-export type EvaluationPeerRuntime = AgentRuntime<
+/**
+ * Adapt one decoded application result into the peer's observation-only gateway.
+ * @param result Decoded result from the runtime-specific controller bridge.
+ * @returns A gateway with no command or social-action surface.
+ */
+export function evaluationPeerGatewayFromBridge(
+  result: Effect.Effect<EvaluationPeerBridgeResult, EvaluationPeerFailed>,
+): EvaluationPeerGateway {
+  return Object.freeze({
+    exchange: result.pipe(
+      Effect.flatMap((outcome) =>
+        outcome instanceof EvaluationPeerBridgeCompleted
+          ? Effect.succeed(outcome.exchange)
+          : Effect.fail(outcome.failure),
+      ),
+    ),
+  });
+}
+
+/** Distributed runtime shape shared by bundled autonomous peers. */
+type EvaluationPeerRuntime = AgentRuntime<
   EvaluationPeerGateway,
-  EffectRuntimeStartFailed
+  RuntimeAcquisitionFailed,
+  typeof EvaluationPeerRuntimeConfiguration
 >;
+
+/** Image-independent case-owned peer definition materialized by one cell. */
+export interface EvaluationPeerDefinition {
+  readonly plan: EvaluationPeerApplicationPlan;
+  readonly runtime: (
+    applicationImage: DistributedContainerImage,
+  ) => EvaluationPeerRuntime;
+}
 
 interface PeerConversation {
   readonly conversationId: ConversationId;
@@ -307,7 +526,7 @@ function openingPolicy(
 }
 
 function prepareGroup(
-  context: EffectRuntimeContext,
+  context: EvaluationPeerApplicationContext,
   targetName: string,
   participantNames: NonEmptyReadonlyArray<string>,
   name: string,
@@ -438,13 +657,70 @@ function groupResponsePolicy(
     );
 }
 
-function runPeerPolicy(
-  context: EffectRuntimeContext,
-  policy: PeerPolicy,
-  exchange: Deferred.Deferred<PeerExchange, EvaluationPeerFailed>,
-) {
-  const completed = Effect.gen(function* () {
+function planPolicy(
+  context: EvaluationPeerApplicationContext,
+  plan: EvaluationPeerApplicationPlan,
+): Effect.Effect<PeerPolicy, EvaluationPeerFailed> {
+  if (plan instanceof ReactivePeerPlan) {
+    return Effect.succeed(
+      reactivePolicy(plan.caseId, plan.targetName, plan.messages),
+    );
+  }
+  if (plan instanceof OpeningPeerPlan) {
+    return Effect.succeed(
+      openingPolicy(plan.caseId, plan.targetName, plan.text),
+    );
+  }
+  if (plan instanceof AnnouncementPeerPlan) {
+    return Effect.succeed(
+      sourceAnnouncementPolicy(plan.caseId, plan.targetName, plan.text),
+    );
+  }
+  if (plan instanceof ObserverPeerPlan) {
+    return Effect.succeed(observerPolicy(plan.caseId, plan.targetName));
+  }
+  if (plan instanceof OrderedGroupPeerPlan) {
+    return prepareGroup(
+      context,
+      plan.targetName,
+      plan.participantNames,
+      plan.groupName,
+    ).pipe(
+      Effect.map((prepared) =>
+        orderedGroupQuestionPolicy(
+          plan.caseId,
+          prepared,
+          plan.sourceName,
+          plan.text,
+        ),
+      ),
+    );
+  }
+  return prepareGroup(
+    context,
+    plan.targetName,
+    plan.participantNames,
+    plan.groupName,
+  ).pipe(
+    Effect.map((prepared) =>
+      groupResponsePolicy(plan.caseId, prepared, plan.messages),
+    ),
+  );
+}
+
+/**
+ * Execute one decoded peer plan against its production-protocol client.
+ * @param context Connected production client, identity, and message stream.
+ * @param plan Closed case-owned autonomous interaction policy.
+ * @returns The peer's ordered exchange testimony.
+ */
+export function runEvaluationPeerApplication(
+  context: EvaluationPeerApplicationContext,
+  plan: EvaluationPeerApplicationPlan,
+): Effect.Effect<PeerExchange, EvaluationPeerFailed> {
+  return Effect.gen(function* () {
     const inbox = yield* Mailbox.fromStream(context.messages);
+    const policy = yield* planPolicy(context, plan);
     return yield* policy(
       Object.freeze({
         agent: context.agent,
@@ -452,59 +728,231 @@ function runPeerPolicy(
         inbox,
       }),
     );
-  }).pipe(
-    Effect.scoped,
-    Effect.onExit((exit) => Deferred.done(exchange, exit).pipe(Effect.asVoid)),
-  );
-  return completed.pipe(Effect.andThen(Effect.never));
+  }).pipe(Effect.scoped, Effect.withSpan("evals.peer.application"));
 }
 
-function peerRuntime(policy: PeerPolicy): EvaluationPeerRuntime {
-  return effectRuntime({
-    build: (context) =>
-      Effect.gen(function* () {
-        const exchange = yield* Deferred.make<
-          PeerExchange,
-          EvaluationPeerFailed
-        >();
-        return {
-          gateway: Object.freeze({
-            exchange: Deferred.await(exchange),
-          }),
-          behavior: runPeerPolicy(context, policy, exchange),
-        };
-      }).pipe(Effect.withSpan("evals.peer.build")),
+function acquisitionFailure(
+  agent: string,
+  detail: string,
+): RuntimeAcquisitionFailed {
+  return RuntimeAcquisitionFailed.make({
+    runtime: EVALUATION_PEER_RUNTIME_NAME,
+    agent,
+    detail,
   });
 }
 
-interface PreparedGroupRuntimeOptions {
-  readonly targetName: string;
-  readonly participantNames: NonEmptyReadonlyArray<string>;
-  readonly groupName: string;
-  readonly policy: (prepared: PreparedGroup) => PeerPolicy;
+function bridgeResultUrl(endpointUrl: string): Option.Option<string> {
+  const parsed = Option.liftThrowable((source: string) => new URL(source))(
+    endpointUrl,
+  );
+  return Option.flatMap(parsed, (url) => {
+    const isWebSocket = url.protocol === "ws:" || url.protocol === "wss:";
+    const hasCredentials = url.username.length > 0 || url.password.length > 0;
+    if (!isWebSocket || hasCredentials || url.hostname.length === 0) {
+      return Option.none();
+    }
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    url.pathname = "/result";
+    url.search = "";
+    url.hash = "";
+    return Option.some(url.href);
+  });
 }
 
-function preparedGroupRuntime(
-  options: PreparedGroupRuntimeOptions,
-): EvaluationPeerRuntime {
-  return effectRuntime({
-    build: (context) =>
-      Effect.gen(function* () {
-        const prepared = yield* prepareGroup(
-          context,
-          options.targetName,
-          options.participantNames,
-          options.groupName,
+function readBridgeResult(
+  url: string,
+): Effect.Effect<
+  Option.Option<EvaluationPeerBridgeResult>,
+  EvaluationPeerFailed,
+  HttpClient.HttpClient
+> {
+  return HttpClient.HttpClient.pipe(
+    Effect.flatMap((client) => client.get(url)),
+    Effect.mapError((cause) => failure("bridge", cause)),
+    Effect.flatMap((response) => {
+      if (response.status === 204) {
+        return Effect.succeed(Option.none());
+      }
+      if (response.status !== 200) {
+        return Effect.fail(
+          failure(
+            "bridge",
+            `peer bridge returned HTTP ${String(response.status)}`,
+          ),
         );
-        const exchange = yield* Deferred.make<
-          PeerExchange,
-          EvaluationPeerFailed
-        >();
-        return {
-          gateway: Object.freeze({ exchange: Deferred.await(exchange) }),
-          behavior: runPeerPolicy(context, options.policy(prepared), exchange),
-        };
-      }).pipe(Effect.withSpan("evals.peer.build-prepared-group")),
+      }
+      return response.json.pipe(
+        Effect.mapError((cause) => failure("bridge", cause)),
+        Effect.flatMap((body) =>
+          Schema.decodeUnknown(EvaluationPeerBridgeResult)(body, {
+            onExcessProperty: "error",
+          }).pipe(Effect.mapError((cause) => failure("bridge", cause))),
+        ),
+        Effect.map(Option.some),
+      );
+    }),
+  );
+}
+
+function awaitBridgeResult(
+  url: string,
+): Effect.Effect<EvaluationPeerBridgeResult, EvaluationPeerFailed> {
+  const poll: Effect.Effect<
+    EvaluationPeerBridgeResult,
+    EvaluationPeerFailed,
+    HttpClient.HttpClient
+  > = Effect.suspend(() =>
+    readBridgeResult(url).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.sleep(EVALUATION_PEER_BRIDGE_POLL_INTERVAL).pipe(
+              Effect.zipRight(poll),
+            ),
+          onSome: Effect.succeed,
+        }),
+      ),
+    ),
+  );
+  return poll.pipe(Effect.provide(NodeHttpClient.layerUndici));
+}
+
+function bridgeStopped(
+  attachment: DistributedApplicationAttachment,
+): Effect.Effect<never, EvaluationPeerFailed> {
+  return attachment.stopped.pipe(
+    Effect.matchCauseEffect({
+      onFailure: (cause) =>
+        Effect.fail(
+          failure(
+            "bridge",
+            `peer application stopped before publishing its result: ${Cause.pretty(cause)}`,
+          ),
+        ),
+      onSuccess: (observed) =>
+        Effect.fail(
+          failure(
+            "bridge",
+            `peer application stopped before publishing its result: ${String(observed)}`,
+          ),
+        ),
+    }),
+  );
+}
+
+function attachEvaluationPeer(
+  agent: string,
+  attachment: DistributedApplicationAttachment,
+) {
+  return Option.match(bridgeResultUrl(attachment.endpointUrl), {
+    onNone: () =>
+      Effect.fail(
+        acquisitionFailure(
+          agent,
+          "evaluation peer bridge requires a credential-free WebSocket service URL",
+        ),
+      ),
+    onSome: (url) => {
+      const result = awaitBridgeResult(url).pipe(
+        Effect.raceFirst(bridgeStopped(attachment)),
+      );
+      return Effect.succeed(
+        Object.freeze({
+          gateway: evaluationPeerGatewayFromBridge(result),
+          termination: attachment.termination,
+        }),
+      );
+    },
+  });
+}
+
+function bootstrapSecret<Name extends string>(
+  plan: EvaluationPeerApplicationPlan,
+  input: AgentRuntimeInput<Name>,
+  support: DistributedApplicationSupport,
+): DistributedBootstrapSecret {
+  const content = encodeEvaluationPeerBootstrap(
+    EvaluationPeerBootstrap.make({
+      apiVersion: "moltzap.eval-peer-bootstrap/v1",
+      agentName: input.agentName,
+      agentId: input.connection.agent.id,
+      agentKey: input.connection.key,
+      serverUrl: httpBaseUrl(input.connection.routerUrl),
+      plan,
+    }),
+  );
+  return Object.freeze({
+    identity: support.bootstrapSecretIdentity,
+    supportImage: support.supportImage,
+    files: Object.freeze([
+      Object.freeze({
+        path: EVALUATION_PEER_BOOTSTRAP_PATH,
+        content,
+        mode: 0o400,
+      }),
+    ]),
+  });
+}
+
+function applicationContainer(
+  image: DistributedContainerImage,
+): DistributedApplicationContainer {
+  return Object.freeze({
+    image,
+    entrypoint: Object.freeze([
+      "node",
+      EVALUATION_PEER_APPLICATION_ENTRYPOINT,
+      EVALUATION_PEER_BOOTSTRAP_PATH,
+    ] as const),
+    environment: Object.freeze({ NODE_ENV: "production" }),
+    ports: Object.freeze([EVALUATION_PEER_BRIDGE_PORT]),
+    resources: EVALUATION_PEER_RESOURCES,
+  });
+}
+
+function peerRuntime(
+  plan: EvaluationPeerApplicationPlan,
+  applicationImage: DistributedContainerImage,
+): EvaluationPeerRuntime {
+  return defineDistributedRuntime({
+    name: EVALUATION_PEER_RUNTIME_NAME,
+    configuration: {
+      schema: EvaluationPeerRuntimeConfiguration,
+      value: new EvaluationPeerRuntimeConfiguration({
+        applicationImage,
+        plan,
+      }),
+    },
+    reservation: Object.freeze({
+      image: applicationImage,
+      resources: EVALUATION_PEER_RESOURCES,
+    }),
+    render: (input, support) =>
+      Effect.try({
+        try: () =>
+          Object.freeze({
+            applicationContainer: applicationContainer(applicationImage),
+            bootstrapSecret: bootstrapSecret(plan, input, support),
+            readiness: Object.freeze({
+              outputIncludes: EVALUATION_PEER_READY_MARKER,
+            }),
+            attach: (attachment: DistributedApplicationAttachment) =>
+              attachEvaluationPeer(input.agentName, attachment),
+          }),
+        catch: (cause) => acquisitionFailure(input.agentName, String(cause)),
+      }),
+  });
+}
+
+function peerDefinition(
+  plan: EvaluationPeerApplicationPlan,
+): EvaluationPeerDefinition {
+  Object.freeze(plan);
+  return Object.freeze({
+    plan,
+    runtime: (applicationImage: DistributedContainerImage) =>
+      peerRuntime(plan, applicationImage),
   });
 }
 
@@ -513,14 +961,20 @@ function preparedGroupRuntime(
  * @param caseId Evaluation case identity copied into endpoint testimony.
  * @param targetName Roster name the peer accepts messages from.
  * @param messages Ordered peer messages, each followed by one target response.
- * @returns A runtime whose gateway reports the ordered interaction.
+ * @returns An image-independent definition of the peer interaction.
  */
 export function selectedResponsePeerRuntime(
   caseId: EvaluationCaseId,
   targetName: string,
   messages: NonEmptyReadonlyArray<string>,
 ) {
-  return peerRuntime(reactivePolicy(caseId, targetName, messages));
+  return peerDefinition(
+    new ReactivePeerPlan({
+      caseId,
+      targetName: decodeAgentName(targetName),
+      messages: mapNonEmpty(messages, (message) => message),
+    }),
+  );
 }
 
 /**
@@ -528,14 +982,14 @@ export function selectedResponsePeerRuntime(
  * @param caseId Evaluation case identity copied into endpoint testimony.
  * @param targetName Roster name the peer accepts messages from.
  * @param messages Ordered peer messages, each followed by one target response.
- * @returns A runtime whose gateway reports the complete interaction.
+ * @returns An image-independent definition of the peer interaction.
  */
 export function contextPeerRuntime(
   caseId: EvaluationCaseId,
   targetName: string,
   messages: NonEmptyReadonlyArray<string>,
 ) {
-  return peerRuntime(reactivePolicy(caseId, targetName, messages));
+  return selectedResponsePeerRuntime(caseId, targetName, messages);
 }
 
 /**
@@ -543,14 +997,20 @@ export function contextPeerRuntime(
  * @param caseId Evaluation case identity copied into endpoint testimony.
  * @param targetName Roster name the peer contacts.
  * @param text Initial peer message.
- * @returns A runtime whose gateway reports the complete interaction.
+ * @returns An image-independent definition of the peer interaction.
  */
 export function openingPeerRuntime(
   caseId: EvaluationCaseId,
   targetName: string,
   text: string,
 ) {
-  return peerRuntime(openingPolicy(caseId, targetName, text));
+  return peerDefinition(
+    new OpeningPeerPlan({
+      caseId,
+      targetName: decodeAgentName(targetName),
+      text,
+    }),
+  );
 }
 
 /**
@@ -558,27 +1018,38 @@ export function openingPeerRuntime(
  * @param caseId Evaluation case identity copied into endpoint testimony.
  * @param targetName Roster name whose first message identifies the group.
  * @param text Source announcement sent into that exact conversation.
- * @returns A runtime whose gateway reports the contact and announcement.
+ * @returns An image-independent definition of the peer interaction.
  */
 export function announcementPeerRuntime(
   caseId: EvaluationCaseId,
   targetName: string,
   text: string,
 ) {
-  return peerRuntime(sourceAnnouncementPolicy(caseId, targetName, text));
+  return peerDefinition(
+    new AnnouncementPeerPlan({
+      caseId,
+      targetName: decodeAgentName(targetName),
+      text,
+    }),
+  );
 }
 
 /**
  * Build an observer that records the target's first delivered message.
  * @param caseId Evaluation case identity copied into endpoint testimony.
  * @param targetName Roster name whose first delivery is observed.
- * @returns A runtime whose gateway reports one production-stream delivery.
+ * @returns An image-independent definition of the peer interaction.
  */
 export function observerPeerRuntime(
   caseId: EvaluationCaseId,
   targetName: string,
 ) {
-  return peerRuntime(observerPolicy(caseId, targetName));
+  return peerDefinition(
+    new ObserverPeerPlan({
+      caseId,
+      targetName: decodeAgentName(targetName),
+    }),
+  );
 }
 
 interface OrderedGroupPeerOptions {
@@ -593,23 +1064,21 @@ interface OrderedGroupPeerOptions {
 /**
  * Build a question peer that provisions a named group and preserves its order.
  * @param options Named topology and ordered question policy.
- * @returns A runtime whose final observation is the target's response.
+ * @returns An image-independent definition of the peer interaction.
  */
 export function orderedGroupPeerRuntime(
   options: OrderedGroupPeerOptions,
-): EvaluationPeerRuntime {
-  return preparedGroupRuntime({
-    targetName: options.targetName,
-    participantNames: options.participantNames,
-    groupName: options.groupName,
-    policy: (prepared) =>
-      orderedGroupQuestionPolicy(
-        options.caseId,
-        prepared,
-        options.sourceName,
-        options.text,
-      ),
-  });
+): EvaluationPeerDefinition {
+  return peerDefinition(
+    new OrderedGroupPeerPlan({
+      caseId: options.caseId,
+      targetName: decodeAgentName(options.targetName),
+      sourceName: decodeAgentName(options.sourceName),
+      participantNames: mapNonEmpty(options.participantNames, decodeAgentName),
+      groupName: options.groupName,
+      text: options.text,
+    }),
+  );
 }
 
 interface GroupResponsePeerOptions {
@@ -623,16 +1092,18 @@ interface GroupResponsePeerOptions {
 /**
  * Build a peer that provisions a named group before runtime readiness.
  * @param options Named topology and ordered response policy.
- * @returns A runtime whose gateway reports the ordered group interaction.
+ * @returns An image-independent definition of the peer interaction.
  */
 export function groupResponsePeerRuntime(
   options: GroupResponsePeerOptions,
-): EvaluationPeerRuntime {
-  return preparedGroupRuntime({
-    targetName: options.targetName,
-    participantNames: options.participantNames,
-    groupName: options.groupName,
-    policy: (prepared) =>
-      groupResponsePolicy(options.caseId, prepared, options.messages),
-  });
+): EvaluationPeerDefinition {
+  return peerDefinition(
+    new GroupResponsePeerPlan({
+      caseId: options.caseId,
+      targetName: decodeAgentName(options.targetName),
+      participantNames: mapNonEmpty(options.participantNames, decodeAgentName),
+      groupName: options.groupName,
+      messages: mapNonEmpty(options.messages, (message) => message),
+    }),
+  );
 }

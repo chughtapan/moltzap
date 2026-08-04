@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import {
   mkdir,
   mkdtemp,
@@ -17,11 +17,95 @@ const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageRoot = join(workspaceRoot, "packages", "simulator");
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-simulator-pack-"));
+const forbiddenSimulatorPaths = [
+  "scripts/build-server-image.mjs",
+  "server-image/Dockerfile",
+  "server-image/moltzap.yaml",
+  "src/layer.ts",
+  "src/network/server.ts",
+  "src/network/server-image.ts",
+  "src/runtime/cache.ts",
+  "src/runtime/effect.ts",
+  "src/runtime/nanoclaw/install.ts",
+  "src/runtime/nanoclaw/onecli.ts",
+  "src/runtime/nanoclaw/process.ts",
+  "src/runtime/openclaw/cache.ts",
+  "src/runtime/openclaw/process.ts",
+];
+const forbiddenStandaloneWorkspacePaths = [
+  "examples/simulator/README.md",
+  "examples/simulator/hello.ts",
+  "examples/simulator/openclaw-container.mjs",
+  "examples/simulator/openclaw-container.test.mjs",
+  "examples/simulator/openclaw-image.json",
+  "examples/simulator/package.json",
+  "examples/simulator/tsconfig.json",
+];
+const standaloneWorkspaceControlFiles = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "knip.json",
+  "tools/workspace/project.json",
+  ".github/workflows/ci.yml",
+];
 
 function requireCondition(condition, detail) {
   if (!condition) {
     throw new Error(detail);
   }
+}
+
+function isMissing(cause) {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    cause.code === "ENOENT"
+  );
+}
+
+async function requirePathMissing(root, relativePath, detail) {
+  try {
+    await access(join(root, relativePath));
+  } catch (cause) {
+    if (isMissing(cause)) {
+      return;
+    }
+    throw cause;
+  }
+  throw new Error(detail);
+}
+
+async function verifyRepositoryCutover() {
+  await Promise.all(
+    forbiddenStandaloneWorkspacePaths.map((relativePath) =>
+      requirePathMissing(
+        workspaceRoot,
+        relativePath,
+        `standalone simulator workspace path remains: ${relativePath}`,
+      ),
+    ),
+  );
+  await Promise.all(
+    forbiddenSimulatorPaths.map((relativePath) =>
+      requirePathMissing(
+        packageRoot,
+        relativePath,
+        `obsolete simulator path remains in the repository: ${relativePath}`,
+      ),
+    ),
+  );
+  await Promise.all(
+    standaloneWorkspaceControlFiles.map(async (relativePath) => {
+      const source = await readFile(join(workspaceRoot, relativePath), "utf8");
+      requireCondition(
+        !source.includes("examples/simulator") &&
+          !source.includes("simulator-example"),
+        `standalone simulator workspace remains configured in ${relativePath}`,
+      );
+    }),
+  );
 }
 
 async function packedTarball() {
@@ -52,9 +136,6 @@ async function verifyPackedFiles(extractedPackage) {
     "dist/runtime.d.ts",
     "dist/nanoclaw-assets/SKILL.md",
     "dist/nanoclaw-assets/moltzap.ts",
-    "scripts/build-server-image.mjs",
-    "server-image/Dockerfile",
-    "server-image/moltzap.yaml",
   ];
   await Promise.all(
     required.map(async (relativePath) => {
@@ -65,6 +146,15 @@ async function verifyPackedFiles(extractedPackage) {
         });
       });
     }),
+  );
+  await Promise.all(
+    forbiddenSimulatorPaths.map((relativePath) =>
+      requirePathMissing(
+        extractedPackage,
+        relativePath,
+        `packed simulator contains obsolete path ${relativePath}`,
+      ),
+    ),
   );
 
   const manifest = JSON.parse(
@@ -95,11 +185,17 @@ async function verifyConsumerImports(extractedPackage) {
       'import * as network from "@moltzap/simulator/network";',
       'import * as ledger from "@moltzap/simulator/ledger";',
       'import * as runtime from "@moltzap/simulator/runtime";',
-      'for (const name of ["simulator", "simulatorLayer"]) {',
+      'for (const name of ["Run", "RunSpec"]) {',
       "  if (!(name in simulator)) throw new Error(`missing root export ${name}`);",
       "}",
-      'for (const name of ["defineRuntime", "effectRuntime", "openClawRuntime", "nanoclawRuntime"]) {',
+      'for (const name of ["defineDistributedRuntime", "openClawRuntime", "nanoclawRuntime"]) {',
       "  if (!(name in runtime)) throw new Error(`missing runtime export ${name}`);",
+      "}",
+      'for (const name of ["simulator", "simulatorLayer"]) {',
+      "  if (name in simulator) throw new Error(`obsolete root export ${name}`);",
+      "}",
+      'for (const name of ["defineRuntime", "effectRuntime"]) {',
+      "  if (name in runtime) throw new Error(`obsolete runtime export ${name}`);",
       "}",
       'if (!("RouterProvider" in network)) throw new Error("missing network RouterProvider");',
       'if (!("LedgerStorage" in ledger)) throw new Error("missing ledger LedgerStorage");',
@@ -110,6 +206,7 @@ async function verifyConsumerImports(extractedPackage) {
 }
 
 try {
+  await verifyRepositoryCutover();
   const tarball = await packedTarball();
   const extractedRoot = join(temporaryRoot, "extracted");
   await mkdir(extractedRoot);

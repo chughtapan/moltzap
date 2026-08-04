@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { SIMULATOR_PROFILE_NAME } from "../workspace.js";
-import { NANOCLAW_EVAL_AGENT_GROUP_ID } from "./process.js";
 
+const NANOCLAW_EVAL_AGENT_GROUP_ID = "eval-agent";
 const INJECTED_CHANNEL_TEXT =
   "already injects and starts the `moltzap` channel";
 const PROFILE_TEXT = `\`${SIMULATOR_PROFILE_NAME}\` profile`;

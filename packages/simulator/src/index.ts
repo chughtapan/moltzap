@@ -1,12 +1,13 @@
 /** @file Code-first simulator API. */
+// safer-arch-ignore no-folder-cycle: The package root is the explicit public composition facade over mutually typed event, ledger, network, and runtime capabilities.
+// safer-arch-ignore no-package-mesh: The simulator is a capability-composition package whose named facades expose the intentional cross-domain contracts used by one run kernel.
 
 /** Re-exports the public API from `./definition.js`. */
 export {
   Run,
   RunSpec,
-  simulator,
   SimulatorDefinitionError,
-  type SimulatorDefinition,
+  type RunInfrastructureServices,
   type SimulatorDefinitionId,
 } from "./definition.js";
 
@@ -86,6 +87,3 @@ export {
 
 /** Re-exports the mechanism-neutral infrastructure failure. */
 export { SimulatorInfrastructureFailure } from "./platform/failure.js";
-
-/** Re-exports the public API from `./layer.js`. */
-export { simulatorLayer, type SimulatorLayerOptions } from "./layer.js";

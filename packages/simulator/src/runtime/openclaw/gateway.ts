@@ -1,6 +1,5 @@
 /** @file Scoped principal access to one OpenClaw gateway process. */
 
-import type { ExitCode } from "@effect/platform/CommandExecutor";
 import type { AgentName } from "@moltzap/protocol/identity";
 import {
   GatewayClient,
@@ -14,13 +13,30 @@ import {
   Schema,
   type Scope,
 } from "effect";
-import type { OpenClawProcessSession } from "./process.js";
 
 const OPENCLAW_GATEWAY_CLIENT_STOP_TIMEOUT_MS = 1_000;
 const OPENCLAW_GATEWAY_PAYLOAD_MAX_COUNT = 16;
 const OPENCLAW_GATEWAY_TEXT_MAX_LENGTH = 32 * 1_024;
 const OPENCLAW_GATEWAY_MEDIA_URL_MAX_LENGTH = 8 * 1_024;
 const OPENCLAW_GATEWAY_MEDIA_URL_MAX_COUNT = 16;
+
+/** The application stopped before its controller observed gateway hello. */
+export class OpenClawGatewayStoppedBeforeHello extends Schema.TaggedError<OpenClawGatewayStoppedBeforeHello>()(
+  "OpenClawGatewayStoppedBeforeHello",
+  { detail: Schema.String },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
+/** Controller-side observations required to attach the native gateway. */
+export interface OpenClawGatewaySession {
+  readonly gatewayUrl: `ws://${string}` | `wss://${string}`;
+  readonly gatewayToken: Redacted.Redacted;
+  readonly agentName: AgentName;
+  readonly stopped: Effect.Effect<never, OpenClawGatewayStoppedBeforeHello>;
+}
 
 const openClawGatewayText = Schema.String.pipe(
   Schema.maxLength(OPENCLAW_GATEWAY_TEXT_MAX_LENGTH),
@@ -179,27 +195,6 @@ function gatewayConnectionFailure(detail: string): Error {
   return new Error(detail);
 }
 
-function processStoppedBeforeHello(
-  exitCode: Effect.Effect<ExitCode, unknown>,
-): Effect.Effect<never, Error> {
-  return exitCode.pipe(
-    Effect.matchEffect({
-      onFailure: () =>
-        Effect.fail(
-          gatewayConnectionFailure(
-            "OpenClaw stopped before its principal gateway exposed a hello response",
-          ),
-        ),
-      onSuccess: (code) =>
-        Effect.fail(
-          gatewayConnectionFailure(
-            `OpenClaw exited before its principal gateway exposed a hello response (exitCode=${String(code)})`,
-          ),
-        ),
-    }),
-  );
-}
-
 function closeGatewayClient(
   client: OpenClawGatewayClient,
 ): Effect.Effect<void> {
@@ -219,6 +214,16 @@ function closeGatewayClient(
       }).pipe(Effect.ignore),
     ),
   );
+}
+
+function gatewayClientEnvironment(
+  gatewayUrl: OpenClawGatewaySession["gatewayUrl"],
+): NodeJS.ProcessEnv | undefined {
+  const parsed = new URL(gatewayUrl);
+  const loopback = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+  return parsed.protocol === "ws:" && !loopback.has(parsed.hostname)
+    ? { OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: "1" }
+    : undefined;
 }
 
 function startGatewayClient(
@@ -312,7 +317,7 @@ function makeOpenClawGateway(
  * @internal
  */
 export function acquireOpenClawGatewayWith(
-  session: OpenClawProcessSession,
+  session: OpenClawGatewaySession,
   within: Duration.Duration,
   makeClient: OpenClawGatewayClientFactory,
 ): Effect.Effect<OpenClawGateway, Error, Scope.Scope> {
@@ -321,8 +326,9 @@ export function acquireOpenClawGatewayWith(
     // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The returned Effect requires Scope, so its caller owns this finalizer.
     const client = yield* Effect.acquireRelease(
       Effect.try({
-        try: () =>
-          makeClient({
+        try: () => {
+          const environment = gatewayClientEnvironment(session.gatewayUrl);
+          return makeClient({
             url: session.gatewayUrl,
             token: Redacted.value(session.gatewayToken),
             clientName: "gateway-client",
@@ -331,10 +337,12 @@ export function acquireOpenClawGatewayWith(
             role: "operator",
             scopes: ["operator.write"],
             deviceIdentity: null,
+            ...(environment === undefined ? {} : { env: environment }),
             onHelloOk: () => {
               Effect.runSync(Deferred.succeed(hello, undefined));
             },
-          }),
+          });
+        },
         catch: (cause) =>
           gatewayConnectionFailure(
             `could not construct the OpenClaw gateway client: ${String(cause)}`,
@@ -344,7 +352,7 @@ export function acquireOpenClawGatewayWith(
     );
     const ready = startGatewayClient(client, within).pipe(
       Effect.zipRight(Deferred.await(hello)),
-      Effect.raceFirst(processStoppedBeforeHello(session.exitCode)),
+      Effect.raceFirst(session.stopped),
       Effect.timeoutFail({
         duration: within,
         onTimeout: () =>
@@ -365,7 +373,7 @@ export function acquireOpenClawGatewayWith(
  * @returns The scoped native principal gateway.
  */
 export function acquireOpenClawGateway(
-  session: OpenClawProcessSession,
+  session: OpenClawGatewaySession,
   within: Duration.Duration,
 ): Effect.Effect<OpenClawGateway, Error, Scope.Scope> {
   return acquireOpenClawGatewayWith(session, within, makeNativeGatewayClient);

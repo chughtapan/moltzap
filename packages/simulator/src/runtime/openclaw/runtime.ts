@@ -1,52 +1,73 @@
-/** @file Scoped OpenClaw runtime. */
+/** @file Container-backed OpenClaw runtime. */
 
-import type { FileSystem, Path } from "@effect/platform";
-import { createHash } from "node:crypto";
-import type {
-  CommandExecutor,
-  ExitCode,
-} from "@effect/platform/CommandExecutor";
-import type { PlatformError } from "@effect/platform/Error";
+import type { AgentName } from "@moltzap/protocol/identity";
+import { createHash, randomBytes } from "node:crypto";
+import { posix } from "node:path";
+import { httpBaseUrl } from "@moltzap/protocol/network";
 import {
-  defineRuntime,
-  type AgentRuntime,
-  type AgentRuntimeInput,
-  type RunningAgent,
+  defineDistributedRuntime,
+  type DistributedApplicationAttachment,
+  type DistributedApplicationContainer,
+  type DistributedApplicationSupport,
+  type DistributedBootstrapFile,
+  type DistributedContainerImage,
+  type DistributedRuntimeApplication,
+  type DistributedRuntimeCapability,
+} from "../distributed.js";
+import type {
+  AgentRuntime,
+  AgentRuntimeInput,
+  RunningAgent,
 } from "../runtime.js";
 import {
   Cause,
   Duration,
   Effect,
   Inspectable,
+  Redacted,
   Schema,
   type Scope,
 } from "effect";
-import { resolveInstallMode, type InstallMode } from "../packages.js";
+import { serializeMoltZapProfileConfig } from "../workspace.js";
 import {
-  acquireOpenClawProcess,
-  resolveOpenClawProcessOptions,
-  type OpenClawProcessInput,
-  type OpenClawProcessOptionOverrides,
-  type OpenClawProcessOptions,
-  type OpenClawProcessSession,
+  buildOpenClawConfig,
   type OpenClawSandboxConfig,
   type OpenClawToolsConfig,
-} from "./process.js";
-import { acquireOpenClawGateway, type OpenClawGateway } from "./gateway.js";
+} from "./configuration.js";
 import {
-  awaitProcessReady,
-  processTermination,
-  type ProcessObservation,
-  RuntimeAcquisitionFailed,
-} from "../process.js";
+  acquireOpenClawGateway,
+  type OpenClawGateway,
+  type OpenClawGatewaySession,
+  OpenClawGatewayStoppedBeforeHello,
+} from "./gateway.js";
+import { RuntimeAcquisitionFailed } from "../process.js";
 
 /** Native OpenClaw policy types accepted by the shipped runtime. */
-export type { OpenClawSandboxConfig, OpenClawToolsConfig } from "./process.js";
+export type {
+  OpenClawSandboxConfig,
+  OpenClawToolsConfig,
+} from "./configuration.js";
 
 const OPENCLAW_RUNTIME_NAME = "openclaw";
 // The MoltZap channel emits this after its server session is live.
 const OPENCLAW_READY_MARKER = "connected as";
 const DEFAULT_OPENCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
+const OPENCLAW_DISTRIBUTED_GATEWAY_PORT = 18_789;
+const OPENCLAW_DISTRIBUTED_STATE_DIR = "/var/lib/moltzap/openclaw";
+const OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
+const OPENCLAW_DISTRIBUTED_CONFIG_PATH = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/openclaw.json`;
+const OPENCLAW_DISTRIBUTED_PROFILE_HOME = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/moltzap`;
+const OPENCLAW_DISTRIBUTED_PROFILE_PATH = `${OPENCLAW_DISTRIBUTED_PROFILE_HOME}/config.json`;
+const OPENCLAW_DISTRIBUTED_WORKSPACE_DIR = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/workspace`;
+const OPENCLAW_DISTRIBUTED_CHANNEL_PATH = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/openclaw-channel`;
+const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
+const STOCK_OPENCLAW_IMAGE =
+  "ghcr.io/openclaw/openclaw@sha256:27612bb8e5a766ace76fbc2c19276cc9e321f66ad065292eae197f0f5624d371" satisfies DistributedContainerImage;
+const DISTRIBUTED_APPLICATION_RESOURCES = Object.freeze({
+  cpuMillis: 1_000,
+  memoryBytes: 1_024 * 1_024 * 1_024,
+  ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
+});
 
 interface OpenClawWorkspaceFile {
   readonly relativePath: string;
@@ -85,13 +106,6 @@ class OpenClawMcpServerConfiguration extends Schema.Class<OpenClawMcpServerConfi
   ),
 }) {}
 
-class OpenClawHostPathConfiguration extends Schema.Class<OpenClawHostPathConfiguration>(
-  "OpenClawHostPathConfiguration",
-)({
-  digest: configurationDigest,
-  redacted: Schema.Tuple(Schema.Literal("path")),
-}) {}
-
 class OpenClawNativePolicyConfiguration extends Schema.Class<OpenClawNativePolicyConfiguration>(
   "OpenClawNativePolicyConfiguration",
 )({
@@ -100,19 +114,14 @@ class OpenClawNativePolicyConfiguration extends Schema.Class<OpenClawNativePolic
 }) {}
 
 /**
- * Sanitized definition-time policy and overrides for an OpenClaw runtime.
- * Acquisition may resolve different host facts from automatic policy.
+ * Sanitized definition-time policy for an OpenClaw application container.
  */
 export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeConfiguration>(
   "OpenClawRuntimeConfiguration",
 )({
   startupTimeout: Schema.DurationFromMillis,
-  seedOperatorAuth: Schema.Boolean,
   workspaceFiles: Schema.Array(OpenClawWorkspaceFileConfiguration),
   modelOverride: Schema.optional(Schema.String),
-  installPolicy: Schema.Literal("automatic", "published", "workspace"),
-  openclawBinOverride: Schema.optional(OpenClawHostPathConfiguration),
-  channelDistDirOverride: Schema.optional(OpenClawHostPathConfiguration),
   mcpServers: Schema.Array(OpenClawMcpServerConfiguration),
   tools: Schema.optional(OpenClawNativePolicyConfiguration),
   sandbox: Schema.optional(OpenClawNativePolicyConfiguration),
@@ -121,13 +130,8 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
 /** Configuration captured by one reusable OpenClaw runtime value. */
 export interface OpenClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
-  /** Copy the operator's default OpenClaw model-auth store into this runtime. */
-  readonly seedOperatorAuth?: boolean;
   readonly workspaceFiles?: readonly OpenClawWorkspaceFile[];
   readonly modelId?: string;
-  readonly installMode?: InstallMode;
-  readonly openclawBin?: string;
-  readonly channelDistDir?: string;
   readonly mcpServers?: readonly OpenClawMcpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
@@ -135,69 +139,15 @@ export interface OpenClawRuntimeOptions {
 
 interface OpenClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
-  readonly seedOperatorAuth: boolean;
   readonly workspaceFiles: readonly OpenClawWorkspaceFile[];
   readonly modelId?: string;
-  readonly installMode?: InstallMode;
-  readonly openclawBin?: string;
-  readonly channelDistDir?: string;
   readonly mcpServers?: readonly OpenClawMcpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
 }
 
-/**
- * OpenClaw-specific host seam. Production binds it to the scoped process
- * primitive; lifecycle tests bind controlled sessions without launching a
- * gateway.
- * @internal
- */
-export interface OpenClawRuntimeDriver<
-  Session,
-  WaitFailure = unknown,
-  Requirements = never,
-> {
-  readonly resolveInstallMode: (
-    requested?: InstallMode,
-  ) => Effect.Effect<InstallMode, unknown>;
-  readonly resolveProcessOptions: (
-    input: OpenClawProcessOptionOverrides,
-  ) => Effect.Effect<OpenClawProcessOptions, unknown>;
-  readonly acquire: (
-    options: OpenClawProcessOptions,
-    input: OpenClawProcessInput,
-  ) => Effect.Effect<Session, unknown, Scope.Scope | Requirements>;
-  readonly acquireGateway: (
-    session: Session,
-    within: Duration.Duration,
-  ) => Effect.Effect<OpenClawGateway, unknown, Scope.Scope | Requirements>;
-  readonly exitCode: (session: Session) => Effect.Effect<ExitCode, WaitFailure>;
-  readonly output: (session: Session) => string;
-  readonly readyWhen: (output: string) => boolean;
-}
-
 /** Failure returned when OpenClaw cannot become router-visible. */
 export type OpenClawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
-
-type OpenClawHostServices = CommandExecutor | FileSystem.FileSystem | Path.Path;
-
-const nativeOpenClawDriver: OpenClawRuntimeDriver<
-  OpenClawProcessSession,
-  PlatformError,
-  OpenClawHostServices
-> = {
-  resolveInstallMode,
-  resolveProcessOptions: (input) =>
-    Effect.try({
-      try: () => resolveOpenClawProcessOptions(input),
-      catch: (cause) => new Cause.UnknownException(cause),
-    }),
-  acquire: acquireOpenClawProcess,
-  acquireGateway: acquireOpenClawGateway,
-  exitCode: (session) => session.exitCode,
-  output: (session) => session.output(),
-  readyWhen: (output) => output.includes(OPENCLAW_READY_MARKER),
-};
 
 function snapshotWorkspaceFiles(
   files?: readonly OpenClawWorkspaceFile[],
@@ -248,12 +198,8 @@ function snapshotOptions(
 ): OpenClawRuntimeSettings {
   return Object.freeze({
     startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
-    seedOperatorAuth: options.seedOperatorAuth ?? true,
     workspaceFiles: snapshotWorkspaceFiles(options.workspaceFiles),
     modelId: options.modelId,
-    installMode: options.installMode,
-    openclawBin: options.openclawBin,
-    channelDistDir: options.channelDistDir,
     mcpServers: snapshotMcpServers(options.mcpServers),
     tools: snapshotNativeConfiguration(options.tools),
     sandbox: snapshotNativeConfiguration(options.sandbox),
@@ -320,67 +266,14 @@ function runtimeConfiguration(
   const sandbox = nativePolicyConfiguration(settings.sandbox);
   return OpenClawRuntimeConfiguration.make({
     startupTimeout: settings.startupTimeout,
-    seedOperatorAuth: settings.seedOperatorAuth,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
-    installPolicy: settings.installMode ?? "automatic",
     mcpServers: mcpConfiguration(settings.mcpServers),
     ...(tools === undefined ? {} : { tools }),
     ...(sandbox === undefined ? {} : { sandbox }),
     ...(settings.modelId === undefined
       ? {}
       : { modelOverride: settings.modelId }),
-    ...(settings.openclawBin === undefined
-      ? {}
-      : {
-          openclawBinOverride: OpenClawHostPathConfiguration.make({
-            digest: digestText(settings.openclawBin),
-            redacted: ["path"],
-          }),
-        }),
-    ...(settings.channelDistDir === undefined
-      ? {}
-      : {
-          channelDistDirOverride: OpenClawHostPathConfiguration.make({
-            digest: digestText(settings.channelDistDir),
-            redacted: ["path"],
-          }),
-        }),
   });
-}
-
-function processOptions(
-  settings: OpenClawRuntimeSettings,
-  installMode: InstallMode,
-): OpenClawProcessOptionOverrides {
-  return {
-    installMode,
-    ...(settings.openclawBin === undefined
-      ? {}
-      : { openclawBin: settings.openclawBin }),
-    ...(settings.channelDistDir === undefined
-      ? {}
-      : { channelDistDir: settings.channelDistDir }),
-    ...(settings.mcpServers === undefined
-      ? {}
-      : { mcpServers: settings.mcpServers }),
-  };
-}
-
-function processInput<Name extends string>(
-  input: AgentRuntimeInput<Name>,
-  settings: OpenClawRuntimeSettings,
-): OpenClawProcessInput {
-  return {
-    agentName: input.agentName,
-    agentId: input.connection.agent.id,
-    apiKey: input.connection.key,
-    serverUrl: input.connection.routerUrl,
-    seedOperatorAuth: settings.seedOperatorAuth,
-    workspaceFiles: settings.workspaceFiles,
-    ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
-    ...(settings.tools === undefined ? {} : { tools: settings.tools }),
-    ...(settings.sandbox === undefined ? {} : { sandbox: settings.sandbox }),
-  };
 }
 
 function acquisitionFailure(
@@ -395,163 +288,333 @@ function acquisitionFailure(
   });
 }
 
-interface AcquiredOpenClawProcess<Session, WaitFailure> {
-  readonly input: OpenClawProcessInput;
-  readonly observation: ProcessObservation<WaitFailure>;
-  readonly session: Session;
+type OpenClawDistributedGatewayAcquirer = (
+  session: OpenClawGatewaySession,
+  within: Duration.Duration,
+) => Effect.Effect<OpenClawGateway, unknown, Scope.Scope>;
+
+class DistributedOpenClawConfigurationError extends Schema.TaggedError<DistributedOpenClawConfigurationError>()(
+  "DistributedOpenClawConfigurationError",
+  { detail: Schema.String },
+) {
+  override get message(): string {
+    return this.detail;
+  }
 }
 
-function acquireOpenClawSession<
-  Name extends string,
-  Session,
-  WaitFailure,
-  Requirements,
->(
+function distributedConfigurationError(
+  detail: string,
+): DistributedOpenClawConfigurationError {
+  return DistributedOpenClawConfigurationError.make({ detail });
+}
+
+function validateDistributedSupport(
+  support: DistributedApplicationSupport,
+): void {
+  if (!/^.+@sha256:[\da-f]{64}$/u.test(support.supportImage)) {
+    throw distributedConfigurationError(
+      "the support image must be pinned by a SHA-256 digest",
+    );
+  }
+  if (support.bootstrapSecretIdentity.length === 0) {
+    throw distributedConfigurationError(
+      "the bootstrap Secret identity must not be empty",
+    );
+  }
+}
+
+function distributedWorkspacePath(relativePath: string): `/${string}` {
+  if (
+    relativePath.length === 0 ||
+    relativePath.includes("\\") ||
+    posix.isAbsolute(relativePath)
+  ) {
+    throw distributedConfigurationError(
+      `invalid OpenClaw workspace path: ${relativePath}`,
+    );
+  }
+  const normalized = posix.normalize(relativePath);
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../")
+  ) {
+    throw distributedConfigurationError(
+      `OpenClaw workspace path must stay below its root: ${relativePath}`,
+    );
+  }
+  return `${OPENCLAW_DISTRIBUTED_WORKSPACE_DIR}/${normalized}`;
+}
+
+function bootstrapFile(
+  path: `/${string}`,
+  content: string,
+): DistributedBootstrapFile {
+  return Object.freeze({ path, content, mode: 0o600 });
+}
+
+function distributedBootstrapFiles<Name extends string>(
   settings: OpenClawRuntimeSettings,
-  driver: OpenClawRuntimeDriver<Session, WaitFailure, Requirements>,
   input: AgentRuntimeInput<Name>,
-): Effect.Effect<
-  AcquiredOpenClawProcess<Session, WaitFailure>,
-  OpenClawRuntimeAcquisitionError,
-  Scope.Scope | Requirements
-> {
-  return Effect.gen(function* () {
-    const process = processInput(input, settings);
-    const installMode = yield* driver
-      .resolveInstallMode(settings.installMode)
-      .pipe(
-        Effect.mapError((cause) =>
-          acquisitionFailure(process.agentName, "select packages", cause),
-        ),
-      );
-    const host = yield* driver
-      .resolveProcessOptions(processOptions(settings, installMode))
-      .pipe(
-        Effect.mapError((cause) =>
-          acquisitionFailure(process.agentName, "resolve process", cause),
-        ),
-      );
-    const session = yield* driver
-      .acquire(host, process)
-      .pipe(
-        Effect.mapError((cause) =>
-          acquisitionFailure(process.agentName, "acquire process", cause),
-        ),
-      );
-    const observation: ProcessObservation<WaitFailure> = {
-      exitCode: driver.exitCode(session),
-      output: () => driver.output(session),
-    };
-    return { input: process, observation, session };
+  gatewayToken: Redacted.Redacted,
+): readonly DistributedBootstrapFile[] {
+  const nativeConfig = buildOpenClawConfig(
+    {
+      agentName: input.agentName,
+      gatewayToken,
+      gatewayBind: "lan",
+      channelPath: OPENCLAW_DISTRIBUTED_CHANNEL_PATH,
+      ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
+      ...(settings.mcpServers === undefined
+        ? {}
+        : { mcpServers: settings.mcpServers }),
+      ...(settings.tools === undefined ? {} : { tools: settings.tools }),
+      ...(settings.sandbox === undefined ? {} : { sandbox: settings.sandbox }),
+    },
+    OPENCLAW_DISTRIBUTED_WORKSPACE_DIR,
+  );
+  const profile = serializeMoltZapProfileConfig({
+    agentName: input.agentName,
+    agentId: input.connection.agent.id,
+    apiKey: input.connection.key,
   });
+  return Object.freeze([
+    bootstrapFile(
+      OPENCLAW_DISTRIBUTED_CONFIG_PATH,
+      JSON.stringify(nativeConfig, null, 2),
+    ),
+    bootstrapFile(OPENCLAW_DISTRIBUTED_PROFILE_PATH, profile),
+    ...settings.workspaceFiles.map((file) =>
+      bootstrapFile(distributedWorkspacePath(file.relativePath), file.content),
+    ),
+  ]);
 }
 
-function acquireOpenClawRuntime<
-  Name extends string,
-  Session,
-  WaitFailure,
-  Requirements,
->(
-  settings: OpenClawRuntimeSettings,
-  driver: OpenClawRuntimeDriver<Session, WaitFailure, Requirements>,
-  input: AgentRuntimeInput<Name>,
-): Effect.Effect<
-  RunningAgent<OpenClawGateway>,
-  OpenClawRuntimeAcquisitionError,
-  Scope.Scope | Requirements
-> {
-  return Effect.gen(function* () {
-    const process = yield* acquireOpenClawSession(settings, driver, input);
-    const gateway = yield* awaitOpenClawRuntimeReady(settings, driver, process);
-    return {
-      gateway,
-      termination: processTermination(
-        {
-          agentName: process.input.agentName,
-          runtimeName: OPENCLAW_RUNTIME_NAME,
-        },
-        process.observation,
-      ),
-    };
-  }).pipe(
-    Effect.withSpan("openClawRuntime.acquire", {
-      attributes: {
-        "agent.name": input.connection.agent.name,
-        "runtime.name": OPENCLAW_RUNTIME_NAME,
-      },
+function distributedGatewayUrl(
+  endpointUrl: string,
+): OpenClawGatewaySession["gatewayUrl"] {
+  const parsed = new URL(endpointUrl);
+  const forbiddenHosts = new Set([
+    "0.0.0.0",
+    "127.0.0.1",
+    "localhost",
+    "::1",
+    "[::1]",
+  ]);
+  const invalid = [
+    parsed.protocol !== "ws:",
+    forbiddenHosts.has(parsed.hostname),
+    parsed.port !== String(OPENCLAW_DISTRIBUTED_GATEWAY_PORT),
+    parsed.username.length > 0,
+    parsed.password.length > 0,
+    parsed.pathname !== "/",
+    parsed.search.length > 0,
+    parsed.hash.length > 0,
+  ].includes(true);
+  if (invalid) {
+    throw distributedConfigurationError(
+      `OpenClaw distributed gateway must be a credential-free, non-loopback ws URL on port ${String(OPENCLAW_DISTRIBUTED_GATEWAY_PORT)}`,
+    );
+  }
+  // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The protocol validation above accepts only a ws URL.
+  return parsed.href as OpenClawGatewaySession["gatewayUrl"];
+}
+
+function stoppedBeforeDistributedGateway(
+  stopped: DistributedApplicationAttachment["stopped"],
+): OpenClawGatewaySession["stopped"] {
+  return stopped.pipe(
+    Effect.matchCauseEffect({
+      onFailure: (cause) =>
+        Effect.fail(
+          OpenClawGatewayStoppedBeforeHello.make({
+            detail: `OpenClaw application stopped before gateway hello: ${Cause.pretty(cause)}`,
+          }),
+        ),
+      onSuccess: (observation) =>
+        Effect.fail(
+          OpenClawGatewayStoppedBeforeHello.make({
+            detail: `OpenClaw application stopped before gateway hello: ${Inspectable.stringifyCircular(observation)}`,
+          }),
+        ),
     }),
   );
 }
 
-function awaitOpenClawRuntimeReady<Session, WaitFailure, Requirements>(
-  settings: OpenClawRuntimeSettings,
-  driver: OpenClawRuntimeDriver<Session, WaitFailure, Requirements>,
-  process: AcquiredOpenClawProcess<Session, WaitFailure>,
+interface DistributedOpenClawBridge {
+  readonly startupTimeout: Duration.Duration;
+  readonly agentName: AgentName;
+  readonly gatewayToken: Redacted.Redacted;
+  readonly acquireGateway: OpenClawDistributedGatewayAcquirer;
+}
+
+function attachDistributedOpenClaw(
+  bridge: DistributedOpenClawBridge,
+  attachment: DistributedApplicationAttachment,
 ): Effect.Effect<
-  OpenClawGateway,
-  OpenClawRuntimeAcquisitionError,
-  Scope.Scope | Requirements
+  RunningAgent<OpenClawGateway>,
+  RuntimeAcquisitionFailed,
+  Scope.Scope
 > {
-  const gateway = driver
-    .acquireGateway(process.session, settings.startupTimeout)
-    .pipe(
-      Effect.mapError((cause) =>
+  return Effect.gen(function* () {
+    const gatewayUrl = yield* Effect.try({
+      try: () => distributedGatewayUrl(attachment.endpointUrl),
+      catch: (cause) =>
         acquisitionFailure(
-          process.input.agentName,
-          "connect principal gateway",
+          bridge.agentName,
+          "resolve distributed gateway",
           cause,
         ),
-      ),
-    );
-  const ready = awaitProcessReady({
-    within: settings.startupTimeout,
-    agentName: process.input.agentName,
-    agentKey: process.input.apiKey,
-    runtimeName: OPENCLAW_RUNTIME_NAME,
-    observation: process.observation,
-    readyWhen: driver.readyWhen,
+    });
+    const gateway = yield* bridge
+      .acquireGateway(
+        {
+          gatewayUrl,
+          gatewayToken: bridge.gatewayToken,
+          agentName: bridge.agentName,
+          stopped: stoppedBeforeDistributedGateway(attachment.stopped),
+        },
+        bridge.startupTimeout,
+      )
+      .pipe(
+        Effect.mapError((cause) =>
+          acquisitionFailure(
+            bridge.agentName,
+            "connect distributed principal gateway",
+            cause,
+          ),
+        ),
+      );
+    return Object.freeze({
+      gateway,
+      termination: attachment.termination,
+    });
   });
-  return Effect.all([gateway, ready] as const, {
-    concurrency: 2,
-  }).pipe(Effect.map(([principalGateway]) => principalGateway));
 }
 
-/**
- * Build OpenClaw's process-backed runtime against an explicit low-level driver.
- * Production uses {@link openClawRuntime}; this seam keeps lifecycle tests
- * free of gateway processes.
- * @param options Options that control the operation.
- * @param driver Value supplied to the operation.
- * @internal
- * @returns The created open claw runtime with.
- */
-export function makeOpenClawRuntimeWith<
-  Session,
-  WaitFailure = unknown,
-  Requirements = never,
->(
-  options: OpenClawRuntimeOptions,
-  driver: OpenClawRuntimeDriver<Session, WaitFailure, Requirements>,
-): AgentRuntime<
-  OpenClawGateway,
-  OpenClawRuntimeAcquisitionError,
-  Requirements,
-  typeof OpenClawRuntimeConfiguration
+function distributedApplicationContainer<Name extends string>(
+  settings: OpenClawRuntimeSettings,
+  input: AgentRuntimeInput<Name>,
+): DistributedApplicationContainer {
+  return Object.freeze({
+    image: STOCK_OPENCLAW_IMAGE,
+    entrypoint: Object.freeze([
+      "node",
+      "/app/openclaw.mjs",
+      "gateway",
+      "run",
+      "--allow-unconfigured",
+      "--port",
+      String(OPENCLAW_DISTRIBUTED_GATEWAY_PORT),
+    ] as const),
+    environment: Object.freeze({
+      HOME: OPENCLAW_DISTRIBUTED_STATE_DIR,
+      OPENCLAW_STATE_DIR: OPENCLAW_DISTRIBUTED_STATE_DIR,
+      OPENCLAW_CONFIG_PATH: OPENCLAW_DISTRIBUTED_CONFIG_PATH,
+      MOLTZAP_CONFIG_HOME: OPENCLAW_DISTRIBUTED_PROFILE_HOME,
+      MOLTZAP_SERVER_URL: httpBaseUrl(input.connection.routerUrl),
+      OPENCLAW_DISABLE_BONJOUR: "1",
+    }),
+    ...(settings.modelId === undefined
+      ? {}
+      : { credentialEnvironment: Object.freeze(["OPENAI_API_KEY"] as const) }),
+    ports: Object.freeze([OPENCLAW_DISTRIBUTED_GATEWAY_PORT]),
+    resources: DISTRIBUTED_APPLICATION_RESOURCES,
+  });
+}
+
+function makeDistributedOpenClawApplication<Name extends string>(
+  settings: OpenClawRuntimeSettings,
+  acquireGateway: OpenClawDistributedGatewayAcquirer,
+  input: AgentRuntimeInput<Name>,
+  support: DistributedApplicationSupport,
+): DistributedRuntimeApplication<OpenClawGateway, RuntimeAcquisitionFailed> {
+  validateDistributedSupport(support);
+  const gatewayToken = Redacted.make(
+    randomBytes(OPENCLAW_GATEWAY_TOKEN_BYTES).toString("hex"),
+  );
+  const files = distributedBootstrapFiles(settings, input, gatewayToken);
+  const bridge = {
+    startupTimeout: settings.startupTimeout,
+    agentName: input.agentName,
+    gatewayToken,
+    acquireGateway,
+  };
+  return Object.freeze({
+    applicationContainer: distributedApplicationContainer(settings, input),
+    bootstrapSecret: Object.freeze({
+      identity: support.bootstrapSecretIdentity,
+      supportImage: support.supportImage,
+      files,
+    }),
+    readiness: Object.freeze({ outputIncludes: OPENCLAW_READY_MARKER }),
+    attach: (attachment: DistributedApplicationAttachment) =>
+      attachDistributedOpenClaw(bridge, attachment),
+  });
+}
+
+function renderDistributedOpenClaw<Name extends string>(
+  settings: OpenClawRuntimeSettings,
+  acquireGateway: OpenClawDistributedGatewayAcquirer,
+  input: AgentRuntimeInput<Name>,
+  support: DistributedApplicationSupport,
+): Effect.Effect<
+  DistributedRuntimeApplication<OpenClawGateway, RuntimeAcquisitionFailed>,
+  RuntimeAcquisitionFailed
 > {
-  const settings = snapshotOptions(options);
-  return defineRuntime({
-    name: OPENCLAW_RUNTIME_NAME,
-    configuration: {
-      schema: OpenClawRuntimeConfiguration,
-      value: runtimeConfiguration(settings),
-    },
-    acquire: (input) => acquireOpenClawRuntime(settings, driver, input),
+  return Effect.try({
+    try: () =>
+      makeDistributedOpenClawApplication(
+        settings,
+        acquireGateway,
+        input,
+        support,
+      ),
+    catch: (cause) =>
+      acquisitionFailure(
+        input.agentName,
+        "render distributed application",
+        cause,
+      ),
+  });
+}
+
+function openClawDistributedCapability(
+  settings: OpenClawRuntimeSettings,
+  acquireGateway: OpenClawDistributedGatewayAcquirer,
+): DistributedRuntimeCapability<OpenClawGateway, RuntimeAcquisitionFailed> {
+  return Object.freeze({
+    reservation: Object.freeze({
+      image: STOCK_OPENCLAW_IMAGE,
+      resources: DISTRIBUTED_APPLICATION_RESOURCES,
+    }),
+    render: <Name extends string>(
+      input: AgentRuntimeInput<Name>,
+      support: DistributedApplicationSupport,
+    ) => renderDistributedOpenClaw(settings, acquireGateway, input, support),
   });
 }
 
 /**
- * Construct an OpenClaw runtime that binds each roster identity to one
- * scoped gateway process and waits for router-visible readiness.
+ * Build the private OpenClaw distributed capability against a controlled
+ * gateway acquirer.
+ * @param options Definition-time OpenClaw configuration.
+ * @param acquireGateway Runtime-specific controller gateway bridge.
+ * @returns The private distributed realization.
+ * @internal
+ */
+export function makeOpenClawDistributedCapabilityWith(
+  options: OpenClawRuntimeOptions,
+  acquireGateway: OpenClawDistributedGatewayAcquirer,
+): DistributedRuntimeCapability<OpenClawGateway, RuntimeAcquisitionFailed> {
+  return openClawDistributedCapability(
+    snapshotOptions(options),
+    acquireGateway,
+  );
+}
+
+/**
+ * Construct an OpenClaw application container with its native gateway bridge.
  * @param options Options that control the operation.
  * @returns The open claw runtime result.
  */
@@ -560,8 +623,20 @@ export function openClawRuntime(
 ): AgentRuntime<
   OpenClawGateway,
   OpenClawRuntimeAcquisitionError,
-  OpenClawHostServices,
   typeof OpenClawRuntimeConfiguration
 > {
-  return makeOpenClawRuntimeWith(options, nativeOpenClawDriver);
+  const settings = snapshotOptions(options);
+  const capability = openClawDistributedCapability(
+    settings,
+    acquireOpenClawGateway,
+  );
+  return defineDistributedRuntime({
+    name: OPENCLAW_RUNTIME_NAME,
+    configuration: {
+      schema: OpenClawRuntimeConfiguration,
+      value: runtimeConfiguration(settings),
+    },
+    reservation: capability.reservation,
+    render: capability.render,
+  });
 }

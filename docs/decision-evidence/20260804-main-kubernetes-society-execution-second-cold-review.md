@@ -334,3 +334,15 @@ None.
 **PASS**
 
 All six answers were discoverable from the candidate repository with consistent status, supersession lineage, branch authority, assumptions, normative ownership, and source-event attribution. Maintainer acceptance remains required; this reviewer result is not self-certifying.
+
+## Maintainer acceptance
+
+After this passing result was recorded, Tapan Chugh replied exactly:
+
+> accept
+
+The live continuation available on 2026-08-03 supplies no native message
+locator or exact timestamp, so neither is invented. This accepts the passing
+blind-review result for candidate commit
+`2749adbd99eaffd16f063a45de7be01c253f7ef1`; it does not change the reviewed
+ADR, add rationale, or authorize mechanics outside that accepted decision.

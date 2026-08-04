@@ -23,7 +23,6 @@ import {
   type MoltZapRouterDriver,
   type MoltZapRouterDriverAcquirer,
 } from "./moltzap.js";
-import { MoltZapServerFailed } from "./server.js";
 
 const it = effectIt.scoped;
 const STARTUP_TIMEOUT = Duration.seconds(10);
@@ -171,7 +170,7 @@ describe("MoltZap router", () => {
       const scope = yield* Scope.make();
       const unavailable = makeMoltZapRouterProviderWith(
         { startupTimeout: STARTUP_TIMEOUT },
-        () => Effect.fail("docker unavailable"),
+        () => Effect.fail("router unavailable"),
       );
       const acquisition = yield* unavailable.acquire.pipe(
         Scope.extend(scope),
@@ -179,26 +178,7 @@ describe("MoltZap router", () => {
       );
 
       expect(acquisition.operation).toBe("acquire-router");
-      expect(acquisition.detail).toContain("docker unavailable");
-
-      const imageFailure = MoltZapServerFailed.make({
-        operation: "resolve-image",
-        detail: "Docker is not reachable",
-      });
-      const nested = makeMoltZapRouterProviderWith(
-        { startupTimeout: STARTUP_TIMEOUT },
-        () => Effect.fail(imageFailure),
-      );
-      const normalized = yield* nested.acquire.pipe(
-        Scope.extend(scope),
-        Effect.flip,
-      );
-
-      expect(normalized.detail).toBe(imageFailure.message);
-      expect(normalized.message).toBe(
-        `Network acquire-router failed: ${imageFailure.message}`,
-      );
-      expect(normalized.detail).not.toContain("MoltZapServerFailed:");
+      expect(acquisition.detail).toContain("router unavailable");
 
       const test = harness();
       const registrationFailed: MoltZapRouterDriverAcquirer = (options) =>

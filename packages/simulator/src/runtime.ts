@@ -7,34 +7,39 @@ export {
   RuntimeExited,
   RuntimeFailed,
   RuntimeSignaled,
-  defineRuntime,
   runtimeConfigurationProjection,
   type AgentRuntime,
-  type AgentRuntimeDefinition,
   type AgentRuntimeInput,
   type RunningAgent,
   type RuntimeTermination,
 } from "./runtime/runtime.js";
 
+/** Re-exports the container descriptor boundary from `./runtime/distributed.js`. */
+export {
+  defineDistributedRuntime,
+  type DistributedApplicationAttachment,
+  type DistributedApplicationContainer,
+  type DistributedApplicationReadiness,
+  type DistributedApplicationReservation,
+  type DistributedApplicationResourceRequest,
+  type DistributedApplicationSupport,
+  type DistributedBootstrapFile,
+  type DistributedBootstrapSecret,
+  type DistributedContainerImage,
+  type DistributedRuntimeApplication,
+  type DistributedRuntimeCapability,
+  type DistributedRuntimeDefinition,
+} from "./runtime/distributed.js";
+
 /** Re-exports the public API from `./runtime/roster.js`. */
 export type {
   AgentRoster,
   AgentRosterAcquisitionError,
-  AgentRosterRequirements,
   AgentsService,
   RuntimeGatewayOf,
   StartedAgent,
   StartedAgents,
 } from "./runtime/roster.js";
-
-/** Re-exports the public API from `./runtime/effect.js`. */
-export {
-  EffectRuntimeStartFailed,
-  effectRuntime,
-  type EffectAgent,
-  type EffectRuntimeContext,
-  type EffectRuntimeOptions,
-} from "./runtime/effect.js";
 
 /** Re-exports the public API from `./runtime/openclaw/runtime.js`. */
 export {
@@ -72,6 +77,3 @@ export {
 
 /** Re-exports the public API from `./runtime/process.js`. */
 export { RuntimeAcquisitionFailed } from "./runtime/process.js";
-
-/** Re-exports the public API from `./runtime/packages.js`. */
-export type { InstallMode } from "./runtime/packages.js";

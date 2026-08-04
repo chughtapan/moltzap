@@ -17,7 +17,6 @@ import { SimulatorInfrastructureFailure } from "../platform/failure.js";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
-  AgentRosterRequirements,
   RuntimeGatewayOf,
   StartedAgent,
   StartedAgents,
@@ -88,7 +87,7 @@ function runtimeAcquire<
 ): Effect.Effect<
   RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
   AgentRosterAcquisitionError<Definitions> | SimulatorInfrastructureFailure,
-  AgentRosterRequirements<Definitions> | Scope.Scope
+  Scope.Scope
 > {
   // The keyed entry keeps its exact gateway while this supervisor widens its
   // failure and service requirements to the complete roster unions.

@@ -31,12 +31,14 @@ import {
   RunStarted,
 } from "../events/core.js";
 import { EventCatalog } from "../events/catalog.js";
+import { makeDefinitionEventServices } from "./event-services.js";
 import {
   LedgerCompletion,
   ledgerDigest,
   LedgerManifest,
   ledgerRef,
 } from "../ledger/model.js";
+import { openLedger } from "../ledger/open.js";
 import {
   LedgerStorage,
   LedgerStorageError,
@@ -60,13 +62,20 @@ import {
   IncompleteLedgerReceipt,
   ProgramFinished,
   RunInfrastructureFailed,
+  runSociety,
+  type SimulatorRunOptions,
 } from "./run.js";
 import {
   RuntimeCompleted,
   RuntimeExited,
-  defineRuntime,
+  type AgentRuntimeLike,
 } from "../runtime/runtime.js";
-import { simulator } from "../definition.js";
+import {
+  defineFakeRuntime,
+  makeFakeSocietyPlatform,
+} from "../platform/fake.js";
+import { SocietyPlatform } from "../platform/platform.js";
+import { makeAgentRosterBinding, type AgentRoster } from "../runtime/roster.js";
 
 class Observation extends Schema.TaggedClass<Observation>()(
   "acme.kernel-observation/v1",
@@ -74,7 +83,37 @@ class Observation extends Schema.TaggedClass<Observation>()(
 ) {}
 
 const customerEvents = EventCatalog.make(Observation);
-const society = simulator.define("acme.kernel-test/v1", customerEvents);
+const DEFINITION_ID = "acme.kernel-test/v1";
+const eventServices = makeDefinitionEventServices(
+  DEFINITION_ID,
+  customerEvents,
+);
+const rosterBinding = makeAgentRosterBinding(DEFINITION_ID);
+const runKernel = <
+  const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+>(
+  roster: AgentRoster<typeof DEFINITION_ID, Definitions>,
+  program: Effect.Effect<A, E, R>,
+  options: SimulatorRunOptions = {},
+) =>
+  runSociety({
+    definitionId: DEFINITION_ID,
+    eventServices,
+    roster,
+    program,
+    options,
+  }).pipe(Effect.provideService(SocietyPlatform, makeFakeSocietyPlatform()));
+const kernelHarness = Object.freeze({
+  agents: rosterBinding.agents,
+  ledger: eventServices.ledger,
+  events: eventServices.events,
+  run: runKernel,
+  openLedger: (ref: typeof ledgerRef.Type) =>
+    openLedger(eventServices.catalog, ref, DEFINITION_ID),
+});
 const DIGEST = Schema.decodeSync(ledgerDigest)("a".repeat(64));
 const REF = Schema.decodeSync(ledgerRef)("kernel-test-ledger");
 const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
@@ -269,14 +308,14 @@ function fakeRouterProvider(
   };
 }
 
-const ongoingRuntime = defineRuntime({
+const ongoingRuntime = defineFakeRuntime({
   name: "ongoing",
   configuration: configuration("ongoing"),
   acquire: () =>
     Effect.succeed({ gateway: undefined, termination: Effect.never }),
 });
 
-const ongoingRoster = society.agents({
+const ongoingRoster = kernelHarness.agents({
   alice: ongoingRuntime,
 });
 
@@ -287,8 +326,8 @@ test("runs mixed runtimes until customer policy completes", () =>
   Effect.gen(function* () {
     const codeTermination = yield* Deferred.make<RuntimeCompleted>();
     const processTermination = yield* Deferred.make<RuntimeExited>();
-    const roster = society.agents({
-      alice: defineRuntime({
+    const roster = kernelHarness.agents({
+      alice: defineFakeRuntime({
         name: "effect",
         configuration: configuration("in-process"),
         acquire: () =>
@@ -297,7 +336,7 @@ test("runs mixed runtimes until customer policy completes", () =>
             termination: Deferred.await(codeTermination),
           }),
       }),
-      bob: defineRuntime({
+      bob: defineFakeRuntime({
         name: "process",
         configuration: configuration("external-process"),
         acquire: () =>
@@ -309,8 +348,8 @@ test("runs mixed runtimes until customer policy completes", () =>
     });
     const program = Effect.gen(function* () {
       const agents = yield* roster.startedAgents;
-      const ledger = yield* society.ledger;
-      const events = yield* society.events;
+      const ledger = yield* kernelHarness.ledger;
+      const events = yield* kernelHarness.events;
       yield* Network;
       yield* Deferred.succeed(codeTermination, RuntimeCompleted.make({}));
       yield* Deferred.succeed(
@@ -324,7 +363,7 @@ test("runs mixed runtimes until customer policy completes", () =>
       yield* events.emit(Observation.make({ value: "done" }));
       return [agents.alice.agent.name, agents.bob.agent.name] as const;
     });
-    const result = yield* society.run(roster, program);
+    const result = yield* kernelHarness.run(roster, program);
     assert.instanceOf(result, ProgramFinished);
     if (!(result instanceof ProgramFinished)) {
       return;
@@ -335,7 +374,7 @@ test("runs mixed runtimes until customer policy completes", () =>
     }
     assert.deepStrictEqual(result.exit.value, ["alice", "bob"]);
 
-    const ledger = yield* society.openLedger(result.receipt.ledger);
+    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
     assertDefaultProvenance(ledger.manifest);
     assert.lengthOf(
       yield* Stream.runCollect(ledger.events(AgentRuntimeReady)),
@@ -353,7 +392,7 @@ test("runs mixed runtimes until customer policy completes", () =>
 
 test("scope teardown interrupts an unfinished runtime observation", () =>
   Effect.gen(function* () {
-    const result = yield* society.run(
+    const result = yield* kernelHarness.run(
       ongoingRoster,
       Effect.succeed("policy-complete"),
     );
@@ -363,7 +402,7 @@ test("scope teardown interrupts an unfinished runtime observation", () =>
     }
     assert.deepStrictEqual(result.exit, Exit.succeed("policy-complete"));
 
-    const ledger = yield* society.openLedger(result.receipt.ledger);
+    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
     assert.lengthOf(
       yield* Stream.runCollect(ledger.events(AgentRuntimeCompleted)),
       0,
@@ -396,10 +435,14 @@ test("captures run description values before the lazy Effect executes", () =>
       case: "captured-case",
       labels: ["original"],
     };
-    const run = society.run(ongoingRoster, Effect.succeed("policy-complete"), {
-      provenance,
-      metadata,
-    });
+    const run = kernelHarness.run(
+      ongoingRoster,
+      Effect.succeed("policy-complete"),
+      {
+        provenance,
+        metadata,
+      },
+    );
 
     provenance.suite = "mutated-suite";
     provenance.environment.region = "east";
@@ -411,7 +454,7 @@ test("captures run description values before the lazy Effect executes", () =>
     if (!(result instanceof ProgramFinished)) {
       return;
     }
-    const ledger = yield* society.openLedger(result.receipt.ledger);
+    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
 
     assert.deepStrictEqual(ledger.manifest.provenance, {
       suite: "captured-suite",
@@ -436,7 +479,7 @@ test("captures run description values before the lazy Effect executes", () =>
 test("records genuine runtime termination while policy remains active", () =>
   Effect.gen(function* () {
     const termination = yield* Deferred.make<RuntimeExited>();
-    const observedRuntime = defineRuntime({
+    const observedRuntime = defineFakeRuntime({
       name: "observed-process",
       configuration: configuration("observed-process"),
       acquire: () =>
@@ -445,11 +488,11 @@ test("records genuine runtime termination while policy remains active", () =>
           termination: Deferred.await(termination),
         }),
     });
-    const observedRoster = society.agents({
+    const observedRoster = kernelHarness.agents({
       alice: observedRuntime,
     });
     const program = Effect.gen(function* () {
-      const ledger = yield* society.ledger;
+      const ledger = yield* kernelHarness.ledger;
       yield* Deferred.succeed(
         termination,
         RuntimeExited.make({ code: OBSERVED_EXIT_CODE }),
@@ -460,13 +503,13 @@ test("records genuine runtime termination while policy remains active", () =>
       return "observed";
     });
 
-    const result = yield* society.run(observedRoster, program);
+    const result = yield* kernelHarness.run(observedRoster, program);
     assert.instanceOf(result, ProgramFinished);
     if (!(result instanceof ProgramFinished)) {
       return;
     }
     assert.deepStrictEqual(result.exit, Exit.succeed("observed"));
-    const ledger = yield* society.openLedger(result.receipt.ledger);
+    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
     const exits = yield* Stream.runCollect(ledger.events(AgentProcessExited));
     assert.strictEqual(exits.length, 1);
     assert.strictEqual(Chunk.unsafeGet(exits, 0).code, OBSERVED_EXIT_CODE);
@@ -478,7 +521,7 @@ test("records genuine runtime termination while policy remains active", () =>
 test("records a defective termination observer as runtime failure", () =>
   Effect.gen(function* () {
     const triggerDefect = yield* Deferred.make<undefined>();
-    const defectiveRuntime = defineRuntime({
+    const defectiveRuntime = defineFakeRuntime({
       name: "defective-termination-observer",
       configuration: configuration("defective-observer"),
       acquire: () =>
@@ -489,11 +532,11 @@ test("records a defective termination observer as runtime failure", () =>
           ),
         }),
     });
-    const defectiveRoster = society.agents({
+    const defectiveRoster = kernelHarness.agents({
       alice: defectiveRuntime,
     });
     const program = Effect.gen(function* () {
-      const ledger = yield* society.ledger;
+      const ledger = yield* kernelHarness.ledger;
       yield* Deferred.succeed(triggerDefect, undefined);
       yield* ledger
         .events(AgentRuntimeFailed)
@@ -501,13 +544,13 @@ test("records a defective termination observer as runtime failure", () =>
       return "observed";
     });
 
-    const result = yield* society.run(defectiveRoster, program);
+    const result = yield* kernelHarness.run(defectiveRoster, program);
     assert.instanceOf(result, ProgramFinished);
     if (!(result instanceof ProgramFinished)) {
       return;
     }
     assert.deepStrictEqual(result.exit, Exit.succeed("observed"));
-    const ledger = yield* society.openLedger(result.receipt.ledger);
+    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
     const failures = yield* Stream.runCollect(
       ledger.events(AgentRuntimeFailed),
     );
@@ -533,7 +576,7 @@ test("fails the run ledger without making a committed endpoint send retryable", 
       return "sent";
     });
 
-    const outcome = yield* society
+    const outcome = yield* kernelHarness
       .run(ongoingRoster, program)
       .pipe(
         Effect.provideService(
@@ -562,7 +605,7 @@ test("fails the run ledger without making a committed endpoint send retryable", 
 
 test("returns an incomplete receipt when the first post-allocation append fails", () =>
   Effect.gen(function* () {
-    const outcome = yield* society.run(ongoingRoster, Effect.void);
+    const outcome = yield* kernelHarness.run(ongoingRoster, Effect.void);
 
     assert.instanceOf(outcome, RunInfrastructureFailed);
     if (outcome instanceof RunInfrastructureFailed) {
@@ -593,7 +636,10 @@ test("retains router stop failure when started-event storage fails", () => {
     attachEndpoint: () => Effect.dieMessage("unused"),
   };
   return Effect.gen(function* () {
-    const outcome = yield* society.run(society.agents({}), Effect.void);
+    const outcome = yield* kernelHarness.run(
+      kernelHarness.agents({}),
+      Effect.void,
+    );
 
     assert.instanceOf(outcome, RunInfrastructureFailed);
     if (outcome instanceof RunInfrastructureFailed) {
@@ -625,7 +671,7 @@ test("keeps allocation failure in the Effect error channel", () =>
       ...memoryStorage(),
       allocate: () => Effect.fail(allocationFailure),
     };
-    const failure = yield* society
+    const failure = yield* kernelHarness
       .run(ongoingRoster, Effect.void)
       .pipe(
         Effect.provideService(LedgerStorage, storage),
@@ -646,7 +692,7 @@ test("completes the ledger before preserving caller interruption", () =>
     const program = Deferred.succeed(programStarted, undefined).pipe(
       Effect.zipRight(Effect.never),
     );
-    const run = yield* society
+    const run = yield* kernelHarness
       .run(ongoingRoster, program)
       .pipe(
         Effect.provideService(LedgerStorage, storage),
@@ -662,7 +708,7 @@ test("completes the ledger before preserving caller interruption", () =>
       assert.isTrue(Cause.isInterruptedOnly(exit.cause));
     }
     assert.strictEqual(yield* Ref.get(completions), 1);
-    const ledger = yield* society
+    const ledger = yield* kernelHarness
       .openLedger(REF)
       .pipe(Effect.provideService(LedgerStorage, storage));
     assert.strictEqual(ledger.ref, REF);
@@ -681,7 +727,7 @@ test("preserves caller interruption composed with cleanup failure", () =>
         ),
       ).pipe(Effect.zipRight(Effect.never)),
     );
-    const run = yield* society
+    const run = yield* kernelHarness
       .run(ongoingRoster, program)
       .pipe(
         Effect.provideService(LedgerStorage, storage),
@@ -698,7 +744,7 @@ test("preserves caller interruption composed with cleanup failure", () =>
     }
     assert.isTrue(yield* Ref.get(cleanupRan));
     assert.strictEqual(yield* Ref.get(completions), 1);
-    const ledger = yield* society
+    const ledger = yield* kernelHarness
       .openLedger(REF)
       .pipe(Effect.provideService(LedgerStorage, storage));
     assert.strictEqual(ledger.ref, REF);
@@ -709,7 +755,7 @@ test("preserves caller interruption during roster acquisition", () =>
     const acquisitionStarted = yield* Deferred.make<undefined>();
     const completions = yield* Ref.make(0);
     const storage = observeCompletions(memoryStorage(), completions);
-    const acquiringRuntime = defineRuntime({
+    const acquiringRuntime = defineFakeRuntime({
       name: "acquiring",
       configuration: configuration("acquiring"),
       acquire: () =>
@@ -717,10 +763,10 @@ test("preserves caller interruption during roster acquisition", () =>
           Effect.zipRight(Effect.never),
         ),
     });
-    const acquiringRoster = society.agents({
+    const acquiringRoster = kernelHarness.agents({
       alice: acquiringRuntime,
     });
-    const run = yield* society
+    const run = yield* kernelHarness
       .run(acquiringRoster, Effect.void)
       .pipe(
         Effect.provideService(LedgerStorage, storage),
@@ -736,7 +782,7 @@ test("preserves caller interruption during roster acquisition", () =>
       assert.isTrue(Cause.isInterruptedOnly(exit.cause));
     }
     assert.strictEqual(yield* Ref.get(completions), 1);
-    const ledger = yield* society
+    const ledger = yield* kernelHarness
       .openLedger(REF)
       .pipe(Effect.provideService(LedgerStorage, storage));
     assert.strictEqual(ledger.ref, REF);
@@ -756,7 +802,7 @@ test("masks physical allocation through the kernel ownership handoff", () =>
           Effect.tap(() => Deferred.await(releaseAllocation)),
         ),
     };
-    const run = yield* society
+    const run = yield* kernelHarness
       .run(ongoingRoster, Effect.never)
       .pipe(
         Effect.provideService(LedgerStorage, storage),
@@ -775,7 +821,7 @@ test("masks physical allocation through the kernel ownership handoff", () =>
       assert.isTrue(Cause.isInterruptedOnly(exit.cause));
     }
     assert.strictEqual(yield* Ref.get(completions), 1);
-    const ledger = yield* society
+    const ledger = yield* kernelHarness
       .openLedger(REF)
       .pipe(Effect.provideService(LedgerStorage, storage));
     assert.strictEqual(ledger.ref, REF);
@@ -784,10 +830,9 @@ test("masks physical allocation through the kernel ownership handoff", () =>
 test("peer acquisition cancellation is not a startup failure", () =>
   Effect.gen(function* () {
     const siblingStarted = yield* Deferred.make<undefined>();
-    const primary = defineRuntime<
+    const primary = defineFakeRuntime<
       never,
       string,
-      never,
       typeof testRuntimeConfiguration
     >({
       name: "primary-failure",
@@ -797,7 +842,7 @@ test("peer acquisition cancellation is not a startup failure", () =>
           Effect.zipRight(Effect.fail("primary failed")),
         ),
     });
-    const interruptedPeer = defineRuntime({
+    const interruptedPeer = defineFakeRuntime({
       name: "interrupted-peer",
       configuration: configuration("interrupted-peer"),
       acquire: () =>
@@ -805,19 +850,19 @@ test("peer acquisition cancellation is not a startup failure", () =>
           Effect.zipRight(Effect.never),
         ),
     });
-    const failingRoster = society.agents({
+    const failingRoster = kernelHarness.agents({
       [PRIMARY_AGENT_NAME]: primary,
       bob: interruptedPeer,
     });
 
-    const result = yield* society.run(failingRoster, Effect.void);
+    const result = yield* kernelHarness.run(failingRoster, Effect.void);
     assert.instanceOf(result, RunInfrastructureFailed);
     if (result instanceof RunInfrastructureFailed) {
       assert.instanceOf(result.receipt, CompletedLedgerReceipt);
       assert.isFalse(Cause.isInterrupted(result.cause));
     }
 
-    const ledger = yield* society.openLedger(REF);
+    const ledger = yield* kernelHarness.openLedger(REF);
     const failures = yield* Stream.runCollect(
       ledger.events(AgentRuntimeStartFailed),
     );
@@ -836,7 +881,7 @@ test("releases an acquired peer when parallel roster acquisition fails", () =>
     Effect.gen(function* () {
       const peerAcquired = yield* Deferred.make<undefined>();
       const peerReleased = yield* Ref.make(false);
-      const primary = defineRuntime({
+      const primary = defineFakeRuntime({
         name: "primary-failure",
         configuration: configuration("primary-failure"),
         acquire: () =>
@@ -844,7 +889,7 @@ test("releases an acquired peer when parallel roster acquisition fails", () =>
             Effect.zipRight(Effect.fail("primary failed")),
           ),
       });
-      const acquiredPeer = defineRuntime({
+      const acquiredPeer = defineFakeRuntime({
         name: "acquired-peer",
         configuration: configuration("acquired-peer"),
         acquire: () =>
@@ -855,17 +900,17 @@ test("releases an acquired peer when parallel roster acquisition fails", () =>
             () => Ref.set(peerReleased, true),
           ),
       });
-      const failingRoster = society.agents({
+      const failingRoster = kernelHarness.agents({
         [PRIMARY_AGENT_NAME]: primary,
         bob: acquiredPeer,
       });
-      const result = yield* society.run(failingRoster, Effect.void);
+      const result = yield* kernelHarness.run(failingRoster, Effect.void);
       assert.instanceOf(result, RunInfrastructureFailed);
       if (result instanceof RunInfrastructureFailed) {
         assert.instanceOf(result.receipt, CompletedLedgerReceipt);
       }
       assert.isTrue(yield* Ref.get(peerReleased));
-      const ledger = yield* society.openLedger(REF);
+      const ledger = yield* kernelHarness.openLedger(REF);
       const failures = yield* Stream.runCollect(
         ledger.events(AgentRuntimeStartFailed),
       );

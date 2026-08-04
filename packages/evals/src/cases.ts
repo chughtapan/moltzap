@@ -13,8 +13,8 @@ import {
   openingPeerRuntime,
   orderedGroupPeerRuntime,
   selectedResponsePeerRuntime,
+  type EvaluationPeerDefinition,
   type EvaluationPeerGateway,
-  type EvaluationPeerRuntime,
 } from "./peer.js";
 import {
   CriterionDecided,
@@ -62,9 +62,9 @@ export interface CriterionDefinition {
   readonly decide: (evidence: CriterionEvidence) => CriterionDecision;
 }
 
-/** Code-peer runtimes keyed only by the autonomous roles one case needs. */
-export type EvaluationCasePeerRuntimes = Readonly<
-  Record<string, EvaluationPeerRuntime>
+/** Image-independent peers keyed only by the autonomous roles one case needs. */
+export type EvaluationCasePeerDefinitions = Readonly<
+  Record<string, EvaluationPeerDefinition>
 >;
 
 /** One acquired autonomous peer and its observation-only gateway. */
@@ -75,10 +75,10 @@ export type EvaluationCasePeer<Name extends string = string> = StartedAgent<
 
 /** Exact acquired peers corresponding to one case's keyed runtime record. */
 export type EvaluationCasePeers<
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
 > = Readonly<{
   [Name in Exclude<
-    typeof TARGET_AGENT_NAME | Extract<keyof PeerRuntimes, string>,
+    typeof TARGET_AGENT_NAME | Extract<keyof PeerDefinitions, string>,
     typeof TARGET_AGENT_NAME
   >]: EvaluationCasePeer<Name>;
 }>;
@@ -90,10 +90,10 @@ export type EvaluationCasePeers<
  * gateways expose autonomous observations only; they do not accept commands.
  */
 export interface EvaluationCaseProgramContext<
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
   Failure,
 > {
-  readonly peers: EvaluationCasePeers<PeerRuntimes>;
+  readonly peers: EvaluationCasePeers<PeerDefinitions>;
   readonly instruct: (
     message: string,
   ) => Effect.Effect<Option.Option<EvaluationEvidenceId>, Failure>;
@@ -109,10 +109,10 @@ export interface EvaluationCaseProgramContext<
 }
 
 /** Runtime-independent case policy interpreted by one concrete condition. */
-type EvaluationCaseProgram<PeerRuntimes extends EvaluationCasePeerRuntimes> = <
-  Failure,
->(
-  context: EvaluationCaseProgramContext<PeerRuntimes, Failure>,
+type EvaluationCaseProgram<
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
+> = <Failure>(
+  context: EvaluationCaseProgramContext<PeerDefinitions, Failure>,
 ) => Effect.Effect<EvaluationEvidenceId, Failure>;
 
 /** Immutable case information consumed by plans, grading, and reports. */
@@ -128,17 +128,17 @@ export interface EvaluationCaseMetadata {
 
 /** Rank-2 consumer that preserves an otherwise hidden exact peer roster. */
 interface EvaluationCaseDefinitionConsumer<Result> {
-  readonly execute: <PeerRuntimes extends EvaluationCasePeerRuntimes>(
-    definition: EvaluationCaseDefinition<PeerRuntimes>,
+  readonly execute: <PeerDefinitions extends EvaluationCasePeerDefinitions>(
+    definition: EvaluationCaseDefinition<PeerDefinitions>,
   ) => Result;
 }
 
 /** Metadata plus the exact autonomous peer roster and executable policy. */
 export interface EvaluationCaseDefinition<
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
 > extends EvaluationCaseMetadata {
-  readonly peers: PeerRuntimes;
-  readonly program: EvaluationCaseProgram<PeerRuntimes>;
+  readonly peers: PeerDefinitions;
+  readonly program: EvaluationCaseProgram<PeerDefinitions>;
   readonly withDefinition: <Result>(
     consumer: EvaluationCaseDefinitionConsumer<Result>,
   ) => Result;
@@ -257,9 +257,11 @@ function freezeCriterion(definition: CriterionDefinition): CriterionDefinition {
   });
 }
 
-function defineCase<const PeerRuntimes extends EvaluationCasePeerRuntimes>(
-  definition: Omit<EvaluationCaseDefinition<PeerRuntimes>, "withDefinition">,
-): EvaluationCaseDefinition<PeerRuntimes> {
+function defineCase<
+  const PeerDefinitions extends EvaluationCasePeerDefinitions,
+>(
+  definition: Omit<EvaluationCaseDefinition<PeerDefinitions>, "withDefinition">,
+): EvaluationCaseDefinition<PeerDefinitions> {
   const [firstCriterion, ...remainingCriteria] = definition.criteria;
   return Object.freeze({
     ...definition,
@@ -271,7 +273,7 @@ function defineCase<const PeerRuntimes extends EvaluationCasePeerRuntimes>(
       ...remainingCriteria.map(freezeCriterion),
     ]),
     withDefinition<Result>(
-      this: EvaluationCaseDefinition<PeerRuntimes>,
+      this: EvaluationCaseDefinition<PeerDefinitions>,
       consumer: EvaluationCaseDefinitionConsumer<Result>,
     ): Result {
       return consumer.execute(this);
@@ -285,34 +287,36 @@ function freezeCatalog<const Definitions extends readonly unknown[]>(
   return Object.freeze(definitions);
 }
 
-type DirectPeerRuntimes = Readonly<{
-  [PEER_AGENT_NAME]: EvaluationPeerRuntime;
+type DirectPeerDefinitions = Readonly<{
+  [PEER_AGENT_NAME]: EvaluationPeerDefinition;
 }>;
 
-type SpeakingGroupPeerRuntimes = Readonly<{
-  [PEER_AGENT_NAME]: EvaluationPeerRuntime;
-  [SOURCE_AGENT_NAME]: EvaluationPeerRuntime;
-  [OBSERVER_1_AGENT_NAME]: EvaluationPeerRuntime;
+type SpeakingGroupPeerDefinitions = Readonly<{
+  [PEER_AGENT_NAME]: EvaluationPeerDefinition;
+  [SOURCE_AGENT_NAME]: EvaluationPeerDefinition;
+  [OBSERVER_1_AGENT_NAME]: EvaluationPeerDefinition;
 }>;
 
-type SilentGroupPeerRuntimes = Readonly<{
-  [PEER_AGENT_NAME]: EvaluationPeerRuntime;
-  [OBSERVER_1_AGENT_NAME]: EvaluationPeerRuntime;
-  [OBSERVER_2_AGENT_NAME]: EvaluationPeerRuntime;
+type SilentGroupPeerDefinitions = Readonly<{
+  [PEER_AGENT_NAME]: EvaluationPeerDefinition;
+  [OBSERVER_1_AGENT_NAME]: EvaluationPeerDefinition;
+  [OBSERVER_2_AGENT_NAME]: EvaluationPeerDefinition;
 }>;
 
-type CrossConversationPeerRuntimes = Readonly<{
-  [SOURCE_AGENT_NAME]: EvaluationPeerRuntime;
-  [PROBE_AGENT_NAME]: EvaluationPeerRuntime;
+type CrossConversationPeerDefinitions = Readonly<{
+  [SOURCE_AGENT_NAME]: EvaluationPeerDefinition;
+  [PROBE_AGENT_NAME]: EvaluationPeerDefinition;
 }>;
 
-type PrincipalPeerRuntimes = Readonly<Record<never, EvaluationPeerRuntime>>;
+type PrincipalPeerDefinitions = Readonly<
+  Record<never, EvaluationPeerDefinition>
+>;
 
 function directProgram(
   instruction: string,
-): EvaluationCaseProgram<DirectPeerRuntimes> {
+): EvaluationCaseProgram<DirectPeerDefinitions> {
   return <Failure>(
-    context: EvaluationCaseProgramContext<DirectPeerRuntimes, Failure>,
+    context: EvaluationCaseProgramContext<DirectPeerDefinitions, Failure>,
   ) =>
     Effect.gen(function* () {
       yield* context.instruct(instruction);
@@ -322,9 +326,12 @@ function directProgram(
 
 function speakingGroupProgram(
   instruction: string,
-): EvaluationCaseProgram<SpeakingGroupPeerRuntimes> {
+): EvaluationCaseProgram<SpeakingGroupPeerDefinitions> {
   return <Failure>(
-    context: EvaluationCaseProgramContext<SpeakingGroupPeerRuntimes, Failure>,
+    context: EvaluationCaseProgramContext<
+      SpeakingGroupPeerDefinitions,
+      Failure
+    >,
   ) =>
     Effect.gen(function* () {
       yield* context.instruct(instruction);
@@ -336,9 +343,9 @@ function speakingGroupProgram(
 
 function silentGroupProgram(
   instruction: string,
-): EvaluationCaseProgram<SilentGroupPeerRuntimes> {
+): EvaluationCaseProgram<SilentGroupPeerDefinitions> {
   return <Failure>(
-    context: EvaluationCaseProgramContext<SilentGroupPeerRuntimes, Failure>,
+    context: EvaluationCaseProgramContext<SilentGroupPeerDefinitions, Failure>,
   ) =>
     Effect.gen(function* () {
       yield* context.instruct(instruction);
@@ -351,10 +358,10 @@ function silentGroupProgram(
 function crossConversationProgram(
   sourceInstruction: string,
   probeInstruction: string,
-): EvaluationCaseProgram<CrossConversationPeerRuntimes> {
+): EvaluationCaseProgram<CrossConversationPeerDefinitions> {
   return <Failure>(
     context: EvaluationCaseProgramContext<
-      CrossConversationPeerRuntimes,
+      CrossConversationPeerDefinitions,
       Failure
     >,
   ) =>
@@ -368,9 +375,9 @@ function crossConversationProgram(
 
 function principalProgram(
   instruction: string,
-): EvaluationCaseProgram<PrincipalPeerRuntimes> {
+): EvaluationCaseProgram<PrincipalPeerDefinitions> {
   return <Failure>(
-    context: EvaluationCaseProgramContext<PrincipalPeerRuntimes, Failure>,
+    context: EvaluationCaseProgramContext<PrincipalPeerDefinitions, Failure>,
   ) =>
     Effect.gen(function* () {
       const output = yield* context.instruct(instruction);
@@ -380,9 +387,9 @@ function principalProgram(
 
 function identityProgram(
   instruction: string,
-): EvaluationCaseProgram<DirectPeerRuntimes> {
+): EvaluationCaseProgram<DirectPeerDefinitions> {
   return <Failure>(
-    context: EvaluationCaseProgramContext<DirectPeerRuntimes, Failure>,
+    context: EvaluationCaseProgramContext<DirectPeerDefinitions, Failure>,
   ) =>
     Effect.gen(function* () {
       yield* context.observeContext(context.peers[PEER_AGENT_NAME]);
@@ -415,7 +422,7 @@ function groupInstruction(name: string): string {
 function directPeers(
   caseId: EvaluationCaseId,
   messages: NonEmptyReadonlyArray<string>,
-): DirectPeerRuntimes {
+): DirectPeerDefinitions {
   return {
     [PEER_AGENT_NAME]: selectedResponsePeerRuntime(
       caseId,
@@ -429,7 +436,7 @@ function groupPeers(
   caseId: EvaluationCaseId,
   announcement: string,
   question: string,
-): SpeakingGroupPeerRuntimes {
+): SpeakingGroupPeerDefinitions {
   return {
     [PEER_AGENT_NAME]: orderedGroupPeerRuntime({
       caseId,
@@ -451,7 +458,7 @@ function groupPeers(
 function silentGroupPeers(
   caseId: EvaluationCaseId,
   question: string,
-): SilentGroupPeerRuntimes {
+): SilentGroupPeerDefinitions {
   return {
     [PEER_AGENT_NAME]: groupResponsePeerRuntime({
       caseId,
@@ -469,7 +476,7 @@ function crossConversationPeers(
   caseId: EvaluationCaseId,
   setupMessages: NonEmptyReadonlyArray<string>,
   probe: string,
-): CrossConversationPeerRuntimes {
+): CrossConversationPeerDefinitions {
   return {
     [SOURCE_AGENT_NAME]: contextPeerRuntime(
       caseId,

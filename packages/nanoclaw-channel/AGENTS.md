@@ -13,11 +13,11 @@ channel plugins.
   self-registers via `registerChannelAdapter`.
 - `src/channels/adapter.ts`, `src/channels/channel-registry.ts`,
   `src/db/messaging-groups.ts`, `src/types.ts` — stub mirrors of the
-  nanoclaw modules the channel imports, pinned to the commit in `NANOCLAW_SHA`
-  (`packages/simulator/src/runtime/nanoclaw/install.ts`). Inside a real nanoclaw
-  checkout the same relative imports resolve against nanoclaw's own
-  modules; the messaging-group stub is an in-memory map so unit tests
-  can observe eval-mode conversation wiring.
+  NanoClaw modules the channel imports. Keep them aligned with the
+  digest-pinned NanoClaw application image used by simulator runs. Inside a
+  real NanoClaw checkout the same relative imports resolve against NanoClaw's
+  own modules; the messaging-group stub is an in-memory map so unit tests can
+  observe eval-mode conversation wiring.
 
 ## Concepts
 

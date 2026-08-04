@@ -186,7 +186,22 @@ const packageDefinitions = {
         {
           file: "src/peer.ts",
           reason:
-            "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary",
+            "Autonomous container peer policies and observation gateways form the bundled social-peer boundary",
+        },
+        {
+          file: "src/peer-application.ts",
+          reason:
+            "Executable boundary for one evaluation-owned autonomous peer application container",
+        },
+        {
+          file: "src/submission.ts",
+          reason:
+            "Generated RunSpec module and local-or-GKE simulator submission boundary for one matrix cell",
+        },
+        {
+          file: "src/artifacts.ts",
+          reason:
+            "Completed-ledger artifact retrieval boundary shared by local and GKE evaluation execution",
         },
         {
           file: "src/sweep.ts",
@@ -335,6 +350,11 @@ const packageDefinitions = {
       minFolderReadmeChildren: 100,
       facadeFiles: [
         {
+          file: "definition.ts",
+          reason:
+            "Public RunSpec and Run assembly boundary re-exported by the package root",
+        },
+        {
           file: "network.ts",
           reason:
             "Published network contract for participants, conversations, endpoints, links, and router implementations",
@@ -409,6 +429,56 @@ const packageDefinitions = {
             "Private run-scoped platform port for complete-roster preparation, exact runtime acquisition, cohort readiness, and infrastructure-loss observation",
         },
         {
+          file: "platform/controller/configuration.ts",
+          reason:
+            "Closed controller environment boundary shared by the executable entry point and infrastructure composition",
+        },
+        {
+          file: "platform/kubernetes/api.ts",
+          reason:
+            "Narrow Kubernetes operation port consumed by the controller composition boundary",
+        },
+        {
+          file: "platform/kubernetes/profile.ts",
+          reason:
+            "Closed local-or-GKE execution profile shared by host submission and Temporal adapters",
+        },
+        {
+          file: "platform/kubernetes/platform.ts",
+          reason:
+            "Kubernetes implementation boundary for the private SocietyPlatform port",
+        },
+        {
+          file: "platform/temporal/contract.ts",
+          reason:
+            "Serializable workflow and activity contract shared by Temporal adapters and host submission",
+        },
+        {
+          file: "platform/temporal/activities.ts",
+          reason:
+            "Temporal activity construction boundary over injectable Kubernetes lifecycle operations",
+        },
+        {
+          file: "platform/temporal/client.ts",
+          reason:
+            "Temporal client adapter kept separate from worker and deterministic workflow code",
+        },
+        {
+          file: "platform/temporal/run.ts",
+          reason:
+            "Host composition entry point for one local-or-GKE Temporal-managed run",
+        },
+        {
+          file: "platform/temporal/worker.ts",
+          reason:
+            "Temporal worker construction boundary owning the SDK workflow bundle path",
+        },
+        {
+          file: "platform/temporal/workflow.ts",
+          reason:
+            "SDK-discovered deterministic workflow entry point kept in its own bundle module",
+        },
+        {
           file: "network/endpoint.ts",
           reason:
             "Controlled endpoint and network service boundary over router transports and conversation receive cursors",
@@ -433,42 +503,63 @@ const packageDefinitions = {
             "Router port, framed message model, connection contract, and typed network failures",
         },
         {
-          file: "network/server.ts",
+          file: "network/moltzap.ts",
           reason:
-            "Scoped MoltZap server ownership for image, storage, process, observation, and identity resources",
+            "Private MoltZap router implementation composed over the controller-owned server-process driver",
+        },
+        {
+          file: "network/server-process.ts",
+          reason:
+            "Private controller entry point owning the installed production router process and stopped-store evidence",
         },
         {
           file: "runtime/runtime.ts",
           reason:
-            "Autonomous participant lifecycle contract implemented by every runtime family",
+            "Nominal runtime metadata and exact gateway type contract shared by every container runtime",
         },
         {
           file: "runtime/roster.ts",
           reason:
-            "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements",
+            "Keyed mixed-runtime roster preserving each agent's exact gateway and acquisition-error types",
         },
         {
-          file: "runtime/process.ts",
+          file: "runtime/distributed.ts",
           reason:
-            "Scoped process bridge shared by the external runtime implementations",
+            "Container descriptor and runtime-specific bridge capability shared by the Kubernetes platform and shipped runtimes",
+        },
+        {
+          file: "runtime/command.ts",
+          reason:
+            "Supervised child-process construction and bounded process-tree cleanup for the controller-owned router",
         },
         {
           file: "runtime/packages.ts",
           reason:
-            "Runtime package discovery and install-policy boundary shared by shipped runtime families",
+            "Installed package discovery used by the controller-owned production router process",
         },
         {
-          file: "runtime/nanoclaw/install.ts",
+          file: "runtime/nanoclaw/runtime.ts",
           reason:
-            "NanoClaw installation boundary composing source acquisition, package assets, and dependency materialization",
+            "NanoClaw application-container descriptor and exact controller bridge",
         },
         {
-          file: "runtime/openclaw/process.ts",
+          file: "runtime/openclaw/runtime.ts",
           reason:
-            "OpenClaw process boundary composing workspace setup, channel materialization, gateway configuration, port ownership, and supervised lifetime",
+            "OpenClaw application-container descriptor and exact controller bridge",
         },
       ],
       layers: [
+        {
+          name: "composition",
+          folders: [
+            "platform/controller",
+            "platform/temporal",
+            "platform/local",
+            "platform/gke",
+          ],
+          reason:
+            "Controller and host entry points compose the run kernel with Temporal and concrete platform capabilities",
+        },
         {
           name: "kernel",
           folders: ["kernel"],
@@ -487,11 +578,6 @@ const packageDefinitions = {
       publicTypePackages: [
         publicTypePackage.effect,
         publicTypePackage.platform,
-        {
-          ...publicTypePackage.rpc,
-          reason:
-            "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client",
-        },
         publicTypePackage.openclaw,
         publicTypePackage.protocol,
       ],
