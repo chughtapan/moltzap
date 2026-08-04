@@ -220,7 +220,7 @@ const BUNDLED_OPENCLAW_TOOLS = {
     },
   },
   elevated: { enabled: false },
-  exec: { mode: "deny" },
+  exec: { mode: "full" },
 } satisfies NonNullable<OpenClawRuntimeOptions["tools"]>;
 
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.allow);
