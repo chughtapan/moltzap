@@ -1,14 +1,19 @@
 /** @file Mixed-roster acquisition and runtime-termination observation. */
 
 import type { AgentId, AgentName } from "@moltzap/protocol/identity";
-import { Cause, Effect, Exit, type Scope } from "effect";
+import { Cause, Deferred, Effect, Exit, Ref, type Scope } from "effect";
 import {
   AgentRuntimeReady,
   AgentRuntimeStartFailed,
   type runtimeEvents,
 } from "../events/core.js";
 import type { LedgerFailure, LedgerWriter } from "../ledger/live.js";
-import type { AgentConnection, Router } from "../network/router.js";
+import type { Router } from "../network/router.js";
+import type {
+  SocietyAgentAcquisitionInput,
+  SocietySession,
+} from "../platform/platform.js";
+import { SimulatorInfrastructureFailure } from "../platform/failure.js";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
@@ -21,11 +26,21 @@ import {
   RuntimeFailed,
   type AgentRuntimeLike,
   type RunningAgent,
+  type RuntimeTermination,
 } from "../runtime/runtime.js";
 import { nonEmptyCause, runtimeEvent } from "./outcomes.js";
 
 const MAX_PARALLEL_RUNTIME_ACQUISITIONS = 32;
 type RuntimeEventWriter = LedgerWriter<typeof runtimeEvents>;
+type DispatchState = "pending" | "lost" | "open";
+
+interface DispatchFence {
+  readonly state: Ref.Ref<DispatchState>;
+  readonly failure: Deferred.Deferred<
+    never,
+    LedgerFailure | SimulatorInfrastructureFailure
+  >;
+}
 
 interface AcquiredAgent<Name extends string = string, Gateway = unknown> {
   readonly name: Name;
@@ -43,7 +58,16 @@ interface AcquireAgentInput<
   readonly name: Name;
   readonly agentName: AgentName;
   readonly runtime: Definitions[Name];
+  readonly session: SocietySession<Definitions>;
+  readonly dispatch: DispatchFence;
   readonly writer: RuntimeEventWriter;
+}
+
+interface RuntimeAcquireInput<
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  Name extends Extract<keyof Definitions, string>,
+> extends SocietyAgentAcquisitionInput<Definitions, Name> {
+  readonly session: SocietySession<Definitions>;
 }
 
 interface AcquireRosterInput<
@@ -52,6 +76,7 @@ interface AcquireRosterInput<
 > {
   readonly router: Router;
   readonly roster: AgentRoster<Id, Definitions>;
+  readonly session: SocietySession<Definitions>;
   readonly writer: RuntimeEventWriter;
 }
 
@@ -59,17 +84,20 @@ function runtimeAcquire<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
   Name extends Extract<keyof Definitions, string>,
 >(
-  runtime: Definitions[Name],
-  agentName: AgentName,
-  connection: AgentConnection<Name>,
+  input: RuntimeAcquireInput<Definitions, Name>,
 ): Effect.Effect<
   RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
-  AgentRosterAcquisitionError<Definitions>,
+  AgentRosterAcquisitionError<Definitions> | SimulatorInfrastructureFailure,
   AgentRosterRequirements<Definitions> | Scope.Scope
 > {
   // The keyed entry keeps its exact gateway while this supervisor widens its
   // failure and service requirements to the complete roster unions.
-  return runtime.acquire({ agentName, connection });
+  return input.session.acquireAgent({
+    name: input.name,
+    runtime: input.runtime,
+    agentName: input.agentName,
+    connection: input.connection,
+  });
 }
 
 function attemptAgent<
@@ -78,7 +106,7 @@ function attemptAgent<
 >(
   input: Pick<
     AcquireAgentInput<Definitions, Name>,
-    "router" | "name" | "agentName" | "runtime"
+    "router" | "name" | "agentName" | "runtime" | "session"
   >,
 ) {
   return Effect.gen(function* () {
@@ -86,11 +114,13 @@ function attemptAgent<
       input.name,
       input.agentName,
     );
-    const running = yield* runtimeAcquire<Definitions, Name>(
-      input.runtime,
-      input.agentName,
+    const running = yield* runtimeAcquire<Definitions, Name>({
+      session: input.session,
+      name: input.name,
+      runtime: input.runtime,
+      agentName: input.agentName,
       connection,
-    );
+    });
     const started = Object.freeze({
       agent: connection.agent,
       gateway: running.gateway,
@@ -106,31 +136,59 @@ function attemptAgent<
   });
 }
 
+function claimPreDispatchLoss(dispatch: DispatchFence) {
+  return Ref.modify(dispatch.state, (state) =>
+    state === "pending" ? ([true, "lost"] as const) : ([false, state] as const),
+  );
+}
+
+function recordTermination(
+  acquired: AcquiredAgent,
+  termination: RuntimeTermination,
+  writer: RuntimeEventWriter,
+  dispatch: DispatchFence,
+) {
+  return Effect.gen(function* () {
+    const beforeDispatch = yield* claimPreDispatchLoss(dispatch);
+    const recorded = yield* Effect.exit(
+      writer.write({ event: runtimeEvent(acquired, termination) }),
+    );
+    if (beforeDispatch) {
+      if (Exit.isFailure(recorded)) {
+        yield* Deferred.failCause(dispatch.failure, recorded.cause);
+      } else {
+        yield* Deferred.fail(
+          dispatch.failure,
+          new SimulatorInfrastructureFailure({
+            detail: `${acquired.name} terminated before cohort readiness (${termination._tag})`,
+          }),
+        );
+      }
+    }
+    if (Exit.isFailure(recorded)) {
+      return yield* Effect.failCause(recorded.cause);
+    }
+  });
+}
+
 function monitorRuntime(
   acquired: AcquiredAgent,
   writer: RuntimeEventWriter,
+  dispatch: DispatchFence,
 ): Effect.Effect<void, LedgerFailure> {
   return acquired.started.termination.pipe(
     Effect.matchCauseEffect({
       onFailure: (cause) =>
         Cause.isInterruptedOnly(cause)
           ? Effect.void
-          : writer
-              .write({
-                event: runtimeEvent(
-                  acquired,
-                  RuntimeFailed.make({
-                    detail: nonEmptyCause(cause),
-                  }),
-                ),
-              })
-              .pipe(Effect.asVoid),
+          : recordTermination(
+              acquired,
+              RuntimeFailed.make({ detail: nonEmptyCause(cause) }),
+              writer,
+              dispatch,
+            ),
       onSuccess: (termination) =>
-        writer
-          .write({
-            event: runtimeEvent(acquired, termination),
-          })
-          .pipe(Effect.asVoid),
+        recordTermination(acquired, termination, writer, dispatch),
     }),
     Effect.withSpan("Simulator.runtimeTermination", {
       attributes: {
@@ -144,10 +202,11 @@ function monitorRuntime(
 function startMonitor(
   acquired: AcquiredAgent,
   writer: RuntimeEventWriter,
+  dispatch: DispatchFence,
 ): Effect.Effect<void, never, Scope.Scope> {
   // Registration follows runtime acquisition so LIFO scope closure interrupts
   // this observer before runtime teardown. Teardown is not terminal evidence.
-  return monitorRuntime(acquired, writer).pipe(
+  return monitorRuntime(acquired, writer, dispatch).pipe(
     Effect.forkScoped,
     Effect.asVoid,
   );
@@ -203,7 +262,7 @@ function acquireAgent<
       );
     }
     yield* recordReady(attempted.value, input.writer);
-    yield* startMonitor(attempted.value, input.writer);
+    yield* startMonitor(attempted.value, input.writer, input.dispatch);
     return attempted.value;
   }).pipe(
     Effect.withSpan("Simulator.acquireAgent", {
@@ -235,6 +294,18 @@ function withoutPeerCancellation<Failure>(
   return Cause.isEmpty(primary) ? cause : primary;
 }
 
+function openDispatchFence(dispatch: DispatchFence) {
+  return Ref.modify(dispatch.state, (state) =>
+    state === "pending"
+      ? ([true, "open"] as const)
+      : ([state === "open", state] as const),
+  ).pipe(
+    Effect.flatMap((opened) =>
+      opened ? Effect.void : Deferred.await(dispatch.failure),
+    ),
+  );
+}
+
 /**
  * Executes the acquire roster operation.
  * @param input Input value to process.
@@ -245,21 +316,44 @@ export function acquireRoster<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 >(input: AcquireRosterInput<Id, Definitions>) {
   type Name = Extract<keyof Definitions, string>;
-  return Effect.forEach(
-    input.roster.validatedDefinitions,
-    (entry) =>
-      acquireAgent<Definitions, Name>({
-        router: input.router,
-        name: entry.name,
-        agentName: entry.agentName,
-        runtime: entry.runtime,
-        writer: input.writer,
-      }),
-    { concurrency: MAX_PARALLEL_RUNTIME_ACQUISITIONS },
-  ).pipe(
+  return Effect.gen(function* () {
+    const dispatch: DispatchFence = {
+      state: yield* Ref.make<DispatchState>("pending"),
+      failure: yield* Deferred.make<
+        never,
+        LedgerFailure | SimulatorInfrastructureFailure
+      >(),
+    };
+    const acquired = yield* Effect.raceFirst(
+      Effect.forEach(
+        input.roster.validatedDefinitions,
+        (entry) =>
+          acquireAgent<Definitions, Name>({
+            router: input.router,
+            name: entry.name,
+            agentName: entry.agentName,
+            runtime: entry.runtime,
+            session: input.session,
+            dispatch,
+            writer: input.writer,
+          }),
+        { concurrency: MAX_PARALLEL_RUNTIME_ACQUISITIONS },
+      ),
+      Deferred.await(dispatch.failure),
+    );
+    // Registered observers run once before the fence so an already-terminal
+    // runtime cannot be dispatched by an immediately ready platform.
+    yield* Effect.yieldNow();
+    yield* Effect.raceFirst(
+      input.session.cohortReady,
+      Deferred.await(dispatch.failure),
+    );
+    yield* openDispatchFence(dispatch);
+    return startedAgents<Definitions>(acquired);
+  }).pipe(
     Effect.catchAllCause((cause) =>
       Effect.failCause(withoutPeerCancellation(cause)),
     ),
-    Effect.map(startedAgents<Definitions>),
+    Effect.withSpan("Simulator.acquireRoster"),
   );
 }

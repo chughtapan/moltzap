@@ -154,7 +154,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`CompletedLedgerReceipt`](./kernel/run.ts#L61)
+### [`CompletedLedgerReceipt`](./kernel/run.ts#L63)
 
 _Class_
 
@@ -693,7 +693,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](./kernel/run.ts#L70)
+### [`IncompleteLedgerReceipt`](./kernel/run.ts#L72)
 
 _Class_
 
@@ -721,7 +721,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt`](./kernel/run.ts#L85)
+### [`LedgerReceipt`](./kernel/run.ts#L87)
 
 _TypeAlias_
 
@@ -731,7 +731,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt`](./kernel/run.ts#L79)
+### [`LedgerReceipt`](./kernel/run.ts#L81)
 
 _Variable_
 
@@ -904,7 +904,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](./kernel/run.ts#L88)
+### [`ProgramFinished`](./kernel/run.ts#L90)
 
 _Class_
 
@@ -1035,7 +1035,19 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
 
 Router release or stopped-router evidence collection failed.
 
-### [`RunInfrastructureFailed`](./kernel/run.ts#L94)
+### [`Run`](./definition.ts#L514)
+
+_Variable_
+
+```ts
+export const Run: Readonly<{ execute: typeof executeRunSpec }> = Object.freeze({
+  execute: executeRunSpec,
+})
+```
+
+Discoverable execution entry point for one experiment society.
+
+### [`RunInfrastructureFailed`](./kernel/run.ts#L96)
 
 _Class_
 
@@ -1049,6 +1061,53 @@ export class RunInfrastructureFailed<
 ```
 
 Post-allocation infrastructure failure plus all durable evidence retained.
+
+### [`RunSpec`](./definition.ts#L173)
+
+_Interface_
+
+```ts
+export interface RunSpec<
+  Id extends SimulatorDefinitionId = SimulatorDefinitionId,
+  CustomerCatalogs extends
+    readonly AnyEventCatalog[] = readonly AnyEventCatalog[],
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>> = Readonly<
+    Record<string, AgentRuntimeLike>
+  >,
+  A = unknown,
+  E = unknown,
+  R = never,
+  Infrastructure extends Layer.Layer<never, unknown, unknown> = Layer.Layer<
+    RunInfrastructureServices<Definitions>
+  >,
+> {
+  readonly id: Id;
+  readonly events: CustomerCatalogs;
+  readonly agents: Definitions;
+  readonly infrastructure: Infrastructure &
+    Layer.Layer<
+      RunInfrastructureServices<Definitions>,
+      Layer.Layer.Error<Infrastructure>,
+      Layer.Layer.Context<Infrastructure>
+    >;
+  readonly execute: (
+    context: RunExecutionContext<Id, CustomerCatalogs, Definitions>,
+  ) => Effect.Effect<A, E, R>;
+}
+```
+
+Immutable code-first definition of one experiment society.
+
+### [`RunSpec`](./definition.ts#L509)
+
+_Variable_
+
+```ts
+export const RunSpec: Readonly<{ define: typeof defineRunSpec }> =
+  Object.freeze({ define: defineRunSpec })
+```
+
+Discoverable constructor for immutable experiment definitions.
 
 ### [`RunStarted`](./events/core.ts#L12)
 
@@ -1065,7 +1124,7 @@ export class RunStarted extends Schema.TaggedClass<RunStarted>()(
 
 The run ledger is allocated and run-scoped acquisition has begun.
 
-### [`simulator`](./definition.ts#L234)
+### [`simulator`](./definition.ts#L519)
 
 _Variable_
 
@@ -1078,7 +1137,7 @@ export const simulator: Readonly<{ define: typeof defineSimulator }> =
 
 Discoverable entry point for code-first society definitions.
 
-### [`SimulatorDefinition`](./definition.ts#L169)
+### [`SimulatorDefinition`](./definition.ts#L303)
 
 _Interface_
 
@@ -1112,7 +1171,7 @@ export interface SimulatorDefinition<
 
 Definition-bound capabilities for one versioned family of simulator runs.
 
-### [`SimulatorDefinitionError`](./definition.ts#L27)
+### [`SimulatorDefinitionError`](./definition.ts#L35)
 
 _Class_
 
@@ -1132,7 +1191,7 @@ export class SimulatorDefinitionError extends Schema.TaggedError<SimulatorDefini
 
 Reports simulator definition failures.
 
-### [`SimulatorDefinitionId`](./definition.ts#L22)
+### [`SimulatorDefinitionId`](./definition.ts#L30)
 
 _TypeAlias_
 
@@ -1141,6 +1200,18 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 ```
 
 Stable code identity persisted in every ledger manifest.
+
+### [`SimulatorInfrastructureFailure`](./platform/failure.ts#L6)
+
+_Class_
+
+```ts
+export class SimulatorInfrastructureFailure extends Data.TaggedError(
+  "SimulatorInfrastructureFailure",
+)<{ readonly detail: string }> {}
+```
+
+Infrastructure loss that ends a run without exposing its backend.
 
 ### [`simulatorLayer`](./layer.ts#L23)
 
@@ -1168,19 +1239,19 @@ export interface SimulatorLayerOptions {
 
 Host configuration shared by every run provided with this Layer.
 
-### [`SimulatorRunFailure`](./kernel/run.ts#L109)
+### [`SimulatorRunFailure`](./kernel/run.ts#L111)
 
 _TypeAlias_
 
 ```ts
 export type SimulatorRunFailure<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-> = AgentRosterAcquisitionError<Definitions> | LedgerFailure | NetworkFailure;
+> =
 ```
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOptions`](./kernel/run.ts#L55)
+### [`SimulatorRunOptions`](./kernel/run.ts#L57)
 
 _Interface_
 
@@ -1193,7 +1264,7 @@ export interface SimulatorRunOptions {
 
 Optional run metadata; platform and runtime policy belong in Layers.
 
-### [`SimulatorRunOutcome`](./kernel/run.ts#L102)
+### [`SimulatorRunOutcome`](./kernel/run.ts#L104)
 
 _TypeAlias_
 
@@ -1231,3 +1302,4 @@ Stable persisted identity for an event class.
 - `link.ts`
 - `participant.ts`
 - `router.ts`
+- `failure.ts`

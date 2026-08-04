@@ -2,6 +2,8 @@
 
 /** Re-exports the public API from `./definition.js`. */
 export {
+  Run,
+  RunSpec,
   simulator,
   SimulatorDefinitionError,
   type SimulatorDefinition,
@@ -81,6 +83,9 @@ export {
   type SimulatorRunOutcome,
   type SimulatorRunOptions,
 } from "./kernel/run.js";
+
+/** Re-exports the mechanism-neutral infrastructure failure. */
+export { SimulatorInfrastructureFailure } from "./platform/failure.js";
 
 /** Re-exports the public API from `./layer.js`. */
 export { simulatorLayer, type SimulatorLayerOptions } from "./layer.js";

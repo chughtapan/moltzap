@@ -21,7 +21,7 @@ function loadPackageExports(): Record<string, unknown> {
 }
 
 // @agent-code-guard/regression-only: exact package surfaces are finite dependency and privilege boundaries
-describe("@moltzap/simulator package exports", () => {
+describe("@moltzap/simulator package map", () => {
   it("publishes exactly the customer, network, ledger, and runtime surfaces", () => {
     expect(loadPackageExports()).toEqual({
       ".": {
@@ -42,7 +42,9 @@ describe("@moltzap/simulator package exports", () => {
       },
     });
   });
+});
 
+describe("@moltzap/simulator root export", () => {
   it("keeps platform-authoring values off the experiment root", () => {
     expect(Object.keys(customerApi)).not.toEqual(
       expect.arrayContaining([
@@ -59,15 +61,29 @@ describe("@moltzap/simulator package exports", () => {
         "openClawRuntime",
       ]),
     );
+    expect(
+      Object.keys(customerApi).filter(
+        (name) =>
+          /platform|kubernetes|k8s|kueue|temporal|sandbox|fake/iu.test(name) ||
+          (name.endsWith("Controller") && name !== "LinkController"),
+      ),
+    ).toEqual([]);
   });
 
+  it("exposes the additive RunSpec root while retaining simulator", () => {
+    expect(customerApi).not.toHaveProperty("defineSimulator");
+    expect(customerApi).not.toHaveProperty("defineRunSpec");
+    expect(customerApi).not.toHaveProperty("executeRunSpec");
+    expect(customerApi.RunSpec).toHaveProperty("define");
+    expect(customerApi.Run).toHaveProperty("execute");
+    expect(customerApi).toHaveProperty("SimulatorInfrastructureFailure");
+    expect(customerApi.simulator).toHaveProperty("define");
+  });
+});
+
+describe("@moltzap/simulator/ledger package export", () => {
   it("keeps run-ledger construction and producer writers inside the kernel", () => {
     expect(ledgerApi).not.toHaveProperty("makeRunLedger");
-  });
-
-  it("exposes one definition constructor through simulator", () => {
-    expect(customerApi).not.toHaveProperty("defineSimulator");
-    expect(customerApi.simulator).toHaveProperty("define");
   });
 });
 

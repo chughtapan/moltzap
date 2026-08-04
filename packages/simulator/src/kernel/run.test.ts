@@ -269,31 +269,6 @@ function fakeRouterProvider(
   };
 }
 
-const codeRuntime = defineRuntime({
-  name: "effect",
-  configuration: configuration("in-process"),
-  acquire: () =>
-    Effect.succeed({
-      gateway: undefined,
-      termination: Effect.succeed(RuntimeCompleted.make({})),
-    }),
-});
-
-const processRuntime = defineRuntime({
-  name: "process",
-  configuration: configuration("external-process"),
-  acquire: () =>
-    Effect.succeed({
-      gateway: undefined,
-      termination: Effect.succeed(RuntimeExited.make({ code: 0 })),
-    }),
-});
-
-const roster = society.agents({
-  alice: codeRuntime,
-  bob: processRuntime,
-});
-
 const ongoingRuntime = defineRuntime({
   name: "ongoing",
   configuration: configuration("ongoing"),
@@ -306,20 +281,49 @@ const ongoingRoster = society.agents({
 });
 
 // @agent-code-guard/regression-only: controlled scopes and deferred termination expose exact lifecycle evidence and cancellation order
-test("runs mixed runtimes until customer policy completes", () => {
-  const program = Effect.gen(function* () {
-    const agents = yield* roster.startedAgents;
-    const ledger = yield* society.ledger;
-    const events = yield* society.events;
-    yield* Network;
-    yield* ledger
-      .events(AgentRuntimeCompleted)
-      .pipe(Stream.take(1), Stream.runDrain);
-    yield* Effect.yieldNow();
-    yield* events.emit(Observation.make({ value: "done" }));
-    return [agents.alice.agent.name, agents.bob.agent.name] as const;
-  });
-  return Effect.gen(function* () {
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- the lifecycle regression keeps post-dispatch termination, evidence, and final outcome in one ordered effect.
+test("runs mixed runtimes until customer policy completes", () =>
+  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- the generator is the same ordered lifecycle regression as its enclosing test callback.
+  Effect.gen(function* () {
+    const codeTermination = yield* Deferred.make<RuntimeCompleted>();
+    const processTermination = yield* Deferred.make<RuntimeExited>();
+    const roster = society.agents({
+      alice: defineRuntime({
+        name: "effect",
+        configuration: configuration("in-process"),
+        acquire: () =>
+          Effect.succeed({
+            gateway: undefined,
+            termination: Deferred.await(codeTermination),
+          }),
+      }),
+      bob: defineRuntime({
+        name: "process",
+        configuration: configuration("external-process"),
+        acquire: () =>
+          Effect.succeed({
+            gateway: undefined,
+            termination: Deferred.await(processTermination),
+          }),
+      }),
+    });
+    const program = Effect.gen(function* () {
+      const agents = yield* roster.startedAgents;
+      const ledger = yield* society.ledger;
+      const events = yield* society.events;
+      yield* Network;
+      yield* Deferred.succeed(codeTermination, RuntimeCompleted.make({}));
+      yield* Deferred.succeed(
+        processTermination,
+        RuntimeExited.make({ code: 0 }),
+      );
+      yield* ledger
+        .events(AgentRuntimeCompleted)
+        .pipe(Stream.take(1), Stream.runDrain);
+      yield* Effect.yieldNow();
+      yield* events.emit(Observation.make({ value: "done" }));
+      return [agents.alice.agent.name, agents.bob.agent.name] as const;
+    });
     const result = yield* society.run(roster, program);
     assert.instanceOf(result, ProgramFinished);
     if (!(result instanceof ProgramFinished)) {
@@ -345,8 +349,7 @@ test("runs mixed runtimes until customer policy completes", () => {
   }).pipe(
     Effect.provideService(LedgerStorage, memoryStorage()),
     Effect.provideService(RouterProvider, fakeRouterProvider()),
-  );
-});
+  ));
 
 test("scope teardown interrupts an unfinished runtime observation", () =>
   Effect.gen(function* () {
@@ -474,13 +477,16 @@ test("records genuine runtime termination while policy remains active", () =>
 
 test("records a defective termination observer as runtime failure", () =>
   Effect.gen(function* () {
+    const triggerDefect = yield* Deferred.make<undefined>();
     const defectiveRuntime = defineRuntime({
       name: "defective-termination-observer",
       configuration: configuration("defective-observer"),
       acquire: () =>
         Effect.succeed({
           gateway: undefined,
-          termination: Effect.dieMessage("termination observer defect"),
+          termination: Deferred.await(triggerDefect).pipe(
+            Effect.zipRight(Effect.dieMessage("termination observer defect")),
+          ),
         }),
     });
     const defectiveRoster = society.agents({
@@ -488,6 +494,7 @@ test("records a defective termination observer as runtime failure", () =>
     });
     const program = Effect.gen(function* () {
       const ledger = yield* society.ledger;
+      yield* Deferred.succeed(triggerDefect, undefined);
       yield* ledger
         .events(AgentRuntimeFailed)
         .pipe(Stream.take(1), Stream.runDrain);

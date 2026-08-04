@@ -6,11 +6,9 @@ import type { runtimeEvents } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import { makeAgentHandle } from "../network/participant.js";
 import type { Router } from "../network/router.js";
-import {
-  RuntimeCompleted,
-  RuntimeExited,
-  defineRuntime,
-} from "../runtime/runtime.js";
+import { SocietyPlatform } from "../platform/platform.js";
+import { SimulatorInfrastructureFailure } from "../platform/failure.js";
+import { RuntimeExited, defineRuntime } from "../runtime/runtime.js";
 import { makeAgentRosterBuilder } from "../runtime/roster.js";
 import { acquireRoster } from "./runtimes.js";
 
@@ -30,8 +28,8 @@ const configuration = {
 
 const alphaGateway = Object.freeze({ runtime: "alpha" });
 const betaGateway = Object.freeze({ runtime: "beta" });
-const alphaTermination = Effect.succeed(RuntimeCompleted.make({}));
-const betaTermination = Effect.succeed(RuntimeExited.make({ code: 0 }));
+const alphaTermination = Effect.never;
+const betaTermination = Effect.never;
 
 const alphaRuntime = defineRuntime({
   name: "alpha",
@@ -95,9 +93,12 @@ function testWriter(): LedgerWriter<typeof runtimeEvents> {
 test("installs each runtime gateway beside its router identity", () =>
   Effect.scoped(
     Effect.gen(function* () {
+      const platform = yield* SocietyPlatform;
+      const session = yield* platform.prepare(roster);
       const agents = yield* acquireRoster({
         router: testRouter(),
         roster,
+        session,
         writer: testWriter(),
       });
 
@@ -110,5 +111,33 @@ test("installs each runtime gateway beside its router identity", () =>
       assert.isTrue(Object.isFrozen(agents));
       assert.isTrue(Object.isFrozen(agents.alice));
       assert.isTrue(Object.isFrozen(agents.bob));
+    }),
+  ));
+
+test("rejects an already-terminated runtime before the direct cohort gate", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const terminated = defineRuntime({
+        name: "terminated-before-cohort",
+        configuration,
+        acquire: () =>
+          Effect.succeed({
+            gateway: undefined,
+            termination: Effect.succeed(RuntimeExited.make({ code: 0 })),
+          }),
+      });
+      const terminatedRoster = makeAgentRosterBuilder(
+        "acme.runtime-pre-dispatch-loss/v1",
+      )({ alice: terminated });
+      const platform = yield* SocietyPlatform;
+      const session = yield* platform.prepare(terminatedRoster);
+      const failure = yield* acquireRoster({
+        router: testRouter(),
+        roster: terminatedRoster,
+        session,
+        writer: testWriter(),
+      }).pipe(Effect.flip);
+
+      assert.instanceOf(failure, SimulatorInfrastructureFailure);
     }),
   ));
