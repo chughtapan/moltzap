@@ -21,6 +21,12 @@ export {
   type ConnectedHarnessAgent,
   type HarnessAgentClient,
 } from "./harness.js";
+/** Re-exports the public API from `./process/packaged-moltzapd.js`. */
+export {
+  acquirePackagedMoltzapd,
+  type PackagedMoltzapd,
+  type PackagedMoltzapdOptions,
+} from "./process/packaged-moltzapd.js";
 /** Re-exports the public API from `../auth.js`. */
 export { registerAgent, type RegisterResponse } from "../auth.js";
 

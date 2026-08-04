@@ -89,6 +89,10 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   alias("@moltzap/simulator/ledger", "packages/simulator/src/ledger.ts"),
   alias("@moltzap/simulator", "packages/simulator/src/index.ts"),
   alias(
+    "@moltzap/nanoclaw-channel",
+    "packages/nanoclaw-channel/src/channels/moltzap.ts",
+  ),
+  alias(
     "@moltzap/openclaw-channel",
     "packages/openclaw-channel/src/openclaw-entry.ts",
   ),
