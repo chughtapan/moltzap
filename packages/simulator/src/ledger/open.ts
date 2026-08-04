@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Effect, type ParseResult, Schema, Stream } from "effect";
 import type { ParseOptions } from "effect/SchemaAST";
 import type {
@@ -8,6 +9,7 @@ import type {
 } from "../events/catalog.js";
 import {
   LedgerCompletion,
+  ledgerDigest,
   LedgerManifest,
   type LedgerRef,
   makeLedgerRecordSchema,
@@ -16,8 +18,9 @@ import {
 import { ledgerEvents } from "./live.js";
 import {
   LedgerStorage,
+  LedgerStorageError,
   type LedgerArtifact,
-  type LedgerStorageError,
+  type LedgerStorageService,
 } from "./storage.js";
 
 const versionedEventTagSchema = Schema.String.pipe(
@@ -100,6 +103,13 @@ export interface CompletedRunLedger<Catalog> {
 }
 
 interface LedgerArtifacts {
+  readonly manifest: string;
+  readonly records: string;
+  readonly completion: string;
+}
+
+/** Complete immutable artifact text retrieved from a profile-owned store. */
+export interface CompletedLedgerArtifacts {
   readonly manifest: string;
   readonly records: string;
   readonly completion: string;
@@ -477,4 +487,80 @@ export function openLedger<
     };
     return Object.freeze(completed);
   }).pipe(Effect.withSpan("openLedger"));
+}
+
+function artifactStorage(
+  ref: LedgerRef,
+  artifacts: CompletedLedgerArtifacts,
+): LedgerStorageService {
+  return {
+    allocate: () => Effect.dieMessage("completed artifacts are read-only"),
+    read: (requestedRef, artifact) => {
+      if (requestedRef !== ref) {
+        return Effect.fail(
+          LedgerStorageError.make({
+            operation: "read",
+            detail: "the retrieved artifacts belong to a different ledger",
+            ref: requestedRef,
+            artifact,
+          }),
+        );
+      }
+      return Effect.succeed(artifacts[artifact]);
+    },
+    digest: (text) =>
+      Effect.try({
+        try: () => createHash("sha256").update(text, "utf8").digest("hex"),
+        catch: (cause) =>
+          LedgerStorageError.make({
+            operation: "digest",
+            detail: String(cause),
+          }),
+      }).pipe(
+        Effect.flatMap((digest) =>
+          Schema.decodeUnknown(ledgerDigest)(digest).pipe(
+            Effect.mapError((cause) =>
+              LedgerStorageError.make({
+                operation: "digest",
+                detail: cause.message,
+              }),
+            ),
+          ),
+        ),
+      ),
+  };
+}
+
+/**
+ * Validate already-retrieved durable artifacts without exposing their storage
+ * backend through the customer program.
+ * @param catalog Exact event catalog used to decode the records.
+ * @param ref Durable ledger identity associated with the artifacts.
+ * @param artifacts Complete artifact text retrieved from durable storage.
+ * @param expectedDefinitionId Optional definition identity to verify.
+ * @returns A validated completed ledger with infallible record streams.
+ */
+export function openLedgerArtifacts<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(
+  catalog: EventCatalog<SchemaType, Classes>,
+  ref: LedgerRef,
+  artifacts: CompletedLedgerArtifacts,
+  expectedDefinitionId?: string,
+): Effect.Effect<
+  CompletedRunLedger<EventCatalog<SchemaType, Classes>>,
+  LedgerOpenError
+> {
+  const storage = artifactStorage(ref, artifacts);
+  if (expectedDefinitionId === undefined) {
+    return openLedger(catalog, ref).pipe(
+      Effect.provideService(LedgerStorage, storage),
+      Effect.withSpan("openLedgerArtifacts"),
+    );
+  }
+  return openLedger(catalog, ref, expectedDefinitionId).pipe(
+    Effect.provideService(LedgerStorage, storage),
+    Effect.withSpan("openLedgerArtifacts"),
+  );
 }

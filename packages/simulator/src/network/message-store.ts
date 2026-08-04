@@ -12,7 +12,7 @@ import { Brand, Effect, Schema, type ParseResult } from "effect";
 import { join } from "node:path";
 
 /** PGlite directory below a MoltZap server volume. */
-export const SERVER_PGLITE_DIR = "pglite";
+const SERVER_PGLITE_DIR = "pglite";
 
 /** Exact message-store path derived from a server-owned volume. */
 export type MessageDatabasePath = string & Brand.Brand<"MessageDatabasePath">;

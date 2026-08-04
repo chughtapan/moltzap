@@ -1,0 +1,21 @@
+clusterQueue:
+  name: moltzap
+
+resourceFlavor:
+  name: moltzap-gke-agents
+
+agentPool:
+  label:
+    key: moltzap.dev/pool
+    value: agents
+  taint:
+    key: moltzap.dev/agents
+    value: "true"
+    effect: NoSchedule
+
+# These conservative quotas match the fixed Terraform profile: one
+# e2-standard-8 node in each of three zones, with node headroom retained.
+quota:
+  cpu: "20"
+  memory: 72Gi
+  ephemeralStorage: 300Gi

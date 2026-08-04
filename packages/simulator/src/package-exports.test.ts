@@ -70,14 +70,15 @@ describe("@moltzap/simulator root export", () => {
     ).toEqual([]);
   });
 
-  it("exposes the additive RunSpec root while retaining simulator", () => {
+  it("exposes RunSpec as the only execution entry point", () => {
     expect(customerApi).not.toHaveProperty("defineSimulator");
     expect(customerApi).not.toHaveProperty("defineRunSpec");
     expect(customerApi).not.toHaveProperty("executeRunSpec");
+    expect(customerApi).not.toHaveProperty("simulator");
+    expect(customerApi).not.toHaveProperty("simulatorLayer");
     expect(customerApi.RunSpec).toHaveProperty("define");
     expect(customerApi.Run).toHaveProperty("execute");
     expect(customerApi).toHaveProperty("SimulatorInfrastructureFailure");
-    expect(customerApi.simulator).toHaveProperty("define");
   });
 });
 
@@ -88,11 +89,13 @@ describe("@moltzap/simulator/ledger package export", () => {
 });
 
 describe("@moltzap/simulator/runtime package export", () => {
-  it("publishes the shipped autonomous runtime implementations", () => {
+  it("publishes container runtime definitions and shipped implementations", () => {
     expect([
-      typeof runtimeApi.effectRuntime,
+      typeof runtimeApi.defineDistributedRuntime,
       typeof runtimeApi.nanoclawRuntime,
       typeof runtimeApi.openClawRuntime,
     ]).toEqual(["function", "function", "function"]);
+    expect(runtimeApi).not.toHaveProperty("defineRuntime");
+    expect(runtimeApi).not.toHaveProperty("effectRuntime");
   });
 });

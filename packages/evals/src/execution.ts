@@ -1,16 +1,20 @@
 /** @file Concrete mixed-agent conditions and code-defined case execution. */
 
-import type { FileSystem, HttpClient, Path } from "@effect/platform";
-import type { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { agentName } from "@moltzap/protocol/identity";
 import {
   CompletedLedgerReceipt,
+  EventCatalog,
   LedgerReceipt,
-  ProgramFinished,
-  simulator,
+  ProgramFailed,
+  ProgramInterrupted,
+  ProgramSucceeded,
+  RunSpec,
+  coreEvents,
+  type RunInfrastructureServices,
 } from "@moltzap/simulator";
 import {
   type AgentRuntime,
+  type DistributedContainerImage,
   type StartedAgent,
   nanoclawRuntime,
   openClawRuntime,
@@ -18,20 +22,24 @@ import {
   type NanoclawRuntimeOptions,
   type OpenClawRuntimeOptions,
 } from "@moltzap/simulator/runtime";
-import type {
-  LedgerStorage,
-  JsonValue,
-  LedgerStorageError,
+import {
+  openLedgerArtifacts,
+  type CompletedLedgerArtifacts,
+  type CompletedRunLedger,
+  type JsonValue,
+  type LedgerOpenError,
+  type LedgerStorageError,
+  type LedgerRef,
 } from "@moltzap/simulator/ledger";
-import type { RouterProvider } from "@moltzap/simulator/network";
 import {
   Array as Arr,
-  Cause,
   Duration,
   Effect,
-  Exit,
+  type Layer,
   Option,
+  Record as Rec,
   Schema,
+  Stream,
 } from "effect";
 import {
   TARGET_AGENT_NAME,
@@ -39,7 +47,7 @@ import {
   type EvaluationCaseMetadata,
   type EvaluationCasePeer,
   type EvaluationCasePeers,
-  type EvaluationCasePeerRuntimes,
+  type EvaluationCasePeerDefinitions,
   type EvaluationCaseProgramContext,
 } from "./cases.js";
 import {
@@ -56,6 +64,7 @@ import {
 } from "./model.js";
 import type {
   PeerExchange,
+  EvaluationPeerDefinition,
   EvaluationPeerGateway,
   EvaluationPeerObservation,
 } from "./peer.js";
@@ -67,21 +76,35 @@ import {
   type PrincipalDriverFactory,
 } from "./principal.js";
 
-type EvaluationExecutionRequirements =
-  | CommandExecutor
-  | FileSystem.FileSystem
-  | HttpClient.HttpClient
-  | Path.Path
-  | LedgerStorage
-  | RouterProvider;
-
 const decodeAgentName = Schema.decodeSync(agentName);
 
-/** Stable definition for every bundled behavioral case run. */
-export const behavioralEvaluation = simulator.define(
-  "moltzap.behavioral-evaluation/v1",
-  evaluationEvents,
-);
+/** Controller-owned services required by every evaluation cell RunSpec. */
+type EvaluationInfrastructure = Layer.Layer<
+  RunInfrastructureServices,
+  LedgerStorageError
+>;
+
+const evaluationCatalog = EventCatalog.merge(coreEvents, evaluationEvents);
+
+/**
+ * Reopen one case-specific RunSpec ledger against the exact evaluation catalog.
+ * @param definition Bundled case whose definition id owns the ledger.
+ * @param ref Physical ledger identity returned by the controller.
+ * @param artifacts Immutable manifest, records, and completion artifact text.
+ * @returns The fully validated completed evaluation ledger.
+ */
+export function openEvaluationLedger(
+  definition: EvaluationCaseMetadata,
+  ref: LedgerRef,
+  artifacts: CompletedLedgerArtifacts,
+) {
+  return openLedgerArtifacts(
+    evaluationCatalog,
+    ref,
+    artifacts,
+    definition.definitionId,
+  );
+}
 
 /** Customer-owned deadlines for observable behavior and complete case work. */
 interface EvaluationExecutionPolicy {
@@ -131,21 +154,38 @@ export type EvaluationExecutionResult =
   | EvaluationExecutionCompleted
   | EvaluationExecutionFailed;
 
-/** Concrete condition with no runtime gateway union at its public boundary. */
-export interface EvaluationCondition<
-  RuntimeRequirements = EvaluationExecutionRequirements,
-> {
+/** A controller receipt disagrees with its completed evaluation ledger. */
+export class EvaluationControllerResultInvalid extends Schema.TaggedError<EvaluationControllerResultInvalid>()(
+  "EvaluationControllerResultInvalid",
+  {
+    detail: Schema.NonEmptyString,
+  },
+) {}
+
+interface EvaluationConditionDefinitionConsumer<Result> {
+  readonly execute: <
+    Gateway,
+    DriverFailure,
+    RuntimeFailure,
+    ConfigurationSchema extends Schema.Schema.AnyNoContext,
+  >(
+    definition: EvaluationConditionDefinition<
+      Gateway,
+      DriverFailure,
+      RuntimeFailure,
+      ConfigurationSchema
+    >,
+  ) => Result;
+}
+
+/** Concrete condition with its exact gateway retained behind a rank-2 binder. */
+export interface EvaluationCondition {
   readonly id: ConditionId;
   readonly runtimeName: string;
   readonly runtimeConfiguration: JsonValue;
-  readonly execute: <PeerRuntimes extends EvaluationCasePeerRuntimes>(
-    definition: EvaluationCaseDefinition<PeerRuntimes>,
-    input: EvaluationExecutionInput,
-  ) => Effect.Effect<
-    EvaluationExecutionResult,
-    LedgerStorageError,
-    EvaluationExecutionRequirements | RuntimeRequirements
-  >;
+  readonly withDefinition: <Result>(
+    consumer: EvaluationConditionDefinitionConsumer<Result>,
+  ) => Result;
 }
 
 /** Exact runtime and adapter captured behind one code-defined condition. */
@@ -153,16 +193,10 @@ export interface EvaluationConditionDefinition<
   Gateway,
   DriverFailure,
   RuntimeFailure,
-  RuntimeRequirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 > {
   readonly id: ConditionId;
-  readonly runtime: AgentRuntime<
-    Gateway,
-    RuntimeFailure,
-    RuntimeRequirements,
-    ConfigurationSchema
-  >;
+  readonly runtime: AgentRuntime<Gateway, RuntimeFailure, ConfigurationSchema>;
   readonly principal: PrincipalDriverFactory<Gateway, DriverFailure>;
   readonly execution: EvaluationExecutionPolicy;
 }
@@ -189,14 +223,6 @@ const BUNDLED_OPENCLAW_TOOLS = {
   exec: { mode: "deny" },
 } satisfies NonNullable<OpenClawRuntimeOptions["tools"]>;
 
-const BUNDLED_OPENCLAW_SANDBOX = {
-  mode: "all",
-  backend: "docker",
-  scope: "session",
-  workspaceAccess: "none",
-  docker: { network: "none" },
-} satisfies NonNullable<OpenClawRuntimeOptions["sandbox"]>;
-
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.allow);
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.sandbox.tools.allow);
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.sandbox.tools);
@@ -204,14 +230,12 @@ Object.freeze(BUNDLED_OPENCLAW_TOOLS.sandbox);
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.elevated);
 Object.freeze(BUNDLED_OPENCLAW_TOOLS.exec);
 Object.freeze(BUNDLED_OPENCLAW_TOOLS);
-Object.freeze(BUNDLED_OPENCLAW_SANDBOX.docker);
-Object.freeze(BUNDLED_OPENCLAW_SANDBOX);
 
 /** Exact native gateway and observation capabilities for one acquired case. */
 export interface EvaluationCaseInstrumentation<
   Gateway,
   DriverFailure,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerRuntimes extends EvaluationCasePeerDefinitions,
 > {
   readonly definition: EvaluationCaseDefinition<PeerRuntimes>;
   readonly policy: EvaluationExecutionPolicy;
@@ -386,7 +410,7 @@ function runtimeStopped(
 function principalInstruction<
   Gateway,
   DriverFailure,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerRuntimes extends EvaluationCasePeerDefinitions,
 >(
   instrumentation: EvaluationCaseInstrumentation<
     Gateway,
@@ -410,7 +434,7 @@ function principalInstruction<
 function observePrincipal<
   Gateway,
   DriverFailure,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerRuntimes extends EvaluationCasePeerDefinitions,
 >(
   instrumentation: EvaluationCaseInstrumentation<
     Gateway,
@@ -445,7 +469,7 @@ function selectPrincipalOutput(
 function caseContext<
   Gateway,
   DriverFailure,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerRuntimes extends EvaluationCasePeerDefinitions,
 >(
   instrumentation: EvaluationCaseInstrumentation<
     Gateway,
@@ -470,7 +494,7 @@ function caseContext<
 function runCaseProgram<
   Gateway,
   DriverFailure,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerRuntimes extends EvaluationCasePeerDefinitions,
 >(
   instrumentation: EvaluationCaseInstrumentation<
     Gateway,
@@ -512,7 +536,7 @@ function runCaseProgram<
 export function runEvaluationCase<
   Gateway,
   DriverFailure,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerRuntimes extends EvaluationCasePeerDefinitions,
 >(
   instrumentation: EvaluationCaseInstrumentation<
     Gateway,
@@ -526,134 +550,229 @@ export function runEvaluationCase<
 interface ExecuteConditionInput<
   Gateway,
   DriverFailure,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
   RuntimeFailure,
-  RuntimeRequirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 > {
-  readonly runtime: AgentRuntime<
-    Gateway,
-    RuntimeFailure,
-    RuntimeRequirements,
-    ConfigurationSchema
-  >;
+  readonly runtime: AgentRuntime<Gateway, RuntimeFailure, ConfigurationSchema>;
   readonly principal: PrincipalDriverFactory<Gateway, DriverFailure>;
   readonly policy: EvaluationExecutionPolicy;
-  readonly conditionId: ConditionId;
-  readonly definition: EvaluationCaseDefinition<PeerRuntimes>;
+  readonly definition: EvaluationCaseDefinition<PeerDefinitions>;
   readonly execution: EvaluationExecutionInput;
+  readonly peerApplicationImage: DistributedContainerImage;
+  readonly infrastructure: EvaluationInfrastructure;
 }
 
-function makeConditionRoster<
+type MaterializedPeerRuntimes<
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
+> = Readonly<{
+  [Name in keyof PeerDefinitions]: ReturnType<PeerDefinitions[Name]["runtime"]>;
+}>;
+
+function materializePeerRuntimes<
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
+>(
+  definitions: PeerDefinitions,
+  peerApplicationImage: DistributedContainerImage,
+): MaterializedPeerRuntimes<PeerDefinitions> {
+  // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- Record.map preserves the exact keys of the immutable input record while replacing every value with its materialized runtime.
+  return Rec.map(definitions, (definition: EvaluationPeerDefinition) =>
+    definition.runtime(peerApplicationImage),
+  ) as MaterializedPeerRuntimes<PeerDefinitions>;
+}
+
+function makeConditionRuntimes<
   Gateway,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
   RuntimeFailure,
-  RuntimeRequirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 >(
-  runtime: AgentRuntime<
-    Gateway,
-    RuntimeFailure,
-    RuntimeRequirements,
-    ConfigurationSchema
-  >,
-  definition: EvaluationCaseDefinition<PeerRuntimes>,
+  runtime: AgentRuntime<Gateway, RuntimeFailure, ConfigurationSchema>,
+  definition: EvaluationCaseDefinition<PeerDefinitions>,
+  peerApplicationImage: DistributedContainerImage,
 ) {
-  return behavioralEvaluation.agents({
-    ...definition.peers,
+  return Object.freeze({
+    ...materializePeerRuntimes(definition.peers, peerApplicationImage),
     [TARGET_AGENT_NAME]: runtime,
   });
 }
 
-function summarizeProgramFinished<Success>(
-  outcome: ProgramFinished<Success, EvaluationProgramFailed>,
+type EvaluationCompletedLedger = CompletedRunLedger<typeof evaluationCatalog>;
+
+type ProgramCompletionEvent =
+  | ProgramSucceeded
+  | ProgramFailed
+  | ProgramInterrupted;
+
+function completionEvents(
+  ledger: EvaluationCompletedLedger,
+): Effect.Effect<readonly ProgramCompletionEvent[]> {
+  const initial: readonly ProgramCompletionEvent[] = [];
+  return ledger.records.pipe(
+    Stream.runFold(initial, (events, record) => {
+      const event = record.event;
+      return event instanceof ProgramSucceeded ||
+        event instanceof ProgramFailed ||
+        event instanceof ProgramInterrupted
+        ? [...events, event]
+        : events;
+    }),
+  );
+}
+
+function completionMatchesReceipt(
+  ledger: EvaluationCompletedLedger,
+  receipt: CompletedLedgerReceipt,
+): boolean {
+  const observed = ledger.completion;
+  const claimed = receipt.completion;
+  const sameHeader =
+    observed.ledgerFormatVersion === claimed.ledgerFormatVersion &&
+    observed.runId === claimed.runId &&
+    observed.recordCount === claimed.recordCount;
+  const sameManifest =
+    observed.artifacts.manifest === claimed.artifacts.manifest;
+  const sameRecords = observed.artifacts.records === claimed.artifacts.records;
+  return sameHeader && sameManifest && sameRecords;
+}
+
+function projectProgramCompletion(
+  event: ProgramCompletionEvent,
+  receipt: CompletedLedgerReceipt,
 ): EvaluationExecutionResult {
-  return Exit.isSuccess(outcome.exit)
-    ? EvaluationExecutionCompleted.make({
-        receipt: outcome.receipt,
-      })
-    : EvaluationExecutionFailed.make({
-        receipt: outcome.receipt,
-        detail: Cause.pretty(outcome.exit.cause),
+  return event instanceof ProgramSucceeded
+    ? EvaluationExecutionCompleted.make({ receipt })
+    : EvaluationExecutionFailed.make({ receipt, detail: event.cause });
+}
+
+function projectCompletedLedger(
+  ledger: EvaluationCompletedLedger,
+  receipt: CompletedLedgerReceipt,
+): Effect.Effect<EvaluationExecutionResult, EvaluationControllerResultInvalid> {
+  return Effect.gen(function* () {
+    if (!completionMatchesReceipt(ledger, receipt)) {
+      return yield* EvaluationControllerResultInvalid.make({
+        detail: "controller receipt completion does not match the ledger",
       });
-}
-
-interface InfrastructureFailureOutcome {
-  readonly receipt: LedgerReceipt;
-  readonly cause: Cause.Cause<unknown>;
-}
-
-function summarizeInfrastructureFailure(
-  outcome: InfrastructureFailureOutcome,
-): EvaluationExecutionResult {
-  return EvaluationExecutionFailed.make({
-    receipt: outcome.receipt,
-    detail: Cause.pretty(outcome.cause),
+    }
+    const events = yield* completionEvents(ledger);
+    if (events.length !== 1) {
+      return yield* EvaluationControllerResultInvalid.make({
+        detail: `completed evaluation ledger contains ${String(events.length)} program completion events`,
+      });
+    }
+    const [event] = events;
+    if (event === undefined) {
+      return yield* EvaluationControllerResultInvalid.make({
+        detail: "completed evaluation ledger has no program completion event",
+      });
+    }
+    return projectProgramCompletion(event, receipt);
   });
 }
 
-function summarizeOutcome<Success>(
-  outcome:
-    | ProgramFinished<Success, EvaluationProgramFailed>
-    | InfrastructureFailureOutcome,
-): EvaluationExecutionResult {
-  return outcome instanceof ProgramFinished
-    ? summarizeProgramFinished(outcome)
-    : summarizeInfrastructureFailure(outcome);
-}
-
-function runProvenance(
-  conditionId: ConditionId,
+/**
+ * Reopen a controller-completed ledger and recover its customer-program result.
+ * @param definition Bundled case that owns the ledger definition and catalog.
+ * @param receipt Bounded controller result projected outside the run process.
+ * @param artifacts Immutable artifacts retrieved for the receipt's ledger.
+ * @returns The evaluation result recovered from canonical simulator evidence.
+ */
+export function projectEvaluationControllerResult(
   definition: EvaluationCaseMetadata,
-  execution: EvaluationExecutionInput,
-) {
-  return {
-    provenance: {
-      caseId: definition.id,
-      caseDefinitionId: definition.definitionId,
-      conditionId,
-      attemptId: execution.attemptId,
-    },
-  };
+  receipt: CompletedLedgerReceipt,
+  artifacts: CompletedLedgerArtifacts,
+): Effect.Effect<
+  EvaluationExecutionResult,
+  LedgerOpenError | EvaluationControllerResultInvalid
+> {
+  return openEvaluationLedger(definition, receipt.ledger, artifacts).pipe(
+    Effect.flatMap((ledger) => projectCompletedLedger(ledger, receipt)),
+  );
 }
 
-function executeCondition<
+/**
+ * Construct one case-and-condition RunSpec using an injected infrastructure Layer.
+ * @param input Exact target runtime, peer roster, policy, and infrastructure.
+ * @returns The immutable RunSpec for one evaluation matrix cell.
+ */
+function evaluationRunSpec<
   Gateway,
   DriverFailure,
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
   RuntimeFailure,
-  RuntimeRequirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 >(
   input: ExecuteConditionInput<
     Gateway,
     DriverFailure,
-    PeerRuntimes,
+    PeerDefinitions,
     RuntimeFailure,
-    RuntimeRequirements,
     ConfigurationSchema
   >,
 ) {
-  const { conditionId, definition, principal, execution, policy, runtime } =
-    input;
-  const roster = makeConditionRoster(runtime, definition);
-  const program = Effect.gen(function* () {
-    const agents = yield* roster.startedAgents;
-    const events = yield* behavioralEvaluation.events;
-    const { [TARGET_AGENT_NAME]: target, ...peers } = agents;
-    const driver = yield* principal.make(execution.attemptId);
-    yield* runEvaluationCase({
-      definition,
-      policy,
-      target,
-      peers,
-      driver,
-      emit: events.emit,
-    });
+  const {
+    peerApplicationImage,
+    definition,
+    infrastructure,
+    principal,
+    execution,
+    policy,
+    runtime,
+  } = input;
+  return RunSpec.define({
+    id: definition.definitionId,
+    events: [evaluationEvents],
+    agents: makeConditionRuntimes(runtime, definition, peerApplicationImage),
+    infrastructure,
+    execute: ({ agents, events }) => {
+      const { [TARGET_AGENT_NAME]: target, ...peers } = agents;
+      return Effect.gen(function* () {
+        const driver = yield* principal.make(execution.attemptId);
+        yield* runEvaluationCase({
+          definition,
+          policy,
+          target,
+          peers,
+          driver,
+          emit: events.emit,
+        });
+      });
+    },
   });
-  return behavioralEvaluation
-    .run(roster, program, runProvenance(conditionId, definition, execution))
-    .pipe(Effect.map(summarizeOutcome));
+}
+
+/** Inputs that bind one report cell to a controller-owned infrastructure Layer. */
+interface EvaluationCellRunSpecInput<
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
+> {
+  readonly definition: EvaluationCaseDefinition<PeerDefinitions>;
+  readonly condition: EvaluationCondition;
+  readonly attemptId: string;
+  readonly peerApplicationImage: DistributedContainerImage;
+  readonly infrastructure: EvaluationInfrastructure;
+}
+
+/**
+ * Construct exactly one case-by-condition controller RunSpec.
+ * @param input Exact case, condition, peer image, attempt, and infrastructure.
+ * @returns One immutable controller-owned RunSpec.
+ */
+export function evaluationCellRunSpec<
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
+>(input: EvaluationCellRunSpecInput<PeerDefinitions>) {
+  return input.condition.withDefinition({
+    execute: (condition) =>
+      evaluationRunSpec({
+        runtime: condition.runtime,
+        principal: condition.principal,
+        policy: condition.execution,
+        definition: input.definition,
+        execution: { attemptId: input.attemptId },
+        peerApplicationImage: input.peerApplicationImage,
+        infrastructure: input.infrastructure,
+      }),
+  });
 }
 
 /**
@@ -665,33 +784,22 @@ function evaluationCondition<
   Gateway,
   DriverFailure,
   RuntimeFailure,
-  RuntimeRequirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 >(
   definition: EvaluationConditionDefinition<
     Gateway,
     DriverFailure,
     RuntimeFailure,
-    RuntimeRequirements,
     ConfigurationSchema
   >,
-): EvaluationCondition<RuntimeRequirements> {
+): EvaluationCondition {
   return Object.freeze({
     id: definition.id,
     runtimeName: definition.runtime.name,
     runtimeConfiguration: runtimeConfigurationProjection(definition.runtime),
-    execute: <PeerRuntimes extends EvaluationCasePeerRuntimes>(
-      evaluation: EvaluationCaseDefinition<PeerRuntimes>,
-      input: EvaluationExecutionInput,
-    ) =>
-      executeCondition({
-        runtime: definition.runtime,
-        principal: definition.principal,
-        policy: definition.execution,
-        conditionId: definition.id,
-        definition: evaluation,
-        execution: input,
-      }),
+    withDefinition: <Result>(
+      consumer: EvaluationConditionDefinitionConsumer<Result>,
+    ) => consumer.execute(definition),
   });
 }
 
@@ -707,7 +815,6 @@ export function openClawEvaluationCondition(
   const runtime = openClawRuntime({
     ...options.runtime,
     tools: BUNDLED_OPENCLAW_TOOLS,
-    sandbox: BUNDLED_OPENCLAW_SANDBOX,
   });
   return evaluationCondition({
     id,

@@ -18,14 +18,14 @@ import {
   Layer,
   Ref,
   Schema,
-  type Scope,
   Stream,
 } from "effect";
-import { Run, RunSpec, simulator } from "../definition.js";
+import { Run, RunSpec } from "../definition.js";
 import { EventCatalog } from "../events/catalog.js";
 import {
   AgentProcessExited,
   AgentRuntimeReady,
+  coreEvents,
   EndpointMessageSent,
 } from "../events/core.js";
 import {
@@ -34,6 +34,7 @@ import {
   LedgerManifest,
   ledgerRef,
 } from "../ledger/model.js";
+import { openLedger } from "../ledger/open.js";
 import {
   LedgerStorage,
   LedgerStorageError,
@@ -52,23 +53,14 @@ import {
 } from "../network.js";
 import {
   SocietyPlatform,
-  type SocietyAgentAcquisitionInput,
   type SocietyPlatformService,
-  type SocietySession,
 } from "../platform/platform.js";
-import { SimulatorInfrastructureFailure } from "../platform/failure.js";
-import type {
-  AgentRoster,
-  AgentRosterAcquisitionError,
-  AgentRosterRequirements,
-  RuntimeGatewayOf,
-} from "../runtime/roster.js";
 import {
-  type AgentRuntimeLike,
-  RuntimeExited,
-  type RunningAgent,
-  defineRuntime,
-} from "../runtime/runtime.js";
+  defineFakeRuntime,
+  makeFakeSocietyPlatform,
+} from "../platform/fake.js";
+import { SimulatorInfrastructureFailure } from "../platform/failure.js";
+import { RuntimeExited } from "../runtime/runtime.js";
 import {
   CompletedLedgerReceipt,
   ProgramFinished,
@@ -243,70 +235,6 @@ function fakeInfrastructure(
   );
 }
 
-interface FakeSocietyPlatformOptions {
-  readonly cohortReady: Effect.Effect<void, SimulatorInfrastructureFailure>;
-  readonly failure: Effect.Effect<never, SimulatorInfrastructureFailure>;
-  readonly onAcquire?: (name: string) => Effect.Effect<void>;
-  readonly onPrepare?: (names: readonly string[]) => Effect.Effect<void>;
-  readonly onRelease?: Effect.Effect<void>;
-}
-
-function acquireFakeAgent<
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  Name extends Extract<keyof Definitions, string>,
->(
-  input: SocietyAgentAcquisitionInput<Definitions, Name>,
-  onAcquire?: (name: string) => Effect.Effect<void>,
-): Effect.Effect<
-  RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
-  AgentRosterAcquisitionError<Definitions>,
-  AgentRosterRequirements<Definitions> | Scope.Scope
-> {
-  return input.runtime
-    .acquire({
-      agentName: input.agentName,
-      connection: input.connection,
-    })
-    .pipe(Effect.tap(() => onAcquire?.(input.name) ?? Effect.void));
-}
-
-function makeFakeSocietySession<
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(options: FakeSocietyPlatformOptions): SocietySession<Definitions> {
-  return Object.freeze({
-    acquireAgent: <Name extends Extract<keyof Definitions, string>>(
-      input: SocietyAgentAcquisitionInput<Definitions, Name>,
-    ) => acquireFakeAgent(input, options.onAcquire),
-    cohortReady: options.cohortReady,
-    failure: options.failure,
-  });
-}
-
-function prepareFakeSociety<
-  Id extends string,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(roster: AgentRoster<Id, Definitions>, options: FakeSocietyPlatformOptions) {
-  const names = roster.validatedDefinitions.map(({ name }) => name);
-  const prepared = options.onPrepare?.(names) ?? Effect.void;
-  return Effect.acquireRelease(
-    prepared.pipe(Effect.as(makeFakeSocietySession<Definitions>(options))),
-    () => options.onRelease ?? Effect.void,
-  );
-}
-
-function fakeSocietyPlatform(
-  options: FakeSocietyPlatformOptions,
-): SocietyPlatformService {
-  return Object.freeze({
-    prepare: <
-      Id extends string,
-      Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-    >(
-      roster: AgentRoster<Id, Definitions>,
-    ) => prepareFakeSociety(roster, options),
-  });
-}
-
 function fakePlatformInfrastructure(
   platform: SocietyPlatformService,
   storage?: LedgerStorageService,
@@ -329,7 +257,7 @@ interface GatedRuntimeInput<Gateway> {
 }
 
 function makeGatedRuntime<const Gateway>(input: GatedRuntimeInput<Gateway>) {
-  return defineRuntime({
+  return defineFakeRuntime({
     name: input.name,
     configuration: configuration(input.name),
     acquire: () =>
@@ -345,10 +273,11 @@ function makeGatedRuntime<const Gateway>(input: GatedRuntimeInput<Gateway>) {
 
 function assertCohortLedger(storage: LedgerStorageService) {
   return Effect.gen(function* () {
-    const reader = simulator.define("acme.run-spec-cohort/v1", customerEvents);
-    const ledger = yield* reader
-      .openLedger(REF)
-      .pipe(Effect.provideService(LedgerStorage, storage));
+    const ledger = yield* openLedger(
+      EventCatalog.merge(coreEvents, customerEvents),
+      REF,
+      "acme.run-spec-cohort/v1",
+    ).pipe(Effect.provideService(LedgerStorage, storage));
     const records = Array.from(yield* Stream.runCollect(ledger.records));
     const tags = records.map((record) => record.event._tag);
     assert.lengthOf(
@@ -390,7 +319,7 @@ function cohortGateCase() {
         releases,
         gateway: Object.freeze({ runtime: "bob" as const }),
       });
-      const platform = fakeSocietyPlatform({
+      const platform = makeFakeSocietyPlatform({
         cohortReady: Deferred.succeed(cohortWaiting, undefined).pipe(
           Effect.zipRight(Deferred.await(allowCohort)),
         ),
@@ -450,10 +379,9 @@ test("Run.execute never dispatches an incomplete roster", () =>
     const peerReleased = yield* Ref.make(false);
     const platformReleased = yield* Ref.make(false);
     const executions = yield* Ref.make(0);
-    const primary = defineRuntime<
+    const primary = defineFakeRuntime<
       never,
       string,
-      never,
       typeof runtimeConfiguration
     >({
       name: "run-spec-primary-failure",
@@ -463,7 +391,7 @@ test("Run.execute never dispatches an incomplete roster", () =>
           Effect.zipRight(Effect.fail("primary failed")),
         ),
     });
-    const peer = defineRuntime({
+    const peer = defineFakeRuntime({
       name: "run-spec-acquired-peer",
       configuration: configuration("run-spec-acquired-peer"),
       acquire: () =>
@@ -474,7 +402,7 @@ test("Run.execute never dispatches an incomplete roster", () =>
           () => Ref.set(peerReleased, true),
         ),
     });
-    const platform = fakeSocietyPlatform({
+    const platform = makeFakeSocietyPlatform({
       cohortReady: Effect.void,
       failure: Effect.never,
       onRelease: Ref.set(platformReleased, true),
@@ -507,7 +435,7 @@ test("Run.execute cancels a peer acquisition when a ready runtime terminates", (
     const peerReleased = yield* Ref.make(false);
     const platformReleased = yield* Ref.make(false);
     const storage = memoryStorage();
-    const ready = defineRuntime({
+    const ready = defineFakeRuntime({
       name: "run-spec-ready-before-peer",
       configuration: configuration("run-spec-ready-before-peer"),
       acquire: () =>
@@ -521,7 +449,7 @@ test("Run.execute cancels a peer acquisition when a ready runtime terminates", (
           () => Ref.set(readyReleased, true),
         ),
     });
-    const peer = defineRuntime({
+    const peer = defineFakeRuntime({
       name: "run-spec-blocked-peer",
       configuration: configuration("run-spec-blocked-peer"),
       acquire: () =>
@@ -532,7 +460,7 @@ test("Run.execute cancels a peer acquisition when a ready runtime terminates", (
           Effect.zipRight(Effect.never),
         ),
     });
-    const platform = fakeSocietyPlatform({
+    const platform = makeFakeSocietyPlatform({
       cohortReady: Ref.update(cohortChecks, (count) => count + 1),
       failure: Effect.never,
       onRelease: Ref.set(platformReleased, true),
@@ -563,10 +491,11 @@ test("Run.execute cancels a peer acquisition when a ready runtime terminates", (
     assert.isTrue(yield* Ref.get(peerReleased));
     assert.isTrue(yield* Ref.get(platformReleased));
 
-    const reader = simulator.define("acme.run-spec-loss-during-acquisition/v1");
-    const ledger = yield* reader
-      .openLedger(REF)
-      .pipe(Effect.provideService(LedgerStorage, storage));
+    const ledger = yield* openLedger(
+      coreEvents,
+      REF,
+      "acme.run-spec-loss-during-acquisition/v1",
+    ).pipe(Effect.provideService(LedgerStorage, storage));
     const exits = Array.from(
       yield* Stream.runCollect(ledger.events(AgentProcessExited)),
     );
@@ -581,7 +510,7 @@ test("Run.execute invalidates a blocked cohort when a ready runtime terminates",
     const executions = yield* Ref.make(0);
     const runtimeReleased = yield* Ref.make(false);
     const platformReleased = yield* Ref.make(false);
-    const runtime = defineRuntime({
+    const runtime = defineFakeRuntime({
       name: "run-spec-pre-dispatch-loss",
       configuration: configuration("run-spec-pre-dispatch-loss"),
       acquire: () =>
@@ -593,7 +522,7 @@ test("Run.execute invalidates a blocked cohort when a ready runtime terminates",
           () => Ref.set(runtimeReleased, true),
         ),
     });
-    const platform = fakeSocietyPlatform({
+    const platform = makeFakeSocietyPlatform({
       cohortReady: Deferred.succeed(gateEntered, undefined).pipe(
         Effect.zipRight(Effect.never),
       ),
@@ -636,7 +565,7 @@ test("Run.execute does not retry after a post-dispatch ledger failure", () =>
     const executions = yield* Ref.make(0);
     const released = yield* Ref.make(false);
     const committedSends = yield* Ref.make(0);
-    const runtime = defineRuntime({
+    const runtime = defineFakeRuntime({
       name: "run-spec-post-dispatch-failure",
       configuration: configuration("run-spec-post-dispatch-failure"),
       acquire: () =>
@@ -645,7 +574,7 @@ test("Run.execute does not retry after a post-dispatch ledger failure", () =>
           () => Ref.set(released, true),
         ),
     });
-    const platform = fakeSocietyPlatform({
+    const platform = makeFakeSocietyPlatform({
       cohortReady: Effect.void,
       failure: Effect.never,
     });
@@ -683,7 +612,7 @@ test("Run.execute fails on post-dispatch platform loss without replay", () =>
     const executions = yield* Ref.make(0);
     const runtimeReleased = yield* Ref.make(false);
     const platformReleased = yield* Ref.make(false);
-    const runtime = defineRuntime({
+    const runtime = defineFakeRuntime({
       name: "run-spec-platform-loss",
       configuration: configuration("run-spec-platform-loss"),
       acquire: () =>
@@ -692,7 +621,7 @@ test("Run.execute fails on post-dispatch platform loss without replay", () =>
           () => Ref.set(runtimeReleased, true),
         ),
     });
-    const platform = fakeSocietyPlatform({
+    const platform = makeFakeSocietyPlatform({
       cohortReady: Effect.void,
       failure: Deferred.await(platformLost),
       onRelease: Ref.set(platformReleased, true),
@@ -733,10 +662,11 @@ test("Run.execute fails on post-dispatch platform loss without replay", () =>
 
 function readTerminationEvidence(storage: LedgerStorageService) {
   return Effect.gen(function* () {
-    const reader = simulator.define("acme.run-spec-runtime-termination/v1");
-    const ledger = yield* reader
-      .openLedger(REF)
-      .pipe(Effect.provideService(LedgerStorage, storage));
+    const ledger = yield* openLedger(
+      coreEvents,
+      REF,
+      "acme.run-spec-runtime-termination/v1",
+    ).pipe(Effect.provideService(LedgerStorage, storage));
     return Array.from(
       yield* Stream.runCollect(ledger.events(AgentProcessExited)),
     );
@@ -749,7 +679,7 @@ test("Run.execute leaves post-dispatch runtime termination to customer policy", 
     const executions = yield* Ref.make(0);
     const platformReleased = yield* Ref.make(false);
     const storage = memoryStorage();
-    const runtime = defineRuntime({
+    const runtime = defineFakeRuntime({
       name: "run-spec-runtime-termination",
       configuration: configuration("run-spec-runtime-termination"),
       acquire: () =>
@@ -758,7 +688,7 @@ test("Run.execute leaves post-dispatch runtime termination to customer policy", 
           termination: Deferred.await(termination),
         }),
     });
-    const platform = fakeSocietyPlatform({
+    const platform = makeFakeSocietyPlatform({
       cohortReady: Effect.void,
       failure: Effect.never,
       onRelease: Ref.set(platformReleased, true),

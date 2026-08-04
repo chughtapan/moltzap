@@ -1,27 +1,20 @@
 /** @file Definition-bound assembly of catalogs, services, rosters, and runs. */
 
-import { Effect, type Layer, type Scope, Schema, type Tracer } from "effect";
-import { EventCatalog, type EventClass } from "./events/catalog.js";
+import { Effect, type Layer, Schema } from "effect";
+import { EventCatalog } from "./events/catalog.js";
 import {
   makeDefinitionEventServices,
   type CustomerEvents,
   type ReadableRunLedger,
 } from "./kernel/event-services.js";
-import {
-  openLedger,
-  type CompletedRunLedger,
-  type LedgerOpenError,
-} from "./ledger/open.js";
-import type { JsonObject, JsonValue, LedgerRef } from "./ledger/model.js";
 import type { LedgerStorage } from "./ledger/storage.js";
-import { runSociety, type SimulatorRunOptions } from "./kernel/run.js";
+import { runSociety } from "./kernel/run.js";
 import { Network, type NetworkService } from "./network/endpoint.js";
 import type { RouterProvider } from "./network/router.js";
+import type { SocietyPlatform } from "./platform/platform.js";
 import {
   makeAgentRosterBinding,
-  type makeAgentRosterBuilder,
   type AgentRoster,
-  type AgentRosterRequirements,
   type StartedAgents,
 } from "./runtime/roster.js";
 import type { AgentRuntimeLike } from "./runtime/runtime.js";
@@ -79,15 +72,11 @@ type DefinitionEventServices<
   >
 >;
 
-type RunInfrastructureServices<
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-> =
+/** Opaque service set supplied by a local-Kubernetes or GKE Layer. */
+export type RunInfrastructureServices =
   | LedgerStorage
   | RouterProvider
-  | Exclude<
-      AgentRosterRequirements<Definitions>,
-      Scope.Scope | Tracer.ParentSpan
-    >;
+  | SocietyPlatform;
 
 interface RunExecutionContext<
   Id extends SimulatorDefinitionId,
@@ -113,7 +102,7 @@ function provideRunInfrastructure<
   InfrastructureError,
   InfrastructureRequirements,
 >(
-  definition: SimulatorDefinition<Id, CustomerCatalogs>,
+  eventServices: DefinitionEventServices<Id, CustomerCatalogs>,
   roster: AgentRoster<Id, Definitions>,
   program: Effect.Effect<A, E, R>,
   infrastructure: Layer.Layer<
@@ -122,7 +111,13 @@ function provideRunInfrastructure<
     InfrastructureRequirements
   >,
 ) {
-  return definition.run(roster, program).pipe(Effect.provide(infrastructure));
+  return runSociety({
+    definitionId: roster.definitionId,
+    eventServices,
+    roster,
+    program,
+    options: {},
+  }).pipe(Effect.provide(infrastructure));
 }
 
 type RunSpecExecution<
@@ -180,16 +175,18 @@ export interface RunSpec<
   A = unknown,
   E = unknown,
   R = never,
-  Infrastructure extends Layer.Layer<never, unknown, unknown> = Layer.Layer<
-    RunInfrastructureServices<Definitions>
-  >,
+  Infrastructure extends Layer.Layer<
+    never,
+    unknown,
+    unknown
+  > = Layer.Layer<RunInfrastructureServices>,
 > {
   readonly id: Id;
   readonly events: CustomerCatalogs;
   readonly agents: Definitions;
   readonly infrastructure: Infrastructure &
     Layer.Layer<
-      RunInfrastructureServices<Definitions>,
+      RunInfrastructureServices,
       Layer.Layer.Error<Infrastructure>,
       Layer.Layer.Context<Infrastructure>
     >;
@@ -205,165 +202,6 @@ function snapshotReadonlyArray(values: readonly unknown[]): readonly unknown[] {
   return Object.freeze([...values]);
 }
 
-function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
-  return Array.isArray(value);
-}
-
-function snapshotJsonValue(value: JsonValue): JsonValue {
-  if (isJsonArray(value)) {
-    return Object.freeze(value.map(snapshotJsonValue));
-  }
-  if (typeof value === "object" && value !== null) {
-    return snapshotJsonObject(value);
-  }
-  return value;
-}
-
-function snapshotJsonObject(value: JsonObject): JsonObject {
-  return Object.freeze(
-    Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        key,
-        snapshotJsonValue(entry),
-      ]),
-    ),
-  );
-}
-
-function snapshotRunOptions(options: SimulatorRunOptions): SimulatorRunOptions {
-  return Object.freeze({
-    ...(options.provenance === undefined
-      ? {}
-      : { provenance: snapshotJsonObject(options.provenance) }),
-    ...(options.metadata === undefined
-      ? {}
-      : { metadata: snapshotJsonObject(options.metadata) }),
-  });
-}
-
-function makeRunner<
-  const Id extends SimulatorDefinitionId,
-  CustomerSchema extends Schema.Schema.AnyNoContext,
-  CustomerClasses extends EventClass,
->(
-  definitionId: Id,
-  eventServices: ReturnType<
-    typeof makeDefinitionEventServices<Id, CustomerSchema, CustomerClasses>
-  >,
-  ownsRoster: ReturnType<typeof makeAgentRosterBinding<Id>>["owns"],
-) {
-  return <
-    const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-    A = unknown,
-    E = unknown,
-    R = never,
-  >(
-    roster: AgentRoster<Id, Definitions>,
-    program: Effect.Effect<A, E, R>,
-    options: SimulatorRunOptions = {},
-  ) => {
-    if (!ownsRoster(roster)) {
-      throw SimulatorDefinitionError.make({
-        definitionId,
-        detail:
-          "the roster must be created by this definition's agents function",
-      });
-    }
-    const capturedOptions = snapshotRunOptions(options);
-    return runSociety({
-      definitionId,
-      eventServices,
-      roster,
-      program,
-      options: capturedOptions,
-    });
-  };
-}
-
-function makeLedgerReader<
-  const Id extends SimulatorDefinitionId,
-  CustomerSchema extends Schema.Schema.AnyNoContext,
-  CustomerClasses extends EventClass,
->(
-  definitionId: Id,
-  eventServices: ReturnType<
-    typeof makeDefinitionEventServices<Id, CustomerSchema, CustomerClasses>
-  >,
-) {
-  return (
-    ref: LedgerRef,
-  ): Effect.Effect<
-    CompletedRunLedger<typeof eventServices.catalog>,
-    LedgerOpenError,
-    LedgerStorage
-  > => openLedger(eventServices.catalog, ref, definitionId);
-}
-
-/** Definition-bound capabilities for one versioned family of simulator runs. */
-export interface SimulatorDefinition<
-  Id extends SimulatorDefinitionId,
-  CustomerCatalogs extends readonly AnyEventCatalog[],
-> {
-  readonly id: Id;
-  readonly catalog: DefinitionEventServices<Id, CustomerCatalogs>["catalog"];
-  readonly customerCatalog: CustomerEventCatalog<CustomerCatalogs>;
-  readonly ledger: DefinitionEventServices<Id, CustomerCatalogs>["ledger"];
-  readonly events: DefinitionEventServices<Id, CustomerCatalogs>["events"];
-  readonly agents: ReturnType<typeof makeAgentRosterBuilder<Id>>;
-  readonly run: ReturnType<
-    typeof makeRunner<
-      Id,
-      CatalogSchemaOf<CustomerEventCatalog<CustomerCatalogs>>,
-      CatalogClassesOf<CustomerEventCatalog<CustomerCatalogs>>
-    >
-  >;
-  readonly openLedger: ReturnType<
-    typeof makeLedgerReader<
-      Id,
-      CatalogSchemaOf<CustomerEventCatalog<CustomerCatalogs>>,
-      CatalogClassesOf<CustomerEventCatalog<CustomerCatalogs>>
-    >
-  >;
-}
-
-/**
- * Define the exact code and event universe for a family of simulator runs.
- * Invalid definitions fail here, before any platform resource is acquired.
- * @param definitionId Value supplied to the operation.
- * @param customerCatalogs Value supplied to the operation.
- * @returns The define simulator result.
- */
-function defineSimulator<
-  const Id extends SimulatorDefinitionId,
-  const CustomerCatalogs extends readonly AnyEventCatalog[],
->(
-  definitionId: Id,
-  ...customerCatalogs: CustomerCatalogs
-): SimulatorDefinition<Id, CustomerCatalogs> {
-  validateDefinitionId(definitionId);
-  const customerCatalog = EventCatalog.merge(
-    EventCatalog.empty(),
-    ...customerCatalogs,
-  );
-  const eventServices = makeDefinitionEventServices(
-    definitionId,
-    customerCatalog,
-  );
-  const rosterBinding = makeAgentRosterBinding(definitionId);
-  const open = makeLedgerReader(definitionId, eventServices);
-
-  return Object.freeze({
-    id: definitionId,
-    catalog: eventServices.catalog,
-    customerCatalog: eventServices.customerCatalog,
-    ledger: eventServices.ledger,
-    events: eventServices.events,
-    agents: rosterBinding.agents,
-    run: makeRunner(definitionId, eventServices, rosterBinding.owns),
-    openLedger: open,
-  });
-}
-
 function makeRunSpecProgram<
   const Id extends SimulatorDefinitionId,
   const CustomerCatalogs extends readonly AnyEventCatalog[],
@@ -372,7 +210,7 @@ function makeRunSpecProgram<
   E,
   R,
 >(
-  definition: SimulatorDefinition<Id, CustomerCatalogs>,
+  eventServices: DefinitionEventServices<Id, CustomerCatalogs>,
   roster: AgentRoster<Id, Definitions>,
   execute: (
     context: RunExecutionContext<Id, CustomerCatalogs, Definitions>,
@@ -380,9 +218,9 @@ function makeRunSpecProgram<
 ) {
   return Effect.gen(function* () {
     const agents = yield* roster.startedAgents;
-    const events = yield* definition.events;
+    const events = yield* eventServices.events;
     const network = yield* Network;
-    const ledger = yield* definition.ledger;
+    const ledger = yield* eventServices.ledger;
     const context: RunExecutionContext<Id, CustomerCatalogs, Definitions> =
       Object.freeze({ agents, events, network, ledger });
     return yield* Effect.suspend(() => execute(context));
@@ -413,18 +251,18 @@ function makeRunSpecRunner<
   R,
   Infrastructure extends Layer.Layer<never, unknown, unknown>,
 >(
-  definition: SimulatorDefinition<Id, CustomerCatalogs>,
+  eventServices: DefinitionEventServices<Id, CustomerCatalogs>,
   roster: AgentRoster<Id, Definitions>,
   execute: (
     context: RunExecutionContext<Id, CustomerCatalogs, Definitions>,
   ) => Effect.Effect<A, E, R>,
   infrastructure: Infrastructure,
 ): RunSpecRunner<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure> {
-  const program = makeRunSpecProgram(definition, roster, execute);
+  const program = makeRunSpecProgram(eventServices, roster, execute);
   const providedInfrastructure = concreteLayer(infrastructure);
   return () =>
     provideRunInfrastructure(
-      definition,
+      eventServices,
       roster,
       program,
       providedInfrastructure,
@@ -443,14 +281,16 @@ function defineRunSpec<
   input: RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure>,
 ): RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure> {
   const id = input.id;
+  validateDefinitionId(id);
   const events = snapshotReadonlyArray(input.events);
   const infrastructure = input.infrastructure;
   const execute = input.execute;
-  const definition = defineSimulator(id, ...events);
-  const roster = definition.agents(input.agents);
-  const run = makeRunSpecRunner(definition, roster, execute, infrastructure);
+  const customerCatalog = EventCatalog.merge(EventCatalog.empty(), ...events);
+  const eventServices = makeDefinitionEventServices(id, customerCatalog);
+  const roster = makeAgentRosterBinding(id).agents(input.agents);
+  const run = makeRunSpecRunner(eventServices, roster, execute, infrastructure);
   const spec = Object.freeze({
-    id: definition.id,
+    id,
     events,
     agents: roster.definitions,
     infrastructure,
@@ -514,9 +354,3 @@ export const RunSpec: Readonly<{ define: typeof defineRunSpec }> =
 export const Run: Readonly<{ execute: typeof executeRunSpec }> = Object.freeze({
   execute: executeRunSpec,
 });
-
-/** Discoverable entry point for code-first society definitions. */
-export const simulator: Readonly<{ define: typeof defineSimulator }> =
-  Object.freeze({
-    define: defineSimulator,
-  });

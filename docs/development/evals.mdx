@@ -3,28 +3,26 @@ title: "Code-first evaluations"
 description: "Run, grade, resume, and publish behavioral evaluations over native principal gateways and simulator ledgers."
 ---
 
-> **Implementation transition:** The [main-track Kubernetes
-> contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-> moves all OpenClaw and NanoClaw evaluation cells to the core `Run.execute`
-> Kubernetes path. The case, evidence, grading, SQLite, and Phoenix boundaries
-> remain current. The host-local `effectRuntime` peers described below are
-> transitional; their policies move into one application container per peer
-> and expose the same exact observation gateway through a peer-specific bridge.
-
 `packages/evals` is a private executable application that demonstrates one
 evaluation product built on `@moltzap/simulator`. Cases, peer behavior, runtime
 conditions, criteria, and sweeps are ordinary TypeScript and Effect values.
 Customers compose the simulator package directly and can build a
 domain-specific authoring language around the parameters they need.
 
+Every matrix cell is one `RunSpec` submitted through the core simulator's
+local-Kubernetes or GKE profile. Each target and each autonomous code peer is a
+separate Agent Sandbox application container. The controller invokes the case
+Effect only after the complete roster and every runtime-specific bridge are
+ready.
+
 ## One attempt, two interaction boundaries
 
 A successful case path keeps principal control separate from social traffic:
 
-1. The case contributes an exact keyed record of autonomous Effect peer
-   runtimes.
-2. The condition adds one OpenClaw or NanoClaw target to that record and starts
-   the mixed roster against the production router.
+1. The case contributes an exact keyed record of autonomous peer definitions.
+2. The condition adds one OpenClaw or NanoClaw target, and execution
+   materializes the peer definitions with the configured digest-pinned
+   application image.
 3. Case policy instructs the target through its runtime-native principal
    gateway.
 4. The target and code peers create and use MoltZap conversations
@@ -75,13 +73,17 @@ needed by that case. A direct exchange starts one peer; a group case starts its
 question, source, and observer peers; a principal-only case starts none.
 Unused peers are not acquired.
 
-The current host implementation builds each peer with
-`effectRuntime({ build })`. Its behavior uses `EffectRuntimeContext.client` to
-resolve agents, open conversations, receive messages, and send messages
-through the production protocol. On the Kubernetes path that behavior becomes
-the peer container's application entrypoint, while its peer-specific bridge
-exposes the same observation-only `EvaluationPeerGateway`. The evaluation
-controller cannot use that gateway to make the peer perform a social action.
+Each `peer.ts → EvaluationPeerDefinition` owns a closed application plan and a
+factory that binds it to the configured digest-pinned peer image. The plan is
+mounted into that peer's Sandbox and interpreted by
+`peer-application.ts → runEvaluationPeerApplication`. Its production MoltZap
+client resolves agents, opens conversations, receives messages, and sends
+messages through the router.
+
+The peer-specific controller bridge exposes only the observation Effect on
+`EvaluationPeerGateway`. It cannot command the peer or bypass the production
+network. Arbitrary closures, gateway objects, and shared state do not cross the
+container boundary.
 
 Case programs receive five capabilities:
 
@@ -168,8 +170,9 @@ The SQLite bundle under `.moltzap/evals/results/` stores:
 - typed run, evidence, judge, and ledger-allocation failures.
 
 `results.ts → resumeStoredEvaluationReport` validates every immutable plan
-component before executing only the missing suffix. The report cannot skip or
-reorder a matrix cell.
+component, including the selected profile, images, Temporal address, and ledger
+artifact location, before executing only the missing suffix. The report cannot
+skip, reorder, or silently move a matrix cell.
 
 Live failures remain results. OpenClaw or NanoClaw may fail to start, terminate,
 omit required social behavior, time out, produce evidence that grading
@@ -203,20 +206,41 @@ Start or resume a live report:
 
 ```bash
 OPENAI_API_KEY=... \
+MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_SUPPORT_IMAGE=PEER_APPLICATION_IMAGE_AT_SHA256 \
+MOLTZAP_NANOCLAW_IMAGE=NANOCLAW_APPLICATION_IMAGE_AT_SHA256 \
+MOLTZAP_LOCAL_ARTIFACTS="$PWD/.moltzap/local-artifacts" \
+MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:eval -- \
+  --profile local \
   --report-id baseline-2026-07-29 \
   --openclaw-model "$OPENCLAW_MODEL" \
   --nanoclaw-model "$NANOCLAW_MODEL"
 
 OPENAI_API_KEY=... \
+MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_SUPPORT_IMAGE=PEER_APPLICATION_IMAGE_AT_SHA256 \
+MOLTZAP_NANOCLAW_IMAGE=NANOCLAW_APPLICATION_IMAGE_AT_SHA256 \
+MOLTZAP_LOCAL_ARTIFACTS="$PWD/.moltzap/local-artifacts" \
+MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:resume -- \
+  --profile local \
   --report-id baseline-2026-07-29 \
   --openclaw-model "$OPENCLAW_MODEL" \
   --nanoclaw-model "$NANOCLAW_MODEL"
 ```
 
 The source worktree must be clean. Both model IDs are required and become part
-of the immutable native runtime configuration.
+of the immutable native runtime configuration. The controller/support, peer,
+and NanoClaw application images must be immutable digest references. Their
+presence is an execution prerequisite, not evidence that the NanoClaw image or
+a live cluster has passed qualification.
+
+For GKE, select `--profile gke`, replace the local artifact root with the
+Terraform-owned `MOLTZAP_GKE_ARTIFACT_BUCKET`, and provide the explicit
+`MOLTZAP_KUBE_CONTEXT` and configured Temporal endpoint. Each profile submits
+the same generated RunSpec module and reads the same relative completed-ledger
+path.
 
 Publish a completed report:
 

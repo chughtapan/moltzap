@@ -1,49 +1,58 @@
-/** @file Scoped NanoClaw runtime. */
+/** @file Container-native NanoClaw runtime descriptor. */
 
-import { Path, type FileSystem, type HttpClient } from "@effect/platform";
 import { createHash } from "node:crypto";
-import type {
-  CommandExecutor,
-  ExitCode,
-} from "@effect/platform/CommandExecutor";
-import type { PlatformError } from "@effect/platform/Error";
-import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
-import type { ServerBaseUrl } from "@moltzap/protocol/network";
+import type { AgentName } from "@moltzap/protocol/identity";
+import { httpBaseUrl } from "@moltzap/protocol/network";
+import { posix } from "node:path";
 import {
-  defineRuntime,
+  type DistributedApplicationAttachment,
+  type DistributedApplicationContainer,
+  type DistributedApplicationSupport,
+  type DistributedBootstrapFile,
+  type DistributedContainerImage,
+  type DistributedRuntimeApplication,
+  type DistributedRuntimeCapability,
+  defineDistributedRuntime,
+} from "../distributed.js";
+import {
   type AgentRuntime,
   type AgentRuntimeInput,
   type RunningAgent,
   RuntimeFailed,
   type RuntimeTermination,
 } from "../runtime.js";
-import { Duration, Effect, Fiber, Schema, type Scope } from "effect";
-import { resolveInstallMode, type InstallMode } from "../packages.js";
 import {
-  ensureNanoclawRuntimeInstalledEffect,
-  type NanoclawRuntimeInstall,
-} from "./install.js";
+  Cause,
+  Duration,
+  Effect,
+  Inspectable,
+  Schema,
+  type Scope,
+} from "effect";
+import { serializeMoltZapProfileConfig } from "../workspace.js";
+import { RuntimeAcquisitionFailed } from "../process.js";
 import {
-  type NanoclawRuntimeHandle,
-  startNanoclawRuntimeEffect,
-  stopNanoclawRuntimeEffect,
-} from "./process.js";
-import {
-  awaitProcessReady,
-  processTermination,
-  type ProcessObservation,
-  RuntimeAcquisitionFailed,
-} from "../process.js";
-import {
-  acquireNanoclawGateway,
+  acquireDistributedNanoclawGateway,
   type NanoclawGateway,
   type NanoclawGatewaySession,
 } from "./gateway.js";
 
 const NANOCLAW_RUNTIME_NAME = "nanoclaw";
-// The injected channel emits this after its server session is live.
-const NANOCLAW_READY_MARKER = "MoltZap connected";
 const DEFAULT_NANOCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
+const NANOCLAW_DISTRIBUTED_GATEWAY_PORT = 18_790;
+const NANOCLAW_DISTRIBUTED_READY_MARKER = "NanoClaw distributed bridge ready";
+const NANOCLAW_DISTRIBUTED_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
+const NANOCLAW_DISTRIBUTED_CONFIG_PATH = `${NANOCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/nanoclaw/runtime.json`;
+const NANOCLAW_DISTRIBUTED_PROFILE_HOME = `${NANOCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/moltzap`;
+const NANOCLAW_DISTRIBUTED_PROFILE_PATH = `${NANOCLAW_DISTRIBUTED_PROFILE_HOME}/config.json`;
+const NANOCLAW_DISTRIBUTED_WORKSPACE_DIR = `${NANOCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/workspace`;
+const NANOCLAW_DISTRIBUTED_STATE_DIR = "/var/lib/moltzap/nanoclaw";
+const NANOCLAW_DISTRIBUTED_ENTRYPOINT = "/opt/moltzap/nanoclaw/entrypoint.mjs";
+const DISTRIBUTED_APPLICATION_RESOURCES = Object.freeze({
+  cpuMillis: 1_000,
+  memoryBytes: 1_024 * 1_024 * 1_024,
+  ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
+});
 
 interface NanoclawWorkspaceFile {
   readonly relativePath: string;
@@ -60,6 +69,10 @@ interface NanoclawMcpServer {
 const configurationDigest = Schema.String.pipe(
   Schema.pattern(/^[\da-f]{64}$/u),
   Schema.brand("NanoclawConfigurationDigest"),
+);
+
+const distributedApplicationImage = Schema.String.pipe(
+  Schema.pattern(/^[^@\s]+@sha256:[\da-f]{64}$/u),
 );
 
 class NanoclawWorkspaceFileConfiguration extends Schema.Class<NanoclawWorkspaceFileConfiguration>(
@@ -83,8 +96,7 @@ class NanoclawMcpServerConfiguration extends Schema.Class<NanoclawMcpServerConfi
 }) {}
 
 /**
- * Sanitized definition-time policy and overrides for a NanoClaw runtime.
- * Acquisition may resolve different host facts from automatic policy.
+ * Sanitized definition-time policy for a NanoClaw application container.
  */
 export class NanoclawRuntimeConfiguration extends Schema.Class<NanoclawRuntimeConfiguration>(
   "NanoclawRuntimeConfiguration",
@@ -92,9 +104,9 @@ export class NanoclawRuntimeConfiguration extends Schema.Class<NanoclawRuntimeCo
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(NanoclawWorkspaceFileConfiguration),
   modelOverride: Schema.optional(Schema.String),
-  installPolicy: Schema.Literal("automatic", "published", "workspace"),
   autoRegisterConversations: Schema.Boolean,
   mcpServers: Schema.Array(NanoclawMcpServerConfiguration),
+  applicationImage: distributedApplicationImage,
 }) {}
 
 /** Configuration captured by one reusable NanoClaw runtime value. */
@@ -102,7 +114,11 @@ export interface NanoclawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly NanoclawWorkspaceFile[];
   readonly modelId?: string;
-  readonly installMode?: InstallMode;
+
+  /**
+   * Digest-pinned one-container NanoClaw artifact for Kubernetes execution.
+   */
+  readonly applicationImage: DistributedContainerImage;
 
   /**
    * Register conversations on first delivery in disposable evaluations.
@@ -118,97 +134,13 @@ interface NanoclawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
   readonly workspaceFiles: readonly NanoclawWorkspaceFile[];
   readonly modelId?: string;
-  readonly installMode?: InstallMode;
+  readonly applicationImage: DistributedContainerImage;
   readonly autoRegisterConversations: boolean;
   readonly mcpServers?: readonly NanoclawMcpServer[];
-}
-
-/**
- * Exact low-level process input derived from one router attachment.
- * @internal
- */
-export interface NanoclawProcessInput {
-  readonly agentName: AgentName;
-  readonly agentId: AgentId;
-  readonly apiKey: AgentKey;
-  readonly serverUrl: ServerBaseUrl;
-  readonly autoRegisterConversations: boolean;
-  readonly workspaceFiles: readonly NanoclawWorkspaceFile[];
-  readonly modelId?: string;
-  readonly mcpServers?: readonly NanoclawMcpServer[];
-}
-
-type NanoclawGatewayAcquirer<Handle, Requirements> = (
-  handle: Handle,
-  within: Duration.Duration,
-) => Effect.Effect<NanoclawGatewaySession, unknown, Scope.Scope | Requirements>;
-
-/**
- * NanoClaw-specific process seam. Production binds this to the immutable
- * install and supervised-process primitives; lifecycle tests bind controlled
- * handles without starting Docker.
- * @internal
- */
-export interface NanoclawRuntimeDriver<
-  Install,
-  Handle,
-  WaitFailure = unknown,
-  Requirements = never,
-> {
-  readonly resolveInstallMode: (
-    requested?: InstallMode,
-  ) => Effect.Effect<InstallMode, unknown>;
-  readonly install: (
-    mode: InstallMode,
-  ) => Effect.Effect<Install, unknown, Requirements>;
-  readonly start: (
-    input: NanoclawProcessInput,
-    install: Install,
-  ) => Effect.Effect<Handle, unknown, Requirements>;
-  readonly stop: (handle: Handle) => Effect.Effect<void, never, Requirements>;
-  readonly gateway: NanoclawGatewayAcquirer<Handle, Requirements>;
-  readonly exitCode: (handle: Handle) => Effect.Effect<ExitCode, WaitFailure>;
-  readonly output: (handle: Handle) => string;
-  readonly readyWhen: (output: string) => boolean;
 }
 
 /** Failure returned when NanoClaw cannot become router-visible. */
 export type NanoclawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
-
-type NanoclawHostServices =
-  | CommandExecutor
-  | FileSystem.FileSystem
-  | HttpClient.HttpClient
-  | Path.Path;
-
-const nativeNanoclawDriver: NanoclawRuntimeDriver<
-  NanoclawRuntimeInstall,
-  NanoclawRuntimeHandle,
-  PlatformError,
-  NanoclawHostServices
-> = {
-  resolveInstallMode,
-  install: ensureNanoclawRuntimeInstalledEffect,
-  start: startNanoclawRuntimeEffect,
-  stop: (handle) =>
-    stopNanoclawRuntimeEffect(handle).pipe(
-      Effect.catchAll((cause) =>
-        Effect.logWarning("failed to tear down NanoClaw runtime", cause),
-      ),
-    ),
-  gateway: (handle, within) =>
-    Path.Path.pipe(
-      Effect.flatMap((path) =>
-        acquireNanoclawGateway(
-          path.join(handle.runtimeDir, "data", "cli.sock"),
-          within,
-        ),
-      ),
-    ),
-  exitCode: (handle) => Fiber.join(handle.exitFiber),
-  output: (handle) => handle.logs.text,
-  readyWhen: (output) => output.includes(NANOCLAW_READY_MARKER),
-};
 
 function snapshotWorkspaceFiles(
   files?: readonly NanoclawWorkspaceFile[],
@@ -237,14 +169,13 @@ function snapshotOptions(
   options: NanoclawRuntimeOptions,
 ): NanoclawRuntimeSettings {
   const modelId = options.modelId;
-  const installMode = options.installMode;
   const mcpServers = snapshotMcpServers(options.mcpServers);
   return Object.freeze({
     startupTimeout: options.startupTimeout ?? DEFAULT_NANOCLAW_STARTUP_TIMEOUT,
     workspaceFiles: snapshotWorkspaceFiles(options.workspaceFiles),
+    applicationImage: options.applicationImage,
     autoRegisterConversations: options.autoRegisterConversations ?? false,
     ...(modelId === undefined ? {} : { modelId }),
-    ...(installMode === undefined ? {} : { installMode }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
   });
 }
@@ -296,31 +227,13 @@ function runtimeConfiguration(
   return NanoclawRuntimeConfiguration.make({
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
-    installPolicy: settings.installMode ?? "automatic",
     autoRegisterConversations: settings.autoRegisterConversations,
     mcpServers: mcpConfiguration(settings.mcpServers),
+    applicationImage: settings.applicationImage,
     ...(settings.modelId === undefined
       ? {}
       : { modelOverride: settings.modelId }),
   });
-}
-
-function processInput<Name extends string>(
-  input: AgentRuntimeInput<Name>,
-  settings: NanoclawRuntimeSettings,
-): NanoclawProcessInput {
-  return {
-    agentName: input.agentName,
-    agentId: input.connection.agent.id,
-    apiKey: input.connection.key,
-    serverUrl: input.connection.routerUrl,
-    autoRegisterConversations: settings.autoRegisterConversations,
-    workspaceFiles: settings.workspaceFiles,
-    ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
-    ...(settings.mcpServers === undefined
-      ? {}
-      : { mcpServers: settings.mcpServers }),
-  };
 }
 
 function acquisitionFailure(
@@ -335,214 +248,411 @@ function acquisitionFailure(
   });
 }
 
-function startProcessScoped<Install, Handle, WaitFailure, Requirements>(
-  process: NanoclawProcessInput,
-  install: Install,
-  driver: NanoclawRuntimeDriver<Install, Handle, WaitFailure, Requirements>,
-): Effect.Effect<Handle, RuntimeAcquisitionFailed, Scope.Scope | Requirements> {
-  const start = driver
-    .start(process, install)
-    .pipe(
-      Effect.mapError((cause) =>
-        acquisitionFailure(process.agentName, "start process", cause),
-      ),
+interface NanoclawDistributedEndpoint {
+  readonly host: string;
+  readonly port: number;
+}
+
+type NanoclawDistributedGatewayAcquirer = (
+  endpoint: NanoclawDistributedEndpoint,
+  within: Duration.Duration,
+) => Effect.Effect<NanoclawGatewaySession, unknown, Scope.Scope>;
+
+class DistributedNanoclawConfigurationError extends Schema.TaggedError<DistributedNanoclawConfigurationError>()(
+  "DistributedNanoclawConfigurationError",
+  { detail: Schema.String },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
+function distributedConfigurationError(
+  detail: string,
+): DistributedNanoclawConfigurationError {
+  return DistributedNanoclawConfigurationError.make({ detail });
+}
+
+function validateDistributedImage(image: DistributedContainerImage): void {
+  if (!/^[^@\s]+@sha256:[\da-f]{64}$/u.test(image)) {
+    throw distributedConfigurationError(
+      "the NanoClaw application image must be pinned by a SHA-256 digest",
     );
-  return Effect.uninterruptibleMask((restore) =>
-    Effect.gen(function* () {
-      const handle = yield* restore(start);
-      yield* Effect.addFinalizer(() => driver.stop(handle));
-      return handle;
+  }
+}
+
+function validateDistributedSupport(
+  support: DistributedApplicationSupport,
+): void {
+  if (!/^[^@\s]+@sha256:[\da-f]{64}$/u.test(support.supportImage)) {
+    throw distributedConfigurationError(
+      "the support image must be pinned by a SHA-256 digest",
+    );
+  }
+  if (support.bootstrapSecretIdentity.length === 0) {
+    throw distributedConfigurationError(
+      "the bootstrap Secret identity must not be empty",
+    );
+  }
+}
+
+function distributedWorkspacePath(relativePath: string): `/${string}` {
+  if (
+    relativePath.length === 0 ||
+    relativePath.includes("\\") ||
+    posix.isAbsolute(relativePath)
+  ) {
+    throw distributedConfigurationError(
+      `invalid NanoClaw workspace path: ${relativePath}`,
+    );
+  }
+  const normalized = posix.normalize(relativePath);
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../")
+  ) {
+    throw distributedConfigurationError(
+      `NanoClaw workspace path must stay below its root: ${relativePath}`,
+    );
+  }
+  return `${NANOCLAW_DISTRIBUTED_WORKSPACE_DIR}/${normalized}`;
+}
+
+function bootstrapFile(
+  path: `/${string}`,
+  content: string,
+): DistributedBootstrapFile {
+  return Object.freeze({ path, content, mode: 0o600 });
+}
+
+function distributedRuntimeConfig(
+  settings: NanoclawRuntimeSettings,
+  agentName: AgentName,
+): string {
+  return JSON.stringify(
+    {
+      apiVersion: "moltzap.nanoclaw-application/v1",
+      agentName,
+      gateway: {
+        host: "0.0.0.0",
+        port: NANOCLAW_DISTRIBUTED_GATEWAY_PORT,
+      },
+      stateDirectory: NANOCLAW_DISTRIBUTED_STATE_DIR,
+      workspaceDirectory: NANOCLAW_DISTRIBUTED_WORKSPACE_DIR,
+      autoRegisterConversations: settings.autoRegisterConversations,
+      ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
+      mcpServers: (settings.mcpServers ?? []).map((server) => ({
+        name: server.name,
+        command: server.command,
+        args: [...server.args],
+        env: { ...server.env },
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+function distributedBootstrapFiles<Name extends string>(
+  settings: NanoclawRuntimeSettings,
+  input: AgentRuntimeInput<Name>,
+): readonly DistributedBootstrapFile[] {
+  const profile = serializeMoltZapProfileConfig({
+    agentName: input.agentName,
+    agentId: input.connection.agent.id,
+    apiKey: input.connection.key,
+  });
+  return Object.freeze([
+    bootstrapFile(
+      NANOCLAW_DISTRIBUTED_CONFIG_PATH,
+      distributedRuntimeConfig(settings, input.agentName),
+    ),
+    bootstrapFile(NANOCLAW_DISTRIBUTED_PROFILE_PATH, profile),
+    ...settings.workspaceFiles.map((file) =>
+      bootstrapFile(distributedWorkspacePath(file.relativePath), file.content),
+    ),
+  ]);
+}
+
+function distributedEndpoint(endpointUrl: string): NanoclawDistributedEndpoint {
+  const parsed = new URL(endpointUrl);
+  const forbiddenHosts = new Set([
+    "0.0.0.0",
+    "127.0.0.1",
+    "localhost",
+    "::1",
+    "[::1]",
+  ]);
+  const invalid = [
+    parsed.protocol !== "ws:",
+    forbiddenHosts.has(parsed.hostname),
+    parsed.port !== String(NANOCLAW_DISTRIBUTED_GATEWAY_PORT),
+    parsed.username.length > 0,
+    parsed.password.length > 0,
+    parsed.pathname !== "/",
+    parsed.search.length > 0,
+    parsed.hash.length > 0,
+  ].includes(true);
+  if (invalid) {
+    throw distributedConfigurationError(
+      `NanoClaw distributed gateway must be a credential-free, non-loopback endpoint on port ${String(NANOCLAW_DISTRIBUTED_GATEWAY_PORT)}`,
+    );
+  }
+  return Object.freeze({
+    host: parsed.hostname,
+    port: NANOCLAW_DISTRIBUTED_GATEWAY_PORT,
+  });
+}
+
+function stoppedBeforeDistributedGateway(
+  agentName: AgentName,
+  stopped: DistributedApplicationAttachment["stopped"],
+): Effect.Effect<never, RuntimeAcquisitionFailed> {
+  return stopped.pipe(
+    Effect.matchCauseEffect({
+      onFailure: (cause) =>
+        Effect.fail(
+          acquisitionFailure(
+            agentName,
+            "connect distributed principal gateway",
+            `NanoClaw application stopped before its bridge was ready: ${Cause.pretty(cause)}`,
+          ),
+        ),
+      onSuccess: (observation) =>
+        Effect.fail(
+          acquisitionFailure(
+            agentName,
+            "connect distributed principal gateway",
+            `NanoClaw application stopped before its bridge was ready: ${Inspectable.stringifyCircular(observation)}`,
+          ),
+        ),
     }),
   );
 }
 
-interface AcquiredNanoclawProcess<Handle, WaitFailure> {
-  readonly handle: Handle;
-  readonly input: NanoclawProcessInput;
-  readonly observation: ProcessObservation<WaitFailure>;
-}
-
-function acquireNanoclawProcess<
-  Name extends string,
-  Install,
-  Handle,
-  WaitFailure,
-  Requirements,
->(
-  settings: NanoclawRuntimeSettings,
-  driver: NanoclawRuntimeDriver<Install, Handle, WaitFailure, Requirements>,
-  input: AgentRuntimeInput<Name>,
-): Effect.Effect<
-  AcquiredNanoclawProcess<Handle, WaitFailure>,
-  NanoclawRuntimeAcquisitionError,
-  Scope.Scope | Requirements
-> {
-  return Effect.gen(function* () {
-    const process = processInput(input, settings);
-    const installMode = yield* driver
-      .resolveInstallMode(settings.installMode)
-      .pipe(
-        Effect.mapError((cause) =>
-          acquisitionFailure(process.agentName, "select packages", cause),
-        ),
-      );
-    const install = yield* driver
-      .install(installMode)
-      .pipe(
-        Effect.mapError((cause) =>
-          acquisitionFailure(process.agentName, "install runtime", cause),
-        ),
-      );
-    const handle = yield* startProcessScoped(process, install, driver);
-    const observation: ProcessObservation<WaitFailure> = {
-      exitCode: driver.exitCode(handle),
-      output: () => driver.output(handle),
-    };
-    return { handle, input: process, observation };
-  });
-}
-
-function awaitNanoclawGateway<Handle, WaitFailure, Requirements>(
-  process: AcquiredNanoclawProcess<Handle, WaitFailure>,
-  within: Duration.Duration,
-  acquireGateway: NanoclawGatewayAcquirer<Handle, Requirements>,
-  readyWhen: (output: string) => boolean,
-): Effect.Effect<
-  NanoclawGatewaySession,
-  NanoclawRuntimeAcquisitionError,
-  Scope.Scope | Requirements
-> {
-  const gateway = acquireGateway(process.handle, within).pipe(
-    Effect.mapError((cause) =>
-      acquisitionFailure(
-        process.input.agentName,
-        "connect principal gateway",
-        cause,
-      ),
-    ),
-  );
-  const ready = awaitProcessReady({
-    within,
-    agentName: process.input.agentName,
-    agentKey: process.input.apiKey,
-    runtimeName: NANOCLAW_RUNTIME_NAME,
-    observation: process.observation,
-    readyWhen,
-  });
-  return Effect.all([gateway, ready] as const, { concurrency: 2 }).pipe(
-    Effect.map(([session]) => session),
-  );
-}
-
-function nanoclawTermination<Handle, WaitFailure>(
-  process: AcquiredNanoclawProcess<Handle, WaitFailure>,
+function distributedTermination(
+  agentName: AgentName,
   gateway: NanoclawGatewaySession,
+  applicationTermination: Effect.Effect<RuntimeTermination>,
 ): Effect.Effect<RuntimeTermination> {
   const gatewayTermination = gateway.failure.pipe(
     Effect.catchAll((cause) =>
       Effect.succeed(
         RuntimeFailed.make({
-          detail: `NanoClaw principal gateway for agent "${process.input.agentName}" disconnected: ${String(cause)}`,
+          detail: `NanoClaw principal gateway for agent "${agentName}" disconnected: ${String(cause)}`,
         }),
       ),
     ),
   );
-  return Effect.raceFirst(
-    processTermination(
-      {
-        agentName: process.input.agentName,
-        runtimeName: NANOCLAW_RUNTIME_NAME,
-      },
-      process.observation,
-    ),
-    gatewayTermination,
-  );
+  return Effect.raceFirst(applicationTermination, gatewayTermination);
 }
 
-function acquireNanoclawRuntime<
-  Name extends string,
-  Install,
-  Handle,
-  WaitFailure,
-  Requirements,
->(
-  settings: NanoclawRuntimeSettings,
-  driver: NanoclawRuntimeDriver<Install, Handle, WaitFailure, Requirements>,
-  input: AgentRuntimeInput<Name>,
+interface DistributedNanoclawBridge {
+  readonly startupTimeout: Duration.Duration;
+  readonly agentName: AgentName;
+  readonly acquireGateway: NanoclawDistributedGatewayAcquirer;
+}
+
+function attachDistributedNanoclaw(
+  bridge: DistributedNanoclawBridge,
+  attachment: DistributedApplicationAttachment,
 ): Effect.Effect<
   RunningAgent<NanoclawGateway>,
-  NanoclawRuntimeAcquisitionError,
-  Scope.Scope | Requirements
+  RuntimeAcquisitionFailed,
+  Scope.Scope
 > {
   return Effect.gen(function* () {
-    const process = yield* acquireNanoclawProcess(settings, driver, input);
-    const gateway = yield* awaitNanoclawGateway(
-      process,
-      settings.startupTimeout,
-      driver.gateway,
-      driver.readyWhen,
+    const endpoint = yield* Effect.try({
+      try: () => distributedEndpoint(attachment.endpointUrl),
+      catch: (cause) =>
+        acquisitionFailure(
+          bridge.agentName,
+          "resolve distributed gateway",
+          cause,
+        ),
+    });
+    const acquire = bridge
+      .acquireGateway(endpoint, bridge.startupTimeout)
+      .pipe(
+        Effect.mapError((cause) =>
+          acquisitionFailure(
+            bridge.agentName,
+            "connect distributed principal gateway",
+            cause,
+          ),
+        ),
+      );
+    const gateway = yield* Effect.raceFirst(
+      acquire,
+      stoppedBeforeDistributedGateway(bridge.agentName, attachment.stopped),
     );
-    return {
+    return Object.freeze({
       gateway: gateway.gateway,
-      termination: nanoclawTermination(process, gateway),
-    };
-  }).pipe(
-    Effect.withSpan("nanoclawRuntime.acquire", {
-      attributes: {
-        "agent.name": input.connection.agent.name,
-        "runtime.name": NANOCLAW_RUNTIME_NAME,
-      },
+      termination: distributedTermination(
+        bridge.agentName,
+        gateway,
+        attachment.termination,
+      ),
+    });
+  });
+}
+
+function distributedApplicationContainer<Name extends string>(
+  settings: NanoclawRuntimeSettings,
+  image: DistributedContainerImage,
+  input: AgentRuntimeInput<Name>,
+): DistributedApplicationContainer {
+  return Object.freeze({
+    image,
+    entrypoint: Object.freeze([
+      "node",
+      NANOCLAW_DISTRIBUTED_ENTRYPOINT,
+    ] as const),
+    environment: Object.freeze({
+      MOLTZAP_PROFILE: "simulator-agent",
+      MOLTZAP_CONFIG_HOME: NANOCLAW_DISTRIBUTED_PROFILE_HOME,
+      MOLTZAP_SERVER_URL: httpBaseUrl(input.connection.routerUrl),
+      MOLTZAP_NANOCLAW_CONFIG: NANOCLAW_DISTRIBUTED_CONFIG_PATH,
+      MOLTZAP_NANOCLAW_STATE: NANOCLAW_DISTRIBUTED_STATE_DIR,
     }),
+    ...(settings.modelId === undefined
+      ? {}
+      : {
+          credentialEnvironment: Object.freeze(["ANTHROPIC_API_KEY"] as const),
+        }),
+    ports: Object.freeze([NANOCLAW_DISTRIBUTED_GATEWAY_PORT]),
+    resources: DISTRIBUTED_APPLICATION_RESOURCES,
+  });
+}
+
+interface NanoclawDistributedRenderer {
+  readonly settings: NanoclawRuntimeSettings;
+  readonly image: DistributedContainerImage;
+  readonly acquireGateway: NanoclawDistributedGatewayAcquirer;
+}
+
+function makeDistributedNanoclawApplication<Name extends string>(
+  renderer: NanoclawDistributedRenderer,
+  input: AgentRuntimeInput<Name>,
+  support: DistributedApplicationSupport,
+): DistributedRuntimeApplication<NanoclawGateway, RuntimeAcquisitionFailed> {
+  validateDistributedSupport(support);
+  return Object.freeze({
+    applicationContainer: distributedApplicationContainer(
+      renderer.settings,
+      renderer.image,
+      input,
+    ),
+    bootstrapSecret: Object.freeze({
+      identity: support.bootstrapSecretIdentity,
+      supportImage: support.supportImage,
+      files: distributedBootstrapFiles(renderer.settings, input),
+    }),
+    readiness: Object.freeze({
+      outputIncludes: NANOCLAW_DISTRIBUTED_READY_MARKER,
+    }),
+    attach: (attachment: DistributedApplicationAttachment) =>
+      attachDistributedNanoclaw(
+        {
+          startupTimeout: renderer.settings.startupTimeout,
+          agentName: input.agentName,
+          acquireGateway: renderer.acquireGateway,
+        },
+        attachment,
+      ),
+  });
+}
+
+function renderDistributedNanoclaw<Name extends string>(
+  renderer: NanoclawDistributedRenderer,
+  input: AgentRuntimeInput<Name>,
+  support: DistributedApplicationSupport,
+): Effect.Effect<
+  DistributedRuntimeApplication<NanoclawGateway, RuntimeAcquisitionFailed>,
+  RuntimeAcquisitionFailed
+> {
+  return Effect.try({
+    try: () => makeDistributedNanoclawApplication(renderer, input, support),
+    catch: (cause) =>
+      acquisitionFailure(
+        input.agentName,
+        "render distributed application",
+        cause,
+      ),
+  });
+}
+
+function nanoclawDistributedCapability(
+  settings: NanoclawRuntimeSettings,
+  image: DistributedContainerImage,
+  acquireGateway: NanoclawDistributedGatewayAcquirer,
+): DistributedRuntimeCapability<NanoclawGateway, RuntimeAcquisitionFailed> {
+  validateDistributedImage(image);
+  const renderer: NanoclawDistributedRenderer = {
+    settings,
+    image,
+    acquireGateway,
+  };
+  return Object.freeze({
+    reservation: Object.freeze({
+      image,
+      resources: DISTRIBUTED_APPLICATION_RESOURCES,
+    }),
+    render: <Name extends string>(
+      input: AgentRuntimeInput<Name>,
+      support: DistributedApplicationSupport,
+    ) => renderDistributedNanoclaw(renderer, input, support),
+  });
+}
+
+/**
+ * Build the private NanoClaw distributed realization against an explicit
+ * one-container image and controlled gateway acquirer.
+ * @param options Definition-time NanoClaw configuration.
+ * @param acquireGateway Runtime-specific controller gateway bridge.
+ * @returns The private distributed realization.
+ * @internal
+ */
+export function makeNanoclawDistributedCapabilityWith(
+  options: NanoclawRuntimeOptions,
+  acquireGateway: NanoclawDistributedGatewayAcquirer,
+): DistributedRuntimeCapability<NanoclawGateway, RuntimeAcquisitionFailed> {
+  const settings = snapshotOptions(options);
+  return nanoclawDistributedCapability(
+    settings,
+    settings.applicationImage,
+    acquireGateway,
   );
 }
 
 /**
- * Build NanoClaw's process-backed runtime against an explicit low-level driver.
- * Production uses {@link nanoclawRuntime}; this seam keeps lifecycle tests
- * free of Docker and immutable-install work.
+ * Construct a NanoClaw descriptor backed by one application container per
+ * roster identity and its runtime-owned native gateway bridge.
  * @param options Options that control the operation.
- * @param driver Value supplied to the operation.
- * @internal
- * @returns The created nanoclaw runtime with.
+ * @returns The nanoclaw runtime result.
  */
-export function makeNanoclawRuntimeWith<
-  Install,
-  Handle,
-  WaitFailure = unknown,
-  Requirements = never,
->(
+export function nanoclawRuntime(
   options: NanoclawRuntimeOptions,
-  driver: NanoclawRuntimeDriver<Install, Handle, WaitFailure, Requirements>,
 ): AgentRuntime<
   NanoclawGateway,
   NanoclawRuntimeAcquisitionError,
-  Requirements,
   typeof NanoclawRuntimeConfiguration
 > {
   const settings = snapshotOptions(options);
-  return defineRuntime({
+  const capability = nanoclawDistributedCapability(
+    settings,
+    settings.applicationImage,
+    (endpoint, within) =>
+      acquireDistributedNanoclawGateway(endpoint.host, endpoint.port, within),
+  );
+  return defineDistributedRuntime({
     name: NANOCLAW_RUNTIME_NAME,
     configuration: {
       schema: NanoclawRuntimeConfiguration,
       value: runtimeConfiguration(settings),
     },
-    acquire: (input) => acquireNanoclawRuntime(settings, driver, input),
+    reservation: capability.reservation,
+    render: capability.render,
   });
-}
-
-/**
- * Construct a NanoClaw runtime that binds each roster identity to one
- * scoped container-backed process and waits for router-visible readiness.
- * @param options Options that control the operation.
- * @returns The nanoclaw runtime result.
- */
-export function nanoclawRuntime(
-  options: NanoclawRuntimeOptions = {},
-): AgentRuntime<
-  NanoclawGateway,
-  NanoclawRuntimeAcquisitionError,
-  NanoclawHostServices,
-  typeof NanoclawRuntimeConfiguration
-> {
-  return makeNanoclawRuntimeWith(options, nativeNanoclawDriver);
 }

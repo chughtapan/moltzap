@@ -37,6 +37,7 @@ import {
   EvaluationSweepIncomplete,
   InProgressEvaluationReport,
   JudgePolicySnapshot,
+  LocalEvaluationInfrastructure,
   JudgingUnavailableAttempt,
   LedgerAllocationFailedAttempt,
   RunFailedAttempt,
@@ -105,6 +106,14 @@ function plan(
       tools: "none",
       timeoutMillis: 1_000,
       maxRetries: 2,
+    }),
+    infrastructure: LocalEvaluationInfrastructure.make({
+      profile: "local",
+      controllerImage: `controller@sha256:${"a".repeat(64)}`,
+      peerApplicationImage: `peer@sha256:${"b".repeat(64)}`,
+      nanoclawApplicationImage: `nanoclaw@sha256:${"c".repeat(64)}`,
+      temporalAddress: "127.0.0.1:7233",
+      artifactDirectory: "/var/lib/moltzap/artifacts",
     }),
     samplesPerCell: 1,
   });
@@ -428,6 +437,7 @@ function exactResumePlanTest() {
         }),
       ],
       judgePolicy: reportPlan.judgePolicy,
+      infrastructure: reportPlan.infrastructure,
       samplesPerCell: reportPlan.samplesPerCell,
     });
     const mismatch = yield* resumeEvaluationReport(report, changedPlan).pipe(

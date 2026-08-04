@@ -1,54 +1,32 @@
-/** @file Effect Platform process execution and supervised process lifetime. */
+/** @file Controller-owned production-router process supervision. */
 
 import { Buffer } from "node:buffer";
 import { homedir } from "node:os";
 import { execPath } from "node:process";
 import { Command } from "@effect/platform";
 import type {
-  CommandExecutor,
   ExitCode,
   Process,
   Signal,
 } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
-import {
-  Config,
-  Data,
-  Duration,
-  Effect,
-  Fiber,
-  Option,
-  Scope,
-  Stream,
-} from "effect";
-
-/** Configures command run. */
-export interface CommandRunOptions {
-  readonly cwd?: string;
-  readonly timeout?: number;
-}
-
-/** Describes captured command output. */
-export interface CapturedCommandOutput {
-  readonly stdout: string;
-  readonly stderr: string;
-}
+import { Config, Duration, Effect, Fiber, Option, Scope, Stream } from "effect";
 
 /**
- * The only operator variables a runtime child inherits: PATH so the runtime
- * can find its tools, HOME so per-user state resolution works inside the
- * exact-environment replacement.
+ * The only operator variables inherited by the controller-owned router.
+ * PATH locates its installed entry point and HOME is replaced with run-owned
+ * state before launch.
  */
 export type BaseChildEnvironment = Readonly<Record<"PATH" | "HOME", string>>;
 
-/** Provides the base child environment config runtime value. */
+/** Provides the controller router's base child environment. */
 export const baseChildEnvironmentConfig: Config.Config<BaseChildEnvironment> =
   Config.all({
     PATH: Config.string("PATH"),
     HOME: Config.string("HOME").pipe(Config.withDefault(homedir())),
   });
 
-/** Configures exact environment command. */
+/** Exact environment and process-tree policy for the controller router. */
 export interface ExactEnvironmentCommandOptions {
   readonly command: string;
   readonly args: readonly string[];
@@ -56,11 +34,6 @@ export interface ExactEnvironmentCommandOptions {
   readonly env: Readonly<Record<string, string>>;
   readonly cleanupTreeOnExit?: boolean;
 }
-
-type ErrorFactory<E> = (reason: string, cause?: unknown) => E;
-const LOG_HEAD_CAPACITY = 64 * 1024;
-const LOG_TAIL_CAPACITY = 256 * 1024;
-const LOG_ELISION_MARKER = "\n[... log window elided ...]\n";
 
 const EXACT_ENVIRONMENT_LAUNCHER = `
 const { spawn } = require("node:child_process");
@@ -101,15 +74,11 @@ child.once("exit", (code) => {
 `;
 
 /**
- * Builds a command whose target receives exactly `env`. Effect's Node command
- * executor merges command variables over the operator environment, so a
- * trusted Node launcher starts the target with an explicit replacement. The
- * launcher and target share the detached group created by the executor, which
- * keeps tree-directed teardown semantics on every supported Node platform.
- * Long-lived runtimes opt into launcher-owned exit cleanup so the group
- * leader remains present until every residual descendant receives KILL.
- * @param options Options that control the operation.
- * @returns The created exact environment command.
+ * Build a command whose target receives exactly the supplied environment.
+ * The trusted Node launcher replaces the operator environment and preserves a
+ * process-group leader until residual router descendants receive KILL.
+ * @param options Router command and exact environment.
+ * @returns The supervised platform command.
  */
 export function makeExactEnvironmentCommand(
   options: ExactEnvironmentCommandOptions,
@@ -120,307 +89,13 @@ export function makeExactEnvironmentCommand(
   );
 }
 
-function makeShellCommand(commandText: string) {
-  return Command.make(commandText).pipe(Command.runInShell(true));
-}
-
-function makeShellCommandInDirectory(commandText: string, cwd: string) {
-  return Command.workingDirectory(makeShellCommand(commandText), cwd);
-}
-
-// Callers parse this output, so capture is faithful rather than windowed
-// like BoundedLogBuffer: eliding the middle of a JSON document turns
-// "output too large" into a misleading parse error. The cap still bounds a
-// runaway child, but surfaces as its own actionable failure.
-const MAX_CAPTURED_OUTPUT_CHARS = 8 * 1024 * 1024;
-
-class CapturedOutputTooLarge extends Data.TaggedError(
-  "CapturedOutputTooLarge",
-)<{
-  readonly limit: number;
-}> {
-  override get message(): string {
-    return `command produced more than ${String(this.limit)} characters of output`;
-  }
-}
-
-function captureCommandStream(stream: Stream.Stream<Uint8Array, unknown>) {
-  const chunks: string[] = [];
-  let total = 0;
-  return stream.pipe(
-    Stream.decodeText(),
-    Stream.runForEach((chunk) => {
-      total += chunk.length;
-      if (total > MAX_CAPTURED_OUTPUT_CHARS) {
-        return Effect.fail(
-          new CapturedOutputTooLarge({ limit: MAX_CAPTURED_OUTPUT_CHARS }),
-        );
-      }
-      chunks.push(chunk);
-      return Effect.void;
-    }),
-    Effect.map(() => chunks.join("")),
-  );
-}
-
-function captureCommandOutput(command: Command.Command) {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const process = yield* Command.start(command);
-      const [stdout, stderr, exitCode] = yield* Effect.all(
-        [
-          captureCommandStream(process.stdout),
-          captureCommandStream(process.stderr),
-          process.exitCode,
-        ],
-        { concurrency: 3 },
-      );
-      return { stdout, stderr, exitCode: Number(exitCode) };
-    }),
-  );
-}
-
 /**
- * How much of each stream a failed command carries into its typed error.
- * The bound is per stream and keeps the tail, where the first real error
- * surfaces after a wall of progress output.
- */
-const COMMAND_DIAGNOSTICS_TAIL_CHARS = 16 * 1024;
-
-// Both streams are retained because build tools split diagnostics across them:
-// npm writes its lifecycle summary to stderr while the compiler it invoked
-// writes the actual errors to stdout. Keeping only the non-empty one collapses
-// a diagnosable failure back into a bare exit code.
-function commandFailureReason(
-  description: string,
-  output: CapturedCommandOutput,
-  exitCode: number,
-): string {
-  const streams: ReadonlyArray<readonly [string, string]> = [
-    ["stderr", output.stderr.trim()],
-    ["stdout", output.stdout.trim()],
-  ];
-  const diagnostics = streams
-    .filter(([, text]) => text.length > 0)
-    .map(
-      ([name, text]) =>
-        `${name}:\n${text.slice(-COMMAND_DIAGNOSTICS_TAIL_CHARS)}`,
-    );
-  return (
-    `command failed with exit code ${exitCode}: ${description}` +
-    (diagnostics.length === 0 ? "" : `\n${diagnostics.join("\n")}`)
-  );
-}
-
-function commandOutputEffectWith<E>(
-  makeError: ErrorFactory<E>,
-  description: string,
-  command: Command.Command,
-  timeout: number,
-): Effect.Effect<CapturedCommandOutput, E, CommandExecutor> {
-  const captured = captureCommandOutput(command).pipe(
-    Effect.mapError((cause) =>
-      makeError(`command failed: ${description}`, cause),
-    ),
-  );
-  return captured.pipe(
-    Effect.timeoutFail({
-      duration: Duration.millis(timeout),
-      onTimeout: () =>
-        makeError(`command timed out after ${timeout}ms: ${description}`),
-    }),
-    Effect.flatMap(({ exitCode, ...output }) =>
-      exitCode === 0
-        ? Effect.succeed(output)
-        : Effect.fail(
-            makeError(commandFailureReason(description, output, exitCode)),
-          ),
-    ),
-  );
-}
-
-function unboundedCommandOutputEffectWith<E>(
-  makeError: ErrorFactory<E>,
-  description: string,
-  command: Command.Command,
-): Effect.Effect<CapturedCommandOutput, E, CommandExecutor> {
-  return captureCommandOutput(command).pipe(
-    Effect.mapError((cause) =>
-      makeError(`command failed: ${description}`, cause),
-    ),
-    Effect.flatMap(({ exitCode, ...output }) =>
-      exitCode === 0
-        ? Effect.succeed(output)
-        : Effect.fail(
-            makeError(commandFailureReason(description, output, exitCode)),
-          ),
-    ),
-  );
-}
-
-// Output is captured rather than discarded even though no caller reads it on
-// success: a runtime install runs `npm ci`, `npm run build`, and image builds
-// whose staging directory is deleted during cleanup, so a failure that carries
-// only an exit code cannot be diagnosed from the durable evaluation result.
-function execEffectWith<E>(
-  makeError: ErrorFactory<E>,
-  commandText: string,
-  options: CommandRunOptions,
-): Effect.Effect<void, E, CommandExecutor> {
-  const { cwd, timeout } = options;
-  const command =
-    cwd === undefined
-      ? makeShellCommand(commandText)
-      : makeShellCommandInDirectory(commandText, cwd);
-  const captured =
-    timeout === undefined
-      ? unboundedCommandOutputEffectWith(makeError, commandText, command)
-      : commandOutputEffectWith(makeError, commandText, command, timeout);
-  return captured.pipe(Effect.asVoid);
-}
-
-/**
- * Shell-command and platform-error helpers shared by external runtimes.
- * Each module supplies its own tagged-error factory so failures stay in
- * that module's error channel.
- * @param makeError Value supplied to the operation.
- * @returns The created command helpers.
- */
-export function makeCommandHelpers<E>(makeError: ErrorFactory<E>) {
-  return {
-    execEffect: (commandText: string, options?: CommandRunOptions) =>
-      execEffectWith(makeError, commandText, options ?? {}),
-    commandOutputEffect: (
-      description: string,
-      command: Command.Command,
-      options?: Pick<CommandRunOptions, "timeout">,
-    ) => {
-      const timeout = options?.timeout;
-      return timeout === undefined
-        ? unboundedCommandOutputEffectWith(makeError, description, command)
-        : commandOutputEffectWith(makeError, description, command, timeout);
-    },
-    fsEffect: <A, R>(
-      reason: string,
-      effect: Effect.Effect<A, PlatformError, R>,
-    ): Effect.Effect<A, E, R> =>
-      effect.pipe(Effect.mapError((cause) => makeError(reason, cause))),
-  };
-}
-
-/**
- * How much of a child's own output a launch failure carries. The bound is
- * a character count rather than a line count because a runtime is free to
- * emit one enormous line.
- */
-const CHILD_OUTPUT_TAIL_CHARS = 2000;
-
-/**
- * Appends the tail of a child's output to a failure detail.
- *
- * Redaction runs before the cut because whole-value redactors cannot match a
- * credential fragment created by slicing. Cutting redacted text can only
- * split the replacement marker.
- * @param detail Value supplied to the operation.
- * @param output Value supplied to the operation.
- * @param redact Value supplied to the operation.
- * @returns The attach child output result.
- */
-export function attachChildOutput(
-  detail: string,
-  output: string,
-  redact: (text: string) => string,
-): string {
-  const tail = redact(output)
-    .trimEnd()
-    .slice(-CHILD_OUTPUT_TAIL_CHARS)
-    .trimStart();
-  return tail.length === 0
-    ? detail
-    : `${detail}; last output from the agent process:\n${tail}`;
-}
-
-/**
- * Append-only process log window: the first `headCapacity` chars (startup
- * diagnostics) plus a rolling tail, so a chatty long-lived agent cannot
- * grow memory unbounded. Offsets are positions in the ORIGINAL stream —
- * pollers keep monotonic cursors even after the middle is elided.
- */
-export class BoundedLogBuffer {
-  private head = "";
-  private tail = "";
-  private total = 0;
-
-  private readonly headCapacity: number;
-  private readonly tailCapacity: number;
-
-  constructor(
-    headCapacity = LOG_HEAD_CAPACITY,
-    tailCapacity = LOG_TAIL_CAPACITY,
-  ) {
-    this.headCapacity = headCapacity;
-    this.tailCapacity = tailCapacity;
-  }
-
-  append(chunk: string): void {
-    this.total += chunk.length;
-    let rest = chunk;
-    if (this.head.length < this.headCapacity) {
-      const take = Math.min(this.headCapacity - this.head.length, rest.length);
-      this.head += rest.slice(0, take);
-      rest = rest.slice(take);
-    }
-    if (rest.length === 0) {
-      return;
-    }
-    // Compact only past 2x capacity: V8 rope concatenation keeps `+=` cheap,
-    // so the flatten amortizes to O(1)/char at a 2x memory high-water mark.
-    this.tail += rest;
-    if (this.tail.length >= 2 * this.tailCapacity) {
-      this.tail = this.tail.slice(-this.tailCapacity);
-    }
-  }
-
-  /**
-   * Text from `offset` (original-stream position) to the current end;
-   * regions no longer retained collapse into an elision marker.
-   * @param offset Value supplied to the operation.
-   * @returns The consume process stream result.
-   */
-  read(offset: number): { readonly text: string; readonly nextOffset: number } {
-    const tailStart = this.total - this.tail.length;
-    if (offset >= tailStart) {
-      return {
-        text: this.tail.slice(offset - tailStart),
-        nextOffset: this.total,
-      };
-    }
-    const elided = tailStart > this.head.length;
-    return {
-      text:
-        this.head.slice(offset) +
-        (elided ? LOG_ELISION_MARKER : "") +
-        this.tail,
-      nextOffset: this.total,
-    };
-  }
-
-  /**
-   * The full retained window (head + elision marker + tail).
-   * @returns The consume process stream result.
-   */
-  get text(): string {
-    return this.read(0).text;
-  }
-}
-
-/**
- * Drains a child stdout/stderr stream into the caller's log accumulator.
- * @param stream Value supplied to the operation.
- * @param append Value supplied to the operation.
- * @param processId Value supplied to the operation.
- * @param streamName Value supplied to the operation.
- * @returns The consume process stream result.
+ * Drain one router output stream into its caller-owned accumulator.
+ * @param stream Child output bytes.
+ * @param append Destination for decoded chunks.
+ * @param processId Child process identity for diagnostics.
+ * @param streamName Stream identity for diagnostics.
+ * @returns Completion after the stream closes.
  */
 function consumeProcessStream(
   stream: Stream.Stream<Uint8Array, unknown>,
@@ -451,13 +126,12 @@ function consumeProcessStream(
 }
 
 /**
- * Starts a command under `scope`, preserves the platform process wait in its
- * typed exit fiber, and drains stdout/stderr into `appendLog`.
- * @param command Value supplied to the operation.
- * @param scope Value supplied to the operation.
- * @param appendLog Value supplied to the operation.
- * @param processTreeCleanup Value supplied to the operation.
- * @returns The start supervised process result.
+ * Start the controller router under a caller-owned scope.
+ * @param command Exact router command.
+ * @param scope Scope owning the process.
+ * @param appendLog Destination for decoded process output.
+ * @param processTreeCleanup Shared cleanup claim.
+ * @returns Process, exit observation, and cleanup state.
  */
 export const startSupervisedProcess = Effect.fn("startSupervisedProcess")(
   function* (
@@ -492,27 +166,19 @@ export const startSupervisedProcess = Effect.fn("startSupervisedProcess")(
 
 const EXIT_POLL_INTERVAL_MS = 100;
 
-/** Describes process tree cleanup. */
+/** Mutable single-claim state shared by router cleanup paths. */
 export interface ProcessTreeCleanup {
   claimed: boolean;
   readonly launcherOwnsExitCleanup?: boolean;
 }
 
 /**
- * TERM→KILL escalation with bounded waits. Teardown runs in uninterruptible
- * regions, so each wait polls the exit fiber instead of racing the platform
- * `kill` await (which resolves only at process death and cannot be
- * interrupted there); the signals themselves are fired as daemons. The Node
- * executor starts a detached process group on POSIX and `Process.kill`
- * signals that group before falling back to the direct pid. On Windows the
- * same call uses `taskkill /T`, so both escalation stages include descendants.
- * @param proc Value supplied to the operation.
- * @param exitFiber Value supplied to the operation.
- * @param waits Value supplied to the operation.
- * @param waits.termWaitMs Value supplied to the operation.
- * @param waits.killWaitMs Value supplied to the operation.
- * @param processTreeCleanup Value supplied to the operation.
- * @returns The escalating kill result.
+ * Stop the controller router with bounded TERM then KILL waits.
+ * @param proc Owned router process.
+ * @param exitFiber Router exit observation.
+ * @param waits Bounded graceful and forced-stop waits.
+ * @param processTreeCleanup Shared cleanup claim.
+ * @returns Completion after teardown is dispatched.
  */
 export const escalatingKill = Effect.fn("escalatingKill")(function* (
   proc: Process,

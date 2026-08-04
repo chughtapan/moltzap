@@ -30,7 +30,7 @@ import {
   evaluationCases,
   type EvaluationCaseDefinition,
   type EvaluationCasePeers,
-  type EvaluationCasePeerRuntimes,
+  type EvaluationCasePeerDefinitions,
 } from "./cases.js";
 import {
   CodePeerMessageReceived,
@@ -83,22 +83,12 @@ const EXPECTED_OPENCLAW_TOOLS = {
   elevated: { enabled: false },
   exec: { mode: "deny" },
 };
-const EXPECTED_OPENCLAW_SANDBOX = {
-  mode: "all",
-  backend: "docker",
-  scope: "session",
-  workspaceAccess: "none",
-  docker: { network: "none" },
-};
 const bundledOpenClawPolicyConfiguration = Schema.Struct({
   tools: Schema.Struct({
     definitionDigest: Schema.String,
     redacted: Schema.Tuple(Schema.Literal("configuration")),
   }),
-  sandbox: Schema.Struct({
-    definitionDigest: Schema.String,
-    redacted: Schema.Tuple(Schema.Literal("configuration")),
-  }),
+  sandbox: Schema.optional(Schema.Unknown),
 });
 
 type EvaluationEvent = EventOf<typeof evaluationEvents>;
@@ -180,7 +170,7 @@ function selectedSocialGateway(
   };
 }
 
-function instrumentation<PeerRuntimes extends EvaluationCasePeerRuntimes>(
+function instrumentation<PeerRuntimes extends EvaluationCasePeerDefinitions>(
   definition: EvaluationCaseDefinition<PeerRuntimes>,
   peers: EvaluationCasePeers<PeerRuntimes>,
   emit: EmitEvaluationEvent,
@@ -230,7 +220,7 @@ function nanoclawGateway(
 }
 
 function nanoclawInstrumentation<
-  PeerRuntimes extends EvaluationCasePeerRuntimes,
+  PeerRuntimes extends EvaluationCasePeerDefinitions,
 >(
   definition: EvaluationCaseDefinition<PeerRuntimes>,
   peers: EvaluationCasePeers<PeerRuntimes>,
@@ -468,9 +458,7 @@ function policyDigest(policy: object): string {
 
 function bundledOpenClawPolicyTest(): void {
   const condition = openClawEvaluationCondition({
-    runtime: {
-      installMode: "workspace",
-    },
+    runtime: {},
     execution: {
       peerObservationTimeout: Duration.seconds(1),
       caseTimeout: Duration.seconds(2),
@@ -483,10 +471,7 @@ function bundledOpenClawPolicyTest(): void {
     definitionDigest: policyDigest(EXPECTED_OPENCLAW_TOOLS),
     redacted: ["configuration"],
   });
-  assert.deepStrictEqual(configuration.sandbox, {
-    definitionDigest: policyDigest(EXPECTED_OPENCLAW_SANDBOX),
-    redacted: ["configuration"],
-  });
+  assert.isUndefined(configuration.sandbox);
 }
 
 // @agent-code-guard/regression-only: native gateway output and autonomous social evidence have distinct selection paths

@@ -6,14 +6,6 @@
       "project": ["*.mjs", "*.ts"],
       "ignoreDependencies": ["@mermaid-js/mermaid-cli", "typedoc"]
     },
-    "examples/simulator": {
-      "entry": [
-        "hello.ts",
-        "openclaw-container.mjs",
-        "openclaw-container.test.mjs"
-      ],
-      "project": ["*.{mjs,ts}"]
-    },
     "packages/client": {
       "entry": [
         "src/**/*.test.ts",
@@ -54,6 +46,8 @@
     "packages/evals": {
       "entry": [
         "src/cli.ts",
+        "src/execution.ts",
+        "src/peer-application.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts"
       ],
@@ -61,8 +55,11 @@
     },
     "packages/simulator": {
       "entry": [
+        "src/platform/controller/infrastructure.ts",
+        "src/platform/controller/main.ts",
+        "src/platform/gke/main.ts",
+        "src/platform/local/main.ts",
         "src/**/*.test.ts",
-        "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],

@@ -1,0 +1,93 @@
+{
+  "apiVersion": "moltzap.gke-profile/v1",
+  "cluster": {
+    "mode": "Standard",
+    "topology": "regional",
+    "nameFromTerraformOutput": "cluster_name",
+    "locationFromTerraformOutput": "cluster_location",
+    "contextEnvironment": "MOLTZAP_KUBE_CONTEXT"
+  },
+  "addons": {
+    "kueue": {
+      "version": "v0.17.8",
+      "chart": "oci://registry.k8s.io/kueue/charts/kueue",
+      "chartVersion": "0.17.8"
+    },
+    "agentSandbox": {
+      "version": "v0.5.4",
+      "source": "https://github.com/kubernetes-sigs/agent-sandbox.git",
+      "sourceCommit": "6e2b7617310e3bf084b6d1a1cffbeb141a5e37fe"
+    }
+  },
+  "queue": {
+    "clusterQueue": "moltzap",
+    "localQueue": "society",
+    "resourceFlavor": "moltzap-gke-agents"
+  },
+  "rosterPlacement": {
+    "applyTo": [
+      "aggregateWorkloadPodSets",
+      "sandboxPodTemplates"
+    ],
+    "nodeSelector": {
+      "moltzap.dev/pool": "agents"
+    },
+    "tolerations": [
+      {
+        "key": "moltzap.dev/agents",
+        "operator": "Equal",
+        "value": "true",
+        "effect": "NoSchedule"
+      }
+    ]
+  },
+  "images": {
+    "controllerEnvironment": "MOLTZAP_CONTROLLER_IMAGE",
+    "supportEnvironment": "MOLTZAP_SUPPORT_IMAGE",
+    "repositoryFromTerraformOutput": "controller_repository",
+    "requireDigestReference": true,
+    "digestReferencePattern": "^[^@]+@sha256:[0-9a-f]{64}$"
+  },
+  "ledger": {
+    "active": {
+      "kind": "empty-dir",
+      "volume": {
+        "name": "ledger",
+        "emptyDir": {}
+      },
+      "mountPath": "/var/lib/moltzap/ledger",
+      "permissionsInitContainer": true
+    },
+    "retained": {
+      "kind": "gcs-fuse-csi-ephemeral",
+      "bucketFromTerraformOutput": "artifact_bucket_name",
+      "bucketEnvironment": "MOLTZAP_GKE_ARTIFACT_BUCKET",
+      "podAnnotations": {
+        "gke-gcsfuse/volumes": "true"
+      },
+      "volume": {
+        "name": "artifacts",
+        "csi": {
+          "driver": "gcsfuse.csi.storage.gke.io",
+          "readOnly": false,
+          "volumeAttributes": {
+            "bucketName": "{artifactBucket}",
+            "mountOptions": "uid=1000,gid=1000,file-mode=0640,dir-mode=0750"
+          }
+        }
+      },
+      "mountPath": "/var/lib/moltzap-artifacts",
+      "directoryTemplate": "/var/lib/moltzap-artifacts/{runNamespace}/ledger",
+      "publicationOrder": [
+        "manifest.json",
+        "records.ndjson",
+        "completion.json"
+      ]
+    }
+  },
+  "temporal": {
+    "mode": "configured-endpoint",
+    "addressEnvironment": "MOLTZAP_TEMPORAL_ADDRESS",
+    "namespaceEnvironment": "MOLTZAP_TEMPORAL_NAMESPACE"
+  }
+}

@@ -1,108 +1,106 @@
 # @moltzap/simulator
 
-> **Implementation transition:** The [main-track Kubernetes
-> contract](../../docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-> moves the original simulator to `RunSpec` and `Run.execute` on local
-> Kubernetes or GKE. The host APIs below describe the implementation being
-> replaced. The separate v2 `Simulator.define` contract is unaffected.
+Code-first experiments over containerized agent societies. Kubernetes is the
+single execution backend; the repository provides local kind and GKE profiles
+for the same kernel path.
 
-Code-first simulation for societies whose participants communicate through one
-run-scoped MoltZap router and wire protocol. A roster may mix OpenClaw,
-NanoClaw, in-process Effect agents, scripted or customer-defined runtimes
-without changing the kernel.
-
-The package owns the complete vertical slice: typed definitions and events,
-the run kernel, network capabilities, a durable ledger, the production router,
-process hosting, and shipped runtime implementations. Customer completion,
-sweeps, scenario languages, and graders stay ordinary code.
+The package owns typed definitions and events, the run kernel, the production
+MoltZap router, exact runtime-native gateways, durable ledgers, Kueue cohort
+admission, Agent Sandbox applications, and coarse Temporal lifecycle control.
+Experiment code owns completion policy, scenarios, sweeps, and grading.
 
 ## Entry points
 
 | Import | Purpose |
 |---|---|
-| `@moltzap/simulator` | Define and run societies and provide the default host Layer |
-| `@moltzap/simulator/runtime` | Define autonomous runtimes and use the shipped Effect, OpenClaw, and NanoClaw implementations |
-| `@moltzap/simulator/network` | Implement routers, transports, endpoints, and link behavior |
-| `@moltzap/simulator/ledger` | Implement storage or inspect completed ledgers offline |
+| `@moltzap/simulator` | Define a `RunSpec`, execute it, and consume customer run services |
+| `@moltzap/simulator/runtime` | Use container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
+| `@moltzap/simulator/network` | Network, endpoint, router, transport, and link contracts |
+| `@moltzap/simulator/ledger` | Completed-ledger schemas, validation, and offline readback |
+
+## Experiment module
+
+A controller-loadable module exports exactly one named `runSpec`:
 
 ```ts
-import { messagesSend } from "@moltzap/protocol/message";
-import {
-  Network,
-  simulator,
-  simulatorLayer,
-} from "@moltzap/simulator";
-import { effectRuntime } from "@moltzap/simulator/runtime";
-import { Duration, Effect, Ref, Stream } from "effect";
+import { RunSpec } from "@moltzap/simulator";
+import { openClawRuntime } from "@moltzap/simulator/runtime";
+import { Effect } from "effect";
+import { controllerInfrastructureFromEnvironment } from "/opt/moltzap/dist/platform/controller/infrastructure.js";
 
-const Society = simulator.define("acme.echo/v1");
-const roster = Society.agents({
-  echo: effectRuntime({
-    build: (context) =>
-      Effect.gen(function* () {
-        const prefix = yield* Ref.make("echo: ");
-        return {
-          // This is the exact customer-defined principal API.
-          gateway: Object.freeze({
-            setPrefix: (value: string) => Ref.set(prefix, value),
-          }),
-          // Autonomous social behavior uses the production client and router.
-          behavior: context.messages.pipe(
-            Stream.runForEach((notification) =>
-              Ref.get(prefix).pipe(
-                Effect.flatMap((value) =>
-                  context.client.callDefinition(messagesSend, {
-                    conversationId:
-                      notification.message.conversationId,
-                    parts: [
-                      {
-                        type: "text",
-                        text: `${value}${context.agent.name}`,
-                      },
-                    ],
-                  }),
-                ),
-                Effect.asVoid,
-              ),
-            ),
-          ),
-        };
-      }),
-  }),
+const alice = openClawRuntime({
+  tools: { deny: ["*"], exec: { mode: "deny" } },
+  sandbox: { mode: "off" },
+  workspaceFiles: [
+    { relativePath: "IDENTITY.md", content: "You are Alice." },
+  ],
 });
 
-const experiment = Effect.gen(function* () {
-  const agents = yield* roster.startedAgents;
-  const network = yield* Network;
-  yield* agents.echo.gateway.setPrefix("diagnostic reply: ");
-
-  const workload = yield* network.endpoint("diagnostics");
-  const conversation = yield* workload.open(agents.echo.agent);
-  yield* conversation.send("hello");
-  return yield* conversation.receive();
+export const runSpec = RunSpec.define({
+  id: "acme.echo/v1",
+  events: [],
+  agents: { alice },
+  infrastructure: controllerInfrastructureFromEnvironment(),
+  execute: ({ agents, network }) =>
+    Effect.gen(function* () {
+      const diagnostic = yield* network.endpoint("diagnostic");
+      const conversation = yield* diagnostic.open(agents.alice.agent);
+      yield* conversation.send("hello");
+    }),
 });
-
-const Host = simulatorLayer({
-  ledgerDirectory: "./ledgers",
-  router: { startupTimeout: Duration.minutes(2) },
-});
-
-void Effect.runPromise(
-  Society.run(roster, experiment).pipe(Effect.provide(Host)),
-);
 ```
 
-Each roster value is a `StartedAgent`: `.agent` is its router-issued network
-identity, `.gateway` is the runtime's exact owner-local principal API, and
-`.termination` observes runtime completion. OpenClaw and NanoClaw expose their
-native gateways; `effectRuntime` exposes exactly the gateway returned by its
-`build` Effect. `Network.endpoint` is for experiment-controlled diagnostics,
-workloads, and observers, not for replacing those principal APIs.
+The absolute infrastructure import is private to the repository-built
+controller image. It keeps Kubernetes, Kueue, Sandbox, Temporal, and
+cloud-provider values outside the public experiment contract. The controller
+loads the module late and invokes `Run.execute(runSpec)` once.
 
-Every event class is declared through the society definition before the run.
-The kernel emits its own typed network and lifecycle events; customer code can
-emit only its declared event classes. A successful run returns the customer
-program `Exit` and a validated reference to a completed durable ledger.
+Each started agent exposes three distinct capabilities:
 
-Customer code owns completion policy, domain-specific scenario languages,
-parameter sweeps, and grading.
+- `.agent` is the router-issued social identity;
+- `.gateway` is that runtime's exact principal interface; and
+- `.termination` observes autonomous runtime completion.
+
+Diagnostic endpoints do not impersonate roster principals. Every autonomous
+agent sends social traffic through its own MoltZap connection.
+
+NanoClaw requires an explicit digest-pinned application image implementing its
+fixed one-container bootstrap and gateway contract. The simulator never
+substitutes a mutable or placeholder image.
+
+## Local and GKE profiles
+
+Build the shared controller/support image and create the pinned local profile:
+
+```bash
+pnpm nx run @moltzap/simulator:local-controller-image
+pnpm nx run @moltzap/simulator:local-cluster-create -- \
+  --image CONTROLLER_IMAGE_AT_SHA256
+```
+
+Submit a module through Temporal and the local Kubernetes path:
+
+```bash
+MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
+pnpm nx run @moltzap/simulator:local-run -- path/to/experiment.mjs
+```
+
+The GKE profile uses the same experiment and controller contract with an
+explicit kube context, artifact bucket, and configured Temporal endpoint. See
+[`local/README.md`](local/README.md) and [`gke/README.md`](gke/README.md).
+
+## Static validation
+
+```bash
+pnpm nx run @moltzap/simulator:build
+pnpm nx run @moltzap/simulator:typecheck:tests
+pnpm nx run @moltzap/simulator:lint
+pnpm nx run @moltzap/simulator:test
+pnpm nx run @moltzap/simulator:arch:check
+pnpm nx run @moltzap/simulator:local-profile-check
+pnpm nx run @moltzap/simulator:gke-profile-check
+```
+
+These checks do not qualify a live cluster or publish the required NanoClaw
+application image.

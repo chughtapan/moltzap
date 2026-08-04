@@ -11,22 +11,31 @@ import {
   type Message,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
-import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
   agentName,
-  agentKeyString,
   conversationId,
   messageId,
-  redactedAgentKey,
 } from "@moltzap/protocol/testing";
-import { Array as Arr, Deferred, Effect, Stream } from "effect";
-import { vi } from "vitest";
-import type { AgentConnection } from "@moltzap/simulator";
-import { makeAgentHandle } from "@moltzap/simulator/network";
+import { Array as Arr, Deferred, Effect, Fiber, Schema, Stream } from "effect";
 import { CodePeerMessageReceived, CodePeerMessageSent } from "./events.js";
 import { decodeEvaluationCaseId } from "./model.js";
-import type { PeerExchange } from "./peer.js";
+import {
+  EvaluationPeerBridgeCompleted,
+  EvaluationPeerBridgeFailed,
+  EvaluationPeerBridgeResult,
+  EvaluationPeerFailed,
+  PeerExchange,
+  announcementPeerRuntime,
+  evaluationPeerGatewayFromBridge,
+  observerPeerRuntime,
+  orderedGroupPeerRuntime,
+  runEvaluationPeerApplication,
+  type EvaluationPeerApplicationContext,
+  type EvaluationPeerApplicationPlan,
+} from "./peer.js";
+
+// @agent-code-guard/regression-only: these deterministic protocol fakes pin peer ordering and bridge projection against previously observed regressions.
 
 interface ClientCall {
   readonly definition: string;
@@ -40,6 +49,7 @@ type DeliveryEmitter = (
 interface FakeClientState {
   agents: readonly AgentCard[];
   received?: Stream.Stream<MessageReceivedNotification, unknown>;
+  conversationOpened?: Deferred.Deferred<undefined>;
   readonly calls: ClientCall[];
   readonly emitters: DeliveryEmitter[];
   readonly sendDeliveries: MessageReceivedNotification[];
@@ -50,37 +60,17 @@ interface FakeClientState {
 
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000821");
 
-const clientState = vi.hoisted(
-  (): FakeClientState => ({
-    agents: [],
-    received: undefined,
-    calls: [],
-    emitters: [],
-    sendDeliveries: [],
-    sendResults: [],
-    sendPermissions: new Set(),
-    sendCompletions: [],
-  }),
-);
-
-interface FakeRuntimeContext {
-  readonly agent: AgentConnection["agent"];
-  readonly messages: Stream.Stream<MessageReceivedNotification, unknown>;
-  readonly client: {
-    readonly callDefinition: typeof fakeCallDefinition;
-  };
-}
-
-interface FakeBuiltAgent {
-  readonly gateway: unknown;
-  readonly behavior: Effect.Effect<void, unknown>;
-}
-
-interface FakeRuntimeOptions {
-  readonly build: (
-    context: FakeRuntimeContext,
-  ) => Effect.Effect<FakeBuiltAgent, unknown>;
-}
+const clientState: FakeClientState = {
+  agents: [],
+  received: undefined,
+  conversationOpened: undefined,
+  calls: [],
+  emitters: [],
+  sendDeliveries: [],
+  sendResults: [],
+  sendPermissions: new Set(),
+  sendCompletions: [],
+};
 
 function deliver(
   notification: MessageReceivedNotification,
@@ -140,51 +130,24 @@ function fakeCallDefinition(
       definition: agentConversationCreate.name,
       payload,
     });
-    return Effect.succeed({
-      conversation: { id: CONVERSATION_ID },
-    });
+    const opened = clientState.conversationOpened;
+    return (
+      opened === undefined
+        ? Effect.void
+        : Deferred.succeed(opened, undefined).pipe(Effect.asVoid)
+    ).pipe(
+      Effect.as({
+        conversation: { id: CONVERSATION_ID },
+      }),
+    );
   }
   return Effect.fail(`unexpected RPC ${definition.name}`);
 }
 
-function fakeAcquire(
-  options: FakeRuntimeOptions,
-  input: { readonly connection: AgentConnection },
-) {
-  return Effect.gen(function* () {
-    const messages = clientState.received;
-    if (messages === undefined) {
-      return yield* Effect.dieMessage("test did not install a message stream");
-    }
-    const built = yield* options.build({
-      agent: input.connection.agent,
-      messages,
-      client: { callDefinition: fakeCallDefinition },
-    });
-    yield* built.behavior.pipe(Effect.forkScoped);
-    yield* Effect.yieldNow();
-    return {
-      gateway: built.gateway,
-      termination: Effect.never,
-    };
-  });
-}
-
-function fakeEffectRuntime(options: FakeRuntimeOptions) {
-  return {
-    acquire: (input: { readonly connection: AgentConnection }) =>
-      fakeAcquire(options, input),
-  };
-}
-
-vi.doMock("@moltzap/simulator/runtime", () => ({
-  effectRuntime: fakeEffectRuntime,
-}));
-
-const peerModule = Effect.tryPromise({
-  try: () => import("./peer.js"),
-  catch: (cause) => String(cause),
-});
+// eslint-disable-next-line agent-code-guard/require-assertion-rationale -- This protocol fake deliberately implements only the three RPC definitions exercised by peer plans; each branch is checked by definition name and returns that definition's fixture shape.
+const fakeClient = Object.freeze({
+  callDefinition: fakeCallDefinition,
+}) as EvaluationPeerApplicationContext["client"];
 
 const CASE_ID = decodeEvaluationCaseId("EVAL-006");
 const TARGET_NAME = "evaluation-target";
@@ -199,15 +162,15 @@ const OBSERVER_ID = agentId("00000000-0000-4000-8000-000000000805");
 const OTHER_CONVERSATION_ID = conversationId(
   "00000000-0000-4000-8000-000000000822",
 );
-const ROUTER_URL = serverBaseUrl("ws://127.0.0.1:31890");
-const AGENT_KEY = redactedAgentKey(agentKeyString(801));
 const CREATED_AT = "2026-07-29T00:00:00.000Z";
 const SOURCE_ANNOUNCEMENT = "I have been working on data pipelines.";
 const GROUP_QUESTION = "What has everyone been working on? Keep it brief.";
 const GROUP_NAME = "evaluation-eval-006";
+const SOURCE_AGENT_NAME = agentName(SOURCE_NAME);
 beforeEach(() => {
   clientState.agents = [];
   clientState.received = undefined;
+  clientState.conversationOpened = undefined;
   clientState.calls.length = 0;
   clientState.emitters.length = 0;
   clientState.sendDeliveries.length = 0;
@@ -236,17 +199,6 @@ function card(name: string, id: AgentId): AgentCard {
     id,
     name: agentName(name),
     status: "active",
-  };
-}
-
-function connection<Name extends string>(
-  name: Name,
-  id: AgentId,
-): AgentConnection<Name> {
-  return {
-    agent: makeAgentHandle(name, id),
-    key: AGENT_KEY,
-    routerUrl: ROUTER_URL,
   };
 }
 
@@ -320,10 +272,26 @@ function installFastResponses(): MessageReceivedNotification {
   return response;
 }
 
-const acquireSourcePeer = Effect.fn(function* () {
-  const peers = yield* peerModule;
+const startPeer = Effect.fn(function* (
+  plan: EvaluationPeerApplicationPlan,
+  name: string,
+  id: AgentId,
+) {
   const ready = yield* Deferred.make<undefined>();
   clientState.received = receivedStream(ready);
+  const running = yield* runEvaluationPeerApplication(
+    {
+      agent: Object.freeze({ name, id }),
+      messages: clientState.received,
+      client: fakeClient,
+    },
+    plan,
+  ).pipe(Effect.forkScoped);
+  yield* Deferred.await(ready);
+  return Object.freeze({ exchange: Fiber.join(running) });
+});
+
+const acquireSourcePeer = Effect.fn(function* () {
   clientState.agents = [card(TARGET_NAME, TARGET_ID)];
   clientState.sendResults.push({
     message: sentMessage(
@@ -332,26 +300,23 @@ const acquireSourcePeer = Effect.fn(function* () {
       SOURCE_ANNOUNCEMENT,
     ),
   });
-  const running = yield* peers
-    .announcementPeerRuntime(CASE_ID, TARGET_NAME, SOURCE_ANNOUNCEMENT)
-    .acquire({
-      agentName: agentName(SOURCE_NAME),
-      connection: connection(SOURCE_NAME, SOURCE_ID),
-    });
-  yield* Deferred.await(ready);
-  return running.gateway;
+  const definition = announcementPeerRuntime(
+    CASE_ID,
+    TARGET_NAME,
+    SOURCE_ANNOUNCEMENT,
+  );
+  return yield* startPeer(definition.plan, SOURCE_NAME, SOURCE_ID);
 });
 
 const acquireQuestionPeer = Effect.fn(function* () {
-  const peers = yield* peerModule;
-  const ready = yield* Deferred.make<undefined>();
-  clientState.received = receivedStream(ready);
   clientState.agents = [
     card(TARGET_NAME, TARGET_ID),
     card(SOURCE_NAME, SOURCE_ID),
     card(OBSERVER_NAME, OBSERVER_ID),
   ];
   const sendCompleted = yield* Deferred.make<undefined>();
+  const conversationOpened = yield* Deferred.make<undefined>();
+  clientState.conversationOpened = conversationOpened;
   clientState.sendCompletions.push(sendCompleted);
   const response = installFastResponses();
   clientState.sendResults.push({
@@ -361,36 +326,23 @@ const acquireQuestionPeer = Effect.fn(function* () {
       GROUP_QUESTION,
     ),
   });
-  const running = yield* peers
-    .orderedGroupPeerRuntime({
-      caseId: CASE_ID,
-      targetName: TARGET_NAME,
-      sourceName: SOURCE_NAME,
-      participantNames: [SOURCE_NAME, OBSERVER_NAME],
-      groupName: GROUP_NAME,
-      text: GROUP_QUESTION,
-    })
-    .acquire({
-      agentName: agentName(QUESTION_NAME),
-      connection: connection(QUESTION_NAME, QUESTION_ID),
-    });
-  yield* Deferred.await(ready);
-  return { gateway: running.gateway, response, sendCompleted };
+  const definition = orderedGroupPeerRuntime({
+    caseId: CASE_ID,
+    targetName: TARGET_NAME,
+    sourceName: SOURCE_NAME,
+    participantNames: [SOURCE_NAME, OBSERVER_NAME],
+    groupName: GROUP_NAME,
+    text: GROUP_QUESTION,
+  });
+  const gateway = yield* startPeer(definition.plan, QUESTION_NAME, QUESTION_ID);
+  yield* Deferred.await(conversationOpened);
+  return { gateway, response, sendCompleted };
 });
 
 const acquireObserverPeer = Effect.fn(function* () {
-  const peers = yield* peerModule;
-  const ready = yield* Deferred.make<undefined>();
-  clientState.received = receivedStream(ready);
   clientState.agents = [card(TARGET_NAME, TARGET_ID)];
-  const running = yield* peers
-    .observerPeerRuntime(CASE_ID, TARGET_NAME)
-    .acquire({
-      agentName: agentName(OBSERVER_NAME),
-      connection: connection(OBSERVER_NAME, OBSERVER_ID),
-    });
-  yield* Deferred.await(ready);
-  return running.gateway;
+  const definition = observerPeerRuntime(CASE_ID, TARGET_NAME);
+  return yield* startPeer(definition.plan, OBSERVER_NAME, OBSERVER_ID);
 });
 
 function assertSourceExchange(
@@ -537,6 +489,50 @@ const orderedGroupPolicyTest = Effect.fn(function* () {
   assertQuestionExchange(exchange, contact, source, fixture.response);
 });
 
+const completedBridgeTest = Effect.fn(function* () {
+  const exchange = new PeerExchange({
+    observations: [
+      CodePeerMessageReceived.make({
+        caseId: CASE_ID,
+        agentName: SOURCE_AGENT_NAME,
+        agentId: SOURCE_ID,
+        conversationId: CONVERSATION_ID,
+        messageId: messageId("00000000-0000-4000-8000-000000000849"),
+        senderId: TARGET_ID,
+        parts: [{ type: "text", text: "bridge observation" }],
+      }),
+    ],
+  });
+  const completed = EvaluationPeerBridgeCompleted.make({ exchange });
+  const encoded = yield* Schema.encode(EvaluationPeerBridgeResult)(completed);
+  const decoded = yield* Schema.decode(EvaluationPeerBridgeResult)(encoded);
+  const gateway = evaluationPeerGatewayFromBridge(Effect.succeed(decoded));
+
+  assert.deepStrictEqual(yield* gateway.exchange, exchange);
+});
+
+const failedBridgeTest = Effect.fn(function* () {
+  const failure = EvaluationPeerFailed.make({
+    operation: "bridge",
+    detail: "peer application terminated before publishing its exchange",
+  });
+  const encoded = yield* Schema.encode(EvaluationPeerBridgeResult)(
+    EvaluationPeerBridgeFailed.make({ failure }),
+  );
+  const decoded = yield* Schema.decode(EvaluationPeerBridgeResult)(encoded);
+  const gateway = evaluationPeerGatewayFromBridge(Effect.succeed(decoded));
+  const observed = yield* gateway.exchange.pipe(
+    Effect.match({
+      onFailure: (value) => ({ failure: value }),
+      onSuccess: () => ({ failure: undefined }),
+    }),
+  );
+
+  assert.instanceOf(observed.failure, EvaluationPeerFailed);
+  assert.strictEqual(observed.failure?.operation, failure.operation);
+  assert.strictEqual(observed.failure?.detail, failure.detail);
+});
+
 test("the source announces only after target contact and in that conversation", () =>
   Effect.scoped(sourcePolicyTest()));
 
@@ -545,3 +541,7 @@ test("the observer records the first target delivery without sending", () =>
 
 test("the question preserves order and buffers a response received before send returns", () =>
   Effect.scoped(orderedGroupPolicyTest()));
+test("the peer bridge round-trips and projects a completed exchange", () =>
+  completedBridgeTest());
+test("the peer bridge projects a typed application failure", () =>
+  failedBridgeTest());

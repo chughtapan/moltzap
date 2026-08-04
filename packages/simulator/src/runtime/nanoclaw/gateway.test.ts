@@ -4,7 +4,11 @@ import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import { assert, it as effectIt } from "@effect/vitest";
 import { Chunk, Deferred, Duration, Effect, Fiber, Stream } from "effect";
 import { describe } from "vitest";
-import { acquireNanoclawGateway, NanoclawGatewayInput } from "./gateway.js";
+import {
+  acquireDistributedNanoclawGateway,
+  acquireNanoclawGateway,
+  NanoclawGatewayInput,
+} from "./gateway.js";
 
 const test = effectIt.scoped;
 const liveTest = effectIt.scopedLive;
@@ -58,6 +62,24 @@ function startTestServer(
     yield* server
       .run((socket) => handleConnection(socket, request))
       .pipe(Effect.forkScoped);
+  });
+}
+
+function startTcpTestServer(request: Deferred.Deferred<string>) {
+  return Effect.gen(function* () {
+    const server = yield* NodeSocketServer.make({
+      host: "127.0.0.1",
+      port: 0,
+    });
+    if (server.address._tag !== "TcpAddress") {
+      return yield* Effect.dieMessage(
+        "TCP gateway fixture returned a Unix address",
+      );
+    }
+    yield* server
+      .run((socket) => handleConnection(socket, request))
+      .pipe(Effect.forkScoped);
+    return server.address;
   });
 }
 
@@ -170,10 +192,40 @@ function oversizedFragmentedLineTest() {
   }).pipe(Effect.provide(NodeContext.layer));
 }
 
+function distributedNativeFramesTest() {
+  return Effect.gen(function* () {
+    const request = yield* Deferred.make<string>();
+    const address = yield* startTcpTestServer(request);
+    const session = yield* acquireDistributedNanoclawGateway(
+      address.hostname,
+      address.port,
+      Duration.seconds(2),
+    );
+    const collecting = yield* session.gateway.outputs.pipe(
+      Stream.take(2),
+      Stream.runCollect,
+      Effect.forkScoped,
+    );
+    yield* session.gateway.submit(NanoclawGatewayInput.make({ text: "hello" }));
+
+    assert.strictEqual(yield* Deferred.await(request), EXPECTED_INPUT);
+    assert.deepStrictEqual(
+      Chunk.toReadonlyArray(yield* Fiber.join(collecting)).map(
+        (frame) => frame.text,
+      ),
+      ["first", "second"],
+    );
+  }).pipe(Effect.provide(NodeContext.layer));
+}
+
 describe("NanoClaw principal gateway", () => {
   test(
     "submits native NDJSON and preserves each streamed output frame",
     nativeFramesTest,
+  );
+  test(
+    "preserves the same native gateway over the application bridge",
+    distributedNativeFramesTest,
   );
   liveTest(
     "rejects a fragmented native output line before it can grow without bound",

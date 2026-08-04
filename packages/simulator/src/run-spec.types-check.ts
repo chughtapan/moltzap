@@ -1,8 +1,8 @@
 /**
  * A RunSpec preserves exact heterogeneous gateways and contains customer
- * completion inside ProgramFinished. Its infrastructure Layer supplies every
- * runtime and kernel dependency, removes even customer-used extra outputs,
- * and leaves only the Layer input plus customer-owned requirements outside.
+ * completion inside ProgramFinished. Its infrastructure Layer supplies the
+ * kernel and platform, removes customer-used extra outputs, and leaves only
+ * the Layer input plus customer-owned requirements outside.
  */
 
 import {
@@ -17,13 +17,17 @@ import {
   type Tracer,
 } from "effect";
 import { EventCatalog } from "./events/catalog.js";
+import { coreEvents } from "./events/core.js";
 import type { LedgerFailure } from "./ledger/live.js";
+import type { LedgerRef } from "./ledger/model.js";
+import { openLedger } from "./ledger/open.js";
 import { LedgerStorage, type LedgerStorageError } from "./ledger/storage.js";
 import { RouterProvider } from "./network/router.js";
-import { Run, RunSpec, simulator } from "./definition.js";
+import { Run, RunSpec } from "./definition.js";
 import type { ProgramFinished, SimulatorRunFailure } from "./kernel/run.js";
 import type { SimulatorInfrastructureFailure } from "./platform/failure.js";
-import { RuntimeCompleted, defineRuntime } from "./runtime/runtime.js";
+import { SocietyPlatform } from "./platform/platform.js";
+import { defineRuntime } from "./runtime/runtime.js";
 
 interface AlphaGateway {
   readonly runtime: "alpha";
@@ -34,14 +38,6 @@ interface BetaGateway {
   readonly runtime: "beta";
   readonly inspect: Effect.Effect<"beta-ready">;
 }
-
-class AlphaRuntimeRequirement extends Context.Tag(
-  "@moltzap/simulator/test/RunSpecAlphaRuntimeRequirement",
-)<AlphaRuntimeRequirement, { readonly gateway: AlphaGateway }>() {}
-
-class BetaRuntimeRequirement extends Context.Tag(
-  "@moltzap/simulator/test/RunSpecBetaRuntimeRequirement",
-)<BetaRuntimeRequirement, { readonly gateway: BetaGateway }>() {}
 
 class InfrastructureInput extends Context.Tag(
   "@moltzap/simulator/test/RunSpecInfrastructureInput",
@@ -81,30 +77,22 @@ const configuration = {
   value: {},
 };
 
-const alphaRuntime = defineRuntime({
+const alphaRuntime = defineRuntime<
+  AlphaGateway,
+  never,
+  typeof runtimeConfiguration
+>({
   name: "alpha",
   configuration,
-  acquire: () =>
-    Effect.gen(function* () {
-      const requirement = yield* AlphaRuntimeRequirement;
-      return {
-        gateway: requirement.gateway,
-        termination: Effect.succeed(RuntimeCompleted.make({})),
-      };
-    }).pipe(Effect.withSpan("runSpecAlphaRuntime")),
 });
 
-const betaRuntime = defineRuntime({
+const betaRuntime = defineRuntime<
+  BetaGateway,
+  never,
+  typeof runtimeConfiguration
+>({
   name: "beta",
   configuration,
-  acquire: () =>
-    Effect.gen(function* () {
-      const requirement = yield* BetaRuntimeRequirement;
-      return {
-        gateway: requirement.gateway,
-        termination: Effect.succeed(RuntimeCompleted.make({})),
-      };
-    }).pipe(Effect.withSpan("runSpecBetaRuntime")),
 });
 
 const unavailableInfrastructure = Effect.gen(function* () {
@@ -117,8 +105,7 @@ const unavailableInfrastructure = Effect.gen(function* () {
 const infrastructure = Layer.mergeAll(
   Layer.effect(LedgerStorage, unavailableInfrastructure),
   Layer.effect(RouterProvider, unavailableInfrastructure),
-  Layer.effect(AlphaRuntimeRequirement, unavailableInfrastructure),
-  Layer.effect(BetaRuntimeRequirement, unavailableInfrastructure),
+  Layer.effect(SocietyPlatform, unavailableInfrastructure),
   Layer.effect(InfrastructureExtra, unavailableInfrastructure),
 );
 
@@ -191,17 +178,14 @@ type ExternalRequirementsAreExact = Expect<
 type LayerExtraOutputIsRemoved = Expect<
   Equal<Extract<ExecutionRequirements, InfrastructureExtra>, never>
 >;
-type RuntimeRequirementsAreRemoved = Expect<
+type KernelServicesAreRemoved = Expect<
   Equal<
     Extract<
       ExecutionRequirements,
-      AlphaRuntimeRequirement | BetaRuntimeRequirement
+      LedgerStorage | RouterProvider | SocietyPlatform
     >,
     never
   >
->;
-type KernelStorageAndRouterAreRemoved = Expect<
-  Equal<Extract<ExecutionRequirements, LedgerStorage | RouterProvider>, never>
 >;
 type ScopeDoesNotLeak = Expect<
   Equal<Extract<ExecutionRequirements, Scope.Scope>, never>
@@ -213,13 +197,19 @@ type LiveRecordsRetainInfrastructureFailure = Expect<
   Equal<Stream.Stream.Error<ExecuteContext["ledger"]["records"]>, LedgerFailure>
 >;
 
-/** Matching completed-ledger reader retained for stream error checks. */
-export const completedRunSpecCanaryReader = simulator.define(
-  "acme.run-spec-canary/v1",
-  observations,
-);
+/**
+ * Matching completed-ledger reader retained for stream error checks.
+ * @param ref Durable ledger identity used by the canary.
+ * @returns The matching completed-ledger reader Effect.
+ */
+export const completedRunSpecCanaryReader = (ref: LedgerRef) =>
+  openLedger(
+    EventCatalog.merge(coreEvents, observations),
+    ref,
+    "acme.run-spec-canary/v1",
+  );
 type OpenedLedger = Effect.Effect.Success<
-  ReturnType<typeof completedRunSpecCanaryReader.openLedger>
+  ReturnType<typeof completedRunSpecCanaryReader>
 >;
 type CompletedRecordsCannotFail = Expect<
   Equal<Stream.Stream.Error<OpenedLedger["records"]>, never>
@@ -254,8 +244,7 @@ export type RunSpecCanaries = [
   OuterErrorsAreInfrastructureOnly,
   ExternalRequirementsAreExact,
   LayerExtraOutputIsRemoved,
-  RuntimeRequirementsAreRemoved,
-  KernelStorageAndRouterAreRemoved,
+  KernelServicesAreRemoved,
   ScopeDoesNotLeak,
   ParentSpanDoesNotLeak,
   LiveRecordsRetainInfrastructureFailure,

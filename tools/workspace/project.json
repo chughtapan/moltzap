@@ -21,40 +21,6 @@
         "command": "oxfmt --check ."
       }
     },
-    "simulator-example-check": {
-      "cache": true,
-      "dependsOn": [
-        {
-          "target": "build",
-          "projects": "@moltzap/simulator"
-        }
-      ],
-      "inputs": [
-        "{workspaceRoot}/examples/simulator/**/*",
-        "{workspaceRoot}/package.json",
-        "{workspaceRoot}/tsconfig.base.json"
-      ],
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": ".",
-        "parallel": false,
-        "commands": [
-          "pnpm exec tsc -p examples/simulator/tsconfig.json",
-          "node --test examples/simulator/openclaw-container.test.mjs"
-        ]
-      }
-    },
-    "simulator-example": {
-      "cache": false,
-      "dependsOn": [
-        "simulator-example-check"
-      ],
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": ".",
-        "command": "node --experimental-strip-types examples/simulator/hello.ts"
-      }
-    },
     "docs:generate": {
       "cache": true,
       "dependsOn": [
@@ -248,8 +214,7 @@
       "cache": false,
       "dependsOn": [
         "lint",
-        "format:check",
-        "simulator-example-check"
+        "format:check"
       ],
       "executor": "nx:run-commands",
       "options": {

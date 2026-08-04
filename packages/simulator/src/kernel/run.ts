@@ -19,6 +19,7 @@ import {
 import {
   LedgerCompletion,
   ledgerRef,
+  type JsonValue,
   type JsonObject,
 } from "../ledger/model.js";
 import type { LedgerStorageError } from "../ledger/storage.js";
@@ -57,6 +58,42 @@ type DefinitionEventServices<
 export interface SimulatorRunOptions {
   readonly provenance?: JsonObject;
   readonly metadata?: JsonObject;
+}
+
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
+function snapshotJsonValue(value: JsonValue): JsonValue {
+  if (isJsonArray(value)) {
+    return Object.freeze(value.map(snapshotJsonValue));
+  }
+  if (typeof value === "object" && value !== null) {
+    return snapshotJsonObject(value);
+  }
+  return value;
+}
+
+function snapshotJsonObject(value: JsonObject): JsonObject {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        snapshotJsonValue(entry),
+      ]),
+    ),
+  );
+}
+
+function snapshotRunOptions(options: SimulatorRunOptions): SimulatorRunOptions {
+  return Object.freeze({
+    ...(options.provenance === undefined
+      ? {}
+      : { provenance: snapshotJsonObject(options.provenance) }),
+    ...(options.metadata === undefined
+      ? {}
+      : { metadata: snapshotJsonObject(options.metadata) }),
+  });
 }
 
 /** Physical receipt for a ledger whose completion marker is durable. */
@@ -601,5 +638,10 @@ export function runSociety<
   LedgerStorageError,
   RunRequirements<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>
 > {
-  return executeRun(input);
+  return executeRun(
+    Object.freeze({
+      ...input,
+      options: snapshotRunOptions(input.options),
+    }),
+  );
 }

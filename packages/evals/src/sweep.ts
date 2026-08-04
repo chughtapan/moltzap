@@ -25,9 +25,12 @@ import {
   type CriterionAssessment,
 } from "./grading.js";
 
-const REPORT_FORMAT_VERSION = 2;
+const REPORT_FORMAT_VERSION = 3;
 const SAMPLE_NUMBER = 1;
 const positiveInteger = Schema.Int.pipe(Schema.positive());
+const distributedImage = Schema.String.pipe(
+  Schema.pattern(/^.+@sha256:[0-9a-f]{64}$/u),
+);
 
 /** Filesystem-safe identity for one local evaluation report. */
 export const evaluationReportId = Schema.String.pipe(
@@ -111,6 +114,40 @@ export class JudgePolicySnapshot extends Schema.Class<JudgePolicySnapshot>(
   maxRetries: Schema.Literal(2),
 }) {}
 
+/** Non-secret physical environment retained so a resume cannot move a sweep. */
+export class LocalEvaluationInfrastructure extends Schema.TaggedClass<LocalEvaluationInfrastructure>()(
+  "LocalEvaluationInfrastructure",
+  {
+    profile: Schema.Literal("local"),
+    controllerImage: distributedImage,
+    peerApplicationImage: distributedImage,
+    nanoclawApplicationImage: distributedImage,
+    temporalAddress: Schema.NonEmptyString,
+    artifactDirectory: Schema.NonEmptyString,
+  },
+) {}
+
+/** Non-secret physical environment retained so a resume cannot move a sweep. */
+export class GkeEvaluationInfrastructure extends Schema.TaggedClass<GkeEvaluationInfrastructure>()(
+  "GkeEvaluationInfrastructure",
+  {
+    profile: Schema.Literal("gke"),
+    controllerImage: distributedImage,
+    peerApplicationImage: distributedImage,
+    nanoclawApplicationImage: distributedImage,
+    temporalAddress: Schema.NonEmptyString,
+    kubeContext: Schema.NonEmptyString,
+    artifactBucket: Schema.NonEmptyString,
+  },
+) {}
+
+/** Exact non-secret target selected for each submitted evaluation cell. */
+export const evaluationInfrastructure = Schema.Union(
+  LocalEvaluationInfrastructure,
+  GkeEvaluationInfrastructure,
+);
+export type EvaluationInfrastructure = typeof evaluationInfrastructure.Type;
+
 /** Ordered matrix and all inputs that must match before resume. */
 export class EvaluationReportPlan extends Schema.Class<EvaluationReportPlan>(
   "EvaluationReportPlan",
@@ -119,6 +156,7 @@ export class EvaluationReportPlan extends Schema.Class<EvaluationReportPlan>(
   cases: Schema.NonEmptyArray(EvaluationCasePlan),
   conditions: Schema.NonEmptyArray(EvaluationConditionPlan),
   judgePolicy: JudgePolicySnapshot,
+  infrastructure: evaluationInfrastructure,
   samplesPerCell: Schema.Literal(SAMPLE_NUMBER),
 }) {}
 
@@ -324,6 +362,7 @@ const resumeMismatchField = Schema.Literal(
   "caseCatalog",
   "judgePolicy",
   "runtimeConfigurations",
+  "infrastructure",
   "planDigest",
 );
 /** Immutable plan component reported by a resume mismatch. */
@@ -911,6 +950,12 @@ export const resumeEvaluationReport = Effect.fn("evals.resumeEvaluationReport")(
       Schema.Array(evaluationConditionPlanValue),
       report.plan.conditions,
       expectedPlan.conditions,
+    );
+    yield* matchPlanComponent(
+      "infrastructure",
+      evaluationInfrastructure,
+      report.plan.infrastructure,
+      expectedPlan.infrastructure,
     );
     const expectedDigest = yield* digestEvaluationPlan(expectedPlan);
     if (report.planDigest !== expectedDigest) {

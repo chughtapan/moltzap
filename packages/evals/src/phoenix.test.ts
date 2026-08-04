@@ -43,6 +43,7 @@ import {
   EvaluationReportPlan,
   EvidenceRejectedAttempt,
   JudgePolicySnapshot,
+  LocalEvaluationInfrastructure,
   LedgerAllocationFailedAttempt,
 } from "./sweep.js";
 
@@ -121,6 +122,14 @@ function plan(definitionId = "moltzap.test.phoenix/v1"): EvaluationReportPlan {
       tools: "none",
       timeoutMillis: 1_000,
       maxRetries: 2,
+    }),
+    infrastructure: LocalEvaluationInfrastructure.make({
+      profile: "local",
+      controllerImage: `controller@sha256:${"a".repeat(64)}`,
+      peerApplicationImage: `peer@sha256:${"b".repeat(64)}`,
+      nanoclawApplicationImage: `nanoclaw@sha256:${"c".repeat(64)}`,
+      temporalAddress: "127.0.0.1:7233",
+      artifactDirectory: "/var/lib/moltzap/artifacts",
     }),
     samplesPerCell: 1,
   });
@@ -768,6 +777,7 @@ describe("Phoenix catalog version conflicts", () => {
         cases: reportPlan.cases,
         conditions: [reportPlan.conditions[0], second],
         judgePolicy: reportPlan.judgePolicy,
+        infrastructure: reportPlan.infrastructure,
         samplesPerCell: reportPlan.samplesPerCell,
       });
       const failure = yield* phoenixPublishedDatasetVersion(digest, splitPlan, [
