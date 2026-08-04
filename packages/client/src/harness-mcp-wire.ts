@@ -6,8 +6,6 @@ import {
   type JsonSchemaType,
   type McpHttpHandler,
 } from "@modelcontextprotocol/server";
-import { Headers } from "@effect/platform";
-import { Rpc } from "@effect/rpc";
 import { Effect, JSONSchema, type Schema } from "effect";
 import {
   conversationSearch,
@@ -34,26 +32,25 @@ import {
   harnessReplyResultJsonSchema,
   harnessStartConversationInputJsonSchema,
   harnessStartConversationResultJsonSchema,
+  harnessStatusInputJsonSchema,
+  harnessStatusResultJsonSchema,
   type HarnessReplyInput,
   type HarnessReplyResult,
   type HarnessSearchConversationsResult,
   type HarnessStartConversationInput,
   type HarnessStartConversationResult,
+  type HarnessStatusInput,
+  type HarnessStatusResult,
   type HarnessTurnEvent,
 } from "./harness/index.js";
 import {
   makeHarnessMcpSubscriptionHandler,
   type HarnessMcpSubscriptionHandler,
 } from "./harness-mcp-subscription.js";
-import {
-  statusCommandRpc,
-  type localDaemonCommands,
-  type LocalDaemonHandlers,
-} from "./local-daemon-rpc.js";
 
-type StatusPayload = Schema.Schema.Type<typeof statusCommandRpc.payloadSchema>;
-type StatusResult = Schema.Schema.Type<typeof statusCommandRpc.successSchema>;
-type StatusHandler = LocalDaemonHandlers[typeof localDaemonCommands.status];
+type StatusPayload = HarnessStatusInput;
+type StatusResult = HarnessStatusResult;
+type StatusHandler = (payload: StatusPayload) => Effect.Effect<StatusResult>;
 type ReplyHandler = (
   conversationId: ConversationId,
   payload: string,
@@ -87,16 +84,10 @@ const effectSchemaToMcpSchema = <A>(schema: Schema.Schema.AnyNoContext) =>
   );
 
 const statusInputSchema = fromJsonSchema<StatusPayload>(
-  /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ JSONSchema.make(
-    statusCommandRpc.payloadSchema,
-    { target: "jsonSchema2020-12" },
-  ) as JsonSchemaType,
+  /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessStatusInputJsonSchema as JsonSchemaType,
 );
 const statusOutputSchema = fromJsonSchema<StatusResult>(
-  /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ JSONSchema.make(
-    statusCommandRpc.successSchema,
-    { target: "jsonSchema2020-12" },
-  ) as JsonSchemaType,
+  /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessStatusResultJsonSchema as JsonSchemaType,
 );
 
 const replyInputSchema = fromJsonSchema<HarnessReplyInput>(
@@ -214,24 +205,13 @@ const registerStatusTool = (server: McpServer, status: StatusHandler): void => {
       inputSchema: statusInputSchema,
       outputSchema: statusOutputSchema,
     },
-    (payload) => {
-      const response = status(payload, {
-        clientId: 0,
-        headers: Headers.empty,
-      });
-      const effect = Rpc.isWrapper(response) ? response.value : response;
-      const runnableEffect =
-        /* Safe because the local daemon handler closes over all services while HandlersFrom widens that known-empty environment to `any`. */ effect as Effect.Effect<
-          StatusResult,
-          unknown
-        >;
-      return Effect.runPromise(
-        Effect.map(runnableEffect, (result) => ({
+    (payload) =>
+      Effect.runPromise(
+        Effect.map(status(payload), (result) => ({
           content: [{ type: "text", text: JSON.stringify(result) }],
           structuredContent: result,
         })),
-      );
-    },
+      ),
   );
 };
 

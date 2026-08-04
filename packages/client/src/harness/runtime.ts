@@ -86,6 +86,16 @@ const harnessReplyRouteSchema = Schema.Struct({
   conversationId,
 });
 
+/** Status takes no arguments; the daemon reports on the slot it already owns. */
+const harnessStatusInputSchema = Schema.Struct({});
+
+/** Active daemon identity and connection state. */
+const harnessStatusResultSchema = Schema.Struct({
+  agentId: Schema.optional(agentId),
+  connected: Schema.Boolean,
+  conversations: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+});
+
 /** Decoded harness turn event. */
 export type HarnessTurnEvent = Schema.Schema.Type<
   typeof harnessTurnEventSchema
@@ -126,6 +136,16 @@ export type HarnessReplyRoute = Schema.Schema.Type<
   typeof harnessReplyRouteSchema
 >;
 
+/** Decoded status input. */
+export type HarnessStatusInput = Schema.Schema.Type<
+  typeof harnessStatusInputSchema
+>;
+
+/** Decoded status result. */
+export type HarnessStatusResult = Schema.Schema.Type<
+  typeof harnessStatusResultSchema
+>;
+
 const strictDecodeOptions = { onExcessProperty: "error" } as const;
 const decodeTurnEvent = Schema.decodeUnknown(harnessTurnEventSchema);
 const decodeSearchConversationsResult = Schema.decodeUnknown(
@@ -135,6 +155,7 @@ const decodeStartConversationResult = Schema.decodeUnknown(
   harnessStartConversationResultSchema,
 );
 const decodeReplyRoute = Schema.decodeUnknown(harnessReplyRouteSchema);
+const decodeStatusResult = Schema.decodeUnknown(harnessStatusResultSchema);
 
 /** JSON Schema advertised for start-conversation arguments. */
 export const harnessStartConversationInputJsonSchema = JSONSchema.make(
@@ -166,6 +187,18 @@ export const harnessReplyResultJsonSchema = JSONSchema.make(
   { target: "jsonSchema2020-12" },
 );
 
+/** JSON Schema advertised for the empty status arguments. */
+export const harnessStatusInputJsonSchema = JSONSchema.make(
+  harnessStatusInputSchema,
+  { target: "jsonSchema2020-12" },
+);
+
+/** JSON Schema advertised for the status result. */
+export const harnessStatusResultJsonSchema = JSONSchema.make(
+  harnessStatusResultSchema,
+  { target: "jsonSchema2020-12" },
+);
+
 /**
  * Strictly decode a turn event received from the MCP boundary.
  * @param value Untrusted notification parameters.
@@ -189,6 +222,14 @@ export const decodeHarnessSearchConversationsResult = (value: unknown) =>
  */
 export const decodeHarnessStartConversationResult = (value: unknown) =>
   decodeStartConversationResult(value, strictDecodeOptions);
+
+/**
+ * Strictly decode the daemon status reported over the MCP boundary.
+ * @param value Untrusted structured tool content.
+ * @returns The decoded identity and connection state.
+ */
+export const decodeHarnessStatusResult = (value: unknown) =>
+  decodeStatusResult(value, strictDecodeOptions);
 
 /**
  * Build the private request metadata consumed by the production harness client.

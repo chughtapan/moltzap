@@ -9,6 +9,7 @@ export {
   decodeHarnessReplyRoute,
   decodeHarnessSearchConversationsResult,
   decodeHarnessStartConversationResult,
+  decodeHarnessStatusResult,
   HARNESS_EVENTS_EXTENSION,
   HARNESS_READ_CONVERSATION_TOOL,
   HARNESS_REPLY_TOOL,
@@ -30,5 +31,9 @@ export {
   harnessStartConversationResultJsonSchema,
   type HarnessStartConversationInput,
   type HarnessStartConversationResult,
+  harnessStatusInputJsonSchema,
+  harnessStatusResultJsonSchema,
+  type HarnessStatusInput,
+  type HarnessStatusResult,
   type HarnessTurnEvent,
 } from "./runtime.js";

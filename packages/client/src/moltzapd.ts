@@ -18,14 +18,12 @@ import type {
   HarnessSearchConversationsResult,
   HarnessStartConversationInput,
   HarnessStartConversationResult,
+  HarnessStatusInput,
+  HarnessStatusResult,
   HarnessTurnEvent,
 } from "./harness/index.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
-import type {
-  localDaemonCommands,
-  LocalDaemonHandlers,
-} from "./local-daemon-rpc.js";
 import { MoltZapService, type ServiceRpcError } from "./service.js";
 import type { ServiceConfigError } from "./config.js";
 import { drainPaginatedList } from "./pagination.js";
@@ -40,7 +38,9 @@ const MCP_IMPLEMENTATION = {
   version: packageJson.version,
 } satisfies Implementation;
 
-type StatusHandler = LocalDaemonHandlers[typeof localDaemonCommands.status];
+type StatusHandler = (
+  payload: HarnessStatusInput,
+) => Effect.Effect<HarnessStatusResult>;
 type MoltzapdServer = Effect.Effect.Success<
   ReturnType<typeof acquireHarnessMcpHttpServer>
 >;

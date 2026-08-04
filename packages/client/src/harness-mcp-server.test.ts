@@ -32,11 +32,10 @@ import {
 } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { conversationCheckpoint } from "@moltzap/protocol/message";
+import type { AgentId } from "@moltzap/protocol/identity";
 import { agentId, agentName, conversationId } from "@moltzap/protocol/testing";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
 import { HARNESS_EVENTS_EXTENSION } from "./harness/index.js";
-import { localDaemonCommands } from "./local-daemon-rpc.js";
-import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import { makeHarnessMcpSubscriptionHandler } from "./harness-mcp-subscription.js";
 
@@ -374,25 +373,17 @@ const closesActiveSubscriptionWhenScopeReleases = async () => {
   expect(running.server.listening).toBe(false);
 };
 
+const makeStatusHandler = (ownAgentId: AgentId, conversations: number) => () =>
+  Effect.succeed({ agentId: ownAgentId, connected: true, conversations });
+
 const makeSubscriptionHarnessHandlers = () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440041");
-  const localHandlers = makeLocalDaemonHandlers({
-    ownAgentId,
-    connected: () => true,
-    conversationCount: () => 0,
-    call: () => {
-      throw new Error("subscription must not call an agent RPC");
-    },
-    handleHistoryRequest: () => {
-      throw new Error("subscription must not read local history");
-    },
-  });
   return makeHarnessMcpHttpHandlers({
     implementation: SERVER_IMPLEMENTATION,
     ...makeReadPlaneHandlers(),
     reply: () => Effect.void,
     startConversation: makeStartConversationHandler(),
-    status: localHandlers[localDaemonCommands.status],
+    status: makeStatusHandler(ownAgentId, 0),
   });
 };
 
@@ -682,17 +673,6 @@ const expectStartConversationTool = async (
 
 const exposesActiveTools = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
-  const localHandlers = makeLocalDaemonHandlers({
-    ownAgentId,
-    connected: () => true,
-    conversationCount: () => 3,
-    call: () => {
-      throw new Error("status must not call an agent RPC");
-    },
-    handleHistoryRequest: () => {
-      throw new Error("status must not read local history");
-    },
-  });
   const readPlane = makeReadPlaneHandlers();
   const startConversation = makeStartConversationHandler();
   const handlers = makeHarnessMcpHttpHandlers({
@@ -700,7 +680,7 @@ const exposesActiveTools = async () => {
     ...readPlane,
     reply: () => Effect.void,
     startConversation,
-    status: localHandlers[localDaemonCommands.status],
+    status: makeStatusHandler(ownAgentId, 3),
   });
   const baseUrl = await makeServerWithHandlers(
     handlers.registration,

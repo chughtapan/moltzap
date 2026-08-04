@@ -18,6 +18,11 @@ const UUID_V4_RE =
 const CONVERSATION_TARGET_PREFIX = "conv:";
 const PARTICIPANT_PREFIX = "agent:";
 
+// The harness plane owns the status contract. This socket surface states the
+// same shape independently so the surviving plane never imports the dying one;
+// a schema constructor cannot be shared across them. Drift is a compile error
+// either way, because service-local-daemon.ts and moltzapd.ts each implement a
+// handler against its own side.
 const emptyPayload = Schema.Struct({});
 const localDaemonStatusResultSchema = Schema.Struct({
   agentId: Schema.optional(agentId),
@@ -236,8 +241,7 @@ export const toLocalDaemonError = (error: unknown): LocalDaemonError =>
     ? error
     : new LocalDaemonInputError({ message: errorMessage(error) });
 
-/** Provides the status command rpc runtime value. */
-export const statusCommandRpc = Rpc.make(localDaemonCommands.status, {
+const statusCommandRpc = Rpc.make(localDaemonCommands.status, {
   payload: emptyPayload,
   success: localDaemonStatusResultSchema,
   error: localDaemonErrorSchema,
