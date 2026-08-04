@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-29
 decision-makers: Tapan Chugh
-superseded-by: 20260801-main-simulator-runs-container-societies-on-kubernetes.md
+superseded-by: 20260729-principal-io-uses-runtime-gateways.md
 ---
 
 # Evaluation runs produce typed reports published to Phoenix
@@ -12,28 +12,21 @@ trajectory](../decision-evidence/20260729-effect-native-evaluation-results-traje
 
 ## Supersession
 
-The following scope remains current: the sixteen cases by two runtime
-conditions and their behavioral intent; typed case and criterion catalogs;
-deterministic and semantic grading; sanitized provenance; typed terminal
-attempts; report-local SQLite as mutable authority; Phoenix as a materialized
-comparison view; and existing report readability and publication.
-
-[`20260801-main-simulator-runs-container-societies-on-kubernetes.md`](./20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-replaces main/v1 host `AgentRuntime` configuration snapshots with source,
-input, resolved container, bridge, image, resource, Secret-version, and
-profile digests. It replaces local kernel outcomes with Schema-encoded remote
-program exits and durable infrastructure receipts; runtime factories and
-in-process peers with input-bound container rosters and an eval-owned peer
-image/bridge; and resume by executing a missing cell with
-`attemptId === executionId` start-or-attach to the same Workflow, controller,
-ledger, outcome, and receipt. Controller loss is terminal and no program,
-turn, subscription, or volatile cursor replays.
-
-[`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md),
-as partially superseded, continues to govern principal I/O, native gateway
-evidence, autonomous agent social action, removal of synthetic-sender and
-`replyToId` semantics, and behavioral acceptance. The historical runtime,
-outcome, peer, and resume mechanisms below remain context only.
+Runtime provenance, total run outcomes, code-defined case and criterion
+catalogs, semantic judging, resumable reports, and Phoenix publication remain
+current. The initial sixteen case identities, behavioral questions, and slice
+coverage also remain current as behavioral intent. Descriptions, versioned
+definitions, criteria, and rubrics that encode a synthetic sender, endpoint
+topology, or selected-response mechanism are revised while preserving that
+intent. The controlled-endpoint episode model, single-target runtime
+condition, evaluation-created social workspace,
+`EvaluationResponseSelected`, prompt-bound selected-response requirement,
+`replyToId` correlation, and classification of synthetic-peer runs as
+behavioral acceptance are replaced by
+[`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md).
+The replacement record governs principal I/O, gateway evidence, autonomous
+agent social action, complete-roster conditions, native evidence selection,
+and current behavioral acceptance.
 
 Scope: this record governs the Phase 1 source baseline in
 `packages/simulator` and the private `packages/evals` application on `main`.

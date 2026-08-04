@@ -3,11 +3,11 @@ title: "Grading typed ledgers"
 description: "Write ordinary Effect code over definition-validated simulator evidence."
 ---
 
-> **Implementation transition:** The [accepted main-track Kubernetes
+> **Implementation transition:** The [main-track Kubernetes
 > contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-> governs new execution work. The definition-bound opening examples below
-> describe pre-cutover calls. Typed RunLedger evidence and customer-owned
-> grading remain current; the executable host runner does not.
+> changes the execution path. Typed RunLedger evidence and customer-owned
+> grading remain current; host-run examples below describe the implementation
+> being replaced.
 
 A grader is ordinary Effect code over a `CompletedRunLedger`. The customer
 application owns evidence projection, criteria, model calls, report formats,

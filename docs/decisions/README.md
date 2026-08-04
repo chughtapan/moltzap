@@ -53,8 +53,8 @@ planning database as continuing authority.
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
 | [The main simulator runs container societies on Kubernetes](20260801-main-simulator-runs-container-societies-on-kubernetes.md) | 2026-08-01 | accepted | — |
-| [Principal I/O uses runtime-native gateways](20260729-principal-io-uses-runtime-gateways.md) | 2026-07-29 | partially-superseded | [Main Kubernetes society execution](20260801-main-simulator-runs-container-societies-on-kubernetes.md) |
-| [Evaluation runs produce typed reports published to Phoenix](20260729-effect-native-evaluation-results.md) | 2026-07-29 | partially-superseded | [Main Kubernetes society execution](20260801-main-simulator-runs-container-societies-on-kubernetes.md), [principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md) |
+| [Principal I/O uses runtime-native gateways](20260729-principal-io-uses-runtime-gateways.md) | 2026-07-29 | accepted | — |
+| [Evaluation runs produce typed reports published to Phoenix](20260729-effect-native-evaluation-results.md) | 2026-07-29 | partially-superseded | [Principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md) |
 | [Representation limits are fixed or derived](20260729-representation-limits-are-fixed-or-derived.md) | 2026-07-29 | accepted | — |
 | [Identity and Router expose deep Effect capabilities](20260729-identity-and-router-expose-deep-effect-capabilities.md) | 2026-07-29 | accepted | — |
 | [Registration is Registry bootstrap admission](20260729-registration-is-registry-bootstrap-admission.md) | 2026-07-29 | accepted | — |

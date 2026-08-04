@@ -1,10 +1,9 @@
 # Evaluation application boundary
 
-> **Implementation transition:** The [accepted main-track Kubernetes
+> **Implementation transition:** The [main-track Kubernetes
 > contract](../../../docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-> governs new work. Host `AgentRuntime` acquisition, in-process Effect peers,
-> and rerunning a missing cell describe the pre-cutover implementation. The
-> target maps each attempt to one start-or-attach `Run.execute` container run.
+> moves enabled attempts to the core `Run.execute` Kubernetes path. Host
+> acquisition below describes the implementation being replaced.
 
 This directory is a private application above `@moltzap/simulator`.
 `cli.ts` is its executable entry point. Customer society and scenario

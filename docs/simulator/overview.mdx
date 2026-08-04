@@ -3,12 +3,11 @@ title: "Society simulator"
 description: "Run mixed agent societies as Effect programs and analyze exact typed ledgers."
 ---
 
-> **Implementation transition:** The [accepted main-track Kubernetes
+> **Implementation transition:** The [main-track Kubernetes
 > contract](../decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-> governs new work. The `simulator.define`, `.run`, `simulatorLayer`, host
-> runtime, and in-process runtime material below describes the pre-cutover
-> implementation and is not an extension point. The v2 simulator contract is
-> unaffected.
+> moves the original simulator to `RunSpec` and `Run.execute` on local
+> Kubernetes or GKE. The host material below describes the implementation
+> being replaced. The v2 simulator contract is unaffected.
 
 `@moltzap/simulator` is the code-first library for agentic-society experiments.
 One run owns one router, one ledger, and one keyed roster. Programs use the

@@ -6,123 +6,96 @@ Code-first simulator for agentic societies.
 
 This package owns:
 
-- nominal, schema-bound `RunSpec` definitions and exact keyed container
-  rosters;
-- closed `Agent.container` descriptors, logical Secret references, and typed
-  runtime bridges;
-- the exact readable event catalog and customer-only writable catalog;
-- the live and completed ledger contract;
-- durable execution bindings, outcomes, receipts, module artifacts, and
-  independently resolvable ledger references;
-- network participant, endpoint, conversation-address, socket, and link
-  capabilities;
-- the private generation-aware run kernel and internal fake backend;
-- the Kubernetes, Kueue, Agent Sandbox, and Temporal implementations;
-- the non-replacing controller, finalizer, artifact authority, run-scoped v1
-  router/server, and exact owner-first cleanup;
-- local kind and GKE cluster profiles, the CLI, deployment assets, Nx targets,
-  and simulator controller/worker/support images; and
-- generic, OpenClaw, and NanoClaw container bridge implementations on the
-  existing `./runtime` facade.
+- `RunSpec` definitions and `Run.execute`;
+- exact keyed agent rosters and runtime-native gateways;
+- the closed readable event catalog and customer-only writable catalog;
+- live and completed run ledgers;
+- network participant, endpoint, conversation, socket, and link capabilities;
+- the private run kernel and private fake platform used by tests;
+- the Kubernetes, Kueue, Agent Sandbox, and Temporal integration used by that
+  kernel; and
+- local-Kubernetes and GKE Effect Layers plus their setup assets.
 
-`packages/evals` owns only its cases, peer policy/application image and bridge
-configuration, grading, reports, SQLite state, and Phoenix publication. It is
-a consumer of the same execution path, not a platform implementation.
+`packages/evals` owns cases, runtime conditions, grading, reports, resume
+policy, SQLite state, and Phoenix publication. It consumes this package's one
+execution path and does not implement another simulator backend.
 
-Definition, event, ledger-model, network-contract, runtime-bridge-contract,
-and kernel modules import only Effect and protocol contracts. They contain no
-Kubernetes, Kueue, Agent Sandbox, Temporal, Helm, Terraform, cloud-provider,
-or Docker types. Private concrete capability files may import Effect Platform,
-Node, the official Kubernetes client, Temporal SDKs, and the MoltZap
-client/server packages. Composition occurs at CLI, controller, worker, and
-test application edges; no public Layer selects a second execution engine.
+Keep Kubernetes, Kueue, Agent Sandbox, Temporal, Helm, Terraform, and
+cloud-provider types out of public definitions, event models, network
+contracts, and customer Effects. Concrete integrations stay private and are
+composed at the application edge.
 
 ## Laws
 
-- One execution binding has one source/input/roster/profile identity, one
-  Temporal Workflow, one RunLedger, one non-replacing controller, one
-  run-scoped v1 router/server, and one exact container roster.
-- Kubernetes is the only real distributed backend. Docker supports image
-  builds, kind, and the local registry only. Unit tests use the private fake.
-- One roster key is one stable AgentId and direct Sandbox with one application
-  container. Infrastructure Pods do not count as agents.
-- One aggregate Kueue Workload admits the complete homogeneous roster before
-  any Sandbox. Kueue admission is logical quota, not physical gang scheduling.
-- A generation changes when backing Pod UID or application-container restart
-  count changes. Generation loss invalidates readiness immediately.
-- The program starts only after the exact current-generation barrier and its
-  immediate recheck. The durable dispatch fence permits at most one invocation
-  attempt. Pre-dispatch loss reacquires; post-dispatch replacement never
-  replays the program, active call, turn, subscription, or volatile cursor.
-- Controller loss is terminal. Temporal finds the same controller or cleans
-  deterministic resources; it never replaces the controller, runs customer
-  code, or appends simulator records.
-- The controller seals records and exits. The Temporal finalizer deletes and
-  verifies run-owned resources, writes cleanup/proof artifacts, and only then
-  publishes completion. Success requires confirmed zero run-owned residue.
-- Every event class is declared before the run. The definition's exact catalog
-  is the complete event universe for emission, selection, and typed opening.
+- One execution creates one experiment society, runs one customer Effect, and
+  tears the society down. It is not a reusable warm pool.
+- Kubernetes is the only real distributed execution backend. Local Kubernetes
+  and GKE are two Layers for the same path. Docker may build images or support
+  the local cluster; it is not a second simulator backend.
+- One roster entry maps to one Agent Sandbox application container.
+  Infrastructure containers do not count as agents.
+- Kueue admits capacity for the complete roster before Sandboxes are created.
+  Kueue admission does not establish simulator readiness.
+- The customer Effect starts only after the exact roster is ready at one
+  cohort gate. A pre-gate backing-Pod restart delays readiness without adding a
+  public generation model. An unrecoverable loss or deadline fails acquisition
+  and starts cleanup.
+- The controller invokes the customer Effect once and does not replay it.
+  Controller or infrastructure loss fails the run and starts cleanup; this is
+  not an exactly-once guarantee for external side effects.
+- After dispatch, runtime termination remains typed ledger evidence. Customer
+  Effect policy decides whether that observation ends the run.
+- Temporal owns one coarse workflow for run lifecycle and cleanup. It never
+  runs agent logic, appends simulator evidence, creates per-agent workflows,
+  or replays customer code.
+- Every event class is declared before execution. The definition's catalog is
+  the complete event universe for emission, selection, and typed opening.
 - Core events are readable and kernel-only writable. Customer emission accepts
-  only the definition's customer event classes.
-- Event catalogs and network handles are nominal values.
-- Infrastructure writers are producer-bound capabilities; callers never pass
-  an emitter string.
-- `RunSpec` input/result/failure boundaries use strict context-free Effect
-  Schemas with finite JSON encodings. Customer `execute` has no Effect
-  requirements.
-- Every real participant, including a deterministic eval peer, is a container
-  using its native typed bridge and the same production protocol/router path.
-  Controlled endpoints remain probes, not agent principals.
-- Agent descriptors expose only a digest image, typed bridge, positive numeric
-  resources, run-scoped or ephemeral state, and exact Secret references. They
-  expose no process or platform escape hatch.
-- Secret bytes enter one owning slot through one immutable read-only Secret
-  volume. Simulator-owned manifests, CLI JSON, ledgers, logs, and proof
-  collection do not intentionally serialize them.
-- The root API has one real path: `Run.execute(RunSpec,
-  Infrastructure.kubernetes(...))`. Do not preserve executable
-  `simulator.define(...).run(...)`, `simulatorLayer`, host `AgentRuntime`, or
-  in-process runtime aliases.
+  only the definition's declared customer event classes.
+- Event catalogs and network handles are nominal values. Infrastructure
+  writers are producer-bound capabilities; callers never pass emitter names.
+- Principal control uses each runtime's native typed gateway. Agent social
+  traffic uses the production MoltZap router. Controlled endpoints remain
+  diagnostics and must not impersonate an autonomous agent's principal.
+- Real and code/scripted agents may share one society. Code agents receive no
+  social shortcut around the production router.
+- The stock digest-pinned OpenClaw image is the compatibility path. Experiment
+  code and instructions are late-bound; a prebuilt MoltZap image is only an
+  optimization.
+- `RunSpec.infrastructure` carries the selected local-Kubernetes or GKE Effect
+  Layer. Its roster and customer Effect never receive raw Kubernetes, Sandbox,
+  Kueue, or Temporal objects.
+- Do not add generation streams, customer-visible restart/rebind/rejoin APIs,
+  post-dispatch recovery guarantees, customer Effect replay, artifact
+  authorities, global execution identities, synthetic identity schemes, or a
+  new serialization framework.
+- The root public execution path is `Run.execute(RunSpec)`. Remove the host
+  `simulator.define(...).run(...)` path after evaluations and local/GKE
+  acceptance runs have migrated; do not preserve compatibility aliases.
 
 ## Structure
 
 - `src/events/` — exact event catalogs and core event classes.
-- `src/ledger/` — records, live ledger, storage ports, authority-aware opening,
-  legacy filesystem reading, and artifact validation.
-- `src/network/` — participant, conversation, endpoint, router, transport,
-  link-driver, MoltZap router, server, message store, and nominal
-  capability-construction contracts.
-- `src/runtime/` — nominal container bridge contracts and generic, OpenClaw,
-  and NanoClaw bridge implementations.
-- `src/kernel/` — platform-free lifecycle, generations, exact barrier,
-  dispatch fence, evidence, and record sealing.
-- `src/platform/` — private backend normal form and Kubernetes/Kueue/Sandbox
+- `src/ledger/` — records, live ledger, storage, opening, and filesystem
   implementation.
-- `src/orchestration/temporal/` — private one-Workflow orchestration,
-  observation, finalization, and cleanup.
-- `src/controller/` — one in-cluster trusted customer-program executor.
-- `src/artifacts/` — source bundles, execution bindings, outcomes, proof
-  bundles, and storage authority.
-- `src/cli/` — module loader, commands, JSON output, signals, and exit mapping.
-- `src/definition.ts` — `RunSpec` and `Agent` public definition assembly.
-- `src/execution.ts` — `Infrastructure`, `Run`, public outcomes, errors, and
-  receipts.
-- `deploy/` and `images/` — local/GKE installation and published simulator
-  images.
+- `src/network/` — participant, conversation, endpoint, router, transport,
+  link, MoltZap server, and message-store capabilities.
+- `src/runtime/` — portable runtime definitions, exact gateway contracts, and
+  shipped OpenClaw, NanoClaw, and Effect implementations.
+- `src/kernel/` — definition-bound services and platform-neutral execution
+  sequencing.
+- private platform code — the smallest interface needed by the kernel, its
+  fake, and the Kubernetes/Kueue/Sandbox/Temporal implementation.
+- `src/definition.ts` — public definition assembly, including `RunSpec`.
 
 Only `src/index.ts`, `src/runtime.ts`, `src/network.ts`, and `src/ledger.ts`
-are published facades. Programs use the root and `./runtime`; protocol/router
-implementations use `./network`; offline and legacy tooling uses `./ledger`.
-Do not export platform, orchestration, controller, artifact-authority, kernel,
-or provider lifecycle modules.
+are published facades. Do not add a package or public export for platform,
+controller, Temporal, Kueue, or Sandbox internals.
 
 Folders are capability boundaries, not namespaces. Keep a type with its
-construction rules and merge single-consumer helpers into their owner. Do not
-add compatibility barrels or preserve obsolete export names.
-
-Capability names form the directory vocabulary. Keep one backend-normal-form
-contract and two declarative profiles. Do not duplicate lifecycle state across
-Kubernetes, Temporal, the controller, or the CLI.
+construction rules and merge single-consumer helpers into their owner. Reuse
+the existing EventCatalog, RunLedger, roster, gateway, and kernel concepts
+instead of rebuilding them for Kubernetes.
 
 ## Tests
 

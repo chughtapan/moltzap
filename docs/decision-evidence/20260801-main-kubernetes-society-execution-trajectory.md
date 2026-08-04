@@ -124,7 +124,45 @@ rationale or strengthen a proposal into a human statement.
 
    > the implementatiion will target packages/simulator, not v2
 
-6. **Stored user work directive: issue #936, durable issue notes, and an
+6. **Stored assistant issue-plan summary and directly following user start
+   directive.**
+
+   Source system and session: the same. Native locator: message
+   `msg_0141f487830063b4016a6e40cd78048193bca36ecb2c05a8a2`; enclosing turn
+   `019fbe82-b219-7da0-b12e-428543cb9e76`; top-level response-item message;
+   stored actor role `assistant`; phase `final_answer`; parent locator absent;
+   `2026-08-01T20:45:27.703Z`.
+
+   > Done — [issue #936](https://github.com/chughtapan/moltzap/issues/936) now defines the final shape:
+   >
+   > - Targets `main` and `packages/simulator`; no implementation under `v2/*`.
+   > - One immutable `RunSpec` containing the roster and customer `execute` Effect.
+   > - One Kubernetes backend with local kind and regional GKE profiles.
+   > - Aggregate Kueue admission, Agent Sandbox participants, and one Temporal workflow per run.
+   > - Exact-generation readiness barrier and exactly-once customer-program invocation.
+   > - Ten implementation slices, explicit failure semantics, test ownership, security gates, GKE parity, and scale qualification.
+   > - Engineering review: clean, 28 findings incorporated, zero unresolved decisions or critical gaps.
+   >
+   > Current worktree:
+   >
+   > - Path: `/home/tapanc/moltzap-pr-917-main`
+   > - Branch: `impl/917-main-local-society`
+   > - HEAD: `515aa590`
+   > - Status: clean
+   > - Relative to `origin/main`: 12 behind, 1 ahead
+   > - The ahead commit is still the original example implementation; I did not modify or rebase it.
+   >
+   > The next slice is Slice 0: admit the main-track replacement ADR and lock the `RunSpec`, `Run.execute`, and declarative Kubernetes profile contracts. Slice 1 is then the upstream compatibility lab before implementation commits begin.
+
+   Source system and session: the same. Native locator: message
+   `msg_019fbf10-e051-75d0-92d7-bfb32174edfb`; enclosing turn
+   `019fbf10-debf-78b3-b71f-5bb6e72b88fe`; top-level response-item message;
+   stored actor role `user`; `2026-08-01T20:45:27.704Z`. The source supplies
+   no parent locator.
+
+   > start
+
+7. **Stored user work directive: issue #936, durable issue notes, and an
    end-to-end evaluation run.**
 
    Source system and session: the same. Native locator: message
@@ -136,7 +174,136 @@ rationale or strengthen a proposal into a human statement.
 
    > you are now working on https://github.com/chughtapan/moltzap/issues/936 in /home/tapanc/moltzap-pr-917-main. keep your durable notes updated on the issue as comments. run the implementation end-to-end running the evals through this new path
 
-7. **Mechanical repository and GitHub events.** These record execution state,
+8. **Earlier stored selections: one run, one container per agent, a strict
+   gate, and ten agents before scale.** These events were previously compacted
+   in `docs/decision-evidence/20260729-distributed-society-execution-trajectory.md`
+   on candidate commit `a2b55f32e8b8cc688c8a290972267492a3dbfc0b`. They
+   are repeated here because that candidate belongs to the v2 branch while the
+   current decision belongs to main. The literal option text and results are
+   unchanged.
+
+   Source system: Codex. Source session
+   `019fab08-15ca-7a10-a9af-f2a8441a45f5`; enclosing turn
+   `019fab0d-a1e8-7432-b3f6-a767cff72c52`; function call
+   `call_vlz2QouoKyvTCXhmbDB9Hiny` at `2026-07-28T23:39:27.783Z` and
+   function-call output at `2026-07-28T23:39:43.060Z`; stored actor role is
+   absent on the call and output.
+
+   > Single-run cluster (Recommended): Provision one society for one Society.run, require every agent to be alive at a cohort gate, dispatch the program once, then tear down; stage validation from 100 to 1,000 to 10,000 without router HA or a queue/operator.
+
+   > `{"answers":{"cluster_scope":{"answers":["Single-run cluster (Recommended)"]}}}`
+
+   Source system and session: the same. The same enclosing turn; function call
+   `call_PU6nJTGPlpeJ3PATixSc2ef8` at `2026-07-28T23:42:00.531Z` and
+   function-call output at `2026-07-28T23:43:52.229Z`; stored actor role is
+   absent.
+
+   > 2A Strict gate (Recommended): Human ~3–5d / agent ~1–2h; medium implementation risk, low maintenance. Pros: one bulk router-visible snapshot proves the whole cohort is online; any pre-gate exit aborts with typed evidence and scoped cleanup. Con: adds a cohort-ready phase and batching contract.
+
+   > `{"answers":{"plan_eng_review_cohort_gate":{"answers":["2A Strict gate (Recommended)"]}}}`
+
+   Source system and session: the same. The same enclosing turn; direct user
+   message at `2026-07-29T00:03:38.313Z`; stored actor role `user`. The source
+   supplies no separate message id or parent locator.
+
+   > I don't want to support that cheating. I want one container per agent
+
+   Source system and session: the same. The same enclosing turn; function call
+   `call_J4GjN5U25rt7aNh4Jo8eY8L9` at `2026-07-28T23:45:04.450Z` and
+   function-call output at `2026-07-28T23:46:37.089Z`; stored actor role is
+   absent. The prompt offered tiered, live-model, and infrastructure-only 10k
+   gates. No offered option was selected.
+
+   > `{"answers":{"plan_eng_review_10k_acceptance":{"answers":["None of the above","user_note: defer 4A and 4B scale. lets get to 10 agents first and then scale"]}}}`
+
+9. **Earlier stored selections: Kubernetes, Kueue, Temporal, GKE, and the
+   experiment-facing surfaces.** These events have the same source session and
+   prior checked-in trajectory as item 8.
+
+   Direct user messages in turn
+   `019fab37-ced4-7b41-8e9c-37c3822a7342`, stored actor role `user`, with no
+   separate message id or parent locator, were recorded at
+   `2026-07-29T00:14:21.664Z` and `2026-07-29T00:16:16.056Z`:
+
+   > or general kubernetes; we start with basic OpenClaw image and we can deliver instructions to connect to moltzap over the principal channel (which should work directly with the base image); increases the latency per experiment but that's the gold standard path
+
+   > if it can't thats a bug: having this image can be an optimization but not a requirement; and honestly if we use GKE or barebones K8s we can actually point them to a private registry?
+
+   Source system and session: the same. The same enclosing turn; function call
+   `call_SnFa3x3617eQul6H1zPNZeCm` at `2026-07-29T00:19:00.774Z` and
+   function-call output at `2026-07-29T00:19:34.352Z`; stored actor role is
+   absent.
+
+   > Temporal + Kueue (Recommended): Temporal owns durable run/sweep lifecycles, Kueue admits cluster capacity, and no Redis queue is added.
+
+   > `{"answers":{"run_queue_model":{"answers":["Temporal + Kueue (Recommended)"]}}}`
+
+   Source system and session: the same. The same enclosing turn; function call
+   `call_mbMK8n64ZfjzAGVA69nzjhIw` at `2026-07-29T00:20:26.953Z` and
+   function-call output at `2026-07-29T00:21:21.293Z`; stored actor role is
+   absent.
+
+   > Local first, defer prod: Use the local Temporal dev server for the first milestones and leave production hosting deliberately unselected.
+
+   > `{"answers":{"temporal_hosting":{"answers":["Local first, defer prod"]}}}`
+
+   Source system and session: the same. The same enclosing turn; function call
+   `call_8Tj66rC9ATIk5wZqXIiFtRia` at `2026-07-29T00:28:04.980Z` and
+   function-call output at `2026-07-29T00:28:15.312Z`; stored actor role is
+   absent.
+
+   > Standard regional (Recommended): Use a pre-sized dedicated agent node pool for predictable 1k–10k cohort admission and tuning.
+
+   > `{"answers":{"gke_profile":{"answers":["Standard regional (Recommended)"]}}}`
+
+   Source system and session: the same. The same enclosing turn; function call
+   `call_0HQBCkj6yDpE4i7yXzEsTp8g` at `2026-07-29T00:30:27.347Z` and
+   function-call output at `2026-07-29T00:31:56.397Z`; stored actor role is
+   absent.
+
+   > In-cluster controller (Recommended): A stable controller image fetches the content-addressed experiment bundle, owns the router/barrier, and runs close to all agents.
+
+   > `{"answers":{"program_location":{"answers":["In-cluster controller (Recommended)"]}}}`
+
+   Source system and session: the same. The same enclosing turn; function call
+   `call_0OO9tWVFfZHYPNu61PoPXcqN` at `2026-07-29T00:37:27.742Z` and
+   function-call output at `2026-07-29T00:38:23.511Z`; stored actor role is
+   absent.
+
+   > CLI + library (Recommended): Provide a `moltzap simulator run <entrypoint>` command backed by a reusable TypeScript submission API.
+
+   > `{"answers":{"submission_surface":{"answers":["CLI + library (Recommended)"]}}}`
+
+   Source system and session: the same. The same enclosing turn; function call
+   `call_z5VtaeUzaAe4BaD0DJh3UnVU` at `2026-07-29T00:41:44.786Z` and
+   function-call output at `2026-07-29T00:43:35.416Z`; stored actor role is
+   absent.
+
+   > Terraform + Helm (Recommended): Make cluster, IAM, registry, storage, node pools, and pinned Kueue installation reproducible.
+
+   > `{"answers":{"gcp_iac":{"answers":["Terraform + Helm (Recommended)"]}}}`
+
+10. **Earlier Agent Sandbox selection.** This event was previously compacted
+    in
+    `docs/decision-evidence/20260730-distributed-society-execution-agent-sandbox-trajectory.md`
+    on candidate commit `a2b55f32e8b8cc688c8a290972267492a3dbfc0b`.
+
+    Source system: Codex stored-session interaction. Source session
+    `019fab08-15ca-7a10-a9af-f2a8441a45f5`; enclosing turn
+    `019faffd-b6a0-7b90-bcc2-e6f59ba339dd`; native call
+    `call_wGDKczyyYEXYTVNWIhEoXYbN`; request timestamp
+    `2026-07-29T23:28:32.756Z`; result timestamp
+    `2026-07-29T23:29:50.407Z`; stored actor role `user`.
+
+    The preceding agent prompt offered this choice:
+
+    > Agent Sandbox gold (Recommended): Direct Sandbox CRs retain one stable logical agent while their backing Pods can restart.
+
+    The stored result was:
+
+    > `{"answers":{"gold_backend":{"answers":["Agent Sandbox gold","user_note: lets see what do we need to revisit? go through the provenence of our decisions regarding why we made them and estimate what are the tradeoofs"]}}}`
+
+11. **Mechanical repository and GitHub events.** These record execution state,
    not human rationale.
 
    Source system: git. On 2026-08-01 the worktree branch
@@ -150,8 +317,13 @@ rationale or strengthen a proposal into a human statement.
    non-normative implementation plan. Durable checkpoint comments were posted
    as issue comments `5153357233` at `2026-08-01T20:46:52Z` and `5153393832`
    at `2026-08-01T20:54:08Z`; the second was last updated at
-   `2026-08-01T21:02:01Z`. The issue body and comments are agent-published
-   mechanical artifacts, not independent human-authored rationale.
+   `2026-08-01T21:02:01Z`. Issue comment `5153770731`, stored actor/account
+   `chughtapan`, was posted at `2026-08-01T22:35:05Z` and records the first
+   candidate's failed review plus the correction gate. The issue body and
+   comments are agent-published mechanical artifacts, not independent
+   human-authored rationale. Issue comment `5173168998`, also stored under
+   account `chughtapan`, records the acceptance checkpoint after the live user
+   reply; the connector exposed no creation timestamp, so none is invented.
 
 Source gaps, stated plainly:
 
@@ -162,19 +334,72 @@ Source gaps, stated plainly:
   only with that directly preceding retained proposal; it is not independent
   rationale for every later mechanism.
 - The retained assistant example places `infrastructure` inside the RunSpec.
-  The later agent-maintained issue plan moves profile selection to
-  `Run.execute` so one source runs unchanged on local or GKE. No separate
-  retained user event chooses that field placement, so it is recorded as an
-  agent-proposed refinement rather than reconstructed human rationale.
+  The simplified candidate retains that placement. No retained user event
+  chooses the exact Layer-constructor spelling, so the example's
+  `infrastructure` value remains the binding shape while its construction is
+  ordinary implementation detail.
+- The retained `start` reply is read only with the immediately preceding issue
+  summary. That summary stated exactly-once customer-program invocation. The
+  simplified candidate instead says that the controller invokes the customer
+  Effect once and does not replay it, while making no exactly-once claim for
+  external effects. That wording is not silently attributed to the terse
+  `start` reply; the later explicit acceptance retained below resolves it.
 - The user chooses main, the core simulator, one RunSpec/execute model, the
   GKE sandbox work, Kubernetes/Kueue/Temporal, local or GKE profiles, durable
   issue notes, and end-to-end eval execution. The retained events do not
   separately state reasons for every resource shape, failure variant,
   security control, event field, or platform mechanism in the ADR.
 - Exact upstream versions, API schemas, chart/provider choices, timeouts,
-  storage mechanisms, scale limits, and cost budgets are not human decisions
-  in these excerpts. The ADR records them as compatibility-profile or measured
-  deferrals rather than attributing them to the decision-maker.
+  storage mechanisms, cost budgets, generation protocols, artifact
+  authorities, identity derivations, and recovery schemes are not human
+  decisions in these excerpts. The simplified ADR treats them as private
+  implementation details, deliberate deferrals, or non-goals rather than
+  attributing them to the decision-maker.
+- Two later live user messages rejected the overbuilt candidate as
+  overcomplicated experiment infrastructure and directed that the previous
+  checked-in requirement conversations form the boundary, with anything not
+  discussed there treated as a non-goal. The workspace-readable session logs
+  checked on 2026-08-01 did not contain those two messages, so no native
+  message id, enclosing turn, timestamp, or actor-role record is invented.
+  Their literal text is retained in this source-gap report:
+
+  > this is overcomplicated. This is simulation infrastructure for experiments. Don't over complicate
+
+  > you can go throught he previous conversations that are checked-in regarding the requirements. anything which is not discussed there is a NON GOAL
+- The immediately following live exchange accepted the simplified ADR. The
+  workspace-readable session logs checked on 2026-08-03 did not contain the
+  exchange, so no native message id, enclosing turn, timestamp, parent locator,
+  or stored actor-role record is invented. The public assistant prompt and
+  terse user reply are both retained because the reply has no independent
+  meaning without the prompt.
+
+  The assistant prompt was:
+
+  > Done. The plan now treats checked-in requirement conversations as the hard boundary.
+  >
+  > Final shape:
+  >
+  > - `RunSpec { id, events, agents, infrastructure, execute }`
+  > - `Run.execute(spec)`
+  > - Local Kubernetes or GKE via the infrastructure Layer
+  > - Kueue admission → one Sandbox/container per agent → full-roster gate → execute once → existing ledger/outcome → Temporal cleanup
+  > - Two-agent, ten-agent, and all 32 OpenClaw/NanoClaw evaluation runs
+  > - No generations, artifact authority, start-or-attach system, custom serialization grammar, or recovery platform
+  >
+  > [Issue #936](https://github.com/chughtapan/moltzap/issues/936) and the 244-line ADR now match. Formatting, docs, Mermaid, and repository gate checks pass.
+  >
+  > One explicit ADR decision remains: if the controller fails, the run fails and cleans up; `execute` is never replayed, with no exactly-once guarantee for external effects.
+  >
+  > If you accept that final shape, say **“accept this ADR”** and I’ll freeze it, run the fresh blind review, then start implementation.
+
+  The user replied exactly:
+
+  > accept this ADR
+
+  This records acceptance of the preceding proposal, including its explicit
+  controller-failure and no-replay wording. It does not add rationale or
+  authorize mechanisms absent from that proposal and the earlier retained
+  requirements.
 - The GitHub issue body and checkpoint prose were composed and updated by the
   agent. They preserve the current mechanical plan but do not replace the
   human source events above.

@@ -13,23 +13,20 @@ Decision provenance: [stored code-first simulator trajectory](../decision-eviden
 
 The following scope remains current for main: the code-first TypeScript/Effect
 approach; an immutable closed typed EventCatalog; the typed run-evidence
-RunLedger and producer-bound writers; customer-owned scenario languages,
-sweeps, completion policy, and graders; one `@moltzap/simulator` package; the
-production v1 router and protocol; and one public stack without social callback
-shortcuts.
+RunLedger and producer-bound writers; exact keyed runtime gateways;
+customer-owned scenario languages, sweeps, completion policy, and graders; one
+`@moltzap/simulator` package; the production v1 router and protocol; and one
+public stack without social callback shortcuts.
 
 [`20260801-main-simulator-runs-container-societies-on-kubernetes.md`](./20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-replaces the main/v1 `Simulator.define`, definition-bound `.run`,
-`simulatorLayer`, scoped host-runtime roster, Docker/process/filesystem
-execution composition, in-process production `effectRuntime`,
-`defineRuntime`, `AgentRuntime.acquire`, and the statement that restart and
-replacement are outside v0. The current main contract is one schema-bound
-`RunSpec`, one Kubernetes `Run.execute` path, container descriptors, stable
-logical slots and generations, aggregate admission, at-most-once dispatch,
-and durable start-or-attach execution identity.
+replaces the main/v1 `simulator.define(...).run(...)` public naming and its
+host-only concrete execution path with one `RunSpec`, one `Run.execute`, and
+one Kubernetes path supplied by either a local-cluster or GKE Effect Layer.
+The existing event, ledger, network, runtime-gateway, termination-policy, and
+customer-program concepts are reused rather than replaced.
 
 [`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md),
-as partially superseded, continues to govern the distinction between
+as accepted, continues to govern the distinction between
 principal-native gateway control and MoltZap social traffic, the absence of a
 universal gateway union or correlation id, and the classification of
 controlled-endpoint traffic as diagnostic rather than behavioral acceptance.

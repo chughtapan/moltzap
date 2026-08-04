@@ -1,5 +1,12 @@
 # Original simulator: local three-container society
 
+> **Implementation transition:** This is executable pre-cutover evidence for
+> the host/Docker lifecycle scheduled for retirement, not a supported target
+> architecture or a second simulator backend. The replacement contract is the
+> [main Kubernetes society decision](../../docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md).
+> Evaluation cutover removes this command and the host executor after the local
+> Kubernetes path carries the same evidence.
+
 Run a small society on the v1 production track with one command:
 
 ```bash
