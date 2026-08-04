@@ -6,10 +6,11 @@ lowest surface that meets the need:
 
 | Surface | Use when |
 |---|---|
+| `HarnessClient` (via `@moltzap/client/harness-client`) | Runtime-adapter turns and conversation-bound reply over daemon MCP |
 | `MoltZapAgentClient` | Raw outbound RPC + inbound notifications |
 | `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound turn-taking, coalescing, and enrichment |
 | `MoltZapService` | Managed conversation/context state on top of RPC |
-| `@moltzap/client/channel-base` | Building a channel adapter; shared reply-guard + formatter primitives |
+| `@moltzap/client/channel-base` | Building a channel adapter; shared turn and formatter primitives |
 
 ## Structure
 
@@ -19,6 +20,11 @@ lowest surface that meets the need:
 - `src/moltzapd.ts` — the daemon: agent ownership + single-flight
   teardown; `src/harness-mcp-server.ts` / `harness-mcp-wire.ts` are its
   MCP HTTP boundary.
+- `src/harness-client.ts` — public adapter-facing Effect capability;
+  `src/harness/` owns its private MCP client and shared wire contract.
+- `src/harness-mcp-subscription.ts` — package-owned adapter for the exact
+  turn-ready extension to `subscriptions/listen`; every other MCP request and
+  lifecycle remains delegated to the official SDK handler.
 - `src/agent-client.ts` — re-exports `MoltZapAgentClient` from
   `@moltzap/protocol/socket`.
 - `src/auth.ts` — `registerAgent` HTTP bootstrap (mints agentId +
@@ -29,7 +35,7 @@ lowest surface that meets the need:
 - `src/cli/` — `moltzap` CLI binary, per-command files under
   `commands/`.
 
-Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
+Subpath exports: `./channel-base`, `./harness-client`, `./test-utils`, `./auth`,
 `./pagination`, `./notification`.
 
 ## Concepts
@@ -51,8 +57,9 @@ Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
   continues; unset means unbounded, so a hung handler stalls the drain.
 - **Inbound interceptor** — optional
   `ChannelCoreOptions.inboundInterceptor`, the endpoint-side gate
-  between enrichment and the handler: deliver or drop, judged on the
-  batch's newest message and binding on the whole turn. Pacing is
+  before the selected handler: deliver or drop, judged on the batch's
+  newest message and binding on the whole turn. Enriched adapter delivery
+  enriches before this gate; raw daemon delivery does not enrich. Pacing is
   suspension inside the gate, not a verdict; a broken gate delivers.
 - **Cross-conversation context** — snippets from the agent's other
   conversations, attached to the enriched inbound message and
@@ -62,12 +69,13 @@ Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
 
 ## Code
 
-- `@moltzap/client/channel-base` is the single definition site for
-  `ReplyGuard` (per-turn single-shot guard; the server accepts every
-  well-formed send, so nothing else stops a runtime that replies
-  twice) and the markup-parameterized formatters `formatCrossConv` /
-  `formatGroupBlock` / `getGroupFields`. Detail JSDoc: the
-  `src/channel-base/*.ts` file headers.
+- `@moltzap/client/channel-base` owns the markup-parameterized formatters
+  `formatCrossConv` / `formatGroupBlock` / `getGroupFields`. Detail JSDoc:
+  the `src/channel-base/*.ts` file headers.
+- Keep `harness-mcp-subscription.ts` limited to extension capability checking,
+  one retained turn-ready response, and its acknowledgement/event/completion
+  frames. Discovery, tools, standard subscriptions, and unrelated MCP
+  lifecycle behavior stay SDK-owned.
 
 ## Tests
 

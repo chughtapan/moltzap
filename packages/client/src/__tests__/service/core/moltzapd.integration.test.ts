@@ -7,9 +7,27 @@ import {
 import { live as it } from "@effect/vitest";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This integration test needs a passive TCP port blocker to force the package-private Node listener's real bind-failure path.
 import { createServer, type Server as NodeHttpServer } from "node:http";
-import { Cause, Data, Effect, Exit, Schema, Scope } from "effect";
+import {
+  Cause,
+  Data,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
 import { expect } from "vitest";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { Message } from "@moltzap/protocol/message";
 import { withTestServiceConfig } from "../../../config.test-utils.js";
+import {
+  acquireHarnessClient,
+  type HarnessClientService,
+  type HarnessTurn,
+} from "../../../harness-client.js";
 import { getMoltZapAgentServiceSocketPath } from "../../../local-paths.js";
 import { acquireMoltzapd } from "../../../moltzapd.js";
 import * as H from "../../support/index.js";
@@ -18,12 +36,22 @@ const PROFILE_NAME = "moltzapd-integration";
 const MCP_PATH = "/mcp";
 const LOOPBACK_HOST = "127.0.0.1";
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
+const PEER_MESSAGE = "hello through the harness";
+const HARNESS_REPLY = "reply through the harness";
 const healthSchema = Schema.Struct({ connections: Schema.Number });
 
 type RegisteredAgent = Effect.Effect.Success<
   ReturnType<typeof H.registerAgent>
 >;
 type MoltzapdServer = Effect.Effect.Success<ReturnType<typeof acquireMoltzapd>>;
+
+interface RoundTripFixture {
+  readonly harness: HarnessClientService;
+  readonly owner: RegisteredAgent;
+  readonly peer: RegisteredAgent;
+  readonly conversationId: ConversationId;
+  readonly socketPath: string;
+}
 
 interface PortBlocker {
   readonly port: number;
@@ -44,6 +72,27 @@ const healthConnections = (): Effect.Effect<number, unknown> =>
     Effect.map((health) => health.connections),
     Effect.provide(NodeHttpClient.layer),
   );
+
+const waitForConnectionCount = (
+  expected: number,
+): Effect.Effect<void, unknown> => {
+  const poll: Effect.Effect<void, unknown> = Effect.suspend(() =>
+    healthConnections().pipe(
+      Effect.flatMap((actual) =>
+        actual === expected
+          ? Effect.void
+          : Effect.sleep("10 millis").pipe(Effect.zipRight(poll)),
+      ),
+    ),
+  );
+  return poll.pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(H.NOTIFICATION_WAIT_MS),
+      onTimeout: () =>
+        new Error(`timeout waiting for ${expected} server connections`),
+    }),
+  );
+};
 
 const listenPortBlocker: Effect.Effect<PortBlocker, PortBlockerError> =
   Effect.async((resume) => {
@@ -164,6 +213,139 @@ function runRegisteredAgent(registered: RegisteredAgent) {
   }).pipe(Effect.provide(NodeContext.layer));
 }
 
+const takeHead = <A, E, R>(
+  stream: Stream.Stream<A, E, R>,
+  label: string,
+): Effect.Effect<A, E | Error, R> =>
+  stream.pipe(
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: Duration.millis(H.NOTIFICATION_WAIT_MS),
+      onTimeout: () => new Error(`timeout waiting for ${label}`),
+    }),
+    Effect.map((head) =>
+      Option.getOrThrowWith(
+        head,
+        () => new Error(`${label} stream closed before delivery`),
+      ),
+    ),
+  );
+
+const expectNoUnixSocket = (socketPath: string) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    expect(yield* fileSystem.exists(socketPath)).toBe(false);
+  });
+
+const expectHarnessTurn = (
+  turn: HarnessTurn,
+  peer: RegisteredAgent,
+  conversationId: ConversationId,
+): void => {
+  expect(turn.conversationId).toBe(conversationId);
+  expect(turn.messages).toHaveLength(1);
+  const inbound = turn.messages[0];
+  if (inbound === undefined) {
+    throw new Error("expected one inbound harness message");
+  }
+  expect(inbound.conversationId).toBe(conversationId);
+  expect(inbound.senderId).toBe(peer.agentId);
+  expect(H.textContent(inbound)).toBe(PEER_MESSAGE);
+};
+
+const expectPeerReply = (
+  reply: Message,
+  owner: RegisteredAgent,
+  conversationId: ConversationId,
+): void => {
+  expect(reply.conversationId).toBe(conversationId);
+  expect(reply.senderId).toBe(owner.agentId);
+  expect(H.textContent(reply)).toBe(HARNESS_REPLY);
+};
+
+const waitForPeerReply = (
+  peer: RegisteredAgent,
+  owner: RegisteredAgent,
+  conversationId: ConversationId,
+) =>
+  takeHead(
+    peer.client
+      .subscribe(H.messageReceivedNotificationDefinition)
+      .pipe(
+        Stream.filter(
+          ({ message }) =>
+            message.senderId === owner.agentId &&
+            message.conversationId === conversationId,
+        ),
+      ),
+    "harness reply",
+  ).pipe(Effect.map(({ message }) => message));
+
+const runMcpMessageRoundTrip = ({
+  harness,
+  owner,
+  peer,
+  conversationId,
+  socketPath,
+}: RoundTripFixture) =>
+  Effect.gen(function* () {
+    const turnFiber = yield* Effect.fork(
+      takeHead(harness.turns, "harness turn"),
+    );
+    const peerReplyFiber = yield* Effect.fork(
+      waitForPeerReply(peer, owner, conversationId),
+    );
+
+    yield* peer.client.call(H.messagesSend.name, {
+      conversationId,
+      parts: [{ type: "text", text: PEER_MESSAGE }],
+    });
+
+    const turn = yield* Fiber.join(turnFiber);
+    expectHarnessTurn(turn, peer, conversationId);
+    yield* expectNoUnixSocket(socketPath);
+
+    yield* turn.reply(HARNESS_REPLY);
+    expectPeerReply(yield* Fiber.join(peerReplyFiber), owner, conversationId);
+    yield* expectNoUnixSocket(socketPath);
+  });
+
+function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
+  return Effect.gen(function* () {
+    const socketPath = getMoltZapAgentServiceSocketPath(owner.agentId);
+    yield* expectNoUnixSocket(socketPath);
+
+    yield* peer.client.connect();
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const server = yield* acquireMoltzapd({
+          profileName: PROFILE_NAME,
+          port: 0,
+        });
+        const harness = yield* acquireHarnessClient({
+          url: harnessUrl(server).href,
+        });
+        yield* expectNoUnixSocket(socketPath);
+
+        const created = yield* peer.client.call(
+          H.agentConversationCreate.name,
+          { participants: [owner.agentId] },
+        );
+        yield* runMcpMessageRoundTrip({
+          harness,
+          owner,
+          peer,
+          conversationId: created.conversation.id,
+          socketPath,
+        });
+      }),
+    );
+
+    yield* expectNoUnixSocket(socketPath);
+    expect(yield* healthConnections()).toBe(1);
+  }).pipe(Effect.provide(NodeContext.layer));
+}
+
 const runFailedAcquisition = Effect.gen(function* () {
   const blocker = yield* acquirePortBlocker;
   const ambientScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
@@ -213,6 +395,25 @@ function runFailedAcquisitionWithProfile(registered: RegisteredAgent) {
   );
 }
 
+function runHarnessRoundTripWithProfile({
+  owner,
+  peer,
+}: {
+  readonly owner: RegisteredAgent;
+  readonly peer: RegisteredAgent;
+}) {
+  return withTestServiceConfig(
+    {
+      profileName: PROFILE_NAME,
+      agentName: PROFILE_NAME,
+      agentId: owner.agentId,
+      agentKey: owner.apiKey,
+      serverUrl: H.coreBaseUrl(),
+    },
+    runHarnessRoundTrip(owner, peer),
+  );
+}
+
 H.setupServiceIntegration();
 
 it("owns one agent connection and MCP listener without a Unix socket", () => {
@@ -221,6 +422,22 @@ it("owns one agent connection and MCP listener without a Unix socket", () => {
     H.registerAgent("moltzapd-owner"),
     runWithProfile,
     (registered) => registered.client.close().pipe(Effect.ignore),
+  );
+});
+
+it("round-trips a peer message and bound reply through MCP only", () => {
+  expect.hasAssertions();
+  return Effect.acquireUseRelease(
+    Effect.all({
+      owner: H.registerAgent("moltzapd-round-trip-owner"),
+      peer: H.registerAgent("moltzapd-round-trip-peer"),
+    }),
+    runHarnessRoundTripWithProfile,
+    ({ owner, peer }) =>
+      H.closeAll([], [owner.client, peer.client]).pipe(
+        Effect.zipRight(waitForConnectionCount(0)),
+        Effect.orDieWith(toError),
+      ),
   );
 });
 

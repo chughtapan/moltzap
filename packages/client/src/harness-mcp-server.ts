@@ -12,7 +12,7 @@ import {
   type RequestListener,
   type Server as NodeHttpServer,
 } from "node:http";
-import { Effect, Exit, type Scope } from "effect";
+import { Deferred, Effect, Exit, type Scope } from "effect";
 
 const REGISTER_MCP_PATH = "/register/mcp";
 const HARNESS_MCP_PATH = "/mcp";
@@ -23,6 +23,24 @@ interface HarnessMcpHttpServerOptions {
   readonly port: number;
   readonly registrationHandler: McpHttpHandler;
   readonly harnessHandler: McpHttpHandler;
+}
+
+interface HarnessMcpRequestListener {
+  readonly listener: RequestListener;
+  readonly waitForResponses: Effect.Effect<undefined>;
+}
+
+interface RunningHarnessMcpHttpServer {
+  readonly server: NodeHttpServer;
+  readonly waitForResponses: Effect.Effect<undefined>;
+}
+
+interface ResponseTracker {
+  readonly track: (
+    response: ReturnType<NodeMcpRequestHandler>,
+    nodeResponse: Parameters<RequestListener>[1],
+  ) => void;
+  readonly waitForResponses: Effect.Effect<undefined>;
 }
 
 const respond = (
@@ -38,6 +56,56 @@ const respond = (
   response.end(body);
 };
 
+const makeResponseTracker = (): ResponseTracker => {
+  const inFlight = new Set<ReturnType<NodeMcpRequestHandler>>();
+  const responseWaiters = new Set<() => void>();
+  const finish = (response: ReturnType<NodeMcpRequestHandler>): void => {
+    inFlight.delete(response);
+    if (inFlight.size === 0) {
+      for (const resume of responseWaiters) {
+        resume();
+      }
+      responseWaiters.clear();
+    }
+  };
+
+  return {
+    track: (response, nodeResponse) => {
+      inFlight.add(response);
+      Effect.runFork(
+        Effect.tryPromise({
+          try: () => response,
+          catch: (error) => error,
+        }).pipe(
+          Effect.catchAll((error) =>
+            Effect.sync(() => {
+              nodeResponse.destroy(error instanceof Error ? error : undefined);
+            }),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              finish(response);
+            }),
+          ),
+        ),
+      );
+    },
+    waitForResponses: Effect.async<undefined>((resume) => {
+      if (inFlight.size === 0) {
+        resume(Effect.succeed(undefined));
+        return;
+      }
+      const done = (): void => {
+        resume(Effect.succeed(undefined));
+      };
+      responseWaiters.add(done);
+      return Effect.sync(() => {
+        responseWaiters.delete(done);
+      });
+    }),
+  };
+};
+
 /**
  * Routes the daemon's two loopback MCP surfaces through one Node listener.
  *
@@ -48,17 +116,18 @@ const respond = (
 const makeHarnessMcpRequestListener = (
   registrationHandler: FetchLikeMcpHandler,
   harnessHandler: FetchLikeMcpHandler,
-): RequestListener => {
+): HarnessMcpRequestListener => {
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
   const registrationNodeHandler = toNodeHandler(registrationHandler);
   const harnessNodeHandler = toNodeHandler(harnessHandler);
+  const responses = makeResponseTracker();
   const handlers: ReadonlyMap<string, NodeMcpRequestHandler> = new Map([
     [REGISTER_MCP_PATH, registrationNodeHandler],
     [HARNESS_MCP_PATH, harnessNodeHandler],
   ]);
 
-  return (request, response): void => {
+  const listener: RequestListener = (request, response): void => {
     if (
       !validateHost(request, response) ||
       !validateOrigin(request, response)
@@ -79,29 +148,36 @@ const makeHarnessMcpRequestListener = (
       return;
     }
 
-    handler(request, response).catch((error: unknown) => {
-      response.destroy(error instanceof Error ? error : undefined);
-    });
+    responses.track(handler(request, response), response);
+  };
+
+  return {
+    listener,
+    waitForResponses: responses.waitForResponses,
   };
 };
 
 const listen = (
   options: HarnessMcpHttpServerOptions,
-): Effect.Effect<NodeHttpServer, Error> =>
-  Effect.async<NodeHttpServer, Error>((resume) => {
-    const server = createServer(
-      makeHarnessMcpRequestListener(
-        options.registrationHandler,
-        options.harnessHandler,
-      ),
+): Effect.Effect<RunningHarnessMcpHttpServer, Error> =>
+  Effect.async<RunningHarnessMcpHttpServer, Error>((resume) => {
+    const requests = makeHarnessMcpRequestListener(
+      options.registrationHandler,
+      options.harnessHandler,
     );
+    const server = createServer(requests.listener);
     const onError = (error: Error): void => {
       resume(Effect.fail(error));
     };
     server.once("error", onError);
     server.listen(options.port, LOOPBACK_HOST, () => {
       server.off("error", onError);
-      resume(Effect.succeed(server));
+      resume(
+        Effect.succeed({
+          server,
+          waitForResponses: requests.waitForResponses,
+        }),
+      );
     });
     return Effect.async<undefined>((cancelResume) => {
       server.off("error", onError);
@@ -123,22 +199,26 @@ const listen = (
     });
   });
 
-const close = (server: NodeHttpServer): Effect.Effect<undefined> =>
-  Effect.async<undefined>((resume) => {
-    if (!server.listening) {
-      resume(Effect.succeed(undefined));
-      return;
-    }
-    server.close((error) => {
-      resume(
+const beginClose = (
+  server: NodeHttpServer,
+): Effect.Effect<Effect.Effect<undefined>> =>
+  Effect.gen(function* () {
+    const completion = yield* Deferred.make<Error | undefined>();
+    yield* Effect.sync(() => {
+      server.close((error) => {
+        Effect.runSync(Deferred.succeed(completion, error));
+      });
+    });
+    return Deferred.await(completion).pipe(
+      Effect.flatMap((error) =>
         error === undefined
           ? Effect.succeed(undefined)
           : Effect.logWarning(
               "Harness MCP HTTP server close failed",
               error,
             ).pipe(Effect.as(undefined)),
-      );
-    });
+      ),
+    );
   });
 
 const closeHandler = (handler: McpHttpHandler): Effect.Effect<void> =>
@@ -164,10 +244,19 @@ const closeHandlers = (
   );
 
 const release = (
-  server: NodeHttpServer,
+  running: RunningHarnessMcpHttpServer,
   options: HarnessMcpHttpServerOptions,
-): Effect.Effect<undefined> =>
-  closeHandlers(options).pipe(Effect.zipRight(close(server)));
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const closeCompletion = yield* beginClose(running.server);
+    yield* closeHandlers(options);
+    // Handler closure finishes the Web stream before the Node adapter drains
+    // it. Once every tracked response has drained, only residual keep-alive
+    // connections remain, and they must not hold daemon shutdown open.
+    yield* running.waitForResponses;
+    running.server.closeAllConnections();
+    yield* closeCompletion;
+  });
 
 /**
  * Acquires the guarded loopback HTTP server for one explicitly supplied port.
@@ -187,5 +276,5 @@ export const acquireHarnessMcpHttpServer = (
         Exit.isSuccess(exit) ? Effect.void : closeHandlers(options),
       ),
     ),
-    (server) => release(server, options),
-  );
+    (running) => release(running, options),
+  ).pipe(Effect.map((running) => running.server));
