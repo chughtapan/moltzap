@@ -1,11 +1,10 @@
 # MoltZap evaluations
 
-> **Implementation transition:** The [accepted main-track Kubernetes
+> **Implementation transition:** The [main-track Kubernetes
 > contract](../../docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-> governs new work. The mixed host-runtime and in-process peer material below
-> describes the pre-cutover implementation, not the target executor. Every
-> real evaluation participant moves to the core `Run.execute` container path;
-> report, grading, SQLite, and Phoenix boundaries remain current.
+> moves all OpenClaw and NanoClaw conditions to the core `Run.execute`
+> Kubernetes path. Cases, grading, reports, SQLite, and Phoenix remain owned
+> here.
 
 This private package is one code-first customer of `@moltzap/simulator`. It
 defines behavioral cases, runs mixed societies through the production router,

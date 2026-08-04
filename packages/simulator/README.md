@@ -1,12 +1,10 @@
 # @moltzap/simulator
 
-> **Implementation transition:** The [accepted main-track Kubernetes
+> **Implementation transition:** The [main-track Kubernetes
 > contract](../../docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-> governs new work. The `simulator.define`, definition-bound `.run`,
-> `simulatorLayer`, host-runtime, and in-process-runtime material below
-> describes the pre-cutover implementation and is not an extension point. The
-> cutover rewrites or removes it. The separate v2 `Simulator.define` contract
-> is unaffected.
+> moves the original simulator to `RunSpec` and `Run.execute` on local
+> Kubernetes or GKE. The host APIs below describe the implementation being
+> replaced. The separate v2 `Simulator.define` contract is unaffected.
 
 Code-first simulation for societies whose participants communicate through one
 run-scoped MoltZap router and wire protocol. A roster may mix OpenClaw,
