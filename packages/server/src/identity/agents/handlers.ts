@@ -1,10 +1,12 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   agentName,
   type agentsList as agentsListDefinition,
+  type agentsSearch as agentsSearchDefinition,
   type AgentCard,
   type AgentId,
   type UserId,
+  agentId,
 } from "@moltzap/protocol/identity";
 import {
   DEFAULT_PAGE_LIMIT,
@@ -14,13 +16,19 @@ import {
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import {
   DbTag,
+  READ_PLANE_PAGE_SIZE,
   catchSqlErrorAsDefect,
   decodeListCursor,
+  decodeSearchCursor,
   keysetWhere,
+  normalizeSearchQuery,
   paginate,
+  paginateSearchRows,
   sortKeyExpr,
   type ListCursorPosition,
 } from "#db";
+import { agentArm } from "#moltzap/runtime";
+import type { AgentContext } from "#socket";
 
 function toAgentCard(row: {
   id: AgentId;
@@ -96,6 +104,57 @@ const agentsListPageEffect = Effect.fn("agents.list")(function* (
 const agentsListPage = (input: AgentsListPageInput) =>
   catchSqlErrorAsDefect(agentsListPageEffect(input));
 
+interface AgentsSearchPageInput {
+  readonly normalizedQuery: string;
+  readonly agentId: AgentId;
+  readonly lastId?: AgentId;
+}
+
+const agentsSearchPageEffect = Effect.fn("agents.search")(function* (
+  input: AgentsSearchPageInput,
+) {
+  const db = yield* DbTag;
+  const searchId = Schema.decodeOption(agentId)(input.normalizedQuery);
+  let query = db
+    .selectFrom("agents")
+    .select([
+      "id",
+      "name",
+      "display_name",
+      "description",
+      "status",
+      "owner_user_id",
+    ]);
+  if (input.normalizedQuery !== "") {
+    query = Option.isSome(searchId)
+      ? query.where("id", "=", searchId.value)
+      : query.where("name", "=", input.normalizedQuery);
+  }
+  if (input.lastId !== undefined) {
+    query = query.where("id", ">", input.lastId);
+  }
+  const rows = yield* query
+    .orderBy("id", "asc")
+    .limit(READ_PLANE_PAGE_SIZE + 1);
+  const binding = {
+    kind: "agents" as const,
+    query: input.normalizedQuery,
+    agentId: input.agentId,
+  };
+  const { page, nextCursor } = paginateSearchRows(
+    rows,
+    binding,
+    (row) => row.id,
+  );
+  return {
+    agents: page.map(toAgentCard),
+    ...(nextCursor === undefined ? {} : { nextCursor }),
+  };
+});
+
+const agentsSearchPage = (input: AgentsSearchPageInput) =>
+  catchSqlErrorAsDefect(agentsSearchPageEffect(input));
+
 const agentsListBody = Effect.fn("agents.list.handler")(function* (
   params: ParamsOf<typeof agentsListDefinition>,
 ) {
@@ -113,6 +172,29 @@ const agentsListBody = Effect.fn("agents.list.handler")(function* (
   });
 });
 
+const agentsSearchBody = Effect.fn("agents.search.handler")(function* (
+  params: ParamsOf<typeof agentsSearchDefinition>,
+  ctx: AgentContext,
+) {
+  const normalizedQuery = normalizeSearchQuery(params.query);
+  const binding = {
+    kind: "agents" as const,
+    query: normalizedQuery,
+    agentId: ctx.agentId,
+  };
+  const position =
+    params.cursor === undefined
+      ? undefined
+      : yield* decodeSearchCursor(params.cursor, binding);
+  return yield* agentsSearchPage({
+    normalizedQuery,
+    agentId: ctx.agentId,
+    ...(position === undefined
+      ? {}
+      : { lastId: Schema.decodeSync(agentId)(position.lastId) }),
+  });
+});
+
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
 /**
@@ -125,3 +207,13 @@ export const agentsList: ServerHandler<typeof agentsListDefinition> = Effect.fn(
 )(function* (params) {
   return yield* agentsListBody(params);
 });
+
+/**
+ * Search agent cards by exact identifier or exact name.
+ * @param params Request payload to process.
+ * @returns One stable identifier-ordered page.
+ */
+export const agentsSearch: ServerHandler<typeof agentsSearchDefinition> =
+  Effect.fn("agentsSearch")(function* (params) {
+    return yield* agentsSearchBody(params, yield* agentArm);
+  });

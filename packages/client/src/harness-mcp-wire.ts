@@ -9,7 +9,17 @@ import {
 import { Headers } from "@effect/platform";
 import { Rpc } from "@effect/rpc";
 import { Effect, JSONSchema, type Schema } from "effect";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import {
+  conversationSearch,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
+import { agentsSearch } from "@moltzap/protocol/identity";
+import { messagesRead } from "@moltzap/protocol/message";
+import type {
+  ParamsOf,
+  ResultOf,
+  RpcDefinitionAny,
+} from "@moltzap/protocol/rpc";
 import {
   decodeHarnessReplyRoute,
   HARNESS_EVENTS_EXTENSION,
@@ -31,6 +41,9 @@ import {
 } from "./local-daemon-rpc.js";
 
 const STATUS_TOOL_NAME = "status";
+const SEARCH_AGENTS_TOOL_NAME = "search_agents";
+const SEARCH_CONVERSATIONS_TOOL_NAME = "search_conversations";
+const READ_CONVERSATION_TOOL_NAME = "read_conversation";
 
 type StatusPayload = Schema.Schema.Type<typeof statusCommandRpc.payloadSchema>;
 type StatusResult = Schema.Schema.Type<typeof statusCommandRpc.successSchema>;
@@ -39,12 +52,26 @@ type ReplyHandler = (
   conversationId: ConversationId,
   payload: string,
 ) => Effect.Effect<void, unknown>;
+type DescriptorHandler<D extends RpcDefinitionAny> = (
+  payload: ParamsOf<D>,
+) => Effect.Effect<ResultOf<D>, unknown>;
 
 interface HarnessMcpHandlerOptions {
   readonly implementation: Implementation;
+  readonly readConversation: DescriptorHandler<typeof messagesRead>;
   readonly reply: ReplyHandler;
+  readonly searchAgents: DescriptorHandler<typeof agentsSearch>;
+  readonly searchConversations: DescriptorHandler<typeof conversationSearch>;
   readonly status: StatusHandler;
 }
+
+const effectSchemaToMcpSchema = <A>(schema: Schema.Schema.AnyNoContext) =>
+  fromJsonSchema<A>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ JSONSchema.make(
+      schema,
+      { target: "jsonSchema2020-12" },
+    ) as JsonSchemaType,
+  );
 
 const statusInputSchema = fromJsonSchema<StatusPayload>(
   /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ JSONSchema.make(
@@ -65,6 +92,44 @@ const replyInputSchema = fromJsonSchema<HarnessReplyInput>(
 const replyOutputSchema = fromJsonSchema<HarnessReplyResult>(
   /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessReplyResultJsonSchema as JsonSchemaType,
 );
+
+const registerDescriptorTool = <D extends RpcDefinitionAny>(
+  server: McpServer,
+  toolName: string,
+  definition: D,
+  handler: DescriptorHandler<D>,
+): void => {
+  const inputSchema = effectSchemaToMcpSchema<ParamsOf<D>>(
+    definition.paramsSchema,
+  );
+  const outputSchema = effectSchemaToMcpSchema<ResultOf<D>>(
+    definition.resultSchema,
+  );
+  server.registerTool(
+    toolName,
+    { inputSchema, outputSchema },
+    (payload, context) =>
+      Effect.runPromise(
+        handler(payload).pipe(
+          Effect.flatMap((result) =>
+            typeof result === "object" &&
+            result !== null &&
+            !Array.isArray(result)
+              ? Effect.succeed({
+                  content: [
+                    { type: "text" as const, text: JSON.stringify(result) },
+                  ],
+                  structuredContent: result,
+                })
+              : Effect.dieMessage(
+                  `MCP tool ${toolName} returned non-object structured content`,
+                ),
+          ),
+        ),
+        { signal: context.mcpReq.signal },
+      ),
+  );
+};
 
 const makeRegistrationServer = (implementation: Implementation): McpServer =>
   new McpServer(implementation);
@@ -120,17 +185,38 @@ const registerReplyTool = (server: McpServer, reply: ReplyHandler): void => {
   );
 };
 
-const makeActiveServer = (
-  implementation: Implementation,
-  status: StatusHandler,
-  reply: ReplyHandler,
-): McpServer => {
+const makeActiveServer = ({
+  implementation,
+  readConversation,
+  reply,
+  searchAgents,
+  searchConversations,
+  status,
+}: HarnessMcpHandlerOptions): McpServer => {
   const server = new McpServer(implementation, {
     capabilities: {
       extensions: { [HARNESS_EVENTS_EXTENSION]: {} },
     },
   });
   registerStatusTool(server, status);
+  registerDescriptorTool(
+    server,
+    SEARCH_AGENTS_TOOL_NAME,
+    agentsSearch,
+    searchAgents,
+  );
+  registerDescriptorTool(
+    server,
+    SEARCH_CONVERSATIONS_TOOL_NAME,
+    conversationSearch,
+    searchConversations,
+  );
+  registerDescriptorTool(
+    server,
+    READ_CONVERSATION_TOOL_NAME,
+    messagesRead,
+    readConversation,
+  );
   registerReplyTool(server, reply);
   return server;
 };
@@ -140,20 +226,34 @@ const makeActiveServer = (
  *
  * @param options Existing daemon capabilities exposed through MCP.
  * @param options.implementation Existing MCP server identity.
+ * @param options.readConversation Raw checkpointed conversation reader.
  * @param options.reply Conversation-bound raw reply handler.
+ * @param options.searchAgents Agent directory search handler.
+ * @param options.searchConversations Conversation directory search handler.
  * @param options.status Existing local daemon status handler.
  * @returns The registration and active-agent HTTP handlers.
  */
 export const makeHarnessMcpHttpHandlers = ({
   implementation,
+  readConversation,
   reply,
+  searchAgents,
+  searchConversations,
   status,
 }: HarnessMcpHandlerOptions): {
   readonly registration: McpHttpHandler;
   readonly active: HarnessMcpSubscriptionHandler<HarnessTurnEvent>;
 } => {
   const activeDelegate = createMcpHandler(
-    () => makeActiveServer(implementation, status, reply),
+    () =>
+      makeActiveServer({
+        implementation,
+        readConversation,
+        reply,
+        searchAgents,
+        searchConversations,
+        status,
+      }),
     { legacy: "reject" },
   );
   return {

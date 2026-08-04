@@ -1,5 +1,8 @@
 import type { Implementation } from "@modelcontextprotocol/server";
 import { Effect, ExecutionStrategy, Exit, Scope } from "effect";
+import { conversationSearch } from "@moltzap/protocol/conversation";
+import { agentsSearch } from "@moltzap/protocol/identity";
+import { messagesRead } from "@moltzap/protocol/message";
 import packageJson from "../package.json" with { type: "json" };
 import { MoltZapChannelCore } from "./channel-core.js";
 import type { HarnessTurnEvent } from "./harness/index.js";
@@ -106,7 +109,13 @@ export const acquireMoltzapd = (
       const core = yield* acquireCore(service);
       const handlers = makeHarnessMcpHttpHandlers({
         implementation: MCP_IMPLEMENTATION,
+        readConversation: (payload) =>
+          service.callDefinition(messagesRead, payload),
         reply: core.sendReply.bind(core),
+        searchAgents: (payload) =>
+          service.callDefinition(agentsSearch, payload),
+        searchConversations: (payload) =>
+          service.callDefinition(conversationSearch, payload),
         status: makeStatusHandler(service, core),
       });
       installTurnPublisher(core, handlers.active.publish);

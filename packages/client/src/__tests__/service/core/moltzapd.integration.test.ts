@@ -47,6 +47,7 @@ type MoltzapdServer = Effect.Effect.Success<ReturnType<typeof acquireMoltzapd>>;
 
 interface RoundTripFixture {
   readonly harness: HarnessClientService;
+  readonly mcp: Client;
   readonly owner: RegisteredAgent;
   readonly peer: RegisteredAgent;
   readonly conversationId: ConversationId;
@@ -64,6 +65,9 @@ class PortBlockerError extends Data.TaggedError("PortBlockerError")<{
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const healthConnections = (): Effect.Effect<number, unknown> =>
   HttpClient.get(new URL("/health", H.coreBaseUrl())).pipe(
@@ -176,6 +180,16 @@ const acquireMcpClient = (
       ),
   );
 
+const callMcpTool = (
+  client: Client,
+  name: string,
+  input: Record<string, unknown>,
+) =>
+  Effect.tryPromise({
+    try: () => client.callTool({ name, arguments: input }),
+    catch: toError,
+  });
+
 const runScopedDaemon = (socketPath: string) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -281,8 +295,71 @@ const waitForPeerReply = (
     "harness reply",
   ).pipe(Effect.map(({ message }) => message));
 
+const expectReadConversationResult = (
+  content: unknown,
+  owner: RegisteredAgent,
+  peer: RegisteredAgent,
+  conversationId: ConversationId,
+): void => {
+  if (!isRecord(content)) {
+    throw new Error("read_conversation returned no structured content");
+  }
+  if (typeof content.checkpoint !== "string") {
+    throw new Error("read_conversation returned no checkpoint");
+  }
+  expect(content).toMatchObject({
+    messages: [
+      {
+        conversationId,
+        senderId: peer.agentId,
+        parts: [{ type: "text", text: PEER_MESSAGE }],
+      },
+      {
+        conversationId,
+        senderId: owner.agentId,
+        parts: [{ type: "text", text: HARNESS_REPLY }],
+      },
+    ],
+  });
+};
+
+const expectMcpReadPlane = ({
+  mcp,
+  owner,
+  peer,
+  conversationId,
+  socketPath,
+}: RoundTripFixture) =>
+  Effect.gen(function* () {
+    const agents = yield* callMcpTool(mcp, "search_agents", {
+      query: peer.name,
+    });
+    expect(agents.structuredContent).toMatchObject({
+      agents: [{ id: peer.agentId, name: peer.name }],
+    });
+
+    const conversations = yield* callMcpTool(mcp, "search_conversations", {
+      query: peer.name,
+    });
+    expect(conversations.structuredContent).toMatchObject({
+      conversations: [{ id: conversationId }],
+    });
+
+    const history = yield* callMcpTool(mcp, "read_conversation", {
+      conversationId,
+    });
+    expectReadConversationResult(
+      history.structuredContent,
+      owner,
+      peer,
+      conversationId,
+    );
+    yield* expectNoUnixSocket(socketPath);
+  });
+
 const runMcpMessageRoundTrip = ({
   harness,
+  mcp,
   owner,
   peer,
   conversationId,
@@ -308,6 +385,14 @@ const runMcpMessageRoundTrip = ({
     yield* turn.reply(HARNESS_REPLY);
     expectPeerReply(yield* Fiber.join(peerReplyFiber), owner, conversationId);
     yield* expectNoUnixSocket(socketPath);
+    yield* expectMcpReadPlane({
+      harness,
+      mcp,
+      owner,
+      peer,
+      conversationId,
+      socketPath,
+    });
   });
 
 function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
@@ -325,6 +410,7 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
         const harness = yield* acquireHarnessClient({
           url: harnessUrl(server).href,
         });
+        const mcp = yield* acquireMcpClient(harnessUrl(server));
         yield* expectNoUnixSocket(socketPath);
 
         const created = yield* peer.client.call(
@@ -333,6 +419,7 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
         );
         yield* runMcpMessageRoundTrip({
           harness,
+          mcp,
           owner,
           peer,
           conversationId: created.conversation.id,

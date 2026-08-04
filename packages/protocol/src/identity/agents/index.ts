@@ -17,6 +17,6 @@ export {
   agentOwnershipSchema,
 } from "./types.js";
 /** Re-exports the public API from `./agents.js`. */
-export { agentsList } from "./agents.js";
+export { agentsList, agentsSearch } from "./agents.js";
 /** Re-exports the public API from `./types.js`. */
 export type { Agent, AgentCard } from "./types.js";

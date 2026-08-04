@@ -6,7 +6,11 @@ import { Schema } from "effect";
 import { agentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AuthenticatedAgent } from "#identity/principals";
-import { InvalidParamsError, listLimitSchema } from "#transport";
+import {
+  InvalidParamsError,
+  listCursorSchema,
+  listLimitSchema,
+} from "#transport";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
   ConversationFullError,
@@ -91,6 +95,31 @@ export const conversationList = defineRpc({
   errors: [InvalidParamsError, ConversationNotFoundError],
 });
 
+// ═══════════════════════════════════════════════════════════════
+// agent/conversation/search
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Search conversations visible to the active agent. The wire contract permits
+ * omitted and blank queries; query interpretation and pagination policy belong
+ * to the handler.
+ *
+ * @error InvalidParamsError when the query or cursor is invalid
+ */
+export const conversationSearch = defineRpc({
+  name: "agent/conversation/search",
+  params: Schema.Struct({
+    query: Schema.optional(Schema.String),
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    conversations: Schema.Array(conversationSchemaValue),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
+  requires: [AuthenticatedAgent, ActiveAgent],
+  errors: [InvalidParamsError],
+});
+
 // ═══════════════════════════════════════════════════════════════════
 // agent/conversation/* notifications
 // ═══════════════════════════════════════════════════════════════════
@@ -115,6 +144,7 @@ export const conversationCreatedNotificationDefinition = defineNotification({
 /** Agent-callable conversation RPC catalog. */
 export const agentCallableConversationRpcMethods = [
   conversationList,
+  conversationSearch,
   agentConversationCreate,
 ] as const;
 

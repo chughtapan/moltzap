@@ -20,9 +20,19 @@ import {
   request as nodeRequest,
   type IncomingMessage,
 } from "node:http";
-import { Cause, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Schema,
+  Scope,
+} from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { agentId } from "@moltzap/protocol/testing";
+import { conversationCheckpoint } from "@moltzap/protocol/message";
+import { agentId, conversationId } from "@moltzap/protocol/testing";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
 import { HARNESS_EVENTS_EXTENSION } from "./harness/index.js";
 import { localDaemonCommands } from "./local-daemon-rpc.js";
@@ -48,11 +58,23 @@ const SERVER_IMPLEMENTATION = {
   name: "harness-boundary-test",
   version: "1.0.0",
 } satisfies Implementation;
+const READ_CHECKPOINT = Schema.decodeSync(conversationCheckpoint)(
+  "harness-read-checkpoint",
+);
 
 const openServerScopes = new Set<Scope.CloseableScope>();
 const openHandlers = new Set<McpHttpHandler>();
 const openClients = new Set<Client>();
 const noOp = (): undefined => undefined;
+
+const makeReadPlaneHandlers = () => ({
+  readConversation: vi.fn(() =>
+    Effect.succeed({ messages: [], checkpoint: READ_CHECKPOINT }),
+  ),
+  searchAgents: vi.fn(() => Effect.succeed({ agents: [] })),
+  searchConversations: vi.fn(() => Effect.succeed({ conversations: [] })),
+});
+type ReadPlaneHandlers = ReturnType<typeof makeReadPlaneHandlers>;
 
 const makeHandler = (name: string, onCreate?: () => void): McpHttpHandler => {
   const handler = createMcpHandler(() => {
@@ -352,6 +374,7 @@ const makeSubscriptionHarnessHandlers = () => {
   });
   return makeHarnessMcpHttpHandlers({
     implementation: SERVER_IMPLEMENTATION,
+    ...makeReadPlaneHandlers(),
     reply: () => Effect.void,
     status: localHandlers[localDaemonCommands.status],
   });
@@ -511,7 +534,87 @@ const closesDespiteBackpressuredReader = async () => {
   expect(running.server.listening).toBe(false);
 };
 
-const exposesStatusAndReplyTools = async () => {
+const expectActiveToolCatalog = async (harnessClient: Client) => {
+  expect(harnessClient.getDiscoverResult()?.capabilities.extensions).toEqual({
+    [HARNESS_EVENTS_EXTENSION]: {},
+  });
+  const tools = (await harnessClient.listTools()).tools;
+  expect(tools.map((tool) => tool.name)).toEqual([
+    "status",
+    "search_agents",
+    "search_conversations",
+    "read_conversation",
+    "reply",
+  ]);
+
+  expect(
+    tools.find(({ name }) => name === "search_agents")?.inputSchema,
+  ).toMatchObject({
+    additionalProperties: false,
+    properties: {
+      cursor: { type: "string" },
+      query: { type: "string" },
+    },
+    type: "object",
+  });
+  expect(
+    tools.find(({ name }) => name === "search_agents")?.inputSchema.properties,
+  ).not.toHaveProperty("limit");
+  expect(
+    tools.find(({ name }) => name === "search_conversations")?.inputSchema
+      .properties,
+  ).not.toHaveProperty("count");
+};
+
+const expectStatusTool = async (harnessClient: Client, ownAgentId: string) => {
+  const result = await harnessClient.callTool({
+    name: "status",
+    arguments: {},
+  });
+  const expected = { agentId: ownAgentId, connected: true, conversations: 3 };
+  expect(result.structuredContent).toEqual(expected);
+  expect(result.content).toEqual([
+    { type: "text", text: JSON.stringify(expected) },
+  ]);
+};
+
+const expectReadPlaneTools = async (
+  harnessClient: Client,
+  readPlane: ReadPlaneHandlers,
+) => {
+  await expect(
+    harnessClient.callTool({
+      name: "search_agents",
+      arguments: { query: "" },
+    }),
+  ).resolves.toMatchObject({ structuredContent: { agents: [] } });
+  expect(readPlane.searchAgents).toHaveBeenCalledWith({ query: "" });
+
+  await expect(
+    harnessClient.callTool({
+      name: "search_conversations",
+      arguments: { query: "peer" },
+    }),
+  ).resolves.toMatchObject({ structuredContent: { conversations: [] } });
+  expect(readPlane.searchConversations).toHaveBeenCalledWith({ query: "peer" });
+
+  const selectedConversationId = conversationId(
+    "550e8400-e29b-41d4-a716-446655440042",
+  );
+  await expect(
+    harnessClient.callTool({
+      name: "read_conversation",
+      arguments: { conversationId: selectedConversationId },
+    }),
+  ).resolves.toMatchObject({
+    structuredContent: { messages: [], checkpoint: READ_CHECKPOINT },
+  });
+  expect(readPlane.readConversation).toHaveBeenCalledWith({
+    conversationId: selectedConversationId,
+  });
+};
+
+const exposesActiveTools = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
   const localHandlers = makeLocalDaemonHandlers({
     ownAgentId,
@@ -524,8 +627,10 @@ const exposesStatusAndReplyTools = async () => {
       throw new Error("status must not read local history");
     },
   });
+  const readPlane = makeReadPlaneHandlers();
   const handlers = makeHarnessMcpHttpHandlers({
     implementation: SERVER_IMPLEMENTATION,
+    ...readPlane,
     reply: () => Effect.void,
     status: localHandlers[localDaemonCommands.status],
   });
@@ -541,22 +646,9 @@ const exposesStatusAndReplyTools = async () => {
   );
 
   expect((await registrationClient.listTools()).tools).toEqual([]);
-  expect(harnessClient.getDiscoverResult()?.capabilities.extensions).toEqual({
-    [HARNESS_EVENTS_EXTENSION]: {},
-  });
-  expect(
-    (await harnessClient.listTools()).tools.map((tool) => tool.name),
-  ).toEqual(["status", "reply"]);
-
-  const result = await harnessClient.callTool({
-    name: "status",
-    arguments: {},
-  });
-  const expected = { agentId: ownAgentId, connected: true, conversations: 3 };
-  expect(result.structuredContent).toEqual(expected);
-  expect(result.content).toEqual([
-    { type: "text", text: JSON.stringify(expected) },
-  ]);
+  await expectActiveToolCatalog(harnessClient);
+  await expectStatusTool(harnessClient, ownAgentId);
+  await expectReadPlaneTools(harnessClient, readPlane);
 };
 
 // @agent-code-guard/regression-only: this finite matrix pins the two HTTP routes and the official SDK's interoperability and guard behavior.
@@ -583,10 +675,7 @@ describe("scoped Harness MCP HTTP server", () => {
     closesAfterSlowReaderObservesTerminalCompletion());
   it("bounds shutdown when an MCP reader stops draining its response", () =>
     closesDespiteBackpressuredReader());
-  it(
-    "serves status and reply through the active catalog",
-    exposesStatusAndReplyTools,
-  );
+  it("serves the active harness tools through one catalog", exposesActiveTools);
 });
 
 /* eslint-enable agent-code-guard/async-keyword -- Restore strict defaults after the Promise-native interoperability fixture. */
