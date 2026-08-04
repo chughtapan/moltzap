@@ -1,7 +1,7 @@
 /** @file Container-backed OpenClaw runtime. */
 
 import type { AgentName } from "@moltzap/protocol/identity";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { posix } from "node:path";
 import { httpBaseUrl } from "@moltzap/protocol/network";
 import {
@@ -37,6 +37,7 @@ import {
 import {
   acquireOpenClawGateway,
   type OpenClawGateway,
+  type OpenClawGatewayDeviceIdentity,
   type OpenClawGatewaySession,
   OpenClawGatewayStoppedBeforeHello,
 } from "./gateway.js";
@@ -53,14 +54,16 @@ const OPENCLAW_RUNTIME_NAME = "openclaw";
 const OPENCLAW_READY_MARKER = "connected as";
 const DEFAULT_OPENCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
 const OPENCLAW_DISTRIBUTED_GATEWAY_PORT = 18_789;
-const OPENCLAW_DISTRIBUTED_STATE_DIR = "/var/lib/moltzap/openclaw";
 const OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
+const OPENCLAW_DISTRIBUTED_STATE_DIR = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/state`;
 const OPENCLAW_DISTRIBUTED_CONFIG_PATH = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/openclaw.json`;
 const OPENCLAW_DISTRIBUTED_PROFILE_HOME = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/moltzap`;
 const OPENCLAW_DISTRIBUTED_PROFILE_PATH = `${OPENCLAW_DISTRIBUTED_PROFILE_HOME}/config.json`;
 const OPENCLAW_DISTRIBUTED_WORKSPACE_DIR = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/workspace`;
 const OPENCLAW_DISTRIBUTED_CHANNEL_PATH = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/openclaw-channel`;
 const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
+const OPENCLAW_DEVICE_TOKEN_BYTES = 32;
+const OPENCLAW_ED25519_PUBLIC_KEY_BYTES = 32;
 const STOCK_OPENCLAW_IMAGE =
   "ghcr.io/openclaw/openclaw@sha256:27612bb8e5a766ace76fbc2c19276cc9e321f66ad065292eae197f0f5624d371" satisfies DistributedContainerImage;
 const DISTRIBUTED_APPLICATION_RESOURCES = Object.freeze({
@@ -353,10 +356,57 @@ function bootstrapFile(
   return Object.freeze({ path, content, mode: 0o600 });
 }
 
+interface OpenClawGatewayPairing {
+  readonly deviceIdentity: OpenClawGatewayDeviceIdentity;
+  readonly pairedDevices: string;
+}
+
+function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const publicKeyDer = publicKey.export({ type: "spki", format: "der" });
+  const publicKeyRaw = publicKeyDer.subarray(-OPENCLAW_ED25519_PUBLIC_KEY_BYTES);
+  const deviceIdentity = Object.freeze({
+    deviceId: createHash("sha256").update(publicKeyRaw).digest("hex"),
+    privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }),
+    publicKeyPem: publicKey.export({ type: "spki", format: "pem" }),
+  });
+  const now = Date.now();
+  const operatorWrite = "operator.write";
+  return Object.freeze({
+    deviceIdentity,
+    pairedDevices: JSON.stringify({
+      [deviceIdentity.deviceId]: {
+        deviceId: deviceIdentity.deviceId,
+        publicKey: publicKeyRaw.toString("base64url"),
+        displayName: "MoltZap simulator",
+        clientId: "gateway-client",
+        clientMode: "backend",
+        role: "operator",
+        roles: ["operator"],
+        scopes: [operatorWrite],
+        approvedScopes: [operatorWrite],
+        tokens: {
+          operator: {
+            token: randomBytes(OPENCLAW_DEVICE_TOKEN_BYTES).toString(
+              "base64url",
+            ),
+            role: "operator",
+            scopes: [operatorWrite],
+            createdAtMs: now,
+          },
+        },
+        createdAtMs: now,
+        approvedAtMs: now,
+      },
+    }),
+  });
+}
+
 function distributedBootstrapFiles<Name extends string>(
   settings: OpenClawRuntimeSettings,
   input: AgentRuntimeInput<Name>,
   gatewayToken: Redacted.Redacted,
+  pairing: OpenClawGatewayPairing,
 ): readonly DistributedBootstrapFile[] {
   const nativeConfig = buildOpenClawConfig(
     {
@@ -384,6 +434,10 @@ function distributedBootstrapFiles<Name extends string>(
       JSON.stringify(nativeConfig, null, 2),
     ),
     bootstrapFile(OPENCLAW_DISTRIBUTED_PROFILE_PATH, profile),
+    bootstrapFile(
+      `${OPENCLAW_DISTRIBUTED_STATE_DIR}/devices/paired.json`,
+      pairing.pairedDevices,
+    ),
     ...settings.workspaceFiles.map((file) =>
       bootstrapFile(distributedWorkspacePath(file.relativePath), file.content),
     ),
@@ -445,6 +499,7 @@ interface DistributedOpenClawBridge {
   readonly startupTimeout: Duration.Duration;
   readonly agentName: AgentName;
   readonly gatewayToken: Redacted.Redacted;
+  readonly deviceIdentity: OpenClawGatewayDeviceIdentity;
   readonly acquireGateway: OpenClawDistributedGatewayAcquirer;
 }
 
@@ -471,6 +526,7 @@ function attachDistributedOpenClaw(
         {
           gatewayUrl,
           gatewayToken: bridge.gatewayToken,
+          deviceIdentity: bridge.deviceIdentity,
           agentName: bridge.agentName,
           stopped: stoppedBeforeDistributedGateway(attachment.stopped),
         },
@@ -533,11 +589,13 @@ function makeDistributedOpenClawApplication<Name extends string>(
   const gatewayToken = Redacted.make(
     randomBytes(OPENCLAW_GATEWAY_TOKEN_BYTES).toString("hex"),
   );
-  const files = distributedBootstrapFiles(settings, input, gatewayToken);
+  const pairing = createOpenClawGatewayPairing();
+  const files = distributedBootstrapFiles(settings, input, gatewayToken, pairing);
   const bridge = {
     startupTimeout: settings.startupTimeout,
     agentName: input.agentName,
     gatewayToken,
+    deviceIdentity: pairing.deviceIdentity,
     acquireGateway,
   };
   return Object.freeze({

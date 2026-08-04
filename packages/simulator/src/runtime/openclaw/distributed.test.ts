@@ -44,7 +44,8 @@ const PROFILE_PATH = `${BOOTSTRAP_ROOT}moltzap/config.json`;
 const CHANNEL_PATH = `${BOOTSTRAP_ROOT}openclaw-channel`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
 const DISTRIBUTED_GATEWAY_PORT = 18_789;
-const APPLICATION_STATE_DIR = "/var/lib/moltzap/openclaw";
+const APPLICATION_STATE_DIR = `${BOOTSTRAP_ROOT}state`;
+const PAIRED_DEVICES_PATH = `${APPLICATION_STATE_DIR}/devices/paired.json`;
 const WORKSPACE_CONTENT = "Alice";
 const READINESS_MARKER = "connected as";
 
@@ -222,6 +223,14 @@ function assertBootstrapMaterial(fixture: StockFixture): void {
     requireFile(application.bootstrapSecret.files, WORKSPACE_PATH),
     WORKSPACE_CONTENT,
   );
+  const pairedDevices = JSON.parse(
+    requireFile(application.bootstrapSecret.files, PAIRED_DEVICES_PATH),
+  ) as Record<string, { readonly approvedScopes: readonly string[] }>;
+  assert.lengthOf(Object.keys(pairedDevices), 1);
+  assert.deepStrictEqual(
+    Object.values(pairedDevices)[0]?.approvedScopes,
+    ["operator.write"],
+  );
   assert.isTrue(
     application.bootstrapSecret.files.every((file) =>
       file.path.startsWith(BOOTSTRAP_ROOT),
@@ -284,6 +293,10 @@ function exactBridgeTest() {
         ? undefined
         : Redacted.value(observedSession.gatewayToken),
       config.gateway.auth.token,
+    );
+    assert.match(
+      observedSession?.deviceIdentity.deviceId ?? "",
+      /^[\da-f]{64}$/u,
     );
   });
 }
