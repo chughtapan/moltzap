@@ -8,7 +8,7 @@ Agent identity server internals.
 
 ## Public surface
 
-### [`agentsList`](./handlers.ts#L123)
+### [`agentsList`](./handlers.ts#L205)
 
 _Variable_
 
@@ -23,6 +23,21 @@ export const agentsList: ServerHandler<typeof agentsListDefinition> = Effect.fn(
 Provides the agents list runtime value.
 
 **Returns:** The agents list result.
+
+### [`agentsSearch`](./handlers.ts#L216)
+
+_Variable_
+
+```ts
+export const agentsSearch: ServerHandler<typeof agentsSearchDefinition> =
+  Effect.fn("agentsSearch")(function* (params) {
+    return yield* agentsSearchBody(params, yield* agentArm);
+  })
+```
+
+Search agent cards by exact identifier or exact name.
+
+**Returns:** One stable identifier-ordered page.
 
 ### [`AuthService`](./auth.service.ts#L24)
 

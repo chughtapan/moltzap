@@ -8,7 +8,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageService`](./message.service.ts#L93)
+### [`MessageService`](./message.service.ts#L125)
 
 _Class_
 
@@ -177,7 +177,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L64)
+### [`messagesList`](./handlers.ts#L80)
 
 _Variable_
 
@@ -195,7 +195,23 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L50)
+### [`messagesRead`](./handlers.ts#L93)
+
+_Variable_
+
+```ts
+export const messagesRead: ServerHandler<typeof messagesReadDefinition> =
+  Effect.fn("messagesRead")(function* (params) {
+    const ctx = yield* agentArm;
+    return yield* handleMessageRead(params, ctx);
+  })
+```
+
+Provides the checkpointed messages read runtime value.
+
+**Returns:** The messages read result.
+
+### [`messagesSend`](./handlers.ts#L66)
 
 _Variable_
 
