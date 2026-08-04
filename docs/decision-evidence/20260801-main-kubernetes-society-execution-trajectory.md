@@ -341,6 +341,17 @@ rationale or strengthen a proposal into a human statement.
    connector exposed no creation timestamp, so none is invented. This is an
    agent-published mechanical artifact, not human rationale.
 
+   Source system: git and isolated Codex review. The corrected candidate was
+   frozen as commit `2749adbd99eaffd16f063a45de7be01c253f7ef1`, tree
+   `ce6655004c93d03e6276a07756a5086ce68aa662`. Different fresh reviewer
+   `/root/candidate_blind_review_3` ran from `2026-08-04T01:03:05Z` through
+   `2026-08-04T01:10:58Z` with no author intervention or repository
+   modification. All six questions passed and the overall result was `PASS`
+   with no blockers. The reviewer states that maintainer acceptance remains
+   required because the result is not self-certifying. The unedited result is
+   retained at
+   [`20260804-main-kubernetes-society-execution-second-cold-review.md`](./20260804-main-kubernetes-society-execution-second-cold-review.md).
+
 Source gaps, stated plainly:
 
 - The retained Codex events supply no parent locator. Their message id,
