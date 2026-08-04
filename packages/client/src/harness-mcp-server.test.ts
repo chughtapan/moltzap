@@ -20,7 +20,7 @@ import {
   request as nodeRequest,
   type IncomingMessage,
 } from "node:http";
-import { Cause, Effect, Exit, Fiber, Scope } from "effect";
+import { Cause, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentId } from "@moltzap/protocol/testing";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
@@ -28,6 +28,7 @@ import { HARNESS_EVENTS_EXTENSION } from "./harness/index.js";
 import { localDaemonCommands } from "./local-daemon-rpc.js";
 import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
+import { makeHarnessMcpSubscriptionHandler } from "./harness-mcp-subscription.js";
 
 const LOCALHOST = "127.0.0.1";
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
@@ -40,6 +41,9 @@ const NOT_FOUND_STATUS = 404;
 const METHOD_NOT_ALLOWED_STATUS = 405;
 const GRACEFUL_SUBSCRIPTION_CLOSE = "graceful";
 const SUBSCRIPTIONS_LISTEN_METHOD = "subscriptions/listen";
+const BACKPRESSURE_PAYLOAD_BYTES = 8 * 1024 * 1024;
+const BACKPRESSURE_WRITE_DELAY = Duration.millis(100);
+const BACKPRESSURE_CLOSE_DEADLINE = Duration.seconds(3);
 const SERVER_IMPLEMENTATION = {
   name: "harness-boundary-test",
   version: "1.0.0",
@@ -470,6 +474,43 @@ const closesAfterSlowReaderObservesTerminalCompletion = async () => {
   expect(running.server.listening).toBe(false);
 };
 
+const closesDespiteBackpressuredReader = async () => {
+  const active = makeHarnessMcpSubscriptionHandler<{ readonly opaque: string }>(
+    {
+      delegate: makeHandler("harness-backpressure-test"),
+      implementation: SERVER_IMPLEMENTATION,
+    },
+  );
+  const running = await acquireServerWithHandlers(
+    makeHandler("registration-backpressure-test"),
+    active,
+  );
+  const subscription = await openPausedSubscription(
+    running.baseUrl,
+    makeListenPayload("backpressured-reader"),
+  );
+  const ended = subscription.ended.catch(() => undefined);
+
+  expect(
+    active.publish({ opaque: "x".repeat(BACKPRESSURE_PAYLOAD_BYTES) }),
+  ).toBe(true);
+  await Effect.runPromise(Effect.sleep(BACKPRESSURE_WRITE_DELAY));
+
+  openServerScopes.delete(running.scope);
+  const closing = Effect.runFork(Scope.close(running.scope, Exit.void));
+  const closedWithinDeadline = await Effect.runPromise(
+    Fiber.join(closing).pipe(Effect.timeoutOption(BACKPRESSURE_CLOSE_DEADLINE)),
+  );
+
+  subscription.response.destroy();
+  subscription.agent.destroy();
+  await Effect.runPromise(Fiber.join(closing));
+  await ended;
+
+  expect(Option.isSome(closedWithinDeadline)).toBe(true);
+  expect(running.server.listening).toBe(false);
+};
+
 const exposesStatusAndReplyTools = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
   const localHandlers = makeLocalDaemonHandlers({
@@ -540,6 +581,8 @@ describe("scoped Harness MCP HTTP server", () => {
     closesActiveSubscriptionWhenScopeReleases());
   it("lets a slow reader observe terminal completion before prompt shutdown", () =>
     closesAfterSlowReaderObservesTerminalCompletion());
+  it("bounds shutdown when an MCP reader stops draining its response", () =>
+    closesDespiteBackpressuredReader());
   it(
     "serves status and reply through the active catalog",
     exposesStatusAndReplyTools,

@@ -12,12 +12,24 @@ import {
   type RequestListener,
   type Server as NodeHttpServer,
 } from "node:http";
-import { Deferred, Effect, Exit, type Scope } from "effect";
+import type { Socket } from "node:net";
+import {
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  type Scope,
+} from "effect";
 
 const REGISTER_MCP_PATH = "/register/mcp";
 const HARNESS_MCP_PATH = "/mcp";
 const POST_METHOD = "POST";
 const LOOPBACK_HOST = "127.0.0.1";
+// Loopback readers normally drain immediately; one second tolerates scheduler
+// delay without allowing a stopped reader to retain the daemon lifetime.
+const RESPONSE_DRAIN_GRACE_PERIOD = Duration.seconds(1);
 
 interface HarnessMcpHttpServerOptions {
   readonly port: number;
@@ -32,6 +44,7 @@ interface HarnessMcpRequestListener {
 
 interface RunningHarnessMcpHttpServer {
   readonly server: NodeHttpServer;
+  readonly destroyConnections: () => void;
   readonly waitForResponses: Effect.Effect<undefined>;
 }
 
@@ -157,6 +170,22 @@ const makeHarnessMcpRequestListener = (
   };
 };
 
+const trackConnections = (server: NodeHttpServer): (() => void) => {
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => {
+      sockets.delete(socket);
+    });
+  });
+  return () => {
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+    server.closeAllConnections();
+  };
+};
+
 const listen = (
   options: HarnessMcpHttpServerOptions,
 ): Effect.Effect<RunningHarnessMcpHttpServer, Error> =>
@@ -166,6 +195,7 @@ const listen = (
       options.harnessHandler,
     );
     const server = createServer(requests.listener);
+    const destroyConnections = trackConnections(server);
     const onError = (error: Error): void => {
       resume(Effect.fail(error));
     };
@@ -174,6 +204,7 @@ const listen = (
       server.off("error", onError);
       resume(
         Effect.succeed({
+          destroyConnections,
           server,
           waitForResponses: requests.waitForResponses,
         }),
@@ -249,12 +280,33 @@ const release = (
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const closeCompletion = yield* beginClose(running.server);
-    yield* closeHandlers(options);
     // Handler closure finishes the Web stream before the Node adapter drains
-    // it. Once every tracked response has drained, only residual keep-alive
-    // connections remain, and they must not hold daemon shutdown open.
-    yield* running.waitForResponses;
-    running.server.closeAllConnections();
+    // it. A local client that stops reading must not retain the daemon scope,
+    // so graceful draining is bounded before active connections are closed.
+    const gracefulClose = yield* Effect.fork(
+      Effect.all([closeHandlers(options), running.waitForResponses], {
+        concurrency: 2,
+        discard: true,
+      }),
+    );
+    // acquireRelease finalizers are uninterruptible. Only this observation is
+    // interruptible so the grace timer can win; the close fiber remains owned
+    // here and is joined after any forced connection shutdown.
+    const drained = yield* Fiber.join(gracefulClose).pipe(
+      Effect.timeoutOption(RESPONSE_DRAIN_GRACE_PERIOD),
+      Effect.interruptible,
+    );
+    if (Option.isNone(drained)) {
+      yield* Effect.logWarning(
+        "Harness MCP response drain timed out; closing active connections",
+      );
+      yield* Effect.sync(running.destroyConnections);
+    } else {
+      running.server.closeAllConnections();
+    }
+    if (Option.isNone(drained)) {
+      yield* Fiber.join(gracefulClose);
+    }
     yield* closeCompletion;
   });
 
