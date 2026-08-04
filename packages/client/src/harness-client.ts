@@ -1,9 +1,6 @@
 import * as KeyValueStore from "@effect/platform/KeyValueStore";
 import { Context, Effect, Layer, Schema, Stream, type Scope } from "effect";
-import type {
-  Conversation,
-  conversationSearch,
-} from "@moltzap/protocol/conversation";
+import type { conversationSearch } from "@moltzap/protocol/conversation";
 import {
   agentsSearch,
   type AgentId,
@@ -35,6 +32,9 @@ import {
 } from "./harness/index.js";
 import { statusCommandRpc } from "./local-daemon-rpc.js";
 
+/** MCP-local conversation projection including participant identities. */
+export type { ConversationWithParticipants } from "./harness/index.js";
+
 /** Existing adapter presentation with reply authority bound to its live turn. */
 export interface HarnessTurn extends EnrichedInboundMessage {
   /** Sends model output through the MCP reply route captured by this turn. */
@@ -49,7 +49,7 @@ export interface HarnessClientService {
   readonly startConversation: (
     otherAgentNames: readonly AgentName[],
     initialContent: string,
-  ) => Effect.Effect<Conversation, Error>;
+  ) => Effect.Effect<ConversationWithParticipants, Error>;
   /** The sole receive stream owned by this scoped client. */
   readonly turns: Stream.Stream<HarnessTurn, Error>;
 }
@@ -121,21 +121,11 @@ const readActiveAgentId = (
     }),
   );
 
-const projectConversation = (
-  conversation: ConversationWithParticipants,
-): Conversation => ({
-  id: conversation.id,
-  ...(conversation.name === undefined ? {} : { name: conversation.name }),
-  createdBy: conversation.createdBy,
-  createdAt: conversation.createdAt,
-  updatedAt: conversation.updatedAt,
-});
-
 const startConversation = (
   session: HarnessClientInternalService,
   otherAgentNames: readonly AgentName[],
   initialContent: string,
-): Effect.Effect<Conversation, Error> =>
+): Effect.Effect<ConversationWithParticipants, Error> =>
   session
     .callTool(HARNESS_START_CONVERSATION_TOOL, {
       otherAgentNames,
@@ -143,7 +133,7 @@ const startConversation = (
     })
     .pipe(
       Effect.flatMap(decodeHarnessStartConversationResult),
-      Effect.map(({ conversation }) => projectConversation(conversation)),
+      Effect.map(({ conversation }) => conversation),
       Effect.mapError(asError),
     );
 

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { loadTypeDoc, normalizeSourcePath } from "../typedoc-load.js";
 
 describe("normalizeSourcePath", () => {
-  it("retains both workspace source roots", () => {
+  it("retains workspace source and declaration roots", () => {
     expect(
       normalizeSourcePath(
         "/workspace/v2/moltzap/packages/protocol/src/index.ts",
@@ -19,6 +19,11 @@ describe("normalizeSourcePath", () => {
         "C:\\workspace\\archive-v2\\moltzap\\v2\\identity\\src\\index.ts",
       ),
     ).toBe("v2/identity/src/index.ts");
+    expect(
+      normalizeSourcePath(
+        "/workspace/moltzap-worktree/packages/protocol/dist/socket/agent-client.d.ts",
+      ),
+    ).toBe("packages/protocol/dist/socket/agent-client.d.ts");
   });
 
   it("recovers a v2 path from a TypeDoc permalink", () => {

@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`acquireHarnessClient`](./harness-client.ts#L211)
+### [`acquireHarnessClient`](./harness-client.ts#L201)
 
 _Function_
 
@@ -71,6 +71,18 @@ export interface ConversationMeta {
 
 Describes conversation meta.
 
+### [`ConversationWithParticipants`](./harness/runtime.ts#L95)
+
+_TypeAlias_
+
+```ts
+export type ConversationWithParticipants = Schema.Schema.Type<
+  typeof conversationWithParticipantsSchema
+>;
+```
+
+Conversation projection carried only between the daemon and HarnessClient.
+
 ### [`HarnessClient`](./harness-client.ts#L58)
 
 _Class_
@@ -109,7 +121,7 @@ export interface HarnessClientService {
   readonly startConversation: (
     otherAgentNames: readonly AgentName[],
     initialContent: string,
-  ) => Effect.Effect<Conversation, Error>;
+  ) => Effect.Effect<ConversationWithParticipants, Error>;
   /** The sole receive stream owned by this scoped client. */
   readonly turns: Stream.Stream<HarnessTurn, Error>;
 }
@@ -130,7 +142,7 @@ export interface HarnessTurn extends EnrichedInboundMessage {
 
 Existing adapter presentation with reply authority bound to its live turn.
 
-### [`makeHarnessClientLayer`](./harness-client.ts#L242)
+### [`makeHarnessClientLayer`](./harness-client.ts#L232)
 
 _Function_
 
@@ -322,5 +334,6 @@ to that method's errors at the `call` site.
 ## Files
 
 - `harness-client.ts`
+- `runtime.ts`
 - `state.ts`
 - `service.ts`

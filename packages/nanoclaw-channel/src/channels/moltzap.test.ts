@@ -1,6 +1,10 @@
-import { describe, expect, it as vitestIt } from "vitest";
+import { describe, expect, it as vitestIt, vi } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Effect, Either } from "effect";
+import { Data, Deferred, Effect, Either, Queue, Stream } from "effect";
+import type {
+  HarnessClientService,
+  HarnessTurn,
+} from "@moltzap/client/harness-client";
 import {
   buildMessage,
   createFakeChannelService,
@@ -53,6 +57,17 @@ interface Harness {
   readonly fake: FakeChannelService;
   readonly config: RecordedChannelSetup;
   readonly adapter: MoltZapAdapter;
+}
+
+interface HarnessClientReply {
+  readonly route: string;
+  readonly payload: string;
+}
+
+interface HarnessClientFixture {
+  readonly client: HarnessClientService;
+  readonly replies: HarnessClientReply[];
+  readonly turns: Queue.Queue<HarnessTurn>;
 }
 
 const AGENT_SELF = "agent-self";
@@ -127,6 +142,17 @@ const SYSTEM_REMINDER_CLOSE_PATTERN = /<\/system-reminder>/g;
 const MESSAGES_OPEN_PATTERN = /<messages>/g;
 const MESSAGES_CLOSE_PATTERN = /<\/messages>/g;
 const NO_SENT_MESSAGE = "nope";
+const FIRST_HARNESS_ROUTE = "first-harness-route";
+const SECOND_HARNESS_ROUTE = "second-harness-route";
+const HARNESS_REPLY_FAILURE_PATTERN = /HarnessReplyTestError/;
+
+class MetadataCallbackTestError extends Data.TaggedError(
+  "MetadataCallbackTestError",
+)<Record<never, never>> {}
+
+class HarnessReplyTestError extends Data.TaggedError("HarnessReplyTestError")<
+  Record<never, never>
+> {}
 
 function createRecordedSetup(): RecordedChannelSetup {
   const received: ReceivedMessage[] = [];
@@ -144,6 +170,81 @@ function createRecordedSetup(): RecordedChannelSetup {
     received,
     metadata,
     callOrder,
+  };
+}
+
+function createSignallingSetup(
+  signal: Queue.Queue<string>,
+  waitForInbound?: (jid: string) => Effect.Effect<undefined>,
+): RecordedChannelSetup {
+  const setup = createRecordedSetup();
+  return {
+    ...setup,
+    onInbound: (jid, threadId, msg) => {
+      setup.received.push({ jid, threadId, msg });
+      setup.callOrder.push(ON_INBOUND);
+      Queue.unsafeOffer(signal, jid);
+      const wait = waitForInbound?.(jid);
+      return wait === undefined ? undefined : Effect.runPromise(wait);
+    },
+  };
+}
+
+function createMetadataFailingSetup(
+  signal: Queue.Queue<string>,
+): RecordedChannelSetup {
+  const setup = createSignallingSetup(signal);
+  let failNext = true;
+  return {
+    ...setup,
+    onMetadata: (jid, name, isGroup) => {
+      if (failNext) {
+        failNext = false;
+        throw new MetadataCallbackTestError();
+      }
+      setup.metadata.push({ jid, name, isGroup });
+      setup.callOrder.push(ON_METADATA);
+    },
+  };
+}
+
+function createHarnessClientFixture(): HarnessClientFixture {
+  const turns = Effect.runSync(Queue.unbounded<HarnessTurn>());
+  const replies: HarnessClientReply[] = [];
+  return {
+    client: {
+      agentId: testAgentId(AGENT_SELF),
+      startConversation: () =>
+        Effect.dieMessage("startConversation is not used by these tests"),
+      turns: Stream.fromQueue(turns),
+    },
+    replies,
+    turns,
+  };
+}
+
+function makeHarnessTurn(
+  fixture: HarnessClientFixture,
+  options: {
+    readonly conversationId: string;
+    readonly messageId: string;
+    readonly route: string;
+    readonly text?: string;
+  },
+): HarnessTurn {
+  return {
+    id: testMessageId(options.messageId),
+    conversationId: testConversationId(options.conversationId),
+    sender: { id: testAgentId(AGENT_ALICE), name: ALICE_NAME },
+    text: options.text ?? HI_NANOCLAW,
+    isFromMe: false,
+    createdAt: MESSAGE_CREATED_AT,
+    conversationMeta: { type: "dm", participants: [] },
+    contextBlocks: {},
+    reply: (payload) =>
+      Effect.sync(() => {
+        fixture.replies.push({ route: options.route, payload });
+      }),
   };
 }
 
@@ -413,6 +514,220 @@ function overlappingTurnsStaySerialized() {
       { convId: testConversationId(CONV_43), text: SECOND_REPLY },
     ]);
   });
+}
+
+function harnessRepliesUseLatestBoundTurn() {
+  const fixture = createHarnessClientFixture();
+  const adapter = MoltZapAdapter.fromHarnessClient(fixture.client);
+  return Effect.gen(function* () {
+    const signal = yield* Queue.unbounded<string>();
+    yield* runPromise(() => adapter.setup(createSignallingSetup(signal)));
+
+    yield* Queue.offer(
+      fixture.turns,
+      makeHarnessTurn(fixture, {
+        conversationId: CONV_42,
+        messageId: MSG_TURN_1,
+        route: FIRST_HARNESS_ROUTE,
+      }),
+    );
+    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
+    yield* deliver(adapter, asJid(CONV_42), FIRST_REPLY);
+
+    yield* Queue.offer(
+      fixture.turns,
+      makeHarnessTurn(fixture, {
+        conversationId: CONV_42,
+        messageId: MSG_TURN_2,
+        route: SECOND_HARNESS_ROUTE,
+      }),
+    );
+    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
+    yield* deliver(adapter, asJid(CONV_42), SECOND_REPLY);
+    yield* deliver(adapter, asJid(CONV_42), SECOND_REPLY);
+
+    expect(fixture.replies).toEqual([
+      { route: FIRST_HARNESS_ROUTE, payload: FIRST_REPLY },
+      { route: SECOND_HARNESS_ROUTE, payload: SECOND_REPLY },
+      { route: SECOND_HARNESS_ROUTE, payload: SECOND_REPLY },
+    ]);
+  }).pipe(
+    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+  );
+}
+
+function harnessReplyFailureHasNoFallback() {
+  const fixture = createHarnessClientFixture();
+  const reply = vi
+    .fn<HarnessTurn["reply"]>()
+    .mockReturnValue(Effect.fail(new HarnessReplyTestError()));
+  const turn = {
+    ...makeHarnessTurn(fixture, {
+      conversationId: CONV_42,
+      messageId: MSG_TURN_1,
+      route: FIRST_HARNESS_ROUTE,
+    }),
+    reply,
+  };
+  const adapter = MoltZapAdapter.fromHarnessClient({
+    ...fixture.client,
+    turns: Stream.make(turn),
+  });
+  return Effect.gen(function* () {
+    const signal = yield* Queue.unbounded<string>();
+    yield* runPromise(() => adapter.setup(createSignallingSetup(signal)));
+    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
+
+    yield* expectPromiseFailure(
+      deliver(adapter, asJid(CONV_42), FIRST_REPLY),
+      HARNESS_REPLY_FAILURE_PATTERN,
+    );
+    expect(reply).toHaveBeenCalledExactlyOnceWith(FIRST_REPLY);
+    expect(fixture.replies).toEqual([]);
+  }).pipe(
+    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+  );
+}
+
+function harnessTurnsDrainSequentially() {
+  const fixture = createHarnessClientFixture();
+  const adapter = MoltZapAdapter.fromHarnessClient(fixture.client);
+  return Effect.gen(function* () {
+    const signal = yield* Queue.unbounded<string>();
+    const releaseFirst = yield* Deferred.make<undefined>();
+    let firstInbound = true;
+    const setup = createSignallingSetup(signal, () => {
+      if (!firstInbound) {
+        return Effect.succeed(undefined);
+      }
+      firstInbound = false;
+      return Deferred.await(releaseFirst);
+    });
+    yield* runPromise(() => adapter.setup(setup));
+
+    yield* Queue.offer(
+      fixture.turns,
+      makeHarnessTurn(fixture, {
+        conversationId: CONV_42,
+        messageId: MSG_TURN_1,
+        route: FIRST_HARNESS_ROUTE,
+      }),
+    );
+    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
+
+    yield* Queue.offer(
+      fixture.turns,
+      makeHarnessTurn(fixture, {
+        conversationId: CONV_43,
+        messageId: MSG_TURN_2,
+        route: SECOND_HARNESS_ROUTE,
+      }),
+    );
+    yield* Effect.yieldNow();
+    expect(yield* Queue.size(signal)).toBe(0);
+    expect(yield* Queue.size(fixture.turns)).toBe(1);
+
+    yield* Deferred.succeed(releaseFirst, undefined);
+    expect(yield* Queue.take(signal)).toBe(asJid(CONV_43));
+  }).pipe(
+    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+  );
+}
+
+function harnessTeardownLeavesClientCallerOwned() {
+  const fixture = createHarnessClientFixture();
+  const adapter = MoltZapAdapter.fromHarnessClient(fixture.client);
+  return Effect.gen(function* () {
+    const signal = yield* Queue.unbounded<string>();
+    const setupConfig = createSignallingSetup(signal);
+    yield* runPromise(() => adapter.setup(setupConfig));
+    expect(adapter.isConnected()).toBe(true);
+
+    yield* runPromise(() => adapter.teardown());
+    expect(adapter.isConnected()).toBe(false);
+    expect(yield* Queue.isShutdown(fixture.turns)).toBe(false);
+
+    yield* Queue.offer(
+      fixture.turns,
+      makeHarnessTurn(fixture, {
+        conversationId: CONV_42,
+        messageId: MSG_TURN_1,
+        route: FIRST_HARNESS_ROUTE,
+      }),
+    );
+    yield* Effect.yieldNow();
+    expect(yield* Queue.size(fixture.turns)).toBe(1);
+    expect(yield* Queue.size(signal)).toBe(0);
+
+    yield* runPromise(() => adapter.setup(setupConfig));
+    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
+    expect(adapter.isConnected()).toBe(true);
+  }).pipe(
+    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+  );
+}
+
+function harnessMetadataFailureDoesNotStopDrain() {
+  const fixture = createHarnessClientFixture();
+  const adapter = MoltZapAdapter.fromHarnessClient(fixture.client);
+  return Effect.gen(function* () {
+    const signal = yield* Queue.unbounded<string>();
+    const setupConfig = createMetadataFailingSetup(signal);
+    yield* runPromise(() => adapter.setup(setupConfig));
+
+    yield* Queue.offer(
+      fixture.turns,
+      makeHarnessTurn(fixture, {
+        conversationId: CONV_42,
+        messageId: MSG_TURN_1,
+        route: FIRST_HARNESS_ROUTE,
+      }),
+    );
+    yield* Queue.offer(
+      fixture.turns,
+      makeHarnessTurn(fixture, {
+        conversationId: CONV_43,
+        messageId: MSG_TURN_2,
+        route: SECOND_HARNESS_ROUTE,
+      }),
+    );
+
+    expect(yield* Queue.take(signal)).toBe(asJid(CONV_43));
+    expect(setupConfig.received).toHaveLength(1);
+    expect(adapter.isConnected()).toBe(true);
+  }).pipe(
+    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+  );
+}
+
+function harnessLateDeliveryUsesRetainedAuthority() {
+  const fixture = createHarnessClientFixture();
+  const turn = makeHarnessTurn(fixture, {
+    conversationId: CONV_42,
+    messageId: MSG_TURN_1,
+    route: FIRST_HARNESS_ROUTE,
+  });
+  const adapter = MoltZapAdapter.fromHarnessClient({
+    ...fixture.client,
+    turns: Stream.make(turn),
+  });
+  return Effect.gen(function* () {
+    const signal = yield* Queue.unbounded<string>();
+    yield* runPromise(() => adapter.setup(createSignallingSetup(signal)));
+    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
+    yield* runPromise(() =>
+      vi.waitFor(() => {
+        expect(adapter.isConnected()).toBe(false);
+      }),
+    );
+
+    yield* deliver(adapter, asJid(CONV_42), FIRST_REPLY);
+    expect(fixture.replies).toEqual([
+      { route: FIRST_HARNESS_ROUTE, payload: FIRST_REPLY },
+    ]);
+  }).pipe(
+    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+  );
 }
 
 function mapsEnrichedMessageToInboundMessage() {
@@ -760,6 +1075,34 @@ describe("MoltZapAdapter turn serialization", () => {
   it(
     "serializes overlapping turns so each reply keeps its own conversation",
     overlappingTurnsStaySerialized,
+  );
+});
+
+// @agent-code-guard/regression-only: controlled queues and callbacks pin the exact asynchronous NanoClaw delivery and drain lifecycle.
+describe("MoltZapAdapter HarnessClient behavior", () => {
+  it(
+    "routes every deliver call through the latest bound turn reply",
+    harnessRepliesUseLatestBoundTurn,
+  );
+  it(
+    "propagates reply failure without a legacy fallback",
+    harnessReplyFailureHasNoFallback,
+  );
+  it(
+    "drains injected Harness turns sequentially",
+    harnessTurnsDrainSequentially,
+  );
+  it(
+    "can restart its drain without closing the caller-owned client",
+    harnessTeardownLeavesClientCallerOwned,
+  );
+  it(
+    "continues after a synchronous metadata callback failure",
+    harnessMetadataFailureDoesNotStopDrain,
+  );
+  it(
+    "uses a retained reply authority after its receive stream completes",
+    harnessLateDeliveryUsesRetainedAuthority,
   );
 });
 

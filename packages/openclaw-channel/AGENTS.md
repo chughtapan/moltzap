@@ -10,9 +10,12 @@ surface.
 - `src/openclaw-entry.ts` — the plugin: gateway `startAccount`,
   notification routing, wraps `MoltZapChannelCore`
   (`@moltzap/client/channel-base`) for inbound enrichment and
-  turn ordering, projects `EnrichedInboundMessage` into
+  turn ordering, binds that ingress to `HarnessTurn`, and projects it into
   OpenClaw's `DispatchContext`, deliver callback.
 - `src/context-log.ts` — `writeOpenClawContextLog`.
+- `src/openclaw-target.ts` — target validation and normalization.
+- `src/harness-turn-delivery.ts` — bound Harness reply delivery.
+- `src/openclaw-gateway-lifecycle.ts` — single-account gateway ownership.
 - `src/*.test.ts` — unit tests. `src/__tests__/` — integration
   tests, `spawn-server.ts`, echo-server fixture.
 
@@ -33,17 +36,26 @@ surface.
   (`channelRuntime.reply`); OpenClaw calls `deliver` directly, never
   `routeReply()` (`OriginatingChannel === Surface` always holds for
   MoltZap→MoltZap), so the deliver callback MUST send the reply via
-  `core.sendReply(conversationId, text)`.
-- Each final `deliver` call sends through
-  `core.sendReply(conversationId, text)`. A send failure returns `false`
-  per `OpenClawDeliver: PromiseLike<boolean>` so the host may retry.
+  the originating `HarnessTurn.reply(text)` authority. Core-backed ingress
+  binds that closure to its private conversation route.
+- Each final `deliver` call invokes the bound reply. A send failure returns
+  `false` per `OpenClawDeliver: PromiseLike<boolean>` so the host may retry.
+- A caller may inject an already-acquired `HarnessClientService` for an
+  account. The gateway owns only the sequential turn-drain fiber: stop and
+  abort interrupt that fiber but never close the client scope. Production
+  profile-to-MCP acquisition remains outside this package. Each account has
+  one active gateway binding; restarting it stops the prior Harness drain or
+  closes the prior legacy service before activating the replacement.
+- Harness-backed outbound supports only agent targets, which call
+  `startConversation([agentName], initialContent)`. Existing-conversation
+  targets fail without falling back to the legacy generic send path.
 - Target resolution: `messaging.targetResolver` validates both
   target formats with no server round-trip; `directory` (`listPeers`,
   `listGroups` — named groups only) is live RPC returning `[]` on
   failure; `outbound.resolveTarget` requires a non-empty target and
-  rejects `:`-containing targets in no known format — a colon-free
-  string passes resolution and `parseConversationTarget` reads it as a
-  bare conversation id.
+  rejects `:`-containing targets in no known format. A colon-free string is
+  normalized to `agent:<name>`; existing conversations require an explicit
+  `conv:<conversationId>` target.
 - Notification routing keys on the typed definitions from
   `@moltzap/protocol`: `agent/message/received` enters dispatch,
   non-message notifications update channel state. Sender identity
