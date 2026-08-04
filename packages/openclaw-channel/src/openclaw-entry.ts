@@ -1,5 +1,3 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-
 /**
  * OpenClaw plugin entry point for MoltZap.
  *
@@ -19,7 +17,6 @@ import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import { drainPaginatedList } from "@moltzap/client/pagination";
 import {
   MoltZapChannelCore,
-  ReplyGuard,
   formatCrossConv,
   getGroupFields,
   type ChannelService,
@@ -299,17 +296,6 @@ interface MoltzapChannelPluginDeps {
     account: MoltZapAccount,
   ) => OpenClawClientService;
   readonly createCore?: (service: ChannelService) => MoltZapChannelCore;
-
-  /**
-   * Invoked when a second final reply for the same inbound turn is suppressed
-   * locally. Deliver still returns `false` per the
-   * `OpenClawDeliver: PromiseLike&lt;boolean&gt;` contract; this callback is
-   * the side-channel for hosts that want to observe the duplicate without
-   * violating that contract. Threaded from `createMoltzapChannelPlugin` deps
-   * through `createGatewaySection` and `registerInboundHandler` into the
-   * `createReplyGuardedDeliver` closure.
-   */
-  readonly onDuplicateReply?: (conversationId: string) => void;
 }
 
 interface OpenClawDirectoryParams {
@@ -333,7 +319,6 @@ interface InboundHandlerParams {
   readonly service: OpenClawClientService;
   readonly contextLogDir?: string;
   readonly enriched: EnrichedInboundMessage;
-  readonly onDuplicateReply?: (conversationId: string) => void;
 }
 
 interface InboundRuntimeData {
@@ -429,45 +414,23 @@ function sendDeliveredReply(params: {
   readonly conversationId: ConversationId;
   readonly text: string;
   readonly log?: OpenClawLogger;
-  readonly guard: ReplyGuard;
 }): Effect.Effect<boolean> {
   return params.core.sendReply(params.conversationId, params.text).pipe(
-    // Stamp the guard only on a successful `core.sendReply`. Transient send
-    // failures reopen the claimed guard via `abort()` below WITHOUT
-    // stamping, so a retried deliver call still gets to send.
-    Effect.tap(() => params.guard.consume()),
     Effect.tap(() =>
       logOutboundReply(params.conversationId, params.text, params.log),
     ),
     Effect.map(() => true),
     Effect.catchAll((err) =>
-      params.guard
-        .abort()
-        .pipe(
-          Effect.zipRight(
-            handleReplyFailure(params.conversationId, err, params.log),
-          ),
-        ),
+      handleReplyFailure(params.conversationId, err, params.log),
     ),
   );
 }
 
-function createReplyGuardedDeliver(params: {
+function createReplyDeliver(params: {
   readonly core: MoltZapChannelCore;
   readonly enriched: EnrichedInboundMessage;
   readonly log?: OpenClawLogger;
-  readonly onDuplicateReply?: (conversationId: string) => void;
 }): OpenClawDeliver {
-  // One ReplyGuard per inbound turn: stamped exactly once, on the FIRST
-  // successful `core.sendReply`. It is the only thing keeping a runtime that
-  // delivers twice from double-posting — the server accepts every send.
-  //
-  // Ordering matters: pre-check `guard.consumedAt` BEFORE sending so duplicate
-  // delivers are short-circuited; the actual stamp happens inside
-  // `sendDeliveredReply` via `Effect.tap(() => guard.consume())` AFTER
-  // `core.sendReply` succeeds. A transient send failure therefore leaves the
-  // guard unconsumed, and a retried deliver call still gets to send.
-  const guard = new ReplyGuard();
   return (payload, info) => {
     if (info?.kind !== "final") {
       return Promise.resolve(true);
@@ -477,31 +440,11 @@ function createReplyGuardedDeliver(params: {
       return Promise.resolve(true);
     }
     return Effect.runPromise(
-      Effect.gen(function* () {
-        // begin() claims the guard in one synchronous step, so two
-        // concurrent final delivers cannot both pass the duplicate check
-        // while a send is mid-flight.
-        const claimed = yield* guard.begin();
-        if (!claimed) {
-          const stamped = yield* guard.consumedAt;
-          const detail = Option.isSome(stamped)
-            ? ` (first reply sent at ts=${stamped.value.toString()})`
-            : " (another reply is in flight)";
-          params.log?.warn?.(
-            `MoltZap: duplicate reply rejected for ${params.enriched.conversationId}${detail}`,
-          );
-          params.onDuplicateReply?.(params.enriched.conversationId);
-          // Deliver contract: PromiseLike<boolean>. False signals
-          // "not delivered" without violating the type.
-          return false;
-        }
-        return yield* sendDeliveredReply({
-          core: params.core,
-          conversationId: params.enriched.conversationId,
-          text,
-          log: params.log,
-          guard,
-        });
+      sendDeliveredReply({
+        core: params.core,
+        conversationId: params.enriched.conversationId,
+        text,
+        log: params.log,
       }),
     );
   };
@@ -555,7 +498,6 @@ function dispatchInboundReply(params: {
   readonly input: InboundDispatchInput;
   readonly core: MoltZapChannelCore;
   readonly log?: OpenClawLogger;
-  readonly onDuplicateReply?: (conversationId: string) => void;
 }): Effect.Effect<{ queuedFinal: boolean }, unknown> {
   return Effect.tryPromise({
     try: () =>
@@ -563,11 +505,10 @@ function dispatchInboundReply(params: {
         ctx: buildInboundDispatchContext(params.input),
         cfg: params.input.cfg,
         dispatcherOptions: {
-          deliver: createReplyGuardedDeliver({
+          deliver: createReplyDeliver({
             core: params.core,
             enriched: params.input.enriched,
             log: params.log,
-            onDuplicateReply: params.onDuplicateReply,
           }),
         },
       }),
@@ -815,7 +756,6 @@ function startGatewayAccountEffect(
       ctx,
       service,
       contextLogDir,
-      onDuplicateReply: deps.onDuplicateReply,
     });
     registerConnectionStatus(core, ctx);
     activeClients.set(accountId, service);
@@ -869,7 +809,6 @@ interface RegisterInboundHandlerParams {
   readonly ctx: OpenClawStartAccountContext;
   readonly service: OpenClawClientService;
   readonly contextLogDir?: string;
-  readonly onDuplicateReply?: (conversationId: string) => void;
 }
 
 function registerInboundHandler(params: RegisterInboundHandlerParams): void {
@@ -880,7 +819,6 @@ function registerInboundHandler(params: RegisterInboundHandlerParams): void {
       service: params.service,
       contextLogDir: params.contextLogDir,
       enriched,
-      onDuplicateReply: params.onDuplicateReply,
     }).pipe(Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch")),
   );
 }
@@ -904,7 +842,6 @@ function handleInboundMessage(params: InboundHandlerParams) {
       input: inboundDispatchInput(params.ctx, params.enriched, data),
       core: params.core,
       log: params.ctx.log,
-      onDuplicateReply: params.onDuplicateReply,
     });
     logDispatchFinished(params.enriched, params.ctx.log);
     logUnqueuedDispatch(params.enriched, result, params.ctx.log);
@@ -1270,21 +1207,15 @@ function sendTextEffect(
  *   Core->>Plugin: enriched message arrives
  *   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
  *   note over OC: agent pipeline → LLM
- *   OC->>Plugin: deliver(payload, opts) — createReplyGuardedDeliver
+ *   OC->>Plugin: deliver(payload, opts) — createReplyDeliver
  *   Plugin->>Server: core.sendReply(conversationId, text)
- *   alt second final reply for the same turn
- *     Plugin->>Plugin: ReplyGuard already stamped<br>onDuplicateReply callback, return false
- *   end
  *   OC->>Plugin: stopAccount(ctx)
  *   Plugin->>Core: core.disconnect()
  *   Plugin->>Plugin: activeClients.delete(account)
  * ```
  *
  * `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
- * false signals "not delivered" without throwing. The reply guard is
- * single-shot per inbound turn: a second final reply is suppressed locally
- * and reported through `MoltzapChannelPluginDeps.onDuplicateReply` rather
- * than a throw.
+ * false signals a failed send without throwing.
  *
  * `resolveTarget` accepts a plain agent name or `agent:&lt;name>` for a DM and
  * `conv:&lt;conversationId>` for an existing conversation. Plain names normalize
@@ -1336,5 +1267,3 @@ const plugin = {
 
 // eslint-disable-next-line import-x/no-default-export -- OpenClaw discovers channel plugins through a required default module export.
 export default plugin;
-
-/* eslint-enable jsdoc/text-escaping -- Restore strict defaults after the scoped file-level exception. */

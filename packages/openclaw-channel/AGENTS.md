@@ -34,14 +34,9 @@ surface.
   `routeReply()` (`OriginatingChannel === Surface` always holds for
   MoltZap→MoltZap), so the deliver callback MUST send the reply via
   `core.sendReply(conversationId, text)`.
-- `createReplyGuardedDeliver` builds one `ReplyGuard`
-  (`@moltzap/client/channel-base`) per inbound turn, stamped only
-  after the first successful `core.sendReply` so a transient failure
-  leaves a retry able to send. A suppressed second final reply calls
-  host opt-in `MoltzapChannelPluginDeps.onDuplicateReply` with the
-  conversation id; deliver still returns `false` per
-  `OpenClawDeliver: PromiseLike<boolean>`, as does any send failure —
-  all are transient, so the host may retry.
+- Each final `deliver` call sends through
+  `core.sendReply(conversationId, text)`. A send failure returns `false`
+  per `OpenClawDeliver: PromiseLike<boolean>` so the host may retry.
 - Target resolution: `messaging.targetResolver` validates both
   target formats with no server round-trip; `directory` (`listPeers`,
   `listGroups` — named groups only) is live RPC returning `[]` on

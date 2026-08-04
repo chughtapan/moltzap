@@ -73,6 +73,9 @@ const packageDefinitions = {
   client: {
     beforeShared: {
       minExportedSiblingModules: 6,
+      // HarnessClient is an intentional runtime-facing entrypoint alongside
+      // the existing package surfaces.
+      maxSubpathExports: 6,
       maxPublicExports: 29,
       // channel-base names the adapter primitives, and BoundedMap is one of
       // them; the rule counts local re-exports, so owning that module in-package
