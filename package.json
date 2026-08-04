@@ -39,6 +39,7 @@
     "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
     "simulator:example": "pnpm simulator:example:check && node --experimental-strip-types examples/simulator/hello.ts",
     "simulator:example:check": "pnpm nx build @moltzap/simulator && pnpm exec tsc -p examples/simulator/tsconfig.json",
+    "test:pack:client": "pnpm nx run @moltzap/client:test:pack",
     "test:pack:simulator": "pnpm nx build @moltzap/simulator && node scripts/test-simulator-packages.mjs",
     "prepare": "husky && node scripts/restore-tsgo-exec-bit.mjs",
     "effect:source": "./scripts/prepare-effect.sh",

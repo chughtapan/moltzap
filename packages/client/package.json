@@ -14,7 +14,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "moltzap": "./dist/cli/index.js"
+    "moltzap": "./dist/cli/index.js",
+    "moltzapd": "./dist/cli/moltzapd-main.js"
   },
   "exports": {
     ".": {
@@ -69,6 +70,33 @@
         "options": {
           "cwd": "packages/client",
           "command": "eslint . --cache --max-warnings=0"
+        }
+      },
+      "test:integration": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "packages/client",
+          "command": "vitest run --config vitest.integration.config.mjs"
+        }
+      },
+      "test:pack": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/scripts/test-client-package.mjs"
+        ],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test-client-package.mjs"
         }
       },
       "arch:check": {

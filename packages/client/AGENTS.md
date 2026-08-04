@@ -1,8 +1,8 @@
 # @moltzap/client
 
 Client SDK for MoltZap: WebSocket transport, RPC service object,
-channel-core inbound handling, and the `moltzap` CLI binary. Pick the
-lowest surface that meets the need:
+channel-core inbound handling, the packaged `moltzapd` daemon, and the
+`moltzap` CLI binary. Pick the lowest surface that meets the need:
 
 | Surface | Use when |
 |---|---|
@@ -32,8 +32,9 @@ lowest surface that meets the need:
 - `src/channel-base/` — shared channel-adapter primitives.
 - `src/notification/` — notification stream + consumer helpers.
 - `src/pagination.ts` — cursor-paginated list-RPC drainer.
-- `src/cli/` — `moltzap` CLI binary, per-command files under
-  `commands/`.
+- `src/cli/moltzapd-main.ts` — packaged daemon process entry.
+- `src/cli/` — process argument parsing for `moltzapd` and the `moltzap`
+  CLI; the latter keeps its per-command files under `commands/`.
 
 Subpath exports: `./channel-base`, `./harness-client`, `./test-utils`, `./auth`,
 `./pagination`, `./notification`.

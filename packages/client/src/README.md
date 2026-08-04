@@ -1,14 +1,16 @@
 # Client source boundary
 
-This tree implements the public client SDK, its local service process, and the
-`moltzap` CLI.
+This tree implements the public client SDK, the packaged `moltzapd` service
+process, and the `moltzap` CLI.
 
 - Root modules own the SDK clients, `MoltZapService`, channel dispatch,
   registration, configuration, profiles, pagination, and local-daemon RPC.
 - `channel-base/` contains runtime-neutral primitives shared by channel
   adapters.
-- `notification/` owns notification-stream helpers, while `cli/` owns command
-  parsing and local-daemon transport.
+- `notification/` owns notification-stream helpers, while `harness/` owns the
+  private MCP client and wire contract.
+- `cli/` owns executable argument parsing for `moltzapd` and the `moltzap`
+  control CLI.
 - `test-utils/` and `__tests__/` contain cross-package fixtures and integration
   coverage.
 
