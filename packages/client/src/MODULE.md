@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`acquireHarnessClient`](./harness-client.ts#L201)
+### [`acquireHarnessClient`](./harness-client.ts#L196)
 
 _Function_
 
@@ -71,7 +71,7 @@ export interface ConversationMeta {
 
 Describes conversation meta.
 
-### [`ConversationWithParticipants`](./harness/runtime.ts#L95)
+### [`ConversationWithParticipants`](./harness/runtime.ts#L105)
 
 _TypeAlias_
 
@@ -142,7 +142,7 @@ export interface HarnessTurn extends EnrichedInboundMessage {
 
 Existing adapter presentation with reply authority bound to its live turn.
 
-### [`makeHarnessClientLayer`](./harness-client.ts#L232)
+### [`makeHarnessClientLayer`](./harness-client.ts#L227)
 
 _Function_
 

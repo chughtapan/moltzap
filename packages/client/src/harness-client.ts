@@ -26,11 +26,11 @@ import {
   HARNESS_STATUS_TOOL,
   decodeHarnessSearchConversationsResult,
   decodeHarnessStartConversationResult,
+  decodeHarnessStatusResult,
   type ConversationWithParticipants,
   type HarnessClientInternalService,
   type HarnessTurnInternal,
 } from "./harness/index.js";
-import { statusCommandRpc } from "./local-daemon-rpc.js";
 
 /** MCP-local conversation projection including participant identities. */
 export type { ConversationWithParticipants } from "./harness/index.js";
@@ -103,12 +103,7 @@ const readActiveAgentId = (
   session: HarnessClientInternalService,
 ): Effect.Effect<AgentId, Error> =>
   session.callTool(HARNESS_STATUS_TOOL, {}).pipe(
-    Effect.flatMap((result) =>
-      Schema.decodeUnknown(statusCommandRpc.successSchema)(
-        result,
-        strictDecodeOptions,
-      ),
-    ),
+    Effect.flatMap((result) => decodeHarnessStatusResult(result)),
     Effect.mapError(asError),
     Effect.flatMap((status) => {
       if (status.agentId === undefined) {

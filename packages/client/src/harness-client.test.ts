@@ -72,12 +72,13 @@ import {
   type HarnessStartConversationInput,
   type HarnessStartConversationResult,
   type HarnessTurnEvent,
+  harnessStatusInputJsonSchema,
+  harnessStatusResultJsonSchema,
 } from "./harness/index.js";
 import {
   makeHarnessMcpSubscriptionHandler,
   type HarnessMcpSubscriptionHandler,
 } from "./harness-mcp-subscription.js";
-import { statusCommandRpc } from "./local-daemon-rpc.js";
 
 const SERVER_IMPLEMENTATION = {
   name: "harness-client-test",
@@ -208,6 +209,11 @@ const startConversationResultSchema =
     /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessStartConversationResultJsonSchema as JsonSchemaType,
   );
 
+const jsonSchemaToMcpSchema = <A>(schema: unknown) =>
+  fromJsonSchema<A>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ schema as JsonSchemaType,
+  );
+
 const effectSchemaToMcpSchema = <A>(schema: Schema.Schema.AnyNoContext) =>
   fromJsonSchema<A>(
     /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ JSONSchema.make(
@@ -257,8 +263,8 @@ const registerStatusTool = (server: McpServer): void => {
   server.registerTool(
     HARNESS_STATUS_TOOL,
     {
-      inputSchema: effectSchemaToMcpSchema(statusCommandRpc.payloadSchema),
-      outputSchema: effectSchemaToMcpSchema(statusCommandRpc.successSchema),
+      inputSchema: jsonSchemaToMcpSchema(harnessStatusInputJsonSchema),
+      outputSchema: jsonSchemaToMcpSchema(harnessStatusResultJsonSchema),
     },
     () =>
       Effect.runPromise(
