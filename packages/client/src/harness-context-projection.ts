@@ -4,9 +4,9 @@ import { Effect, Option, Schema, type ParseResult } from "effect";
 import {
   conversationId,
   conversationSearch,
-  type Conversation,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
+import { agentsSearch, type AgentCard } from "@moltzap/protocol/identity";
 import {
   conversationCheckpoint,
   messagesRead,
@@ -14,7 +14,11 @@ import {
   type Message,
 } from "@moltzap/protocol/message";
 import type { ParamsOf, ResultOf } from "@moltzap/protocol/rpc";
-import type { HarnessTurnEvent } from "./harness/runtime.js";
+import type {
+  ConversationWithParticipants,
+  HarnessSearchConversationsResult,
+  HarnessTurnEvent,
+} from "./harness/runtime.js";
 import { NonAdvancingCursorError } from "./pagination.js";
 
 const checkpointMapSchema = Schema.Record({
@@ -23,8 +27,11 @@ const checkpointMapSchema = Schema.Record({
 });
 
 type CheckpointMap = Schema.Schema.Type<typeof checkpointMapSchema>;
+type AgentSearchCursor = NonNullable<
+  ResultOf<typeof agentsSearch>["nextCursor"]
+>;
 type ConversationSearchCursor = NonNullable<
-  ResultOf<typeof conversationSearch>["nextCursor"]
+  HarnessSearchConversationsResult["nextCursor"]
 >;
 type ConversationReadCursor = NonNullable<
   ResultOf<typeof messagesRead>["nextCursor"]
@@ -32,9 +39,12 @@ type ConversationReadCursor = NonNullable<
 
 /** Package-private MCP read capabilities used for presentation recovery. */
 export interface ContextProjectionReadPlane<E> {
+  readonly searchAgents: (
+    params: ParamsOf<typeof agentsSearch>,
+  ) => Effect.Effect<ResultOf<typeof agentsSearch>, E>;
   readonly searchConversations: (
     params: ParamsOf<typeof conversationSearch>,
-  ) => Effect.Effect<ResultOf<typeof conversationSearch>, E>;
+  ) => Effect.Effect<HarnessSearchConversationsResult, E>;
   readonly readConversation: (
     params: ParamsOf<typeof messagesRead>,
   ) => Effect.Effect<ResultOf<typeof messagesRead>, E>;
@@ -43,8 +53,9 @@ export interface ContextProjectionReadPlane<E> {
 /** Raw production context reconstructed for one live replyable observation. */
 export interface ReconstructedHarnessContext {
   readonly conversationId: ConversationId;
-  readonly conversations: readonly Conversation[];
-  readonly currentMessages: readonly Message[];
+  readonly agents: readonly AgentCard[];
+  readonly conversations: readonly ConversationWithParticipants[];
+  readonly currentMessages: HarnessTurnEvent["messages"];
   readonly crossConversationMessages: readonly Message[];
 }
 
@@ -72,11 +83,35 @@ const acceptNextCursor = <Cursor extends string>(
   return Effect.succeed(nextCursor);
 };
 
+const drainAgentSearch = <E>(
+  readPlane: ContextProjectionReadPlane<E>,
+): Effect.Effect<readonly AgentCard[], E | NonAdvancingCursorError> =>
+  Effect.gen(function* () {
+    const agents: AgentCard[] = [];
+    const seenCursors = new Set<AgentSearchCursor>();
+    let cursor: AgentSearchCursor | undefined;
+    do {
+      const page = yield* readPlane.searchAgents(
+        cursor === undefined ? {} : { cursor },
+      );
+      agents.push(...page.agents);
+      cursor = yield* acceptNextCursor(
+        seenCursors,
+        agentsSearch.name,
+        page.nextCursor,
+      );
+    } while (cursor !== undefined);
+    return agents;
+  }).pipe(Effect.withSpan("HarnessContextProjection.searchAgents"));
+
 const drainConversationSearch = <E>(
   readPlane: ContextProjectionReadPlane<E>,
-): Effect.Effect<readonly Conversation[], E | NonAdvancingCursorError> =>
+): Effect.Effect<
+  readonly ConversationWithParticipants[],
+  E | NonAdvancingCursorError
+> =>
   Effect.gen(function* () {
-    const conversations: Conversation[] = [];
+    const conversations: ConversationWithParticipants[] = [];
     const seenCursors = new Set<ConversationSearchCursor>();
     let cursor: ConversationSearchCursor | undefined;
     do {
@@ -141,7 +176,7 @@ const drainConversationRead = <E>(
  * @returns Conversation identifiers eligible for cross-context recovery.
  */
 const sourceConversationIds = (
-  conversations: readonly Conversation[],
+  conversations: readonly ConversationWithParticipants[],
   targetConversationId: ConversationId,
 ): readonly ConversationId[] =>
   conversations
@@ -173,12 +208,14 @@ const checkpointMapAfter = (
 
 const contextFrom = (
   event: HarnessTurnEvent,
-  conversations: readonly Conversation[],
+  agents: readonly AgentCard[],
+  conversations: readonly ConversationWithParticipants[],
   deltas: readonly ConversationDelta[],
 ): ReconstructedHarnessContext => {
   const conversationId = event.messages[0].conversationId;
   return {
     conversationId,
+    agents,
     conversations,
     currentMessages: event.messages,
     crossConversationMessages: chronologicalCrossMessages(
@@ -228,7 +265,8 @@ export const reconstructHarnessContext = <E>(
         ),
       { concurrency: 1 },
     );
-    const context = contextFrom(event, conversations, deltas);
+    const agents = yield* drainAgentSearch(readPlane);
+    const context = contextFrom(event, agents, conversations, deltas);
     yield* checkpoints.set(
       targetConversationId,
       checkpointMapAfter(priorCheckpoints, deltas),

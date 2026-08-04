@@ -1,11 +1,18 @@
 import type { Implementation } from "@modelcontextprotocol/server";
 import { Effect, ExecutionStrategy, Exit, Scope } from "effect";
-import { conversationSearch } from "@moltzap/protocol/conversation";
+import {
+  conversationList,
+  conversationSearch,
+} from "@moltzap/protocol/conversation";
 import { agentsSearch } from "@moltzap/protocol/identity";
 import { messagesRead } from "@moltzap/protocol/message";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import packageJson from "../package.json" with { type: "json" };
 import { MoltZapChannelCore } from "./channel-core.js";
-import type { HarnessTurnEvent } from "./harness/index.js";
+import type {
+  HarnessSearchConversationsResult,
+  HarnessTurnEvent,
+} from "./harness/index.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
 import type {
@@ -14,6 +21,7 @@ import type {
 } from "./local-daemon-rpc.js";
 import { MoltZapService, type ServiceRpcError } from "./service.js";
 import type { ServiceConfigError } from "./config.js";
+import { drainPaginatedList } from "./pagination.js";
 
 interface MoltzapdOptions {
   readonly profileName: string;
@@ -65,6 +73,34 @@ const installTurnPublisher = (
   );
 };
 
+const searchConversationsForHarness = (
+  service: MoltZapService,
+  params: ParamsOf<typeof conversationSearch>,
+): Effect.Effect<HarnessSearchConversationsResult, unknown> =>
+  Effect.gen(function* () {
+    const page = yield* service.callDefinition(conversationSearch, params);
+    const listed = yield* drainPaginatedList({
+      definition: conversationList,
+      sendRpc: (definition, listParams) =>
+        service.callDefinition(definition, listParams),
+      paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
+      rowsForPage: (listPage) => listPage.items,
+      nextCursorForPage: (listPage) => listPage.nextCursor,
+    });
+    const participantsByConversation = new Map(
+      listed.map((item) => [item.conversation.id, item.participants] as const),
+    );
+    return {
+      conversations: page.conversations.map((conversation) => ({
+        ...conversation,
+        participants: [
+          ...(participantsByConversation.get(conversation.id) ?? []),
+        ],
+      })),
+      ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
+    };
+  }).pipe(Effect.withSpan("moltzapd.searchConversations"));
+
 /**
  * Owns one registered agent's service, channel core, network connection, and
  * guarded loopback MCP listener for the lifetime of the caller's scope.
@@ -115,7 +151,7 @@ export const acquireMoltzapd = (
         searchAgents: (payload) =>
           service.callDefinition(agentsSearch, payload),
         searchConversations: (payload) =>
-          service.callDefinition(conversationSearch, payload),
+          searchConversationsForHarness(service, payload),
         status: makeStatusHandler(service, core),
       });
       installTurnPublisher(core, handlers.active.publish);

@@ -1,18 +1,19 @@
 import * as KeyValueStore from "@effect/platform/KeyValueStore";
 import { Effect, Option, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import {
-  conversationSearch,
-  type Conversation,
-  type ConversationId,
-} from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import { agentsSearch } from "@moltzap/protocol/identity";
 import { messagesRead, type Message } from "@moltzap/protocol/message";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import {
   reconstructHarnessContext,
   type ContextProjectionReadPlane,
 } from "./harness-context-projection.js";
-import type { HarnessTurnEvent } from "./harness/runtime.js";
+import {
+  decodeHarnessSearchConversationsResult,
+  type ConversationWithParticipants,
+  type HarnessTurnEvent,
+} from "./harness/runtime.js";
 import { NonAdvancingCursorError } from "./pagination.js";
 
 const TARGET = conversationId("00000000-0000-4000-8000-000000000001");
@@ -20,13 +21,15 @@ const SOURCE = conversationId("00000000-0000-4000-8000-000000000002");
 const OTHER_TARGET = conversationId("00000000-0000-4000-8000-000000000003");
 const SENDER = agentId("00000000-0000-4000-8000-000000000004");
 const CREATED_BY = agentId("00000000-0000-4000-8000-000000000005");
+const AGENT_PAGE_CURSOR = "agent-page-2";
 const CONVERSATION_PAGE_CURSOR = "conversation-page-2";
 const SOURCE_PAGE_CURSOR = "source-page-2";
 const SOURCE_CHECKPOINT = "source-checkpoint";
 
-const conversation = (id: ConversationId): Conversation => ({
+const conversation = (id: ConversationId): ConversationWithParticipants => ({
   id,
   createdBy: CREATED_BY,
+  participants: [CREATED_BY, SENDER],
   createdAt: "2026-08-03T12:00:00.000Z",
   updatedAt: "2026-08-03T12:00:00.000Z",
 });
@@ -43,8 +46,10 @@ const message = (
   createdAt,
 });
 
-const decodeSearchPage = Schema.decodeUnknownSync(
-  conversationSearch.resultSchema,
+const decodeSearchPage = (value: unknown) =>
+  Effect.runSync(decodeHarnessSearchConversationsResult(value));
+const decodeAgentSearchPage = Schema.decodeUnknownSync(
+  agentsSearch.resultSchema,
 );
 const decodeReadPage = Schema.decodeUnknownSync(messagesRead.resultSchema);
 const decodeStoredCheckpointMap = Schema.decodeUnknown(
@@ -82,6 +87,17 @@ const LATE_CROSS_MESSAGE = message(
   "2026-08-03T12:00:02.000Z",
 );
 
+const FIRST_AGENT_PAGE = decodeAgentSearchPage({
+  agents: [{ id: SENDER, name: "sender-agent", status: "active" }],
+  nextCursor: AGENT_PAGE_CURSOR,
+});
+const SECOND_AGENT_PAGE = decodeAgentSearchPage({
+  agents: [{ id: CREATED_BY, name: "creator-agent", status: "active" }],
+});
+
+type AgentSearchParams = Parameters<
+  ContextProjectionReadPlane<never>["searchAgents"]
+>[0];
 type SearchParams = Parameters<
   ContextProjectionReadPlane<never>["searchConversations"]
 >[0];
@@ -98,6 +114,14 @@ const paginatedSearch = (params: SearchParams) =>
         })
       : decodeSearchPage({ conversations: [conversation(SOURCE)] }),
   );
+
+const paginatedAgentSearch = (params: AgentSearchParams) =>
+  Effect.succeed(
+    params.cursor === undefined ? FIRST_AGENT_PAGE : SECOND_AGENT_PAGE,
+  );
+
+const emptyAgentSearch: ContextProjectionReadPlane<never>["searchAgents"] =
+  () => Effect.succeed(decodeAgentSearchPage({ agents: [] }));
 
 const paginatedRead = (params: ReadParams) => {
   if (params.conversationId === TARGET) {
@@ -118,17 +142,19 @@ const paginatedRead = (params: ReadParams) => {
 };
 
 const makePaginatedReadPlane = () => {
+  const searchAgents = vi.fn(paginatedAgentSearch);
   const searchConversations = vi.fn(paginatedSearch);
   const readConversation = vi.fn(paginatedRead);
   const readPlane = {
+    searchAgents,
     searchConversations,
     readConversation,
   } satisfies ContextProjectionReadPlane<never>;
-  return { readPlane, readConversation, searchConversations };
+  return { readPlane, readConversation, searchAgents, searchConversations };
 };
 
 const reconstructsPaginatedContext = () => {
-  const { readPlane, readConversation, searchConversations } =
+  const { readPlane, readConversation, searchAgents, searchConversations } =
     makePaginatedReadPlane();
 
   return Effect.gen(function* () {
@@ -139,6 +165,10 @@ const reconstructsPaginatedContext = () => {
     const persisted = yield* storedCheckpoints(TARGET);
 
     expect(context.conversationId).toBe(TARGET);
+    expect(context.agents).toEqual([
+      ...FIRST_AGENT_PAGE.agents,
+      ...SECOND_AGENT_PAGE.agents,
+    ]);
     expect(context.currentMessages).toEqual([TARGET_MESSAGE]);
     expect(context.crossConversationMessages).toEqual([
       EARLY_CROSS_MESSAGE,
@@ -149,6 +179,10 @@ const reconstructsPaginatedContext = () => {
     });
     expect(Object.values(persisted)).not.toContain(CONVERSATION_PAGE_CURSOR);
     expect(Object.values(persisted)).not.toContain(SOURCE_PAGE_CURSOR);
+    expect(searchAgents).toHaveBeenNthCalledWith(1, {});
+    expect(searchAgents).toHaveBeenNthCalledWith(2, {
+      cursor: AGENT_PAGE_CURSOR,
+    });
     expect(searchConversations).toHaveBeenNthCalledWith(1, {});
     expect(searchConversations).toHaveBeenNthCalledWith(2, {
       cursor: CONVERSATION_PAGE_CURSOR,
@@ -203,6 +237,7 @@ const makeIndependentReadPlane = () => {
       ),
   );
   return {
+    searchAgents: emptyAgentSearch,
     searchConversations,
     readConversation,
   } satisfies ContextProjectionReadPlane<never>;
@@ -254,6 +289,7 @@ const makeRestartReadPlane = (firstCrossMessage: Message) => {
     ),
   );
   const readPlane = {
+    searchAgents: emptyAgentSearch,
     searchConversations,
     readConversation,
   } satisfies ContextProjectionReadPlane<never>;
@@ -303,6 +339,7 @@ const reusesOnlyStableCheckpointsForLaterObservation = () => {
 };
 
 const cyclicSearchReadPlane = {
+  searchAgents: () => Effect.dieMessage("conversation search must finish"),
   searchConversations: () =>
     Effect.succeed(
       decodeSearchPage({
@@ -343,6 +380,7 @@ const makeFailingReadPlane = () => {
       : Effect.fail(READ_FAILURE),
   );
   return {
+    searchAgents: () => Effect.dieMessage("history reads must finish"),
     searchConversations,
     readConversation,
   } satisfies ContextProjectionReadPlane<string>;
@@ -371,9 +409,85 @@ const preservesPriorCheckpointWhenReadFails = () => {
   }).pipe(Effect.provide(KeyValueStore.layerMemory));
 };
 
-// @agent-code-guard/regression-only: these examples pin target/source persistence and keep temporary page cursors out of durable client state.
+const cyclicAgentSearch = vi.fn(() =>
+  Effect.succeed(
+    decodeAgentSearchPage({
+      agents: [],
+      nextCursor: AGENT_PAGE_CURSOR,
+    }),
+  ),
+);
+
+const cyclicAgentReadPlane = {
+  searchAgents: cyclicAgentSearch,
+  searchConversations: () =>
+    Effect.succeed(decodeSearchPage({ conversations: [conversation(TARGET)] })),
+  readConversation: () => Effect.dieMessage("target history is not read"),
+} satisfies ContextProjectionReadPlane<never>;
+
+const rejectsCyclicAgentSearchWithoutCheckpointing = () =>
+  Effect.gen(function* () {
+    const error = yield* reconstructHarnessContext(
+      cyclicAgentReadPlane,
+      liveEvent(TARGET_MESSAGE),
+    ).pipe(Effect.flip);
+    const store = yield* KeyValueStore.KeyValueStore;
+
+    expect(error).toBeInstanceOf(NonAdvancingCursorError);
+    expect(error).toMatchObject({ method: agentsSearch.name });
+    expect(cyclicAgentSearch).toHaveBeenNthCalledWith(1, {});
+    expect(cyclicAgentSearch).toHaveBeenNthCalledWith(2, {
+      cursor: AGENT_PAGE_CURSOR,
+    });
+    expect(Option.isNone(yield* store.get(TARGET))).toBe(true);
+  }).pipe(Effect.provide(KeyValueStore.layerMemory));
+
+const AGENT_SEARCH_FAILURE = "agent search failed";
+
+const makeFailingAgentSearchReadPlane = () => {
+  const readConversation = vi.fn(() =>
+    Effect.succeed(
+      decodeReadPage({
+        messages: [],
+        checkpoint: SOURCE_CHECKPOINT,
+      }),
+    ),
+  );
+  return {
+    searchAgents: () => Effect.fail(AGENT_SEARCH_FAILURE),
+    searchConversations: searchTargetAndSource,
+    readConversation,
+  } satisfies ContextProjectionReadPlane<string>;
+};
+
+const preservesPriorCheckpointWhenAgentSearchFails = () => {
+  const readPlane = makeFailingAgentSearchReadPlane();
+  return Effect.gen(function* () {
+    const store = yield* KeyValueStore.KeyValueStore;
+    yield* store.set(
+      TARGET,
+      JSON.stringify({ [SOURCE]: PRIOR_SOURCE_CHECKPOINT }),
+    );
+
+    const error = yield* reconstructHarnessContext(
+      readPlane,
+      liveEvent(TARGET_MESSAGE),
+    ).pipe(Effect.flip);
+
+    expect(error).toBe(AGENT_SEARCH_FAILURE);
+    expect(readPlane.readConversation).toHaveBeenCalledWith({
+      conversationId: SOURCE,
+      checkpoint: PRIOR_SOURCE_CHECKPOINT,
+    });
+    expect(yield* storedCheckpoints(TARGET)).toEqual({
+      [SOURCE]: PRIOR_SOURCE_CHECKPOINT,
+    });
+  }).pipe(Effect.provide(KeyValueStore.layerMemory));
+};
+
+// @agent-code-guard/regression-only: these examples pin target/source persistence and keep temporary directory and history cursors out of durable client state.
 describe("Harness context reconstruction", () => {
-  it("drains current and cross-conversation pages before persisting checkpoints", () =>
+  it("drains agent, conversation, and history pages before persisting checkpoints", () =>
     Effect.runPromise(reconstructsPaginatedContext()));
   it("keeps checkpoint maps independent for each target conversation", () =>
     Effect.runPromise(keepsTargetSourcePositionsIndependent()));
@@ -381,6 +495,10 @@ describe("Harness context reconstruction", () => {
     Effect.runPromise(reusesOnlyStableCheckpointsForLaterObservation()));
   it("rejects a cyclic search cursor without storing a checkpoint", () =>
     Effect.runPromise(rejectsCyclicSearchWithoutCheckpointing()));
+  it("rejects a cyclic agent cursor without storing a checkpoint", () =>
+    Effect.runPromise(rejectsCyclicAgentSearchWithoutCheckpointing()));
   it("leaves a prior checkpoint unchanged when a page read fails", () =>
     Effect.runPromise(preservesPriorCheckpointWhenReadFails()));
+  it("leaves a prior checkpoint unchanged when agent search fails", () =>
+    Effect.runPromise(preservesPriorCheckpointWhenAgentSearchFails()));
 });

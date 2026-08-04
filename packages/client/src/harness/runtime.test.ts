@@ -11,11 +11,13 @@ import {
 } from "@modelcontextprotocol/server";
 import { Effect, Exit, Scope } from "effect";
 import { describe, expect, it } from "vitest";
+import { conversationSearch } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { acquireHarnessMcpHttpServer } from "../harness-mcp-server.js";
 import {
   decodeHarnessReplyRoute,
+  decodeHarnessSearchConversationsResult,
   decodeHarnessTurnEvent,
   HARNESS_EVENTS_EXTENSION,
   HARNESS_REPLY_TOOL,
@@ -52,6 +54,14 @@ const otherConversationMessage = {
   ...secondMessage,
   conversationId: conversationId("00000000-0000-4000-8000-000000000002"),
 } satisfies Message;
+
+const conversationWithParticipants = {
+  id: CONVERSATION_ID,
+  createdBy: SENDER_ID,
+  participants: [SENDER_ID],
+  createdAt: firstMessage.createdAt,
+  updatedAt: secondMessage.createdAt,
+};
 
 const replyInputJsonSchema = fromJsonSchema<HarnessReplyInput>(
   /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessReplyInputJsonSchema as JsonSchemaType,
@@ -98,6 +108,14 @@ const keepsPrivateRoutingMetadataClosed = async () => {
       }),
     ),
   ).rejects.toBeDefined();
+};
+
+const keepsConversationMembershipOnMcpOnly = () => {
+  const page = { conversations: [conversationWithParticipants] };
+  expect(Effect.runSync(decodeHarnessSearchConversationsResult(page))).toEqual(
+    page,
+  );
+  expect(conversationSearch.validateResult(page)).toBe(false);
 };
 
 interface ObservedReply {
@@ -206,6 +224,9 @@ describe("Harness MCP runtime contract", () => {
     decodesProtocolMessageBatch());
   it("keeps private routing metadata closed", () =>
     keepsPrivateRoutingMetadataClosed());
+  it("adds conversation membership only on the MCP projection", () => {
+    keepsConversationMembershipOnMcpOnly();
+  });
   it("preserves the private route through an official MCP client call", () =>
     preservesPrivateRoute());
 });

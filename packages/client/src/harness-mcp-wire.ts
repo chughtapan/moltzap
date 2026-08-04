@@ -23,11 +23,17 @@ import type {
 import {
   decodeHarnessReplyRoute,
   HARNESS_EVENTS_EXTENSION,
+  HARNESS_READ_CONVERSATION_TOOL,
   HARNESS_REPLY_TOOL,
+  HARNESS_SEARCH_AGENTS_TOOL,
+  HARNESS_SEARCH_CONVERSATIONS_TOOL,
+  HARNESS_STATUS_TOOL,
+  harnessSearchConversationsResultJsonSchema,
   harnessReplyInputJsonSchema,
   harnessReplyResultJsonSchema,
   type HarnessReplyInput,
   type HarnessReplyResult,
+  type HarnessSearchConversationsResult,
   type HarnessTurnEvent,
 } from "./harness/index.js";
 import {
@@ -40,11 +46,6 @@ import {
   type LocalDaemonHandlers,
 } from "./local-daemon-rpc.js";
 
-const STATUS_TOOL_NAME = "status";
-const SEARCH_AGENTS_TOOL_NAME = "search_agents";
-const SEARCH_CONVERSATIONS_TOOL_NAME = "search_conversations";
-const READ_CONVERSATION_TOOL_NAME = "read_conversation";
-
 type StatusPayload = Schema.Schema.Type<typeof statusCommandRpc.payloadSchema>;
 type StatusResult = Schema.Schema.Type<typeof statusCommandRpc.successSchema>;
 type StatusHandler = LocalDaemonHandlers[typeof localDaemonCommands.status];
@@ -55,13 +56,16 @@ type ReplyHandler = (
 type DescriptorHandler<D extends RpcDefinitionAny> = (
   payload: ParamsOf<D>,
 ) => Effect.Effect<ResultOf<D>, unknown>;
+type SearchConversationsHandler = (
+  payload: ParamsOf<typeof conversationSearch>,
+) => Effect.Effect<HarnessSearchConversationsResult, unknown>;
 
 interface HarnessMcpHandlerOptions {
   readonly implementation: Implementation;
   readonly readConversation: DescriptorHandler<typeof messagesRead>;
   readonly reply: ReplyHandler;
   readonly searchAgents: DescriptorHandler<typeof agentsSearch>;
-  readonly searchConversations: DescriptorHandler<typeof conversationSearch>;
+  readonly searchConversations: SearchConversationsHandler;
   readonly status: StatusHandler;
 }
 
@@ -92,6 +96,10 @@ const replyInputSchema = fromJsonSchema<HarnessReplyInput>(
 const replyOutputSchema = fromJsonSchema<HarnessReplyResult>(
   /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessReplyResultJsonSchema as JsonSchemaType,
 );
+const searchConversationsOutputSchema =
+  fromJsonSchema<HarnessSearchConversationsResult>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessSearchConversationsResultJsonSchema as JsonSchemaType,
+  );
 
 const registerDescriptorTool = <D extends RpcDefinitionAny>(
   server: McpServer,
@@ -131,12 +139,37 @@ const registerDescriptorTool = <D extends RpcDefinitionAny>(
   );
 };
 
+const registerSearchConversationsTool = (
+  server: McpServer,
+  handler: SearchConversationsHandler,
+): void => {
+  server.registerTool(
+    HARNESS_SEARCH_CONVERSATIONS_TOOL,
+    {
+      inputSchema: effectSchemaToMcpSchema<ParamsOf<typeof conversationSearch>>(
+        conversationSearch.paramsSchema,
+      ),
+      outputSchema: searchConversationsOutputSchema,
+    },
+    (payload, context) =>
+      Effect.runPromise(
+        handler(payload).pipe(
+          Effect.map((result) => ({
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            structuredContent: result,
+          })),
+        ),
+        { signal: context.mcpReq.signal },
+      ),
+  );
+};
+
 const makeRegistrationServer = (implementation: Implementation): McpServer =>
   new McpServer(implementation);
 
 const registerStatusTool = (server: McpServer, status: StatusHandler): void => {
   server.registerTool(
-    STATUS_TOOL_NAME,
+    HARNESS_STATUS_TOOL,
     {
       inputSchema: statusInputSchema,
       outputSchema: statusOutputSchema,
@@ -201,19 +234,14 @@ const makeActiveServer = ({
   registerStatusTool(server, status);
   registerDescriptorTool(
     server,
-    SEARCH_AGENTS_TOOL_NAME,
+    HARNESS_SEARCH_AGENTS_TOOL,
     agentsSearch,
     searchAgents,
   );
+  registerSearchConversationsTool(server, searchConversations);
   registerDescriptorTool(
     server,
-    SEARCH_CONVERSATIONS_TOOL_NAME,
-    conversationSearch,
-    searchConversations,
-  );
-  registerDescriptorTool(
-    server,
-    READ_CONVERSATION_TOOL_NAME,
+    HARNESS_READ_CONVERSATION_TOOL,
     messagesRead,
     readConversation,
   );
