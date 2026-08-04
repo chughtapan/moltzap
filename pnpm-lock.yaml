@@ -432,6 +432,9 @@ importers:
       '@effect/vitest':
         specifier: ^0.30.0
         version: 0.30.0(effect@3.22.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@moltzap/nanoclaw-channel':
+        specifier: workspace:*
+        version: link:../nanoclaw-channel
       '@types/node':
         specifier: ^25.5.0
         version: 25.5.0

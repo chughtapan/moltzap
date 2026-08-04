@@ -58,8 +58,7 @@
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"],
-      "ignoreDependencies": ["@moltzap/server-core"]
+      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"]
     },
     "packages/server": {
       "entry": [
