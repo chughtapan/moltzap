@@ -13,3 +13,12 @@ export {
   type AgentClientOptions,
   type RpcCallOptions,
 } from "./agent-client.js";
+/** Re-exports the adapter-facing daemon client capability. */
+export {
+  acquireHarnessClient,
+  HarnessClient,
+  makeHarnessClientLayer,
+  type HarnessClientOptions,
+  type HarnessClientService,
+  type HarnessTurn,
+} from "./harness-client.js";

@@ -119,7 +119,6 @@ class SendToAgentTestFailure extends Data.TaggedError(
 
 const mockSend = vi.fn<SendFn>();
 const mockSendToAgent = vi.fn<SendToAgentFn>();
-const mockOnDuplicateReply = vi.fn<(conversationId: string) => void>();
 
 let started: {
   readonly fixture: FakeChannelService;
@@ -146,10 +145,7 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
     "does not report a rejected inbound dispatch as finished",
     rejectedDispatchIsNotFinished,
   );
-  it(
-    "deliver callback rejects duplicate final delivery",
-    rejectsDuplicateFinal,
-  );
+  it("each final delivery sends a reply", sendsEachFinalDelivery);
   it("deliver callback returns true for non-final replies", nonFinalIsIgnored);
   it("sendText sends to the right conversation", sendsToConversation);
   it("resolveTarget accepts agent targets", acceptsAgentTarget);
@@ -162,10 +158,7 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
   it("sendText reports disconnected clients", reportsDisconnectedClient);
   it("sendText reports send failures", reportsSendFailure);
   it("deliver reports transient RPC send failures", sendFailureIsReported);
-  it(
-    "reply guard stays unconsumed on transient send failure",
-    replyGuardUnconsumedOnTransientFailure,
-  );
+  it("a later delivery retries after a send failure", retriesAfterSendFailure);
   it("stopAccount removes client from active pool", stopRemovesClient);
   it(
     "property: resolveTarget normalizes generated agent names",
@@ -183,7 +176,6 @@ function startGateway() {
   const service = createTestService(fixture);
   const plugin = createMoltzapChannelPlugin({
     createService: () => service,
-    onDuplicateReply: mockOnDuplicateReply,
   });
   const abortController = new AbortController();
   abortControllers.push(abortController);
@@ -399,7 +391,7 @@ function rejectedDispatchIsNotFinished() {
   });
 }
 
-function rejectsDuplicateFinal() {
+function sendsEachFinalDelivery() {
   return Effect.gen(function* () {
     yield* emitMessage();
     yield* waitForDispatchTimes(1);
@@ -409,9 +401,8 @@ function rejectsDuplicateFinal() {
     const second = yield* deliverFinal(SECOND_REPLY_TEXT);
     expect(first).toBe(true);
     expect(sendAfterFirst).toBe(sendBefore + 1);
-    expect(second).toBe(false);
-    expect(mockSend.mock.calls.length).toBe(sendAfterFirst);
-    expect(mockOnDuplicateReply).toHaveBeenCalledWith(DEFAULT_CONVERSATION_ID);
+    expect(second).toBe(true);
+    expect(mockSend.mock.calls.length).toBe(sendAfterFirst + 1);
   });
 }
 
@@ -582,16 +573,7 @@ function sendFailureIsReported() {
   });
 }
 
-/**
- * A transient `core.sendReply` failure MUST leave the per-turn `ReplyGuard`
- * unconsumed, so a retried `deliver(...)` still drives the send path. The
- * guard is stamped via `Effect.tap` only after a successful sendReply
- * (`openclaw-entry.ts → createReplyGuardedDeliver` + `sendDeliveredReply`);
- * stamping earlier would make a first failure permanently short-circuit
- * every retry to `false` without re-calling `core.sendReply`.
- * @returns The reply guard unconsumed on transient failure result.
- */
-function replyGuardUnconsumedOnTransientFailure() {
+function retriesAfterSendFailure() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
@@ -606,10 +588,6 @@ function replyGuardUnconsumedOnTransientFailure() {
     const first = yield* deliverFinal(FIRST_REPLY_TEXT);
     expect(first).toBe(false);
     expect(mockSend.mock.calls.length).toBe(sendBefore + 1);
-    // Second deliver: send is now configured to succeed (default
-    // `mockSend.mockImplementation(fixture.service.send)` from `startGateway`).
-    // The guard MUST NOT have been stamped by the first failure, so this
-    // retry reaches the send path and returns true.
     const second = yield* deliverFinal(SECOND_REPLY_TEXT);
     expect(second).toBe(true);
     expect(mockSend.mock.calls.length).toBe(sendBefore + 2);

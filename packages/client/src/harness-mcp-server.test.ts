@@ -4,17 +4,27 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import {
+  CLIENT_CAPABILITIES_META_KEY,
+  CLIENT_INFO_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+  SERVER_INFO_META_KEY,
+  SUBSCRIPTION_ID_META_KEY,
   createMcpHandler,
   McpServer,
   type Implementation,
   type McpHttpHandler,
 } from "@modelcontextprotocol/server";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These loopback contract tests require raw Host headers and connection-refusal assertions that the Effect client does not expose.
-import { request as nodeRequest } from "node:http";
+import {
+  Agent as NodeHttpAgent,
+  request as nodeRequest,
+  type IncomingMessage,
+} from "node:http";
 import { Cause, Effect, Exit, Fiber, Scope } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentId } from "@moltzap/protocol/testing";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
+import { HARNESS_EVENTS_EXTENSION } from "./harness/index.js";
 import { localDaemonCommands } from "./local-daemon-rpc.js";
 import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
@@ -29,6 +39,7 @@ const FORBIDDEN_STATUS = 403;
 const NOT_FOUND_STATUS = 404;
 const METHOD_NOT_ALLOWED_STATUS = 405;
 const GRACEFUL_SUBSCRIPTION_CLOSE = "graceful";
+const SUBSCRIPTIONS_LISTEN_METHOD = "subscriptions/listen";
 const SERVER_IMPLEMENTATION = {
   name: "harness-boundary-test",
   version: "1.0.0",
@@ -322,7 +333,144 @@ const closesActiveSubscriptionWhenScopeReleases = async () => {
   expect(running.server.listening).toBe(false);
 };
 
-const exposesOnlyExistingStatusBehavior = async () => {
+const makeSubscriptionHarnessHandlers = () => {
+  const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440041");
+  const localHandlers = makeLocalDaemonHandlers({
+    ownAgentId,
+    connected: () => true,
+    conversationCount: () => 0,
+    call: () => {
+      throw new Error("subscription must not call an agent RPC");
+    },
+    handleHistoryRequest: () => {
+      throw new Error("subscription must not read local history");
+    },
+  });
+  return makeHarnessMcpHttpHandlers({
+    implementation: SERVER_IMPLEMENTATION,
+    reply: () => Effect.void,
+    status: localHandlers[localDaemonCommands.status],
+  });
+};
+
+const makeListenPayload = (listenId: string): string =>
+  JSON.stringify({
+    jsonrpc: "2.0",
+    id: listenId,
+    method: SUBSCRIPTIONS_LISTEN_METHOD,
+    params: {
+      notifications: { "xyz.moltzap/turnReady": true },
+      _meta: {
+        [PROTOCOL_VERSION_META_KEY]: MODERN_PROTOCOL_VERSION,
+        [CLIENT_INFO_META_KEY]: {
+          name: "slow-reader-test",
+          version: "1.0.0",
+        },
+        [CLIENT_CAPABILITIES_META_KEY]: {
+          extensions: { [HARNESS_EVENTS_EXTENSION]: {} },
+        },
+      },
+    },
+  });
+
+interface PausedSubscriptionResponse {
+  readonly agent: NodeHttpAgent;
+  readonly body: () => string;
+  readonly ended: Promise<undefined>;
+  readonly response: IncomingMessage;
+}
+
+const openPausedSubscription = async (baseUrl: string, payload: string) => {
+  const agent = new NodeHttpAgent({ keepAlive: true });
+  let responseBody = "";
+  const response = await new Promise<IncomingMessage>((resolve, reject) => {
+    const request = nodeRequest(
+      new URL(HARNESS_MCP_PATH, baseUrl),
+      {
+        agent,
+        headers: {
+          "content-length": Buffer.byteLength(payload),
+          "content-type": "application/json",
+          "mcp-method": SUBSCRIPTIONS_LISTEN_METHOD,
+          "mcp-protocol-version": MODERN_PROTOCOL_VERSION,
+        },
+        method: POST_METHOD,
+      },
+      (incoming) => {
+        incoming.pause();
+        incoming.on("data", (chunk: Buffer) => {
+          responseBody += chunk.toString("utf8");
+        });
+        resolve(incoming);
+      },
+    );
+    request.once("error", reject);
+    request.end(payload);
+  });
+  const ended = new Promise<undefined>((resolve, reject) => {
+    response.once("end", () => {
+      resolve(undefined);
+    });
+    response.once("aborted", () => {
+      reject(new Error("response aborted"));
+    });
+    response.once("error", reject);
+  });
+  return {
+    agent,
+    body: () => responseBody,
+    ended,
+    response,
+  } satisfies PausedSubscriptionResponse;
+};
+
+const parseDataFrames = (responseBody: string): readonly unknown[] =>
+  responseBody
+    .split("\n\n")
+    .filter((frame) => frame.startsWith("data: "))
+    .map((frame) => {
+      const parsed: unknown = JSON.parse(frame.slice("data: ".length));
+      return parsed;
+    });
+
+const closesAfterSlowReaderObservesTerminalCompletion = async () => {
+  const handlers = makeSubscriptionHarnessHandlers();
+  const activeClose = vi.spyOn(handlers.active, "close");
+  const running = await acquireServerWithHandlers(
+    handlers.registration,
+    handlers.active,
+  );
+  const listenId = "slow-reader";
+  const subscription = await openPausedSubscription(
+    running.baseUrl,
+    makeListenPayload(listenId),
+  );
+
+  const released = releaseServerScope(running.scope);
+  await vi.waitFor(() => {
+    expect(activeClose).toHaveBeenCalledOnce();
+  });
+  subscription.response.resume();
+  await subscription.ended;
+  await released;
+  subscription.agent.destroy();
+
+  const frames = parseDataFrames(subscription.body());
+  expect(frames).toContainEqual({
+    jsonrpc: "2.0",
+    id: listenId,
+    result: {
+      resultType: "complete",
+      _meta: {
+        [SUBSCRIPTION_ID_META_KEY]: listenId,
+        [SERVER_INFO_META_KEY]: SERVER_IMPLEMENTATION,
+      },
+    },
+  });
+  expect(running.server.listening).toBe(false);
+};
+
+const exposesStatusAndReplyTools = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
   const localHandlers = makeLocalDaemonHandlers({
     ownAgentId,
@@ -337,6 +485,7 @@ const exposesOnlyExistingStatusBehavior = async () => {
   });
   const handlers = makeHarnessMcpHttpHandlers({
     implementation: SERVER_IMPLEMENTATION,
+    reply: () => Effect.void,
     status: localHandlers[localDaemonCommands.status],
   });
   const baseUrl = await makeServerWithHandlers(
@@ -351,9 +500,12 @@ const exposesOnlyExistingStatusBehavior = async () => {
   );
 
   expect((await registrationClient.listTools()).tools).toEqual([]);
+  expect(harnessClient.getDiscoverResult()?.capabilities.extensions).toEqual({
+    [HARNESS_EVENTS_EXTENSION]: {},
+  });
   expect(
     (await harnessClient.listTools()).tools.map((tool) => tool.name),
-  ).toEqual(["status"]);
+  ).toEqual(["status", "reply"]);
 
   const result = await harnessClient.callTool({
     name: "status",
@@ -386,9 +538,11 @@ describe("scoped Harness MCP HTTP server", () => {
     closesHandlersWhenListenerBindFails());
   it("closes an active MCP subscription when its scope releases", () =>
     closesActiveSubscriptionWhenScopeReleases());
+  it("lets a slow reader observe terminal completion before prompt shutdown", () =>
+    closesAfterSlowReaderObservesTerminalCompletion());
   it(
-    "serves only the existing status behavior through the active catalog",
-    exposesOnlyExistingStatusBehavior,
+    "serves status and reply through the active catalog",
+    exposesStatusAndReplyTools,
   );
 });
 
