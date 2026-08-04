@@ -14,6 +14,10 @@
  */
 
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
+import type {
+  HarnessClientService,
+  HarnessTurn,
+} from "@moltzap/client/harness-client";
 import { drainPaginatedList } from "@moltzap/client/pagination";
 import {
   MoltZapChannelCore,
@@ -28,16 +32,32 @@ import {
   Config,
   ConfigProvider,
   Data,
+  Deferred,
   Effect,
   JSONSchema,
   Option,
   Schema,
+  Stream,
 } from "effect";
 import {
   writeOpenClawContextLog,
   type OpenClawContextLogInput,
 } from "./context-log.js";
-import { agentName, agentsList } from "@moltzap/protocol/identity";
+import { createHarnessReplyDeliver } from "./harness-turn-delivery.js";
+import {
+  disconnectLegacyGateway,
+  finishHarnessClient,
+  registerLegacyGatewayAbort,
+  stopActiveGatewayAccount,
+  type ActiveHarnessClient,
+} from "./openclaw-gateway-lifecycle.js";
+import {
+  isMoltZapTarget,
+  normalizeMoltZapTarget,
+  TARGET_HINT,
+  TARGET_PREFIX_CONVERSATION,
+} from "./openclaw-target.js";
+import { agentsList } from "@moltzap/protocol/identity";
 import {
   type ConversationId,
   conversationId,
@@ -46,69 +66,17 @@ import {
 import type { ResultOf } from "@moltzap/protocol/rpc";
 
 const CHANNEL_ID = "moltzap";
-const TARGET_PREFIX_AGENT = "agent:";
-const TARGET_PREFIX_CONVERSATION = "conv:";
-const TARGET_HINT =
-  'Use an agent name or "agent:<name>" for DMs or "conv:<conversationId>" for conversations';
 const INBOUND_LOG_PREVIEW_CHARS = 80;
 const BODY_FOR_AGENT_LOG_PREVIEW_CHARS = 500;
-const OUTBOUND_LOG_PREVIEW_CHARS = 80;
 
 class DispatchInboundError extends Data.TaggedError("DispatchInboundError")<{
   readonly cause: unknown;
   readonly message: string;
 }> {}
 
-const isAgentName = Schema.is(agentName);
 const openClawContextLogDir = Config.option(
   Config.string("MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"),
 );
-
-interface ResolvedMoltZapTarget {
-  readonly to: string;
-  readonly kind: "user" | "group";
-  readonly display: string;
-}
-
-function normalizeConversationTarget(
-  target: string,
-): ResolvedMoltZapTarget | null | undefined {
-  if (!target.startsWith(TARGET_PREFIX_CONVERSATION)) {
-    return undefined;
-  }
-  const id = target.slice(TARGET_PREFIX_CONVERSATION.length);
-  return id.length === 0 || id.includes(":")
-    ? null
-    : { to: target, kind: "group", display: id };
-}
-
-function normalizeAgentTarget(target: string): ResolvedMoltZapTarget | null {
-  let name: string | null;
-  if (target.startsWith(TARGET_PREFIX_AGENT)) {
-    name = target.slice(TARGET_PREFIX_AGENT.length);
-  } else if (target.includes(":")) {
-    name = null;
-  } else {
-    name = target;
-  }
-  return name === null || !isAgentName(name)
-    ? null
-    : { to: `${TARGET_PREFIX_AGENT}${name}`, kind: "user", display: name };
-}
-
-function normalizeMoltZapTarget(raw: string): ResolvedMoltZapTarget | null {
-  const target = raw.trim();
-  const conversation = normalizeConversationTarget(target);
-  if (conversation !== undefined) {
-    return conversation;
-  }
-  return normalizeAgentTarget(target);
-}
-
-function isMoltZapTarget(raw: string): boolean {
-  const target = raw.trim();
-  return normalizeMoltZapTarget(target)?.to === target;
-}
 
 function readOpenClawContextLogDir(): string | undefined {
   return Option.getOrUndefined(
@@ -137,6 +105,16 @@ class MoltZapAgentTargetUnsupportedError extends Data.TaggedError(
 }> {
   override get message(): string {
     return `MoltZap client for account ${this.accountId} cannot resolve agent targets`;
+  }
+}
+
+class MoltZapConversationTargetUnsupportedError extends Data.TaggedError(
+  "MoltZapConversationTargetUnsupportedError",
+)<{
+  readonly accountId: string;
+}> {
+  override get message(): string {
+    return `MoltZap Harness client for account ${this.accountId} cannot send into an existing conversation`;
   }
 }
 
@@ -278,7 +256,7 @@ interface InboundDispatchInput {
   readonly bodyForAgent: string;
   readonly groupMembers?: string;
   readonly groupSubject?: string;
-  readonly enriched: EnrichedInboundMessage;
+  readonly turn: HarnessTurn;
 }
 
 interface OpenClawClientService extends ChannelService {
@@ -296,6 +274,15 @@ interface MoltzapChannelPluginDeps {
     account: MoltZapAccount,
   ) => OpenClawClientService;
   readonly createCore?: (service: ChannelService) => MoltZapChannelCore;
+  /**
+   * Selects a caller-acquired client for one configured account. The plugin
+   * owns only its turn drain and never discovers, acquires, or closes the
+   * returned client.
+   */
+  readonly harnessClientForAccount?: (
+    profileName: string,
+    account: MoltZapAccount,
+  ) => HarnessClientService | undefined;
 }
 
 interface OpenClawDirectoryParams {
@@ -315,10 +302,9 @@ interface OpenClawResolveTargetParams {
 
 interface InboundHandlerParams {
   readonly ctx: OpenClawStartAccountContext;
-  readonly core: MoltZapChannelCore;
-  readonly service: OpenClawClientService;
+  readonly ownAgentId?: string;
   readonly contextLogDir?: string;
-  readonly enriched: EnrichedInboundMessage;
+  readonly turn: HarnessTurn;
 }
 
 interface InboundRuntimeData {
@@ -377,110 +363,37 @@ const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
     );
   });
 
-function logOutboundReply(
-  conversationId: string,
-  text: string,
-  log?: OpenClawLogger,
-): Effect.Effect<void> {
-  return Effect.sync(() => {
-    log?.info?.(
-      `MoltZap: outbound reply to ${conversationId}: ${text.slice(0, OUTBOUND_LOG_PREVIEW_CHARS)}`,
-    );
-  });
-}
-
-/**
- * Project a failed reply into the deliver contract's boolean. Every send
- * failure is transient from the plugin's side, so the reply reports
- * not-delivered and the host may retry.
- * @param conversationId Value supplied to the operation.
- * @param err Error to inspect.
- * @param log Value supplied to the operation.
- * @returns Whether the reply is considered handled.
- */
-function handleReplyFailure(
-  conversationId: string,
-  err: unknown,
-  log?: OpenClawLogger,
-): Effect.Effect<boolean> {
-  return Effect.sync(() => {
-    log?.error?.(`MoltZap: failed to send reply to ${conversationId}: ${err}`);
-    return false;
-  });
-}
-
-function sendDeliveredReply(params: {
-  readonly core: MoltZapChannelCore;
-  readonly conversationId: ConversationId;
-  readonly text: string;
-  readonly log?: OpenClawLogger;
-}): Effect.Effect<boolean> {
-  return params.core.sendReply(params.conversationId, params.text).pipe(
-    Effect.tap(() =>
-      logOutboundReply(params.conversationId, params.text, params.log),
-    ),
-    Effect.map(() => true),
-    Effect.catchAll((err) =>
-      handleReplyFailure(params.conversationId, err, params.log),
-    ),
-  );
-}
-
-function createReplyDeliver(params: {
-  readonly core: MoltZapChannelCore;
-  readonly enriched: EnrichedInboundMessage;
-  readonly log?: OpenClawLogger;
-}): OpenClawDeliver {
-  return (payload, info) => {
-    if (info?.kind !== "final") {
-      return Promise.resolve(true);
-    }
-    const text = payload.text ?? payload.body;
-    if (!text) {
-      return Promise.resolve(true);
-    }
-    return Effect.runPromise(
-      sendDeliveredReply({
-        core: params.core,
-        conversationId: params.enriched.conversationId,
-        text,
-        log: params.log,
-      }),
-    );
-  };
-}
-
 /**
  * Render the reply-to target for an inbound message. The conversation is the
  * whole address.
- * @param enriched Value supplied to the operation.
+ * @param turn Value supplied to the operation.
  * @returns The originating target string.
  */
-function originatingTarget(enriched: EnrichedInboundMessage): string {
-  return `${TARGET_PREFIX_CONVERSATION}${enriched.conversationId}`;
+function originatingTarget(turn: HarnessTurn): string {
+  return `${TARGET_PREFIX_CONVERSATION}${turn.conversationId}`;
 }
 
 function buildInboundDispatchContext(
   input: InboundDispatchInput,
 ): Record<string, string | undefined> {
   return {
-    Body: input.enriched.text,
+    Body: input.turn.text,
     BodyForAgent: input.bodyForAgent,
     From: input.fromId,
     To: input.account.agentName ?? input.accountId,
-    SessionKey: `agent:main:moltzap:${input.chatType === "group" ? "group" : "dm"}:${input.enriched.conversationId}`,
+    SessionKey: `agent:main:moltzap:${input.chatType === "group" ? "group" : "dm"}:${input.turn.conversationId}`,
     AccountId: input.accountId,
     Provider: CHANNEL_ID,
     Surface: CHANNEL_ID,
     OriginatingChannel: CHANNEL_ID,
-    OriginatingTo: originatingTarget(input.enriched),
+    OriginatingTo: originatingTarget(input.turn),
     ChatType: input.chatType,
     ...(input.groupSubject ? { GroupSubject: input.groupSubject } : {}),
     ...(input.groupMembers ? { GroupMembers: input.groupMembers } : {}),
-    ...(input.enriched.conversationMeta?.name
-      ? { ConversationLabel: input.enriched.conversationMeta.name }
+    ...(input.turn.conversationMeta?.name
+      ? { ConversationLabel: input.turn.conversationMeta.name }
       : {}),
-    SenderName: input.enriched.sender.name,
+    SenderName: input.turn.sender.name,
   };
 }
 
@@ -496,7 +409,6 @@ function logDispatchError(
 function dispatchInboundReply(params: {
   readonly dispatch: OpenClawReplyDispatcher;
   readonly input: InboundDispatchInput;
-  readonly core: MoltZapChannelCore;
   readonly log?: OpenClawLogger;
 }): Effect.Effect<{ queuedFinal: boolean }, unknown> {
   return Effect.tryPromise({
@@ -505,9 +417,8 @@ function dispatchInboundReply(params: {
         ctx: buildInboundDispatchContext(params.input),
         cfg: params.input.cfg,
         dispatcherOptions: {
-          deliver: createReplyDeliver({
-            core: params.core,
-            enriched: params.input.enriched,
+          deliver: createHarnessReplyDeliver({
+            turn: params.input.turn,
             log: params.log,
           }),
         },
@@ -518,20 +429,6 @@ function dispatchInboundReply(params: {
         message: err instanceof Error ? err.message : String(err),
       }),
   }).pipe(Effect.tapError((err) => logDispatchError(err, params.log)));
-}
-
-function disconnectCoreOnAbort(
-  core: MoltZapChannelCore,
-  activeClients: Map<string, OpenClawClientService>,
-  accountId: string,
-): void {
-  Effect.runFork(
-    core
-      .disconnect()
-      .pipe(
-        Effect.ensuring(Effect.sync(() => activeClients.delete(accountId))),
-      ),
-  );
 }
 
 function createPluginMeta() {
@@ -716,14 +613,20 @@ function createConfigSection() {
 
 function createGatewaySection(
   activeClients: Map<string, OpenClawClientService>,
+  activeHarnessClients: Map<string, ActiveHarnessClient>,
   deps: MoltzapChannelPluginDeps,
 ) {
   return {
     startAccount(ctx: OpenClawStartAccountContext) {
-      return startGatewayAccount(ctx, activeClients, deps);
+      return startGatewayAccount(
+        ctx,
+        activeClients,
+        activeHarnessClients,
+        deps,
+      );
     },
     stopAccount(ctx: OpenClawStopAccountContext) {
-      return stopGatewayAccount(ctx, activeClients);
+      return stopGatewayAccount(ctx, activeClients, activeHarnessClients);
     },
   };
 }
@@ -731,14 +634,18 @@ function createGatewaySection(
 function startGatewayAccount(
   ctx: OpenClawStartAccountContext,
   activeClients: Map<string, OpenClawClientService>,
+  activeHarnessClients: Map<string, ActiveHarnessClient>,
   deps: MoltzapChannelPluginDeps,
 ) {
-  return Effect.runPromise(startGatewayAccountEffect(ctx, activeClients, deps));
+  return Effect.runPromise(
+    startGatewayAccountEffect(ctx, activeClients, activeHarnessClients, deps),
+  );
 }
 
 function startGatewayAccountEffect(
   ctx: OpenClawStartAccountContext,
   activeClients: Map<string, OpenClawClientService>,
+  activeHarnessClients: Map<string, ActiveHarnessClient>,
   deps: MoltzapChannelPluginDeps,
 ): Effect.Effect<void, unknown> {
   const { accountId, account, abortSignal, log, setStatus } = ctx;
@@ -749,8 +656,20 @@ function startGatewayAccountEffect(
     if (profileName.length === 0) {
       return yield* new MoltZapAccountProfileMissingError();
     }
+    const harnessClient = deps.harnessClientForAccount?.(profileName, account);
+    if (harnessClient !== undefined) {
+      if (abortSignal.aborted) {
+        return;
+      }
+      return yield* runHarnessGateway(ctx, harnessClient, {
+        activeClients,
+        activeHarnessClients,
+        contextLogDir,
+      });
+    }
     const service = yield* createGatewayService(profileName, account, deps);
     const core = createGatewayCore(service, deps);
+    const binding = { core, service };
     registerInboundHandler({
       core,
       ctx,
@@ -758,18 +677,100 @@ function startGatewayAccountEffect(
       contextLogDir,
     });
     registerConnectionStatus(core, ctx);
-    activeClients.set(accountId, service);
-    if (abortSignal.aborted) {
-      return yield* disconnectAndRemove(core, activeClients, accountId);
-    }
-    abortSignal.addEventListener(
-      "abort",
-      () => {
-        disconnectCoreOnAbort(core, activeClients, accountId);
-      },
-      { once: true },
+    yield* stopActiveGatewayAccount(
+      activeClients,
+      activeHarnessClients,
+      accountId,
     );
+    yield* Effect.sync(() => activeClients.set(accountId, service));
+    if (abortSignal.aborted) {
+      return yield* disconnectLegacyGateway(binding, activeClients, accountId);
+    }
+    registerLegacyGatewayAbort(abortSignal, binding, activeClients, accountId);
     yield* connectGatewayCore(core, service, ctx, setStatus);
+  });
+}
+
+interface HarnessGatewayRuntime {
+  readonly activeClients: Map<string, OpenClawClientService>;
+  readonly activeHarnessClients: Map<string, ActiveHarnessClient>;
+  readonly contextLogDir?: string;
+}
+
+function runHarnessGateway(
+  ctx: OpenClawStartAccountContext,
+  client: HarnessClientService,
+  runtime: HarnessGatewayRuntime,
+): Effect.Effect<void, unknown> {
+  const { activeClients, activeHarnessClients, contextLogDir } = runtime;
+  return Effect.gen(function* () {
+    const stopSignal = yield* Deferred.make<undefined>();
+    const active = { client, stopSignal };
+    yield* stopActiveGatewayAccount(
+      activeClients,
+      activeHarnessClients,
+      ctx.accountId,
+    );
+    yield* Effect.sync(() => activeHarnessClients.set(ctx.accountId, active));
+    yield* reportHarnessConnected(client, ctx).pipe(
+      Effect.zipRight(
+        Effect.raceFirst(
+          client.turns.pipe(
+            Stream.runForEach((turn) =>
+              handleInboundMessage({
+                ctx,
+                ownAgentId: client.agentId,
+                contextLogDir,
+                turn,
+              }).pipe(
+                Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch"),
+                Effect.catchAll((cause) =>
+                  logHarnessTurnFailure(turn, cause, ctx.log),
+                ),
+                Effect.catchAllDefect((cause) =>
+                  logHarnessTurnFailure(turn, cause, ctx.log),
+                ),
+              ),
+            ),
+          ),
+          Effect.raceFirst(
+            waitForAbort(ctx.abortSignal),
+            Deferred.await(stopSignal),
+          ),
+        ),
+      ),
+      Effect.ensuring(
+        finishHarnessClient(activeHarnessClients, ctx.accountId, active),
+      ),
+    );
+  });
+}
+
+function logHarnessTurnFailure(
+  turn: HarnessTurn,
+  cause: unknown,
+  log?: OpenClawLogger,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    log?.error?.(
+      `MoltZap: inbound dispatch failed for ${turn.conversationId}: ${String(cause)}`,
+    );
+  });
+}
+
+function reportHarnessConnected(
+  client: HarnessClientService,
+  ctx: OpenClawStartAccountContext,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    ctx.log?.info?.(
+      `MoltZap: connected as ${ctx.account.agentName} (${client.agentId})`,
+    );
+    ctx.setStatus({
+      accountId: ctx.accountId,
+      connected: true,
+      lastConnectedAt: Date.now(),
+    });
   });
 }
 
@@ -794,16 +795,6 @@ function createGatewayCore(
   return new MoltZapChannelCore({ service });
 }
 
-function disconnectAndRemove(
-  core: MoltZapChannelCore,
-  activeClients: Map<string, OpenClawClientService>,
-  accountId: string,
-) {
-  return core
-    .disconnect()
-    .pipe(Effect.tap(() => Effect.sync(() => activeClients.delete(accountId))));
-}
-
 interface RegisterInboundHandlerParams {
   readonly core: MoltZapChannelCore;
   readonly ctx: OpenClawStartAccountContext;
@@ -812,67 +803,76 @@ interface RegisterInboundHandlerParams {
 }
 
 function registerInboundHandler(params: RegisterInboundHandlerParams): void {
-  params.core.onInbound((enriched) =>
-    handleInboundMessage({
+  params.core.onInbound((enriched) => {
+    const turn = bindCoreInboundTurn(params.core, enriched);
+    return handleInboundMessage({
       ctx: params.ctx,
-      core: params.core,
-      service: params.service,
+      ownAgentId: params.service.ownAgentId,
       contextLogDir: params.contextLogDir,
-      enriched,
-    }).pipe(Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch")),
-  );
+      turn,
+    }).pipe(Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch"));
+  });
+}
+
+function bindCoreInboundTurn(
+  core: MoltZapChannelCore,
+  enriched: EnrichedInboundMessage,
+): HarnessTurn {
+  return {
+    ...enriched,
+    reply: (payload) => core.sendReply(enriched.conversationId, payload),
+  };
 }
 
 function handleInboundMessage(params: InboundHandlerParams) {
   return Effect.gen(function* () {
-    const data = inboundRuntimeData(params.enriched, params.service);
-    logInboundMessage(params.enriched, data.fromId, params.ctx.log);
+    const data = inboundRuntimeData(params.turn, params.ownAgentId);
+    logInboundMessage(params.turn, data.fromId, params.ctx.log);
     touchInboundStatus(params.ctx);
     yield* writeInboundContextLog(params, data);
-    logCrossConversationContext(params.enriched, data, params.ctx.log);
+    logCrossConversationContext(params.turn, data, params.ctx.log);
     const dispatch =
       params.ctx.channelRuntime?.reply
         ?.dispatchReplyWithBufferedBlockDispatcher;
     if (!dispatch) {
-      logMissingDispatcher(params.enriched.conversationId, params.ctx.log);
+      logMissingDispatcher(params.turn.conversationId, params.ctx.log);
       return;
     }
     const result = yield* dispatchInboundReply({
       dispatch,
-      input: inboundDispatchInput(params.ctx, params.enriched, data),
-      core: params.core,
+      input: inboundDispatchInput(params.ctx, params.turn, data),
       log: params.ctx.log,
     });
-    logDispatchFinished(params.enriched, params.ctx.log);
-    logUnqueuedDispatch(params.enriched, result, params.ctx.log);
+    logDispatchFinished(params.turn, params.ctx.log);
+    logUnqueuedDispatch(params.turn, result, params.ctx.log);
   });
 }
 
 function inboundRuntimeData(
-  enriched: EnrichedInboundMessage,
-  service: OpenClawClientService,
+  turn: HarnessTurn,
+  ownAgentId?: string,
 ): InboundRuntimeData {
-  const groupFields = getGroupFields(enriched.conversationMeta);
-  const crossConversationMessages = crossConversationMessagesFor(enriched);
+  const groupFields = getGroupFields(turn.conversationMeta);
+  const crossConversationMessages = crossConversationMessagesFor(turn);
   const crossConvBlock = formatCrossConv(crossConversationMessages, {
-    ownAgentId: service.ownAgentId ?? "",
+    ownAgentId: ownAgentId ?? "",
     markup: "json-header",
   });
   return {
     chatType: groupFields !== null ? "group" : "direct",
-    fromId: `agent:${enriched.sender.id}`,
+    fromId: `agent:${turn.sender.id}`,
     crossConvBlock,
     crossConversationMessages,
-    bodyForAgent: bodyForAgent(enriched.text, crossConvBlock),
+    bodyForAgent: bodyForAgent(turn.text, crossConvBlock),
     groupSubject: groupFields?.name,
     groupMembers: groupMembersFor(groupFields),
   };
 }
 
 function crossConversationMessagesFor(
-  enriched: EnrichedInboundMessage,
+  turn: HarnessTurn,
 ): readonly CrossConvMessage[] {
-  return enriched.contextBlocks.crossConversationMessages ?? [];
+  return turn.contextBlocks.crossConversationMessages ?? [];
 }
 
 function bodyForAgent(text: string, crossConvBlock: string | null): string {
@@ -891,12 +891,12 @@ function groupMembersFor(fields: GroupFields | null): string | undefined {
 }
 
 function logInboundMessage(
-  enriched: EnrichedInboundMessage,
+  turn: HarnessTurn,
   fromId: string,
   log?: OpenClawLogger,
 ): void {
   log?.info?.(
-    `MoltZap: inbound from ${fromId}: ${enriched.text.slice(0, INBOUND_LOG_PREVIEW_CHARS)}`,
+    `MoltZap: inbound from ${fromId}: ${turn.text.slice(0, INBOUND_LOG_PREVIEW_CHARS)}`,
   );
 }
 
@@ -917,13 +917,13 @@ function writeInboundContextLog(
       logDir: params.contextLogDir,
       accountId: params.ctx.accountId,
       accountAgentName: params.ctx.account.agentName,
-      ownAgentId: params.service.ownAgentId,
-      conversationId: params.enriched.conversationId,
-      conversationName: params.enriched.conversationMeta?.name,
+      ownAgentId: params.ownAgentId,
+      conversationId: params.turn.conversationId,
+      conversationName: params.turn.conversationMeta?.name,
       conversationType: data.chatType,
       from: data.fromId,
       to: params.ctx.account.agentName ?? params.ctx.accountId,
-      body: params.enriched.text,
+      body: params.turn.text,
       bodyForAgent: data.bodyForAgent,
       crossConversationMessages: data.crossConversationMessages,
     },
@@ -932,7 +932,7 @@ function writeInboundContextLog(
 }
 
 function logCrossConversationContext(
-  enriched: EnrichedInboundMessage,
+  turn: HarnessTurn,
   data: InboundRuntimeData,
   log?: OpenClawLogger,
 ): void {
@@ -940,7 +940,7 @@ function logCrossConversationContext(
     return;
   }
   log?.info?.(
-    `MoltZap: BodyForAgent has cross-conv context (${data.crossConversationMessages.length} msgs) for ${enriched.conversationId}: ${data.bodyForAgent.slice(0, BODY_FOR_AGENT_LOG_PREVIEW_CHARS)}`,
+    `MoltZap: BodyForAgent has cross-conv context (${data.crossConversationMessages.length} msgs) for ${turn.conversationId}: ${data.bodyForAgent.slice(0, BODY_FOR_AGENT_LOG_PREVIEW_CHARS)}`,
   );
 }
 
@@ -953,7 +953,7 @@ function logMissingDispatcher(
 
 function inboundDispatchInput(
   ctx: OpenClawStartAccountContext,
-  enriched: EnrichedInboundMessage,
+  turn: HarnessTurn,
   data: InboundRuntimeData,
 ): InboundDispatchInput {
   return {
@@ -965,21 +965,18 @@ function inboundDispatchInput(
     bodyForAgent: data.bodyForAgent,
     groupMembers: data.groupMembers,
     groupSubject: data.groupSubject,
-    enriched,
+    turn,
   };
 }
 
-function logDispatchFinished(
-  enriched: EnrichedInboundMessage,
-  log?: OpenClawLogger,
-): void {
+function logDispatchFinished(turn: HarnessTurn, log?: OpenClawLogger): void {
   log?.info?.(
-    `MoltZap: dispatch finished for ${enriched.conversationId} message ${enriched.id}`,
+    `MoltZap: dispatch finished for ${turn.conversationId} message ${turn.id}`,
   );
 }
 
 function logUnqueuedDispatch(
-  enriched: EnrichedInboundMessage,
+  turn: HarnessTurn,
   result: { readonly queuedFinal: boolean },
   log?: OpenClawLogger,
 ): void {
@@ -987,7 +984,7 @@ function logUnqueuedDispatch(
     return;
   }
   log?.debug?.(
-    `MoltZap: dispatch completed without final reply for ${enriched.conversationId}`,
+    `MoltZap: dispatch completed without final reply for ${turn.conversationId}`,
   );
 }
 
@@ -1044,18 +1041,26 @@ function logConnectionFailure(err: unknown, log?: OpenClawLogger) {
 function stopGatewayAccount(
   ctx: OpenClawStopAccountContext,
   activeClients: Map<string, OpenClawClientService>,
+  activeHarnessClients: Map<string, ActiveHarnessClient>,
 ) {
-  const service = activeClients.get(ctx.accountId);
-  if (service) {
+  if (
+    activeHarnessClients.has(ctx.accountId) ||
+    activeClients.has(ctx.accountId)
+  ) {
     ctx.log?.info?.("MoltZap: stopping");
-    service.close();
-    activeClients.delete(ctx.accountId);
   }
-  return Promise.resolve(undefined);
+  return Effect.runPromise(
+    stopActiveGatewayAccount(
+      activeClients,
+      activeHarnessClients,
+      ctx.accountId,
+    ),
+  );
 }
 
 function createOutboundSection(
   activeClients: Map<string, OpenClawClientService>,
+  activeHarnessClients: Map<string, ActiveHarnessClient>,
 ) {
   return {
     deliveryMode: "gateway" as const,
@@ -1073,7 +1078,9 @@ function createOutboundSection(
       text: string;
       accountId?: string | null;
     }) {
-      return Effect.runPromise(sendTextEffect(activeClients, ctx));
+      return Effect.runPromise(
+        sendTextEffect(activeClients, activeHarnessClients, ctx),
+      );
     },
   };
 }
@@ -1153,8 +1160,78 @@ function dispatchOutbound(
   });
 }
 
+interface ActiveLegacyOutbound {
+  readonly _tag: "legacy";
+  readonly accountId: string;
+  readonly service: OpenClawClientService;
+}
+
+interface ActiveHarnessOutbound {
+  readonly _tag: "harness";
+  readonly accountId: string;
+  readonly client: HarnessClientService;
+}
+
+type ActiveOutbound = ActiveLegacyOutbound | ActiveHarnessOutbound;
+
+function getActiveOutbound(
+  activeClients: Map<string, OpenClawClientService>,
+  activeHarnessClients: Map<string, ActiveHarnessClient>,
+  accountId?: string | null,
+): ActiveOutbound | undefined {
+  const requested = accountId?.trim();
+  if (requested) {
+    const harness = activeHarnessClients.get(requested);
+    if (harness !== undefined) {
+      return { _tag: "harness", accountId: requested, client: harness.client };
+    }
+    const service = activeClients.get(requested);
+    return service === undefined
+      ? undefined
+      : { _tag: "legacy", accountId: requested, service };
+  }
+  if (activeClients.size + activeHarnessClients.size !== 1) {
+    return undefined;
+  }
+  const harness = activeHarnessClients.entries().next().value;
+  if (harness !== undefined) {
+    return {
+      _tag: "harness",
+      accountId: harness[0],
+      client: harness[1].client,
+    };
+  }
+  const legacy = activeClients.entries().next().value;
+  return legacy === undefined
+    ? undefined
+    : { _tag: "legacy", accountId: legacy[0], service: legacy[1] };
+}
+
+function dispatchHarnessOutbound(
+  client: HarnessClientService,
+  accountId: string,
+  ctx: {
+    readonly to: string;
+    readonly text: string;
+  },
+): Effect.Effect<void, Error> {
+  const target = normalizeMoltZapTarget(ctx.to);
+  if (target === null) {
+    return Effect.fail(new MoltZapTargetMalformedError({ target: ctx.to }));
+  }
+  if (target.kind === "group") {
+    return Effect.fail(
+      new MoltZapConversationTargetUnsupportedError({ accountId }),
+    );
+  }
+  return client
+    .startConversation([target.display], ctx.text)
+    .pipe(Effect.asVoid);
+}
+
 function sendTextEffect(
   activeClients: Map<string, OpenClawClientService>,
+  activeHarnessClients: Map<string, ActiveHarnessClient>,
   ctx: {
     cfg: OpenClawConfig;
     to: string;
@@ -1164,13 +1241,21 @@ function sendTextEffect(
 ) {
   const requestedAccountId = ctx.accountId ?? "(unspecified)";
   return Effect.gen(function* () {
-    const active = getActiveService(activeClients, ctx.accountId);
+    const active = getActiveOutbound(
+      activeClients,
+      activeHarnessClients,
+      ctx.accountId,
+    );
     if (active === undefined) {
       return yield* new MoltZapClientNotConnectedError({
         accountId: requestedAccountId,
       });
     }
-    yield* dispatchOutbound(active.service, active.accountId, ctx);
+    if (active._tag === "harness") {
+      yield* dispatchHarnessOutbound(active.client, active.accountId, ctx);
+    } else {
+      yield* dispatchOutbound(active.service, active.accountId, ctx);
+    }
     return new OpenClawSendTextSuccess();
   }).pipe(
     Effect.withSpan("createMoltzapChannelPlugin.sendText"),
@@ -1198,20 +1283,27 @@ function sendTextEffect(
  * sequenceDiagram
  *   participant OC as openclaw runtime
  *   participant Plugin as moltzap plugin
+ *   participant Harness as caller-owned HarnessClient
  *   participant Core as MoltZapChannelCore
  *   participant Server as MoltZap server
  *   OC->>Plugin: startAccount(ctx)
- *   Plugin->>Core: new MoltZapAgentClient → MoltZapChannelCore
- *   Plugin->>Core: core.connect() — WS auth
- *   Plugin->>Core: core.onInbound(handler) — register dispatch
- *   Core->>Plugin: enriched message arrives
+ *   alt HarnessClient is injected
+ *     Plugin->>Harness: drain turns sequentially
+ *     Harness-->>Plugin: originating HarnessTurn
+ *   else legacy profile client
+ *     Plugin->>Core: new MoltZapAgentClient → MoltZapChannelCore
+ *     Plugin->>Core: core.connect() — WS auth
+ *     Plugin->>Core: core.onInbound(handler) — register dispatch
+ *     Core->>Plugin: enriched message arrives
+ *     Plugin->>Plugin: bind HarnessTurn reply authority
+ *   end
  *   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
  *   note over OC: agent pipeline → LLM
- *   OC->>Plugin: deliver(payload, opts) — createReplyDeliver
- *   Plugin->>Server: core.sendReply(conversationId, text)
+ *   OC->>Plugin: deliver(payload, opts) — createHarnessReplyDeliver
+ *   Plugin->>Plugin: turn.reply(text)
+ *   Plugin->>Server: core ingress bridge sends reply
  *   OC->>Plugin: stopAccount(ctx)
- *   Plugin->>Core: core.disconnect()
- *   Plugin->>Plugin: activeClients.delete(account)
+ *   Plugin->>Plugin: stop owned drain or disconnect owned core
  * ```
  *
  * `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
@@ -1227,6 +1319,7 @@ export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},
 ) {
   const activeClients = new Map<string, OpenClawClientService>();
+  const activeHarnessClients = new Map<string, ActiveHarnessClient>();
 
   return {
     id: CHANNEL_ID,
@@ -1235,8 +1328,8 @@ export function createMoltzapChannelPlugin(
     messaging: createMessagingSection(),
     directory: createDirectorySection(activeClients),
     config: createConfigSection(),
-    gateway: createGatewaySection(activeClients, deps),
-    outbound: createOutboundSection(activeClients),
+    gateway: createGatewaySection(activeClients, activeHarnessClients, deps),
+    outbound: createOutboundSection(activeClients, activeHarnessClients),
   };
 }
 

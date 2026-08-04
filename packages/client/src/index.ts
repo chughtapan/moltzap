@@ -21,4 +21,5 @@ export {
   type HarnessClientOptions,
   type HarnessClientService,
   type HarnessTurn,
+  type ConversationWithParticipants,
 } from "./harness-client.js";

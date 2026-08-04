@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1226)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1318)
 
 _Function_
 
@@ -33,20 +33,27 @@ and `resolveTarget` for openclaw's targeting layer.
 sequenceDiagram
   participant OC as openclaw runtime
   participant Plugin as moltzap plugin
+  participant Harness as caller-owned HarnessClient
   participant Core as MoltZapChannelCore
   participant Server as MoltZap server
   OC->>Plugin: startAccount(ctx)
-  Plugin->>Core: new MoltZapAgentClient → MoltZapChannelCore
-  Plugin->>Core: core.connect() — WS auth
-  Plugin->>Core: core.onInbound(handler) — register dispatch
-  Core->>Plugin: enriched message arrives
+  alt HarnessClient is injected
+    Plugin->>Harness: drain turns sequentially
+    Harness-->>Plugin: originating HarnessTurn
+  else legacy profile client
+    Plugin->>Core: new MoltZapAgentClient → MoltZapChannelCore
+    Plugin->>Core: core.connect() — WS auth
+    Plugin->>Core: core.onInbound(handler) — register dispatch
+    Core->>Plugin: enriched message arrives
+    Plugin->>Plugin: bind HarnessTurn reply authority
+  end
   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
   note over OC: agent pipeline → LLM
-  OC->>Plugin: deliver(payload, opts) — createReplyDeliver
-  Plugin->>Server: core.sendReply(conversationId, text)
+  OC->>Plugin: deliver(payload, opts) — createHarnessReplyDeliver
+  Plugin->>Plugin: turn.reply(text)
+  Plugin->>Server: core ingress bridge sends reply
   OC->>Plugin: stopAccount(ctx)
-  Plugin->>Core: core.disconnect()
-  Plugin->>Plugin: activeClients.delete(account)
+  Plugin->>Plugin: stop owned drain or disconnect owned core
 ```
 
 `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
@@ -58,7 +65,7 @@ to `agent:&lt;name>`. Other colon-prefixed shapes are rejected.
 
 **Returns:** The created moltzap channel plugin.
 
-### [`default`](./openclaw-entry.ts#L1256)
+### [`default`](./openclaw-entry.ts#L1349)
 
 _Variable_
 
@@ -66,7 +73,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1253)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1346)
 
 _Variable_
 
@@ -79,7 +86,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1244)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1337)
 
 _TypeAlias_
 

@@ -569,7 +569,7 @@ const rejectsUnexpectedTurnFields = async () => {
   }
 };
 
-const startsConversationWithCanonicalProjection = async () => {
+const startsConversationWithMcpLocalParticipants = async () => {
   const observedStarts: HarnessStartConversationInput[] = [];
   const running = await startHarnessServer(
     makeHarnessHandler([], true, observedStarts),
@@ -594,14 +594,7 @@ const startsConversationWithCanonicalProjection = async () => {
         initialContent: INITIAL_CONTENT,
       },
     ]);
-    expect(started).toEqual({
-      id: STARTED_CONVERSATION.id,
-      name: STARTED_CONVERSATION.name,
-      createdBy: STARTED_CONVERSATION.createdBy,
-      createdAt: STARTED_CONVERSATION.createdAt,
-      updatedAt: STARTED_CONVERSATION.updatedAt,
-    });
-    expect(started).not.toHaveProperty("participants");
+    expect(started).toEqual(STARTED_CONVERSATION);
   } finally {
     await Effect.runPromise(Scope.close(running.scope, Exit.void));
   }
@@ -675,10 +668,10 @@ const abortsReplyCallWhenInterrupted = async () => {
   }
 };
 
-// @agent-code-guard/regression-only: the scoped loopback boundary pins the canonical start projection and every reply closure to its originating turn without suppression.
+// @agent-code-guard/regression-only: the scoped loopback boundary preserves local participant enrichment and pins every reply closure to its originating turn without suppression.
 describe("HarnessClient", () => {
-  it("starts a conversation and projects its MCP-local result to the canonical shape", () =>
-    startsConversationWithCanonicalProjection());
+  it("starts a conversation and preserves MCP-local participants", () =>
+    startsConversationWithMcpLocalParticipants());
   it("sends every reply through the originating conversation after later turns", () =>
     preservesBoundConversation());
   it("rejects a server without the harness events extension", () =>

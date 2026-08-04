@@ -9,8 +9,10 @@ channel plugins.
 
 - `src/channels/moltzap.ts` — `MoltZapAdapter`, the entry point
   (package `main`); implements nanoclaw's `ChannelAdapter` contract
-  over `MoltZapChannelCore` from `@moltzap/client/channel-base` and
-  self-registers via `registerChannelAdapter`.
+  over an injected `HarnessClient` or the transitional
+  `MoltZapChannelCore` path and self-registers via
+  `registerChannelAdapter`. The production factory remains profile/core-backed
+  until profile-to-MCP acquisition is available.
 - `src/channels/adapter.ts`, `src/channels/channel-registry.ts`,
   `src/db/messaging-groups.ts`, `src/types.ts` — stub mirrors of the
   nanoclaw modules the channel imports, pinned to the commit in `NANOCLAW_SHA`
@@ -23,7 +25,7 @@ channel plugins.
 
 - **Platform id (JID)** — channel-level addressing string,
   `mz:<conversationId>`; `jidFromConversationId` converts one way, and
-  replies read the branded conversation id back from the per-jid map.
+  replies read the latest bound route back from the per-jid map.
 - **Wiring** — nanoclaw routes by `(channel_type, platform_id)` →
   `messaging_groups` → `messaging_group_agents`. Production wirings
   are provisioned out of band.
@@ -35,13 +37,16 @@ channel plugins.
 
 ## Code
 
-- `handleInbound` awaits the host turn rather than forking it. That
-  binds a reply to the turn that produced it: the per-jid
-  conversation entry holds the newest inbound, so a reply outliving
-  its own turn would address the wrong conversation.
+- The injected Harness path drains `HarnessClient.turns` sequentially and
+  retains each turn's bound `reply` closure by jid. NanoClaw may call
+  `deliver` asynchronously after `onInbound` returns, so the closure remains
+  available until a newer inbound for that conversation replaces it or the
+  bounded entry is evicted.
+- `fromHarnessClient` borrows an already acquired client. Adapter teardown
+  interrupts its turn drain but does not close the caller-owned client scope.
 - `MoltZapChannelError` covers host-shape failures (un-owned jid,
-  unknown conversation, disconnected channel); send failures keep
-  their `ServiceRpcError` type.
+  unknown conversation, disconnected channel); reply failures retain their
+  backing client's error type.
 - Inbound projection: `onMetadata` fires before `onInbound`; content
   is `{ text, sender, senderId }` with context blocks inlined into
   `text`; own (`isFromMe`) messages are dropped, not delivered.
@@ -57,3 +62,6 @@ channel plugins.
 - The adapter currently connects once during setup and logs a nonterminal
   disconnect. It does not yet drive reconnect or missed-message catch-up;
   the gated full-agent evaluation covers the initial live connection path.
+- Harness behavior tests use a fake `HarnessClientService` stream and bound
+  reply closures. Import/constructor absence remains an architecture check for
+  the later production-factory cutover, not a unit assertion.
