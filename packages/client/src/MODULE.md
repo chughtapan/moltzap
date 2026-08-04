@@ -37,7 +37,7 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`ContextOptions`](./service.ts#L131)
+### [`ContextOptions`](./service.ts#L126)
 
 _Interface_
 
@@ -51,7 +51,7 @@ export interface ContextOptions {
 
 Configures context.
 
-### [`ConversationMeta`](./service.ts#L123)
+### [`ConversationMeta`](./presentation/state.ts#L25)
 
 _Interface_
 
@@ -149,7 +149,7 @@ export declare class MoltZapAgentClient extends ProtocolClientLifecycle<AgentCal
 
 Implements molt zap agent client.
 
-### [`MoltZapService`](./service.ts#L262)
+### [`MoltZapService`](./service.ts#L233)
 
 _Class_
 
@@ -169,22 +169,10 @@ export class MoltZapService {
    */
   private serviceScope: Scope.CloseableScope | null = null;
 
-  private readonly conversationsRef: Ref.Ref<
-    HashMap.HashMap<string, ConversationMeta>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationMeta>()));
-  private readonly messagesRef: Ref.Ref<
-    HashMap.HashMap<string, readonly Message[]>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, readonly Message[]>()));
-  private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
-    Effect.runSync(Ref.make(HashMap.empty<string, string>()));
+  private readonly presentationState = new PresentationState();
   private readonly agentConversationCacheRef: Ref.Ref<
     HashMap.HashMap<string, ConversationId>
   > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationId>()));
-  private readonly lastNotifiedRef: Ref.Ref<
-    HashMap.HashMap<string, HashMap.HashMap<string, string>>
-  > = Effect.runSync(
-    Ref.make(HashMap.empty<string, HashMap.HashMap<string, string>>()),
-  );
   private readonly lastReadRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
   > = Effect.runSync(
@@ -274,6 +262,18 @@ export class MoltZapService {
           agentKey: this.opts.agentKey,
           // The body doesn't branch on close metadata today; the signature is
           // kept explicit so a future disconnect-handler chain can plumb
+          // code/reason through.
+          onDisconnect: () => {
+            this.connectedValue = false;
+            fanout(this.handlers.disconnect, undefined);
+          },
+        });
+        this.client = client;
+
+        // `subscribeAll().pipe(Stream.runForEach, …)` is forked into a
+        // service-owned scope. The Stream is materialized BEFORE `connect()` so
+        // subscriptions are registered with the registry pre-handshake (a
+        // pre-connect-legal operation).
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -296,7 +296,7 @@ export interface RpcCallOptions {
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L111)
+### [`ServiceRpcError`](./service.ts#L114)
 
 _TypeAlias_
 
@@ -314,4 +314,5 @@ to that method's errors at the `call` site.
 ## Files
 
 - `harness-client.ts`
+- `state.ts`
 - `service.ts`

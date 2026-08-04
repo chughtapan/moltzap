@@ -59,7 +59,6 @@ import {
   type MoltzapServiceConfig,
   type ServiceConfigError,
 } from "./config.js";
-import { getOr, snapshot } from "./refs.js";
 import {
   getMoltZapAgentServiceSocketPath,
   getMoltZapServiceSocketPath,
@@ -70,14 +69,7 @@ import {
   startLocalSocketServer,
   stopLocalSocketServer,
 } from "./local-socket-server.js";
-import {
-  buildContextEntries,
-  type ContextCandidate,
-  type CrossConvState,
-  makeContextCandidate,
-  newMessagesForConversation,
-  notificationTraceRecord,
-} from "./service-helpers.js";
+import { notificationTraceRecord } from "./notification/trace.js";
 import { renderPart } from "./message-rendering.js";
 import {
   formatHistoryMessage,
@@ -86,10 +78,21 @@ import {
   lastReadIdsForSession,
 } from "./local-history.js";
 import { appendClientEventTrace } from "./service-event-trace.js";
+import {
+  PresentationState,
+  type ConversationMeta,
+  type CrossConversationEntry,
+  type CrossConvMessage,
+} from "./presentation/index.js";
+
+/** Presentation value types exposed alongside MoltZapService. */
+export type {
+  ConversationMeta,
+  CrossConversationEntry,
+  CrossConvMessage,
+} from "./presentation/index.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
-const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
-const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
 const HISTORY_LOOKUP_CONCURRENCY = 2;
 const AGENT_LOOKUP_PAGE_SIZE = 100;
 const AGENT_LOOKUP_MAX_PAGES = 20;
@@ -119,30 +122,11 @@ const agentNotFound = (agentName: string): AgentNotFoundError =>
     data: { agentName },
   });
 
-/** Describes conversation meta. */
-export interface ConversationMeta {
-  id: string;
-  type: string;
-  name?: string;
-  participants: string[];
-}
-
 /** Configures context. */
 export interface ContextOptions {
   type: "cross-conversation";
   maxConversations?: number;
   maxMessagesPerConv?: number;
-}
-
-/** Structured summary of recent activity in one other conversation. */
-export interface CrossConversationEntry {
-  conversationId: string;
-  conversationName?: string;
-  senderName: string;
-  text: string;
-  minutesAgo: number;
-  /** Messages in this summary (capped by maxMessagesPerConv). */
-  count: number;
 }
 
 /**
@@ -185,6 +169,10 @@ function formatCrossConversationBlock(
   ].join("\n");
 }
 
+function renderMessageText(message: Message): string {
+  return message.parts.map(renderPart).join(" ");
+}
+
 type ServiceOptions = MoltzapServiceConfig;
 
 type NotificationHandler<T> = (data: T) => void;
@@ -205,23 +193,6 @@ interface ServiceHandlerPayloads {
 }
 
 type ServiceHandlerName = keyof ServiceHandlerPayloads;
-
-/** Full message from another conversation, used by peekFullMessages(). */
-export interface CrossConvMessage {
-  conversationId: string;
-  conversationName?: string;
-  senderName: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-}
-
-/**
- * Per-conversation message cap. Older messages are evicted FIFO; the
- * on-disk history remains the source of truth. Sized for typical CLI
- * display windows — `conversations get` shows at most a few hundred.
- */
-const MAX_MESSAGES_PER_CONV = 1000;
 
 /**
  * Per-conversation dedup window. `BoundedMap` evicts the oldest message id
@@ -274,22 +245,10 @@ export class MoltZapService {
    */
   private serviceScope: Scope.CloseableScope | null = null;
 
-  private readonly conversationsRef: Ref.Ref<
-    HashMap.HashMap<string, ConversationMeta>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationMeta>()));
-  private readonly messagesRef: Ref.Ref<
-    HashMap.HashMap<string, readonly Message[]>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, readonly Message[]>()));
-  private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
-    Effect.runSync(Ref.make(HashMap.empty<string, string>()));
+  private readonly presentationState = new PresentationState();
   private readonly agentConversationCacheRef: Ref.Ref<
     HashMap.HashMap<string, ConversationId>
   > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationId>()));
-  private readonly lastNotifiedRef: Ref.Ref<
-    HashMap.HashMap<string, HashMap.HashMap<string, string>>
-  > = Effect.runSync(
-    Ref.make(HashMap.empty<string, HashMap.HashMap<string, string>>()),
-  );
   private readonly lastReadRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
   > = Effect.runSync(
@@ -452,14 +411,14 @@ export class MoltZapService {
     const closeClient =
       clientToClose === null ? Effect.void : clientToClose.close();
     Effect.runSync(
-      Effect.all([
-        Ref.set(this.conversationsRef, HashMap.empty()),
-        Ref.set(this.messagesRef, HashMap.empty()),
-        Ref.set(this.agentNamesRef, HashMap.empty()),
-        Ref.set(this.agentConversationCacheRef, HashMap.empty()),
-        Ref.set(this.lastNotifiedRef, HashMap.empty()),
-        Ref.set(this.lastReadRef, HashMap.empty()),
-      ]),
+      Effect.all(
+        [
+          this.presentationState.reset(),
+          Ref.set(this.agentConversationCacheRef, HashMap.empty()),
+          Ref.set(this.lastReadRef, HashMap.empty()),
+        ],
+        { discard: true },
+      ),
     );
     this.seenMessageIds.clear();
     // Handlers are preserved across explicit close()/connect() cycles.
@@ -580,7 +539,7 @@ export class MoltZapService {
           request.conversationId,
           result.messages,
         );
-        const agentNames = yield* Ref.get(this.agentNamesRef);
+        const agentNames = this.presentationState.getAgentNames();
         const lastReadMap = yield* Ref.get(this.lastReadRef);
         const lastReadIds = lastReadIdsForSession(lastReadMap, request);
         const messages = result.messages.map((message) =>
@@ -626,10 +585,9 @@ export class MoltZapService {
   ): Effect.Effect<void> {
     return Effect.gen(
       function* (this: MoltZapService) {
-        const knownNames = yield* Ref.get(this.agentNamesRef);
         const unknownAgentIds = [
           ...new Set(messages.map((message) => message.senderId)),
-        ].filter((id) => !HashMap.has(knownNames, id));
+        ].filter((id) => this.presentationState.getAgentName(id) === undefined);
         if (unknownAgentIds.length === 0) {
           return;
         }
@@ -664,12 +622,11 @@ export class MoltZapService {
     }
     const { conversationId, sessionKey } = request;
     return Ref.update(this.lastReadRef, (outer) => {
-      const perSession = getOr(outer, sessionKey, () =>
+      const perSession = Option.getOrElse(HashMap.get(outer, sessionKey), () =>
         HashMap.empty<string, ReadonlySet<string>>(),
       );
-      const existing = getOr(
-        perSession,
-        conversationId,
+      const existing = Option.getOrElse(
+        HashMap.get(perSession, conversationId),
         () =>
           /* Safe because the surrounding invariant establishes this asserted shape. */ new Set<string>() as ReadonlySet<string>,
       );
@@ -691,32 +648,24 @@ export class MoltZapService {
   // --- Conversations ---
 
   getConversation(convId: string): ConversationMeta | undefined {
-    return Option.getOrUndefined(
-      HashMap.get(snapshot(this.conversationsRef), convId),
-    );
+    return this.presentationState.getConversation(convId);
   }
 
   getConversations(): ConversationMeta[] {
-    return [...HashMap.values(snapshot(this.conversationsRef))];
+    return this.presentationState.getConversations();
   }
 
   // --- Messages ---
 
   getHistory(convId: string, limit?: number): Message[] {
-    const msgs = getOr(
-      snapshot(this.messagesRef),
-      convId,
-      (): readonly Message[] => [],
-    );
-    return limit ? msgs.slice(-limit) : [...msgs];
+    const historyLimit = limit ?? 0;
+    return this.presentationState.getHistory(convId, historyLimit);
   }
 
   // --- Agent Names ---
 
   getAgentName(agentId: string): string | undefined {
-    return Option.getOrUndefined(
-      HashMap.get(snapshot(this.agentNamesRef), agentId),
-    );
+    return this.presentationState.getAgentName(agentId);
   }
 
   /**
@@ -735,9 +684,7 @@ export class MoltZapService {
           return agentId;
         }
 
-        const cached = Option.getOrUndefined(
-          HashMap.get(snapshot(this.agentNamesRef), agentId),
-        );
+        const cached = this.presentationState.getAgentName(agentId);
         if (cached !== undefined) {
           return cached;
         }
@@ -746,9 +693,7 @@ export class MoltZapService {
           new Set([decodedAgentId]),
         ).pipe(
           Effect.map(() => {
-            const resolved = Option.getOrUndefined(
-              HashMap.get(snapshot(this.agentNamesRef), agentId),
-            );
+            const resolved = this.presentationState.getAgentName(agentId);
             return resolved ?? agentId;
           }),
           Effect.catchAll((err) =>
@@ -841,16 +786,7 @@ export class MoltZapService {
   }
 
   private cacheAgentNames(agents: readonly AgentCard[]): Effect.Effect<void> {
-    if (agents.length === 0) {
-      return Effect.void;
-    }
-    return Ref.update(this.agentNamesRef, (names) => {
-      let next = names;
-      for (const agent of agents) {
-        next = HashMap.set(next, agent.id, agent.name);
-      }
-      return next;
-    });
+    return this.presentationState.cacheAgentNames(agents);
   }
 
   private agentListParams(cursor?: ListCursor): ParamsOf<typeof agentsList> {
@@ -943,24 +879,12 @@ export class MoltZapService {
     currentConvId: string,
     opts?: { maxConversations?: number; maxMessagesPerConv?: number },
   ): { entries: CrossConversationEntry[]; commit: () => void } {
-    const maxConvs =
-      opts?.maxConversations ?? DEFAULT_MAX_CONTEXT_CONVERSATIONS;
-    const maxMsgsPerConv =
-      opts?.maxMessagesPerConv ?? DEFAULT_MAX_MESSAGES_PER_CONVERSATION;
-    const state = this.readCrossConvState(currentConvId);
-    const candidates = this.collectContextCandidates(state, currentConvId);
-    const { entries, pendingAdvances } = buildContextEntries(
-      candidates.slice(0, maxConvs),
-      state,
-      maxMsgsPerConv,
+    const contextOptions = opts ?? {};
+    return this.presentationState.peekContextEntries(
+      currentConvId,
+      renderMessageText,
+      contextOptions,
     );
-
-    return {
-      entries,
-      commit: () => {
-        this.advanceLastNotified(currentConvId, pendingAdvances);
-      },
-    };
   }
 
   /**
@@ -974,113 +898,9 @@ export class MoltZapService {
     messages: CrossConvMessage[];
     commit: () => void;
   } {
-    const { messagesMap, conversationsMap, agentNamesMap, viewMarkers } =
-      this.readCrossConvState(currentConvId);
-
-    const allMessages: CrossConvMessage[] = [];
-    const pendingAdvances: Array<[string, string]> = [];
-
-    for (const [convId, newMsgs] of this.iterNewMessagesByConv(
-      messagesMap,
-      viewMarkers,
+    return this.presentationState.peekFullMessages(
       currentConvId,
-    )) {
-      const convName = Option.getOrUndefined(
-        HashMap.get(conversationsMap, convId),
-      )?.name;
-
-      for (const m of newMsgs) {
-        allMessages.push({
-          conversationId: convId,
-          conversationName: convName,
-          senderName: getOr(agentNamesMap, m.senderId, () => m.senderId),
-          senderId: m.senderId,
-          text: m.parts.map(renderPart).join(" "),
-          timestamp: m.createdAt,
-        });
-      }
-
-      pendingAdvances.push([
-        convId,
-        /* Safe because the surrounding invariant establishes this asserted shape. */ newMsgs[
-          newMsgs.length - 1
-        ]!.id,
-      ]);
-    }
-
-    allMessages.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-    return {
-      messages: allMessages,
-      commit: () => {
-        this.advanceLastNotified(currentConvId, pendingAdvances);
-      },
-    };
-  }
-
-  private readCrossConvState(currentConvId: string): CrossConvState {
-    const lastNotifiedMap = snapshot(this.lastNotifiedRef);
-    return {
-      messagesMap: snapshot(this.messagesRef),
-      conversationsMap: snapshot(this.conversationsRef),
-      agentNamesMap: snapshot(this.agentNamesRef),
-      viewMarkers: getOr(lastNotifiedMap, currentConvId, () =>
-        HashMap.empty<string, string>(),
-      ),
-    };
-  }
-
-  private collectContextCandidates(
-    state: CrossConvState,
-    currentConvId: string,
-  ): ContextCandidate[] {
-    const candidates: ContextCandidate[] = [];
-    for (const [convId, newMsgs] of this.iterNewMessagesByConv(
-      state.messagesMap,
-      state.viewMarkers,
-      currentConvId,
-    )) {
-      candidates.push(makeContextCandidate(convId, newMsgs));
-    }
-    candidates.sort((a, b) => b.lastTs - a.lastTs);
-    return candidates;
-  }
-
-  private *iterNewMessagesByConv(
-    messagesMap: HashMap.HashMap<string, readonly Message[]>,
-    viewMarkers: HashMap.HashMap<string, string>,
-    currentConvId: string,
-  ): Iterable<[string, readonly Message[]]> {
-    for (const [convId, msgs] of messagesMap) {
-      const newMsgs = newMessagesForConversation(
-        convId,
-        msgs,
-        viewMarkers,
-        currentConvId,
-      );
-      if (newMsgs.length > 0) {
-        yield [convId, newMsgs];
-      }
-    }
-  }
-
-  private advanceLastNotified(
-    currentConvId: string,
-    pendingAdvances: ReadonlyArray<readonly [string, string]>,
-  ): void {
-    if (pendingAdvances.length === 0) {
-      return;
-    }
-    Effect.runSync(
-      Ref.update(this.lastNotifiedRef, (outer) => {
-        let markers = getOr(outer, currentConvId, () =>
-          HashMap.empty<string, string>(),
-        );
-        for (const [convId, msgId] of pendingAdvances) {
-          markers = HashMap.set(markers, convId, msgId);
-        }
-        return HashMap.set(outer, currentConvId, markers);
-      }),
+      renderMessageText,
     );
   }
 
@@ -1232,10 +1052,10 @@ export class MoltZapService {
       return;
     }
 
-    this.storeMessage(msg);
+    this.presentationState.storeMessage(msg.conversationId, msg);
     // Name resolution is driven lazily by channel-core's serialized consumer
-    // via resolveAgentName(), which populates agentNamesRef on first miss and
-    // hits the cache on every subsequent message.
+    // via resolveAgentName(), which populates the presentation name cache on
+    // first miss and hits it on every subsequent message.
     if (msg.senderId !== this.ownAgentIdValue) {
       fanout(this.handlers.message, { message: msg });
     }
@@ -1244,38 +1064,6 @@ export class MoltZapService {
   private handleConversationCreatedNotification(
     notification: ConversationCreatedNotification,
   ): void {
-    const { conversationId, name, participants } = notification;
-    Effect.runSync(
-      Ref.update(this.conversationsRef, (m) => {
-        // The notification carries the full membership, this agent included,
-        // so anything past two members is a group.
-        const inferredType: "dm" | "group" =
-          participants.length <= 2 ? "dm" : "group";
-        return HashMap.set(m, conversationId, {
-          id: conversationId,
-          type: inferredType,
-          participants: participants.map((p) => `agent:${p}`),
-          ...(name !== undefined ? { name } : {}),
-        });
-      }),
-    );
-  }
-
-  private storeMessage(msg: Message): void {
-    Effect.runSync(
-      Ref.update(this.messagesRef, (m) => {
-        const existing = getOr(
-          m,
-          msg.conversationId,
-          (): readonly Message[] => [],
-        );
-        const appended = [...existing, msg];
-        const capped =
-          appended.length > MAX_MESSAGES_PER_CONV
-            ? appended.slice(-MAX_MESSAGES_PER_CONV)
-            : appended;
-        return HashMap.set(m, msg.conversationId, capped);
-      }),
-    );
+    this.presentationState.storeConversation(notification);
   }
 }
