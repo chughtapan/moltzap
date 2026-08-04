@@ -81,7 +81,7 @@ const EXPECTED_OPENCLAW_TOOLS = {
     },
   },
   elevated: { enabled: false },
-  exec: { mode: "deny" },
+  exec: { mode: "full" },
 };
 const bundledOpenClawPolicyConfiguration = Schema.Struct({
   tools: Schema.Struct({
