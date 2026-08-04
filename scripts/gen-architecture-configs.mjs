@@ -399,6 +399,16 @@ const packageDefinitions = {
             "Run boundary composing definitions, scoped resources, lifecycle outcomes, and the customer Effect",
         },
         {
+          file: "platform/failure.ts",
+          reason:
+            "Mechanism-neutral infrastructure failure shared by the public run outcome and private execution platforms",
+        },
+        {
+          file: "platform/platform.ts",
+          reason:
+            "Private run-scoped platform port for complete-roster preparation, exact runtime acquisition, cohort readiness, and infrastructure-loss observation",
+        },
+        {
           file: "network/endpoint.ts",
           reason:
             "Controlled endpoint and network service boundary over router transports and conversation receive cursors",
@@ -467,9 +477,9 @@ const packageDefinitions = {
         },
         {
           name: "capabilities",
-          folders: ["events", "ledger", "network", "runtime"],
+          folders: ["events", "ledger", "network", "platform", "runtime"],
           reason:
-            "Peer event, ledger, network, and runtime capabilities compose through typed ports and do not form a truthful linear stack",
+            "Peer event, ledger, network, platform, and runtime capabilities compose through typed ports and do not form a truthful linear stack",
         },
       ],
     },

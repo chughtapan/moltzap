@@ -25,6 +25,8 @@ import type { LedgerStorageError } from "../ledger/storage.js";
 import { LinkController, type LinkControllerService } from "../network/link.js";
 import { Network, type NetworkService } from "../network/endpoint.js";
 import type { NetworkFailure, Router } from "../network/router.js";
+import { SocietyPlatform, type SocietySession } from "../platform/platform.js";
+import type { SimulatorInfrastructureFailure } from "../platform/failure.js";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
@@ -108,7 +110,11 @@ export type SimulatorRunOutcome<
 /** Represents simulator run failure conditions. */
 export type SimulatorRunFailure<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-> = AgentRosterAcquisitionError<Definitions> | LedgerFailure | NetworkFailure;
+> =
+  | AgentRosterAcquisitionError<Definitions>
+  | SimulatorInfrastructureFailure
+  | LedgerFailure
+  | NetworkFailure;
 
 interface RunInput<
   Id extends string,
@@ -197,6 +203,28 @@ interface KernelContext<
   readonly router: Ref.Ref<Option.Option<Router>>;
 }
 
+interface SocietyExecutionInput<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+> {
+  readonly context: KernelContext<
+    Id,
+    CustomerSchema,
+    CustomerClasses,
+    Definitions,
+    A,
+    E,
+    R
+  >;
+  readonly router: Router;
+  readonly session: SocietySession<Definitions>;
+}
+
 function composeProvenance<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
@@ -256,6 +284,53 @@ function makeContext<
   });
 }
 
+function executeSociety<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+>(
+  input: SocietyExecutionInput<
+    Id,
+    CustomerSchema,
+    CustomerClasses,
+    Definitions,
+    A,
+    E,
+    R
+  >,
+) {
+  const { context, router, session } = input;
+  return Effect.gen(function* () {
+    const agents = yield* acquireRoster({
+      router,
+      roster: context.input.roster,
+      session,
+      writer: context.runtimeWriter,
+    });
+    const network = yield* makeNetworkService(router, context.endpointWriter);
+    const links = yield* makeLinkController(context.linkWriter);
+    const layer = makeProgramLayer({
+      eventServices: context.input.eventServices,
+      roster: context.input.roster,
+      active: context.active,
+      network,
+      links,
+      agents,
+    });
+    const exit = yield* context.input.program.pipe(
+      Effect.provide(layer),
+      Effect.exit,
+      Effect.scoped,
+    );
+    yield* context.runWriter.write({ event: programEvent(exit) });
+    return exit;
+  });
+}
+
 function executeProgram<
   Id extends string,
   CustomerSchema extends CatalogSchema,
@@ -280,28 +355,12 @@ function executeProgram<
       event: RunStarted.make({ definitionId: context.input.definitionId }),
     });
     const router = yield* acquireRouter(context.routerWriter, context.router);
-    const agents = yield* acquireRoster({
-      router,
-      roster: context.input.roster,
-      writer: context.runtimeWriter,
-    });
-    const network = yield* makeNetworkService(router, context.endpointWriter);
-    const links = yield* makeLinkController(context.linkWriter);
-    const layer = makeProgramLayer({
-      eventServices: context.input.eventServices,
-      roster: context.input.roster,
-      active: context.active,
-      network,
-      links,
-      agents,
-    });
-    const exit = yield* context.input.program.pipe(
-      Effect.provide(layer),
-      Effect.exit,
-      Effect.scoped,
+    const platform = yield* SocietyPlatform;
+    const session = yield* platform.prepare(context.input.roster);
+    return yield* Effect.raceFirst(
+      executeSociety({ context, router, session }),
+      session.failure,
     );
-    yield* context.runWriter.write({ event: programEvent(exit) });
-    return exit;
   });
 }
 
