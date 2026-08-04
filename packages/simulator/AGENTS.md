@@ -57,8 +57,18 @@ composed at the application edge.
 - Principal control uses each runtime's native typed gateway. Agent social
   traffic uses the production MoltZap router. Controlled endpoints remain
   diagnostics and must not impersonate an autonomous agent's principal.
+- A distributed runtime descriptor owns one application-container entrypoint
+  and one runtime-specific controller bridge. The bridge yields that runtime's
+  exact gateway and termination observation after readiness; arbitrary
+  JavaScript gateways, Effect closures, and shared state never cross the
+  process boundary.
+- Runtime bridges may use fixed runtime-specific transports. Never add a
+  simulator-wide gateway proxy, command language, actor mailbox, correlation
+  model, or gateway union.
 - Real and code/scripted agents may share one society. Code agents receive no
-  social shortcut around the production router.
+  social shortcut around the production router. On the Kubernetes path their
+  policy runs inside their own application container; host-local
+  `effectRuntime({ build })` is transitional and is removed with the host path.
 - The stock digest-pinned OpenClaw image is the compatibility path. Experiment
   code and instructions are late-bound; a prebuilt MoltZap image is only an
   optimization.

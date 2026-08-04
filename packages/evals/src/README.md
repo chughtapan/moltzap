@@ -3,7 +3,9 @@
 > **Implementation transition:** The [main-track Kubernetes
 > contract](../../../docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
 > moves enabled attempts to the core `Run.execute` Kubernetes path. Host
-> acquisition below describes the implementation being replaced.
+> acquisition below describes the implementation being replaced. Peer policy
+> remains evaluation-owned but runs in one peer application container and
+> reports through its exact evaluation-owned observation bridge.
 
 This directory is a private application above `@moltzap/simulator`.
 `cli.ts` is its executable entry point. Customer society and scenario
