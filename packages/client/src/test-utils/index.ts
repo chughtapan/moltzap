@@ -24,6 +24,7 @@ export {
 /** Re-exports the public API from `./process/packaged-moltzapd.js`. */
 export {
   acquirePackagedMoltzapd,
+  reserveTestMcpPort,
   type PackagedMoltzapd,
   type PackagedMoltzapdOptions,
 } from "./process/packaged-moltzapd.js";

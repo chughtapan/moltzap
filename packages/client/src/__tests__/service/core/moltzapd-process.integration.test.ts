@@ -85,11 +85,11 @@ const reservePort = Effect.async<number, ProcessTestError>((resume) => {
   });
 });
 
-const startDaemon = (port: number): RunningDaemon => {
+const startDaemon = (): RunningDaemon => {
   let output = "";
   const child = spawn(
     process.execPath,
-    [daemonEntry, "--profile", PROFILE_NAME, "--port", String(port)],
+    [daemonEntry, "--profile", PROFILE_NAME],
     {
       cwd: packageRoot,
       // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The isolated child must inherit the test-scoped profile and server configuration.
@@ -138,11 +138,9 @@ const stopDaemon = (running: RunningDaemon): Effect.Effect<boolean> =>
     return true;
   });
 
-const acquireDaemon = (
-  port: number,
-): Effect.Effect<RunningDaemon, never, Scope.Scope> =>
+const acquireDaemon = (): Effect.Effect<RunningDaemon, never, Scope.Scope> =>
   Effect.acquireRelease(
-    Effect.sync(() => startDaemon(port)),
+    Effect.sync(() => startDaemon()),
     (running) => stopDaemon(running).pipe(Effect.ignore),
   );
 
@@ -275,7 +273,7 @@ const expectNoUnixSocket = (socketPath: string) =>
     }),
   );
 
-const runDaemonProcess = (owner: RegisteredAgent) =>
+const runDaemonProcess = (owner: RegisteredAgent, mcpPort: number) =>
   withTestServiceConfig(
     {
       profileName: PROFILE_NAME,
@@ -283,20 +281,20 @@ const runDaemonProcess = (owner: RegisteredAgent) =>
       agentId: owner.agentId,
       agentKey: owner.apiKey,
       serverUrl: H.coreBaseUrl(),
+      mcpPort,
     },
     Effect.scoped(
       Effect.gen(function* () {
-        const port = yield* reservePort;
         const socketPath = getMoltZapAgentServiceSocketPath(owner.agentId);
         const url = new URL(
           MCP_PATH,
-          `http://${LOOPBACK_HOST}:${String(port)}`,
+          `http://${LOOPBACK_HOST}:${String(mcpPort)}`,
         );
 
         yield* expectNoUnixSocket(socketPath);
         expect(yield* healthConnections()).toBe(0);
 
-        const running = yield* acquireDaemon(port);
+        const running = yield* acquireDaemon();
         const status = yield* Effect.scoped(
           Effect.gen(function* () {
             const client = yield* acquireMcpClient(url, running);
@@ -326,7 +324,10 @@ it("runs the package daemon through loopback MCP without a Unix socket", () => {
   expect.hasAssertions();
   return Effect.acquireUseRelease(
     H.registerAgent("moltzapd-process-owner"),
-    runDaemonProcess,
+    (owner) =>
+      Effect.scoped(reservePort).pipe(
+        Effect.flatMap((mcpPort) => runDaemonProcess(owner, mcpPort)),
+      ),
     (owner) => owner.client.close().pipe(Effect.ignore),
   );
 });

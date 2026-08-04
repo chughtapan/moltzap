@@ -11,7 +11,17 @@ interface TestServiceConfig {
   readonly serverUrl: string;
   readonly profileName?: string;
   readonly agentName?: string;
+  /**
+   * Loopback port written into the slot. The daemon binds exactly this port
+   * and never selects its own, so a test that spawns one must reserve a free
+   * port and pass it here.
+   */
+  readonly mcpPort?: number;
 }
+
+// Slots require a port even when the test never starts a daemon; this value is
+// deliberately never bound, so a test that does start one must supply its own.
+const UNUSED_TEST_MCP_PORT = 1;
 
 const ENV_SERVER_URL = "MOLTZAP_SERVER_URL";
 const ENV_CONFIG_HOME = "MOLTZAP_CONFIG_HOME";
@@ -43,9 +53,10 @@ export function withTestServiceConfig<A, E, R>(
             {
               profiles: {
                 [config.profileName]: {
+                  agentName: config.agentName ?? config.profileName,
+                  mcpPort: config.mcpPort ?? UNUSED_TEST_MCP_PORT,
                   agentId: config.agentId,
                   apiKey: Redacted.value(config.agentKey),
-                  agentName: config.agentName ?? config.profileName,
                 },
               },
             },

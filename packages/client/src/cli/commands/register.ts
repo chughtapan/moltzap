@@ -42,6 +42,12 @@ const profileOption = Options.text("profile").pipe(
   Options.optional,
 );
 
+const mcpPortOption = Options.integer("mcp-port").pipe(
+  Options.withDescription(
+    "Fixed loopback port this profile's daemon binds. Operator-chosen and stable for the life of the slot.",
+  ),
+);
+
 const noPersistFlag = Options.boolean("no-persist").pipe(
   Options.withDescription(
     "Do not write the registered key to ~/.moltzap/config.json. Prints the " +
@@ -62,11 +68,13 @@ interface PersistRegistrationInput {
 function profileRecordFrom(
   name: ProfileNameType,
   result: RegistrationResult,
+  mcpPort: number,
 ): ProfileRecord {
   return {
+    agentName: name,
+    mcpPort,
     agentId: result.agentId,
     apiKey: result.apiKey,
-    agentName: name,
   };
 }
 
@@ -136,9 +144,10 @@ export const registerCommand = Command.make(
     inviteCode: inviteCodeArg,
     description: descriptionOption,
     profile: profileOption,
+    mcpPort: mcpPortOption,
     noPersist: noPersistFlag,
   },
-  ({ name, inviteCode, description, profile, noPersist }) => {
+  ({ name, inviteCode, description, profile, mcpPort, noPersist }) => {
     const desc = Option.isSome(description) ? description.value : undefined;
     return Effect.gen(function* () {
       const httpUrl = yield* getHttpUrl;
@@ -147,7 +156,7 @@ export const registerCommand = Command.make(
         ...(desc === undefined ? {} : { description: desc }),
       });
       const serverUrl = yield* getServerUrl;
-      const record = profileRecordFrom(name, result);
+      const record = profileRecordFrom(name, result, mcpPort);
 
       if (noPersist) {
         // No writes to ~/.moltzap/.

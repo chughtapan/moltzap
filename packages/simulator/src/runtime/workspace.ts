@@ -1,5 +1,6 @@
 /** @file Channel installation, credentials, and agent workspace material. */
 
+import { createServer } from "node:net";
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { Cause, Data, Effect, Redacted, Schema } from "effect";
@@ -12,6 +13,39 @@ const PROFILE_CONFIG_FILE_NAME = "config.json";
 
 /** Profile selector shared by isolated runtime state directories. */
 export const SIMULATOR_PROFILE_NAME = "simulator-agent";
+
+/**
+ * Pick a free loopback port for one agent's slot.
+ *
+ * The daemon binds exactly the port its slot records and never selects one, so
+ * the simulator acts as the operator here: it chooses the port once, before the
+ * slot is written, and every later consumer derives the same endpoint from it.
+ * @returns A currently free loopback TCP port.
+ */
+export const reserveSlotMcpPort = (): Effect.Effect<number, PlatformError> =>
+  Effect.async<number, PlatformError>((resume) => {
+    const server = createServer();
+    server.once("error", (cause) => {
+      resume(Effect.die(cause));
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port =
+        address !== null && typeof address !== "string" ? address.port : 0;
+      server.close(() => {
+        resume(
+          port === 0
+            ? Effect.die(new Error("reserved listener exposed no TCP port"))
+            : Effect.succeed(port),
+        );
+      });
+    });
+    return Effect.sync(() => {
+      if (server.listening) {
+        server.close();
+      }
+    });
+  });
 
 const channelPackageManifest = Schema.parseJson(
   Schema.Struct({
@@ -28,20 +62,23 @@ const channelPackageManifest = Schema.parseJson(
  * @param profile.agentName Value supplied to the operation.
  * @param profile.agentId Value supplied to the operation.
  * @param profile.apiKey Value supplied to the operation.
+ * @param profile.mcpPort Loopback port the slot's daemon binds.
  * @returns The serialize molt zap profile config result.
  */
 export function serializeMoltZapProfileConfig(profile: {
   readonly agentName: AgentName;
   readonly agentId: AgentId;
   readonly apiKey: AgentKey;
+  readonly mcpPort: number;
 }): string {
   return JSON.stringify(
     {
       profiles: {
         [SIMULATOR_PROFILE_NAME]: {
+          agentName: profile.agentName,
+          mcpPort: profile.mcpPort,
           agentId: profile.agentId,
           apiKey: Redacted.value(profile.apiKey),
-          agentName: profile.agentName,
         },
       },
     },
@@ -57,6 +94,7 @@ export function serializeMoltZapProfileConfig(profile: {
  * @param profile.agentName Value supplied to the operation.
  * @param profile.agentId Value supplied to the operation.
  * @param profile.apiKey Value supplied to the operation.
+ * @param profile.mcpPort Loopback port the slot's daemon binds.
  * @returns The write molt zap profile config result.
  */
 export function writeMoltZapProfileConfig(
@@ -65,6 +103,7 @@ export function writeMoltZapProfileConfig(
     readonly agentName: AgentName;
     readonly agentId: AgentId;
     readonly apiKey: AgentKey;
+    readonly mcpPort: number;
   },
 ): Effect.Effect<void, PlatformError, FileSystem.FileSystem | Path.Path> {
   return Effect.gen(function* () {

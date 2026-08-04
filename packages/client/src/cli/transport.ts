@@ -18,6 +18,8 @@ import { getMoltZapAgentServiceSocketPath } from "../local-paths.js";
 import { requestDaemonCommand, SocketRequestError } from "./socket-client.js";
 import type { LocalDaemonError, LocalDaemonRpcs } from "../local-daemon-rpc.js";
 import {
+  isRegisteredProfile,
+  ProfileNotRegisteredError,
   resolveProfileRecord,
   type ProfileError,
   type ProfileName,
@@ -218,6 +220,13 @@ export const resolveTransportInputs = (parsed: {
     // ─── Branch A: profile ─────────────────────────────────────────────────
     if (parsed.profileName !== undefined) {
       const record = yield* resolveProfileRecord(parsed.profileName);
+      // The socket is keyed by AgentId, which a slot only has after Registry
+      // commit; an uncommitted slot has no daemon to reach.
+      if (!isRegisteredProfile(record)) {
+        return yield* new ProfileNotRegisteredError({
+          name: parsed.profileName,
+        });
+      }
       return {
         socketPath: getMoltZapAgentServiceSocketPath(record.agentId),
       };

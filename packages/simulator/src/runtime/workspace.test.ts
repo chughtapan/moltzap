@@ -28,6 +28,8 @@ import {
   writeMoltZapProfileConfig,
 } from "./workspace.js";
 
+const SLOT_TEST_MCP_PORT = 41_973;
+
 const OPENCLAW_CHANNEL_PACKAGE = "@moltzap/openclaw-channel";
 const CLIENT_PACKAGE = "@moltzap/client";
 const PROTOCOL_PACKAGE = "@moltzap/protocol";
@@ -193,9 +195,10 @@ function serializesSimulatorProfile() {
       {
         profiles: {
           [SIMULATOR_PROFILE_NAME]: {
+            agentName: TEST_AGENT_NAME,
+            mcpPort: SLOT_TEST_MCP_PORT,
             agentId: TEST_AGENT_ID,
             apiKey: TEST_AGENT_KEY_TEXT,
-            agentName: TEST_AGENT_NAME,
           },
         },
       },
@@ -230,6 +233,7 @@ function testProfile() {
     agentName: TEST_AGENT_NAME,
     agentId: TEST_AGENT_ID,
     apiKey: TEST_AGENT_KEY,
+    mcpPort: SLOT_TEST_MCP_PORT,
   };
 }
 

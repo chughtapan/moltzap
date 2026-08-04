@@ -24,6 +24,7 @@ import { expect } from "vitest";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import { withTestServiceConfig } from "../../../config.test-utils.js";
+import { reserveTestMcpPort } from "../../../test-utils/process/packaged-moltzapd.js";
 import {
   acquireHarnessClient,
   type HarnessClientService,
@@ -101,14 +102,16 @@ const waitForConnectionCount = (
   );
 };
 
-const listenPortBlocker: Effect.Effect<PortBlocker, PortBlockerError> =
-  Effect.async((resume) => {
+const listenPortBlocker = (
+  port: number,
+): Effect.Effect<PortBlocker, PortBlockerError> =>
+  Effect.async<PortBlocker, PortBlockerError>((resume) => {
     const server = createServer();
     const onError = (error: Error): void => {
       resume(Effect.fail(new PortBlockerError({ cause: error })));
     };
     server.once("error", onError);
-    server.listen(0, LOOPBACK_HOST, () => {
+    server.listen(port, LOOPBACK_HOST, () => {
       server.off("error", onError);
       const address = server.address();
       if (address === null || typeof address === "string") {
@@ -142,13 +145,12 @@ const closePortBlocker = (blocker: PortBlocker): Effect.Effect<void, Error> =>
     });
   });
 
-const acquirePortBlocker: Effect.Effect<
-  PortBlocker,
-  PortBlockerError,
-  Scope.Scope
-> = Effect.acquireRelease(listenPortBlocker, (blocker) =>
-  closePortBlocker(blocker).pipe(Effect.ignore),
-);
+const acquirePortBlocker = (
+  port: number,
+): Effect.Effect<PortBlocker, PortBlockerError, Scope.Scope> =>
+  Effect.acquireRelease(listenPortBlocker(port), (blocker) =>
+    closePortBlocker(blocker).pipe(Effect.ignore),
+  );
 
 const harnessUrl = (server: MoltzapdServer): URL => {
   const address = server.address();
@@ -196,10 +198,7 @@ const callMcpTool = (
 const runScopedDaemon = (socketPath: string) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const server = yield* acquireMoltzapd({
-      profileName: PROFILE_NAME,
-      port: 0,
-    });
+    const server = yield* acquireMoltzapd({ profileName: PROFILE_NAME });
     const client = yield* acquireMcpClient(harnessUrl(server));
     const result = yield* Effect.tryPromise({
       try: () => client.callTool({ name: "status", arguments: {} }),
@@ -441,10 +440,7 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
     yield* peer.client.connect();
     yield* Effect.scoped(
       Effect.gen(function* () {
-        const server = yield* acquireMoltzapd({
-          profileName: PROFILE_NAME,
-          port: 0,
-        });
+        const server = yield* acquireMoltzapd({ profileName: PROFILE_NAME });
         const harness = yield* acquireHarnessClient({
           url: harnessUrl(server).href,
         }).pipe(Effect.provide(KeyValueStore.layerMemory));
@@ -473,52 +469,63 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
   }).pipe(Effect.provide(NodeContext.layer));
 }
 
-const runFailedAcquisition = Effect.gen(function* () {
-  const blocker = yield* acquirePortBlocker;
-  const ambientScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
-    Scope.close(scope, Exit.void),
-  );
+const runFailedAcquisition = (mcpPort: number) =>
+  Effect.gen(function* () {
+    // The daemon binds the slot's port, so the conflict has to be on that port.
+    yield* acquirePortBlocker(mcpPort);
+    const ambientScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+      Scope.close(scope, Exit.void),
+    );
 
-  expect(yield* healthConnections()).toBe(0);
-  const attempted = yield* Effect.exit(
-    acquireMoltzapd({
-      profileName: PROFILE_NAME,
-      port: blocker.port,
-    }).pipe(Scope.extend(ambientScope)),
-  );
+    expect(yield* healthConnections()).toBe(0);
+    const attempted = yield* Effect.exit(
+      acquireMoltzapd({ profileName: PROFILE_NAME }).pipe(
+        Scope.extend(ambientScope),
+      ),
+    );
 
-  expect(Exit.isFailure(attempted)).toBe(true);
-  if (Exit.isFailure(attempted)) {
-    expect(Cause.squash(attempted.cause)).toMatchObject({
-      code: "EADDRINUSE",
-    });
-  }
-  expect(yield* healthConnections()).toBe(0);
-});
+    expect(Exit.isFailure(attempted)).toBe(true);
+    if (Exit.isFailure(attempted)) {
+      expect(Cause.squash(attempted.cause)).toMatchObject({
+        code: "EADDRINUSE",
+      });
+    }
+    expect(yield* healthConnections()).toBe(0);
+  });
 
 function runWithProfile(registered: RegisteredAgent) {
-  return withTestServiceConfig(
-    {
-      profileName: PROFILE_NAME,
-      agentName: PROFILE_NAME,
-      agentId: registered.agentId,
-      agentKey: registered.apiKey,
-      serverUrl: H.coreBaseUrl(),
-    },
-    runRegisteredAgent(registered),
+  return Effect.scoped(reserveTestMcpPort).pipe(
+    Effect.flatMap((mcpPort) =>
+      withTestServiceConfig(
+        {
+          profileName: PROFILE_NAME,
+          agentName: PROFILE_NAME,
+          agentId: registered.agentId,
+          agentKey: registered.apiKey,
+          serverUrl: H.coreBaseUrl(),
+          mcpPort,
+        },
+        runRegisteredAgent(registered),
+      ),
+    ),
   );
 }
 
 function runFailedAcquisitionWithProfile(registered: RegisteredAgent) {
-  return withTestServiceConfig(
-    {
-      profileName: PROFILE_NAME,
-      agentName: PROFILE_NAME,
-      agentId: registered.agentId,
-      agentKey: registered.apiKey,
-      serverUrl: H.coreBaseUrl(),
-    },
-    Effect.scoped(runFailedAcquisition),
+  return Effect.scoped(reserveTestMcpPort).pipe(
+    Effect.flatMap((mcpPort) =>
+      withTestServiceConfig(
+        {
+          profileName: PROFILE_NAME,
+          agentName: PROFILE_NAME,
+          agentId: registered.agentId,
+          agentKey: registered.apiKey,
+          serverUrl: H.coreBaseUrl(),
+          mcpPort,
+        },
+        Effect.scoped(runFailedAcquisition(mcpPort)),
+      ),
+    ),
   );
 }
 
@@ -529,15 +536,20 @@ function runHarnessRoundTripWithProfile({
   readonly owner: RegisteredAgent;
   readonly peer: RegisteredAgent;
 }) {
-  return withTestServiceConfig(
-    {
-      profileName: PROFILE_NAME,
-      agentName: PROFILE_NAME,
-      agentId: owner.agentId,
-      agentKey: owner.apiKey,
-      serverUrl: H.coreBaseUrl(),
-    },
-    runHarnessRoundTrip(owner, peer),
+  return Effect.scoped(reserveTestMcpPort).pipe(
+    Effect.flatMap((mcpPort) =>
+      withTestServiceConfig(
+        {
+          profileName: PROFILE_NAME,
+          agentName: PROFILE_NAME,
+          agentId: owner.agentId,
+          agentKey: owner.apiKey,
+          serverUrl: H.coreBaseUrl(),
+          mcpPort,
+        },
+        runHarnessRoundTrip(owner, peer),
+      ),
+    ),
   );
 }
 

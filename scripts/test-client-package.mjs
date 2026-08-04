@@ -71,12 +71,17 @@ async function verifyInstalledDaemon(clientTarball, protocolTarball) {
 
   const daemon = join(nodeModules, ".bin", "moltzapd");
   const { stdout } = await exec(daemon, ["--help"], { cwd: consumerRoot });
-  for (const expected of ["moltzapd", "USAGE", "--profile", "--port"]) {
+  for (const expected of ["moltzapd", "USAGE", "--profile"]) {
     requireCondition(
       stdout.includes(expected),
       `packed moltzapd help is missing ${expected}`,
     );
   }
+  // The slot carries the port, so the packed binary must not accept one.
+  requireCondition(
+    !stdout.includes("--port"),
+    "packed moltzapd still advertises --port",
+  );
 }
 
 try {

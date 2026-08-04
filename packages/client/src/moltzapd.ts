@@ -24,13 +24,13 @@ import type {
 } from "./harness/index.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
+import { parseProfileName, resolveProfileRecord } from "./profile.js";
 import { MoltZapService, type ServiceRpcError } from "./service.js";
 import type { ServiceConfigError } from "./config.js";
 import { drainPaginatedList } from "./pagination.js";
 
 interface MoltzapdOptions {
   readonly profileName: string;
-  readonly port: number;
 }
 
 const MCP_IMPLEMENTATION = {
@@ -192,10 +192,11 @@ const startConversationForHarness = (
  *   Note over core,mcp: Scope release closes MCP before disconnecting the core
  * ```
  *
- * The caller resolves the profile and port policy. This composition does not
- * start the Unix-socket server and does not expose its service or core.
+ * The slot itself carries the listener port, so no caller supplies one. This
+ * composition does not start the Unix-socket server and does not expose its
+ * service or core.
  *
- * @param options Existing profile name and caller-resolved listener port.
+ * @param options Existing profile name owning this daemon.
  * @returns The scoped loopback HTTP listener.
  * @internal
  */
@@ -213,6 +214,8 @@ export const acquireMoltzapd = (
       ExecutionStrategy.sequential,
     );
     const acquire = Effect.gen(function* () {
+      const name = yield* parseProfileName(options.profileName);
+      const record = yield* resolveProfileRecord(name);
       const service = yield* MoltZapService.make(options.profileName);
       const core = yield* acquireCore(service);
       const handlers = makeHarnessMcpHttpHandlers({
@@ -230,7 +233,7 @@ export const acquireMoltzapd = (
       });
       installTurnPublisher(core, handlers.active.publish);
       const server = yield* acquireHarnessMcpHttpServer({
-        port: options.port,
+        port: record.mcpPort,
         registrationHandler: handlers.registration,
         harnessHandler: handlers.active,
       });
@@ -251,7 +254,7 @@ export const acquireMoltzapd = (
  * connection. Interrupting the returned Effect closes the listener before
  * disconnecting the agent transport.
  *
- * @param options Existing named profile and fixed loopback listener port.
+ * @param options Existing named profile owning this daemon.
  * @returns A non-terminating daemon Effect whose scope closes on interruption.
  */
 export const runMoltzapd = (
