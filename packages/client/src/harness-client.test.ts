@@ -1,4 +1,5 @@
 /* eslint-disable agent-code-guard/async-keyword -- This loopback contract test hosts the Promise-native official MCP SDK. */
+import * as KeyValueStore from "@effect/platform/KeyValueStore";
 import { Client } from "@modelcontextprotocol/client";
 import {
   createMcpHandler,
@@ -7,10 +8,37 @@ import {
   type Implementation,
   type JsonSchemaType,
 } from "@modelcontextprotocol/server";
-import { Chunk, Effect, Exit, Fiber, Option, Scope, Stream } from "effect";
+import {
+  Chunk,
+  Effect,
+  Exit,
+  Fiber,
+  JSONSchema,
+  Layer,
+  Option,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { Message } from "@moltzap/protocol/message";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import { conversationSearch } from "@moltzap/protocol/conversation";
+import { agentsSearch, type AgentCard } from "@moltzap/protocol/identity";
+import {
+  conversationCheckpoint,
+  messagesRead,
+  type Message,
+} from "@moltzap/protocol/message";
+import type {
+  ParamsOf,
+  ResultOf,
+  RpcDefinitionAny,
+} from "@moltzap/protocol/rpc";
+import {
+  agentId,
+  agentName,
+  conversationId,
+  messageId,
+} from "@moltzap/protocol/testing";
 import {
   acquireHarnessClient,
   HarnessClient,
@@ -21,18 +49,26 @@ import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import {
   decodeHarnessReplyRoute,
   HARNESS_EVENTS_EXTENSION,
+  HARNESS_READ_CONVERSATION_TOOL,
   HARNESS_REPLY_TOOL,
+  HARNESS_SEARCH_AGENTS_TOOL,
+  HARNESS_SEARCH_CONVERSATIONS_TOOL,
+  HARNESS_STATUS_TOOL,
+  harnessSearchConversationsResultJsonSchema,
   harnessReplyInputJsonSchema,
   harnessReplyResultJsonSchema,
+  type ConversationWithParticipants,
   type HarnessReplyInput,
   type HarnessReplyResult,
   type HarnessReplyRoute,
+  type HarnessSearchConversationsResult,
   type HarnessTurnEvent,
 } from "./harness/index.js";
 import {
   makeHarnessMcpSubscriptionHandler,
   type HarnessMcpSubscriptionHandler,
 } from "./harness-mcp-subscription.js";
+import { statusCommandRpc } from "./local-daemon-rpc.js";
 
 const SERVER_IMPLEMENTATION = {
   name: "harness-client-test",
@@ -45,17 +81,49 @@ const SECOND_CONVERSATION = conversationId(
   "00000000-0000-4000-8000-000000000002",
 );
 const SENDER_ID = agentId("00000000-0000-4000-8000-000000000003");
+const SELF_ID = agentId("00000000-0000-4000-8000-000000000006");
+const THIRD_ID = agentId("00000000-0000-4000-8000-000000000007");
+const CHECKPOINT = Schema.decodeSync(conversationCheckpoint)(
+  "harness-client-checkpoint",
+);
+const CREATED_AT = "2026-08-03T12:00:00.000Z";
+
+const AGENTS = [
+  { id: SELF_ID, name: agentName("self-agent"), status: "active" },
+  { id: SENDER_ID, name: agentName("peer-agent"), status: "active" },
+  { id: THIRD_ID, name: agentName("third-agent"), status: "active" },
+] satisfies readonly AgentCard[];
+
+const CONVERSATIONS = [
+  {
+    id: FIRST_CONVERSATION,
+    name: "first dm",
+    createdBy: SELF_ID,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    participants: [SELF_ID, SENDER_ID],
+  },
+  {
+    id: SECOND_CONVERSATION,
+    name: "second group",
+    createdBy: SELF_ID,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    participants: [SELF_ID, SENDER_ID, THIRD_ID],
+  },
+] satisfies readonly ConversationWithParticipants[];
 
 const message = (
   id: string,
   conversation: typeof FIRST_CONVERSATION,
   text: string,
+  senderId = SENDER_ID,
 ): Message => ({
   id: messageId(id),
   conversationId: conversation,
-  senderId: SENDER_ID,
+  senderId,
   parts: [{ type: "text", text }],
-  createdAt: "2026-08-03T12:00:00.000Z",
+  createdAt: CREATED_AT,
 });
 
 const firstEvent = {
@@ -64,6 +132,11 @@ const firstEvent = {
       "00000000-0000-4000-8000-000000000004",
       FIRST_CONVERSATION,
       "first",
+    ),
+    message(
+      "00000000-0000-4000-8000-000000000008",
+      FIRST_CONVERSATION,
+      "queued",
     ),
   ],
 } satisfies HarnessTurnEvent;
@@ -76,6 +149,13 @@ const secondEvent = {
     ),
   ],
 } satisfies HarnessTurnEvent;
+
+const selfAuthoredHistory = message(
+  "00000000-0000-4000-8000-000000000009",
+  FIRST_CONVERSATION,
+  "self-authored history",
+  SELF_ID,
+);
 
 interface ObservedReply {
   readonly input: HarnessReplyInput;
@@ -90,6 +170,113 @@ const replyResultSchema = fromJsonSchema<HarnessReplyResult>(
   /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */
   harnessReplyResultJsonSchema as JsonSchemaType,
 );
+const searchConversationsResultSchema =
+  fromJsonSchema<HarnessSearchConversationsResult>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */
+    harnessSearchConversationsResultJsonSchema as JsonSchemaType,
+  );
+
+const effectSchemaToMcpSchema = <A>(schema: Schema.Schema.AnyNoContext) =>
+  fromJsonSchema<A>(
+    /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ JSONSchema.make(
+      schema,
+      { target: "jsonSchema2020-12" },
+    ) as JsonSchemaType,
+  );
+
+type DescriptorHandler<D extends RpcDefinitionAny> = (
+  input: ParamsOf<D>,
+) => ResultOf<D>;
+
+const registerDescriptorTool = <D extends RpcDefinitionAny>(
+  server: McpServer,
+  name: string,
+  definition: D,
+  handler: DescriptorHandler<D>,
+): void => {
+  server.registerTool(
+    name,
+    {
+      inputSchema: effectSchemaToMcpSchema<ParamsOf<D>>(
+        definition.paramsSchema,
+      ),
+      outputSchema: effectSchemaToMcpSchema<ResultOf<D>>(
+        definition.resultSchema,
+      ),
+    },
+    (input) => {
+      const result = handler(input);
+      return Effect.runPromise(
+        Effect.succeed({
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          structuredContent: result,
+        }),
+      );
+    },
+  );
+};
+
+const registerStatusTool = (server: McpServer): void => {
+  const status = {
+    agentId: SELF_ID,
+    connected: true,
+    conversations: CONVERSATIONS.length,
+  };
+  server.registerTool(
+    HARNESS_STATUS_TOOL,
+    {
+      inputSchema: effectSchemaToMcpSchema(statusCommandRpc.payloadSchema),
+      outputSchema: effectSchemaToMcpSchema(statusCommandRpc.successSchema),
+    },
+    () =>
+      Effect.runPromise(
+        Effect.succeed({
+          content: [{ type: "text" as const, text: JSON.stringify(status) }],
+          structuredContent: status,
+        }),
+      ),
+  );
+};
+
+const registerSearchConversationsTool = (server: McpServer): void => {
+  server.registerTool(
+    HARNESS_SEARCH_CONVERSATIONS_TOOL,
+    {
+      inputSchema: effectSchemaToMcpSchema(conversationSearch.paramsSchema),
+      outputSchema: searchConversationsResultSchema,
+    },
+    () => {
+      const result = { conversations: [...CONVERSATIONS] };
+      return Effect.runPromise(
+        Effect.succeed({
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          structuredContent: result,
+        }),
+      );
+    },
+  );
+};
+
+const registerReadPlaneTools = (server: McpServer): void => {
+  registerStatusTool(server);
+  registerDescriptorTool(
+    server,
+    HARNESS_SEARCH_AGENTS_TOOL,
+    agentsSearch,
+    () => ({ agents: [...AGENTS] }),
+  );
+  registerSearchConversationsTool(server);
+  registerDescriptorTool(
+    server,
+    HARNESS_READ_CONVERSATION_TOOL,
+    messagesRead,
+    ({ conversationId }) => ({
+      messages:
+        conversationId === FIRST_CONVERSATION ? [selfAuthoredHistory] : [],
+      checkpoint: CHECKPOINT,
+    }),
+  );
+};
 
 const makeHarnessHandler = (
   observed: ObservedReply[],
@@ -102,6 +289,7 @@ const makeHarnessHandler = (
           ? { extensions: { [HARNESS_EVENTS_EXTENSION]: {} } }
           : {},
       });
+      registerReadPlaneTools(server);
       server.registerTool(
         HARNESS_REPLY_TOOL,
         {
@@ -163,6 +351,7 @@ const useHarness = (
 ): Effect.Effect<readonly HarnessTurn[], Error, HarnessClient> =>
   Effect.gen(function* () {
     const harness = yield* HarnessClient;
+    expect(harness.agentId).toBe(SELF_ID);
     const receive = yield* harness.turns.pipe(
       Stream.take(2),
       Stream.runCollect,
@@ -180,6 +369,82 @@ const useHarness = (
     return turns;
   });
 
+const expectFirstTurn = (turn: HarnessTurn): void => {
+  expect(turn).toMatchObject({
+    id: firstEvent.messages[0].id,
+    conversationId: FIRST_CONVERSATION,
+    sender: { id: SENDER_ID, name: "peer-agent" },
+    text: `first\n\n[queued message from peer-agent at ${CREATED_AT}]\nqueued`,
+    isFromMe: false,
+    createdAt: CREATED_AT,
+    conversationMeta: {
+      type: "dm",
+      name: "first dm",
+      participants: [`agent:${SELF_ID}`, `agent:${SENDER_ID}`],
+    },
+    contextBlocks: {},
+    coalescedMessages: [
+      {
+        id: firstEvent.messages[0].id,
+        sender: { id: SENDER_ID, name: "peer-agent" },
+        text: "first",
+        createdAt: CREATED_AT,
+      },
+      {
+        id: firstEvent.messages[1].id,
+        sender: { id: SENDER_ID, name: "peer-agent" },
+        text: "queued",
+        createdAt: CREATED_AT,
+      },
+    ],
+  });
+  expect(turn).not.toHaveProperty("messages");
+};
+
+const expectSecondTurn = (turn: HarnessTurn): void => {
+  expect(turn).toMatchObject({
+    conversationId: SECOND_CONVERSATION,
+    conversationMeta: {
+      type: "group",
+      name: "second group",
+      participants: [
+        `agent:${SELF_ID}`,
+        `agent:${SENDER_ID}`,
+        `agent:${THIRD_ID}`,
+      ],
+    },
+    contextBlocks: {
+      groupMetadata: {
+        type: "group",
+        name: "second group",
+      },
+      crossConversationMessages: [
+        {
+          conversationId: FIRST_CONVERSATION,
+          conversationName: "first dm",
+          senderName: "self-agent",
+          senderId: SELF_ID,
+          text: "self-authored history",
+          timestamp: CREATED_AT,
+        },
+      ],
+    },
+  });
+};
+
+const expectBoundReplies = (observed: readonly ObservedReply[]): void => {
+  expect(observed).toEqual([
+    {
+      input: { payload: "first reply" },
+      route: { conversationId: FIRST_CONVERSATION },
+    },
+    {
+      input: { payload: "second reply" },
+      route: { conversationId: FIRST_CONVERSATION },
+    },
+  ]);
+};
+
 const preservesBoundConversation = async () => {
   const observed: ObservedReply[] = [];
   const handler = makeHarnessHandler(observed);
@@ -191,7 +456,7 @@ const preservesBoundConversation = async () => {
         Effect.provide(
           makeHarnessClientLayer({
             url: running.url.href,
-          }),
+          }).pipe(Layer.provide(KeyValueStore.layerMemory)),
         ),
       ),
     );
@@ -199,18 +464,13 @@ const preservesBoundConversation = async () => {
       FIRST_CONVERSATION,
       SECOND_CONVERSATION,
     ]);
-    expect(turns[0]?.messages).toEqual(firstEvent.messages);
-
-    expect(observed).toEqual([
-      {
-        input: { payload: "first reply" },
-        route: { conversationId: FIRST_CONVERSATION },
-      },
-      {
-        input: { payload: "second reply" },
-        route: { conversationId: FIRST_CONVERSATION },
-      },
-    ]);
+    const [firstTurn, secondTurn] = turns;
+    if (firstTurn === undefined || secondTurn === undefined) {
+      throw new Error("expected two harness turns");
+    }
+    expectFirstTurn(firstTurn);
+    expectSecondTurn(secondTurn);
+    expectBoundReplies(observed);
   } finally {
     await Effect.runPromise(Scope.close(running.scope, Exit.void));
   }
@@ -221,7 +481,9 @@ const rejectsMissingServerExtension = async () => {
   try {
     await expect(
       Effect.runPromise(
-        Effect.scoped(acquireHarnessClient({ url: running.url.href })),
+        Effect.scoped(acquireHarnessClient({ url: running.url.href })).pipe(
+          Effect.provide(KeyValueStore.layerMemory),
+        ),
       ),
     ).rejects.toThrow(HARNESS_EVENTS_EXTENSION);
   } finally {
@@ -243,43 +505,62 @@ const rejectsUnexpectedTurnFields = async () => {
         expect(handler.publish(eventWithExtraField)).toBe(true);
         return yield* Fiber.join(next);
       }),
-    );
+    ).pipe(Effect.provide(KeyValueStore.layerMemory));
     await expect(Effect.runPromise(nextTurn)).rejects.toBeDefined();
   } finally {
     await Effect.runPromise(Scope.close(running.scope, Exit.void));
   }
 };
 
+interface ReplyCallObservation {
+  count: number;
+  signal?: AbortSignal;
+}
+
+const originalClientCallTool = Reflect.get(Client.prototype, "callTool");
+
+const makeReplyCallImplementation = (
+  observation: ReplyCallObservation,
+): Client["callTool"] =>
+  function (this: Client, params, options) {
+    if (params.name !== HARNESS_REPLY_TOOL) {
+      return originalClientCallTool.call(this, params, options);
+    }
+    observation.count += 1;
+    observation.signal = options?.signal;
+    return new Promise((resolve, reject) => {
+      if (observation.signal === undefined) {
+        resolve({ content: [], isError: true });
+        return;
+      }
+      observation.signal.addEventListener(
+        "abort",
+        () => {
+          reject(new Error("reply request aborted"));
+        },
+        { once: true },
+      );
+    });
+  };
+
 const abortsReplyCallWhenInterrupted = async () => {
   const handler = makeHarnessHandler([]);
   const running = await startHarnessServer(handler);
   const clientScope = Effect.runSync(Scope.make());
-  let observedSignal: AbortSignal | undefined;
-  const callTool = vi
-    .spyOn(Client.prototype, "callTool")
-    .mockImplementation((params, options) => {
-      expect(params.name).toBe(HARNESS_REPLY_TOOL);
-      observedSignal = options?.signal;
-      return new Promise((resolve, reject) => {
-        if (observedSignal === undefined) {
-          resolve({ content: [], isError: true });
-          return;
-        }
-        observedSignal?.addEventListener(
-          "abort",
-          () => {
-            reject(new Error("reply request aborted"));
-          },
-          { once: true },
-        );
-      });
-    });
+  const observation: ReplyCallObservation = {
+    count: 0,
+  };
+  let callTool: { readonly mockRestore: () => void } | undefined;
   try {
     const harness = await Effect.runPromise(
       acquireHarnessClient({ url: running.url.href }).pipe(
         Scope.extend(clientScope),
+        Effect.provide(KeyValueStore.layerMemory),
       ),
     );
+    callTool = vi
+      .spyOn(Client.prototype, "callTool")
+      .mockImplementation(makeReplyCallImplementation(observation));
     const received = Effect.runPromise(harness.turns.pipe(Stream.runHead));
     expect(handler.publish(firstEvent)).toBe(true);
     const turn = Option.getOrThrowWith(
@@ -288,12 +569,12 @@ const abortsReplyCallWhenInterrupted = async () => {
     );
     const reply = Effect.runFork(turn.reply("cancel me"));
     await vi.waitFor(() => {
-      expect(callTool).toHaveBeenCalledOnce();
+      expect(observation.count).toBe(1);
     });
     await Effect.runPromise(Fiber.interrupt(reply));
-    expect(observedSignal?.aborted).toBe(true);
+    expect(observation.signal?.aborted).toBe(true);
   } finally {
-    callTool.mockRestore();
+    callTool?.mockRestore();
     await Effect.runPromise(Scope.close(clientScope, Exit.void));
     await Effect.runPromise(Scope.close(running.scope, Exit.void));
   }

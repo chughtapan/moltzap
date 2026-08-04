@@ -8,18 +8,23 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`acquireHarnessClient`](./harness-client.ts#L41)
+### [`acquireHarnessClient`](./harness-client.ts#L170)
 
 _Function_
 
 ```ts
 export const acquireHarnessClient = (
   options: HarnessClientOptions,
-): Effect.Effect<HarnessClientService, Error, Scope.Scope>
+): Effect.Effect<
+  HarnessClientService,
+  Error,
+  Scope.Scope | KeyValueStore.KeyValueStore
+>
 ```
 
 Acquires one turn-ready harness connection and receive stream for the
-lifetime of the enclosing scope. The private adapter owns MCP translation.
+lifetime of the enclosing scope. The supplied KeyValueStore is local to the
+active agent and holds only stable presentation checkpoints.
 
 **Returns:** The scoped adapter-facing service value.
 
@@ -66,7 +71,7 @@ export interface ConversationMeta {
 
 Describes conversation meta.
 
-### [`HarnessClient`](./harness-client.ts#L23)
+### [`HarnessClient`](./harness-client.ts#L43)
 
 _Class_
 
@@ -79,7 +84,7 @@ export class HarnessClient extends Context.Tag("@moltzap/client/HarnessClient")<
 
 Effect service tag consumed by runtime adapters.
 
-### [`HarnessClientOptions`](./harness-client.ts#L29)
+### [`HarnessClientOptions`](./harness-client.ts#L49)
 
 _Interface_
 
@@ -92,12 +97,14 @@ export interface HarnessClientOptions {
 
 Inputs needed to connect one scoped harness client.
 
-### [`HarnessClientService`](./harness-client.ts#L17)
+### [`HarnessClientService`](./harness-client.ts#L35)
 
 _Interface_
 
 ```ts
 export interface HarnessClientService {
+  /** Active identity used by adapters when rendering self-authored context. */
+  readonly agentId: AgentId;
   /** The sole receive stream owned by this scoped client. */
   readonly turns: Stream.Stream<HarnessTurn, Error>;
 }
@@ -105,31 +112,27 @@ export interface HarnessClientService {
 
 Adapter-facing capability backed only by the daemon's loopback MCP surface.
 
-### [`HarnessTurn`](./harness-client.ts#L7)
+### [`HarnessTurn`](./harness-client.ts#L29)
 
 _Interface_
 
 ```ts
-export interface HarnessTurn {
-  /** Existing conversation associated with every message in this turn. */
-  readonly conversationId: ConversationId;
-  /** Existing protocol messages in their daemon-provided order. */
-  readonly messages: readonly [Message, ...Message[]];
+export interface HarnessTurn extends EnrichedInboundMessage {
   /** Sends model output through the MCP reply route captured by this turn. */
   readonly reply: (payload: string) => Effect.Effect<void, Error>;
 }
 ```
 
-One reply-capable batch emitted by the local harness daemon.
+Existing adapter presentation with reply authority bound to its live turn.
 
-### [`makeHarnessClientLayer`](./harness-client.ts#L52)
+### [`makeHarnessClientLayer`](./harness-client.ts#L197)
 
 _Function_
 
 ```ts
 export const makeHarnessClientLayer = (
   options: HarnessClientOptions,
-): Layer.Layer<HarnessClient, Error>
+): Layer.Layer<HarnessClient, Error, KeyValueStore.KeyValueStore>
 ```
 
 Builds the scoped runtime-adapter layer for one daemon endpoint.

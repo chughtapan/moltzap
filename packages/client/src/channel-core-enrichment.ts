@@ -1,4 +1,9 @@
 import { Effect } from "effect";
+import type {
+  Conversation,
+  ConversationId,
+} from "@moltzap/protocol/conversation";
+import type { AgentCard, AgentId } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
 import type {
   ChannelService,
@@ -6,6 +11,7 @@ import type {
   EnrichedConversationMeta,
   EnrichedInboundMessage,
 } from "./channel-core.js";
+import { renderPart } from "./message-rendering.js";
 
 type CoalescedMessage = NonNullable<
   EnrichedInboundMessage["coalescedMessages"]
@@ -17,12 +23,21 @@ interface EnrichmentContext {
   readonly commitContext?: () => void;
 }
 
-interface EnrichedMessageInput {
-  readonly service: ChannelService;
+interface ResolvedInboundMessage {
   readonly message: Message;
   readonly senderName: string;
-  readonly coalesced: readonly CoalescedMessage[];
-  readonly context: EnrichmentContext;
+}
+
+type ResolvedInboundMessages = readonly [
+  ResolvedInboundMessage,
+  ...ResolvedInboundMessage[],
+];
+
+interface EnrichedInboundProjectionInput {
+  readonly messages: ResolvedInboundMessages;
+  readonly ownAgentId?: string;
+  readonly conversationMeta?: EnrichedConversationMeta;
+  readonly contextBlocks: ContextBlocks;
 }
 
 function isMessageList(
@@ -87,9 +102,9 @@ function resolveSenderName(
 }
 
 function coalescedMessageFrom(
-  message: Message,
-  senderName: string,
+  resolved: ResolvedInboundMessage,
 ): CoalescedMessage {
+  const { message, senderName } = resolved;
   return {
     id: message.id,
     sender: {
@@ -101,27 +116,24 @@ function coalescedMessageFrom(
   };
 }
 
-function buildCoalescedMessages(
+function resolveInboundMessages(
   service: ChannelService,
   messages: readonly Message[],
   primarySenderName: string,
-): Effect.Effect<CoalescedMessage[]> {
+): Effect.Effect<ResolvedInboundMessages> {
   return Effect.gen(function* () {
     const primaryMessage =
       /* Safe because the surrounding invariant establishes this asserted shape. */ messages[0]!;
-    const coalesced = [coalescedMessageFrom(primaryMessage, primarySenderName)];
+    const remaining: ResolvedInboundMessage[] = [];
     for (const message of messages.slice(1)) {
       const senderName = yield* resolveSenderName(service, message.senderId);
-      coalesced.push(coalescedMessageFrom(message, senderName));
+      remaining.push({ message, senderName });
     }
-    return coalesced;
+    return [
+      { message: primaryMessage, senderName: primarySenderName },
+      ...remaining,
+    ];
   });
-}
-
-function isFromOwnAgent(service: ChannelService, message: Message): boolean {
-  return (
-    service.ownAgentId !== undefined && message.senderId === service.ownAgentId
-  );
 }
 
 function collectContextBlocks(
@@ -158,13 +170,18 @@ function collectContextBlocks(
   };
 }
 
-function buildEnrichedInboundMessage({
-  service,
-  message,
-  senderName,
-  coalesced,
-  context,
-}: EnrichedMessageInput): EnrichedInboundMessage {
+/**
+ * Projects a materialized nonempty message batch into the channel-owned
+ * enriched shape without reading or advancing presentation state.
+ * @param input Resolved messages, identity, metadata, and context blocks.
+ * @returns The enriched inbound message shared by channel and harness turns.
+ */
+function projectEnrichedInboundMessage(
+  input: EnrichedInboundProjectionInput,
+): EnrichedInboundMessage {
+  const primary = input.messages[0];
+  const { message, senderName } = primary;
+  const coalesced = input.messages.map(coalescedMessageFrom);
   return {
     id: message.id,
     conversationId: message.conversationId,
@@ -173,15 +190,132 @@ function buildEnrichedInboundMessage({
       name: senderName,
     },
     text: formatCoalescedText(coalesced),
-    isFromMe: isFromOwnAgent(service, message),
+    isFromMe:
+      input.ownAgentId !== undefined && message.senderId === input.ownAgentId,
     createdAt: message.createdAt,
-    contextBlocks: context.contextBlocks,
-    ...(context.conversationMeta
-      ? { conversationMeta: context.conversationMeta }
+    contextBlocks: input.contextBlocks,
+    ...(input.conversationMeta
+      ? { conversationMeta: input.conversationMeta }
       : {}),
     ...(coalesced.length > 1 ? { coalescedMessages: coalesced } : {}),
   };
 }
+
+type CrossConvMessage = NonNullable<
+  ContextBlocks["crossConversationMessages"]
+>[number];
+
+type ConversationWithParticipants = Conversation & {
+  readonly participants: readonly AgentId[];
+};
+
+interface HarnessTurnProjectionInput {
+  readonly context: {
+    readonly conversations: readonly ConversationWithParticipants[];
+    readonly currentMessages: readonly [Message, ...Message[]];
+    readonly crossConversationMessages: readonly Message[];
+  };
+  readonly agents: readonly AgentCard[];
+  readonly ownAgentId: AgentId;
+}
+
+const agentNamesFrom = (
+  agents: readonly AgentCard[],
+): ReadonlyMap<AgentId, string> =>
+  new Map(agents.map((agent) => [agent.id, agent.name] as const));
+
+const senderNameFrom = (
+  names: ReadonlyMap<AgentId, string>,
+  senderId: AgentId,
+): string => names.get(senderId) ?? senderId;
+
+const harnessConversationMetaFrom = (
+  conversation?: ConversationWithParticipants,
+): EnrichedConversationMeta | undefined =>
+  conversation === undefined
+    ? undefined
+    : {
+        type: conversation.participants.length > 2 ? "group" : "dm",
+        ...(conversation.name === undefined ? {} : { name: conversation.name }),
+        participants: conversation.participants.map(
+          (participant) => `agent:${participant}`,
+        ),
+      };
+
+const renderMessageText = (message: Message): string =>
+  message.parts.map(renderPart).join(" ");
+
+const crossConversationMessagesFrom = (
+  messages: readonly Message[],
+  conversations: ReadonlyMap<ConversationId, ConversationWithParticipants>,
+  agentNames: ReadonlyMap<AgentId, string>,
+): readonly CrossConvMessage[] =>
+  messages.map((message) => {
+    const conversationName = conversations.get(message.conversationId)?.name;
+    return {
+      conversationId: message.conversationId,
+      ...(conversationName === undefined ? {} : { conversationName }),
+      senderName: senderNameFrom(agentNames, message.senderId),
+      senderId: message.senderId,
+      text: renderMessageText(message),
+      timestamp: message.createdAt,
+    };
+  });
+
+/**
+ * Projects MCP-reconstructed context into the channel-owned enriched shape.
+ * @param input Reconstructed messages plus resolved identity information.
+ * @param input.context Current and cross-conversation message context.
+ * @param input.agents Agent cards used for presentation names.
+ * @param input.ownAgentId Active identity used to mark self-authored content.
+ * @returns The enriched inbound message exposed by a harness turn.
+ */
+export const projectHarnessTurn = ({
+  context,
+  agents,
+  ownAgentId,
+}: HarnessTurnProjectionInput): EnrichedInboundMessage => {
+  const agentNames = agentNamesFrom(agents);
+  const conversations = new Map(
+    context.conversations.map(
+      (conversation) => [conversation.id, conversation] as const,
+    ),
+  );
+  const [primary, ...remaining] = context.currentMessages;
+  const resolvedMessages: ResolvedInboundMessages = [
+    {
+      message: primary,
+      senderName: senderNameFrom(agentNames, primary.senderId),
+    },
+    ...remaining.map((message) => ({
+      message,
+      senderName: senderNameFrom(agentNames, message.senderId),
+    })),
+  ];
+  const conversationMeta = harnessConversationMetaFrom(
+    conversations.get(primary.conversationId),
+  );
+  const crossConversationMessages = crossConversationMessagesFrom(
+    context.crossConversationMessages,
+    conversations,
+    agentNames,
+  );
+  const contextBlocks: ContextBlocks = {
+    ...(conversationMeta?.type === "group"
+      ? { groupMetadata: conversationMeta }
+      : {}),
+    ...(crossConversationMessages.length === 0
+      ? {}
+      : { crossConversationMessages: [...crossConversationMessages] }),
+  };
+
+  return projectEnrichedInboundMessage({
+    messages: resolvedMessages,
+    ownAgentId,
+    ...(conversationMeta === undefined ? {} : { conversationMeta }),
+    contextBlocks,
+  });
+};
 
 /**
  * Executes the enrich channel message operation.
@@ -201,7 +335,7 @@ export function enrichChannelMessage(
     const message =
       /* Safe because the surrounding invariant establishes this asserted shape. */ messages[0]!;
     const senderName = yield* resolveSenderName(service, message.senderId);
-    const coalesced = yield* buildCoalescedMessages(
+    const resolvedMessages = yield* resolveInboundMessages(
       service,
       messages,
       senderName,
@@ -216,12 +350,15 @@ export function enrichChannelMessage(
     );
 
     return {
-      enriched: buildEnrichedInboundMessage({
-        service,
-        message,
-        senderName,
-        coalesced,
-        context,
+      enriched: projectEnrichedInboundMessage({
+        messages: resolvedMessages,
+        ...(service.ownAgentId === undefined
+          ? {}
+          : { ownAgentId: service.ownAgentId }),
+        ...(context.conversationMeta === undefined
+          ? {}
+          : { conversationMeta: context.conversationMeta }),
+        contextBlocks: context.contextBlocks,
       }),
       ...(context.commitContext
         ? { commitContext: context.commitContext }

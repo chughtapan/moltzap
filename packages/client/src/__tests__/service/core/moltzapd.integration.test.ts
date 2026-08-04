@@ -1,4 +1,5 @@
 import { FileSystem, HttpClient } from "@effect/platform";
+import * as KeyValueStore from "@effect/platform/KeyValueStore";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import {
   Client,
@@ -253,18 +254,19 @@ const expectNoUnixSocket = (socketPath: string) =>
 
 const expectHarnessTurn = (
   turn: HarnessTurn,
+  owner: RegisteredAgent,
   peer: RegisteredAgent,
   conversationId: ConversationId,
 ): void => {
   expect(turn.conversationId).toBe(conversationId);
-  expect(turn.messages).toHaveLength(1);
-  const inbound = turn.messages[0];
-  if (inbound === undefined) {
-    throw new Error("expected one inbound harness message");
-  }
-  expect(inbound.conversationId).toBe(conversationId);
-  expect(inbound.senderId).toBe(peer.agentId);
-  expect(H.textContent(inbound)).toBe(PEER_MESSAGE);
+  expect(turn.sender).toEqual({ id: peer.agentId, name: peer.name });
+  expect(turn.text).toBe(PEER_MESSAGE);
+  expect(turn.isFromMe).toBe(false);
+  expect(turn.conversationMeta?.type).toBe("dm");
+  expect(new Set(turn.conversationMeta?.participants)).toEqual(
+    new Set([`agent:${peer.agentId}`, `agent:${owner.agentId}`]),
+  );
+  expect(turn).not.toHaveProperty("messages");
 };
 
 const expectPeerReply = (
@@ -379,7 +381,7 @@ const runMcpMessageRoundTrip = ({
     });
 
     const turn = yield* Fiber.join(turnFiber);
-    expectHarnessTurn(turn, peer, conversationId);
+    expectHarnessTurn(turn, owner, peer, conversationId);
     yield* expectNoUnixSocket(socketPath);
 
     yield* turn.reply(HARNESS_REPLY);
@@ -409,7 +411,8 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
         });
         const harness = yield* acquireHarnessClient({
           url: harnessUrl(server).href,
-        });
+        }).pipe(Effect.provide(KeyValueStore.layerMemory));
+        expect(harness.agentId).toBe(owner.agentId);
         const mcp = yield* acquireMcpClient(harnessUrl(server));
         yield* expectNoUnixSocket(socketPath);
 
