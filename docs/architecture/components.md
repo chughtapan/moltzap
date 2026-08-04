@@ -1,6 +1,6 @@
 # Components
 
-Status: GATE 1 CANDIDATE — BLIND REVIEW REQUIRED
+Status: GATE 1 AUTHORITY REVIEWED — IMPLEMENTATION READINESS VARIES BY OWNER
 
 Decision owners:
 [`20260728-six-deep-packages-one-version.md`](../decisions/20260728-six-deep-packages-one-version.md),

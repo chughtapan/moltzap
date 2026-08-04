@@ -2,7 +2,7 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **HARNESS AUTHORITY CANDIDATE — BLIND REVIEW REQUIRED BEFORE HARNESS CODE**
+Status: **HARNESS AUTHORITY REVIEWED — IMPLEMENTATION READINESS VARIES BY OWNER**
 
 The complete approved L1 and L2 handoff is
 [`l1-l2-implementation-ask.md`](./l1-l2-implementation-ask.md). That
