@@ -44,7 +44,7 @@ Every `CLAUDE.md` is a symlink to the `AGENTS.md` beside it, replacing the
 
 ## Consequences
 
-The root file drops from 362 lines to 161 while gaining a prerequisites gate
+The root file drops from 362 lines to 153 while gaining a prerequisites gate
 and a verify section that did not exist. (The 319/177 figures above are the
 measurement that opened the work; the file grew before this landed.) The decision procedure is absent from
 context until an agent touches a record, which is when it becomes relevant.
@@ -60,3 +60,11 @@ directory cannot otherwise be re-included.
 A tool that reads neither `AGENTS.md` nor a symlinked `CLAUDE.md` sees nothing.
 That was already true of the import form, which only Claude Code understood.
 
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that alters
+the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-05 | Consequences said the root file drops to 161 lines; it is 153. The figure was written before the doc-writing procedure moved to the `docs` skill. Found by the blind review of `c77464ee`. |

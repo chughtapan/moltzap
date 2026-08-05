@@ -209,6 +209,7 @@
         "lint:sloppy-code-guard",
         "lint:script-reachability",
         "lint:adr-shape",
+        "lint:agent-files",
         {
           "target": "arch:check",
           "projects": "@moltzap/*"
@@ -233,6 +234,17 @@
       "options": {
         "cwd": ".",
         "command": "pnpm exec tsx scripts/docs/adr/check-shape.ts"
+      }
+    },
+    "lint:agent-files": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "pnpm exec tsx scripts/repo/check-agent-files.ts"
       }
     }
   }
