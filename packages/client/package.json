@@ -51,7 +51,6 @@
     "lint": "nx run @moltzap/client:lint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mjs",
-    "test:conformance": "vitest run -c vitest.conformance.config.mjs",
     "docs:generate": "pnpm exec tsx scripts/generate-ws-connect-snippet.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
