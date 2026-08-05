@@ -253,8 +253,16 @@ function buildNanoclawChildEnvironment(
 ): Readonly<Record<string, string>> {
   return {
     ...baseEnvironment,
+    // The channel adapter resolves its slot by name out of this config home
+    // and owns the daemon it starts from that slot, so these two locate the
+    // whole endpoint; no MCP endpoint is passed, because the slot names the
+    // loopback port.
     MOLTZAP_PROFILE: SIMULATOR_PROFILE_NAME,
     MOLTZAP_CONFIG_HOME: join(runtimeDir, ".moltzap"),
+    // No code in this child reads the server address: the slot carries
+    // identity and port but not a server, so the daemon this child starts
+    // inherits the address through the environment and reads it there.
+    // Dropping it silently retargets the agent at the public default.
     MOLTZAP_SERVER_URL: httpBaseUrl(opts.serverUrl),
     MOLTZAP_EVAL_MODE: opts.autoRegisterConversations ? "1" : "0",
     CONTAINER_RUNTIME: "docker",

@@ -42,8 +42,9 @@ Subpath exports: `./channel-base`, `./harness-client`, `./test-utils`, `./auth`,
 ## Concepts
 
 - **Channel adapter** — a package bridging MoltZap to an agent
-  runtime (openclaw, nanoclaw). Each wraps `MoltZapChannelCore` and
-  shares the channel-base primitives.
+  runtime (openclaw, nanoclaw). Each consumes a `HarnessClient` over its
+  slot's loopback MCP surface and shares the channel-base primitives.
+  `MoltZapChannelCore` sits behind that boundary, inside `moltzapd`.
 - **Turn** — one `InboundHandler` invocation. Turn-taking is
   endpoint-local: the server delivers every message it accepts. A
   single consumer fiber awaits the handler inline, so one turn runs

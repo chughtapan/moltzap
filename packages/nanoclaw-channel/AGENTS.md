@@ -8,11 +8,13 @@ channel plugins.
 ## Structure
 
 - `src/channels/moltzap.ts` — `MoltZapAdapter`, the entry point
-  (package `main`); implements nanoclaw's `ChannelAdapter` contract
-  over an injected `HarnessClient` or the transitional
-  `MoltZapChannelCore` path and self-registers via
-  `registerChannelAdapter`. The production factory remains profile/core-backed
-  until profile-to-MCP acquisition is available.
+  (package `main`); implements nanoclaw's `ChannelAdapter` contract over a
+  Harness client whose lifetime it owns, and self-registers via
+  `registerChannelAdapter`. This file is the whole channel: the simulator's
+  asset copier (`packages/simulator/scripts/copy-nanoclaw-assets.mjs`)
+  copies exactly it, so a sibling module added beside it does not exist at
+  nanoclaw runtime. New logic belongs in this file or behind a
+  `@moltzap/client` export.
 - `src/channels/adapter.ts`, `src/channels/channel-registry.ts`,
   `src/db/messaging-groups.ts`, `src/types.ts` — stub mirrors of the
   nanoclaw modules the channel imports, pinned to the commit in `NANOCLAW_SHA`
@@ -37,16 +39,21 @@ channel plugins.
 
 ## Code
 
-- The injected Harness path drains `HarnessClient.turns` sequentially and
-  retains each turn's bound `reply` closure by jid. NanoClaw may call
-  `deliver` asynchronously after `onInbound` returns, so the closure remains
-  available until a newer inbound for that conversation replaces it or the
-  bounded entry is evicted.
-- `fromHarnessClient` borrows an already acquired client. Adapter teardown
-  interrupts its turn drain but does not close the caller-owned client scope.
-- `MoltZapChannelError` covers host-shape failures (un-owned jid,
-  unknown conversation, disconnected channel); reply failures retain their
-  backing client's error type.
+- The adapter drains `HarnessClient.turns` sequentially and retains each
+  turn's bound `reply` closure by jid. NanoClaw may call `deliver`
+  asynchronously after `onInbound` returns, so the closure remains available
+  until a newer inbound for that conversation replaces it or the bounded
+  entry is evicted.
+- `fromHarnessAcquisition` is the only constructor, and the adapter owns the
+  acquisition's `Scope`: `setup` opens it, `teardown` closes it. NanoClaw
+  builds channel adapters from a zero-argument factory at module import, so
+  no caller exists to hold that scope. `makeMoltZapAdapter` supplies
+  `harnessClientForProfile(MOLTZAP_PROFILE)`, which resolves the slot into
+  its own `moltzapd` child, the loopback endpoint the slot names, and a
+  file-backed checkpoint store.
+- `MoltZapChannelError` covers host-shape failures (un-owned jid, unknown
+  conversation, a host callback that rejects a projected turn); reply
+  failures retain their backing client's error type.
 - Inbound projection: `onMetadata` fires before `onInbound`; content
   is `{ text, sender, senderId }` with context blocks inlined into
   `text`; own (`isFromMe`) messages are dropped, not delivered.
@@ -58,10 +65,12 @@ channel plugins.
 - `vitest.integration.globalSetup.ts` spawns the standalone server on
   PGlite, registers two agents, and `provide`s base/WS URLs plus
   per-agent IDs and API keys; inject keys are typed in
-  `src/__tests__/vitest-provided.d.ts`.
-- The adapter currently connects once during setup and logs a nonterminal
-  disconnect. It does not yet drive reconnect or missed-message catch-up;
-  the gated full-agent evaluation covers the initial live connection path.
-- Harness behavior tests use a fake `HarnessClientService` stream and bound
-  reply closures. Import/constructor absence remains an architecture check for
-  the later production-factory cutover, not a unit assertion.
+  `src/__tests__/vitest-provided.d.ts`. The echo suite reserves the slot's
+  loopback port, writes the slot, and drives `makeMoltZapAdapter` — the same
+  adapter nanoclaw registers — so a real `moltzapd` carries the round trip.
+- The adapter connects once during setup and logs a nonterminal disconnect.
+  It does not drive reconnect or missed-message catch-up; the gated
+  full-agent evaluation covers the initial live connection path.
+- Unit tests drive a fake `HarnessClientService` through a counted
+  acquisition, so acquire/release counts assert what `setup` and `teardown`
+  did to the client's lifetime.

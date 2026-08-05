@@ -5,20 +5,21 @@ import type {
   HarnessClientService,
   HarnessTurn,
 } from "@moltzap/client/harness-client";
+import type {
+  CrossConvMessage,
+  EnrichedConversationMeta,
+} from "@moltzap/client/channel-base";
 import {
-  buildMessage,
-  createFakeChannelService,
-  flushDispatchChain,
   testAgentId,
   testConversationId,
   testMessageId,
-  type FakeChannelService,
 } from "@moltzap/client/test-utils";
 
 import {
   EVAL_AGENT_GROUP_ID,
   makeMoltZapAdapter,
   MoltZapAdapter,
+  type HarnessClientAcquisition,
 } from "./moltzap.js";
 import type {
   ChannelSetup,
@@ -53,21 +54,47 @@ interface RecordedChannelSetup extends ChannelSetup {
   readonly callOrder: string[];
 }
 
-interface Harness {
-  readonly fake: FakeChannelService;
-  readonly config: RecordedChannelSetup;
-  readonly adapter: MoltZapAdapter;
-}
-
 interface HarnessClientReply {
   readonly route: string;
   readonly payload: string;
 }
 
-interface HarnessClientFixture {
-  readonly client: HarnessClientService;
+/** Counts how often the adapter opened and closed its client acquisition. */
+interface AcquisitionCounts {
+  acquired: number;
+  released: number;
+}
+
+interface Harness {
+  readonly adapter: MoltZapAdapter;
+  readonly config: RecordedChannelSetup;
+  readonly counts: AcquisitionCounts;
   readonly replies: HarnessClientReply[];
   readonly turns: Queue.Queue<HarnessTurn>;
+  readonly signal: Queue.Queue<string>;
+}
+
+interface TurnOptions {
+  readonly conversationId: string;
+  readonly messageId?: string;
+  readonly route?: string;
+  readonly text?: string;
+  readonly senderId?: string;
+  readonly senderName?: string;
+  readonly isFromMe?: boolean;
+  readonly conversationMeta?: EnrichedConversationMeta;
+  readonly crossConversationMessages?: readonly CrossConvMessage[];
+}
+
+interface HarnessOptions {
+  readonly evalMode?: boolean;
+  readonly replies?: HarnessClientReply[];
+  readonly turns?: Stream.Stream<HarnessTurn, Error>;
+  readonly config?: RecordedChannelSetup;
+  readonly acquire?: (
+    client: HarnessClientService,
+    counts: AcquisitionCounts,
+  ) => HarnessClientAcquisition;
 }
 
 const AGENT_SELF = "agent-self";
@@ -94,7 +121,6 @@ const MSG_TURN_1 = "msg-turn-1";
 const MSG_TURN_2 = "msg-turn-2";
 const MSG_EVAL_1 = "msg-eval-1";
 const MSG_EVAL_2 = "msg-eval-2";
-const HELLO_THERE = "hello there";
 const FIRST_REPLY = "first reply";
 const SECOND_REPLY = "second reply";
 const HI_NANOCLAW = "hi nanoclaw";
@@ -108,7 +134,7 @@ const ZENDA_TEXT = "Zenda";
 const CONTENT_TEXT = "content";
 const MESSAGE_CREATED_AT = "2026-04-10T13:00:00.000Z";
 const CROSS_CONV_TIMESTAMP = "2026-04-13T22:00:00Z";
-const PROFILE_LOADED_ON_CONNECT = "profile-loaded-on-connect";
+const PROFILE_ACQUIRED_ON_SETUP = "profile-acquired-on-setup";
 const INBOUND_KIND_CHAT = "chat";
 const OUTBOUND_KIND_CHAT = "chat";
 const MENTIONS_NEVER = "never";
@@ -144,7 +170,10 @@ const MESSAGES_CLOSE_PATTERN = /<\/messages>/g;
 const NO_SENT_MESSAGE = "nope";
 const FIRST_HARNESS_ROUTE = "first-harness-route";
 const SECOND_HARNESS_ROUTE = "second-harness-route";
+const DEFAULT_HARNESS_ROUTE = "default-harness-route";
 const HARNESS_REPLY_FAILURE_PATTERN = /HarnessReplyTestError/;
+const ACQUISITION_FAILURE_PATTERN = /HarnessAcquisitionTestError/;
+const DM_META: EnrichedConversationMeta = { type: "dm", participants: [] };
 
 class MetadataCallbackTestError extends Data.TaggedError(
   "MetadataCallbackTestError",
@@ -154,7 +183,14 @@ class HarnessReplyTestError extends Data.TaggedError("HarnessReplyTestError")<
   Record<never, never>
 > {}
 
-function createRecordedSetup(): RecordedChannelSetup {
+class HarnessAcquisitionTestError extends Data.TaggedError(
+  "HarnessAcquisitionTestError",
+)<Record<never, never>> {}
+
+function createRecordedSetup(
+  signal: Queue.Queue<string>,
+  waitForInbound?: (jid: string) => Effect.Effect<undefined>,
+): RecordedChannelSetup {
   const received: ReceivedMessage[] = [];
   const metadata: MetadataRecord[] = [];
   const callOrder: string[] = [];
@@ -162,6 +198,9 @@ function createRecordedSetup(): RecordedChannelSetup {
     onInbound: (jid, threadId, msg) => {
       received.push({ jid, threadId, msg });
       callOrder.push(ON_INBOUND);
+      Queue.unsafeOffer(signal, jid);
+      const wait = waitForInbound?.(jid);
+      return wait === undefined ? undefined : Effect.runPromise(wait);
     },
     onMetadata: (jid, name, isGroup) => {
       metadata.push({ jid, name, isGroup });
@@ -173,27 +212,10 @@ function createRecordedSetup(): RecordedChannelSetup {
   };
 }
 
-function createSignallingSetup(
-  signal: Queue.Queue<string>,
-  waitForInbound?: (jid: string) => Effect.Effect<undefined>,
-): RecordedChannelSetup {
-  const setup = createRecordedSetup();
-  return {
-    ...setup,
-    onInbound: (jid, threadId, msg) => {
-      setup.received.push({ jid, threadId, msg });
-      setup.callOrder.push(ON_INBOUND);
-      Queue.unsafeOffer(signal, jid);
-      const wait = waitForInbound?.(jid);
-      return wait === undefined ? undefined : Effect.runPromise(wait);
-    },
-  };
-}
-
 function createMetadataFailingSetup(
   signal: Queue.Queue<string>,
 ): RecordedChannelSetup {
-  const setup = createSignallingSetup(signal);
+  const setup = createRecordedSetup(signal);
   let failNext = true;
   return {
     ...setup,
@@ -208,51 +230,94 @@ function createMetadataFailingSetup(
   };
 }
 
-function createHarnessClientFixture(): HarnessClientFixture {
-  const turns = Effect.runSync(Queue.unbounded<HarnessTurn>());
-  const replies: HarnessClientReply[] = [];
+function turnSender(options: TurnOptions): HarnessTurn["sender"] {
   return {
-    client: {
-      agentId: testAgentId(AGENT_SELF),
-      startConversation: () =>
-        Effect.dieMessage("startConversation is not used by these tests"),
-      turns: Stream.fromQueue(turns),
-    },
-    replies,
-    turns,
+    id: testAgentId(options.senderId ?? AGENT_ALICE),
+    name: options.senderName ?? ALICE_NAME,
+  };
+}
+
+// The daemon projects context blocks before a turn reaches the adapter, so a
+// fixture turn carries them the way `projectHarnessTurn` would.
+function turnContextBlocks(options: TurnOptions): HarnessTurn["contextBlocks"] {
+  return {
+    ...(options.conversationMeta?.type === "group"
+      ? { groupMetadata: options.conversationMeta }
+      : {}),
+    ...(options.crossConversationMessages === undefined
+      ? {}
+      : { crossConversationMessages: [...options.crossConversationMessages] }),
   };
 }
 
 function makeHarnessTurn(
-  fixture: HarnessClientFixture,
-  options: {
-    readonly conversationId: string;
-    readonly messageId: string;
-    readonly route: string;
-    readonly text?: string;
-  },
+  replies: HarnessClientReply[],
+  options: TurnOptions,
 ): HarnessTurn {
+  const route = options.route ?? DEFAULT_HARNESS_ROUTE;
   return {
-    id: testMessageId(options.messageId),
+    id: testMessageId(options.messageId ?? MSG_ABC),
     conversationId: testConversationId(options.conversationId),
-    sender: { id: testAgentId(AGENT_ALICE), name: ALICE_NAME },
+    sender: turnSender(options),
     text: options.text ?? HI_NANOCLAW,
-    isFromMe: false,
+    isFromMe: options.isFromMe ?? false,
     createdAt: MESSAGE_CREATED_AT,
-    conversationMeta: { type: "dm", participants: [] },
-    contextBlocks: {},
+    conversationMeta: options.conversationMeta ?? DM_META,
+    contextBlocks: turnContextBlocks(options),
     reply: (payload) =>
       Effect.sync(() => {
-        fixture.replies.push({ route: options.route, payload });
+        replies.push({ route, payload });
       }),
   };
 }
 
-function createHarness(evalMode = false): Harness {
-  const fake = createFakeChannelService({ ownAgentId: AGENT_SELF });
-  const config = createRecordedSetup();
-  const adapter = MoltZapAdapter.fromService(fake.service, evalMode);
-  return { fake, config, adapter };
+/**
+ * Builds an adapter over a counted client acquisition. The adapter owns that
+ * acquisition's scope, so the counts observe exactly what `setup` and
+ * `teardown` did to the client's lifetime.
+ * @param options Eval mode plus optional pre-built replies, turns, and setup.
+ * @returns The adapter with the fixtures its behavior is asserted against.
+ */
+function createHarness(options: HarnessOptions = {}): Harness {
+  const turns = Effect.runSync(Queue.unbounded<HarnessTurn>());
+  const signal = Effect.runSync(Queue.unbounded<string>());
+  const replies = options.replies ?? [];
+  const counts: AcquisitionCounts = { acquired: 0, released: 0 };
+  const client: HarnessClientService = {
+    agentId: testAgentId(AGENT_SELF),
+    startConversation: () =>
+      Effect.dieMessage("startConversation is not used by these tests"),
+    turns: options.turns ?? Stream.fromQueue(turns),
+  };
+  const adapter = MoltZapAdapter.fromHarnessAcquisition(
+    (options.acquire ?? countedAcquisition)(client, counts),
+    options.evalMode ?? false,
+  );
+  return {
+    adapter,
+    config: options.config ?? createRecordedSetup(signal),
+    counts,
+    replies,
+    turns,
+    signal,
+  };
+}
+
+function countedAcquisition(
+  client: HarnessClientService,
+  counts: AcquisitionCounts,
+): HarnessClientAcquisition {
+  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The adapter under test owns the enclosing scope; that is the contract these counts assert.
+  return Effect.acquireRelease(
+    Effect.sync(() => {
+      counts.acquired += 1;
+      return client;
+    }),
+    () =>
+      Effect.sync(() => {
+        counts.released += 1;
+      }),
+  );
 }
 
 function asJid(conversationId: string): string {
@@ -287,10 +352,6 @@ function runPromise<A>(
   });
 }
 
-function flushDispatch(): Effect.Effect<void, unknown> {
-  return runPromise(() => flushDispatchChain());
-}
-
 function setup(harness: Harness): Effect.Effect<void, unknown> {
   return runPromise(() => harness.adapter.setup(harness.config));
 }
@@ -305,6 +366,22 @@ function deliver(
   text: string,
 ): Effect.Effect<void, unknown> {
   return runPromise(() => adapter.deliver(jid, null, makeOutbound(text)));
+}
+
+/**
+ * Offers one turn and resolves once the adapter has dispatched it inbound.
+ * @param harness Adapter and fixtures under test.
+ * @param options Shape of the turn the client emits.
+ * @returns The jid the adapter dispatched that turn under.
+ */
+function offerTurn(
+  harness: Harness,
+  options: TurnOptions,
+): Effect.Effect<string, unknown> {
+  return Queue.offer(
+    harness.turns,
+    makeHarnessTurn(harness.replies, options),
+  ).pipe(Effect.zipRight(Queue.take(harness.signal)));
 }
 
 function expectPromiseFailure(
@@ -322,65 +399,133 @@ function expectPromiseFailure(
   });
 }
 
-function setDmConversation(harness: Harness, conversationId: string): void {
-  harness.fake.state.setConversation(conversationId, {
-    type: "dm",
-    participants: [],
-  });
-  harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
-}
-
-function setGroupConversation(harness: Harness): void {
-  harness.fake.state.setConversation(CONV_1, {
-    type: "group",
-    name: DEVS_GROUP_NAME,
-    participants: [`agent:${AGENT_ALICE}`],
-  });
-  harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
-}
-
-function emitText(
+function withTeardown<A>(
   harness: Harness,
-  conversationId: string,
-  text: string,
-): void {
-  harness.fake.emit.message(
-    buildMessage({
-      conversationId,
-      parts: [{ type: "text", text }],
-    }),
-  );
+  effect: Effect.Effect<A, unknown>,
+): Effect.Effect<A, unknown> {
+  return effect.pipe(Effect.ensuring(teardown(harness).pipe(Effect.ignore)));
 }
 
-function constructsSynchronouslyWithoutReadingTheProfile() {
-  const adapter = MoltZapAdapter.fromProfile(PROFILE_LOADED_ON_CONNECT, false);
+function groupMeta(name: string, members: readonly string[]) {
+  return {
+    type: "group",
+    name,
+    participants: members.map((member) => `agent:${testAgentId(member)}`),
+  } as const satisfies EnrichedConversationMeta;
+}
+
+function crossConvMessage(overrides: {
+  readonly senderName: string;
+  readonly senderId: string;
+  readonly text: string;
+}): CrossConvMessage {
+  return {
+    conversationId: testConversationId(CONV_OTHER),
+    senderName: overrides.senderName,
+    senderId: testAgentId(overrides.senderId),
+    text: overrides.text,
+    timestamp: CROSS_CONV_TIMESTAMP,
+  };
+}
+
+function productionAdapter(): MoltZapAdapter {
+  const adapter = makeMoltZapAdapter({
+    profileName: PROFILE_ACQUIRED_ON_SETUP,
+    evalMode: false,
+  });
+  expect(adapter).not.toBeNull();
+  return /* Safe because the profile name above is non-null, so the factory returns an adapter. */ adapter!;
+}
+
+function constructsWithoutAcquiringItsClient() {
+  const adapter = productionAdapter();
   expect(adapter).toBeInstanceOf(MoltZapAdapter);
   expect(adapter.isConnected()).toBe(false);
 }
 
-function teardownBeforeSetupResolvesWithoutACore() {
-  const adapter = MoltZapAdapter.fromProfile(PROFILE_LOADED_ON_CONNECT, false);
-  return expect(adapter.teardown()).resolves.toBeUndefined();
+function teardownBeforeSetupResolvesWithoutAClient() {
+  return expect(productionAdapter().teardown()).resolves.toBeUndefined();
 }
 
-function setupDelegatesToCore() {
+function setupAcquiresTheClientAndConnects() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    expect(harness.adapter.isConnected()).toBe(false);
-    yield* setup(harness);
-    expect(harness.fake.state.connectCalls.count).toBe(1);
-    expect(harness.adapter.isConnected()).toBe(true);
-  });
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      expect(harness.adapter.isConnected()).toBe(false);
+      yield* setup(harness);
+      expect(harness.counts.acquired).toBe(1);
+      expect(harness.adapter.isConnected()).toBe(true);
+    }),
+  );
 }
 
-function teardownDelegatesToCore() {
+function setupWhileConnectedDoesNotReacquire() {
+  const harness = createHarness();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* setup(harness);
+      expect(harness.counts.acquired).toBe(1);
+      expect(harness.adapter.isConnected()).toBe(true);
+    }),
+  );
+}
+
+function teardownClosesTheAdapterOwnedScope() {
   const harness = createHarness();
   return Effect.gen(function* () {
     yield* setup(harness);
+    expect(harness.counts.released).toBe(0);
     yield* teardown(harness);
-    expect(harness.fake.state.closeCalls.count).toBe(1);
+    expect(harness.counts.released).toBe(1);
     expect(harness.adapter.isConnected()).toBe(false);
   });
+}
+
+function setupAfterTeardownAcquiresAgain() {
+  const harness = createHarness();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* teardown(harness);
+      yield* setup(harness);
+      expect(harness.counts.acquired).toBe(2);
+      expect(harness.counts.released).toBe(1);
+
+      expect(yield* offerTurn(harness, { conversationId: CONV_42 })).toBe(
+        asJid(CONV_42),
+      );
+    }),
+  );
+}
+
+function failedAcquisitionLeavesNoScopeBehind() {
+  let attempts = 0;
+  // The first attempt fails inside the adapter-owned scope; the second
+  // succeeds, so a rejected setup must leave nothing half-open behind it.
+  const harness = createHarness({
+    acquire: (client, counts) =>
+      Effect.suspend(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Effect.fail(new HarnessAcquisitionTestError())
+          : countedAcquisition(client, counts);
+      }),
+  });
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* expectPromiseFailure(setup(harness), ACQUISITION_FAILURE_PATTERN);
+      expect(harness.adapter.isConnected()).toBe(false);
+
+      yield* setup(harness);
+      expect(harness.counts.acquired).toBe(1);
+      expect(harness.adapter.isConnected()).toBe(true);
+    }),
+  );
 }
 
 function registersAdapterWithNeverMentions() {
@@ -397,649 +542,535 @@ function factoryReturnsNullWithoutProfile() {
 }
 
 function ownsPrefixedJids() {
-  const harness = createHarness();
-  expect(harness.adapter.ownsJid(asJid(CONV_1))).toBe(true);
+  expect(createHarness().adapter.ownsJid(asJid(CONV_1))).toBe(true);
 }
 
 function rejectsOtherChannelJids() {
-  const harness = createHarness();
-  expect(harness.adapter.ownsJid(TELEGRAM_JID)).toBe(false);
-  expect(harness.adapter.ownsJid(WHATSAPP_JID)).toBe(false);
-  expect(harness.adapter.ownsJid(RAW_CONVERSATION_JID)).toBe(false);
-}
-
-function stripsPrefixAndForwardsSend() {
-  const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_42);
-    harness.fake.emit.message(
-      buildMessage({ id: MSG_TURN_1, conversationId: CONV_42 }),
-    );
-    yield* flushDispatch();
-    yield* deliver(harness.adapter, asJid(CONV_42), HELLO_THERE);
-    expect(harness.fake.state.sent).toEqual([
-      {
-        convId: testConversationId(CONV_42),
-        text: HELLO_THERE,
-      },
-    ]);
-  });
+  const { adapter } = createHarness();
+  expect(adapter.ownsJid(TELEGRAM_JID)).toBe(false);
+  expect(adapter.ownsJid(WHATSAPP_JID)).toBe(false);
+  expect(adapter.ownsJid(RAW_CONVERSATION_JID)).toBe(false);
 }
 
 function rejectsUnownedJid() {
-  const harness = createHarness();
   return expectPromiseFailure(
-    deliver(harness.adapter, TELEGRAM_JID, NO_SENT_MESSAGE),
+    deliver(createHarness().adapter, TELEGRAM_JID, NO_SENT_MESSAGE),
     OWNERSHIP_ERROR_PATTERN,
   );
 }
 
 function rejectsDeliverWithoutInboundConversation() {
-  const harness = createHarness();
   return expectPromiseFailure(
-    deliver(harness.adapter, asJid(CONV_1), NO_SENT_MESSAGE),
+    deliver(createHarness().adapter, asJid(CONV_1), NO_SENT_MESSAGE),
     UNKNOWN_CONVERSATION_PATTERN,
   );
 }
 
-interface GatedChannelSetup extends ChannelSetup {
-  readonly startedTurns: string[];
-  releaseTurn(): void;
-}
-
-/**
- * Holds every inbound turn open until released, so a reply can be observed
- * while its own turn is still the one in flight.
- * @returns A setup whose turns block until `releaseTurn` is called.
- */
-function createGatedSetup(): GatedChannelSetup {
-  const startedTurns: string[] = [];
-  const pending: Array<() => void> = [];
-  return {
-    onInbound: (jid) => {
-      startedTurns.push(jid);
-      // The host contract is promise-based, so a held turn is a pending promise.
-      return new Promise<undefined>((resolve) => {
-        pending.push(() => {
-          resolve(undefined);
-        });
-      });
-    },
-    onMetadata: () => {},
-    startedTurns,
-    releaseTurn: () => {
-      pending.shift()?.();
-    },
-  };
-}
-
-function overlappingTurnsStaySerialized() {
-  const harness = createHarness();
-  const gate = createGatedSetup();
-  return Effect.gen(function* () {
-    yield* runPromise(() => harness.adapter.setup(gate));
-    setDmConversation(harness, CONV_42);
-    setDmConversation(harness, CONV_43);
-
-    harness.fake.emit.message(
-      buildMessage({ id: MSG_TURN_1, conversationId: CONV_42 }),
-    );
-    yield* flushDispatch();
-    expect(gate.startedTurns).toEqual([asJid(CONV_42)]);
-
-    // A second inbound arrives while the first turn is still running. The
-    // core must not start it: doing so would overwrite the per-jid
-    // conversation entry and the still-pending first reply would address the
-    // wrong conversation.
-    harness.fake.emit.message(
-      buildMessage({ id: MSG_TURN_2, conversationId: CONV_43 }),
-    );
-    yield* flushDispatch();
-    expect(gate.startedTurns).toEqual([asJid(CONV_42)]);
-
-    // The first turn replies late, and must still address its own conversation.
-    yield* deliver(harness.adapter, asJid(CONV_42), FIRST_REPLY);
-    expect(harness.fake.state.sent).toEqual([
-      { convId: testConversationId(CONV_42), text: FIRST_REPLY },
-    ]);
-
-    gate.releaseTurn();
-    yield* flushDispatch();
-    expect(gate.startedTurns).toEqual([asJid(CONV_42), asJid(CONV_43)]);
-
-    yield* deliver(harness.adapter, asJid(CONV_43), SECOND_REPLY);
-    expect(harness.fake.state.sent).toEqual([
-      { convId: testConversationId(CONV_42), text: FIRST_REPLY },
-      { convId: testConversationId(CONV_43), text: SECOND_REPLY },
-    ]);
-  });
-}
-
 function harnessRepliesUseLatestBoundTurn() {
-  const fixture = createHarnessClientFixture();
-  const adapter = MoltZapAdapter.fromHarnessClient(fixture.client);
-  return Effect.gen(function* () {
-    const signal = yield* Queue.unbounded<string>();
-    yield* runPromise(() => adapter.setup(createSignallingSetup(signal)));
+  const harness = createHarness();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
 
-    yield* Queue.offer(
-      fixture.turns,
-      makeHarnessTurn(fixture, {
-        conversationId: CONV_42,
-        messageId: MSG_TURN_1,
-        route: FIRST_HARNESS_ROUTE,
-      }),
-    );
-    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
-    yield* deliver(adapter, asJid(CONV_42), FIRST_REPLY);
+      expect(
+        yield* offerTurn(harness, {
+          conversationId: CONV_42,
+          messageId: MSG_TURN_1,
+          route: FIRST_HARNESS_ROUTE,
+        }),
+      ).toBe(asJid(CONV_42));
+      yield* deliver(harness.adapter, asJid(CONV_42), FIRST_REPLY);
 
-    yield* Queue.offer(
-      fixture.turns,
-      makeHarnessTurn(fixture, {
-        conversationId: CONV_42,
-        messageId: MSG_TURN_2,
-        route: SECOND_HARNESS_ROUTE,
-      }),
-    );
-    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
-    yield* deliver(adapter, asJid(CONV_42), SECOND_REPLY);
-    yield* deliver(adapter, asJid(CONV_42), SECOND_REPLY);
+      expect(
+        yield* offerTurn(harness, {
+          conversationId: CONV_42,
+          messageId: MSG_TURN_2,
+          route: SECOND_HARNESS_ROUTE,
+        }),
+      ).toBe(asJid(CONV_42));
+      yield* deliver(harness.adapter, asJid(CONV_42), SECOND_REPLY);
+      yield* deliver(harness.adapter, asJid(CONV_42), SECOND_REPLY);
 
-    expect(fixture.replies).toEqual([
-      { route: FIRST_HARNESS_ROUTE, payload: FIRST_REPLY },
-      { route: SECOND_HARNESS_ROUTE, payload: SECOND_REPLY },
-      { route: SECOND_HARNESS_ROUTE, payload: SECOND_REPLY },
-    ]);
-  }).pipe(
-    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+      expect(harness.replies).toEqual([
+        { route: FIRST_HARNESS_ROUTE, payload: FIRST_REPLY },
+        { route: SECOND_HARNESS_ROUTE, payload: SECOND_REPLY },
+        { route: SECOND_HARNESS_ROUTE, payload: SECOND_REPLY },
+      ]);
+    }),
   );
 }
 
 function harnessReplyFailureHasNoFallback() {
-  const fixture = createHarnessClientFixture();
+  const replies: HarnessClientReply[] = [];
   const reply = vi
     .fn<HarnessTurn["reply"]>()
     .mockReturnValue(Effect.fail(new HarnessReplyTestError()));
   const turn = {
-    ...makeHarnessTurn(fixture, {
+    ...makeHarnessTurn(replies, {
       conversationId: CONV_42,
       messageId: MSG_TURN_1,
       route: FIRST_HARNESS_ROUTE,
     }),
     reply,
   };
-  const adapter = MoltZapAdapter.fromHarnessClient({
-    ...fixture.client,
-    turns: Stream.make(turn),
-  });
-  return Effect.gen(function* () {
-    const signal = yield* Queue.unbounded<string>();
-    yield* runPromise(() => adapter.setup(createSignallingSetup(signal)));
-    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
+  const harness = createHarness({ replies, turns: Stream.make(turn) });
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      expect(yield* Queue.take(harness.signal)).toBe(asJid(CONV_42));
 
-    yield* expectPromiseFailure(
-      deliver(adapter, asJid(CONV_42), FIRST_REPLY),
-      HARNESS_REPLY_FAILURE_PATTERN,
-    );
-    expect(reply).toHaveBeenCalledExactlyOnceWith(FIRST_REPLY);
-    expect(fixture.replies).toEqual([]);
-  }).pipe(
-    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+      yield* expectPromiseFailure(
+        deliver(harness.adapter, asJid(CONV_42), FIRST_REPLY),
+        HARNESS_REPLY_FAILURE_PATTERN,
+      );
+      expect(reply).toHaveBeenCalledExactlyOnceWith(FIRST_REPLY);
+      expect(replies).toEqual([]);
+    }),
   );
 }
 
 function harnessTurnsDrainSequentially() {
-  const fixture = createHarnessClientFixture();
-  const adapter = MoltZapAdapter.fromHarnessClient(fixture.client);
-  return Effect.gen(function* () {
-    const signal = yield* Queue.unbounded<string>();
-    const releaseFirst = yield* Deferred.make<undefined>();
-    let firstInbound = true;
-    const setup = createSignallingSetup(signal, () => {
-      if (!firstInbound) {
-        return Effect.succeed(undefined);
-      }
-      firstInbound = false;
-      return Deferred.await(releaseFirst);
-    });
-    yield* runPromise(() => adapter.setup(setup));
+  const signal = Effect.runSync(Queue.unbounded<string>());
+  const releaseFirst = Effect.runSync(Deferred.make<undefined>());
+  let firstInbound = true;
+  const config = createRecordedSetup(signal, () => {
+    if (!firstInbound) {
+      return Effect.succeed(undefined);
+    }
+    firstInbound = false;
+    return Deferred.await(releaseFirst);
+  });
+  const harness = { ...createHarness({ config }), signal };
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
 
-    yield* Queue.offer(
-      fixture.turns,
-      makeHarnessTurn(fixture, {
-        conversationId: CONV_42,
-        messageId: MSG_TURN_1,
-        route: FIRST_HARNESS_ROUTE,
-      }),
-    );
-    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
+      yield* Queue.offer(
+        harness.turns,
+        makeHarnessTurn(harness.replies, {
+          conversationId: CONV_42,
+          messageId: MSG_TURN_1,
+          route: FIRST_HARNESS_ROUTE,
+        }),
+      );
+      expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
 
-    yield* Queue.offer(
-      fixture.turns,
-      makeHarnessTurn(fixture, {
-        conversationId: CONV_43,
-        messageId: MSG_TURN_2,
-        route: SECOND_HARNESS_ROUTE,
-      }),
-    );
-    yield* Effect.yieldNow();
-    expect(yield* Queue.size(signal)).toBe(0);
-    expect(yield* Queue.size(fixture.turns)).toBe(1);
+      yield* Queue.offer(
+        harness.turns,
+        makeHarnessTurn(harness.replies, {
+          conversationId: CONV_43,
+          messageId: MSG_TURN_2,
+          route: SECOND_HARNESS_ROUTE,
+        }),
+      );
+      yield* Effect.yieldNow();
+      expect(yield* Queue.size(signal)).toBe(0);
+      expect(yield* Queue.size(harness.turns)).toBe(1);
 
-    yield* Deferred.succeed(releaseFirst, undefined);
-    expect(yield* Queue.take(signal)).toBe(asJid(CONV_43));
-  }).pipe(
-    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
-  );
-}
-
-function harnessTeardownLeavesClientCallerOwned() {
-  const fixture = createHarnessClientFixture();
-  const adapter = MoltZapAdapter.fromHarnessClient(fixture.client);
-  return Effect.gen(function* () {
-    const signal = yield* Queue.unbounded<string>();
-    const setupConfig = createSignallingSetup(signal);
-    yield* runPromise(() => adapter.setup(setupConfig));
-    expect(adapter.isConnected()).toBe(true);
-
-    yield* runPromise(() => adapter.teardown());
-    expect(adapter.isConnected()).toBe(false);
-    expect(yield* Queue.isShutdown(fixture.turns)).toBe(false);
-
-    yield* Queue.offer(
-      fixture.turns,
-      makeHarnessTurn(fixture, {
-        conversationId: CONV_42,
-        messageId: MSG_TURN_1,
-        route: FIRST_HARNESS_ROUTE,
-      }),
-    );
-    yield* Effect.yieldNow();
-    expect(yield* Queue.size(fixture.turns)).toBe(1);
-    expect(yield* Queue.size(signal)).toBe(0);
-
-    yield* runPromise(() => adapter.setup(setupConfig));
-    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
-    expect(adapter.isConnected()).toBe(true);
-  }).pipe(
-    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+      yield* Deferred.succeed(releaseFirst, undefined);
+      expect(yield* Queue.take(signal)).toBe(asJid(CONV_43));
+    }),
   );
 }
 
 function harnessMetadataFailureDoesNotStopDrain() {
-  const fixture = createHarnessClientFixture();
-  const adapter = MoltZapAdapter.fromHarnessClient(fixture.client);
-  return Effect.gen(function* () {
-    const signal = yield* Queue.unbounded<string>();
-    const setupConfig = createMetadataFailingSetup(signal);
-    yield* runPromise(() => adapter.setup(setupConfig));
+  const signal = Effect.runSync(Queue.unbounded<string>());
+  const config = createMetadataFailingSetup(signal);
+  const harness = { ...createHarness({ config }), signal };
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
 
-    yield* Queue.offer(
-      fixture.turns,
-      makeHarnessTurn(fixture, {
-        conversationId: CONV_42,
-        messageId: MSG_TURN_1,
-        route: FIRST_HARNESS_ROUTE,
-      }),
-    );
-    yield* Queue.offer(
-      fixture.turns,
-      makeHarnessTurn(fixture, {
-        conversationId: CONV_43,
-        messageId: MSG_TURN_2,
-        route: SECOND_HARNESS_ROUTE,
-      }),
-    );
+      yield* Queue.offer(
+        harness.turns,
+        makeHarnessTurn(harness.replies, {
+          conversationId: CONV_42,
+          messageId: MSG_TURN_1,
+          route: FIRST_HARNESS_ROUTE,
+        }),
+      );
+      yield* Queue.offer(
+        harness.turns,
+        makeHarnessTurn(harness.replies, {
+          conversationId: CONV_43,
+          messageId: MSG_TURN_2,
+          route: SECOND_HARNESS_ROUTE,
+        }),
+      );
 
-    expect(yield* Queue.take(signal)).toBe(asJid(CONV_43));
-    expect(setupConfig.received).toHaveLength(1);
-    expect(adapter.isConnected()).toBe(true);
-  }).pipe(
-    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+      expect(yield* Queue.take(signal)).toBe(asJid(CONV_43));
+      expect(config.received).toHaveLength(1);
+      expect(harness.adapter.isConnected()).toBe(true);
+    }),
   );
 }
 
 function harnessLateDeliveryUsesRetainedAuthority() {
-  const fixture = createHarnessClientFixture();
-  const turn = makeHarnessTurn(fixture, {
+  const replies: HarnessClientReply[] = [];
+  const turn = makeHarnessTurn(replies, {
     conversationId: CONV_42,
     messageId: MSG_TURN_1,
     route: FIRST_HARNESS_ROUTE,
   });
-  const adapter = MoltZapAdapter.fromHarnessClient({
-    ...fixture.client,
-    turns: Stream.make(turn),
-  });
-  return Effect.gen(function* () {
-    const signal = yield* Queue.unbounded<string>();
-    yield* runPromise(() => adapter.setup(createSignallingSetup(signal)));
-    expect(yield* Queue.take(signal)).toBe(asJid(CONV_42));
-    yield* runPromise(() =>
-      vi.waitFor(() => {
-        expect(adapter.isConnected()).toBe(false);
-      }),
-    );
+  const harness = createHarness({ replies, turns: Stream.make(turn) });
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      expect(yield* Queue.take(harness.signal)).toBe(asJid(CONV_42));
+      yield* runPromise(() =>
+        vi.waitFor(() => {
+          expect(harness.adapter.isConnected()).toBe(false);
+        }),
+      );
 
-    yield* deliver(adapter, asJid(CONV_42), FIRST_REPLY);
-    expect(fixture.replies).toEqual([
-      { route: FIRST_HARNESS_ROUTE, payload: FIRST_REPLY },
-    ]);
-  }).pipe(
-    Effect.ensuring(runPromise(() => adapter.teardown()).pipe(Effect.ignore)),
+      yield* deliver(harness.adapter, asJid(CONV_42), FIRST_REPLY);
+      expect(replies).toEqual([
+        { route: FIRST_HARNESS_ROUTE, payload: FIRST_REPLY },
+      ]);
+    }),
   );
 }
 
-function mapsEnrichedMessageToInboundMessage() {
+function mapsTurnToInboundMessage() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    harness.fake.state.setConversation(CONV_1, {
-      type: "dm",
-      name: "alice-dm",
-      participants: [],
-    });
-    harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
-    harness.fake.emit.message(
-      buildMessage({
-        id: MSG_ABC,
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
         conversationId: CONV_1,
-        senderId: AGENT_ALICE,
-        parts: [{ type: "text", text: HI_NANOCLAW }],
-        createdAt: MESSAGE_CREATED_AT,
-      }),
-    );
-    yield* flushDispatch();
+        messageId: MSG_ABC,
+        conversationMeta: { type: "dm", name: "alice-dm", participants: [] },
+      });
 
-    expect(harness.config.received).toHaveLength(1);
-    const { jid, threadId, msg } =
-      /* Safe because the test fixture establishes this asserted shape. */ harness
-        .config.received[0]!;
-    expect(jid).toBe(asJid(CONV_1));
-    expect(threadId).toBeNull();
-    expect(msg.id).toBe(testMessageId(MSG_ABC));
-    expect(msg.kind).toBe(INBOUND_KIND_CHAT);
-    expect(msg.timestamp).toBe(MESSAGE_CREATED_AT);
-    expect(msg.isGroup).toBe(false);
-    const content = inboundContent(msg);
-    expect(content.text).toBe(HI_NANOCLAW);
-    expect(content.sender).toBe(ALICE_NAME);
-    expect(content.senderId).toBe(senderIdFor(AGENT_ALICE));
-  });
+      expect(harness.config.received).toHaveLength(1);
+      const received =
+        /* Safe because the assertion above established the entry exists. */ harness
+          .config.received[0]!;
+      expect(received).toMatchObject({ jid: asJid(CONV_1), threadId: null });
+      expect(received.msg).toMatchObject({
+        id: testMessageId(MSG_ABC),
+        kind: INBOUND_KIND_CHAT,
+        timestamp: MESSAGE_CREATED_AT,
+        isGroup: false,
+      });
+      expect(inboundContent(received.msg)).toEqual({
+        text: HI_NANOCLAW,
+        sender: ALICE_NAME,
+        senderId: senderIdFor(AGENT_ALICE),
+      });
+    }),
+  );
 }
 
 function emitsMetadataBeforeMessage() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setGroupConversation(harness);
-    harness.fake.emit.message(buildMessage());
-    yield* flushDispatch();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
+        conversationId: CONV_1,
+        conversationMeta: groupMeta(DEVS_GROUP_NAME, [AGENT_ALICE]),
+      });
 
-    expect(harness.config.callOrder).toEqual([ON_METADATA, ON_INBOUND]);
-    expect(harness.config.metadata).toHaveLength(1);
-    expect(harness.config.metadata[0]).toMatchObject({
-      jid: asJid(CONV_1),
-      name: DEVS_GROUP_NAME,
-      isGroup: true,
-    });
-  });
+      expect(harness.config.callOrder).toEqual([ON_METADATA, ON_INBOUND]);
+      expect(harness.config.metadata).toHaveLength(1);
+      expect(harness.config.metadata[0]).toMatchObject({
+        jid: asJid(CONV_1),
+        name: DEVS_GROUP_NAME,
+        isGroup: true,
+      });
+    }),
+  );
 }
 
 function dropsMessagesFromOwnAgent() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    harness.fake.emit.message(
-      buildMessage({ conversationId: CONV_1, senderId: AGENT_SELF }),
-    );
-    yield* flushDispatch();
-    expect(harness.config.received).toHaveLength(0);
-    expect(harness.config.callOrder).toHaveLength(0);
-  });
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* Queue.offer(
+        harness.turns,
+        makeHarnessTurn(harness.replies, {
+          conversationId: CONV_1,
+          senderId: AGENT_SELF,
+          isFromMe: true,
+        }),
+      );
+      // The dropped turn signals nothing, so a following turn that does
+      // dispatch is what proves the drain consumed and discarded the first.
+      expect(yield* offerTurn(harness, { conversationId: CONV_42 })).toBe(
+        asJid(CONV_42),
+      );
+
+      expect(harness.config.received).toHaveLength(1);
+      expect(harness.config.received[0]?.jid).toBe(asJid(CONV_42));
+    }),
+  );
 }
 
 function doesNotCreateWiringWithoutEvalMode() {
-  const harness = createHarness(false);
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_EVAL_OFF);
-    harness.fake.emit.message(buildMessage({ conversationId: CONV_EVAL_OFF }));
-    yield* flushDispatch();
-    expect(
-      getMessagingGroupByPlatform(MOLTZAP_CHANNEL_NAME, asJid(CONV_EVAL_OFF)),
-    ).toBeUndefined();
-  });
+  const harness = createHarness({ evalMode: false });
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, { conversationId: CONV_EVAL_OFF });
+      expect(
+        getMessagingGroupByPlatform(MOLTZAP_CHANNEL_NAME, asJid(CONV_EVAL_OFF)),
+      ).toBeUndefined();
+    }),
+  );
 }
 
 function autoRegistersEvalWiring() {
-  const harness = createHarness(true);
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_EVAL_ON);
-    harness.fake.emit.message(buildMessage({ conversationId: CONV_EVAL_ON }));
-    yield* flushDispatch();
+  const harness = createHarness({ evalMode: true });
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, { conversationId: CONV_EVAL_ON });
 
-    const jid = asJid(CONV_EVAL_ON);
-    const group = getMessagingGroupByPlatform(MOLTZAP_CHANNEL_NAME, jid);
-    expect(group).toBeDefined();
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ group!
-        .platform_id,
-    ).toBe(jid);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ group!
-        .unknown_sender_policy,
-    ).toBe(UNKNOWN_SENDER_PUBLIC);
+      const jid = asJid(CONV_EVAL_ON);
+      const group = getMessagingGroupByPlatform(MOLTZAP_CHANNEL_NAME, jid);
+      expect(group).toMatchObject({
+        platform_id: jid,
+        unknown_sender_policy: UNKNOWN_SENDER_PUBLIC,
+      });
 
-    const wiring = getMessagingGroupAgentByPair(
-      /* Safe because the test fixture establishes this asserted shape. */ group!
-        .id,
-      EVAL_AGENT_GROUP_ID,
-    );
-    expect(wiring).toBeDefined();
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ wiring!
-        .engage_mode,
-    ).toBe(ENGAGE_MODE_PATTERN);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ wiring!
-        .engage_pattern,
-    ).toBe(ENGAGE_PATTERN_DOT);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ wiring!
-        .sender_scope,
-    ).toBe(SENDER_SCOPE_ALL);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ wiring!
-        .ignored_message_policy,
-    ).toBe(IGNORED_MESSAGE_POLICY_DROP);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ wiring!
-        .session_mode,
-    ).toBe(SESSION_MODE_SHARED);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */ wiring!
-        .priority,
-    ).toBe(DEFAULT_WIRING_PRIORITY);
-  });
+      const wiring = getMessagingGroupAgentByPair(
+        /* Safe because the assertion above established the group exists. */ group!
+          .id,
+        EVAL_AGENT_GROUP_ID,
+      );
+      // Every persisted policy field comes from the channel's declared
+      // defaults, so the wiring row cannot drift from the contract.
+      expect(wiring).toMatchObject({
+        engage_mode: ENGAGE_MODE_PATTERN,
+        engage_pattern: ENGAGE_PATTERN_DOT,
+        sender_scope: SENDER_SCOPE_ALL,
+        ignored_message_policy: IGNORED_MESSAGE_POLICY_DROP,
+        session_mode: SESSION_MODE_SHARED,
+        priority: DEFAULT_WIRING_PRIORITY,
+      });
+    }),
+  );
 }
 
 function doesNotRecreateExistingEvalWiring() {
-  const harness = createHarness(true);
+  const harness = createHarness({ evalMode: true });
   const jid = asJid(CONV_EVAL_IDEMPOTENT);
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_EVAL_IDEMPOTENT);
-    harness.fake.emit.message(
-      buildMessage({ id: MSG_EVAL_1, conversationId: CONV_EVAL_IDEMPOTENT }),
-    );
-    yield* flushDispatch();
-    const firstGroup = getMessagingGroupByPlatform(MOLTZAP_CHANNEL_NAME, jid);
-    expect(firstGroup).toBeDefined();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
+        conversationId: CONV_EVAL_IDEMPOTENT,
+        messageId: MSG_EVAL_1,
+      });
+      const firstGroup = getMessagingGroupByPlatform(MOLTZAP_CHANNEL_NAME, jid);
+      expect(firstGroup).toBeDefined();
 
-    harness.fake.emit.message(
-      buildMessage({ id: MSG_EVAL_2, conversationId: CONV_EVAL_IDEMPOTENT }),
-    );
-    yield* flushDispatch();
-    const secondGroup = getMessagingGroupByPlatform(MOLTZAP_CHANNEL_NAME, jid);
-    // Same stored object — the second inbound short-circuits before recreating.
-    expect(secondGroup).toBe(firstGroup);
-  });
+      yield* offerTurn(harness, {
+        conversationId: CONV_EVAL_IDEMPOTENT,
+        messageId: MSG_EVAL_2,
+      });
+      const secondGroup = getMessagingGroupByPlatform(
+        MOLTZAP_CHANNEL_NAME,
+        jid,
+      );
+      // Same stored object — the second inbound short-circuits before recreating.
+      expect(secondGroup).toBe(firstGroup);
+    }),
+  );
 }
 
 function inlinesGroupMetadataBlock() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    harness.fake.state.setConversation(CONV_1, {
-      type: "group",
-      name: DEVS_GROUP_NAME,
-      participants: [`agent:${AGENT_ALICE}`, `agent:${AGENT_BOB}`],
-    });
-    harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
-    emitText(harness, CONV_1, HI_TEAM);
-    yield* flushDispatch();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
+        conversationId: CONV_1,
+        text: HI_TEAM,
+        conversationMeta: groupMeta(DEVS_GROUP_NAME, [AGENT_ALICE, AGENT_BOB]),
+      });
 
-    const content = firstReceivedContent(harness);
-    expect(content).toContain(SYSTEM_REMINDER_OPEN);
-    expect(content).toContain(GROUP_CONVERSATION_TEXT);
-    expect(content).toContain(GROUP_NAME_DEVS_TEXT);
-    expect(content).toContain(
-      `Participants (2): agent:${testAgentId(AGENT_ALICE)}, agent:${testAgentId(AGENT_BOB)}`,
-    );
-    expect(content).toContain(SYSTEM_REMINDER_CLOSE);
-    expect(content).toMatch(GROUP_ENDS_WITH_HI_TEAM);
-  });
+      const content = firstReceivedContent(harness);
+      expect(content).toContain(SYSTEM_REMINDER_OPEN);
+      expect(content).toContain(GROUP_CONVERSATION_TEXT);
+      expect(content).toContain(GROUP_NAME_DEVS_TEXT);
+      expect(content).toContain(
+        `Participants (2): agent:${testAgentId(AGENT_ALICE)}, agent:${testAgentId(AGENT_BOB)}`,
+      );
+      expect(content).toContain(SYSTEM_REMINDER_CLOSE);
+      expect(content).toMatch(GROUP_ENDS_WITH_HI_TEAM);
+    }),
+  );
 }
 
 function omitsGroupBlockForDmConversations() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    harness.fake.state.setConversation(CONV_1, {
-      type: "dm",
-      name: "alice-dm",
-      participants: [`agent:${AGENT_ALICE}`, `agent:${AGENT_SELF}`],
-    });
-    harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
-    emitText(harness, CONV_1, JUST_A_DM);
-    yield* flushDispatch();
-    expect(firstReceivedContent(harness)).toBe(JUST_A_DM);
-  });
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
+        conversationId: CONV_1,
+        text: JUST_A_DM,
+        conversationMeta: {
+          type: "dm",
+          name: "alice-dm",
+          participants: [
+            `agent:${testAgentId(AGENT_ALICE)}`,
+            `agent:${testAgentId(AGENT_SELF)}`,
+          ],
+        },
+      });
+      expect(firstReceivedContent(harness)).toBe(JUST_A_DM);
+    }),
+  );
 }
 
 function inlinesCrossConversationMessages() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_1);
-    harness.fake.state.setFullMessages(CONV_1, [
-      {
-        conversationId: CONV_OTHER,
-        senderName: BOB_NAME,
-        senderId: AGENT_BOB,
-        text: FREEDONIA_TEXT,
-        timestamp: CROSS_CONV_TIMESTAMP,
-      },
-    ]);
-    emitText(harness, CONV_1, QUESTION_TEXT);
-    yield* flushDispatch();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
+        conversationId: CONV_1,
+        text: QUESTION_TEXT,
+        crossConversationMessages: [
+          crossConvMessage({
+            senderName: BOB_NAME,
+            senderId: AGENT_BOB,
+            text: FREEDONIA_TEXT,
+          }),
+        ],
+      });
 
-    const content = firstReceivedContent(harness);
-    expect(content).toContain(MESSAGES_OPEN);
-    expect(content).toContain(SENDER_BOB_ATTRIBUTE);
-    expect(content).toContain(ZENDA_TEXT);
-    expect(content).toMatch(QUESTION_ENDS_CONTENT);
-  });
+      const content = firstReceivedContent(harness);
+      expect(content).toContain(MESSAGES_OPEN);
+      expect(content).toContain(SENDER_BOB_ATTRIBUTE);
+      expect(content).toContain(ZENDA_TEXT);
+      expect(content).toMatch(QUESTION_ENDS_CONTENT);
+    }),
+  );
 }
 
 function ordersContextBlocksBeforeRawText() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setGroupConversation(harness);
-    harness.fake.state.setFullMessages(CONV_1, [
-      {
-        conversationId: CONV_OTHER,
-        senderName: BOB_NAME,
-        senderId: AGENT_BOB,
-        text: CROSS_CONV_CANARY,
-        timestamp: CROSS_CONV_TIMESTAMP,
-      },
-    ]);
-    emitText(harness, CONV_1, ACTUAL_MESSAGE_TEXT);
-    yield* flushDispatch();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
+        conversationId: CONV_1,
+        text: ACTUAL_MESSAGE_TEXT,
+        conversationMeta: groupMeta(DEVS_GROUP_NAME, [AGENT_ALICE]),
+        crossConversationMessages: [
+          crossConvMessage({
+            senderName: BOB_NAME,
+            senderId: AGENT_BOB,
+            text: CROSS_CONV_CANARY,
+          }),
+        ],
+      });
 
-    const content = firstReceivedContent(harness);
-    const xconvIdx = content.indexOf(CROSS_CONV_CANARY);
-    const groupIdx = content.indexOf(GROUP_CONVERSATION_TEXT);
-    const textIdx = content.indexOf(ACTUAL_MESSAGE_TEXT);
-    expect(xconvIdx).toBeGreaterThanOrEqual(0);
-    expect(groupIdx).toBeGreaterThan(xconvIdx);
-    expect(textIdx).toBeGreaterThan(groupIdx);
-  });
+      const content = firstReceivedContent(harness);
+      const xconvIdx = content.indexOf(CROSS_CONV_CANARY);
+      const groupIdx = content.indexOf(GROUP_CONVERSATION_TEXT);
+      const textIdx = content.indexOf(ACTUAL_MESSAGE_TEXT);
+      expect(xconvIdx).toBeGreaterThanOrEqual(0);
+      expect(groupIdx).toBeGreaterThan(xconvIdx);
+      expect(textIdx).toBeGreaterThan(groupIdx);
+    }),
+  );
 }
 
 function sanitizesGroupMetadata() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    harness.fake.state.setConversation(CONV_1, {
-      type: "group",
-      name: MALICIOUS_GROUP_NAME,
-      participants: [`agent:${AGENT_ALICE}`],
-    });
-    harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
-    harness.fake.emit.message(buildMessage());
-    yield* flushDispatch();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
+        conversationId: CONV_1,
+        conversationMeta: groupMeta(MALICIOUS_GROUP_NAME, [AGENT_ALICE]),
+      });
 
-    const content = firstReceivedContent(harness);
-    expect(content).not.toContain(MALICIOUS_GROUP_FRAGMENT);
-    expect(content).toContain(ESCAPED_GROUP_FRAGMENT);
-    expect(content.match(SYSTEM_REMINDER_OPEN_PATTERN)).toHaveLength(1);
-    expect(content.match(SYSTEM_REMINDER_CLOSE_PATTERN)).toHaveLength(1);
-  });
+      const content = firstReceivedContent(harness);
+      expect(content).not.toContain(MALICIOUS_GROUP_FRAGMENT);
+      expect(content).toContain(ESCAPED_GROUP_FRAGMENT);
+      expect(content.match(SYSTEM_REMINDER_OPEN_PATTERN)).toHaveLength(1);
+      expect(content.match(SYSTEM_REMINDER_CLOSE_PATTERN)).toHaveLength(1);
+    }),
+  );
 }
 
 function sanitizesCrossConversationSenderName() {
   const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_1);
-    harness.fake.state.setFullMessages(CONV_1, [
-      {
-        conversationId: CONV_OTHER,
-        senderName: MALICIOUS_SENDER,
-        senderId: AGENT_MALLORY,
-        text: CONTENT_TEXT,
-        timestamp: CROSS_CONV_TIMESTAMP,
-      },
-    ]);
-    harness.fake.emit.message(buildMessage());
-    yield* flushDispatch();
+  return withTeardown(
+    harness,
+    Effect.gen(function* () {
+      yield* setup(harness);
+      yield* offerTurn(harness, {
+        conversationId: CONV_1,
+        crossConversationMessages: [
+          crossConvMessage({
+            senderName: MALICIOUS_SENDER,
+            senderId: AGENT_MALLORY,
+            text: CONTENT_TEXT,
+          }),
+        ],
+      });
 
-    const content = firstReceivedContent(harness);
-    expect(content).not.toContain(MALICIOUS_MESSAGES_FRAGMENT);
-    expect(content).toContain(ESCAPED_MESSAGES_FRAGMENT);
-    expect(content.match(MESSAGES_OPEN_PATTERN)).toHaveLength(1);
-    expect(content.match(MESSAGES_CLOSE_PATTERN)).toHaveLength(1);
-  });
+      const content = firstReceivedContent(harness);
+      expect(content).not.toContain(MALICIOUS_MESSAGES_FRAGMENT);
+      expect(content).toContain(ESCAPED_MESSAGES_FRAGMENT);
+      expect(content.match(MESSAGES_OPEN_PATTERN)).toHaveLength(1);
+      expect(content.match(MESSAGES_CLOSE_PATTERN)).toHaveLength(1);
+    }),
+  );
 }
 
 describe("MoltZapAdapter lifecycle", () => {
   vitestIt(
-    "constructs synchronously without reading the profile",
-    constructsSynchronouslyWithoutReadingTheProfile,
+    "constructs without acquiring its client",
+    constructsWithoutAcquiringItsClient,
   );
   vitestIt(
-    "teardown before setup resolves without a core",
-    teardownBeforeSetupResolvesWithoutACore,
+    "teardown before setup resolves without a client",
+    teardownBeforeSetupResolvesWithoutAClient,
   );
-  it("setup delegates to the core and marks connected", setupDelegatesToCore);
   it(
-    "teardown delegates to the core and clears connected",
-    teardownDelegatesToCore,
+    "setup acquires the client and marks connected",
+    setupAcquiresTheClientAndConnects,
+  );
+  it(
+    "setup while connected does not reacquire the client",
+    setupWhileConnectedDoesNotReacquire,
+  );
+  it(
+    "teardown closes the adapter-owned client scope",
+    teardownClosesTheAdapterOwnedScope,
+  );
+  it(
+    "setup after teardown acquires a fresh client and drains it",
+    setupAfterTeardownAcquiresAgain,
+  );
+  it(
+    "a failed acquisition leaves no scope behind for the next setup",
+    failedAcquisitionLeavesNoScopeBehind,
   );
 });
 
@@ -1060,21 +1091,10 @@ describe("MoltZapAdapter ownership", () => {
 });
 
 describe("MoltZapAdapter deliver basics", () => {
-  it(
-    "strips the mz prefix and forwards to core.sendReply",
-    stripsPrefixAndForwardsSend,
-  );
   it("rejects a JID not owned by this channel", rejectsUnownedJid);
   it(
     "rejects when no inbound established a conversation for the JID",
     rejectsDeliverWithoutInboundConversation,
-  );
-});
-
-describe("MoltZapAdapter turn serialization", () => {
-  it(
-    "serializes overlapping turns so each reply keeps its own conversation",
-    overlappingTurnsStaySerialized,
   );
 });
 
@@ -1085,17 +1105,10 @@ describe("MoltZapAdapter HarnessClient behavior", () => {
     harnessRepliesUseLatestBoundTurn,
   );
   it(
-    "propagates reply failure without a legacy fallback",
+    "propagates reply failure with no other route",
     harnessReplyFailureHasNoFallback,
   );
-  it(
-    "drains injected Harness turns sequentially",
-    harnessTurnsDrainSequentially,
-  );
-  it(
-    "can restart its drain without closing the caller-owned client",
-    harnessTeardownLeavesClientCallerOwned,
-  );
+  it("drains Harness turns sequentially", harnessTurnsDrainSequentially);
   it(
     "continues after a synchronous metadata callback failure",
     harnessMetadataFailureDoesNotStopDrain,
@@ -1108,8 +1121,8 @@ describe("MoltZapAdapter HarnessClient behavior", () => {
 
 describe("MoltZapAdapter inbound projection", () => {
   it(
-    "maps enriched message to InboundMessage with mz prefix",
-    mapsEnrichedMessageToInboundMessage,
+    "maps a Harness turn to InboundMessage with mz prefix",
+    mapsTurnToInboundMessage,
   );
   it("calls onMetadata before onInbound", emitsMetadataBeforeMessage);
   it(

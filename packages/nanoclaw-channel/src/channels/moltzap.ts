@@ -4,25 +4,22 @@ import {
   ConfigProvider,
   Data,
   Effect,
+  Exit,
   Fiber,
-  Match,
   Option,
+  Scope,
   Stream,
 } from "effect";
-import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
+import { harnessClientForProfile } from "@moltzap/client";
 import type {
   HarnessClientService,
   HarnessTurn,
 } from "@moltzap/client/harness-client";
-import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   BoundedMap,
-  MoltZapChannelCore,
   formatCrossConv,
   formatGroupBlock,
   getGroupFields,
-  type ChannelService,
-  type EnrichedInboundMessage,
 } from "@moltzap/client/channel-base";
 
 import type {
@@ -41,8 +38,8 @@ import {
 import type { MessagingGroupAgent } from "../types.js";
 
 // `MoltZapChannelError` covers nanoclaw's host-shape failures: un-owned jid,
-// unknown conversation, disconnected channel. Reply failures keep the error
-// type supplied by their backing client.
+// unknown conversation, and a host callback that rejects a projected turn.
+// Reply failures keep the error type supplied by their backing client.
 class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
   readonly reason: string;
 }> {
@@ -93,6 +90,17 @@ const moltZapChannelEnv = Config.all({
 });
 
 /**
+ * A scoped acquisition of the adapter-facing Harness capability. The adapter
+ * opens the scope in `setup` and closes it in `teardown`, so the acquisition
+ * describes the whole client lifetime rather than a borrowed connection.
+ */
+export type HarnessClientAcquisition = Effect.Effect<
+  HarnessClientService,
+  Error,
+  Scope.Scope
+>;
+
+/**
  * MoltZap conversationId → nanoclaw platform id. The router addresses
  * conversations by `(channelType, platformId)`; this channel uses
  * `mz:<conversationId>` platform ids, and replies read their bound route from
@@ -135,47 +143,32 @@ function extractOutboundText(message: OutboundMessage): string | null {
   return null;
 }
 
-interface MoltZapAdapterState {
-  readonly core: MoltZapChannelCore | null;
-  readonly harnessClient: HarnessClientService | null;
-  readonly ownAgentId: string;
-  readonly evalMode: boolean;
-  readonly profileName: string | null;
-}
-
-type ConversationReplyRoute =
-  | {
-      readonly _tag: "legacy";
-      readonly conversationId: ConversationId;
-    }
-  | {
-      readonly _tag: "harness";
-      readonly reply: HarnessTurn["reply"];
-    };
-
 /**
- * Nanoclaw channel adapter for MoltZap. Presents Nanoclaw's
- * `ChannelAdapter` contract over either the transitional channel core or an
- * injected `HarnessClient`.
+ * Nanoclaw channel adapter for MoltZap. Presents Nanoclaw's `ChannelAdapter`
+ * contract over a Harness client whose lifetime this adapter owns.
  *
  * ```mermaid
  * sequenceDiagram
- *   participant Source as HarnessClient or MoltZapChannelCore
- *   participant Handler as handleInbound (this adapter)
+ *   participant Nano as nanoclaw channel host
+ *   participant Adapter as MoltZapAdapter
+ *   participant Client as HarnessClient
  *   participant Router as nanoclaw router
- *   Source->>Handler: HarnessTurn or enriched inbound
- *   note over Handler: Step 1 — jidFromConversationId<br>platformId = "mz:" + conversationId
- *   note over Handler: Step 2 — rememberReplyRoute<br>latest reply authority retained by jid
- *   note over Handler: Step 3 — ensureEvalWiring (eval mode only)<br>conversation rows target the harness-seeded agent
- *   Handler->>Router: Step 4 — setup.onMetadata(jid, name, isGroup)
- *   Handler->>Router: Step 5 — setup.onInbound(jid, null, message)
- *   Router-->>Handler: Step 6 — callback resolves
+ *   Nano->>Adapter: setup(config)
+ *   note over Adapter: Step 1 — Scope.make<br>the adapter owns the client scope
+ *   Adapter->>Client: Step 2 — acquire within that scope
+ *   Client-->>Adapter: Step 3 — HarnessTurn per inbound
+ *   note over Adapter: Step 4 — jidFromConversationId<br>platformId = "mz:" + conversationId
+ *   note over Adapter: Step 5 — rememberReplyRoute<br>turn.reply retained by jid
+ *   note over Adapter: Step 6 — ensureEvalWiring (eval mode only)<br>conversation rows target the harness-seeded agent
+ *   Adapter->>Router: Step 7 — setup.onMetadata(jid, name, isGroup)
+ *   Adapter->>Router: Step 8 — setup.onInbound(jid, null, message)
+ *   Nano->>Adapter: teardown()
+ *   note over Adapter: Step 9 — Scope.close<br>the client and its daemon go with it
  * ```
  *
  * Nanoclaw writes model output to its session outbox and calls `deliver`
  * asynchronously, after the inbound callback may already have returned. The
- * per-jid entry therefore retains the newest bound reply authority instead of
- * reducing a Harness turn back to a generic conversation send.
+ * per-jid entry therefore retains the newest bound reply authority.
  */
 export class MoltZapAdapter implements ChannelAdapter {
   readonly name = MOLTZAP_CHANNEL;
@@ -189,118 +182,66 @@ export class MoltZapAdapter implements ChannelAdapter {
   // next inbound refreshes the entry.
   private readonly replyRoutesByJid = new BoundedMap<
     string,
-    ConversationReplyRoute
+    HarnessTurn["reply"]
   >(MAX_TRACKED_CONVERSATIONS);
-  private ownAgentId: string;
-  private core: MoltZapChannelCore | null;
-  private readonly harnessClient: HarnessClientService | null;
+  private readonly acquireClient: HarnessClientAcquisition;
+  private readonly evalMode: boolean;
+  private ownAgentId = "";
+  private harnessScope: Scope.CloseableScope | null = null;
   private harnessDrainFiber: Fiber.RuntimeFiber<void> | null = null;
   private harnessConnected = false;
   private setupConfig: ChannelSetup | null = null;
-  private readonly evalMode: boolean;
-  private readonly profileName: string | null;
 
-  private constructor(state: MoltZapAdapterState) {
-    this.core = state.core;
-    this.harnessClient = state.harnessClient;
-    this.ownAgentId = state.ownAgentId;
-    this.evalMode = state.evalMode;
-    this.profileName = state.profileName;
-    if (state.core !== null) {
-      this.attachCore(state.core);
-    }
-  }
-
-  static fromService(
-    service: ChannelService,
-    evalMode = false,
-  ): MoltZapAdapter {
-    return new MoltZapAdapter({
-      core: new MoltZapChannelCore({ service }),
-      harnessClient: null,
-      ownAgentId: service.ownAgentId ?? "",
-      evalMode,
-      profileName: null,
-    });
-  }
-
-  static fromProfile(profileName: string, evalMode = false): MoltZapAdapter {
-    return new MoltZapAdapter({
-      core: null,
-      harnessClient: null,
-      ownAgentId: "",
-      evalMode,
-      profileName,
-    });
+  private constructor(
+    acquireClient: HarnessClientAcquisition,
+    evalMode: boolean,
+  ) {
+    this.acquireClient = acquireClient;
+    this.evalMode = evalMode;
   }
 
   /**
-   * Creates an adapter over an already acquired Harness client. The caller
-   * owns the client's scope; adapter teardown interrupts only this adapter's
-   * turn drain.
-   * @param harnessClient Adapter-facing Harness capability.
+   * Creates an adapter that owns one Harness client acquisition.
+   *
+   * Nanoclaw builds channel adapters from a zero-argument factory at module
+   * import, so no caller exists to hold a `Scope` across the adapter's
+   * lifetime. The acquisition stays a lazy description here and is run inside
+   * an adapter-owned scope by `setup`.
+   * @param acquireClient Scoped acquisition of the adapter-facing capability.
    * @param evalMode Whether first inbound creates NanoClaw eval wiring.
    * @returns An adapter whose replies use authorities carried by Harness turns.
    */
-  static fromHarnessClient(
-    harnessClient: HarnessClientService,
+  static fromHarnessAcquisition(
+    acquireClient: HarnessClientAcquisition,
     evalMode = false,
   ): MoltZapAdapter {
-    return new MoltZapAdapter({
-      core: null,
-      harnessClient,
-      ownAgentId: harnessClient.agentId,
-      evalMode,
-      profileName: null,
-    });
+    return new MoltZapAdapter(acquireClient, evalMode);
   }
 
   setup(config: ChannelSetup) {
     this.setupConfig = config;
-    const harnessClient = this.harnessClient;
-    if (harnessClient !== null) {
-      return Effect.runPromise(
-        this.startHarnessDrain(harnessClient).pipe(
-          Effect.tap(() =>
-            Effect.logInfo("MoltZap connected").pipe(
-              Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
-            ),
-          ),
-        ),
-      );
-    }
     return Effect.runPromise(
-      this.initializeCore().pipe(
-        Effect.flatMap((core) => core.connect()),
+      this.connect().pipe(
         Effect.tap(() =>
           Effect.logInfo("MoltZap connected").pipe(
             Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
           ),
         ),
-        Effect.asVoid,
       ),
     );
   }
 
   teardown() {
-    if (this.harnessClient !== null) {
-      return Effect.runPromise(this.stopHarnessDrain());
-    }
-    const core = this.core;
-    return Effect.runPromise(
-      core === null ? Effect.void : core.disconnect().pipe(Effect.asVoid),
-    );
+    return Effect.runPromise(this.disconnect());
   }
 
   isConnected(): boolean {
-    return this.harnessClient === null
-      ? (this.core?.isConnected() ?? false)
-      : this.harnessConnected;
+    return this.harnessConnected;
   }
 
   /**
-   * Outbound reply path: the reply uses the route retained by the jid's most
-   * recent inbound. Harness-backed routes keep their exact bound closure.
+   * Outbound reply path: the reply uses the authority retained by the jid's
+   * most recent inbound, keeping its exact bound closure.
    * @param platformId Value supplied to the operation.
    * @param args Thread identifier and outbound message supplied by Nanoclaw.
    * @returns The text result.
@@ -320,48 +261,41 @@ export class MoltZapAdapter implements ChannelAdapter {
     return jid.startsWith(MOLTZAP_JID_PREFIX);
   }
 
-  private initializeCore() {
+  // The scope is opened here rather than at construction so a channel the
+  // host never starts spawns no daemon, and a failed acquisition leaves the
+  // adapter with no half-open scope to close.
+  private connect(): Effect.Effect<void, Error> {
     return Effect.gen(
       function* (this: MoltZapAdapter) {
-        if (this.core !== null) {
-          return this.core;
+        if (this.harnessScope !== null) {
+          return;
         }
-        const profileName = this.profileName;
-        if (profileName === null) {
-          return yield* new MoltZapChannelError({
-            reason: "MoltZap channel has no profile for initialization",
-          });
-        }
-        const service = yield* MoltZapService.make(profileName);
-        const core = new MoltZapChannelCore({ service });
-        this.core = core;
-        this.ownAgentId = service.ownAgentId ?? "";
-        this.attachCore(core);
-        return core;
+        const scope = yield* Scope.make();
+        const client = yield* Scope.extend(this.acquireClient, scope).pipe(
+          Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
+        );
+        this.harnessScope = scope;
+        this.ownAgentId = client.agentId;
+        yield* this.startHarnessDrain(client);
       }.bind(this),
     );
   }
 
-  private attachCore(core: MoltZapChannelCore): void {
-    core.onInbound((msg: EnrichedInboundMessage) =>
-      this.handleInbound(msg, {
-        _tag: "legacy",
-        conversationId: msg.conversationId,
-      }),
+  private disconnect(): Effect.Effect<void> {
+    return this.stopHarnessDrain().pipe(
+      Effect.zipRight(
+        Effect.suspend(() => {
+          const scope = this.harnessScope;
+          this.harnessScope = null;
+          return scope === null
+            ? Effect.void
+            : Scope.close(scope, Exit.succeed(undefined));
+        }),
+      ),
     );
-    core.onDisconnect(() => {
-      Effect.runFork(
-        Effect.logWarning("MoltZap disconnected").pipe(
-          Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
-        ),
-      );
-    });
   }
 
-  private deliverEffect(
-    jid: string,
-    text: string,
-  ): Effect.Effect<void, Error | ServiceRpcError> {
+  private deliverEffect(jid: string, text: string): Effect.Effect<void, Error> {
     return Effect.gen(
       function* (this: MoltZapAdapter) {
         if (!this.ownsJid(jid)) {
@@ -369,57 +303,29 @@ export class MoltZapAdapter implements ChannelAdapter {
             reason: `MoltZap channel does not own jid: ${jid}`,
           });
         }
-        const route = this.replyRoutesByJid.get(jid);
-        if (route === undefined) {
+        const reply = this.replyRoutesByJid.get(jid);
+        if (reply === undefined) {
           return yield* new MoltZapChannelError({
             reason: `MoltZap channel has no conversation for jid: ${jid}`,
           });
         }
-        yield* Match.value(route).pipe(
-          Match.tag("harness", ({ reply }) =>
-            this.deliverHarnessReply(reply, text),
-          ),
-          Match.tag("legacy", ({ conversationId }) =>
-            this.deliverLegacyReply(conversationId, text),
-          ),
-          Match.exhaustive,
-        );
+        yield* reply(text);
       }.bind(this),
     );
   }
 
-  private deliverHarnessReply(
-    reply: HarnessTurn["reply"],
-    text: string,
-  ): Effect.Effect<void, Error> {
-    return reply(text);
-  }
-
-  private deliverLegacyReply(
-    conversationId: ConversationId,
-    text: string,
-  ): Effect.Effect<void, MoltZapChannelError | ServiceRpcError> {
-    const core = this.core;
-    return core === null
-      ? new MoltZapChannelError({
-          reason: "MoltZap channel is not connected",
-        })
-      : core.sendReply(conversationId, text);
-  }
-
-  private rememberReplyRoute(jid: string, route: ConversationReplyRoute): void {
-    this.replyRoutesByJid.set(jid, route);
+  private rememberReplyRoute(jid: string, reply: HarnessTurn["reply"]): void {
+    this.replyRoutesByJid.set(jid, reply);
   }
 
   private handleInbound(
-    enriched: EnrichedInboundMessage,
-    route: ConversationReplyRoute,
+    turn: HarnessTurn,
   ): Effect.Effect<void, MoltZapChannelError> {
     return Effect.gen(
       function* (this: MoltZapAdapter) {
         // Own outbound replies echo back through the notification stream; the
         // router has no is-from-me concept, so they are dropped here.
-        if (enriched.isFromMe) {
+        if (turn.isFromMe) {
           return;
         }
         const config = this.setupConfig;
@@ -428,16 +334,16 @@ export class MoltZapAdapter implements ChannelAdapter {
         }
         const prepared = yield* Effect.try({
           try: () => {
-            const jid = jidFromConversationId(enriched.conversationId);
-            this.rememberReplyRoute(jid, route);
-            const isGroup = enriched.conversationMeta?.type === "group";
+            const jid = jidFromConversationId(turn.conversationId);
+            this.rememberReplyRoute(jid, turn.reply);
+            const isGroup = turn.conversationMeta?.type === "group";
             if (this.evalMode) {
-              this.ensureEvalWiring(jid, enriched, isGroup);
+              this.ensureEvalWiring(jid, turn, isGroup);
             }
-            config.onMetadata(jid, enriched.conversationMeta?.name, isGroup);
+            config.onMetadata(jid, turn.conversationMeta?.name, isGroup);
             return {
               jid,
-              message: this.toInboundMessage(enriched, isGroup),
+              message: this.toInboundMessage(turn, isGroup),
             };
           },
           catch: (cause) =>
@@ -470,10 +376,7 @@ export class MoltZapAdapter implements ChannelAdapter {
       const fiber = Effect.runFork(
         harnessClient.turns.pipe(
           Stream.runForEach((turn) =>
-            this.handleInbound(turn, {
-              _tag: "harness",
-              reply: turn.reply,
-            }).pipe(
+            this.handleInbound(turn).pipe(
               Effect.catchAll((cause) =>
                 this.logHarnessTurnFailure(turn, cause),
               ),
@@ -520,57 +423,59 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   private stopHarnessDrain(): Effect.Effect<void> {
-    const fiber = this.harnessDrainFiber;
-    this.harnessConnected = false;
-    return fiber === null
-      ? Effect.void
-      : Fiber.interrupt(fiber).pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              this.clearHarnessDrain(fiber);
-            }),
-          ),
-          Effect.asVoid,
-        );
+    return Effect.suspend(() => {
+      const fiber = this.harnessDrainFiber;
+      this.harnessConnected = false;
+      return fiber === null
+        ? Effect.void
+        : Fiber.interrupt(fiber).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                this.clearHarnessDrain(fiber);
+              }),
+            ),
+            Effect.asVoid,
+          );
+    });
   }
 
   // Nanoclaw's router consumes the content text verbatim into prompt XML,
   // so structured context blocks are rendered as `<system-reminder>` markup
   // here via channel-base's `xml-system-reminder` variant.
-  private contentFor(enriched: EnrichedInboundMessage): string {
+  private contentFor(turn: HarnessTurn): string {
     const blocks: string[] = [];
     const crossConv = formatCrossConv(
-      enriched.contextBlocks.crossConversationMessages ?? [],
+      turn.contextBlocks.crossConversationMessages ?? [],
       { ownAgentId: this.ownAgentId, markup: "xml-system-reminder" },
     );
     if (crossConv !== null) {
       blocks.push(crossConv);
     }
-    const groupFields = getGroupFields(enriched.contextBlocks.groupMetadata);
+    const groupFields = getGroupFields(turn.contextBlocks.groupMetadata);
     if (groupFields !== null) {
       blocks.push(
         formatGroupBlock(groupFields, { markup: "xml-system-reminder" }),
       );
     }
     if (blocks.length === 0) {
-      return enriched.text;
+      return turn.text;
     }
-    return `${blocks.join("\n\n")}\n\n${enriched.text}`;
+    return `${blocks.join("\n\n")}\n\n${turn.text}`;
   }
 
   private toInboundMessage(
-    enriched: EnrichedInboundMessage,
+    turn: HarnessTurn,
     isGroup: boolean,
   ): InboundMessage {
     return {
-      id: enriched.id,
+      id: turn.id,
       kind: "chat",
       content: {
-        text: this.contentFor(enriched),
-        sender: enriched.sender.name ?? enriched.sender.id,
-        senderId: `${MOLTZAP_CHANNEL}:${enriched.sender.id}`,
+        text: this.contentFor(turn),
+        sender: turn.sender.name ?? turn.sender.id,
+        senderId: `${MOLTZAP_CHANNEL}:${turn.sender.id}`,
       },
-      timestamp: enriched.createdAt,
+      timestamp: turn.createdAt,
       isGroup,
     };
   }
@@ -582,18 +487,18 @@ export class MoltZapAdapter implements ChannelAdapter {
    * container config before startup; NanoClaw's sender resolver owns user
    * rows. Production registrations stay out of band.
    * @param jid Value supplied to the operation.
-   * @param enriched Value supplied to the operation.
+   * @param turn Value supplied to the operation.
    * @param isGroup Value supplied to the operation.
    */
   private ensureEvalWiring(
     jid: string,
-    enriched: EnrichedInboundMessage,
+    turn: HarnessTurn,
     isGroup: boolean,
   ): void {
     if (getMessagingGroupByPlatform(MOLTZAP_CHANNEL, jid) !== undefined) {
       return;
     }
-    this.createEvalWiring(jid, enriched, isGroup);
+    this.createEvalWiring(jid, turn, isGroup);
   }
 
   // Persisted policy fields come from MOLTZAP_CONTEXT_DEFAULTS so the wiring
@@ -601,23 +506,23 @@ export class MoltZapAdapter implements ChannelAdapter {
   // the full conversation id, making the platform lookup the freshness guard.
   private createEvalWiring(
     jid: string,
-    enriched: EnrichedInboundMessage,
+    turn: HarnessTurn,
     isGroup: boolean,
   ): void {
     const now = new Date().toISOString();
-    const shortId = enriched.conversationId.slice(0, EVAL_NAME_ID_CHARS);
-    const messagingGroupId = `mg-eval-${enriched.conversationId}`;
+    const shortId = turn.conversationId.slice(0, EVAL_NAME_ID_CHARS);
+    const messagingGroupId = `mg-eval-${turn.conversationId}`;
     createMessagingGroup({
       id: messagingGroupId,
       channel_type: MOLTZAP_CHANNEL,
       platform_id: jid,
-      name: enriched.conversationMeta?.name ?? `eval-${shortId}`,
+      name: turn.conversationMeta?.name ?? `eval-${shortId}`,
       is_group: isGroup ? 1 : 0,
       unknown_sender_policy: MOLTZAP_CONTEXT_DEFAULTS.unknownSenderPolicy,
       created_at: now,
     });
     createMessagingGroupAgent({
-      id: `mga-eval-${enriched.conversationId}`,
+      id: `mga-eval-${turn.conversationId}`,
       messaging_group_id: messagingGroupId,
       agent_group_id: EVAL_AGENT_GROUP_ID,
       engage_mode: MOLTZAP_CONTEXT_DEFAULTS.engageMode,
@@ -632,8 +537,11 @@ export class MoltZapAdapter implements ChannelAdapter {
 }
 
 /**
- * Creates molt zap adapter.
- * @param env Value supplied to the operation.
+ * Builds the adapter nanoclaw registers for this channel. The profile name is
+ * the only input the production composition needs: the slot carries the
+ * loopback port its daemon binds, and `harnessClientForProfile` derives the
+ * daemon child, the endpoint, and the checkpoint store from it.
+ * @param env Channel environment; read from the process environment when omitted.
  * @returns The created molt zap adapter.
  */
 export function makeMoltZapAdapter(
@@ -643,8 +551,8 @@ export function makeMoltZapAdapter(
   if (resolvedEnv.profileName === null) {
     return null;
   }
-  return MoltZapAdapter.fromProfile(
-    resolvedEnv.profileName,
+  return MoltZapAdapter.fromHarnessAcquisition(
+    harnessClientForProfile(resolvedEnv.profileName),
     resolvedEnv.evalMode,
   );
 }
