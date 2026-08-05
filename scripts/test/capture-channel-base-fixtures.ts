@@ -36,7 +36,7 @@
  *
  * Usage (run from workspace root, BEFORE any formatter logic moves):
  *
- *   pnpm tsx scripts/capture-channel-base-fixtures.ts
+ *   pnpm tsx scripts/test/capture-channel-base-fixtures.ts
  *
  * The script is checked in so future archaeologists can re-run it (the
  * inlined logic is the canonical record of "what was here"). It is NOT a
@@ -151,6 +151,7 @@ function legacyFormatGroupBlockNanoclaw(
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = resolve(
   HERE,
+  "..",
   "..",
   "packages",
   "client",
