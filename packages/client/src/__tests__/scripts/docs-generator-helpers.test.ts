@@ -1,45 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  escapeMdxProse,
   readPackageVersion,
   readTopLevelStringConst,
-} from "../../../scripts/generate-cli-docs.helpers.js";
+} from "../../../scripts/docs-generator.helpers.js";
 
 const SAMPLE_VERSION = "2026.524.1";
 const SAMPLE_VERSION_SRC = `export const PROTOCOL_VERSION = "${SAMPLE_VERSION}";`;
 const VERSION_IDENTIFIER = "PROTOCOL_VERSION";
-const RAW_HELP_PROSE =
-  "Use <name> or conv:<conversationId>; keep `profiles.<name>` literal.";
-const ESCAPED_HELP_PROSE =
-  "Use &lt;name&gt; or conv:&lt;conversationId&gt;; keep `profiles.<name>` literal.";
-
-describe("escapeMdxProse", () => {
-  it("escapes placeholders in prose while preserving inline code", () => {
-    expect(escapeMdxProse(RAW_HELP_PROSE)).toBe(ESCAPED_HELP_PROSE);
-  });
-
-  it("preserves fenced and indented code while escaping MDX expressions", () => {
-    expect(
-      escapeMdxProse(
-        [
-          "Outside {value}",
-          "```text",
-          "<inside>",
-          "```",
-          "    <indented>",
-        ].join("\n"),
-      ),
-    ).toBe(
-      [
-        "Outside &#123;value&#125;",
-        "```text",
-        "<inside>",
-        "```",
-        "    <indented>",
-      ].join("\n"),
-    );
-  });
-});
 
 describe("readPackageVersion", () => {
   it("extracts the canonical package version", () => {

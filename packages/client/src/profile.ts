@@ -103,14 +103,6 @@ export interface LayeredConfig {
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
-/** Exhaustive error union for the profile surface. */
-export type ProfileError =
-  | ProfileNotFoundError
-  | ProfileNotRegisteredError
-  | ProfileInvalidNameError
-  | ProfileConfigReadError
-  | ProfileConfigWriteError;
-
 /** Reports profile not found failures. */
 export class ProfileNotFoundError extends Data.TaggedError(
   "ProfileNotFoundError",

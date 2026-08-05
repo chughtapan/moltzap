@@ -56,9 +56,6 @@
       "!{workspaceRoot}/docs/modules/**/*",
       "!{workspaceRoot}/docs/protocol/methods/**/*",
       "!{workspaceRoot}/docs/protocol/notifications/**/*",
-      "!{workspaceRoot}/docs/cli/reference.mdx",
-      "!{workspaceRoot}/docs/snippets/cli-commands-table.mdx",
-      "!{workspaceRoot}/docs/snippets/cli-global-flags.mdx",
       "!{workspaceRoot}/docs/snippets/constants/**/*",
       "!{workspaceRoot}/docs/snippets/ws-connect-example.mdx"
     ],

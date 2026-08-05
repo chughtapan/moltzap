@@ -44,7 +44,7 @@
         "parallel": false,
         "commands": [
           "pnpm --filter @moltzap/protocol docs:generate",
-          "pnpm --filter @moltzap/client exec tsx scripts/generate-cli-docs.ts",
+          "pnpm --filter @moltzap/client exec tsx scripts/generate-ws-connect-snippet.ts",
           "pnpm --filter @moltzap/server-core exec tsx ../../scripts/generate-constants-snippets.ts"
         ]
       }

@@ -3,9 +3,9 @@
 import { Command, Options } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
-import packageJson from "../../package.json" with { type: "json" };
-import { runMoltzapd } from "../moltzapd.js";
-import { profileName } from "../profile.js";
+import packageJson from "../package.json" with { type: "json" };
+import { runMoltzapd } from "./moltzapd.js";
+import { profileName } from "./profile.js";
 
 const profileOption = Options.text("profile").pipe(
   Options.withSchema(profileName),

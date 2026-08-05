@@ -385,17 +385,9 @@ const makeHarnessHandler = (
 const startHarnessServer = async (
   handler: HarnessMcpSubscriptionHandler<HarnessTurnEvent>,
 ) => {
-  const registration = createMcpHandler(
-    () => new McpServer(SERVER_IMPLEMENTATION),
-    { legacy: "reject" },
-  );
   const scope = Effect.runSync(Scope.make());
   const server = await Effect.runPromise(
-    acquireHarnessMcpHttpServer({
-      port: 0,
-      registrationHandler: registration,
-      harnessHandler: handler,
-    }).pipe(Scope.extend(scope)),
+    acquireHarnessMcpHttpServer({ port: 0, handler }).pipe(Scope.extend(scope)),
   );
   const address = server.address();
   if (address === null || typeof address === "string") {

@@ -1,4 +1,4 @@
-import { FileSystem, HttpClient } from "@effect/platform";
+import { HttpClient } from "@effect/platform";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import {
   Client,
@@ -14,7 +14,6 @@ import { Data, Duration, Effect, Schema, type Scope } from "effect";
 import { expect } from "vitest";
 import packageJson from "../../../../package.json" with { type: "json" };
 import { withTestServiceConfig } from "../../../config.test-utils.js";
-import { getMoltZapAgentServiceSocketPath } from "../../../local-paths.js";
 import * as H from "../../support/index.js";
 
 const PROFILE_NAME = "moltzapd-process-integration";
@@ -264,15 +263,6 @@ const waitForConnectionCount = (
   );
 };
 
-const expectNoUnixSocket = (socketPath: string) =>
-  FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) => fileSystem.exists(socketPath)),
-    Effect.map((exists) => {
-      expect(exists).toBe(false);
-      return undefined;
-    }),
-  );
-
 const runDaemonProcess = (owner: RegisteredAgent, mcpPort: number) =>
   withTestServiceConfig(
     {
@@ -285,13 +275,11 @@ const runDaemonProcess = (owner: RegisteredAgent, mcpPort: number) =>
     },
     Effect.scoped(
       Effect.gen(function* () {
-        const socketPath = getMoltZapAgentServiceSocketPath(owner.agentId);
         const url = new URL(
           MCP_PATH,
           `http://${LOOPBACK_HOST}:${String(mcpPort)}`,
         );
 
-        yield* expectNoUnixSocket(socketPath);
         expect(yield* healthConnections()).toBe(0);
 
         const running = yield* acquireDaemon();
@@ -308,12 +296,10 @@ const runDaemonProcess = (owner: RegisteredAgent, mcpPort: number) =>
           conversations: 0,
         });
         yield* waitForConnectionCount(1);
-        yield* expectNoUnixSocket(socketPath);
 
         const requiredKill = yield* stopDaemon(running);
         expect(requiredKill).toBe(false);
         yield* waitForConnectionCount(0);
-        yield* expectNoUnixSocket(socketPath);
       }).pipe(Effect.provide(NodeContext.layer)),
     ),
   );

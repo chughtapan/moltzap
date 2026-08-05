@@ -58,7 +58,7 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`ContextOptions`](./service.ts#L118)
+### [`ContextOptions`](./service.ts#L89)
 
 _Interface_
 
@@ -87,7 +87,7 @@ export interface ConversationMeta {
 
 Describes conversation meta.
 
-### [`ConversationWithParticipants`](./harness/runtime.ts#L105)
+### [`ConversationWithParticipants`](./harness/runtime.ts#L133)
 
 _TypeAlias_
 
@@ -237,7 +237,7 @@ export interface MoltzapdChildOptions {
 
 Inputs for starting the packaged daemon against caller-scoped test config.
 
-### [`MoltZapService`](./service.ts#L225)
+### [`MoltZapService`](./service.ts#L196)
 
 _Class_
 
@@ -258,13 +258,6 @@ export class MoltZapService {
   private serviceScope: Scope.CloseableScope | null = null;
 
   private readonly presentationState = new PresentationState();
-  private readonly lastReadRef: Ref.Ref<
-    HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
-  > = Effect.runSync(
-    Ref.make(
-      HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
-    ),
-  );
 
   /**
    * The branded outer and inner keys keep conversation and message ids from
@@ -305,17 +298,6 @@ export class MoltZapService {
     return loadServiceConfig(profileName).pipe(
       Effect.map((config) => MoltZapService.fromConfig(config)),
     );
-  }
-
-  static startDaemon(
-    profileName: string,
-  ): Effect.Effect<MoltZapService, unknown> {
-    return Effect.gen(function* () {
-      const service = yield* MoltZapService.make(profileName);
-      yield* service.connect();
-      yield* service.startSocketServer();
-      return service;
-    }).pipe(Effect.withSpan("MoltZapService.startDaemon"));
   }
 
   get connected(): boolean {
@@ -362,6 +344,24 @@ export class MoltZapService {
         //
         // Stream errors of type `NotConnectedError` are surfaced on the
         // fiber's failure channel only when the client transitions to
+        // terminal closed state (close() path); `Effect.catchAll` here
+        // would swallow them silently, so we route through `Effect.logError`
+        // before the fiber exits.
+        const serviceScope = yield* Scope.make();
+        this.serviceScope = serviceScope;
+        const fanoutEffect = client.subscribeAll().pipe(
+          Stream.runForEach((notification) =>
+            Effect.sync(() => {
+              this.handleNotification(notification);
+            }),
+          ),
+          Effect.catchAll((cause) =>
+            Effect.logWarning(
+              "MoltZapService notification fan-out terminated",
+              cause,
+            ),
+          ),
+          Effect.asVoid,
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -384,7 +384,7 @@ export interface RpcCallOptions {
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L112)
+### [`ServiceRpcError`](./service.ts#L83)
 
 _TypeAlias_
 

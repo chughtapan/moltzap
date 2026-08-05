@@ -17,7 +17,6 @@ import type {
 import {
   type ConversationCreatedNotification,
   conversationCreatedNotificationDefinition,
-  conversationList,
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
@@ -25,7 +24,6 @@ import {
   type Message,
   type MessageReceivedNotification,
   messageReceivedNotificationDefinition,
-  messagesList,
   messagesSend,
 } from "@moltzap/protocol/message";
 import {
@@ -40,41 +38,15 @@ import {
 } from "@moltzap/protocol/rpc";
 import type { RpcGroup, Rpc } from "@effect/rpc";
 import { BoundedMap } from "./bounded-map.js";
-import {
-  Deferred,
-  Effect,
-  Exit,
-  HashMap,
-  Option,
-  Ref,
-  Schema,
-  Scope,
-  Stream,
-} from "effect";
+import { Deferred, Effect, Exit, Option, Schema, Scope, Stream } from "effect";
 import { MoltZapAgentClient, type RpcCallOptions } from "./agent-client.js";
 import {
   loadServiceConfig,
   type MoltzapServiceConfig,
   type ServiceConfigError,
 } from "./config.js";
-import {
-  getMoltZapAgentServiceSocketPath,
-  getMoltZapServiceSocketPath,
-} from "./local-paths.js";
-import type { LocalDaemonHandlers } from "./local-daemon-rpc.js";
-import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
-import {
-  startLocalSocketServer,
-  stopLocalSocketServer,
-} from "./local-socket-server.js";
 import { notificationTraceRecord } from "./notification/trace.js";
 import { renderPart } from "./message-rendering.js";
-import {
-  formatHistoryMessage,
-  type HistoryRequest,
-  type HistoryResponse,
-  lastReadIdsForSession,
-} from "./local-history.js";
 import { appendClientEventTrace } from "./service-event-trace.js";
 import {
   PresentationState,
@@ -91,7 +63,6 @@ export type {
 } from "./presentation/index.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
-const HISTORY_LOOKUP_CONCURRENCY = 2;
 const AGENT_LOOKUP_PAGE_SIZE = 100;
 const AGENT_LOOKUP_MAX_PAGES = 20;
 const decodeAgentId = Schema.decodeUnknownOption(AgentIdSchema);
@@ -238,13 +209,6 @@ export class MoltZapService {
   private serviceScope: Scope.CloseableScope | null = null;
 
   private readonly presentationState = new PresentationState();
-  private readonly lastReadRef: Ref.Ref<
-    HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
-  > = Effect.runSync(
-    Ref.make(
-      HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
-    ),
-  );
 
   /**
    * The branded outer and inner keys keep conversation and message ids from
@@ -285,17 +249,6 @@ export class MoltZapService {
     return loadServiceConfig(profileName).pipe(
       Effect.map((config) => MoltZapService.fromConfig(config)),
     );
-  }
-
-  static startDaemon(
-    profileName: string,
-  ): Effect.Effect<MoltZapService, unknown> {
-    return Effect.gen(function* () {
-      const service = yield* MoltZapService.make(profileName);
-      yield* service.connect();
-      yield* service.startSocketServer();
-      return service;
-    }).pipe(Effect.withSpan("MoltZapService.startDaemon"));
   }
 
   get connected(): boolean {
@@ -388,7 +341,6 @@ export class MoltZapService {
     const shutdownCompletion = Effect.runSync(Deferred.make<undefined>());
     this.shutdownCompletion = shutdownCompletion;
     this.connectedValue = false;
-    const stopSocketServer = this.stopSocketServer();
     const scopeToClose = this.serviceScope;
     const clientToClose = this.client;
     this.serviceScope = null;
@@ -399,24 +351,15 @@ export class MoltZapService {
         : Scope.close(scopeToClose, Exit.void);
     const closeClient =
       clientToClose === null ? Effect.void : clientToClose.close();
-    Effect.runSync(
-      Effect.all(
-        [
-          this.presentationState.reset(),
-          Ref.set(this.lastReadRef, HashMap.empty()),
-        ],
-        { discard: true },
-      ),
-    );
+    Effect.runSync(this.presentationState.reset());
     this.seenMessageIds.clear();
     // Handlers are preserved across explicit close()/connect() cycles.
     // MoltZapChannelCore subscribes once in its constructor; clearing handlers
     // here would silently drop inbound dispatch after the next connect.
     return Effect.uninterruptible(
-      Effect.all(
-        [stopSocketServer, closeScope.pipe(Effect.zipRight(closeClient))],
-        { concurrency: 2, discard: true },
-      ).pipe(
+      Effect.all([closeScope.pipe(Effect.zipRight(closeClient))], {
+        discard: true,
+      }).pipe(
         Effect.ensuring(
           Deferred.succeed(shutdownCompletion, undefined).pipe(Effect.asVoid),
         ),
@@ -430,207 +373,6 @@ export class MoltZapService {
    */
   close(): void {
     Effect.runFork(this.beginShutdown());
-  }
-
-  // --- Socket Server ---
-
-  private socketServerScope: Scope.CloseableScope | null = null;
-  private activeSocketPath: string | null = null;
-
-  /** Default socket path for CLI discovery. Per-instance path uses agentId. */
-  static readonly SOCKET_PATH = getMoltZapServiceSocketPath();
-
-  /**
-   * `agentId` is a server-assigned string. Treat it as untrusted: if a
-   * compromised or malicious server returns an id containing `..` or a
-   * path separator, a naive `path.join(... , agentId)` escapes `~/.moltzap`.
-   * Reject anything that isn't a safe identifier.
-   * @param id Value supplied to the operation.
-   * @returns The id result.
-   */
-  private static safeAgentIdSegment(id: string): string {
-    return /^[A-Za-z0-9_-]+$/.test(id) ? id : "default";
-  }
-
-  /**
-   * Per-instance socket path based on connected agentId.
-   * @returns The id result.
-   */
-  get socketPath(): string {
-    const id = MoltZapService.safeAgentIdSegment(this.ownAgentId ?? "default");
-    return getMoltZapAgentServiceSocketPath(id);
-  }
-
-  startSocketServer(): Effect.Effect<void, unknown> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const previous = this.resetSocketServerState();
-        yield* stopLocalSocketServer({
-          socketScope: previous.socketScope,
-          socketPath: previous.sockPath,
-          defaultSocketPath: MoltZapService.SOCKET_PATH,
-        });
-        const running = yield* startLocalSocketServer({
-          socketPath: this.socketPath,
-          defaultSocketPath: MoltZapService.SOCKET_PATH,
-          handlers: this.localDaemonHandlers(),
-        });
-        this.socketServerScope = running.socketScope;
-        this.activeSocketPath = running.socketPath;
-      }.bind(this),
-    ).pipe(Effect.withSpan("MoltZapService.startSocketServer"));
-  }
-
-  private resetSocketServerState(): {
-    readonly socketScope: Scope.CloseableScope | null;
-    readonly sockPath: string;
-  } {
-    const socketScope = this.socketServerScope;
-    this.socketServerScope = null;
-    const sockPath = this.activeSocketPath ?? this.socketPath;
-    this.activeSocketPath = null;
-    return { socketScope, sockPath };
-  }
-
-  private stopSocketServer(): Effect.Effect<void> {
-    const { socketScope, sockPath } = this.resetSocketServerState();
-    return stopLocalSocketServer({
-      socketScope,
-      socketPath: sockPath,
-      defaultSocketPath: MoltZapService.SOCKET_PATH,
-    }).pipe(Effect.withSpan("MoltZapService.stopSocketServer"));
-  }
-
-  private localDaemonHandlers(): LocalDaemonHandlers {
-    return makeLocalDaemonHandlers({
-      ownAgentId: this.ownAgentIdValue,
-      // A live thunk, not a snapshot: the handler table outlives connection
-      // cycles, and daemon/status must report the same liveness the MCP
-      // status tool reads.
-      connected: () => this.connectedValue,
-      conversationCount: () => this.getConversations().length,
-      call: this.call.bind(this),
-      handleHistoryRequest: (request) => this.handleHistoryRequest(request),
-    });
-  }
-
-  private handleHistoryRequest(
-    request: HistoryRequest,
-  ): Effect.Effect<HistoryResponse, ServiceRpcError> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const result = yield* this.call(messagesList.name, {
-          conversationId: request.conversationId,
-          limit: request.limit,
-        });
-        const convMeta = yield* this.loadHistorySupportData(
-          request.conversationId,
-          result.messages,
-        );
-        const agentNames = this.presentationState.getAgentNames();
-        const lastReadMap = yield* Ref.get(this.lastReadRef);
-        const lastReadIds = lastReadIdsForSession(lastReadMap, request);
-        const messages = result.messages.map((message) =>
-          formatHistoryMessage(message, {
-            agentNames,
-            ownAgentId: this.ownAgentId,
-            lastReadIds,
-            hasSessionKey: request.sessionKey !== undefined,
-          }),
-        );
-        yield* this.advanceHistoryLastRead(request, result.messages);
-        return {
-          messages,
-          conversationMeta: convMeta,
-          newCount: messages.filter((message) => message.isNew).length,
-        };
-      }.bind(this),
-    );
-  }
-
-  private loadHistorySupportData(
-    convId: ConversationId,
-    messages: readonly Message[],
-  ) {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const [, convMeta] = yield* Effect.all(
-          [
-            this.refreshHistoryAgentNames(messages),
-            this.fetchHistoryConversationMeta(convId),
-          ],
-          {
-            concurrency: HISTORY_LOOKUP_CONCURRENCY,
-          },
-        );
-        return convMeta;
-      }.bind(this),
-    );
-  }
-
-  private refreshHistoryAgentNames(
-    messages: readonly Message[],
-  ): Effect.Effect<void> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const unknownAgentIds = [
-          ...new Set(messages.map((message) => message.senderId)),
-        ].filter((id) => this.presentationState.getAgentName(id) === undefined);
-        if (unknownAgentIds.length === 0) {
-          return;
-        }
-        yield* this.cacheVisibleAgentNamesForIds(new Set(unknownAgentIds)).pipe(
-          Effect.asVoid,
-          Effect.catchAll(() => Effect.void),
-        );
-      }.bind(this),
-    );
-  }
-
-  private fetchHistoryConversationMeta(convId: ConversationId) {
-    // The client filters `ConversationList` output for the matching
-    // conversation id (there is no per-conversation get RPC).
-    return this.call(conversationList.name, {}).pipe(
-      Effect.map((result) => {
-        const hit = result.items.find(
-          (item) => item.conversation.id === convId,
-        );
-        return hit?.conversation;
-      }),
-      Effect.orElseSucceed(() => undefined),
-    );
-  }
-
-  private advanceHistoryLastRead(
-    request: HistoryRequest,
-    messages: readonly Message[],
-  ): Effect.Effect<void> {
-    if (request.sessionKey === undefined || messages.length === 0) {
-      return Effect.void;
-    }
-    const { conversationId, sessionKey } = request;
-    return Ref.update(this.lastReadRef, (outer) => {
-      const perSession = Option.getOrElse(HashMap.get(outer, sessionKey), () =>
-        HashMap.empty<string, ReadonlySet<string>>(),
-      );
-      const existing = Option.getOrElse(
-        HashMap.get(perSession, conversationId),
-        () =>
-          /* Safe because the surrounding invariant establishes this asserted shape. */ new Set<string>() as ReadonlySet<string>,
-      );
-      if (messages.every((message) => existing.has(message.id))) {
-        return outer;
-      }
-      const nextSet = new Set(existing);
-      for (const message of messages) {
-        nextSet.add(message.id);
-      }
-      return HashMap.set(
-        outer,
-        sessionKey,
-        HashMap.set(perSession, conversationId, nextSet),
-      );
-    });
   }
 
   // --- Conversations ---

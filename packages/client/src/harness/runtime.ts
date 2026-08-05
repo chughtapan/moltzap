@@ -18,6 +18,12 @@ export const HARNESS_TURN_READY_FILTER = "xyz.moltzap/turnReady";
 export const HARNESS_TURN_READY_NOTIFICATION =
   "notifications/xyz.moltzap/turn_ready";
 
+/**
+ * Tool committing a Registry identity to the slot this daemon owns. Present
+ * only while the slot has none; the six active tools replace it afterward.
+ */
+export const HARNESS_REGISTER_TOOL = "register";
+
 /** Tool used for model output in the current conversation. */
 export const HARNESS_REPLY_TOOL = "reply";
 
@@ -86,6 +92,28 @@ const harnessReplyRouteSchema = Schema.Struct({
   conversationId,
 });
 
+/**
+ * The daemon supplies the agent name and listener port from its own slot, so
+ * registration arguments carry only what the Registry cannot derive locally.
+ */
+const harnessRegisterInputSchema = Schema.Struct({
+  inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
+});
+
+/**
+ * Registration reports the committed identity and where it is reachable. Key
+ * material is written to the slot and never returned over MCP.
+ */
+const harnessRegisterResultSchema = Schema.Struct({
+  agentId,
+  // The slot stores its agent name unbranded and the Registry has already
+  // validated it by the time this result exists, so a second brand round-trip
+  // inside the daemon would assert nothing new.
+  agentName: Schema.String,
+  serverUrl: Schema.String,
+});
+
 /** Status takes no arguments; the daemon reports on the slot it already owns. */
 const harnessStatusInputSchema = Schema.Struct({});
 
@@ -136,6 +164,16 @@ export type HarnessReplyRoute = Schema.Schema.Type<
   typeof harnessReplyRouteSchema
 >;
 
+/** Decoded registration input. */
+export type HarnessRegisterInput = Schema.Schema.Type<
+  typeof harnessRegisterInputSchema
+>;
+
+/** Decoded registration result. */
+export type HarnessRegisterResult = Schema.Schema.Type<
+  typeof harnessRegisterResultSchema
+>;
+
 /** Decoded status input. */
 export type HarnessStatusInput = Schema.Schema.Type<
   typeof harnessStatusInputSchema
@@ -184,6 +222,18 @@ export const harnessReplyInputJsonSchema = JSONSchema.make(
 /** JSON Schema advertised for the empty reply result. */
 export const harnessReplyResultJsonSchema = JSONSchema.make(
   harnessReplyResultSchema,
+  { target: "jsonSchema2020-12" },
+);
+
+/** JSON Schema advertised for registration arguments. */
+export const harnessRegisterInputJsonSchema = JSONSchema.make(
+  harnessRegisterInputSchema,
+  { target: "jsonSchema2020-12" },
+);
+
+/** JSON Schema advertised for the registration result. */
+export const harnessRegisterResultJsonSchema = JSONSchema.make(
+  harnessRegisterResultSchema,
   { target: "jsonSchema2020-12" },
 );
 

@@ -14,8 +14,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "moltzap": "./dist/cli/index.js",
-    "moltzapd": "./dist/cli/moltzapd-main.js"
+    "moltzapd": "./dist/moltzapd-main.js"
   },
   "exports": {
     ".": {
@@ -53,7 +52,7 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mjs",
     "test:conformance": "vitest run -c vitest.conformance.config.mjs",
-    "docs:generate": "nx run @moltzap/client:build && pnpm exec tsx scripts/generate-cli-docs.ts",
+    "docs:generate": "pnpm exec tsx scripts/generate-ws-connect-snippet.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
