@@ -31,7 +31,7 @@
       "{workspaceRoot}/package.json",
       "{workspaceRoot}/pnpm-lock.yaml",
       "{workspaceRoot}/typedoc.json",
-      "{workspaceRoot}/scripts/generate-constants-snippets.ts",
+      "{workspaceRoot}/scripts/docs/generate-constants-snippets.ts",
       "{workspaceRoot}/packages/**/*.json",
       "{workspaceRoot}/packages/**/*.ts",
       "!{workspaceRoot}/packages/**/*.test.ts",
