@@ -28,7 +28,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm nx run @moltzap/client:test:pack
-      - run: node scripts/test-simulator-packages.mjs
+      - run: node scripts/test/simulator-packages.mjs
       - run: pnpm typecheck
       - run: pnpm lint
       # Exact runs fail when a required project target disappears; run-many
@@ -45,6 +45,7 @@ jobs:
       - run: pnpm docs:check
       - run: pnpm docs:check:mermaid
       - run: pnpm docs:check:gates-test
+      - run: pnpm test:compute-next-version
 
   test:
     runs-on: ubuntu-latest

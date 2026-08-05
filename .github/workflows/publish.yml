@@ -82,7 +82,7 @@ jobs:
             fi
 
             if [ "$SHOULD_RELEASE" -eq 1 ]; then
-              VERSION=$(scripts/compute-next-version.sh "$pkg")
+              VERSION=$(scripts/release/compute-next-version.sh "$pkg")
               echo "${pkg}_version=$VERSION" >> "$GITHUB_OUTPUT"
               CHANGED="$CHANGED $pkg"
               echo "Package $pkg changed — next version: $VERSION"
@@ -146,7 +146,7 @@ jobs:
         run: pnpm nx run @moltzap/client:test:pack
 
       - name: Verify simulator package consumers
-        run: node scripts/test-simulator-packages.mjs
+        run: node scripts/test/simulator-packages.mjs
 
       - name: Publish packages
         run: |

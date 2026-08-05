@@ -7,7 +7,7 @@
 import { chmodSync, existsSync, lstatSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const workspaceRoot = resolve(import.meta.dirname, "..");
+const workspaceRoot = resolve(import.meta.dirname, "..", "..");
 const EXECUTE_BITS = 0o111;
 // Named exactly, so a future file dropped into `lib/` never inherits +x.
 const BINARY_NAMES = new Set(["tsc", "tsc-next"]);
