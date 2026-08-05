@@ -3,7 +3,7 @@
  *
  * The absent case asserts `getGroupFields(meta) === null`; the non-null check
  * is the gate. For group meta, both markup variants are asserted byte-identical
- * to the fixtures captured by `scripts/capture-channel-base-fixtures.ts`.
+ * to the fixtures captured by `scripts/test/capture-channel-base-fixtures.ts`.
  */
 
 import { readFileSync } from "node:fs";
