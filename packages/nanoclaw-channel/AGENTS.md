@@ -35,11 +35,13 @@ channel plugins.
 
 ## Code
 
-- Lease handling comes from `@moltzap/client/channel-base`:
-  `LeaseAlreadyConsumed` is the canonical consumed-lease error (the
-  local `MoltZapChannelError` covers only non-lease host failures);
-  `LeaseStore` is peek-style — the stale entry on retry is deliberate;
-  `catchLeaseInvalid` projects the wire error at `deliver`.
+- `handleInbound` awaits the host turn rather than forking it. That
+  binds a reply to the turn that produced it: the per-jid
+  conversation entry holds the newest inbound, so a reply outliving
+  its own turn would address the wrong conversation.
+- `MoltZapChannelError` covers host-shape failures (un-owned jid,
+  unknown conversation, disconnected channel); send failures keep
+  their `ServiceRpcError` type.
 - Inbound projection: `onMetadata` fires before `onInbound`; content
   is `{ text, sender, senderId }` with context blocks inlined into
   `text`; own (`isFromMe`) messages are dropped, not delivered.

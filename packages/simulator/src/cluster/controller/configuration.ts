@@ -1,4 +1,5 @@
 /** @file Closed environment contract for the in-cluster run controller. */
+// safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger, network, and cluster values the controller needs.
 
 import {
   type ServerBaseUrl,

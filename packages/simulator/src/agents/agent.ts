@@ -1,11 +1,13 @@
 /** @file Scoped autonomous-agent runtime contract. */
+// safer-arch-ignore no-cross-domain-sibling-import: A runtime contract is defined by what it receives: the ledger's JSON configuration shape and the network's connection and inbound-link types.
 
 import type { AgentName } from "@moltzap/protocol/identity";
-import { type Effect, Either, Schema } from "effect";
+import { type Effect, Either, Schema, type Scope } from "effect";
 import {
   jsonValue,
   type JsonValue as JsonValueType,
 } from "../ledger/schema.js";
+import type { InboundLinkStage } from "../network/link.js";
 import type { AgentConnection } from "../network/router.js";
 
 const agentRuntimeTypeId: unique symbol = Symbol(
@@ -87,6 +89,18 @@ export interface RunningAgent<Gateway> {
 export interface AgentRuntimeInput<Name extends string> {
   readonly agentName: AgentName;
   readonly connection: AgentConnection<Name>;
+  /**
+   * Scoped acquisition of the stage that applies the run's directed-link
+   * policies to this agent's inbound deliveries. A runtime whose agent receives
+   * in this process acquires it and wraps the stream it hands the agent; one
+   * whose agent receives in another process leaves it unacquired, so link
+   * control over that agent fails instead of shaping nothing.
+   */
+  readonly interceptInbound?: Effect.Effect<
+    InboundLinkStage,
+    never,
+    Scope.Scope
+  >;
 }
 
 /** Runtime-native schema and sanitized configuration captured at definition. */

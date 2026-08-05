@@ -1,17 +1,11 @@
 /**
- * @file Shared Key-ID + Secret credential toolkit for BOTH principal kinds:
- * the generate/parse primitives for agent API keys (`API_KEY_PREFIX`) AND app
- * keys (`APP_KEY_PREFIX`). `generateKeyWithPrefix` / `parseKeyWithPrefix` are
- * the prefix-parameterized core both principal credentials share.
+ * @file Key-ID + Secret credential toolkit for agent API keys: the
+ * generate/parse primitives plus the constant-time compare and secret hash
+ * every credential path shares.
  */
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Redacted, Schema } from "effect";
-import {
-  type AgentKey,
-  agentKey,
-  type AppKey,
-  appKey,
-} from "@moltzap/protocol/identity";
+import { type AgentKey, agentKey } from "@moltzap/protocol/identity";
 
 /**
  * Stable string prefix on every agent API key. Encoded once here;
@@ -20,14 +14,13 @@ import {
  * the TS compiler API so doc copy stays in lockstep.
  */
 const API_KEY_PREFIX = "moltzap_agent_";
-/** Stable string prefix on every app key. Sibling of `API_KEY_PREFIX`. */
-const APP_KEY_PREFIX = "moltzap_app_";
 const KEY_ID_BYTES = 8;
 const SECRET_BYTES = 24;
 const HEX_CHARS_PER_BYTE = 2;
 
 /**
- * Generate a Key ID + Secret API key with its derived storage values.
+ * Generate a Key ID + Secret API key with its derived storage values. The
+ * plaintext key is returned once; only `keyId` + `secretHash` persist.
  * @returns The generate api key result.
  */
 export function generateApiKey(): {
@@ -35,74 +28,30 @@ export function generateApiKey(): {
   keyId: string;
   secretHash: string;
 } {
-  const { apiKey, keyId, secretHash } = generateKeyWithPrefix(API_KEY_PREFIX);
-  return {
-    apiKey: Schema.decodeUnknownSync(agentKey)(apiKey),
-    keyId,
-    secretHash,
-  };
-}
-
-/**
- * Generate an app key with its derived storage values. Same Key ID +
- * Secret shape as {@link generateApiKey}, under the `APP_KEY_PREFIX`.
- * Plaintext key is returned once; only `keyId` + `secretHash` persist.
- * @returns The generate app key result.
- */
-export function generateAppKey(): {
-  appKey: AppKey;
-  keyId: string;
-  secretHash: string;
-} {
-  const { apiKey, keyId, secretHash } = generateKeyWithPrefix(APP_KEY_PREFIX);
-  return {
-    appKey: Schema.decodeUnknownSync(appKey)(apiKey),
-    keyId,
-    secretHash,
-  };
-}
-
-function generateKeyWithPrefix(prefix: string): {
-  apiKey: string;
-  keyId: string;
-  secretHash: string;
-} {
   const keyId = randomBytes(KEY_ID_BYTES).toString("hex");
   const secret = randomBytes(SECRET_BYTES).toString("hex");
-  const apiKey = `${prefix}${keyId}_${secret}`;
-  return { apiKey, keyId, secretHash: hashSecret(secret) };
+  return {
+    apiKey: Schema.decodeUnknownSync(agentKey)(
+      `${API_KEY_PREFIX}${keyId}_${secret}`,
+    ),
+    keyId,
+    secretHash: hashSecret(secret),
+  };
 }
 
 /**
  * Extract keyId and secret from a full API key string.
- * @param key Value supplied to the operation.
+ * @param keyValue Value supplied to the operation.
  * @returns The decoded api key.
  */
 export function parseApiKey(
-  key: AgentKey,
+  keyValue: AgentKey,
 ): { keyId: string; secret: string } | null {
-  return parseKeyWithPrefix(Redacted.value(key), API_KEY_PREFIX);
-}
-
-/**
- * Extract keyId and secret from a full app key string.
- * @param key Value supplied to the operation.
- * @returns The decoded app key.
- */
-export function parseAppKey(
-  key: AppKey,
-): { keyId: string; secret: string } | null {
-  return parseKeyWithPrefix(Redacted.value(key), APP_KEY_PREFIX);
-}
-
-function parseKeyWithPrefix(
-  key: string,
-  prefix: string,
-): { keyId: string; secret: string } | null {
-  if (!key.startsWith(prefix)) {
+  const key = Redacted.value(keyValue);
+  if (!key.startsWith(API_KEY_PREFIX)) {
     return null;
   }
-  const rest = key.slice(prefix.length);
+  const rest = key.slice(API_KEY_PREFIX.length);
   const sepIdx = rest.indexOf("_");
   if (sepIdx !== KEY_ID_BYTES * HEX_CHARS_PER_BYTE) {
     return null;
@@ -117,8 +66,8 @@ function parseKeyWithPrefix(
 
 /**
  * Constant-time string comparison. Shared by every credential-compare
- * path (agent auth, app auth, invite-code gate) so the timing-safe
- * property is enforced in one place rather than re-derived per call site.
+ * path (agent auth, invite-code gate) so the timing-safe property is
+ * enforced in one place rather than re-derived per call site.
  * Length mismatch short-circuits to `false` (the lengths are not secret).
  * @param a Value supplied to the operation.
  * @param b Value supplied to the operation.

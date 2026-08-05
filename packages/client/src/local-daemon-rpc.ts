@@ -1,7 +1,7 @@
 import { Rpc, RpcGroup } from "@effect/rpc";
 import { Effect, ParseResult, Schema } from "effect";
 import type * as SchemaAST from "effect/SchemaAST";
-import { agentId, agentsList, appId } from "@moltzap/protocol/identity";
+import { agentId, agentsList } from "@moltzap/protocol/identity";
 import { agentCallableMethods } from "@moltzap/protocol/socket/catalog";
 import { conversationId, messageId } from "@moltzap/protocol/conversation";
 import { messagesList } from "@moltzap/protocol/message";
@@ -29,17 +29,6 @@ const pageLimit = Schema.Number.pipe(
   Schema.greaterThanOrEqualTo(1),
   Schema.lessThanOrEqualTo(MAX_PAGE_LIMIT),
 );
-
-/** Validates and decodes app id v4 values. */
-const appIdV4 = appId.pipe(
-  Schema.filter(
-    (value) =>
-      (typeof value === "string" && UUID_V4_RE.test(value)) ||
-      "must be a UUID v4",
-  ),
-);
-/** Represents app id v4 values. */
-export type AppIdV4 = Schema.Schema.Type<typeof appIdV4>;
 
 const parseStringIssue = (
   ast: SchemaAST.Transformation,
@@ -175,7 +164,6 @@ const startCommandPayload = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
   participants: Schema.Array(startParticipant),
   message: Schema.optional(Schema.String),
-  appId: Schema.optional(appIdV4),
 });
 
 const startCommandResult = Schema.Struct({
@@ -248,6 +236,13 @@ export const toLocalDaemonError = (error: unknown): LocalDaemonError =>
     ? error
     : new LocalDaemonInputError({ message: errorMessage(error) });
 
+/** Provides the status command rpc runtime value. */
+export const statusCommandRpc = Rpc.make(localDaemonCommands.status, {
+  payload: emptyPayload,
+  success: localDaemonStatusResultSchema,
+  error: localDaemonErrorSchema,
+});
+
 /** Provides the messages list command rpc runtime value. */
 export const messagesListCommandRpc = Rpc.make(
   localDaemonCommands.messagesList,
@@ -274,11 +269,7 @@ export const startCommandRpc = Rpc.make(localDaemonCommands.start, {
 
 /** Implements local daemon rpcs. */
 export class LocalDaemonRpcs extends RpcGroup.make(
-  Rpc.make(localDaemonCommands.status, {
-    payload: emptyPayload,
-    success: localDaemonStatusResultSchema,
-    error: localDaemonErrorSchema,
-  }),
+  statusCommandRpc,
   Rpc.make(localDaemonCommands.history, {
     payload: historyRequestSchema(),
     success: historyResponseSchema(),

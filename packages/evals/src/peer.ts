@@ -9,7 +9,6 @@ import {
   agentKey,
   agentName,
   agentsList,
-  DEFAULT_APP_ID,
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
@@ -507,7 +506,6 @@ function openingPolicy(
       const target = yield* resolveAgent(context.client, targetName);
       const opened = yield* context.client
         .callDefinition(agentConversationCreate, {
-          appId: DEFAULT_APP_ID,
           participants: [target.id],
         })
         .pipe(Effect.mapError((cause) => failure("open-conversation", cause)));
@@ -543,7 +541,6 @@ function prepareGroup(
     ];
     const opened = yield* context.client
       .callDefinition(agentConversationCreate, {
-        appId: DEFAULT_APP_ID,
         name,
         participants: invitedAgentIds,
       })

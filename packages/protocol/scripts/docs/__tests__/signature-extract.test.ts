@@ -93,6 +93,23 @@ describe("extractSignatureText", () => {
     );
   });
 
+  it("keeps the closing brace of an interface longer than 120 lines", () => {
+    const members = Array.from(
+      { length: 121 },
+      (_, index) => `  readonly field${index}: string;`,
+    );
+    const source = [
+      "export interface LargeSurface {",
+      ...members,
+      "}",
+      "",
+    ].join("\n");
+    const sig = extractSignatureText(source, 1, ReflectionKind.Interface);
+    expect(sig).toBe(
+      ["export interface LargeSurface {", ...members, "}"].join("\n"),
+    );
+  });
+
   it("cuts a one-line type alias at its trailing semicolon", () => {
     const source = "export type Foo = string;\n";
     const sig = extractSignatureText(source, 1, ReflectionKind.TypeAlias);

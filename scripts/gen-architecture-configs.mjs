@@ -73,6 +73,9 @@ const packageDefinitions = {
   client: {
     beforeShared: {
       minExportedSiblingModules: 6,
+      // HarnessClient is an intentional runtime-facing entrypoint alongside
+      // the existing package surfaces.
+      maxSubpathExports: 6,
       maxPublicExports: 29,
       // channel-base names the adapter primitives, and BoundedMap is one of
       // them; the rule counts local re-exports, so owning that module in-package
@@ -186,22 +189,7 @@ const packageDefinitions = {
         {
           file: "src/peer.ts",
           reason:
-            "Autonomous container peer policies and observation gateways form the bundled social-peer boundary",
-        },
-        {
-          file: "src/peer-application.ts",
-          reason:
-            "Executable boundary for one evaluation-owned autonomous peer application container",
-        },
-        {
-          file: "src/submission.ts",
-          reason:
-            "Generated RunSpec module and local-or-GKE simulator submission boundary for one matrix cell",
-        },
-        {
-          file: "src/artifacts.ts",
-          reason:
-            "Completed-ledger artifact retrieval boundary shared by local and GKE evaluation execution",
+            "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary",
         },
         {
           file: "src/sweep.ts",
@@ -348,12 +336,15 @@ const packageDefinitions = {
       maxPublicReexports: 15,
       minPublicFacadeModules: 16,
       minFolderReadmeChildren: 100,
-      facadeFiles: [
+      folderChildCountOverrides: [
         {
-          file: "definition.ts",
+          folder: "cluster",
+          maxChildren: 16,
           reason:
-            "Public RunSpec and Run assembly boundary re-exported by the package root",
+            "Cluster is one subsystem whose children each name a step of a run's life: scaffold, cohort, reclaim, watch, install, bootstrap, and submit, plus its two vendor adapters and the controller that runs in-cluster",
         },
+      ],
+      facadeFiles: [
         {
           file: "network.ts",
           reason:
@@ -367,7 +358,7 @@ const packageDefinitions = {
         {
           file: "agents.ts",
           reason:
-            "Published agent contract for autonomous agents, keyed rosters, and shipped runtime implementations",
+            "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations",
         },
         {
           file: "events/catalog.ts",
@@ -404,6 +395,11 @@ const packageDefinitions = {
           reason: "Completed-ledger validation and offline opening boundary",
         },
         {
+          file: "run/link-fabric.ts",
+          reason:
+            "Link-fabric boundary coupling the platform link driver, receiver registration, and the policy interpreter",
+        },
+        {
           file: "run/outcomes.ts",
           reason:
             "Causal outcome conversion shared by runtime, router, and program lifecycle modules",
@@ -421,52 +417,37 @@ const packageDefinitions = {
         {
           file: "cluster/cluster.ts",
           reason:
-            "Private run-scoped cluster port for complete-roster preparation, exact runtime acquisition, cohort readiness, cluster-loss observation, and the mechanism-neutral cluster error shared with the public run outcome",
-        },
-        {
-          file: "cluster/controller/configuration.ts",
-          reason:
-            "Closed controller environment boundary shared by the executable entry point and infrastructure composition",
-        },
-        {
-          file: "cluster/kubernetes/calls.ts",
-          reason:
-            "Sole Kubernetes API surface: the narrow society port the controller drives, the run-lifecycle port the worker drives, and the installation port the host drives",
-        },
-        {
-          file: "cluster/kubernetes/objects.ts",
-          reason:
-            "Sole Kubernetes object surface: every manifest, name, and generated type the simulator builds, so behavior modules stay swappable across schedulers",
-        },
-        {
-          file: "cluster/profile.ts",
-          reason:
-            "Closed local-or-GKE execution profile shared by host submission and Temporal adapters",
-        },
-        {
-          file: "cluster/cohort.ts",
-          reason:
-            "Kubernetes implementation boundary for the private Cluster port",
-        },
-        {
-          file: "cluster/temporal.ts",
-          reason:
-            "Temporal activity, worker, client, and host submission boundary holding every non-deterministic use of the SDK",
-        },
-        {
-          file: "cluster/reclaim.ts",
-          reason:
-            "SDK-discovered deterministic workflow entry point and its serializable activity contract, kept in its own bundle module",
-        },
-        {
-          file: "cluster/scaffold.ts",
-          reason:
-            "Ordered stand-up of one run's Kubernetes control objects, driven by the Temporal activity boundary",
+            "Cluster seam the run kernel acquires: the platform port plus the society and slot shapes every implementation satisfies",
         },
         {
           file: "cluster/submit.ts",
           reason:
-            "Shared submission boundary binding one experiment module, run identity, and profile to a Temporal-managed cluster",
+            "Submission boundary shared by the local and GKE profiles, owning run identity and the sanitized failure they both report",
+        },
+        {
+          file: "cluster/temporal.ts",
+          reason:
+            "The package's only Temporal adapter: worker, client, activity, and workflow bindings behind one Promise boundary",
+        },
+        {
+          file: "cluster/kubernetes/calls.ts",
+          reason:
+            "The package's only Kubernetes API surface, wrapping a Promise-native client as typed Effects",
+        },
+        {
+          file: "cluster/kubernetes/objects.ts",
+          reason:
+            "Every Kubernetes object the cluster creates, kept beside the calls that submit them",
+        },
+        {
+          file: "cluster/controller/configuration.ts",
+          reason:
+            "Closed environment contract decoded once at the in-cluster controller boundary",
+        },
+        {
+          file: "definition.ts",
+          reason:
+            "Public authoring surface composing catalogs, roster, cluster layer, and the customer Effect into one runnable spec",
         },
         {
           file: "network/endpoint.ts",
@@ -493,69 +474,52 @@ const packageDefinitions = {
             "Router port, framed message model, connection contract, and typed network failures",
         },
         {
-          file: "network/driver.ts",
-          reason:
-            "Private router implementation composed over the controller-owned router server process",
-        },
-        {
           file: "network/server/process.ts",
           reason:
-            "Private controller entry point owning the installed production router process and stopped-store evidence",
+            "Scoped MoltZap server ownership for image, storage, process, observation, and identity resources",
         },
         {
           file: "agents/agent.ts",
           reason:
-            "Nominal runtime metadata and exact gateway type contract shared by every container runtime",
+            "Autonomous participant lifecycle contract implemented by every runtime family",
         },
         {
           file: "agents/roster.ts",
           reason:
-            "Keyed mixed-runtime roster preserving each agent's exact gateway and acquisition-error types",
-        },
-        {
-          file: "agents/container.ts",
-          reason:
-            "Container descriptor and runtime-specific bridge capability shared by the Kubernetes cluster and shipped runtimes",
-        },
-        {
-          file: "network/server/command.ts",
-          reason:
-            "Supervised child-process construction and bounded process-tree cleanup for the controller-owned router",
+            "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements",
         },
         {
           file: "network/server/packages.ts",
           reason:
-            "Installed package discovery used by the controller-owned production router process",
-        },
-        {
-          file: "agents/nanoclaw/runtime.ts",
-          reason:
-            "NanoClaw application-container descriptor and exact controller bridge",
-        },
-        {
-          file: "agents/openclaw/runtime.ts",
-          reason:
-            "OpenClaw application-container descriptor and exact controller bridge",
+            "Runtime package discovery and install-policy boundary shared by shipped runtime families",
         },
       ],
       layers: [
         {
-          name: "composition",
-          folders: ["cluster/controller", "cluster/profiles"],
+          name: "controller",
+          folders: ["cluster/controller"],
           reason:
-            "Controller and host entry points compose the run with Temporal and concrete cluster capabilities",
+            "The in-cluster executable that loads one spec and invokes the run kernel, so it depends on the kernel while nothing depends on it",
         },
         {
           name: "run",
           folders: ["run"],
           reason:
-            "The run orchestrates capability contracts without becoming a dependency of them",
+            "The run kernel orchestrates capability contracts without becoming a dependency of them",
         },
         {
           name: "capabilities",
-          folders: ["events", "ledger", "network", "cluster", "agents"],
+          folders: [
+            "events",
+            "ledger",
+            "network",
+            "agents",
+            "cluster",
+            "cluster/kubernetes",
+            "cluster/profiles",
+          ],
           reason:
-            "Peer event, ledger, network, cluster, and agent capabilities compose through typed ports and do not form a truthful linear stack",
+            "Peer event, ledger, network, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it",
         },
       ],
     },
@@ -563,6 +527,11 @@ const packageDefinitions = {
       publicTypePackages: [
         publicTypePackage.effect,
         publicTypePackage.platform,
+        {
+          ...publicTypePackage.rpc,
+          reason:
+            "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client",
+        },
         publicTypePackage.openclaw,
         publicTypePackage.protocol,
       ],
@@ -586,20 +555,10 @@ const packageDefinitions = {
           folder: "db",
           maxChildren: 11,
           reason:
-            "The database boundary keeps schema, client, migration, and crypto adapters together while each concern remains named and cohesive",
+            "The database boundary keeps schema, client, and migration adapters together while each concern remains named and cohesive",
         },
       ],
       facadeFiles: [
-        {
-          file: "db/crypto/envelope.ts",
-          reason:
-            "Envelope encryption is the crypto subsystem's explicit API over its key-material implementation files",
-        },
-        {
-          file: "dispatch/layer.ts",
-          reason:
-            "The dispatch layer module is the composition facade for its Effect service tags and live implementations",
-        },
         {
           file: "message/layer.ts",
           reason:
@@ -609,11 +568,6 @@ const packageDefinitions = {
           file: "network/layer.ts",
           reason:
             "The network layer module is the composition facade for its Effect service tags and live implementations",
-        },
-        {
-          file: "dispatch/lease-registry.ts",
-          reason:
-            "The lease registry module is the authoritative facade for the complete dispatch lease state machine and its wire projection",
         },
         {
           file: "moltzap/handler-catalog.ts",

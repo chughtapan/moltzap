@@ -1,4 +1,5 @@
 /** @file Completion-gated export of controller-local ledger artifacts. */
+// safer-arch-ignore no-cross-domain-sibling-import: Exports ledger artifacts from the controller's cluster-provided filesystem.
 
 import { join } from "node:path";
 import { FileSystem } from "@effect/platform";

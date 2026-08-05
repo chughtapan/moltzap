@@ -1,4 +1,5 @@
 /** @file Nominal keyed runtime rosters and their exact Effect service. */
+// safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs a network participant handle with the runtime that answers for it.
 
 import { Context, Schema } from "effect";
 import { agentName } from "@moltzap/protocol/identity";

@@ -1,4 +1,5 @@
 /** @file Private Kubernetes realization of one complete simulator society. */
+// safer-arch-ignore no-cross-domain-sibling-import: Bringing a roster up is inherently cross-domain: it renders agents, reserves cluster capacity, and hands each one its router connection.
 
 import { posix } from "node:path";
 import {

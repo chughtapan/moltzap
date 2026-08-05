@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.801.3",
+  "version": "2026.804.0",
   "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
@@ -32,6 +32,10 @@
     "./auth": {
       "types": "./dist/auth.d.ts",
       "import": "./dist/auth.js"
+    },
+    "./harness-client": {
+      "types": "./dist/harness-client.d.ts",
+      "import": "./dist/harness-client.js"
     },
     "./pagination": {
       "types": "./dist/pagination.d.ts",
@@ -84,6 +88,9 @@
     "@effect/printer-ansi": "^0.50.0",
     "@effect/rpc": "^0.76.0",
     "@effect/typeclass": "^0.41.0",
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
+    "@modelcontextprotocol/node": "2.0.0-beta.5",
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
     "@moltzap/protocol": "workspace:*",
     "effect": "^3.22.0"
   },

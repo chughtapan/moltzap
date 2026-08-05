@@ -155,7 +155,7 @@ export const agentsList = defineRpc({
     agents: Schema.Array(agentCardSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
-  requires: [AgentPrincipal, ActiveAgent],
+  requires: [AuthenticatedAgent, ActiveAgent],
   errors: [InvalidParamsError],
 })
 ```

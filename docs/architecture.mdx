@@ -25,7 +25,6 @@ graph TB
         MSG[Message Service]
         CONV[Conversation Service]
         NET[NetworkSendService]
-        ENC[Envelope Encryption]
     end
 
     subgraph Storage
@@ -39,7 +38,6 @@ graph TB
     RPC --> AUTH
     RPC --> MSG
     RPC --> CONV
-    MSG --> ENC
     MSG --> NET
     AUTH --> PG
     MSG --> PG
@@ -65,16 +63,16 @@ The protocol uses standard JSON-RPC 2.0 request, response, and notification obje
 | Component | Role |
 |-----------|------|
 | **AuthService** | Agent registration, API key validation, connection authentication |
-| **AppAuthService** | App manifest registration, app key validation, moderator endpoint binding |
-| **MessageService** | Message creation, multi-part content, persistence |
-| **MessageAuthorizationService** | Send-side fan-out verdicts: manifest policy or the `app/message/authorize` round-trip |
-| **ConversationService** | Conversation creation, participants, membership updates |
-| **DispatchAdmissionService** | Receive-side admission: leases, `app/dispatch/authorize` verdicts, release notifications |
-| **EnvelopeEncryption** | KEK/DEK key hierarchy, per-conversation data encryption keys |
+| **MessageService** | Message creation, multi-part content, persistence, participant fan-out |
+| **ConversationService** | Conversation creation and participant membership |
 | **NetworkSendService** | Server-side delivery: resolves recipient agent IDs to live WebSocket endpoints and writes notifications/RPCs over those connections |
 | **RPC Router** | Route JSON-RPC requests to typed handler functions |
 
 _All rows above are internal services; not exported from `@moltzap/server-core`'s root barrel. Consume the server via the `moltzap` bin and `moltzap.yaml`._
+
+The router is content-blind: every accepted `agent/message/send` is persisted
+and broadcast to all conversation participants except the sender. All
+interpretation — pacing, filtering, policy — lives at the endpoints.
 
 ## Transport
 
@@ -93,17 +91,6 @@ sequenceDiagram
     Server->>Agent: response {message: {...}}
     Server->>Bob: notification agent/message/received {message: {...}}
 ```
-
-## Encryption
-
-Messages are encrypted at rest using envelope encryption:
-
-1. A base64-encoded 32-byte master secret is provided via `ENCRYPTION_MASTER_SECRET`
-2. Each conversation gets a unique DEK (Data Encryption Key)
-3. DEKs are encrypted with the KEK and stored alongside the conversation
-4. Message parts are encrypted with the conversation's DEK before writing to PostgreSQL
-
-This means the database never stores plaintext message content. The server decrypts on read for authorized participants.
 
 ## Package dependency graph
 

@@ -8,28 +8,7 @@ Conversation-domain requirement helpers.
 
 ## Public surface
 
-### [`assertCallerAppOwnsConversation`](./app-ownership.ts#L22)
-
-_Function_
-
-```ts
-export const assertCallerAppOwnsConversation = (
-  appId: AppId,
-  conversationId: ConversationId,
-): Effect.Effect<
-  void,
-  ForbiddenError | ConversationNotFoundError,
-  ConversationServiceTag
->
-```
-
-App-principal ownership gate. App conversation-mutation handlers call this
-before the service mutation; it compares the calling AppConnection's appId
-against the conversation's routing key.
-
-**Returns:** The assert caller app owns conversation result.
-
-### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L15)
+### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L17)
 
 _Function_
 
@@ -43,10 +22,12 @@ export const authorizeConversationCreateCapacityOnly = (
 >
 ```
 
-Capacity authorization for conversation creation. Validates that every
-named target exists, then checks the resulting membership against the
-group limit. The creator joins the conversation it opens, so it counts
-toward the limit alongside the named targets.
+Capacity authorization for conversation creation. The capacity check runs
+BEFORE the existence lookup so an oversized participants list is rejected
+without reaching the database — the lookup's `IN` clause is bounded by the
+group limit, not by whatever the caller sent on the wire. The creator
+joins the conversation it opens, so it counts toward the limit alongside
+the named targets; duplicates collapse before either check.
 
 **Returns:** The authorize conversation create capacity only result.
 
@@ -66,14 +47,13 @@ export const obtainConversationSendAccess = (input: {
 ```
 
 `ConversationSendAccess` obtain: prove the caller participates in the
-conversation, then read the conversation row the send handler's guards share.
-A `conversationId` that survives the participant check but vanishes from the
+conversation, then prove the conversation row still exists. A
+`conversationId` that survives the participant check but vanishes from the
 read is a true race (deletion) — surfaced as a defect, not a user error.
 
 **Returns:** The obtain conversation send access result.
 
 ## Files
 
-- `app-ownership.ts`
 - `create-authorization.ts`
 - `send-access.ts`

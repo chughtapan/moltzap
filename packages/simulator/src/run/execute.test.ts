@@ -1,22 +1,17 @@
+/* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only suite: each case pins one ordering, evidence, or cleanup guarantee across a full run lifecycle, so the cases are timelines rather than an input domain and each keeps its setup beside its assertions. */
+
 import { assert, effect as test } from "@effect/vitest";
-import { serverBaseUrlSchema } from "@moltzap/protocol/network";
-import {
-  conversationId,
-  agentId as protocolAgentId,
-  messageId,
-  redactedAgentKey,
-} from "@moltzap/protocol/testing";
 import {
   Cause,
   Chunk,
-  DateTime,
   Deferred,
+  Duration,
   Effect,
   Exit,
   Fiber,
   Ref,
-  Schema,
   Stream,
+  TestClock,
 } from "effect";
 import {
   AgentProcessExited,
@@ -25,299 +20,58 @@ import {
   AgentRuntimeFailed,
   AgentRuntimeReady,
   AgentRuntimeStartFailed,
+  EndpointMessageReceived,
   EndpointMessageSent,
+  LinkDown,
+  LinkMessageDelayed,
+  LinkMessageDropped,
+  LinkPolicyCleared,
+  LinkPolicySet,
+  LinkUp,
   RouterMessageCommitted,
   RouterStarted,
   RunStarted,
 } from "../events/core.js";
-import { EventCatalog } from "../events/catalog.js";
-import { makeDefinitionEventServices } from "./events.js";
-import {
-  LedgerCompletion,
-  ledgerDigest,
-  LedgerManifest,
-  ledgerRef,
-} from "../ledger/schema.js";
-import { openLedger } from "../ledger/read.js";
 import {
   LedgerStorage,
   LedgerStorageError,
-  type LedgerArtifact,
   type LedgerStorageService,
 } from "../ledger/storage.js";
 import {
+  LinkController,
+  linkPolicy,
   Network,
   NetworkError,
   RouterProvider,
-  type RouterStopped,
-  makeAgentHandle,
-  makeParticipantHandle,
-  makeRouterStopReport,
-  type AttachedEndpoint,
+  type ReceivedMessage,
   type Router,
-  type RouterProviderService,
 } from "../network.js";
 import {
   CompletedLedgerReceipt,
   IncompleteLedgerReceipt,
   ProgramFinished,
   ClusterLost,
-  runSociety,
-  type SimulatorRunOptions,
 } from "./execute.js";
+import { RuntimeCompleted, RuntimeExited } from "../agents/agent.js";
+import { defineFakeRuntime } from "../cluster/fake.js";
+
 import {
-  RuntimeCompleted,
-  RuntimeExited,
-  type AgentRuntimeLike,
-} from "../agents/agent.js";
-import { defineFakeRuntime, makeFakeCluster } from "../cluster/fake.js";
-import { Cluster } from "../cluster/cluster.js";
-import { makeAgentRosterBinding, type AgentRoster } from "../agents/roster.js";
+  OBSERVED_EXIT_CODE,
+  Observation,
+  PRIMARY_AGENT_NAME,
+  REF,
+  ROUTER_URL,
+  assertDefaultProvenance,
+  configuration,
+  fakeRouterProvider,
+  kernelHarness,
+  memoryStorage,
+  observeCompletions,
+  ongoingRoster,
+  type testRuntimeConfiguration,
+} from "../test-utils/index.js";
 
-class Observation extends Schema.TaggedClass<Observation>()(
-  "acme.kernel-observation/v1",
-  { value: Schema.String },
-) {}
-
-const customerEvents = EventCatalog.make(Observation);
-const DEFINITION_ID = "acme.kernel-test/v1";
-const eventServices = makeDefinitionEventServices(
-  DEFINITION_ID,
-  customerEvents,
-);
-const rosterBinding = makeAgentRosterBinding(DEFINITION_ID);
-const runKernel = <
-  const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
->(
-  roster: AgentRoster<typeof DEFINITION_ID, Definitions>,
-  program: Effect.Effect<A, E, R>,
-  options: SimulatorRunOptions = {},
-) =>
-  runSociety({
-    definitionId: DEFINITION_ID,
-    eventServices,
-    roster,
-    program,
-    options,
-  }).pipe(Effect.provideService(Cluster, makeFakeCluster()));
-const kernelHarness = Object.freeze({
-  agents: rosterBinding.agents,
-  ledger: eventServices.ledger,
-  events: eventServices.events,
-  run: runKernel,
-  openLedger: (ref: typeof ledgerRef.Type) =>
-    openLedger(eventServices.catalog, ref, DEFINITION_ID),
-});
-const DIGEST = Schema.decodeSync(ledgerDigest)("a".repeat(64));
-const REF = Schema.decodeSync(ledgerRef)("kernel-test-ledger");
-const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
-  "http://127.0.0.1:43100",
-);
-const OBSERVED_EXIT_CODE = 7;
-const PRIMARY_AGENT_NAME = "alice";
-const testRuntimeConfiguration = Schema.Struct({
-  kind: Schema.String,
-});
-
-function configuration(kind: string) {
-  return {
-    schema: testRuntimeConfiguration,
-    value: { kind },
-  };
-}
-
-function agentId(suffix: number) {
-  return protocolAgentId(
-    `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`,
-  );
-}
-
-function agentKey(suffix: number) {
-  return redactedAgentKey(
-    `moltzap_agent_${String(suffix).padStart(16, "0")}_${String(suffix).padStart(48, "0")}`,
-  );
-}
-
-function completion(manifest: LedgerManifest, count: number): LedgerCompletion {
-  return LedgerCompletion.make({
-    ledgerFormatVersion: 1,
-    runId: manifest.runId,
-    recordCount: count,
-    artifacts: { manifest: DIGEST, records: DIGEST },
-  });
-}
-
-function compareText(left: string, right: string): number {
-  return left.localeCompare(right);
-}
-
-function assertDefaultProvenance(manifest: LedgerManifest): void {
-  assert.deepStrictEqual(manifest.provenance, {
-    agents: [
-      {
-        name: "alice",
-        runtime: "effect",
-        configuration: { kind: "in-process" },
-      },
-      {
-        name: "bob",
-        runtime: "process",
-        configuration: { kind: "external-process" },
-      },
-    ],
-  });
-}
-
-function memoryStorage(failOnEventTag?: string): LedgerStorageService {
-  const files = new Map<LedgerArtifact, string>();
-  return {
-    allocate: (input) => {
-      const manifest = LedgerManifest.make({
-        ledgerFormatVersion: 1,
-        definitionId: input.definitionId,
-        runId: "kernel-test-run",
-        catalogTags: [...input.catalogTags].sort(compareText),
-        createdAt: DateTime.unsafeMake(0),
-        provenance: input.provenance,
-        metadata: input.metadata,
-      });
-      const records: string[] = [];
-      files.set(
-        "manifest",
-        JSON.stringify(Schema.encodeSync(LedgerManifest)(manifest)),
-      );
-      files.set("records", "");
-      return Effect.succeed({
-        ref: REF,
-        runId: manifest.runId,
-        manifest,
-        append: (record: string) =>
-          failOnEventTag !== undefined && record.includes(failOnEventTag)
-            ? Effect.fail(
-                LedgerStorageError.make({
-                  operation: "append",
-                  detail: `failed ${failOnEventTag}`,
-                }),
-              )
-            : Effect.sync(() => {
-                records.push(record);
-                files.set("records", `${records.join("\n")}\n`);
-              }),
-        complete: (count: number) => {
-          const done = completion(manifest, count);
-          files.set(
-            "completion",
-            JSON.stringify(Schema.encodeSync(LedgerCompletion)(done)),
-          );
-          return Effect.succeed(done);
-        },
-      });
-    },
-    read: (...[, artifact]) => Effect.succeed(files.get(artifact) ?? ""),
-    digest: () => Effect.succeed(DIGEST),
-  };
-}
-
-function increment(current: number): number {
-  return current + 1;
-}
-
-function observeCompletions(
-  storage: LedgerStorageService,
-  completions: Ref.Ref<number>,
-): LedgerStorageService {
-  return {
-    ...storage,
-    allocate: (input) =>
-      storage.allocate(input).pipe(
-        Effect.map((allocation) => ({
-          ...allocation,
-          complete: (count: number) =>
-            allocation
-              .complete(count)
-              .pipe(Effect.zipLeft(Ref.update(completions, increment))),
-        })),
-      ),
-  };
-}
-
-function attachFakeEndpoint<const Name extends string>(
-  name: Name,
-  committedSends?: Ref.Ref<number>,
-): Effect.Effect<AttachedEndpoint<Name>> {
-  const endpointId = agentId(100);
-  return Effect.succeed({
-    participant: makeParticipantHandle(name, endpointId),
-    transport: {
-      received: Stream.never,
-      openConversation: () =>
-        Effect.succeed({
-          conversationId: conversationId(
-            "00000000-0000-4000-8000-000000000102",
-          ),
-        }),
-      send: (currentConversationId, parts) =>
-        (committedSends === undefined
-          ? Effect.void
-          : Ref.update(committedSends, (count) => count + 1)
-        ).pipe(
-          Effect.as({
-            id: messageId("00000000-0000-4000-8000-000000000103"),
-            conversationId: currentConversationId,
-            senderId: endpointId,
-            parts,
-            createdAt: "2026-07-28T00:00:00.000Z",
-          }),
-        ),
-    },
-  });
-}
-
-function fakeRouterProvider(
-  committedSends?: Ref.Ref<number>,
-): RouterProviderService {
-  return {
-    acquire: Effect.gen(function* () {
-      const stopped = yield* Deferred.make<RouterStopped>();
-      let nextIdentity = 0;
-      const router: Router = {
-        address: ROUTER_URL,
-        stopped: Deferred.await(stopped),
-        attachAgent: (name) =>
-          Effect.sync(() => {
-            nextIdentity += 1;
-            return {
-              agent: makeAgentHandle(name, agentId(nextIdentity)),
-              key: agentKey(nextIdentity),
-              routerUrl: ROUTER_URL,
-            };
-          }),
-        attachEndpoint: (name) => attachFakeEndpoint(name, committedSends),
-      };
-      yield* Effect.addFinalizer(() =>
-        Deferred.succeed(stopped, makeRouterStopReport([])).pipe(Effect.asVoid),
-      );
-      return router;
-    }),
-  };
-}
-
-const ongoingRuntime = defineFakeRuntime({
-  name: "ongoing",
-  configuration: configuration("ongoing"),
-  acquire: () =>
-    Effect.succeed({ gateway: undefined, termination: Effect.never }),
-});
-
-const ongoingRoster = kernelHarness.agents({
-  alice: ongoingRuntime,
-});
-
-// @agent-code-guard/regression-only: controlled scopes and deferred termination expose exact lifecycle evidence and cancellation order
-// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- the lifecycle regression keeps post-dispatch termination, evidence, and final outcome in one ordered effect.
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- One mixed-roster lifetime: splitting it would separate the ordering assertions from the timeline they pin.
 test("runs mixed runtimes until customer policy completes", () =>
   // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- the generator is the same ordered lifecycle regression as its enclosing test callback.
   Effect.gen(function* () {
@@ -921,3 +675,144 @@ test("releases an acquired peer when parallel roster acquisition fails", () =>
       Effect.provideService(RouterProvider, fakeRouterProvider()),
     ),
   ));
+
+const SHAPE_DESCRIPTION = "delay under shape";
+const SHAPED_DELAY = Duration.millis(100);
+const SHAPED_DELAY_MILLIS = 100;
+
+function textOf(received: ReceivedMessage): string {
+  return received.message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("");
+}
+
+function awaitSleepers(count: number): Effect.Effect<void> {
+  return TestClock.sleeps().pipe(
+    Effect.flatMap((sleeps) =>
+      Chunk.size(sleeps) >= count
+        ? Effect.void
+        : Effect.yieldNow().pipe(
+            Effect.zipRight(Effect.suspend(() => awaitSleepers(count))),
+          ),
+    ),
+  );
+}
+
+function openPair() {
+  return Effect.gen(function* () {
+    const network = yield* Network;
+    const sender = yield* network.endpoint("sender");
+    const receiver = yield* network.endpoint("receiver");
+    const socket = yield* sender.open(receiver.participant);
+    return { sender, receiver, socket };
+  });
+}
+
+function disableRoundTripProgram() {
+  return Effect.gen(function* () {
+    const links = yield* LinkController;
+    const ledger = yield* kernelHarness.ledger;
+    const { sender, receiver, socket } = yield* openPair();
+    const received = yield* receiver
+      .messages()
+      .pipe(Stream.take(2), Stream.runCollect, Effect.fork);
+    yield* Effect.yieldNow();
+    yield* socket.send("baseline");
+    yield* ledger
+      .events(EndpointMessageReceived)
+      .pipe(Stream.take(1), Stream.runDrain);
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* links.disable(sender.participant, receiver.participant);
+        yield* socket.send("blocked");
+        yield* ledger
+          .events(LinkMessageDropped)
+          .pipe(Stream.take(1), Stream.runDrain);
+      }),
+    );
+    yield* socket.send("after");
+    const messages = yield* Fiber.join(received);
+    return Chunk.toReadonlyArray(messages).map(textOf);
+  });
+}
+
+test("scoped link disable drops deliveries with evidence and restores delivery", () =>
+  Effect.gen(function* () {
+    const result = yield* kernelHarness.run(
+      kernelHarness.agents({}),
+      disableRoundTripProgram(),
+    );
+    assert.instanceOf(result, ProgramFinished);
+    if (!(result instanceof ProgramFinished)) {
+      return;
+    }
+    assert.deepStrictEqual(result.exit, Exit.succeed(["baseline", "after"]));
+
+    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
+    assert.lengthOf(yield* Stream.runCollect(ledger.events(LinkDown)), 1);
+    assert.lengthOf(yield* Stream.runCollect(ledger.events(LinkUp)), 1);
+    const dropped = yield* Stream.runCollect(ledger.events(LinkMessageDropped));
+    assert.strictEqual(dropped.length, 1);
+  }).pipe(
+    Effect.provideService(LedgerStorage, memoryStorage()),
+    Effect.provideService(RouterProvider, fakeRouterProvider()),
+  ));
+
+function delayUnderShapeProgram() {
+  return Effect.gen(function* () {
+    const links = yield* LinkController;
+    const ledger = yield* kernelHarness.ledger;
+    const { sender, receiver, socket } = yield* openPair();
+    const received = yield* receiver
+      .messages()
+      .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
+    yield* Effect.yieldNow();
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* links.shape(
+          sender.participant,
+          receiver.participant,
+          linkPolicy.delay(SHAPED_DELAY),
+          SHAPE_DESCRIPTION,
+        );
+        yield* socket.send("delayed");
+        yield* ledger
+          .events(LinkMessageDelayed)
+          .pipe(Stream.take(1), Stream.runDrain);
+        yield* awaitSleepers(1);
+        yield* TestClock.adjust(SHAPED_DELAY);
+      }),
+    );
+    const messages = yield* Fiber.join(received);
+    return Chunk.toReadonlyArray(messages).map(textOf);
+  });
+}
+
+test("a shaped delay defers delivery until the ambient clock advances", () =>
+  Effect.gen(function* () {
+    const result = yield* kernelHarness.run(
+      kernelHarness.agents({}),
+      delayUnderShapeProgram(),
+    );
+    assert.instanceOf(result, ProgramFinished);
+    if (!(result instanceof ProgramFinished)) {
+      return;
+    }
+    assert.deepStrictEqual(result.exit, Exit.succeed(["delayed"]));
+
+    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
+    const set = yield* Stream.runCollect(ledger.events(LinkPolicySet));
+    assert.strictEqual(Chunk.unsafeGet(set, 0).policy, SHAPE_DESCRIPTION);
+    const cleared = yield* Stream.runCollect(ledger.events(LinkPolicyCleared));
+    assert.strictEqual(Chunk.unsafeGet(cleared, 0).policy, SHAPE_DESCRIPTION);
+    const delayed = yield* Stream.runCollect(ledger.events(LinkMessageDelayed));
+    assert.strictEqual(
+      Chunk.unsafeGet(delayed, 0).delayMillis,
+      SHAPED_DELAY_MILLIS,
+    );
+  }).pipe(
+    Effect.provideService(LedgerStorage, memoryStorage()),
+    Effect.provideService(RouterProvider, fakeRouterProvider()),
+  ));
+
+/* eslint-enable agent-code-guard/no-example-only-tests -- Restore the project default after the run-lifecycle regressions. */

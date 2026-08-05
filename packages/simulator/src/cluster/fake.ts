@@ -1,4 +1,5 @@
 /** @file Private in-memory cluster used by run tests. */
+// safer-arch-ignore no-cross-domain-sibling-import: The in-memory cluster mirrors the real seam, so it names the same agent and network types.
 
 import { Effect, type Schema, type Scope } from "effect";
 import {

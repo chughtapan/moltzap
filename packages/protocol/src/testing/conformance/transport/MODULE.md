@@ -17,7 +17,7 @@ by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireProxiedClient`](./_helpers.ts#L84)
+### [`acquireProxiedClient`](./_helpers.ts#L83)
 
 _Function_
 
@@ -39,7 +39,7 @@ Acquire an agent client that routes through the Toxiproxy proxy.
 
 **Returns:** The acquire proxied client result.
 
-### [`ADVERSITY_CATEGORY`](./_helpers.ts#L30)
+### [`ADVERSITY_CATEGORY`](./_helpers.ts#L29)
 
 _Variable_
 
@@ -49,7 +49,7 @@ export const ADVERSITY_CATEGORY = "adversity"
 
 Provides the adversity category runtime value.
 
-### [`adversityViolation`](./_helpers.ts#L42)
+### [`adversityViolation`](./_helpers.ts#L41)
 
 _Function_
 
@@ -64,7 +64,7 @@ Executes the adversity violation operation.
 
 **Returns:** The adversity violation result.
 
-### [`createOneOnOneConversation`](./_helpers.ts#L261)
+### [`createOneOnOneConversation`](./_helpers.ts#L260)
 
 _Function_
 
@@ -83,7 +83,7 @@ Creates one on one conversation.
 
 **Returns:** The created one on one conversation.
 
-### [`proxyName`](./_helpers.ts#L66)
+### [`proxyName`](./_helpers.ts#L65)
 
 _Function_
 
@@ -135,7 +135,7 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void
 
 Registers timeout surface.
 
-### [`ToxicBodyParams`](./_helpers.ts#L135)
+### [`ToxicBodyParams`](./_helpers.ts#L134)
 
 _Interface_
 
@@ -182,7 +182,7 @@ export const TRANSPORT_PROPERTIES: ReadonlyArray<
 All transport-layer property registrars, in the order
 `_shared/suite.ts` invokes them.
 
-### [`withToxicProxy`](./_helpers.ts#L154)
+### [`withToxicProxy`](./_helpers.ts#L153)
 
 _Function_
 

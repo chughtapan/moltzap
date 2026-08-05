@@ -15,11 +15,7 @@ import {
   extractText,
   type ConversationBinding,
 } from "./test-helpers.js";
-import {
-  type AgentId,
-  type AgentKey,
-  DEFAULT_APP_ID,
-} from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   type ConversationId,
   agentConversationCreate,
@@ -192,7 +188,6 @@ function createConversation(
 ) {
   return client
     .call(agentConversationCreate.name, {
-      appId: DEFAULT_APP_ID,
       participants: [receiverAgentId],
     })
     .pipe(Effect.map(extractConversationBinding));

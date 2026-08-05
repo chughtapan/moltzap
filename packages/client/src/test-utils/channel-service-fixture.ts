@@ -4,25 +4,22 @@ import { Effect } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import { testAgentId, testConversationId } from "./ids.js";
-import type { ChannelService, DispatchReleaseFrame } from "../channel-core.js";
+import type { ChannelService } from "../channel-core.js";
 import type { CrossConversationEntry, CrossConvMessage } from "../service.js";
 
 type MessageHandler = (payload: { message: Message }) => void;
 type VoidHandler = () => void;
-type DispatchReleaseHandler = (frame: DispatchReleaseFrame) => void;
-type ServiceEvent = "message" | "disconnect" | "dispatchRelease";
-type ServiceHandler = MessageHandler | VoidHandler | DispatchReleaseHandler;
+type ServiceEvent = "message" | "disconnect";
+type ServiceHandler = MessageHandler | VoidHandler;
 
 interface SentReply {
   convId: string;
   text: string;
-  dispatchLeaseId?: string;
 }
 
 interface SendFixtureReplyInput {
   readonly conversationId: ConversationId;
   readonly text: string;
-  readonly dispatchLeaseId?: string;
 }
 
 interface FixtureConversationMeta {
@@ -34,7 +31,6 @@ interface FixtureConversationMeta {
 interface ChannelServiceFixtureStore {
   readonly messageHandlers: MessageHandler[];
   readonly disconnectHandlers: VoidHandler[];
-  readonly dispatchReleaseHandlers: DispatchReleaseHandler[];
   readonly conversations: Map<string, FixtureConversationMeta>;
   readonly agentNames: Map<string, string>;
   readonly contextEntriesByConv: Map<string, CrossConversationEntry[]>;
@@ -65,7 +61,6 @@ function participantKey(participant: string): string {
 export interface ChannelServiceEmit {
   message(msg: Message): void;
   disconnect(): void;
-  dispatchRelease(frame: DispatchReleaseFrame): void;
 }
 
 /** Describes channel service state. */
@@ -105,7 +100,6 @@ function createFixtureStore(
   return {
     messageHandlers: [],
     disconnectHandlers: [],
-    dispatchReleaseHandlers: [],
     conversations: new Map(),
     agentNames: new Map(),
     contextEntriesByConv: new Map(),
@@ -126,16 +120,10 @@ function registerServiceHandler(
   handler: ServiceHandler,
 ): void {
   if (event === "message") {
-    store.messageHandlers.push(
-      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as MessageHandler,
-    );
+    store.messageHandlers.push(handler);
   } else if (event === "disconnect") {
     store.disconnectHandlers.push(
       /* Safe because the surrounding invariant establishes this asserted shape. */ handler as VoidHandler,
-    );
-  } else if (event === "dispatchRelease") {
-    store.dispatchReleaseHandlers.push(
-      /* Safe because the surrounding invariant establishes this asserted shape. */ handler as DispatchReleaseHandler,
     );
   }
 }
@@ -157,9 +145,6 @@ function sendFixtureReply(
     store.sent.push({
       convId: input.conversationId,
       text: input.text,
-      ...(input.dispatchLeaseId !== undefined
-        ? { dispatchLeaseId: input.dispatchLeaseId }
-        : {}),
     });
   });
 }
@@ -167,14 +152,8 @@ function sendFixtureReply(
 function makeFixtureSend(
   store: ChannelServiceFixtureStore,
 ): ChannelService["send"] {
-  return (conversationId, text, opts) =>
-    sendFixtureReply(store, {
-      conversationId,
-      text,
-      ...(opts?.dispatchLeaseId !== undefined
-        ? { dispatchLeaseId: opts.dispatchLeaseId }
-        : {}),
-    });
+  return (conversationId, text) =>
+    sendFixtureReply(store, { conversationId, text });
 }
 
 function getFixtureConversation(
@@ -262,11 +241,6 @@ function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
     disconnect() {
       for (const h of store.disconnectHandlers) {
         h();
-      }
-    },
-    dispatchRelease(frame) {
-      for (const h of store.dispatchReleaseHandlers) {
-        h(frame);
       }
     },
   };

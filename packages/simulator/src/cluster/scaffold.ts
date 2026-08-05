@@ -1,4 +1,5 @@
 /** @file Stand up one run: its root, its access, its endpoint, its controller. */
+// safer-arch-ignore no-trivial-sink-file: Standing a run up is its own step of a run's life; folding it into the module that watches the controller would put two behaviors behind one name.
 
 import { Effect } from "effect";
 import type {

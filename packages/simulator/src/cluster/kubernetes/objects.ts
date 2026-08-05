@@ -1,3 +1,4 @@
+// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent, ledger, and router identities the run gives them.
 /**
  * @file Every Kubernetes object the simulator builds: the run's aggregate
  * admission and sandbox resources, the run-scoped control objects created

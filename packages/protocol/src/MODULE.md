@@ -12,7 +12,7 @@ testing helpers live behind focused package subpaths.
 
 ## Public surface
 
-### [`AgentClientOptions`](./socket/agent-client.ts#L40)
+### [`AgentClientOptions`](./socket/agent-client.ts#L28)
 
 _Interface_
 
@@ -26,22 +26,7 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`AppClientOptions`](./socket/app-client.ts#L72)
-
-_Interface_
-
-```ts
-export interface AppClientOptions {
-  readonly serverUrl: string;
-  readonly appKey: AppKey;
-  readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly handlers: AppCallbackHandlers<AppCallbackContext>;
-}
-```
-
-Configures app client.
-
-### [`ConnectResult`](./socket/lifecycle.ts#L107)
+### [`ConnectResult`](./socket/lifecycle.ts#L91)
 
 _TypeAlias_
 
@@ -51,7 +36,7 @@ export type ConnectResult = ResultOf<typeof agentConnect>;
 
 Represents the result of connect.
 
-### [`MoltZapAgentClient`](./socket/agent-client.ts#L47)
+### [`MoltZapAgentClient`](./socket/agent-client.ts#L35)
 
 _Class_
 
@@ -70,7 +55,6 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
         maxProtocol: PROTOCOL_VERSION,
       },
       openSession: openProtocolAgentClientSocket,
-      callbackHandlers: makeAgentCallbackHandlers,
       onDisconnect: options.onDisconnect,
     });
   }
@@ -91,47 +75,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](./socket/app-client.ts#L80)
-
-_Class_
-
-```ts
-export class MoltZapAppClient extends ProtocolClientLifecycle<
-  AppCallableRpcs,
-  AppClientDispatch
-> {
-  constructor(options: AppClientOptions) {
-    super({
-      serverUrl: options.serverUrl,
-      connectTag: appConnect.name,
-      connectPayload: {
-        appKey: options.appKey,
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
-      },
-      openSession: openProtocolAppClientSocket,
-      callbackHandlers: () => makeAppCallbackHandlers(options.handlers),
-      onDisconnect: options.onDisconnect,
-    });
-  }
-
-  call<Tag extends AppCallableTag>(
-    tag: Tag,
-    payload: PayloadForTag<AppCallableRpcs, Tag>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<
-    SuccessForTag<AppCallableRpcs, Tag>,
-    ErrorForTag<AppCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
-  > {
-    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
-    return this.callEffect(tag, payload, timeoutMs);
-  }
-}
-```
-
-Implements molt zap app client.
-
-### [`MoltZapServer`](./socket/server.ts#L298)
+### [`MoltZapServer`](./socket/server.ts#L232)
 
 _Class_
 
@@ -259,7 +203,7 @@ export class MoltZapServer<
 
 Implements molt zap server.
 
-### [`MoltZapServerOptions`](./socket/server.ts#L63)
+### [`MoltZapServerOptions`](./socket/server.ts#L52)
 
 _Interface_
 
@@ -289,7 +233,7 @@ export interface MoltZapServerOptions<
 
 Configures molt zap server.
 
-### [`MoltZapServerSession`](./socket/server.ts#L48)
+### [`MoltZapServerSession`](./socket/server.ts#L37)
 
 _Interface_
 
@@ -305,7 +249,7 @@ export interface MoltZapServerSession {
 
 Describes molt zap server session.
 
-### [`RpcCallOptions`](./socket/lifecycle.ts#L86)
+### [`RpcCallOptions`](./socket/lifecycle.ts#L70)
 
 _Interface_
 
@@ -320,6 +264,5 @@ Configures rpc call.
 ## Files
 
 - `agent-client.ts`
-- `app-client.ts`
 - `lifecycle.ts`
 - `server.ts`

@@ -1,4 +1,5 @@
 /** @file Private Layer assembled inside one run controller process. */
+// safer-arch-ignore no-cross-domain-sibling-import: Assembles the controller's Layer from ledger, network, and cluster implementations.
 
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import { Duration, Layer } from "effect";

@@ -1,4 +1,5 @@
 /** @file Conversion of Effect/runtime outcomes into exact ledger events. */
+// safer-arch-ignore no-cross-domain-sibling-import: Converts Effect and runtime outcomes into ledger events, so it names both domains.
 
 import type { AgentId, AgentName } from "@moltzap/protocol/identity";
 import { Cause, Exit } from "effect";
