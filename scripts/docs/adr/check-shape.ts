@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * @file Decision-record shape gate. Checks the mechanical rules AGENTS.md
- * states for `docs/decisions/`, so review can spend its attention on whether
+ * @file Decision-record shape gate. Checks the mechanical rules the
+ * `decisions` skill states for `docs/decisions/`, so review can spend its attention on whether
  * a decision is right rather than whether it is well-formed.
  *
  * Two modes:
@@ -11,7 +11,7 @@
  *              invokes it only when staged paths touch the decision trees, so
  *              an ordinary commit pays nothing.
  *
- * The changelog rule is the one with teeth. AGENTS.md forbids silently
+ * The changelog rule is the one with teeth. The `decisions` skill forbids silently
  * rewriting an admitted decision, and allows a point correction — a moved
  * path, a renamed term — that appends a dated row to `Record changelog`.
  * A body edit with neither a status change nor a new row is exactly the
@@ -124,7 +124,7 @@ const checkRecord = (
     );
   }
 
-  // AGENTS.md requires the three sections of *new* records and says older
+  // The `decisions` skill requires the three sections of *new* records and says older
   // admitted records retain their historical body shape. 26 of the existing 48
   // carry consequences as a paragraph inside Decision Outcome, which that
   // clause permits; enforcing the heading on them would be this gate
@@ -195,14 +195,19 @@ const checkRecord = (
 
 /**
  * A staged record whose body changed, whose status did not, and which gained
- * no changelog row. AGENTS.md permits editing a record in place only with a
- * dated receipt.
+ * no changelog row. The `decisions` skill permits editing a record in place
+ * only with a dated receipt.
  */
 const checkChangelogRow = (path: string): Violation | undefined => {
   const name = path.slice(DECISIONS.length + 1);
   let previous: string;
   try {
-    previous = git(["show", `HEAD:${path}`]);
+    // stderr is silenced because a new record makes this fail by design, and
+    // git's "exists on disk, but not in HEAD" reads like a gate failure.
+    previous = execFileSync("git", ["-C", repoRoot, "show", `HEAD:${path}`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   } catch {
     return undefined; // new record; nothing to have rewritten
   }

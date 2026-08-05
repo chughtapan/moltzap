@@ -27,8 +27,8 @@ Every ADR visibly links to compacted decision provenance in
 locators, literal human and agent excerpts, mechanical repository
 effects, and explicit source gaps without reconstructing a rationale.
 ADR changes do not land until a fresh teammate, given no file pointers
-or inherited session context, passes the blind review gate in root
-`AGENTS.md`.
+or inherited session context, passes the blind review gate carried by the
+`decisions` skill.
 
 Status has exactly one of these meanings:
 
@@ -98,5 +98,6 @@ planning database as continuing authority.
 | [X.509 card container](20260721-x509-card-container.md) | 2026-07-21 | superseded | [JCS, JOSE, and AuthenticatedHttp](20260729-identity-uses-jcs-jose-authenticated-http.md) |
 | [Native principal-shaped card](20260721-native-principal-shaped-card.md) | 2026-07-21 | partially-superseded | [JCS, JOSE, and AuthenticatedHttp](20260729-identity-uses-jcs-jose-authenticated-http.md) |
 | [v2 lives top-level](20260721-v2-lives-top-level.md) | 2026-07-21 | partially-superseded | [Six packages and one version](20260728-six-deep-packages-one-version.md), [V2 authority](20260729-v2-authority-lives-with-v2.md), [opaque Router order](20260729-router-order-is-opaque.md) |
-| [AGENTS.md is the single source](20260721-agents-md-single-source.md) | 2026-07-21 | accepted | — |
+| [AGENTS.md is the single source](20260721-agents-md-single-source.md) | 2026-07-21 | partially-superseded | [progressive disclosure](20260805-agent-instructions-progressive-disclosure.md) |
+| [Agent instructions load progressively](20260805-agent-instructions-progressive-disclosure.md) | 2026-08-05 | accepted | — |
 | [The network is a router](20260720-the-network-is-a-router.md) | 2026-07-20 | partially-superseded | [Layer boundaries](20260728-layer-boundaries-and-fault-model.md), [mechanical Transcript commit](20260728-transcript-is-mechanical-atomic-commit.md) |

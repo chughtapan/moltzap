@@ -117,13 +117,28 @@ nothing — it will produce a plausible report about an absence.
 
 ### Phase 3 — Build the self-contained prompt
 
-Write a prompt file containing ONLY: the framing, the question set or rubric,
-the output schema, and the payload. No repo name in the framing, no issue
-number, no "as we discussed".
+There are two isolation models, and using the wrong one wastes the run.
 
-When `--questions` is set, read that file and use its questions verbatim in
-place of the rubric; the schema becomes one section per question plus an
-overall verdict. Otherwise use the default rubric:
+**Default (rubric) — payload-only.** The prompt carries the framing, the
+rubric, the schema, and the artifact text, and nothing else. The question is
+whether the artifact carries its own weight, so anything the reviewer can reach
+beyond it is contamination.
+
+**`--questions` — repository-scoped.** The prompt carries the framing, the
+questions, the schema, and the *path* to the candidate. The reviewer navigates
+the repository normally: search, history, and the checked-in indexes are all
+allowed. Questions of the form "what does this replace" and "find the strongest
+contradiction elsewhere" are unanswerable from a payload, and inlining one
+would guarantee a false `Not discoverable`.
+
+What isolation means in this mode is that the reviewer inherits no
+*conversation* — no session history, no design summary, no diff tour, no file
+pointer beyond the candidate, no expected answer. Discovering the rest by
+navigation is the thing being measured.
+
+In either mode: no issue number, no branch name, no "as we discussed".
+
+The default rubric:
 
 ```
 Score each axis 0-10, integer, citing evidence from the artifact.
@@ -163,10 +178,14 @@ Agent({
 ```
 
 The description stays generic so no project context leaks through the
-subagent's bootstrap. **This skill's body never reads `$PAYLOAD` beyond piping
-it into the prompt file.** The subagent is the only reader of the artifact.
-That is the architectural enforcement, and reading the payload yourself to
-"check" the subagent breaks it.
+subagent's bootstrap. **In payload mode this skill's body never reads
+`$PAYLOAD` beyond piping it into the prompt file** — the subagent is the only
+reader, and reading it yourself to "check" the subagent breaks the enforcement.
+
+In `--questions` mode the subagent has repository access, so the discipline
+shifts from what it can reach to what you tell it: name the candidate path and
+nothing else. Answering one of its questions mid-run, or pointing it at the
+record you know it needs, invalidates the run.
 
 If the reply does not match the schema, re-invoke once with: "Your previous
 reply did not match the output schema. Emit only the schema block." Two failed
