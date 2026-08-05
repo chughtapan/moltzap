@@ -28,6 +28,22 @@ active agent and holds only stable presentation checkpoints.
 
 **Returns:** The scoped adapter-facing service value.
 
+### [`acquireMoltzapdChild`](./moltzapd-child.ts#L209)
+
+_Function_
+
+```ts
+export const acquireMoltzapdChild = (
+  options: MoltzapdChildOptions,
+): Effect.Effect<MoltzapdChild, MoltzapdChildError, Scope.Scope>
+```
+
+Starts the package's real `moltzapd` binary against an existing slot.
+The slot carries the loopback port, so the child receives only its profile
+name and the returned URL is derived from the same persisted value.
+
+**Returns:** A scoped packaged daemon after its MCP status reports connected.
+
 ### [`AgentClientOptions`](./../../protocol/dist/socket/agent-client.d.ts#L13)
 
 _Interface_
@@ -95,6 +111,33 @@ export class HarnessClient extends Context.Tag("@moltzap/client/HarnessClient")<
 ```
 
 Effect service tag consumed by runtime adapters.
+
+### [`harnessClientForProfile`](./moltzapd-child.ts#L250)
+
+_Function_
+
+```ts
+export const harnessClientForProfile = (
+  profileName: string,
+): Effect.Effect<
+  HarnessClientService,
+  MoltzapdChildError | Error,
+  Scope.Scope
+>
+```
+
+Acquire the adapter-facing client for one named profile slot.
+
+This is the whole production composition: the slot's own daemon child, the
+loopback endpoint derived from the slot, and a file-backed checkpoint store.
+A caller supplies only the profile name — no URL, no port, no store.
+
+The checkpoint directory is keyed by profile name rather than AgentId,
+because the store must be provided before `acquireHarnessClient` reads the
+identity from the daemon's status tool. One slot is exactly one AgentId, so
+the profile name is a stable agent scope.
+
+**Returns:** The scoped adapter-facing service value.
 
 ### [`HarnessClientOptions`](./harness-client.ts#L64)
 
@@ -168,6 +211,31 @@ export declare class MoltZapAgentClient extends ProtocolClientLifecycle<AgentCal
 ```
 
 Implements molt zap agent client.
+
+### [`MoltzapdChild`](./moltzapd-child.ts#L39)
+
+_Interface_
+
+```ts
+export interface MoltzapdChild {
+  readonly mcpUrl: string;
+  readonly logs: () => string;
+}
+```
+
+Explicit endpoint for a packaged daemon owned by the enclosing test scope.
+
+### [`MoltzapdChildOptions`](./moltzapd-child.ts#L45)
+
+_Interface_
+
+```ts
+export interface MoltzapdChildOptions {
+  readonly profileName: string;
+}
+```
+
+Inputs for starting the packaged daemon against caller-scoped test config.
 
 ### [`MoltZapService`](./service.ts#L233)
 
@@ -335,5 +403,6 @@ to that method's errors at the `call` site.
 
 - `harness-client.ts`
 - `runtime.ts`
+- `moltzapd-child.ts`
 - `state.ts`
 - `service.ts`
