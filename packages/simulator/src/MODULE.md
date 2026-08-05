@@ -841,7 +841,7 @@ export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
 
 A directed participant link transitioned from unavailable to available.
 
-### [`MessageParts`](./../../protocol/dist/message/parts.d.ts#L41)
+### [`MessageParts`](./../../../../../home/tapanc/moltzap-pr-917-main/packages/protocol/dist/message/parts.d.ts#L41)
 
 _TypeAlias_
 

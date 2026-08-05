@@ -8,29 +8,56 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`AgentClientOptions`](./../../../protocol/dist/socket/agent-client.d.ts#L13)
+### [`AgentClientOptions`](./../../../../../home/tapanc/moltzap-pr-917-main/packages/protocol/dist/socket/agent-client.d.ts#L13)
 
 _Interface_
+
+```ts
+export interface AgentClientOptions {
+    readonly serverUrl: string;
+    readonly agentKey: AgentKey;
+    readonly onDisconnect?: (close: CloseInfo) => void;
+}
+```
 
 Configures agent client.
 
-### [`AppCallbackContext`](./../../../protocol/dist/socket/app-client.d.ts#L14)
+### [`AppCallbackContext`](./../../../../../home/tapanc/moltzap-pr-917-main/packages/protocol/dist/socket/app-client.d.ts#L14)
 
 _Interface_
 
+```ts
+export interface AppCallbackContext {
+    readonly requestId: string;
+}
+```
+
 Carries context for app callback.
 
-### [`AppCallbackHandlers`](./../../../protocol/dist/socket/app-callbacks.d.ts#L26)
+### [`AppCallbackHandlers`](./../../../../../home/tapanc/moltzap-pr-917-main/packages/protocol/dist/socket/app-callbacks.d.ts#L26)
 
 _TypeAlias_
+
+```ts
+export type AppCallbackHandlers<Ctx> = HandlerTable<AnyAppCallbackRpcDefinition, Ctx>;
+```
 
 Closed handler table for an app moderating one or more conversations. Every
 app callback member is required; vacuous-deny moderators still write the
 handler explicitly.
 
-### [`AppClientOptions`](./../../../protocol/dist/socket/app-client.d.ts#L18)
+### [`AppClientOptions`](./../../../../../home/tapanc/moltzap-pr-917-main/packages/protocol/dist/socket/app-client.d.ts#L18)
 
 _Interface_
+
+```ts
+export interface AppClientOptions {
+    readonly serverUrl: string;
+    readonly appKey: AppKey;
+    readonly onDisconnect?: (close: CloseInfo) => void;
+    readonly handlers: AppCallbackHandlers<AppCallbackContext>;
+}
+```
 
 Configures app client.
 
@@ -63,15 +90,29 @@ export interface ConversationMeta {
 
 Describes conversation meta.
 
-### [`MoltZapAgentClient`](./../../../protocol/dist/socket/agent-client.d.ts#L19)
+### [`MoltZapAgentClient`](./../../../../../home/tapanc/moltzap-pr-917-main/packages/protocol/dist/socket/agent-client.d.ts#L19)
 
 _Class_
+
+```ts
+export declare class MoltZapAgentClient extends ProtocolClientLifecycle<AgentCallableRpcs, AgentClientDispatch> {
+    constructor(options: AgentClientOptions);
+    call<Tag extends AgentCallableTag>(tag: Tag, payload: PayloadForTag<AgentCallableRpcs, Tag>, opts?: RpcCallOptions): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, ErrorForTag<AgentCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError>;
+}
+```
 
 Implements molt zap agent client.
 
-### [`MoltZapAppClient`](./../../../protocol/dist/socket/app-client.d.ts#L25)
+### [`MoltZapAppClient`](./../../../../../home/tapanc/moltzap-pr-917-main/packages/protocol/dist/socket/app-client.d.ts#L25)
 
 _Class_
+
+```ts
+export declare class MoltZapAppClient extends ProtocolClientLifecycle<AppCallableRpcs, AppClientDispatch> {
+    constructor(options: AppClientOptions);
+    call<Tag extends AppCallableTag>(tag: Tag, payload: PayloadForTag<AppCallableRpcs, Tag>, opts?: RpcCallOptions): Effect.Effect<SuccessForTag<AppCallableRpcs, Tag>, ErrorForTag<AppCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError>;
+}
+```
 
 Implements molt zap app client.
 
@@ -210,9 +251,15 @@ Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
 callers compose failures and cancellation explicitly.
 
-### [`RpcCallOptions`](./../../../protocol/dist/socket/lifecycle.d.ts#L12)
+### [`RpcCallOptions`](./../../../../../home/tapanc/moltzap-pr-917-main/packages/protocol/dist/socket/lifecycle.d.ts#L12)
 
 _Interface_
+
+```ts
+export interface RpcCallOptions {
+    readonly timeoutMs?: number;
+}
+```
 
 Configures rpc call.
 

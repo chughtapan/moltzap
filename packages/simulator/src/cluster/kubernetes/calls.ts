@@ -526,9 +526,11 @@ function isAbsent(cause: unknown): boolean {
   return cause instanceof ApiException && cause.code === 404;
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
 async function attempt<Result>(
   operation: string,
   evaluate: () => Promise<Result>,
+  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
 ): Promise<Result> {
   try {
     return await evaluate();
@@ -537,9 +539,11 @@ async function attempt<Result>(
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
 async function attemptUnlessAbsent(
   operation: string,
   evaluate: () => Promise<unknown>,
+  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
 ): Promise<void> {
   try {
     await evaluate();
@@ -576,9 +580,11 @@ function jobObservation(job: V1Job): JobObservation {
   };
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
 async function createRunRoot(
   clients: RunControlClients,
   input: RunSocietyWorkflowInput,
+  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
 ): Promise<string> {
   await attempt("create run namespace", () =>
     clients.core.createNamespace({
@@ -602,11 +608,13 @@ async function createRunRoot(
 
 // A Pod already being deleted is skipped: its log stream ends wherever the
 // eviction cut it, which would read as a controller that stopped on its own.
+// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
 async function readControllerLogs(
   clients: RunControlClients,
   namespace: string,
   tailLines: number,
   limitBytes: number,
+  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
 ): Promise<string | undefined> {
   const pods = await attempt("observe controller pod", () =>
     clients.core.listNamespacedPod({
@@ -646,10 +654,12 @@ function runControlClients(): RunControlClients {
   };
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
 async function createExperimentAndQueue(
   clients: RunControlClients,
   namespace: string,
   manifests: OwnedRunControlManifests,
+  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
 ): Promise<void> {
   await attempt("create experiment module", () =>
     clients.core.createNamespacedConfigMap({
@@ -670,10 +680,12 @@ async function createExperimentAndQueue(
   );
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
 async function createControllerAccess(
   clients: RunControlClients,
   namespace: string,
   manifests: OwnedRunControlManifests,
+  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
 ): Promise<void> {
   await attempt("create controller service account", () =>
     clients.core.createNamespacedServiceAccount({
@@ -714,6 +726,7 @@ function runPreparationOperations(
       createExperimentAndQueue(clients, namespace, manifests),
     createControllerAccess: (namespace, manifests) =>
       createControllerAccess(clients, namespace, manifests),
+    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
     createRouterService: async (namespace, manifests) => {
       await attempt("create router service", () =>
         clients.core.createNamespacedService({
@@ -723,6 +736,7 @@ function runPreparationOperations(
         }),
       );
     },
+    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
     startController: async (namespace, manifests) => {
       await attempt("create controller job", () =>
         clients.batch.createNamespacedJob({
@@ -745,6 +759,7 @@ function runObservationOperations(
   | "runNamespaceExists"
 > {
   return {
+    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
     readControllerJob: async (namespace) =>
       jobObservation(
         await attempt("observe controller job", () =>
@@ -763,6 +778,7 @@ function runObservationOperations(
           propagationPolicy: "Foreground",
         }),
       ),
+    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
     runNamespaceExists: async (namespace) => {
       try {
         await clients.core.readNamespace({ name: namespace });
@@ -802,10 +818,12 @@ interface InstalledObjectApi {
   readonly replace: () => Promise<unknown>;
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
 async function installOne(
   operation: string,
   manifest: { metadata?: V1ObjectMeta },
   api: InstalledObjectApi,
+  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
 ): Promise<void> {
   let existing: { metadata?: V1ObjectMeta };
   try {
@@ -970,6 +988,7 @@ export function makeKubernetesRunWorkerInstallApi(
   return Object.freeze({
     install: (object: RunWorkerObject) =>
       installOne(`run worker ${object}`, manifests[object], apis[object]),
+    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
     readWorkerAvailability: async () => {
       const deployment = await attempt("observe run worker", () =>
         clients.apps.readNamespacedDeployment({

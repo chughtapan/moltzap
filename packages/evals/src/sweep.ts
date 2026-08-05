@@ -141,11 +141,12 @@ export class GkeEvaluationInfrastructure extends Schema.TaggedClass<GkeEvaluatio
   },
 ) {}
 
-/** Exact non-secret target selected for each submitted evaluation cell. */
-export const evaluationInfrastructure = Schema.Union(
+const evaluationInfrastructure = Schema.Union(
   LocalEvaluationInfrastructure,
   GkeEvaluationInfrastructure,
 );
+
+/** Exact non-secret target selected for each submitted evaluation cell. */
 export type EvaluationInfrastructure = typeof evaluationInfrastructure.Type;
 
 /** Ordered matrix and all inputs that must match before resume. */

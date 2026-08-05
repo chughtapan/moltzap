@@ -20,10 +20,12 @@ import type { RunSocietyWorkflowInput } from "./reclaim.js";
  * @param profile Private local or GKE storage and placement projection.
  * @returns Nothing once the controller Job has been created.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: runs inside a Promise-native Temporal activity
 export async function prepareRun(
   api: RunControlApi,
   input: RunSocietyWorkflowInput,
   profile: KubernetesExecutionProfile,
+  // #ignore-sloppy-code-next-line[promise-type]: runs inside a Promise-native Temporal activity
 ): Promise<void> {
   const ownerUid = await api.createRunRoot(input);
   const manifests = ownedRunControlManifests(input, ownerUid, profile);
