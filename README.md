@@ -193,7 +193,7 @@ the local kind nodes, but it is not a simulator backend. Start with the
 
 The package has four supported entry points: experiment definitions and runs
 at `@moltzap/simulator`, container runtimes at
-`@moltzap/simulator/runtime`, network contracts at
+`@moltzap/simulator/agents`, network contracts at
 `@moltzap/simulator/network`, and offline evidence tools at
 `@moltzap/simulator/ledger`.
 

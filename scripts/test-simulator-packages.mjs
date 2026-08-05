@@ -24,13 +24,13 @@ const forbiddenSimulatorPaths = [
   "src/layer.ts",
   "src/network/server.ts",
   "src/network/server-image.ts",
-  "src/runtime/cache.ts",
-  "src/runtime/effect.ts",
-  "src/runtime/nanoclaw/install.ts",
-  "src/runtime/nanoclaw/onecli.ts",
-  "src/runtime/nanoclaw/process.ts",
-  "src/runtime/openclaw/cache.ts",
-  "src/runtime/openclaw/process.ts",
+  "src/agents/cache.ts",
+  "src/agents/effect.ts",
+  "src/agents/nanoclaw/install.ts",
+  "src/agents/nanoclaw/onecli.ts",
+  "src/agents/nanoclaw/process.ts",
+  "src/agents/openclaw/cache.ts",
+  "src/agents/openclaw/process.ts",
 ];
 const forbiddenStandaloneWorkspacePaths = [
   "examples/simulator/README.md",
@@ -132,8 +132,8 @@ async function verifyPackedFiles(extractedPackage) {
     "dist/network.d.ts",
     "dist/ledger.js",
     "dist/ledger.d.ts",
-    "dist/runtime.js",
-    "dist/runtime.d.ts",
+    "dist/agents.js",
+    "dist/agents.d.ts",
     "dist/nanoclaw-assets/SKILL.md",
     "dist/nanoclaw-assets/moltzap.ts",
   ];
@@ -162,8 +162,8 @@ async function verifyPackedFiles(extractedPackage) {
   );
   requireCondition(
     JSON.stringify(Object.keys(manifest.exports)) ===
-      JSON.stringify([".", "./network", "./ledger", "./runtime"]),
-    "packed simulator exports must be root, network, ledger, and runtime",
+      JSON.stringify([".", "./network", "./ledger", "./agents"]),
+    "packed simulator exports must be root, network, ledger, and agents",
   );
 }
 
@@ -184,18 +184,18 @@ async function verifyConsumerImports(extractedPackage) {
       'import * as simulator from "@moltzap/simulator";',
       'import * as network from "@moltzap/simulator/network";',
       'import * as ledger from "@moltzap/simulator/ledger";',
-      'import * as runtime from "@moltzap/simulator/runtime";',
+      'import * as agents from "@moltzap/simulator/agents";',
       'for (const name of ["Run", "RunSpec"]) {',
       "  if (!(name in simulator)) throw new Error(`missing root export ${name}`);",
       "}",
-      'for (const name of ["defineDistributedRuntime", "openClawRuntime", "nanoclawRuntime"]) {',
-      "  if (!(name in runtime)) throw new Error(`missing runtime export ${name}`);",
+      'for (const name of ["defineContainerRuntime", "openClawRuntime", "nanoclawRuntime"]) {',
+      "  if (!(name in agents)) throw new Error(`missing agents export ${name}`);",
       "}",
       'for (const name of ["simulator", "simulatorLayer"]) {',
       "  if (name in simulator) throw new Error(`obsolete root export ${name}`);",
       "}",
       'for (const name of ["defineRuntime", "effectRuntime"]) {',
-      "  if (name in runtime) throw new Error(`obsolete runtime export ${name}`);",
+      "  if (name in agents) throw new Error(`obsolete agents export ${name}`);",
       "}",
       'if (!("RouterProvider" in network)) throw new Error("missing network RouterProvider");',
       'if (!("LedgerStorage" in ledger)) throw new Error("missing ledger LedgerStorage");',

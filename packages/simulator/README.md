@@ -2,9 +2,9 @@
 
 Code-first experiments over containerized agent societies. Kubernetes is the
 single execution backend; the repository provides local kind and GKE profiles
-for the same kernel path.
+for the same run path.
 
-The package owns typed definitions and events, the run kernel, the production
+The package owns typed definitions and events, the run, the production
 MoltZap router, exact runtime-native gateways, durable ledgers, Kueue cohort
 admission, Agent Sandbox applications, and coarse Temporal lifecycle control.
 Experiment code owns completion policy, scenarios, sweeps, and grading.
@@ -14,7 +14,7 @@ Experiment code owns completion policy, scenarios, sweeps, and grading.
 | Import | Purpose |
 |---|---|
 | `@moltzap/simulator` | Define a `RunSpec`, execute it, and consume customer run services |
-| `@moltzap/simulator/runtime` | Use container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
+| `@moltzap/simulator/agents` | Use container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
 | `@moltzap/simulator/network` | Network, endpoint, router, transport, and link contracts |
 | `@moltzap/simulator/ledger` | Completed-ledger schemas, validation, and offline readback |
 
@@ -24,9 +24,9 @@ A controller-loadable module exports exactly one named `runSpec`:
 
 ```ts
 import { RunSpec } from "@moltzap/simulator";
-import { openClawRuntime } from "@moltzap/simulator/runtime";
+import { openClawRuntime } from "@moltzap/simulator/agents";
 import { Effect } from "effect";
-import { controllerInfrastructureFromEnvironment } from "/opt/moltzap/dist/platform/controller/infrastructure.js";
+import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
 
 const alice = openClawRuntime({
   tools: { deny: ["*"], exec: { mode: "deny" } },
@@ -40,7 +40,7 @@ export const runSpec = RunSpec.define({
   id: "acme.echo/v1",
   events: [],
   agents: { alice },
-  infrastructure: controllerInfrastructureFromEnvironment(),
+  cluster: controllerServicesFromEnvironment(),
   execute: ({ agents, network }) =>
     Effect.gen(function* () {
       const diagnostic = yield* network.endpoint("diagnostic");
@@ -50,7 +50,7 @@ export const runSpec = RunSpec.define({
 });
 ```
 
-The absolute infrastructure import is private to the repository-built
+The absolute cluster-services import is private to the repository-built
 controller image. It keeps Kubernetes, Kueue, Sandbox, Temporal, and
 cloud-provider values outside the public experiment contract. The controller
 loads the module late and invokes `Run.execute(runSpec)` once.

@@ -7,7 +7,7 @@ import {
   type LedgerCompletion,
   type LedgerDigest,
   type LedgerManifest,
-} from "./model.js";
+} from "./schema.js";
 
 const ledgerArtifactSchema = Schema.Literal(
   "manifest",

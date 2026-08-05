@@ -62,7 +62,7 @@ test("queue profile reserves every resource requested by an application", async 
 test("two-agent smoke sends once through one diagnostic conversation", async () => {
   const smoke = await read("two-agent-smoke.mjs");
   assert.match(smoke, /export const runSpec = RunSpec\.define/);
-  assert.match(smoke, /controllerInfrastructureFromEnvironment\(\)/);
+  assert.match(smoke, /controllerServicesFromEnvironment\(\)/);
   assert.match(smoke, /network\.endpoint\("diagnostic"\)/);
   assert.match(smoke, /agents\.alice\.agent/);
   assert.match(smoke, /agents\.bob\.agent/);
@@ -75,7 +75,7 @@ test("two-agent smoke sends once through one diagnostic conversation", async () 
 test("ten-agent smoke exercises one complete admitted roster", async () => {
   const smoke = await read("ten-agent-smoke.mjs");
   assert.match(smoke, /export const runSpec = RunSpec\.define/);
-  assert.match(smoke, /controllerInfrastructureFromEnvironment\(\)/);
+  assert.match(smoke, /controllerServicesFromEnvironment\(\)/);
   assert.equal(smoke.match(/^    agent\d{2}: runtime\(/gm)?.length, 10);
   for (let index = 1; index <= 10; index += 1) {
     const name = `agent${String(index).padStart(2, "0")}`;
@@ -89,7 +89,7 @@ test("controller image exposes the agreed controller and support layout", async 
   const dockerfile = await read("controller-image/Dockerfile");
   assert.match(
     dockerfile,
-    /ENTRYPOINT \["node", "\/opt\/moltzap\/dist\/platform\/controller\/main\.js"\]/,
+    /ENTRYPOINT \["node", "\/opt\/moltzap\/dist\/cluster\/controller\/main\.js"\]/,
   );
   assert.match(dockerfile, /\/opt\/moltzap\/application-overlay/);
   assert.match(dockerfile, /\/opt\/moltzap\/dist/);

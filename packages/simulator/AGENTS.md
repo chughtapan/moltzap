@@ -11,9 +11,9 @@ This package owns:
 - the closed readable event catalog and customer-only writable catalog;
 - live and completed run ledgers;
 - network participant, endpoint, conversation, socket, and link capabilities;
-- the private run kernel and private fake platform used by tests;
+- the private run and the private fake cluster used by tests;
 - the Kubernetes, Kueue, Agent Sandbox, and Temporal integration used by that
-  kernel; and
+  run; and
 - local-Kubernetes and GKE Effect Layers plus their setup assets.
 
 `packages/evals` owns cases, runtime conditions, grading, reports, resume
@@ -30,7 +30,7 @@ composed at the application edge.
 - One execution creates one experiment society, runs one customer Effect, and
   tears the society down. It is not a reusable warm pool.
 - Kubernetes is the only execution backend. Local Kubernetes and GKE are two
-  infrastructure Layers for the same controller and kernel path.
+  cluster Layers for the same controller and run path.
 - One roster entry maps to one Agent Sandbox application container.
   Infrastructure containers do not count as agents.
 - Kueue admits capacity for the complete roster before Sandboxes are created.
@@ -49,7 +49,7 @@ composed at the application edge.
   or replays customer code.
 - Every event class is declared before execution. The definition's catalog is
   the complete event universe for emission, selection, and typed opening.
-- Core events are readable and kernel-only writable. Customer emission accepts
+- Core events are readable and run-only writable. Customer emission accepts
   only the definition's declared customer event classes.
 - Event catalogs and network handles are nominal values. Infrastructure
   writers are producer-bound capabilities; callers never pass emitter names.
@@ -71,9 +71,9 @@ composed at the application edge.
 - The stock digest-pinned OpenClaw image is the compatibility path. Experiment
   code and instructions are late-bound; a prebuilt MoltZap image is only an
   optimization.
-- `RunSpec.infrastructure` carries the selected local-Kubernetes or GKE Effect
-  Layer. Its roster and customer Effect never receive raw Kubernetes, Sandbox,
-  Kueue, or Temporal objects.
+- `RunSpec.cluster` carries the selected local-Kubernetes or GKE Effect Layer.
+  Its roster and customer Effect never receive raw Kubernetes, Sandbox, Kueue,
+  or Temporal objects.
 - Do not add generation streams, customer-visible restart/rebind/rejoin APIs,
   post-dispatch recovery guarantees, customer Effect replay, artifact
   authorities, global execution identities, synthetic identity schemes, or a
@@ -84,25 +84,25 @@ composed at the application edge.
 ## Structure
 
 - `src/events/` — exact event catalogs and core event classes.
-- `src/ledger/` — records, live ledger, storage, opening, and filesystem
+- `src/ledger/` — records, append, storage, reading, and filesystem
   implementation.
 - `src/network/` — participant, conversation, endpoint, router, transport,
-  link, MoltZap server, and message-store capabilities.
-- `src/runtime/` — portable container runtime definitions, exact gateway
+  link, and router-server-process capabilities.
+- `src/agents/` — portable container runtime definitions, exact gateway
   contracts, and shipped OpenClaw and NanoClaw implementations.
-- `src/kernel/` — definition-bound services and platform-neutral execution
+- `src/run/` — definition-bound services and mechanism-neutral execution
   sequencing.
-- private platform code — the smallest interface needed by the kernel, its
-  fake, and the Kubernetes/Kueue/Sandbox/Temporal implementation.
+- `src/cluster/` — private cluster code: the smallest interface needed by the
+  run, its fake, and the Kubernetes/Kueue/Sandbox/Temporal implementation.
 - `src/definition.ts` — public definition assembly, including `RunSpec`.
 
-Only `src/index.ts`, `src/runtime.ts`, `src/network.ts`, and `src/ledger.ts`
-are published facades. Do not add a package or public export for platform,
+Only `src/index.ts`, `src/agents.ts`, `src/network.ts`, and `src/ledger.ts`
+are published facades. Do not add a package or public export for cluster,
 controller, Temporal, Kueue, or Sandbox internals.
 
 Folders are capability boundaries, not namespaces. Keep a type with its
 construction rules and merge single-consumer helpers into their owner. Reuse
-the existing EventCatalog, RunLedger, roster, gateway, and kernel concepts
+the existing EventCatalog, RunLedger, roster, gateway, and run concepts
 instead of rebuilding them for Kubernetes.
 
 ## Tests

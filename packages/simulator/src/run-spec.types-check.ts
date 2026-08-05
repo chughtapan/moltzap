@@ -1,7 +1,7 @@
 /**
  * A RunSpec preserves exact heterogeneous gateways and contains customer
- * completion inside ProgramFinished. Its infrastructure Layer supplies the
- * kernel and platform, removes customer-used extra outputs, and leaves only
+ * completion inside ProgramFinished. Its cluster Layer supplies the
+ * kernel and cluster, removes customer-used extra outputs, and leaves only
  * the Layer input plus customer-owned requirements outside.
  */
 
@@ -18,16 +18,15 @@ import {
 } from "effect";
 import { EventCatalog } from "./events/catalog.js";
 import { coreEvents } from "./events/core.js";
-import type { LedgerFailure } from "./ledger/live.js";
-import type { LedgerRef } from "./ledger/model.js";
-import { openLedger } from "./ledger/open.js";
+import type { LedgerFailure } from "./ledger/append.js";
+import type { LedgerRef } from "./ledger/schema.js";
+import { openLedger } from "./ledger/read.js";
 import { LedgerStorage, type LedgerStorageError } from "./ledger/storage.js";
 import { RouterProvider } from "./network/router.js";
 import { Run, RunSpec } from "./definition.js";
-import type { ProgramFinished, SimulatorRunFailure } from "./kernel/run.js";
-import type { SimulatorInfrastructureFailure } from "./platform/failure.js";
-import { SocietyPlatform } from "./platform/platform.js";
-import { defineRuntime } from "./runtime/runtime.js";
+import type { ProgramFinished, SimulatorRunFailure } from "./run/execute.js";
+import { type ClusterError, Cluster } from "./cluster/cluster.js";
+import { defineRuntime } from "./agents/agent.js";
 
 interface AlphaGateway {
   readonly runtime: "alpha";
@@ -39,13 +38,13 @@ interface BetaGateway {
   readonly inspect: Effect.Effect<"beta-ready">;
 }
 
-class InfrastructureInput extends Context.Tag(
-  "@moltzap/simulator/test/RunSpecInfrastructureInput",
-)<InfrastructureInput, { readonly profile: "local" | "gke" }>() {}
+class ClusterInput extends Context.Tag(
+  "@moltzap/simulator/test/RunSpecClusterInput",
+)<ClusterInput, { readonly profile: "local" | "gke" }>() {}
 
-class InfrastructureExtra extends Context.Tag(
-  "@moltzap/simulator/test/RunSpecInfrastructureExtra",
-)<InfrastructureExtra, { readonly marker: "layer-output" }>() {}
+class ClusterExtra extends Context.Tag(
+  "@moltzap/simulator/test/RunSpecClusterExtra",
+)<ClusterExtra, { readonly marker: "layer-output" }>() {}
 
 class CustomerRequirement extends Context.Tag(
   "@moltzap/simulator/test/RunSpecCustomerRequirement",
@@ -58,9 +57,7 @@ class CustomerFailure extends Data.TaggedError("CustomerFailure")<{
   readonly detail: string;
 }> {}
 
-class InfrastructureUnavailable extends Data.TaggedError(
-  "InfrastructureUnavailable",
-)<{
+class ClusterUnavailable extends Data.TaggedError("ClusterUnavailable")<{
   readonly detail: string;
 }> {}
 
@@ -95,18 +92,18 @@ const betaRuntime = defineRuntime<
   configuration,
 });
 
-const unavailableInfrastructure = Effect.gen(function* () {
-  yield* InfrastructureInput;
+const unavailableCluster = Effect.gen(function* () {
+  yield* ClusterInput;
   return yield* Effect.fail(
-    new InfrastructureUnavailable({ detail: "compile-time canary" }),
+    new ClusterUnavailable({ detail: "compile-time canary" }),
   );
 });
 
-const infrastructure = Layer.mergeAll(
-  Layer.effect(LedgerStorage, unavailableInfrastructure),
-  Layer.effect(RouterProvider, unavailableInfrastructure),
-  Layer.effect(SocietyPlatform, unavailableInfrastructure),
-  Layer.effect(InfrastructureExtra, unavailableInfrastructure),
+const cluster = Layer.mergeAll(
+  Layer.effect(LedgerStorage, unavailableCluster),
+  Layer.effect(RouterProvider, unavailableCluster),
+  Layer.effect(Cluster, unavailableCluster),
+  Layer.effect(ClusterExtra, unavailableCluster),
 );
 
 const observations = EventCatalog.make(Observation);
@@ -119,11 +116,11 @@ export const runSpecCanary = RunSpec.define({
     alice: alphaRuntime,
     bob: betaRuntime,
   },
-  infrastructure,
+  cluster,
   execute: ({ agents, events }) =>
     Effect.gen(function* () {
       const customer = yield* CustomerRequirement;
-      const extra = yield* InfrastructureExtra;
+      const extra = yield* ClusterExtra;
       yield* customer.check;
       yield* events
         .emit(Observation.make({ detail: extra.marker }))
@@ -166,24 +163,21 @@ type CustomerExitIsRetained = Expect<
     readonly [readonly ["alpha", "beta", "layer-output"], CustomerFailure]
   >
 >;
-type OuterErrorsAreInfrastructureOnly = Expect<
+type OuterErrorsAreClusterOnly = Expect<
   Equal<
     Effect.Effect.Error<typeof runSpecCanaryExecution>,
-    InfrastructureUnavailable | LedgerStorageError
+    ClusterUnavailable | LedgerStorageError
   >
 >;
 type ExternalRequirementsAreExact = Expect<
-  Equal<ExecutionRequirements, InfrastructureInput | CustomerRequirement>
+  Equal<ExecutionRequirements, ClusterInput | CustomerRequirement>
 >;
 type LayerExtraOutputIsRemoved = Expect<
-  Equal<Extract<ExecutionRequirements, InfrastructureExtra>, never>
+  Equal<Extract<ExecutionRequirements, ClusterExtra>, never>
 >;
 type KernelServicesAreRemoved = Expect<
   Equal<
-    Extract<
-      ExecutionRequirements,
-      LedgerStorage | RouterProvider | SocietyPlatform
-    >,
+    Extract<ExecutionRequirements, LedgerStorage | RouterProvider | Cluster>,
     never
   >
 >;
@@ -193,7 +187,7 @@ type ScopeDoesNotLeak = Expect<
 type ParentSpanDoesNotLeak = Expect<
   Equal<Extract<ExecutionRequirements, Tracer.ParentSpan>, never>
 >;
-type LiveRecordsRetainInfrastructureFailure = Expect<
+type LiveRecordsRetainClusterError = Expect<
   Equal<Stream.Stream.Error<ExecuteContext["ledger"]["records"]>, LedgerFailure>
 >;
 
@@ -224,13 +218,13 @@ type ProgramFinishedExitIsExact = Expect<
     Exit.Exit<readonly ["alpha", "beta", "layer-output"], CustomerFailure>
   >
 >;
-type InfrastructureFailureUsesPublicShape = Expect<
+type ClusterErrorUsesPublicShape = Expect<
   Equal<
     Extract<
       SimulatorRunFailure<typeof runSpecCanary.agents>,
-      { readonly _tag: "SimulatorInfrastructureFailure" }
+      { readonly _tag: "ClusterError" }
     >,
-    SimulatorInfrastructureFailure
+    ClusterError
   >
 >;
 
@@ -241,14 +235,14 @@ export type RunSpecCanaries = [
   AliceGatewayIsExact,
   BobGatewayIsExact,
   CustomerExitIsRetained,
-  OuterErrorsAreInfrastructureOnly,
+  OuterErrorsAreClusterOnly,
   ExternalRequirementsAreExact,
   LayerExtraOutputIsRemoved,
   KernelServicesAreRemoved,
   ScopeDoesNotLeak,
   ParentSpanDoesNotLeak,
-  LiveRecordsRetainInfrastructureFailure,
+  LiveRecordsRetainClusterError,
   CompletedRecordsCannotFail,
   ProgramFinishedExitIsExact,
-  InfrastructureFailureUsesPublicShape,
+  ClusterErrorUsesPublicShape,
 ];

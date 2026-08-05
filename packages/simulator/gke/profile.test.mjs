@@ -213,12 +213,12 @@ test("add-on installation is explicit, pinned, and Helm-owned", async () => {
 test("the GKE target enters the core Temporal path with explicit identities", async () => {
   const [packageText, entrypoint] = await Promise.all([
     read("../package.json"),
-    read("../src/platform/gke/main.ts"),
+    read("../src/cluster/profiles/gke.ts"),
   ]);
   const packageManifest = JSON.parse(packageText);
   assert.equal(
     packageManifest.nx.targets["gke-run"].options.command,
-    "node dist/platform/gke/main.js",
+    "node dist/cluster/profiles/gke.js",
   );
   assert.match(entrypoint, /runKubernetesSociety/);
   assert.match(entrypoint, /MOLTZAP_GKE_ARTIFACT_BUCKET/);

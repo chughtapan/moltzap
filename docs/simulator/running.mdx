@@ -13,7 +13,7 @@ through the same Temporal, Kubernetes, Kueue, Agent Sandbox, controller, and
 | Import | Purpose |
 |---|---|
 | `@moltzap/simulator` | `RunSpec`, `Run.execute`, event catalogs, customer services, and run outcomes |
-| `@moltzap/simulator/runtime` | Container runtime descriptors and exact OpenClaw and NanoClaw gateway contracts |
+| `@moltzap/simulator/agents` | Container runtime descriptors and exact OpenClaw and NanoClaw gateway contracts |
 | `@moltzap/simulator/network` | Router, transport, link, endpoint, and nominal capability contracts |
 | `@moltzap/simulator/ledger` | Completed-ledger types, validation, and artifact inspection |
 
@@ -28,9 +28,9 @@ Export exactly one named `runSpec`:
 import { RunSpec } from "@moltzap/simulator";
 import {
   openClawRuntime,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { Duration, Effect, Schema } from "effect";
-import { controllerInfrastructureFromEnvironment } from "/opt/moltzap/dist/platform/controller/infrastructure.js";
+import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
 
 class ExperimentTimedOut extends Schema.TaggedError<ExperimentTimedOut>()(
   "ExperimentTimedOut",
@@ -53,7 +53,7 @@ export const runSpec = RunSpec.define({
   id: "acme.echo/v1",
   events: [],
   agents: { alice },
-  infrastructure: controllerInfrastructureFromEnvironment(),
+  cluster: controllerServicesFromEnvironment(),
   execute: ({ agents, network }) =>
     Effect.gen(function* () {
       const diagnostic = yield* network.endpoint("diagnostic");
@@ -70,7 +70,7 @@ export const runSpec = RunSpec.define({
 });
 ```
 
-The absolute infrastructure import is available inside the repository-built
+The absolute cluster-services import is available inside the repository-built
 controller image. It constructs the selected profile's private Layer from the
 validated controller environment. Experiment code does not receive raw
 Kubernetes, Kueue, Sandbox, or Temporal objects.
@@ -160,9 +160,9 @@ A runtime exit after readiness is committed as typed ledger evidence. It does
 not implicitly end the customer Effect. One program may fail fast on that
 evidence while another continues observing the remaining society.
 
-The run returns a `ProgramFinished` or `RunInfrastructureFailed` outcome after
-ledger allocation succeeds. `ProgramFinished.exit` preserves customer success,
-typed failure, defect, or interruption. Infrastructure acquisition, append,
+The run returns a `ProgramFinished` or `ClusterLost` outcome after ledger
+allocation succeeds. `ProgramFinished.exit` preserves customer success, typed
+failure, defect, or interruption. Infrastructure acquisition, append,
 controller, teardown, or completion failures stay distinct from behavioral
 results.
 

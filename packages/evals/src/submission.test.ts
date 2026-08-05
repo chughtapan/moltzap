@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import type { SimulatorDefinitionId } from "@moltzap/simulator";
-import type { DistributedContainerImage } from "@moltzap/simulator/runtime";
+import type { Image } from "@moltzap/simulator/agents";
 import { decodeConditionId, decodeEvaluationCaseId } from "./model.js";
 import {
   evaluationControllerModule,
@@ -8,9 +8,9 @@ import {
 } from "./submission.js";
 
 const PEER_IMAGE =
-  "registry.example/moltzap-support@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" satisfies DistributedContainerImage;
+  "registry.example/moltzap-support@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" satisfies Image;
 const NANOCLAW_IMAGE =
-  "registry.example/nanoclaw-application@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" satisfies DistributedContainerImage;
+  "registry.example/nanoclaw-application@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" satisfies Image;
 const DEFINITION_ID = "moltzap.eval-006/v4" satisfies SimulatorDefinitionId;
 
 function input(

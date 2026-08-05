@@ -22,7 +22,7 @@ The package keeps capability boundaries inside one install:
 | Import | Owner |
 |---|---|
 | `@moltzap/simulator` | `RunSpec`, `Run.execute`, event catalogs, customer services, and run outcomes |
-| `@moltzap/simulator/runtime` | Container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
+| `@moltzap/simulator/agents` | Container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
 | `@moltzap/simulator/network` | Router, transport, participant, endpoint, conversation, and link contracts |
 | `@moltzap/simulator/ledger` | Ledger schemas, completed-artifact validation, and offline inspection |
 
@@ -34,8 +34,8 @@ uses `/ledger`.
 
 A controller-loadable experiment module exports exactly one named `runSpec`.
 The definition contains a versioned identity, its complete customer event
-catalog, its exact roster, the infrastructure Layer supplied by the selected
-profile, and the customer Effect:
+catalog, its exact roster, the cluster Layer supplied by the selected profile,
+and the customer Effect:
 
 ```ts
 import {
@@ -44,9 +44,9 @@ import {
 } from "@moltzap/simulator";
 import {
   openClawRuntime,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";
-import { controllerInfrastructureFromEnvironment } from "/opt/moltzap/dist/platform/controller/infrastructure.js";
+import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
 
 class ConsensusReached extends Schema.TaggedClass<ConsensusReached>()(
   "acme.consensus-reached/v1",
@@ -80,7 +80,7 @@ export const runSpec = RunSpec.define({
     alice: runtime("You are Alice."),
     bob: runtime("You are Bob."),
   },
-  infrastructure: controllerInfrastructureFromEnvironment(),
+  cluster: controllerServicesFromEnvironment(),
   execute: ({ agents, events, network, ledger }) =>
     Effect.gen(function* () {
       const workload = yield* network.endpoint("workload");
@@ -104,7 +104,7 @@ export const runSpec = RunSpec.define({
 });
 ```
 
-The absolute infrastructure import is private to the repository-built
+The absolute cluster-services import is private to the repository-built
 controller image. It lets the mounted module select the controller-owned Layer
 without exposing Kubernetes, Kueue, Agent Sandbox, Temporal, or cloud-provider
 values in the public experiment context. The controller loads the module late
@@ -196,8 +196,8 @@ outcomes:
 
 - `ProgramFinished` preserves the customer program's `Exit` and carries a
   `CompletedLedgerReceipt`.
-- `RunInfrastructureFailed` preserves the infrastructure `Cause` and carries a
-  completed or incomplete receipt.
+- `ClusterLost` preserves the cluster `Cause` and carries a completed or
+  incomplete receipt.
 
 Ledger allocation failure before ownership remains a typed failure of the
 outer Effect. Caller interruption remains interruption after finalization is

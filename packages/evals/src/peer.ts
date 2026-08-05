@@ -26,16 +26,15 @@ import type { MoltZapAgentClient } from "@moltzap/protocol/socket";
 import {
   type AgentRuntime,
   type AgentRuntimeInput,
-  defineDistributedRuntime,
-  type DistributedApplicationAttachment,
-  type DistributedApplicationContainer,
-  type DistributedApplicationSupport,
-  type DistributedBootstrapSecret,
-  type DistributedContainerImage,
-  RuntimeAcquisitionFailed,
-} from "@moltzap/simulator/runtime";
+  type Application,
+  defineContainerRuntime,
+  type File,
+  type Image,
+  RuntimeAcquisitionError,
+  type RuntimeTermination,
+  stoppedBeforeAttach,
+} from "@moltzap/simulator/agents";
 import {
-  Cause,
   Duration,
   Effect,
   Mailbox,
@@ -60,7 +59,7 @@ const EVALUATION_PEER_BOOTSTRAP_PATH =
   "/var/run/moltzap/bootstrap/evaluation-peer.json";
 /** Fixed controller bridge port exposed by every evaluation peer. */
 export const EVALUATION_PEER_BRIDGE_PORT = 4319;
-/** Application output observed by the platform before bridge attachment. */
+/** Startup line the peer container logs once its bridge is listening. */
 export const EVALUATION_PEER_READY_MARKER =
   "MoltZap evaluation peer bridge ready";
 const EVALUATION_PEER_RESOURCES = Object.freeze({
@@ -287,16 +286,14 @@ export function evaluationPeerGatewayFromBridge(
 /** Distributed runtime shape shared by bundled autonomous peers. */
 type EvaluationPeerRuntime = AgentRuntime<
   EvaluationPeerGateway,
-  RuntimeAcquisitionFailed,
+  RuntimeAcquisitionError,
   typeof EvaluationPeerRuntimeConfiguration
 >;
 
 /** Image-independent case-owned peer definition materialized by one cell. */
 export interface EvaluationPeerDefinition {
   readonly plan: EvaluationPeerApplicationPlan;
-  readonly runtime: (
-    applicationImage: DistributedContainerImage,
-  ) => EvaluationPeerRuntime;
+  readonly runtime: (applicationImage: Image) => EvaluationPeerRuntime;
 }
 
 interface PeerConversation {
@@ -734,30 +731,28 @@ export function runEvaluationPeerApplication(
 function acquisitionFailure(
   agent: string,
   detail: string,
-): RuntimeAcquisitionFailed {
-  return RuntimeAcquisitionFailed.make({
+): RuntimeAcquisitionError {
+  return RuntimeAcquisitionError.make({
     runtime: EVALUATION_PEER_RUNTIME_NAME,
     agent,
     detail,
   });
 }
 
-function bridgeResultUrl(endpointUrl: string): Option.Option<string> {
-  const parsed = Option.liftThrowable((source: string) => new URL(source))(
-    endpointUrl,
-  );
-  return Option.flatMap(parsed, (url) => {
-    const isWebSocket = url.protocol === "ws:" || url.protocol === "wss:";
-    const hasCredentials = url.username.length > 0 || url.password.length > 0;
-    if (!isWebSocket || hasCredentials || url.hostname.length === 0) {
-      return Option.none();
-    }
-    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-    url.pathname = "/result";
-    url.search = "";
-    url.hash = "";
-    return Option.some(url.href);
-  });
+function bridgeResultUrl(endpoint: URL): Option.Option<string> {
+  const isWebSocket =
+    endpoint.protocol === "ws:" || endpoint.protocol === "wss:";
+  const hasCredentials =
+    endpoint.username.length > 0 || endpoint.password.length > 0;
+  if (!isWebSocket || hasCredentials || endpoint.hostname.length === 0) {
+    return Option.none();
+  }
+  const url = new URL(endpoint.href);
+  url.protocol = endpoint.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = "/result";
+  url.search = "";
+  url.hash = "";
+  return Option.some(url.href);
 }
 
 function readBridgeResult(
@@ -818,34 +813,12 @@ function awaitBridgeResult(
   return poll.pipe(Effect.provide(NodeHttpClient.layerUndici));
 }
 
-function bridgeStopped(
-  attachment: DistributedApplicationAttachment,
-): Effect.Effect<never, EvaluationPeerFailed> {
-  return attachment.stopped.pipe(
-    Effect.matchCauseEffect({
-      onFailure: (cause) =>
-        Effect.fail(
-          failure(
-            "bridge",
-            `peer application stopped before publishing its result: ${Cause.pretty(cause)}`,
-          ),
-        ),
-      onSuccess: (observed) =>
-        Effect.fail(
-          failure(
-            "bridge",
-            `peer application stopped before publishing its result: ${String(observed)}`,
-          ),
-        ),
-    }),
-  );
-}
-
 function attachEvaluationPeer(
   agent: string,
-  attachment: DistributedApplicationAttachment,
-) {
-  return Option.match(bridgeResultUrl(attachment.endpointUrl), {
+  endpoint: URL,
+  stopped: Effect.Effect<RuntimeTermination>,
+): Effect.Effect<EvaluationPeerGateway, RuntimeAcquisitionError> {
+  return Option.match(bridgeResultUrl(endpoint), {
     onNone: () =>
       Effect.fail(
         acquisitionFailure(
@@ -855,23 +828,24 @@ function attachEvaluationPeer(
       ),
     onSome: (url) => {
       const result = awaitBridgeResult(url).pipe(
-        Effect.raceFirst(bridgeStopped(attachment)),
+        Effect.raceFirst(
+          stoppedBeforeAttach(stopped, (detail) =>
+            failure(
+              "bridge",
+              `peer application stopped before publishing its result: ${detail}`,
+            ),
+          ),
+        ),
       );
-      return Effect.succeed(
-        Object.freeze({
-          gateway: evaluationPeerGatewayFromBridge(result),
-          termination: attachment.termination,
-        }),
-      );
+      return Effect.succeed(evaluationPeerGatewayFromBridge(result));
     },
   });
 }
 
-function bootstrapSecret<Name extends string>(
+function bootstrapFiles<Name extends string>(
   plan: EvaluationPeerApplicationPlan,
   input: AgentRuntimeInput<Name>,
-  support: DistributedApplicationSupport,
-): DistributedBootstrapSecret {
+): readonly File[] {
   const content = encodeEvaluationPeerBootstrap(
     EvaluationPeerBootstrap.make({
       apiVersion: "moltzap.eval-peer-bootstrap/v1",
@@ -882,40 +856,38 @@ function bootstrapSecret<Name extends string>(
       plan,
     }),
   );
-  return Object.freeze({
-    identity: support.bootstrapSecretIdentity,
-    supportImage: support.supportImage,
-    files: Object.freeze([
-      Object.freeze({
-        path: EVALUATION_PEER_BOOTSTRAP_PATH,
-        content,
-        mode: 0o400,
-      }),
-    ]),
-  });
+  return Object.freeze([
+    Object.freeze({
+      path: EVALUATION_PEER_BOOTSTRAP_PATH,
+      content,
+      mode: 0o400,
+    }),
+  ]);
 }
 
-function applicationContainer(
-  image: DistributedContainerImage,
-): DistributedApplicationContainer {
+function peerApplication<Name extends string>(
+  plan: EvaluationPeerApplicationPlan,
+  input: AgentRuntimeInput<Name>,
+): Application<EvaluationPeerGateway, RuntimeAcquisitionError> {
   return Object.freeze({
-    image,
     entrypoint: Object.freeze([
       "node",
       EVALUATION_PEER_APPLICATION_ENTRYPOINT,
       EVALUATION_PEER_BOOTSTRAP_PATH,
     ] as const),
     environment: Object.freeze({ NODE_ENV: "production" }),
-    ports: Object.freeze([EVALUATION_PEER_BRIDGE_PORT]),
-    resources: EVALUATION_PEER_RESOURCES,
+    port: EVALUATION_PEER_BRIDGE_PORT,
+    files: bootstrapFiles(plan, input),
+    attach: (endpoint: URL, stopped: Effect.Effect<RuntimeTermination>) =>
+      attachEvaluationPeer(input.agentName, endpoint, stopped),
   });
 }
 
 function peerRuntime(
   plan: EvaluationPeerApplicationPlan,
-  applicationImage: DistributedContainerImage,
+  applicationImage: Image,
 ): EvaluationPeerRuntime {
-  return defineDistributedRuntime({
+  return defineContainerRuntime({
     name: EVALUATION_PEER_RUNTIME_NAME,
     configuration: {
       schema: EvaluationPeerRuntimeConfiguration,
@@ -924,22 +896,11 @@ function peerRuntime(
         plan,
       }),
     },
-    reservation: Object.freeze({
-      image: applicationImage,
-      resources: EVALUATION_PEER_RESOURCES,
-    }),
-    render: (input, support) =>
+    image: applicationImage,
+    resources: EVALUATION_PEER_RESOURCES,
+    render: (input) =>
       Effect.try({
-        try: () =>
-          Object.freeze({
-            applicationContainer: applicationContainer(applicationImage),
-            bootstrapSecret: bootstrapSecret(plan, input, support),
-            readiness: Object.freeze({
-              outputIncludes: EVALUATION_PEER_READY_MARKER,
-            }),
-            attach: (attachment: DistributedApplicationAttachment) =>
-              attachEvaluationPeer(input.agentName, attachment),
-          }),
+        try: () => peerApplication(plan, input),
         catch: (cause) => acquisitionFailure(input.agentName, String(cause)),
       }),
   });
@@ -951,8 +912,7 @@ function peerDefinition(
   Object.freeze(plan);
   return Object.freeze({
     plan,
-    runtime: (applicationImage: DistributedContainerImage) =>
-      peerRuntime(plan, applicationImage),
+    runtime: (applicationImage: Image) => peerRuntime(plan, applicationImage),
   });
 }
 

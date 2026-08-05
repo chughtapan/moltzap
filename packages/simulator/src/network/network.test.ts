@@ -3,7 +3,7 @@ import { Effect, Stream } from "effect";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import {
   Endpoint,
-  NetworkFailure,
+  NetworkError,
   type RouterStopped,
   makeEndpoint,
   makeParticipantHandle,
@@ -107,7 +107,7 @@ it.effect("rejects invalid content before calling the transport", () =>
       .send([{ type: "text", text: "" }])
       .pipe(Effect.flip);
 
-    assert.instanceOf(failure, NetworkFailure);
+    assert.instanceOf(failure, NetworkError);
     assert.strictEqual(failure.operation, SEND_OPERATION);
     assert.strictEqual(sends, 0);
   }),

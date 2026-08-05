@@ -214,8 +214,8 @@ async function main() {
         pinnedImage: `${options.repository}@${imageDigest}`,
         imageDigest,
         imageId,
-        controllerEntrypoint: "/opt/moltzap/dist/platform/controller/main.js",
-        supportBootstrap: "/opt/moltzap/dist/platform/kubernetes/bootstrap.js",
+        controllerEntrypoint: "/opt/moltzap/dist/cluster/controller/main.js",
+        supportBootstrap: "/opt/moltzap/dist/cluster/bootstrap.js",
         applicationOverlay: "/opt/moltzap/application-overlay",
       })}\n`,
     );

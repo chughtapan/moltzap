@@ -216,7 +216,7 @@ contracts instead of normalizing them:
   plus terminal output. Its factory owns the per-attempt native idempotency
   sequence and returns `Some(outputEvidenceId)`.
 - NanoClaw submits to its owner-local socket, records
-  `NanoclawPrincipalInputSent`, and returns `None`. Its output is an
+  `NanoClawPrincipalInputSent`, and returns `None`. Its output is an
   uncorrelated multi-frame stream, so the adapter never consumes the next frame
   or attributes it to the input.
 

@@ -3,7 +3,7 @@
 import { Context, type Effect, type Scope } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ParticipantHandle } from "./participant.js";
-import type { NetworkFailure } from "./router.js";
+import type { NetworkError } from "./failure.js";
 
 /**
  * Platform operations that change one directed data-plane link.
@@ -17,11 +17,11 @@ export interface LinkDriverService {
   readonly disable: (
     from: AgentId,
     to: AgentId,
-  ) => Effect.Effect<void, NetworkFailure>;
+  ) => Effect.Effect<void, NetworkError>;
   readonly enable: (
     from: AgentId,
     to: AgentId,
-  ) => Effect.Effect<void, NetworkFailure>;
+  ) => Effect.Effect<void, NetworkError>;
 }
 
 /**
@@ -42,7 +42,7 @@ export interface LinkControllerService {
   readonly disable: (
     from: ParticipantHandle,
     to: ParticipantHandle,
-  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
 }
 
 /** Experiment-facing directed-link control installed by the run kernel. */
