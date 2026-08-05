@@ -31,14 +31,7 @@ import { execFileSync } from "node:child_process";
  * that says who runs it and when; "it might be useful" is not a reason.
  * The gate fails on a stale entry, so this list cannot rot quietly.
  */
-const ALLOWLIST: ReadonlyMap<string, string> = new Map([
-  [
-    "scripts/architecture/check-no-upward-imports.sh",
-    "Informational burn-down receipt for cross-layer relative imports. Reports " +
-      "224 violations and exits non-zero, so it cannot join `pnpm lint` without " +
-      "failing the build. Kept runnable by hand until the count reaches zero.",
-  ],
-]);
+const ALLOWLIST: ReadonlyMap<string, string> = new Map();
 
 /**
  * Every git call is rooted at the repo, never at the caller's cwd: the Nx
