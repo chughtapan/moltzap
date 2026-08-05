@@ -216,7 +216,7 @@ function runRegisteredAgent(registered: RegisteredAgent) {
       conversations: 0,
     });
     expect(running.server.listening).toBe(false);
-    expect(yield* healthConnections()).toBe(0);
+    yield* waitForConnectionCount(0);
   }).pipe(Effect.provide(NodeContext.layer));
 }
 
@@ -438,7 +438,7 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
       }),
     );
 
-    expect(yield* healthConnections()).toBe(1);
+    yield* waitForConnectionCount(1);
   }).pipe(Effect.provide(NodeContext.layer));
 }
 
@@ -463,7 +463,7 @@ const runFailedAcquisition = (mcpPort: number) =>
         code: "EADDRINUSE",
       });
     }
-    expect(yield* healthConnections()).toBe(0);
+    yield* waitForConnectionCount(0);
   });
 
 function runWithProfile(registered: RegisteredAgent) {
