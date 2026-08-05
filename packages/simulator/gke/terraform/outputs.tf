@@ -1,10 +1,15 @@
+output "project_id" {
+  description = "Google Cloud project hosting the profile."
+  value       = var.project_id
+}
+
 output "cluster_name" {
-  description = "Regional GKE Standard cluster name."
+  description = "GKE Standard cluster name."
   value       = google_container_cluster.simulator.name
 }
 
 output "cluster_location" {
-  description = "Regional GKE control-plane location."
+  description = "Zone hosting the GKE control plane and both node pools."
   value       = google_container_cluster.simulator.location
 }
 
@@ -33,18 +38,16 @@ output "agent_placement" {
   }
 }
 
+# The ClusterQueue quota deliberately lives only in the profile chart's values.
+# Restating it here would give one number two owners, and the copies drift
+# silently because nothing compares them.
 output "agent_capacity" {
-  description = "Fixed capacity shape matched by the checked-in ClusterQueue quotas."
+  description = "Agent node shape the ClusterQueue quota is sized against. The pool idles at zero and autoscales to this ceiling."
   value = {
-    zone           = var.zone
-    nodes          = var.system_nodes
-    machine_type   = "e2-standard-8"
-    disk_size_gb   = 200
-    queue_quota = {
-      cpu               = "20"
-      memory            = "72Gi"
-      ephemeral_storage = "300Gi"
-    }
+    zone         = var.zone
+    max_nodes    = var.agent_max_nodes
+    machine_type = var.agent_machine_type
+    disk_size_gb = var.agent_disk_size_gb
   }
 }
 

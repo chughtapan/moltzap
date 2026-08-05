@@ -42,14 +42,18 @@ variable "agent_machine_type" {
   default     = "e2-standard-16"
 }
 
-variable "agent_nodes" {
-  description = "Nodes in the agent pool. One seats the ten-agent cohort; raise it only past what a single machine type can hold."
+variable "agent_max_nodes" {
+  description = <<-EOT
+    Ceiling for the autoscaled agent pool, which idles at zero nodes. One
+    seats the ten-agent cohort; raise it only past what a single machine type
+    can hold, and raise the chart's ClusterQueue quota to match.
+  EOT
   type        = number
   default     = 1
 
   validation {
-    condition     = var.agent_nodes >= 1
-    error_message = "agent_nodes must be at least one."
+    condition     = var.agent_max_nodes >= 1 && floor(var.agent_max_nodes) == var.agent_max_nodes
+    error_message = "agent_max_nodes must be a positive integer."
   }
 }
 
@@ -125,7 +129,7 @@ variable "system_machine_type" {
 }
 
 variable "system_nodes" {
-  description = "Fixed system nodes per zone in the regional cluster."
+  description = "System nodes, which stay resident because they carry cluster DNS, metrics, the Kueue controller, and the run worker."
   type        = number
   default     = 1
 

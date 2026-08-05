@@ -3,7 +3,10 @@ set -euo pipefail
 
 readonly KUEUE_VERSION="0.17.8"
 readonly AGENT_SANDBOX_VERSION="v0.5.4"
-readonly AGENT_SANDBOX_COMMIT="6e2b7617310e3bf084b6d1a1cffbeb141a5e37fe"
+# The commit the v0.5.4 annotated tag points at, not the tag object's own SHA.
+# Checking out FETCH_HEAD lands on the commit, so pinning the tag object leaves
+# the verification below permanently unsatisfiable.
+readonly AGENT_SANDBOX_COMMIT="945016a7b97f46cd2edf8633d6b6a22d5355ecc1"
 readonly AGENT_SANDBOX_REPOSITORY="https://github.com/kubernetes-sigs/agent-sandbox.git"
 
 if [[ $# -ne 1 || -z "$1" ]]; then
