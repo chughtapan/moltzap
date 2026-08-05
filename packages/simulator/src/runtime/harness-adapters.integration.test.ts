@@ -15,9 +15,10 @@ import {
   type ConnectedHarnessAgent,
   type RegisterResponse,
 } from "@moltzap/client/test-utils";
-import { MoltZapAdapter } from "@moltzap/nanoclaw-channel";
+import { makeMoltZapAdapter } from "@moltzap/nanoclaw-channel";
 import { createMoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import {
+  agentConversationCreate,
   conversationList,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
@@ -33,6 +34,7 @@ import {
   type CoreTestServer,
 } from "@moltzap/server-core/test-utils";
 import {
+  Data,
   Deferred,
   Duration,
   Effect,
@@ -90,6 +92,14 @@ interface OpenClawExchange extends AdapterExchange {
   readonly profileName: string;
 }
 
+/** What one case needs before it decides who acquires the slot's client. */
+interface CaseInput {
+  readonly profileName: string;
+  readonly peerName: string;
+  readonly owner: RegisterResponse;
+  readonly peer: ConnectedHarnessAgent;
+}
+
 const OPENCLAW_CASE: AdapterCase = {
   kind: "openclaw",
   profileName: OPENCLAW_PROFILE,
@@ -103,6 +113,15 @@ const NANOCLAW_CASE: AdapterCase = {
   ownerName: NANOCLAW_OWNER_NAME,
   peerName: NANOCLAW_PEER_NAME,
 };
+
+/** The NanoClaw factory refused the profile slot this case just wrote. */
+class MissingNanoClawAdapterError extends Data.TaggedError(
+  "MissingNanoClawAdapterError",
+)<Record<never, never>> {
+  override get message(): string {
+    return "the NanoClaw factory returned no adapter";
+  }
+}
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
@@ -409,10 +428,53 @@ const readNanoClawText = (content: unknown): string => {
   return content.text;
 };
 
-const runNanoClawExchange = (exchange: AdapterExchange) =>
+const createPeerDm = (
+  peer: ConnectedHarnessAgent,
+  owner: RegisterResponse,
+): Effect.Effect<ConversationId, Error> =>
+  peer.client
+    .sendRpc(agentConversationCreate, { participants: [owner.agentId] })
+    .pipe(
+      Effect.map((created) => created.conversation.id),
+      Effect.mapError(toError),
+    );
+
+// The OpenClaw plugin takes an injected client, so the test acquires the
+// slot's client itself and asserts the conversation boundary through it.
+const runOpenClawCase = (input: CaseInput) =>
+  Effect.gen(function* () {
+    // The production composition end to end: the slot's own daemon, the
+    // endpoint derived from the slot, and a real file-backed checkpoint
+    // store — no test-only acquisition path.
+    const harness = yield* harnessClientForProfile(input.profileName);
+    const conversationId = yield* assertConversationBoundary(
+      harness,
+      input.owner,
+      input.peer,
+      input.peerName,
+    );
+    yield* runOpenClawExchange({
+      harness,
+      peer: input.peer,
+      owner: input.owner,
+      conversationId,
+      profileName: input.profileName,
+    });
+  });
+
+// The NanoClaw adapter acquires the slot's client itself, and one slot names
+// one loopback port, so nothing else here may open a second daemon against
+// it. The peer therefore opens the conversation.
+const runNanoClawCase = (input: CaseInput) =>
   Effect.gen(function* () {
     const inboundText = yield* Deferred.make<string>();
-    const adapter = MoltZapAdapter.fromHarnessClient(exchange.harness);
+    const adapter = makeMoltZapAdapter({
+      profileName: input.profileName,
+      evalMode: false,
+    });
+    if (adapter === null) {
+      return yield* new MissingNanoClawAdapterError();
+    }
     yield* tryPromise(() =>
       adapter.setup({
         onInbound: (...[jid, , message]) => {
@@ -431,10 +493,11 @@ const runNanoClawExchange = (exchange: AdapterExchange) =>
       tryPromise(() => adapter.teardown()).pipe(Effect.ignore),
     );
 
+    const conversationId = yield* createPeerDm(input.peer, input.owner);
     yield* runPeerExchange({
-      peer: exchange.peer,
-      owner: exchange.owner,
-      conversationId: exchange.conversationId,
+      peer: input.peer,
+      owner: input.owner,
+      conversationId,
       expectedReply: NANOCLAW_REPLY,
       inboundText,
     });
@@ -451,6 +514,12 @@ const runAdapterCase = (adapterCase: AdapterCase) =>
       // chosen here and written into the slot before the child starts.
       const mcpPort = yield* Effect.scoped(reserveTestMcpPort);
 
+      const input: CaseInput = {
+        profileName: adapterCase.profileName,
+        peerName: adapterCase.peerName,
+        owner,
+        peer,
+      };
       yield* withTestServiceConfig(
         {
           profileName: adapterCase.profileName,
@@ -461,28 +530,9 @@ const runAdapterCase = (adapterCase: AdapterCase) =>
           mcpPort,
         },
         Effect.scoped(
-          Effect.gen(function* () {
-            // The production composition end to end: the slot's own daemon,
-            // the endpoint derived from the slot, and a real file-backed
-            // checkpoint store — no test-only acquisition path.
-            const harness = yield* harnessClientForProfile(
-              adapterCase.profileName,
-            );
-            const conversationId = yield* assertConversationBoundary(
-              harness,
-              owner,
-              peer,
-              adapterCase.peerName,
-            );
-
-            const exchange = { harness, peer, owner, conversationId };
-            yield* adapterCase.kind === "openclaw"
-              ? runOpenClawExchange({
-                  ...exchange,
-                  profileName: adapterCase.profileName,
-                })
-              : runNanoClawExchange(exchange);
-          }),
+          adapterCase.kind === "openclaw"
+            ? runOpenClawCase(input)
+            : runNanoClawCase(input),
         ),
       );
     }),
