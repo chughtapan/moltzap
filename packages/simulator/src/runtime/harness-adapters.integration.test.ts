@@ -34,6 +34,8 @@ import {
   type CoreTestServer,
 } from "@moltzap/server-core/test-utils";
 import {
+  Config,
+  ConfigProvider,
   Data,
   Deferred,
   Duration,
@@ -59,6 +61,17 @@ const OPENCLAW_OWNER_NAME = "harness-openclaw-owner";
 const OPENCLAW_PEER_NAME = "harness-openclaw-peer";
 const NANOCLAW_OWNER_NAME = "harness-nanoclaw-owner";
 const NANOCLAW_PEER_NAME = "harness-nanoclaw-peer";
+const RESTART_PROFILE = "harness-restart-integration";
+const RESTART_OWNER_NAME = "harness-restart-owner";
+const RESTART_TARGET_NAME = "harness-restart-target";
+const RESTART_SOURCE_NAME = "harness-restart-source";
+const SOURCE_BEFORE_RESTART = "source content before the restart";
+const SOURCE_AFTER_RESTART = "source content after the restart";
+const SOURCE_AFTER_CHECKPOINT_LOSS = "source content after checkpoint loss";
+const TARGET_FIRST = "target content one";
+const TARGET_SECOND = "target content two";
+const TARGET_THIRD = "target content three";
+const RESTART_REPLY = "reply from the restarted client";
 const OPENCLAW_HOME_ENV = "OPENCLAW_HOME";
 const OPENCLAW_STATE_DIR_ENV = "OPENCLAW_STATE_DIR";
 const OPENCLAW_CONFIG_PATH_ENV = "OPENCLAW_CONFIG_PATH";
@@ -428,6 +441,141 @@ const readNanoClawText = (content: unknown): string => {
   return content.text;
 };
 
+// ─── restart ──────────────────────────────────────────────────────────────
+
+// `20260801-harness-client-owns-runtime-context` (v2-owned; production
+// adoption is still main-owned): "The client stores stable per-conversation
+// presentation checkpoints locally. After restart it uses search and history
+// reads to rebuild context from those positions." and "This boundary presents
+// context at most once during normal operation."
+//
+// One slot, three client lifetimes. Only the slot's checkpoint directory
+// survives between them; each lifetime spawns its own daemon.
+
+const configHome = Config.string("MOLTZAP_CONFIG_HOME").pipe(
+  Effect.withConfigProvider(ConfigProvider.fromEnv()),
+  Effect.mapError(toError),
+);
+
+const checkpointDirectory = (
+  profileName: string,
+): Effect.Effect<string, Error> =>
+  configHome.pipe(Effect.map((home) => join(home, "checkpoints", profileName)));
+
+// Turns arrive for every conversation the owner participates in. Selecting by
+// conversation drains the source conversation's own turn on the way past.
+const takeTurnFor = (
+  harness: HarnessClientService,
+  conversationId: ConversationId,
+) =>
+  harness.turns.pipe(
+    Stream.filter((turn) => turn.conversationId === conversationId),
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: WAIT_TIMEOUT,
+      onTimeout: () => new Error("timed out waiting for a harness turn"),
+    }),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.die(new Error("harness turn stream closed before delivery")),
+        onSome: Effect.succeed,
+      }),
+    ),
+    Effect.mapError(toError),
+  );
+
+interface RestartExchange {
+  readonly harness: HarnessClientService;
+  readonly peer: ConnectedHarnessAgent;
+  readonly conversationId: ConversationId;
+  readonly text: string;
+}
+
+// Sends one peer message and returns the turn it produces, with the take
+// forked first so a fast daemon cannot deliver before the stream is pulled.
+const exchangeTurn = (input: RestartExchange) =>
+  Effect.gen(function* () {
+    const turnFiber = yield* Effect.fork(
+      takeTurnFor(input.harness, input.conversationId),
+    );
+    yield* input.peer.client
+      .sendRpc(messagesSend, {
+        conversationId: input.conversationId,
+        parts: [{ type: "text", text: input.text }],
+      })
+      .pipe(Effect.mapError(toError));
+    return yield* Fiber.join(turnFiber);
+  });
+
+interface CrossConversationContext {
+  readonly contextBlocks: {
+    readonly crossConversationMessages?: ReadonlyArray<{
+      readonly text: string;
+    }>;
+  };
+}
+
+const crossConversationTexts = (
+  turn: CrossConversationContext,
+): readonly string[] =>
+  (turn.contextBlocks.crossConversationMessages ?? []).map(
+    (message) => message.text,
+  );
+
+interface RestartLifetimeInput {
+  readonly owner: RegisterResponse;
+  readonly targetPeer: ConnectedHarnessAgent;
+  readonly sourcePeer: ConnectedHarnessAgent;
+  readonly targetConversationId: ConversationId;
+  readonly sourceConversationId: ConversationId;
+  readonly sourceText: string;
+  readonly targetText: string;
+  /** When set, the turn's bound reply is exercised before the scope closes. */
+  readonly replyWith?: string;
+}
+
+// One client lifetime: the source conversation gains content, then the target
+// conversation produces the turn whose cross-conversation context is measured.
+// A turn's reply is bound to the MCP client that produced it, so it is
+// exercised here rather than escaping the scope that owns that client.
+const runRestartLifetime = (
+  input: RestartLifetimeInput,
+): Effect.Effect<readonly string[], Error, Scope.Scope> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* harnessClientForProfile(RESTART_PROFILE);
+      yield* exchangeTurn({
+        harness,
+        peer: input.sourcePeer,
+        conversationId: input.sourceConversationId,
+        text: input.sourceText,
+      });
+      const turn = yield* exchangeTurn({
+        harness,
+        peer: input.targetPeer,
+        conversationId: input.targetConversationId,
+        text: input.targetText,
+      });
+
+      if (input.replyWith !== undefined) {
+        const replyFiber = yield* Effect.fork(
+          takePeerReply(
+            input.targetPeer,
+            input.owner,
+            input.targetConversationId,
+          ),
+        );
+        yield* turn.reply(input.replyWith).pipe(Effect.mapError(toError));
+        const delivered = yield* Fiber.join(replyFiber);
+        expect(delivered.conversationId).toBe(input.targetConversationId);
+        expect(messageText(delivered)).toBe(input.replyWith);
+      }
+
+      return crossConversationTexts(turn);
+    }),
+  );
+
 const createPeerDm = (
   peer: ConnectedHarnessAgent,
   owner: RegisterResponse,
@@ -538,10 +686,97 @@ const runAdapterCase = (adapterCase: AdapterCase) =>
     }),
   ).pipe(Effect.provide(NodeContext.layer));
 
+interface RestartPrincipals {
+  readonly owner: RegisterResponse;
+  readonly targetPeer: ConnectedHarnessAgent;
+  readonly sourcePeer: ConnectedHarnessAgent;
+}
+
+// Three lifetimes against one slot: cold, warm across a restart, and warm
+// again after the stored positions are deleted.
+const runRestartLifetimes = ({
+  owner,
+  targetPeer,
+  sourcePeer,
+}: RestartPrincipals) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const targetConversationId = yield* createPeerDm(targetPeer, owner);
+    const sourceConversationId = yield* createPeerDm(sourcePeer, owner);
+    const lifetime = (
+      sourceText: string,
+      targetText: string,
+      replyWith?: string,
+    ) =>
+      runRestartLifetime({
+        owner,
+        targetPeer,
+        sourcePeer,
+        targetConversationId,
+        sourceConversationId,
+        sourceText,
+        targetText,
+        ...(replyWith === undefined ? {} : { replyWith }),
+      });
+
+    const cold = yield* lifetime(SOURCE_BEFORE_RESTART, TARGET_FIRST);
+    expect(cold).toContain(SOURCE_BEFORE_RESTART);
+
+    // Second lifetime: new daemon, new client, same checkpoint
+    // directory. Its reply also proves authority comes from the live
+    // turn rather than the history reads that rebuilt the context.
+    const warm = yield* lifetime(
+      SOURCE_AFTER_RESTART,
+      TARGET_SECOND,
+      RESTART_REPLY,
+    );
+    expect(warm).toContain(SOURCE_AFTER_RESTART);
+    // At most once: content already presented is not presented again.
+    expect(warm).not.toContain(SOURCE_BEFORE_RESTART);
+
+    // Non-vacuity: without the stored positions the same lifetime
+    // re-presents everything, so the narrowing above was the checkpoints.
+    const checkpoints = yield* checkpointDirectory(RESTART_PROFILE);
+    yield* fileSystem
+      .remove(checkpoints, { recursive: true })
+      .pipe(Effect.mapError(toError));
+
+    const reread = yield* lifetime(SOURCE_AFTER_CHECKPOINT_LOSS, TARGET_THIRD);
+    expect(reread).toContain(SOURCE_BEFORE_RESTART);
+    expect(reread).toContain(SOURCE_AFTER_RESTART);
+    expect(reread).toContain(SOURCE_AFTER_CHECKPOINT_LOSS);
+  });
+
+const runRestartCase = () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const server = yield* acquireCoreTestServer;
+      const owner = yield* registerAgent(server.baseUrl, RESTART_OWNER_NAME);
+      const targetPeer = yield* acquirePeer(server, RESTART_TARGET_NAME);
+      const sourcePeer = yield* acquirePeer(server, RESTART_SOURCE_NAME);
+      const mcpPort = yield* Effect.scoped(reserveTestMcpPort);
+
+      yield* withTestServiceConfig(
+        {
+          profileName: RESTART_PROFILE,
+          agentName: RESTART_OWNER_NAME,
+          agentId: owner.agentId,
+          agentKey: owner.apiKey,
+          serverUrl: server.baseUrl,
+          mcpPort,
+        },
+        runRestartLifetimes({ owner, targetPeer, sourcePeer }),
+      );
+    }),
+  ).pipe(Effect.provide(NodeContext.layer));
+
 describe("packaged moltzapd Harness adapters", () => {
   it("delivers and replies through the real OpenClaw dispatcher", () =>
     Effect.runPromise(runAdapterCase(OPENCLAW_CASE)));
 
   it("delivers and replies through the NanoClaw adapter", () =>
     Effect.runPromise(runAdapterCase(NANOCLAW_CASE)));
+
+  it("rebuilds context from stored checkpoints after a restart", () =>
+    Effect.runPromise(runRestartCase()));
 });
