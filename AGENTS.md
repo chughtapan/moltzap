@@ -169,6 +169,13 @@ human-maintained index; ADR frontmatter is authoritative for status.
 - Never delete, renumber, or silently rewrite an admitted decision.
   Preserve its historical reasoning; change its status and add
   supersession context, or admit a replacement ADR.
+- A point correction that leaves the Decision Outcome intact — a moved
+  path, a renamed term, a corrected link — edits the record in place
+  and appends a dated row to its `Record changelog` section at the
+  bottom. Supersession is for changed outcomes; a changelog row is for
+  everything mechanical. Without the row the edit is a silent rewrite,
+  and a later reconciliation cannot tell the two apart. Small changes
+  need the receipt, not the ceremony.
 - Land a decision atomically with any required normative spec changes,
   affected architecture pages, prior-record supersession, and
   `docs/decisions/README.md` index row.
@@ -284,6 +291,11 @@ candidate.
 - Before v2 implementation changes, the governing spec and decision
   traceability must be complete. No binding decision may exist only in
   chat, an issue comment, or an agent-private state directory.
+- Generated docs (MODULE.md pages, protocol reference, constants
+  snippets) are refreshed before merge, not on every commit: run
+  `pnpm docs:generate` and commit the result. Its inputs cover every
+  `.ts` file under `packages/`, so per-commit regeneration never hits
+  the Nx cache. `pnpm docs:check:drift` is the CI backstop.
 - Flow diagrams are Mermaid in JSDoc above the owning symbol;
   generated MODULE.md pages surface them. Change a flow → update its
   diagram in the same PR. Cross-package flows are documented once at
