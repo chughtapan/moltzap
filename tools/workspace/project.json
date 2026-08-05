@@ -195,6 +195,7 @@
         "arch:config:check",
         "lint:root",
         "lint:oxlint",
+        "lint:sloppy-code-guard",
         {
           "target": "arch:check",
           "projects": "@moltzap/*"
@@ -228,9 +229,37 @@
         "docs:check:no-hardcoded-constants",
         "docs:check:doc-imports-resolve",
         "check",
-        "lint:sloppy-code-guard",
         {
           "target": "build",
+          "projects": "@moltzap/*"
+        },
+        {
+          "target": "typecheck",
+          "projects": [
+            "@moltzap/v2-identity",
+            "@moltzap/v2-router"
+          ]
+        },
+        {
+          "target": "typecheck:tests",
+          "projects": "@moltzap/*"
+        }
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node -e \"\""
+      }
+    },
+    "typecheck": {
+      "cache": false,
+      "dependsOn": [
+        {
+          "target": "build",
+          "projects": "@moltzap/*"
+        },
+        {
+          "target": "typecheck",
           "projects": "@moltzap/*"
         },
         {
