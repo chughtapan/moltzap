@@ -27,7 +27,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: node scripts/test-simulator-packages.mjs
+      - run: node scripts/test/simulator-packages.mjs
       - name: Verify simulator infrastructure profiles
         run: |
           pnpm nx run @moltzap/simulator:local-profile-check
@@ -48,6 +48,7 @@ jobs:
       - run: pnpm docs:check
       - run: pnpm docs:check:mermaid
       - run: pnpm docs:check:gates-test
+      - run: pnpm test:compute-next-version
 
   test:
     runs-on: ubuntu-latest
