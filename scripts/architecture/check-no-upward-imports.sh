@@ -23,15 +23,15 @@
 # commits.
 #
 # Usage:
-#   bash scripts/check-no-upward-imports.sh                # all packages
-#   bash scripts/check-no-upward-imports.sh packages/server # one package
+#   bash scripts/architecture/check-no-upward-imports.sh                # all packages
+#   bash scripts/architecture/check-no-upward-imports.sh packages/server # one package
 #
 # Exits 0 when no cross-LAYER upward imports outside the ignore list.
 # Exits 1 when violations remain.
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 if [[ $# -gt 0 ]]; then

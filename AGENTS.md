@@ -169,6 +169,13 @@ human-maintained index; ADR frontmatter is authoritative for status.
 - Never delete, renumber, or silently rewrite an admitted decision.
   Preserve its historical reasoning; change its status and add
   supersession context, or admit a replacement ADR.
+- A point correction that leaves the Decision Outcome intact — a moved
+  path, a renamed term, a corrected link — edits the record in place
+  and appends a dated row to its `Record changelog` section at the
+  bottom. Supersession is for changed outcomes; a changelog row is for
+  everything mechanical. Without the row the edit is a silent rewrite,
+  and a later reconciliation cannot tell the two apart. Small changes
+  need the receipt, not the ceremony.
 - Land a decision atomically with any required normative spec changes,
   affected architecture pages, prior-record supersession, and
   `docs/decisions/README.md` index row.
