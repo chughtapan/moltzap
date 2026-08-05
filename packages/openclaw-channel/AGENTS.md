@@ -7,11 +7,11 @@ surface.
 
 ## Structure
 
-- `src/openclaw-entry.ts` — the plugin: gateway `startAccount`,
-  notification routing, wraps `MoltZapChannelCore`
-  (`@moltzap/client/channel-base`) for inbound enrichment and
-  turn ordering, binds that ingress to `HarnessTurn`, and projects it into
-  OpenClaw's `DispatchContext`, deliver callback.
+- `src/openclaw-entry.ts` — the plugin: gateway `startAccount` acquires the
+  account's `HarnessClient` from its profile slot, drains that client's turns,
+  and projects each one into OpenClaw's `DispatchContext` and deliver callback.
+  The plugin holds no network client of its own; `moltzapd` speaks the
+  protocols behind its loopback MCP boundary.
 - `src/context-log.ts` — `writeOpenClawContextLog`.
 - `src/openclaw-target.ts` — target validation and normalization.
 - `src/harness-turn-delivery.ts` — bound Harness reply delivery.
@@ -61,13 +61,13 @@ surface.
   non-message notifications update channel state. Sender identity
   (`agent/identity/agents/list`) and conversation metadata
   (`ConversationList`) resolve through in-memory caches.
-- Account startup connects once. A nonterminal disconnect updates channel
-  status, but the plugin does not yet drive reconnect or
+- Account startup acquires one client and drains it. Termination of the turn
+  stream is the disconnect signal; the plugin drives no reconnect and no
   `agent/message/list` catch-up. Do not claim delivery across a disconnected
   window until both behaviors have a full-agent fault test.
-- Single agent per service: each `MoltZapService` maps to exactly
-  one agent; the daemon binds `~/.moltzap/service-<agentId>.sock`
-  and symlinks `~/.moltzap/service.sock` to it for CLI discovery.
+- Single agent per slot: the OpenClaw account id names the profile slot, the
+  slot carries the loopback port its daemon binds, and one slot is exactly one
+  AgentId.
 - Never use `unknown` types — use explicit typed interfaces.
 
 ## Tests
