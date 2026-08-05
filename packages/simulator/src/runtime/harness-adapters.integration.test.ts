@@ -22,7 +22,6 @@ import {
   conversationList,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
-import { agentName } from "@moltzap/protocol/identity";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
@@ -42,7 +41,6 @@ import {
   Effect,
   Fiber,
   Option,
-  Schema,
   Stream,
   type Scope,
 } from "effect";
@@ -51,7 +49,6 @@ import { describe, expect, it } from "vitest";
 
 const WAIT_TIMEOUT = Duration.seconds(20);
 const CONVERSATION_LIST_LIMIT = 100;
-const INITIAL_CONTENT = "hello from the harness owner";
 const PEER_CONTENT = "hello through the packaged harness";
 const OPENCLAW_REPLY = "reply through OpenClaw";
 const NANOCLAW_REPLY = "reply through NanoClaw";
@@ -101,7 +98,7 @@ interface PeerExchange extends Omit<AdapterExchange, "harness"> {
   readonly inboundText: Deferred.Deferred<string>;
 }
 
-interface OpenClawExchange extends AdapterExchange {
+interface OpenClawExchange extends Omit<AdapterExchange, "harness"> {
   readonly profileName: string;
 }
 
@@ -203,34 +200,26 @@ const messageText = (message: Message): string =>
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("");
 
-const assertConversationBoundary = (
-  harness: HarnessClientService,
-  owner: RegisterResponse,
+// One slot names one loopback port, so the plugin is the only thing that may
+// acquire its client. The peer therefore opens the conversation, and the
+// membership boundary is asserted from the peer's side of the wire.
+const assertPeerConversationBoundary = (
   peer: ConnectedHarnessAgent,
-  peerName: string,
+  owner: RegisterResponse,
+  conversationId: ConversationId,
 ) =>
   Effect.gen(function* () {
-    const conversation = yield* harness.startConversation(
-      [Schema.decodeSync(agentName)(peerName)],
-      INITIAL_CONTENT,
-    );
-
-    expect(new Set(conversation.participants)).toEqual(
-      new Set([owner.agentId, peer.agentId]),
-    );
-
     const listed = yield* peer.client.sendRpc(conversationList, {
       limit: CONVERSATION_LIST_LIMIT,
     });
     const item = listed.items.find(
-      (candidate) => candidate.conversation.id === conversation.id,
+      (candidate) => candidate.conversation.id === conversationId,
     );
     expect(item).toBeDefined();
     expect(item?.conversation).not.toHaveProperty("participants");
     expect(new Set(item?.participants)).toEqual(
       new Set([owner.agentId, peer.agentId]),
     );
-    return conversation.id;
   });
 
 const runPeerExchange = (exchange: PeerExchange) =>
@@ -365,16 +354,12 @@ const makeOpenClawStatusHandler =
     }
   };
 
-const startOpenClawGateway = (
-  harness: HarnessClientService,
-  profileName: string,
-  fixture: OpenClawFixture,
-) =>
+// No injected client: the plugin resolves the slot from the account id and
+// acquires its own HarnessClient, exactly as a real OpenClaw install does.
+const startOpenClawGateway = (profileName: string, fixture: OpenClawFixture) =>
   Effect.gen(function* () {
     const abortController = new AbortController();
-    const plugin = createMoltzapChannelPlugin({
-      harnessClientForAccount: () => harness,
-    });
+    const plugin = createMoltzapChannelPlugin();
     const startFiber = yield* Effect.fork(
       tryPromise(() =>
         plugin.gateway.startAccount({
@@ -411,11 +396,7 @@ const startOpenClawGateway = (
 const runOpenClawExchange = (exchange: OpenClawExchange) =>
   Effect.gen(function* () {
     const fixture = yield* prepareOpenClawFixture;
-    yield* startOpenClawGateway(
-      exchange.harness,
-      exchange.profileName,
-      fixture,
-    );
+    yield* startOpenClawGateway(exchange.profileName, fixture);
     yield* awaitDeferred(
       fixture.connected,
       "OpenClaw Harness gateway readiness",
@@ -589,20 +570,18 @@ const createPeerDm = (
 
 // The OpenClaw plugin takes an injected client, so the test acquires the
 // slot's client itself and asserts the conversation boundary through it.
+// The production composition end to end: the plugin's own daemon, the endpoint
+// derived from the slot, and a real file-backed checkpoint store — no
+// test-only acquisition path anywhere in the chain.
 const runOpenClawCase = (input: CaseInput) =>
   Effect.gen(function* () {
-    // The production composition end to end: the slot's own daemon, the
-    // endpoint derived from the slot, and a real file-backed checkpoint
-    // store — no test-only acquisition path.
-    const harness = yield* harnessClientForProfile(input.profileName);
-    const conversationId = yield* assertConversationBoundary(
-      harness,
-      input.owner,
+    const conversationId = yield* createPeerDm(input.peer, input.owner);
+    yield* assertPeerConversationBoundary(
       input.peer,
-      input.peerName,
+      input.owner,
+      conversationId,
     );
     yield* runOpenClawExchange({
-      harness,
       peer: input.peer,
       owner: input.owner,
       conversationId,

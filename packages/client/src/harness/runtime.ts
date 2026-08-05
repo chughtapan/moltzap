@@ -129,7 +129,12 @@ export type HarnessTurnEvent = Schema.Schema.Type<
   typeof harnessTurnEventSchema
 >;
 
-/** Conversation projection carried only between the daemon and HarnessClient. */
+/**
+ * Conversation plus its membership, assembled by the daemon because the
+ * canonical Conversation sent over the network carries no participants. It
+ * crosses only the loopback MCP boundary, and it is public because it names
+ * what `HarnessClientService.startConversation` hands back to an adapter.
+ */
 export type ConversationWithParticipants = Schema.Schema.Type<
   typeof conversationWithParticipantsSchema
 >;

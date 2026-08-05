@@ -241,9 +241,14 @@ interface InboundDispatchInput {
 
 interface MoltzapChannelPluginDeps {
   /**
-   * Selects a caller-acquired client for one configured account. The plugin
-   * owns only its turn drain and never discovers, acquires, or closes the
-   * returned client.
+   * Substitutes the account's client so a suite can drive a turn stream
+   * without a daemon. Tests only: production supplies no deps and the plugin
+   * acquires the slot's own client, which
+   * `harness-adapters.integration.test.ts` proves end to end. The substitute
+   * is still a `HarnessClientService`, so this is not a second route to the
+   * daemon — the plugin owns only its turn drain and never discovers,
+   * acquires, or closes an injected client.
+   * @internal
    */
   readonly harnessClientForAccount?: (
     profileName: string,

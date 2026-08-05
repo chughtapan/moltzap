@@ -1,12 +1,14 @@
 /**
  * Shared OpenClaw gateway fixture.
  *
- * The plugin reaches its client only through the caller-owned
- * `harnessClientForAccount` seam, so every gateway suite needs the same three
- * things: an injected client whose turn stream the test drives, OpenClaw's
- * fixed `startAccount` argument shape, and a teardown that leaves the client
- * untouched. They live here so each suite asserts behaviour instead of
- * rebuilding the seam.
+ * These suites assert presentation behaviour, so they substitute the account's
+ * client through the plugin's test-only `harnessClientForAccount` seam rather
+ * than spawning a daemon. Each needs the same three things: a client whose
+ * turn stream the test drives, OpenClaw's fixed `startAccount` argument shape,
+ * and a teardown that leaves the client untouched. They live here so each
+ * suite asserts behaviour instead of rebuilding the seam. The production path,
+ * where nothing is injected, is covered by
+ * `harness-adapters.integration.test.ts`.
  */
 
 import type {
