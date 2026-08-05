@@ -4,14 +4,10 @@
  * checkpoint store, and adapter drain.
  */
 import { FileSystem } from "@effect/platform";
-import * as KeyValueStore from "@effect/platform/KeyValueStore";
 import { NodeContext } from "@effect/platform-node";
+import { harnessClientForProfile } from "@moltzap/client";
+import type { HarnessClientService } from "@moltzap/client/harness-client";
 import {
-  acquireHarnessClient,
-  type HarnessClientService,
-} from "@moltzap/client/harness-client";
-import {
-  acquirePackagedMoltzapd,
   reserveTestMcpPort,
   registerAgent,
   registerAndConnect,
@@ -466,12 +462,12 @@ const runAdapterCase = (adapterCase: AdapterCase) =>
         },
         Effect.scoped(
           Effect.gen(function* () {
-            const daemon = yield* acquirePackagedMoltzapd({
-              profileName: adapterCase.profileName,
-            });
-            const harness = yield* acquireHarnessClient({
-              url: daemon.mcpUrl,
-            }).pipe(Effect.provide(KeyValueStore.layerMemory));
+            // The production composition end to end: the slot's own daemon,
+            // the endpoint derived from the slot, and a real file-backed
+            // checkpoint store — no test-only acquisition path.
+            const harness = yield* harnessClientForProfile(
+              adapterCase.profileName,
+            );
             const conversationId = yield* assertConversationBoundary(
               harness,
               owner,

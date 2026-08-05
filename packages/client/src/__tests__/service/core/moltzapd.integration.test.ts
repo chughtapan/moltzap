@@ -24,7 +24,7 @@ import { expect } from "vitest";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import { withTestServiceConfig } from "../../../config.test-utils.js";
-import { reserveTestMcpPort } from "../../../test-utils/process/packaged-moltzapd.js";
+import { reserveTestMcpPort } from "../../../test-utils/process/reserve-port.js";
 import {
   acquireHarnessClient,
   type HarnessClientService,

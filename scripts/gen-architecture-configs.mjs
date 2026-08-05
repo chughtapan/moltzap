@@ -84,13 +84,18 @@ const packageDefinitions = {
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 25,
-          maxChildrenIncludingTests: 27,
+          maxChildren: 26,
+          maxChildrenIncludingTests: 28,
           reason:
             "The client SDK keeps its peer public surfaces and their focused implementation modules flat at the source root; AGENTS.md documents the package structure",
         },
       ],
       facadeFiles: [
+        {
+          file: "harness-client.ts",
+          reason:
+            "Named adapter-facing boundary for the loopback daemon client, published as the ./harness-client subpath",
+        },
         {
           file: "channel-core.ts",
           reason:
