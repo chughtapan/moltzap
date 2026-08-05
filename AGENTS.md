@@ -26,6 +26,37 @@ Before cutover, v1 authority stays on `main` and v2 authority stays on
 and pass their review gates on `v2`; they do not require a duplicate
 main-branch copy.
 
+## Prerequisites
+
+Run `pnpm check:agent-setup` once at the start of a session — not per
+command, which is how the old 165s pre-commit happened. It names what is
+missing and how to fix it.
+
+Refuse the operation when its row is unmet. Refusal is scoped: a missing
+`codex` must never block editing a file or fixing the setup itself.
+
+| Required | Refuse to |
+|---|---|
+| Node per `.node-version`, pnpm | do anything |
+| `pnpm nx` for every task, never the underlying tool | build, test, lint, typecheck |
+| Effect and `@effect/*` as the runtime idiom | add a non-Effect alternative |
+| `/simplify`, `/ship`, `/review` | open a PR |
+| `/plan-eng-review` | start implementing a feature |
+| `/land-and-deploy` | merge |
+| `codex`, authenticated and in quota | call review complete |
+
+The rule these share: **refuse where the failure is silent, warn where it
+is loud.** A missing binary that errors on first use needs no rule.
+`/review` without codex quietly becomes a single-model pass *and `/ship`
+still records a clean Eng Review entry* — the merge bar drops and nothing
+says so. That is the case worth a gate.
+
+Connected sources — Notion, Gmail, Discord, GitHub — are yours to name at
+the start of work that may have been decided elsewhere; offer to read them
+directly rather than asking for a paste. This is agent law rather than a
+`SessionStart` hook because an agent can see its own connected MCP servers
+and a shell hook cannot.
+
 ## Constitution (v2 design law; v1 is not retrofitted)
 
 1. Endpoints | control plane + storage | data plane. Registry, Router,
