@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1318)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L929)
 
 _Function_
 
@@ -33,27 +33,20 @@ and `resolveTarget` for openclaw's targeting layer.
 sequenceDiagram
   participant OC as openclaw runtime
   participant Plugin as moltzap plugin
-  participant Harness as caller-owned HarnessClient
-  participant Core as MoltZapChannelCore
-  participant Server as MoltZap server
+  participant Harness as HarnessClient
+  participant Daemon as moltzapd
   OC->>Plugin: startAccount(ctx)
-  alt HarnessClient is injected
-    Plugin->>Harness: drain turns sequentially
-    Harness-->>Plugin: originating HarnessTurn
-  else legacy profile client
-    Plugin->>Core: new MoltZapAgentClient → MoltZapChannelCore
-    Plugin->>Core: core.connect() — WS auth
-    Plugin->>Core: core.onInbound(handler) — register dispatch
-    Core->>Plugin: enriched message arrives
-    Plugin->>Plugin: bind HarnessTurn reply authority
-  end
+  Plugin->>Harness: harnessClientForProfile(accountId)
+  Harness->>Daemon: start the slot child and connect over loopback MCP
+  Plugin->>Harness: drain turns sequentially
+  Harness-->>Plugin: HarnessTurn carrying its bound reply
   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
   note over OC: agent pipeline → LLM
   OC->>Plugin: deliver(payload, opts) — createHarnessReplyDeliver
   Plugin->>Plugin: turn.reply(text)
-  Plugin->>Server: core ingress bridge sends reply
+  Harness->>Daemon: reply routed to its originating conversation
   OC->>Plugin: stopAccount(ctx)
-  Plugin->>Plugin: stop owned drain or disconnect owned core
+  Plugin->>Plugin: signal the drain to stop
 ```
 
 `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
@@ -65,7 +58,7 @@ to `agent:&lt;name>`. Other colon-prefixed shapes are rejected.
 
 **Returns:** The created moltzap channel plugin.
 
-### [`default`](./openclaw-entry.ts#L1349)
+### [`default`](./openclaw-entry.ts#L958)
 
 _Variable_
 
@@ -73,7 +66,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1346)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L955)
 
 _Variable_
 
@@ -86,7 +79,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1337)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L946)
 
 _TypeAlias_
 
@@ -97,6 +90,74 @@ export type MoltzapChannelPlugin = ReturnType<
 ```
 
 Represents moltzap channel plugin values.
+
+### [`OpenClawConfig`](./openclaw-entry.ts#L182)
+
+_Interface_
+
+```ts
+export interface OpenClawConfig {
+  readonly [key: string]: unknown;
+  readonly channels?: {
+    readonly moltzap?: {
+      readonly accounts?: readonly MoltZapAccount[];
+    };
+  };
+}
+```
+
+OpenClaw's config object; the plugin reads only its `channels.moltzap` section.
+
+### [`OpenClawResolveTargetParams`](./openclaw-entry.ts#L255)
+
+_Interface_
+
+```ts
+export interface OpenClawResolveTargetParams {
+  readonly cfg: OpenClawConfig;
+  readonly accountId?: string | null;
+  readonly input: string;
+  readonly normalized: string;
+  readonly preferredKind?: "user" | "group" | "channel";
+}
+```
+
+One target-resolution request from OpenClaw's targeting layer.
+
+### [`OpenClawStartAccountContext`](./openclaw-entry.ts#L210)
+
+_Interface_
+
+```ts
+export interface OpenClawStartAccountContext {
+  cfg: OpenClawConfig;
+  accountId: string;
+  account: MoltZapAccount;
+  abortSignal: AbortSignal;
+  log?: OpenClawLogger;
+  setStatus: (next: Record<string, unknown>) => void;
+  channelRuntime?: {
+    reply?: {
+      dispatchReplyWithBufferedBlockDispatcher?: OpenClawReplyDispatcher;
+    };
+  };
+}
+```
+
+What OpenClaw hands the plugin when it starts one configured account.
+
+### [`OpenClawStopAccountContext`](./openclaw-entry.ts#L225)
+
+_Interface_
+
+```ts
+export interface OpenClawStopAccountContext {
+  accountId: string;
+  log?: Pick<OpenClawLogger, "info">;
+}
+```
+
+What OpenClaw hands the plugin when it stops one configured account.
 
 ## Files
 

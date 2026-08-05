@@ -1,6 +1,5 @@
 import {
   agentId as AgentIdSchema,
-  AgentNotFoundError,
   agentsList,
   type AgentCard,
   type AgentId,
@@ -16,7 +15,6 @@ import type {
   ClientDefinitionSuccess,
 } from "@moltzap/protocol/socket";
 import {
-  agentConversationCreate,
   type ConversationCreatedNotification,
   conversationCreatedNotificationDefinition,
   conversationList,
@@ -107,20 +105,14 @@ type AgentCallableTag = AgentCallableRpcs["_tag"];
 /**
  * Errors that can surface from the Effect-based service API: any tagged error
  * an agent-callable method declares (recovered from the group's per-method
- * error unions) plus the transport errors. Methods that fan multiple calls
- * (e.g. `sendToAgent`) surface this broad union; a single-method call narrows
- * to that method's errors at the `call` site.
+ * error unions) plus the transport errors. A method that fans several calls
+ * surfaces this broad union; a single-method call narrows to that method's
+ * errors at the `call` site.
  */
 export type ServiceRpcError =
   | Rpc.Error<AgentCallableRpcs>
   | RpcTimeoutError
   | NotConnectedError;
-
-const agentNotFound = (agentName: string): AgentNotFoundError =>
-  new AgentNotFoundError({
-    message: `Agent not found: ${agentName}`,
-    data: { agentName },
-  });
 
 /** Configures context. */
 export interface ContextOptions {
@@ -246,9 +238,6 @@ export class MoltZapService {
   private serviceScope: Scope.CloseableScope | null = null;
 
   private readonly presentationState = new PresentationState();
-  private readonly agentConversationCacheRef: Ref.Ref<
-    HashMap.HashMap<string, ConversationId>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationId>()));
   private readonly lastReadRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
   > = Effect.runSync(
@@ -414,7 +403,6 @@ export class MoltZapService {
       Effect.all(
         [
           this.presentationState.reset(),
-          Ref.set(this.agentConversationCacheRef, HashMap.empty()),
           Ref.set(this.lastReadRef, HashMap.empty()),
         ],
         { discard: true },
@@ -745,43 +733,6 @@ export class MoltZapService {
         conversationId,
         parts: [{ type: "text", text }],
       }),
-    );
-  }
-
-  /**
-   * Send to a named agent, minting the DM conversation on first use and
-   * reusing it afterwards. The per-name cache is what makes the DM stable:
-   * `agent/conversation/create` mints a fresh conversation on every call.
-   * @param agentName Name of the agent to reach.
-   * @param text Text to process.
-   * @returns The send result.
-   */
-  sendToAgent(
-    agentName: string,
-    text: string,
-  ): Effect.Effect<void, ServiceRpcError | AgentNotFoundError> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const cache = yield* Ref.get(this.agentConversationCacheRef);
-        let conversationId = Option.getOrUndefined(
-          HashMap.get(cache, agentName),
-        );
-        if (conversationId === undefined) {
-          const agent = yield* this.findVisibleAgentByName(agentName);
-          if (!agent) {
-            return yield* agentNotFound(agentName);
-          }
-          const created = yield* this.call(agentConversationCreate.name, {
-            participants: [agent.id],
-          });
-          conversationId = created.conversation.id;
-          const cached = conversationId;
-          yield* Ref.update(this.agentConversationCacheRef, (m) =>
-            HashMap.set(m, agentName, cached),
-          );
-        }
-        yield* this.send(conversationId, text);
-      }.bind(this),
     );
   }
 

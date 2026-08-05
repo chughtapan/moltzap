@@ -58,7 +58,7 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`ContextOptions`](./service.ts#L126)
+### [`ContextOptions`](./service.ts#L118)
 
 _Interface_
 
@@ -237,7 +237,7 @@ export interface MoltzapdChildOptions {
 
 Inputs for starting the packaged daemon against caller-scoped test config.
 
-### [`MoltZapService`](./service.ts#L233)
+### [`MoltZapService`](./service.ts#L225)
 
 _Class_
 
@@ -258,9 +258,6 @@ export class MoltZapService {
   private serviceScope: Scope.CloseableScope | null = null;
 
   private readonly presentationState = new PresentationState();
-  private readonly agentConversationCacheRef: Ref.Ref<
-    HashMap.HashMap<string, ConversationId>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationId>()));
   private readonly lastReadRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
   > = Effect.runSync(
@@ -362,6 +359,9 @@ export class MoltZapService {
         // service-owned scope. The Stream is materialized BEFORE `connect()` so
         // subscriptions are registered with the registry pre-handshake (a
         // pre-connect-legal operation).
+        //
+        // Stream errors of type `NotConnectedError` are surfaced on the
+        // fiber's failure channel only when the client transitions to
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -384,7 +384,7 @@ export interface RpcCallOptions {
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L114)
+### [`ServiceRpcError`](./service.ts#L112)
 
 _TypeAlias_
 
@@ -395,9 +395,9 @@ export type ServiceRpcError =
 
 Errors that can surface from the Effect-based service API: any tagged error
 an agent-callable method declares (recovered from the group's per-method
-error unions) plus the transport errors. Methods that fan multiple calls
-(e.g. `sendToAgent`) surface this broad union; a single-method call narrows
-to that method's errors at the `call` site.
+error unions) plus the transport errors. A method that fans several calls
+surfaces this broad union; a single-method call narrows to that method's
+errors at the `call` site.
 
 ## Files
 
