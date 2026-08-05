@@ -75,6 +75,13 @@ sibling `CLAUDE.md`, when that sibling is a regular file, or when its stored
 link target is not `AGENTS.md`. Wired into `pnpm lint` as `lint:agent-files`;
 verified by replacing one symlink with a byte-identical copy, which it rejects.
 
+**4. README sent contributors to files that no longer render.** Its
+Documentation section linked `packages/{protocol,server,client}/CLAUDE.md`,
+which this change turned into symlinks — GitHub renders a symlink as a pointer
+blob rather than the page, so the links still resolve but no longer show the
+content. A regression introduced by this change rather than a pre-existing one.
+Retargeted at the sibling `AGENTS.md` files, which are regular files.
+
 **Not acted on, recorded as known:** `.codex/skills/cold-read` is documented in
 the vendoring PR rather than in this record's Consequences; no statement covers
 checkouts with `core.symlinks=false` (no `.gitattributes` exists); and no
