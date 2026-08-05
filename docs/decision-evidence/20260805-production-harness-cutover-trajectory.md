@@ -230,15 +230,33 @@ decision to make it idempotent or to leave it so.
 
 ## Source gaps
 
-1. **Narrowed, 2026-08-05: durable locator, unverifiable source.**
-   Every user turn cited here is transcribed verbatim into issue `#926`,
-   comment `5198672021`, so a reader can resolve and quote it from the
-   repository alone. What that comment cannot do is prove the
-   transcription faithful: both sessions remain local to the
-   maintainer's machine, and the comment is agent-authored. A reader
-   gets a stable, citable text; only the maintainer can confirm it
-   against the transcripts. Treat the excerpts as durably recorded and
-   maintainer-attestable, not as independently verifiable.
+1. **Narrowed, then attested, 2026-08-05.** Every user turn cited here
+   is transcribed verbatim into issue `#926`, comment `5198672021`, so a
+   reader can resolve and quote it from the repository alone. That
+   comment cannot prove the transcription faithful — both sessions
+   remain local to the maintainer's machine, and the comment is
+   agent-authored — so the transcription was put to the maintainer
+   directly.
+
+   **Agent turn, session `b48667a3`, 2026-08-05.** The turn stated that
+   confirming the twelve transcribed blocks match what the maintainer
+   actually wrote was the remaining precondition for the blind gate, and
+   that it was a check only the maintainer could perform.
+
+   **Stored user turn, session `b48667a3`, 2026-08-05.** Retained
+   literally:
+
+   > hes
+
+   Read as an affirmative answering the preceding request. The reading
+   is recorded rather than the normalization: the stored characters are
+   `hes`, and this ledger does not silently repair them. A terse reply
+   has no meaning beyond its prompt, so if that prompt was misread the
+   attestation does not stand and this entry is the thing to correct.
+
+   On that reading the excerpts are maintainer-attested. They remain
+   not independently verifiable, and no later reconciliation should
+   claim otherwise.
 
 2. **Closed, 2026-08-05.** The one-versus-two MCP server exchange was
    previously retained only as a second-hand quotation. The codex
