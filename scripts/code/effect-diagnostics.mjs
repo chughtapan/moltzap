@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
-const workspaceRoot = resolve(import.meta.dirname, "..");
+const workspaceRoot = resolve(import.meta.dirname, "..", "..");
 const tsconfigPaths = [
   ...readdirSync(join(workspaceRoot, "packages"), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
