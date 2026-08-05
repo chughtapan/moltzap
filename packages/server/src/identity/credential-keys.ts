@@ -10,7 +10,7 @@ import { type AgentKey, agentKey } from "@moltzap/protocol/identity";
 /**
  * Stable string prefix on every agent API key. Encoded once here;
  * the docs constants generator
- * (`scripts/generate-constants-snippets.ts`) reads this literal via
+ * (`scripts/docs/generate-constants-snippets.ts`) reads this literal via
  * the TS compiler API so doc copy stays in lockstep.
  */
 const API_KEY_PREFIX = "moltzap_agent_";
