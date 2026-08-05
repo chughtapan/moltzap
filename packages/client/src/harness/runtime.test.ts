@@ -166,12 +166,8 @@ interface ObservedReply {
   route?: HarnessReplyRoute;
 }
 
-const makeRuntimeHandlers = (observed: ObservedReply) => {
-  const registrationHandler = createMcpHandler(
-    () => new McpServer({ name: "registration-test", version: "1.0.0" }),
-    { legacy: "reject" },
-  );
-  const harnessHandler = createMcpHandler(() => {
+const makeRuntimeHandler = (observed: ObservedReply) =>
+  createMcpHandler(() => {
     const server = new McpServer({
       name: "harness-runtime-test",
       version: "1.0.0",
@@ -195,8 +191,6 @@ const makeRuntimeHandlers = (observed: ObservedReply) => {
     );
     return server;
   });
-  return { harnessHandler, registrationHandler };
-};
 
 const assertPayloadOnlyDiscovery = async (client: Client) => {
   const replyTool = (await client.listTools()).tools.find(
@@ -215,14 +209,10 @@ const assertPayloadOnlyDiscovery = async (client: Client) => {
 
 const preservesPrivateRoute = async () => {
   const observed: ObservedReply = {};
-  const { harnessHandler, registrationHandler } = makeRuntimeHandlers(observed);
+  const handler = makeRuntimeHandler(observed);
   const scope = Effect.runSync(Scope.make());
   const listener = await Effect.runPromise(
-    acquireHarnessMcpHttpServer({
-      port: 0,
-      registrationHandler,
-      harnessHandler,
-    }).pipe(Scope.extend(scope)),
+    acquireHarnessMcpHttpServer({ port: 0, handler }).pipe(Scope.extend(scope)),
   );
   const address = listener.address();
   if (address === null || typeof address === "string") {

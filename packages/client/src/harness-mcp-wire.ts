@@ -4,7 +4,6 @@ import {
   McpServer,
   type Implementation,
   type JsonSchemaType,
-  type McpHttpHandler,
 } from "@modelcontextprotocol/server";
 import { Effect, JSONSchema, type Schema } from "effect";
 import {
@@ -22,18 +21,23 @@ import {
   decodeHarnessReplyRoute,
   HARNESS_EVENTS_EXTENSION,
   HARNESS_READ_CONVERSATION_TOOL,
+  HARNESS_REGISTER_TOOL,
   HARNESS_REPLY_TOOL,
   HARNESS_SEARCH_AGENTS_TOOL,
   HARNESS_SEARCH_CONVERSATIONS_TOOL,
   HARNESS_START_CONVERSATION_TOOL,
   HARNESS_STATUS_TOOL,
   harnessSearchConversationsResultJsonSchema,
+  harnessRegisterInputJsonSchema,
+  harnessRegisterResultJsonSchema,
   harnessReplyInputJsonSchema,
   harnessReplyResultJsonSchema,
   harnessStartConversationInputJsonSchema,
   harnessStartConversationResultJsonSchema,
   harnessStatusInputJsonSchema,
   harnessStatusResultJsonSchema,
+  type HarnessRegisterInput,
+  type HarnessRegisterResult,
   type HarnessReplyInput,
   type HarnessReplyResult,
   type HarnessSearchConversationsResult,
@@ -64,15 +68,39 @@ type SearchConversationsHandler = (
 type StartConversationHandler = (
   payload: HarnessStartConversationInput,
 ) => Effect.Effect<HarnessStartConversationResult, unknown>;
+type RegisterHandler = (
+  payload: HarnessRegisterInput,
+) => Effect.Effect<HarnessRegisterResult, unknown>;
 
-interface HarnessMcpHandlerOptions {
-  readonly implementation: Implementation;
+/** Everything the daemon can serve once its slot carries an identity. */
+export interface HarnessActiveTools {
   readonly readConversation: DescriptorHandler<typeof messagesRead>;
   readonly reply: ReplyHandler;
   readonly searchAgents: DescriptorHandler<typeof agentsSearch>;
   readonly searchConversations: SearchConversationsHandler;
   readonly startConversation: StartConversationHandler;
   readonly status: StatusHandler;
+}
+
+/**
+ * Which catalog the single `/mcp` listener presents. A slot without a
+ * committed Registry identity has no service to call, so it offers only the
+ * operation that gives it one.
+ */
+export type HarnessDaemonPhase =
+  | { readonly kind: "slot" }
+  | { readonly kind: "active"; readonly tools: HarnessActiveTools };
+
+interface HarnessMcpHandlerOptions {
+  readonly implementation: Implementation;
+  /**
+   * Read per request, not captured: the official SDK builds a fresh server for
+   * every HTTP exchange, so a `tools/list` after commit already sees the
+   * active catalog without the listener being rebuilt.
+   */
+  readonly phase: () => HarnessDaemonPhase;
+  readonly register: RegisterHandler;
+  readonly slotStatus: StatusHandler;
 }
 
 const effectSchemaToMcpSchema = <A>(schema: Schema.Schema.AnyNoContext) =>
@@ -108,6 +136,12 @@ const startConversationOutputSchema =
   fromJsonSchema<HarnessStartConversationResult>(
     /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessStartConversationResultJsonSchema as JsonSchemaType,
   );
+const registerInputSchema = fromJsonSchema<HarnessRegisterInput>(
+  /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessRegisterInputJsonSchema as JsonSchemaType,
+);
+const registerOutputSchema = fromJsonSchema<HarnessRegisterResult>(
+  /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessRegisterResultJsonSchema as JsonSchemaType,
+);
 
 const registerDescriptorTool = <D extends RpcDefinitionAny>(
   server: McpServer,
@@ -195,8 +229,28 @@ const registerStartConversationTool = (
   );
 };
 
-const makeRegistrationServer = (implementation: Implementation): McpServer =>
-  new McpServer(implementation);
+const registerRegisterTool = (
+  server: McpServer,
+  register: RegisterHandler,
+): void => {
+  server.registerTool(
+    HARNESS_REGISTER_TOOL,
+    {
+      inputSchema: registerInputSchema,
+      outputSchema: registerOutputSchema,
+    },
+    (payload, context) =>
+      Effect.runPromise(
+        register(payload).pipe(
+          Effect.map((result) => ({
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            structuredContent: result,
+          })),
+        ),
+        { signal: context.mcpReq.signal },
+      ),
+  );
+};
 
 const registerStatusTool = (server: McpServer, status: StatusHandler): void => {
   server.registerTool(
@@ -238,15 +292,32 @@ const registerReplyTool = (server: McpServer, reply: ReplyHandler): void => {
   );
 };
 
-const makeActiveServer = ({
-  implementation,
-  readConversation,
-  reply,
-  searchAgents,
-  searchConversations,
-  startConversation,
-  status,
-}: HarnessMcpHandlerOptions): McpServer => {
+const makeSlotServer = (
+  implementation: Implementation,
+  register: RegisterHandler,
+  slotStatus: StatusHandler,
+): McpServer => {
+  const server = new McpServer(implementation, {
+    capabilities: {
+      extensions: { [HARNESS_EVENTS_EXTENSION]: {} },
+    },
+  });
+  registerRegisterTool(server, register);
+  registerStatusTool(server, slotStatus);
+  return server;
+};
+
+const makeActiveServer = (
+  implementation: Implementation,
+  {
+    readConversation,
+    reply,
+    searchAgents,
+    searchConversations,
+    startConversation,
+    status,
+  }: HarnessActiveTools,
+): McpServer => {
   const server = new McpServer(implementation, {
     capabilities: {
       extensions: { [HARNESS_EVENTS_EXTENSION]: {} },
@@ -272,51 +343,30 @@ const makeActiveServer = ({
 };
 
 /**
- * Creates the registration and active-agent MCP handler catalogs.
+ * Creates the daemon's single MCP handler, whose catalog follows slot state.
  *
  * @param options Existing daemon capabilities exposed through MCP.
  * @param options.implementation Existing MCP server identity.
- * @param options.readConversation Raw checkpointed conversation reader.
- * @param options.reply Conversation-bound raw reply handler.
- * @param options.searchAgents Agent directory search handler.
- * @param options.searchConversations Conversation directory search handler.
- * @param options.startConversation Conversation creation and initial-content handler.
- * @param options.status Existing local daemon status handler.
- * @returns The registration and active-agent HTTP handlers.
+ * @param options.phase Current slot state, re-read on every request.
+ * @param options.register Registry commit handler for an identity-less slot.
+ * @param options.slotStatus Status handler reporting the uncommitted slot.
+ * @returns The one HTTP handler serving both catalog states.
  */
-export const makeHarnessMcpHttpHandlers = ({
+export const makeHarnessMcpHttpHandler = ({
   implementation,
-  readConversation,
-  reply,
-  searchAgents,
-  searchConversations,
-  startConversation,
-  status,
-}: HarnessMcpHandlerOptions): {
-  readonly registration: McpHttpHandler;
-  readonly active: HarnessMcpSubscriptionHandler<HarnessTurnEvent>;
-} => {
-  const activeDelegate = createMcpHandler(
-    () =>
-      makeActiveServer({
-        implementation,
-        readConversation,
-        reply,
-        searchAgents,
-        searchConversations,
-        startConversation,
-        status,
-      }),
-    { legacy: "reject" },
-  );
-  return {
-    registration: createMcpHandler(
-      () => makeRegistrationServer(implementation),
+  phase,
+  register,
+  slotStatus,
+}: HarnessMcpHandlerOptions): HarnessMcpSubscriptionHandler<HarnessTurnEvent> =>
+  makeHarnessMcpSubscriptionHandler({
+    delegate: createMcpHandler(
+      () => {
+        const current = phase();
+        return current.kind === "slot"
+          ? makeSlotServer(implementation, register, slotStatus)
+          : makeActiveServer(implementation, current.tools);
+      },
       { legacy: "reject" },
     ),
-    active: makeHarnessMcpSubscriptionHandler({
-      delegate: activeDelegate,
-      implementation,
-    }),
-  };
-};
+    implementation,
+  });

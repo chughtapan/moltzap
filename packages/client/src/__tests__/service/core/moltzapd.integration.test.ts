@@ -1,4 +1,4 @@
-import { FileSystem, HttpClient } from "@effect/platform";
+import { HttpClient } from "@effect/platform";
 import * as KeyValueStore from "@effect/platform/KeyValueStore";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import {
@@ -31,7 +31,6 @@ import {
   type HarnessTurn,
 } from "../../../harness-client.js";
 import { decodeHarnessStartConversationResult } from "../../../harness/index.js";
-import { getMoltZapAgentServiceSocketPath } from "../../../local-paths.js";
 import { acquireMoltzapd } from "../../../moltzapd.js";
 import * as H from "../../support/index.js";
 
@@ -55,7 +54,6 @@ interface RoundTripFixture {
   readonly owner: RegisteredAgent;
   readonly peer: RegisteredAgent;
   readonly conversationId: ConversationId;
-  readonly socketPath: string;
 }
 
 interface PortBlocker {
@@ -195,9 +193,8 @@ const callMcpTool = (
     catch: toError,
   });
 
-const runScopedDaemon = (socketPath: string) =>
+const runScopedDaemon = () =>
   Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
     const server = yield* acquireMoltzapd({ profileName: PROFILE_NAME });
     const client = yield* acquireMcpClient(harnessUrl(server));
     const result = yield* Effect.tryPromise({
@@ -205,18 +202,13 @@ const runScopedDaemon = (socketPath: string) =>
       catch: toError,
     });
     expect(server.listening).toBe(true);
-    expect(yield* fileSystem.exists(socketPath)).toBe(false);
     expect(yield* healthConnections()).toBe(1);
     return { result, server };
   });
 
 function runRegisteredAgent(registered: RegisteredAgent) {
   return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const socketPath = getMoltZapAgentServiceSocketPath(registered.agentId);
-    expect(yield* fileSystem.exists(socketPath)).toBe(false);
-
-    const running = yield* Effect.scoped(runScopedDaemon(socketPath));
+    const running = yield* Effect.scoped(runScopedDaemon());
 
     expect(running.result.structuredContent).toEqual({
       agentId: registered.agentId,
@@ -224,7 +216,6 @@ function runRegisteredAgent(registered: RegisteredAgent) {
       conversations: 0,
     });
     expect(running.server.listening).toBe(false);
-    expect(yield* fileSystem.exists(socketPath)).toBe(false);
     expect(yield* healthConnections()).toBe(0);
   }).pipe(Effect.provide(NodeContext.layer));
 }
@@ -246,12 +237,6 @@ const takeHead = <A, E, R>(
       ),
     ),
   );
-
-const expectNoUnixSocket = (socketPath: string) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    expect(yield* fileSystem.exists(socketPath)).toBe(false);
-  });
 
 const expectHarnessTurn = (
   turn: HarnessTurn,
@@ -336,7 +321,6 @@ const expectMcpReadPlane = ({
   owner,
   peer,
   conversationId,
-  socketPath,
 }: RoundTripFixture) =>
   Effect.gen(function* () {
     const agents = yield* callMcpTool(mcp, "search_agents", {
@@ -362,7 +346,6 @@ const expectMcpReadPlane = ({
       peer,
       conversationId,
     );
-    yield* expectNoUnixSocket(socketPath);
   });
 
 const runMcpMessageRoundTrip = ({
@@ -371,7 +354,6 @@ const runMcpMessageRoundTrip = ({
   owner,
   peer,
   conversationId,
-  socketPath,
 }: RoundTripFixture) =>
   Effect.gen(function* () {
     const turnFiber = yield* Effect.fork(
@@ -388,18 +370,15 @@ const runMcpMessageRoundTrip = ({
 
     const turn = yield* Fiber.join(turnFiber);
     expectHarnessTurn(turn, owner, peer, conversationId);
-    yield* expectNoUnixSocket(socketPath);
 
     yield* turn.reply(HARNESS_REPLY);
     expectPeerReply(yield* Fiber.join(peerReplyFiber), owner, conversationId);
-    yield* expectNoUnixSocket(socketPath);
     yield* expectMcpReadPlane({
       harness,
       mcp,
       owner,
       peer,
       conversationId,
-      socketPath,
     });
   });
 
@@ -434,9 +413,6 @@ const startConversationThroughMcp = (
 
 function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
   return Effect.gen(function* () {
-    const socketPath = getMoltZapAgentServiceSocketPath(owner.agentId);
-    yield* expectNoUnixSocket(socketPath);
-
     yield* peer.client.connect();
     yield* Effect.scoped(
       Effect.gen(function* () {
@@ -446,7 +422,6 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
         }).pipe(Effect.provide(KeyValueStore.layerMemory));
         expect(harness.agentId).toBe(owner.agentId);
         const mcp = yield* acquireMcpClient(harnessUrl(server));
-        yield* expectNoUnixSocket(socketPath);
 
         const conversationId = yield* startConversationThroughMcp(
           mcp,
@@ -459,12 +434,10 @@ function runHarnessRoundTrip(owner: RegisteredAgent, peer: RegisteredAgent) {
           owner,
           peer,
           conversationId,
-          socketPath,
         });
       }),
     );
 
-    yield* expectNoUnixSocket(socketPath);
     expect(yield* healthConnections()).toBe(1);
   }).pipe(Effect.provide(NodeContext.layer));
 }

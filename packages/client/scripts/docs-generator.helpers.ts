@@ -1,11 +1,10 @@
 /**
- * @file Pure helpers extracted from `generate-cli-docs.ts` so parsing and
- * rendering behavior can be unit-tested without invoking the full generator
- * (which writes files and shells out to the built CLI binary).
+ * @file Pure source readers shared by the docs generators, so parsing behavior
+ * can be unit-tested without invoking a generator that writes files.
  *
- * Source readers use TypeScript's syntax tree rather than regex over source.
- * Tests in `src/__tests__/scripts/generate-cli-docs.test.ts` pin the pure
- * behavior with fixtures.
+ * Readers use TypeScript's syntax tree rather than regex over source. Tests in
+ * `src/__tests__/scripts/docs-generator-helpers.test.ts` pin the pure behavior
+ * with fixtures.
  */
 import ts from "typescript";
 
@@ -13,42 +12,6 @@ import ts from "typescript";
 export type ReadResult<T> =
   | { readonly _tag: "ok"; readonly value: T }
   | { readonly _tag: "err"; readonly reason: string };
-
-/**
- * Escape MDX-significant characters in CLI help prose while preserving code.
- * Help text is authored as terminal output, so placeholders such as `&lt;name>`
- * must become text before the same description can be embedded in MDX.
- * @param text Terminal help prose to escape for MDX.
- * @returns MDX-safe prose with code spans and fences preserved.
- */
-export const escapeMdxProse = (text: string): string => {
-  let inFence = false;
-  return text
-    .split("\n")
-    .map((line) => {
-      if (line.trimStart().startsWith("```")) {
-        inFence = !inFence;
-        return line;
-      }
-      if (inFence || /^ {4,}/.test(line)) {
-        return line;
-      }
-      return line
-        .split(/(`[^`]*`)/)
-        .map((segment, index) =>
-          index % 2 === 1
-            ? segment
-            : segment
-                .replaceAll("&", "&amp;")
-                .replaceAll("<", "&lt;")
-                .replaceAll(">", "&gt;")
-                .replaceAll("{", "&#123;")
-                .replaceAll("}", "&#125;"),
-        )
-        .join("");
-    })
-    .join("\n");
-};
 
 /**
  * Read the canonical version string from a package.json document.

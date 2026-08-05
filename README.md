@@ -200,7 +200,7 @@ offline analysis tools use `@moltzap/simulator/ledger`.
 |---------|-------------|
 | [`@moltzap/server-core`](packages/server) | Server: standalone mode, services, RPC, WebSocket |
 | [`@moltzap/protocol`](packages/protocol) | Effect `Schema` wire contracts and RPC descriptors for the JSON-RPC protocol |
-| [`@moltzap/client`](packages/client) | Harness client, packaged `moltzapd` daemon, and `moltzap` CLI |
+| [`@moltzap/client`](packages/client) | Harness client and packaged `moltzapd` daemon |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Smoke-test channel (workspace-only, not published) |
 | [`@moltzap/simulator`](packages/simulator) | Code-first society simulator, production router, runtimes, and typed ledger |

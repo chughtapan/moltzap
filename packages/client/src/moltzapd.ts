@@ -1,33 +1,24 @@
 import type { Implementation } from "@modelcontextprotocol/server";
 import { Effect, ExecutionStrategy, Exit, Scope } from "effect";
-import {
-  agentConversationCreate,
-  conversationList,
-  conversationSearch,
-} from "@moltzap/protocol/conversation";
-import {
-  AgentNotFoundError,
-  agentsSearch,
-  type AgentName,
-} from "@moltzap/protocol/identity";
-import { messagesRead, messagesSend } from "@moltzap/protocol/message";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
 import packageJson from "../package.json" with { type: "json" };
 import { MoltZapChannelCore } from "./channel-core.js";
-import type {
-  HarnessSearchConversationsResult,
-  HarnessStartConversationInput,
-  HarnessStartConversationResult,
-  HarnessStatusInput,
-  HarnessStatusResult,
-  HarnessTurnEvent,
-} from "./harness/index.js";
+import type { HarnessTurnEvent } from "./harness/index.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
-import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
-import { parseProfileName, resolveProfileRecord } from "./profile.js";
+import { makeHarnessMcpHttpHandler } from "./harness-mcp-wire.js";
+import {
+  makeActiveTools,
+  makeDaemonPhaseState,
+  slotStatusHandler,
+  type DaemonPhaseState,
+} from "./moltzapd-catalog.js";
+import { makeRegisterHandler } from "./moltzapd-registration.js";
+import {
+  isRegisteredProfile,
+  parseProfileName,
+  resolveProfileRecord,
+} from "./profile.js";
 import { MoltZapService, type ServiceRpcError } from "./service.js";
 import type { ServiceConfigError } from "./config.js";
-import { drainPaginatedList } from "./pagination.js";
 
 interface MoltzapdOptions {
   readonly profileName: string;
@@ -38,23 +29,12 @@ const MCP_IMPLEMENTATION = {
   version: packageJson.version,
 } satisfies Implementation;
 
-type StatusHandler = (
-  payload: HarnessStatusInput,
-) => Effect.Effect<HarnessStatusResult>;
 type MoltzapdServer = Effect.Effect.Success<
   ReturnType<typeof acquireHarnessMcpHttpServer>
 >;
 
-const makeStatusHandler =
-  (service: MoltZapService, core: MoltZapChannelCore): StatusHandler =>
-  () =>
-    Effect.succeed({
-      ...(service.ownAgentId === undefined
-        ? {}
-        : { agentId: service.ownAgentId }),
-      connected: core.isConnected(),
-      conversations: service.getConversations().length,
-    });
+/** Everything composing and running the daemon can fail with. */
+type DaemonError = Error | ServiceConfigError | ServiceRpcError;
 
 const acquireCore = (
   service: MoltZapService,
@@ -79,122 +59,99 @@ const installTurnPublisher = (
   );
 };
 
-const searchConversationsForHarness = (
-  service: MoltZapService,
-  params: ParamsOf<typeof conversationSearch>,
-): Effect.Effect<HarnessSearchConversationsResult, unknown> =>
-  Effect.gen(function* () {
-    const page = yield* service.callDefinition(conversationSearch, params);
-    const listed = yield* drainPaginatedList({
-      definition: conversationList,
-      sendRpc: (definition, listParams) =>
-        service.callDefinition(definition, listParams),
-      paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
-      rowsForPage: (listPage) => listPage.items,
-      nextCursorForPage: (listPage) => listPage.nextCursor,
-    });
-    const participantsByConversation = new Map(
-      listed.map((item) => [item.conversation.id, item.participants] as const),
-    );
-    return {
-      conversations: page.conversations.map((conversation) => ({
-        ...conversation,
-        participants: [
-          ...(participantsByConversation.get(conversation.id) ?? []),
-        ],
-      })),
-      ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
-    };
-  }).pipe(Effect.withSpan("moltzapd.searchConversations"));
+interface ActivatorInput {
+  readonly profileName: string;
+  readonly phase: DaemonPhaseState;
+  readonly daemonScope: Scope.Scope;
+}
 
-const agentNotFound = (agentName: AgentName): AgentNotFoundError =>
-  new AgentNotFoundError({
-    message: `Agent not found: ${agentName}`,
-    data: { agentName },
+// Builds the transition from a committed slot to a serving agent. Everything it
+// acquires belongs to the daemon scope, so a slot that registers mid-life is
+// torn down exactly like one that started registered.
+const makeActivator =
+  ({ profileName, phase, daemonScope }: ActivatorInput) =>
+  (
+    publish: (turn: HarnessTurnEvent) => boolean,
+  ): Effect.Effect<void, ServiceConfigError | ServiceRpcError> =>
+    Effect.gen(function* () {
+      const service = yield* MoltZapService.make(profileName);
+      const core = yield* acquireCore(service);
+      installTurnPublisher(core, publish);
+      yield* core.connect();
+      phase.setActive(makeActiveTools(service, core));
+    }).pipe(Scope.extend(daemonScope));
+
+// Binds the slot's listener, then activates if the slot already carries an
+// identity. The listener comes first either way: registration has to be
+// reachable on a daemon that cannot yet build a service.
+const serveProfileSlot = (
+  profileName: string,
+  daemonScope: Scope.Scope,
+): Effect.Effect<MoltzapdServer, DaemonError, Scope.Scope> =>
+  Effect.gen(function* () {
+    const name = yield* parseProfileName(profileName);
+    const record = yield* resolveProfileRecord(name);
+    const phase = makeDaemonPhaseState();
+    // Registration and its activation are one transition. Serializing them
+    // keeps a second concurrent call from building a second service against
+    // the same slot.
+    const activation = yield* Effect.makeSemaphore(1);
+    const activate = makeActivator({ profileName, phase, daemonScope });
+
+    const handler = makeHarnessMcpHttpHandler({
+      implementation: MCP_IMPLEMENTATION,
+      phase: phase.read,
+      slotStatus: slotStatusHandler,
+      register: makeRegisterHandler({
+        name,
+        record,
+        phase,
+        activation,
+        activate: () => activate(handler.publish),
+        onCatalogChanged: () => {
+          handler.notify.toolsChanged();
+        },
+      }),
+    });
+
+    const server = yield* acquireHarnessMcpHttpServer({
+      port: record.mcpPort,
+      handler,
+    });
+    if (isRegisteredProfile(record)) {
+      yield* activate(handler.publish);
+    }
+    return server;
   });
 
-const resolveAgentByName = (service: MoltZapService, name: AgentName) =>
-  service.callDefinition(agentsSearch, { query: name }).pipe(
-    Effect.flatMap(({ agents }) => {
-      const agent = agents.find((candidate) => candidate.name === name);
-      return agent === undefined
-        ? Effect.fail(agentNotFound(name))
-        : Effect.succeed(agent);
-    }),
-  );
-
-const startConversationForHarness = (
-  service: MoltZapService,
-  input: HarnessStartConversationInput,
-): Effect.Effect<HarnessStartConversationResult, unknown> =>
-  Effect.gen(function* () {
-    if (new Set(input.otherAgentNames).size !== input.otherAgentNames.length) {
-      // eslint-disable-next-line agent-code-guard/effect-error-erasure -- Local MCP validation stays on the established broad Error boundary without adding a portable protocol error.
-      return yield* Effect.fail(
-        new Error("Conversation participants must be unique"),
-      );
-    }
-
-    const participants = yield* Effect.forEach(
-      input.otherAgentNames,
-      (name) => resolveAgentByName(service, name),
-      { concurrency: 2 },
-    );
-    const ownAgentId = service.ownAgentId;
-    if (ownAgentId === undefined) {
-      // eslint-disable-next-line agent-code-guard/effect-error-erasure -- A missing daemon identity is rejected at the local composition boundary whose existing contract is Error.
-      return yield* Effect.fail(new Error("Daemon has no agent identity"));
-    }
-    if (participants.some((participant) => participant.id === ownAgentId)) {
-      // eslint-disable-next-line agent-code-guard/effect-error-erasure -- Local MCP validation stays on the established broad Error boundary without adding a portable protocol error.
-      return yield* Effect.fail(
-        new Error("The daemon agent is an implicit conversation participant"),
-      );
-    }
-
-    const created = yield* service.callDefinition(agentConversationCreate, {
-      participants: participants.map((participant) => participant.id),
-    });
-    yield* service.callDefinition(messagesSend, {
-      conversationId: created.conversation.id,
-      parts: [{ type: "text", text: input.initialContent }],
-    });
-
-    // Participants are endpoint-owned context on the MCP boundary. The
-    // canonical Conversation value sent over the network remains closed.
-    return {
-      conversation: {
-        ...created.conversation,
-        participants: [
-          ownAgentId,
-          ...participants.map((participant) => participant.id),
-        ],
-      },
-    };
-  }).pipe(Effect.withSpan("moltzapd.startConversation"));
-
 /**
- * Owns one registered agent's service, channel core, network connection, and
- * guarded loopback MCP listener for the lifetime of the caller's scope.
+ * Owns one profile slot's loopback MCP listener for the lifetime of the
+ * caller's scope, plus the service, channel core, and network connection once
+ * that slot carries a Registry identity.
  *
  * ```mermaid
  * sequenceDiagram
  *   participant process as moltzapd
+ *   participant mcp as MCP listener
  *   participant service as MoltZapService
  *   participant core as MoltZapChannelCore
- *   participant mcp as MCP listener
  *
+ *   process->>mcp: listen(slot port) with the slot catalog
+ *   alt slot has no identity
+ *     mcp->>process: tools/call register
+ *     process->>process: commit identity into the slot
+ *   end
  *   process->>service: make(profileName)
  *   process->>core: construct(service)
  *   process->>core: install raw turn publisher
- *   process->>mcp: listen(port)
  *   process->>core: connect()
+ *   process->>mcp: serve the active catalog
  *   Note over core,mcp: Scope release closes MCP before disconnecting the core
  * ```
  *
- * The slot itself carries the listener port, so no caller supplies one. This
- * composition does not start the Unix-socket server and does not expose its
- * service or core.
+ * The slot itself carries the listener port, so no caller supplies one, and the
+ * listener binds before the identity exists — an unregistered slot is reachable
+ * at the same fixed `/mcp` URL as a registered one.
  *
  * @param options Existing profile name owning this daemon.
  * @returns The scoped loopback HTTP listener.
@@ -202,44 +159,16 @@ const startConversationForHarness = (
  */
 export const acquireMoltzapd = (
   options: MoltzapdOptions,
-): Effect.Effect<
-  MoltzapdServer,
-  Error | ServiceConfigError | ServiceRpcError,
-  Scope.Scope
-> =>
+): Effect.Effect<MoltzapdServer, DaemonError, Scope.Scope> =>
   Effect.gen(function* () {
     const parentScope = yield* Effect.scope;
     const daemonScope = yield* Scope.fork(
       parentScope,
       ExecutionStrategy.sequential,
     );
-    const acquire = Effect.gen(function* () {
-      const name = yield* parseProfileName(options.profileName);
-      const record = yield* resolveProfileRecord(name);
-      const service = yield* MoltZapService.make(options.profileName);
-      const core = yield* acquireCore(service);
-      const handlers = makeHarnessMcpHttpHandlers({
-        implementation: MCP_IMPLEMENTATION,
-        readConversation: (payload) =>
-          service.callDefinition(messagesRead, payload),
-        reply: core.sendReply.bind(core),
-        searchAgents: (payload) =>
-          service.callDefinition(agentsSearch, payload),
-        searchConversations: (payload) =>
-          searchConversationsForHarness(service, payload),
-        startConversation: (payload) =>
-          startConversationForHarness(service, payload),
-        status: makeStatusHandler(service, core),
-      });
-      installTurnPublisher(core, handlers.active.publish);
-      const server = yield* acquireHarnessMcpHttpServer({
-        port: record.mcpPort,
-        registrationHandler: handlers.registration,
-        harnessHandler: handlers.active,
-      });
-      yield* core.connect();
-      return server;
-    }).pipe(Scope.extend(daemonScope));
+    const acquire = serveProfileSlot(options.profileName, daemonScope).pipe(
+      Scope.extend(daemonScope),
+    );
     return yield* acquire.pipe(
       Effect.onExit((exit) =>
         Exit.isSuccess(exit) ? Effect.void : Scope.close(daemonScope, exit),
@@ -259,7 +188,7 @@ export const acquireMoltzapd = (
  */
 export const runMoltzapd = (
   options: MoltzapdOptions,
-): Effect.Effect<never, Error | ServiceConfigError | ServiceRpcError> =>
+): Effect.Effect<never, DaemonError> =>
   Effect.scoped(
     acquireMoltzapd(options).pipe(Effect.zipRight(Effect.never)),
   ).pipe(Effect.withSpan("runMoltzapd"));

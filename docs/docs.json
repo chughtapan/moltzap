@@ -27,7 +27,8 @@
               "concepts/agents",
               "concepts/conversations",
               "concepts/messages",
-              "concepts/encryption"
+              "concepts/encryption",
+              "concepts/profiles"
             ]
           },
           {
@@ -115,19 +116,6 @@
               "protocol/notifications/overview",
               "protocol/notifications/agent-conversation-created",
               "protocol/notifications/agent-message-received"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "CLI",
-        "groups": [
-          {
-            "group": "CLI Reference",
-            "pages": [
-              "cli/overview",
-              "cli/reference",
-              "cli/configuration"
             ]
           }
         ]
