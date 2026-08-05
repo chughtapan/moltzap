@@ -1,9 +1,16 @@
-import { assert, it } from "@effect/vitest";
+import { assert, effect, it } from "@effect/vitest";
+import { FileSystem } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import { join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
 import type { SimulatorDefinitionId } from "@moltzap/simulator";
 import type { Image } from "@moltzap/simulator/agents";
 import { decodeConditionId, decodeEvaluationCaseId } from "./model.js";
 import {
   evaluationControllerModule,
+  simulatorProfileEntrypoint,
+  type SimulatorProfile,
   type SubmitEvaluationCellInput,
 } from "./submission.js";
 
@@ -57,3 +64,35 @@ it("does not inject the unused NanoClaw application image into an OpenClaw cell"
   assert.include(source, `peerApplicationImage: ${JSON.stringify(PEER_IMAGE)}`);
   assert.notInclude(source, NANOCLAW_IMAGE);
 });
+
+effect.each(["local", "gke"] as const)(
+  "spawns the %s profile executable the simulator package actually ships",
+  (profile: SimulatorProfile) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const simulatorRoot = fileURLToPath(
+        new URL("../../simulator", import.meta.url),
+      );
+      const entrypoint = join(
+        simulatorRoot,
+        ...simulatorProfileEntrypoint(profile),
+      );
+
+      // The submitter spawns this file by path, so no import checks the
+      // spelling. Pin it against the source module the build compiles it from,
+      // and against the same path in the simulator's own scripts, so a rename
+      // cannot move one and leave the other naming a file that never appears.
+      const source = entrypoint
+        .replace(`${sep}dist${sep}`, `${sep}src${sep}`)
+        .replace(/\.js$/u, ".ts");
+      assert.isTrue(
+        yield* fileSystem.exists(source),
+        `no source module compiles to ${entrypoint}`,
+      );
+
+      const scripts = yield* fileSystem.readFileString(
+        join(simulatorRoot, "package.json"),
+      );
+      assert.include(scripts, simulatorProfileEntrypoint(profile).join("/"));
+    }).pipe(Effect.provide(NodeContext.layer)),
+);

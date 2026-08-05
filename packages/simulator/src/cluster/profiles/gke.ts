@@ -1,9 +1,9 @@
 /** @file GKE entry point for the shared Temporal-managed Kubernetes run. */
 
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { NodeRuntime } from "@effect/platform-node";
 import { Effect, Either, Schema } from "effect";
+import { isEntryModule } from "../entry.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import {
   liveSubmitOperations,
@@ -196,16 +196,8 @@ export function runGkeSociety(
   );
 }
 
-function isDirectInvocation(): boolean {
-  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
-  const invoked = process.argv[1];
-  return (
-    invoked !== undefined &&
-    pathToFileURL(resolve(invoked)).href === import.meta.url
-  );
-}
-
-if (isDirectInvocation()) {
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
+if (isEntryModule(import.meta.url, process.argv[1])) {
   // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The executable boundary captures argv once before entering Effect.
   const args = process.argv.slice(2);
   // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The executable boundary injects the environment into the typed GKE configuration.

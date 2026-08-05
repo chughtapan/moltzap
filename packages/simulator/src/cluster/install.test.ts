@@ -1,10 +1,12 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-example-only-tests -- The host installation boundary under test is Promise-native, so its double keeps the same signatures, and these regression-only cases pin the exact rollout arithmetic and bounded availability deadline rather than an invariant over generated input. */
+/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-example-only-tests -- Vitest awaits the Effect the host installation boundary returns, and these regression-only cases pin the exact rollout arithmetic and bounded availability deadline rather than an invariant over generated input. */
 
+import { Effect } from "effect";
 import { expect, it } from "vitest";
-import type {
-  RunWorkerInstallApi,
-  RunWorkerObject,
-  WorkerAvailability,
+import {
+  KubernetesCallFailed,
+  type RunWorkerInstallApi,
+  type RunWorkerObject,
+  type WorkerAvailability,
 } from "./kubernetes/calls.js";
 import {
   installRunWorker,
@@ -55,23 +57,27 @@ function recordingInstall(options: InstallOptions = {}): RecordedInstall {
     installed,
     waits,
     api: {
-      install: (object) => {
-        installed.push(object);
-        return options.failAt === object
-          ? Promise.reject(new Error(`${object} refused`))
-          : Promise.resolve();
-      },
-      readWorkerAvailability: () => {
-        const reading = readings[Math.min(read, readings.length - 1)];
-        read += 1;
-        return reading === undefined
-          ? Promise.reject(new Error("no availability was configured"))
-          : Promise.resolve(reading);
-      },
-      wait: (milliseconds) => {
-        waits.push(milliseconds);
-        return Promise.resolve();
-      },
+      install: (object) =>
+        Effect.suspend(() => {
+          installed.push(object);
+          return options.failAt === object
+            ? Effect.fail(new KubernetesCallFailed(`install ${object}`))
+            : Effect.void;
+        }),
+      readWorkerAvailability: () =>
+        Effect.suspend(() => {
+          const reading = readings[Math.min(read, readings.length - 1)];
+          read += 1;
+          return reading === undefined
+            ? Effect.fail(
+                new KubernetesCallFailed("read a configured availability"),
+              )
+            : Effect.succeed(reading);
+        }),
+      wait: (milliseconds) =>
+        Effect.sync(() => {
+          waits.push(milliseconds);
+        }),
     },
   };
 }
@@ -79,7 +85,7 @@ function recordingInstall(options: InstallOptions = {}): RecordedInstall {
 it("installs every object exactly once, each after everything it depends on", async () => {
   const { api, installed } = recordingInstall();
 
-  await installRunWorker(api);
+  await Effect.runPromise(installRunWorker(api));
 
   const byName = (left: string, right: string) => left.localeCompare(right);
   expect([...installed].sort(byName)).toEqual([...EVERY_OBJECT].sort(byName));
@@ -93,8 +99,9 @@ it("installs every object exactly once, each after everything it depends on", as
 it("never installs the workload when its permissions could not be written", async () => {
   const { api, installed } = recordingInstall({ failAt: BINDING });
 
-  await expect(installRunWorker(api)).rejects.toThrow(`${BINDING} refused`);
+  const failure = await Effect.runPromise(Effect.flip(installRunWorker(api)));
 
+  expect(failure.message).toBe(`install ${BINDING} failed`);
   expect(installed).not.toContain(WORKLOAD);
 });
 
@@ -109,7 +116,7 @@ it("waits for the installed revision rather than the one it replaced", async () 
     ],
   });
 
-  await installRunWorker(api);
+  await Effect.runPromise(installRunWorker(api));
 
   expect(waits).toEqual([2_000, 2_000]);
 });
@@ -121,10 +128,9 @@ it("fails the submission when no replica ever becomes available", async () => {
     ],
   });
 
-  await expect(installRunWorker(api)).rejects.toBeInstanceOf(
-    RunWorkerUnavailable,
-  );
+  const failure = await Effect.runPromise(Effect.flip(installRunWorker(api)));
 
+  expect(failure).toBeInstanceOf(RunWorkerUnavailable);
   expect(waits).toHaveLength(150);
 });
 
@@ -146,4 +152,4 @@ it("reads a rollout as available only once it is both observed and serving", () 
   ).toBe(false);
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-example-only-tests -- Restore Effect-first test rules after the Promise-native host installation contract. */
+/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-example-only-tests -- Restore Effect-first test rules after the host installation contract. */

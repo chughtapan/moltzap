@@ -1,11 +1,13 @@
 /** @file Stand up one run: its root, its access, its endpoint, its controller. */
 
-import type { RunControlApi } from "./kubernetes/calls.js";
+import { Effect } from "effect";
+import type {
+  KubernetesCallFailed,
+  RunControlApi,
+} from "./kubernetes/calls.js";
 import { ownedRunControlManifests } from "./kubernetes/objects.js";
 import type { KubernetesExecutionProfile } from "./profile.js";
 import type { RunSocietyWorkflowInput } from "./reclaim.js";
-
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The Temporal activity this runs inside is a Promise-native SDK boundary. */
 
 /**
  * Create everything one run needs before its controller starts, in order.
@@ -19,20 +21,19 @@ import type { RunSocietyWorkflowInput } from "./reclaim.js";
  * @param input Serializable run identity, images, and experiment module.
  * @param profile Private local or GKE storage and placement projection.
  * @returns Nothing once the controller Job has been created.
+ * @failure KubernetesCallFailed when any object could not be created.
  */
-// #ignore-sloppy-code-next-line[async-keyword]: runs inside a Promise-native Temporal activity
-export async function prepareRun(
+export function prepareRun(
   api: RunControlApi,
   input: RunSocietyWorkflowInput,
   profile: KubernetesExecutionProfile,
-  // #ignore-sloppy-code-next-line[promise-type]: runs inside a Promise-native Temporal activity
-): Promise<void> {
-  const ownerUid = await api.createRunRoot(input);
-  const manifests = ownedRunControlManifests(input, ownerUid, profile);
-  await api.createExperimentAndQueue(input.namespace, manifests);
-  await api.createControllerAccess(input.namespace, manifests);
-  await api.createRouterService(input.namespace, manifests);
-  await api.startController(input.namespace, manifests);
+): Effect.Effect<void, KubernetesCallFailed> {
+  return Effect.gen(function* () {
+    const ownerUid = yield* api.createRunRoot(input);
+    const manifests = ownedRunControlManifests(input, ownerUid, profile);
+    yield* api.createExperimentAndQueue(input.namespace, manifests);
+    yield* api.createControllerAccess(input.namespace, manifests);
+    yield* api.createRouterService(input.namespace, manifests);
+    yield* api.startController(input.namespace, manifests);
+  }).pipe(Effect.withSpan("prepareRun"));
 }
-
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore Effect-first application rules after the Temporal activity boundary. */

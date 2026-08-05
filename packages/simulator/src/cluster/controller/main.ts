@@ -1,12 +1,10 @@
 /** @file Executable boundary for exactly one mounted simulator RunSpec. */
 
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry identity must be synchronous before the controller Effect exists, and canonical paths are required to resolve image symlinks.
-import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Cause, Context, Data, Effect, Layer } from "effect";
 import { isRunSpec, Run, type RunSpec } from "../../definition.js";
+import { isEntryModule } from "../entry.js";
 import {
   CompletedLedgerReceipt,
   ProgramFinished,
@@ -284,28 +282,10 @@ function processControllerEnvironment(): ControllerEnvironment {
   return process.env;
 }
 
-/**
- * Compare an argv entrypoint with its loaded module after resolving symlinks.
- * @param moduleUrl Canonical URL assigned to the loaded ES module by Node.
- * @param invoked Path passed to Node as the executable module.
- * @returns Whether both paths identify the same physical module.
- */
-export function isControllerModuleInvocation(
-  moduleUrl: string,
-  invoked?: string,
-): boolean {
-  if (invoked === undefined) {
-    return false;
-  }
-  const invokedPath = realpathSync(resolve(invoked));
-  const loadedPath = realpathSync(fileURLToPath(moduleUrl));
-  return invokedPath === loadedPath;
-}
-
 function isDirectInvocation(): boolean {
   // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
   const invoked = process.argv[1];
-  return isControllerModuleInvocation(import.meta.url, invoked);
+  return isEntryModule(import.meta.url, invoked);
 }
 
 function resultHandoffFailure(): ControllerError {

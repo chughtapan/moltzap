@@ -1,4 +1,4 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Regression-only filesystem cases exercise the Promise-native CLI boundary and keep each hostile fixture next to its containment assertion. */
+/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/prefer-effect-platform, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Hostile fixtures are built with Node's own filesystem so the suite exercises the exact syscalls the materializer must survive, and each fixture stays next to its containment assertion. */
 import {
   chmod,
   lstat,
@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { NodeFileSystem } from "@effect/platform-node";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { materializeBootstrap } from "./bootstrap.js";
 
@@ -51,7 +53,8 @@ async function makeFixture(): Promise<Fixture> {
   const output = join(root, "output");
   const overlay = join(root, "overlay");
   const manifest = join(root, "manifest.json");
-  await Promise.all([mkdir(source), mkdir(overlay)]);
+  await mkdir(source);
+  await mkdir(overlay);
   return { root, source, output, overlay, manifest };
 }
 
@@ -68,11 +71,19 @@ function options(fixture: Fixture) {
   } as const;
 }
 
+function materialize(fixture: Fixture): Promise<void> {
+  return Effect.runPromise(
+    materializeBootstrap(options(fixture)).pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ),
+  );
+}
+
 afterEach(async () => {
   const stale = roots.splice(0);
-  await Promise.all(
-    stale.map((root) => rm(root, { recursive: true, force: true })),
-  );
+  for (const root of stale) {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("materializeBootstrap", () => {
@@ -100,7 +111,7 @@ describe("materializeBootstrap", () => {
       ],
     });
 
-    await materializeBootstrap(options(fixture));
+    await materialize(fixture);
 
     await expect(
       readFile(join(fixture.output, "openclaw.json"), "utf8"),
@@ -185,7 +196,7 @@ describe("materializeBootstrap", () => {
       await writeFile(join(fixture.source, "profile"), "secret", "utf8");
       await writeManifest(fixture, manifest);
 
-      await expect(materializeBootstrap(options(fixture))).rejects.toThrow();
+      await expect(materialize(fixture)).rejects.toThrow();
       await expect(lstat(fixture.output)).rejects.toMatchObject({
         code: "ENOENT",
       });
@@ -208,7 +219,7 @@ describe("materializeBootstrap", () => {
       files: [{ source: "config", path: "config", mode: 0o600 }],
     });
 
-    await materializeBootstrap(options(fixture));
+    await materialize(fixture);
 
     await expect(
       readFile(join(fixture.output, "config"), "utf8"),
@@ -254,7 +265,9 @@ describe("materializeBootstrap", () => {
       expect(failure.code).toBe(1);
       expect(failure.stderr).toContain("bootstrap materialization failed");
     }
-  });
+    // Two real Node processes, each loading the Effect runtime the initializer
+    // shares with the controller: roughly 2.5s of module graph per spawn.
+  }, 30_000);
 
   it("rejects a non-regular Secret source before changing output", async () => {
     const fixture = await makeFixture();
@@ -264,7 +277,7 @@ describe("materializeBootstrap", () => {
       files: [{ source: "directory", path: "config", mode: 0o600 }],
     });
 
-    await expect(materializeBootstrap(options(fixture))).rejects.toThrow(
+    await expect(materialize(fixture)).rejects.toThrow(
       /resolve to a regular file/u,
     );
     await expect(lstat(fixture.output)).rejects.toMatchObject({
@@ -284,7 +297,7 @@ describe("materializeBootstrap", () => {
         apiVersion: "moltzap.bootstrap/v1",
         files: [{ source, path: "config", mode: 0o600 }],
       });
-      await expect(materializeBootstrap(options(fixture))).rejects.toThrow();
+      await expect(materialize(fixture)).rejects.toThrow();
       await expect(lstat(fixture.output)).rejects.toMatchObject({
         code: "ENOENT",
       });
@@ -302,7 +315,7 @@ describe("materializeBootstrap", () => {
       files: [{ source: "config", path: "redirect/config", mode: 0o600 }],
     });
 
-    await expect(materializeBootstrap(options(fixture))).rejects.toThrow(
+    await expect(materialize(fixture)).rejects.toThrow(
       /target parent is not a directory/u,
     );
     await expect(lstat(join(outside, "config"))).rejects.toMatchObject({
@@ -311,4 +324,4 @@ describe("materializeBootstrap", () => {
   });
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Restore strict defaults after the filesystem regression suite. */
+/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/prefer-effect-platform, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Restore strict defaults after the filesystem regression suite. */
