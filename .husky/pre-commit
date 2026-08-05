@@ -1,13 +1,22 @@
 #!/usr/bin/env sh
 set -e
 
-pnpm nx run workspace:format
-pnpm nx run workspace:docs:generate
+# Format the staged files and re-stage exactly those paths. Formatting never
+# fails a commit: small, frequent commits are the norm here, and a
+# fix-then-retry cycle would multiply across every one of them. Re-staging is
+# scoped to paths already staged so an unrelated working-tree edit can never be
+# swept into the commit. Everything heavier runs at pre-push or in CI.
+STAGED=$(mktemp)
+trap 'rm -f "$STAGED"' EXIT
 
-if ! git diff --quiet; then
-  echo ""
-  echo "pre-commit updated generated/formatted files. Run: git add -u && git add docs/protocol && git commit"
-  exit 1
-fi
+git diff --cached --name-only --diff-filter=ACMR -z \
+  | grep -z -E '\.(m?[jt]sx?|cjs)$' > "$STAGED" || true
 
-pnpm nx run workspace:precommit
+[ -s "$STAGED" ] || exit 0
+
+# Resolve the binary explicitly: git invokes hooks without node_modules/.bin on
+# PATH, so a bare `oxfmt` works from a pnpm-run commit and fails from an editor.
+OXFMT="$(git rev-parse --show-toplevel)/node_modules/.bin/oxfmt"
+
+xargs -0 "$OXFMT" < "$STAGED"
+xargs -0 git add -- < "$STAGED"
