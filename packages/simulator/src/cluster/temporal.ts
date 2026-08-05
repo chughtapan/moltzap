@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Context as ActivityContext } from "@temporalio/activity";
 import { Client, Connection, type WorkflowClient } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
-import { Context, Effect } from "effect";
+import { Cause, Context, Effect, Exit, Option, Runtime } from "effect";
 import type {
   CleanupRunInput,
   RunControllerResult,
@@ -16,7 +16,10 @@ import type {
   runSocietyWorkflow,
 } from "./reclaim.js";
 import { installRunWorker } from "./install.js";
-import { makeKubernetesRunWorkerInstallApi } from "./kubernetes/calls.js";
+import {
+  makeKubernetesRunWorkerInstallApi,
+  type KubernetesCallFailed,
+} from "./kubernetes/calls.js";
 import { IN_CLUSTER_TEMPORAL_ADDRESS } from "./kubernetes/objects.js";
 import {
   decodeKubernetesExecutionProfile,
@@ -71,13 +74,19 @@ export type ControllerHeartbeat = () => void;
 
 /** Injectable host operations kept outside deterministic workflow code. */
 export interface RunLifecycleOperations {
-  readonly prepareRun: (input: RunSocietyWorkflowInput) => Promise<void>;
+  readonly prepareRun: (
+    input: RunSocietyWorkflowInput,
+  ) => Effect.Effect<void, KubernetesCallFailed>;
   readonly observeController: (
     input: RunSocietyWorkflowInput,
-  ) => Promise<ControllerObservation>;
-  readonly deleteRunNamespace: (namespace: string) => Promise<void>;
-  readonly runNamespaceExists: (namespace: string) => Promise<boolean>;
-  readonly waitBeforeObservation: () => Promise<void>;
+  ) => Effect.Effect<ControllerObservation, KubernetesCallFailed>;
+  readonly deleteRunNamespace: (
+    namespace: string,
+  ) => Effect.Effect<void, KubernetesCallFailed>;
+  readonly runNamespaceExists: (
+    namespace: string,
+  ) => Effect.Effect<boolean, KubernetesCallFailed>;
+  readonly waitBeforeObservation: () => Effect.Effect<void>;
 }
 
 /** Host operations plus the liveness signal one worker attempt owns. */
@@ -107,49 +116,82 @@ class RunWorkerConfigurationFailed extends Error {
   override readonly name = "RunWorkerConfigurationFailed";
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
-async function runControllerOnce(
+function runControllerOnce(
   operations: LifecycleOperationsService,
   input: RunSocietyWorkflowInput,
-  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
-): Promise<RunControllerResult> {
-  await operations.prepareRun(input);
-  for (;;) {
-    // Every observation is also the attempt's proof of life. Without it the
-    // workflow cannot tell a controller that is still working from a worker
-    // that stopped, and the run's namespace survives until the far longer
-    // start-to-close deadline expires.
-    operations.heartbeat();
-    const observation = await operations.observeController(input);
-    switch (observation._tag) {
-      case "succeeded":
-        return observation.result;
-      case "failed":
-        if (observation.result !== undefined) {
+): Effect.Effect<
+  RunControllerResult,
+  ControllerAttemptFailed | KubernetesCallFailed
+> {
+  return Effect.gen(function* () {
+    yield* operations.prepareRun(input);
+    for (;;) {
+      // Every observation is also the attempt's proof of life. Without it the
+      // workflow cannot tell a controller that is still working from a worker
+      // that stopped, and the run's namespace survives until the far longer
+      // start-to-close deadline expires.
+      yield* Effect.sync(() => {
+        operations.heartbeat();
+      });
+      const observation = yield* operations.observeController(input);
+      switch (observation._tag) {
+        case "succeeded":
           return observation.result;
-        }
-        throw new ControllerAttemptFailed(observation.detail);
-      case "running":
-        await operations.waitBeforeObservation();
-        break;
-      default:
-        throw new ControllerAttemptFailed(
-          "controller returned an unsupported observation",
-        );
+        case "failed":
+          if (observation.result !== undefined) {
+            return observation.result;
+          }
+          return yield* Effect.fail(
+            new ControllerAttemptFailed(observation.detail),
+          );
+        case "running":
+          yield* operations.waitBeforeObservation();
+          break;
+        default:
+          return yield* Effect.fail(
+            new ControllerAttemptFailed(
+              "controller returned an unsupported observation",
+            ),
+          );
+      }
     }
-  }
+  });
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
-async function cleanupRun(
+function cleanupRun(
   operations: LifecycleOperationsService,
   input: CleanupRunInput,
+): Effect.Effect<void, KubernetesCallFailed> {
+  return Effect.gen(function* () {
+    yield* operations.deleteRunNamespace(input.namespace);
+    while (yield* operations.runNamespaceExists(input.namespace)) {
+      yield* operations.waitBeforeObservation();
+    }
+  });
+}
+
+/**
+ * Run one Effect where an SDK owns a Promise-returning signature.
+ *
+ * This is the only place a run's Effect becomes a Promise. Rejecting with the
+ * run's own failure rather than the runtime's wrapper is what lets Temporal
+ * record the error the activity actually produced.
+ *
+ * @param effect The complete operation whose failure the SDK should observe.
+ * @returns The operation's success, or a rejection carrying its failure.
+ */
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
+async function runAtPromiseBoundary<Result, Failure extends Error>(
+  effect: Effect.Effect<Result, Failure>,
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
-): Promise<void> {
-  await operations.deleteRunNamespace(input.namespace);
-  while (await operations.runNamespaceExists(input.namespace)) {
-    await operations.waitBeforeObservation();
+): Promise<Result> {
+  const exit = await Effect.runPromiseExit(effect);
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
   }
+  throw Option.getOrElse(Cause.failureOption(exit.cause), () =>
+    Runtime.makeFiberFailure(exit.cause),
+  );
 }
 
 /** The two activities the coarse workflow worker registers. */
@@ -160,8 +202,9 @@ export const runLifecycleActivities: Effect.Effect<
 > = Effect.map(LifecycleOperations, (operations) =>
   Object.freeze({
     runControllerOnce: (input: RunSocietyWorkflowInput) =>
-      runControllerOnce(operations, input),
-    cleanupRun: (input: CleanupRunInput) => cleanupRun(operations, input),
+      runAtPromiseBoundary(runControllerOnce(operations, input)),
+    cleanupRun: (input: CleanupRunInput) =>
+      runAtPromiseBoundary(cleanupRun(operations, input)),
   }),
 );
 
@@ -296,15 +339,17 @@ export async function runTemporalSociety(
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<RunControllerResult> {
   const namespace = options.temporalNamespace ?? DEFAULT_TEMPORAL_NAMESPACE;
-  await installRunWorker(
-    makeKubernetesRunWorkerInstallApi({
-      controllerImage: options.input.controllerImage,
-      taskQueue: options.taskQueue,
-      temporalAddress:
-        options.workerTemporalAddress ?? IN_CLUSTER_TEMPORAL_ADDRESS,
-      temporalNamespace: namespace,
-      profile: options.executionProfile ?? LOCAL_KUBERNETES_EXECUTION_PROFILE,
-    }),
+  await runAtPromiseBoundary(
+    installRunWorker(
+      makeKubernetesRunWorkerInstallApi({
+        controllerImage: options.input.controllerImage,
+        taskQueue: options.taskQueue,
+        temporalAddress:
+          options.workerTemporalAddress ?? IN_CLUSTER_TEMPORAL_ADDRESS,
+        temporalNamespace: namespace,
+        profile: options.executionProfile ?? LOCAL_KUBERNETES_EXECUTION_PROFILE,
+      }),
+    ),
   );
   const connection = await Connection.connect(
     options.temporalAddress === undefined

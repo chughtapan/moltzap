@@ -1,22 +1,36 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/no-raw-throw-new-error, @typescript-eslint/no-invalid-void-type, sonarjs/expression-complexity -- This standalone init-container CLI is a Promise-native Node filesystem boundary. Validation failures terminate the initializer before customer Effects exist. */
 /** @file Private runtime-bootstrap materializer used by the Sandbox initializer. */
 
-import {
-  chmod,
-  copyFile,
-  cp,
-  lstat,
-  mkdir,
-  readFile,
-  realpath,
-} from "node:fs/promises";
-import { realpathSync } from "node:fs";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- `FileSystem.stat` resolves the final symbolic link and `@effect/platform` exposes no `lstat`, so link-rejecting checks need Node directly; entry detection runs at module load, before a runtime exists to provide `FileSystem`.
+import { promises as nodeFsPromises, realpathSync } from "node:fs";
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem, NodeRuntime } from "@effect/platform-node";
+import { Data, Effect } from "effect";
 
 const BOOTSTRAP_API_VERSION = "moltzap.bootstrap/v1";
 const ROOT_KEYS = new Set(["apiVersion", "files"]);
 const FILE_KEYS = new Set(["source", "path", "mode"]);
+const CLI_FLAGS = ["--manifest", "--source", "--output", "--overlay"] as const;
+const MAX_FILE_MODE = 0o777;
+
+/** A Secret entry names one file, so a separator or NUL is hostile. */
+const NAME_REJECTED_CHARACTERS = ["/", "\\", "\0"];
+
+/** A target path nests with `/`; a backslash or NUL is never a POSIX segment. */
+const PATH_REJECTED_CHARACTERS = ["\\", "\0"];
+
+type BootstrapFlag = (typeof CLI_FLAGS)[number];
+
+/**
+ * What a path is when its own final symbolic link is not followed.
+ *
+ * Every check below treats a link as hostile: a Secret or overlay mount
+ * escapes the tree it was projected into by pointing somewhere else. `lstat`
+ * reports the link itself, so `symlink` satisfies neither the directory nor
+ * the regular-file check, while `stat` would report the link's target.
+ */
+type PathKind = "directory" | "file" | "missing" | "symlink" | "other";
 
 interface BootstrapFile {
   readonly source: string;
@@ -29,6 +43,10 @@ interface BootstrapManifest {
   readonly files: readonly BootstrapFile[];
 }
 
+interface ResolvedBootstrapFile extends BootstrapFile {
+  readonly resolvedSource: string;
+}
+
 /** Filesystem locations consumed by one bootstrap materialization. */
 export interface BootstrapMaterializationOptions {
   readonly manifest: string;
@@ -37,103 +55,164 @@ export interface BootstrapMaterializationOptions {
   readonly overlay: string;
 }
 
+/** A refused bootstrap input or a filesystem call the initializer cannot trust. */
+export class BootstrapError extends Data.TaggedError("BootstrapError")<{
+  readonly detail: string;
+}> {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
+/** An absent path, which several callers answer with creation rather than failure. */
+class PathMissing extends Data.TaggedError("PathMissing")<{
+  readonly path: string;
+}> {}
+
+function bootstrapError(detail: string): BootstrapError {
+  return new BootstrapError({ detail });
+}
+
+function reject(detail: string): Effect.Effect<never, BootstrapError> {
+  return Effect.fail(bootstrapError(detail));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isUnknownArray(value: unknown): value is readonly unknown[] {
+  return Array.isArray(value);
+}
+
+function containsAny(value: string, characters: readonly string[]): boolean {
+  return characters.some((character) => value.includes(character));
 }
 
 function rejectUnknownKeys(
   value: Readonly<Record<string, unknown>>,
   allowed: ReadonlySet<string>,
   label: string,
-): void {
+): Effect.Effect<void, BootstrapError> {
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
-  if (unknown !== undefined) {
-    throw new TypeError(`${label} has unknown key ${unknown}`);
-  }
+  return unknown === undefined
+    ? Effect.void
+    : reject(`${label} has unknown key ${unknown}`);
 }
 
-function sourceName(value: unknown, label: string): string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value === "." ||
-    value === ".." ||
-    value.includes("/") ||
-    value.includes("\\") ||
-    value.includes("\0")
-  ) {
-    throw new TypeError(`${label} must be one plain file name`);
+function isPlainFileName(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) {
+    return false;
   }
-  return value;
+  if (value === "." || value === "..") {
+    return false;
+  }
+  return !containsAny(value, NAME_REJECTED_CHARACTERS);
 }
 
-function targetPath(value: unknown, label: string): string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.includes("\\") ||
-    value.includes("\0") ||
-    posix.isAbsolute(value) ||
-    posix.normalize(value) !== value
-  ) {
-    throw new TypeError(`${label} must be a normalized relative path`);
-  }
-  const segments = value.split("/");
-  if (
-    segments.some(
-      (segment) => segment.length === 0 || segment === "." || segment === "..",
-    )
-  ) {
-    throw new TypeError(`${label} must stay below the bootstrap output`);
-  }
-  return value;
+function sourceName(
+  value: unknown,
+  label: string,
+): Effect.Effect<string, BootstrapError> {
+  return isPlainFileName(value)
+    ? Effect.succeed(value)
+    : reject(`${label} must be one plain file name`);
 }
 
-function fileMode(value: unknown, label: string): number {
-  if (
-    !Number.isSafeInteger(value) ||
-    Number(value) < 0 ||
-    Number(value) > 0o777
-  ) {
-    throw new TypeError(`${label} must contain only Unix permission bits`);
+function isNormalizedRelativePath(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) {
+    return false;
   }
-  return Number(value);
+  if (containsAny(value, PATH_REJECTED_CHARACTERS)) {
+    return false;
+  }
+  if (posix.isAbsolute(value)) {
+    return false;
+  }
+  return posix.normalize(value) === value;
 }
 
-function decodeManifest(value: unknown): BootstrapManifest {
-  if (!isRecord(value)) {
-    throw new TypeError("bootstrap manifest must be an object");
-  }
-  rejectUnknownKeys(value, ROOT_KEYS, "bootstrap manifest");
-  if (value.apiVersion !== BOOTSTRAP_API_VERSION) {
-    throw new TypeError(
-      `bootstrap manifest apiVersion must be ${BOOTSTRAP_API_VERSION}`,
-    );
-  }
-  if (!Array.isArray(value.files)) {
-    throw new TypeError("bootstrap manifest files must be an array");
-  }
+function isContainedSegment(segment: string): boolean {
+  return segment.length > 0 && segment !== "." && segment !== "..";
+}
 
-  const targets = new Set<string>();
-  const files = value.files.map((candidate, index): BootstrapFile => {
-    const label = `bootstrap manifest files[${String(index)}]`;
+function targetPath(
+  value: unknown,
+  label: string,
+): Effect.Effect<string, BootstrapError> {
+  if (!isNormalizedRelativePath(value)) {
+    return reject(`${label} must be a normalized relative path`);
+  }
+  if (!value.split("/").every(isContainedSegment)) {
+    return reject(`${label} must stay below the bootstrap output`);
+  }
+  return Effect.succeed(value);
+}
+
+function isPermissionBits(value: unknown): value is number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    return false;
+  }
+  return value >= 0 && value <= MAX_FILE_MODE;
+}
+
+function fileMode(
+  value: unknown,
+  label: string,
+): Effect.Effect<number, BootstrapError> {
+  return isPermissionBits(value)
+    ? Effect.succeed(value)
+    : reject(`${label} must contain only Unix permission bits`);
+}
+
+function decodeFile(
+  candidate: unknown,
+  index: number,
+  targets: Set<string>,
+): Effect.Effect<BootstrapFile, BootstrapError> {
+  const label = `bootstrap manifest files[${String(index)}]`;
+  return Effect.gen(function* () {
     if (!isRecord(candidate)) {
-      throw new TypeError(`${label} must be an object`);
+      return yield* reject(`${label} must be an object`);
     }
-    rejectUnknownKeys(candidate, FILE_KEYS, label);
-    const path = targetPath(candidate.path, `${label}.path`);
+    yield* rejectUnknownKeys(candidate, FILE_KEYS, label);
+    const path = yield* targetPath(candidate.path, `${label}.path`);
     if (targets.has(path)) {
-      throw new TypeError(`bootstrap manifest repeats target ${path}`);
+      return yield* reject(`bootstrap manifest repeats target ${path}`);
     }
     targets.add(path);
-    return {
-      source: sourceName(candidate.source, `${label}.source`),
-      path,
-      mode: fileMode(candidate.mode, `${label}.mode`),
-    };
+    const source = yield* sourceName(candidate.source, `${label}.source`);
+    const mode = yield* fileMode(candidate.mode, `${label}.mode`);
+    return { source, path, mode };
   });
+}
 
-  return { apiVersion: BOOTSTRAP_API_VERSION, files };
+function decodeManifest(
+  value: unknown,
+): Effect.Effect<BootstrapManifest, BootstrapError> {
+  return Effect.gen(function* () {
+    if (!isRecord(value)) {
+      return yield* reject("bootstrap manifest must be an object");
+    }
+    yield* rejectUnknownKeys(value, ROOT_KEYS, "bootstrap manifest");
+    if (value.apiVersion !== BOOTSTRAP_API_VERSION) {
+      return yield* reject(
+        `bootstrap manifest apiVersion must be ${BOOTSTRAP_API_VERSION}`,
+      );
+    }
+    if (!isUnknownArray(value.files)) {
+      return yield* reject("bootstrap manifest files must be an array");
+    }
+
+    const targets = new Set<string>();
+    const files = yield* Effect.forEach(
+      value.files,
+      (candidate, index) => decodeFile(candidate, index, targets),
+      // Sequential so the first hostile entry, not a race, names the failure.
+      { concurrency: 1 },
+    );
+    return { apiVersion: BOOTSTRAP_API_VERSION, files };
+  });
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -145,207 +224,357 @@ function hasErrorCode(error: unknown, code: string): boolean {
   );
 }
 
-// #ignore-sloppy-code-next-line[async-keyword, promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
-async function requireDirectory(path: string, label: string): Promise<void> {
-  const metadata = await lstat(path);
-  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-    throw new TypeError(`${label} must be a directory`);
-  }
+function pathKind(path: string): Effect.Effect<PathKind, BootstrapError> {
+  return Effect.tryPromise({
+    try: () => nodeFsPromises.lstat(path),
+    catch: (cause) =>
+      hasErrorCode(cause, "ENOENT")
+        ? new PathMissing({ path })
+        : bootstrapError(`bootstrap could not inspect ${path}`),
+  }).pipe(
+    Effect.map((entry): PathKind => {
+      if (entry.isSymbolicLink()) {
+        return "symlink";
+      }
+      if (entry.isDirectory()) {
+        return "directory";
+      }
+      return entry.isFile() ? "file" : "other";
+    }),
+    Effect.catchTag("PathMissing", () => Effect.succeed<PathKind>("missing")),
+  );
 }
 
-// #ignore-sloppy-code-next-line[async-keyword, promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
-async function ensureOutputDirectory(path: string): Promise<void> {
-  try {
-    await requireDirectory(path, "bootstrap output");
-  } catch (error: unknown) {
-    if (!hasErrorCode(error, "ENOENT")) {
-      throw error;
+function requireDirectory(
+  path: string,
+  label: string,
+): Effect.Effect<void, BootstrapError> {
+  return pathKind(path).pipe(
+    Effect.flatMap((kind) =>
+      kind === "directory"
+        ? Effect.void
+        : reject(`${label} must be a directory`),
+    ),
+  );
+}
+
+function ensureOutputDirectory(
+  path: string,
+): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const kind = yield* pathKind(path);
+    if (kind === "directory") {
+      return;
     }
-    await mkdir(path, { recursive: true });
-    await requireDirectory(path, "bootstrap output");
-  }
+    if (kind !== "missing") {
+      return yield* reject("bootstrap output must be a directory");
+    }
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* fileSystem
+      .makeDirectory(path, { recursive: true })
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError("bootstrap output cannot be created"),
+        ),
+      );
+    yield* requireDirectory(path, "bootstrap output");
+  });
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
-async function resolveRegularSource(
+function escapesRoot(projection: string): boolean {
+  if (projection === "..") {
+    return true;
+  }
+  return projection.startsWith(`..${sep}`) || isAbsolute(projection);
+}
+
+function resolveRegularSource(
   sourceRoot: string,
   source: string,
   name: string,
-  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
-): Promise<string> {
-  const resolved = await realpath(join(source, name));
-  const projection = relative(sourceRoot, resolved);
-  if (
-    projection === ".." ||
-    projection.startsWith(`..${sep}`) ||
-    isAbsolute(projection)
-  ) {
-    throw new TypeError(`bootstrap source ${name} resolves outside its mount`);
-  }
-  const metadata = await lstat(resolved);
-  if (!metadata.isFile() || metadata.isSymbolicLink()) {
-    throw new TypeError(
-      `bootstrap source ${name} must resolve to a regular file`,
-    );
-  }
-  return resolved;
+): Effect.Effect<string, BootstrapError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const resolved = yield* fileSystem
+      .realPath(join(source, name))
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError(`bootstrap source ${name} cannot be resolved`),
+        ),
+      );
+    if (escapesRoot(relative(sourceRoot, resolved))) {
+      return yield* reject(
+        `bootstrap source ${name} resolves outside its mount`,
+      );
+    }
+    const kind = yield* pathKind(resolved);
+    if (kind !== "file") {
+      return yield* reject(
+        `bootstrap source ${name} must resolve to a regular file`,
+      );
+    }
+    return resolved;
+  });
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
-async function ensureTargetDirectory(
+function ensureTargetDirectory(
   path: string,
   relativePath: string,
-  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
-): Promise<void> {
-  try {
-    const metadata = await lstat(path);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-      throw new TypeError(
+): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const kind = yield* pathKind(path);
+    if (kind === "directory") {
+      return;
+    }
+    if (kind !== "missing") {
+      return yield* reject(
         `bootstrap target parent is not a directory: ${relativePath}`,
       );
     }
-  } catch (error: unknown) {
-    if (!hasErrorCode(error, "ENOENT")) {
-      throw error;
-    }
-    await mkdir(path);
-  }
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* fileSystem
+      .makeDirectory(path)
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError(
+            `bootstrap target parent cannot be created: ${relativePath}`,
+          ),
+        ),
+      );
+  });
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
-async function ensureRegularDestination(
+function ensureRegularDestination(
   path: string,
   relativePath: string,
-  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
-): Promise<void> {
-  try {
-    const metadata = await lstat(path);
-    if (!metadata.isFile() || metadata.isSymbolicLink()) {
-      throw new TypeError(
-        `bootstrap target is not a regular file: ${relativePath}`,
-      );
-    }
-  } catch (error: unknown) {
-    if (!hasErrorCode(error, "ENOENT")) {
-      throw error;
-    }
-  }
+): Effect.Effect<void, BootstrapError> {
+  return pathKind(path).pipe(
+    Effect.flatMap((kind) =>
+      kind === "file" || kind === "missing"
+        ? Effect.void
+        : reject(`bootstrap target is not a regular file: ${relativePath}`),
+    ),
+  );
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
-async function ensureTargetParent(
+function ensureTargetParent(
   output: string,
   relativePath: string,
-  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
-): Promise<string> {
-  const segments = relativePath.split("/");
-  const filename = segments.pop();
-  if (filename === undefined) {
-    throw new TypeError("bootstrap target has no filename");
-  }
+): Effect.Effect<string, BootstrapError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const segments = relativePath.split("/");
+    const filename = segments.pop();
+    if (filename === undefined) {
+      return yield* reject("bootstrap target has no filename");
+    }
 
-  let parent = output;
-  for (const segment of segments) {
-    parent = join(parent, segment);
-    await ensureTargetDirectory(parent, relativePath);
-  }
+    let parent = output;
+    for (const segment of segments) {
+      parent = join(parent, segment);
+      yield* ensureTargetDirectory(parent, relativePath);
+    }
 
-  const destination = join(parent, filename);
-  await ensureRegularDestination(destination, relativePath);
-  return destination;
+    const destination = join(parent, filename);
+    yield* ensureRegularDestination(destination, relativePath);
+    return destination;
+  });
+}
+
+function readManifest(
+  path: string,
+): Effect.Effect<BootstrapManifest, BootstrapError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const encoded = yield* fileSystem
+      .readFileString(path)
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError("bootstrap manifest cannot be read"),
+        ),
+      );
+    const parsed = yield* Effect.try({
+      try: (): unknown => JSON.parse(encoded),
+      catch: () => bootstrapError("bootstrap manifest is not valid JSON"),
+    });
+    return yield* decodeManifest(parsed);
+  });
+}
+
+function resolveManifestSources(
+  options: BootstrapMaterializationOptions,
+  manifest: BootstrapManifest,
+): Effect.Effect<
+  readonly ResolvedBootstrapFile[],
+  BootstrapError,
+  FileSystem.FileSystem
+> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* requireDirectory(options.source, "bootstrap source");
+    yield* requireDirectory(options.overlay, "bootstrap overlay");
+    const sourceRoot = yield* fileSystem
+      .realPath(options.source)
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError("bootstrap source cannot be resolved"),
+        ),
+      );
+    return yield* Effect.forEach(
+      manifest.files,
+      (file) =>
+        resolveRegularSource(sourceRoot, options.source, file.source).pipe(
+          Effect.map((resolvedSource) => ({ ...file, resolvedSource })),
+        ),
+      // Sequential so the first hostile entry, not a race, names the failure.
+      { concurrency: 1 },
+    );
+  });
+}
+
+function placeFile(
+  output: string,
+  file: ResolvedBootstrapFile,
+): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const destination = yield* ensureTargetParent(output, file.path);
+    yield* fileSystem
+      .copyFile(file.resolvedSource, destination)
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError(`bootstrap target cannot be written: ${file.path}`),
+        ),
+      );
+    yield* fileSystem
+      .chmod(destination, file.mode)
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError(`bootstrap target cannot take its mode: ${file.path}`),
+        ),
+      );
+  });
 }
 
 /**
  * Copy the application overlay and then materialize its run-scoped files.
+ *
+ * Every manifest entry is decoded and resolved before the output directory
+ * exists, so a refused bootstrap leaves the application with nothing to read.
  * @param options Trusted mount and output paths owned by the initializer.
- * @returns A promise that completes after every file has its declared mode.
+ * @returns Completion after every file has its declared mode.
+ * @failure BootstrapError when an input is refused or a copy cannot be trusted.
  */
-// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
-export async function materializeBootstrap(
+export function materializeBootstrap(
   options: BootstrapMaterializationOptions,
-  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
-): Promise<void> {
-  const encoded = await readFile(options.manifest, "utf8");
-  const parsed: unknown = JSON.parse(encoded);
-  const manifest = decodeManifest(parsed);
+): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const manifest = yield* readManifest(options.manifest);
+    const files = yield* resolveManifestSources(options, manifest);
 
-  await requireDirectory(options.source, "bootstrap source");
-  await requireDirectory(options.overlay, "bootstrap overlay");
-  const sourceRoot = await realpath(options.source);
-  const files = await Promise.all(
-    // #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
-    manifest.files.map(async (file) => ({
-      ...file,
-      resolvedSource: await resolveRegularSource(
-        sourceRoot,
-        options.source,
-        file.source,
-      ),
-    })),
-  );
+    yield* ensureOutputDirectory(options.output);
+    yield* fileSystem
+      .copy(options.overlay, options.output, { overwrite: true })
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError("bootstrap overlay cannot be copied"),
+        ),
+      );
+    yield* Effect.forEach(files, (file) => placeFile(options.output, file), {
+      concurrency: 1,
+    });
+  }).pipe(Effect.withSpan("materializeBootstrap"));
+}
 
-  await ensureOutputDirectory(options.output);
-  await cp(options.overlay, options.output, { recursive: true });
-  for (const file of files) {
-    const destination = await ensureTargetParent(options.output, file.path);
-    await copyFile(file.resolvedSource, destination);
-    await chmod(destination, file.mode);
-  }
+function isBootstrapFlag(flag: string): flag is BootstrapFlag {
+  return CLI_FLAGS.some((known) => known === flag);
+}
+
+function requiredFlag(
+  values: ReadonlyMap<string, string>,
+  flag: BootstrapFlag,
+): Effect.Effect<string, BootstrapError> {
+  const value = values.get(flag);
+  return value === undefined
+    ? reject(`missing bootstrap CLI flag ${flag}`)
+    : Effect.succeed(value);
 }
 
 function parseArguments(
   args: readonly string[],
-): BootstrapMaterializationOptions {
-  const values = new Map<string, string>();
-  for (let index = 0; index < args.length; index += 2) {
-    const flag = args[index];
-    const value = args[index + 1];
-    if (flag === undefined || value === undefined || !flag.startsWith("--")) {
-      throw new TypeError("bootstrap CLI expects flag-value pairs");
+): Effect.Effect<BootstrapMaterializationOptions, BootstrapError> {
+  return Effect.gen(function* () {
+    const values = new Map<string, string>();
+    for (let index = 0; index < args.length; index += 2) {
+      const flag = args[index];
+      const value = args[index + 1];
+      if (flag === undefined || value === undefined || !flag.startsWith("--")) {
+        return yield* reject("bootstrap CLI expects flag-value pairs");
+      }
+      if (!isBootstrapFlag(flag)) {
+        return yield* reject(`unknown bootstrap CLI flag ${flag}`);
+      }
+      if (values.has(flag)) {
+        return yield* reject(`duplicate bootstrap CLI flag ${flag}`);
+      }
+      values.set(flag, value);
     }
-    if (!["--manifest", "--source", "--output", "--overlay"].includes(flag)) {
-      throw new TypeError(`unknown bootstrap CLI flag ${flag}`);
-    }
-    if (values.has(flag)) {
-      throw new TypeError(`duplicate bootstrap CLI flag ${flag}`);
-    }
-    values.set(flag, value);
-  }
 
-  const required = (flag: string): string => {
-    const value = values.get(flag);
-    if (value === undefined) {
-      throw new TypeError(`missing bootstrap CLI flag ${flag}`);
-    }
-    return value;
-  };
-  return {
-    manifest: required("--manifest"),
-    source: required("--source"),
-    output: required("--output"),
-    overlay: required("--overlay"),
-  };
-}
-
-function isDirectInvocation(): boolean {
-  const invoked = process.argv[1];
-  return (
-    invoked !== undefined &&
-    realpathSync(resolve(invoked)) ===
-      realpathSync(fileURLToPath(import.meta.url))
-  );
-}
-
-// #ignore-sloppy-code-next-line[async-keyword, promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
-async function runCli(): Promise<void> {
-  await materializeBootstrap(parseArguments(process.argv.slice(2)));
-}
-
-if (isDirectInvocation()) {
-  void runCli().catch(() => {
-    process.stderr.write("bootstrap materialization failed\n");
-    process.exitCode = 1;
+    const manifest = yield* requiredFlag(values, "--manifest");
+    const source = yield* requiredFlag(values, "--source");
+    const output = yield* requiredFlag(values, "--output");
+    const overlay = yield* requiredFlag(values, "--overlay");
+    return { manifest, source, output, overlay };
   });
 }
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/no-raw-throw-new-error, @typescript-eslint/no-invalid-void-type, sonarjs/expression-complexity -- Restore strict defaults after the standalone CLI boundary. */
+function runCli(
+  args: readonly string[],
+): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
+  return parseArguments(args).pipe(Effect.flatMap(materializeBootstrap));
+}
+
+/**
+ * Whether this module is the process entry point rather than an import.
+ *
+ * Node resolves a module's real path before it becomes `import.meta.url`, while
+ * `process.argv[1]` is whatever the caller typed. The controller image reaches
+ * this file through `/opt/moltzap/dist`, a symlink into the installed package,
+ * so an uncanonicalized comparison makes the init container look like an
+ * import and exit successfully having materialized nothing.
+ * @param invoked Path the process was started with, if it has one.
+ * @returns Whether both locations name the same real file.
+ */
+function isDirectInvocation(invoked?: string): boolean {
+  if (invoked === undefined) {
+    return false;
+  }
+  return (
+    realpathSync(resolve(invoked)) ===
+    realpathSync(fileURLToPath(import.meta.url))
+  );
+}
+
+/**
+ * Report a materialization failure to the Pod log.
+ *
+ * The line is deliberately sanitized: mount layout and manifest detail stay in
+ * the typed error channel, where only a programmatic caller reads them.
+ * @returns Completion after the diagnostic has been written.
+ */
+function reportFailure(): Effect.Effect<void> {
+  return Effect.sync(() => {
+    process.stderr.write("bootstrap materialization failed\n");
+  });
+}
+
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The executable boundary reads argv once before entering Effect.
+const [, invokedPath, ...commandLine] = process.argv;
+
+if (isDirectInvocation(invokedPath)) {
+  runCli(commandLine).pipe(
+    Effect.tapError(reportFailure),
+    Effect.provide(NodeFileSystem.layer),
+    NodeRuntime.runMain({ disableErrorReporting: true }),
+  );
+}

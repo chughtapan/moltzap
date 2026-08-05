@@ -1,7 +1,11 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The activity boundary under test is Promise-native, so its double keeps the same signatures. */
+/* eslint-disable agent-code-guard/async-keyword -- Vitest awaits the Effect the activity boundary under test returns. */
 
+import { Effect } from "effect";
 import { expect, it } from "vitest";
-import type { RunControlApi } from "./kubernetes/calls.js";
+import {
+  KubernetesCallFailed,
+  type RunControlApi,
+} from "./kubernetes/calls.js";
 import {
   RUN_OWNER_NAME,
   type OwnedRunControlManifests,
@@ -51,39 +55,46 @@ function recordingRunControl(failAt?: PreparationStage): RecordedRunControl {
   const calls: PreparationStage[] = [];
   const namespaces: string[] = [];
   const manifests: OwnedRunControlManifests[] = [];
-  const record = (stage: PreparationStage): Promise<void> => {
-    calls.push(stage);
-    return failAt === stage
-      ? Promise.reject(new Error(`${stage} refused`))
-      : Promise.resolve();
-  };
+  const record = (
+    stage: PreparationStage,
+  ): Effect.Effect<void, KubernetesCallFailed> =>
+    Effect.suspend(() => {
+      calls.push(stage);
+      return failAt === stage
+        ? Effect.fail(new KubernetesCallFailed(stage))
+        : Effect.void;
+    });
   const owned =
     (stage: PreparationStage) =>
-    (namespace: string, supplied: OwnedRunControlManifests) => {
-      namespaces.push(namespace);
-      manifests.push(supplied);
-      return record(stage);
-    };
+    (namespace: string, supplied: OwnedRunControlManifests) =>
+      Effect.suspend(() => {
+        namespaces.push(namespace);
+        manifests.push(supplied);
+        return record(stage);
+      });
   return {
     calls,
     namespaces,
     manifests,
     api: {
-      createRunRoot: () => {
-        calls.push(ROOT);
-        return failAt === ROOT
-          ? Promise.reject(new Error(`${ROOT} refused`))
-          : Promise.resolve(OWNER_UID);
-      },
+      createRunRoot: () =>
+        Effect.suspend(() => {
+          calls.push(ROOT);
+          return failAt === ROOT
+            ? Effect.fail(new KubernetesCallFailed(ROOT))
+            : Effect.succeed(OWNER_UID);
+        }),
       createExperimentAndQueue: owned("createExperimentAndQueue"),
       createControllerAccess: owned("createControllerAccess"),
       createRouterService: owned("createRouterService"),
       startController: owned(START),
       readControllerJob: () =>
-        Promise.reject(new Error("preparing a run observes nothing")),
-      readControllerLogs: () => Promise.resolve(undefined),
-      deleteRunNamespace: () => Promise.resolve(),
-      runNamespaceExists: () => Promise.resolve(false),
+        Effect.fail(
+          new KubernetesCallFailed("preparing a run observes nothing"),
+        ),
+      readControllerLogs: () => Effect.succeed(undefined),
+      deleteRunNamespace: () => Effect.void,
+      runNamespaceExists: () => Effect.succeed(false),
     },
   };
 }
@@ -91,7 +102,9 @@ function recordingRunControl(failAt?: PreparationStage): RecordedRunControl {
 it("creates the run root before anything it owns and the controller last", async () => {
   const { api, calls, namespaces } = recordingRunControl();
 
-  await prepareRun(api, INPUT, LOCAL_KUBERNETES_EXECUTION_PROFILE);
+  await Effect.runPromise(
+    prepareRun(api, INPUT, LOCAL_KUBERNETES_EXECUTION_PROFILE),
+  );
 
   expect(calls).toEqual([...BEFORE_START, START]);
   expect(new Set(namespaces)).toEqual(new Set([INPUT.namespace]));
@@ -101,10 +114,11 @@ it("never starts a controller whose access or endpoint failed to appear", async 
   for (const stage of BEFORE_START) {
     const { api, calls } = recordingRunControl(stage);
 
-    await expect(
-      prepareRun(api, INPUT, LOCAL_KUBERNETES_EXECUTION_PROFILE),
-    ).rejects.toThrow(`${stage} refused`);
+    const failure = await Effect.runPromise(
+      Effect.flip(prepareRun(api, INPUT, LOCAL_KUBERNETES_EXECUTION_PROFILE)),
+    );
 
+    expect(failure.message).toBe(`${stage} failed`);
     expect(calls).not.toContain(START);
     expect(calls.at(-1)).toBe(stage);
   }
@@ -113,7 +127,9 @@ it("never starts a controller whose access or endpoint failed to appear", async 
 it("owns every created object by the run root the cluster just issued", async () => {
   const { api, manifests } = recordingRunControl();
 
-  await prepareRun(api, INPUT, LOCAL_KUBERNETES_EXECUTION_PROFILE);
+  await Effect.runPromise(
+    prepareRun(api, INPUT, LOCAL_KUBERNETES_EXECUTION_PROFILE),
+  );
 
   const owners = manifests.flatMap((supplied) => [
     supplied.experiment.metadata?.ownerReferences,
@@ -129,4 +145,4 @@ it("owns every created object by the run root the cluster just issued", async ()
   }
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore Effect-first test rules after the Promise-native activity contract. */
+/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after the activity preparation contract. */

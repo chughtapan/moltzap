@@ -1,6 +1,6 @@
-/* eslint-disable agent-code-guard/async-keyword -- The activity boundary under test is Promise-native, so its double keeps the same signatures. */
+/* eslint-disable agent-code-guard/async-keyword -- Vitest awaits the Effect the activity boundary under test returns. */
 
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   CompletedLedgerReceipt,
@@ -13,10 +13,11 @@ import {
   clusterLostSummary,
   type ControllerRunSummary,
 } from "./controller/summary.js";
-import type {
-  JobCondition,
-  JobObservation,
-  RunControlApi,
+import {
+  KubernetesCallFailed,
+  type JobCondition,
+  type JobObservation,
+  type RunControlApi,
 } from "./kubernetes/calls.js";
 import type { RunSocietyWorkflowInput } from "./reclaim.js";
 import {
@@ -160,18 +161,20 @@ describe("controller Job diagnostics", () => {
 function observing(observed: JobObservation, logs?: string) {
   const reads: string[] = [];
   const api: RunControlApi = {
-    createRunRoot: () => Promise.reject(new Error("observing creates nothing")),
-    createExperimentAndQueue: () => Promise.resolve(),
-    createControllerAccess: () => Promise.resolve(),
-    createRouterService: () => Promise.resolve(),
-    startController: () => Promise.resolve(),
-    readControllerJob: () => Promise.resolve(observed),
-    readControllerLogs: (namespace, tailLines, limitBytes) => {
-      reads.push(`${namespace}:${String(tailLines)}:${String(limitBytes)}`);
-      return Promise.resolve(logs);
-    },
-    deleteRunNamespace: () => Promise.resolve(),
-    runNamespaceExists: () => Promise.resolve(false),
+    createRunRoot: () =>
+      Effect.fail(new KubernetesCallFailed("observing creates nothing")),
+    createExperimentAndQueue: () => Effect.void,
+    createControllerAccess: () => Effect.void,
+    createRouterService: () => Effect.void,
+    startController: () => Effect.void,
+    readControllerJob: () => Effect.succeed(observed),
+    readControllerLogs: (namespace, tailLines, limitBytes) =>
+      Effect.sync(() => {
+        reads.push(`${namespace}:${String(tailLines)}:${String(limitBytes)}`);
+        return logs;
+      }),
+    deleteRunNamespace: () => Effect.void,
+    runNamespaceExists: () => Effect.succeed(false),
   };
   return { api, reads };
 }
@@ -179,9 +182,9 @@ function observing(observed: JobObservation, logs?: string) {
 it("spends no Pod-log read on a Job that is still running", async () => {
   const { api, reads } = observing(job({ active: 1 }));
 
-  await expect(observeController(api, INPUT)).resolves.toEqual({
-    _tag: "running",
-  });
+  await expect(
+    Effect.runPromise(observeController(api, INPUT)),
+  ).resolves.toEqual({ _tag: "running" });
 
   expect(reads).toEqual([]);
 });
@@ -192,7 +195,9 @@ it("reads a bounded log tail once the Job is terminal", async () => {
     encodedSummary(PROGRAM_SUMMARY),
   );
 
-  await expect(observeController(api, INPUT)).resolves.toEqual({
+  await expect(
+    Effect.runPromise(observeController(api, INPUT)),
+  ).resolves.toEqual({
     _tag: "succeeded",
     result: { exitCode: 0, summary: PROGRAM_SUMMARY },
   });
@@ -200,4 +205,4 @@ it("reads a bounded log tail once the Job is terminal", async () => {
   expect(reads).toEqual([`${INPUT.namespace}:200:8192`]);
 });
 
-/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after the Promise-native activity contract. */
+/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after the activity observation contract. */

@@ -31,10 +31,10 @@ import {
   CONTROLLER_STAGE,
   ControllerError,
   ControllerOperations,
-  isControllerModuleInvocation,
   runController,
   type ControllerOperationsService,
 } from "./main.js";
+import { isEntryModule } from "../entry.js";
 import {
   exportCompletedLedger,
   LedgerExportOperations,
@@ -254,7 +254,7 @@ test("recognizes a symlinked argv path as the loaded controller module", () =>
       const moduleUrl = pathToFileURL(canonicalModule).href;
 
       assert.notStrictEqual(pathToFileURL(linkedModule).href, moduleUrl);
-      assert.isTrue(isControllerModuleInvocation(moduleUrl, linkedModule));
+      assert.isTrue(isEntryModule(moduleUrl, linkedModule));
     }),
   ).pipe(Effect.provide(NodeContext.layer)));
 

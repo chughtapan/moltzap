@@ -5,6 +5,7 @@ import { Effect, Schema } from "effect";
 import { CompletedLedgerReceipt } from "../run/execute.js";
 import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
 import { programFinishedSummary } from "./controller/summary.js";
+import { KubernetesCallFailed } from "./kubernetes/calls.js";
 import type {
   CleanupRunInput,
   RunControllerResult,
@@ -160,15 +161,15 @@ describe("runSocietyWorkflow", () => {
     const deleted: string[] = [];
     const operations: LifecycleOperationsService = {
       heartbeat: () => undefined,
-      prepareRun: () => Promise.resolve(),
+      prepareRun: () => Effect.void,
       observeController: () =>
-        Promise.reject(new Error("the fake never observes a controller")),
-      deleteRunNamespace: (namespace) => {
-        deleted.push(namespace);
-        return Promise.resolve();
-      },
-      runNamespaceExists: () => Promise.resolve(false),
-      waitBeforeObservation: () => Promise.resolve(),
+        Effect.fail(new KubernetesCallFailed("observe a fake controller")),
+      deleteRunNamespace: (namespace) =>
+        Effect.sync(() => {
+          deleted.push(namespace);
+        }),
+      runNamespaceExists: () => Effect.succeed(false),
+      waitBeforeObservation: () => Effect.void,
     };
     workflowState.cleanupActivity = Effect.runSync(
       runLifecycleActivities.pipe(

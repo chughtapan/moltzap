@@ -1,9 +1,8 @@
 /** @file Repository-local profile entry point for one Temporal-managed run. */
 
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
+import { isEntryModule } from "../entry.js";
 import { LOCAL_KUBERNETES_EXECUTION_PROFILE } from "../profile.js";
 import {
   liveSubmitOperations,
@@ -31,16 +30,8 @@ export function runLocalSociety(
   );
 }
 
-function isDirectInvocation(): boolean {
-  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
-  const invoked = process.argv[1];
-  return (
-    invoked !== undefined &&
-    pathToFileURL(resolve(invoked)).href === import.meta.url
-  );
-}
-
-if (isDirectInvocation()) {
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
+if (isEntryModule(import.meta.url, process.argv[1])) {
   // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The executable boundary captures argv once before entering Effect.
   const args = process.argv.slice(2);
   // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The executable boundary injects the environment into the typed local configuration.

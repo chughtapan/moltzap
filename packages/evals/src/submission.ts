@@ -13,6 +13,22 @@ import type { ConditionId, EvaluationCaseId } from "./model.js";
 /** Repository-owned Kubernetes profile selected for an evaluation sweep. */
 export type SimulatorProfile = "local" | "gke";
 
+/**
+ * Path segments, below the simulator package root, of a profile's executable.
+ *
+ * The submitter spawns this file by path rather than importing it, so nothing
+ * typechecks the spelling. It is exported so a drift canary can compare it
+ * against the same path in the simulator's own package scripts.
+ *
+ * @param profile Kubernetes profile whose executable is being located.
+ * @returns Segments to join onto `packages/simulator`.
+ */
+export function simulatorProfileEntrypoint(
+  profile: SimulatorProfile,
+): readonly string[] {
+  return ["dist", "cluster", "profiles", `${profile}.js`];
+}
+
 const programFinishedSummary = Schema.Struct({
   _tag: Schema.Literal("ProgramFinished"),
   receipt: CompletedLedgerReceipt,
@@ -187,10 +203,7 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
       );
       const entrypoint = path.join(
         simulatorRoot,
-        "dist",
-        "platform",
-        input.profile,
-        "main.js",
+        ...simulatorProfileEntrypoint(input.profile),
       );
       const command = Command.make("node", entrypoint, modulePath).pipe(
         Command.workingDirectory(simulatorRoot),

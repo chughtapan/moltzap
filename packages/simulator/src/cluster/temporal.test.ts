@@ -20,6 +20,7 @@ import {
   ledgerAllocationFailedSummary,
   programFinishedSummary,
 } from "./controller/summary.js";
+import { KubernetesCallFailed } from "./kubernetes/calls.js";
 import type {
   RunControllerResult,
   RunLifecycleActivities,
@@ -76,30 +77,33 @@ function fakeOperations(state: FakeState): LifecycleOperationsService {
     heartbeat: () => {
       state.events.push("heartbeat");
     },
-    prepareRun: (input) => {
-      state.events.push(`prepare:${input.namespace}`);
-      return Promise.resolve();
-    },
-    observeController: () => {
-      state.events.push("observe-controller");
-      const observation = state.observations.shift();
-      if (observation === undefined) {
-        return Promise.reject(new Error("missing fake controller observation"));
-      }
-      return Promise.resolve(observation);
-    },
-    deleteRunNamespace: (namespace) => {
-      state.events.push(`delete:${namespace}`);
-      return Promise.resolve();
-    },
-    runNamespaceExists: () => {
-      state.events.push("observe-namespace");
-      return Promise.resolve(state.namespacePresence.shift() ?? false);
-    },
-    waitBeforeObservation: () => {
-      state.events.push("wait");
-      return Promise.resolve();
-    },
+    prepareRun: (input) =>
+      Effect.sync(() => {
+        state.events.push(`prepare:${input.namespace}`);
+      }),
+    observeController: () =>
+      Effect.suspend(() => {
+        state.events.push("observe-controller");
+        const observation = state.observations.shift();
+        return observation === undefined
+          ? Effect.fail(
+              new KubernetesCallFailed("supply a fake controller observation"),
+            )
+          : Effect.succeed(observation);
+      }),
+    deleteRunNamespace: (namespace) =>
+      Effect.sync(() => {
+        state.events.push(`delete:${namespace}`);
+      }),
+    runNamespaceExists: () =>
+      Effect.sync(() => {
+        state.events.push("observe-namespace");
+        return state.namespacePresence.shift() ?? false;
+      }),
+    waitBeforeObservation: () =>
+      Effect.sync(() => {
+        state.events.push("wait");
+      }),
   };
 }
 

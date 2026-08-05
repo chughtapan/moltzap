@@ -5,7 +5,6 @@
  */
 
 import { connect } from "node:net";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   ApiException,
   AppsV1Api,
@@ -35,6 +34,9 @@ import {
 } from "./objects.js";
 
 const BRIDGE_PROBE_TIMEOUT = Duration.seconds(2);
+
+/** Kubernetes status for an object the cluster does not have. */
+const ABSENT = 404;
 
 /** Field ownership and strict validation applied to every write. */
 const APPLIED = Object.freeze({
@@ -210,7 +212,7 @@ function ignoreAbsent(
   return Effect.tryPromise({
     try: evaluate,
     catch: (cause) =>
-      cause instanceof ApiException && cause.code === 404
+      cause instanceof ApiException && cause.code === ABSENT
         ? undefined
         : clusterError(operation, cause),
   }).pipe(
@@ -434,8 +436,6 @@ export function currentConditionIsTrue(
   );
 }
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The Temporal activity and host submission paths reach Kubernetes through the generated client's native Promise API. */
-
 /** Coarse controller Job status, total so its readers need no defaulting. */
 export interface JobObservation {
   readonly succeeded: number;
@@ -462,35 +462,61 @@ export interface WorkerAvailability {
 /** One installable member of the cluster's run-worker control plane. */
 export type RunWorkerObject = keyof RunWorkerManifests;
 
+/** Failure of one Kubernetes call, carrying the status but never the body. */
+export class KubernetesCallFailed extends Error {
+  override readonly name = "KubernetesCallFailed";
+
+  /** Whether the cluster answered that the object is not there. */
+  readonly absent: boolean;
+
+  constructor(operation: string, cause?: unknown) {
+    const refused = cause instanceof ApiException ? cause : undefined;
+    super(
+      refused === undefined
+        ? `${operation} failed`
+        : `${operation} failed (Kubernetes ${String(refused.code)})`,
+    );
+    this.absent = refused?.code === ABSENT;
+  }
+}
+
 /** Kubernetes access the Temporal activity needs for one run's lifetime. */
 export interface RunControlApi {
   /** Create the run's Namespace and immutable owner; yields the owner UID. */
-  readonly createRunRoot: (input: RunSocietyWorkflowInput) => Promise<string>;
+  readonly createRunRoot: (
+    input: RunSocietyWorkflowInput,
+  ) => Effect.Effect<string, KubernetesCallFailed>;
   readonly createExperimentAndQueue: (
     namespace: string,
     manifests: OwnedRunControlManifests,
-  ) => Promise<void>;
+  ) => Effect.Effect<void, KubernetesCallFailed>;
   readonly createControllerAccess: (
     namespace: string,
     manifests: OwnedRunControlManifests,
-  ) => Promise<void>;
+  ) => Effect.Effect<void, KubernetesCallFailed>;
   readonly createRouterService: (
     namespace: string,
     manifests: OwnedRunControlManifests,
-  ) => Promise<void>;
+  ) => Effect.Effect<void, KubernetesCallFailed>;
   readonly startController: (
     namespace: string,
     manifests: OwnedRunControlManifests,
-  ) => Promise<void>;
-  readonly readControllerJob: (namespace: string) => Promise<JobObservation>;
+  ) => Effect.Effect<void, KubernetesCallFailed>;
+  readonly readControllerJob: (
+    namespace: string,
+  ) => Effect.Effect<JobObservation, KubernetesCallFailed>;
   /** Bounded controller output, or nothing when the Pod cannot be read. */
   readonly readControllerLogs: (
     namespace: string,
     tailLines: number,
     limitBytes: number,
-  ) => Promise<string | undefined>;
-  readonly deleteRunNamespace: (namespace: string) => Promise<void>;
-  readonly runNamespaceExists: (namespace: string) => Promise<boolean>;
+  ) => Effect.Effect<string | undefined, KubernetesCallFailed>;
+  readonly deleteRunNamespace: (
+    namespace: string,
+  ) => Effect.Effect<void, KubernetesCallFailed>;
+  readonly runNamespaceExists: (
+    namespace: string,
+  ) => Effect.Effect<boolean, KubernetesCallFailed>;
 }
 
 /** Kubernetes access the host needs to install the cluster's run worker. */
@@ -503,55 +529,38 @@ export interface RunWorkerInstallApi {
    * observed resourceVersion makes a concurrent submitter's write a visible
    * conflict rather than a silent overwrite.
    */
-  readonly install: (object: RunWorkerObject) => Promise<void>;
-  readonly readWorkerAvailability: () => Promise<WorkerAvailability>;
+  readonly install: (
+    object: RunWorkerObject,
+  ) => Effect.Effect<void, KubernetesCallFailed>;
+  readonly readWorkerAvailability: () => Effect.Effect<
+    WorkerAvailability,
+    KubernetesCallFailed
+  >;
   /** Sleep between rollout observations while the worker starts. */
-  readonly wait: (milliseconds: number) => Promise<void>;
+  readonly wait: (milliseconds: number) => Effect.Effect<void>;
 }
 
-/** Failure of one Kubernetes call, carrying the status but never the body. */
-class KubernetesCallFailed extends Error {
-  override readonly name = "KubernetesCallFailed";
-
-  constructor(operation: string, cause?: unknown) {
-    const status =
-      cause instanceof ApiException
-        ? ` (Kubernetes ${String(cause.code)})`
-        : "";
-    super(`${operation} failed${status}`);
-  }
-}
-
-function isAbsent(cause: unknown): boolean {
-  return cause instanceof ApiException && cause.code === 404;
-}
-
-// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-async function attempt<Result>(
+function attempt<Result>(
   operation: string,
-  evaluate: () => Promise<Result>,
-  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
-): Promise<Result> {
-  try {
-    return await evaluate();
-  } catch (cause) {
-    throw new KubernetesCallFailed(operation, cause);
-  }
+  evaluate: () => PromiseLike<Result>,
+): Effect.Effect<Result, KubernetesCallFailed> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new KubernetesCallFailed(operation, cause),
+  });
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-async function attemptUnlessAbsent(
+function attemptUnlessAbsent(
   operation: string,
-  evaluate: () => Promise<unknown>,
-  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
-): Promise<void> {
-  try {
-    await evaluate();
-  } catch (cause) {
-    if (!isAbsent(cause)) {
-      throw new KubernetesCallFailed(operation, cause);
-    }
-  }
+  evaluate: () => PromiseLike<unknown>,
+): Effect.Effect<void, KubernetesCallFailed> {
+  return attempt(operation, evaluate).pipe(
+    Effect.catchIf(
+      (failure) => failure.absent,
+      () => Effect.void,
+    ),
+    Effect.asVoid,
+  );
 }
 
 interface RunControlClients {
@@ -580,64 +589,64 @@ function jobObservation(job: V1Job): JobObservation {
   };
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-async function createRunRoot(
+function createRunRoot(
   clients: RunControlClients,
   input: RunSocietyWorkflowInput,
-  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
-): Promise<string> {
-  await attempt("create run namespace", () =>
-    clients.core.createNamespace({
-      body: runNamespaceManifest(input),
-      ...APPLIED,
-    }),
-  );
-  const root = await attempt("create run owner", () =>
-    clients.core.createNamespacedConfigMap({
-      namespace: input.namespace,
-      body: runOwnerManifest(input),
-      ...APPLIED,
-    }),
-  );
-  const ownerUid = root.metadata?.uid;
-  if (ownerUid === undefined || ownerUid.length === 0) {
-    throw new KubernetesCallFailed("read run owner UID");
-  }
-  return ownerUid;
+): Effect.Effect<string, KubernetesCallFailed> {
+  return Effect.gen(function* () {
+    yield* attempt("create run namespace", () =>
+      clients.core.createNamespace({
+        body: runNamespaceManifest(input),
+        ...APPLIED,
+      }),
+    );
+    const root = yield* attempt("create run owner", () =>
+      clients.core.createNamespacedConfigMap({
+        namespace: input.namespace,
+        body: runOwnerManifest(input),
+        ...APPLIED,
+      }),
+    );
+    const ownerUid = root.metadata?.uid;
+    if (ownerUid === undefined || ownerUid.length === 0) {
+      return yield* Effect.fail(new KubernetesCallFailed("read run owner UID"));
+    }
+    return ownerUid;
+  });
 }
 
 // A Pod already being deleted is skipped: its log stream ends wherever the
 // eviction cut it, which would read as a controller that stopped on its own.
-// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-async function readControllerLogs(
+function readControllerLogs(
   clients: RunControlClients,
   namespace: string,
   tailLines: number,
   limitBytes: number,
-  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
-): Promise<string | undefined> {
-  const pods = await attempt("observe controller pod", () =>
-    clients.core.listNamespacedPod({
-      namespace,
-      labelSelector: `job-name=${CONTROLLER_NAME}`,
-    }),
-  );
-  const podName = pods.items.find(
-    (pod) => pod.metadata?.deletionTimestamp === undefined,
-  )?.metadata?.name;
-  if (podName === undefined) {
-    return undefined;
-  }
-  const output = await attempt("read controller log", () =>
-    clients.core.readNamespacedPodLog({
-      namespace,
-      name: podName,
-      container: CONTROLLER_NAME,
-      tailLines,
-      limitBytes,
-    }),
-  );
-  return output.length === 0 ? undefined : output;
+): Effect.Effect<string | undefined, KubernetesCallFailed> {
+  return Effect.gen(function* () {
+    const pods = yield* attempt("observe controller pod", () =>
+      clients.core.listNamespacedPod({
+        namespace,
+        labelSelector: `job-name=${CONTROLLER_NAME}`,
+      }),
+    );
+    const podName = pods.items.find(
+      (pod) => pod.metadata?.deletionTimestamp === undefined,
+    )?.metadata?.name;
+    if (podName === undefined) {
+      return undefined;
+    }
+    const output = yield* attempt("read controller log", () =>
+      clients.core.readNamespacedPodLog({
+        namespace,
+        name: podName,
+        container: CONTROLLER_NAME,
+        tailLines,
+        limitBytes,
+      }),
+    );
+    return output.length === 0 ? undefined : output;
+  });
 }
 
 // These operations run inside the cluster they act on, so the API credentials
@@ -654,60 +663,60 @@ function runControlClients(): RunControlClients {
   };
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-async function createExperimentAndQueue(
+function createExperimentAndQueue(
   clients: RunControlClients,
   namespace: string,
   manifests: OwnedRunControlManifests,
-  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
-): Promise<void> {
-  await attempt("create experiment module", () =>
-    clients.core.createNamespacedConfigMap({
-      namespace,
-      body: manifests.experiment,
-      ...APPLIED,
-    }),
-  );
-  await attempt("create run queue", () =>
-    clients.custom.createNamespacedCustomObject({
-      group: KUEUE_GROUP,
-      version: KUEUE_VERSION,
-      namespace,
-      plural: LOCAL_QUEUES,
-      body: manifests.localQueue,
-      ...APPLIED,
-    }),
-  );
+): Effect.Effect<void, KubernetesCallFailed> {
+  return Effect.gen(function* () {
+    yield* attempt("create experiment module", () =>
+      clients.core.createNamespacedConfigMap({
+        namespace,
+        body: manifests.experiment,
+        ...APPLIED,
+      }),
+    );
+    yield* attempt("create run queue", () =>
+      clients.custom.createNamespacedCustomObject({
+        group: KUEUE_GROUP,
+        version: KUEUE_VERSION,
+        namespace,
+        plural: LOCAL_QUEUES,
+        body: manifests.localQueue,
+        ...APPLIED,
+      }),
+    );
+  });
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-async function createControllerAccess(
+function createControllerAccess(
   clients: RunControlClients,
   namespace: string,
   manifests: OwnedRunControlManifests,
-  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
-): Promise<void> {
-  await attempt("create controller service account", () =>
-    clients.core.createNamespacedServiceAccount({
-      namespace,
-      body: manifests.serviceAccount,
-      ...APPLIED,
-    }),
-  );
-  await attempt("create controller role", () =>
-    clients.rbac.createNamespacedRole({
-      namespace,
-      body: manifests.role,
-      ...APPLIED,
-    }),
-  );
-  await attempt("create controller role binding", () =>
-    clients.rbac.createNamespacedRoleBinding({
-      namespace,
-      body: manifests.roleBinding,
-      ...APPLIED,
-    }),
-  );
+): Effect.Effect<void, KubernetesCallFailed> {
+  return Effect.gen(function* () {
+    yield* attempt("create controller service account", () =>
+      clients.core.createNamespacedServiceAccount({
+        namespace,
+        body: manifests.serviceAccount,
+        ...APPLIED,
+      }),
+    );
+    yield* attempt("create controller role", () =>
+      clients.rbac.createNamespacedRole({
+        namespace,
+        body: manifests.role,
+        ...APPLIED,
+      }),
+    );
+    yield* attempt("create controller role binding", () =>
+      clients.rbac.createNamespacedRoleBinding({
+        namespace,
+        body: manifests.roleBinding,
+        ...APPLIED,
+      }),
+    );
+  });
 }
 
 function runPreparationOperations(
@@ -726,26 +735,22 @@ function runPreparationOperations(
       createExperimentAndQueue(clients, namespace, manifests),
     createControllerAccess: (namespace, manifests) =>
       createControllerAccess(clients, namespace, manifests),
-    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-    createRouterService: async (namespace, manifests) => {
-      await attempt("create router service", () =>
+    createRouterService: (namespace, manifests) =>
+      attempt("create router service", () =>
         clients.core.createNamespacedService({
           namespace,
           body: manifests.routerService,
           ...APPLIED,
         }),
-      );
-    },
-    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-    startController: async (namespace, manifests) => {
-      await attempt("create controller job", () =>
+      ).pipe(Effect.asVoid),
+    startController: (namespace, manifests) =>
+      attempt("create controller job", () =>
         clients.batch.createNamespacedJob({
           namespace,
           body: manifests.controllerJob,
           ...APPLIED,
         }),
-      );
-    },
+      ).pipe(Effect.asVoid),
   };
 }
 
@@ -759,16 +764,13 @@ function runObservationOperations(
   | "runNamespaceExists"
 > {
   return {
-    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-    readControllerJob: async (namespace) =>
-      jobObservation(
-        await attempt("observe controller job", () =>
-          clients.batch.readNamespacedJob({
-            namespace,
-            name: CONTROLLER_NAME,
-          }),
-        ),
-      ),
+    readControllerJob: (namespace) =>
+      attempt("observe controller job", () =>
+        clients.batch.readNamespacedJob({
+          namespace,
+          name: CONTROLLER_NAME,
+        }),
+      ).pipe(Effect.map(jobObservation)),
     readControllerLogs: (namespace, tailLines, limitBytes) =>
       readControllerLogs(clients, namespace, tailLines, limitBytes),
     deleteRunNamespace: (namespace) =>
@@ -778,18 +780,16 @@ function runObservationOperations(
           propagationPolicy: "Foreground",
         }),
       ),
-    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-    runNamespaceExists: async (namespace) => {
-      try {
-        await clients.core.readNamespace({ name: namespace });
-        return true;
-      } catch (cause) {
-        if (isAbsent(cause)) {
-          return false;
-        }
-        throw new KubernetesCallFailed("observe run namespace deletion", cause);
-      }
-    },
+    runNamespaceExists: (namespace) =>
+      attempt("observe run namespace deletion", () =>
+        clients.core.readNamespace({ name: namespace }),
+      ).pipe(
+        Effect.as(true),
+        Effect.catchIf(
+          (failure) => failure.absent,
+          () => Effect.succeed(false),
+        ),
+      ),
   };
 }
 
@@ -811,34 +811,37 @@ interface InstallClients {
   readonly rbac: RbacAuthorizationV1Api;
 }
 
-/** One object's three calls, each already bound to its own manifest. */
+/**
+ * One object's three generated-client calls, each already bound to its own
+ * manifest. Every call is handed straight to `attempt`, which is where it
+ * becomes an Effect carrying a typed failure.
+ */
 interface InstalledObjectApi {
-  readonly read: () => Promise<{ metadata?: V1ObjectMeta }>;
-  readonly create: () => Promise<unknown>;
-  readonly replace: () => Promise<unknown>;
+  readonly read: () => PromiseLike<{ metadata?: V1ObjectMeta }>;
+  readonly create: () => PromiseLike<unknown>;
+  readonly replace: () => PromiseLike<unknown>;
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-async function installOne(
+function installOne(
   operation: string,
   manifest: { metadata?: V1ObjectMeta },
   api: InstalledObjectApi,
-  // #ignore-sloppy-code-next-line[promise-type]: the generated Kubernetes client exposes Promises only
-): Promise<void> {
-  let existing: { metadata?: V1ObjectMeta };
-  try {
-    existing = await api.read();
-  } catch (cause) {
-    if (!isAbsent(cause)) {
-      throw new KubernetesCallFailed(`read ${operation}`, cause);
-    }
-    await attempt(`create ${operation}`, api.create);
-    return;
-  }
-  const metadata = manifest.metadata ?? {};
-  metadata.resourceVersion = existing.metadata?.resourceVersion;
-  manifest.metadata = metadata;
-  await attempt(`replace ${operation}`, api.replace);
+): Effect.Effect<void, KubernetesCallFailed> {
+  return attempt(`read ${operation}`, api.read).pipe(
+    Effect.matchEffect({
+      onFailure: (failure) =>
+        failure.absent
+          ? attempt(`create ${operation}`, api.create)
+          : Effect.fail(failure),
+      onSuccess: (existing) => {
+        const metadata = manifest.metadata ?? {};
+        metadata.resourceVersion = existing.metadata?.resourceVersion;
+        manifest.metadata = metadata;
+        return attempt(`replace ${operation}`, api.replace);
+      },
+    }),
+    Effect.asVoid,
+  );
 }
 
 const NAMED_WORKER = Object.freeze({
@@ -988,22 +991,19 @@ export function makeKubernetesRunWorkerInstallApi(
   return Object.freeze({
     install: (object: RunWorkerObject) =>
       installOne(`run worker ${object}`, manifests[object], apis[object]),
-    // #ignore-sloppy-code-next-line[async-keyword]: the generated Kubernetes client exposes Promises only
-    readWorkerAvailability: async () => {
-      const deployment = await attempt("observe run worker", () =>
+    readWorkerAvailability: () =>
+      attempt("observe run worker", () =>
         clients.apps.readNamespacedDeployment({
           name: RUN_WORKER_NAME,
           namespace: SYSTEM_NAMESPACE,
         }),
-      );
-      return {
-        generation: deployment.metadata?.generation ?? 0,
-        observedGeneration: deployment.status?.observedGeneration ?? -1,
-        availableReplicas: deployment.status?.availableReplicas ?? 0,
-      };
-    },
-    wait: (milliseconds: number) => delay(milliseconds),
+      ).pipe(
+        Effect.map((deployment) => ({
+          generation: deployment.metadata?.generation ?? 0,
+          observedGeneration: deployment.status?.observedGeneration ?? -1,
+          availableReplicas: deployment.status?.availableReplicas ?? 0,
+        })),
+      ),
+    wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
   });
 }
-
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore Effect-first application rules after the Promise-native Kubernetes boundaries. */

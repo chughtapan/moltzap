@@ -1,6 +1,8 @@
 /** @file Install the cluster's run-lifecycle worker and wait until it polls. */
 
+import { Effect } from "effect";
 import type {
+  KubernetesCallFailed,
   RunWorkerInstallApi,
   RunWorkerObject,
   WorkerAvailability,
@@ -21,8 +23,6 @@ const INSTALL_ORDER: readonly RunWorkerObject[] = [
   "clusterRoleBinding",
   "deployment",
 ];
-
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Installation happens at the host's Promise-native Kubernetes boundary, before any Effect runtime exists. */
 
 /** The installed worker never became able to serve the run-lifecycle queue. */
 export class RunWorkerUnavailable extends Error {
@@ -54,15 +54,18 @@ export function workerIsAvailable(availability: WorkerAvailability): boolean {
 // A worker that never becomes available is the one failure mode that would
 // otherwise be silent: the workflow starts, nothing polls its task queue, and
 // the submitter waits forever. Waiting here turns that into a failed submission.
-// #ignore-sloppy-code-next-line[async-keyword, promise-type]: installation runs at the host boundary before any Effect runtime exists
-async function awaitAvailableWorker(api: RunWorkerInstallApi): Promise<void> {
-  for (let attempt = 0; attempt < AVAILABILITY_ATTEMPTS; attempt += 1) {
-    if (workerIsAvailable(await api.readWorkerAvailability())) {
-      return;
+function awaitAvailableWorker(
+  api: RunWorkerInstallApi,
+): Effect.Effect<void, KubernetesCallFailed | RunWorkerUnavailable> {
+  return Effect.gen(function* () {
+    for (let attempt = 0; attempt < AVAILABILITY_ATTEMPTS; attempt += 1) {
+      if (workerIsAvailable(yield* api.readWorkerAvailability())) {
+        return;
+      }
+      yield* api.wait(AVAILABILITY_INTERVAL_MS);
     }
-    await api.wait(AVAILABILITY_INTERVAL_MS);
-  }
-  throw new RunWorkerUnavailable();
+    yield* Effect.fail(new RunWorkerUnavailable());
+  });
 }
 
 /**
@@ -74,17 +77,17 @@ async function awaitAvailableWorker(api: RunWorkerInstallApi): Promise<void> {
  *
  * @param api Host-side access to the profile's cluster.
  * @returns Nothing once one worker replica is available on the task queue.
+ * @failure KubernetesCallFailed when a control-plane object could not be written.
  * @failure RunWorkerUnavailable when no replica becomes available in time.
  */
-// #ignore-sloppy-code-next-line[async-keyword]: installation runs at the host boundary before any Effect runtime exists
-export async function installRunWorker(
+export function installRunWorker(
   api: RunWorkerInstallApi,
-  // #ignore-sloppy-code-next-line[promise-type]: installation runs at the host boundary before any Effect runtime exists
-): Promise<void> {
-  for (const object of INSTALL_ORDER) {
-    await api.install(object);
-  }
-  await awaitAvailableWorker(api);
+): Effect.Effect<void, KubernetesCallFailed | RunWorkerUnavailable> {
+  return Effect.forEach(INSTALL_ORDER, (object) => api.install(object), {
+    concurrency: 1,
+    discard: true,
+  }).pipe(
+    Effect.zipRight(awaitAvailableWorker(api)),
+    Effect.withSpan("installRunWorker"),
+  );
 }
-
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore Effect-first application rules after the Kubernetes host boundary. */

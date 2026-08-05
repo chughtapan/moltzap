@@ -1,7 +1,7 @@
 /** @file Read the controller Job's status and its bounded, redacted output. */
 
-import { setTimeout as delay } from "node:timers/promises";
 import { stripVTControlCharacters } from "node:util";
+import { Duration, Effect } from "effect";
 import type {
   ControllerObservation,
   RunLifecycleOperations,
@@ -22,6 +22,7 @@ import {
 import {
   makeKubernetesRunControlApi,
   type JobObservation,
+  type KubernetesCallFailed,
   type RunControlApi,
 } from "./kubernetes/calls.js";
 import { prepareRun } from "./scaffold.js";
@@ -171,30 +172,27 @@ export function controllerObservation(
   return failedControllerObservation(job, resolvedLogs);
 }
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The Temporal activity these operations back is a Promise-native SDK boundary. */
-
 // The Job's own status already says whether the run ended and how, so output
 // that cannot be read costs detail in the failure message and nothing else. A
 // terminal Job whose Pod was evicted before its log could be fetched still has
 // to produce an observation rather than fail the whole activity attempt.
-// #ignore-sloppy-code-next-line[async-keyword]: projects the Promise-native Kubernetes client into one observation
-async function terminalControllerLogs(
+function terminalControllerLogs(
   api: RunControlApi,
   namespace: string,
-  // #ignore-sloppy-code-next-line[promise-type]: projects the Promise-native Kubernetes client into one observation
-): Promise<string | undefined> {
-  try {
-    return await api.readControllerLogs(
+): Effect.Effect<string | undefined> {
+  return api
+    .readControllerLogs(
       namespace,
       CONTROLLER_LOG_TAIL_LINES,
       DIAGNOSTIC_LIMIT * 2,
+    )
+    .pipe(
+      Effect.catchAll((failure) =>
+        Effect.logWarning(
+          `Simulator controller logs unavailable: ${failure.message}`,
+        ).pipe(Effect.as(undefined)),
+      ),
     );
-  } catch (cause) {
-    console.warn(
-      `Simulator controller logs unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
-    );
-    return undefined;
-  }
 }
 
 /**
@@ -207,19 +205,20 @@ async function terminalControllerLogs(
  * @param api Kubernetes access held by the worker running this activity.
  * @param input Run identity carrying the namespace to observe.
  * @returns The coarse controller state, with a result once one is decodable.
+ * @failure KubernetesCallFailed when the Job's own status cannot be read.
  */
-// #ignore-sloppy-code-next-line[async-keyword]: projects the Promise-native Kubernetes client into one observation
-export async function observeController(
+export function observeController(
   api: RunControlApi,
   input: RunSocietyWorkflowInput,
-  // #ignore-sloppy-code-next-line[promise-type]: projects the Promise-native Kubernetes client into one observation
-): Promise<ControllerObservation> {
-  const job = await api.readControllerJob(input.namespace);
-  const logs =
-    jobSucceeded(job) || jobFailed(job)
-      ? await terminalControllerLogs(api, input.namespace)
-      : undefined;
-  return controllerObservation(job, logs);
+): Effect.Effect<ControllerObservation, KubernetesCallFailed> {
+  return Effect.gen(function* () {
+    const job = yield* api.readControllerJob(input.namespace);
+    const logs =
+      jobSucceeded(job) || jobFailed(job)
+        ? yield* terminalControllerLogs(api, input.namespace)
+        : undefined;
+    return controllerObservation(job, logs);
+  }).pipe(Effect.withSpan("observeController"));
 }
 
 /**
@@ -241,7 +240,8 @@ function runLifecycleOperations(
       api.deleteRunNamespace(namespace),
     runNamespaceExists: (namespace: string) =>
       api.runNamespaceExists(namespace),
-    waitBeforeObservation: () => delay(OBSERVATION_INTERVAL_MS),
+    waitBeforeObservation: () =>
+      Effect.sleep(Duration.millis(OBSERVATION_INTERVAL_MS)),
   });
 }
 
@@ -255,5 +255,3 @@ export function makeKubernetesRunLifecycleOperations(
 ): RunLifecycleOperations {
   return runLifecycleOperations(makeKubernetesRunControlApi(), profile);
 }
-
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore Effect-first application rules after the Temporal activity boundary. */
