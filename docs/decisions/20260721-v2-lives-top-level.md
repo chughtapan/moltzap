@@ -50,6 +50,15 @@ window with no offsetting benefit; npm names are not bound to
 folders, so cutover keeps the names either way.
 
 Consequences: the zero-v1-imports boundary is mechanically enforced
-in `scripts/check-architecture-boundaries.js`; v2's internal package
+in `scripts/architecture/check-boundaries.js`; v2's internal package
 layout is deferred to the spec; main→v2 merges stay conflict-free by
 construction.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that
+alters the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-05 | Enforcement path `scripts/check-architecture-boundaries.js` → `scripts/architecture/check-boundaries.js`. The script moved when `scripts/` was grouped by domain; the boundary check itself is unchanged. |

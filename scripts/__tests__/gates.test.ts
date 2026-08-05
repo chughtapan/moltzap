@@ -68,7 +68,7 @@ const runGenerate = (
       "@moltzap/server-core",
       "exec",
       "tsx",
-      "../../scripts/generate-constants-snippets.ts",
+      "../../scripts/docs/generate-constants-snippets.ts",
     ],
     { cwd, encoding: "utf8" },
   );
@@ -93,7 +93,10 @@ const runGenerateDirect = (
   );
   const r = spawnSync(
     process.execPath,
-    [tsxCli, resolve(workspaceRoot, "scripts/generate-constants-snippets.ts")],
+    [
+      tsxCli,
+      resolve(workspaceRoot, "scripts/docs/generate-constants-snippets.ts"),
+    ],
     { cwd, encoding: "utf8" },
   );
   return {
@@ -145,7 +148,7 @@ const testNoHardcodedConstants = (): void => {
   console.log("\n# check-no-hardcoded-constants");
   // Positive case: clean tree passes.
   const clean = runScript(
-    "scripts/check-no-hardcoded-constants.ts",
+    "scripts/docs/check-no-hardcoded-constants.ts",
     workspaceRoot,
   );
   assert(
@@ -162,7 +165,7 @@ const testNoHardcodedConstants = (): void => {
       (s) => `${s}\nProtocol pinned at 2026.524.1 for this run.\n`,
     );
     const r1 = runScript(
-      "scripts/check-no-hardcoded-constants.ts",
+      "scripts/docs/check-no-hardcoded-constants.ts",
       workspaceRoot,
     );
     assert(
@@ -186,7 +189,7 @@ const testNoHardcodedConstants = (): void => {
     (s) => `${s}\nV2 compatibility pinned at ${v2Version} for this run.\n`,
   );
   const r2 = runScript(
-    "scripts/check-no-hardcoded-constants.ts",
+    "scripts/docs/check-no-hardcoded-constants.ts",
     workspaceRoot,
   );
   assert(
@@ -201,7 +204,7 @@ const testNoHardcodedConstants = (): void => {
   const v2BakedTarget = "docs/spec/router-representation.md";
   plantFile(v2BakedTarget, (s) => s.replace(v2Version, `${v2Version}0`));
   const r3 = runScript(
-    "scripts/check-no-hardcoded-constants.ts",
+    "scripts/docs/check-no-hardcoded-constants.ts",
     workspaceRoot,
   );
   assert(
@@ -215,7 +218,7 @@ const testNoHardcodedConstants = (): void => {
   const target2 = "docs/quickstart.mdx";
   plantFile(target2, (s) => `${s}\nLegacy bind: PORT=3100 npx old-server\n`);
   const r4 = runScript(
-    "scripts/check-no-hardcoded-constants.ts",
+    "scripts/docs/check-no-hardcoded-constants.ts",
     workspaceRoot,
   );
   assert(
@@ -232,7 +235,7 @@ const testNoHardcodedConstants = (): void => {
     (s) => `${s}\nExample credential: moltzap_agent_deadbeef\n`,
   );
   const r5 = runScript(
-    "scripts/check-no-hardcoded-constants.ts",
+    "scripts/docs/check-no-hardcoded-constants.ts",
     workspaceRoot,
   );
   assert(
@@ -248,7 +251,7 @@ const testNoHardcodedConstants = (): void => {
 const testDocImportsResolve = (): void => {
   console.log("\n# check-doc-imports-resolve");
   const clean = runScript(
-    "scripts/check-doc-imports-resolve.ts",
+    "scripts/docs/check-doc-imports-resolve.ts",
     workspaceRoot,
   );
   assert(
@@ -264,7 +267,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport { foo } from "@moltzap/server-core/does-not-exist";\n\`\`\`\n`,
   );
-  const r1 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r1 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "flags unknown subpath",
     r1.code !== 0 && /unknown-subpath/.test(r1.stderr),
@@ -278,7 +284,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport { ThisSymbolDoesNotExist } from "@moltzap/server-core";\n\`\`\`\n`,
   );
-  const r2 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r2 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "flags missing named export",
     r2.code !== 0 && /missing-export/.test(r2.stderr),
@@ -292,7 +301,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport { x } from "@moltzap/never-shipped";\n\`\`\`\n`,
   );
-  const r3 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r3 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "flags unknown package",
     r3.code !== 0 && /unknown-package/.test(r3.stderr),
@@ -312,7 +324,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport {\n  ThisSymbolDoesNotExist,\n  AlsoNotExported,\n} from "@moltzap/server-core";\n\`\`\`\n`,
   );
-  const r4 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r4 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "multi-line import with unknown binding flagged as missing-export (joinMultiLineImports regression)",
     r4.code !== 0 &&
@@ -330,7 +345,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport {\n  startCoreTestServer,\n  stopCoreTestServer,\n} from "@moltzap/server-core/test-utils";\n\`\`\`\n`,
   );
-  const r5 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r5 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "multi-line import with valid bindings still passes (joinMultiLineImports positive)",
     r5.code === 0,
@@ -345,7 +363,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/v2-identity";\nimport "@moltzap/v2-router/server";\n\`\`\`\n`,
   );
-  const r6 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r6 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "v2 root binding and server subpath resolve",
     r6.code === 0,
@@ -358,7 +379,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport { ThisV2SymbolDoesNotExist } from "@moltzap/v2-identity";\n\`\`\`\n`,
   );
-  const r7 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r7 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "flags missing v2 named export",
     r7.code !== 0 &&
@@ -373,7 +397,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport "@moltzap/v2-router/does-not-exist";\n\`\`\`\n`,
   );
-  const r8 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r8 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "flags unknown v2 subpath",
     r8.code !== 0 && /unknown-subpath/.test(r8.stderr),
@@ -389,7 +416,10 @@ const testDocImportsResolve = (): void => {
     (s) =>
       `${s}\n\`\`\`typescript\nimport "@moltzap/v2-router/server";\n\`\`\`\n`,
   );
-  const r9 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  const r9 = runScript(
+    "scripts/docs/check-doc-imports-resolve.ts",
+    workspaceRoot,
+  );
   assert(
     "flags a documented v2 subpath with no source or built target",
     r9.code !== 0 && /missing-target/.test(r9.stderr),
@@ -634,7 +664,7 @@ const testNodeVersionFloorConsistency = (): void => {
     ),
   ) as { readonly engines?: { readonly node?: string } };
   const quickstart = readFileSync(
-    resolve(workspaceRoot, "scripts/quickstart.sh"),
+    resolve(workspaceRoot, "scripts/setup/quickstart.sh"),
     "utf8",
   );
   const quickstartDocs = readFileSync(
@@ -655,7 +685,7 @@ const testNodeVersionFloorConsistency = (): void => {
     quickstart.includes("install Node.js 22+") &&
       quickstart.includes('if [ "$node_major" -lt 22 ]') &&
       quickstart.includes("Node.js 22+ required"),
-    "scripts/quickstart.sh does not consistently enforce Node.js 22+",
+    "scripts/setup/quickstart.sh does not consistently enforce Node.js 22+",
   );
   assert(
     "setup docs advertise Node.js 22+",
