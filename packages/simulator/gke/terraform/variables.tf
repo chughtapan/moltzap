@@ -14,16 +14,61 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "node_locations" {
-  description = "Exactly three zones backing both fixed regional node pools."
-  type        = list(string)
-  default     = ["us-central1-a", "us-central1-b", "us-central1-c"]
+variable "zone" {
+  description = <<-EOT
+    Zone holding the cluster and both node pools.
+
+    The cluster is zonal because nothing here is replicated: the development
+    Temporal deployment and each run's router are single pods, so a regional
+    control plane cannot keep a run alive through a zone loss. One zone also
+    keeps every agent beside the router it talks to, so cross-zone latency
+    stays out of the measurement. Must lie inside region.
+  EOT
+  type        = string
+  default     = "us-central1-a"
+}
+
+variable "agent_machine_type" {
+  description = <<-EOT
+    Agent node machine type.
+
+    One node holds the whole cohort. GKE reserves less proportionally as a node
+    grows, so sixteen vCPU on one machine yields marginally more allocatable
+    than the same vCPU split in two, and e2 is priced per vCPU so splitting
+    saves nothing. One node also pulls each image once and puts no agent pair
+    on opposite sides of a network hop.
+  EOT
+  type        = string
+  default     = "e2-standard-16"
+}
+
+variable "agent_nodes" {
+  description = "Nodes in the agent pool. One seats the ten-agent cohort; raise it only past what a single machine type can hold."
+  type        = number
+  default     = 1
 
   validation {
-    condition = length(var.node_locations) == 3 && alltrue([
-      for location in var.node_locations : startswith(location, "${var.region}-")
-    ])
-    error_message = "node_locations must contain exactly three zones in region."
+    condition     = var.agent_nodes >= 1
+    error_message = "agent_nodes must be at least one."
+  }
+}
+
+variable "agent_disk_size_gb" {
+  description = <<-EOT
+    Agent node boot disk, in GB.
+
+    The working set is about 24 GB: the node image, the support and stock agent
+    images once, and one gibibyte of ephemeral storage for each of the ten
+    agents the node holds. The default is GKE's own, leaving four times that
+    headroom; the reason not to shrink further is throughput, since pd-balanced
+    scales with size and a smaller disk slows the first image pull.
+  EOT
+  type        = number
+  default     = 100
+
+  validation {
+    condition     = var.agent_disk_size_gb >= 50
+    error_message = "agent_disk_size_gb must leave room for the node image and the agent working set."
   }
 }
 
@@ -79,14 +124,14 @@ variable "system_machine_type" {
   default     = "e2-standard-4"
 }
 
-variable "system_nodes_per_zone" {
+variable "system_nodes" {
   description = "Fixed system nodes per zone in the regional cluster."
   type        = number
   default     = 1
 
   validation {
-    condition     = var.system_nodes_per_zone >= 1 && floor(var.system_nodes_per_zone) == var.system_nodes_per_zone
-    error_message = "system_nodes_per_zone must be a positive integer."
+    condition     = var.system_nodes >= 1 && floor(var.system_nodes) == var.system_nodes
+    error_message = "system_nodes must be a positive integer."
   }
 }
 

@@ -12,7 +12,7 @@ locals {
   agent_pool_taint_key   = "moltzap.dev/agents"
   system_pool_label      = "system"
 
-  cluster_workload_principal = "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/kubernetes.cluster/https://container.googleapis.com/v1/projects/${var.project_id}/locations/${var.region}/clusters/${var.cluster_name}"
+  cluster_workload_principal = "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/kubernetes.cluster/https://container.googleapis.com/v1/projects/${var.project_id}/locations/${var.zone}/clusters/${var.cluster_name}"
 }
 
 data "google_project" "current" {
@@ -110,7 +110,7 @@ resource "google_storage_bucket" "artifacts" {
 resource "google_container_cluster" "simulator" {
   project  = var.project_id
   name     = var.cluster_name
-  location = var.region
+  location = var.zone
 
   network    = google_compute_network.simulator.id
   subnetwork = google_compute_subnetwork.simulator.id
@@ -152,10 +152,9 @@ resource "google_container_cluster" "simulator" {
 resource "google_container_node_pool" "system" {
   project        = var.project_id
   name           = "system"
-  location       = var.region
-  node_locations = var.node_locations
+  location       = var.zone
   cluster        = google_container_cluster.simulator.name
-  node_count     = var.system_nodes_per_zone
+  node_count     = var.system_nodes
 
   management {
     auto_repair  = true
@@ -187,10 +186,9 @@ resource "google_container_node_pool" "system" {
 resource "google_container_node_pool" "agents" {
   project        = var.project_id
   name           = "agents"
-  location       = var.region
-  node_locations = var.node_locations
+  location       = var.zone
   cluster        = google_container_cluster.simulator.name
-  node_count     = 1
+  node_count     = var.agent_nodes
 
   management {
     auto_repair  = true
@@ -198,10 +196,10 @@ resource "google_container_node_pool" "agents" {
   }
 
   node_config {
-    machine_type    = "e2-standard-8"
+    machine_type    = var.agent_machine_type
     image_type      = "COS_CONTAINERD"
     disk_type       = "pd-balanced"
-    disk_size_gb    = 200
+    disk_size_gb    = var.agent_disk_size_gb
     service_account = google_service_account.nodes.email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
 

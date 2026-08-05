@@ -36,8 +36,8 @@ output "agent_placement" {
 output "agent_capacity" {
   description = "Fixed capacity shape matched by the checked-in ClusterQueue quotas."
   value = {
-    zones          = var.node_locations
-    nodes_per_zone = 1
+    zone           = var.zone
+    nodes          = var.system_nodes
     machine_type   = "e2-standard-8"
     disk_size_gb   = 200
     queue_quota = {
