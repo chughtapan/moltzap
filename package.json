@@ -38,6 +38,7 @@
     "docs:check:doc-imports-resolve": "pnpm exec tsx scripts/docs/check-doc-imports-resolve.ts",
     "docs:check:gates-test": "pnpm exec tsx scripts/__tests__/gates.test.ts",
     "test:compute-next-version": "bash scripts/release/compute-next-version.test.sh",
+    "check:agent-setup": "bash scripts/repo/check-agent-setup.sh",
     "simulator:example": "pnpm simulator:example:check && node --experimental-strip-types examples/simulator/hello.ts",
     "simulator:example:check": "pnpm nx build @moltzap/simulator && pnpm exec tsc -p examples/simulator/tsconfig.json",
     "test:pack:simulator": "pnpm nx build @moltzap/simulator && node scripts/test/simulator-packages.mjs",
