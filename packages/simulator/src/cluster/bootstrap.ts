@@ -145,6 +145,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
   );
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
 async function requireDirectory(path: string, label: string): Promise<void> {
   const metadata = await lstat(path);
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
@@ -152,6 +153,7 @@ async function requireDirectory(path: string, label: string): Promise<void> {
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
 async function ensureOutputDirectory(path: string): Promise<void> {
   try {
     await requireDirectory(path, "bootstrap output");
@@ -164,10 +166,12 @@ async function ensureOutputDirectory(path: string): Promise<void> {
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
 async function resolveRegularSource(
   sourceRoot: string,
   source: string,
   name: string,
+  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
 ): Promise<string> {
   const resolved = await realpath(join(source, name));
   const projection = relative(sourceRoot, resolved);
@@ -187,9 +191,11 @@ async function resolveRegularSource(
   return resolved;
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
 async function ensureTargetDirectory(
   path: string,
   relativePath: string,
+  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
 ): Promise<void> {
   try {
     const metadata = await lstat(path);
@@ -206,9 +212,11 @@ async function ensureTargetDirectory(
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
 async function ensureRegularDestination(
   path: string,
   relativePath: string,
+  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
 ): Promise<void> {
   try {
     const metadata = await lstat(path);
@@ -224,9 +232,11 @@ async function ensureRegularDestination(
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
 async function ensureTargetParent(
   output: string,
   relativePath: string,
+  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
 ): Promise<string> {
   const segments = relativePath.split("/");
   const filename = segments.pop();
@@ -250,8 +260,10 @@ async function ensureTargetParent(
  * @param options Trusted mount and output paths owned by the initializer.
  * @returns A promise that completes after every file has its declared mode.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
 export async function materializeBootstrap(
   options: BootstrapMaterializationOptions,
+  // #ignore-sloppy-code-next-line[promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
 ): Promise<void> {
   const encoded = await readFile(options.manifest, "utf8");
   const parsed: unknown = JSON.parse(encoded);
@@ -261,6 +273,7 @@ export async function materializeBootstrap(
   await requireDirectory(options.overlay, "bootstrap overlay");
   const sourceRoot = await realpath(options.source);
   const files = await Promise.all(
+    // #ignore-sloppy-code-next-line[async-keyword]: standalone init-container CLI over Promise-native Node filesystem APIs
     manifest.files.map(async (file) => ({
       ...file,
       resolvedSource: await resolveRegularSource(
@@ -323,6 +336,7 @@ function isDirectInvocation(): boolean {
   );
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: standalone init-container CLI over Promise-native Node filesystem APIs
 async function runCli(): Promise<void> {
   await materializeBootstrap(parseArguments(process.argv.slice(2)));
 }

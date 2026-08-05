@@ -54,6 +54,7 @@ export function workerIsAvailable(availability: WorkerAvailability): boolean {
 // A worker that never becomes available is the one failure mode that would
 // otherwise be silent: the workflow starts, nothing polls its task queue, and
 // the submitter waits forever. Waiting here turns that into a failed submission.
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: installation runs at the host boundary before any Effect runtime exists
 async function awaitAvailableWorker(api: RunWorkerInstallApi): Promise<void> {
   for (let attempt = 0; attempt < AVAILABILITY_ATTEMPTS; attempt += 1) {
     if (workerIsAvailable(await api.readWorkerAvailability())) {
@@ -75,8 +76,10 @@ async function awaitAvailableWorker(api: RunWorkerInstallApi): Promise<void> {
  * @returns Nothing once one worker replica is available on the task queue.
  * @failure RunWorkerUnavailable when no replica becomes available in time.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: installation runs at the host boundary before any Effect runtime exists
 export async function installRunWorker(
   api: RunWorkerInstallApi,
+  // #ignore-sloppy-code-next-line[promise-type]: installation runs at the host boundary before any Effect runtime exists
 ): Promise<void> {
   for (const object of INSTALL_ORDER) {
     await api.install(object);

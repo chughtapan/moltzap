@@ -27,7 +27,10 @@ import {
   type EvaluationCondition,
   type EvaluationExecutionResult,
 } from "./execution.js";
-import { readEvaluationLedgerArtifacts } from "./artifacts.js";
+import {
+  readEvaluationLedgerArtifacts,
+  type EvaluationArtifactLocation,
+} from "./artifacts.js";
 import {
   GradeCompleted,
   GradingRefused,
@@ -65,6 +68,7 @@ import {
   evaluationReportId,
   makeAssessedAttempt,
   makeJudgingUnavailableAttempt,
+  type EvaluationInfrastructure,
   type EvaluationReportId,
   type EvaluationSweepCell,
 } from "./sweep.js";
@@ -114,21 +118,35 @@ interface RuntimeOptions {
   readonly profile: SimulatorProfile;
 }
 
-interface EvaluationExecutionEnvironment {
+interface CommonExecutionEnvironment {
   readonly workspaceRoot: string;
-  readonly profile: SimulatorProfile;
   readonly peerApplicationImage: Image;
   readonly nanoclawApplicationImage: Image;
   readonly controllerImage: Image;
   readonly temporalAddress: string;
-  readonly kubeContext?: string;
-  readonly localArtifacts?: string;
-  readonly gkeArtifactBucket?: string;
   readonly models: Readonly<{
     readonly openclaw: string;
     readonly nanoclaw: string;
   }>;
 }
+
+interface LocalExecutionEnvironment extends CommonExecutionEnvironment {
+  readonly profile: "local";
+  readonly localArtifacts: string;
+}
+
+interface GkeExecutionEnvironment extends CommonExecutionEnvironment {
+  readonly profile: "gke";
+  readonly kubeContext: string;
+  readonly gkeArtifactBucket: string;
+}
+
+// Each profile carries exactly the target it needs. One flat record with
+// optional fields would let a plan be built for a profile whose artifact target
+// was never resolved, and the only place to catch that is a runtime throw.
+type EvaluationExecutionEnvironment =
+  | LocalExecutionEnvironment
+  | GkeExecutionEnvironment;
 
 interface EvaluationExecutionImages {
   readonly controllerImage: Image;
@@ -282,6 +300,29 @@ function conditionPlan(
   });
 }
 
+function planInfrastructure(
+  environment: EvaluationExecutionEnvironment,
+): EvaluationInfrastructure {
+  const shared = {
+    controllerImage: environment.controllerImage,
+    peerApplicationImage: environment.peerApplicationImage,
+    nanoclawApplicationImage: environment.nanoclawApplicationImage,
+    temporalAddress: environment.temporalAddress,
+  };
+  return environment.profile === "local"
+    ? LocalEvaluationInfrastructure.make({
+        ...shared,
+        profile: environment.profile,
+        artifactDirectory: environment.localArtifacts,
+      })
+    : GkeEvaluationInfrastructure.make({
+        ...shared,
+        profile: environment.profile,
+        kubeContext: environment.kubeContext,
+        artifactBucket: environment.gkeArtifactBucket,
+      });
+}
+
 function reportPlan(
   sourceRevision: string,
   conditions: NonEmptyReadonlyArray<EvaluationCondition>,
@@ -289,37 +330,6 @@ function reportPlan(
 ): EvaluationReportPlan {
   const [firstCase, ...remainingCases] = evaluationCases;
   const [firstCondition, ...remainingConditions] = conditions;
-  if (environment.profile === "local") {
-    if (environment.localArtifacts === undefined) {
-      throw new Error(
-        "local execution environment lacks an artifact directory",
-      );
-    }
-    return EvaluationReportPlan.make({
-      sourceRevision,
-      cases: [casePlan(firstCase), ...remainingCases.map(casePlan)],
-      conditions: [
-        conditionPlan(firstCondition),
-        ...remainingConditions.map(conditionPlan),
-      ],
-      judgePolicy: judgePolicySnapshot(),
-      infrastructure: LocalEvaluationInfrastructure.make({
-        profile: environment.profile,
-        controllerImage: environment.controllerImage,
-        peerApplicationImage: environment.peerApplicationImage,
-        nanoclawApplicationImage: environment.nanoclawApplicationImage,
-        temporalAddress: environment.temporalAddress,
-        artifactDirectory: environment.localArtifacts,
-      }),
-      samplesPerCell: 1,
-    });
-  }
-  if (
-    environment.kubeContext === undefined ||
-    environment.gkeArtifactBucket === undefined
-  ) {
-    throw new Error("GKE execution environment lacks its selected target");
-  }
   return EvaluationReportPlan.make({
     sourceRevision,
     cases: [casePlan(firstCase), ...remainingCases.map(casePlan)],
@@ -328,15 +338,7 @@ function reportPlan(
       ...remainingConditions.map(conditionPlan),
     ],
     judgePolicy: judgePolicySnapshot(),
-    infrastructure: GkeEvaluationInfrastructure.make({
-      profile: environment.profile,
-      controllerImage: environment.controllerImage,
-      peerApplicationImage: environment.peerApplicationImage,
-      nanoclawApplicationImage: environment.nanoclawApplicationImage,
-      temporalAddress: environment.temporalAddress,
-      kubeContext: environment.kubeContext,
-      artifactBucket: environment.gkeArtifactBucket,
-    }),
+    infrastructure: planInfrastructure(environment),
     samplesPerCell: 1,
   });
 }
@@ -505,19 +507,34 @@ function runInfrastructureFailed(
   );
 }
 
+function artifactLocation(
+  environment: EvaluationExecutionEnvironment,
+  namespace: string,
+  receipt: CompletedLedgerReceipt,
+): EvaluationArtifactLocation {
+  const addressed = { namespace, ref: receipt.ledger };
+  return environment.profile === "local"
+    ? {
+        ...addressed,
+        profile: environment.profile,
+        localArtifacts: environment.localArtifacts,
+      }
+    : {
+        ...addressed,
+        profile: environment.profile,
+        gkeArtifactBucket: environment.gkeArtifactBucket,
+      };
+}
+
 function completeSubmittedProgram(
   environment: EvaluationExecutionEnvironment,
   context: AttemptContext,
   namespace: string,
   receipt: CompletedLedgerReceipt,
 ) {
-  return readEvaluationLedgerArtifacts({
-    profile: environment.profile,
-    namespace,
-    ref: receipt.ledger,
-    localArtifacts: environment.localArtifacts,
-    gkeArtifactBucket: environment.gkeArtifactBucket,
-  }).pipe(
+  return readEvaluationLedgerArtifacts(
+    artifactLocation(environment, namespace, receipt),
+  ).pipe(
     Effect.matchEffect({
       onFailure: (failure) =>
         rejectEvidence(context, receipt, describeUnknown(failure)),

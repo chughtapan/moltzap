@@ -66,7 +66,7 @@ const { cleanupRun } = proxyActivities<
   startToCloseTimeout: "10 minutes",
 });
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Temporal workflow entrypoints must use the SDK's native async Promise contract. */
+/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Temporal workflow entrypoints must use the SDK's own Promise-returning contract. */
 /**
  * Runs one controller attempt and shields its final cleanup from cancellation.
  *
@@ -78,8 +78,10 @@ const { cleanupRun } = proxyActivities<
  * @param input Private run identity and controller artifacts.
  * @returns The controller's operational success after cleanup completes.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workflows are SDK-required Promise boundaries
 export async function runSocietyWorkflow(
   input: RunSocietyWorkflowInput,
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workflows are SDK-required Promise boundaries
 ): Promise<RunControllerResult> {
   try {
     return await runControllerOnce(input);

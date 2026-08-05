@@ -71,6 +71,21 @@ function casePlan(id: string): EvaluationCasePlan {
   });
 }
 
+// Every field but the artifact directory is fixed, so a resume mismatch test can
+// vary that one field and still submit an otherwise identical plan.
+function localInfrastructure(
+  artifactDirectory: string,
+): LocalEvaluationInfrastructure {
+  return LocalEvaluationInfrastructure.make({
+    profile: "local",
+    controllerImage: `controller@sha256:${"a".repeat(64)}`,
+    peerApplicationImage: `peer@sha256:${"b".repeat(64)}`,
+    nanoclawApplicationImage: `nanoclaw@sha256:${"c".repeat(64)}`,
+    temporalAddress: "127.0.0.1:7233",
+    artifactDirectory,
+  });
+}
+
 function plan(
   first: EvaluationCasePlan,
   ...remaining: readonly EvaluationCasePlan[]
@@ -95,14 +110,7 @@ function plan(
       timeoutMillis: 1_000,
       maxRetries: 2,
     }),
-    infrastructure: LocalEvaluationInfrastructure.make({
-      profile: "local",
-      controllerImage: `controller@sha256:${"a".repeat(64)}`,
-      peerApplicationImage: `peer@sha256:${"b".repeat(64)}`,
-      nanoclawApplicationImage: `nanoclaw@sha256:${"c".repeat(64)}`,
-      temporalAddress: "127.0.0.1:7233",
-      artifactDirectory: "/var/lib/moltzap/artifacts",
-    }),
+    infrastructure: localInfrastructure("/var/lib/moltzap/artifacts"),
     samplesPerCell: 1,
   });
 }
@@ -384,10 +392,7 @@ function infrastructureResumeMismatchTest() {
         cases: reportPlan.cases,
         conditions: reportPlan.conditions,
         judgePolicy: reportPlan.judgePolicy,
-        infrastructure: LocalEvaluationInfrastructure.make({
-          ...reportPlan.infrastructure,
-          artifactDirectory: "/var/lib/moltzap/other-artifacts",
-        }),
+        infrastructure: localInfrastructure("/var/lib/moltzap/other-artifacts"),
         samplesPerCell: reportPlan.samplesPerCell,
       });
       const mismatch = yield* resumeStoredEvaluationReport(changedPlan).pipe(

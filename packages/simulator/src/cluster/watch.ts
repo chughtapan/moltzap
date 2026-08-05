@@ -177,9 +177,11 @@ export function controllerObservation(
 // that cannot be read costs detail in the failure message and nothing else. A
 // terminal Job whose Pod was evicted before its log could be fetched still has
 // to produce an observation rather than fail the whole activity attempt.
+// #ignore-sloppy-code-next-line[async-keyword]: projects the Promise-native Kubernetes client into one observation
 async function terminalControllerLogs(
   api: RunControlApi,
   namespace: string,
+  // #ignore-sloppy-code-next-line[promise-type]: projects the Promise-native Kubernetes client into one observation
 ): Promise<string | undefined> {
   try {
     return await api.readControllerLogs(
@@ -206,9 +208,11 @@ async function terminalControllerLogs(
  * @param input Run identity carrying the namespace to observe.
  * @returns The coarse controller state, with a result once one is decodable.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: projects the Promise-native Kubernetes client into one observation
 export async function observeController(
   api: RunControlApi,
   input: RunSocietyWorkflowInput,
+  // #ignore-sloppy-code-next-line[promise-type]: projects the Promise-native Kubernetes client into one observation
 ): Promise<ControllerObservation> {
   const job = await api.readControllerJob(input.namespace);
   const logs =

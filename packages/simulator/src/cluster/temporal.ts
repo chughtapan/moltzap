@@ -107,9 +107,11 @@ class RunWorkerConfigurationFailed extends Error {
   override readonly name = "RunWorkerConfigurationFailed";
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 async function runControllerOnce(
   operations: LifecycleOperationsService,
   input: RunSocietyWorkflowInput,
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<RunControllerResult> {
   await operations.prepareRun(input);
   for (;;) {
@@ -138,9 +140,11 @@ async function runControllerOnce(
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 async function cleanupRun(
   operations: LifecycleOperationsService,
   input: CleanupRunInput,
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<void> {
   await operations.deleteRunNamespace(input.namespace);
   while (await operations.runNamespaceExists(input.namespace)) {
@@ -182,8 +186,10 @@ export function kubernetesLifecycleOperations(
  * @param options Existing connection, namespace, queue, and activity implementations.
  * @returns A worker ready to poll the selected task queue.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 async function createRunSocietyWorker(
   options: RunSocietyWorkerOptions,
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<Worker> {
   return await Worker.create({
     connection: options.connection,
@@ -221,8 +227,10 @@ function workerProfile(
  * @param environment Temporal endpoint, queue, and cluster profile.
  * @returns Nothing once the worker has shut down and released its connection.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 export async function serveRunSocietyWorker(
   environment: RunWorkerEnvironment,
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<void> {
   const connection = await NativeConnection.connect({
     address: required(environment, "MOLTZAP_TEMPORAL_ADDRESS"),
@@ -255,9 +263,11 @@ export async function serveRunSocietyWorker(
  * @param options Caller-selected Temporal client, identity, and task queue.
  * @returns The successful controller activity result.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 export async function executeRunSocietyWorkflow(
   input: RunSocietyWorkflowInput,
   options: RunSocietyWorkflowExecutionOptions,
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<RunControllerResult> {
   return await options.client.execute<typeof runSocietyWorkflow>(
     WORKFLOW_TYPE,
@@ -280,8 +290,10 @@ export async function executeRunSocietyWorkflow(
  * @param options Temporal endpoint plus caller-owned workflow and run inputs.
  * @returns The successful controller activity result.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 export async function runTemporalSociety(
   options: RunTemporalSocietyOptions,
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<RunControllerResult> {
   const namespace = options.temporalNamespace ?? DEFAULT_TEMPORAL_NAMESPACE;
   await installRunWorker(
