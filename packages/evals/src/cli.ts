@@ -9,7 +9,7 @@ import {
   LedgerStorageError,
   type CompletedLedgerArtifacts,
 } from "@moltzap/simulator/ledger";
-import type { DistributedContainerImage } from "@moltzap/simulator/runtime";
+import type { Image } from "@moltzap/simulator/agents";
 import { Config, DateTime, Duration, Effect, Option, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import {
@@ -117,9 +117,9 @@ interface RuntimeOptions {
 interface EvaluationExecutionEnvironment {
   readonly workspaceRoot: string;
   readonly profile: SimulatorProfile;
-  readonly peerApplicationImage: DistributedContainerImage;
-  readonly nanoclawApplicationImage: DistributedContainerImage;
-  readonly controllerImage: DistributedContainerImage;
+  readonly peerApplicationImage: Image;
+  readonly nanoclawApplicationImage: Image;
+  readonly controllerImage: Image;
   readonly temporalAddress: string;
   readonly kubeContext?: string;
   readonly localArtifacts?: string;
@@ -131,9 +131,9 @@ interface EvaluationExecutionEnvironment {
 }
 
 interface EvaluationExecutionImages {
-  readonly controllerImage: DistributedContainerImage;
-  readonly peerApplicationImage: DistributedContainerImage;
-  readonly nanoclawApplicationImage: DistributedContainerImage;
+  readonly controllerImage: Image;
+  readonly peerApplicationImage: Image;
+  readonly nanoclawApplicationImage: Image;
 }
 
 interface AttemptContext {
@@ -217,7 +217,7 @@ const exactSourceRevision = Effect.fn("evals.exactSourceRevision")(
 
 function evaluationConditions(
   options: RuntimeOptions,
-  nanoclawApplicationImage: DistributedContainerImage,
+  nanoclawApplicationImage: Image,
 ): readonly [EvaluationCondition, EvaluationCondition] {
   const execution = {
     peerObservationTimeout: PEER_OBSERVATION_TIMEOUT,
@@ -491,7 +491,7 @@ function ledgerAllocationFailed(context: AttemptContext) {
 function runInfrastructureFailed(
   context: AttemptContext,
   receipt: EvaluationSubmissionResult["result"]["summary"] & {
-    readonly _tag: "RunInfrastructureFailed";
+    readonly _tag: "ClusterLost";
   },
 ) {
   return DateTime.now.pipe(
@@ -547,7 +547,7 @@ function completeSubmission(
   if (summary._tag === "LedgerAllocationFailed") {
     return ledgerAllocationFailed(context);
   }
-  if (summary._tag === "RunInfrastructureFailed") {
+  if (summary._tag === "ClusterLost") {
     return runInfrastructureFailed(context, summary);
   }
   return completeSubmittedProgram(
@@ -680,7 +680,7 @@ function distributedApplicationImage(
     | "MOLTZAP_SUPPORT_IMAGE"
     | "MOLTZAP_NANOCLAW_IMAGE",
   value: string,
-): Effect.Effect<DistributedContainerImage, EvaluationSourceStateError> {
+): Effect.Effect<Image, EvaluationSourceStateError> {
   if (!DISTRIBUTED_IMAGE.test(value)) {
     return Effect.fail(
       EvaluationSourceStateError.make({
@@ -689,7 +689,7 @@ function distributedApplicationImage(
     );
   }
   // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The preceding exact digest pattern proves the simulator template-literal image contract.
-  return Effect.succeed(value as DistributedContainerImage);
+  return Effect.succeed(value as Image);
 }
 
 function executionImages() {

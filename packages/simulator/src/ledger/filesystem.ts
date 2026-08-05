@@ -10,7 +10,7 @@ import {
   LedgerManifest,
   type LedgerRef,
   ledgerRef,
-} from "./model.js";
+} from "./schema.js";
 import {
   LedgerStorage,
   LedgerStorageError,

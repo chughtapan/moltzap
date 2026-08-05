@@ -4,15 +4,15 @@ import { agentName } from "@moltzap/protocol/identity";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import type { EventOf } from "@moltzap/simulator";
 import {
-  NanoclawGatewayOutput,
-  type NanoclawGateway,
-  type NanoclawGatewayError,
-  type NanoclawGatewayInput,
+  NanoClawGatewayOutput,
+  type NanoClawGateway,
+  type NanoClawGatewayError,
+  type NanoClawGatewayInput,
   OpenClawGatewayResponse,
   type OpenClawGateway,
-  type OpenClawGatewayRequestFailed,
+  type OpenClawGatewayRequestError,
   type StartedAgent,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { makeAgentHandle } from "@moltzap/simulator/network";
 import {
   Deferred,
@@ -35,8 +35,8 @@ import {
 import {
   CodePeerMessageReceived,
   EvaluationEvidenceSelected,
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   PeerExchangeNotObserved,
@@ -70,7 +70,7 @@ const GATEWAY_RESPONSE = Schema.decodeSync(OpenClawGatewayResponse)({
   summary: "completed",
   result: { payloads: [{ text: "I contacted the requested peer." }] },
 });
-const NANOCLAW_OUTPUT = NanoclawGatewayOutput.make({
+const NANOCLAW_OUTPUT = NanoClawGatewayOutput.make({
   text: "Uncorrelated native output.",
 });
 const EXPECTED_OPENCLAW_TOOLS = {
@@ -177,7 +177,7 @@ function instrumentation<PeerRuntimes extends EvaluationCasePeerDefinitions>(
 ): Effect.Effect<
   EvaluationCaseInstrumentation<
     OpenClawGateway,
-    OpenClawGatewayRequestFailed,
+    OpenClawGatewayRequestError,
     PeerRuntimes
   >
 > {
@@ -211,8 +211,8 @@ function principalPeers(): EvaluationCasePeers<PrincipalPeerRuntimes> {
 }
 
 function nanoclawGateway(
-  submitted: Ref.Ref<readonly NanoclawGatewayInput[]>,
-): NanoclawGateway {
+  submitted: Ref.Ref<readonly NanoClawGatewayInput[]>,
+): NanoClawGateway {
   return {
     submit: (input) => Ref.update(submitted, (current) => [...current, input]),
     outputs: Stream.never,
@@ -224,12 +224,12 @@ function nanoclawInstrumentation<
 >(
   definition: EvaluationCaseDefinition<PeerRuntimes>,
   peers: EvaluationCasePeers<PeerRuntimes>,
-  gateway: NanoclawGateway,
+  gateway: NanoClawGateway,
   emit: EmitEvaluationEvent,
 ): Effect.Effect<
   EvaluationCaseInstrumentation<
-    NanoclawGateway,
-    NanoclawGatewayError,
+    NanoClawGateway,
+    NanoClawGatewayError,
     PeerRuntimes
   >
 > {
@@ -351,7 +351,7 @@ function nanoclawPrincipalOutputUnsupportedTest() {
   return Effect.gen(function* () {
     const definition = evaluationCases[8];
     const recorder = yield* eventRecorder();
-    const submitted = yield* Ref.make<readonly NanoclawGatewayInput[]>([]);
+    const submitted = yield* Ref.make<readonly NanoClawGatewayInput[]>([]);
     const acquired = yield* nanoclawInstrumentation(
       definition,
       principalPeers(),
@@ -364,7 +364,7 @@ function nanoclawPrincipalOutputUnsupportedTest() {
     assert.lengthOf(yield* Ref.get(submitted), 1);
     const records = yield* Ref.get(recorder.records);
     assert.lengthOf(records, 1);
-    assert.instanceOf(records[0]?.event, NanoclawPrincipalInputSent);
+    assert.instanceOf(records[0]?.event, NanoClawPrincipalInputSent);
     assert.isFalse(
       records.some(({ event }) => event instanceof EvaluationEvidenceSelected),
     );
@@ -380,7 +380,7 @@ function outputRecordingEmit(
       .emit(event)
       .pipe(
         Effect.tap(() =>
-          event instanceof NanoclawPrincipalOutputReceived
+          event instanceof NanoClawPrincipalOutputReceived
             ? Deferred.succeed(outputRecorded, undefined)
             : Effect.void,
         ),
@@ -388,9 +388,9 @@ function outputRecordingEmit(
 }
 
 function outputBeforeSubmitGateway(
-  submitted: Ref.Ref<readonly NanoclawGatewayInput[]>,
+  submitted: Ref.Ref<readonly NanoClawGatewayInput[]>,
   outputRecorded: Deferred.Deferred<undefined>,
-): NanoclawGateway {
+): NanoClawGateway {
   return {
     submit: (input) =>
       Ref.update(submitted, (current) => [...current, input]).pipe(
@@ -400,12 +400,12 @@ function outputBeforeSubmitGateway(
   };
 }
 
-function assertUncorrelatedNanoclawEvidence(
+function assertUncorrelatedNanoClawEvidence(
   records: readonly RecordedEvent[],
 ): void {
   assert.lengthOf(
     records.filter(
-      ({ event }) => event instanceof NanoclawPrincipalOutputReceived,
+      ({ event }) => event instanceof NanoClawPrincipalOutputReceived,
     ),
     1,
   );
@@ -414,7 +414,7 @@ function assertUncorrelatedNanoclawEvidence(
     1,
   );
   assert.lengthOf(
-    records.filter(({ event }) => event instanceof NanoclawPrincipalInputSent),
+    records.filter(({ event }) => event instanceof NanoClawPrincipalInputSent),
     1,
   );
   assert.isFalse(
@@ -426,7 +426,7 @@ function nanoclawIdentityOutputUnsupportedTest() {
   return Effect.gen(function* () {
     const definition = evaluationCases[10];
     const recorder = yield* eventRecorder();
-    const submitted = yield* Ref.make<readonly NanoclawGatewayInput[]>([]);
+    const submitted = yield* Ref.make<readonly NanoClawGatewayInput[]>([]);
     const outputRecorded = yield* Deferred.make<undefined>();
     const acquired = yield* nanoclawInstrumentation(
       definition,
@@ -444,7 +444,7 @@ function nanoclawIdentityOutputUnsupportedTest() {
     const failure = yield* runEvaluationCase(acquired).pipe(Effect.flip);
     assertUnsupportedPrincipalOutput(failure);
     assert.lengthOf(yield* Ref.get(submitted), 1);
-    assertUncorrelatedNanoclawEvidence(yield* Ref.get(recorder.records));
+    assertUncorrelatedNanoClawEvidence(yield* Ref.get(recorder.records));
   });
 }
 

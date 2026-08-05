@@ -2,7 +2,7 @@
 
 import type { Part } from "@moltzap/protocol/message";
 import type { SimulatorDefinitionId } from "@moltzap/simulator";
-import type { StartedAgent } from "@moltzap/simulator/runtime";
+import type { StartedAgent } from "@moltzap/simulator/agents";
 import { Array as Arr, Effect, type Option } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import {

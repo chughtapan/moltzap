@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as customerApi from "./index.js";
 import * as ledgerApi from "./ledger.js";
-import * as runtimeApi from "./runtime.js";
+import * as runtimeApi from "./agents.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -22,7 +22,7 @@ function loadPackageExports(): Record<string, unknown> {
 
 // @agent-code-guard/regression-only: exact package surfaces are finite dependency and privilege boundaries
 describe("@moltzap/simulator package map", () => {
-  it("publishes exactly the customer, network, ledger, and runtime surfaces", () => {
+  it("publishes exactly the customer, network, ledger, and agents surfaces", () => {
     expect(loadPackageExports()).toEqual({
       ".": {
         types: "./dist/index.d.ts",
@@ -36,16 +36,16 @@ describe("@moltzap/simulator package map", () => {
         types: "./dist/ledger.d.ts",
         import: "./dist/ledger.js",
       },
-      "./runtime": {
-        types: "./dist/runtime.d.ts",
-        import: "./dist/runtime.js",
+      "./agents": {
+        types: "./dist/agents.d.ts",
+        import: "./dist/agents.js",
       },
     });
   });
 });
 
 describe("@moltzap/simulator root export", () => {
-  it("keeps platform-authoring values off the experiment root", () => {
+  it("keeps cluster-authoring values off the experiment root", () => {
     expect(Object.keys(customerApi)).not.toEqual(
       expect.arrayContaining([
         "AgentRoster",
@@ -55,7 +55,7 @@ describe("@moltzap/simulator root export", () => {
         "makeAgentHandle",
         "makeParticipantHandle",
         "makeRouterStopReport",
-        "networkFailure",
+        "networkError",
         "effectRuntime",
         "nanoclawRuntime",
         "openClawRuntime",
@@ -78,7 +78,7 @@ describe("@moltzap/simulator root export", () => {
     expect(customerApi).not.toHaveProperty("simulatorLayer");
     expect(customerApi.RunSpec).toHaveProperty("define");
     expect(customerApi.Run).toHaveProperty("execute");
-    expect(customerApi).toHaveProperty("SimulatorInfrastructureFailure");
+    expect(customerApi).toHaveProperty("ClusterError");
   });
 });
 
@@ -88,10 +88,10 @@ describe("@moltzap/simulator/ledger package export", () => {
   });
 });
 
-describe("@moltzap/simulator/runtime package export", () => {
+describe("@moltzap/simulator/agents package export", () => {
   it("publishes container runtime definitions and shipped implementations", () => {
     expect([
-      typeof runtimeApi.defineDistributedRuntime,
+      typeof runtimeApi.defineContainerRuntime,
       typeof runtimeApi.nanoclawRuntime,
       typeof runtimeApi.openClawRuntime,
     ]).toEqual(["function", "function", "function"]);

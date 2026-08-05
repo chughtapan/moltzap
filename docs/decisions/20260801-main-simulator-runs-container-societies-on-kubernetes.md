@@ -33,7 +33,7 @@ Kubernetes cohort.
 Experiments need one core path that can run the same society on a local
 Kubernetes cluster or GKE. The selected stack is Kubernetes, Kueue, Agent
 Sandbox, and Temporal. The first useful proof is a small complete society,
-then ten agents and real evaluations; the earlier 1,000–10,000-agent goal is
+then four agents and real evaluations; the earlier 1,000–10,000-agent goal is
 deferred until that path works.
 
 ## Decision Outcome
@@ -50,7 +50,7 @@ export default RunSpec.define({
   id: "acme.echo/v1",
   events: [echoEvents],
   agents: { alice, bob },
-  infrastructure: localKubernetes,
+  cluster: localKubernetes,
   execute: ({ agents, events, network, ledger }) =>
     Effect.gen(function* () {
       // Instruct agents through their native gateways, observe the society,
@@ -62,9 +62,9 @@ export default RunSpec.define({
 The example receives already-constructed runtime descriptors and an Effect
 Layer. It does not select new constructor names for either one.
 
-The `infrastructure` field contains either the local-Kubernetes or GKE Effect
-Layer. It selects the host without exposing Kubernetes, Kueue, Agent Sandbox,
-or Temporal objects to the roster or customer Effect. Moving a society between
+The `cluster` field contains either the local-Kubernetes or GKE Effect Layer.
+It selects the host without exposing Kubernetes, Kueue, Agent Sandbox, or
+Temporal objects to the roster or customer Effect. Moving a society between
 profiles changes that Layer, not its agents, events, or `execute` program.
 
 This is a small facade over the existing simulator concepts, not a second
@@ -191,8 +191,8 @@ The slice is complete only when all of the following use the core
 - a local-cluster two-agent smoke proves Kueue admission, one Sandbox/container
   per agent, native gateway readiness, execution, ledger evidence, and zero
   run-owned residue;
-- a local-cluster ten-agent run proves the same complete-roster path before any
-  larger scale claim;
+- a local-cluster four-agent run proves the same complete-roster path before
+  any larger scale claim;
 - all 32 OpenClaw/NanoClaw evaluation cells invoke `Run.execute` through
   Kubernetes and record their real outcomes, including honest operational or
   behavioral failures rather than forced passes;
@@ -226,7 +226,7 @@ The following are not part of this decision or its first implementation:
   preemption, autoscaling, router high availability, or production Temporal
   high availability;
 - a 100-, 1,000-, 5,000-, or 10,000-agent qualification claim before the
-  two- and ten-agent gates pass;
+  two- and four-agent gates pass;
 - a Nomad, Slurm, managed-batch, or GKE Autopilot implementation;
 - exact Secret-provider protocols, persistent-agent-state recovery, exhaustive
   NetworkPolicy design, or a general multi-tenant security platform; and

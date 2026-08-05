@@ -19,10 +19,10 @@ pinned value as `MOLTZAP_CONTROLLER_IMAGE`.
 
 The controller and Sandbox initializer use the same image:
 
-- controller main: `/opt/moltzap/dist/platform/controller/main.js`;
+- controller main: `/opt/moltzap/dist/cluster/controller/main.js`;
 - private infrastructure:
-  `/opt/moltzap/dist/platform/controller/infrastructure.js`;
-- bootstrap CLI: `/opt/moltzap/dist/platform/kubernetes/bootstrap.js`;
+  `/opt/moltzap/dist/cluster/controller/services.js`;
+- bootstrap CLI: `/opt/moltzap/dist/cluster/bootstrap.js`;
 - OpenClaw plugin overlay: `/opt/moltzap/application-overlay`.
 
 ## Create the cluster
@@ -103,7 +103,7 @@ The local profile submitter starts one Temporal workflow. Its controller
 activity creates the run namespace and `LocalQueue`, mounts the experiment
 module, exposes the controller's production router Service, and sets the closed
 `MOLTZAP_*` environment accepted by
-`controllerInfrastructureFromEnvironment`. Ledger directories use a
+`controllerServicesFromEnvironment`. Ledger directories use a
 run-specific child beneath the mounted artifact root; no Kubernetes or
 Temporal objects enter the experiment context.
 

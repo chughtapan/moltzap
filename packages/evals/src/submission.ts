@@ -6,7 +6,7 @@ import {
   LedgerReceipt,
   type SimulatorDefinitionId,
 } from "@moltzap/simulator";
-import type { DistributedContainerImage } from "@moltzap/simulator/runtime";
+import type { Image } from "@moltzap/simulator/agents";
 import { Effect, Either, Schema } from "effect";
 import type { ConditionId, EvaluationCaseId } from "./model.js";
 
@@ -18,7 +18,7 @@ const programFinishedSummary = Schema.Struct({
   receipt: CompletedLedgerReceipt,
 });
 const runInfrastructureFailedSummary = Schema.Struct({
-  _tag: Schema.Literal("RunInfrastructureFailed"),
+  _tag: Schema.Literal("ClusterLost"),
   receipt: LedgerReceipt,
 });
 const ledgerAllocationFailedSummary = Schema.Struct({
@@ -66,8 +66,8 @@ export interface SubmitEvaluationCellInput {
   readonly definitionId: SimulatorDefinitionId;
   readonly attemptId: string;
   readonly condition: SubmissionCondition;
-  readonly peerApplicationImage: DistributedContainerImage;
-  readonly nanoclawApplicationImage: DistributedContainerImage;
+  readonly peerApplicationImage: Image;
+  readonly nanoclawApplicationImage: Image;
   readonly runtimeStartupTimeoutMillis: number;
   readonly peerObservationTimeoutMillis: number;
   readonly caseTimeoutMillis: number;
@@ -109,7 +109,7 @@ export function evaluationControllerModule(
     'import { Duration } from "effect";',
     'import { evaluationCase } from "/opt/moltzap/node_modules/@moltzap/evals/dist/cases.js";',
     'import { evaluationCellRunSpec, nanoclawEvaluationCondition, openClawEvaluationCondition } from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js";',
-    'import { controllerInfrastructureFromEnvironment } from "/opt/moltzap/dist/platform/controller/infrastructure.js";',
+    'import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
     `const definition = evaluationCase(${literal(input.caseId)});`,
     `if (definition === undefined || definition.definitionId !== ${literal(input.definitionId)}) throw new Error("evaluation case definition is unavailable");`,
     `const condition = ${condition};`,
@@ -118,7 +118,7 @@ export function evaluationControllerModule(
     "  condition,",
     `  attemptId: ${literal(input.attemptId)},`,
     `  peerApplicationImage: ${literal(input.peerApplicationImage)},`,
-    "  infrastructure: controllerInfrastructureFromEnvironment(),",
+    "  cluster: controllerServicesFromEnvironment(),",
     "});",
     "",
   ].join("\n");

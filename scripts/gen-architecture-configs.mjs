@@ -365,9 +365,9 @@ const packageDefinitions = {
             "Published ledger contract for records, storage, live runs, and offline inspection",
         },
         {
-          file: "runtime.ts",
+          file: "agents.ts",
           reason:
-            "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations",
+            "Published agent contract for autonomous agents, keyed rosters, and shipped runtime implementations",
         },
         {
           file: "events/catalog.ts",
@@ -380,12 +380,12 @@ const packageDefinitions = {
             "Closed kernel event catalog and producer-bound event writer contracts",
         },
         {
-          file: "kernel/event-services.ts",
+          file: "run/events.ts",
           reason:
             "Definition-bound Effect services for readable ledgers and customer-owned event emission",
         },
         {
-          file: "ledger/model.ts",
+          file: "ledger/schema.ts",
           reason:
             "Durable record, manifest, completion, digest, and ledger-reference model",
         },
@@ -395,88 +395,78 @@ const packageDefinitions = {
             "Storage port that keeps allocation, append, completion, and reading independent of the filesystem implementation",
         },
         {
-          file: "ledger/live.ts",
+          file: "ledger/append.ts",
           reason:
             "Live-ledger boundary for ordered append, failure latching, completion, and typed event streams",
         },
         {
-          file: "ledger/open.ts",
+          file: "ledger/read.ts",
           reason: "Completed-ledger validation and offline opening boundary",
         },
         {
-          file: "kernel/outcomes.ts",
+          file: "run/outcomes.ts",
           reason:
             "Causal outcome conversion shared by runtime, router, and program lifecycle modules",
         },
         {
-          file: "kernel/router.ts",
+          file: "run/router.ts",
           reason:
             "Router lifecycle boundary coupling scoped acquisition and shutdown with durable causal outcomes",
         },
         {
-          file: "kernel/run.ts",
+          file: "run/execute.ts",
           reason:
             "Run boundary composing definitions, scoped resources, lifecycle outcomes, and the customer Effect",
         },
         {
-          file: "platform/failure.ts",
+          file: "cluster/cluster.ts",
           reason:
-            "Mechanism-neutral infrastructure failure shared by the public run outcome and private execution platforms",
+            "Private run-scoped cluster port for complete-roster preparation, exact runtime acquisition, cohort readiness, cluster-loss observation, and the mechanism-neutral cluster error shared with the public run outcome",
         },
         {
-          file: "platform/platform.ts",
-          reason:
-            "Private run-scoped platform port for complete-roster preparation, exact runtime acquisition, cohort readiness, and infrastructure-loss observation",
-        },
-        {
-          file: "platform/controller/configuration.ts",
+          file: "cluster/controller/configuration.ts",
           reason:
             "Closed controller environment boundary shared by the executable entry point and infrastructure composition",
         },
         {
-          file: "platform/kubernetes/api.ts",
+          file: "cluster/kubernetes/calls.ts",
           reason:
-            "Narrow Kubernetes operation port consumed by the controller composition boundary",
+            "Sole Kubernetes API surface: the narrow society port the controller drives, the run-lifecycle port the worker drives, and the installation port the host drives",
         },
         {
-          file: "platform/kubernetes/profile.ts",
+          file: "cluster/kubernetes/objects.ts",
+          reason:
+            "Sole Kubernetes object surface: every manifest, name, and generated type the simulator builds, so behavior modules stay swappable across schedulers",
+        },
+        {
+          file: "cluster/profile.ts",
           reason:
             "Closed local-or-GKE execution profile shared by host submission and Temporal adapters",
         },
         {
-          file: "platform/kubernetes/platform.ts",
+          file: "cluster/cohort.ts",
           reason:
-            "Kubernetes implementation boundary for the private SocietyPlatform port",
+            "Kubernetes implementation boundary for the private Cluster port",
         },
         {
-          file: "platform/temporal/contract.ts",
+          file: "cluster/temporal.ts",
           reason:
-            "Serializable workflow and activity contract shared by Temporal adapters and host submission",
+            "Temporal activity, worker, client, and host submission boundary holding every non-deterministic use of the SDK",
         },
         {
-          file: "platform/temporal/activities.ts",
+          file: "cluster/reclaim.ts",
           reason:
-            "Temporal activity construction boundary over injectable Kubernetes lifecycle operations",
+            "SDK-discovered deterministic workflow entry point and its serializable activity contract, kept in its own bundle module",
         },
         {
-          file: "platform/temporal/client.ts",
+          file: "cluster/scaffold.ts",
           reason:
-            "Temporal client adapter kept separate from worker and deterministic workflow code",
+            "Ordered stand-up of one run's Kubernetes control objects, driven by the Temporal activity boundary",
         },
         {
-          file: "platform/temporal/run.ts",
+          file: "cluster/submit.ts",
           reason:
-            "Host composition entry point for one local-or-GKE Temporal-managed run",
-        },
-        {
-          file: "platform/temporal/worker.ts",
-          reason:
-            "Temporal worker construction boundary owning the SDK workflow bundle path",
-        },
-        {
-          file: "platform/temporal/workflow.ts",
-          reason:
-            "SDK-discovered deterministic workflow entry point kept in its own bundle module",
+            "Shared submission boundary binding one experiment module, run identity, and profile to a Temporal-managed cluster",
         },
         {
           file: "network/endpoint.ts",
@@ -503,47 +493,47 @@ const packageDefinitions = {
             "Router port, framed message model, connection contract, and typed network failures",
         },
         {
-          file: "network/moltzap.ts",
+          file: "network/driver.ts",
           reason:
-            "Private MoltZap router implementation composed over the controller-owned server-process driver",
+            "Private router implementation composed over the controller-owned router server process",
         },
         {
-          file: "network/server-process.ts",
+          file: "network/server/process.ts",
           reason:
             "Private controller entry point owning the installed production router process and stopped-store evidence",
         },
         {
-          file: "runtime/runtime.ts",
+          file: "agents/agent.ts",
           reason:
             "Nominal runtime metadata and exact gateway type contract shared by every container runtime",
         },
         {
-          file: "runtime/roster.ts",
+          file: "agents/roster.ts",
           reason:
             "Keyed mixed-runtime roster preserving each agent's exact gateway and acquisition-error types",
         },
         {
-          file: "runtime/distributed.ts",
+          file: "agents/container.ts",
           reason:
-            "Container descriptor and runtime-specific bridge capability shared by the Kubernetes platform and shipped runtimes",
+            "Container descriptor and runtime-specific bridge capability shared by the Kubernetes cluster and shipped runtimes",
         },
         {
-          file: "runtime/command.ts",
+          file: "network/server/command.ts",
           reason:
             "Supervised child-process construction and bounded process-tree cleanup for the controller-owned router",
         },
         {
-          file: "runtime/packages.ts",
+          file: "network/server/packages.ts",
           reason:
             "Installed package discovery used by the controller-owned production router process",
         },
         {
-          file: "runtime/nanoclaw/runtime.ts",
+          file: "agents/nanoclaw/runtime.ts",
           reason:
             "NanoClaw application-container descriptor and exact controller bridge",
         },
         {
-          file: "runtime/openclaw/runtime.ts",
+          file: "agents/openclaw/runtime.ts",
           reason:
             "OpenClaw application-container descriptor and exact controller bridge",
         },
@@ -551,26 +541,21 @@ const packageDefinitions = {
       layers: [
         {
           name: "composition",
-          folders: [
-            "platform/controller",
-            "platform/temporal",
-            "platform/local",
-            "platform/gke",
-          ],
+          folders: ["cluster/controller", "cluster/profiles"],
           reason:
-            "Controller and host entry points compose the run kernel with Temporal and concrete platform capabilities",
+            "Controller and host entry points compose the run with Temporal and concrete cluster capabilities",
         },
         {
-          name: "kernel",
-          folders: ["kernel"],
+          name: "run",
+          folders: ["run"],
           reason:
-            "The run kernel orchestrates capability contracts without becoming a dependency of them",
+            "The run orchestrates capability contracts without becoming a dependency of them",
         },
         {
           name: "capabilities",
-          folders: ["events", "ledger", "network", "platform", "runtime"],
+          folders: ["events", "ledger", "network", "cluster", "agents"],
           reason:
-            "Peer event, ledger, network, platform, and runtime capabilities compose through typed ports and do not form a truthful linear stack",
+            "Peer event, ledger, network, cluster, and agent capabilities compose through typed ports and do not form a truthful linear stack",
         },
       ],
     },

@@ -25,7 +25,7 @@ export {
   makeLedgerRecordSchema,
   type JsonObject,
   type LedgerRecord,
-} from "./ledger/model.js";
+} from "./ledger/schema.js";
 /** Re-exports the public API from `./ledger/storage.js`. */
 export {
   LedgerStorage,
@@ -47,10 +47,10 @@ export {
   type CompletedRunLedger,
   type LedgerInvalidReason,
   type LedgerOpenError,
-} from "./ledger/open.js";
+} from "./ledger/read.js";
 /** Re-exports the public API from `./ledger/live.js`. */
 export {
   LedgerSerializationError,
   type LedgerFailure,
   type RunLedger,
-} from "./ledger/live.js";
+} from "./ledger/append.js";

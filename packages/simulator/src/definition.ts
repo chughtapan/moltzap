@@ -6,18 +6,18 @@ import {
   makeDefinitionEventServices,
   type CustomerEvents,
   type ReadableRunLedger,
-} from "./kernel/event-services.js";
+} from "./run/events.js";
 import type { LedgerStorage } from "./ledger/storage.js";
-import { runSociety } from "./kernel/run.js";
+import { runSociety } from "./run/execute.js";
 import { Network, type NetworkService } from "./network/endpoint.js";
 import type { RouterProvider } from "./network/router.js";
-import type { SocietyPlatform } from "./platform/platform.js";
+import type { Cluster } from "./cluster/cluster.js";
 import {
   makeAgentRosterBinding,
   type AgentRoster,
   type StartedAgents,
-} from "./runtime/roster.js";
-import type { AgentRuntimeLike } from "./runtime/runtime.js";
+} from "./agents/roster.js";
+import type { AgentRuntimeLike } from "./agents/agent.js";
 
 /** Stable code identity persisted in every ledger manifest. */
 export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
@@ -73,10 +73,7 @@ type DefinitionEventServices<
 >;
 
 /** Opaque service set supplied by a local-Kubernetes or GKE Layer. */
-export type RunInfrastructureServices =
-  | LedgerStorage
-  | RouterProvider
-  | SocietyPlatform;
+export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
 
 interface RunExecutionContext<
   Id extends SimulatorDefinitionId,
@@ -91,24 +88,24 @@ interface RunExecutionContext<
   >;
 }
 
-function provideRunInfrastructure<
+function provideCluster<
   const Id extends SimulatorDefinitionId,
   const CustomerCatalogs extends readonly AnyEventCatalog[],
   const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
   A,
   E,
   R,
-  InfrastructureServices,
-  InfrastructureError,
-  InfrastructureRequirements,
+  ClusterLayerServices,
+  ClusterLayerError,
+  ClusterLayerRequirements,
 >(
   eventServices: DefinitionEventServices<Id, CustomerCatalogs>,
   roster: AgentRoster<Id, Definitions>,
   program: Effect.Effect<A, E, R>,
-  infrastructure: Layer.Layer<
-    InfrastructureServices,
-    InfrastructureError,
-    InfrastructureRequirements
+  cluster: Layer.Layer<
+    ClusterLayerServices,
+    ClusterLayerError,
+    ClusterLayerRequirements
   >,
 ) {
   return runSociety({
@@ -117,7 +114,7 @@ function provideRunInfrastructure<
     roster,
     program,
     options: {},
-  }).pipe(Effect.provide(infrastructure));
+  }).pipe(Effect.provide(cluster));
 }
 
 type RunSpecExecution<
@@ -127,18 +124,18 @@ type RunSpecExecution<
   A,
   E,
   R,
-  Infrastructure extends Layer.Layer<never, unknown, unknown>,
+  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
 > = ReturnType<
-  typeof provideRunInfrastructure<
+  typeof provideCluster<
     Id,
     CustomerCatalogs,
     Definitions,
     A,
     E,
     R,
-    Layer.Layer.Success<Infrastructure>,
-    Layer.Layer.Error<Infrastructure>,
-    Layer.Layer.Context<Infrastructure>
+    Layer.Layer.Success<ClusterLayer>,
+    Layer.Layer.Error<ClusterLayer>,
+    Layer.Layer.Context<ClusterLayer>
   >
 >;
 
@@ -149,7 +146,7 @@ type RunSpecRunner<
   A,
   E,
   R,
-  Infrastructure extends Layer.Layer<never, unknown, unknown>,
+  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
 > = () => RunSpecExecution<
   Id,
   CustomerCatalogs,
@@ -157,12 +154,16 @@ type RunSpecRunner<
   A,
   E,
   R,
-  Infrastructure
+  ClusterLayer
 >;
 
-type AnyRunSpecRunner = () => Effect.Effect<unknown, unknown, unknown>;
-
-const runSpecRunners = new WeakMap<object, AnyRunSpecRunner>();
+/**
+ * A registered symbol, not a module-local one. The controller reaches an
+ * experiment through a dynamic import, so a spec is routinely built in the
+ * experiment's module graph and executed in the controller's; an unregistered
+ * symbol differs between those copies and a correct spec would be rejected.
+ */
+const runSpecTypeId: unique symbol = Symbol.for("@moltzap/simulator/RunSpec");
 
 /** Immutable code-first definition of one experiment society. */
 export interface RunSpec<
@@ -175,20 +176,35 @@ export interface RunSpec<
   A = unknown,
   E = unknown,
   R = never,
-  Infrastructure extends Layer.Layer<
+  ClusterLayer extends Layer.Layer<
     never,
     unknown,
     unknown
-  > = Layer.Layer<RunInfrastructureServices>,
+  > = Layer.Layer<ClusterServices>,
 > {
+  /**
+   * Present only on the exact values RunSpec.define produced, and carrying
+   * their runner. This is the one identity gate: nothing structural
+   * distinguishes a definition from a lookalike, and a lookalike has no
+   * runner to invoke.
+   */
+  readonly [runSpecTypeId]?: RunSpecRunner<
+    Id,
+    CustomerCatalogs,
+    Definitions,
+    A,
+    E,
+    R,
+    ClusterLayer
+  >;
   readonly id: Id;
   readonly events: CustomerCatalogs;
   readonly agents: Definitions;
-  readonly infrastructure: Infrastructure &
+  readonly cluster: ClusterLayer &
     Layer.Layer<
-      RunInfrastructureServices,
-      Layer.Layer.Error<Infrastructure>,
-      Layer.Layer.Context<Infrastructure>
+      ClusterServices,
+      Layer.Layer.Error<ClusterLayer>,
+      Layer.Layer.Context<ClusterLayer>
     >;
   readonly execute: (
     context: RunExecutionContext<Id, CustomerCatalogs, Definitions>,
@@ -228,18 +244,18 @@ function makeRunSpecProgram<
 }
 
 function concreteLayer<
-  Infrastructure extends Layer.Layer<never, unknown, unknown>,
+  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
 >(
-  infrastructure: Infrastructure,
+  cluster: ClusterLayer,
 ): Layer.Layer<
-  Layer.Layer.Success<Infrastructure>,
-  Layer.Layer.Error<Infrastructure>,
-  Layer.Layer.Context<Infrastructure>
+  Layer.Layer.Success<ClusterLayer>,
+  Layer.Layer.Error<ClusterLayer>,
+  Layer.Layer.Context<ClusterLayer>
 >;
 function concreteLayer(
-  infrastructure: Layer.Layer<never, unknown, unknown>,
+  cluster: Layer.Layer<never, unknown, unknown>,
 ): Layer.Layer<never, unknown, unknown> {
-  return infrastructure;
+  return cluster;
 }
 
 function makeRunSpecRunner<
@@ -249,24 +265,18 @@ function makeRunSpecRunner<
   A,
   E,
   R,
-  Infrastructure extends Layer.Layer<never, unknown, unknown>,
+  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
 >(
   eventServices: DefinitionEventServices<Id, CustomerCatalogs>,
   roster: AgentRoster<Id, Definitions>,
   execute: (
     context: RunExecutionContext<Id, CustomerCatalogs, Definitions>,
   ) => Effect.Effect<A, E, R>,
-  infrastructure: Infrastructure,
-): RunSpecRunner<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure> {
+  cluster: ClusterLayer,
+): RunSpecRunner<Id, CustomerCatalogs, Definitions, A, E, R, ClusterLayer> {
   const program = makeRunSpecProgram(eventServices, roster, execute);
-  const providedInfrastructure = concreteLayer(infrastructure);
-  return () =>
-    provideRunInfrastructure(
-      eventServices,
-      roster,
-      program,
-      providedInfrastructure,
-    );
+  const providedCluster = concreteLayer(cluster);
+  return () => provideCluster(eventServices, roster, program, providedCluster);
 }
 
 function defineRunSpec<
@@ -276,50 +286,45 @@ function defineRunSpec<
   A,
   E,
   R,
-  const Infrastructure extends Layer.Layer<never, unknown, unknown>,
+  const ClusterLayer extends Layer.Layer<never, unknown, unknown>,
 >(
-  input: RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure>,
-): RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure> {
+  input: RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, ClusterLayer>,
+): RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, ClusterLayer> {
   const id = input.id;
   validateDefinitionId(id);
   const events = snapshotReadonlyArray(input.events);
-  const infrastructure = input.infrastructure;
+  const cluster = input.cluster;
   const execute = input.execute;
   const customerCatalog = EventCatalog.merge(EventCatalog.empty(), ...events);
   const eventServices = makeDefinitionEventServices(id, customerCatalog);
   const roster = makeAgentRosterBinding(id).agents(input.agents);
-  const run = makeRunSpecRunner(eventServices, roster, execute, infrastructure);
-  const spec = Object.freeze({
-    id,
-    events,
-    agents: roster.definitions,
-    infrastructure,
-    execute,
-  });
-  runSpecRunners.set(spec, run);
+  // Non-enumerable, so spreading a spec drops the brand: a copy carrying a
+  // replaced execute must not silently run the original program.
+  const spec: RunSpec<
+    Id,
+    CustomerCatalogs,
+    Definitions,
+    A,
+    E,
+    R,
+    ClusterLayer
+  > = Object.freeze(
+    Object.defineProperty(
+      { id, events, agents: roster.definitions, cluster, execute },
+      runSpecTypeId,
+      { value: makeRunSpecRunner(eventServices, roster, execute, cluster) },
+    ),
+  );
   return spec;
 }
 
-function runSpecRunnerFor<
-  Id extends SimulatorDefinitionId,
-  CustomerCatalogs extends readonly AnyEventCatalog[],
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
-  Infrastructure extends Layer.Layer<never, unknown, unknown>,
->(
-  spec: RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure>,
-): RunSpecRunner<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure>;
-function runSpecRunnerFor(spec: object): AnyRunSpecRunner {
-  const runner = runSpecRunners.get(spec);
-  if (runner === undefined) {
-    throw SimulatorDefinitionError.make({
-      definitionId: "unknown",
-      detail: "Run.execute requires the exact value returned by RunSpec.define",
-    });
-  }
-  return runner;
+/**
+ * Whether a value carries the brand RunSpec.define installs.
+ * @param value Candidate produced elsewhere, typically a module export.
+ * @returns Whether this simulator can execute the value as a RunSpec.
+ */
+export function isRunSpec(value: unknown): value is RunSpec {
+  return typeof value === "object" && value !== null && runSpecTypeId in value;
 }
 
 function executeRunSpec<
@@ -329,19 +334,18 @@ function executeRunSpec<
   A,
   E,
   R,
-  Infrastructure extends Layer.Layer<never, unknown, unknown>,
+  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
 >(
-  spec: RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, Infrastructure>,
-): RunSpecExecution<
-  Id,
-  CustomerCatalogs,
-  Definitions,
-  A,
-  E,
-  R,
-  Infrastructure
-> {
-  return runSpecRunnerFor(spec)();
+  spec: RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, ClusterLayer>,
+): RunSpecExecution<Id, CustomerCatalogs, Definitions, A, E, R, ClusterLayer> {
+  const runner = spec[runSpecTypeId];
+  if (runner === undefined) {
+    throw SimulatorDefinitionError.make({
+      definitionId: spec.id,
+      detail: "Run.execute requires a RunSpec produced by RunSpec.define",
+    });
+  }
+  return runner();
 }
 
 /** Discoverable constructor for immutable experiment definitions. */

@@ -3,12 +3,12 @@ import { agentName } from "@moltzap/protocol/identity";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { ProgramSucceeded, RouterMessageCommitted } from "@moltzap/simulator";
 import {
-  NanoclawGatewayInput,
-  NanoclawGatewayOutput,
+  NanoClawGatewayInput,
+  NanoClawGatewayOutput,
   OpenClawGatewayRequest,
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { routerSequence } from "@moltzap/simulator/network";
 import { Effect, Schema, Stream } from "effect";
 import {
@@ -16,8 +16,8 @@ import {
   CodePeerMessageSent,
   EvaluationEvidenceProjectionError,
   EvaluationEvidenceSelected,
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   PeerExchangeNotObserved,
@@ -82,18 +82,18 @@ const OPENCLAW_OUTPUT = OpenClawPrincipalFinalOutput.make({
   }),
 });
 
-const NANOCLAW_INPUT = NanoclawPrincipalInputSent.make({
+const NANOCLAW_INPUT = NanoClawPrincipalInputSent.make({
   caseId: CASE_ID,
   agentName: BOB_NAME,
   agentId: BOB_ID,
-  input: NanoclawGatewayInput.make({ text: NANOCLAW_INPUT_TEXT }),
+  input: NanoClawGatewayInput.make({ text: NANOCLAW_INPUT_TEXT }),
 });
 
-const NANOCLAW_OUTPUT = NanoclawPrincipalOutputReceived.make({
+const NANOCLAW_OUTPUT = NanoClawPrincipalOutputReceived.make({
   caseId: CASE_ID,
   agentName: BOB_NAME,
   agentId: BOB_ID,
-  output: NanoclawGatewayOutput.make({ text: NANOCLAW_OUTPUT_TEXT }),
+  output: NanoClawGatewayOutput.make({ text: NANOCLAW_OUTPUT_TEXT }),
 });
 
 const CODE_SENT = CodePeerMessageSent.make({
@@ -169,8 +169,8 @@ it("declares the complete customer event universe", () => {
   const eventClasses = [
     OpenClawPrincipalInstructionAttempted,
     OpenClawPrincipalFinalOutput,
-    NanoclawPrincipalInputSent,
-    NanoclawPrincipalOutputReceived,
+    NanoClawPrincipalInputSent,
+    NanoClawPrincipalOutputReceived,
     CodePeerMessageSent,
     CodePeerMessageReceived,
     PeerExchangeNotObserved,

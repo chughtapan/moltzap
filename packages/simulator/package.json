@@ -34,9 +34,9 @@
       "types": "./dist/ledger.d.ts",
       "import": "./dist/ledger.js"
     },
-    "./runtime": {
-      "types": "./dist/runtime.d.ts",
-      "import": "./dist/runtime.js"
+    "./agents": {
+      "types": "./dist/agents.d.ts",
+      "import": "./dist/agents.js"
     }
   },
   "scripts": {
@@ -47,6 +47,7 @@
     "local:cluster:create": "nx run @moltzap/simulator:local-cluster-create",
     "local:controller:image": "nx run @moltzap/simulator:local-controller-image",
     "local:run": "nx run @moltzap/simulator:local-run",
+    "local:cluster:test": "nx run @moltzap/simulator:local-cluster-test",
     "gke:profile:check": "nx run @moltzap/simulator:gke-profile-check",
     "gke:run": "nx run @moltzap/simulator:gke-run",
     "typecheck:tests": "tsc -p tsconfig.test.json"
@@ -117,7 +118,18 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "node dist/platform/local/main.js"
+          "command": "node dist/cluster/profiles/local.js"
+        }
+      },
+      "local-cluster-test": {
+        "cache": false,
+        "dependsOn": [
+          "build"
+        ],
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "vitest run --config vitest.cluster.config.mjs"
         }
       },
       "gke-profile-check": {
@@ -131,7 +143,7 @@
         ],
         "options": {
           "cwd": "packages/simulator",
-          "command": "node --test gke/profile.test.mjs && bash -n gke/install-addons.sh && node --check dist/platform/gke/main.js"
+          "command": "node --test gke/profile.test.mjs && bash -n gke/install-addons.sh && node --check dist/cluster/profiles/gke.js"
         }
       },
       "gke-run": {
@@ -142,7 +154,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "node dist/platform/gke/main.js"
+          "command": "node dist/cluster/profiles/gke.js"
         }
       },
       "typecheck:tests": {
@@ -174,6 +186,7 @@
     "@moltzap/openclaw-channel": "workspace:^",
     "@moltzap/protocol": "workspace:^",
     "@moltzap/server-core": "workspace:*",
+    "@temporalio/activity": "1.21.1",
     "@temporalio/client": "1.21.1",
     "@temporalio/worker": "1.21.1",
     "@temporalio/workflow": "1.21.1",

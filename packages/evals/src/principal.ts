@@ -3,18 +3,18 @@
 import { agentName } from "@moltzap/protocol/identity";
 import type { CustomerEvents, LedgerFailure } from "@moltzap/simulator";
 import {
-  NanoclawGatewayInput,
-  type NanoclawGatewayError,
-  type NanoclawGateway,
+  NanoClawGatewayInput,
+  type NanoClawGatewayError,
+  type NanoClawGateway,
   OpenClawGatewayRequest,
   type OpenClawGateway,
-  type OpenClawGatewayRequestFailed,
+  type OpenClawGatewayRequestError,
   type StartedAgent,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { Effect, Option, Ref, Schema, Stream } from "effect";
 import {
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   type evaluationEvents,
@@ -86,7 +86,7 @@ function driveOpenClaw<Name extends string>(
   emit: EmitEvaluationEvent,
 ): Effect.Effect<
   Option.Option<EvaluationEvidenceId>,
-  OpenClawGatewayRequestFailed | LedgerFailure
+  OpenClawGatewayRequestError | LedgerFailure
 > {
   return Effect.gen(function* () {
     const instructionNumber = yield* Ref.getAndUpdate(
@@ -147,24 +147,24 @@ export const openClawPrincipalDriver = Object.freeze({
     ),
 }) satisfies PrincipalDriverFactory<
   OpenClawGateway,
-  OpenClawGatewayRequestFailed
+  OpenClawGatewayRequestError
 >;
 
-function driveNanoclaw<Name extends string>(
-  target: StartedAgent<Name, NanoclawGateway>,
+function driveNanoClaw<Name extends string>(
+  target: StartedAgent<Name, NanoClawGateway>,
   instruction: PrincipalInstruction,
   emit: EmitEvaluationEvent,
 ): Effect.Effect<
   Option.Option<EvaluationEvidenceId>,
-  NanoclawGatewayError | LedgerFailure
+  NanoClawGatewayError | LedgerFailure
 > {
   return Effect.gen(function* () {
-    const input = NanoclawGatewayInput.make({
+    const input = NanoClawGatewayInput.make({
       text: instruction.message,
     });
     yield* target.gateway.submit(input);
     yield* emit(
-      NanoclawPrincipalInputSent.make({
+      NanoClawPrincipalInputSent.make({
         caseId: instruction.caseId,
         agentName: decodeAgentName(target.agent.name),
         agentId: target.agent.id,
@@ -175,15 +175,15 @@ function driveNanoclaw<Name extends string>(
   }).pipe(Effect.withSpan("evals.principal.nanoclaw"));
 }
 
-function observeNanoclaw<Name extends string>(
-  target: StartedAgent<Name, NanoclawGateway>,
+function observeNanoClaw<Name extends string>(
+  target: StartedAgent<Name, NanoClawGateway>,
   caseId: EvaluationCaseId,
   emit: EmitEvaluationEvent,
-): Effect.Effect<never, NanoclawGatewayError | LedgerFailure> {
+): Effect.Effect<never, NanoClawGatewayError | LedgerFailure> {
   return target.gateway.outputs.pipe(
     Stream.runForEach((output) =>
       emit(
-        NanoclawPrincipalOutputReceived.make({
+        NanoClawPrincipalOutputReceived.make({
           caseId,
           agentName: decodeAgentName(target.agent.name),
           agentId: target.agent.id,
@@ -203,14 +203,14 @@ function observeNanoclaw<Name extends string>(
  * cannot identify a terminal response for evidence selection.
  */
 export const nanoclawPrincipalDriver: PrincipalDriverFactory<
-  NanoclawGateway,
-  NanoclawGatewayError
+  NanoClawGateway,
+  NanoClawGatewayError
 > = Object.freeze({
   make: () =>
     Effect.succeed(
       Object.freeze({
-        observe: observeNanoclaw,
-        drive: driveNanoclaw,
+        observe: observeNanoClaw,
+        drive: driveNanoClaw,
       }),
     ),
 });

@@ -1,7 +1,7 @@
 import { RunSpec } from "@moltzap/simulator";
-import { openClawRuntime } from "@moltzap/simulator/runtime";
+import { openClawRuntime } from "@moltzap/simulator/agents";
 import { Effect } from "effect";
-import { controllerInfrastructureFromEnvironment } from "/opt/moltzap/dist/platform/controller/infrastructure.js";
+import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
 
 const runtime = (identity) =>
   openClawRuntime({
@@ -23,7 +23,7 @@ export const runSpec = RunSpec.define({
     agent03: runtime("You are agent 03 in the local MoltZap smoke society."),
     agent04: runtime("You are agent 04 in the local MoltZap smoke society."),
   },
-  infrastructure: controllerInfrastructureFromEnvironment(),
+  cluster: controllerServicesFromEnvironment(),
   execute: ({ agents, network }) =>
     Effect.gen(function* () {
       const diagnostic = yield* network.endpoint("diagnostic");

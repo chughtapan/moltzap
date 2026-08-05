@@ -30,4 +30,4 @@ RUN npm install --omit=dev --no-audit --no-fund \
 COPY --from=overlay --chown=node:node /application-overlay /opt/moltzap/application-overlay
 
 USER node
-ENTRYPOINT ["node", "/opt/moltzap/dist/platform/controller/main.js"]
+ENTRYPOINT ["node", "/opt/moltzap/dist/cluster/controller/main.js"]

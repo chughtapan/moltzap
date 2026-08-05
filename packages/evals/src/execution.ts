@@ -10,18 +10,18 @@ import {
   ProgramSucceeded,
   RunSpec,
   coreEvents,
-  type RunInfrastructureServices,
+  type ClusterServices,
 } from "@moltzap/simulator";
 import {
   type AgentRuntime,
-  type DistributedContainerImage,
+  type Image,
   type StartedAgent,
   nanoclawRuntime,
   openClawRuntime,
   runtimeConfigurationProjection,
-  type NanoclawRuntimeOptions,
+  type NanoClawRuntimeOptions,
   type OpenClawRuntimeOptions,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import {
   openLedgerArtifacts,
   type CompletedLedgerArtifacts,
@@ -80,7 +80,7 @@ const decodeAgentName = Schema.decodeSync(agentName);
 
 /** Controller-owned services required by every evaluation cell RunSpec. */
 type EvaluationInfrastructure = Layer.Layer<
-  RunInfrastructureServices,
+  ClusterServices,
   LedgerStorageError
 >;
 
@@ -206,8 +206,8 @@ interface OpenClawEvaluationConditionOptions {
   readonly execution: EvaluationExecutionPolicy;
 }
 
-interface NanoclawEvaluationConditionOptions {
-  readonly runtime: NanoclawRuntimeOptions;
+interface NanoClawEvaluationConditionOptions {
+  readonly runtime: NanoClawRuntimeOptions;
   readonly execution: EvaluationExecutionPolicy;
 }
 
@@ -559,7 +559,7 @@ interface ExecuteConditionInput<
   readonly policy: EvaluationExecutionPolicy;
   readonly definition: EvaluationCaseDefinition<PeerDefinitions>;
   readonly execution: EvaluationExecutionInput;
-  readonly peerApplicationImage: DistributedContainerImage;
+  readonly peerApplicationImage: Image;
   readonly infrastructure: EvaluationInfrastructure;
 }
 
@@ -573,7 +573,7 @@ function materializePeerRuntimes<
   PeerDefinitions extends EvaluationCasePeerDefinitions,
 >(
   definitions: PeerDefinitions,
-  peerApplicationImage: DistributedContainerImage,
+  peerApplicationImage: Image,
 ): MaterializedPeerRuntimes<PeerDefinitions> {
   // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- Record.map preserves the exact keys of the immutable input record while replacing every value with its materialized runtime.
   return Rec.map(definitions, (definition: EvaluationPeerDefinition) =>
@@ -589,7 +589,7 @@ function makeConditionRuntimes<
 >(
   runtime: AgentRuntime<Gateway, RuntimeFailure, ConfigurationSchema>,
   definition: EvaluationCaseDefinition<PeerDefinitions>,
-  peerApplicationImage: DistributedContainerImage,
+  peerApplicationImage: Image,
 ) {
   return Object.freeze({
     ...materializePeerRuntimes(definition.peers, peerApplicationImage),
@@ -724,7 +724,7 @@ function evaluationRunSpec<
     id: definition.definitionId,
     events: [evaluationEvents],
     agents: makeConditionRuntimes(runtime, definition, peerApplicationImage),
-    infrastructure,
+    cluster: infrastructure,
     execute: ({ agents, events }) => {
       const { [TARGET_AGENT_NAME]: target, ...peers } = agents;
       return Effect.gen(function* () {
@@ -749,7 +749,7 @@ interface EvaluationCellRunSpecInput<
   readonly definition: EvaluationCaseDefinition<PeerDefinitions>;
   readonly condition: EvaluationCondition;
   readonly attemptId: string;
-  readonly peerApplicationImage: DistributedContainerImage;
+  readonly peerApplicationImage: Image;
   readonly infrastructure: EvaluationInfrastructure;
 }
 
@@ -830,7 +830,7 @@ export function openClawEvaluationCondition(
  * @returns A condition whose executor retains the NanoClaw gateway type.
  */
 export function nanoclawEvaluationCondition(
-  options: NanoclawEvaluationConditionOptions,
+  options: NanoClawEvaluationConditionOptions,
 ) {
   const id = decodeConditionId("nanoclaw/v2");
   const runtime = nanoclawRuntime(options.runtime);

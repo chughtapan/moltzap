@@ -4,8 +4,8 @@ import { Run, RunSpec, SimulatorDefinitionError } from "./definition.js";
 import { EventCatalog } from "./events/catalog.js";
 import { LedgerStorage } from "./ledger/storage.js";
 import { RouterProvider } from "./network/router.js";
-import { SocietyPlatform } from "./platform/platform.js";
-import { defineRuntime } from "./runtime/runtime.js";
+import { Cluster } from "./cluster/cluster.js";
+import { defineRuntime } from "./agents/agent.js";
 
 const testRuntimeConfiguration = Schema.Struct({});
 const configuration = {
@@ -25,11 +25,11 @@ class DefinitionObservation extends Schema.TaggedClass<DefinitionObservation>()(
 
 const definitionEvents = EventCatalog.make(DefinitionObservation);
 
-function definitionInfrastructure() {
+function definitionCluster() {
   return Layer.mergeAll(
     Layer.effect(LedgerStorage, Effect.never),
     Layer.effect(RouterProvider, Effect.never),
-    Layer.effect(SocietyPlatform, Effect.never),
+    Layer.effect(Cluster, Effect.never),
   );
 }
 
@@ -40,28 +40,28 @@ it("captures an immutable RunSpec without freezing caller-owned input", () => {
     name: "definition-binding-replacement",
     configuration,
   });
-  const infrastructure = definitionInfrastructure();
-  const replacementInfrastructure = definitionInfrastructure();
+  const cluster = definitionCluster();
+  const replacementCluster = definitionCluster();
   const execute = () => Effect.succeed("original");
   const replacementExecute = () => Effect.succeed("replacement");
   const input = {
     id: "acme.run-spec-snapshot/v1" as const,
     events,
     agents,
-    infrastructure,
+    cluster,
     execute,
   };
 
   const spec = RunSpec.define(input);
   input.events = [];
   agents.alice = replacementRuntime;
-  input.infrastructure = replacementInfrastructure;
+  input.cluster = replacementCluster;
   input.execute = replacementExecute;
 
   assert.strictEqual(spec.events.length, 1);
   assert.strictEqual(spec.events[0], definitionEvents);
   assert.strictEqual(spec.agents.alice, runtime);
-  assert.strictEqual(spec.infrastructure, infrastructure);
+  assert.strictEqual(spec.cluster, cluster);
   assert.strictEqual(spec.execute, execute);
   assert.isTrue(Object.isFrozen(spec));
   assert.isTrue(Object.isFrozen(spec.events));
@@ -72,8 +72,9 @@ it("captures an immutable RunSpec without freezing caller-owned input", () => {
     "id",
     "events",
     "agents",
-    "infrastructure",
+    "cluster",
     "execute",
+    Symbol.for("@moltzap/simulator/RunSpec"),
   ]);
   assert.throws(
     () => Run.execute({ ...spec, execute: replacementExecute }),

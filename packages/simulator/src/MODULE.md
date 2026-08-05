@@ -8,7 +8,7 @@ Code-first simulator API.
 
 ## Public surface
 
-### [`AgentConnection`](./network/router.ts#L120)
+### [`AgentConnection`](./network/router.ts#L80)
 
 _Interface_
 
@@ -154,7 +154,44 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`CompletedLedgerReceipt`](./kernel/run.ts#L100)
+### [`ClusterError`](./cluster/cluster.ts#L14)
+
+_Class_
+
+```ts
+export class ClusterError extends Data.TaggedError("ClusterError")<{
+  readonly detail: string;
+}> {}
+```
+
+Cluster loss that ends a run without exposing its backend.
+
+### [`ClusterLost`](./run/execute.ts#L137)
+
+_Class_
+
+```ts
+export class ClusterLost<
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+> extends Data.TaggedClass("ClusterLost")<{
+  readonly cause: Cause.Cause<SimulatorRunFailure<Definitions>>;
+  readonly receipt: LedgerReceipt;
+}> {}
+```
+
+Post-allocation cluster error plus all durable evidence retained.
+
+### [`ClusterServices`](./definition.ts#L76)
+
+_TypeAlias_
+
+```ts
+export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
+```
+
+Opaque service set supplied by a local-Kubernetes or GKE Layer.
+
+### [`CompletedLedgerReceipt`](./run/execute.ts#L104)
 
 _Class_
 
@@ -170,7 +207,7 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`ConversationAddress`](./network/conversation.ts#L38)
+### [`ConversationAddress`](./network/conversation.ts#L34)
 
 _Class_
 
@@ -218,7 +255,7 @@ export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()
 
 A participant allocated a conversation address for a nonempty group.
 
-### [`ConversationParticipants`](./network/conversation.ts#L29)
+### [`ConversationParticipants`](./network/conversation.ts#L25)
 
 _TypeAlias_
 
@@ -231,7 +268,7 @@ export type ConversationParticipants = readonly [
 
 Every conversation has at least one participant of any network role.
 
-### [`ConversationSocket`](./network/conversation.ts#L99)
+### [`ConversationSocket`](./network/conversation.ts#L95)
 
 _Class_
 
@@ -243,21 +280,21 @@ export class ConversationSocket {
    * The ordered receive cursor for this endpoint and conversation. Repeated
    * consumption advances the cursor instead of replaying old delivery.
    */
-  readonly messages: Stream.Stream<ReceivedMessage, NetworkFailure>;
+  readonly messages: Stream.Stream<ReceivedMessage, NetworkError>;
 
   readonly endpoint: ParticipantHandle;
   readonly address: ConversationAddress;
   private readonly sendMessage: (
     content: MessageParts,
-  ) => Effect.Effect<Message, NetworkFailure>;
+  ) => Effect.Effect<Message, NetworkError>;
 
   private constructor(
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
+    messages: Stream.Stream<ReceivedMessage, NetworkError>,
     sendMessage: (
       content: MessageParts,
-    ) => Effect.Effect<Message, NetworkFailure>,
+    ) => Effect.Effect<Message, NetworkError>,
   ) {
     this.endpoint = endpoint;
     this.address = address;
@@ -268,10 +305,10 @@ export class ConversationSocket {
   static [conversationSocketConstruction](
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
+    messages: Stream.Stream<ReceivedMessage, NetworkError>,
     sendMessage: (
       content: MessageParts,
-    ) => Effect.Effect<Message, NetworkFailure>,
+    ) => Effect.Effect<Message, NetworkError>,
   ): ConversationSocket {
     return new ConversationSocket(endpoint, address, messages, sendMessage);
   }
@@ -281,7 +318,7 @@ export class ConversationSocket {
    * @param content Value supplied to the operation.
    * @returns The created conversation socket.
    */
-  send(content: string | MessageParts): Effect.Effect<Message, NetworkFailure> {
+  send(content: string | MessageParts): Effect.Effect<Message, NetworkError> {
     return validateParts(parts(content)).pipe(Effect.flatMap(this.sendMessage));
   }
 
@@ -290,14 +327,14 @@ export class ConversationSocket {
    * consuming Effect, so the socket never skips an earlier message.
    * @returns The created conversation socket.
    */
-  receive(): Effect.Effect<ReceivedMessage, NetworkFailure> {
+  receive(): Effect.Effect<ReceivedMessage, NetworkError> {
     return this.messages.pipe(
       Stream.runHead,
       Effect.flatMap(
         Option.match({
           onNone: () =>
             Effect.fail(
-              networkFailure(
+              networkError(
                 "receive",
                 `conversation ${this.address.conversationId} ended before another message arrived`,
               ),
@@ -328,7 +365,7 @@ export const coreEvents = EventCatalog.merge(
 
 The exact event classes readable from every simulator run ledger.
 
-### [`CustomerEvents`](./kernel/event-services.ts#L38)
+### [`CustomerEvents`](./run/events.ts#L42)
 
 _Interface_
 
@@ -355,7 +392,7 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
 
 The closed encoded union persisted for a catalog.
 
-### [`Endpoint`](./network/endpoint.ts#L54)
+### [`Endpoint`](./network/endpoint.ts#L53)
 
 _Class_
 
@@ -389,7 +426,7 @@ export class Endpoint<Name extends string = string> {
    * sockets retain their own ordered delivery queues independently.
    * @returns Live endpoint delivery stream.
    */
-  messages(): Stream.Stream<ReceivedMessage, NetworkFailure> {
+  messages(): Stream.Stream<ReceivedMessage, NetworkError> {
     return this.inbox.messages;
   }
 
@@ -401,7 +438,7 @@ export class Endpoint<Name extends string = string> {
    */
   open(
     ...participants: ConversationParticipants
-  ): Effect.Effect<ConversationSocket, NetworkFailure> {
+  ): Effect.Effect<ConversationSocket, NetworkError> {
     const [first, ...rest] = participants;
     const ids: ParticipantIds = [
       first.id,
@@ -439,7 +476,7 @@ export class Endpoint<Name extends string = string> {
    */
   socket(
     address: ConversationAddress,
-  ): Effect.Effect<ConversationSocket, NetworkFailure> {
+  ): Effect.Effect<ConversationSocket, NetworkError> {
     const isParticipant = address.participants.some(
       (participant) => participant.id === this.participant.id,
     );
@@ -458,7 +495,7 @@ export class Endpoint<Name extends string = string> {
             ),
           )
       : Effect.fail(
-          networkFailure(
+          networkError(
             "socket",
             `participant ${this.participant.name} is not addressed by the conversation`,
           ),
@@ -670,7 +707,7 @@ export type EventClassOf<Catalog> = CatalogClassesOf<Catalog>;
 
 The closed constructor union declared by a catalog.
 
-### [`EventMetadata`](./kernel/event-services.ts#L22)
+### [`EventMetadata`](./run/events.ts#L26)
 
 _Interface_
 
@@ -693,7 +730,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](./kernel/run.ts#L109)
+### [`IncompleteLedgerReceipt`](./run/execute.ts#L113)
 
 _Class_
 
@@ -708,7 +745,7 @@ export class IncompleteLedgerReceipt extends Schema.TaggedClass<IncompleteLedger
 
 Physical receipt retained when ledger completion could not be published.
 
-### [`LedgerFailure`](./ledger/live.ts#L57)
+### [`LedgerFailure`](./ledger/append.ts#L57)
 
 _TypeAlias_
 
@@ -721,7 +758,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt`](./kernel/run.ts#L124)
+### [`LedgerReceipt`](./run/execute.ts#L128)
 
 _TypeAlias_
 
@@ -731,7 +768,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt`](./kernel/run.ts#L118)
+### [`LedgerReceipt`](./run/execute.ts#L122)
 
 _Variable_
 
@@ -769,7 +806,7 @@ export interface LinkControllerService {
   readonly disable: (
     from: ParticipantHandle,
     to: ParticipantHandle,
-  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
 }
 ```
 
@@ -814,7 +851,7 @@ export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 
 Nonempty protocol message content.
 
-### [`Network`](./network/endpoint.ts#L185)
+### [`Network`](./network/endpoint.ts#L184)
 
 _Class_
 
@@ -827,13 +864,13 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`NetworkFailure`](./network/router.ts#L49)
+### [`NetworkError`](./network/failure.ts#L21)
 
 _Class_
 
 ```ts
-export class NetworkFailure extends Schema.TaggedError<NetworkFailure>()(
-  "NetworkFailure",
+export class NetworkError extends Schema.TaggedError<NetworkError>()(
+  "NetworkError",
   {
     operation: networkOperation,
     detail: Schema.String,
@@ -847,7 +884,7 @@ export class NetworkFailure extends Schema.TaggedError<NetworkFailure>()(
 
 An operational failure at a network boundary.
 
-### [`NetworkService`](./network/endpoint.ts#L178)
+### [`NetworkService`](./network/endpoint.ts#L177)
 
 _Interface_
 
@@ -855,7 +892,7 @@ _Interface_
 export interface NetworkService {
   endpoint<const Name extends string>(
     name: Name,
-  ): Effect.Effect<Endpoint<Name>, NetworkFailure>;
+  ): Effect.Effect<Endpoint<Name>, NetworkError>;
 }
 ```
 
@@ -904,7 +941,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](./kernel/run.ts#L127)
+### [`ProgramFinished`](./run/execute.ts#L131)
 
 _Class_
 
@@ -945,7 +982,7 @@ export class ProgramSucceeded extends Schema.TaggedClass<ProgramSucceeded>()(
 
 The customer program returned successfully.
 
-### [`ReadableRunLedger`](./kernel/event-services.ts#L28)
+### [`ReadableRunLedger`](./run/events.ts#L32)
 
 _Interface_
 
@@ -962,7 +999,7 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`ReceivedMessage`](./network/router.ts#L75)
+### [`ReceivedMessage`](./network/router.ts#L35)
 
 _Interface_
 
@@ -1035,7 +1072,7 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
 
 Router release or stopped-router evidence collection failed.
 
-### [`Run`](./definition.ts#L354)
+### [`Run`](./definition.ts#L358)
 
 _Variable_
 
@@ -1047,35 +1084,7 @@ export const Run: Readonly<{ execute: typeof executeRunSpec }> = Object.freeze({
 
 Discoverable execution entry point for one experiment society.
 
-### [`RunInfrastructureFailed`](./kernel/run.ts#L133)
-
-_Class_
-
-```ts
-export class RunInfrastructureFailed<
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-> extends Data.TaggedClass("RunInfrastructureFailed")<{
-  readonly cause: Cause.Cause<SimulatorRunFailure<Definitions>>;
-  readonly receipt: LedgerReceipt;
-}> {}
-```
-
-Post-allocation infrastructure failure plus all durable evidence retained.
-
-### [`RunInfrastructureServices`](./definition.ts#L76)
-
-_TypeAlias_
-
-```ts
-export type RunInfrastructureServices =
-  | LedgerStorage
-  | RouterProvider
-  | SocietyPlatform;
-```
-
-Opaque service set supplied by a local-Kubernetes or GKE Layer.
-
-### [`RunSpec`](./definition.ts#L168)
+### [`RunSpec`](./definition.ts#L169)
 
 _Interface_
 
@@ -1090,20 +1099,35 @@ export interface RunSpec<
   A = unknown,
   E = unknown,
   R = never,
-  Infrastructure extends Layer.Layer<
+  ClusterLayer extends Layer.Layer<
     never,
     unknown,
     unknown
-  > = Layer.Layer<RunInfrastructureServices>,
+  > = Layer.Layer<ClusterServices>,
 > {
+  /**
+   * Present only on the exact values RunSpec.define produced, and carrying
+   * their runner. This is the one identity gate: nothing structural
+   * distinguishes a definition from a lookalike, and a lookalike has no
+   * runner to invoke.
+   */
+  readonly [runSpecTypeId]?: RunSpecRunner<
+    Id,
+    CustomerCatalogs,
+    Definitions,
+    A,
+    E,
+    R,
+    ClusterLayer
+  >;
   readonly id: Id;
   readonly events: CustomerCatalogs;
   readonly agents: Definitions;
-  readonly infrastructure: Infrastructure &
+  readonly cluster: ClusterLayer &
     Layer.Layer<
-      RunInfrastructureServices,
-      Layer.Layer.Error<Infrastructure>,
-      Layer.Layer.Context<Infrastructure>
+      ClusterServices,
+      Layer.Layer.Error<ClusterLayer>,
+      Layer.Layer.Context<ClusterLayer>
     >;
   readonly execute: (
     context: RunExecutionContext<Id, CustomerCatalogs, Definitions>,
@@ -1113,7 +1137,7 @@ export interface RunSpec<
 
 Immutable code-first definition of one experiment society.
 
-### [`RunSpec`](./definition.ts#L349)
+### [`RunSpec`](./definition.ts#L353)
 
 _Variable_
 
@@ -1169,19 +1193,7 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 Stable code identity persisted in every ledger manifest.
 
-### [`SimulatorInfrastructureFailure`](./platform/failure.ts#L6)
-
-_Class_
-
-```ts
-export class SimulatorInfrastructureFailure extends Data.TaggedError(
-  "SimulatorInfrastructureFailure",
-)<{ readonly detail: string }> {}
-```
-
-Infrastructure loss that ends a run without exposing its backend.
-
-### [`SimulatorRunFailure`](./kernel/run.ts#L148)
+### [`SimulatorRunFailure`](./run/execute.ts#L152)
 
 _TypeAlias_
 
@@ -1193,7 +1205,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOptions`](./kernel/run.ts#L58)
+### [`SimulatorRunOptions`](./run/execute.ts#L62)
 
 _Interface_
 
@@ -1206,7 +1218,7 @@ export interface SimulatorRunOptions {
 
 Optional run metadata; platform and runtime policy belong in Layers.
 
-### [`SimulatorRunOutcome`](./kernel/run.ts#L141)
+### [`SimulatorRunOutcome`](./run/execute.ts#L145)
 
 _TypeAlias_
 
@@ -1215,7 +1227,7 @@ export type SimulatorRunOutcome<
   A,
   E,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-> = ProgramFinished<A, E> | RunInfrastructureFailed<Definitions>;
+> = ProgramFinished<A, E> | ClusterLost<Definitions>;
 ```
 
 Closed result of every run whose ledger allocation succeeded.
@@ -1232,15 +1244,16 @@ Stable persisted identity for an event class.
 
 ## Files
 
+- `cluster.ts`
 - `definition.ts`
 - `catalog.ts`
 - `core.ts`
-- `event-services.ts`
-- `run.ts`
-- `live.ts`
+- `append.ts`
 - `conversation.ts`
 - `endpoint.ts`
+- `failure.ts`
 - `link.ts`
 - `participant.ts`
 - `router.ts`
-- `failure.ts`
+- `events.ts`
+- `execute.ts`
