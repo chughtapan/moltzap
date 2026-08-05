@@ -1,4 +1,4 @@
-Pre-refactor golden fixtures captured by `scripts/capture-channel-base-fixtures.ts`
+Pre-refactor golden fixtures captured by `scripts/test/capture-channel-base-fixtures.ts`
 (workspace-root location — see arch sub-issue #605 §3.5 for the dep-graph
 rationale). Populated by impl-staff in the first commit after the architect
 stubs (see arch sub-issue #605 §10 sequencing — step 1: "Capture pre-refactor

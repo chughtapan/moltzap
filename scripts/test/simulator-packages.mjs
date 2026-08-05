@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
-const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const packageRoot = join(workspaceRoot, "packages", "simulator");
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-simulator-pack-"));
 const forbiddenSimulatorPaths = [

@@ -2,11 +2,11 @@
 set -euo pipefail
 
 if [[ "$#" -eq 0 ]]; then
-  echo "usage: scripts/with-tempdir.sh <command> [args...]" >&2
+  echo "usage: scripts/lib/with-tempdir.sh <command> [args...]" >&2
   exit 64
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TMP_ROOT="${MOLTZAP_TMP_ROOT:-$ROOT_DIR/.tmp}"
 TMP_SCOPE="${MOLTZAP_TMP_SCOPE:-command}"
 SAFE_SCOPE="$(printf '%s' "$TMP_SCOPE" | tr -c 'A-Za-z0-9_.-' '-')"

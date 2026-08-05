@@ -2,7 +2,7 @@
  * Golden-snapshot tests for `formatCrossConv`.
  *
  * Each case asserts byte-equality between the channel-base output and the
- * fixture captured by `scripts/capture-channel-base-fixtures.ts`. Both markup
+ * fixture captured by `scripts/test/capture-channel-base-fixtures.ts`. Both markup
  * variants are covered, plus the formatter-callback escape hatch.
  */
 
