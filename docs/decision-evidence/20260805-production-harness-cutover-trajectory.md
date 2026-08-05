@@ -4,20 +4,26 @@ This is a curated, non-normative ledger of stored events. Timestamps are
 UTC. Excerpts are literal; spelling, capitalization, typographic errors,
 backticks, and hedges are preserved exactly as stored.
 
-Two source systems appear.
+Three source systems appear.
 
 **Repository events.** GitHub pull requests and issue comments in
 `chughtapan/moltzap`, with native numeric identifiers, stored author
 accounts, and creation timestamps. These are durable and resolvable by
 anyone with repository access.
 
-**Interactive session events.** A Claude Code session,
-`b48667a3-8edc-4cb4-9525-b21c9a43e8ee`, stored as a local transcript on
-the maintainer's machine. Each event below carries that session's
-identifier, the stored message identifier's first eight characters, and
-the stored timestamp. **This session is not checked in**, so those
-locators are verifiable on that machine and nowhere else. See
-[Source gaps](#source-gaps) before relying on them.
+**Claude Code session events.** Session
+`b48667a3-8edc-4cb4-9525-b21c9a43e8ee`, stored as a local transcript.
+Each event carries that session's identifier, the stored message
+identifier's first eight characters, and the stored timestamp.
+
+**Codex session events.** Session
+`019fba0c-9f1e-7911-9496-45b305a00cb5`, whose stored input history
+carries the text and epoch timestamp of each user turn. Timestamps
+below are that epoch converted to UTC.
+
+Neither session is checked in. Their locators are verifiable on the
+maintainer's machine and nowhere else. See [Source gaps](#source-gaps)
+before relying on them.
 
 The stored account on a repository event does not independently
 authenticate a person, and several retained pull-request bodies are
@@ -148,28 +154,52 @@ human choice.
 
    > we never accepted two mcps
 
-4. **Agent turn quoting an earlier, unarchived session.** Locator:
-   message `6dcea6f6`; `2026-08-04T21:30:03Z`. Agent-authored. The
-   quoted 2026-07-31 material is attributed to a session that is not
-   checked in and that the quoting agent read rather than this ledger's
-   author; it is retained here as a quotation inside an agent event,
-   never as a stored user event.
+4. **Stored user turn, codex session `019fba0c`.** Locator: codex
+   session `019fba0c-9f1e-7911-9496-45b305a00cb5`; stored input history
+   entry; `2026-07-31T21:57:09Z`.
 
-   > You're right that there's an unratified drift here. The transcript shows three distinct positions: **1. You asked for it** — 2026-07-31T21:57:10: > "lets also make registration a separate MCP path? so the CLI can be entirely removed; and everything becomes mcp-cli" **2. Then you collapsed it** — 23:54:10 and 23:56:46: > "i think it's fine to actualy have one MCP server instead of two now that I think about it." > "the daemon can handle both the things"
+   > lets also make registration a separate MCP path? so the CLI can be entirely removed; and everything becomes mcp-cli
 
-5. **Stored user turn, session `b48667a3`.** Locator: message
+5. **Stored user turn, codex session `019fba0c`.** Locator: the same
+   session; `2026-07-31T23:54:09Z`. Retained in full.
+
+   > i think it's fine to actualy have one MCP server instead of two now that I think about it. The other separation might be good that v1 has clean things for when to trigger, that is separate from the actual ledger mechanisms and the open group v1 and all that. we should keep that.
+
+6. **Stored user turn, codex session `019fba0c`.** Locator: the same
+   session; `2026-07-31T23:54:40Z`.
+
+   > the daemon can handle both the things
+
+7. **Agent turn, session `b48667a3`.** Locator: message `6dcea6f6`;
+   `2026-08-04T21:30:03Z`. Agent-authored. It quotes the three turns
+   above from a session it had read. Retained because the reply at
+   `8fd049fd` answers this turn, not the originals.
+   `[omitted: the remainder of the turn]`.
+
+   > You're right that there's an unratified drift here. The transcript shows three distinct positions: **1. You asked for it** — 2026-07-31T21:57:10:
+
+   **Correction, 2026-08-05.** This ledger's author located the codex
+   session and read the three turns directly. Two defects in the
+   quoting turn are recorded rather than propagated: it dates the third
+   turn `23:56:46` where the stored entry is `2026-07-31T23:54:40Z`,
+   and it ends the second quotation at "now that I think about it.",
+   dropping the remainder retained in event 5 above — including "we
+   should keep that." Events 4 through 6 supersede that turn's
+   quotations as the source of record.
+
+8. **Stored user turn, session `b48667a3`.** Locator: message
    `8fd049fd`; `2026-08-04T21:30:21Z`. Answers the preceding turn.
 
    > yes that should be corrected too
 
-6. **Stored user turn, session `b48667a3`.** Locator: message
+9. **Stored user turn, session `b48667a3`.** Locator: message
    `5a444536`; `2026-08-04T21:47:14Z`. The same turn retained above;
    the `status` clause bears on this decision.
 
    > keep status as a tool; docker suites? simplify as much as possible
 
-7. **Mechanical repository event.** Pull request
-   [`#961`](https://github.com/chughtapan/moltzap/pull/961), author
+10. **Mechanical repository event.** Pull request
+    [`#961`](https://github.com/chughtapan/moltzap/pull/961), author
    account `chughtapan`, `2026-08-05T20:08:27Z`, titled *feat(client):
    register on the daemon, and delete the CLI and socket plane*.
    Agent-authored body.
@@ -180,6 +210,13 @@ characterization for the clean-slate branch, where two paths are
 admitted. No retained user event addresses that contradiction. The ADR
 resolves it on branch-ownership grounds and does not rely on the
 "drift" framing.
+
+Event 5 retains a clause the quoting turn dropped: the same reply that
+accepts one MCP server also says another separation "might be good" and
+"we should keep that". Read in place, that clause is about v1 trigger
+semantics being distinct from ledger mechanisms, not about MCP paths.
+It is retained in full so a reader can judge that for themselves rather
+than take this note's word for it.
 
 Registration's non-idempotence is recorded in the ADR as a property of
 the existing server, not as a choice. No retained event states a
@@ -200,10 +237,14 @@ decision to make it idempotent or to leave it so.
    confirmation that the excerpts are accurate.** Until then, treat
    every session-sourced excerpt as attested rather than verifiable.
 
-2. **The 2026-07-31 session is unarchived and read second-hand.** The
-   one-versus-two MCP server exchange quoted at `6dcea6f6` comes from a
-   session this ledger's author never read. It is retained only as a
-   quotation inside an agent event.
+2. **Closed, 2026-08-05.** The one-versus-two MCP server exchange was
+   previously retained only as a second-hand quotation. The codex
+   session `019fba0c-9f1e-7911-9496-45b305a00cb5` was located on the
+   maintainer's machine and its stored input history read directly, so
+   those three turns are now first-hand events with stored timestamps.
+   Two defects in the earlier quotation are recorded at that event.
+   The session remains local to that machine, so the locator carries
+   the same resolvability limit as gap 1.
 
 3. **No retained event states a reason for any call.** The user turns
    are terse and none gives a rationale. Where the ADRs explain a
