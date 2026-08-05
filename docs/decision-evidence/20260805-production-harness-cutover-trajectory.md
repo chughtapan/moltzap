@@ -21,9 +21,13 @@ identifier's first eight characters, and the stored timestamp.
 carries the text and epoch timestamp of each user turn. Timestamps
 below are that epoch converted to UTC.
 
-Neither session is checked in. Their locators are verifiable on the
-maintainer's machine and nowhere else. See [Source gaps](#source-gaps)
-before relying on them.
+Neither session is checked in, so a session locator alone is verifiable
+only on the maintainer's machine. Every user turn cited below is
+therefore **also** transcribed into a durable repository event: issue
+`#926`, comment `5198672021`, `2026-08-05T23:46:22Z`, agent-authored
+under the maintainer's account. That comment is the resolvable locator;
+the session identifiers say where each turn came from. See
+[Source gaps](#source-gaps) for what that does and does not establish.
 
 The stored account on a repository event does not independently
 authenticate a person, and several retained pull-request bodies are
@@ -226,16 +230,15 @@ decision to make it idempotent or to leave it so.
 
 ## Source gaps
 
-1. **The interactive session is not checked in.** Every user event in
-   this ledger cites session `b48667a3-8edc-4cb4-9525-b21c9a43e8ee`, a
-   transcript stored locally on the maintainer's machine. A reviewer
-   without that machine cannot resolve those locators or confirm the
-   excerpts. The excerpts were extracted from the stored transcript
-   rather than recalled, but that assurance is the author's, not a
-   checkable property of this repository. **Closing this gap requires
-   either a durable locator for those turns or the maintainer's
-   confirmation that the excerpts are accurate.** Until then, treat
-   every session-sourced excerpt as attested rather than verifiable.
+1. **Narrowed, 2026-08-05: durable locator, unverifiable source.**
+   Every user turn cited here is transcribed verbatim into issue `#926`,
+   comment `5198672021`, so a reader can resolve and quote it from the
+   repository alone. What that comment cannot do is prove the
+   transcription faithful: both sessions remain local to the
+   maintainer's machine, and the comment is agent-authored. A reader
+   gets a stable, citable text; only the maintainer can confirm it
+   against the transcripts. Treat the excerpts as durably recorded and
+   maintainer-attestable, not as independently verifiable.
 
 2. **Closed, 2026-08-05.** The one-versus-two MCP server exchange was
    previously retained only as a second-hand quotation. The codex
