@@ -50,7 +50,6 @@ export {
 export { textContent } from "./messages.js";
 /** Re-exports the public API from `./server.js`. */
 export { coreBaseUrl, coreWsUrl, setupServiceIntegration } from "./server.js";
-/** Re-exports the public API from `./socket.js`. */
 /** Re-exports the public API from `@moltzap/protocol/conversation`. */
 export {
   agentConversationCreate,
