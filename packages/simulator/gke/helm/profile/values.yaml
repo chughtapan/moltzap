@@ -13,9 +13,10 @@ agentPool:
     value: "true"
     effect: NoSchedule
 
-# These conservative quotas match the fixed Terraform profile: one
-# e2-standard-8 node in each of three zones, with node headroom retained.
+# Held below one e2-standard-16's measured allocatable capacity (15890m cpu,
+# 57Gi memory, 43Gi ephemeral storage), not its advertised size. Sized with
+# agent_max_nodes; see the profile README.
 quota:
-  cpu: "20"
-  memory: 72Gi
-  ephemeralStorage: 300Gi
+  cpu: "15"
+  memory: 52Gi
+  ephemeralStorage: 36Gi

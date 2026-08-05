@@ -183,12 +183,22 @@ resource "google_container_node_pool" "system" {
   }
 }
 
+# Scaling from zero requires this pool's label and taint to be declared here,
+# because the autoscaler decides whether a node that does not exist yet would
+# accept the pending pods.
 resource "google_container_node_pool" "agents" {
-  project        = var.project_id
-  name           = "agents"
-  location       = var.zone
-  cluster        = google_container_cluster.simulator.name
-  node_count     = var.agent_nodes
+  project = var.project_id
+  name    = "agents"
+  location = var.zone
+  cluster = google_container_cluster.simulator.name
+
+  # The ClusterQueue quota is sized against this ceiling; move them together.
+  initial_node_count = 0
+  autoscaling {
+    min_node_count  = 0
+    max_node_count  = var.agent_max_nodes
+    location_policy = "ANY"
+  }
 
   management {
     auto_repair  = true
