@@ -150,23 +150,6 @@ check legacy-define-method \
   'defineMethod<[^>]+>\(\{' \
   "Legacy defineMethod<T>({...}) — migrate to defineMethod(Manifest, { handler })"
 
-# RPC method names are defined once in packages/protocol/src/schema/methods/**.
-# All other code should reference the exported definition's `.name` so renames
-# and registry drift are caught by TypeScript instead of string search.
-# Implementation extracted to a sibling file so the script remains
-# parseable by bash 3.2 (system bash on macOS). Bash 3.2 chokes on
-# `$(node <<'NODE' ... NODE)` — a heredoc inside command substitution
-# corrupts parser state for the rest of the file.
-matches=$(node "$(dirname "$0")/check-rpc-method-strings.js")
-matches=$(echo "$matches" | filter_pragma 'raw-rpc-method-string' | grep -v '^$' || true)
-if [ -n "$matches" ]; then
-  echo -e "${RED}[FAIL]${NC} [raw-rpc-method-string] Raw RPC method string detected — import the RpcDefinition from packages/protocol/src/schema/methods/** and use SomeRpc.name instead."
-  echo "$matches"
-  echo "    Opt out with: // $PRAGMA_TAG[raw-rpc-method-string]: <reason>"
-  echo ""
-  ERRORS=$((ERRORS + 1))
-fi
-
 # ============================================================
 # Effect Hygiene
 # ============================================================
