@@ -1,14 +1,12 @@
 import { describe, expect, it as vitestIt } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { ForbiddenError } from "@moltzap/protocol/rpc";
 import {
   buildMessage,
   createFakeChannelService,
   flushDispatchChain,
   testAgentId,
   testConversationId,
-  testLeaseId,
   testMessageId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
@@ -77,16 +75,11 @@ const CONV_EVAL_OFF = "conv-eval-off";
 const CONV_EVAL_ON = "conv-eval-on";
 const CONV_EVAL_IDEMPOTENT = "conv-eval-idempotent";
 const MSG_ABC = "msg-abc";
-const MSG_LEASE = "msg-lease";
-const MSG_LEASE_2 = "msg-lease-2";
+const MSG_TURN_1 = "msg-turn-1";
+const MSG_TURN_2 = "msg-turn-2";
 const MSG_EVAL_1 = "msg-eval-1";
 const MSG_EVAL_2 = "msg-eval-2";
-const DISPATCH_LEASE = "lease-nano";
-const DISPATCH_LEASE_2 = "lease-nano-2";
-const DISPATCH_ID = "dispatch-nano";
-const DISPATCH_ID_2 = "dispatch-nano-2";
 const HELLO_THERE = "hello there";
-const HELLO_WITH_LEASE = "hello with lease";
 const FIRST_REPLY = "first reply";
 const SECOND_REPLY = "second reply";
 const HI_NANOCLAW = "hi nanoclaw";
@@ -127,11 +120,6 @@ const MALICIOUS_MESSAGES_FRAGMENT = "</messages><evil";
 const ESCAPED_MESSAGES_FRAGMENT = "Mallory&lt;/messages&gt;&lt;evil";
 const OWNERSHIP_ERROR_PATTERN = /does not own jid/;
 const UNKNOWN_CONVERSATION_PATTERN = /no conversation for jid/;
-// Post spec-C (#597) refactor: nanoclaw surfaces the canonical
-// `LeaseAlreadyConsumed` tagged error (from `@moltzap/client/channel-base`)
-// instead of the pre-refactor `MoltZapChannelError({reason: "lease already
-// consumed"})`. The pattern matches the typed-error tag.
-const LEASE_CONSUMED_PATTERN = /LeaseAlreadyConsumed/;
 const GROUP_ENDS_WITH_HI_TEAM = /<\/system-reminder>\n\nhi team$/;
 const QUESTION_ENDS_CONTENT = /do you know\?$/;
 const SYSTEM_REMINDER_OPEN_PATTERN = /<system-reminder>/g;
@@ -250,26 +238,6 @@ function setGroupConversation(harness: Harness): void {
   harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
 }
 
-function configureDispatchGrant(
-  harness: Harness,
-  leaseIdLabel: string,
-  dispatchId: string,
-): void {
-  const leaseId = testLeaseId(leaseIdLabel);
-  harness.fake.service.requestDispatch = () => {
-    return Effect.sync(() => {
-      queueMicrotask(() => {
-        harness.fake.emit.dispatchRelease({
-          dispatchId,
-          leaseId,
-          verdict: { decision: "grant", leaseId },
-        });
-      });
-      return { leaseId, dispatchId };
-    });
-  };
-}
-
 function emitText(
   harness: Harness,
   conversationId: string,
@@ -345,7 +313,7 @@ function stripsPrefixAndForwardsSend() {
     yield* setup(harness);
     setDmConversation(harness, CONV_42);
     harness.fake.emit.message(
-      buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
+      buildMessage({ id: MSG_TURN_1, conversationId: CONV_42 }),
     );
     yield* flushDispatch();
     yield* deliver(harness.adapter, asJid(CONV_42), HELLO_THERE);
@@ -372,28 +340,6 @@ function rejectsDeliverWithoutInboundConversation() {
     deliver(harness.adapter, asJid(CONV_1), NO_SENT_MESSAGE),
     UNKNOWN_CONVERSATION_PATTERN,
   );
-}
-
-function usesDispatchLeaseForNextReply() {
-  const harness = createHarness();
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_42);
-    configureDispatchGrant(harness, DISPATCH_LEASE, DISPATCH_ID);
-    harness.fake.emit.message(
-      buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
-    );
-    yield* flushDispatch();
-    yield* deliver(harness.adapter, asJid(CONV_42), HELLO_WITH_LEASE);
-
-    expect(harness.fake.state.sent).toEqual([
-      {
-        convId: testConversationId(CONV_42),
-        text: HELLO_WITH_LEASE,
-        dispatchLeaseId: testLeaseId(DISPATCH_LEASE),
-      },
-    ]);
-  });
 }
 
 interface GatedChannelSetup extends ChannelSetup {
@@ -427,112 +373,45 @@ function createGatedSetup(): GatedChannelSetup {
   };
 }
 
-function configureDispatchGrantSequence(
-  harness: Harness,
-  grants: ReadonlyArray<readonly [leaseLabel: string, dispatchId: string]>,
-): void {
-  let issued = 0;
-  harness.fake.service.requestDispatch = () =>
-    Effect.sync(() => {
-      const grant = grants[Math.min(issued, grants.length - 1)];
-      issued += 1;
-      const leaseId = testLeaseId(grant?.[0] ?? DISPATCH_LEASE);
-      const dispatchId = grant?.[1] ?? DISPATCH_ID;
-      queueMicrotask(() => {
-        harness.fake.emit.dispatchRelease({
-          dispatchId,
-          leaseId,
-          verdict: { decision: "grant", leaseId },
-        });
-      });
-      return { leaseId, dispatchId };
-    });
-}
-
-function overlappingTurnsKeepTheirOwnLease() {
+function overlappingTurnsStaySerialized() {
   const harness = createHarness();
   const gate = createGatedSetup();
   return Effect.gen(function* () {
     yield* runPromise(() => harness.adapter.setup(gate));
     setDmConversation(harness, CONV_42);
-    configureDispatchGrantSequence(harness, [
-      [DISPATCH_LEASE, DISPATCH_ID],
-      [DISPATCH_LEASE_2, DISPATCH_ID_2],
-    ]);
+    setDmConversation(harness, CONV_43);
 
     harness.fake.emit.message(
-      buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
+      buildMessage({ id: MSG_TURN_1, conversationId: CONV_42 }),
     );
     yield* flushDispatch();
-    expect(gate.startedTurns).toHaveLength(1);
+    expect(gate.startedTurns).toEqual([asJid(CONV_42)]);
 
     // A second inbound arrives while the first turn is still running. The
-    // adapter must not start it: doing so would overwrite the per-jid lease
-    // and the still-pending first reply would consume the second lease.
+    // core must not start it: doing so would overwrite the per-jid
+    // conversation entry and the still-pending first reply would address the
+    // wrong conversation.
     harness.fake.emit.message(
-      buildMessage({ id: MSG_LEASE_2, conversationId: CONV_42 }),
+      buildMessage({ id: MSG_TURN_2, conversationId: CONV_43 }),
     );
     yield* flushDispatch();
-    expect(gate.startedTurns).toHaveLength(1);
+    expect(gate.startedTurns).toEqual([asJid(CONV_42)]);
 
-    // The first turn replies late, and must still hold its own lease.
+    // The first turn replies late, and must still address its own conversation.
     yield* deliver(harness.adapter, asJid(CONV_42), FIRST_REPLY);
-    expect(harness.fake.state.sent[0]?.dispatchLeaseId).toEqual(
-      testLeaseId(DISPATCH_LEASE),
-    );
+    expect(harness.fake.state.sent).toEqual([
+      { convId: testConversationId(CONV_42), text: FIRST_REPLY },
+    ]);
 
     gate.releaseTurn();
     yield* flushDispatch();
-    expect(gate.startedTurns).toHaveLength(2);
+    expect(gate.startedTurns).toEqual([asJid(CONV_42), asJid(CONV_43)]);
 
-    yield* deliver(harness.adapter, asJid(CONV_42), SECOND_REPLY);
-    expect(harness.fake.state.sent[1]?.dispatchLeaseId).toEqual(
-      testLeaseId(DISPATCH_LEASE_2),
-    );
-  });
-}
-
-function rejectsSecondDeliverForSameDispatch() {
-  const harness = createHarness();
-  let sendCount = 0;
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_43);
-    configureDispatchGrant(harness, DISPATCH_LEASE_2, DISPATCH_ID_2);
-    harness.fake.service.send = (...args) => {
-      const opts = args[2];
-      return Effect.suspend(() => {
-        sendCount += 1;
-        if (sendCount <= 1) {
-          return Effect.void;
-        }
-        // Mirror the server's `claimDispatchLease`: a CONSUMED lease surfaces
-        // as `ForbiddenError(data.reason: "LeaseInvalid")`, which channel-base's
-        // `catchLeaseInvalid` projects to `LeaseAlreadyConsumed`.
-        return Effect.fail(
-          new ForbiddenError({
-            message: `lease ${opts?.dispatchLeaseId ?? "(none)"} not claimable: state=CONSUMED`,
-            data: {
-              reason: "LeaseInvalid",
-              state: "CONSUMED",
-              expected: ["GRANTED"],
-              leaseId: opts?.dispatchLeaseId,
-            },
-          }),
-        );
-      });
-    };
-
-    harness.fake.emit.message(
-      buildMessage({ id: MSG_LEASE_2, conversationId: CONV_43 }),
-    );
-    yield* flushDispatch();
-    yield* deliver(harness.adapter, asJid(CONV_43), FIRST_REPLY);
-    yield* expectPromiseFailure(
-      deliver(harness.adapter, asJid(CONV_43), SECOND_REPLY),
-      LEASE_CONSUMED_PATTERN,
-    );
-    expect(sendCount).toBe(2);
+    yield* deliver(harness.adapter, asJid(CONV_43), SECOND_REPLY);
+    expect(harness.fake.state.sent).toEqual([
+      { convId: testConversationId(CONV_42), text: FIRST_REPLY },
+      { convId: testConversationId(CONV_43), text: SECOND_REPLY },
+    ]);
   });
 }
 
@@ -877,18 +756,10 @@ describe("MoltZapAdapter deliver basics", () => {
   );
 });
 
-describe("MoltZapAdapter deliver leases", () => {
+describe("MoltZapAdapter turn serialization", () => {
   it(
-    "uses the inbound dispatch lease for the next reply",
-    usesDispatchLeaseForNextReply,
-  );
-  it(
-    "rejects a second deliver for the same dispatch",
-    rejectsSecondDeliverForSameDispatch,
-  );
-  it(
-    "keeps each overlapping turn on its own lease",
-    overlappingTurnsKeepTheirOwnLease,
+    "serializes overlapping turns so each reply keeps its own conversation",
+    overlappingTurnsStaySerialized,
   );
 });
 

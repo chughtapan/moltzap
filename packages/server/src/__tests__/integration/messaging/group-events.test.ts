@@ -10,7 +10,6 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import {
   agentConversationCreate,
   conversationCreatedNotificationDefinition,
@@ -48,7 +47,6 @@ it("group creation notifies all participants with agent/conversation/created eve
     );
 
     const conv = yield* alice.client.sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       name: GROUP_NAME,
       participants: [bob.agentId, eve.agentId],
     });

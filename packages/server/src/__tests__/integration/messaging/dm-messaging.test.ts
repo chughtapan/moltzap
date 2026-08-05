@@ -9,7 +9,6 @@ import {
   getKyselyDb,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID } from "@moltzap/protocol/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
@@ -26,7 +25,6 @@ it("send and receive a DM, list messages", () =>
 
     // Alice creates a DM conversation with Bob
     const conv = yield* alice.client.sendRpc(agentConversationCreate, {
-      appId: DEFAULT_APP_ID,
       participants: [bob.agentId],
     });
 
@@ -54,18 +52,17 @@ it("send and receive a DM, list messages", () =>
         .messages[0]!.id,
     ).toBe(sendResult.message.id);
 
-    // Verify message is encrypted in DB
+    // Verify the durable row carries the parts the sender submitted
     const db = getKyselyDb();
     const dbRow = yield* Effect.tryPromise(() =>
       db
         .selectFrom("messages")
-        .select(["parts_encrypted", "parts_iv", "parts_tag"])
+        .select(["parts"])
         .where("id", "=", sendResult.message.id)
         .executeTakeFirstOrThrow(),
     );
 
-    expect(dbRow.parts_iv).toBeDefined();
-    expect(dbRow.parts_tag).toBeDefined();
+    expect(dbRow.parts).toEqual([{ type: "text", text: "Hello Bob!" }]);
 
     yield* alice.client.close();
     yield* bob.client.close();

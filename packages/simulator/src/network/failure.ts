@@ -10,6 +10,7 @@ const networkOperation = Schema.Literal(
   "enable-link",
   "open-conversation",
   "receive",
+  "shape-link",
   "socket",
   "stop-router",
   "send",

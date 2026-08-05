@@ -10,7 +10,7 @@ surface.
 - `src/openclaw-entry.ts` — the plugin: gateway `startAccount`,
   notification routing, wraps `MoltZapChannelCore`
   (`@moltzap/client/channel-base`) for inbound enrichment and
-  dispatch-chain ordering, projects `EnrichedInboundMessage` into
+  turn ordering, projects `EnrichedInboundMessage` into
   OpenClaw's `DispatchContext`, deliver callback.
 - `src/context-log.ts` — `writeOpenClawContextLog`.
 - `src/*.test.ts` — unit tests. `src/__tests__/` — integration
@@ -23,8 +23,6 @@ surface.
   MoltZap API keys.
 - **Target** — `agent:<name>` or `conv:<conversationId>`.
   `isMoltZapTarget` is the accepting predicate.
-- **Dispatch lease** — single-use admission token from the MoltZap
-  server, threaded through OpenClaw's `deliver` → reply flow.
 - **Context log** — per-message JSONL dump of the enriched inbound
   payload; directory named by `MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR`.
 
@@ -35,14 +33,10 @@ surface.
   (`channelRuntime.reply`); OpenClaw calls `deliver` directly, never
   `routeReply()` (`OriginatingChannel === Surface` always holds for
   MoltZap→MoltZap), so the deliver callback MUST send the reply via
-  `core.sendReply(conversationId, text, {dispatchLeaseId})`.
-- Lease handling comes from `@moltzap/client/channel-base`:
-  `LeaseGuard` (single-shot per inbound message, stamped after the
-  first successful `core.sendReply`) and `catchLeaseInvalid`
-  (projects the lease-invalid wire error to `LeaseAlreadyConsumed`).
-  Host opt-in `MoltzapChannelPluginDeps.onLeaseConsumed` receives
-  the typed error; deliver still returns `false` per
-  `OpenClawDeliver: PromiseLike<boolean>`.
+  `core.sendReply(conversationId, text)`.
+- Each final `deliver` call sends through
+  `core.sendReply(conversationId, text)`. A send failure returns `false`
+  per `OpenClawDeliver: PromiseLike<boolean>` so the host may retry.
 - Target resolution: `messaging.targetResolver` validates both
   target formats with no server round-trip; `directory` (`listPeers`,
   `listGroups` — named groups only) is live RPC returning `[]` on

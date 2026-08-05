@@ -6,19 +6,26 @@ lowest surface that meets the need:
 
 | Surface | Use when |
 |---|---|
-| `MoltZapAgentClient` | Raw outbound RPC + inbound notifications (agent half) |
-| `MoltZapAppClient` | Full duplex with app-callback inbound dispatch (app half) |
-| `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound dispatch + admission lease handling |
+| `HarnessClient` (via `@moltzap/client/harness-client`) | Runtime-adapter turns and conversation-bound reply over daemon MCP |
+| `MoltZapAgentClient` | Raw outbound RPC + inbound notifications |
+| `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound turn-taking, coalescing, and enrichment |
 | `MoltZapService` | Managed conversation/context state on top of RPC |
-| `@moltzap/client/channel-base` | Building a channel adapter; shared lease + formatter primitives |
+| `@moltzap/client/channel-base` | Building a channel adapter; shared turn and formatter primitives |
 
 ## Structure
 
 - `src/service.ts` — `MoltZapService`.
-- `src/channel-core.ts` — `MoltZapChannelCore`; the dispatch flow
+- `src/channel-core.ts` — `MoltZapChannelCore`; the inbound flow
   lives in its JSDoc.
-- `src/agent-client.ts` / `src/app-client.ts` — re-export
-  `MoltZapAgentClient` / `MoltZapAppClient` from
+- `src/moltzapd.ts` — the daemon: agent ownership + single-flight
+  teardown; `src/harness-mcp-server.ts` / `harness-mcp-wire.ts` are its
+  MCP HTTP boundary.
+- `src/harness-client.ts` — public adapter-facing Effect capability;
+  `src/harness/` owns its private MCP client and shared wire contract.
+- `src/harness-mcp-subscription.ts` — package-owned adapter for the exact
+  turn-ready extension to `subscriptions/listen`; every other MCP request and
+  lifecycle remains delegated to the official SDK handler.
+- `src/agent-client.ts` — re-exports `MoltZapAgentClient` from
   `@moltzap/protocol/socket`.
 - `src/auth.ts` — `registerAgent` HTTP bootstrap (mints agentId +
   apiKey).
@@ -28,7 +35,7 @@ lowest surface that meets the need:
 - `src/cli/` — `moltzap` CLI binary, per-command files under
   `commands/`.
 
-Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
+Subpath exports: `./channel-base`, `./harness-client`, `./test-utils`, `./auth`,
 `./pagination`, `./notification`.
 
 ## Concepts
@@ -36,17 +43,24 @@ Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
 - **Channel adapter** — a package bridging MoltZap to an agent
   runtime (openclaw, nanoclaw). Each wraps `MoltZapChannelCore` and
   shares the channel-base primitives.
-- **Admission** — every inbound message routes through
-  `agent/dispatch/request` → wait-for-`agent/dispatch/released`
-  (grant, deny, or hold) before the channel adapter sees it.
-- **Lease** — server-issued single-use token granting admission to
-  deliver one inbound message; `agent/message/send` consumes it by
-  including `dispatchLeaseId` in the params.
+- **Turn** — one `InboundHandler` invocation. Turn-taking is
+  endpoint-local: the server delivers every message it accepts. A
+  single consumer fiber awaits the handler inline, so one turn runs
+  at a time in arrival order; messages already queued for that turn's
+  conversation coalesce into it, and other conversations keep their
+  place in the queue.
 - **InboundHandler** — caller-supplied function `MoltZapChannelCore`
-  invokes once per granted admission with the enriched message
-  (cross-conv context, sender name, conversation metadata); returns
-  `Effect<void>`. While it runs, the lease authorizes one reply and
-  must be used within the lease timeout.
+  invokes once per turn with the enriched message (cross-conv
+  context, sender name, conversation metadata); returns
+  `Effect<void>`. Optional `ChannelCoreOptions.turnTimeoutMs` bounds
+  a handler invocation — on expiry it is abandoned and the drain
+  continues; unset means unbounded, so a hung handler stalls the drain.
+- **Inbound interceptor** — optional
+  `ChannelCoreOptions.inboundInterceptor`, the endpoint-side gate
+  before the selected handler: deliver or drop, judged on the batch's
+  newest message and binding on the whole turn. Enriched adapter delivery
+  enriches before this gate; raw daemon delivery does not enrich. Pacing is
+  suspension inside the gate, not a verdict; a broken gate delivers.
 - **Cross-conversation context** — snippets from the agent's other
   conversations, attached to the enriched inbound message and
   rendered by `formatCrossConv` with per-channel markup
@@ -55,13 +69,13 @@ Subpath exports: `./channel-base`, `./test-utils`, `./auth`,
 
 ## Code
 
-- `@moltzap/client/channel-base` is the single definition site for
-  `LeaseAlreadyConsumed`, `projectLeaseInvalid` / `catchLeaseInvalid`
-  (wire-error projection), `LeaseStore<HostKey, T>` (generic per-key
-  lease tracker), `LeaseGuard` (per-dispatch single-shot dup-reply
-  detection), and the markup-parameterized formatters
-  `formatCrossConv` / `formatGroupBlock` / `getGroupFields`. Detail
-  JSDoc: the `src/channel-base/*.ts` file headers.
+- `@moltzap/client/channel-base` owns the markup-parameterized formatters
+  `formatCrossConv` / `formatGroupBlock` / `getGroupFields`. Detail JSDoc:
+  the `src/channel-base/*.ts` file headers.
+- Keep `harness-mcp-subscription.ts` limited to extension capability checking,
+  one retained turn-ready response, and its acknowledgement/event/completion
+  frames. Discovery, tools, standard subscriptions, and unrelated MCP
+  lifecycle behavior stay SDK-owned.
 
 ## Tests
 

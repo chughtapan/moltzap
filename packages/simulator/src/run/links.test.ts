@@ -1,4 +1,5 @@
 import { assert, effect as test } from "@effect/vitest";
+import type { AgentId } from "@moltzap/protocol/identity";
 import { agentId } from "@moltzap/protocol/testing";
 import {
   Cause,
@@ -10,15 +11,24 @@ import {
   Ref,
   Scope,
 } from "effect";
-import { LinkDown, linkEvents, LinkUp } from "../events/core.js";
+import type { EventOf } from "../events/catalog.js";
+import {
+  LinkDown,
+  linkEvents,
+  LinkPolicyCleared,
+  LinkPolicySet,
+  LinkUp,
+} from "../events/core.js";
 import type { LedgerWriter } from "../ledger/append.js";
 import { LedgerStorageError } from "../ledger/storage.js";
 import {
   LinkDriver,
+  linkPolicy,
   makeParticipantHandle,
   NetworkError,
   networkError,
   type LinkDriverService,
+  type LinkPolicy,
   type NetworkOperation,
 } from "../network.js";
 import { makeLinkController } from "./links.js";
@@ -30,10 +40,17 @@ const alice = makeParticipantHandle("alice", aliceId);
 const bob = makeParticipantHandle("bob", bobId);
 const DISABLE_LINK_OPERATION: NetworkOperation = "disable-link";
 const ENABLE_LINK_OPERATION: NetworkOperation = "enable-link";
+const SHAPE_LINK_OPERATION: NetworkOperation = "shape-link";
 const LEDGER_UNAVAILABLE = "ledger unavailable";
+const SHAPE_DESCRIPTION = "drop everything";
 const ROLLBACK_UNAVAILABLE = "rollback unavailable";
 
-function eventWriter(events: Array<LinkDown | LinkUp>): LinkEventWriter {
+const unusedApply: LinkDriverService["apply"] = () =>
+  Effect.dieMessage("apply is not under test");
+
+function eventWriter(
+  events: Array<EventOf<typeof linkEvents>>,
+): LinkEventWriter {
   return {
     write: ({ event }) =>
       Effect.sync(() => {
@@ -61,6 +78,37 @@ function driver(actions: string[]): LinkDriverService {
       Effect.sync(() => {
         actions.push(`up:${from}->${to}`);
       }),
+    apply: unusedApply,
+  };
+}
+
+interface PolicyApplication {
+  readonly from: AgentId;
+  readonly to: AgentId;
+  readonly policy: LinkPolicy;
+  readonly description: string;
+}
+
+function policyDriver(
+  applications: PolicyApplication[],
+  cleared: string[],
+  clearFailure?: NetworkError,
+): LinkDriverService {
+  return {
+    disable: () => Effect.dieMessage("disable is not under test"),
+    enable: () => Effect.dieMessage("enable is not under test"),
+    apply: (from, to, policy, description) =>
+      Effect.sync(() => {
+        applications.push({ from, to, policy, description });
+        return {
+          clear:
+            clearFailure === undefined
+              ? Effect.sync(() => {
+                  cleared.push(description);
+                })
+              : Effect.fail(clearFailure),
+        };
+      }),
   };
 }
 
@@ -81,6 +129,7 @@ function unavailableRollbackDriver(): LinkDriverService {
     disable: () => Effect.void,
     enable: () =>
       Effect.fail(networkError(ENABLE_LINK_OPERATION, ROLLBACK_UNAVAILABLE)),
+    apply: unusedApply,
   };
 }
 
@@ -177,6 +226,7 @@ test("interrupts a pending platform disable without installing a lease", () =>
             Effect.onInterrupt(() => Ref.set(interrupted, true)),
           ),
         enable: () => Effect.void,
+        apply: unusedApply,
       };
       const fiber = yield* controller
         .disable(alice, bob)
@@ -282,7 +332,7 @@ test("rolls back ledger evidence failure without fabricating a network failure",
     }),
   ));
 
-test("awaits the driver enable before a disable scope closes", () =>
+test("awaits the platform enable before a disable scope closes", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const actions: string[] = [];
@@ -305,6 +355,7 @@ test("awaits the driver enable before a disable scope closes", () =>
               }),
             ),
           ),
+        apply: unusedApply,
       };
 
       yield* controller
@@ -330,7 +381,7 @@ test("awaits the driver enable before a disable scope closes", () =>
     }),
   ));
 
-test("surfaces a driver enable failure from scoped cleanup", () =>
+test("surfaces a platform enable failure from scoped cleanup", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const events: Array<LinkDown | LinkUp> = [];
@@ -340,6 +391,7 @@ test("surfaces a driver enable failure from scoped cleanup", () =>
         disable: () => Effect.void,
         enable: () =>
           Effect.fail(networkError("enable-link", "router unavailable")),
+        apply: unusedApply,
       };
 
       yield* controller
@@ -361,7 +413,7 @@ test("surfaces a driver enable failure from scoped cleanup", () =>
     }),
   ));
 
-test("rejects a self-link before consulting the link driver", () =>
+test("rejects a self-link before consulting the platform driver", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const actions: string[] = [];
@@ -386,6 +438,7 @@ test("does not publish link-down evidence when the driver rejects it", () =>
             networkError(DISABLE_LINK_OPERATION, "unsupported topology"),
           ),
         enable: () => Effect.void,
+        apply: unusedApply,
       };
       const failure = yield* controller
         .disable(alice, bob)
@@ -393,5 +446,177 @@ test("does not publish link-down evidence when the driver rejects it", () =>
 
       assert.strictEqual(failure.operation, DISABLE_LINK_OPERATION);
       assert.lengthOf(events, 0);
+    }),
+  ));
+
+test("installs and clears a described policy with evidence", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const events: Array<EventOf<typeof linkEvents>> = [];
+      const applications: PolicyApplication[] = [];
+      const cleared: string[] = [];
+      const controller = yield* makeLinkController(eventWriter(events));
+      const scope = yield* Scope.make();
+      const policy = linkPolicy.dropAll("partition");
+
+      yield* controller
+        .shape(alice, bob, policy, SHAPE_DESCRIPTION)
+        .pipe(
+          Scope.extend(scope),
+          Effect.provideService(
+            LinkDriver,
+            policyDriver(applications, cleared),
+          ),
+        );
+
+      assert.lengthOf(applications, 1);
+      assert.strictEqual(applications[0]?.from, aliceId);
+      assert.strictEqual(applications[0]?.to, bobId);
+      assert.strictEqual(applications[0]?.policy, policy);
+      assert.strictEqual(applications[0]?.description, SHAPE_DESCRIPTION);
+      assert.lengthOf(cleared, 0);
+      assert.lengthOf(events, 1);
+      assert.instanceOf(events[0], LinkPolicySet);
+
+      yield* close(scope);
+      assert.deepStrictEqual(cleared, [SHAPE_DESCRIPTION]);
+      assert.lengthOf(events, 2);
+      assert.instanceOf(events[1], LinkPolicyCleared);
+      assert.deepStrictEqual(
+        events.map((event) =>
+          event instanceof LinkPolicySet || event instanceof LinkPolicyCleared
+            ? [event.from, event.to, event.policy]
+            : [],
+        ),
+        [
+          [aliceId, bobId, SHAPE_DESCRIPTION],
+          [aliceId, bobId, SHAPE_DESCRIPTION],
+        ],
+      );
+    }),
+  ));
+
+test("derives delay and hold descriptions for their canonical policies", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const events: Array<EventOf<typeof linkEvents>> = [];
+      const applications: PolicyApplication[] = [];
+      const cleared: string[] = [];
+      const controller = yield* makeLinkController(eventWriter(events));
+      const layer = policyDriver(applications, cleared);
+      const scope = yield* Scope.make();
+
+      yield* controller
+        .delay(alice, bob, "100 millis")
+        .pipe(Scope.extend(scope), Effect.provideService(LinkDriver, layer));
+      yield* controller
+        .hold(alice, bob)
+        .pipe(Scope.extend(scope), Effect.provideService(LinkDriver, layer));
+      yield* close(scope);
+
+      assert.deepStrictEqual(
+        applications.map((application) => application.description),
+        ["delay 100ms", "hold"],
+      );
+      assert.deepStrictEqual(cleared, ["hold", "delay 100ms"]);
+      const setEvents = events.filter(
+        (event) => event instanceof LinkPolicySet,
+      );
+      assert.deepStrictEqual(
+        setEvents.map((event) => event.policy),
+        ["delay 100ms", "hold"],
+      );
+    }),
+  ));
+
+test("rolls back a policy lease when evidence storage fails", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const applications: PolicyApplication[] = [];
+      const cleared: string[] = [];
+      const controller = yield* makeLinkController(unavailableEventWriter());
+      const scope = yield* Scope.make();
+      const exit = yield* controller
+        .shape(alice, bob, linkPolicy.hold, "hold")
+        .pipe(
+          Scope.extend(scope),
+          Effect.provideService(
+            LinkDriver,
+            policyDriver(applications, cleared),
+          ),
+          Effect.exit,
+        );
+
+      assert.isTrue(Exit.isInterrupted(exit));
+      assert.lengthOf(applications, 1);
+      assert.deepStrictEqual(cleared, ["hold"]);
+      yield* close(scope);
+    }),
+  ));
+
+test("returns only the real rollback failure after policy evidence fails", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const applications: PolicyApplication[] = [];
+      const controller = yield* makeLinkController(unavailableEventWriter());
+      const scope = yield* Scope.make();
+      const exit = yield* controller
+        .shape(alice, bob, linkPolicy.hold, "hold")
+        .pipe(
+          Scope.extend(scope),
+          Effect.provideService(
+            LinkDriver,
+            policyDriver(
+              applications,
+              [],
+              networkError(SHAPE_LINK_OPERATION, ROLLBACK_UNAVAILABLE),
+            ),
+          ),
+          Effect.exit,
+        );
+
+      assert.isTrue(Exit.isFailure(exit));
+      if (Exit.isFailure(exit)) {
+        const failures = Array.from(Cause.failures(exit.cause));
+        assert.lengthOf(failures, 1);
+        assert.instanceOf(failures[0], NetworkError);
+        assert.strictEqual(failures[0]?.operation, SHAPE_LINK_OPERATION);
+        assert.strictEqual(failures[0]?.detail, ROLLBACK_UNAVAILABLE);
+      }
+      yield* close(scope);
+    }),
+  ));
+
+test("rejects a self-link policy before consulting the platform driver", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const applications: PolicyApplication[] = [];
+      const controller = yield* makeLinkController(eventWriter([]));
+      const failure = yield* controller
+        .shape(alice, alice, linkPolicy.passthrough, "noop")
+        .pipe(
+          Effect.provideService(LinkDriver, policyDriver(applications, [])),
+          Effect.flip,
+        );
+
+      assert.strictEqual(failure.operation, SHAPE_LINK_OPERATION);
+      assert.lengthOf(applications, 0);
+    }),
+  ));
+
+test("rejects an empty policy description before consulting the driver", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const applications: PolicyApplication[] = [];
+      const controller = yield* makeLinkController(eventWriter([]));
+      const failure = yield* controller
+        .shape(alice, bob, linkPolicy.passthrough, "")
+        .pipe(
+          Effect.provideService(LinkDriver, policyDriver(applications, [])),
+          Effect.flip,
+        );
+
+      assert.strictEqual(failure.operation, SHAPE_LINK_OPERATION);
+      assert.lengthOf(applications, 0);
     }),
   ));

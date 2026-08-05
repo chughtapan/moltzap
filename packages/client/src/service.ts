@@ -2,17 +2,9 @@ import {
   agentId as AgentIdSchema,
   AgentNotFoundError,
   agentsList,
-  DEFAULT_APP_ID,
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
-import {
-  dispatchRequest,
-  dispatchRelease,
-  dispatchLeaseConsumed,
-  dispatchLeaseExpired,
-  type LeaseId,
-} from "@moltzap/protocol/message/dispatch";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type {
   AnyAgentCallableRpcDefinition,
@@ -43,16 +35,15 @@ import {
   type RpcTimeoutError,
   isNotificationDeliveryFor,
   type NotificationDelivery,
-  type NotificationParamsOf,
   type ListCursor,
   type PayloadForTag,
   type ParamsOf,
-  type ResultOf,
   type SuccessForTag,
 } from "@moltzap/protocol/rpc";
 import type { RpcGroup, Rpc } from "@effect/rpc";
 import { BoundedMap } from "./bounded-map.js";
 import {
+  Deferred,
   Effect,
   Exit,
   HashMap,
@@ -206,18 +197,11 @@ interface ServiceHandlerPayloads {
   /**
    * The "raw notification" surface receives the descriptor-tagged delivery
    * emitted after the native reverse RPC handler has Schema-decoded params.
-   * Subscribers that want specific payloads register typed `on(...)` handlers
-   * such as `dispatchRelease`.
+   * Subscribers that want a specific payload narrow the delivery themselves
+   * with `isNotificationDeliveryFor`.
    */
   readonly rawNotification: ClientNotificationDelivery;
   readonly disconnect: undefined;
-  readonly dispatchRelease: NotificationParamsOf<typeof dispatchRelease>;
-  readonly dispatchLeaseConsumed: NotificationParamsOf<
-    typeof dispatchLeaseConsumed
-  >;
-  readonly dispatchLeaseExpired: NotificationParamsOf<
-    typeof dispatchLeaseExpired
-  >;
 }
 
 type ServiceHandlerName = keyof ServiceHandlerPayloads;
@@ -278,6 +262,7 @@ function fanout<T>(
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
   private connectedValue = false;
+  private shutdownCompletion: Deferred.Deferred<undefined> | null = null;
 
   /**
    * Service-owned scope. Opened in `connect()`, owns the
@@ -329,9 +314,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    dispatchRelease: [],
-    dispatchLeaseConsumed: [],
-    dispatchLeaseExpired: [],
   };
 
   private readonly ownAgentIdValue: AgentId;
@@ -383,6 +365,15 @@ export class MoltZapService {
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
       function* (this: MoltZapService) {
+        // A new connection never takes ownership while resources from the
+        // preceding lifecycle are still closing.
+        while (this.shutdownCompletion !== null) {
+          const priorShutdown = this.shutdownCompletion;
+          yield* Deferred.await(priorShutdown);
+          if (this.shutdownCompletion === priorShutdown) {
+            this.shutdownCompletion = null;
+          }
+        }
         const client = new MoltZapAgentClient({
           serverUrl: this.opts.serverUrl,
           agentKey: this.opts.agentKey,
@@ -432,14 +423,24 @@ export class MoltZapService {
   }
 
   /**
-   * Tear down the service. `close()` is sync because it fans out to the
-   * socket server, Refs, and the ws-client. Effectful network/filesystem
-   * cleanup is forked at the edge so existing callers still get immediate
-   * shutdown.
+   * Returns a lazy teardown effect that resolves after the service's owned
+   * transports and notification scope close.
+   *
+   * @returns Completion of the service-owned cleanup.
+   * @internal
    */
-  close(): void {
+  shutdown(): Effect.Effect<void> {
+    return Effect.suspend(() => this.beginShutdown());
+  }
+
+  private beginShutdown(): Effect.Effect<void> {
+    if (this.shutdownCompletion !== null) {
+      return Deferred.await(this.shutdownCompletion);
+    }
+    const shutdownCompletion = Effect.runSync(Deferred.make<undefined>());
+    this.shutdownCompletion = shutdownCompletion;
     this.connectedValue = false;
-    Effect.runFork(this.stopSocketServer());
+    const stopSocketServer = this.stopSocketServer();
     const scopeToClose = this.serviceScope;
     const clientToClose = this.client;
     this.serviceScope = null;
@@ -450,7 +451,6 @@ export class MoltZapService {
         : Scope.close(scopeToClose, Exit.void);
     const closeClient =
       clientToClose === null ? Effect.void : clientToClose.close();
-    Effect.runFork(closeScope.pipe(Effect.zipRight(closeClient)));
     Effect.runSync(
       Effect.all([
         Ref.set(this.conversationsRef, HashMap.empty()),
@@ -465,6 +465,24 @@ export class MoltZapService {
     // Handlers are preserved across explicit close()/connect() cycles.
     // MoltZapChannelCore subscribes once in its constructor; clearing handlers
     // here would silently drop inbound dispatch after the next connect.
+    return Effect.uninterruptible(
+      Effect.all(
+        [stopSocketServer, closeScope.pipe(Effect.zipRight(closeClient))],
+        { concurrency: 2, discard: true },
+      ).pipe(
+        Effect.ensuring(
+          Deferred.succeed(shutdownCompletion, undefined).pipe(Effect.asVoid),
+        ),
+      ),
+    );
+  }
+
+  /**
+   * Starts service teardown for callers that use the legacy synchronous
+   * lifecycle boundary.
+   */
+  close(): void {
+    Effect.runFork(this.beginShutdown());
   }
 
   // --- Socket Server ---
@@ -539,7 +557,10 @@ export class MoltZapService {
   private localDaemonHandlers(): LocalDaemonHandlers {
     return makeLocalDaemonHandlers({
       ownAgentId: this.ownAgentIdValue,
-      connected: this.connectedValue,
+      // A live thunk, not a snapshot: the handler table outlives connection
+      // cycles, and daemon/status must report the same liveness the MCP
+      // status tool reads.
+      connected: () => this.connectedValue,
       conversationCount: () => this.getConversations().length,
       call: this.call.bind(this),
       handleHistoryRequest: (request) => this.handleHistoryRequest(request),
@@ -766,43 +787,20 @@ export class MoltZapService {
    *   svc-->>caller: Effect.void
    * ```
    *
-   * `opts.dispatchLeaseId` (when set) is forwarded verbatim in the
-   * params frame. The server marks the lease consumed, blocking the
-   * app authorization timeout sweep. `MoltZapChannelCore.sendReply` forwards
-   * `leaseIdInFlight` automatically when the caller omits it.
    * @param conversationId Value supplied to the operation.
    * @param text Text to process.
-   * @param opts Value supplied to the operation.
-   * @param opts.dispatchLeaseId Value supplied to the operation.
    * @returns The send result.
    */
   send(
     conversationId: ConversationId,
     text: string,
-    opts?: { dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
     return Effect.asVoid(
       this.call(messagesSend.name, {
         conversationId,
         parts: [{ type: "text", text }],
-        ...(opts?.dispatchLeaseId !== undefined
-          ? { dispatchLeaseId: opts.dispatchLeaseId }
-          : {}),
       }),
     );
-  }
-
-  /**
-   * Issue `agent/dispatch/request`. The server returns the ack
-   * `{leaseId, dispatchId}` immediately; the recipient observes the
-   * verdict asynchronously via the `dispatchRelease` event.
-   * @param params Request payload to process.
-   * @returns The cache result.
-   */
-  requestDispatch(
-    params: ParamsOf<typeof dispatchRequest>,
-  ): Effect.Effect<ResultOf<typeof dispatchRequest>, ServiceRpcError> {
-    return this.call(dispatchRequest.name, params);
   }
 
   /**
@@ -829,7 +827,6 @@ export class MoltZapService {
             return yield* agentNotFound(agentName);
           }
           const created = yield* this.call(agentConversationCreate.name, {
-            appId: DEFAULT_APP_ID,
             participants: [agent.id],
           });
           conversationId = created.conversation.id;
@@ -1159,10 +1156,7 @@ export class MoltZapService {
     if (this.dispatchMessageNotification(notification)) {
       return;
     }
-    if (this.dispatchConversationNotification(notification)) {
-      return;
-    }
-    this.dispatchAppNotification(notification);
+    this.dispatchConversationNotification(notification);
   }
 
   private dispatchMessageNotification(
@@ -1193,22 +1187,6 @@ export class MoltZapService {
       return true;
     }
     return false;
-  }
-
-  private dispatchAppNotification(
-    notification: ClientNotificationDelivery,
-  ): void {
-    if (isNotificationDeliveryFor(notification, dispatchRelease)) {
-      fanout(this.handlers.dispatchRelease, notification.params);
-      return;
-    }
-    if (isNotificationDeliveryFor(notification, dispatchLeaseConsumed)) {
-      fanout(this.handlers.dispatchLeaseConsumed, notification.params);
-      return;
-    }
-    if (isNotificationDeliveryFor(notification, dispatchLeaseExpired)) {
-      fanout(this.handlers.dispatchLeaseExpired, notification.params);
-    }
   }
 
   /**

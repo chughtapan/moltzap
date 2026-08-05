@@ -2,20 +2,10 @@
  * Delivery-property helpers: conversation fixtures and per-client
  * notification buffers.
  */
-import { Effect, Fiber, Ref, Stream, type Scope, type Schema } from "effect";
+import { Effect, Fiber, Ref, Stream, type Scope } from "effect";
 import type { AnyNotificationDefinition } from "#socket/catalog";
-import type { NotificationDelivery, NotificationParamsOf } from "#transport";
-import type { appId as AppIdSchema } from "#identity/apps";
-import {
-  type ConversationId,
-  agentConversationCreate,
-  conversationCreatedNotificationDefinition,
-  conversationParticipantsAddedNotificationDefinition,
-  conversationParticipantsRemovedNotificationDefinition,
-} from "#conversation";
-import { messagesAuthorize } from "#message";
-import { dispatchAuthorize } from "#message/dispatch";
-import type { agentId } from "#identity";
+import type { NotificationDelivery } from "#transport";
+import { type ConversationId, agentConversationCreate } from "#conversation";
 import {
   conversationId as makeConversationId,
   registerTestAgent,
@@ -24,10 +14,8 @@ import {
 import {
   makeAgentTestClient,
   type AgentTestClient,
-  type AppTestClient,
   type NotificationClient,
 } from "../_shared/driver/test-client.js";
-import { registerTestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
@@ -45,14 +33,6 @@ export interface ConversationFixture {
   readonly owner: ConversationActor;
   readonly participants: readonly ConversationActor[];
   readonly conversationId: ConversationId;
-
-  /**
-   * The app-principal `AppConnection` bound as the conversation's
-   * moderator. App-admin RPCs head their `requires` with `AppPrincipal`, so
-   * they route through THIS client, not the agent `owner`. `owner` drives
-   * `agent/conversation/create` + `agent/message/send`.
-   */
-  readonly moderatorClient: AppTestClient;
 }
 
 /** Describes conversation actor. */
@@ -189,231 +169,6 @@ function acquireClient(
 }
 
 /**
- * Fresh UUID manifest appId for a per-fixture conformance app.
- * @returns The fresh conformance app id result.
- */
-function freshConformanceAppId(): string {
-  return crypto.randomUUID();
-}
-
-function attachGrantDispatchAuthorize(
-  client: AppTestClient,
-): Effect.Effect<void> {
-  return client.onAppCallback(dispatchAuthorize, () =>
-    Effect.succeed({ admission: { decision: "grant" as const } }),
-  );
-}
-
-type ParticipantMap = Map<
-  ConversationId,
-  Set<Schema.Schema.Type<typeof agentId>>
->;
-
-function attachForwardAllMessagesAuthorize(
-  client: AppTestClient,
-  participantsRef: Ref.Ref<ParticipantMap>,
-): Effect.Effect<void> {
-  return client.onAppCallback(messagesAuthorize, (params) =>
-    Effect.gen(function* () {
-      const map = yield* Ref.get(participantsRef);
-      const conv = map.get(makeConversationId(params.conversationId));
-      const recipients =
-        conv === undefined
-          ? []
-          : [...conv].filter((a) => a !== params.message.senderAgentId);
-      return {
-        verdict: { decision: "Forward" as const, recipients },
-      };
-    }),
-  );
-}
-
-// Initial-membership snapshot. `agent/conversation/created` is the bulk event
-// the server emits when a conversation is born; seed participantsRef from its
-// `participants` field so awaitConversationReady doesn't time out waiting for
-// per-participant added events that the server never sent.
-function applyConversationCreated(
-  prev: ParticipantMap,
-  params: NotificationParamsOf<
-    typeof conversationCreatedNotificationDefinition
-  >,
-): ParticipantMap {
-  const convId = makeConversationId(params.conversationId);
-  const next = new Map(prev);
-  next.set(convId, new Set(params.participants));
-  return next;
-}
-
-function applyParticipantsAdded(
-  prev: ParticipantMap,
-  params: NotificationParamsOf<
-    typeof conversationParticipantsAddedNotificationDefinition
-  >,
-): ParticipantMap {
-  const convId = makeConversationId(params.conversationId);
-  const existing = prev.get(convId) ?? new Set();
-  const updated = new Set(existing);
-  updated.add(params.addedAgentId);
-  const next = new Map(prev);
-  next.set(convId, updated);
-  return next;
-}
-
-function applyParticipantsRemoved(
-  prev: ParticipantMap,
-  params: NotificationParamsOf<
-    typeof conversationParticipantsRemovedNotificationDefinition
-  >,
-): ParticipantMap {
-  const convId = makeConversationId(params.conversationId);
-  const existing = prev.get(convId);
-  if (existing === undefined) {
-    return prev;
-  }
-  const updated = new Set(existing);
-  updated.delete(params.removedAgentId);
-  const next = new Map(prev);
-  next.set(convId, updated);
-  return next;
-}
-
-function subscribeParticipantNotifications(
-  client: AgentTestClient,
-  participantsRef: Ref.Ref<ParticipantMap>,
-): Effect.Effect<void, never, Scope.Scope> {
-  const pump = <D extends AnyNotificationDefinition>(
-    definition: D,
-    mutate: (
-      prev: ParticipantMap,
-      params: NotificationParamsOf<D>,
-    ) => ParticipantMap,
-  ) =>
-    Effect.forkScoped(
-      client.subscribe(definition).pipe(
-        Stream.runForEach((notif) =>
-          Ref.update(participantsRef, (m) =>
-            mutate(
-              m,
-              /* Safe because client.subscribe preserves the descriptor D used to create this pump. */ notif.params as NotificationParamsOf<D>,
-            ),
-          ),
-        ),
-        Effect.catchAll(() => Effect.void),
-      ),
-    ).pipe(Effect.asVoid);
-
-  return Effect.gen(function* () {
-    yield* pump(
-      conversationCreatedNotificationDefinition,
-      applyConversationCreated,
-    );
-    yield* pump(
-      conversationParticipantsAddedNotificationDefinition,
-      applyParticipantsAdded,
-    );
-    yield* pump(
-      conversationParticipantsRemovedNotificationDefinition,
-      applyParticipantsRemoved,
-    );
-  });
-}
-
-const PARTICIPANT_READY_TIMEOUT_MS = 2000;
-const PARTICIPANT_READY_POLL_MS = 10;
-
-function awaitParticipantsForConversation(
-  participantsRef: Ref.Ref<ParticipantMap>,
-  conversationId: ConversationId,
-  expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof agentId>>,
-): Effect.Effect<void, string> {
-  const wanted = new Set(expectedAgentIds);
-  return Effect.gen(function* () {
-    const deadline = Date.now() + PARTICIPANT_READY_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      const map = yield* Ref.get(participantsRef);
-      const have = map.get(conversationId) ?? new Set();
-      const missing = [...wanted].filter((a) => !have.has(a));
-      if (missing.length === 0) {
-        return;
-      }
-      yield* Effect.sleep(`${PARTICIPANT_READY_POLL_MS} millis`);
-    }
-    return yield* Effect.fail(
-      `moderator did not observe participants for ${conversationId} within ${PARTICIPANT_READY_TIMEOUT_MS}ms`,
-    );
-  });
-}
-
-interface ModeratedHandle {
-  readonly appId: Schema.Schema.Type<typeof AppIdSchema>;
-
-  /**
-   * The app-principal `AppConnection` bound as moderator. App-admin RPCs (their
-   * `requires` head is `AppPrincipal`) route through this client.
-   */
-  readonly client: AppTestClient;
-
-  /**
-   * Block until the moderator has observed `expectedAgentIds` as
-   * participants of `conversationId` via the `agent/conversation/*`
-   * notifications. Bridges the gap between the create RPC returning and the
-   * notification arriving on the moderator's subscriber.
-   */
-  readonly awaitConversationReady: (
-    conversationId: ConversationId,
-    expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof agentId>>,
-  ) => Effect.Effect<void, string>;
-}
-
-/**
- * Wire a SEPARATE app principal as moderator: HTTP-register the manifest
- * + `appKey`-Connect an `AppTestClient` whose implicit registration binds it
- * as the app's moderator endpoint. The grant-all `DispatchAuthorize` +
- * forward-all `MessagesAuthorize` callbacks run on THAT app connection (both
- * are server-initiated, app-principal round-trips). The agent `owner` drives
- * `agent/conversation/create` + `agent/message/send`.
- *
- * Participant tracking stays on `owner.client` (an agent + conversation
- * participant): the `agent/conversation/created` + participants/added/removed
- * notifications are agent broadcasts that CANNOT reach an `AppConnection`.
- * The shared in-process `participantsRef` bridges the owner's subscriber to
- * the app's forward-all callback.
- * @param ctx Context for the operation.
- * @param owner Agent actor whose subscriber tracks conversation membership.
- * @param namePrefix Prefix for the registered app name.
- * @returns The moderate as result.
- */
-function moderateAs(
-  ctx: ConformanceRunContext,
-  owner: ConversationActor,
-  namePrefix: string,
-): Effect.Effect<ModeratedHandle, string, Scope.Scope> {
-  return Effect.gen(function* () {
-    const participantsRef = yield* Ref.make<ParticipantMap>(new Map());
-    yield* subscribeParticipantNotifications(owner.client, participantsRef);
-    const app = yield* registerTestApp({
-      baseUrl: ctx.realServer.baseUrl,
-      wsUrl: ctx.realServer.wsUrl,
-      appId: freshConformanceAppId(),
-      name: `${namePrefix}-app`,
-    }).pipe(Effect.mapError((e) => `app registration failed: ${e._tag}`));
-    yield* attachGrantDispatchAuthorize(app.client);
-    yield* attachForwardAllMessagesAuthorize(app.client, participantsRef);
-    const handle: ModeratedHandle = {
-      appId: app.appId,
-      client: app.client,
-      awaitConversationReady: (conversationId, expectedAgentIds) =>
-        awaitParticipantsForConversation(
-          participantsRef,
-          conversationId,
-          expectedAgentIds,
-        ),
-    };
-    return handle;
-  }).pipe(Effect.withSpan("moderateAs"));
-}
-
-/**
  * Executes the acquire conversation operation.
  * @param ctx Context for the operation.
  * @param n Value supplied to the operation.
@@ -433,13 +188,8 @@ export function acquireConversation(
       (i) => acquireClient(ctx, `${namePrefix}-p${i}`),
       { concurrency: clamped },
     );
-    // A separate app principal holds authority for app-only RPCs;
-    // DEFAULT_APP_ID has no app connection. `owner` (agent) drives
-    // agent/conversation/create below.
-    const moderator = yield* moderateAs(ctx, owner, namePrefix);
     const createResult = yield* owner.client
       .sendRpc(agentConversationCreate, {
-        appId: moderator.appId,
         name: `${namePrefix}-conv`,
         participants: participants.map((p) => p.agent.agentId),
       })
@@ -449,15 +199,10 @@ export function acquireConversation(
       (error) => `agent/conversation/create failed: ${error._tag}`,
     );
     const branded = makeConversationId(created.conversation.id);
-    yield* moderator.awaitConversationReady(
-      branded,
-      participants.map((p) => p.agent.agentId),
-    );
     return {
       owner,
       participants,
       conversationId: branded,
-      moderatorClient: moderator.client,
     };
   }).pipe(Effect.withSpan("acquireConversation"));
 }

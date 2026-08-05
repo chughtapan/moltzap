@@ -18,7 +18,6 @@ import { withTestServiceConfig } from "@moltzap/client/test-utils";
 import {
   type AgentKey,
   agentKey,
-  DEFAULT_APP_ID,
   type AgentId,
 } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
@@ -240,7 +239,6 @@ function createDm(
 ): Effect.Effect<{ conversationId: ConversationId }, EchoIntegrationError> {
   return peerService
     .call(agentConversationCreate.name, {
-      appId: DEFAULT_APP_ID,
       participants: [channelAgentId],
     })
     .pipe(

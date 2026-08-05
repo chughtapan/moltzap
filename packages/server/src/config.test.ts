@@ -16,17 +16,11 @@ const PG_URL = "postgres://localhost:5432/moltzap";
 const SUPABASE_URL = "postgres://u:p@x.supabase.co:5432/postgres";
 const APP_ORIGIN = "https://app.example.com";
 const WWW_ORIGIN = "https://www.example.com";
-const SECRET = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const INTERPOLATED = "interpolated-value";
 const DEFAULT_PORT = 3000;
 const OVERRIDE_PORT = 8080;
 const ADMIN_USER_ID = "00000000-0000-4000-8000-00000000ad01";
 const VALIDATION_ERROR_KIND: ConfigLoadError["kind"] = "validation";
-
-const APPS_YAML = `apps:
-  - manifest: ./app1.json
-  - manifest: ./app2.json
-`;
 
 const INVALID_PORT_YAML = `server:
   port: -1
@@ -40,14 +34,13 @@ const REUSE_YAML = `registration:\n  secret: \${${REUSED_ENV_KEY}}\n`;
 // ConfigLoadError — these are the structural rejections the prior Ajv
 // schema enforced, now re-asserted via TypeBox Value.Check.
 
-// encryption block present but master_secret missing → silently disabling
-// at-rest encryption is the security regression this guards against.
-const ENCRYPTION_EMPTY_YAML = `encryption: {}\n`;
-// camelCase typo: `masterSecret` is an unknown key AND master_secret is
-// absent. Must error, not silently store plaintext.
-const ENCRYPTION_CAMELCASE_YAML = `encryption:\n  masterSecret: a-real-secret\n`;
 const UNKNOWN_TOPLEVEL_YAML = `database:\n  url: ${PG_URL}\nbogus: true\n`;
 const RETIRED_SEED_YAML = `database:\n  url: ${PG_URL}\nseed:\n  agents:\n    - name: alice\n`;
+// Messages are stored plaintext; the retired `encryption` block must fail
+// loudly rather than be read as an absent setting.
+const RETIRED_ENCRYPTION_YAML = `encryption:\n  master_secret: a-real-secret\n`;
+// App principals are gone; the retired `apps[]` block must fail the same way.
+const RETIRED_APPS_YAML = `apps:\n  - manifest: ./app1.json\n`;
 const UNKNOWN_NESTED_YAML = `server:\n  port: 3000\n  extra: nope\n`;
 // Empty database.url must FAIL (minLength: 1) rather than be read as a
 // blank URL — main's Ajv rejected it; an empty string here is a typo, not
@@ -93,25 +86,9 @@ function devDefaults() {
   return Effect.gen(function* () {
     const result = yield* envOnly({ MOLTZAP_DEV_MODE: "true" });
     expect(result.databaseUrl).toBe("");
-    expect(result.encryptionMasterSecret).toBeUndefined();
     expect(result.port).toBe(DEFAULT_PORT);
     expect(result.devMode).toBe(true);
     expect(result.corsOrigins).toEqual(["*"]);
-  });
-}
-
-function encryptionSurfaces() {
-  return Effect.gen(function* () {
-    const result = yield* envOnly({
-      MOLTZAP_DEV_MODE: "true",
-      ENCRYPTION_MASTER_SECRET: SECRET,
-    });
-    expect(result.encryptionMasterSecret).not.toBeUndefined();
-    expect(
-      Redacted.value(
-        /* Safe because the test fixture establishes this asserted shape. */ result.encryptionMasterSecret!,
-      ),
-    ).toBe(SECRET);
   });
 }
 
@@ -139,9 +116,36 @@ function corsParsed() {
   return Effect.gen(function* () {
     const result = yield* envOnly({
       CORS_ORIGINS: `${APP_ORIGIN},${WWW_ORIGIN}`,
+      MOLTZAP_REGISTRATION_SECRET: INTERPOLATED,
     });
     expect(result.corsOrigins).toEqual([APP_ORIGIN, WWW_ORIGIN]);
     expect(result.devMode).toBe(false);
+  });
+}
+
+// One anonymous registration yields an active agent that can enumerate the
+// roster and broadcast into arbitrary conversations, so an unset secret must
+// refuse to boot rather than serve open registration.
+function registrationSecretRequiredInProd() {
+  return Effect.gen(function* () {
+    const exit = yield* Effect.exit(envOnly({ CORS_ORIGINS: APP_ORIGIN }));
+    const err = expectFailureValue(exit);
+    expect(String(err)).toMatch(/registration secret/i);
+  });
+}
+
+function registrationSecretFromEnvOnly() {
+  return Effect.gen(function* () {
+    const result = yield* envOnly({
+      CORS_ORIGINS: APP_ORIGIN,
+      MOLTZAP_REGISTRATION_SECRET: INTERPOLATED,
+    });
+    expect(result.registrationSecret).not.toBeUndefined();
+    expect(
+      Redacted.value(
+        /* Safe because the test fixture establishes this asserted shape. */ result.registrationSecret!,
+      ),
+    ).toBe(INTERPOLATED);
   });
 }
 
@@ -234,21 +238,6 @@ function envBackedRegistrationInterpolation() {
   );
 }
 
-function appsPassthrough() {
-  return withTempConfig(APPS_YAML, (configPath) =>
-    Effect.gen(function* () {
-      const result = yield* loadStandaloneConfig({
-        configPath,
-        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
-      });
-      expect(result.apps).toEqual([
-        { manifest: "./app1.json" },
-        { manifest: "./app2.json" },
-      ]);
-    }),
-  );
-}
-
 // Regression: env interpolation reads from the snapshot but must not mutate
 // the caller's `processEnv` object. A reused-by-reference snapshot keeps
 // every key after interpolation and the `${VAR}` reference still resolves.
@@ -295,12 +284,19 @@ function expectValidationRejection(body: string) {
 }
 
 describe("loadStandaloneConfig env-only", () => {
-  eff("PGlite default + no encryption under dev mode", devDefaults);
-  eff("ENCRYPTION_MASTER_SECRET surfaces", encryptionSurfaces);
+  eff("PGlite default under dev mode", devDefaults);
   eff("DATABASE_URL overrides the PGlite fallback", databaseUrlOverride);
   eff("PORT override respected", portOverride);
   eff("CORS_ORIGINS parsed as comma-separated list", corsParsed);
   eff("CORS_ORIGINS required outside dev mode", corsRequiredInProd);
+  eff(
+    "registration secret required outside dev mode",
+    registrationSecretRequiredInProd,
+  );
+  eff(
+    "MOLTZAP_REGISTRATION_SECRET alone satisfies the production guard",
+    registrationSecretFromEnvOnly,
+  );
   eff("Supabase rejected under dev mode", supabaseRejected);
 });
 
@@ -312,7 +308,6 @@ describe("loadStandaloneConfig YAML", () => {
     "loads the registration secret used by env-backed YAML interpolation",
     envBackedRegistrationInterpolation,
   );
-  it("apps[] passes through to bootPlan", appsPassthrough);
   it("does not mutate a reused processEnv during interpolation", () =>
     doesNotMutateReusedEnv());
 });
@@ -322,10 +317,10 @@ describe("loadStandaloneConfig YAML", () => {
 // TypeBox Value.Check (Ajv is gone), but the structural rejections match.
 // @agent-code-guard/regression-only: each case pins a specific structural rejection the prior Ajv schema enforced (recovered from the deleted config/schema.test.ts), so the Ajv→TypeBox swap cannot silently relax validation
 describe("loadStandaloneConfig validation parity", () => {
-  it("rejects encryption: {} (master_secret required when block present)", () =>
-    expectValidationRejection(ENCRYPTION_EMPTY_YAML));
-  it("rejects camelCase masterSecret typo (unknown key + missing required)", () =>
-    expectValidationRejection(ENCRYPTION_CAMELCASE_YAML));
+  it("rejects the retired encryption block", () =>
+    expectValidationRejection(RETIRED_ENCRYPTION_YAML));
+  it("rejects the retired apps block", () =>
+    expectValidationRejection(RETIRED_APPS_YAML));
   it("rejects unknown top-level keys", () =>
     expectValidationRejection(UNKNOWN_TOPLEVEL_YAML));
   it("rejects the retired seed block", () =>

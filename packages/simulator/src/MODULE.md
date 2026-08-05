@@ -154,7 +154,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`ClusterError`](./cluster/cluster.ts#L14)
+### [`ClusterError`](./cluster/cluster.ts#L15)
 
 _Class_
 
@@ -166,7 +166,7 @@ export class ClusterError extends Data.TaggedError("ClusterError")<{
 
 Cluster loss that ends a run without exposing its backend.
 
-### [`ClusterLost`](./run/execute.ts#L137)
+### [`ClusterLost`](./run/execute.ts#L144)
 
 _Class_
 
@@ -191,7 +191,7 @@ export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
 
 Opaque service set supplied by a local-Kubernetes or GKE Layer.
 
-### [`CompletedLedgerReceipt`](./run/execute.ts#L104)
+### [`CompletedLedgerReceipt`](./run/execute.ts#L111)
 
 _Class_
 
@@ -349,7 +349,7 @@ export class ConversationSocket {
 
 A conversation address bound to exactly one controlled endpoint.
 
-### [`coreEvents`](./events/core.ts#L224)
+### [`coreEvents`](./events/core.ts#L287)
 
 _Variable_
 
@@ -730,7 +730,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](./run/execute.ts#L113)
+### [`IncompleteLedgerReceipt`](./run/execute.ts#L120)
 
 _Class_
 
@@ -758,7 +758,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt`](./run/execute.ts#L128)
+### [`LedgerReceipt`](./run/execute.ts#L135)
 
 _TypeAlias_
 
@@ -768,7 +768,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt`](./run/execute.ts#L122)
+### [`LedgerReceipt`](./run/execute.ts#L129)
 
 _Variable_
 
@@ -781,7 +781,7 @@ export const LedgerReceipt = Schema.Union(
 
 Schema for the complete physical ledger-receipt universe.
 
-### [`LinkController`](./network/link.ts#L49)
+### [`LinkController`](./network/link.ts#L148)
 
 _Class_
 
@@ -793,7 +793,7 @@ export class LinkController extends Context.Tag(
 
 Experiment-facing directed-link control installed by the run kernel.
 
-### [`LinkControllerService`](./network/link.ts#L37)
+### [`LinkControllerService`](./network/link.ts#L118)
 
 _Interface_
 
@@ -807,10 +807,45 @@ export interface LinkControllerService {
     from: ParticipantHandle,
     to: ParticipantHandle,
   ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
+  /** Delay every delivery on one directed link for the current Scope. */
+  readonly delay: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+    duration: Duration.DurationInput,
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
+  /** Park every delivery on one directed link for the current Scope. */
+  readonly hold: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
+  /** Install one custom policy on a directed link for the current Scope. */
+  readonly shape: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+    policy: LinkPolicy,
+    description: string,
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
 }
 ```
 
 Run-scoped, evidence-producing directed-link control.
+
+### [`LinkDelivery`](./network/link.ts#L17)
+
+_Interface_
+
+```ts
+export interface LinkDelivery {
+  /** Message sender identity. */
+  readonly from: AgentId;
+  /** Receiving participant identity. */
+  readonly to: AgentId;
+  /** Router message carried by the delivery. */
+  readonly message: Message;
+}
+```
+
+One committed message about to cross a directed link.
 
 ### [`LinkDown`](./events/core.ts#L151)
 
@@ -828,6 +863,118 @@ export class LinkDown extends Schema.TaggedClass<LinkDown>()(
 
 A directed participant link transitioned from available to unavailable.
 
+### [`LinkMessageDelayed`](./events/core.ts#L198)
+
+_Class_
+
+```ts
+export class LinkMessageDelayed extends Schema.TaggedClass<LinkMessageDelayed>()(
+  "moltzap.link-message-delayed/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+    delayMillis: Schema.NonNegative,
+  },
+) {}
+```
+
+Active link policies deferred one delivery by a known total duration.
+
+### [`LinkMessageDropped`](./events/core.ts#L186)
+
+_Class_
+
+```ts
+export class LinkMessageDropped extends Schema.TaggedClass<LinkMessageDropped>()(
+  "moltzap.link-message-dropped/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+    reason: Schema.optional(Schema.String),
+  },
+) {}
+```
+
+An active link policy discarded one committed message before delivery.
+
+### [`LinkMessageHeld`](./events/core.ts#L210)
+
+_Class_
+
+```ts
+export class LinkMessageHeld extends Schema.TaggedClass<LinkMessageHeld>()(
+  "moltzap.link-message-held/v1",
+  {
+    from: agentId,
+    to: agentId,
+    conversationId: conversationId,
+    messageId: messageId,
+  },
+) {}
+```
+
+An active link policy parked one delivery until its lease clears.
+
+### [`linkPolicy`](./network/link.ts#L45)
+
+_Variable_
+
+```ts
+export const linkPolicy:
+```
+
+Canonical link policies for the common traffic shapes.
+
+### [`LinkPolicy`](./network/link.ts#L42)
+
+_TypeAlias_
+
+```ts
+export type LinkPolicy = (delivery: LinkDelivery) => Effect.Effect<LinkVerdict>;
+```
+
+Decides one delivery on a directed link. A policy reads only its input and
+the ambient Clock; the link interpreter, never the policy, spends time and
+records evidence.
+
+### [`LinkPolicyCleared`](./events/core.ts#L176)
+
+_Class_
+
+```ts
+export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
+  "moltzap.link-policy-cleared/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+```
+
+A described policy stopped shaping one directed participant link.
+
+### [`LinkPolicySet`](./events/core.ts#L166)
+
+_Class_
+
+```ts
+export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
+  "moltzap.link-policy-set/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+```
+
+A described policy became active on one directed participant link.
+
 ### [`LinkUp`](./events/core.ts#L160)
 
 _Class_
@@ -840,6 +987,31 @@ export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
 ```
 
 A directed participant link transitioned from unavailable to available.
+
+### [`linkVerdict`](./network/link.ts#L35)
+
+_Variable_
+
+```ts
+export const linkVerdict = Data.taggedEnum<LinkVerdict>()
+```
+
+Constructors and matchers for the closed verdict union.
+
+### [`LinkVerdict`](./network/link.ts#L27)
+
+_TypeAlias_
+
+```ts
+export type LinkVerdict = Data.TaggedEnum<{
+  deliver: Record<never, never>;
+  drop: { readonly reason?: string };
+  delay: { readonly duration: Duration.Duration };
+  hold: Record<never, never>;
+}>;
+```
+
+Closed per-delivery decision returned by a link policy.
 
 ### [`MessageParts`](./../../protocol/dist/message/parts.d.ts#L41)
 
@@ -864,7 +1036,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`NetworkError`](./network/failure.ts#L21)
+### [`NetworkError`](./network/failure.ts#L22)
 
 _Class_
 
@@ -926,7 +1098,7 @@ export class ParticipantHandle<Name extends string = string> {
 A router-issued network identity. The hidden symbol prevents structurally
 similar protocol data from being used as an identity handle.
 
-### [`ProgramFailed`](./events/core.ts#L172)
+### [`ProgramFailed`](./events/core.ts#L227)
 
 _Class_
 
@@ -941,7 +1113,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](./run/execute.ts#L131)
+### [`ProgramFinished`](./run/execute.ts#L138)
 
 _Class_
 
@@ -954,7 +1126,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L180)
+### [`ProgramInterrupted`](./events/core.ts#L235)
 
 _Class_
 
@@ -969,7 +1141,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L166)
+### [`ProgramSucceeded`](./events/core.ts#L221)
 
 _Class_
 
@@ -1193,7 +1365,7 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 Stable code identity persisted in every ledger manifest.
 
-### [`SimulatorRunFailure`](./run/execute.ts#L152)
+### [`SimulatorRunFailure`](./run/execute.ts#L159)
 
 _TypeAlias_
 
@@ -1205,7 +1377,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOptions`](./run/execute.ts#L62)
+### [`SimulatorRunOptions`](./run/execute.ts#L69)
 
 _Interface_
 
@@ -1218,7 +1390,7 @@ export interface SimulatorRunOptions {
 
 Optional run metadata; platform and runtime policy belong in Layers.
 
-### [`SimulatorRunOutcome`](./run/execute.ts#L145)
+### [`SimulatorRunOutcome`](./run/execute.ts#L152)
 
 _TypeAlias_
 

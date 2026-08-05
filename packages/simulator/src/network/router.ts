@@ -21,8 +21,8 @@ import {
   type Scope,
   type Stream,
 } from "effect";
-import type { NetworkError } from "./failure.js";
 import type { AgentHandle, ParticipantHandle } from "./participant.js";
+import type { NetworkError } from "./failure.js";
 
 const routerStoppedTypeId: unique symbol = Symbol(
   "@moltzap/simulator/RouterStopped",
@@ -158,12 +158,12 @@ export interface Router {
   ): Effect.Effect<AttachedEndpoint<Name>, NetworkError, Scope.Scope>;
 }
 
-/** Router acquisition service supplied by the cluster Layer. */
+/** Router acquisition service supplied by the platform Layer. */
 export interface RouterProviderService {
   readonly acquire: Effect.Effect<Router, NetworkError, Scope.Scope>;
 }
 
-/** Router acquisition service supplied by the cluster Layer. */
+/** Router acquisition service supplied by the platform Layer. */
 export class RouterProvider extends Context.Tag(
   "@moltzap/simulator/RouterProvider",
 )<RouterProvider, RouterProviderService>() {}

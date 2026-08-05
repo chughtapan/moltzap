@@ -5,7 +5,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { Effect } from "effect";
 import {
   closeAdminPool as closeAdminPoolBoundary,
@@ -20,7 +20,6 @@ import {
 const DEFAULT_HEALTH_TIMEOUT_MS = 30_000;
 const HEALTH_POLL_INTERVAL_MS = 100;
 const ADMIN_POOL_MAX_CONNECTIONS = 2;
-const MASTER_SECRET_BYTES = 32;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 class SpawnedServerError extends Error {
@@ -276,11 +275,9 @@ function buildServerEnv(
   dbName: string,
   port: number,
 ) {
-  const masterSecret = randomBytes(MASTER_SECRET_BYTES).toString("base64");
   return {
     NODE_ENV: "production",
     DATABASE_URL: `postgresql://test:test@${pgHost}:${pgPort}/${dbName}`,
-    ENCRYPTION_MASTER_SECRET: masterSecret,
     MOLTZAP_ADMIN_USER_ID: "00000000-0000-4000-8000-000000000001",
     MOLTZAP_DEV_MODE: "true",
     PORT: String(port),

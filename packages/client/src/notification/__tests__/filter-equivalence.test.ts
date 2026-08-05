@@ -28,20 +28,23 @@ import {
   type NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
 import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { dispatchRelease } from "@moltzap/protocol/message/dispatch";
+import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import { subscribe } from "../stream.js";
 import {
   buildMessage,
-  testDispatchId,
-  testLeaseId,
+  testAgentId,
+  testConversationId,
 } from "../../test-utils/index.js";
 
 const MAX_SEQUENCE_LENGTH = 32;
 const VALUE_POOL_SIZE = 8;
 const PROPERTY_RUN_COUNT = 25;
 
-type ReleaseParams = NotificationParamsOf<typeof dispatchRelease>;
+type CreatedParams = NotificationParamsOf<
+  typeof conversationCreatedNotificationDefinition
+>;
+type ConversationName = "alpha" | "beta";
 
 const makeSubscriberRegistry = () =>
   makeNotificationSubscriberRegistry<
@@ -53,21 +56,21 @@ const makeSubscriberRegistry = () =>
   });
 
 interface GeneratedFrame {
-  readonly definitionTag: "release" | "other";
-  readonly leaseId: ReleaseParams["leaseId"];
-  readonly decision: "deny" | "hold";
+  readonly definitionTag: "created" | "other";
+  readonly conversationId: CreatedParams["conversationId"];
+  readonly name: ConversationName;
 }
 
-const arbLeaseId = fc
+const arbConversationId = fc
   .integer({ min: 0, max: VALUE_POOL_SIZE - 1 })
-  .map((n) => testLeaseId(`lease-${n}`));
+  .map((n) => testConversationId(`conv-${n}`));
 
-const arbDecision = fc.constantFrom<"deny" | "hold">("deny", "hold");
+const arbName = fc.constantFrom<ConversationName>("alpha", "beta");
 
 const arbGeneratedFrame: fc.Arbitrary<GeneratedFrame> = fc.record({
-  definitionTag: fc.constantFrom<"release" | "other">("release", "other"),
-  leaseId: arbLeaseId,
-  decision: arbDecision,
+  definitionTag: fc.constantFrom<"created" | "other">("created", "other"),
+  conversationId: arbConversationId,
+  name: arbName,
 });
 
 const arbSequence = fc.array(arbGeneratedFrame, {
@@ -80,21 +83,21 @@ const arbSequence = fc.array(arbGeneratedFrame, {
 // would invalidate the oracle equivalence). `fc.constantFrom` picks one
 // per run so the property varies the filter across the verdict enum rather
 // than pinning a single hardcoded predicate.
-const predicatePool: ReadonlyArray<(params: ReleaseParams) => boolean> = [
-  (params) => params.verdict.decision === "deny",
-  (params) => params.verdict.decision === "hold",
+const predicatePool: ReadonlyArray<(params: CreatedParams) => boolean> = [
+  (params) => params.name === "alpha",
+  (params) => params.name === "beta",
   () => true,
   () => false,
 ];
 const arbPredicate = fc.constantFrom(...predicatePool);
 
-const DISPATCH_ID = testDispatchId("filter-equivalence");
+const PARTICIPANTS = [testAgentId("filter-equivalence")];
 
-function releaseParams(generated: GeneratedFrame): ReleaseParams {
+function createdParams(generated: GeneratedFrame): CreatedParams {
   return {
-    dispatchId: DISPATCH_ID,
-    leaseId: generated.leaseId,
-    verdict: { decision: generated.decision },
+    conversationId: generated.conversationId,
+    name: generated.name,
+    participants: PARTICIPANTS,
   };
 }
 
@@ -106,21 +109,21 @@ function releaseParams(generated: GeneratedFrame): ReleaseParams {
  */
 function oracle(
   frames: readonly GeneratedFrame[],
-  predicate: (params: ReleaseParams) => boolean,
-): readonly ReleaseParams[] {
+  predicate: (params: CreatedParams) => boolean,
+): readonly CreatedParams[] {
   return frames
-    .filter((f) => f.definitionTag === "release")
-    .map(releaseParams)
+    .filter((f) => f.definitionTag === "created")
+    .map(createdParams)
     .filter(predicate);
 }
 
-function decodedRelease(
+function decodedCreated(
   generated: GeneratedFrame,
-): NotificationDelivery<typeof dispatchRelease> {
+): NotificationDelivery<typeof conversationCreatedNotificationDefinition> {
   return {
-    definition: dispatchRelease,
-    method: dispatchRelease.name,
-    params: releaseParams(generated),
+    definition: conversationCreatedNotificationDefinition,
+    method: conversationCreatedNotificationDefinition.name,
+    params: createdParams(generated),
   };
 }
 
@@ -148,10 +151,14 @@ describe("subscribe filter-equivalence oracle", () => {
         const collected = await Effect.runPromise(
           Effect.gen(function* () {
             const registry = yield* makeSubscriberRegistry();
-            const seen = yield* Ref.make<readonly ReleaseParams[]>([]);
+            const seen = yield* Ref.make<readonly CreatedParams[]>([]);
 
             const fiber = yield* Effect.fork(
-              subscribe(registry, dispatchRelease, predicate).pipe(
+              subscribe(
+                registry,
+                conversationCreatedNotificationDefinition,
+                predicate,
+              ).pipe(
                 Stream.runForEach((params) =>
                   Ref.update(seen, (xs) => [...xs, params]),
                 ),
@@ -165,8 +172,8 @@ describe("subscribe filter-equivalence oracle", () => {
 
             for (const f of frames) {
               const decoded =
-                f.definitionTag === "release"
-                  ? decodedRelease(f)
+                f.definitionTag === "created"
+                  ? decodedCreated(f)
                   : otherFrame();
               yield* registry.dispatch(decoded);
             }
@@ -189,18 +196,20 @@ describe("subscribe filter-equivalence oracle", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
-        const seen = yield* Ref.make<readonly ReleaseParams[]>([]);
+        const seen = yield* Ref.make<readonly CreatedParams[]>([]);
 
         // Type guard form. The Stream's payload is now narrowed at compile-time;
         // the runtime expectation is that no non-matching params arrive.
-        type DeniedRelease = ReleaseParams & {
-          readonly verdict: { readonly decision: "deny" };
-        };
-        const isDenied = (params: ReleaseParams): params is DeniedRelease =>
-          params.verdict.decision === "deny";
+        type AlphaCreated = CreatedParams & { readonly name: "alpha" };
+        const isAlpha = (params: CreatedParams): params is AlphaCreated =>
+          params.name === "alpha";
 
         const fiber = yield* Effect.fork(
-          subscribe(registry, dispatchRelease, isDenied).pipe(
+          subscribe(
+            registry,
+            conversationCreatedNotificationDefinition,
+            isAlpha,
+          ).pipe(
             Stream.runForEach((params) =>
               Ref.update(seen, (xs) => [...xs, params]),
             ),
@@ -209,17 +218,17 @@ describe("subscribe filter-equivalence oracle", () => {
         );
         yield* Effect.yieldNow();
 
-        const denied: GeneratedFrame = {
-          definitionTag: "release",
-          leaseId: testLeaseId("lease-0"),
-          decision: "deny",
+        const alpha: GeneratedFrame = {
+          definitionTag: "created",
+          conversationId: testConversationId("conv-0"),
+          name: "alpha",
         };
-        yield* registry.dispatch(decodedRelease(denied));
+        yield* registry.dispatch(decodedCreated(alpha));
         yield* registry.dispatch(
-          decodedRelease({
-            definitionTag: "release",
-            leaseId: testLeaseId("lease-1"),
-            decision: "hold",
+          decodedCreated({
+            definitionTag: "created",
+            conversationId: testConversationId("conv-1"),
+            name: "beta",
           }),
         );
 
@@ -228,7 +237,7 @@ describe("subscribe filter-equivalence oracle", () => {
         yield* Fiber.join(fiber);
 
         const observed = yield* Ref.get(seen);
-        expect(observed).toEqual([releaseParams(denied)]);
+        expect(observed).toEqual([createdParams(alpha)]);
       }),
     ));
 });

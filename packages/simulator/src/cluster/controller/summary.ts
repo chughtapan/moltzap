@@ -1,4 +1,5 @@
 /** @file Closed, bounded result projection emitted by one controller process. */
+// safer-arch-ignore no-cross-domain-sibling-import: Projects run outcomes, which name ledger receipts, into the controller's bounded result.
 
 import { Either, Schema } from "effect";
 import {

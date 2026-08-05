@@ -94,10 +94,9 @@ export interface RpcDefinition<
 
   /**
    * The ordered authority list. The FIRST element is exactly one principal
-   * requirement (`AgentPrincipal` | `AppPrincipal` |
-   * `AuthenticatedPrincipal`); an optional `ActiveAgent` refinement
+   * requirement (`AuthenticatedAgent`); an optional `ActiveAgent` refinement
    * (agent-only) follows; the rest are requirement tags, in run order. Empty for
-   * the unauthenticated connect methods (`agent/network/connect`, `app/network/connect`). The
+   * the one unauthenticated method, `agent/network/connect`. The
    * server stacks each requirement middleware; each element's `failure` folds
    * into the wire error union.
    */
@@ -117,8 +116,8 @@ export interface RpcDefinition<
    * method's failures against: `Schema.Union(...effectiveErrorClasses)`. The
    * union discriminates on each error's `_tag`, so the per-method decode picks
    * the exact tagged-error class with no code lookup and no global registry.
-   * `Schema.Never` when the method has no effective errors. Connect methods
-   * still inherit transport errors at the client surface via
+   * `Schema.Never` when the method has no effective errors. The connect method
+   * still inherits transport errors at the client surface via
    * {@link ResponseErrorsOf}.
    */
   readonly errorSchema: EffectiveErrorSchemaOf<Requires, Errs>;
@@ -285,11 +284,11 @@ export function defineRpc<
 
   /**
    * REQUIRED. The ordered authority list. The FIRST element is exactly one
-   * principal requirement (`AgentPrincipal` | `AppPrincipal` |
-   * `AuthenticatedPrincipal`); an optional `ActiveAgent` refinement
+   * principal requirement (`AuthenticatedAgent`); an optional `ActiveAgent` refinement
    * (agent-only) follows; the rest are requirement tags, in run order. The
-   * unauthenticated connect methods use `requires: []`. Each requirement folds
-   * its declared `errors` into the method's effective wire error union.
+   * one unauthenticated method, `agent/network/connect`, uses `requires: []`.
+   * Each requirement folds its declared `errors` into the method's effective
+   * wire error union.
    */
   requires: Requires;
 

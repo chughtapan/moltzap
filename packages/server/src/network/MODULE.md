@@ -190,7 +190,7 @@ ack); the client's reverse `RpcServer` routes it into its
 
 **Returns:** The broadcast notification to agents result.
 
-### [`connectAgent`](./connect.handlers.ts#L469)
+### [`connectAgent`](./connect.handlers.ts#L279)
 
 _Variable_
 
@@ -201,18 +201,6 @@ export const connectAgent: ServerHandler<typeof agentConnect> = (params)
 Provides the connect agent runtime value.
 
 **Returns:** The connect agent result.
-
-### [`connectApp`](./connect.handlers.ts#L477)
-
-_Variable_
-
-```ts
-export const connectApp: ServerHandler<typeof appConnect> = (params)
-```
-
-Provides the connect app runtime value.
-
-**Returns:** The connect app result.
 
 ### [`connectionId`](./agent-endpoint-resolver.ts#L39)
 

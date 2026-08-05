@@ -11,8 +11,8 @@ import { catchSqlErrorAsDefect } from "#db";
 
 /**
  * `ConversationSendAccess` obtain: prove the caller participates in the
- * conversation, then read the conversation row the send handler's guards share.
- * A `conversationId` that survives the participant check but vanishes from the
+ * conversation, then prove the conversation row still exists. A
+ * `conversationId` that survives the participant check but vanishes from the
  * read is a true race (deletion) — surfaced as a defect, not a user error.
  * @param input Input value to process.
  * @param input.conversationId Value supplied to the operation.
@@ -36,7 +36,7 @@ export const obtainConversationSendAccess = (input: {
       input.conversationId,
       input.senderAgentId,
     );
-    const conv = yield* catchSqlErrorAsDefect(
+    yield* catchSqlErrorAsDefect(
       msgService
         .readSendConversation(input.conversationId)
         .pipe(
@@ -45,8 +45,5 @@ export const obtainConversationSendAccess = (input: {
           ),
         ),
     );
-    return {
-      conversationId: input.conversationId,
-      appId: conv.app_id,
-    };
+    return { conversationId: input.conversationId };
   }).pipe(Effect.withSpan("obtainConversationSendAccess"));

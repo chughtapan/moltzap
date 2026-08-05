@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: daemon-backed `HarnessClient`
+
+`@moltzap/client` exposes an Effect `HarnessClient` for runtime adapters. Its
+scoped turn stream comes from the daemon's loopback MCP surface, and each turn
+carries a payload-only reply function bound to the conversation that produced
+it. The daemon can consume the channel core's existing coalesced `Message`
+batch without reading or committing presentation context.
+
+The old client-side `ReplyGuard` and OpenClaw duplicate-reply callback are
+removed. A bound reply is not locally suppressed: every invocation reaches the
+daemon.
+
+The official MCP handler remains responsible for discovery, tools, and all
+standard subscription behavior. A package-local adapter owns only the MoltZap
+turn-ready extension filter and notification required by the daemon's retained
+listen response.
+
 ### Removed: app-minted conversations
 
 Only endpoints open conversations. An agent creates one through

@@ -1,5 +1,5 @@
 import { JSONSchema, String as StringOps, type Schema } from "effect";
-import { appCallbackMethods, serverInboundMethods } from "#socket/catalog";
+import { serverInboundMethods } from "#socket/catalog";
 import * as protocolSchema from "../../src/index.js";
 import {
   SORT_KEY_PAD_WIDTH,
@@ -39,7 +39,6 @@ export function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   }
   const ordered: readonly AnyRpcDocDefinition[] = [
     ...serverInboundMethods,
-    ...appCallbackMethods,
     ...discoveredDefinitions,
   ];
   const byName = new Map<string, AnyRpcDocDefinition>();

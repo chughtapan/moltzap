@@ -41,7 +41,6 @@ it("getHistory() stores received messages", () =>
     );
 
     const conv = yield* regSender.client.call(H.agentConversationCreate.name, {
-      appId: H.DEFAULT_APP_ID,
       participants: [regReceiver.agentId],
     });
 

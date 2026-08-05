@@ -50,19 +50,7 @@
     },
     {
       "file": "src/peer.ts",
-      "reason": "Autonomous container peer policies and observation gateways form the bundled social-peer boundary"
-    },
-    {
-      "file": "src/peer-application.ts",
-      "reason": "Executable boundary for one evaluation-owned autonomous peer application container"
-    },
-    {
-      "file": "src/submission.ts",
-      "reason": "Generated RunSpec module and local-or-GKE simulator submission boundary for one matrix cell"
-    },
-    {
-      "file": "src/artifacts.ts",
-      "reason": "Completed-ledger artifact retrieval boundary shared by local and GKE evaluation execution"
+      "reason": "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary"
     },
     {
       "file": "src/sweep.ts",

@@ -1,7 +1,12 @@
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import { describe, expect } from "vitest";
-import { agentId, conversationId, userId } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  conversationId,
+  messageId,
+  userId,
+} from "@moltzap/protocol/testing";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -15,11 +20,8 @@ const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
 const OWNER_USER_ID = userId("00000000-0000-4000-8000-00000000a9e0");
 const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
 const API_KEY_SECRET_HASH_LENGTH = 64;
-const APP_KEY_ID = "fedcba9876543210";
-const APP_MANIFEST_JSON = { name: "schema-fixture-app" };
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const WEREWOLF_APP_ID = "werewolf";
+const MESSAGE_ID = messageId("00000000-0000-4000-8000-0000000e5a91");
+const MESSAGE_PARTS = [{ type: "text", text: "schema fixture" }];
 const REMOVED_SCHEMA_TABLES = [
   "app_sessions",
   "app_session_participants",
@@ -27,44 +29,51 @@ const REMOVED_SCHEMA_TABLES = [
   "message_delivery",
   "tasks",
   "task_participants",
+  "apps",
+  "conversation_keys",
+  "encryption_keys",
 ] as const;
 const REMOVED_SCHEMA_ENUMS = [
   "app_session_status",
   "app_participant_status",
   "delivery_status",
   "task_status",
+  "encryption_key_status",
+] as const;
+const REMOVED_CONVERSATION_COLUMNS = ["app_id"] as const;
+const REMOVED_MESSAGE_COLUMNS = [
+  "parts_encrypted",
+  "parts_iv",
+  "parts_tag",
+  "dek_version",
+  "kek_version",
+  "dispatch_decision",
 ] as const;
 
 describe("conversations schema constraints", () => {
   it(
-    "routes a conversation to its authorizing app",
-    routesConversationToApp,
+    "stores a conversation keyed only by its creator",
+    storesConversationWithoutAuthorityColumn,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 
   it(
-    "rejects a conversation insert that omits app_id",
-    rejectsConversationWithoutApp,
+    "rejects a conversation insert that omits created_by_id",
+    rejectsConversationWithoutCreator,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 });
 
-describe("apps schema constraints", () => {
+describe("messages schema constraints", () => {
   it(
-    "inserts an app with server-issued app_id + id",
-    insertsAppWithServerIssuedIds,
+    "round-trips message parts through the plaintext jsonb column",
+    roundTripsPlaintextParts,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 
   it(
-    "rejects an app insert that omits manifest_json",
-    rejectsAppWithoutManifest,
-    PGLITE_HOOK_TIMEOUT_MS,
-  );
-
-  it(
-    "rejects a duplicate api_key_id",
-    rejectsDuplicateAppApiKeyId,
+    "rejects a message insert that omits parts",
+    rejectsMessageWithoutParts,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 });
@@ -77,93 +86,79 @@ describe("destructive migration guard", () => {
   );
 
   it(
+    "removed columns are absent",
+    removedColumnsAreAbsent,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
     "removed enums are reusable",
     removedEnumsAreReusable,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 });
 
-function routesConversationToApp() {
+function storesConversationWithoutAuthorityColumn() {
   return withCoreSchemaHarness((harness) =>
     Effect.gen(function* () {
-      yield* insertConversation(harness, WEREWOLF_APP_ID);
+      yield* insertConversation(harness);
 
       const conv = yield* takeFirstOrFail(
         harness.db
           .selectFrom("conversations")
-          .select(["app_id", "created_by_id"])
+          .select(["id", "created_by_id"])
           .where("id", "=", CONV_ID),
       );
-      expect(conv.app_id).toBe(WEREWOLF_APP_ID);
+      expect(conv.id).toBe(CONV_ID);
       expect(conv.created_by_id).toBe(AGENT_ID);
     }),
   );
 }
 
-function rejectsConversationWithoutApp() {
+function rejectsConversationWithoutCreator() {
   return withCoreSchemaHarness((harness) =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(
-        harness.exec(
-          `INSERT INTO conversations (id, created_by_id) VALUES ('${CONV_ID}', '${AGENT_ID}')`,
-        ),
+        harness.exec(`INSERT INTO conversations (id) VALUES ('${CONV_ID}')`),
       );
       expect(Exit.isFailure(exit)).toBe(true);
     }),
   );
 }
 
-function insertsAppWithServerIssuedIds() {
+function roundTripsPlaintextParts() {
   return withCoreSchemaHarness((harness) =>
     Effect.gen(function* () {
-      yield* harness.db.insertInto("apps").values({
-        manifest_json: APP_MANIFEST_JSON,
-        api_key_id: APP_KEY_ID,
-        api_key_secret_hash: "y".repeat(API_KEY_SECRET_HASH_LENGTH),
+      yield* insertConversation(harness);
+      yield* harness.db.insertInto("messages").values({
+        id: MESSAGE_ID,
+        conversation_id: CONV_ID,
+        sender_id: AGENT_ID,
+        seq: "1",
+        parts: JSON.stringify(MESSAGE_PARTS),
       });
 
-      const app = yield* takeFirstOrFail(
+      const row = yield* takeFirstOrFail(
         harness.db
-          .selectFrom("apps")
-          .select(["app_id", "api_key_id", "manifest_json"])
-          .where("api_key_id", "=", APP_KEY_ID),
+          .selectFrom("messages")
+          .select(["parts", "is_deleted"])
+          .where("id", "=", MESSAGE_ID),
       );
-      expect(app.app_id).toMatch(UUID_RE);
-      expect(app.api_key_id).toBe(APP_KEY_ID);
-      expect(app.manifest_json).toEqual(APP_MANIFEST_JSON);
+      expect(row.parts).toEqual(MESSAGE_PARTS);
+      expect(row.is_deleted).toBe(false);
     }),
   );
 }
 
-function rejectsAppWithoutManifest() {
+function rejectsMessageWithoutParts() {
   return withCoreSchemaHarness((harness) =>
     Effect.gen(function* () {
+      yield* insertConversation(harness);
       const exit = yield* Effect.exit(
         harness.exec(
-          `INSERT INTO apps (api_key_id, api_key_secret_hash)
-           VALUES ('${APP_KEY_ID}', '${"y".repeat(API_KEY_SECRET_HASH_LENGTH)}')`,
+          `INSERT INTO messages (id, conversation_id, sender_id, seq)
+           VALUES ('${MESSAGE_ID}', '${CONV_ID}', '${AGENT_ID}', 1)`,
         ),
-      );
-      expect(Exit.isFailure(exit)).toBe(true);
-    }),
-  );
-}
-
-function rejectsDuplicateAppApiKeyId() {
-  return withCoreSchemaHarness((harness) =>
-    Effect.gen(function* () {
-      yield* harness.db.insertInto("apps").values({
-        manifest_json: APP_MANIFEST_JSON,
-        api_key_id: APP_KEY_ID,
-        api_key_secret_hash: "y".repeat(API_KEY_SECRET_HASH_LENGTH),
-      });
-
-      const exit = yield* Effect.exit(
-        harness.db.insertInto("apps").values({
-          manifest_json: APP_MANIFEST_JSON,
-          api_key_id: APP_KEY_ID,
-          api_key_secret_hash: "z".repeat(API_KEY_SECRET_HASH_LENGTH),
-        }),
       );
       expect(Exit.isFailure(exit)).toBe(true);
     }),
@@ -180,6 +175,26 @@ function removedTablesAreAbsent() {
         expect(Exit.isFailure(exit)).toBe(true);
       }
       expect(REMOVED_SCHEMA_TABLES.length).toBeGreaterThan(0);
+    }),
+  );
+}
+
+function removedColumnsAreAbsent() {
+  return withCoreSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      for (const column of REMOVED_CONVERSATION_COLUMNS) {
+        const exit = yield* Effect.exit(
+          harness.exec(`SELECT ${column} FROM conversations LIMIT 1`),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+      }
+      for (const column of REMOVED_MESSAGE_COLUMNS) {
+        const exit = yield* Effect.exit(
+          harness.exec(`SELECT ${column} FROM messages LIMIT 1`),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+      }
+      expect(REMOVED_MESSAGE_COLUMNS.length).toBeGreaterThan(0);
     }),
   );
 }
@@ -223,9 +238,6 @@ function seedCoreSchemaHarness(
   harness: PgliteHarness,
 ): Effect.Effect<unknown, unknown> {
   return harness.exec(`
-    INSERT INTO encryption_keys (version, encrypted_key)
-    VALUES (1, 'test-kek');
-
     INSERT INTO agents (
       id,
       owner_user_id,
@@ -245,10 +257,9 @@ function seedCoreSchemaHarness(
   `);
 }
 
-function insertConversation(harness: PgliteHarness, appId: string) {
+function insertConversation(harness: PgliteHarness) {
   return harness.db.insertInto("conversations").values({
     id: CONV_ID,
     created_by_id: AGENT_ID,
-    app_id: appId,
   });
 }

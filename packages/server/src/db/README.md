@@ -8,7 +8,9 @@ This folder is the storage substrate shared by server domains.
   transaction types.
 - Cursor, snowflake, SQL, migration, and Postgres-dialect modules provide
   backend-neutral persistence utilities.
-- `crypto/` owns encryption at rest and key rotation.
+
+Message bodies are stored as plaintext JSONB; the read path decodes them
+strictly, so a hand-edited row cannot reach the wire.
 
 Domain queries and authorization policy stay in their owning services. Those
 services depend on `DbTag` rather than selecting or configuring a database

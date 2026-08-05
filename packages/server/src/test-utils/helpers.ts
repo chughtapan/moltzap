@@ -8,29 +8,18 @@ import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog
 import type { NotificationDelivery } from "@moltzap/protocol/rpc";
 import {
   makeTestAgentClient,
-  makeTestAppClient,
-  mintTestAppCredential,
   registerTestAgent,
   type TestAgent,
   type TestAgentClient,
-  type TestAppClient,
 } from "@moltzap/protocol/testing";
 import { DEFAULT_TEST_ADMIN_USER_ID, getCoreDb, getWsUrl } from "./server.js";
 import { AuthService } from "#identity/agents";
 
-import type {
-  AppCallbackContext,
-  AppCallbackHandlers,
-} from "@moltzap/protocol/socket";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   type AgentId,
   type AgentKey,
-  type AppId,
-  type AppKey,
-  type AppManifest,
   type UserId,
-  DEFAULT_APP_ID,
   agentName as agentNameSchema,
 } from "@moltzap/protocol/identity";
 import {
@@ -174,7 +163,7 @@ type HttpResponse = Effect.Effect.Success<
  * Executes the track client operation.
  * @param client Client used for the operation.
  */
-export function trackClient(client: TestAgentClient | TestAppClient): void {
+export function trackClient(client: TestAgentClient): void {
   openClients.push(client);
 }
 
@@ -274,78 +263,6 @@ export function connectTestClient(opts: {
 // base and dials the route itself.
 function testClientServerUrl(wsUrl: string): string {
   return serverBaseUrl(wsUrl).replace(/^ws/, "http");
-}
-
-class AppRegistrationError extends Data.TaggedError("AppRegistrationError")<{
-  readonly message: string;
-  readonly status: number;
-  readonly json: unknown;
-}> {}
-
-function appRegistrationError(error: {
-  readonly status: number;
-  readonly body: string;
-}) {
-  return new AppRegistrationError({
-    message: `app registration failed: ${error.status}`,
-    status: error.status,
-    json: error.body,
-  });
-}
-
-/**
- * Registers app.
- * @param baseUrl Value supplied to the operation.
- * @param manifest Value supplied to the operation.
- * @param inviteCode Value supplied to the operation.
- * @returns The register app result.
- */
-export function registerApp(
-  baseUrl: string,
-  manifest: AppManifest,
-  inviteCode?: string,
-): Effect.Effect<
-  { readonly appId: AppId; readonly appKey: AppKey },
-  AppRegistrationError
-> {
-  const credential = mintTestAppCredential(
-    inviteCode === undefined
-      ? { baseUrl, manifest }
-      : { baseUrl, manifest, inviteCode },
-  );
-  return credential.pipe(
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: (error) => Effect.fail(appRegistrationError(error)),
-        onRight: Effect.succeed,
-      }),
-    ),
-    Effect.withSpan("registerApp"),
-  );
-}
-
-/**
- * Executes the connect app client operation.
- * @param appId Value supplied to the operation.
- * @param appKey Value supplied to the operation.
- * @param handlers Value supplied to the operation.
- * @returns The connect app client result.
- */
-export function connectAppClient(
-  appId: AppId,
-  appKey: AppKey,
-  handlers: AppCallbackHandlers<AppCallbackContext>,
-): Effect.Effect<TestAppClient, Error> {
-  return Effect.gen(function* () {
-    const client = yield* makeTestAppClient(appId, {
-      serverUrl: testClientServerUrl(getWsUrl()),
-      appKey,
-      handlers,
-    }).pipe(Effect.mapError(toError));
-    openClients.push(client);
-    return client;
-  }).pipe(Effect.withSpan("connectAppClient"));
 }
 
 /**
@@ -512,7 +429,6 @@ export function setupAgentGroup(
         /* Safe because the surrounding invariant establishes this asserted shape. */ agents[0]!;
       const otherAgentIds = agents.slice(1).map((a) => a.agentId);
       const created = yield* creator.client.sendRpc(agentConversationCreate, {
-        appId: DEFAULT_APP_ID,
         name: opts.groupName,
         participants: otherAgentIds,
       });

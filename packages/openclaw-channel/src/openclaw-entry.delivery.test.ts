@@ -10,9 +10,8 @@ import {
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
 import { agentsList } from "@moltzap/protocol/identity";
-import { HookBlockedError, messagesSend } from "@moltzap/protocol/message";
+import { messagesSend } from "@moltzap/protocol/message";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import {
   type ParamsOf,
   type ResultOf,
@@ -88,7 +87,6 @@ interface DispatchCall {
 type SendFn = (
   conversationId: ConversationId,
   text: string,
-  opts?: { readonly dispatchLeaseId?: LeaseId },
 ) => Effect.Effect<void, ServiceRpcError>;
 type SendToAgentFn = (
   agentName: string,
@@ -147,10 +145,7 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
     "does not report a rejected inbound dispatch as finished",
     rejectedDispatchIsNotFinished,
   );
-  it(
-    "deliver callback rejects duplicate final delivery",
-    rejectsDuplicateFinal,
-  );
+  it("each final delivery sends a reply", sendsEachFinalDelivery);
   it("deliver callback returns true for non-final replies", nonFinalIsIgnored);
   it("sendText sends to the right conversation", sendsToConversation);
   it("resolveTarget accepts agent targets", acceptsAgentTarget);
@@ -162,15 +157,8 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
   it("sendText reports sendToAgent failures", reportsSendToAgentFailure);
   it("sendText reports disconnected clients", reportsDisconnectedClient);
   it("sendText reports send failures", reportsSendFailure);
-  it(
-    "deliver treats an app hook block as terminal consumed",
-    hookBlockIsConsumed,
-  );
   it("deliver reports transient RPC send failures", sendFailureIsReported);
-  it(
-    "lease guard stays unconsumed on transient send failure",
-    leaseGuardUnconsumedOnTransientFailure,
-  );
+  it("a later delivery retries after a send failure", retriesAfterSendFailure);
   it("stopAccount removes client from active pool", stopRemovesClient);
   it(
     "property: resolveTarget normalizes generated agent names",
@@ -186,7 +174,9 @@ function startGateway() {
   fixture.state.setConversation(DEFAULT_CONVERSATION_ID, defaultConversation());
   fixture.state.setAgentName(SENDER_AGENT_ID, "Atlas");
   const service = createTestService(fixture);
-  const plugin = createMoltzapChannelPlugin({ createService: () => service });
+  const plugin = createMoltzapChannelPlugin({
+    createService: () => service,
+  });
   const abortController = new AbortController();
   abortControllers.push(abortController);
   Effect.runFork(
@@ -401,7 +391,7 @@ function rejectedDispatchIsNotFinished() {
   });
 }
 
-function rejectsDuplicateFinal() {
+function sendsEachFinalDelivery() {
   return Effect.gen(function* () {
     yield* emitMessage();
     yield* waitForDispatchTimes(1);
@@ -411,8 +401,8 @@ function rejectsDuplicateFinal() {
     const second = yield* deliverFinal(SECOND_REPLY_TEXT);
     expect(first).toBe(true);
     expect(sendAfterFirst).toBe(sendBefore + 1);
-    expect(second).toBe(false);
-    expect(mockSend.mock.calls.length).toBe(sendAfterFirst);
+    expect(second).toBe(true);
+    expect(mockSend.mock.calls.length).toBe(sendAfterFirst + 1);
   });
 }
 
@@ -567,24 +557,6 @@ function serverRejected(): Effect.Effect<void, ServiceRpcError> {
   );
 }
 
-function hookBlockIsConsumed() {
-  return Effect.gen(function* () {
-    mockSend.mockReturnValueOnce(hookBlocked());
-    yield* emitMessage();
-    yield* waitForDispatchTimes(1);
-    const result = yield* deliverFinal(REPLY_TEXT);
-    expect(result).toBe(true);
-  });
-}
-
-function hookBlocked(): Effect.Effect<void, ServiceRpcError> {
-  return Effect.fail(
-    new HookBlockedError({
-      message: HookBlockedError.message,
-    }),
-  );
-}
-
 function sendFailureIsReported() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
@@ -601,22 +573,7 @@ function sendFailureIsReported() {
   });
 }
 
-/**
- * Regression test for the r1 lease-consume ordering fix (PR #622 codex P2):
- * a transient `core.sendReply` failure MUST leave
- * the per-message `LeaseGuard` unconsumed, so a retried `deliver(...)` call
- * still drives the send path. Without the fix in
- * `openclaw-entry.ts → createLeaseConsumingDeliver` + `sendDeliveredReply`
- * (stamp guard via `Effect.tap` only on successful sendReply), the first
- * failure permanently consumes the guard and the retry short-circuits to
- * `false` without ever re-calling `core.sendReply`.
- *
- * This test exercises that invariant by failing the first send, then making
- * the second send succeed, and asserting `mockSend` was invoked twice and
- * the second deliver returned `true`.
- * @returns The lease guard unconsumed on transient failure result.
- */
-function leaseGuardUnconsumedOnTransientFailure() {
+function retriesAfterSendFailure() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
@@ -631,10 +588,6 @@ function leaseGuardUnconsumedOnTransientFailure() {
     const first = yield* deliverFinal(FIRST_REPLY_TEXT);
     expect(first).toBe(false);
     expect(mockSend.mock.calls.length).toBe(sendBefore + 1);
-    // Second deliver: send is now configured to succeed (default
-    // `mockSend.mockImplementation(fixture.service.send)` from `startGateway`).
-    // The guard MUST NOT have been stamped by the first failure, so this
-    // retry exercises the lease and returns true.
     const second = yield* deliverFinal(SECOND_REPLY_TEXT);
     expect(second).toBe(true);
     expect(mockSend.mock.calls.length).toBe(sendBefore + 2);

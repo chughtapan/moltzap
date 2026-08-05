@@ -11,12 +11,7 @@ import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import { registerAgent } from "@moltzap/client/auth";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
-import {
-  DEFAULT_APP_ID,
-  type AgentId,
-  type AgentKey,
-  type AgentName,
-} from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
@@ -292,7 +287,6 @@ function openConversationWith(
   return (participants: ParticipantIds) =>
     client
       .callDefinition(agentConversationCreate, {
-        appId: DEFAULT_APP_ID,
         participants,
       })
       .pipe(

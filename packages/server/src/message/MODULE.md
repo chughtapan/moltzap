@@ -8,176 +8,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageAuthorizationConversations`](./authorization.ts#L25)
-
-_Interface_
-
-```ts
-export interface MessageAuthorizationConversations {
-  getParticipantAgentIds(
-    conversationId: ConversationId,
-  ): Effect.Effect<readonly AgentId[]>;
-}
-```
-
-Describes message authorization conversations.
-
-### [`MessageAuthorizationService`](./authorization.ts#L38)
-
-_Class_
-
-```ts
-export class MessageAuthorizationService {
-  private readonly apps: AppEndpointRegistry;
-  private readonly conversations: MessageAuthorizationConversations;
-
-  constructor(
-    apps: AppEndpointRegistry,
-    conversations: MessageAuthorizationConversations,
-  ) {
-    this.apps = apps;
-    this.conversations = conversations;
-  }
-
-  authorize(
-    appId: AppId,
-    ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult> {
-    const entry = this.apps.lookupApp(appId);
-    if (entry === undefined) {
-      return Effect.succeed(APP_UNREACHABLE_BLOCK);
-    }
-
-    const policy = entry.manifest.hooks.message_authorize;
-    switch (policy.kind) {
-      case "forwardAllExceptSender":
-        return this.forwardAllExceptSender(ctx);
-      case "deny":
-        return Effect.succeed({
-          decision: "Block",
-          reason: policy.reason,
-        });
-      case "hook":
-        return this.messageAuthorizeHook(entry, appId, ctx, policy.timeoutMs);
-      default: {
-        const exhaustive: never = policy;
-        return exhaustive;
-      }
-    }
-  }
-
-  private forwardAllExceptSender(
-    ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult> {
-    return this.conversations.getParticipantAgentIds(ctx.conversationId).pipe(
-      Effect.map(
-        (participants): MessageAuthorizeResult => ({
-          decision: "Forward",
-          recipients: participants.filter(
-            (id) => id !== ctx.message.senderAgentId,
-          ),
-        }),
-      ),
-      Effect.withSpan("message.authorization.forwardAllExceptSender"),
-    );
-  }
-
-  private messageAuthorizeHook(
-    entry: AppRegistration,
-    appId: AppId,
-    ctx: MessageAuthorizeContext,
-    timeoutMs: number,
-  ): Effect.Effect<MessageAuthorizeResult> {
-    return wrapHookEffectWithEnvelope({
-      raw: callAppRpc(entry, {
-        definition: messagesAuthorize,
-        params: this.messageAuthorizeParamsForWire(ctx),
-      }).pipe(Effect.map((envelope) => envelope.verdict)),
-      timeoutMs,
-      timeoutLogMessage: "app/message/authorize timed out",
-      timeoutLogContext: { appId, timeoutMs },
-      errorLogMessage: "app/message/authorize error",
-      errorLogContext: { appId },
-      onTimeout: () => APP_UNREACHABLE_BLOCK,
-      onError: () => APP_UNREACHABLE_BLOCK,
-    });
-  }
-
-  private messageAuthorizeParamsForWire(
-    ctx: MessageAuthorizeContext,
-  ): ParamsOf<typeof messagesAuthorize> {
-    return {
-      appId: ctx.appId,
-      conversationId: ctx.conversationId,
-      message: {
-        id: ctx.message.id,
-        senderAgentId: ctx.message.senderAgentId,
-        ...(ctx.message.parts !== undefined
-          ? { parts: ctx.message.parts }
-          : {}),
-      },
-      ...(ctx.receivedAt !== undefined ? { receivedAt: ctx.receivedAt } : {}),
-    };
-  }
-}
-```
-
-Implements message authorization service.
-
-### [`messageAuthorizationServiceLive`](./layer.ts#L26)
-
-_Variable_
-
-```ts
-export const messageAuthorizationServiceLive = Layer.effect(
-  MessageAuthorizationServiceTag,
-  Effect.gen(function* () {
-    const appEndpointRegistry = yield* AppEndpointRegistryTag;
-    const conversations = yield* ConversationServiceTag;
-    return new MessageAuthorizationService(appEndpointRegistry, conversations);
-  }).pipe(Effect.withSpan("MessageAuthorizationServiceLive")),
-)
-```
-
-Provides the message authorization service live runtime value.
-
-### [`MessageAuthorizationServiceTag`](./layer.ts#L15)
-
-_Class_
-
-```ts
-export class MessageAuthorizationServiceTag extends Context.Tag(
-  "moltzap/MessageAuthorizationService",
-)<MessageAuthorizationServiceTag, MessageAuthorizationService>() {}
-```
-
-Implements message authorization service tag.
-
-### [`MessageAuthorizeContext`](./authorization.ts#L14)
-
-_TypeAlias_
-
-```ts
-export type MessageAuthorizeContext = ParamsOf<typeof messagesAuthorize>;
-```
-
-Represents message authorize context values.
-
-### [`MessageAuthorizeResult`](./authorization.ts#L17)
-
-_TypeAlias_
-
-```ts
-export type MessageAuthorizeResult =
-  | {
-      readonly decision: "Forward";
-      readonly recipients: readonly AgentId[];
-    }
-```
-
-Represents the result of message authorize.
-
-### [`MessageService`](./message.service.ts#L166)
+### [`MessageService`](./message.service.ts#L93)
 
 _Class_
 
@@ -186,72 +17,15 @@ export class MessageService {
   private readonly db: Db;
   private readonly conversations: ConversationService;
   private readonly networkSendService: NetworkSendService;
-  private readonly encryption: EnvelopeEncryption | null;
-  private readonly messageAuthorization: MessageAuthorizationService;
 
   constructor(deps: MessageServiceDeps) {
     this.db = deps.db;
     this.conversations = deps.conversations;
     this.networkSendService = deps.networkSend;
-    this.encryption = deps.encryption;
-    this.messageAuthorization = deps.messageAuthorization;
   }
 
   close(): Effect.Effect<void> {
     return Effect.void;
-  }
-
-  /**
-   * CAS-guarded UPDATE of `messages.dispatch_decision` after the
-   * `app/message/authorize` gate resolves.
-   *
-   * Each row inserts with `{tag: "pending"}` in {@link sendInsert};
-   * this method transitions to `{tag: "forward", recipients}` or
-   * `{tag: "block", reason}` exactly once.
-   *
-   * The CAS guard restricts the UPDATE to rows currently in the
-   * `pending` tag. Two concurrent transitions (real verdict racing a
-   * timeout-synthesized fallback) cannot both succeed: whichever
-   * commits first wins, the loser sees `committed: false` and
-   * skips the dependent broadcast.
-   * @param messageId Value supplied to the operation.
-   * @param verdict Value supplied to the operation.
-   * @returns The result result.
-   */
-  recordDispatchDecision(
-    messageId: MessageId,
-    verdict: DispatchDecision,
-  ): Effect.Effect<{ committed: boolean }> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: MessageService) {
-          // CAS predicate via JSONB containment (`@>`), which Postgres
-          // binds as a query parameter. The UPDATE returns one row iff the
-          // row was still `pending` at UPDATE time; concurrent transitions
-          // see committed=false and skip the dependent broadcast.
-          const result = yield* Effect.tryPromise({
-            try: () =>
-              this.db
-                .updateTable("messages")
-                .set({ dispatch_decision: verdict })
-                .where("id", "=", messageId)
-                .where(
-                  "dispatch_decision",
-                  "@>",
-                  JSON.stringify({ tag: "pending" }),
-                )
-                .returning("id")
-                .execute(),
-            catch: (cause) =>
-              new SqlError({
-                cause,
-                message: "recordDispatchDecision UPDATE failed",
-              }),
-          });
-          return { committed: result.length === 1 };
-        }.bind(this),
-      ),
-    );
   }
 
   sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult> {
@@ -266,14 +40,12 @@ export class MessageService {
         // `ConversationSendAccess` gates this method in the engine middleware
         // stack before the handler runs, so `send` requires no permission token in
         // its Env and trusts `input` (the handler's already-gated params).
-        const conv = yield* this.readSendConversation(input.conversationId);
+        yield* this.readSendConversation(input.conversationId);
         const parts = input.parts;
-        const encrypted = yield* this.encryptParts(input.conversationId, parts);
-        const row = yield* this.insertMessageRow(input, encrypted);
+        const row = yield* this.insertMessageRow(input);
         return {
           message: this.mapMessage(row, parts),
           parts,
-          conv,
           excludeConnectionId: input.excludeConnectionId,
         };
       }.bind(this),
@@ -282,8 +54,8 @@ export class MessageService {
 
   /**
    * Send-conversation projection consumed by the `ConversationSendAccess`
-   * `obtain` AND `MessageService.sendCommit`'s `app/message/authorize`
-   * verdict route. `app_id` identifies the app authorizing the conversation.
+   * `obtain` to prove the conversation row exists before the send handler
+   * runs.
    * @param conversationId Value supplied to the operation.
    * @internal
    * @returns The send-conversation row.
@@ -297,24 +69,80 @@ export class MessageService {
     return takeFirstOrFail(
       this.db
         .selectFrom("conversations")
-        .select(["app_id"])
+        .select(["id"])
         .where("id", "=", conversationId),
     );
   }
+
+  private insertMessageRow(
+    input: SendInsertInput,
+  ): Effect.Effect<MessageRow, SqlError> {
+    const messageIdValue = decodeMessageId(crypto.randomUUID());
+    const createdAtIso = new Date().toISOString();
+    return Effect.tryPromise({
+      try: () =>
+        this.db
+          .insertInto("messages")
+          .values({
+            id: messageIdValue,
+            conversation_id: input.conversationId,
+            sender_id: input.senderAgentId,
+            seq: nextSnowflakeId().toString(),
+            parts: JSON.stringify(input.parts),
+            created_at: new Date(createdAtIso),
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow(),
+      catch: (cause) =>
+        new SqlError({ cause, message: "insert messages failed" }),
+    });
+  }
+
+  /**
+   * Broadcast and trace tail: participants-minus-sender fan-out.
+   *
+   * Participant fan-out is best-effort after the durable insert. Offline
+   * participants are not a send failure: `broadcast` reports which agent IDs
+   * were reached, `recordTrace` observes the misses, and reconnecting clients
+   * recover recent durable history within the requested `messages/list` limit.
+   * @param carrier Value supplied to the operation.
+   * @param conversationId Value supplied to the operation.
+   * @param senderAgentId Value supplied to the operation.
+   * @returns The committed message.
+   */
+  sendCommit(
+    carrier: SendInsertResult,
+    conversationId: ConversationId,
+    senderAgentId: AgentId,
+  ): Effect.Effect<Message> {
+    return catchSqlErrorAsDefect(
+      this.sendCommitEffect({ carrier, conversationId, senderAgentId }),
+    );
+  }
+
+  private sendCommitEffect(
+    input: SendCommitInput,
+  ): Effect.Effect<Message, SqlError> {
+    return Effect.gen(
+      function* (this: MessageService) {
+        const participants = yield* this.conversations.getParticipantAgentIds(
+          input.conversationId,
+        );
+        const recipientList = participants.filter(
+          (id) => id !== input.senderAgentId,
+        );
+        const delivered = yield* this.broadcastCommittedMessage(
+          input,
 ```
 
-`agent/message/send` server entry point. The `send` method resolves the
-conversation's authorizing app, persists the message, then resolves the
-dispatch-authorization verdict via the `app/message/authorize` round-trip
-and broadcasts per verdict.
+`agent/message/send` server entry point. The `send` method persists the
+message durably, then broadcasts it to every conversation participant, the
+sender included; only the connection that issued the send is left out, so a
+sender holding several connections still sees its own message on the
+others. The router is content-blind: it applies no interpretation or policy
+to the message body.
 
-The `app/message/authorize` round-trip is the authorization gate:
-`MessageAuthorizationService` fails closed (`Block { reason:
-"app_unreachable" }`) on timeout, handler error, or RPC failure. On
-Forward, `network.send` broadcasts to `verdict.recipients`; on Block, the
-call fails with `HookBlocked`.
-
-### [`messageServiceLive`](./layer.ts#L36)
+### [`messageServiceLive`](./layer.ts#L18)
 
 _Variable_
 
@@ -325,14 +153,10 @@ export const messageServiceLive = Layer.effect(
     const db = yield* DbTag;
     const conversations = yield* ConversationServiceTag;
     const networkSend = yield* NetworkSendServiceTag;
-    const encryption = yield* EncryptionTag;
-    const messageAuthorization = yield* MessageAuthorizationServiceTag;
     return new MessageService({
       db,
       conversations,
       networkSend,
-      encryption,
-      messageAuthorization,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),
 )
@@ -340,7 +164,7 @@ export const messageServiceLive = Layer.effect(
 
 Provides the message service live runtime value.
 
-### [`MessageServiceTag`](./layer.ts#L20)
+### [`MessageServiceTag`](./layer.ts#L12)
 
 _Class_
 
@@ -353,7 +177,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L155)
+### [`messagesList`](./handlers.ts#L64)
 
 _Variable_
 
@@ -371,7 +195,7 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L141)
+### [`messagesSend`](./handlers.ts#L50)
 
 _Variable_
 
@@ -392,7 +216,6 @@ Provides the messages send runtime value.
 
 ## Files
 
-- `authorization.ts`
 - `handlers.ts`
 - `layer.ts`
 - `message.service.ts`

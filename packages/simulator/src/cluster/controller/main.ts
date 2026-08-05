@@ -6,11 +6,11 @@ import { Cause, Context, Data, Effect, Layer } from "effect";
 import { isRunSpec, Run, type RunSpec } from "../../definition.js";
 import { isEntryModule } from "../entry.js";
 import {
+  ClusterLost,
   CompletedLedgerReceipt,
   ProgramFinished,
-  ClusterLost,
-} from "../../run/execute.js";
-import { LedgerStorageError } from "../../ledger/storage.js";
+} from "../../index.js";
+import { LedgerStorageError } from "../../ledger.js";
 import {
   controllerConfigurationFromEnvironment,
   type ControllerEnvironment,
