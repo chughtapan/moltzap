@@ -65,114 +65,14 @@ with an author hint.
 
 ## Fixed questions and verbatim answers
 
-### 1. Current decision
+The six questions are **not** restated here. They live in
+`.claude/skills/cold-read/references/questions.md`, which is their normative
+owner. A second copy would drift, and the drift would be invisible — the
+same failure that stopped `AGENTS.md` paraphrasing `v2/VISION.md`.
 
-> What decision does this candidate make current, what problem does it
-> resolve, and which statements are binding versus context or
-> non-normative explanation?
-
-#### Reviewer answer — verbatim
-
-_Paste the reviewer's complete answer without editing._
-
-#### Independently discovered evidence
-
-| Repository path | Heading | What the reviewer used it to establish |
-|---|---|---|
-| `_fill_` | `_fill_` | `_fill_` |
-
-Verdict: **_PASS or FAIL_**
-
-### 2. Lineage and authority
-
-> What earlier outcomes does it replace, retain, or leave untouched,
-> and where does the current normative contract live?
-
-#### Reviewer answer — verbatim
-
-_Paste the reviewer's complete answer without editing._
-
-#### Independently discovered evidence
-
-| Repository path | Heading | What the reviewer used it to establish |
-|---|---|---|
-| `_fill_` | `_fill_` | `_fill_` |
-
-Verdict: **_PASS or FAIL_**
-
-### 3. Implementation effects and assumptions
-
-> What must an implementer now do or avoid, which layers or consumers are
-> affected, and under what fault, trust, safety, liveness, and
-> compatibility assumptions?
-
-#### Reviewer answer — verbatim
-
-_Paste the reviewer's complete answer without editing._
-
-#### Independently discovered evidence
-
-| Repository path | Heading | What the reviewer used it to establish |
-|---|---|---|
-| `_fill_` | `_fill_` | `_fill_` |
-
-Verdict: **_PASS or FAIL_**
-
-### 4. Source-event attribution
-
-> Which humans are named as decision-makers, which source events does
-> the compacted trajectory cite for their calls, alternatives,
-> reversals, and deferrals, and what source gaps does it explicitly
-> record? Report only what the event ledger states; do not infer
-> motives, confidence, urgency, or rationale.
-
-#### Reviewer answer — verbatim
-
-_Paste the reviewer's complete answer without editing._
-
-#### Independently discovered evidence
-
-| Repository path | Heading | What the reviewer used it to establish |
-|---|---|---|
-| `_fill_` | `_fill_` | `_fill_` |
-
-Verdict: **_PASS or FAIL_**
-
-### 5. Adversarial consistency check
-
-> Find the strongest apparent contradiction, stale instruction, or
-> broken lineage elsewhere in the repository. Resolve it using the
-> authority order or report it as a blocker.
-
-#### Reviewer answer — verbatim
-
-_Paste the reviewer's complete answer without editing._
-
-#### Independently discovered evidence
-
-| Repository path | Heading | What the reviewer used it to establish |
-|---|---|---|
-| `_fill_` | `_fill_` | `_fill_` |
-
-Verdict: **_PASS or FAIL_**
-
-### 6. Implementation readiness
-
-> Could a teammate implement the decision without chat or guessing?
-> List every missing link or unresolved choice and classify each as a
-> deliberate deferral or an accidental gap.
-
-#### Reviewer answer — verbatim
-
-_Paste the reviewer's complete answer without editing._
-
-#### Independently discovered evidence
-
-| Repository path | Heading | What the reviewer used it to establish |
-|---|---|---|
-| `_fill_` | `_fill_` | `_fill_` |
-
-Verdict: **_PASS or FAIL_**
+Record one section per question, numbered 1 to 6, each carrying the
+reviewer's unedited answer and the paths and headings it independently
+discovered.
 
 ## Discovery trail
 

@@ -1,7 +1,8 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
+superseded-by: 20260805-agent-instructions-progressive-disclosure.md
 ---
 
 # AGENTS.md is the single source of agent instructions
@@ -10,9 +11,17 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-This record remains accepted. The Gate 1 freeze applies the same
-single-source rule while reconciling agent law with the accepted
-architecture.
+**Retained:** `AGENTS.md` is the single source of agent instructions, and no
+per-tool mirror carries independent content. The Gate 1 freeze applies the same
+rule while reconciling agent law with the accepted architecture.
+
+**Replaced:** the `@AGENTS.md` import. `20260805-agent-instructions-progressive-disclosure.md`
+makes every `CLAUDE.md` a symlink, because the import syntax is Claude-specific
+while the single-source goal was tool-agnostic. That record also supersedes the
+~110-line budget stated in Consequences below, and the "organized by concern"
+section list, which no longer describes the file.
+
+**Current contract:** `20260805-agent-instructions-progressive-disclosure.md`.
 
 ## Context and Problem Statement
 
