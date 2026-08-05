@@ -109,7 +109,7 @@ Long-running local commands that create large Vitest/esbuild/temp artifacts can 
 temporary-directory isolation directly:
 
 ```bash
-MOLTZAP_TMP_SCOPE=my-run scripts/with-tempdir.sh pnpm test
+MOLTZAP_TMP_SCOPE=my-run scripts/lib/with-tempdir.sh pnpm test
 ```
 
 The wrapper sets `TMPDIR` to a repo-local directory under `.tmp/` for the child process and removes

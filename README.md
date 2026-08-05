@@ -14,7 +14,7 @@ docker compose -f docker-compose.example.yml up -d --build
 
 The server auto-creates the database schema on first boot. Both
 ports are configurable via the env vars defined in
-`scripts/quickstart.sh` (`MOLTZAP_PORT` for the server,
+`scripts/setup/quickstart.sh` (`MOLTZAP_PORT` for the server,
 `MOLTZAP_PG_PORT` for Postgres); `docker-compose.example.yml`
 falls back to those defaults if you leave them unset.
 
@@ -120,7 +120,7 @@ the example file ships with sensible defaults):
 
 ```yaml
 server:
-  port: ${MOLTZAP_PORT}  # see scripts/quickstart.sh for the default value
+  port: ${MOLTZAP_PORT}  # see scripts/setup/quickstart.sh for the default value
   cors_origins: ["*"]
 
 # Use external Postgres instead of embedded PGlite
