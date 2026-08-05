@@ -284,6 +284,11 @@ candidate.
 - Before v2 implementation changes, the governing spec and decision
   traceability must be complete. No binding decision may exist only in
   chat, an issue comment, or an agent-private state directory.
+- Generated docs (MODULE.md pages, protocol reference, constants
+  snippets) are refreshed before merge, not on every commit: run
+  `pnpm docs:generate` and commit the result. Its inputs cover every
+  `.ts` file under `packages/`, so per-commit regeneration never hits
+  the Nx cache. `pnpm docs:check:drift` is the CI backstop.
 - Flow diagrams are Mermaid in JSDoc above the owning symbol;
   generated MODULE.md pages surface them. Change a flow → update its
   diagram in the same PR. Cross-package flows are documented once at
