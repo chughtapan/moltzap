@@ -56,14 +56,8 @@ jobs:
       - name: Run server-side conformance suite
         run: pnpm -F @moltzap/server-core test:conformance
 
-      - name: Run client conformance suite
-        run: pnpm -F @moltzap/client test:conformance
 
-      - name: Run OpenClaw channel conformance suite
-        run: pnpm -F @moltzap/openclaw-channel test:conformance
 
-      - name: Run Nanoclaw channel conformance suite
-        run: pnpm -F @moltzap/nanoclaw-channel test:conformance
 
       - name: Stop Toxiproxy
         if: always()

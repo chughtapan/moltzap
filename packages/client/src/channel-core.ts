@@ -19,7 +19,7 @@ import { enrichChannelMessage } from "./channel-core-enrichment.js";
 export { projectHarnessTurn } from "./channel-core-enrichment.js";
 
 /** Describes enriched sender. */
-export interface EnrichedSender {
+interface EnrichedSender {
   id: string;
   name: string;
 }
