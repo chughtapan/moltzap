@@ -1,5 +1,5 @@
 {
-  "generatedBy": "scripts/generate-constants-snippets.ts",
+  "generatedBy": "scripts/docs/generate-constants-snippets.ts",
   "constants": [
     {
       "name": "PROTOCOL_VERSION",
@@ -33,7 +33,7 @@
       "name": "QUICKSTART_PORT",
       "value": 41973,
       "kind": "number",
-      "sourcePath": "scripts/quickstart.sh",
+      "sourcePath": "scripts/setup/quickstart.sh",
       "note": "Port the quickstart.sh script binds the local server to (chosen to avoid 3000/3100 conflicts)."
     }
   ]

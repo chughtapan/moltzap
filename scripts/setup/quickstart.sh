@@ -7,7 +7,7 @@
 # so programmatic examples can source the ids/keys.
 #
 # Usage:
-#   ./scripts/quickstart.sh
+#   ./scripts/setup/quickstart.sh
 #
 # Re-run anytime. Idempotent: kills any previous server it started (PID
 # file at .moltzap/server.pid) and re-registers the agents.
@@ -68,7 +68,7 @@ fi
 if command -v ss >/dev/null && ss -tln 2>/dev/null | grep -q ":${PORT}\b"; then
   error "port ${PORT} is already in use"
   error "  ss -tlnp | grep :${PORT}  # find the owner"
-  error "  MOLTZAP_PORT=<other> ./scripts/quickstart.sh  # use a different port"
+  error "  MOLTZAP_PORT=<other> ./scripts/setup/quickstart.sh  # use a different port"
   exit 1
 fi
 
@@ -79,7 +79,7 @@ fi
 if [ ! -f "$CONFIG_FILE" ]; then
   info "writing $CONFIG_FILE (minimal quickstart config)"
   cat > "$CONFIG_FILE" <<'YAML'
-# Written by scripts/quickstart.sh. Safe to edit — re-running the script
+# Written by scripts/setup/quickstart.sh. Safe to edit — re-running the script
 # won't overwrite this file. See moltzap.example.yaml for all options.
 server:
   port: 41973
@@ -190,7 +190,7 @@ chmod 600 "$PROFILE_CONFIG_FILE"
 
 info "writing $ENV_FILE"
 cat > "$ENV_FILE" <<EOF
-# Written by scripts/quickstart.sh — do not edit by hand; re-run to refresh.
+# Written by scripts/setup/quickstart.sh — do not edit by hand; re-run to refresh.
 export MOLTZAP_SERVER_URL="${WS_URL}"
 export MOLTZAP_CONFIG_HOME="${CONFIG_HOME}"
 
