@@ -537,7 +537,7 @@ const packageDefinitions = {
   },
 };
 
-const workspaceRoot = new URL("../", import.meta.url);
+const workspaceRoot = new URL("../../", import.meta.url);
 
 const architectureConfigDefinitions = [
   ...Object.entries(packageDefinitions).map(([packageName, definition]) => ({
@@ -729,7 +729,7 @@ if (danglingClaims.length > 0) {
       "",
       "Every facadeFiles.file, folderChildCountOverrides.folder, and",
       "layers[].folders entry must name a real path. Fix the entry in",
-      "scripts/gen-architecture-configs.mjs or restore the path it claims.",
+      "scripts/architecture/gen-configs.mjs or restore the path it claims.",
     ].join("\n"),
   );
 }

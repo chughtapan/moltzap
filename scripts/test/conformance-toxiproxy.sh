@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="${CONFORMANCE_COMPOSE_FILE:-$ROOT_DIR/docker-compose.conformance.yml}"
 TOXIPROXY_URL="${TOXIPROXY_URL:-http://127.0.0.1:8474}"
 
@@ -79,7 +79,7 @@ for ((seed_index = 0; seed_index < CONFORMANCE_SEED_COUNT; seed_index++)); do
     pkg_tmp="${pkg_tmp//\//-}"
     echo "==> $pkg"
     MOLTZAP_TMP_SCOPE="conformance-seed-$FC_SEED-$pkg_tmp" \
-      "$ROOT_DIR/scripts/with-tempdir.sh" \
+      "$ROOT_DIR/scripts/lib/with-tempdir.sh" \
       pnpm -F "$pkg" test:conformance
   done
 done

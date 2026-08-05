@@ -2,7 +2,7 @@
 /**
  * @file Drift gate for hardcoded protocol/server constants in doc copy.
  *
- * The companion to `scripts/generate-constants-snippets.ts`: that
+ * The companion to `scripts/docs/generate-constants-snippets.ts`: that
  * script writes `docs/snippets/constants/values.{mdx,json}` from the
  * authoritative source files; this script scans every other doc for
  * literal occurrences of those values. A match outside the constants
@@ -35,7 +35,7 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const workspaceRoot = resolve(scriptDir, "..");
+const workspaceRoot = resolve(scriptDir, "..", "..");
 const docsDir = resolve(workspaceRoot, "docs");
 const valuesJsonPath = resolve(docsDir, "snippets", "constants", "values.json");
 
@@ -83,7 +83,7 @@ const isAllowed = (relPath: string): boolean =>
 //
 // Files that carry `{/* @bake-constants: NAME1 NAME2 ... */}` opt into
 // generator-bake of the listed constants (see
-// `scripts/generate-constants-snippets.ts`). The literal value lives in
+// `scripts/docs/generate-constants-snippets.ts`). The literal value lives in
 // the file by design — the bake step is the source of truth, and
 // `pnpm docs:check:drift` catches drift via `git diff --exit-code` after
 // regeneration. The gate's per-rule scan SKIPS rules whose constant name
@@ -245,7 +245,7 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
   rules.push({
     name: "VERSION_SHAPED_LITERAL",
     regex: /\b\d{4}\.\d{3,4}\.\d+\b/,
-    hint: `Replace with the appropriate baked version value (mark the file with \`{/* @bake-constants: PROTOCOL_VERSION */}\` or \`{/* @bake-constants: V2_PROTOCOL_VERSION */}\` so \`scripts/generate-constants-snippets.ts\` keeps it in sync). For non-version examples, use the placeholder string \`YYYY.MDD.patch\` on its own.`,
+    hint: `Replace with the appropriate baked version value (mark the file with \`{/* @bake-constants: PROTOCOL_VERSION */}\` or \`{/* @bake-constants: V2_PROTOCOL_VERSION */}\` so \`scripts/docs/generate-constants-snippets.ts\` keeps it in sync). For non-version examples, use the placeholder string \`YYYY.MDD.patch\` on its own.`,
     skipLine: (line) =>
       line.includes("YYYY.MDD.patch") &&
       !/\b\d{4}\.\d{3,4}\.\d+\b/.test(line.replace(/YYYY\.MDD\.patch/g, "")),
