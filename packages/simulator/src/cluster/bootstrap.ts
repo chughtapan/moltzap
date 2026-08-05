@@ -1,7 +1,7 @@
 /** @file Private runtime-bootstrap materializer used by the Sandbox initializer. */
 
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- `FileSystem.stat` resolves the final symbolic link and `@effect/platform` exposes no `lstat`, so link-rejecting checks need Node directly; entry detection runs at module load, before a runtime exists to provide `FileSystem`.
-import { promises as nodeFsPromises, realpathSync } from "node:fs";
+import { existsSync, promises as nodeFsPromises, realpathSync } from "node:fs";
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileSystem } from "@effect/platform";
@@ -534,6 +534,10 @@ function runCli(
   return parseArguments(args).pipe(Effect.flatMap(materializeBootstrap));
 }
 
+function realPath(path: string): string | undefined {
+  return existsSync(path) ? realpathSync(path) : undefined;
+}
+
 /**
  * Whether this module is the process entry point rather than an import.
  *
@@ -542,16 +546,22 @@ function runCli(
  * this file through `/opt/moltzap/dist`, a symlink into the installed package,
  * so an uncanonicalized comparison makes the init container look like an
  * import and exit successfully having materialized nothing.
+ *
+ * This repeats `cluster/entry.ts` rather than importing it: the CLI is executed
+ * as TypeScript through a symlink by its own regression test, and Node resolves
+ * neither a `.js` specifier to a `.ts` file nor a relative import from the
+ * symlink's location.
+ *
  * @param invoked Path the process was started with, if it has one.
  * @returns Whether both locations name the same real file.
  */
 function isDirectInvocation(invoked?: string): boolean {
-  if (invoked === undefined) {
+  if (invoked === undefined || invoked.length === 0) {
     return false;
   }
+  const entry = realPath(resolve(invoked));
   return (
-    realpathSync(resolve(invoked)) ===
-    realpathSync(fileURLToPath(import.meta.url))
+    entry !== undefined && entry === realPath(fileURLToPath(import.meta.url))
   );
 }
 
