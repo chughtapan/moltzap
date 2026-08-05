@@ -74,8 +74,8 @@ tool errors remain:
 
 The portable closure hides those raw fields and results. It does not add a
 second client-side join, retry, conflict, timeout, ambiguity, or receipt state
-machine. The production implementation privately uses its existing dispatch
-lease and production-owned completion behavior.
+machine. The production implementation privately uses the native route it
+captured and its production-owned completion behavior.
 
 The transcript did not decide how `reply(payload)` maps to one action when a
 clean-slate grant advertises several legal actions. Until the OpenFloor/task

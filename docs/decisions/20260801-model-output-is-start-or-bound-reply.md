@@ -39,16 +39,23 @@ backing therefore retains its OperationId-based atomic START; this record does
 not create a new production START transaction or failure contract.
 
 For an established conversation, a runtime adapter receives only the
-`reply(payload)` function bound to its current turn. The portable call has no
-reply token, action identifier, TxnId, dispatch lease, ConversationId, or
-generation selector. The corresponding `HarnessClient` implementation captures
+`reply(payload)` function bound to its current turn. The portable call carries
+no backing correlation: no reply token, action identifier, TxnId,
+ConversationId, or generation selector. The corresponding `HarnessClient` implementation captures
 the exact native authority from that turn's raw notification.
 
 The clean-slate direct MCP contract remains
 `reply(TxnId, actionId, payload)`. Its ReplyFingerprint remains canonical
 `(TxnId, actionId, payload)`, and its accepted grant validation, durable Ledger
 result, receipt reconciliation, retry, and error behavior remain unchanged.
-The production implementation continues to use its dispatch lease privately.
+The production implementation's reply authority is the originating
+ConversationId, carried privately in MCP `_meta` under the
+`xyz.moltzap/events-v1` extension. Every production reply invocation sends,
+and that path carries no lease, reply token, action identifier, turn
+identifier, or expiry. The private `_meta` carriage stops at `HarnessClient`
+and does not reach `reply(payload)`. Production reply carriage remains
+`main`-owned; this record states it to fix what the portable projection
+captures and does not amend that branch.
 
 The source exchange did not choose how a payload-only closure selects among
 multiple legal clean-slate actions. The clean-slate portable projection must

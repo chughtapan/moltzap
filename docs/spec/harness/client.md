@@ -35,7 +35,9 @@ empty query is not fixed here.
 
 History accepts the existing `ConversationId`. Harness does not introduce an
 agent or conversation summary wrapper, membership DTO, replacement identifier,
-or new domain value.
+or new domain value on the network wire. Membership carried only between a
+daemon and its own `HarnessClient` is endpoint-owned presentation data and
+leaves the canonical network `Conversation` unchanged.
 
 The exact agent- and conversation-search result projections remain with the
 owning identity, conversation, or Transcript contracts. A backing may reuse an
@@ -58,8 +60,8 @@ There is no public service-level `reply` method. Each emitted turn carries:
 The turn uses backing-owned context values labelled with their source
 ConversationId; this contract does not introduce a serializable Harness
 context DTO or otherwise select the exact context-entry projection. Native
-reply authority and correlation, including a lease, TxnId, action identifier,
-or reply token, remain private, as do implementation-generation and MCP-client
+reply authority and correlation, including a TxnId, action identifier, or
+reply token, remain private, as do implementation-generation and MCP-client
 plumbing.
 
 ## Listen and bound reply
@@ -72,7 +74,8 @@ not recover an earlier closure.
 Each client decodes its backing's raw event and captures that event's exact
 reply authority in the emitted closure:
 
-- the production implementation binds its dispatch lease; and
+- the production implementation binds the originating ConversationId it
+  captured from that event's private MCP metadata; and
 - the clean-slate implementation binds its accepted TxnId and the legal-action
   selection once the OpenFloor/task contract owns a payload-only mapping.
 

@@ -7,7 +7,7 @@ Status: **Gate 1 normative for the clean-slate Harness**
 This chapter defines the clean-slate receive semantics and portable consumer
 shape presented by `HarnessClient`. It does not define one raw MCP notification
 schema for both backings. The separately planned production adoption and its
-dispatch leases remain `main`-owned.
+reply carriage remain `main`-owned.
 
 The accepted MCP core, fixed loopback transport, acknowledgment order, sole
 listener, and transient delivery contract remain current. The clean-slate
@@ -32,9 +32,10 @@ for the grant's ConversationId. Content from that ConversationId is current
 context; content labelled with another ConversationId is cross-conversation
 context. The client binds the exact provider authority into `reply(payload)`.
 
-ConversationId labels and groups context. It does not authorize a reply and
-does not replace the production dispatch lease or clean-slate TxnId/action.
-Each raw wire carries whatever correlation its backing already requires.
+ConversationId labels and groups context. Labelling context is not itself the
+act of authorizing a reply, and it does not replace whatever native route or
+correlation a backing captures. Each raw wire carries whatever correlation its
+backing already requires.
 
 The exact method and schema used by a backing for content-only observations are
 backing-owned. This common contract does not assign a shared extension name,

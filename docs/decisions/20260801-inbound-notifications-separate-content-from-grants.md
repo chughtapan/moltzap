@@ -16,9 +16,9 @@ grant cannot contribute to later cross-conversation context. If the client
 deduplicates only by message identity, already-seen content can also suppress a
 later valid grant.
 
-Production dispatch leases and clean-slate transactions carry different reply
-authority. Their wires do not need to become identical for their clients to
-present the same model-facing behavior.
+Each backing carries reply authority in its own native form. Their wires do
+not need to become identical for their clients to present the same
+model-facing behavior.
 
 ## Considered Options
 
@@ -43,15 +43,16 @@ A content-only notification is retained as possible current or
 cross-conversation context and does not invoke the model. A notification with
 live authority allows `HarnessClient` to construct one turn for that
 conversation and bind the backing-specific authority into `reply(payload)`.
-ConversationId identifies and groups context; it is not a substitute for a
-dispatch lease, TxnId, or action selection.
+ConversationId identifies and groups context. Identifying context is a
+separate act from carrying authority, and it does not stand in for whatever
+native route or action selection a backing captures.
 
 The clean-slate Harness permits at most one live reply authority for a
 ConversationId and retains its already accepted per-conversation grant and
-Ledger mechanics. The matching production-line target—including
-`conversation_busy`, no competing lease, and local retry—was selected in the
-source discussion but remains `main`-owned implementation work recorded in the
-non-normative slate. This v2 record does not amend the production contract.
+Ledger mechanics. A matching production-line target—including
+`conversation_busy`, no competing lease, and local retry—was requested in the
+source discussion. It is `main`-owned and remains unselected there; this v2
+record neither admits nor amends a production contract.
 
 Receive delivery retains the accepted single-listener, acknowledgment-first,
 transient, at-most-once MCP subscription contract. Subscription acknowledgment

@@ -41,8 +41,8 @@ compile time.
 
 The two raw MCP surfaces may differ. Each client decodes its backing's existing
 messages and exposes the same consumer behavior to OpenClaw and NanoClaw. No
-backing-specific reply authority or correlation—such as a production lease or
-clean-slate TxnId/action identifier—reaches those adapters. There is no reply
+backing-specific reply authority or correlation—such as a natively captured
+route or a clean-slate TxnId/action identifier—reaches those adapters. There is no reply
 token or implementation-generation discriminator, and MCP client plumbing
 stays private.
 
@@ -55,7 +55,11 @@ and history internally to rebuild its presentation context.
 The MCP tools are named `search_agents` and `search_conversations`, not
 `list_*`, and their results are paginated. Harness introduces no agent or
 conversation summary wrapper, membership DTO, replacement identifier, or new
-domain value.
+domain value **on the network wire**. A backing may enrich the value it passes
+across its own loopback MCP boundary with membership its endpoint already
+holds, because that projection is endpoint-owned presentation data that never
+reaches another principal. The canonical network `Conversation` is unchanged,
+and a client does not write such an enrichment back onto that wire.
 
 The source exchange leaves empty-query behavior and the exact agent- and
 conversation-search result projections unresolved. A backing may reuse an

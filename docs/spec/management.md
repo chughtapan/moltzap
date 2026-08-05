@@ -27,13 +27,15 @@ idempotency, AgentCard verification, and errors retain the contracts in
 add another staging protocol, activation deadline, readiness state machine, or
 registration retry law.
 
-The production migration has a separate `main`-owned outcome from the source
-review: its registration must be idempotent and crash-recoverable, using a
-stable OperationId and a client-owned recoverable credential so intent can be
-persisted before the server call and identical retries recover the same AgentId
-and credential. The follow-up asked for minimal change and clean-slate
-semantics where possible. It did not select the exact credential-generation,
-persistence, fingerprint, changed-input conflict, or storage algorithm.
+The source review requested, for the production migration, a registration that
+is idempotent and crash-recoverable through a stable OperationId and a
+client-owned recoverable credential. That outcome is `main`-owned and remains
+unselected there: this specification records the request and does not admit it.
+A production registration contract, including whether it carries an OperationId
+at all, is admitted on `main` or not at all. The same review asked for minimal
+change and clean-slate semantics where possible, and did not select the exact
+credential-generation, persistence, fingerprint, changed-input conflict, or
+storage algorithm.
 
 The registration path is separate from active operations even though one
 daemon serves both. Before registration the slot has no AgentId; after Registry
