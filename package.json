@@ -34,12 +34,12 @@
     "docs:check": "cd docs && mint broken-links",
     "docs:check:drift": "pnpm docs:generate && test -z \"$(git ls-files --others --exclude-standard -- 'docs/modules/v2/**' 'v2/identity/src/MODULE.md' 'v2/identity/src/**/MODULE.md' 'v2/router/src/MODULE.md' 'v2/router/src/**/MODULE.md')\" && git diff --exit-code docs/ 'packages/**/MODULE.md' 'v2/identity/src/MODULE.md' 'v2/identity/src/**/MODULE.md' 'v2/router/src/MODULE.md' 'v2/router/src/**/MODULE.md' README.md && pnpm docs:check:no-hardcoded-constants && pnpm docs:check:doc-imports-resolve",
     "docs:check:mermaid": "puppeteer browsers install chrome-headless-shell && pnpm --filter @moltzap/protocol exec tsx scripts/check-mermaid.ts",
-    "docs:check:no-hardcoded-constants": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts",
-    "docs:check:doc-imports-resolve": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts",
-    "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
+    "docs:check:no-hardcoded-constants": "pnpm exec tsx scripts/docs/check-no-hardcoded-constants.ts",
+    "docs:check:doc-imports-resolve": "pnpm exec tsx scripts/docs/check-doc-imports-resolve.ts",
+    "docs:check:gates-test": "pnpm exec tsx scripts/__tests__/gates.test.ts",
     "test:pack:simulator": "pnpm nx build @moltzap/simulator && node scripts/test/simulator-packages.mjs",
-    "prepare": "husky && node scripts/restore-tsgo-exec-bit.mjs",
-    "effect:source": "./scripts/prepare-effect.sh",
+    "prepare": "husky && node scripts/setup/restore-tsgo-exec-bit.mjs",
+    "effect:source": "./scripts/setup/prepare-effect.sh",
     "test:affected": "nx affected -t test"
   },
   "devDependencies": {
