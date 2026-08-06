@@ -1,5 +1,10 @@
 # Evidence relocation, 2026-08-05 through 2026-08-06
 
+The record this ledger supported,
+`20260806-evidence-lives-in-the-brain.md`, failed its blind review at
+candidate `86fd3f09` and was withdrawn. The events below are retained because
+they happened; no decision they describe is admitted.
+
 This is a non-normative source-event ledger. It records located source events
 and repository effects; it does not supply missing rationale or infer intent.
 
