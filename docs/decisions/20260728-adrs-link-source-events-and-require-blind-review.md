@@ -54,8 +54,11 @@ change passes a blind teammate review before landing**.
   blocks landing. A substantive correction requires a new candidate and
   a different fresh reviewer.
 
-Root `AGENTS.md` owns the complete record-shape, trajectory, gate,
-question, evidence, and rerun rules.
+The `decisions` skill owns the record-shape, trajectory, gate, evidence,
+and rerun rules, with provenance rules in its `references/provenance.md`;
+the six questions live in the `cold-read` skill's
+`references/questions.md`. Mechanical record shape is enforced by
+`scripts/docs/adr/check-shape.ts`.
 
 ## Consequences
 
@@ -73,3 +76,12 @@ The existing ADR corpus links to source-faithful compactions of the
 stored Claude and Codex sessions. The earlier unstructured Gate 0 PASS
 remains historical evidence and does not satisfy the new blind teammate
 gate.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that alters
+the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-05 | Normative owner repointed: the record-shape, trajectory, gate, evidence, and rerun rules moved from root `AGENTS.md` to the `decisions` skill, provenance rules to its `references/provenance.md`, and the six questions to the `cold-read` skill's `references/questions.md`, under `20260805-agent-instructions-progressive-disclosure.md`. The requirement to link source events and pass a blind gate is unchanged. |

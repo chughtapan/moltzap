@@ -575,7 +575,7 @@ The follow-on authority candidate:
 The exact authority candidate is frozen as a commit or reproducible
 content digest. A fresh reviewer with no inherited conversation or
 private state receives only the candidate repository root and the six
-questions required by `AGENTS.md`.
+questions in the `cold-read` skill's `references/questions.md`.
 
 The reviewer does not open, read, or search existing
 `*-cold-review.md` or invalid-review records. The review artifact
