@@ -5,6 +5,7 @@ import {
   type Types,
 } from "@arizeai/phoenix-client";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
+import { image } from "@moltzap/simulator/agents";
 import {
   LedgerCompletion,
   LedgerStorageError,
@@ -43,8 +44,11 @@ import {
   EvaluationReportPlan,
   EvidenceRejectedAttempt,
   JudgePolicySnapshot,
+  LocalEvaluationInfrastructure,
   LedgerAllocationFailedAttempt,
 } from "./sweep.js";
+
+const testImage = Schema.decodeSync(image);
 
 const DATASET_NAME = "moltzap-evaluations";
 const DATASET_DESCRIPTION =
@@ -121,6 +125,14 @@ function plan(definitionId = "moltzap.test.phoenix/v1"): EvaluationReportPlan {
       tools: "none",
       timeoutMillis: 1_000,
       maxRetries: 2,
+    }),
+    infrastructure: LocalEvaluationInfrastructure.make({
+      profile: "local",
+      controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
+      peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
+      nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
+      temporalAddress: "127.0.0.1:7233",
+      artifactDirectory: "/var/lib/moltzap/artifacts",
     }),
     samplesPerCell: 1,
   });
@@ -768,6 +780,7 @@ describe("Phoenix catalog version conflicts", () => {
         cases: reportPlan.cases,
         conditions: [reportPlan.conditions[0], second],
         judgePolicy: reportPlan.judgePolicy,
+        infrastructure: reportPlan.infrastructure,
         samplesPerCell: reportPlan.samplesPerCell,
       });
       const failure = yield* phoenixPublishedDatasetVersion(digest, splitPlan, [

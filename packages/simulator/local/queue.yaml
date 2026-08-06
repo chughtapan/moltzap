@@ -1,0 +1,25 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: moltzap-local
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: moltzap
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+    - coveredResources:
+        - cpu
+        - memory
+        - ephemeral-storage
+      flavors:
+        - name: moltzap-local
+          resources:
+            - name: cpu
+              nominalQuota: "24"
+            - name: memory
+              nominalQuota: 64Gi
+            - name: ephemeral-storage
+              nominalQuota: 96Gi

@@ -11,27 +11,37 @@ The simulator ledger records facts without interpreting them. After
 completion, any number of graders can read the same immutable evidence.
 Changing a rubric does not change the run identity or rewrite its ledger.
 
-## Open evidence through its definition
+## Open evidence with the exact run contract
 
-Use the same `simulator.define` value that produced the run:
+Retrieve the completed artifacts from the selected local or GKE profile, then
+use the same definition id and complete catalog that produced the run:
 
 ```ts
 import {
+  EventCatalog,
   ProgramSucceeded,
   RouterMessageCommitted,
-  simulator,
+  coreEvents,
 } from "@moltzap/simulator";
 import type {
   CompletedRunLedger,
 } from "@moltzap/simulator/ledger";
+import {
+  openLedgerArtifacts,
+} from "@moltzap/simulator/ledger";
 import { Chunk, Effect, Stream } from "effect";
+import {
+  deliveryEvents,
+  runSpec,
+} from "./delivery-run.mjs";
 
-const DeliveryEvaluation = simulator.define(
-  "acme.delivery-evaluation/v1",
+const deliveryCatalog = EventCatalog.merge(
+  coreEvents,
+  deliveryEvents,
 );
 
 const gradeLedger = (
-  ledger: CompletedRunLedger<typeof DeliveryEvaluation.catalog>,
+  ledger: CompletedRunLedger<typeof deliveryCatalog>,
 ) =>
   Effect.gen(function* () {
     const collected = yield* Effect.all({
@@ -49,15 +59,20 @@ const gradeLedger = (
     };
   });
 
-const report = yield* DeliveryEvaluation.openLedger(ledgerRef).pipe(
+const report = yield* openLedgerArtifacts(
+  deliveryCatalog,
+  receipt.ledger,
+  artifacts,
+  runSpec.id,
+).pipe(
   Effect.flatMap(gradeLedger),
 );
 ```
 
-`DeliveryEvaluation.openLedger(ledgerRef)` returns a ledger validated against
-that definition's exact catalog. `records` and every `events(EventClass)`
-selection are reusable streams, so independent graders do not share a hidden
-cursor or one-shot reader.
+`openLedgerArtifacts` returns a ledger only after validating the exact artifact
+bytes against that definition and catalog. `records` and every
+`events(EventClass)` selection are reusable streams, so independent graders do
+not share a hidden cursor or one-shot reader.
 
 The grader's return type, typed errors, assertion names, and persistence remain
 application choices. A boolean verdict is rarely enough. Text evidence is
@@ -113,7 +128,7 @@ class LedgerNotGradeable extends Schema.TaggedError<LedgerNotGradeable>()(
 ) {}
 
 const requireProgramSuccess = (
-  ledger: CompletedRunLedger<typeof DeliveryEvaluation.catalog>,
+  ledger: CompletedRunLedger<typeof deliveryCatalog>,
 ) =>
   ledger.events(ProgramSucceeded).pipe(
     Stream.runCollect,
@@ -176,7 +191,7 @@ The private `packages/evals` application demonstrates the distinction:
 
 - `OpenClawPrincipalInstructionAttempted` and
   `OpenClawPrincipalFinalOutput` describe OpenClaw's native gateway RPC;
-- `NanoclawPrincipalInputSent` describes input submitted through NanoClaw's
+- `NanoClawPrincipalInputSent` describes input submitted through NanoClaw's
   owner-local socket;
 - `CodePeerMessageSent` and `CodePeerMessageReceived` are testimony from
   autonomous Effect peers using the production protocol;
@@ -196,8 +211,8 @@ cases proceed by selecting router-bound peer evidence. Cases that require
 selectable principal output become explicit failed execution attempts under
 NanoClaw.
 
-This arrangement lets real process agents and in-process Effect agents share
-one router without giving code agents a callback path around the network.
+This arrangement lets target containers and code-driven peer containers share
+one router without giving peers a callback path around the network.
 
 ## Code graders compose
 

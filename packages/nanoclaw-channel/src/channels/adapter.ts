@@ -2,9 +2,8 @@
 // Stub types matching the subset of nanoclaw's src/channels/adapter.ts that
 // moltzap.ts touches. When moltzap.ts is copied into a real nanoclaw
 // checkout, these imports resolve against nanoclaw's own adapter module
-// (same signatures). Mirrors the surface at the commit pinned by
-// NANOCLAW_SHA in packages/simulator/src/runtime/nanoclaw/install.ts; keep aligned
-// when bumping that pin.
+// (same signatures). Keep this mirrored surface aligned with the digest-pinned
+// NanoClaw application image used by simulator runs.
 
 /** Describes channel setup. */
 export interface ChannelSetup {

@@ -45,69 +45,47 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
 >;
 
 /** Represents event catalog definition failure conditions. */
-export type EventCatalogDefinitionFailure =
-  | "duplicate-tag"
-  | "invalid-event-class"
-  | "invalid-tag";
+export type EventCatalogDefinitionFailure = "duplicate-tag" | "invalid-tag";
+
+const definitionFailureMessage: Readonly<
+  Record<EventCatalogDefinitionFailure, (tag: string) => string>
+> = {
+  "duplicate-tag": (tag) => `Duplicate event tag "${tag}"`,
+  "invalid-tag": (tag) =>
+    `Event tag "${tag}" must be namespaced and versioned, for example "acme.consensus-reached/v1"`,
+};
 
 /** Invalid catalogs fail during definition construction, before a run starts. */
 export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalogDefinitionError>()(
   "EventCatalogDefinitionError",
   {
-    failure: Schema.Literal(
-      "duplicate-tag",
-      "invalid-event-class",
-      "invalid-tag",
-    ),
+    failure: Schema.Literal("duplicate-tag", "invalid-tag"),
     tag: Schema.String,
   },
 ) {
   override get message(): string {
-    switch (this.failure) {
-      case "duplicate-tag":
-        return `Duplicate event tag "${this.tag}"`;
-      case "invalid-event-class":
-        return `Event catalog member "${this.tag}" is not a schema-backed class`;
-      case "invalid-tag":
-        return `Event tag "${this.tag}" must be namespaced and versioned, for example "acme.consensus-reached/v1"`;
-      default:
-        return `Unknown event catalog failure "${this.failure}" for "${this.tag}"`;
-    }
+    return definitionFailureMessage[this.failure](this.tag);
   }
 }
 
-const VERSIONED_EVENT_TAG =
-  /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u;
+/**
+ * The persisted spelling of an event tag. The tag type states that a namespace
+ * and a version are present; this states what it cannot: lowercase segments
+ * and a positive version, so `Acme.Foo/v1` and `acme.foo/v0` are rejected.
+ */
+export const versionedEventTag = Schema.String.pipe(
+  Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
+);
+
+const isVersionedEventTag = Schema.is(versionedEventTag);
 
 const eventCatalogTypeId = Symbol.for("@moltzap/simulator/events/EventCatalog");
-
-function eventClassTag(eventClass: EventClass): string {
-  if (typeof eventClass !== "function") {
-    return "<non-callable event class>";
-  }
-  const tag: unknown = Reflect.get(eventClass, "_tag");
-  return typeof tag === "string" ? tag : String(tag);
-}
-
-function isEventClass(eventClass: EventClass): boolean {
-  return (
-    typeof eventClass === "function" &&
-    Schema.isSchema(eventClass) &&
-    typeof Reflect.get(eventClass, "_tag") === "string"
-  );
-}
 
 function validateEventClasses(eventClasses: readonly EventClass[]): void {
   const seen = new Set<string>();
   for (const eventClass of eventClasses) {
-    const tag = eventClassTag(eventClass);
-    if (!isEventClass(eventClass)) {
-      throw EventCatalogDefinitionError.make({
-        failure: "invalid-event-class",
-        tag,
-      });
-    }
-    if (!VERSIONED_EVENT_TAG.test(tag)) {
+    const tag: string = eventClass._tag;
+    if (!isVersionedEventTag(tag)) {
       throw EventCatalogDefinitionError.make({
         failure: "invalid-tag",
         tag,

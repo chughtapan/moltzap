@@ -25,9 +25,10 @@ export {
   makeLedgerRecordSchema,
   type JsonObject,
   type LedgerRecord,
-} from "./ledger/model.js";
+} from "./ledger/schema.js";
 /** Re-exports the public API from `./ledger/storage.js`. */
 export {
+  ledgerArtifactFiles,
   LedgerStorage,
   LedgerStorageError,
   type LedgerAllocation,
@@ -41,14 +42,16 @@ export {
   LedgerDefinitionMismatch,
   LedgerInvalid,
   openLedger,
+  openLedgerArtifacts,
   readLedgerManifest,
+  type CompletedLedgerArtifacts,
   type CompletedRunLedger,
   type LedgerInvalidReason,
   type LedgerOpenError,
-} from "./ledger/open.js";
+} from "./ledger/read.js";
 /** Re-exports the public API from `./ledger/live.js`. */
 export {
   LedgerSerializationError,
   type LedgerFailure,
   type RunLedger,
-} from "./ledger/live.js";
+} from "./ledger/append.js";

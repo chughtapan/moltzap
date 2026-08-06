@@ -1,5 +1,6 @@
 import { Command, FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
+import { image } from "@moltzap/simulator/agents";
 import { assert, describe, it as effectIt } from "@effect/vitest";
 import {
   Cause,
@@ -33,12 +34,15 @@ import {
   EvaluationResumeMismatch,
   JudgePolicySnapshot,
   LedgerAllocationFailedAttempt,
+  LocalEvaluationInfrastructure,
   decodeEvaluationReportId,
   type EvaluationSweepCell,
 } from "./sweep.js";
 import { LedgerStorageError } from "@moltzap/simulator/ledger";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- storage tests pin transaction, resume, and privacy invariants. */
+
+const testImage = Schema.decodeSync(image);
 
 const it = effectIt.scoped;
 const liveIt = effectIt.scopedLive;
@@ -48,7 +52,7 @@ const criterionId = decodeCriterionId;
 const judgePolicyId = decodeJudgePolicyId;
 const reportId = decodeEvaluationReportId;
 const effectConditionId = conditionId("effect/v1");
-const effectRuntimeName = "effect";
+const fixtureRuntimeName = "effect";
 const instant = DateTime.unsafeMake(0);
 
 class DeliberateExecutionFailure extends Schema.TaggedError<DeliberateExecutionFailure>()(
@@ -70,6 +74,21 @@ function casePlan(id: string): EvaluationCasePlan {
   });
 }
 
+// Every field but the artifact directory is fixed, so a resume mismatch test can
+// vary that one field and still submit an otherwise identical plan.
+function localInfrastructure(
+  artifactDirectory: string,
+): LocalEvaluationInfrastructure {
+  return LocalEvaluationInfrastructure.make({
+    profile: "local",
+    controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
+    peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
+    nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
+    temporalAddress: "127.0.0.1:7233",
+    artifactDirectory,
+  });
+}
+
 function plan(
   first: EvaluationCasePlan,
   ...remaining: readonly EvaluationCasePlan[]
@@ -80,7 +99,7 @@ function plan(
     conditions: [
       EvaluationConditionPlan.make({
         id: effectConditionId,
-        runtimeName: effectRuntimeName,
+        runtimeName: fixtureRuntimeName,
         runtimeConfiguration: { mode: "deterministic" },
       }),
     ],
@@ -94,6 +113,7 @@ function plan(
       timeoutMillis: 1_000,
       maxRetries: 2,
     }),
+    infrastructure: localInfrastructure("/var/lib/moltzap/artifacts"),
     samplesPerCell: 1,
   });
 }
@@ -343,11 +363,12 @@ function resumeMismatchTest() {
         conditions: [
           EvaluationConditionPlan.make({
             id: effectConditionId,
-            runtimeName: effectRuntimeName,
+            runtimeName: fixtureRuntimeName,
             runtimeConfiguration: { mode: "changed" },
           }),
         ],
         judgePolicy: reportPlan.judgePolicy,
+        infrastructure: reportPlan.infrastructure,
         samplesPerCell: reportPlan.samplesPerCell,
       });
       const mismatch = yield* resumeStoredEvaluationReport(changedPlan).pipe(
@@ -356,6 +377,33 @@ function resumeMismatchTest() {
 
       assert.instanceOf(mismatch, EvaluationResumeMismatch);
       assert.strictEqual(mismatch.field, "runtimeConfigurations");
+    }).pipe(Effect.provide(evaluationResultStoreLayer(fixture.databasePath)));
+  }).pipe(Effect.provide(NodeContext.layer));
+}
+
+function infrastructureResumeMismatchTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* resultFixture("moltzap-evals-infrastructure-");
+    const reportPlan = plan(casePlan("EVAL-005"));
+    yield* Effect.gen(function* () {
+      yield* createStoredEvaluationReport(
+        reportId("infrastructure-mismatch-test"),
+        reportPlan,
+      );
+      const changedPlan = EvaluationReportPlan.make({
+        sourceRevision: reportPlan.sourceRevision,
+        cases: reportPlan.cases,
+        conditions: reportPlan.conditions,
+        judgePolicy: reportPlan.judgePolicy,
+        infrastructure: localInfrastructure("/var/lib/moltzap/other-artifacts"),
+        samplesPerCell: reportPlan.samplesPerCell,
+      });
+      const mismatch = yield* resumeStoredEvaluationReport(changedPlan).pipe(
+        Effect.flip,
+      );
+
+      assert.instanceOf(mismatch, EvaluationResumeMismatch);
+      assert.strictEqual(mismatch.field, "infrastructure");
     }).pipe(Effect.provide(evaluationResultStoreLayer(fixture.databasePath)));
   }).pipe(Effect.provide(NodeContext.layer));
 }
@@ -399,6 +447,10 @@ describe("evaluation result storage", () => {
   it(
     "rejects a resume when immutable runtime configuration changed",
     resumeMismatchTest,
+  );
+  it(
+    "rejects a resume when the selected infrastructure changed",
+    infrastructureResumeMismatchTest,
   );
   it("rolls back a typed callback failure", () =>
     uncommittedCallbackTest("callback-failure-", () =>

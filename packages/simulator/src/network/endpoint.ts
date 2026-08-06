@@ -11,14 +11,13 @@ import {
   type ConversationParticipants,
 } from "./conversation.js";
 import type { ParticipantHandle } from "./participant.js";
-import {
-  type AttachedEndpoint,
-  type EndpointTransport,
-  type NetworkFailure,
-  type ParticipantIds,
-  type ReceivedMessage,
-  networkFailure,
+import type {
+  AttachedEndpoint,
+  EndpointTransport,
+  ParticipantIds,
+  ReceivedMessage,
 } from "./router.js";
+import { type NetworkError, networkError } from "./failure.js";
 
 const endpointTypeId: unique symbol = Symbol("@moltzap/simulator/Endpoint");
 const endpointConstruction: unique symbol = Symbol(
@@ -28,11 +27,11 @@ const endpointConstruction: unique symbol = Symbol(
 /** Run-scoped receive cursors maintained by the simulator kernel. */
 export interface EndpointInbox {
   /** Live fan-out stream for observers of every endpoint delivery. */
-  readonly messages: Stream.Stream<ReceivedMessage, NetworkFailure>;
+  readonly messages: Stream.Stream<ReceivedMessage, NetworkError>;
   /** Obtain the shared ordered cursor for one bound conversation. */
   readonly conversation: (
     conversationId: ConversationId,
-  ) => Effect.Effect<Stream.Stream<ReceivedMessage, NetworkFailure>>;
+  ) => Effect.Effect<Stream.Stream<ReceivedMessage, NetworkError>>;
 }
 
 function addressedParticipants(
@@ -80,7 +79,7 @@ export class Endpoint<Name extends string = string> {
    * sockets retain their own ordered delivery queues independently.
    * @returns Live endpoint delivery stream.
    */
-  messages(): Stream.Stream<ReceivedMessage, NetworkFailure> {
+  messages(): Stream.Stream<ReceivedMessage, NetworkError> {
     return this.inbox.messages;
   }
 
@@ -92,7 +91,7 @@ export class Endpoint<Name extends string = string> {
    */
   open(
     ...participants: ConversationParticipants
-  ): Effect.Effect<ConversationSocket, NetworkFailure> {
+  ): Effect.Effect<ConversationSocket, NetworkError> {
     const [first, ...rest] = participants;
     const ids: ParticipantIds = [
       first.id,
@@ -130,7 +129,7 @@ export class Endpoint<Name extends string = string> {
    */
   socket(
     address: ConversationAddress,
-  ): Effect.Effect<ConversationSocket, NetworkFailure> {
+  ): Effect.Effect<ConversationSocket, NetworkError> {
     const isParticipant = address.participants.some(
       (participant) => participant.id === this.participant.id,
     );
@@ -149,7 +148,7 @@ export class Endpoint<Name extends string = string> {
             ),
           )
       : Effect.fail(
-          networkFailure(
+          networkError(
             "socket",
             `participant ${this.participant.name} is not addressed by the conversation`,
           ),
@@ -178,7 +177,7 @@ export function makeEndpoint<const Name extends string>(
 export interface NetworkService {
   endpoint<const Name extends string>(
     name: Name,
-  ): Effect.Effect<Endpoint<Name>, NetworkFailure>;
+  ): Effect.Effect<Endpoint<Name>, NetworkError>;
 }
 
 /** Network operations available to the customer program. */
