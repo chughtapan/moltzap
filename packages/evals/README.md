@@ -112,6 +112,21 @@ attempt per case-condition cell. Both images below must be immutable lowercase
 - `MOLTZAP_NANOCLAW_IMAGE` is the distinct NanoClaw application image that
   implements the shipped NanoClaw container entrypoint and gateway contract.
 
+Both are produced rather than looked up. Each producer prints one JSON line;
+`pinnedImage` is the digest-pinned reference these variables accept, and
+`--repository` names a registry repository for a run that has to push:
+
+```bash
+node packages/simulator/scripts/build-controller-image.mjs
+node packages/simulator/scripts/build-nanoclaw-image.mjs
+```
+
+The NanoClaw image bundles a pinned upstream NanoClaw checkout, the workspace
+MoltZap channel, and the bootstrap entrypoint the simulator's container runtime
+executes. NanoClaw runs every agent turn in a container it spawns itself and
+refuses to start when no runtime answers, so a NanoClaw cell also needs a
+reachable container runtime (`DOCKER_HOST`); the image carries the client only.
+
 Create the local cluster with an absolute artifact directory as described in
 the [local simulator profile](../simulator/local/README.md), then pass that same
 directory to the evaluation process:
