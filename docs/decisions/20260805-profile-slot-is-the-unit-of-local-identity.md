@@ -83,6 +83,15 @@ undecodable — a coexistence period is not available to be chosen.
 - Nothing recovers a lost or corrupted checkpoint store; a client that
   loses it rebuilds context from the beginning, which is correct but
   re-presents observations. See the restart guarantee in
-  [`20260805-harness-client-is-the-production-adapter-contract.md`](20260805-harness-client-is-the-production-adapter-contract.md).
+  `20260805-harness-client-is-the-production-adapter-contract.md`.
 - Storing the port beside the credential means the file's `0600` mode
   now also protects an operational detail, not only a secret.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that
+alters the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-05 | Cite the harness-client record as a plain filename rather than a link. No other ADR body hyperlinks a sibling, and the docs site resolves links as routes rather than paths, so the linked form was the tree's one broken link. |
