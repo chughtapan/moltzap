@@ -136,10 +136,7 @@ export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageR
   },
 ) {}
 
-/**
- * The router durably committed one message. Payload content remains an
- * endpoint concern so this evidence also works with content-blind routers.
- */
+/** The router durably committed one message, plaintext parts included. */
 export class RouterMessageCommitted extends Schema.TaggedClass<RouterMessageCommitted>()(
   "moltzap.router-message-committed/v1",
   {

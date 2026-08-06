@@ -120,6 +120,8 @@ const ROUTER_COMMIT = RouterMessageCommitted.make({
   messageId: MESSAGE_ID,
   senderId: ALICE_ID,
   routerSequence: routerSequence(0),
+  parts: [{ type: "text", text: SOCIAL_TEXT }],
+  createdAtMillis: 0,
 });
 
 const OPENCLAW_SELECTION = EvaluationEvidenceSelected.make({
@@ -215,28 +217,25 @@ it.effect("projects native gateway evidence in ledger order", () =>
   }),
 );
 
-it.effect(
-  "pairs endpoint content testimony with content-blind router commits",
-  () =>
-    Effect.gen(function* () {
-      const evidence = yield* projectEvaluationEvidence(evaluationLedger());
+it.effect("pairs endpoint content testimony with router commits", () =>
+  Effect.gen(function* () {
+    const evidence = yield* projectEvaluationEvidence(evaluationLedger());
 
-      assert.deepStrictEqual(
-        evidence.social.map((entry) => entry.eventId),
-        [CODE_SENT_ID, CODE_RECEIVED_ID],
-      );
-      assert.deepStrictEqual(
-        evidence.social.map((entry) => entry.routerCommitEventId),
-        [ROUTER_COMMIT_ID, ROUTER_COMMIT_ID],
-      );
-      for (const entry of evidence.social) {
-        assert.strictEqual(entry.routerCommit, ROUTER_COMMIT);
-        assert.deepStrictEqual(entry.observation.parts, [
-          { type: "text", text: SOCIAL_TEXT },
-        ]);
-        assert.isFalse(Reflect.has(entry.routerCommit, "parts"));
-      }
-    }),
+    assert.deepStrictEqual(
+      evidence.social.map((entry) => entry.eventId),
+      [CODE_SENT_ID, CODE_RECEIVED_ID],
+    );
+    assert.deepStrictEqual(
+      evidence.social.map((entry) => entry.routerCommitEventId),
+      [ROUTER_COMMIT_ID, ROUTER_COMMIT_ID],
+    );
+    for (const entry of evidence.social) {
+      assert.strictEqual(entry.routerCommit, ROUTER_COMMIT);
+      assert.deepStrictEqual(entry.observation.parts, [
+        { type: "text", text: SOCIAL_TEXT },
+      ]);
+    }
+  }),
 );
 
 it.effect("returns selected evidence identities in selection order", () =>

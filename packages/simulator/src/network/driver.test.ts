@@ -15,6 +15,7 @@ import {
   networkError,
   routerSequence,
   type EndpointTransport,
+  type MessageParts,
 } from "../network.js";
 import { Duration, Effect, Exit, Layer, Schema, Scope, Stream } from "effect";
 import { describe, expect } from "vitest";
@@ -31,6 +32,8 @@ const STARTUP_TIMEOUT = Duration.seconds(10);
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43100");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
+const MESSAGE_PARTS: MessageParts = [{ type: "text", text: "committed" }];
+const CREATED_AT_MILLIS = 1_700_000_000_000;
 const agentName = Schema.decodeSync(agentNameSchema);
 const ALICE = agentName("alice");
 const PROBE = agentName("probe");
@@ -65,6 +68,8 @@ function harness(): Harness {
       messageId: MESSAGE_ID,
       senderId: id(1),
       routerSequence: routerSequence(7),
+      parts: MESSAGE_PARTS,
+      createdAtMillis: CREATED_AT_MILLIS,
     },
   ]);
   const driver: RouterDriver = {
@@ -170,6 +175,8 @@ describe("MoltZap router", () => {
           messageId: MESSAGE_ID,
           senderId: id(1),
           routerSequence: routerSequence(7),
+          parts: MESSAGE_PARTS,
+          createdAtMillis: CREATED_AT_MILLIS,
         },
       ]);
     }));
