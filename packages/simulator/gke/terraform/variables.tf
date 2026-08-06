@@ -77,7 +77,7 @@ variable "agent_disk_size_gb" {
 }
 
 variable "cluster_name" {
-  description = "Regional GKE Standard cluster name."
+  description = "GKE Standard cluster name."
   type        = string
   default     = "moltzap-simulator"
 }
@@ -129,13 +129,17 @@ variable "system_machine_type" {
 }
 
 variable "system_nodes" {
-  description = "System nodes, which stay resident because they carry cluster DNS, metrics, the Kueue controller, and the run worker."
+  description = <<-EOT
+    System nodes carrying cluster DNS, metrics, the Kueue controller, and the
+    run worker. Zero parks the controller between experiments; nothing runs and
+    nothing recovers on its own until it is restored.
+  EOT
   type        = number
   default     = 1
 
   validation {
-    condition     = var.system_nodes >= 1 && floor(var.system_nodes) == var.system_nodes
-    error_message = "system_nodes must be a positive integer."
+    condition     = var.system_nodes >= 0 && floor(var.system_nodes) == var.system_nodes
+    error_message = "system_nodes must be a non-negative integer."
   }
 }
 
