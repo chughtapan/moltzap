@@ -30,12 +30,16 @@ export function messageDatabasePathForVolume(
   return MessageDatabasePathBrand(join(volumeRoot, SERVER_PGLITE_DIR));
 }
 
+// PGlite returns a JSONB column pre-parsed, so `parts` reaches the schema as the
+// decoded array rather than text.
 const MESSAGES_QUERY = `
   SELECT
     id AS "messageId",
     conversation_id AS "conversationId",
     sender_id AS "senderId",
-    seq::double precision AS "routerSequence"
+    seq::double precision AS "routerSequence",
+    parts,
+    floor(extract(epoch FROM created_at) * 1000)::double precision AS "createdAtMillis"
   FROM messages
   ORDER BY seq
 `;
