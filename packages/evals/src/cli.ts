@@ -4,11 +4,7 @@
 import { Command as CliCommand, Options } from "@effect/cli";
 import { Command, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import {
-  isEntryModule,
-  type CompletedLedgerReceipt,
-  type LedgerReceipt,
-} from "@moltzap/simulator";
+import { isEntryModule, type CompletedLedgerReceipt } from "@moltzap/simulator";
 import {
   LedgerStorageError,
   type CompletedLedgerArtifacts,
@@ -489,58 +485,50 @@ function completeExecution(
   });
 }
 
-// Both infrastructure attempts already own a `detail`, and Phoenix already
-// publishes it as a run's error. The controller's own account of the failure
-// belongs there rather than beside it: a canned sentence is what an operator
-// reads today, and it says only that something went wrong.
-const ALLOCATION_FAILED_DETAIL =
-  "the simulator controller could not allocate its durable ledger";
-const RUN_FAILED_DETAIL =
-  "the simulator controller reported an infrastructure failure";
+/** Summary of a submission that never reached a gradeable run. */
+type InfrastructureSummary = Exclude<
+  EvaluationSubmissionResult["result"]["summary"],
+  { readonly _tag: "ProgramFinished" }
+>;
 
-/**
- * Record that ledger allocation failed, with whatever account the run left.
- * @param context Cell identity and the instant execution began.
- * @param diagnostic The controller's own account, when it produced one.
- * @returns The terminal attempt this cell commits.
- */
-export function ledgerAllocationFailed(
-  context: AttemptContext,
-  diagnostic?: string,
-) {
-  return DateTime.now.pipe(
-    Effect.map((completedAt) =>
-      LedgerAllocationFailedAttempt.make({
-        ...terminalFields(context, completedAt),
-        failure: LedgerStorageError.make({
-          operation: "allocate",
-          detail: diagnostic ?? ALLOCATION_FAILED_DETAIL,
-        }),
-      }),
-    ),
-  );
-}
+// A run that never got a ledger and a run that lost its cluster are different
+// operator problems, and this text is all that says which happened when the
+// controller left no account of its own.
+const INFRASTRUCTURE_FAILED_DETAIL: Readonly<
+  Record<InfrastructureSummary["_tag"], string>
+> = {
+  LedgerAllocationFailed:
+    "the simulator controller could not allocate its durable ledger",
+  ClusterLost: "the simulator controller reported an infrastructure failure",
+};
 
 /**
  * Record an infrastructure failure, with whatever account the run left.
  * @param context Cell identity and the instant execution began.
- * @param receipt Durable evidence the controller retained.
+ * @param summary Terminal summary the controller printed for this cell.
  * @param diagnostic The controller's own account, when it produced one.
  * @returns The terminal attempt this cell commits.
  */
-export function runInfrastructureFailed(
+export function infrastructureFailed(
   context: AttemptContext,
-  receipt: LedgerReceipt,
+  summary: InfrastructureSummary,
   diagnostic?: string,
 ) {
   return DateTime.now.pipe(
-    Effect.map((completedAt) =>
-      RunFailedAttempt.make({
-        ...terminalFields(context, completedAt),
-        receipt,
-        detail: diagnostic ?? RUN_FAILED_DETAIL,
-      }),
-    ),
+    Effect.map((completedAt) => {
+      const detail = diagnostic ?? INFRASTRUCTURE_FAILED_DETAIL[summary._tag];
+      const fields = terminalFields(context, completedAt);
+      return summary._tag === "LedgerAllocationFailed"
+        ? LedgerAllocationFailedAttempt.make({
+            ...fields,
+            failure: LedgerStorageError.make({ operation: "allocate", detail }),
+          })
+        : RunFailedAttempt.make({
+            ...fields,
+            receipt: summary.receipt,
+            detail,
+          });
+    }),
   );
 }
 
@@ -601,19 +589,14 @@ function completeSubmission(
   submission: EvaluationSubmissionResult,
 ) {
   const summary = submission.result.summary;
-  const diagnostic = submissionDiagnostic(submission);
-  if (summary._tag === "LedgerAllocationFailed") {
-    return ledgerAllocationFailed(context, diagnostic);
-  }
-  if (summary._tag === "ClusterLost") {
-    return runInfrastructureFailed(context, summary.receipt, diagnostic);
-  }
-  return readCompletedArtifacts(
-    environment,
-    context,
-    submission.namespace,
-    summary.receipt,
-  );
+  return summary._tag === "ProgramFinished"
+    ? readCompletedArtifacts(
+        environment,
+        context,
+        submission.namespace,
+        summary.receipt,
+      )
+    : infrastructureFailed(context, summary, submissionDiagnostic(submission));
 }
 
 function conditionModelId(
@@ -742,22 +725,20 @@ function requiredEnvironment(key: string) {
   );
 }
 
-/** Environment key naming one digest-pinned image an evaluation run needs. */
-export type EvaluationImageKey =
-  | "MOLTZAP_CONTROLLER_IMAGE"
-  | "MOLTZAP_SUPPORT_IMAGE"
-  | "MOLTZAP_NANOCLAW_IMAGE";
+const CONTROLLER_IMAGE_PRODUCER =
+  "packages/simulator/scripts/build-controller-image.mjs";
 
 // Nothing else in the repository produces these references, so a missing one is
 // an operator who has not run the producer yet rather than one who forgot to
 // export a value they already had. Naming the producer is the whole remedy.
-const imageProducer: Readonly<Record<EvaluationImageKey, string>> = {
-  MOLTZAP_CONTROLLER_IMAGE:
-    "packages/simulator/scripts/build-controller-image.mjs",
-  MOLTZAP_SUPPORT_IMAGE:
-    "packages/simulator/scripts/build-controller-image.mjs",
+const imageProducer = {
+  MOLTZAP_CONTROLLER_IMAGE: CONTROLLER_IMAGE_PRODUCER,
+  MOLTZAP_SUPPORT_IMAGE: CONTROLLER_IMAGE_PRODUCER,
   MOLTZAP_NANOCLAW_IMAGE: "packages/simulator/scripts/build-nanoclaw-image.mjs",
-};
+} as const;
+
+/** Environment key naming one digest-pinned image an evaluation run needs. */
+export type EvaluationImageKey = keyof typeof imageProducer;
 
 /**
  * Say which producer builds an evaluation image the environment omitted.
@@ -1013,8 +994,7 @@ const cli = CliCommand.run(evaluationCommand, {
 });
 
 // Guarded so this module can be imported: without it, reading any value here
-// runs the CLI against the importer's argv, which is why the operator-facing
-// vocabulary above had to live in a module that does not read it.
+// runs the CLI against the importer's argv.
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
 if (isEntryModule(import.meta.url, process.argv[1])) {
   // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli owns argv decoding at the process boundary.
