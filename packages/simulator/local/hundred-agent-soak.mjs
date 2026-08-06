@@ -11,8 +11,13 @@ const AGENT_COUNT = 100;
 // agents answering would measure the model provider instead of the cluster.
 const SOAK = Duration.minutes(10);
 
+// A cold cohort this size waits on node provisioning and an image pull per new
+// node, which the two-minute default does not cover.
+const STARTUP = Duration.minutes(15);
+
 const runtime = (identity) =>
   openClawRuntime({
+    startupTimeout: STARTUP,
     tools: {
       deny: ["*"],
       elevated: { enabled: false },

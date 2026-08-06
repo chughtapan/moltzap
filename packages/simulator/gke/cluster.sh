@@ -4,9 +4,8 @@ set -euo pipefail
 # Lifecycle for the GKE qualification profile; see README.md. These verbs move
 # the controller only. The agent pool autoscales from zero on its own.
 
-readonly simulator_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
 readonly profile_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly simulator_root="$(cd "$profile_root/.." && pwd)"
 readonly terraform_root="$profile_root/terraform"
 
 usage() {
@@ -58,6 +57,76 @@ set_system_nodes() {
     -var="system_nodes=$1"
 }
 
+absolute_path() {
+  echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+}
+
+# process.stdout.write rather than console.log, which inspects and colours a
+# number when FORCE_COLOR is set.
+free_local_port() {
+  node -e '
+    const server = require("node:net").createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => process.stdout.write(String(port)));
+    });
+  '
+}
+
+read_json_field() {
+  node -e '
+    let input = "";
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () =>
+      process.stdout.write(String(JSON.parse(input)[process.argv[1]])),
+    );
+  ' "$1"
+}
+
+# The profile rejects a mutable tag, so the digest comes from the registry.
+publish_controller_image() {
+  local repository built tag
+  repository="$(terraform_output controller_repository)/controller"
+  built="$(node "$simulator_root/scripts/build-controller-image.mjs" \
+    --repository "$repository" | tail -1)"
+  tag="$(printf '%s' "$built" | read_json_field image)"
+  docker push "$tag" >/dev/null
+  docker inspect --format '{{index .RepoDigests 0}}' "$tag"
+}
+
+# A fixed port would be inherited from an abandoned forward, which still accepts
+# connections while proxying to a pod that no longer exists. A single forward
+# also does not outlive a long run, so losing it would report a run that is
+# still going as failed.
+open_temporal_forward() {
+  local port="$1"
+  while true; do
+    kubectl port-forward -n moltzap-system svc/temporal "${port}:7233" \
+      >/dev/null 2>&1
+    sleep 1
+  done &
+  forward_pid=$!
+  until nc -z localhost "$port" 2>/dev/null; do
+    kill -0 "$forward_pid" 2>/dev/null || {
+      echo "the Temporal port-forward exited before it was ready" >&2
+      exit 69
+    }
+    sleep 1
+  done
+}
+
+require_empty_artifact_bucket() {
+  local bucket="$1" objects
+  objects="$(gcloud storage ls --recursive "gs://$bucket/**" 2>/dev/null \
+    | wc -l | tr -d ' ')"
+  [[ "$objects" == "0" ]] && return 0
+  echo "refusing to destroy: gs://$bucket holds $objects object(s)." >&2
+  echo "Copy them out first:" >&2
+  echo "  gcloud storage cp --recursive 'gs://$bucket/*' ./artifacts/" >&2
+  echo "or re-run with --delete-artifacts to discard them." >&2
+  exit 65
+}
+
 case "$command" in
   setup)
     terraform -chdir="$terraform_root" init -input=false
@@ -78,29 +147,24 @@ case "$command" in
     [[ -n "$run_spec" ]] || usage
     [[ -f "$run_spec" ]] || { echo "no such run spec: $run_spec" >&2; exit 66; }
     # gke/profile.json is read from the package root, so resolve before moving.
-    run_spec="$(cd "$(dirname "$run_spec")" && pwd)/$(basename "$run_spec")"
+    run_spec="$(absolute_path "$run_spec")"
     attach_kubectl
 
-    # The profile rejects a mutable tag, so use the digest the registry reports.
-    repository="$(terraform_output controller_repository)/controller"
-    built="$(node "$simulator_root/scripts/build-controller-image.mjs" \
-      --repository "$repository" | tail -1)"
-    tag="$(printf '%s' "$built" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).image))')"
-    docker push "$tag" >/dev/null
-    pinned="$(docker inspect --format '{{index .RepoDigests 0}}' "$tag")"
-    echo "controller image: $pinned"
+    controller_image="$(publish_controller_image)"
+    echo "controller image: $controller_image"
 
-    kubectl port-forward -n moltzap-system svc/temporal 7233:7233 >/dev/null 2>&1 &
-    readonly forward=$!
-    trap 'kill "$forward" 2>/dev/null || true' EXIT
-    until nc -z localhost 7233 2>/dev/null; do sleep 1; done
+    forward_port="$(free_local_port)"
+    trap 'kill "${forward_pid:-}" 2>/dev/null;
+          pkill -f "port-forward -n moltzap-system svc/temporal ${forward_port}:" 2>/dev/null;
+          true' EXIT
+    open_temporal_forward "$forward_port"
 
     cd "$simulator_root"
     MOLTZAP_KUBE_CONTEXT="$(kubectl config current-context)" \
     MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform_output artifact_bucket_name)" \
-    MOLTZAP_TEMPORAL_ADDRESS="localhost:7233" \
-    MOLTZAP_CONTROLLER_IMAGE="$pinned" \
-    MOLTZAP_SUPPORT_IMAGE="$pinned" \
+    MOLTZAP_TEMPORAL_ADDRESS="localhost:${forward_port}" \
+    MOLTZAP_CONTROLLER_IMAGE="$controller_image" \
+    MOLTZAP_SUPPORT_IMAGE="$controller_image" \
       node dist/cluster/profiles/gke.js "$run_spec"
     ;;
 
@@ -129,16 +193,7 @@ case "$command" in
   delete)
     # The bucket holds run ledgers, which outlive the cluster.
     bucket="$(terraform_output artifact_bucket_name)"
-    if [[ "$delete_artifacts" != true ]]; then
-      objects="$(gcloud storage ls --recursive "gs://$bucket/**" 2>/dev/null | wc -l | tr -d ' ')"
-      if [[ "$objects" != "0" ]]; then
-        echo "refusing to destroy: gs://$bucket holds $objects object(s)." >&2
-        echo "Copy them out first:" >&2
-        echo "  gcloud storage cp --recursive 'gs://$bucket/*' ./artifacts/" >&2
-        echo "or re-run with --delete-artifacts to discard them." >&2
-        exit 65
-      fi
-    fi
+    [[ "$delete_artifacts" == true ]] || require_empty_artifact_bucket "$bucket"
     terraform -chdir="$terraform_root" destroy
     ;;
 

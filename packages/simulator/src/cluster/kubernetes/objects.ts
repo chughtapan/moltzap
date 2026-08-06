@@ -493,6 +493,14 @@ function controllerEnvironment(
           },
         ]),
     { name: "MOLTZAP_EXPERIMENT_MODULE", value: EXPERIMENT_PATH },
+    ...(input.startupTimeoutMs === undefined
+      ? []
+      : [
+          {
+            name: "MOLTZAP_STARTUP_TIMEOUT_MS",
+            value: String(input.startupTimeoutMs),
+          },
+        ]),
     { name: "MOLTZAP_LEDGER_DIRECTORY", value: LOCAL_LEDGER_DIRECTORY },
     ...(profile.kind === "gke"
       ? [

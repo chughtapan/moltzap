@@ -39,6 +39,8 @@ import {
 /** The exact client surface the module under test asks a caller to supply. */
 type WorkflowExecutor = RunSocietyWorkflowExecutionOptions["client"];
 
+const HEARTBEAT_EVENT = "heartbeat";
+
 const INPUT: RunSocietyWorkflowInput = {
   runId: "run-1",
   namespace: "mz-run-1",
@@ -75,7 +77,7 @@ interface FakeState {
 function fakeOperations(state: FakeState): LifecycleOperationsService {
   return {
     heartbeat: () => {
-      state.events.push("heartbeat");
+      state.events.push(HEARTBEAT_EVENT);
     },
     prepareRun: (input) =>
       Effect.sync(() => {
@@ -124,6 +126,9 @@ function state(
 
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The regression-only group shares one fake Temporal state machine whose event order is the contract under test.
 describe("run lifecycle activities", () => {
+  const operationsOf = (recorded: { readonly events: readonly string[] }) =>
+    recorded.events.filter((event) => event !== HEARTBEAT_EVENT);
+
   it("creates one controller attempt and waits for its successful Job", async () => {
     const current = state([
       { _tag: "running" },
@@ -134,14 +139,14 @@ describe("run lifecycle activities", () => {
     await expect(activities.runControllerOnce(INPUT)).resolves.toEqual(
       PROGRAM_RESULT,
     );
-    expect(current.events).toEqual([
+    // Proof of life runs on its own schedule, not between observations.
+    expect(operationsOf(current)).toEqual([
       `prepare:${INPUT.namespace}`,
-      "heartbeat",
       "observe-controller",
       "wait",
-      "heartbeat",
       "observe-controller",
     ]);
+    expect(current.events).toContain(HEARTBEAT_EVENT);
   });
 
   it("returns a closed failed result from a nonzero controller Job", async () => {
@@ -157,11 +162,11 @@ describe("run lifecycle activities", () => {
     await expect(activities.runControllerOnce(INPUT)).resolves.toEqual(
       FAILED_RESULT,
     );
-    expect(current.events).toEqual([
+    expect(operationsOf(current)).toEqual([
       `prepare:${INPUT.namespace}`,
-      "heartbeat",
       "observe-controller",
     ]);
+    expect(current.events).toContain(HEARTBEAT_EVENT);
   });
 
   it("fails the workflow activity with the retained controller diagnostic", async () => {
@@ -174,11 +179,11 @@ describe("run lifecycle activities", () => {
       name: "ControllerAttemptFailed",
       message: "controller Job failed\napplication failed",
     });
-    expect(current.events).toEqual([
+    expect(operationsOf(current)).toEqual([
       `prepare:${INPUT.namespace}`,
-      "heartbeat",
       "observe-controller",
     ]);
+    expect(current.events).toContain(HEARTBEAT_EVENT);
   });
 
   it("deletes the namespace idempotently and waits until it is absent", async () => {

@@ -23,6 +23,7 @@ type WorkflowInputKeysAreClosed = Expect<
     | "supportImage"
     | "runtimeCredentials"
     | "experimentModule"
+    | "startupTimeoutMs"
   >
 >;
 type CleanupInputIsMinimal = Expect<

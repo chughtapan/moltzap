@@ -19,6 +19,8 @@ export interface RunSocietyWorkflowInput {
   >;
   /** Complete `.mjs` source mounted into the controller Job. */
   readonly experimentModule: string;
+  /** Budget for a cohort to become ready, when the default is too small. */
+  readonly startupTimeoutMs?: number;
 }
 
 /** Identity sufficient for idempotent deletion of one run's resources. */

@@ -33,6 +33,8 @@ const BINDING: RunWorkerObject = "clusterRoleBinding";
 const AVAILABLE: WorkerAvailability = {
   generation: 3,
   observedGeneration: 3,
+  replicas: 1,
+  updatedReplicas: 1,
   availableReplicas: 1,
 };
 
@@ -109,10 +111,28 @@ it("waits for the installed revision rather than the one it replaced", async () 
   const { api, waits } = recordingInstall({
     availability: [
       // The previous revision is still the only one serving.
-      { generation: 4, observedGeneration: 3, availableReplicas: 1 },
+      {
+        generation: 4,
+        observedGeneration: 3,
+        replicas: 2,
+        updatedReplicas: 1,
+        availableReplicas: 1,
+      },
       // The new revision is observed but has no replica yet.
-      { generation: 4, observedGeneration: 4, availableReplicas: 0 },
-      { generation: 4, observedGeneration: 4, availableReplicas: 1 },
+      {
+        generation: 4,
+        observedGeneration: 4,
+        replicas: 1,
+        updatedReplicas: 1,
+        availableReplicas: 0,
+      },
+      {
+        generation: 4,
+        observedGeneration: 4,
+        replicas: 1,
+        updatedReplicas: 1,
+        availableReplicas: 1,
+      },
     ],
   });
 
@@ -124,7 +144,13 @@ it("waits for the installed revision rather than the one it replaced", async () 
 it("fails the submission when no replica ever becomes available", async () => {
   const { api, waits } = recordingInstall({
     availability: [
-      { generation: 1, observedGeneration: 1, availableReplicas: 0 },
+      {
+        generation: 1,
+        observedGeneration: 1,
+        replicas: 1,
+        updatedReplicas: 0,
+        availableReplicas: 0,
+      },
     ],
   });
 
@@ -140,6 +166,8 @@ it("reads a rollout as available only once it is both observed and serving", () 
     workerIsAvailable({
       generation: 2,
       observedGeneration: 1,
+      replicas: 5,
+      updatedReplicas: 5,
       availableReplicas: 5,
     }),
   ).toBe(false);
@@ -147,7 +175,20 @@ it("reads a rollout as available only once it is both observed and serving", () 
     workerIsAvailable({
       generation: 2,
       observedGeneration: 2,
+      replicas: 1,
+      updatedReplicas: 1,
       availableReplicas: 0,
+    }),
+  ).toBe(false);
+  // Mid-rollout: the outgoing revision is still the one serving, so handing it
+  // the workflow would lose the activity when the rollout completes.
+  expect(
+    workerIsAvailable({
+      generation: 2,
+      observedGeneration: 2,
+      replicas: 2,
+      updatedReplicas: 1,
+      availableReplicas: 1,
     }),
   ).toBe(false);
 });
