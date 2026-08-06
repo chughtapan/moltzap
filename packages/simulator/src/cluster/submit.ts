@@ -157,11 +157,14 @@ function executeTemporalRun(
   options: RunTemporalSocietyOptions,
   operations: SubmitOperationsService,
 ): Effect.Effect<RunControllerResult, RunSubmissionError> {
-  return Effect.tryPromise({
-    try: () => operations.runTemporalSociety(options),
-    catch: () =>
+  // The cause is logged rather than reported, because the detail is operator
+  // output and the connection it carries can hold a credential.
+  return Effect.tryPromise(() => operations.runTemporalSociety(options)).pipe(
+    Effect.tapErrorCause(Effect.logError),
+    Effect.mapError(() =>
       failure("execution", "the Temporal-managed run did not complete"),
-  });
+    ),
+  );
 }
 
 /**
