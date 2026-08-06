@@ -98,12 +98,12 @@ sequenceDiagram
 @moltzap/protocol          (leaf, no workspace deps)
     |
     +-- @moltzap/server-core        (depends on protocol)
-    +-- @moltzap/client             (depends on protocol; bundles `moltzap` CLI, MoltZapChannelCore)
+    +-- @moltzap/client             (depends on protocol; ships the `moltzapd` daemon and HarnessClient)
             |
             +-- @moltzap/openclaw-channel   (depends on client + protocol)
             +-- @moltzap/nanoclaw-channel   (depends on client + protocol)
 ```
 
-Both channel adapters use `MoltZapChannelCore` from `@moltzap/client` for shared message enrichment (sender name resolution, cross-conversation context, group metadata).
+Both channel adapters reach MoltZap only through `HarnessClient` from `@moltzap/client`. Message enrichment — sender name resolution, cross-conversation context, group metadata — happens behind that boundary, in the slot's own `moltzapd`.
 
 `@moltzap/protocol` is the leaf dependency. Build it first, then everything else.
