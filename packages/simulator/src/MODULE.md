@@ -733,6 +733,29 @@ export class IncompleteLedgerReceipt extends Schema.TaggedClass<IncompleteLedger
 
 Physical receipt retained when ledger completion could not be published.
 
+### [`isEntryModule`](./cluster/entry.ts#L31)
+
+_Function_
+
+```ts
+export function isEntryModule(moduleUrl: string, invoked?: string): boolean
+```
+
+Whether a module is the process entry point rather than an ordinary import.
+
+Both sides are canonicalized because they are not the same kind of path:
+Node resolves a module's real path before it becomes `import.meta.url`, while
+`process.argv[1]` is whatever the caller typed. Every executable in this
+package reaches its module through a symlink in the controller image, where
+`/opt/moltzap/dist` points at the installed package directory. Comparing the
+two without canonicalizing makes a directly invoked entry point look like an
+import, so the process exits successfully having done nothing.
+
+`realPath` returns undefined for a path that does not exist, so a missing or
+deleted `argv[1]` is a plain false rather than a thrown ENOENT.
+
+**Returns:** Whether both locations name the same real file.
+
 ### [`LedgerFailure`](./ledger/append.ts#L57)
 
 _TypeAlias_
@@ -1392,6 +1415,7 @@ Stable persisted identity for an event class.
 ## Files
 
 - `cluster.ts`
+- `entry.ts`
 - `definition.ts`
 - `catalog.ts`
 - `core.ts`

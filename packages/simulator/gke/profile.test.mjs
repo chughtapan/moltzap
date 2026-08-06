@@ -226,3 +226,46 @@ test("the GKE target enters the core Temporal path with explicit identities", as
   assert.match(entrypoint, /MOLTZAP_KUBE_CONTEXT/);
   assert.match(entrypoint, /MOLTZAP_TEMPORAL_ADDRESS/);
 });
+
+test("the evals verb hands the sweep every identity it cannot derive", async () => {
+  const script = await read("cluster.sh");
+
+  assert.match(script, /^ {2}evals\)$/m);
+  assert.match(script, /^ {2}publish-image\)$/m);
+  // Derived from the cluster the verb attached to, so the sweep and the
+  // operator cannot disagree about which cluster is being measured.
+  for (const key of [
+    "MOLTZAP_KUBE_CONTEXT",
+    "MOLTZAP_GKE_ARTIFACT_BUCKET",
+    "MOLTZAP_TEMPORAL_ADDRESS",
+    "MOLTZAP_CONTROLLER_IMAGE",
+    "MOLTZAP_SUPPORT_IMAGE",
+  ]) {
+    assert.match(script, new RegExp(`export ${key}`));
+  }
+  // The runtime under evaluation is the caller's to choose, so the verb must
+  // not derive or re-export it.
+  assert.doesNotMatch(script, /export MOLTZAP_NANOCLAW_IMAGE/);
+  assert.match(script, /@moltzap\/evals:eval/);
+  assert.match(script, /--profile gke/);
+  // The forward supervisor is a background job of this shell; exec would strand
+  // it with no trap left to reap it.
+  assert.doesNotMatch(script, /exec corepack/);
+  // One prelude, so a trap fix cannot reach `run` and miss `evals`.
+  assert.equal(script.match(/begin_cluster_session/g)?.length, 3);
+  assert.equal(
+    script.match(/open_temporal_forward "\$forward_port"/g)?.length,
+    1,
+  );
+});
+
+test("the README describes the Temporal this profile actually installs", async () => {
+  const readme = await read("README.md");
+
+  assert.doesNotMatch(readme, /no Temporal deployment/);
+  assert.doesNotMatch(readme, /cannot prove live GKE qualification/);
+  // The one endpoint a reader cannot discover from any other file.
+  assert.match(readme, /MOLTZAP_TEMPORAL_CLUSTER_ADDRESS/);
+  assert.match(readme, /cluster\.sh evals/);
+  assert.match(readme, /cluster\.sh publish-image/);
+});

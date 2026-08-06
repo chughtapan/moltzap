@@ -123,7 +123,7 @@ describe("run lifecycle activities", () => {
   it("creates one controller attempt and waits for its successful Job", async () => {
     const current = state([
       { _tag: "running" },
-      { _tag: "succeeded", result: PROGRAM_RESULT },
+      { _tag: "completed", result: PROGRAM_RESULT },
     ]);
     const activities = fakeActivities(current);
 
@@ -147,13 +147,9 @@ describe("run lifecycle activities", () => {
   });
 
   it("returns a closed failed result from a nonzero controller Job", async () => {
-    const current = state([
-      {
-        _tag: "failed",
-        detail: "controller Job failed",
-        result: FAILED_RESULT,
-      },
-    ]);
+    // A controller that produced a decodable failure summary is completed, not
+    // failed: the activity returns its result rather than failing the attempt.
+    const current = state([{ _tag: "completed", result: FAILED_RESULT }]);
     const activities = fakeActivities(current);
 
     await expect(activities.runControllerOnce(INPUT)).resolves.toEqual(

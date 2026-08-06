@@ -12,8 +12,10 @@ import {
   type EvaluationConditionName,
 } from "./model.js";
 import {
+  decodeSubmissionOutput,
   evaluationControllerModule,
   simulatorProfileEntrypoint,
+  submissionDiagnostic,
   type SimulatorProfile,
   type SubmitEvaluationCellInput,
 } from "./submission.js";
@@ -101,3 +103,53 @@ effect.each(["local", "gke"] as const)(
       assert.include(scripts, simulatorProfileEntrypoint(profile).join("/"));
     }).pipe(Effect.provide(NodeContext.layer)),
 );
+
+// Exactly what the simulator's submitter prints for a cluster-lost cell, so a
+// consumer that stops accepting the real line fails here first.
+function submitterLine(diagnostic?: string): string {
+  return JSON.stringify({
+    runId: "mz-0123456789abcdef0123456789abcdef",
+    namespace: "mz-0123456789abcdef0123456789abcdef",
+    result: {
+      exitCode: 1,
+      summary: {
+        _tag: "ClusterLost",
+        receipt: {
+          _tag: "IncompleteLedgerReceipt",
+          ledger: "eval-006-nanoclaw-1",
+        },
+      },
+      ...(diagnostic === undefined ? {} : { diagnostic }),
+    },
+  });
+}
+
+const CARRIED_DIAGNOSTIC = "controller Job failed\nreason";
+const OVERSIZED_DIAGNOSTIC_LENGTH = 32_768;
+
+effect.each([undefined, CARRIED_DIAGNOSTIC])(
+  "decodes a submitter result whose diagnostic is %s",
+  (diagnostic?: string) =>
+    Effect.gen(function* () {
+      const decoded = yield* decodeSubmissionOutput(submitterLine(diagnostic));
+
+      assert.strictEqual(submissionDiagnostic(decoded), diagnostic);
+    }),
+);
+
+// The rest of that line is the run's only receipt. Refusing an over-long
+// diagnostic would discard it, turning a cell that failed with evidence into a
+// cell with no attempt at all.
+it("keeps the receipt when a submitter diagnostic exceeds the bound", () =>
+  Effect.gen(function* () {
+    const decoded = yield* decodeSubmissionOutput(
+      submitterLine("x".repeat(OVERSIZED_DIAGNOSTIC_LENGTH)),
+    );
+
+    // The receipt survives; only the decoration is trimmed.
+    assert.isTrue("receipt" in decoded.result.summary);
+    assert.isBelow(
+      (submissionDiagnostic(decoded) ?? "").length,
+      OVERSIZED_DIAGNOSTIC_LENGTH,
+    );
+  }));

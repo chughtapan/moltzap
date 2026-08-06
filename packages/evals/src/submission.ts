@@ -44,6 +44,11 @@ const runInfrastructureFailedSummary = Schema.Struct({
 const ledgerAllocationFailedSummary = Schema.Struct({
   _tag: Schema.Literal("LedgerAllocationFailed"),
 });
+// Bounded here rather than in the schema, because the diagnostic is decoration
+// on a line whose other fields are the run's only receipt: a producer that
+// overshoots must not be able to take the receipt down with it. The submitter
+// bounds what it publishes; this bounds what a report will hold.
+const DIAGNOSTIC_MAX_LENGTH = 8_192;
 const evaluationSubmissionResult = Schema.Struct({
   runId: Schema.NonEmptyString,
   namespace: Schema.NonEmptyString,
@@ -58,11 +63,30 @@ const evaluationSubmissionResult = Schema.Struct({
         runInfrastructureFailedSummary,
         ledgerAllocationFailedSummary,
       ),
+      // Optional because the submitter carries one only when the controller
+      // Job's own output was still readable, and this decode rejects excess
+      // properties: a submitter that never learned the reason still decodes.
+      diagnostic: Schema.optional(Schema.String),
     }),
   ),
 });
 /** Decoded result printed by the simulator's local or GKE submitter. */
 export type EvaluationSubmissionResult = typeof evaluationSubmissionResult.Type;
+
+/**
+ * The controller's own account of why one submission failed.
+ * @param submission Decoded submitter result for one cell.
+ * @returns Bounded diagnostic text, or undefined when the cell carried none.
+ */
+export function submissionDiagnostic(
+  submission: EvaluationSubmissionResult,
+): string | undefined {
+  const diagnostic =
+    submission.result.exitCode === 1 ? submission.result.diagnostic : undefined;
+  return diagnostic === undefined || diagnostic.length === 0
+    ? undefined
+    : diagnostic.slice(-DIAGNOSTIC_MAX_LENGTH);
+}
 
 /** A repository-local cell could not be submitted or decoded. */
 export class EvaluationSubmissionFailed extends Schema.TaggedError<EvaluationSubmissionFailed>()(
@@ -152,7 +176,17 @@ function commandFailure(cause: unknown): EvaluationSubmissionFailed {
   });
 }
 
-function decodeSubmissionOutput(
+/**
+ * Decode the final result line the simulator's submitter printed.
+ *
+ * Exported so the stdout contract can be pinned directly: the submitter is a
+ * spawned process, so nothing else in this package would notice the two sides
+ * disagreeing until a live sweep produced an undecodable line.
+ *
+ * @param output Complete captured stdout of one submitter process.
+ * @returns The decoded result, from the last line that is one.
+ */
+export function decodeSubmissionOutput(
   output: string,
 ): Effect.Effect<EvaluationSubmissionResult, EvaluationSubmissionFailed> {
   const lines = output.split(/\r?\n/u);
