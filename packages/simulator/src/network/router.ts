@@ -11,7 +11,11 @@ import {
   type AgentKey,
   type AgentName,
 } from "@moltzap/protocol/identity";
-import type { Message, MessageParts } from "@moltzap/protocol/message";
+import {
+  messagePartsSchema,
+  type Message,
+  type MessageParts,
+} from "@moltzap/protocol/message";
 import type { ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   type Brand,
@@ -89,7 +93,7 @@ export interface AttachedEndpoint<Name extends string> {
   readonly transport: EndpointTransport;
 }
 
-/** Content-blind projection of one durable router commit. */
+/** One durable router commit: identity, order, plaintext parts, commit time. */
 export class CommittedRouterMessage extends Schema.Class<CommittedRouterMessage>(
   "CommittedRouterMessage",
 )({
@@ -97,6 +101,8 @@ export class CommittedRouterMessage extends Schema.Class<CommittedRouterMessage>
   messageId: messageId,
   senderId: agentId,
   routerSequence: routerSequenceSchema,
+  parts: messagePartsSchema(),
+  createdAtMillis: Schema.NonNegativeInt,
 }) {}
 
 /**
