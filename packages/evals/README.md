@@ -208,5 +208,11 @@ Set `PHOENIX_API_KEY` when required. Repeated publication reconciles the stable
 case dataset, one experiment per condition, and every report attempt before
 returning the Phoenix experiment URLs.
 
+`phoenix/` provisions a hosted Phoenix for that endpoint: a Cloud Run service on
+Cloud SQL Postgres, authenticated from its first revision, whose lifecycle is
+independent of the GKE cluster. `PHOENIX_HOST` comes from its `service_url`
+output; `PHOENIX_API_KEY` is created in the application against a named account.
+See `phoenix/README.md`.
+
 This repository has static coverage for both profiles. It does not claim that
 a live local or GKE evaluation has completed successfully.

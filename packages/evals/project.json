@@ -85,6 +85,16 @@
         "command": "tsc -p tsconfig.test.json"
       }
     },
+    "phoenix-terraform-check": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/phoenix/**/*"
+      ],
+      "options": {
+        "cwd": "packages/evals",
+        "command": "bash phoenix/terraform-check.sh"
+      }
+    },
     "arch:check": {
       "executor": "nx:run-commands",
       "options": {
