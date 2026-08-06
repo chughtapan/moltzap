@@ -21,6 +21,8 @@ export interface RunSocietyWorkflowInput {
   readonly experimentModule: string;
   /** Budget for a cohort to become ready, when the default is too small. */
   readonly startupTimeoutMs?: number;
+  /** Agents an experiment sizes its roster from, when its run chooses. */
+  readonly cohortSize?: number;
 }
 
 /** Identity sufficient for idempotent deletion of one run's resources. */

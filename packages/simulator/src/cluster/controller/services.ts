@@ -72,3 +72,19 @@ export function controllerServicesFromEnvironment(
     controllerConfigurationFromEnvironment(resolvedEnvironment),
   );
 }
+
+/**
+ * Read the cohort size the run was submitted with.
+ *
+ * An experiment whose roster is sized by its run reads it here rather than
+ * from the process, so the value passes the same validation as every other
+ * controller input instead of arriving unchecked.
+ * @param environment Process environment or a deterministic test substitute.
+ * @returns Agents the experiment should build its roster from.
+ */
+export function cohortSizeFromEnvironment(
+  environment?: ControllerEnvironment,
+): number {
+  const resolvedEnvironment = environment ?? processControllerEnvironment();
+  return controllerConfigurationFromEnvironment(resolvedEnvironment).cohortSize;
+}

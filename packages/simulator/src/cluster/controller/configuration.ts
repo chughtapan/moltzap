@@ -11,6 +11,9 @@ import type { Image } from "../../agents/container.js";
 import type { KubernetesPodPlacement } from "../profile.js";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
+const DEFAULT_COHORT_SIZE = 2;
+// A roster larger than this is a scale claim, which the acceptance gates own.
+const MAX_COHORT_SIZE = 1_000;
 const MAX_STARTUP_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/u;
 const OWNER_UID = /^[A-Za-z0-9](?:[-A-Za-z0-9._]*[A-Za-z0-9])?$/u;
@@ -64,6 +67,8 @@ export interface ControllerConfiguration {
   readonly ledgerExportDirectory?: string;
   readonly routerUrl: ServerBaseUrl;
   readonly startupTimeoutMs: number;
+  /** Agents an experiment builds its roster from, when it is sized by its run. */
+  readonly cohortSize: number;
 }
 
 /** Safe configuration failure that never repeats a supplied environment value. */
@@ -173,6 +178,20 @@ function startupTimeoutMs(environment: ControllerEnvironment): number {
   return value;
 }
 
+function cohortSize(environment: ControllerEnvironment): number {
+  const encoded = environment.MOLTZAP_COHORT_SIZE;
+  if (encoded === undefined) {
+    return DEFAULT_COHORT_SIZE;
+  }
+  const value = Number(encoded);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_COHORT_SIZE) {
+    throw invalid(
+      `MOLTZAP_COHORT_SIZE must be a positive integer no greater than ${String(MAX_COHORT_SIZE)}`,
+    );
+  }
+  return value;
+}
+
 function rosterPlacement(
   environment: ControllerEnvironment,
 ): KubernetesPodPlacement | undefined {
@@ -254,5 +273,6 @@ export function controllerConfigurationFromEnvironment(
     ),
     routerUrl: routerUrl(environment),
     startupTimeoutMs: startupTimeoutMs(environment),
+    cohortSize: cohortSize(environment),
   });
 }
