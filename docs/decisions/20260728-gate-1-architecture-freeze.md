@@ -153,14 +153,14 @@ pin each decision:
 | G1-DEC-003 | ADR status is exactly accepted, partially-superseded, or superseded; replacement lineage is explicit and old bodies remain historical evidence. | `docs/decisions/README.md` — Canonical reading guidance | `DOC` |
 | G1-DEC-004 | Every open question is marked resolved, explicitly deferred, or outside Gate 1; a decided question cannot remain open. | `v2/VISION.md` — Open-question register | `DOC` |
 | G1-DEC-005 | Drafts are historical input, never a competing implementation source. | `v2/drafts/README.md` | `DOC` |
-| G1-DEC-006 | A fresh teammate must reconstruct the design from the exact checked-in candidate and fixed questions without inherited context, author hints, or file pointers. | `AGENTS.md` — Blind teammate review gate | `DOC` |
+| G1-DEC-006 | A fresh teammate must reconstruct the design from the exact checked-in candidate and fixed questions without inherited context, author hints, or file pointers. | `decisions` skill — Blind review gate | `DOC` |
 | G1-DEC-007 | Every exact L1/L2 representation fact has one normative owner at the layer that owns the public concept; no cross-layer wire catalog or shared vector-corpus abstraction is current. | `docs/spec/layer-interfaces.md` — L1 and L2 representation ownership | `DOC` |
 | G1-DEC-008 | The authority gate fails on any contradiction, broken lineage, missing layer-owned representation, or already-decided question presented as open. | `docs/architecture/l1-l2-implementation-ask.md` — Authority gate | `DOC` |
-| G1-DEC-009 | Every ADR visibly links to a non-normative source-event ledger with native locators, literal human and agent excerpts, mechanical repository effects, and explicit source gaps; it does not reconstruct motive or rationale. | `AGENTS.md` — Decision provenance | `DOC` |
-| G1-DEC-010 | Every admitted ADR change is bound to an exact candidate and passes the recorded six-question blind teammate gate before landing. | `AGENTS.md` — Blind teammate review gate | `DOC` |
+| G1-DEC-009 | Every ADR visibly links to a non-normative source-event ledger with native locators, literal human and agent excerpts, mechanical repository effects, and explicit source gaps; it does not reconstruct motive or rationale. | `decisions` skill — `references/provenance.md` | `DOC` |
+| G1-DEC-010 | Every admitted ADR change is bound to an exact candidate and passes the recorded six-question blind teammate gate before landing. | `decisions` skill — Blind review gate | `DOC` |
 | G1-DEC-011 | The 2026-07-29 implementation revision changed only identity and Router authority and did not silently assign later-layer names or representations. The current 2026-08-01 records separately replace the Harness vocabulary and local interface while retaining those L1/L2 representations. | `docs/spec/README.md` — Implementation readiness and Implementation decision ownership | `DOC` |
 | G1-DEC-100 | One stack has eight layers in communication and trust regions; guarantees flow up and configuration flows down. | `v2/VISION.md` — The constitution | `ARCH` |
-| G1-DEC-101 | Interpretive policy lives at endpoints, in their local Harness subsystems. The network has no app principals, manifests, hooks, reverse callbacks, or task owners. | `AGENTS.md` — Constitution (v2 design law; v1 is not retrofitted) | `ARCH` |
+| G1-DEC-101 | Interpretive policy lives at endpoints, in their local Harness subsystems. The network has no app principals, manifests, hooks, reverse callbacks, or task owners. | `v2/VISION.md` — The constitution | `ARCH` |
 | G1-DEC-102 | L1 owns identity; L7 institutions are separate services and trust domains. Gate 1 contains no L7 service. | `docs/spec/enforcement.md` — Boundary | `ARCH`, `DEFER` |
 | G1-DEC-103 | L2 owns content-blind, equivocation-free ordered multicast and generic signed-evidence carriage only. | `docs/spec/router.md` — Purpose and boundary | `L2` |
 | G1-DEC-104 | L3 owns conversations, retransmission, deduplication, reconciliation, recovery, action protocols, and durable commit. | `docs/spec/layer-interfaces.md` — Purpose | `L3` |
@@ -430,3 +430,12 @@ Implementation may rely on every row above and must not silently fill a
 deferred cell. Any change to a frozen decision requires a new accepted
 record and an explicit update to this inventory, its normative owner,
 and its acceptance evidence.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that alters
+the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-05 | Normative owners repointed for four trace rows. G1-DEC-006 and G1-DEC-010 → `decisions` skill — Blind review gate; G1-DEC-009 → `decisions` skill — `references/provenance.md`; G1-DEC-101 → `v2/VISION.md` — The constitution. The sections moved out of `AGENTS.md` under `20260805-agent-instructions-progressive-disclosure.md`; the frozen decisions themselves are unchanged. |

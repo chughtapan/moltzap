@@ -5,7 +5,9 @@ description: "Add a typed case, exact peer roster, executable policy, criterion,
 
 `packages/evals` is a private, code-first customer of
 `@moltzap/simulator`. A bundled case is an immutable TypeScript value with
-the exact autonomous peers and policy it needs.
+the exact autonomous peer definitions and policy it needs. At execution time,
+each definition becomes one Agent Sandbox application container in the cell's
+`RunSpec` roster.
 
 Most additions change `cases.ts`, `grading.ts`, and their tests. Change
 `peer.ts` only when the required autonomous network behavior is genuinely new.
@@ -35,19 +37,19 @@ const HONEST_REFUSAL = decodeCriterionId(
 Malformed values then fail when the code catalog is loaded, before a simulator
 resource or result bundle is allocated.
 
-## 2. Declare the exact peer runtimes
+## 2. Declare the exact peer definitions
 
 The target runtime belongs to the OpenClaw or NanoClaw condition. The case owns
 only the autonomous code peers it needs:
 
 ```ts
-type ReviewPeerRuntimes = Readonly<{
-  [PEER_AGENT_NAME]: EvaluationPeerRuntime;
+type ReviewPeerDefinitions = Readonly<{
+  [PEER_AGENT_NAME]: EvaluationPeerDefinition;
 }>;
 
 function reviewPeers(
   caseId: EvaluationCaseId,
-): ReviewPeerRuntimes {
+): ReviewPeerDefinitions {
   return {
     [PEER_AGENT_NAME]: selectedResponsePeerRuntime(
       caseId,
@@ -62,11 +64,16 @@ The keys become the exact keys of `context.peers`. A case with no social peers
 uses an empty record. Do not add idle peers to a shared roster; only the
 runtimes in this record are started.
 
-Bundled peer implementations are autonomous `effectRuntime` policies. They
-send and receive through `EffectRuntimeContext.client`, so their social
-traffic traverses the production protocol and router. Their
-`EvaluationPeerGateway` reports a completed exchange to the evaluation
-controller; it is not a command surface.
+Each peer factory returns an image-independent `EvaluationPeerDefinition` with
+a closed application plan. Evaluation execution binds that definition to the
+configured digest-pinned peer image, mounts its bootstrap data, and runs the
+plan through `peer-application.ts → runEvaluationPeerApplication` inside the
+peer's application container.
+
+The application uses its production MoltZap client, so every social send and
+receive traverses the protocol and router. Its peer-specific bridge exposes an
+`EvaluationPeerGateway` that reports a completed exchange to the evaluation
+controller. It is observation-only and cannot command a social action.
 
 ## 3. Write a policy that returns one selection
 
@@ -76,10 +83,10 @@ observation capabilities:
 ```ts
 function reviewProgram(
   instruction: string,
-): EvaluationCaseProgram<ReviewPeerRuntimes> {
+): EvaluationCaseProgram<ReviewPeerDefinitions> {
   return <Failure>(
     context: EvaluationCaseProgramContext<
-      ReviewPeerRuntimes,
+      ReviewPeerDefinitions,
       Failure
     >,
   ) =>
@@ -174,11 +181,11 @@ Do not turn provider errors, invalid evidence, runtime failure, or model
 abstention into a behavioral failure. The report types preserve those states
 separately.
 
-## 5. Add new peer behavior only at the network boundary
+## 5. Add new container peer behavior only at the network boundary
 
 Reuse the focused policies in `peer.ts` when they match:
 
-| Runtime factory | Autonomous network behavior |
+| Peer factory | Autonomous network behavior |
 |---|---|
 | `selectedResponsePeerRuntime` | Wait for a target-created conversation, send ordered messages, and observe each target response |
 | `contextPeerRuntime` | Perform the same exchange for context that is not selected |
@@ -187,10 +194,12 @@ Reuse the focused policies in `peer.ts` when they match:
 | `observerPeerRuntime` | Observe the target's first group message |
 | `orderedGroupPeerRuntime` | Wait for a source contribution, ask the target, and observe its response |
 
-If none fits, add one autonomous policy that uses the production client. Its
-gateway should expose only the smallest observation needed by case execution.
-Do not add a generic queue of commands, a second request protocol, or a direct
-social callback.
+If none fits, add one closed autonomous application plan interpreted inside
+the peer container through the production client. Its bridge gateway should
+expose only the smallest observation needed by case execution. Do not add a
+generic queue of commands, a second request protocol, or a direct social
+callback. Arbitrary Effect closures and gateway objects do not cross the
+container boundary.
 
 The peer's `PeerExchange.observations` are in protocol order. For a selected
 exchange, the final observation is the one returned to case policy; test that
@@ -207,7 +216,7 @@ contracts instead of normalizing them:
   plus terminal output. Its factory owns the per-attempt native idempotency
   sequence and returns `Some(outputEvidenceId)`.
 - NanoClaw submits to its owner-local socket, records
-  `NanoclawPrincipalInputSent`, and returns `None`. Its output is an
+  `NanoClawPrincipalInputSent`, and returns `None`. Its output is an
   uncorrelated multi-frame stream, so the adapter never consumes the next frame
   or attributes it to the input.
 
@@ -279,6 +288,11 @@ Run semantic calibration before a live matrix. Live result bundles remain
 ignored local artifacts. Preserve real OpenClaw or NanoClaw failures in the
 report; file a reproducible product defect separately instead of changing a
 channel to make a case pass.
+
+The live matrix also requires digest-pinned controller/support, peer, and
+NanoClaw application images plus the selected local or GKE profile. Supplying
+those inputs is not a qualification claim; retain actual startup, execution,
+and grading failures as typed attempt states.
 
 ## Related
 

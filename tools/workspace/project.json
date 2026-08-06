@@ -45,7 +45,7 @@
         "commands": [
           "pnpm --filter @moltzap/protocol docs:generate",
           "pnpm --filter @moltzap/client exec tsx scripts/generate-cli-docs.ts",
-          "pnpm --filter @moltzap/server-core exec tsx ../../scripts/generate-constants-snippets.ts"
+          "pnpm exec tsx scripts/docs/generate-constants-snippets.ts"
         ]
       }
     },
@@ -57,7 +57,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts"
+        "command": "pnpm exec tsx scripts/docs/check-no-hardcoded-constants.ts"
       }
     },
     "docs:check:doc-imports-resolve": {
@@ -68,13 +68,13 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts"
+        "command": "pnpm exec tsx scripts/docs/check-doc-imports-resolve.ts"
       }
     },
     "arch:config:generate": {
       "cache": true,
       "inputs": [
-        "{workspaceRoot}/scripts/gen-architecture-configs.mjs"
+        "{workspaceRoot}/scripts/architecture/gen-configs.mjs"
       ],
       "outputs": [
         "{workspaceRoot}/packages/*/safer-architecture.config.json",
@@ -84,7 +84,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node scripts/gen-architecture-configs.mjs"
+        "command": "node scripts/architecture/gen-configs.mjs"
       }
     },
     "arch:config:check": {
@@ -106,7 +106,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node scripts/check-architecture-boundaries.js"
+        "command": "node scripts/architecture/check-boundaries.js"
       }
     },
     "lint:typescript": {
@@ -128,7 +128,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node scripts/effect-diagnostics.mjs"
+        "command": "node scripts/code/effect-diagnostics.mjs"
       }
     },
     "lint:dead-code": {
@@ -172,7 +172,18 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "./scripts/sloppy-code-guard.sh"
+        "command": "./scripts/code/sloppy-code-guard.sh"
+      }
+    },
+    "lint:script-reachability": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "pnpm exec tsx scripts/repo/check-script-reachability.ts"
       }
     },
     "lint:root": {
@@ -195,6 +206,10 @@
         "arch:config:check",
         "lint:root",
         "lint:oxlint",
+        "lint:sloppy-code-guard",
+        "lint:script-reachability",
+        "lint:adr-shape",
+        "lint:agent-files",
         {
           "target": "arch:check",
           "projects": "@moltzap/*"
@@ -210,45 +225,26 @@
         "command": "node -e \"\""
       }
     },
-    "check": {
-      "cache": false,
-      "dependsOn": [
-        "lint",
-        "format:check"
+    "lint:adr-shape": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
       ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node -e \"\""
+        "command": "pnpm exec tsx scripts/docs/adr/check-shape.ts"
       }
     },
-    "precommit": {
-      "cache": false,
-      "dependsOn": [
-        "docs:check:no-hardcoded-constants",
-        "docs:check:doc-imports-resolve",
-        "check",
-        "lint:sloppy-code-guard",
-        {
-          "target": "build",
-          "projects": "@moltzap/*"
-        },
-        {
-          "target": "typecheck",
-          "projects": [
-            "@moltzap/v2-identity",
-            "@moltzap/v2-router"
-          ]
-        },
-        {
-          "target": "typecheck:tests",
-          "projects": "@moltzap/*"
-        }
+    "lint:agent-files": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
       ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node -e \"\""
+        "command": "pnpm exec tsx scripts/repo/check-agent-files.ts"
       }
     }
   }

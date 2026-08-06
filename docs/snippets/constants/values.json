@@ -1,9 +1,9 @@
 {
-  "generatedBy": "scripts/generate-constants-snippets.ts",
+  "generatedBy": "scripts/docs/generate-constants-snippets.ts",
   "constants": [
     {
       "name": "PROTOCOL_VERSION",
-      "value": "2026.803.0",
+      "value": "2026.805.1",
       "kind": "string",
       "sourcePath": "packages/protocol/package.json",
       "note": "Current wire-protocol version sent by clients and checked by the server during connect."
@@ -33,7 +33,7 @@
       "name": "QUICKSTART_PORT",
       "value": 41973,
       "kind": "number",
-      "sourcePath": "scripts/quickstart.sh",
+      "sourcePath": "scripts/setup/quickstart.sh",
       "note": "Port the quickstart.sh script binds the local server to (chosen to avoid 3000/3100 conflicts)."
     }
   ]

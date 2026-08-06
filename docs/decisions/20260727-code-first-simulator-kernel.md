@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-27
 decision-makers: Tapan Chugh
-superseded-by: 20260729-principal-io-uses-runtime-gateways.md
+superseded-by: 20260801-main-simulator-runs-container-societies-on-kubernetes.md
 ---
 
 # The simulator is code-first with a closed event catalog
@@ -11,41 +11,34 @@ Decision provenance: [stored code-first simulator trajectory](../decision-eviden
 
 ## Supersession
 
-The following scope remains current: the code-first TypeScript/Effect
-approach; `Simulator.define`; an immutable closed typed EventCatalog;
-the typed run-evidence RunLedger; a scoped runtime roster and lifecycle
-kernel; Effect programs and services; customer-owned
-scenario languages, sweeps, completion policy, and graders; and the
-requirement that OpenClaw, NanoClaw, Effect, and custom runtimes use one
-public stack without callback shortcuts.
+The following scope remains current for main: the code-first TypeScript/Effect
+approach; an immutable closed typed EventCatalog; the typed run-evidence
+RunLedger and producer-bound writers; exact keyed runtime gateways;
+customer-owned scenario languages, sweeps, completion policy, and graders; one
+`@moltzap/simulator` package; the production v1 router and protocol; and one
+public stack without social callback shortcuts.
 
-For the v1 implementation, `20260729-principal-io-uses-runtime-gateways.md`
-replaces the private-gateway and router-authentication readiness claims.
-Successful acquisition exposes each runtime's exact principal gateway and
-termination through the keyed roster alongside the router-issued agent handle.
-Network identity remains distinct from runtime lifetime. A behavioral runtime
-is ready only when its principal gateway and configured MoltZap capabilities
-are usable. Experiment-controlled endpoints remain network participants for
-probes and workloads, but do not represent a principal instructing an
-autonomous agent. Synthetic-endpoint OpenClaw and NanoClaw runs are network
-diagnostics rather than behavioral acceptance.
-The earlier three-entry-point v1 package list is also replaced: the root
-remains the society definition, execution, and evidence surface, while runtime
-contracts and shipped implementations are grouped at
-`@moltzap/simulator/runtime` inside the same package. The current v1 boundary
-lives in
-[`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md).
+[`20260801-main-simulator-runs-container-societies-on-kubernetes.md`](./20260801-main-simulator-runs-container-societies-on-kubernetes.md)
+replaces the main/v1 `simulator.define(...).run(...)` public naming and its
+host-only concrete execution path, including host-local `AgentRuntime.acquire`
+and `effectRuntime({ build })` acquisition, with one `RunSpec`, one
+`Run.execute`, and one Kubernetes path supplied by either a local-cluster or
+GKE Effect Layer. The existing event, ledger, network, exact-gateway acquired
+shape, termination-policy, and customer-program concepts are reused rather
+than replaced.
+
+[`20260729-principal-io-uses-runtime-gateways.md`](./20260729-principal-io-uses-runtime-gateways.md),
+as partially superseded, continues to govern the distinction between
+principal-native gateway control and MoltZap social traffic, the absence of a
+universal gateway union or correlation id, and the classification of
+controlled-endpoint traffic as diagnostic rather than behavioral acceptance.
 
 `20260728-simulator-is-the-system-driver.md` replaces the historical
-single-package ownership and source-layout plan with the V2 simulator
-as a system driver over public production capabilities and a separate
-testbed package. `20260729-router-order-is-opaque.md` replaces
-simulator-owned production Router state, public RouterSequence, and
-legacy transport-facing types with the `router` package's opaque,
-volatile L2 capability. `20260728-six-deep-packages-one-version.md`,
-as partially superseded, and `docs/spec/layer-interfaces.md` own the
-current package boundary. The accepted
-`20260728-simulator-is-the-system-driver.md` record remains unchanged.
+single-package ownership and source-layout plan only for v2. The accepted v2
+record, the Gate 1 manifest, and the v2 package/specification boundary remain
+unchanged. `20260729-router-order-is-opaque.md` continues to replace
+simulator-owned production Router state and public RouterSequence in its v2
+scope.
 
 ## Context and Problem Statement
 
@@ -440,3 +433,12 @@ observable ingress buffers behind the same `RunLedger`, `Network`, and
 `ConversationSocket` capabilities. A hard timeout for embedded PGlite close
 would require isolating that drain in a killable worker because PGlite exposes
 no cancellation signal.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that alters
+the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-01 | Retargeted `superseded-by` from the runtime-gateway record to the Kubernetes society record, and restated the retained scope in that record's vocabulary. The Decision Outcome is untouched: what this record decided still stands, and only the naming of what replaced part of it moved. Recorded on 2026-08-06, when the forward merge's shape check surfaced the missing row. |

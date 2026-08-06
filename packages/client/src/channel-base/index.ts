@@ -4,9 +4,6 @@
 /** Re-exports the public API from `../bounded-map.js`. */
 export { BoundedMap } from "../bounded-map.js";
 
-/** Re-exports the public API from `./reply-guard.js`. */
-export { ReplyGuard } from "./reply-guard.js";
-
 /** Re-exports the public API from `./format-cross-conv.js`. */
 export {
   formatCrossConv,

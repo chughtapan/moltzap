@@ -3,9 +3,8 @@
 // checkout, these imports resolve against nanoclaw's own src/types.ts
 // (same signatures).
 //
-// Mirrors the surface at the commit pinned by NANOCLAW_SHA in
-// packages/simulator/src/runtime/nanoclaw/install.ts; keep these stubs aligned when
-// bumping that pin.
+// Keep this mirrored surface aligned with the digest-pinned NanoClaw
+// application image used by simulator runs.
 
 type EngageMode = "pattern" | "mention" | "mention-sticky";
 type SenderScope = "all" | "known";

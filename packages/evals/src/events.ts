@@ -5,12 +5,12 @@ import { type AgentId, agentId, agentName } from "@moltzap/protocol/identity";
 import { messagePartsSchema } from "@moltzap/protocol/message";
 import { EventCatalog, RouterMessageCommitted } from "@moltzap/simulator";
 import {
-  NanoclawGatewayInput,
-  NanoclawGatewayOutput,
+  NanoClawGatewayInput,
+  NanoClawGatewayOutput,
   OpenClawGatewayRequest,
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { Chunk, Effect, Schema, Stream } from "effect";
 import {
   evaluationCaseId,
@@ -51,24 +51,24 @@ export class OpenClawPrincipalFinalOutput extends Schema.TaggedClass<OpenClawPri
 ) {}
 
 /** The evaluation adapter sent one input frame to NanoClaw's principal socket. */
-export class NanoclawPrincipalInputSent extends Schema.TaggedClass<NanoclawPrincipalInputSent>()(
+export class NanoClawPrincipalInputSent extends Schema.TaggedClass<NanoClawPrincipalInputSent>()(
   "moltzap.nanoclaw-principal-input-sent/v1",
   {
     caseId: evaluationCaseId,
     agentName: agentName,
     agentId: agentId,
-    input: NanoclawGatewayInput,
+    input: NanoClawGatewayInput,
   },
 ) {}
 
 /** The evaluation adapter received one output frame from NanoClaw. */
-export class NanoclawPrincipalOutputReceived extends Schema.TaggedClass<NanoclawPrincipalOutputReceived>()(
+export class NanoClawPrincipalOutputReceived extends Schema.TaggedClass<NanoClawPrincipalOutputReceived>()(
   "moltzap.nanoclaw-principal-output-received/v1",
   {
     caseId: evaluationCaseId,
     agentName: agentName,
     agentId: agentId,
-    output: NanoclawGatewayOutput,
+    output: NanoClawGatewayOutput,
   },
 ) {}
 
@@ -129,8 +129,8 @@ export class EvaluationEvidenceSelected extends Schema.TaggedClass<EvaluationEvi
 export const evaluationEvents = EventCatalog.make(
   OpenClawPrincipalInstructionAttempted,
   OpenClawPrincipalFinalOutput,
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
   CodePeerMessageSent,
   CodePeerMessageReceived,
   PeerExchangeNotObserved,
@@ -140,8 +140,8 @@ export const evaluationEvents = EventCatalog.make(
 const gatewayObservation = Schema.Union(
   OpenClawPrincipalInstructionAttempted,
   OpenClawPrincipalFinalOutput,
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
 );
 type GatewayObservation = typeof gatewayObservation.Type;
 
@@ -253,8 +253,8 @@ function isGatewayObservation(event: unknown): event is GatewayObservation {
   return (
     event instanceof OpenClawPrincipalInstructionAttempted ||
     event instanceof OpenClawPrincipalFinalOutput ||
-    event instanceof NanoclawPrincipalInputSent ||
-    event instanceof NanoclawPrincipalOutputReceived
+    event instanceof NanoClawPrincipalInputSent ||
+    event instanceof NanoClawPrincipalOutputReceived
   );
 }
 

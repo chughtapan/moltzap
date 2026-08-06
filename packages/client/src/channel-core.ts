@@ -1,8 +1,9 @@
 /**
  * Channel core: serialized inbound turn delivery over a MoltZapService.
  * Owns the inbound queue, same-conversation coalescing, the interceptor
- * gate, the per-turn timeout, and channel teardown; enrichment lives in
- * channel-core-enrichment.ts.
+ * gate, the per-turn timeout, and channel teardown. Enriched adapter delivery
+ * uses channel-core-enrichment.ts; raw daemon delivery receives the coalesced
+ * Message batch without reading or committing presentation context.
  */
 
 import { Cause, Chunk, Duration, Effect, Fiber, Option, Queue } from "effect";
@@ -112,9 +113,9 @@ export interface ChannelCoreOptions {
   turnTimeoutMs?: number;
 
   /**
-   * Endpoint-side gate consulted once per coalesced turn, after enrichment
-   * and before the handler. Unset is passthrough: every turn is delivered
-   * and the inbound path does no extra work.
+   * Endpoint-side gate consulted once per coalesced turn before the selected
+   * handler. The enriched path performs enrichment before the gate; the raw
+   * path deliberately does not enrich. Unset is passthrough.
    */
   inboundInterceptor?: InboundInterceptor;
 }
@@ -128,6 +129,20 @@ export interface ChannelCoreOptions {
 export type InboundHandler<E = unknown> = (
   msg: EnrichedInboundMessage,
 ) => Effect.Effect<void, E>;
+
+/**
+ * Handler for one coalesced raw inbound turn. The existing Message values are
+ * delivered in arrival order after the inbound interceptor admits the batch.
+ * Raw delivery does not enrich messages or read and commit presentation
+ * context.
+ */
+export type RawInboundHandler<E = unknown> = (
+  messages: readonly Message[],
+) => Effect.Effect<void, E>;
+
+type RegisteredInboundHandler =
+  | { readonly _tag: "enriched"; readonly handler: InboundHandler }
+  | { readonly _tag: "raw"; readonly handler: RawInboundHandler };
 
 /**
  * Verdict an {@link InboundInterceptor} returns for one coalesced turn.
@@ -145,10 +160,11 @@ export type InboundInterceptDecision =
   | { readonly _tag: "drop"; readonly reason?: string };
 
 /**
- * Gate the embedder installs between enrichment and the handler. It receives
- * the newest message of the coalesced batch — a gate deciding whether a turn
- * is still worth running cares about the latest thing said — and its verdict
- * governs the whole batch.
+ * Gate the embedder installs between coalescing and the selected handler. The
+ * enriched handler path performs enrichment before consulting the gate; the
+ * raw handler path does not enrich. The gate receives the newest message of
+ * the coalesced batch — a gate deciding whether a turn is still worth running
+ * cares about the latest thing said — and its verdict governs the whole batch.
  *
  * It runs on the single consumer fiber, so suspending inside it delays this
  * turn and every message queued behind it, and `turnTimeoutMs` does not bound
@@ -203,10 +219,12 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
 }
 
 /**
- * Wraps a `MoltZapService` with message enrichment, one-turn-at-a-time
- * inbound delivery, and a send helper. One core per service —
- * `getContextEntries()` is side-effectful (advances per-conversation
- * markers), so a second core would consume entries the first expected.
+ * Wraps a `MoltZapService` with one-turn-at-a-time inbound delivery and a send
+ * helper. Adapter handlers receive enriched messages. A daemon handler may
+ * instead receive the admitted coalesced raw Message batch. One core per
+ * service — `getContextEntries()` is side-effectful (advances
+ * per-conversation markers), so a second core would consume entries the first
+ * expected.
  *
  * Turn-taking is entirely endpoint-local: the server delivers every message
  * it accepts, and this core decides when the runtime sees them.
@@ -219,7 +237,8 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
  *   participant ws as MoltZapAgentClient
  *   participant svc as MoltZapService
  *   participant core as MoltZapChannelCore
- *   participant handler as InboundHandler
+ *   participant raw as RawInboundHandler
+ *   participant enriched as InboundHandler
  *
  *   server->>ws: agent/message/received notification
  *   ws->>svc: subscribers.dispatch — fanout(message)
@@ -227,10 +246,17 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
  *   Note over core: dedup via recordMessageIdIfNew, drop when stopped or no handler is installed, then Queue.unsafeOffer(inboundQueue, message)
  *   Note over core: consumer fiber — Queue.take
  *   Note over core: takeCoalescedConversationMessages drains same-conv backlog into one turn
- *   Note over core: enrichMessage — sender name, conversation, context entries
- *   Note over core: inboundInterceptor — deliver or drop this turn
- *   core->>handler: inboundHandler(enriched)
- *   handler-->>core: Effect.void
+ *   alt raw daemon handler
+ *     Note over core: inboundInterceptor — deliver or drop this batch
+ *     core->>raw: rawInboundHandler(messages)
+ *     raw-->>core: Effect.void
+ *   else enriched adapter handler
+ *     Note over core: enrichMessage — sender name, conversation, context entries
+ *     Note over core: inboundInterceptor — deliver or drop this turn
+ *     core->>enriched: inboundHandler(enriched)
+ *     enriched-->>core: Effect.void
+ *     Note over core: completed handler commits presentation context
+ *   end
  *   Note over core: handler exceeds turnTimeoutMs — turn abandoned, drain continues
  * ```
  *
@@ -249,7 +275,7 @@ export class MoltZapChannelCore {
   // nothing drains — unbounded growth and silent non-delivery. Stopped means
   // stopped: inbound observed after disconnect() is dropped at the listener.
   private stopped = false;
-  private inboundHandler: InboundHandler | null = null;
+  private inboundHandler: RegisteredInboundHandler | null = null;
 
   /**
    * Inbound messages with an installed handler enqueue synchronously; a single
@@ -329,7 +355,17 @@ export class MoltZapChannelCore {
    * @param handler Handler invoked for matching requests.
    */
   onInbound<E>(handler: InboundHandler<E>): void {
-    this.inboundHandler = handler;
+    this.inboundHandler = { _tag: "enriched", handler };
+  }
+
+  /**
+   * Replaces any previous handler with a raw coalesced-turn handler. The
+   * admitted batch passes the interceptor and reaches the handler without
+   * enrichment or presentation-context commits.
+   * @param handler Handler invoked for each admitted raw batch.
+   */
+  onRawInbound<E>(handler: RawInboundHandler<E>): void {
+    this.inboundHandler = { _tag: "raw", handler };
   }
 
   onDisconnect(handler: () => void): void {
@@ -425,8 +461,15 @@ export class MoltZapChannelCore {
     return Effect.gen(
       function* (this: MoltZapChannelCore) {
         const messages = yield* this.takeCoalescedConversationMessages(primary);
-        const handler = this.inboundHandler;
-        if (!handler) {
+        const registered = this.inboundHandler;
+        if (registered === null) {
+          return;
+        }
+        if (registered._tag === "raw") {
+          if (!(yield* this.interceptTurn(messages))) {
+            return;
+          }
+          yield* this.awaitHandlerTurn(registered.handler, messages, primary);
           return;
         }
         const { enriched, commitContext } =
@@ -435,7 +478,7 @@ export class MoltZapChannelCore {
           return;
         }
         const completed = yield* this.awaitHandlerTurn(
-          handler,
+          registered.handler,
           enriched,
           primary,
         );
@@ -523,19 +566,19 @@ export class MoltZapChannelCore {
   /**
    * Await the user handler, bounded by `turnTimeoutMs` when it is set.
    * @param handler Installed inbound handler.
-   * @param enriched Enriched form of the coalesced batch.
+   * @param input Value delivered to the selected handler.
    * @param primary Message that opened this turn.
    * @returns Whether the handler ran to completion.
    */
-  private awaitHandlerTurn(
-    handler: InboundHandler,
-    enriched: EnrichedInboundMessage,
+  private awaitHandlerTurn<A>(
+    handler: (input: A) => Effect.Effect<void, unknown>,
+    input: A,
     primary: Message,
   ): Effect.Effect<boolean, unknown> {
     // The handler is user code returning an Effect — yield it directly so its
     // typed error channel propagates to the consumer fiber, which logs and
     // continues. Awaiting it inline preserves arrival-order delivery.
-    const turn = handler(enriched);
+    const turn = handler(input);
     const timeoutMs = this.turnTimeoutMs;
     if (timeoutMs === undefined) {
       return turn.pipe(Effect.as(true));

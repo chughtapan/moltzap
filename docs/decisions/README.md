@@ -27,8 +27,8 @@ Every ADR visibly links to compacted decision provenance in
 locators, literal human and agent excerpts, mechanical repository
 effects, and explicit source gaps without reconstructing a rationale.
 ADR changes do not land until a fresh teammate, given no file pointers
-or inherited session context, passes the blind review gate in root
-`AGENTS.md`.
+or inherited session context, passes the blind review gate carried by the
+`decisions` skill.
 
 Status has exactly one of these meanings:
 
@@ -56,7 +56,8 @@ planning database as continuing authority.
 | [HarnessClient owns runtime context](20260801-harness-client-owns-runtime-context.md) | 2026-08-01 | accepted | — |
 | [Inbound notifications separate content from reply grants](20260801-inbound-notifications-separate-content-from-grants.md) | 2026-08-01 | accepted | — |
 | [Model output is start or bound reply](20260801-model-output-is-start-or-bound-reply.md) | 2026-08-01 | accepted | — |
-| [Principal I/O uses runtime-native gateways](20260729-principal-io-uses-runtime-gateways.md) | 2026-07-29 | accepted | — |
+| [The main simulator runs container societies on Kubernetes](20260801-main-simulator-runs-container-societies-on-kubernetes.md) | 2026-08-01 | accepted | — |
+| [Principal I/O uses runtime-native gateways](20260729-principal-io-uses-runtime-gateways.md) | 2026-07-29 | partially-superseded | [Main Kubernetes society execution](20260801-main-simulator-runs-container-societies-on-kubernetes.md) |
 | [Evaluation runs produce typed reports published to Phoenix](20260729-effect-native-evaluation-results.md) | 2026-07-29 | partially-superseded | [Principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md) |
 | [Representation limits are fixed or derived](20260729-representation-limits-are-fixed-or-derived.md) | 2026-07-29 | accepted | — |
 | [Identity and Router expose deep Effect capabilities](20260729-identity-and-router-expose-deep-effect-capabilities.md) | 2026-07-29 | accepted | — |
@@ -77,7 +78,7 @@ planning database as continuing authority.
 | [The model surface is start_conversation, reply, and listen](20260728-model-surface-is-start-reply-listen.md) | 2026-07-28 | partially-superseded | [Start or bound reply](20260801-model-output-is-start-or-bound-reply.md), [HarnessClient runtime context](20260801-harness-client-owns-runtime-context.md), [inbound content and grants](20260801-inbound-notifications-separate-content-from-grants.md) |
 | [V2 has six deep packages and one Moltzap version](20260728-six-deep-packages-one-version.md) | 2026-07-28 | partially-superseded | [Opaque Router order](20260729-router-order-is-opaque.md), [Harness profile-slot daemon](20260801-harness-is-one-profile-slot-daemon.md) |
 | [V2 owns one simulator as the system driver](20260728-simulator-is-the-system-driver.md) | 2026-07-28 | partially-superseded | [HarnessClient runtime context](20260801-harness-client-owns-runtime-context.md) |
-| [The simulator is code-first with a closed event catalog](20260727-code-first-simulator-kernel.md) | 2026-07-27 | partially-superseded | [Principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md), [Simulator system driver](20260728-simulator-is-the-system-driver.md), [six packages and one version](20260728-six-deep-packages-one-version.md), [opaque Router order](20260729-router-order-is-opaque.md) |
+| [The simulator is code-first with a closed event catalog](20260727-code-first-simulator-kernel.md) | 2026-07-27 | partially-superseded | [Main Kubernetes society execution](20260801-main-simulator-runs-container-societies-on-kubernetes.md), [principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md), [Simulator system driver](20260728-simulator-is-the-system-driver.md), [six packages and one version](20260728-six-deep-packages-one-version.md), [opaque Router order](20260729-router-order-is-opaque.md) |
 | [Registration is out of band; the plane knows one caller](20260727-registration-is-out-of-band.md) | 2026-07-27 | superseded | [Registry bootstrap admission](20260729-registration-is-registry-bootstrap-admission.md), [Harness profile-slot daemon](20260801-harness-is-one-profile-slot-daemon.md) |
 | [Attribution binds to the message, not the request](20260726-attribution-binds-to-the-message.md) | 2026-07-26 | partially-superseded | [JCS, JOSE, and AuthenticatedHttp](20260729-identity-uses-jcs-jose-authenticated-http.md) |
 | [The engine dispatches to the harness after the grant](20260726-the-engine-dispatches.md) | 2026-07-26 | partially-superseded | [Inbound content and grants](20260801-inbound-notifications-separate-content-from-grants.md), [HarnessClient runtime context](20260801-harness-client-owns-runtime-context.md), [start or bound reply](20260801-model-output-is-start-or-bound-reply.md) |
@@ -101,6 +102,7 @@ planning database as continuing authority.
 | [The planes split at the transport](20260721-physical-plane-split.md) | 2026-07-21 | partially-superseded | [Opaque Router order](20260729-router-order-is-opaque.md), [Harness profile-slot daemon](20260801-harness-is-one-profile-slot-daemon.md) |
 | [X.509 card container](20260721-x509-card-container.md) | 2026-07-21 | superseded | [JCS, JOSE, and AuthenticatedHttp](20260729-identity-uses-jcs-jose-authenticated-http.md) |
 | [Native principal-shaped card](20260721-native-principal-shaped-card.md) | 2026-07-21 | partially-superseded | [JCS, JOSE, and AuthenticatedHttp](20260729-identity-uses-jcs-jose-authenticated-http.md) |
-| [v2 lives top-level](20260721-v2-lives-top-level.md) | 2026-07-21 | partially-superseded | [Six packages and one version](20260728-six-deep-packages-one-version.md), [V2 authority](20260729-v2-authority-lives-with-v2.md), [opaque Router order](20260729-router-order-is-opaque.md), [Harness profile-slot daemon](20260801-harness-is-one-profile-slot-daemon.md) |
-| [AGENTS.md is the single source](20260721-agents-md-single-source.md) | 2026-07-21 | accepted | — |
+| [v2 lives top-level](20260721-v2-lives-top-level.md) | 2026-07-21 | partially-superseded | [Six packages and one version](20260728-six-deep-packages-one-version.md), [V2 authority](20260729-v2-authority-lives-with-v2.md), [opaque Router order](20260729-router-order-is-opaque.md) |
+| [AGENTS.md is the single source](20260721-agents-md-single-source.md) | 2026-07-21 | partially-superseded | [progressive disclosure](20260805-agent-instructions-progressive-disclosure.md) |
+| [Agent instructions load progressively](20260805-agent-instructions-progressive-disclosure.md) | 2026-08-05 | accepted | — |
 | [The network is a router](20260720-the-network-is-a-router.md) | 2026-07-20 | partially-superseded | [Layer boundaries](20260728-layer-boundaries-and-fault-model.md), [mechanical Transcript commit](20260728-transcript-is-mechanical-atomic-commit.md) |

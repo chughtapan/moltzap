@@ -14,7 +14,7 @@ docker compose -f docker-compose.example.yml up -d --build
 
 The server auto-creates the database schema on first boot. Both
 ports are configurable via the env vars defined in
-`scripts/quickstart.sh` (`MOLTZAP_PORT` for the server,
+`scripts/setup/quickstart.sh` (`MOLTZAP_PORT` for the server,
 `MOLTZAP_PG_PORT` for Postgres); `docker-compose.example.yml`
 falls back to those defaults if you leave them unset.
 
@@ -120,7 +120,7 @@ the example file ships with sensible defaults):
 
 ```yaml
 server:
-  port: ${MOLTZAP_PORT}  # see scripts/quickstart.sh for the default value
+  port: ${MOLTZAP_PORT}  # see scripts/setup/quickstart.sh for the default value
   cors_origins: ["*"]
 
 # Use external Postgres instead of embedded PGlite
@@ -158,41 +158,37 @@ you have two supported surfaces:
 
 ## Simulating agent societies
 
-`@moltzap/simulator` is the code-first simulator for agentic societies. A
-versioned `simulator.define` call closes over the complete typed event catalog.
-`Society.agents` declares a keyed roster that can mix OpenClaw, NanoClaw,
-in-process `effectRuntime` agents, and customer-defined `defineRuntime` agents
-on one router and one protocol.
+`@moltzap/simulator` is the code-first simulator for agentic societies. An
+experiment exports one immutable `RunSpec` containing a versioned definition
+id, closed event catalogs, an exact keyed container-runtime roster, the
+local-Kubernetes or GKE infrastructure Layer, and one customer `execute`
+Effect. The in-cluster controller invokes `Run.execute(runSpec)` once.
 
-The experiment is an Effect program. It receives exact started-agent values
-through `roster.startedAgents`, emits customer events through `Society.Events`,
-and reads committed evidence through `Society.Ledger`. Each started value
-separates the participant's router-issued `.agent`, runtime-native `.gateway`,
-and `.termination` observation. OpenClaw keeps its gateway RPC, NanoClaw keeps
-its CLI socket, and `effectRuntime({ build })` exposes exactly the customer
-gateway returned beside its autonomous `behavior`.
+Each started roster value separates its router-issued `.agent`, exact
+runtime-native `.gateway`, and `.termination` observation. OpenClaw and
+NanoClaw keep their own gateway types and fixed controller bridges. Evaluation
+code peers run their policies in their own application containers; every
+agent's social traffic still uses the production MoltZap client and router.
 
-All autonomous social behavior still uses the production client, protocol,
-and router. `Network` creates experiment-controlled diagnostic, workload, and
-observer endpoints; it is not a replacement principal API for roster agents.
-When the outer Effect completes after the kernel acquires an active ledger,
-`Society.run` returns either `ProgramFinished` or `RunInfrastructureFailed`.
-`ProgramFinished` carries the program `Exit`; both outcomes carry the durable
-ledger receipt retained during finalization. Customer code decides when the
-experiment is done and how the ledger is graded or swept.
+The customer Effect receives `{ agents, events, network, ledger }`. It owns
+completion policy, scenarios, sweeps, and grading. `ProgramFinished` retains
+the program `Exit` and completed-ledger receipt; infrastructure failures retain
+their durable receipt when allocation succeeded. Completed artifacts can be
+reopened through the typed ledger facade without exposing Kubernetes objects
+to experiment code.
 
-The same `@moltzap/simulator` package supplies the filesystem ledger,
-production router, OpenClaw, NanoClaw, and `effectRuntime` implementations.
-Customer code defines other runtimes with `defineRuntime`. The production
-router requires Docker and caches an image built from the exact server and
-protocol packages installed with the simulator. Start with the
-[simulator guide](docs/simulator/overview.mdx).
+Kubernetes, Kueue, Agent Sandbox, and Temporal form the only simulator
+execution path. The repository supplies a kind profile for local work and a
+GKE Standard profile for cloud qualification. Docker may build images and run
+the local kind nodes, but it is not a simulator backend. Start with the
+[simulator guide](docs/simulator/overview.mdx) and the
+[local profile](packages/simulator/local/README.md).
 
-The one package has four supported entry points. Experiment definitions and
-runs use `@moltzap/simulator`; autonomous runtime contracts and shipped
-implementations use `@moltzap/simulator/runtime`; router and link
-implementations use `@moltzap/simulator/network`; storage implementations and
-offline analysis tools use `@moltzap/simulator/ledger`.
+The package has four supported entry points: experiment definitions and runs
+at `@moltzap/simulator`, container runtimes at
+`@moltzap/simulator/agents`, network contracts at
+`@moltzap/simulator/network`, and offline evidence tools at
+`@moltzap/simulator/ledger`.
 
 ## Packages
 
@@ -249,10 +245,10 @@ three surfaces from a single pass:
 
 CI runs `pnpm docs:check:drift` to gate generated output, and
 `pnpm docs:check:mermaid` to validate every `mermaid` fenced block via
-`mmdc`. Contributors should start with the package CLAUDE.md
-([protocol](packages/protocol/CLAUDE.md),
-[server](packages/server/CLAUDE.md),
-[client](packages/client/CLAUDE.md)) and follow links into the
+`mmdc`. Contributors should start with the package AGENTS.md
+([protocol](packages/protocol/AGENTS.md),
+[server](packages/server/AGENTS.md),
+[client](packages/client/AGENTS.md)) and follow links into the
 auto-generated module pages from there.
 
 ## License

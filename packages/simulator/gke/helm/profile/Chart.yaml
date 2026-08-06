@@ -1,0 +1,6 @@
+apiVersion: v2
+name: moltzap-simulator-gke-profile
+description: Profile-scoped Kueue capacity for MoltZap GKE qualification runs
+type: application
+version: 0.1.0
+appVersion: "1"
