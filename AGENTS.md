@@ -45,6 +45,7 @@ the setup itself.
 | `/plan-eng-review` | start implementing a feature |
 | `/land-and-deploy` | merge |
 | `codex`, authenticated and in quota | call review complete |
+| `gbrain`, connected | verify decision provenance, or run the blind gate |
 
 **Refuse where the failure is silent; warn where it is loud.** A missing binary
 that errors on first use needs no rule. `/review` without codex quietly becomes
@@ -81,12 +82,14 @@ review gate. `scripts/docs/adr/check-shape.ts` enforces the mechanical half in
   this) → LSP. Grep/Explore only for breadth or text search.
 - Cite by symbol name (`file.ts → handleFrame`), never by line;
   `file.ts:NNN` only in PRs and reviews.
-- Comments serve a cold reader, in present tense: why the code is
-  shaped this way, non-obvious invariants, surprising constants.
-  Never: issue/spec/phase numbers, change narration (formerly, no
-  longer, renamed from), design alternatives, or restating the next
-  lines. Rewrite touched comments in the same PR; history lives in
-  git, not code.
+- Rationale goes in JSDoc on the symbol it explains, in the commit
+  message, or in a docs file — never scattered inline through a body.
+  A shell script's header block is its JSDoc. Write for a cold reader
+  in present tense: why the code is shaped this way, non-obvious
+  invariants, surprising constants. Never issue/spec/phase numbers,
+  change narration (formerly, no longer, renamed from), design
+  alternatives, or restating the next lines. Rewrite touched comments
+  in the same PR; history lives in git, not code.
 - Fix every instance, not the reported one. When a pattern is wrong,
   grep `packages/`, `v2/`, `scripts/`, and `test/` and fix all of it in
   the same change; one corrected call site with five untouched siblings
