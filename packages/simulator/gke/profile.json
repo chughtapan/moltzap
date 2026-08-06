@@ -16,7 +16,7 @@
     "agentSandbox": {
       "version": "v0.5.4",
       "source": "https://github.com/kubernetes-sigs/agent-sandbox.git",
-      "sourceCommit": "6e2b7617310e3bf084b6d1a1cffbeb141a5e37fe"
+      "sourceCommit": "945016a7b97f46cd2edf8633d6b6a22d5355ecc1"
     }
   },
   "queue": {

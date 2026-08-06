@@ -25,10 +25,12 @@ test("GKE profile selects only the accepted cloud shape", async () => {
     chartVersion: "0.17.8",
   });
   assert.equal(profile.addons.agentSandbox.version, "v0.5.4");
-  assert.equal(
-    profile.addons.agentSandbox.sourceCommit,
-    "6e2b7617310e3bf084b6d1a1cffbeb141a5e37fe",
-  );
+  // The pin has two owners, and a tag object's own SHA is not the commit a
+  // checkout lands on, so the installer is the one that must agree.
+  const installerSource = await read("install-addons.sh");
+  const pinned = /AGENT_SANDBOX_COMMIT="([0-9a-f]{40})"/.exec(installerSource);
+  assert.ok(pinned, "the installer pins a 40-hex Agent Sandbox commit");
+  assert.equal(profile.addons.agentSandbox.sourceCommit, pinned[1]);
 
   assert.deepEqual(profile.rosterPlacement.applyTo, [
     "aggregateWorkloadPodSets",
@@ -94,7 +96,7 @@ test("GKE ledger contract separates POSIX writes from retained CSI export", asyn
   assert.doesNotMatch(profileText, /hostPath/);
 });
 
-test("Terraform owns one regional Standard cluster and fixed dedicated capacity", async () => {
+test("Terraform owns one zonal Standard cluster whose agent capacity scales on demand", async () => {
   const [versions, lock, variables, main, outputs] = await Promise.all([
     read("terraform/versions.tf"),
     read("terraform/.terraform.lock.hcl"),
@@ -108,7 +110,7 @@ test("Terraform owns one regional Standard cluster and fixed dedicated capacity"
   assert.match(lock, /version\s*=\s*"7\.42\.0"/);
   assert.equal(lock.match(/"h1:/g)?.length, 4);
   assert.match(main, /resource "google_container_cluster" "simulator"/);
-  assert.match(main, /location\s*=\s*var\.region/);
+  assert.match(main, /location\s*=\s*var\.zone/);
   assert.match(main, /remove_default_node_pool\s*=\s*true/);
   assert.doesNotMatch(main, /enable_autopilot/);
   assert.match(main, /release_channel\s*\{\s*channel\s*=\s*"REGULAR"/s);
@@ -117,20 +119,21 @@ test("Terraform owns one regional Standard cluster and fixed dedicated capacity"
     /resource "google_container_node_pool" "agents" \{([\s\S]*?)\n\}/,
   )?.[1];
   assert.ok(agentPool);
-  assert.match(agentPool, /node_locations\s*=\s*var\.node_locations/);
-  assert.match(agentPool, /node_count\s*=\s*1/);
-  assert.match(agentPool, /machine_type\s*=\s*"e2-standard-8"/);
-  assert.match(agentPool, /disk_size_gb\s*=\s*200/);
-  assert.doesNotMatch(agentPool, /autoscaling\s*\{/);
+  // Idling at zero is what makes an unused profile cost nothing, and the
+  // ceiling is the number the ClusterQueue quota is sized against.
+  assert.match(agentPool, /initial_node_count\s*=\s*0/);
+  assert.match(agentPool, /min_node_count\s*=\s*0/);
+  assert.match(agentPool, /max_node_count\s*=\s*var\.agent_max_nodes/);
+  assert.doesNotMatch(agentPool, /\bnode_count\s*=/);
+  assert.match(agentPool, /machine_type\s*=\s*var\.agent_machine_type/);
+  assert.match(agentPool, /disk_size_gb\s*=\s*var\.agent_disk_size_gb/);
   assert.match(agentPool, /local\.agent_pool_label_value/);
   assert.match(agentPool, /local\.agent_pool_taint_key/);
   assert.match(agentPool, /effect\s*=\s*"NO_SCHEDULE"/);
-  assert.match(variables, /variable "node_locations"/);
-  assert.match(variables, /length\(var\.node_locations\) == 3/);
-  assert.doesNotMatch(
-    variables,
-    /variable "agent_(?:machine_type|nodes_per_zone|disk_size_gb)"/,
-  );
+  assert.match(variables, /variable "zone"/);
+  assert.match(variables, /variable "agent_max_nodes"/);
+  assert.match(variables, /variable "agent_machine_type"/);
+  assert.match(variables, /variable "agent_disk_size_gb"/);
 
   for (const resource of [
     "google_artifact_registry_repository",
@@ -155,9 +158,10 @@ test("Terraform owns one regional Standard cluster and fixed dedicated capacity"
   assert.match(outputs, /output "artifact_bucket_name"/);
   assert.match(outputs, /output "agent_placement"/);
   assert.match(outputs, /output "agent_capacity"/);
-  assert.match(outputs, /cpu\s*=\s*"20"/);
-  assert.match(outputs, /memory\s*=\s*"72Gi"/);
-  assert.match(outputs, /ephemeral_storage\s*=\s*"300Gi"/);
+  // The ClusterQueue quota has one owner, the profile chart. Restating it here
+  // gave the same number two owners, and the copies drifted apart unnoticed.
+  assert.doesNotMatch(outputs, /queue_quota/);
+  assert.doesNotMatch(outputs, /ephemeral_storage\s*=/);
 });
 
 test("Helm pins both operators and reserves the complete roster resource set", async () => {
@@ -200,10 +204,7 @@ test("add-on installation is explicit, pinned, and Helm-owned", async () => {
   assert.equal(installer.match(/--kube-context "\$kube_context"/g)?.length, 3);
   assert.match(installer, /KUEUE_VERSION="0\.17\.8"/);
   assert.match(installer, /AGENT_SANDBOX_VERSION="v0\.5\.4"/);
-  assert.match(
-    installer,
-    /AGENT_SANDBOX_COMMIT="6e2b7617310e3bf084b6d1a1cffbeb141a5e37fe"/,
-  );
+  assert.match(installer, /AGENT_SANDBOX_COMMIT="[0-9a-f]{40}"/);
   assert.match(installer, /git -C "\$temporary_root" fetch[^\n]+/);
   assert.doesNotMatch(installer, /kubectl\s+apply/);
   assert.doesNotMatch(installer, /curl\s/);

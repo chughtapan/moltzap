@@ -7,6 +7,7 @@ set -euo pipefail
 readonly profile_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly simulator_root="$(cd "$profile_root/.." && pwd)"
 readonly terraform_root="$profile_root/terraform"
+readonly system_namespace="moltzap-system"
 
 usage() {
   echo "usage: $0 (setup|up|run SPEC|down|delete) [--delete-artifacts]" >&2
@@ -30,7 +31,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-for executable in terraform gcloud kubectl helm docker node; do
+for executable in terraform gcloud kubectl helm docker node nc; do
   if ! command -v "$executable" >/dev/null 2>&1; then
     echo "required executable is unavailable: $executable" >&2
     exit 69
@@ -100,26 +101,46 @@ publish_controller_image() {
 # still going as failed.
 open_temporal_forward() {
   local port="$1"
-  while true; do
-    kubectl port-forward -n moltzap-system svc/temporal "${port}:7233" \
-      >/dev/null 2>&1
-    sleep 1
-  done &
+  # errexit is inherited by the subshell, so without disabling it the first
+  # dropped forward would end the loop that exists to replace it.
+  (
+    set +e
+    while true; do
+      kubectl port-forward -n "$system_namespace" svc/temporal "${port}:7233" \
+        >/dev/null 2>&1
+      sleep 1
+    done
+  ) &
   forward_pid=$!
+  # The supervisor outlives any one forward, so its liveness proves nothing.
+  # A parked controller has no Temporal to reach, and waiting on that forever
+  # is indistinguishable from working.
+  local attempt=0
   until nc -z localhost "$port" 2>/dev/null; do
-    kill -0 "$forward_pid" 2>/dev/null || {
-      echo "the Temporal port-forward exited before it was ready" >&2
+    attempt=$((attempt + 1))
+    if [[ "$attempt" -ge 60 ]]; then
+      echo "Temporal did not accept a connection within 60s." >&2
+      echo "Is the controller parked? Bring it back with '$0 up'." >&2
       exit 69
-    }
+    fi
     sleep 1
   done
 }
 
+discard_artifacts() {
+  local bucket="$1"
+  # The bucket refuses to be destroyed while it holds objects, so discarding
+  # them is what makes the flag mean what it says.
+  gcloud storage rm --recursive "gs://$bucket/**" 2>/dev/null || true
+}
+
 require_empty_artifact_bucket() {
   local bucket="$1" objects
+  # A wildcard that matches nothing exits non-zero, which is the empty bucket
+  # this guard exists to wave through.
   objects="$(gcloud storage ls --recursive "gs://$bucket/**" 2>/dev/null \
-    | wc -l | tr -d ' ')"
-  [[ "$objects" == "0" ]] && return 0
+    | wc -l | tr -d ' ' || true)"
+  [[ -z "$objects" || "$objects" == "0" ]] && return 0
   echo "refusing to destroy: gs://$bucket holds $objects object(s)." >&2
   echo "Copy them out first:" >&2
   echo "  gcloud storage cp --recursive 'gs://$bucket/*' ./artifacts/" >&2
@@ -136,7 +157,7 @@ case "$command" in
 
     # Experiment-grade Temporal, shared with the local profile.
     kubectl apply -f "$simulator_root/local/temporal.yaml"
-    kubectl rollout status deployment/temporal -n moltzap-system --timeout=5m
+    kubectl rollout status deployment/temporal -n "$system_namespace" --timeout=5m
 
     gcloud auth configure-docker "$(registry_host)" --quiet
     echo
@@ -155,7 +176,7 @@ case "$command" in
 
     forward_port="$(free_local_port)"
     trap 'kill "${forward_pid:-}" 2>/dev/null;
-          pkill -f "port-forward -n moltzap-system svc/temporal ${forward_port}:" 2>/dev/null;
+          pkill -f "port-forward -n $system_namespace svc/temporal ${forward_port}:" 2>/dev/null;
           true' EXIT
     open_temporal_forward "$forward_port"
 
@@ -173,7 +194,13 @@ case "$command" in
     attach_kubectl
     kubectl wait --for=condition=Ready nodes \
       -l "moltzap.dev/pool=system" --timeout=5m
-    kubectl rollout status deployment/run-worker -n moltzap-system --timeout=5m
+    # The worker is installed by a submission, carrying the image that
+    # submission chose, so a cluster that has never run one has no worker yet.
+    if kubectl get deployment/run-worker -n "$system_namespace" \
+      >/dev/null 2>&1; then
+      kubectl rollout status deployment/run-worker \
+        -n "$system_namespace" --timeout=5m
+    fi
     echo "controller is online"
     ;;
 
@@ -193,7 +220,11 @@ case "$command" in
   delete)
     # The bucket holds run ledgers, which outlive the cluster.
     bucket="$(terraform_output artifact_bucket_name)"
-    [[ "$delete_artifacts" == true ]] || require_empty_artifact_bucket "$bucket"
+    if [[ "$delete_artifacts" == true ]]; then
+      discard_artifacts "$bucket"
+    else
+      require_empty_artifact_bucket "$bucket"
+    fi
     terraform -chdir="$terraform_root" destroy
     ;;
 

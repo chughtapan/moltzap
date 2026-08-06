@@ -160,7 +160,7 @@ describe("runSocietyWorkflow", () => {
   it("deletes the run namespace when the controller attempt is lost", async () => {
     const deleted: string[] = [];
     const operations: LifecycleOperationsService = {
-      heartbeat: () => undefined,
+      bindHeartbeat: () => () => undefined,
       prepareRun: () => Effect.void,
       observeController: () =>
         Effect.fail(new KubernetesCallFailed("observe a fake controller")),

@@ -1,8 +1,5 @@
 /** @file Non-deterministic Temporal boundary: activities, worker, client, submission. */
 
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Entry-point detection runs at module load, before any Effect runtime exists to provide FileSystem.
-import { existsSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Context as ActivityContext } from "@temporalio/activity";
 import { Client, Connection, type WorkflowClient } from "@temporalio/client";
@@ -23,6 +20,7 @@ import type {
   RunSocietyWorkflowInput,
   runSocietyWorkflow,
 } from "./reclaim.js";
+import { isEntryModule } from "./entry.js";
 import { installRunWorker } from "./install.js";
 import {
   makeKubernetesRunWorkerInstallApi,
@@ -37,7 +35,6 @@ import {
 import { makeKubernetesRunLifecycleOperations } from "./watch.js";
 
 const WORKFLOW_TYPE = "runSocietyWorkflow";
-const FILE_URL_SCHEME = "file:";
 const DEFAULT_TEMPORAL_NAMESPACE = "default";
 
 /** Coarse controller state observed by the host-side activity. */
@@ -99,13 +96,14 @@ export interface RunLifecycleOperations {
 
 /** Host operations plus the liveness signal one worker attempt owns. */
 export interface LifecycleOperationsService extends RunLifecycleOperations {
-  readonly heartbeat: ControllerHeartbeat;
   /**
    * Bind a heartbeat to the activity running now, called where the SDK still
    * owns the ambient execution context. A heartbeat fiber resuming after a
-   * timer no longer does, so it cannot resolve that context for itself.
+   * timer no longer does, so it cannot resolve that context for itself, and an
+   * implementation that resolves it per call throws there instead of
+   * signalling. Required so that omitting it cannot compile.
    */
-  readonly bindHeartbeat?: () => ControllerHeartbeat;
+  readonly bindHeartbeat: () => ControllerHeartbeat;
 }
 
 /** Lifecycle boundaries the worker's activities read from their environment. */
@@ -135,6 +133,7 @@ class RunWorkerConfigurationFailed extends Error {
 
 function runControllerOnce(
   operations: LifecycleOperationsService,
+  heartbeat: ControllerHeartbeat,
   input: RunSocietyWorkflowInput,
 ): Effect.Effect<
   RunControllerResult,
@@ -144,15 +143,16 @@ function runControllerOnce(
   // cannot depend on reaching the observation loop.
   return Effect.scoped(
     Effect.gen(function* () {
-      const beat = Effect.sync(() => {
-        operations.heartbeat();
-      });
+      const beat = Effect.sync(heartbeat);
       yield* beat;
       yield* Effect.forkScoped(
         Effect.sleep(HEARTBEAT_INTERVAL).pipe(
-          Effect.zipRight(beat),
+          // A signal that throws must cost one beat, not the rest of the
+          // attempt: an unrecovered failure ends the loop and starves the
+          // deadline exactly as the missing signal did.
+          Effect.zipRight(beat.pipe(Effect.tapErrorCause(Effect.logError))),
+          Effect.ignore,
           Effect.forever,
-          Effect.tapErrorCause(Effect.logError),
         ),
       );
       yield* operations.prepareRun(input);
@@ -228,13 +228,7 @@ export const runLifecycleActivities: Effect.Effect<
   Object.freeze({
     runControllerOnce: (input: RunSocietyWorkflowInput) =>
       runAtPromiseBoundary(
-        runControllerOnce(
-          {
-            ...operations,
-            heartbeat: operations.bindHeartbeat?.() ?? operations.heartbeat,
-          },
-          input,
-        ),
+        runControllerOnce(operations, operations.bindHeartbeat(), input),
       ),
     cleanupRun: (input: CleanupRunInput) =>
       runAtPromiseBoundary(cleanupRun(operations, input)),
@@ -251,9 +245,6 @@ export function kubernetesLifecycleOperations(
 ): LifecycleOperationsService {
   return {
     ...makeKubernetesRunLifecycleOperations(profile),
-    heartbeat: () => {
-      ActivityContext.current().heartbeat();
-    },
     bindHeartbeat: () => {
       const activity = ActivityContext.current();
       return () => {
@@ -405,34 +396,6 @@ export async function runTemporalSociety(
   } finally {
     await connection.close();
   }
-}
-
-function realPath(path: string): string | undefined {
-  return existsSync(path) ? realpathSync(path) : undefined;
-}
-
-/**
- * Whether a module is the process entry point rather than an ordinary import.
- *
- * Both sides are canonicalized because they are not the same kind of path:
- * Node resolves a module's real path before it becomes `import.meta.url`, while
- * `process.argv[1]` is whatever the caller typed. An image that reaches the
- * worker through a symlinked directory would otherwise look like an import, and
- * the worker would exit without ever serving the run-lifecycle task queue.
- *
- * @param moduleUrl URL of the module asking whether it was invoked directly.
- * @param invoked Path the process was started with, if it has one.
- * @returns Whether both locations name the same real file.
- */
-export function isEntryModule(moduleUrl: string, invoked?: string): boolean {
-  if (invoked === undefined || invoked.length === 0) {
-    return false;
-  }
-  if (!moduleUrl.startsWith(FILE_URL_SCHEME)) {
-    return false;
-  }
-  const entry = realPath(resolve(invoked));
-  return entry !== undefined && entry === realPath(fileURLToPath(moduleUrl));
 }
 
 function isDirectInvocation(): boolean {

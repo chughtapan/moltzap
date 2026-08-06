@@ -1,17 +1,6 @@
 /* eslint-disable agent-code-guard/async-keyword -- Temporal activity and client tests await the SDK's Promise-native boundary. */
 /* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only activity timelines pin one Temporal attempt and cleanup ordering. */
 
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The symlinked-release fixture mirrors an image layout, and the guard under test is itself synchronous and Effect-free.
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Schema } from "effect";
 import { CompletedLedgerReceipt } from "../run/execute.js";
@@ -28,7 +17,6 @@ import type {
 } from "./reclaim.js";
 import {
   executeRunSocietyWorkflow,
-  isEntryModule,
   LifecycleOperations,
   runLifecycleActivities,
   type ControllerObservation,
@@ -76,7 +64,7 @@ interface FakeState {
 
 function fakeOperations(state: FakeState): LifecycleOperationsService {
   return {
-    heartbeat: () => {
+    bindHeartbeat: () => () => {
       state.events.push(HEARTBEAT_EVENT);
     },
     prepareRun: (input) =>
@@ -146,7 +134,13 @@ describe("run lifecycle activities", () => {
       "wait",
       "observe-controller",
     ]);
-    expect(current.events).toContain(HEARTBEAT_EVENT);
+    // The attempt proves itself alive before it starts admitting a cohort.
+    // Preparing a large one outlasts the deadline, so a signal that waits for
+    // the observation loop arrives too late.
+    expect(current.events[0]).toBe(HEARTBEAT_EVENT);
+    expect(current.events.indexOf(HEARTBEAT_EVENT)).toBeLessThan(
+      current.events.indexOf(`prepare:${INPUT.namespace}`),
+    );
   });
 
   it("returns a closed failed result from a nonzero controller Job", async () => {
@@ -227,56 +221,6 @@ describe("executeRunSocietyWorkflow", () => {
       taskQueue: "moltzap-simulator",
       args: [INPUT],
     });
-  });
-});
-
-interface WorkerLayout {
-  /** Real path of the worker module, as Node reports it in import.meta.url. */
-  readonly real: string;
-  /** The same module reached through a symlinked parent directory. */
-  readonly linked: string;
-  /** A sibling module that is never the entry point. */
-  readonly sibling: string;
-}
-
-function workerLayout(): WorkerLayout {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "moltzap-entry-")));
-  const release = join(root, "release-2026-08-04");
-  mkdirSync(release);
-  writeFileSync(join(release, "temporal.js"), "");
-  writeFileSync(join(release, "reclaim.js"), "");
-  symlinkSync(release, join(root, "current"), "dir");
-  return {
-    real: join(release, "temporal.js"),
-    linked: join(root, "current", "temporal.js"),
-    sibling: join(release, "reclaim.js"),
-  };
-}
-
-describe("isEntryModule", () => {
-  it("recognizes the worker reached through a symlinked directory", () => {
-    const layout = workerLayout();
-
-    expect(isEntryModule(pathToFileURL(layout.real).href, layout.linked)).toBe(
-      true,
-    );
-  });
-
-  it("recognizes the worker reached by its own real path", () => {
-    const layout = workerLayout();
-
-    expect(isEntryModule(pathToFileURL(layout.real).href, layout.real)).toBe(
-      true,
-    );
-  });
-
-  it("rejects a different module and a process with no entry path", () => {
-    const layout = workerLayout();
-
-    expect(isEntryModule(pathToFileURL(layout.real).href, layout.sibling)).toBe(
-      false,
-    );
-    expect(isEntryModule(pathToFileURL(layout.real).href)).toBe(false);
   });
 });
 

@@ -41,7 +41,8 @@ ledgers rather than cluster state. Pass `--delete-artifacts` to discard them.
 
 Resident cost with the controller up is one `e2-standard-4` node plus disks;
 the zonal control plane is free. Parking the controller with `down` leaves only
-storage. A run adds one `e2-standard-16` for its duration.
+storage. A run adds up to `agent_max_nodes` `e2-standard-16` for its duration,
+and gives them back when it ends.
 
 ## Provisioning handoff
 
@@ -75,17 +76,18 @@ extensions remain disabled because the simulator creates direct `Sandbox`
 objects and does not use warm pools.
 
 The agent pool autoscales between zero nodes and `agent_max_nodes`, which
-defaults to one `e2-standard-16`. That single node seats the ten-agent cohort:
-each agent requests 1 CPU, 1 GiB of memory, and 1 GiB of ephemeral storage,
-alongside a smaller support container.
+defaults to eight `e2-standard-16`. Each agent requests 1 CPU, 1 GiB of memory,
+and 1 GiB of ephemeral storage alongside a smaller support container, and CPU
+exhausts first at about fourteen agents per node, so eight nodes seat the
+hundred-agent cohort.
 
 The chart's `ClusterQueue` quota is sized against that ceiling, held below a
 node's measured allocatable capacity rather than its advertised size. Kueue
 admits against the quota alone, so a quota larger than the pool can deliver
 produces a cohort that is admitted and then never schedulable, and the run
-hangs on pending pods instead of failing. Ephemeral storage is the tightest
-dimension, because the boot disk bounds it. Raise `agent_max_nodes` and the
-quota in `helm/profile/values.yaml` together, never one alone.
+hangs on pending pods instead of failing. CPU is the tightest dimension. Raise
+`agent_max_nodes` and the quota in `helm/profile/values.yaml` together, never
+one alone.
 
 The profile has no Temporal deployment. Qualification supplies a test or
 managed endpoint through `MOLTZAP_TEMPORAL_ADDRESS`; production hosting and

@@ -200,6 +200,8 @@ it("projects identical GKE placement onto reserved and actual Pods", () => {
 });
 
 const DIGEST = "a".repeat(64);
+const STARTUP_TIMEOUT_VARIABLE = "MOLTZAP_STARTUP_TIMEOUT_MS";
+const STARTUP_TIMEOUT_MS = 900_000;
 const EXPERIMENT_SOURCE = "export const runSpec = society;";
 const INPUT: RunSocietyWorkflowInput = {
   runId: "run-1",
@@ -518,4 +520,27 @@ it("scopes nothing by resource name because run namespaces are generated", () =>
   expect(
     clusterRole.rules?.filter((rule) => rule.resourceNames !== undefined),
   ).toEqual([]);
+});
+
+function controllerEnvironmentOf(
+  input: RunSocietyWorkflowInput,
+): ReadonlyArray<{ readonly name: string; readonly value?: string }> {
+  const manifests = ownedRunControlManifests(input, "owner-uid");
+  const [controller] =
+    manifests.controllerJob.spec?.template.spec?.containers ?? [];
+  return controller?.env ?? [];
+}
+
+it("carries a cohort's startup budget into the controller only when one is set", () => {
+  const names = controllerEnvironmentOf(INPUT).map((entry) => entry.name);
+  expect(names).not.toContain(STARTUP_TIMEOUT_VARIABLE);
+
+  const budgeted = controllerEnvironmentOf({
+    ...INPUT,
+    startupTimeoutMs: STARTUP_TIMEOUT_MS,
+  });
+  expect(budgeted).toContainEqual({
+    name: STARTUP_TIMEOUT_VARIABLE,
+    value: String(STARTUP_TIMEOUT_MS),
+  });
 });

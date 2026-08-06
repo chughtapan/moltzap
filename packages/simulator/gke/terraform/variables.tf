@@ -32,11 +32,10 @@ variable "agent_machine_type" {
   description = <<-EOT
     Agent node machine type.
 
-    One node holds the whole cohort. GKE reserves less proportionally as a node
-    grows, so sixteen vCPU on one machine yields marginally more allocatable
-    than the same vCPU split in two, and e2 is priced per vCPU so splitting
-    saves nothing. One node also pulls each image once and puts no agent pair
-    on opposite sides of a network hop.
+    GKE reserves less proportionally as a node grows, so sixteen vCPU on one
+    machine yields marginally more allocatable than the same vCPU split in two,
+    and e2 is priced per vCPU so splitting saves nothing. Fewer, larger nodes
+    also pull each image fewer times.
   EOT
   type        = string
   default     = "e2-standard-16"
@@ -61,11 +60,11 @@ variable "agent_disk_size_gb" {
   description = <<-EOT
     Agent node boot disk, in GB.
 
-    The working set is about 24 GB: the node image, the support and stock agent
-    images once, and one gibibyte of ephemeral storage for each of the ten
-    agents the node holds. The default is GKE's own, leaving four times that
-    headroom; the reason not to shrink further is throughput, since pd-balanced
-    scales with size and a smaller disk slows the first image pull.
+    The node image, the support and stock agent images once, and one gibibyte
+    of ephemeral storage for each agent the node holds. CPU exhausts first, so
+    the disk carries generous headroom; the reason not to shrink it is
+    throughput, since pd-balanced scales with size and a smaller disk slows the
+    first image pull.
   EOT
   type        = number
   default     = 100
