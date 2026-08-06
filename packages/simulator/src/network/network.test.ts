@@ -1,3 +1,5 @@
+/* eslint-disable agent-code-guard/no-example-only-tests -- These pin the endpoint contract's fixed shapes: who a conversation opens with, which content the transport refuses, how one operation reads whether its cause was thrown or described, and what a stopped router leaves behind. None is an invariant over generated input. */
+
 import { assert, it } from "@effect/vitest";
 import { Effect, Stream } from "effect";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
@@ -129,3 +131,5 @@ it("constructs stopped-router evidence without platform storage", () => {
   assert.strictEqual(stopped.committedMessages.length, 1);
   assert.strictEqual(stopped.committedMessages[0]?.routerSequence, 0);
 });
+
+/* eslint-enable agent-code-guard/no-example-only-tests -- Restore generative-test requirements after the endpoint contract regressions. */
