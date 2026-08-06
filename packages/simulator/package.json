@@ -17,8 +17,6 @@
     "!src/**/*.test.ts",
     "!src/**/*.types-check.ts",
     "!src/**/__tests__/**",
-    "scripts/build-server-image.mjs",
-    "server-image",
     "!dist/tsconfig.tsbuildinfo"
   ],
   "main": "./dist/index.js",
@@ -36,16 +34,22 @@
       "types": "./dist/ledger.d.ts",
       "import": "./dist/ledger.js"
     },
-    "./runtime": {
-      "types": "./dist/runtime.d.ts",
-      "import": "./dist/runtime.js"
+    "./agents": {
+      "types": "./dist/agents.d.ts",
+      "import": "./dist/agents.js"
     }
   },
   "scripts": {
     "build": "nx run @moltzap/simulator:build",
     "lint": "nx run @moltzap/simulator:lint",
     "test": "vitest run --passWithNoTests",
-    "test:integration": "vitest run --config vitest.integration.config.mjs",
+    "local:profile:check": "nx run @moltzap/simulator:local-profile-check",
+    "local:cluster:create": "nx run @moltzap/simulator:local-cluster-create",
+    "local:controller:image": "nx run @moltzap/simulator:local-controller-image",
+    "local:run": "nx run @moltzap/simulator:local-run",
+    "local:cluster:test": "nx run @moltzap/simulator:local-cluster-test",
+    "gke:profile:check": "nx run @moltzap/simulator:gke-profile-check",
+    "gke:run": "nx run @moltzap/simulator:gke-run",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -77,23 +81,81 @@
           "command": "vitest run"
         }
       },
-      "test:integration": {
+      "local-profile-check": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "default",
+          "{projectRoot}/local/**/*",
+          "{projectRoot}/scripts/local-create-cluster.mjs",
+          "{projectRoot}/scripts/build-controller-image.mjs"
+        ],
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "node --test local/profile.test.mjs && node --check scripts/local-create-cluster.mjs && node --check scripts/build-controller-image.mjs && node --check local/end-to-end.mjs"
+        }
+      },
+      "local-cluster-create": {
+        "cache": false,
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "node scripts/local-create-cluster.mjs"
+        }
+      },
+      "local-controller-image": {
+        "cache": false,
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "node scripts/build-controller-image.mjs"
+        }
+      },
+      "local-run": {
+        "cache": false,
         "dependsOn": [
           "build"
         ],
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "node dist/cluster/profiles/local.js"
+        }
+      },
+      "local-cluster-test": {
+        "cache": false,
+        "dependsOn": [
+          "build"
+        ],
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "vitest run --config vitest.cluster.config.mjs"
+        }
+      },
+      "gke-profile-check": {
+        "dependsOn": [
+          "build"
+        ],
+        "executor": "nx:run-commands",
         "inputs": [
           "default",
-          "^production",
-          {
-            "env": "MOLTZAP_NANOCLAW_ITEST"
-          },
-          {
-            "env": "MOLTZAP_OPENCLAW_ITEST"
-          },
-          {
-            "env": "MOLTZAP_SIM_ITEST"
-          }
-        ]
+          "{projectRoot}/gke/**/*"
+        ],
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "node --test gke/profile.test.mjs && bash -n gke/install-addons.sh && bash -n gke/cluster.sh && node --check dist/cluster/profiles/gke.js"
+        }
+      },
+      "gke-run": {
+        "cache": false,
+        "dependsOn": [
+          "build"
+        ],
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "node dist/cluster/profiles/gke.js"
+        }
       },
       "typecheck:tests": {
         "dependsOn": [
@@ -119,10 +181,15 @@
     "@effect/platform-node": "^0.108.0",
     "@effect/sql": "^0.52.0",
     "@electric-sql/pglite": "0.4.4",
+    "@kubernetes/client-node": "1.4.0",
     "@moltzap/client": "workspace:^",
     "@moltzap/openclaw-channel": "workspace:^",
     "@moltzap/protocol": "workspace:^",
     "@moltzap/server-core": "workspace:*",
+    "@temporalio/activity": "1.21.1",
+    "@temporalio/client": "1.21.1",
+    "@temporalio/worker": "1.21.1",
+    "@temporalio/workflow": "1.21.1",
     "effect": "^3.22.0",
     "openclaw": "2026.6.33"
   },

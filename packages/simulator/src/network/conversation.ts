@@ -4,12 +4,8 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import { type Message, messagePartsSchema } from "@moltzap/protocol/message";
 import { Effect, Option, Schema, Stream } from "effect";
 import type { ParticipantHandle } from "./participant.js";
-import {
-  type MessageParts,
-  type NetworkFailure,
-  type ReceivedMessage,
-  networkFailure,
-} from "./router.js";
+import type { MessageParts, ReceivedMessage } from "./router.js";
+import { type NetworkError, networkError } from "./failure.js";
 
 const conversationAddressTypeId: unique symbol = Symbol(
   "@moltzap/simulator/ConversationAddress",
@@ -85,11 +81,11 @@ function parts(content: string | MessageParts): MessageParts {
 
 function validateParts(
   content: MessageParts,
-): Effect.Effect<MessageParts, NetworkFailure> {
+): Effect.Effect<MessageParts, NetworkError> {
   return Schema.decodeUnknown(messagePartsSchemaValue)(content, {
     onExcessProperty: "error",
   }).pipe(
-    Effect.mapError((cause) => networkFailure("send", cause)),
+    Effect.mapError((cause) => networkError("send", cause)),
     Effect.as(content),
   );
 }
@@ -103,21 +99,21 @@ export class ConversationSocket {
    * The ordered receive cursor for this endpoint and conversation. Repeated
    * consumption advances the cursor instead of replaying old delivery.
    */
-  readonly messages: Stream.Stream<ReceivedMessage, NetworkFailure>;
+  readonly messages: Stream.Stream<ReceivedMessage, NetworkError>;
 
   readonly endpoint: ParticipantHandle;
   readonly address: ConversationAddress;
   private readonly sendMessage: (
     content: MessageParts,
-  ) => Effect.Effect<Message, NetworkFailure>;
+  ) => Effect.Effect<Message, NetworkError>;
 
   private constructor(
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
+    messages: Stream.Stream<ReceivedMessage, NetworkError>,
     sendMessage: (
       content: MessageParts,
-    ) => Effect.Effect<Message, NetworkFailure>,
+    ) => Effect.Effect<Message, NetworkError>,
   ) {
     this.endpoint = endpoint;
     this.address = address;
@@ -128,10 +124,10 @@ export class ConversationSocket {
   static [conversationSocketConstruction](
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
+    messages: Stream.Stream<ReceivedMessage, NetworkError>,
     sendMessage: (
       content: MessageParts,
-    ) => Effect.Effect<Message, NetworkFailure>,
+    ) => Effect.Effect<Message, NetworkError>,
   ): ConversationSocket {
     return new ConversationSocket(endpoint, address, messages, sendMessage);
   }
@@ -141,7 +137,7 @@ export class ConversationSocket {
    * @param content Value supplied to the operation.
    * @returns The created conversation socket.
    */
-  send(content: string | MessageParts): Effect.Effect<Message, NetworkFailure> {
+  send(content: string | MessageParts): Effect.Effect<Message, NetworkError> {
     return validateParts(parts(content)).pipe(Effect.flatMap(this.sendMessage));
   }
 
@@ -150,14 +146,14 @@ export class ConversationSocket {
    * consuming Effect, so the socket never skips an earlier message.
    * @returns The created conversation socket.
    */
-  receive(): Effect.Effect<ReceivedMessage, NetworkFailure> {
+  receive(): Effect.Effect<ReceivedMessage, NetworkError> {
     return this.messages.pipe(
       Stream.runHead,
       Effect.flatMap(
         Option.match({
           onNone: () =>
             Effect.fail(
-              networkFailure(
+              networkError(
                 "receive",
                 `conversation ${this.address.conversationId} ended before another message arrived`,
               ),
@@ -180,10 +176,8 @@ export class ConversationSocket {
 export function makeConversationSocket(
   endpoint: ParticipantHandle,
   address: ConversationAddress,
-  messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
-  sendMessage: (
-    content: MessageParts,
-  ) => Effect.Effect<Message, NetworkFailure>,
+  messages: Stream.Stream<ReceivedMessage, NetworkError>,
+  sendMessage: (content: MessageParts) => Effect.Effect<Message, NetworkError>,
 ): ConversationSocket {
   const socket = ConversationSocket[conversationSocketConstruction](
     endpoint,

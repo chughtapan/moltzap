@@ -1,0 +1,24 @@
+clusterQueue:
+  name: moltzap
+
+resourceFlavor:
+  name: moltzap-gke-agents
+
+agentPool:
+  label:
+    key: moltzap.dev/pool
+    value: agents
+  taint:
+    key: moltzap.dev/agents
+    value: "true"
+    effect: NoSchedule
+
+# Admits a hundred agents, each requesting 1 cpu, 1Gi of memory, and 1Gi of
+# ephemeral storage beside a smaller support container. Held below what
+# agent_max_nodes e2-standard-16 nodes actually allocate (15890m cpu, 57Gi
+# memory, 43Gi ephemeral storage each), not what they advertise. Sized with
+# agent_max_nodes; see the profile README.
+quota:
+  cpu: "110"
+  memory: 130Gi
+  ephemeralStorage: 110Gi

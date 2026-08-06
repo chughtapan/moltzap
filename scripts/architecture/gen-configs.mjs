@@ -336,6 +336,14 @@ const packageDefinitions = {
       maxPublicReexports: 15,
       minPublicFacadeModules: 16,
       minFolderReadmeChildren: 100,
+      folderChildCountOverrides: [
+        {
+          folder: "cluster",
+          maxChildren: 16,
+          reason:
+            "Cluster is one subsystem whose children each name a step of a run's life: scaffold, cohort, reclaim, watch, install, bootstrap, and submit, plus its two vendor adapters and the controller that runs in-cluster",
+        },
+      ],
       facadeFiles: [
         {
           file: "network.ts",
@@ -348,7 +356,7 @@ const packageDefinitions = {
             "Published ledger contract for records, storage, live runs, and offline inspection",
         },
         {
-          file: "runtime.ts",
+          file: "agents.ts",
           reason:
             "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations",
         },
@@ -363,12 +371,12 @@ const packageDefinitions = {
             "Closed kernel event catalog and producer-bound event writer contracts",
         },
         {
-          file: "kernel/event-services.ts",
+          file: "run/events.ts",
           reason:
             "Definition-bound Effect services for readable ledgers and customer-owned event emission",
         },
         {
-          file: "ledger/model.ts",
+          file: "ledger/schema.ts",
           reason:
             "Durable record, manifest, completion, digest, and ledger-reference model",
         },
@@ -378,33 +386,68 @@ const packageDefinitions = {
             "Storage port that keeps allocation, append, completion, and reading independent of the filesystem implementation",
         },
         {
-          file: "ledger/live.ts",
+          file: "ledger/append.ts",
           reason:
             "Live-ledger boundary for ordered append, failure latching, completion, and typed event streams",
         },
         {
-          file: "ledger/open.ts",
+          file: "ledger/read.ts",
           reason: "Completed-ledger validation and offline opening boundary",
         },
         {
-          file: "kernel/link-fabric.ts",
+          file: "run/link-fabric.ts",
           reason:
             "Link-fabric boundary coupling the platform link driver, receiver registration, and the policy interpreter",
         },
         {
-          file: "kernel/outcomes.ts",
+          file: "run/outcomes.ts",
           reason:
             "Causal outcome conversion shared by runtime, router, and program lifecycle modules",
         },
         {
-          file: "kernel/router.ts",
+          file: "run/router.ts",
           reason:
             "Router lifecycle boundary coupling scoped acquisition and shutdown with durable causal outcomes",
         },
         {
-          file: "kernel/run.ts",
+          file: "run/execute.ts",
           reason:
             "Run boundary composing definitions, scoped resources, lifecycle outcomes, and the customer Effect",
+        },
+        {
+          file: "cluster/cluster.ts",
+          reason:
+            "Cluster seam the run kernel acquires: the platform port plus the society and slot shapes every implementation satisfies",
+        },
+        {
+          file: "cluster/submit.ts",
+          reason:
+            "Submission boundary shared by the local and GKE profiles, owning run identity and the sanitized failure they both report",
+        },
+        {
+          file: "cluster/temporal.ts",
+          reason:
+            "The package's only Temporal adapter: worker, client, activity, and workflow bindings behind one Promise boundary",
+        },
+        {
+          file: "cluster/kubernetes/calls.ts",
+          reason:
+            "The package's only Kubernetes API surface, wrapping a Promise-native client as typed Effects",
+        },
+        {
+          file: "cluster/kubernetes/objects.ts",
+          reason:
+            "Every Kubernetes object the cluster creates, kept beside the calls that submit them",
+        },
+        {
+          file: "cluster/controller/configuration.ts",
+          reason:
+            "Closed environment contract decoded once at the in-cluster controller boundary",
+        },
+        {
+          file: "definition.ts",
+          reason:
+            "Public authoring surface composing catalogs, roster, cluster layer, and the customer Effect into one runnable spec",
         },
         {
           file: "network/endpoint.ts",
@@ -431,53 +474,52 @@ const packageDefinitions = {
             "Router port, framed message model, connection contract, and typed network failures",
         },
         {
-          file: "network/server.ts",
+          file: "network/server/process.ts",
           reason:
             "Scoped MoltZap server ownership for image, storage, process, observation, and identity resources",
         },
         {
-          file: "runtime/runtime.ts",
+          file: "agents/agent.ts",
           reason:
             "Autonomous participant lifecycle contract implemented by every runtime family",
         },
         {
-          file: "runtime/roster.ts",
+          file: "agents/roster.ts",
           reason:
             "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements",
         },
         {
-          file: "runtime/process.ts",
-          reason:
-            "Scoped process bridge shared by the external runtime implementations",
-        },
-        {
-          file: "runtime/packages.ts",
+          file: "network/server/packages.ts",
           reason:
             "Runtime package discovery and install-policy boundary shared by shipped runtime families",
-        },
-        {
-          file: "runtime/nanoclaw/install.ts",
-          reason:
-            "NanoClaw installation boundary composing source acquisition, package assets, and dependency materialization",
-        },
-        {
-          file: "runtime/openclaw/process.ts",
-          reason:
-            "OpenClaw process boundary composing workspace setup, channel materialization, gateway configuration, port ownership, and supervised lifetime",
         },
       ],
       layers: [
         {
-          name: "kernel",
-          folders: ["kernel"],
+          name: "controller",
+          folders: ["cluster/controller"],
+          reason:
+            "The in-cluster executable that loads one spec and invokes the run kernel, so it depends on the kernel while nothing depends on it",
+        },
+        {
+          name: "run",
+          folders: ["run"],
           reason:
             "The run kernel orchestrates capability contracts without becoming a dependency of them",
         },
         {
           name: "capabilities",
-          folders: ["events", "ledger", "network", "runtime"],
+          folders: [
+            "events",
+            "ledger",
+            "network",
+            "agents",
+            "cluster",
+            "cluster/kubernetes",
+            "cluster/profiles",
+          ],
           reason:
-            "Peer event, ledger, network, and runtime capabilities compose through typed ports and do not form a truthful linear stack",
+            "Peer event, ledger, network, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it",
         },
       ],
     },

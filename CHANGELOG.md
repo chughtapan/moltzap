@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: container societies on Kubernetes
+
+The simulator runs a society of container agents on Kubernetes through one
+`RunSpec`. A run reserves its whole cohort before any agent starts, so a society
+that cannot fit never half-starts, and every run writes a ledger it can be read
+back from. Two profiles share that path: a local cluster for development and a
+GKE profile for experiments at size.
+
+### Changed: one end-to-end experiment, sized by its run
+
+`packages/simulator/local/end-to-end.mjs` replaces the two-, four-, ten-, and
+hundred-agent modules. The path is the same at two agents and at a hundred, so
+the roster size is an input rather than four near-copies of one file.
+`MOLTZAP_COHORT_SIZE` carries it, defaulting to two, and travels the same
+validated path as the startup budget: the submitter refuses what could never be
+a count, the controller bounds it, and the experiment reads it through the
+controller's own configuration rather than the process.
+
+### Added: a GKE profile that scales agents on demand
+
+`packages/simulator/gke/cluster.sh` covers the profile's whole lifecycle with
+`setup`, `up`, `run`, `down`, and `delete`. Agent nodes autoscale from zero, so
+an idle profile costs only its resident controller, and a run provisions the
+nodes its cohort needs and gives them back afterwards. `run` builds the
+controller image, pushes it, and submits by the digest the registry reports,
+which removes the hand-copied reference that could name an image that does not
+exist. Destroying the profile refuses while its bucket still holds run ledgers.
+
+### Fixed: a large cohort survives from admission to teardown
+
+Runs of about a hundred agents failed partway through, and the failures read as
+infrastructure loss with no cause attached.
+
+- The run worker is now installed by waiting for the revision just installed
+  rather than any available replica. Every submission installs the image it
+  built, so every submission rolls the worker; counting the outgoing replica as
+  ready handed the run to a Pod the rollout then deleted.
+- The controller's liveness signal runs on its own schedule for the whole
+  attempt. Admitting one agent at a time means a large cohort takes longer to
+  prepare than the liveness deadline allows, and the signal cannot wait for the
+  observation loop to start.
+- Installing the worker onto a cluster that had already hosted one no longer
+  conflicts, so a profile can serve more than one run.
+- A cohort's startup budget is now configurable end to end. The controller read
+  the setting but nothing supplied it, leaving its two minute default as the
+  only reachable value.
+- A cluster failure reports which operation failed and why. The ledger recorded
+  errors that named neither.
+
 ### Added: daemon-backed `HarnessClient`
 
 `@moltzap/client` exposes an Effect `HarnessClient` for runtime adapters. Its

@@ -1,247 +1,229 @@
 ---
 title: "Running simulator programs"
-description: "Run code-first society experiments through your existing TypeScript and job tooling."
+description: "Submit one RunSpec through the shared local-Kubernetes or GKE execution path."
 ---
 
-The simulator runs through ordinary TypeScript entrypoints and task runners.
-Experiment owners expose the command or operator surface that fits their
-domain.
-
-The code-first API keeps the network, lifecycle, and ledger contracts stable
-while each experiment owner chooses the operator surface appropriate to its
-domain. TypeScript entrypoints and task runners are the simulator's normal
-execution path.
+Simulator programs are ordinary `.mjs` modules loaded by the in-cluster
+controller. The repository-local submitters accept one module path and run it
+through the same Temporal, Kubernetes, Kueue, Agent Sandbox, controller, and
+`Run.execute` path.
 
 ## Package entry points
 
 | Import | Purpose |
 |---|---|
-| `@moltzap/simulator` | Definitions, event catalogs, services, and the default host Layer |
-| `@moltzap/simulator/runtime` | Runtime contracts and the Effect, OpenClaw, and NanoClaw implementations |
+| `@moltzap/simulator` | `RunSpec`, `Run.execute`, event catalogs, customer services, and run outcomes |
+| `@moltzap/simulator/agents` | Container runtime descriptors and exact OpenClaw and NanoClaw gateway contracts |
 | `@moltzap/simulator/network` | Router, transport, link, endpoint, and nominal capability contracts |
-| `@moltzap/simulator/ledger` | Completed-ledger types, the storage port, and manifest inspection |
+| `@moltzap/simulator/ledger` | Completed-ledger types, validation, and artifact inspection |
 
-`simulator.define` binds `run` and `openLedger` to one versioned definition
-and its complete event catalog.
+The experiment module owns its agents, customer events, customer Effect, and
+completion policy. The selected profile owns every platform object.
 
-## Make a TypeScript entrypoint
+## Write a controller-loadable module
 
-A normal module is an executable experiment:
-
-```ts
-import { messagesSend } from "@moltzap/protocol/message";
-import {
-  Network,
-  simulator,
-  simulatorLayer,
-} from "@moltzap/simulator";
-import {
-  effectRuntime,
-} from "@moltzap/simulator/runtime";
-import {
-  Duration,
-  Effect,
-  Ref,
-  Schema,
-  Stream,
-} from "effect";
-
-const Society = simulator.define("acme.echo/v1");
-
-const roster = Society.agents({
-  echo: effectRuntime({
-    build: (context) =>
-      Effect.gen(function* () {
-        const prefix = yield* Ref.make("echo: ");
-        return {
-          gateway: Object.freeze({
-            setPrefix: (value: string) => Ref.set(prefix, value),
-          }),
-          behavior: context.messages.pipe(
-            Stream.runForEach((notification) =>
-              Ref.get(prefix).pipe(
-                Effect.flatMap((value) =>
-                  context.client.callDefinition(messagesSend, {
-                    conversationId:
-                      notification.message.conversationId,
-                    parts: [
-                      {
-                        type: "text",
-                        text: `${value}${context.agent.name}`,
-                      },
-                    ],
-                  }),
-                ),
-                Effect.asVoid,
-              ),
-            ),
-          ),
-        };
-      }),
-  }),
-});
-
-const experiment = Effect.gen(function* () {
-  const agents = yield* roster.startedAgents;
-  const network = yield* Network;
-  yield* agents.echo.gateway.setPrefix("diagnostic reply: ");
-
-  const workload = yield* network.endpoint("diagnostics");
-  const conversation = yield* workload.open(agents.echo.agent);
-  yield* conversation.send("hello");
-  return yield* conversation.receive();
-});
-
-const Platform = simulatorLayer({
-  ledgerDirectory: "./simulator-ledgers",
-  router: {
-    startupTimeout: Duration.minutes(2),
-  },
-});
-
-const main = Society.run(
-  roster,
-  experiment,
-  {
-    provenance: { suite: "smoke" },
-    metadata: { case: "echo" },
-  },
-).pipe(Effect.provide(Platform));
-
-void Effect.runPromise(main);
-```
-
-Customer provenance is additive. The kernel always writes the reserved
-`agents` key last with each roster name, runtime name, and sanitized
-definition-time runtime configuration, so a caller-provided `agents` value
-cannot replace execution evidence.
-
-Run the module with the repository's build target, Node entrypoint, test
-runner, workflow system, or scheduler.
-
-Construct `simulatorLayer` once at the application boundary and provide
-it around the complete run or suite. Runtime constructors remain values in
-the roster; they own runtime-specific installation and readiness settings.
-
-`roster.startedAgents` becomes available only after every runtime is ready.
-Each value separates its router-issued `.agent`, exact runtime-native
-`.gateway`, and `.termination` observation. OpenClaw and NanoClaw retain their
-existing owner-local gateways. An `effectRuntime` exposes exactly the gateway
-returned by `build`; its autonomous `behavior` uses the production client and
-router for social actions.
-
-`Network.endpoint` creates only experiment-controlled diagnostics, workloads,
-and observers. It is not a substitute principal interface for a roster
-runtime.
-
-## Express completion policy in the program
-
-The customer Effect returns, fails, or is interrupted according to its own
-logic:
+Export exactly one named `runSpec`:
 
 ```ts
+import { RunSpec } from "@moltzap/simulator";
+import {
+  openClawRuntime,
+} from "@moltzap/simulator/agents";
+import { Duration, Effect, Schema } from "effect";
+import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
+
 class ExperimentTimedOut extends Schema.TaggedError<ExperimentTimedOut>()(
   "ExperimentTimedOut",
   {},
 ) {}
 
-const boundedExperiment = experiment.pipe(
-  Effect.timeoutFail({
-    duration: Duration.minutes(5),
-    onTimeout: () => ExperimentTimedOut.make({}),
-  }),
-);
+const alice = openClawRuntime({
+  tools: {
+    deny: ["*"],
+    elevated: { enabled: false },
+    exec: { mode: "deny" },
+  },
+  sandbox: { mode: "off" },
+  workspaceFiles: [
+    { relativePath: "IDENTITY.md", content: "You are Alice." },
+  ],
+});
+
+export const runSpec = RunSpec.define({
+  id: "acme.echo/v1",
+  events: [],
+  agents: { alice },
+  cluster: controllerServicesFromEnvironment(),
+  execute: ({ agents, network }) =>
+    Effect.gen(function* () {
+      const diagnostic = yield* network.endpoint("diagnostic");
+      const conversation = yield* diagnostic.open(
+        agents.alice.agent,
+      );
+      yield* conversation.send("hello");
+    }).pipe(
+      Effect.timeoutFail({
+        duration: Duration.minutes(5),
+        onTimeout: () => ExperimentTimedOut.make({}),
+      }),
+    ),
+});
 ```
 
-Use Effect's `Clock`, `Schedule`, `race`, `timeout`, `Deferred`, Stream, and
-Scope primitives for deadlines, quiescence, supervised work, or explicit
+The absolute cluster-services import is available inside the repository-built
+controller image. It constructs the selected profile's private Layer from the
+validated controller environment. Experiment code does not receive raw
+Kubernetes, Kueue, Sandbox, or Temporal objects.
+
+The controller requires the exact value returned by `RunSpec.define`. It
+loads the mounted module once and invokes `Run.execute(runSpec)` once; there is
+no fallback execution entry point or automatic replay.
+
+Every roster runtime must provide a distributed application-container
+realization. Its bridge resolves only after the application is usable and
+returns that runtime's exact `.gateway` plus `.termination` observation. The
+customer Effect starts after all roster entries pass the same readiness gate.
+
+## Run on the local Kubernetes profile
+
+Build the shared controller/support image:
+
+```bash
+pnpm nx run @moltzap/simulator:local-controller-image
+```
+
+The command prints an immutable `pinnedImage`. Use it to create the pinned kind
+profile:
+
+```bash
+pnpm nx run @moltzap/simulator:local-cluster-create -- \
+  --artifacts "$PWD/.moltzap/local-artifacts" \
+  --image CONTROLLER_IMAGE_AT_SHA256
+```
+
+The cluster setup prints its exact kube context, tool paths, queue names,
+Temporal address, and artifact roots. It refuses to replace an existing
+cluster.
+
+Submit the module through the local profile:
+
+```bash
+MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_SUPPORT_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
+pnpm nx run @moltzap/simulator:local-run -- path/to/experiment.mjs
+```
+
+`MOLTZAP_SUPPORT_IMAGE` defaults to `MOLTZAP_CONTROLLER_IMAGE` for this local
+path. Both values must be digest-pinned. The checked-in
+`packages/simulator/local/README.md` records the component versions and smoke
+modules.
+
+## Run on the GKE profile
+
+Provision the checked-in Terraform profile, install its pinned add-ons, push
+the controller/support image, and acquire the explicit kube context as
+described in `packages/simulator/gke/README.md`. Then submit the same module:
+
+```bash
+MOLTZAP_KUBE_CONTEXT=EXPLICIT_KUBE_CONTEXT \
+MOLTZAP_GKE_ARTIFACT_BUCKET=PROFILE_ARTIFACT_BUCKET \
+MOLTZAP_TEMPORAL_ADDRESS=TEMPORAL_HOST:7233 \
+MOLTZAP_CONTROLLER_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
+MOLTZAP_SUPPORT_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
+pnpm nx run @moltzap/simulator:gke-run -- path/to/experiment.mjs
+```
+
+The GKE submitter validates the checked-in profile, uses only the explicit
+context and bucket, and calls the same Temporal submission code as the local
+profile. The repository does not select production Temporal hosting or high
+availability.
+
+Static GKE validation does not contact Google Cloud or a cluster:
+
+```bash
+pnpm nx run @moltzap/simulator:gke-profile-check
+```
+
+Passing that check is not a live qualification claim. The GKE acceptance gate
+still requires a caller-authorized project, the small smoke, an OpenClaw
+evaluation, readable retained artifacts, and zero run-owned residue.
+
+## Express completion policy in `execute`
+
+The customer Effect returns, fails, or is interrupted according to its own
+logic. Use Effect's `Clock`, `Schedule`, race, timeout, `Deferred`, Stream, and
+Scope primitives for deadlines, quiescence, supervised work, and explicit
 stop conditions.
 
 A runtime exit after readiness is committed as typed ledger evidence. It does
-not implicitly end the customer Effect. This lets one policy fail fast on an
-agent exit while another continues to observe the remaining society.
+not implicitly end the customer Effect. One program may fail fast on that
+evidence while another continues observing the remaining society.
 
-## Interpret allocation and run outcomes separately
+The run returns a `ProgramFinished` or `ClusterLost` outcome after ledger
+allocation succeeds. `ProgramFinished.exit` preserves customer success, typed
+failure, defect, or interruption. Infrastructure acquisition, append,
+controller, teardown, or completion failures stay distinct from behavioral
+results.
 
-The outer `Society.run` Effect fails only when ledger allocation fails before
-an active ledger capability reaches kernel ownership. That typed
-`LedgerStorageError` may identify a reference minted during the unsuccessful
-allocation. When allowed to complete after that ownership handoff, the Effect
-returns one of two closed outcomes:
+The submitters print one final JSON result containing the run namespace and
+bounded controller result. Applications decide how to map that result into
+their own exit codes, retries, operator messages, and report states.
 
-- `ProgramFinished` carries the customer program's `Exit` and a
-  `CompletedLedgerReceipt`.
-- `RunInfrastructureFailed` carries the exact infrastructure `Cause` and
-  either a completed or incomplete ledger receipt.
+## Sweeps remain application orchestration
 
-Program failure and interruption are values inside `ProgramFinished.exit`.
-Router, runtime-acquisition, append, teardown, and completion failures are
-`RunInfrastructureFailed` values. In both cases, the caller receives the exact
-physical ledger reference retained after allocation; it never has to scan a
-directory to recover evidence.
+A single simulator invocation is one definition-bound society and one ledger.
+Schedules, matrices, retries, sharding, naming, resumption, and aggregation
+stay in the calling application. For example, `packages/evals` submits every
+case-condition cell as its own `RunSpec` through the selected local or GKE
+profile, then persists the terminal attempt in its report database.
 
-Interrupting the outer `Society.run` Effect remains caller interruption after
-the kernel's finalization attempt and does not return a receipt.
+This keeps suite orchestration failures separate from the evidence produced by
+an individual society.
 
-A customer command can map these typed values to its own exit codes,
-structured output, retries, and operator messages. The simulator package does
-not impose a process-wide exit-code table.
+## Inspect completed artifacts
 
-## Build a narrow customer language when useful
+After a run publishes a completed receipt, both profiles retain exported files
+under the same relative path:
 
-Products can accept declarative input by placing that grammar next to the
-customer concepts it represents.
-
-For example, a customer might decode a schema with only a model id, topology
-preset, and prompt family, then compile each case into:
-
-1. customer event classes and an `EventCatalog`;
-2. one versioned `simulator.define` value;
-3. a keyed mixed-runtime roster;
-4. an Effect program using `roster.startedAgents`, `Network`,
-   `Society.Events`, and `Society.Ledger`;
-5. code graders composed over `Society.openLedger`.
-
-That input may come from generated TypeScript, a database row, an HTTP
-request, or a customer-owned file format. The customer module owns the input
-unions, versioning, and migration policy.
-
-## Sweeps are orchestration
-
-Use Effect and the surrounding job system for matrices and concurrency:
-
-```ts
-const results = yield* Effect.forEach(
-  cases,
-  runCase,
-  { concurrency: 8 },
-);
+```text
+{namespace}/ledger/{ledgerRef}/{manifest.json,records.ndjson,completion.json}
 ```
 
-Schedules, retries, sharding, naming, resumption, and report aggregation stay
-at this layer. A single simulator run remains one definition-bound Effect and
-one completed ledger, keeping suite orchestration failures distinct from the
-evidence produced by a society.
-
-## Inspect ledgers in code
-
-Use the same definition and storage Layer that produced the run:
+Local files are written directly below the artifact root selected during
+cluster setup. GKE runs build the active ledger on controller-local POSIX
+storage, then export the three completed artifacts to the Terraform-owned
+Cloud Storage bucket with `completion.json` last. The active GKE ledger is not
+a recovery guarantee for controller or node loss before that export finishes.
+Retrieve the three retained files, then validate them with the same complete
+event catalog:
 
 ```ts
 import {
-  readLedgerManifest,
+  EventCatalog,
+  coreEvents,
+} from "@moltzap/simulator";
+import {
+  openLedgerArtifacts,
 } from "@moltzap/simulator/ledger";
+import {
+  runSpec,
+  experimentEvents,
+} from "./experiment.mjs";
 
-const inspect = Effect.gen(function* () {
-  const manifest = yield* readLedgerManifest(ledgerRef);
-  const verdict = yield* Society.openLedger(ledgerRef).pipe(
-    Effect.flatMap(gradeLedger),
-  );
-  return { manifest, verdict };
-}).pipe(Effect.provide(Platform));
+const catalog = EventCatalog.merge(
+  coreEvents,
+  experimentEvents,
+);
+
+const ledger = yield* openLedgerArtifacts(
+  catalog,
+  receipt.ledger,
+  artifacts,
+  runSpec.id,
+);
 ```
 
-`readLedgerManifest` supports indexing without reading event evidence.
-`Society.openLedger` returns reusable exact-class streams after the definition,
-catalog, artifact digests, identities, count, sequence, and event schemas
-validate.
+Opening validates the definition identity, exact catalog, schemas, digests,
+run identity, count, event identities, and logical sequence before exposing
+reusable typed streams. It does not start a society.
