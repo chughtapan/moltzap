@@ -17,41 +17,6 @@ import type {
 /** Repository-owned Kubernetes profile selected for an evaluation sweep. */
 export type SimulatorProfile = "local" | "gke";
 
-/** Environment key naming one digest-pinned image an evaluation run needs. */
-export type EvaluationImageKey =
-  | "MOLTZAP_CONTROLLER_IMAGE"
-  | "MOLTZAP_SUPPORT_IMAGE"
-  | "MOLTZAP_NANOCLAW_IMAGE";
-
-// Nothing else in the repository produces these references, so a missing one is
-// an operator who has not run the producer yet rather than one who forgot to
-// export a value they already had. Naming the producer is the whole remedy.
-const imageProducer: Readonly<Record<EvaluationImageKey, string>> = {
-  MOLTZAP_CONTROLLER_IMAGE:
-    "packages/simulator/scripts/build-controller-image.mjs",
-  MOLTZAP_SUPPORT_IMAGE:
-    "packages/simulator/scripts/build-controller-image.mjs",
-  MOLTZAP_NANOCLAW_IMAGE: "packages/simulator/scripts/build-nanoclaw-image.mjs",
-};
-
-/**
- * Say which producer builds an evaluation image the environment omitted.
- * @param key Environment key the run could not read.
- * @returns The operator-facing requirement, naming the producing script.
- */
-export function missingImageDetail(key: EvaluationImageKey): string {
-  return `${key} is required for evaluation execution; build it with ${imageProducer[key]} and pass the printed pinnedImage`;
-}
-
-/**
- * Say which producer prints the pinned form of a rejected evaluation image.
- * @param key Environment key whose value was not digest-pinned.
- * @returns The operator-facing requirement, naming the producing script.
- */
-export function invalidImageDetail(key: EvaluationImageKey): string {
-  return `${key} must be a lowercase SHA-256 digest-pinned image; ${imageProducer[key]} prints one as pinnedImage`;
-}
-
 /**
  * Path segments, below the simulator package root, of a profile's executable.
  *
@@ -79,6 +44,11 @@ const runInfrastructureFailedSummary = Schema.Struct({
 const ledgerAllocationFailedSummary = Schema.Struct({
   _tag: Schema.Literal("LedgerAllocationFailed"),
 });
+// Bounded here rather than in the schema, because the diagnostic is decoration
+// on a line whose other fields are the run's only receipt: a producer that
+// overshoots must not be able to take the receipt down with it. The submitter
+// bounds what it publishes; this bounds what a report will hold.
+const DIAGNOSTIC_MAX_LENGTH = 8_192;
 const evaluationSubmissionResult = Schema.Struct({
   runId: Schema.NonEmptyString,
   namespace: Schema.NonEmptyString,
@@ -93,11 +63,30 @@ const evaluationSubmissionResult = Schema.Struct({
         runInfrastructureFailedSummary,
         ledgerAllocationFailedSummary,
       ),
+      // Optional because the submitter carries one only when the controller
+      // Job's own output was still readable, and this decode rejects excess
+      // properties: a submitter that never learned the reason still decodes.
+      diagnostic: Schema.optional(Schema.String),
     }),
   ),
 });
 /** Decoded result printed by the simulator's local or GKE submitter. */
 export type EvaluationSubmissionResult = typeof evaluationSubmissionResult.Type;
+
+/**
+ * The controller's own account of why one submission failed.
+ * @param submission Decoded submitter result for one cell.
+ * @returns Bounded diagnostic text, or undefined when the cell carried none.
+ */
+export function submissionDiagnostic(
+  submission: EvaluationSubmissionResult,
+): string | undefined {
+  const diagnostic =
+    submission.result.exitCode === 1 ? submission.result.diagnostic : undefined;
+  return diagnostic === undefined || diagnostic.length === 0
+    ? undefined
+    : diagnostic.slice(-DIAGNOSTIC_MAX_LENGTH);
+}
 
 /** A repository-local cell could not be submitted or decoded. */
 export class EvaluationSubmissionFailed extends Schema.TaggedError<EvaluationSubmissionFailed>()(
@@ -187,7 +176,17 @@ function commandFailure(cause: unknown): EvaluationSubmissionFailed {
   });
 }
 
-function decodeSubmissionOutput(
+/**
+ * Decode the final result line the simulator's submitter printed.
+ *
+ * Exported so the stdout contract can be pinned directly: the submitter is a
+ * spawned process, so nothing else in this package would notice the two sides
+ * disagreeing until a live sweep produced an undecodable line.
+ *
+ * @param output Complete captured stdout of one submitter process.
+ * @returns The decoded result, from the last line that is one.
+ */
+export function decodeSubmissionOutput(
   output: string,
 ): Effect.Effect<EvaluationSubmissionResult, EvaluationSubmissionFailed> {
   const lines = output.split(/\r?\n/u);
