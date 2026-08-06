@@ -6,11 +6,13 @@ set -euo pipefail
 
 readonly profile_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly simulator_root="$(cd "$profile_root/.." && pwd)"
+readonly workspace_root="$(cd "$simulator_root/../.." && pwd)"
 readonly terraform_root="$profile_root/terraform"
 readonly system_namespace="moltzap-system"
 
 usage() {
-  echo "usage: $0 (setup|up|run SPEC|down|delete) [--delete-artifacts]" >&2
+  echo "usage: $0 (setup|up|run SPEC|evals [ARG...]|publish-image|down|delete)" >&2
+  echo "       [--delete-artifacts]" >&2
   exit 64
 }
 
@@ -20,6 +22,14 @@ shift
 
 delete_artifacts=false
 run_spec=""
+evals_args=()
+# Everything after `evals` belongs to the evaluation CLI, which owns its own
+# option vocabulary. Parsing it here would fork that vocabulary, and the first
+# option this script did not know about would be rejected by the wrong program.
+if [[ "$command" == "evals" ]]; then
+  evals_args=("$@")
+  set --
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --delete-artifacts) delete_artifacts=true ;;
@@ -31,7 +41,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-for executable in terraform gcloud kubectl helm docker node nc; do
+for executable in terraform gcloud kubectl helm docker node nc corepack; do
   if ! command -v "$executable" >/dev/null 2>&1; then
     echo "required executable is unavailable: $executable" >&2
     exit 69
@@ -162,6 +172,48 @@ case "$command" in
     gcloud auth configure-docker "$(registry_host)" --quiet
     echo
     echo "setup complete; submit a run with '$0 run SPEC.mjs'"
+    echo "or an evaluation sweep with '$0 evals --report-id REPORT_ID ...'"
+    ;;
+
+  evals)
+    attach_kubectl
+
+    controller_image="$(publish_controller_image)"
+    echo "controller image: $controller_image"
+
+    forward_port="$(free_local_port)"
+    trap 'kill "${forward_pid:-}" 2>/dev/null;
+          pkill -f "port-forward -n $system_namespace svc/temporal ${forward_port}:" 2>/dev/null;
+          true' EXIT
+    open_temporal_forward "$forward_port"
+
+    # Every identity the sweep cannot derive for itself. The NanoClaw image is
+    # passed through rather than built, because it is not this cluster's
+    # artifact; `scripts/build-nanoclaw-image.mjs` prints one.
+    export MOLTZAP_KUBE_CONTEXT="$(kubectl config current-context)"
+    export MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform_output artifact_bucket_name)"
+    export MOLTZAP_TEMPORAL_ADDRESS="localhost:${forward_port}"
+    export MOLTZAP_CONTROLLER_IMAGE="$controller_image"
+    export MOLTZAP_SUPPORT_IMAGE="$controller_image"
+    if [[ -n "${MOLTZAP_NANOCLAW_IMAGE:-}" ]]; then
+      export MOLTZAP_NANOCLAW_IMAGE
+    fi
+
+    # Not exec: the forward supervisor is this shell's background job, and
+    # replacing the shell would strand it with no trap left to reap it. Running
+    # in the foreground under errexit propagates the sweep's exit status after
+    # cleanup, which is what a caller reads anyway.
+    cd "$workspace_root"
+    # `${a[@]+"${a[@]}"}` rather than `"${a[@]}"`: under errexit an empty array
+    # is an unbound expansion on the bash macOS still ships.
+    corepack pnpm nx run @moltzap/evals:eval -- \
+      --profile gke ${evals_args[@]+"${evals_args[@]}"}
+    ;;
+
+  publish-image)
+    # The digest the profile's images must be pinned to, on stdout alone, so a
+    # caller can assign it: MOLTZAP_CONTROLLER_IMAGE="$(... publish-image)".
+    publish_controller_image
     ;;
 
   run)

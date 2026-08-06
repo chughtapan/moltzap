@@ -146,9 +146,22 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
   --nanoclaw-model "$NANOCLAW_MODEL"
 ```
 
-For GKE, use the [GKE simulator profile](../simulator/gke/README.md), push the
-controller/support image to its registry, authenticate `gcloud` for artifact
-readback, and provide the selected cluster and retained bucket:
+For GKE, prefer the profile's own verb, which publishes the controller image,
+holds the supervised Temporal port-forward, and derives every cluster identity
+below from the cluster it just attached to:
+
+```bash
+OPENAI_API_KEY=... ANTHROPIC_API_KEY=... MOLTZAP_NANOCLAW_IMAGE=... \
+packages/simulator/gke/cluster.sh evals \
+  --report-id baseline-2026-08-06 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
+
+To drive it by hand instead, use the
+[GKE simulator profile](../simulator/gke/README.md), push the controller/support
+image to its registry, authenticate `gcloud` for artifact readback, and provide
+the selected cluster and retained bucket:
 
 ```bash
 OPENAI_API_KEY=... \
