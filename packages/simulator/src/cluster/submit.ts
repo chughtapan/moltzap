@@ -227,8 +227,8 @@ function runtimeCredentials(
     : Object.freeze(credentials);
 }
 
-// The controller validates the bound each one carries; the submitter only
-// refuses what could never be one, so a typo fails before a cluster is touched.
+// Only what could never be a count. The bound each one carries belongs to the
+// controller, so a value that is merely too large still reaches it.
 function countOverride(
   environment: RunEnvironment,
   key: string,

@@ -461,11 +461,25 @@ The only retained human statement on cohort size is `lets get to 10 agents
 first and then scale`, and the accepted final-shape prompt says `Two-agent,
 ten-agent, and all 32 OpenClaw/NanoClaw evaluation runs`. A later amendment
 replaced ten with four while citing no event, and the profile tooling continued
-to enforce ten. A blind review of candidate `78ff2f94` reported that
-contradiction as a blocker.
+to enforce ten. The blind review recorded at
+[`20260806-main-kubernetes-society-execution-third-cold-review.md`](./20260806-main-kubernetes-society-execution-third-cold-review.md)
+reported that contradiction against candidate `78ff2f94`.
 
-The decision now states one end-to-end experiment sized by its run rather than
-any fixed number, and the repository ships one such module in place of the
-four count-specific ones. The maintainer accepted this after a hundred-agent
-run passed on the GKE profile; that run's evidence is the exported ledger in
-the profile's artifact bucket, not a retained conversation event.
+A live exchange then directed one end-to-end experiment sized by its run rather
+than any fixed number, accepted point corrections to the record, and stated the
+reason autoscaling was selected. The workspace-readable session logs checked on
+2026-08-06 did not contain that exchange, so no native message id, enclosing
+turn, timestamp, parent locator, or stored actor-role record is invented. Its
+literal text is retained here:
+
+> okay, so we have run hundred. that's fine. also, instead of making it the thing be specific to number of agents, just make it an end-to-end test for the simulator that can run with varying numbers of agents. that's good enough. for the other things fine to update the ADRs using point changes: autoscaling was selected because it was easier simply
+
+`we have run hundred` is the only statement retained about the hundred-agent
+run. No source event states where that run's evidence lives, and this ledger
+does not supply one; the repository records the exported ledger's location
+nowhere, so a reader cannot verify the run from the repository alone.
+
+The excerpt directs the end-to-end change and accepts point corrections. It
+does not mention the scale-claim non-goal, and no retained event states whether
+dropping `100-` from that list was intended. **No source event located** for
+that specific removal.

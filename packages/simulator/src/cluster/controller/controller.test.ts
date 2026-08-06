@@ -52,6 +52,8 @@ import {
 const IMAGE_DIGEST = "a".repeat(64);
 const EXPECTED_NAMESPACE = "mz-run-1";
 const EXPECTED_STARTUP_TIMEOUT_MS = 120_000;
+const EXPECTED_COHORT_SIZE = 2;
+const REJECTED_COHORT_SIZES = ["0", "-1", "2.5", "1000", "many"];
 const EXECUTION_RESULT = "executed";
 const EXPECTED_MODULE_SPECIFIER = "file:///var/run/moltzap/experiment/main.mjs";
 const LEDGER_REFERENCE = Schema.decodeSync(ledgerRef)(
@@ -152,11 +154,31 @@ test("decodes the closed controller environment without retaining mutable input"
       configuration.startupTimeoutMs,
       EXPECTED_STARTUP_TIMEOUT_MS,
     );
+    assert.strictEqual(configuration.cohortSize, EXPECTED_COHORT_SIZE);
     assert.isUndefined(configuration.rosterPlacement);
     assert.isUndefined(configuration.ledgerExportDirectory);
     assert.deepStrictEqual(configuration.runtimeCredentials, {});
     assert.isTrue(Object.isFrozen(configuration));
     assert.isTrue(Object.isFrozen(configuration.owner));
+  }));
+
+test("reads a run-chosen cohort size and refuses one no roster could have", () =>
+  Effect.sync(() => {
+    const sized = controllerConfigurationFromEnvironment({
+      ...VALID_ENVIRONMENT,
+      MOLTZAP_COHORT_SIZE: "100",
+    });
+
+    assert.strictEqual(sized.cohortSize, 100);
+
+    for (const encoded of REJECTED_COHORT_SIZES) {
+      assert.throws(() =>
+        controllerConfigurationFromEnvironment({
+          ...VALID_ENVIRONMENT,
+          MOLTZAP_COHORT_SIZE: encoded,
+        }),
+      );
+    }
   }));
 
 test("decodes only supported transient provider credentials", () =>

@@ -12,7 +12,8 @@ import type { KubernetesPodPlacement } from "../profile.js";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
 const DEFAULT_COHORT_SIZE = 2;
-// A roster larger than this is a scale claim, which the acceptance gates own.
+// A thousand agents is the first size the decision defers to its acceptance
+// gates, so the bound excludes it rather than admitting it.
 const MAX_COHORT_SIZE = 1_000;
 const MAX_STARTUP_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/u;
@@ -67,7 +68,7 @@ export interface ControllerConfiguration {
   readonly ledgerExportDirectory?: string;
   readonly routerUrl: ServerBaseUrl;
   readonly startupTimeoutMs: number;
-  /** Agents an experiment builds its roster from, when it is sized by its run. */
+  /** Agents an experiment sized by its run builds its roster from. */
   readonly cohortSize: number;
 }
 
@@ -184,9 +185,9 @@ function cohortSize(environment: ControllerEnvironment): number {
     return DEFAULT_COHORT_SIZE;
   }
   const value = Number(encoded);
-  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_COHORT_SIZE) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value >= MAX_COHORT_SIZE) {
     throw invalid(
-      `MOLTZAP_COHORT_SIZE must be a positive integer no greater than ${String(MAX_COHORT_SIZE)}`,
+      `MOLTZAP_COHORT_SIZE must be a positive integer below ${String(MAX_COHORT_SIZE)}`,
     );
   }
   return value;

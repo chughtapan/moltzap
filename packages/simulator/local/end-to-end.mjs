@@ -12,10 +12,6 @@ import {
 // time it takes to get there differs.
 const AGENTS = cohortSizeFromEnvironment();
 
-// A cold cohort waits on node provisioning and an image pull per new node,
-// which the two-minute default does not cover at larger sizes.
-const STARTUP = Duration.minutes(15);
-
 // Holding the society idle is the measurement. Agents are already running by
 // the time execute begins, so the wait exercises whether a cohort this size
 // stays up rather than how fast it starts.
@@ -23,7 +19,6 @@ const HOLD = Duration.seconds(30);
 
 const runtime = (identity) =>
   openClawRuntime({
-    startupTimeout: STARTUP,
     tools: {
       deny: ["*"],
       elevated: { enabled: false },

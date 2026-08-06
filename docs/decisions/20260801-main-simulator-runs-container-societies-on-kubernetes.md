@@ -227,8 +227,8 @@ The following are not part of this decision or its first implementation:
   production Temporal high availability. A profile may let its node pool
   autoscale, which is the cluster's own capacity mechanism and the simpler one
   to operate;
-- a 1,000-, 5,000-, or 10,000-agent qualification claim before the two-agent
-  and larger-cohort gates pass;
+- a 100-, 1,000-, 5,000-, or 10,000-agent qualification claim before the
+  two-agent and larger-cohort gates pass;
 - a Nomad, Slurm, managed-batch, or GKE Autopilot implementation;
 - exact Secret-provider protocols, persistent-agent-state recovery, exhaustive
   NetworkPolicy design, or a general multi-tenant security platform; and
@@ -288,6 +288,7 @@ the outcome is a supersession, not a row here.
 | Date | Change |
 |---|---|
 | 2026-08-06 | Renamed the `RunSpec` field `infrastructure` to `cluster`, matching the implementation and the orientation docs. |
-| 2026-08-06 | Replaced the fixed four-agent acceptance gate with one end-to-end experiment sized by its run, after a hundred-agent run passed on the GKE profile. Removes the earlier ten- and four-agent wording, which the ledger and the profile tooling had never agreed on. |
+| 2026-08-06 | Replaced the fixed four-agent acceptance gate with one end-to-end experiment sized by its run. Removes the earlier ten- and four-agent wording, which the record, the ledger, and the profile tooling had never agreed on. The scale-claim non-goals are unchanged: no source event addresses them. |
+| 2026-08-06 | Corrected the stale subpath in the simulator overview from `/runtime` to `/agents`, the export the package actually publishes. |
 | 2026-08-06 | Corrected the illustrative snippet from `export default` to the named `runSpec` export the controller admits. |
 | 2026-08-06 | Scoped the `autoscaling` non-goal to a run's cohort. A profile's node pool may autoscale; it was selected because it is the simpler thing to operate. |
