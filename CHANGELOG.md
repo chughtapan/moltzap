@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: streamable-HTTP MCP servers for container agents
+
+An MCP server on either container runtime may now be a remote
+`{ name, url }` endpoint alongside the stdio `{ name, command, args, env }`
+shape. OpenClaw renders it as its native `streamable-http` transport;
+NanoClaw passes it through its application config. Remote URLs may embed
+per-agent capability tokens, so sanitized configurations digest them by
+origin only and record the URL as redacted, and unparseable URLs are
+refused when the runtime is defined. OpenClaw definitions also now refuse
+workspace files that could never reach the model (outside the
+context-injection set with every tool denied), warn when such files are
+merely tool-reachable, and carry a drift canary that fails loudly if a
+packaged OpenClaw changes its injection set.
+
 ### Added: container societies on Kubernetes
 
 The simulator runs a society of container agents on Kubernetes through one
