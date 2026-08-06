@@ -76,6 +76,15 @@ const recordFiles = (): readonly string[] =>
     .split("\n")
     .filter((p) => p.length > 0 && !p.endsWith("README.md"));
 
+/**
+ * Check one record against the mechanical rules.
+ *
+ * `isNew` gates the required-sections rule. The `decisions` skill requires the
+ * three sections of *new* records and says older admitted records retain their
+ * historical body shape; 26 of the existing 48 carry consequences as a
+ * paragraph inside Decision Outcome, which that clause permits. Enforcing the
+ * heading on them would be this gate overruling the rule it implements.
+ */
 const checkRecord = (
   path: string,
   indexBody: string,
@@ -124,11 +133,6 @@ const checkRecord = (
     );
   }
 
-  // The `decisions` skill requires the three sections of *new* records and says older
-  // admitted records retain their historical body shape. 26 of the existing 48
-  // carry consequences as a paragraph inside Decision Outcome, which that
-  // clause permits; enforcing the heading on them would be this gate
-  // overruling the rule it implements.
   if (isNew) {
     for (const section of REQUIRED_SECTIONS) {
       if (!new RegExp(`^#{2,3}\\s+${section}\\s*$`, "m").test(text)) {
@@ -197,13 +201,14 @@ const checkRecord = (
  * A staged record whose body changed, whose status did not, and which gained
  * no changelog row. The `decisions` skill permits editing a record in place
  * only with a dated receipt.
+ *
+ * `git show` stderr is silenced: a record new in this commit makes it fail by
+ * design, and "exists on disk, but not in HEAD" reads like a gate failure.
  */
 const checkChangelogRow = (path: string): Violation | undefined => {
   const name = path.slice(DECISIONS.length + 1);
   let previous: string;
   try {
-    // stderr is silenced because a new record makes this fail by design, and
-    // git's "exists on disk, but not in HEAD" reads like a gate failure.
     previous = execFileSync("git", ["-C", repoRoot, "show", `HEAD:${path}`], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -239,6 +244,10 @@ const checkChangelogRow = (path: string): Violation | undefined => {
   };
 };
 
+/**
+ * Only a record added in this commit counts as new; a modified one keeps
+ * whatever body shape it was admitted with.
+ */
 const main = (): void => {
   const staged = process.argv.includes("--staged");
   const indexBody = readFileSync(
@@ -251,8 +260,6 @@ const main = (): void => {
     p.endsWith(".md") &&
     !p.endsWith("README.md");
 
-  // Only a record added in this commit is "new". A modified one keeps whatever
-  // body shape it was admitted with.
   const added = new Set<string>();
   let targets: readonly string[];
   if (staged) {

@@ -50,6 +50,10 @@ const git = (args: readonly string[]): string =>
  * `git grep` exits 1 to mean "no match", which `execFileSync` raises as an
  * error. Only that exit code is benign; anything else is a real failure and
  * must not be swallowed into a false "unreferenced" verdict.
+ *
+ * This file is excluded from its own search: it names every allowlisted path,
+ * so counting it as a reference would make each allowlist entry
+ * self-justifying.
  */
 const gitGrepFiles = (needle: string): readonly string[] => {
   try {
@@ -61,8 +65,6 @@ const gitGrepFiles = (needle: string): readonly string[] => {
       "--",
       ".",
       ":(exclude)scripts/__tests__",
-      // This file names every allowlisted path, so counting it as a reference
-      // would make each allowlist entry look self-justifying.
       ":(exclude)scripts/repo/check-script-reachability.ts",
     ]).split("\n");
   } catch (error) {
