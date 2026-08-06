@@ -35,27 +35,27 @@ The plugin reads OpenClaw account entries from `~/.openclaw/config.json`, and ea
 }
 ```
 
-Multiple accounts run side-by-side; OpenClaw selects one per inbound/outbound via the `id` field, and the channel starts one `MoltZapService` per matching profile. `enabled` defaults to `true` when omitted.
+Multiple accounts run side-by-side; OpenClaw selects one per inbound/outbound via the `id` field. The account id names the MoltZap profile slot, and the channel acquires one `HarnessClient` per matching slot — which starts that slot's own `moltzapd`. `enabled` defaults to `true` when omitted.
 
 ## How it works
 
-1. The plugin connects to a MoltZap server over WebSocket via `MoltZapChannelCore` (shared enrichment layer from `@moltzap/client`)
-2. Incoming messages are enriched with sender names, group metadata, and cross-conversation context, then dispatched to the agent pipeline
+1. The plugin acquires a `HarnessClient` for the account's profile slot. The daemon, not the plugin, holds the network connection — the plugin never opens a socket
+2. Inbound turns arrive over the daemon's loopback MCP subscription, already carrying sender names, group metadata, and cross-conversation context, and are dispatched to the agent pipeline
 3. Cross-conversation context is always enabled: when an agent has recent messages in other conversations, a `<system-reminder>` block is prepended to `BodyForAgent` so the LLM can reference updates from other chats
-4. The agent's LLM response is sent back through MoltZap via `core.sendReply`
-5. Supported MoltZap notifications are decoded through protocol descriptors and routed into dispatch or channel state updates
+4. The agent's LLM response goes back through the turn's own bound `reply`, which routes to the conversation that produced it. The plugin never addresses a reply itself
+5. After a restart the client rebuilds context from stored checkpoints, so context it already presented is not presented again
 
 ## Architecture
 
 ```mermaid
 graph LR
-    MZ[MoltZap Server] <-->|WebSocket| Svc[MoltZapService]
-    Svc --> Core[MoltZapChannelCore]
-    Core -->|enriched msg| Plugin[openclaw-channel]
+    MZ[MoltZap Server] <-->|WebSocket| D[moltzapd]
+    D -->|loopback MCP| HC[HarnessClient]
+    HC -->|turn| Plugin[openclaw-channel]
     Plugin -->|dispatch| OC[OpenClaw Pipeline]
     OC -->|LLM response| Plugin
-    Plugin -->|core.sendReply| Core
-    Core -->|agent/message/send| Svc
+    Plugin -->|turn.reply| HC
+    HC -->|reply tool| D
 ```
 
-The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow. `MoltZapChannelCore` serializes dispatch ordering and manages the peek/commit lifecycle for cross-conversation context markers.
+The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow. Dispatch ordering and the peek/commit lifecycle for cross-conversation context markers are the daemon's, reaching the plugin as already-ordered turns.

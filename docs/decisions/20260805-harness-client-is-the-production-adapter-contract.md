@@ -17,8 +17,9 @@ intended to replace all of that existed but had zero production
 callers, leaving two routes to the same system with no record saying
 which one was current.
 
-`20260801-harness-client-owns-runtime-context.md` states the consumer
-shape, but it governs `v2/*` and says so of itself: *"Production
+`20260801-harness-client-owns-runtime-context.md`, resident on the `v2`
+branch and not on this one, states the consumer shape, but it governs
+`v2/*` and says so of itself: *"Production
 adoption is `main`-owned."* Nothing on this branch admitted the
 production side. That gap is what leaves the membership projection and
 the inbound notification shape recorded as contested rather than

@@ -183,13 +183,14 @@ human choice.
    > You're right that there's an unratified drift here. The transcript shows three distinct positions: **1. You asked for it** — 2026-07-31T21:57:10:
 
    **Correction, 2026-08-05.** This ledger's author located the codex
-   session and read the three turns directly. Two defects in the
+   session and read the three turns directly. Three defects in the
    quoting turn are recorded rather than propagated: it dates the third
-   turn `23:56:46` where the stored entry is `2026-07-31T23:54:40Z`,
-   and it ends the second quotation at "now that I think about it.",
-   dropping the remainder retained in event 5 above — including "we
-   should keep that." Events 4 through 6 supersede that turn's
-   quotations as the source of record.
+   turn `23:56:46` where the stored entry is `2026-07-31T23:54:40Z`; it
+   dates the first turn `21:57:10` where the stored entry is
+   `2026-07-31T21:57:09Z`; and it ends the second quotation at "now
+   that I think about it.", dropping the remainder retained in event 5
+   above — including "we should keep that." Events 4 through 6
+   supersede that turn's quotations as the source of record.
 
 8. **Stored user turn, session `b48667a3`.** Locator: message
    `8fd049fd`; `2026-08-04T21:30:21Z`. Answers the preceding turn.
