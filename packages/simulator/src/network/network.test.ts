@@ -14,6 +14,7 @@ import {
   routerSequence,
   type EndpointInbox,
   type EndpointTransport,
+  type MessageParts,
   type NetworkOperation,
   type ParticipantIds,
 } from "../network.js";
@@ -24,6 +25,8 @@ const id = (suffix: string) =>
   agentId(`00000000-0000-4000-8000-${suffix.padStart(12, "0")}`);
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
+const MESSAGE_PARTS: MessageParts = [{ type: "text", text: "committed" }];
+const CREATED_AT_MILLIS = 1_700_000_000_000;
 function makeTransport(
   openedWith: ParticipantIds[],
   onSendInput?: () => void,
@@ -47,6 +50,8 @@ function stoppedRouter(): RouterStopped {
       messageId: MESSAGE_ID,
       senderId: id("1"),
       routerSequence: routerSequence(0),
+      parts: MESSAGE_PARTS,
+      createdAtMillis: CREATED_AT_MILLIS,
     },
   ]);
 }
