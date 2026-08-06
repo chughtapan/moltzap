@@ -19,6 +19,9 @@ costs, because creating the cluster is slow and keeping nodes is expensive:
 | --- | --- | --- |
 | `./cluster.sh setup` | create the substrate and install the add-ons | ~12 min, once |
 | `./cluster.sh up` | bring the controller online | ~2 min |
+| `./cluster.sh run SPEC.mjs` | submit one RunSpec | run-sized |
+| `./cluster.sh evals ARG...` | run an evaluation sweep against this cluster | sweep-sized |
+| `./cluster.sh publish-image` | publish the controller image and print its digest | ~3 min |
 | `./cluster.sh down` | park the controller | ~1 min |
 | `./cluster.sh delete` | destroy the substrate | ~8 min |
 
@@ -89,9 +92,32 @@ hangs on pending pods instead of failing. CPU is the tightest dimension. Raise
 `agent_max_nodes` and the quota in `helm/profile/values.yaml` together, never
 one alone.
 
-The profile has no Temporal deployment. Qualification supplies a test or
-managed endpoint through `MOLTZAP_TEMPORAL_ADDRESS`; production hosting and
-high availability remain deliberately unselected.
+## Temporal
+
+`setup` applies the same experiment-grade Temporal deployment the local profile
+uses, into `moltzap-system`. Production hosting and high availability remain
+deliberately unselected; this is a single Deployment sized for experiments.
+
+Nothing publishes it. `run` and `evals` open a supervised port-forward and set
+`MOLTZAP_TEMPORAL_ADDRESS` to it themselves, replacing a dropped forward for as
+long as the run lasts. An operator driving `dist/cluster/profiles/gke.js`
+directly supplies that address instead.
+
+The in-cluster run worker reaches Temporal by a different route than the
+operator does — a `localhost` port-forward means nothing inside a Pod — so the
+worker's endpoint is configured separately:
+
+| variable | read by | selects |
+| --- | --- | --- |
+| `MOLTZAP_TEMPORAL_ADDRESS` | the submitting process | how *this host* reaches Temporal |
+| `MOLTZAP_TEMPORAL_CLUSTER_ADDRESS` | the worker Deployment the submission installs | how the *cluster* reaches Temporal |
+
+`MOLTZAP_TEMPORAL_CLUSTER_ADDRESS` is optional and defaults to the in-cluster
+service the local profile installs, which is the one `setup` applies here too.
+Set it only when this cluster's Temporal is a different deployment; pointing it
+at an address the worker Pod cannot resolve leaves submissions pending with no
+error, because a worker that never connects is indistinguishable from a queue
+with nothing on it.
 
 ## Immutable simulator image
 
@@ -116,6 +142,36 @@ pnpm nx run @moltzap/simulator:gke-run -- packages/simulator/local/end-to-end.mj
 The GKE entry validates `profile.json`, requires every dynamic identity above,
 and invokes the existing `runTemporalSociety` worker. It does not introduce a
 second workflow or simulator backend.
+
+`./cluster.sh publish-image` performs the publish and prints only the digest
+reference, so it can be assigned directly:
+
+```bash
+MOLTZAP_CONTROLLER_IMAGE="$(packages/simulator/gke/cluster.sh publish-image)"
+```
+
+## Evaluation sweeps
+
+`./cluster.sh evals` publishes the controller image, holds the Temporal
+forward, exports every identity above, and hands the rest of its arguments to
+[`@moltzap/evals`](../../evals/README.md) with `--profile gke`:
+
+```bash
+OPENAI_API_KEY=... \
+ANTHROPIC_API_KEY=... \
+MOLTZAP_NANOCLAW_IMAGE="$(node packages/simulator/scripts/build-nanoclaw-image.mjs \
+  | node -e 'process.stdin.on("data",(d)=>process.stdout.write(JSON.parse(d).pinnedImage))')" \
+packages/simulator/gke/cluster.sh evals \
+  --report-id baseline-2026-08-06 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
+
+The NanoClaw image is passed through rather than built by the verb: it is the
+agent runtime under evaluation, not this cluster's infrastructure, and pushing
+it to this registry is the caller's choice. Every other image and endpoint the
+sweep needs is derived from the cluster the verb just attached to, so the two
+cannot disagree about which cluster is being measured.
 
 ## Private platform contract
 
@@ -149,12 +205,18 @@ pod templates; Kueue admission alone is not treated as placement or readiness.
 
 ## Qualification
 
-The profile is source-complete but this repository cannot prove live GKE
-qualification without a caller-authorized project with billing, API enablement,
-quota, and credentials. Do not claim the ADR's GKE gate until the same
-end-to-end run and one OpenClaw evaluation complete through `Run.execute`,
-their ledgers are readable in the artifact bucket, and run-owned Kubernetes
-residue is zero.
+A hundred-agent society run has completed on this profile through
+`Run.execute`. That is the decision log's claim, not one a reader can check
+from a checkout: the run's exported ledger is retained nowhere in the
+repository, as
+[the execution trajectory](../../../docs/decision-evidence/20260801-main-kubernetes-society-execution-trajectory.md)
+records.
+
+The ADR's GKE gate is therefore still open on its evaluation half. Do not claim
+it until one OpenClaw and one NanoClaw evaluation complete through
+`./cluster.sh evals`, their ledgers are readable in the artifact bucket,
+run-owned Kubernetes residue is zero, and that evidence is retained where a
+reader can find it.
 
 Static validation does not contact Google Cloud or a Kubernetes cluster:
 
