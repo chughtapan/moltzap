@@ -204,6 +204,7 @@ interface PreparedRun {
   >;
   readonly executionProfile: KubernetesExecutionProfile;
   readonly startupTimeoutMs?: number;
+  readonly cohortSize?: number;
   readonly connection: {
     readonly taskQueue: string;
     readonly temporalAddress: string;
@@ -226,21 +227,36 @@ function runtimeCredentials(
     : Object.freeze(credentials);
 }
 
-function startupTimeoutOverride(environment: RunEnvironment): {
-  readonly startupTimeoutMs?: number;
-} {
-  const encoded = optionalOverride(environment, "MOLTZAP_STARTUP_TIMEOUT_MS");
+// The controller validates the bound each one carries; the submitter only
+// refuses what could never be one, so a typo fails before a cluster is touched.
+function countOverride(
+  environment: RunEnvironment,
+  key: string,
+): number | undefined {
+  const encoded = optionalOverride(environment, key);
   if (encoded === undefined) {
-    return {};
+    return undefined;
   }
   const value = Number(encoded);
   if (!Number.isSafeInteger(value) || value <= 0) {
-    throw failure(
-      "configuration",
-      "MOLTZAP_STARTUP_TIMEOUT_MS must be a positive integer",
-    );
+    throw failure("configuration", `${key} must be a positive integer`);
   }
-  return { startupTimeoutMs: value };
+  return value;
+}
+
+function runSizing(environment: RunEnvironment): {
+  readonly startupTimeoutMs?: number;
+  readonly cohortSize?: number;
+} {
+  const startupTimeoutMs = countOverride(
+    environment,
+    "MOLTZAP_STARTUP_TIMEOUT_MS",
+  );
+  const cohortSize = countOverride(environment, "MOLTZAP_COHORT_SIZE");
+  return {
+    ...(startupTimeoutMs === undefined ? {} : { startupTimeoutMs }),
+    ...(cohortSize === undefined ? {} : { cohortSize }),
+  };
 }
 
 function prepareRun(
@@ -263,7 +279,7 @@ function prepareRun(
     path: experimentPath(args),
     controllerImage,
     executionProfile,
-    ...startupTimeoutOverride(environment),
+    ...runSizing(environment),
     supportImage: requiredImage(
       environment,
       "MOLTZAP_SUPPORT_IMAGE",
@@ -328,6 +344,9 @@ function executePreparedRun(
           ...(prepared.startupTimeoutMs === undefined
             ? {}
             : { startupTimeoutMs: prepared.startupTimeoutMs }),
+          ...(prepared.cohortSize === undefined
+            ? {}
+            : { cohortSize: prepared.cohortSize }),
         },
       },
       operations,

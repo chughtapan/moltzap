@@ -22,7 +22,7 @@ import { expect, it } from "vitest";
 import { SYSTEM_NAMESPACE } from "./kubernetes/objects.js";
 
 const RUN_NAMESPACE_PREFIX = "mz-";
-const EXPERIMENT = resolve("local/two-agent-smoke.mjs");
+const EXPERIMENT = resolve("local/end-to-end.mjs");
 const SUBMITTER = resolve("dist/cluster/profiles/local.js");
 const POLL_INTERVAL_MS = 2_000;
 const SUBMISSION_ATTEMPTS = 150;

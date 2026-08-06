@@ -91,7 +91,7 @@
         ],
         "options": {
           "cwd": "packages/simulator",
-          "command": "node --test local/profile.test.mjs && node --check scripts/local-create-cluster.mjs && node --check scripts/build-controller-image.mjs && node --check local/two-agent-smoke.mjs && node --check local/ten-agent-smoke.mjs && node --check local/hundred-agent-soak.mjs"
+          "command": "node --test local/profile.test.mjs && node --check scripts/local-create-cluster.mjs && node --check scripts/build-controller-image.mjs && node --check local/end-to-end.mjs"
         }
       },
       "local-cluster-create": {

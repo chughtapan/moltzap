@@ -59,30 +59,21 @@ test("queue profile reserves every resource requested by an application", async 
   assert.match(queue, /name: memory\n\s+nominalQuota: 64Gi/);
 });
 
-test("two-agent smoke sends once through one diagnostic conversation", async () => {
-  const smoke = await read("two-agent-smoke.mjs");
-  assert.match(smoke, /export const runSpec = RunSpec\.define/);
-  assert.match(smoke, /controllerServicesFromEnvironment\(\)/);
-  assert.match(smoke, /network\.endpoint\("diagnostic"\)/);
-  assert.match(smoke, /agents\.alice\.agent/);
-  assert.match(smoke, /agents\.bob\.agent/);
-  assert.equal(smoke.match(/conversation\.send/g)?.length, 1);
-  assert.doesNotMatch(smoke, /\.gateway\.agent\(/);
-  assert.match(smoke, /sandbox: \{ mode: "off" \}/);
-  assert.match(smoke, /deny: \["\*"\]/);
-});
+test("the end-to-end run sizes its roster from the run rather than the file", async () => {
+  const endToEnd = await read("end-to-end.mjs");
 
-test("ten-agent smoke exercises one complete admitted roster", async () => {
-  const smoke = await read("ten-agent-smoke.mjs");
-  assert.match(smoke, /export const runSpec = RunSpec\.define/);
-  assert.match(smoke, /controllerServicesFromEnvironment\(\)/);
-  assert.equal(smoke.match(/^    agent\d{2}: runtime\(/gm)?.length, 10);
-  for (let index = 1; index <= 10; index += 1) {
-    const name = `agent${String(index).padStart(2, "0")}`;
-    assert.match(smoke, new RegExp(`agents\\.${name}\\.agent`));
-  }
-  assert.equal(smoke.match(/conversation\.send/g)?.length, 1);
-  assert.doesNotMatch(smoke, /\.gateway\.agent\(/);
+  assert.match(endToEnd, /export const runSpec = RunSpec\.define/);
+  assert.match(endToEnd, /controllerServicesFromEnvironment\(\)/);
+  // The count is an input, so the module names no cohort size of its own and
+  // one file covers two agents and a hundred alike.
+  assert.match(endToEnd, /cohortSizeFromEnvironment\(\)/);
+  assert.match(endToEnd, /length: AGENTS/);
+  assert.doesNotMatch(endToEnd, /agent\d+:/);
+  // Nothing is sent: a large cohort answering measures the model provider.
+  assert.doesNotMatch(endToEnd, /conversation\.send/);
+  assert.doesNotMatch(endToEnd, /\.gateway\.agent\(/);
+  assert.match(endToEnd, /sandbox: \{ mode: "off" \}/);
+  assert.match(endToEnd, /deny: \["\*"\]/);
 });
 
 test("controller image exposes the agreed controller and support layout", async () => {

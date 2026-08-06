@@ -67,47 +67,37 @@ Completed ledger files use the same relative layout expected by GKE readback:
 {localArtifactRoot}/{namespace}/ledger/{ledgerRef}/completion.json
 ```
 
-`two-agent-smoke.mjs` is the repository-owned small acceptance experiment. The
-run activity mounts it as the controller's experiment module. Its `runSpec` starts
-two digest-pinned stock OpenClaw applications with inherited auth disabled,
-tools denied, and OpenClaw's nested sandbox off. After the exact cohort is
-ready, one diagnostic endpoint sends one text to a conversation containing
-both agents. It does not invoke a model.
+`end-to-end.mjs` is the repository-owned acceptance experiment, and the run
+activity mounts it as the controller's experiment module. Its `runSpec` starts
+digest-pinned stock OpenClaw applications with inherited auth disabled, tools
+denied, and OpenClaw's nested sandbox off. Once the exact cohort is ready it
+holds the society briefly and gives it back. It sends nothing and invokes no
+model: a large cohort answering would measure the model provider rather than
+the cluster, and the complete-roster gate has already passed by then.
 
-Run it from the workspace root after cluster setup has loaded the image:
-
-```bash
-MOLTZAP_CONTROLLER_IMAGE=PINNED_IMAGE_FROM_BUILD_OUTPUT \
-MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
-pnpm nx run @moltzap/simulator:local-run -- local/two-agent-smoke.mjs
-```
-
-The support image defaults to `MOLTZAP_CONTROLLER_IMAGE`, so this smoke uses
-the same immutable image for the controller and Sandbox bootstrap initializer.
-
-`ten-agent-smoke.mjs` exercises the same complete-roster gate with ten
-application containers:
+The roster size is an input rather than part of the file, because the path is
+the same at two agents and at a hundred and only the time to get there differs.
+`MOLTZAP_COHORT_SIZE` carries it, defaulting to two:
 
 ```bash
 MOLTZAP_CONTROLLER_IMAGE=PINNED_IMAGE_FROM_BUILD_OUTPUT \
 MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
-pnpm nx run @moltzap/simulator:local-run -- local/ten-agent-smoke.mjs
+pnpm nx run @moltzap/simulator:local-run -- local/end-to-end.mjs
 ```
 
-`hundred-agent-soak.mjs` holds a hundred agents idle for ten minutes rather
-than exercising a gate. Nothing is sent, because a hundred agents answering
-would measure the model provider instead of the cluster, so what it proves is
-that a cohort that size comes up, stays up, and is reclaimed. It is sized for
-the GKE profile, whose agent pool autoscales to hold it; a local cluster
-generally cannot seat it.
+The support image defaults to `MOLTZAP_CONTROLLER_IMAGE`, so this uses the same
+immutable image for the controller and the Sandbox bootstrap initializer.
+
+A larger cohort needs capacity to seat it. The GKE profile's agent pool
+autoscales, so it takes sizes a local cluster generally cannot:
 
 ```bash
-packages/simulator/gke/cluster.sh run \
-  packages/simulator/local/hundred-agent-soak.mjs
+MOLTZAP_COHORT_SIZE=100 packages/simulator/gke/cluster.sh run \
+  packages/simulator/local/end-to-end.mjs
 ```
 
-The checked-in modules and profile tests do not by themselves prove that either
-smoke completed on a live cluster.
+The checked-in module and profile tests do not by themselves prove that a run
+completed on a live cluster.
 
 ## Controller integration contract
 
