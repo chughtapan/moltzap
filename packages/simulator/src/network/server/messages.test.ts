@@ -1,7 +1,7 @@
 /**
- * @file Pins the message store reader to the committed-message identity
- * projection. The fixture intentionally has no payload, timestamp, deletion,
- * reply, encryption, or dispatch columns.
+ * @file Pins the message store reader to the committed-message projection:
+ * identity, plaintext body, and commit time. The fixture intentionally has no
+ * deletion, reply, encryption, or dispatch columns.
  */
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/no-raw-sql, sonarjs/assertions-in-tests, max-nested-callbacks -- PGlite exposes a promise-native fixture API; fixture SQL and Effect-wrapped assertions are local to this projection regression. */
 // @agent-code-guard/regression-only: the minimal table shape is the invariant under test
@@ -10,7 +10,11 @@ import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
-import { CommittedRouterMessage, routerSequence } from "../../network.js";
+import {
+  CommittedRouterMessage,
+  routerSequence,
+  type MessageParts,
+} from "../../network.js";
 import { Effect } from "effect";
 import { assert, describe } from "vitest";
 import {
@@ -28,13 +32,31 @@ const CONVERSATION_1 = conversationId("00000000-0000-4000-8000-000000000401");
 const CONVERSATION_2 = conversationId("00000000-0000-4000-8000-000000000402");
 const SENDER_1 = agentId("00000000-0000-4000-8000-000000000501");
 const SENDER_2 = agentId("00000000-0000-4000-8000-000000000502");
+const BODY_1: MessageParts = [{ type: "text", text: "first body" }];
+const BODY_2: MessageParts = [{ type: "text", text: "second body" }];
+const BODY_1_JSON = JSON.stringify(BODY_1);
+const BODY_2_JSON = JSON.stringify(BODY_2);
+// The parts schema admits at most ten parts, so an eleventh is a rejection at
+// the SQL boundary rather than a truncation.
+const OVERSIZED_BODY_JSON = JSON.stringify(
+  [...Array.from({ length: 11 }).keys()].map((index) => ({
+    type: "text",
+    text: `part ${String(index)}`,
+  })),
+);
+const CREATED_AT_1 = "2026-01-01T00:00:01.000Z";
+const CREATED_AT_2 = "2026-01-01T00:00:02.000Z";
+const CREATED_AT_MILLIS_1 = Date.parse(CREATED_AT_1);
+const CREATED_AT_MILLIS_2 = Date.parse(CREATED_AT_2);
 
 const MESSAGES_DDL = `
   CREATE TABLE messages (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     sender_id TEXT NOT NULL,
-    seq BIGINT NOT NULL
+    seq BIGINT NOT NULL,
+    parts JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
   )
 `;
 
@@ -43,11 +65,13 @@ type SeedRow = readonly [
   conversationId: string,
   senderId: string,
   sequence: number,
+  parts: string,
+  createdAt: string,
 ];
 
 const VALID_ROWS: readonly SeedRow[] = [
-  [MESSAGE_2, CONVERSATION_2, SENDER_2, 2],
-  [MESSAGE_1, CONVERSATION_1, SENDER_1, 1],
+  [MESSAGE_2, CONVERSATION_2, SENDER_2, 2, BODY_2_JSON, CREATED_AT_2],
+  [MESSAGE_1, CONVERSATION_1, SENDER_1, 1, BODY_1_JSON, CREATED_AT_1],
 ];
 
 const EXPECTED_MESSAGES = [
@@ -56,12 +80,16 @@ const EXPECTED_MESSAGES = [
     conversationId: CONVERSATION_1,
     senderId: SENDER_1,
     routerSequence: routerSequence(1),
+    parts: BODY_1,
+    createdAtMillis: CREATED_AT_MILLIS_1,
   }),
   CommittedRouterMessage.make({
     messageId: MESSAGE_2,
     conversationId: CONVERSATION_2,
     senderId: SENDER_2,
     routerSequence: routerSequence(2),
+    parts: BODY_2,
+    createdAtMillis: CREATED_AT_MILLIS_2,
   }),
 ];
 
@@ -74,7 +102,7 @@ async function seedMessages(
     await db.exec(MESSAGES_DDL);
     for (const row of rows) {
       await db.query(
-        "INSERT INTO messages (id, conversation_id, sender_id, seq) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO messages (id, conversation_id, sender_id, seq, parts, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
         [...row],
       );
     }
@@ -92,9 +120,14 @@ const readSeededMessages = (prefix: string, rows: readonly SeedRow[]) =>
     return yield* readCommittedRouterMessages(databasePath);
   }).pipe(Effect.provide(NodeContext.layer));
 
+const assertRejection = (pattern: RegExp) => (failure: unknown) =>
+  Effect.sync(() => {
+    assert.match(String(failure), pattern);
+  });
+
 describe("committed-message projection", () => {
   it(
-    "reads only committed-message identity in sequence order",
+    "reads committed message bodies in sequence order",
     () =>
       readSeededMessages("moltzap-pglite-", VALID_ROWS).pipe(
         Effect.tap((messages) =>
@@ -110,14 +143,29 @@ describe("committed-message projection", () => {
     "rejects an invalid router sequence at the SQL boundary",
     () =>
       readSeededMessages("moltzap-pglite-invalid-", [
-        [MESSAGE_1, CONVERSATION_1, SENDER_1, -1],
+        [MESSAGE_1, CONVERSATION_1, SENDER_1, -1, BODY_1_JSON, CREATED_AT_1],
       ]).pipe(
         Effect.flip,
-        Effect.tap((failure) =>
-          Effect.sync(() => {
-            assert.match(String(failure), /RouterSequence|non-negative/u);
-          }),
-        ),
+        Effect.tap(assertRejection(/RouterSequence|non-negative/u)),
+      ),
+    PGLITE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects a malformed parts row at the SQL boundary",
+    () =>
+      readSeededMessages("moltzap-pglite-parts-", [
+        [
+          MESSAGE_1,
+          CONVERSATION_1,
+          SENDER_1,
+          1,
+          OVERSIZED_BODY_JSON,
+          CREATED_AT_1,
+        ],
+      ]).pipe(
+        Effect.flip,
+        Effect.tap(assertRejection(/parts|maxItems|at most/u)),
       ),
     PGLITE_TEST_TIMEOUT_MS,
   );
