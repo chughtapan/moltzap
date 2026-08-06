@@ -123,6 +123,8 @@ export interface OpenClawRuntimeOptions {
 interface OpenClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
+  /** Declared workspace files outside OpenClaw's context-injection set. */
+  readonly invisibleWorkspaceFiles: readonly string[];
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
@@ -143,13 +145,12 @@ function snapshotOptions(
 ): OpenClawRuntimeSettings {
   const workspaceFiles = snapshotWorkspaceFiles(options.workspaceFiles);
   const tools = snapshotNativeConfiguration(options.tools);
-  assertWorkspaceFilesReachable(
-    workspaceFiles,
-    tools?.deny?.includes("*") ?? false,
-  );
+  const invisible = invisibleWorkspaceFiles(workspaceFiles);
+  assertWorkspaceFilesReachable(invisible, tools?.deny?.includes("*") ?? false);
   return Object.freeze({
     startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
     workspaceFiles,
+    invisibleWorkspaceFiles: invisible,
     modelId: options.modelId,
     mcpServers: snapshotMcpServers(options.mcpServers),
     tools,
@@ -200,14 +201,13 @@ function invisibleWorkspaceFiles(
  * tool could ever read them either. Other deny shapes may also block every
  * read, but only the wildcard is knowable without interpreting native policy;
  * those shapes intentionally degrade to the acquisition-time warning.
- * @param files Checked workspace files the definition declares.
+ * @param invisible Declared workspace paths outside the context-injection set.
  * @param denyListIsWildcard Whether the native deny list is exactly the wildcard.
  */
 function assertWorkspaceFilesReachable(
-  files: readonly CheckedWorkspaceFile[],
+  invisible: readonly string[],
   denyListIsWildcard: boolean,
 ): void {
-  const invisible = invisibleWorkspaceFiles(files);
   if (invisible.length > 0 && denyListIsWildcard) {
     throw AgentRuntimeDefinitionError.make({
       detail:
@@ -428,7 +428,7 @@ function makeOpenClawApplication<Name extends string>(
     gatewayToken,
     deviceIdentity: pairing.deviceIdentity,
     acquireGateway,
-    invisibleWorkspaceFiles: invisibleWorkspaceFiles(settings.workspaceFiles),
+    invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
   return Object.freeze({
     entrypoint: Object.freeze([

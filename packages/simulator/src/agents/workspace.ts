@@ -107,6 +107,17 @@ interface HttpMcpServer {
  */
 export type McpServer = StdioMcpServer | HttpMcpServer;
 
+/**
+ * Whether one MCP server is reached over streamable HTTP rather than stdio.
+ * @param server MCP server whose transport is being decided.
+ * @returns Whether the server carries a remote URL.
+ */
+export function isHttpMcpServer(
+  server: McpServer,
+): server is Extract<McpServer, { readonly url: string }> {
+  return "url" in server;
+}
+
 const decodeWorkspaceRelativePath = Schema.decodeUnknownSync(
   workspaceRelativePath,
 );
@@ -184,7 +195,7 @@ export function snapshotMcpServers(
     : Object.freeze(
         servers.map((server) =>
           Object.freeze(
-            "url" in server
+            isHttpMcpServer(server)
               ? { name: server.name, url: decodeMcpServerUrl(server.url) }
               : {
                   name: server.name,
@@ -235,26 +246,25 @@ export function workspaceConfiguration(
  * @returns The sanitized MCP server record.
  */
 function sanitizedMcpServer(server: McpServer): McpServerConfiguration {
-  const { definition, redacted } =
-    "url" in server
-      ? {
-          definition: JSON.stringify({
-            name: server.name,
-            origin: new URL(server.url).origin,
-          }),
-          redacted: ["url"] as const,
-        }
-      : {
-          definition: JSON.stringify({
-            name: server.name,
-            command: server.command,
-            args: server.args,
-            environmentKeys: Object.keys(server.env).sort((left, right) =>
-              left.localeCompare(right),
-            ),
-          }),
-          redacted: ["command", "args", "environmentValues"] as const,
-        };
+  const { definition, redacted } = isHttpMcpServer(server)
+    ? {
+        definition: JSON.stringify({
+          name: server.name,
+          origin: new URL(server.url).origin,
+        }),
+        redacted: ["url"] as const,
+      }
+    : {
+        definition: JSON.stringify({
+          name: server.name,
+          command: server.command,
+          args: server.args,
+          environmentKeys: Object.keys(server.env).sort((left, right) =>
+            left.localeCompare(right),
+          ),
+        }),
+        redacted: ["command", "args", "environmentValues"] as const,
+      };
   return McpServerConfiguration.make({
     name: server.name,
     definitionDigest: digestText(definition),

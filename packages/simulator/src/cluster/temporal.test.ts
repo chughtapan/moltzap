@@ -18,7 +18,7 @@ import type {
 import {
   executeRunSocietyWorkflow,
   LifecycleOperations,
-  OPEN_RUN_STATUS,
+  OPEN_RUN_FILTER,
   readOpenRuns,
   runLifecycleActivities,
   type ControllerObservation,
@@ -224,8 +224,26 @@ describe("readOpenRuns", () => {
     await expect(
       Effect.runPromise(readOpenRuns(client, taskQueue)),
     ).resolves.toEqual({ _tag: "open", workflowIds: openRunIds });
-    expect(queries[0]).toContain(taskQueue);
-    expect(queries[0]).toContain(OPEN_RUN_STATUS);
+    expect(queries[0]).toContain(`'${taskQueue}'`);
+    expect(queries[0]).toContain(OPEN_RUN_FILTER);
+  });
+
+  // A queue name is operator-supplied, so a quote in it must not be able to end
+  // the query's own literal and change which runs are counted.
+  it("quotes a task queue name that carries a quote", async () => {
+    const injected = `${taskQueue}' OR '1'='1`;
+    const queries: string[] = [];
+    const client: OpenRunLister = {
+      list: (options) => {
+        queries.push(options.query);
+        return listed([]);
+      },
+    };
+
+    await Effect.runPromise(readOpenRuns(client, injected));
+
+    expect(queries[0]).toContain(`'${injected.replaceAll("'", "''")}'`);
+    expect(queries[0]).toContain(OPEN_RUN_FILTER);
   });
 
   // The distinction the roll guard depends on: a queue that cannot be listed
