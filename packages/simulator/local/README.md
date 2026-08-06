@@ -94,6 +94,18 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
 pnpm nx run @moltzap/simulator:local-run -- local/ten-agent-smoke.mjs
 ```
 
+`hundred-agent-soak.mjs` holds a hundred agents idle for ten minutes rather
+than exercising a gate. Nothing is sent, because a hundred agents answering
+would measure the model provider instead of the cluster, so what it proves is
+that a cohort that size comes up, stays up, and is reclaimed. It is sized for
+the GKE profile, whose agent pool autoscales to hold it; a local cluster
+generally cannot seat it.
+
+```bash
+packages/simulator/gke/cluster.sh run \
+  packages/simulator/local/hundred-agent-soak.mjs
+```
+
 The checked-in modules and profile tests do not by themselves prove that either
 smoke completed on a live cluster.
 
