@@ -17,6 +17,41 @@ import type {
 /** Repository-owned Kubernetes profile selected for an evaluation sweep. */
 export type SimulatorProfile = "local" | "gke";
 
+/** Environment key naming one digest-pinned image an evaluation run needs. */
+export type EvaluationImageKey =
+  | "MOLTZAP_CONTROLLER_IMAGE"
+  | "MOLTZAP_SUPPORT_IMAGE"
+  | "MOLTZAP_NANOCLAW_IMAGE";
+
+// Nothing else in the repository produces these references, so a missing one is
+// an operator who has not run the producer yet rather than one who forgot to
+// export a value they already had. Naming the producer is the whole remedy.
+const imageProducer: Readonly<Record<EvaluationImageKey, string>> = {
+  MOLTZAP_CONTROLLER_IMAGE:
+    "packages/simulator/scripts/build-controller-image.mjs",
+  MOLTZAP_SUPPORT_IMAGE:
+    "packages/simulator/scripts/build-controller-image.mjs",
+  MOLTZAP_NANOCLAW_IMAGE: "packages/simulator/scripts/build-nanoclaw-image.mjs",
+};
+
+/**
+ * Say which producer builds an evaluation image the environment omitted.
+ * @param key Environment key the run could not read.
+ * @returns The operator-facing requirement, naming the producing script.
+ */
+export function missingImageDetail(key: EvaluationImageKey): string {
+  return `${key} is required for evaluation execution; build it with ${imageProducer[key]} and pass the printed pinnedImage`;
+}
+
+/**
+ * Say which producer prints the pinned form of a rejected evaluation image.
+ * @param key Environment key whose value was not digest-pinned.
+ * @returns The operator-facing requirement, naming the producing script.
+ */
+export function invalidImageDetail(key: EvaluationImageKey): string {
+  return `${key} must be a lowercase SHA-256 digest-pinned image; ${imageProducer[key]} prints one as pinnedImage`;
+}
+
 /**
  * Path segments, below the simulator package root, of a profile's executable.
  *

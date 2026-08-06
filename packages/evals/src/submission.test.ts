@@ -13,7 +13,10 @@ import {
 } from "./model.js";
 import {
   evaluationControllerModule,
+  invalidImageDetail,
+  missingImageDetail,
   simulatorProfileEntrypoint,
+  type EvaluationImageKey,
   type SimulatorProfile,
   type SubmitEvaluationCellInput,
 } from "./submission.js";
@@ -99,5 +102,35 @@ effect.each(["local", "gke"] as const)(
         join(simulatorRoot, "package.json"),
       );
       assert.include(scripts, simulatorProfileEntrypoint(profile).join("/"));
+    }).pipe(Effect.provide(NodeContext.layer)),
+);
+
+// An operator whose environment is missing an image has no other way to learn
+// that the reference is produced rather than looked up, and the NanoClaw image
+// has no producer anywhere else in the repository.
+effect.each([
+  ["MOLTZAP_CONTROLLER_IMAGE", "build-controller-image.mjs"],
+  ["MOLTZAP_SUPPORT_IMAGE", "build-controller-image.mjs"],
+  ["MOLTZAP_NANOCLAW_IMAGE", "build-nanoclaw-image.mjs"],
+] as const)(
+  "names the producer of %s in both of its configuration failures",
+  ([key, script]: readonly [EvaluationImageKey, string]) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const producer = `packages/simulator/scripts/${script}`;
+
+      for (const detail of [missingImageDetail(key), invalidImageDetail(key)]) {
+        assert.include(detail, key);
+        assert.include(detail, producer);
+        assert.include(detail, "pinnedImage");
+      }
+
+      // A named script that does not exist is worse than no remedy at all.
+      assert.isTrue(
+        yield* fileSystem.exists(
+          fileURLToPath(new URL(`../../../${producer}`, import.meta.url)),
+        ),
+        `${producer} does not exist`,
+      );
     }).pipe(Effect.provide(NodeContext.layer)),
 );
