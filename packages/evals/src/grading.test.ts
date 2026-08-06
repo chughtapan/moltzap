@@ -5,11 +5,11 @@ import { conversationId, messageId } from "@moltzap/protocol/conversation";
 import { agentId, agentName } from "@moltzap/protocol/identity";
 import { RouterMessageCommitted } from "@moltzap/simulator";
 import {
-  NanoclawGatewayInput,
-  NanoclawGatewayOutput,
+  NanoClawGatewayInput,
+  NanoClawGatewayOutput,
   OpenClawGatewayRequest,
   OpenClawGatewayResponse,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { routerSequence } from "@moltzap/simulator/network";
 import { ConfigProvider, Effect, Schema, Stream } from "effect";
 import {
@@ -21,8 +21,8 @@ import {
   CodePeerMessageReceived,
   CodePeerMessageSent,
   EvaluationEvidenceSelected,
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   PeerExchangeNotObserved,
@@ -326,11 +326,11 @@ describe("ledger evidence projection", () => {
 
   it.effect("rejects more than one native gateway target identity", () =>
     Effect.gen(function* () {
-      const foreignOutput = NanoclawPrincipalOutputReceived.make({
+      const foreignOutput = NanoClawPrincipalOutputReceived.make({
         caseId,
         agentName: decodeAgentName("another-target"),
         agentId: otherId,
-        output: NanoclawGatewayOutput.make({ text: "foreign output" }),
+        output: NanoClawGatewayOutput.make({ text: "foreign output" }),
       });
       const error = yield* transcriptFromLedger(
         ledger([
@@ -419,11 +419,11 @@ describe("ledger evidence projection", () => {
           record(
             nanoInputId,
             0,
-            NanoclawPrincipalInputSent.make({
+            NanoClawPrincipalInputSent.make({
               caseId,
               agentName: targetName,
               agentId: targetId,
-              input: NanoclawGatewayInput.make({
+              input: NanoClawGatewayInput.make({
                 text: "List your current conversations.",
               }),
             }),
@@ -431,11 +431,11 @@ describe("ledger evidence projection", () => {
           record(
             nanoOutputId,
             1,
-            NanoclawPrincipalOutputReceived.make({
+            NanoClawPrincipalOutputReceived.make({
               caseId,
               agentName: targetName,
               agentId: targetId,
-              output: NanoclawGatewayOutput.make({
+              output: NanoClawGatewayOutput.make({
                 text: "I cannot enumerate them.",
               }),
             }),

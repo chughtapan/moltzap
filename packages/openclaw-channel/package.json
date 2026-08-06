@@ -76,6 +76,11 @@
   "peerDependencies": {
     "openclaw": ">=2026.0.0"
   },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
   "openclaw": {
     "extensions": [
       "./dist/openclaw-entry.js"

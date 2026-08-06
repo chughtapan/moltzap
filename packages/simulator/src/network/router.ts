@@ -22,6 +22,7 @@ import {
   type Stream,
 } from "effect";
 import type { AgentHandle, ParticipantHandle } from "./participant.js";
+import type { NetworkError } from "./failure.js";
 
 const routerStoppedTypeId: unique symbol = Symbol(
   "@moltzap/simulator/RouterStopped",
@@ -29,48 +30,6 @@ const routerStoppedTypeId: unique symbol = Symbol(
 const routerStoppedConstruction: unique symbol = Symbol(
   "@moltzap/simulator/RouterStoppedConstruction",
 );
-
-const networkOperation = Schema.Literal(
-  "acquire-router",
-  "attach-agent",
-  "attach-endpoint",
-  "disable-link",
-  "enable-link",
-  "open-conversation",
-  "receive",
-  "shape-link",
-  "socket",
-  "stop-router",
-  "send",
-);
-/** Network operation names used by typed failures. */
-export type NetworkOperation = typeof networkOperation.Type;
-
-/** An operational failure at a network boundary. */
-export class NetworkFailure extends Schema.TaggedError<NetworkFailure>()(
-  "NetworkFailure",
-  {
-    operation: networkOperation,
-    detail: Schema.String,
-  },
-) {
-  override get message(): string {
-    return `Network ${this.operation} failed: ${this.detail}`;
-  }
-}
-
-/**
- * Normalize an implementation failure at the network boundary.
- * @param operation Failed network operation.
- * @param cause Implementation failure.
- * @returns Typed network failure.
- */
-export function networkFailure(
-  operation: NetworkOperation,
-  cause: unknown,
-): NetworkFailure {
-  return NetworkFailure.make({ operation, detail: String(cause) });
-}
 
 /** A message delivered to one attached endpoint. */
 export interface ReceivedMessage {
@@ -103,14 +62,14 @@ export const routerSequence = Schema.decodeSync(routerSequenceSchema);
  * deliveries until the kernel's single consumer advances the Stream.
  */
 export interface EndpointTransport {
-  readonly received: Stream.Stream<ReceivedMessage, NetworkFailure>;
+  readonly received: Stream.Stream<ReceivedMessage, NetworkError>;
   openConversation(
     participants: ParticipantIds,
-  ): Effect.Effect<OpenedConversation, NetworkFailure>;
+  ): Effect.Effect<OpenedConversation, NetworkError>;
   send(
     conversationId: ConversationId,
     parts: MessageParts,
-  ): Effect.Effect<Message, NetworkFailure>;
+  ): Effect.Effect<Message, NetworkError>;
 }
 
 /**
@@ -186,22 +145,22 @@ export interface Router {
    * Awaits the stop report completed by scoped release. The owning scope
    * controls shutdown and makes the report available.
    */
-  readonly stopped: Effect.Effect<RouterStopped, NetworkFailure>;
+  readonly stopped: Effect.Effect<RouterStopped, NetworkError>;
 
   attachAgent<const Name extends string>(
     name: Name,
     agentName: AgentName,
-  ): Effect.Effect<AgentConnection<Name>, NetworkFailure, Scope.Scope>;
+  ): Effect.Effect<AgentConnection<Name>, NetworkError, Scope.Scope>;
 
   attachEndpoint<const Name extends string>(
     name: Name,
     agentName: AgentName,
-  ): Effect.Effect<AttachedEndpoint<Name>, NetworkFailure, Scope.Scope>;
+  ): Effect.Effect<AttachedEndpoint<Name>, NetworkError, Scope.Scope>;
 }
 
 /** Router acquisition service supplied by the platform Layer. */
 export interface RouterProviderService {
-  readonly acquire: Effect.Effect<Router, NetworkFailure, Scope.Scope>;
+  readonly acquire: Effect.Effect<Router, NetworkError, Scope.Scope>;
 }
 
 /** Router acquisition service supplied by the platform Layer. */

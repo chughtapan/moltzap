@@ -21,21 +21,24 @@ export {
   type EndpointInbox,
   type NetworkService,
 } from "./network/endpoint.js";
+/** Re-exports the public API from `./network/failure.js`. */
+export {
+  NetworkError,
+  networkError,
+  type NetworkOperation,
+} from "./network/failure.js";
 /** Re-exports the public API from `./network/router.js`. */
 export {
   CommittedRouterMessage,
-  NetworkFailure,
   type RouterSequence,
   RouterProvider,
   RouterStopped,
   makeRouterStopReport,
-  networkFailure,
   routerSequence,
   type AgentConnection,
   type AttachedEndpoint,
   type EndpointTransport,
   type MessageParts,
-  type NetworkOperation,
   type OpenedConversation,
   type ParticipantIds,
   type ReceivedMessage,

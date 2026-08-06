@@ -1,5 +1,6 @@
 import { assert, effect as test } from "@effect/vitest";
-import { Effect, Either } from "effect";
+import { Effect, Either, Schema } from "effect";
+import { EventCatalog, EventCatalogDefinitionError } from "./catalog.js";
 import {
   AgentProcessExited,
   AgentProcessSignaled,
@@ -26,6 +27,30 @@ const MESSAGE_ID = "550e8400-e29b-41d4-a716-446655440003";
 const POLICY_DESCRIPTION = "delay 100 millis";
 const DROP_REASON = "partition";
 const DELAY_MILLIS = 100;
+const MISCASED_TAG_FAILURE = "invalid-tag";
+const DUPLICATE_TAG_FAILURE = "duplicate-tag";
+
+// The tag type admits both of these; only the tag schema rejects them.
+class MiscasedTagEvent extends Schema.TaggedClass<MiscasedTagEvent>()(
+  "Acme.Miscased/v1",
+  {},
+) {}
+class UnversionedTagEvent extends Schema.TaggedClass<UnversionedTagEvent>()(
+  "acme.unversioned/v0",
+  {},
+) {}
+
+function catalogFailure(build: () => unknown): EventCatalogDefinitionError {
+  try {
+    build();
+  } catch (cause) {
+    if (cause instanceof EventCatalogDefinitionError) {
+      return cause;
+    }
+    throw cause;
+  }
+  throw new Error("the catalog was accepted");
+}
 
 // @agent-code-guard/regression-only: decode round-trips pin the exact persisted event universe and field schemas
 test("declares one exact versioned core event universe", () =>
@@ -52,6 +77,23 @@ test("declares one exact versioned core event universe", () =>
       LinkMessageHeld._tag,
     ]);
     assert.isTrue(coreEvents.tags.every((tag) => /\/v\d+$/u.test(tag)));
+  }));
+
+test("rejects the tag spellings the tag type cannot exclude", () =>
+  Effect.sync(() => {
+    const miscased = catalogFailure(() => EventCatalog.make(MiscasedTagEvent));
+    const unversioned = catalogFailure(() =>
+      EventCatalog.make(UnversionedTagEvent),
+    );
+    const duplicate = catalogFailure(() =>
+      EventCatalog.make(LinkPolicySet, LinkPolicySet),
+    );
+
+    assert.strictEqual(miscased.failure, MISCASED_TAG_FAILURE);
+    assert.strictEqual(miscased.tag, MiscasedTagEvent._tag);
+    assert.strictEqual(unversioned.failure, MISCASED_TAG_FAILURE);
+    assert.strictEqual(duplicate.failure, DUPLICATE_TAG_FAILURE);
+    assert.strictEqual(duplicate.tag, LinkPolicySet._tag);
   }));
 
 test("round-trips described link-policy evidence", () =>

@@ -11,7 +11,7 @@ import {
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
 import type { ParticipantHandle } from "./participant.js";
-import type { NetworkFailure } from "./router.js";
+import type { NetworkError } from "./failure.js";
 
 /** One committed message about to cross a directed link. */
 export interface LinkDelivery {
@@ -73,7 +73,7 @@ export type InboundLinkStage = <A extends { readonly message: Message }, E>(
 
 /** Removes one installed policy from its directed link. */
 export interface LinkPolicyLease {
-  readonly clear: Effect.Effect<void, NetworkFailure>;
+  readonly clear: Effect.Effect<void, NetworkError>;
 }
 
 /**
@@ -88,11 +88,11 @@ export interface LinkDriverService {
   readonly disable: (
     from: AgentId,
     to: AgentId,
-  ) => Effect.Effect<void, NetworkFailure>;
+  ) => Effect.Effect<void, NetworkError>;
   readonly enable: (
     from: AgentId,
     to: AgentId,
-  ) => Effect.Effect<void, NetworkFailure>;
+  ) => Effect.Effect<void, NetworkError>;
   /**
    * Install one policy on a directed link until the returned lease clears.
    * Policies stack in installation order on the same link.
@@ -102,7 +102,7 @@ export interface LinkDriverService {
     to: AgentId,
     policy: LinkPolicy,
     description: string,
-  ) => Effect.Effect<LinkPolicyLease, NetworkFailure>;
+  ) => Effect.Effect<LinkPolicyLease, NetworkError>;
 }
 
 /**
@@ -123,25 +123,25 @@ export interface LinkControllerService {
   readonly disable: (
     from: ParticipantHandle,
     to: ParticipantHandle,
-  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
   /** Delay every delivery on one directed link for the current Scope. */
   readonly delay: (
     from: ParticipantHandle,
     to: ParticipantHandle,
     duration: Duration.DurationInput,
-  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
   /** Park every delivery on one directed link for the current Scope. */
   readonly hold: (
     from: ParticipantHandle,
     to: ParticipantHandle,
-  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
   /** Install one custom policy on a directed link for the current Scope. */
   readonly shape: (
     from: ParticipantHandle,
     to: ParticipantHandle,
     policy: LinkPolicy,
     description: string,
-  ) => Effect.Effect<void, NetworkFailure, LinkDriver | Scope.Scope>;
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
 }
 
 /** Experiment-facing directed-link control installed by the run kernel. */

@@ -46,9 +46,9 @@ describe("exportsForModuleFolder", () => {
     );
     const nested = exported(
       2,
-      "effectRuntime",
+      "openClawRuntime",
       "@moltzap/simulator",
-      "packages/simulator/src/runtime/effect.ts",
+      "packages/simulator/src/runtime/openclaw/runtime.ts",
     );
     const privateCapability = exported(
       3,
@@ -77,9 +77,9 @@ describe("exportsForModuleFolder", () => {
   it("keeps nested module ownership scoped to the declaration folder", () => {
     const nested = exported(
       1,
-      "effectRuntime",
+      "openClawRuntime",
       "@moltzap/simulator",
-      "packages/simulator/src/runtime/effect.ts",
+      "packages/simulator/src/runtime/openclaw/runtime.ts",
     );
     const sibling = exported(
       2,
