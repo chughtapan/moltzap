@@ -66,19 +66,28 @@ const workspacePackages = {
 };
 
 /**
+ * Refuse a repository that could not name one immutable image.
+ * @param repository Repository the image will be tagged into.
+ */
+export function assertRepository(repository) {
+  // The repository half excludes `@` so a trailing digest cannot be smuggled in
+  // behind an earlier one — the same reason the image schema excludes it. One
+  // rule, checked when the argument arrives rather than only after the build.
+  if (repository.length === 0 || /[@\s]/.test(repository)) {
+    throw new TypeError(
+      "a nanoclaw image repository must be nonempty and carry no digest",
+    );
+  }
+}
+
+/**
  * Digest-pinned reference accepted by the evaluation image schema.
  * @param repository Local or remote repository the image was tagged into.
  * @param digest Manifest digest reported by the build.
  * @returns The immutable `repository@sha256:<64 hex>` reference.
  */
 export function pinnedImageReference(repository, digest) {
-  // The repository half excludes `@` so a trailing digest cannot be smuggled in
-  // behind an earlier one — the same reason the image schema excludes it.
-  if (repository.length === 0 || /[@\s]/.test(repository)) {
-    throw new TypeError(
-      "a pinned image repository must be nonempty and carry no digest",
-    );
-  }
+  assertRepository(repository);
   if (!SHA256_DIGEST.test(digest)) {
     throw new TypeError("a pinned image needs a lowercase SHA-256 digest");
   }
@@ -97,11 +106,7 @@ function parseArguments(args) {
     throw new TypeError("usage: build-nanoclaw-image.mjs [--repository NAME]");
   }
   const repository = args[1];
-  if (repository.length === 0 || repository.includes("@")) {
-    throw new TypeError(
-      "nanoclaw image repository must not be empty or contain a digest",
-    );
-  }
+  assertRepository(repository);
   return { repository };
 }
 
@@ -118,7 +123,7 @@ async function pack(packageDirectory, destination) {
   return basename(path);
 }
 
-async function downloadSource(destination) {
+async function downloadSource() {
   const response = await fetch(NANOCLAW_SOURCE_URL, {
     signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
   });
@@ -127,16 +132,16 @@ async function downloadSource(destination) {
       `NanoClaw source ${NANOCLAW_SOURCE_REVISION} returned HTTP ${String(response.status)}`,
     );
   }
-  await writeFile(destination, new Uint8Array(await response.arrayBuffer()));
+  return new Uint8Array(await response.arrayBuffer());
 }
 
-async function stage() {
+async function stage(source) {
   const root = await mkdtemp(join(tmpdir(), "moltzap-nanoclaw-image-"));
   const tarballs = join(root, "tarballs");
   const assets = join(root, "assets");
   await Promise.all([mkdir(tarballs), mkdir(assets)]);
   await Promise.all([
-    downloadSource(join(root, "nanoclaw-source.tar.gz")),
+    writeFile(join(root, "nanoclaw-source.tar.gz"), await source),
     copyFile(join(imageRoot, "Dockerfile"), join(root, "Dockerfile")),
     copyFile(join(imageRoot, "prepare.mjs"), join(root, "prepare.mjs")),
     copyFile(join(imageRoot, "entrypoint.mjs"), join(root, "entrypoint.mjs")),
@@ -209,6 +214,9 @@ async function buildImage(staging, image) {
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+  // Started first and awaited in `stage`: the pinned source depends on nothing
+  // the workspace build produces, so its transfer hides behind that build.
+  const source = downloadSource();
   report("building the workspace dependencies the MoltZap channel consumes");
   await exec(
     "pnpm",
@@ -221,7 +229,7 @@ async function main() {
     { cwd: workspaceRoot, timeout: BUILD_TIMEOUT_MS },
   );
   report(`staging NanoClaw ${NANOCLAW_SOURCE_REVISION} and its overlay`);
-  const staging = await stage();
+  const staging = await stage(source);
   try {
     const image = `${options.repository}:${await fingerprint(staging)}`;
     const { imageDigest, imageId } = await buildImage(staging, image);
