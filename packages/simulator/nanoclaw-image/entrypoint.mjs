@@ -66,9 +66,6 @@ async function readBootstrapConfig() {
   return config;
 }
 
-// Concurrently, because every entry targets a distinct path and this runs
-// before the bridge port opens — which is what the controller reads as
-// readiness, so anything serialized here is startup latency for the whole run.
 async function materializeProjectRoot(config) {
   const projectRoot =
     config.stateDirectory ?? requiredEnvironment("MOLTZAP_NANOCLAW_STATE");

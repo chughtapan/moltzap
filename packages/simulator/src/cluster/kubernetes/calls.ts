@@ -19,7 +19,7 @@ import {
   type V1JobCondition,
 } from "@kubernetes/client-node";
 import { Cause, Duration, Effect, Schema } from "effect";
-import { clusterError, type ClusterError } from "../cluster.js";
+import { ClusterError, clusterError } from "../cluster.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import {
@@ -79,6 +79,84 @@ const APPLIED = Object.freeze({
   fieldManager: "moltzap-simulator",
   fieldValidation: "Strict",
 } as const);
+
+// A call the bound cut off is reported as never answered, not as failed: the
+// cluster refusing an object and the cluster never replying at all are
+// different operator problems, and only one of them is about the object. A
+// status of zero is no status, which no Kubernetes response carries.
+function callDetail(
+  operation: string,
+  status: number,
+  unanswered: boolean,
+): string {
+  if (unanswered) {
+    return `${operation} did not answer in time`;
+  }
+  return status === 0
+    ? `${operation} failed`
+    : `${operation} failed (Kubernetes ${String(status)})`;
+}
+
+/** Failure of one Kubernetes call, carrying the status but never the body. */
+export class KubernetesCallFailed extends Error {
+  override readonly name = "KubernetesCallFailed";
+
+  /** Whether the cluster answered that the object is not there. */
+  readonly absent: boolean;
+
+  constructor(operation: string, cause?: unknown) {
+    const status = cause instanceof ApiException ? cause.code : 0;
+    super(
+      callDetail(operation, status, cause instanceof Cause.TimeoutException),
+    );
+    this.absent = status === ABSENT;
+  }
+}
+
+/**
+ * Make one Kubernetes API call, bounded so that it always ends.
+ *
+ * The client's own request has no deadline, so an API server that accepts the
+ * connection and then answers nothing — a control plane being repaired, a
+ * tunnel that went away without resetting — leaves the caller waiting forever
+ * with no output naming what it is waiting for. A submission that fails after
+ * the bound is a submission the operator can act on.
+ *
+ * @param operation What this call was doing, as the operator's failure names it.
+ * @param evaluate The client call, already bound to its request.
+ * @param bound How long the cluster has to answer before the call is abandoned.
+ * @returns The call's result, or a failure naming the operation.
+ * @failure KubernetesCallFailed when the call is refused or never answered.
+ */
+export function kubernetesCall<Result>(
+  operation: string,
+  evaluate: () => PromiseLike<Result>,
+  bound: Duration.Duration = KUBERNETES_CALL_TIMEOUT,
+): Effect.Effect<Result, KubernetesCallFailed> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new KubernetesCallFailed(operation, cause),
+  }).pipe(
+    Effect.timeoutFail({
+      duration: bound,
+      onTimeout: () =>
+        new KubernetesCallFailed(operation, new Cause.TimeoutException()),
+    }),
+  );
+}
+
+function attemptUnlessAbsent(
+  operation: string,
+  evaluate: () => PromiseLike<unknown>,
+): Effect.Effect<void, KubernetesCallFailed> {
+  return kubernetesCall(operation, evaluate).pipe(
+    Effect.catchIf(
+      (failure) => failure.absent,
+      () => Effect.void,
+    ),
+    Effect.asVoid,
+  );
+}
 
 const KUEUE_GROUP = "kueue.x-k8s.io";
 const KUEUE_VERSION = "v1beta2";
@@ -218,11 +296,15 @@ export interface KubernetesSocietyApi {
   ) => Effect.Effect<boolean>;
 }
 
+// The same call failure, at the public error type of the cluster seam.
+function societyFailure(failure: KubernetesCallFailed): ClusterError {
+  return new ClusterError({ detail: failure.message });
+}
+
 function request<A>(operation: string, evaluate: () => PromiseLike<A>) {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => clusterError(operation, cause),
-  });
+  return kubernetesCall(operation, evaluate).pipe(
+    Effect.mapError(societyFailure),
+  );
 }
 
 function decode<A, I, R>(
@@ -239,17 +321,8 @@ function ignoreAbsent(
   operation: string,
   evaluate: () => PromiseLike<unknown>,
 ): Effect.Effect<void, ClusterError> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) =>
-      cause instanceof ApiException && cause.code === ABSENT
-        ? undefined
-        : clusterError(operation, cause),
-  }).pipe(
-    Effect.catchAll((failure) =>
-      failure === undefined ? Effect.void : Effect.fail(failure),
-    ),
-    Effect.asVoid,
+  return attemptUnlessAbsent(operation, evaluate).pipe(
+    Effect.mapError(societyFailure),
   );
 }
 
@@ -540,39 +613,6 @@ function installedWorkerImage(deployment: {
 /** One installable member of the cluster's run-worker control plane. */
 export type RunWorkerObject = keyof RunWorkerManifests;
 
-// A call the bound cut off is reported as never answered, not as failed: the
-// cluster refusing an object and the cluster never replying at all are
-// different operator problems, and only one of them is about the object. A
-// status of zero is no status, which no Kubernetes response carries.
-function callDetail(
-  operation: string,
-  status: number,
-  unanswered: boolean,
-): string {
-  if (unanswered) {
-    return `${operation} did not answer in time`;
-  }
-  return status === 0
-    ? `${operation} failed`
-    : `${operation} failed (Kubernetes ${String(status)})`;
-}
-
-/** Failure of one Kubernetes call, carrying the status but never the body. */
-export class KubernetesCallFailed extends Error {
-  override readonly name = "KubernetesCallFailed";
-
-  /** Whether the cluster answered that the object is not there. */
-  readonly absent: boolean;
-
-  constructor(operation: string, cause?: unknown) {
-    const status = cause instanceof ApiException ? cause.code : 0;
-    super(
-      callDetail(operation, status, cause instanceof Cause.TimeoutException),
-    );
-    this.absent = status === ABSENT;
-  }
-}
-
 /** Kubernetes access the Temporal activity needs for one run's lifetime. */
 export interface RunControlApi {
   /** Create the run's Namespace and immutable owner; yields the owner UID. */
@@ -642,51 +682,6 @@ export interface RunWorkerInstallApi {
   >;
   /** Sleep between rollout observations while the worker starts. */
   readonly wait: (milliseconds: number) => Effect.Effect<void>;
-}
-
-/**
- * Make one Kubernetes API call, bounded so that it always ends.
- *
- * The client's own request has no deadline, so an API server that accepts the
- * connection and then answers nothing — a control plane being repaired, a
- * tunnel that went away without resetting — leaves the caller waiting forever
- * with no output naming what it is waiting for. A submission that fails after
- * the bound is a submission the operator can act on.
- *
- * @param operation What this call was doing, as the operator's failure names it.
- * @param evaluate The client call, already bound to its request.
- * @param bound How long the cluster has to answer before the call is abandoned.
- * @returns The call's result, or a failure naming the operation.
- * @failure KubernetesCallFailed when the call is refused or never answered.
- */
-export function kubernetesCall<Result>(
-  operation: string,
-  evaluate: () => PromiseLike<Result>,
-  bound: Duration.Duration = KUBERNETES_CALL_TIMEOUT,
-): Effect.Effect<Result, KubernetesCallFailed> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => new KubernetesCallFailed(operation, cause),
-  }).pipe(
-    Effect.timeoutFail({
-      duration: bound,
-      onTimeout: () =>
-        new KubernetesCallFailed(operation, new Cause.TimeoutException()),
-    }),
-  );
-}
-
-function attemptUnlessAbsent(
-  operation: string,
-  evaluate: () => PromiseLike<unknown>,
-): Effect.Effect<void, KubernetesCallFailed> {
-  return kubernetesCall(operation, evaluate).pipe(
-    Effect.catchIf(
-      (failure) => failure.absent,
-      () => Effect.void,
-    ),
-    Effect.asVoid,
-  );
 }
 
 interface RunControlClients {

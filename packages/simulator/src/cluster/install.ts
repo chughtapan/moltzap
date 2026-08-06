@@ -19,13 +19,17 @@ export const FORCE_WORKER_ROLL_VARIABLE = "MOLTZAP_FORCE_WORKER_ROLL";
 // service account cannot delete a run namespace, which is the one thing the
 // worker exists to do, and Kubernetes reports that as a permission error on a
 // run rather than as a failed install.
-const INSTALL_ORDER: readonly RunWorkerObject[] = [
-  "namespace",
-  "serviceAccount",
-  "clusterRole",
-  "clusterRoleBinding",
-  "deployment",
-];
+const RUN_WORKER_OBJECTS = {
+  namespace: true,
+  serviceAccount: true,
+  clusterRole: true,
+  clusterRoleBinding: true,
+  deployment: true,
+} satisfies Readonly<Record<RunWorkerObject, true>>;
+
+const INSTALL_ORDER =
+  /* Safe because the record above is exhaustive and keeps its declared order. */
+  Object.keys(RUN_WORKER_OBJECTS) as readonly RunWorkerObject[];
 
 /** What the run-lifecycle task queue says about work it has not finished. */
 export type OpenRunReading =

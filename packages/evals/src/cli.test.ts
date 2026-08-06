@@ -7,10 +7,9 @@ import { IncompleteLedgerReceipt } from "@moltzap/simulator";
 import { ledgerRef } from "@moltzap/simulator/ledger";
 import { evaluationCase } from "./cases.js";
 import {
+  infrastructureFailed,
   invalidImageDetail,
-  ledgerAllocationFailed,
   missingImageDetail,
-  runInfrastructureFailed,
   type AttemptContext,
   type EvaluationImageKey,
 } from "./cli.js";
@@ -94,45 +93,37 @@ effect.each([
     }).pipe(Effect.provide(NodeContext.layer)),
 );
 
+const CLUSTER_LOST = { _tag: "ClusterLost", receipt: RECEIPT } as const;
+const ALLOCATION_FAILED = { _tag: "LedgerAllocationFailed" } as const;
+
+// The operator-facing account either infrastructure attempt carries.
+function attemptAccount(
+  attempt: Effect.Effect.Success<ReturnType<typeof infrastructureFailed>>,
+): string {
+  return attempt._tag === "RunFailedAttempt"
+    ? attempt.detail
+    : attempt.failure.detail;
+}
+
 // Both infrastructure attempts already carry the operator-facing account of a
 // failure, and phoenix-run publishes exactly that field as the run's error, so
 // the controller's own account belongs in it rather than beside it.
-effect.each([undefined, DIAGNOSTIC])(
-  "gives a failed run the controller account %s",
-  (diagnostic?: string) =>
-    Effect.gen(function* () {
-      const attempt = yield* runInfrastructureFailed(
-        attemptContext(),
-        RECEIPT,
-        diagnostic,
-      );
+effect.each([
+  ["a lost cluster", CLUSTER_LOST, "infrastructure failure"],
+  ["a failed allocation", ALLOCATION_FAILED, "durable ledger"],
+] as const)("gives %s the controller account", ([, summary, canned]) =>
+  Effect.gen(function* () {
+    const context = attemptContext();
 
-      assert.strictEqual(attempt.detail, diagnostic ?? attempt.detail);
-      assert.isNotEmpty(attempt.detail);
-      if (diagnostic === undefined) {
-        assert.include(attempt.detail, "infrastructure failure");
-      }
-    }),
-);
-
-effect.each([undefined, DIAGNOSTIC])(
-  "gives a failed allocation the controller account %s",
-  (diagnostic?: string) =>
-    Effect.gen(function* () {
-      const attempt = yield* ledgerAllocationFailed(
-        attemptContext(),
-        diagnostic,
-      );
-
-      assert.strictEqual(
-        attempt.failure.detail,
-        diagnostic ?? attempt.failure.detail,
-      );
-      assert.isNotEmpty(attempt.failure.detail);
-      if (diagnostic === undefined) {
-        assert.include(attempt.failure.detail, "durable ledger");
-      }
-    }),
+    assert.strictEqual(
+      attemptAccount(yield* infrastructureFailed(context, summary, DIAGNOSTIC)),
+      DIAGNOSTIC,
+    );
+    assert.include(
+      attemptAccount(yield* infrastructureFailed(context, summary)),
+      canned,
+    );
+  }),
 );
 
 // Without a controller account the two attempts still have to be told apart:
@@ -141,8 +132,14 @@ effect.each([undefined, DIAGNOSTIC])(
 it("distinguishes the two infrastructure failures when neither left an account", () =>
   Effect.gen(function* () {
     const context = attemptContext();
-    const failedRun = yield* runInfrastructureFailed(context, RECEIPT);
-    const failedAllocation = yield* ledgerAllocationFailed(context);
+    const failedRun = yield* infrastructureFailed(context, CLUSTER_LOST);
+    const failedAllocation = yield* infrastructureFailed(
+      context,
+      ALLOCATION_FAILED,
+    );
 
-    assert.notStrictEqual(failedRun.detail, failedAllocation.failure.detail);
+    assert.notStrictEqual(
+      attemptAccount(failedRun),
+      attemptAccount(failedAllocation),
+    );
   }));
