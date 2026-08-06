@@ -33,8 +33,8 @@ Kubernetes cohort.
 Experiments need one core path that can run the same society on a local
 Kubernetes cluster or GKE. The selected stack is Kubernetes, Kueue, Agent
 Sandbox, and Temporal. The first useful proof is a small complete society,
-then four agents and real evaluations; the earlier 1,000–10,000-agent goal is
-deferred until that path works.
+then a larger cohort and real evaluations; the earlier 1,000–10,000-agent goal
+is deferred until that path works.
 
 ## Decision Outcome
 
@@ -46,7 +46,7 @@ the customer `execute` Effect. `Run.execute(spec)` is the only new execution
 entry point.
 
 ```ts
-export default RunSpec.define({
+export const runSpec = RunSpec.define({
   id: "acme.echo/v1",
   events: [echoEvents],
   agents: { alice, bob },
@@ -191,8 +191,8 @@ The slice is complete only when all of the following use the core
 - a local-cluster two-agent smoke proves Kueue admission, one Sandbox/container
   per agent, native gateway readiness, execution, ledger evidence, and zero
   run-owned residue;
-- a local-cluster four-agent run proves the same complete-roster path before
-  any larger scale claim;
+- one end-to-end experiment, sized by its run rather than by its source, proves
+  the same complete-roster path at larger cohorts before any scale claim;
 - all 32 OpenClaw/NanoClaw evaluation cells invoke `Run.execute` through
   Kubernetes and record their real outcomes, including honest operational or
   behavioral failures rather than forced passes;
@@ -222,11 +222,13 @@ The following are not part of this decision or its first implementation:
   internals;
 - a universal gateway proxy, command language, actor mailbox, cross-runtime
   correlation model, or serialization of arbitrary JavaScript/Effect values;
-- warm societies, multi-run scheduling policy, fairness, borrowing,
-  preemption, autoscaling, router high availability, or production Temporal
-  high availability;
-- a 100-, 1,000-, 5,000-, or 10,000-agent qualification claim before the
-  two- and four-agent gates pass;
+- warm societies, multi-run scheduling policy, fairness, borrowing, preemption,
+  simulator-owned autoscaling of a run's cohort, router high availability, or
+  production Temporal high availability. A profile may let its node pool
+  autoscale, which is the cluster's own capacity mechanism and the simpler one
+  to operate;
+- a 1,000-, 5,000-, or 10,000-agent qualification claim before the two-agent
+  and larger-cohort gates pass;
 - a Nomad, Slurm, managed-batch, or GKE Autopilot implementation;
 - exact Secret-provider protocols, persistent-agent-state recovery, exhaustive
   NetworkPolicy design, or a general multi-tenant security platform; and
@@ -277,3 +279,15 @@ The design accepts startup latency and a stable controller/bundle mechanism in
 exchange for avoiding per-experiment agent images. It also accepts that a
 controller or agent failure may end a run; automatic recovery is intentionally
 outside the first experiment-infrastructure slice.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that alters
+the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-06 | Renamed the `RunSpec` field `infrastructure` to `cluster`, matching the implementation and the orientation docs. |
+| 2026-08-06 | Replaced the fixed four-agent acceptance gate with one end-to-end experiment sized by its run, after a hundred-agent run passed on the GKE profile. Removes the earlier ten- and four-agent wording, which the ledger and the profile tooling had never agreed on. |
+| 2026-08-06 | Corrected the illustrative snippet from `export default` to the named `runSpec` export the controller admits. |
+| 2026-08-06 | Scoped the `autoscaling` non-goal to a run's cohort. A profile's node pool may autoscale; it was selected because it is the simpler thing to operate. |

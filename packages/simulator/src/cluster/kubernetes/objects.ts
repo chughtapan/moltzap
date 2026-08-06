@@ -501,6 +501,9 @@ function controllerEnvironment(
             value: String(input.startupTimeoutMs),
           },
         ]),
+    ...(input.cohortSize === undefined
+      ? []
+      : [{ name: "MOLTZAP_COHORT_SIZE", value: String(input.cohortSize) }]),
     { name: "MOLTZAP_LEDGER_DIRECTORY", value: LOCAL_LEDGER_DIRECTORY },
     ...(profile.kind === "gke"
       ? [

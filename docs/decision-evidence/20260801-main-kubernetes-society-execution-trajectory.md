@@ -440,3 +440,32 @@ Source gaps, stated plainly:
 - Irrelevant tool output, private system and developer instructions, hidden
   reasoning, environment diagnostics, and credential values are omitted. No
   private session URL or Secret value is retained.
+
+## Later corrections
+
+Dated additions recording what a later reading found. The retained events above
+are unchanged; nothing here rewrites them.
+
+### 2026-08-06 — the field is named `cluster`, and no retained event chose it
+
+The source-gap note above states that the example's `infrastructure` value
+"remains the binding shape". That is no longer true of the admitted record,
+which names the field `cluster`, matching `packages/simulator/src/definition.ts`
+and the orientation docs. No retained event chooses either spelling, so this
+remains a gap in the ledger rather than a human call it can cite. The rename is
+recorded as a point correction in the decision's own changelog.
+
+### 2026-08-06 — the cohort-size gate no longer names a number
+
+The only retained human statement on cohort size is `lets get to 10 agents
+first and then scale`, and the accepted final-shape prompt says `Two-agent,
+ten-agent, and all 32 OpenClaw/NanoClaw evaluation runs`. A later amendment
+replaced ten with four while citing no event, and the profile tooling continued
+to enforce ten. A blind review of candidate `78ff2f94` reported that
+contradiction as a blocker.
+
+The decision now states one end-to-end experiment sized by its run rather than
+any fixed number, and the repository ships one such module in place of the
+four count-specific ones. The maintainer accepted this after a hundred-agent
+run passed on the GKE profile; that run's evidence is the exported ledger in
+the profile's artifact bucket, not a retained conversation event.

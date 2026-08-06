@@ -16,6 +16,8 @@ const DIGEST = "b".repeat(64);
 const ENTRYPOINT = "society.mjs";
 const STARTUP_TIMEOUT_VARIABLE = "MOLTZAP_STARTUP_TIMEOUT_MS";
 const STARTUP_TIMEOUT_MS = 900_000;
+const COHORT_SIZE_VARIABLE = "MOLTZAP_COHORT_SIZE";
+const COHORT_SIZE = 100;
 const RESULT: RunControllerResult = {
   exitCode: 1,
   summary: { _tag: "LedgerAllocationFailed" },
@@ -59,6 +61,34 @@ function submit(
     Effect.map((submission) => ({ submission, submitted })),
   );
 }
+
+describe("the run's cohort size", () => {
+  it("reaches the workflow when the environment sets one", async () => {
+    const { submitted } = await Effect.runPromise(
+      submit({ ...ENVIRONMENT, [COHORT_SIZE_VARIABLE]: String(COHORT_SIZE) }),
+    );
+
+    expect(submitted.options[0]?.input.cohortSize).toBe(COHORT_SIZE);
+  });
+
+  it("is absent when the environment sets none, leaving the controller's default", async () => {
+    const { submitted } = await Effect.runPromise(submit(ENVIRONMENT));
+
+    expect(submitted.options[0]?.input.cohortSize).toBeUndefined();
+  });
+
+  it("refuses a size that is not a positive integer", async () => {
+    for (const encoded of ["0", "-4", "2.5", "many"]) {
+      const failure = await Effect.runPromise(
+        Effect.flip(
+          submit({ ...ENVIRONMENT, [COHORT_SIZE_VARIABLE]: encoded }),
+        ),
+      );
+
+      expect(String(failure)).toContain(COHORT_SIZE_VARIABLE);
+    }
+  });
+});
 
 describe("the cohort's startup budget", () => {
   it("reaches the workflow when the environment sets one", async () => {

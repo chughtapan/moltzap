@@ -201,6 +201,8 @@ it("projects identical GKE placement onto reserved and actual Pods", () => {
 
 const DIGEST = "a".repeat(64);
 const STARTUP_TIMEOUT_VARIABLE = "MOLTZAP_STARTUP_TIMEOUT_MS";
+const COHORT_SIZE_VARIABLE = "MOLTZAP_COHORT_SIZE";
+const COHORT_SIZE = 100;
 const STARTUP_TIMEOUT_MS = 900_000;
 const EXPERIMENT_SOURCE = "export const runSpec = society;";
 const INPUT: RunSocietyWorkflowInput = {
@@ -542,5 +544,16 @@ it("carries a cohort's startup budget into the controller only when one is set",
   expect(budgeted).toContainEqual({
     name: STARTUP_TIMEOUT_VARIABLE,
     value: String(STARTUP_TIMEOUT_MS),
+  });
+});
+
+it("carries a run-chosen cohort size into the controller only when one is set", () => {
+  const names = controllerEnvironmentOf(INPUT).map((entry) => entry.name);
+  expect(names).not.toContain(COHORT_SIZE_VARIABLE);
+
+  const sized = controllerEnvironmentOf({ ...INPUT, cohortSize: COHORT_SIZE });
+  expect(sized).toContainEqual({
+    name: COHORT_SIZE_VARIABLE,
+    value: String(COHORT_SIZE),
   });
 });

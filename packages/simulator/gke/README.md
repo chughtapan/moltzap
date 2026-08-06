@@ -110,7 +110,7 @@ MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform -chdir=packages/simulator/gke/terraform
 MOLTZAP_TEMPORAL_ADDRESS=TEMPORAL_HOST:7233 \
 MOLTZAP_CONTROLLER_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
 MOLTZAP_SUPPORT_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
-pnpm nx run @moltzap/simulator:gke-run -- packages/simulator/local/two-agent-smoke.mjs
+pnpm nx run @moltzap/simulator:gke-run -- packages/simulator/local/end-to-end.mjs
 ```
 
 The GKE entry validates `profile.json`, requires every dynamic identity above,
