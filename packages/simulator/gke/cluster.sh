@@ -137,6 +137,24 @@ open_temporal_forward() {
   done
 }
 
+# Everything `run` and `evals` both need before they can reach the cluster:
+# credentials, an immutable controller image, and a Temporal endpoint that
+# survives a dropped forward. Sharing it is what keeps the trap in one place —
+# a leaked port-forward still accepts connections while proxying to a pod that
+# no longer exists, so a fix applied to one verb has to apply to both.
+begin_cluster_session() {
+  attach_kubectl
+
+  controller_image="$(publish_controller_image)"
+  echo "controller image: $controller_image"
+
+  forward_port="$(free_local_port)"
+  trap 'kill "${forward_pid:-}" 2>/dev/null;
+        pkill -f "port-forward -n $system_namespace svc/temporal ${forward_port}:" 2>/dev/null;
+        true' EXIT
+  open_temporal_forward "$forward_port"
+}
+
 discard_artifacts() {
   local bucket="$1"
   # The bucket refuses to be destroyed while it holds objects, so discarding
@@ -176,28 +194,19 @@ case "$command" in
     ;;
 
   evals)
-    attach_kubectl
+    begin_cluster_session
 
-    controller_image="$(publish_controller_image)"
-    echo "controller image: $controller_image"
-
-    forward_port="$(free_local_port)"
-    trap 'kill "${forward_pid:-}" 2>/dev/null;
-          pkill -f "port-forward -n $system_namespace svc/temporal ${forward_port}:" 2>/dev/null;
-          true' EXIT
-    open_temporal_forward "$forward_port"
-
-    # Every identity the sweep cannot derive for itself. The NanoClaw image is
-    # passed through rather than built, because it is not this cluster's
-    # artifact; `scripts/build-nanoclaw-image.mjs` prints one.
+    # Every identity the sweep cannot derive for itself, each one a property of
+    # the cluster just attached to, so the sweep and the operator cannot
+    # disagree about which cluster is being measured. MOLTZAP_NANOCLAW_IMAGE is
+    # deliberately absent: it is the runtime under evaluation rather than this
+    # cluster's infrastructure, so the caller's own value passes straight
+    # through. `scripts/build-nanoclaw-image.mjs` prints one.
     export MOLTZAP_KUBE_CONTEXT="$(kubectl config current-context)"
     export MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform_output artifact_bucket_name)"
     export MOLTZAP_TEMPORAL_ADDRESS="localhost:${forward_port}"
     export MOLTZAP_CONTROLLER_IMAGE="$controller_image"
     export MOLTZAP_SUPPORT_IMAGE="$controller_image"
-    if [[ -n "${MOLTZAP_NANOCLAW_IMAGE:-}" ]]; then
-      export MOLTZAP_NANOCLAW_IMAGE
-    fi
 
     # Not exec: the forward supervisor is this shell's background job, and
     # replacing the shell would strand it with no trap left to reap it. Running
@@ -221,16 +230,7 @@ case "$command" in
     [[ -f "$run_spec" ]] || { echo "no such run spec: $run_spec" >&2; exit 66; }
     # gke/profile.json is read from the package root, so resolve before moving.
     run_spec="$(absolute_path "$run_spec")"
-    attach_kubectl
-
-    controller_image="$(publish_controller_image)"
-    echo "controller image: $controller_image"
-
-    forward_port="$(free_local_port)"
-    trap 'kill "${forward_pid:-}" 2>/dev/null;
-          pkill -f "port-forward -n $system_namespace svc/temporal ${forward_port}:" 2>/dev/null;
-          true' EXIT
-    open_temporal_forward "$forward_port"
+    begin_cluster_session
 
     cd "$simulator_root"
     MOLTZAP_KUBE_CONTEXT="$(kubectl config current-context)" \

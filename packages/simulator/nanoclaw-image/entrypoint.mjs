@@ -20,6 +20,7 @@
 // discard the run's first instruction.
 
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { connect, createServer } from "node:net";
 import { cp, mkdir, readFile, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -32,8 +33,10 @@ const CLI_SOCKET_POLL_MS = 100;
 const CLI_SOCKET_TIMEOUT_MS = 120_000;
 const PROVISION_TIMEOUT_MS = 120_000;
 const SHUTDOWN_GRACE_MS = 15_000;
-// NanoClaw resolves these from its cwd and writes into all of them.
-const MUTABLE_DIRECTORIES = ["data", "groups", "store", "tmp"];
+// NanoClaw resolves these from its cwd and writes into all of them. `data`
+// is absent because the copied install already carries it, stamped marker
+// included.
+const MUTABLE_DIRECTORIES = ["groups", "store", "tmp"];
 // Read-only halves of the install. `container` is copied rather than linked
 // because the run's own workspace files are seeded into `container/skills`.
 const LINKED_ENTRIES = ["dist", "node_modules", "src", "scripts", "templates"];
@@ -63,26 +66,26 @@ async function readBootstrapConfig() {
   return config;
 }
 
-async function linkOrCopy(entry, projectRoot) {
-  const source = join(APPLICATION_ROOT, entry);
-  const destination = join(projectRoot, entry);
-  if (LINKED_ENTRIES.includes(entry)) {
-    await symlink(source, destination);
-    return;
-  }
-  await cp(source, destination, { recursive: true });
-}
-
+// Concurrently, because every entry targets a distinct path and this runs
+// before the bridge port opens — which is what the controller reads as
+// readiness, so anything serialized here is startup latency for the whole run.
 async function materializeProjectRoot(config) {
   const projectRoot =
     config.stateDirectory ?? requiredEnvironment("MOLTZAP_NANOCLAW_STATE");
   await mkdir(projectRoot, { recursive: true });
-  for (const entry of [...LINKED_ENTRIES, ...COPIED_ENTRIES]) {
-    await linkOrCopy(entry, projectRoot);
-  }
-  for (const directory of MUTABLE_DIRECTORIES) {
-    await mkdir(join(projectRoot, directory), { recursive: true });
-  }
+  await Promise.all([
+    ...LINKED_ENTRIES.map((entry) =>
+      symlink(join(APPLICATION_ROOT, entry), join(projectRoot, entry)),
+    ),
+    ...COPIED_ENTRIES.map((entry) =>
+      cp(join(APPLICATION_ROOT, entry), join(projectRoot, entry), {
+        recursive: true,
+      }),
+    ),
+    ...MUTABLE_DIRECTORIES.map((directory) =>
+      mkdir(join(projectRoot, directory), { recursive: true }),
+    ),
+  ]);
   return projectRoot;
 }
 
@@ -135,47 +138,32 @@ function childEnvironment(config, projectRoot) {
   };
 }
 
-function runToCompletion(label, args, options, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("node", args, { ...options, stdio: "inherit" });
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`${label} exceeded ${String(timeoutMs)}ms`));
-    }, timeoutMs);
-    child.once("error", (cause) => {
-      clearTimeout(timer);
-      reject(cause);
-    });
-    child.once("exit", (code, signal) => {
-      clearTimeout(timer);
-      if (code === 0) {
-        resolve(undefined);
-        return;
-      }
-      reject(
-        new Error(
-          `${label} exited with code=${String(code)} signal=${String(signal)}`,
-        ),
-      );
-    });
-  });
-}
-
 // The runtime database starts empty and NanoClaw's router drops an unwired
 // conversation, so the eval agent group and its CLI wiring exist before the
 // first inbound delivery rather than after it.
-function provisionEvalAgent(config, projectRoot, environment) {
-  return runToCompletion(
-    "NanoClaw eval provisioning",
+async function provisionEvalAgent(config, projectRoot, environment) {
+  const child = spawn(
+    "node",
     [
       join(APPLICATION_ROOT, "dist", "moltzap-eval-provision.js"),
       EVAL_AGENT_GROUP_ID,
       config.agentName,
       EVAL_AGENT_GROUP_ID,
     ],
-    { cwd: projectRoot, env: environment },
-    PROVISION_TIMEOUT_MS,
+    {
+      cwd: projectRoot,
+      env: environment,
+      stdio: "inherit",
+      timeout: PROVISION_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    },
   );
+  const [code, signal] = await once(child, "exit");
+  if (code !== 0) {
+    fail(
+      `eval provisioning exited with code=${String(code)} signal=${String(signal)}`,
+    );
+  }
 }
 
 async function waitForCliSocket(socketPath, stopped) {
@@ -258,7 +246,7 @@ function startNanoClaw(projectRoot, environment) {
     });
   });
   forwardShutdown(child);
-  return { child, exit, stopped };
+  return { exit, stopped };
 }
 
 const config = await readBootstrapConfig();

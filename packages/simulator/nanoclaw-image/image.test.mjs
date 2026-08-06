@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Either, Schema } from "effect";
 import { image } from "../dist/agents.js";
 import {
+  assertRepository,
   NANOCLAW_SOURCE_REVISION,
   pinnedImageReference,
 } from "../scripts/build-nanoclaw-image.mjs";
@@ -32,9 +33,17 @@ test("the produced reference is what the evaluation image schema accepts", () =>
   assert.throws(() =>
     pinnedImageReference("moltzap-simulator-nanoclaw", "sha256:NOTADIGEST"),
   );
-  assert.throws(() =>
-    pinnedImageReference(`moltzap-simulator-nanoclaw@${DIGEST}`, DIGEST),
-  );
+});
+
+// One rule, applied when the argument arrives as well as when the reference is
+// built, so a repository that could never name an immutable image is refused
+// before the build rather than at the last statement after it.
+test("a repository that cannot name one immutable image is refused", () => {
+  for (const repository of ["", `nanoclaw@${DIGEST}`, "nano claw"]) {
+    assert.throws(() => assertRepository(repository));
+    assert.throws(() => pinnedImageReference(repository, DIGEST));
+  }
+  assert.doesNotThrow(() => assertRepository("registry.example/nanoclaw"));
 });
 
 test("the build pins its NanoClaw source and prints a digest identity", async () => {
@@ -45,9 +54,6 @@ test("the build pins its NanoClaw source and prints a digest identity", async ()
   assert.match(script, /--metadata-file/);
   assert.match(script, /containerimage\.digest/);
   assert.match(script, /pinnedImage: pinnedImageReference\(/);
-  // A mutable tag would make the printed identity unusable as an evaluation
-  // input, so the repository argument may not already carry a digest.
-  assert.match(script, /repository\.includes\("@"\)/);
 });
 
 test("the image satisfies the NanoClaw container runtime contract", async () => {
