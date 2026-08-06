@@ -7,7 +7,15 @@ import { fileURLToPath } from "node:url";
 import { Context as ActivityContext } from "@temporalio/activity";
 import { Client, Connection, type WorkflowClient } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
-import { Cause, Context, Effect, Exit, Option, Runtime } from "effect";
+import {
+  Cause,
+  Context,
+  Duration,
+  Effect,
+  Exit,
+  Option,
+  Runtime,
+} from "effect";
 import type {
   CleanupRunInput,
   RunControllerResult,
@@ -92,6 +100,12 @@ export interface RunLifecycleOperations {
 /** Host operations plus the liveness signal one worker attempt owns. */
 export interface LifecycleOperationsService extends RunLifecycleOperations {
   readonly heartbeat: ControllerHeartbeat;
+  /**
+   * Bind a heartbeat to the activity running now, called where the SDK still
+   * owns the ambient execution context. A heartbeat fiber resuming after a
+   * timer no longer does, so it cannot resolve that context for itself.
+   */
+  readonly bindHeartbeat?: () => ControllerHeartbeat;
 }
 
 /** Lifecycle boundaries the worker's activities read from their environment. */
@@ -106,6 +120,9 @@ interface RunSocietyWorkerOptions {
   readonly taskQueue: string;
   readonly activities: RunLifecycleActivities;
 }
+
+// Comfortably inside the activity's heartbeat deadline in reclaim.ts.
+const HEARTBEAT_INTERVAL = Duration.seconds(10);
 
 class ControllerAttemptFailed extends Error {
   override readonly name = "ControllerAttemptFailed";
@@ -123,39 +140,47 @@ function runControllerOnce(
   RunControllerResult,
   ControllerAttemptFailed | KubernetesCallFailed
 > {
-  return Effect.gen(function* () {
-    yield* operations.prepareRun(input);
-    for (;;) {
-      // Every observation is also the attempt's proof of life. Without it the
-      // workflow cannot tell a controller that is still working from a worker
-      // that stopped, and the run's namespace survives until the far longer
-      // start-to-close deadline expires.
-      yield* Effect.sync(() => {
+  // Preparing a cohort outlasts the heartbeat deadline, so proof of life
+  // cannot depend on reaching the observation loop.
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const beat = Effect.sync(() => {
         operations.heartbeat();
       });
-      const observation = yield* operations.observeController(input);
-      switch (observation._tag) {
-        case "succeeded":
-          return observation.result;
-        case "failed":
-          if (observation.result !== undefined) {
+      yield* beat;
+      yield* Effect.forkScoped(
+        Effect.sleep(HEARTBEAT_INTERVAL).pipe(
+          Effect.zipRight(beat),
+          Effect.forever,
+          Effect.tapErrorCause(Effect.logError),
+        ),
+      );
+      yield* operations.prepareRun(input);
+      for (;;) {
+        const observation = yield* operations.observeController(input);
+        switch (observation._tag) {
+          case "succeeded":
             return observation.result;
-          }
-          return yield* Effect.fail(
-            new ControllerAttemptFailed(observation.detail),
-          );
-        case "running":
-          yield* operations.waitBeforeObservation();
-          break;
-        default:
-          return yield* Effect.fail(
-            new ControllerAttemptFailed(
-              "controller returned an unsupported observation",
-            ),
-          );
+          case "failed":
+            if (observation.result !== undefined) {
+              return observation.result;
+            }
+            return yield* Effect.fail(
+              new ControllerAttemptFailed(observation.detail),
+            );
+          case "running":
+            yield* operations.waitBeforeObservation();
+            break;
+          default:
+            return yield* Effect.fail(
+              new ControllerAttemptFailed(
+                "controller returned an unsupported observation",
+              ),
+            );
+        }
       }
-    }
-  });
+    }),
+  );
 }
 
 function cleanupRun(
@@ -202,7 +227,15 @@ export const runLifecycleActivities: Effect.Effect<
 > = Effect.map(LifecycleOperations, (operations) =>
   Object.freeze({
     runControllerOnce: (input: RunSocietyWorkflowInput) =>
-      runAtPromiseBoundary(runControllerOnce(operations, input)),
+      runAtPromiseBoundary(
+        runControllerOnce(
+          {
+            ...operations,
+            heartbeat: operations.bindHeartbeat?.() ?? operations.heartbeat,
+          },
+          input,
+        ),
+      ),
     cleanupRun: (input: CleanupRunInput) =>
       runAtPromiseBoundary(cleanupRun(operations, input)),
   }),
@@ -220,6 +253,12 @@ export function kubernetesLifecycleOperations(
     ...makeKubernetesRunLifecycleOperations(profile),
     heartbeat: () => {
       ActivityContext.current().heartbeat();
+    },
+    bindHeartbeat: () => {
+      const activity = ActivityContext.current();
+      return () => {
+        activity.heartbeat();
+      };
     },
   };
 }

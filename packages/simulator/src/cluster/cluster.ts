@@ -14,7 +14,11 @@ import type { AgentRuntimeLike, RunningAgent } from "../agents/agent.js";
 /** Cluster loss that ends a run without exposing its backend. */
 export class ClusterError extends Data.TaggedError("ClusterError")<{
   readonly detail: string;
-}> {}
+}> {
+  override get message(): string {
+    return this.detail;
+  }
+}
 
 /**
  * Normalize an implementation failure at a cluster boundary. Error causes

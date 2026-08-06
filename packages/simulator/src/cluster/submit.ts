@@ -203,6 +203,7 @@ interface PreparedRun {
     Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
   >;
   readonly executionProfile: KubernetesExecutionProfile;
+  readonly startupTimeoutMs?: number;
   readonly connection: {
     readonly taskQueue: string;
     readonly temporalAddress: string;
@@ -225,6 +226,23 @@ function runtimeCredentials(
     : Object.freeze(credentials);
 }
 
+function startupTimeoutOverride(environment: RunEnvironment): {
+  readonly startupTimeoutMs?: number;
+} {
+  const encoded = optionalOverride(environment, "MOLTZAP_STARTUP_TIMEOUT_MS");
+  if (encoded === undefined) {
+    return {};
+  }
+  const value = Number(encoded);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw failure(
+      "configuration",
+      "MOLTZAP_STARTUP_TIMEOUT_MS must be a positive integer",
+    );
+  }
+  return { startupTimeoutMs: value };
+}
+
 function prepareRun(
   args: readonly string[],
   environment: RunEnvironment,
@@ -245,6 +263,7 @@ function prepareRun(
     path: experimentPath(args),
     controllerImage,
     executionProfile,
+    ...startupTimeoutOverride(environment),
     supportImage: requiredImage(
       environment,
       "MOLTZAP_SUPPORT_IMAGE",
@@ -306,6 +325,9 @@ function executePreparedRun(
             ? {}
             : { runtimeCredentials: prepared.runtimeCredentials }),
           experimentModule,
+          ...(prepared.startupTimeoutMs === undefined
+            ? {}
+            : { startupTimeoutMs: prepared.startupTimeoutMs }),
         },
       },
       operations,

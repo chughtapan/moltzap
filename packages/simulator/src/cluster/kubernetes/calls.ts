@@ -451,7 +451,35 @@ export interface JobCondition {
 export interface WorkerAvailability {
   readonly generation: number;
   readonly observedGeneration: number;
+  readonly replicas: number;
+  readonly updatedReplicas: number;
   readonly availableReplicas: number;
+}
+
+// An unobserved generation reads as -1, never as ready.
+function workerAvailabilityOf(deployment: {
+  readonly metadata?: { readonly generation?: number };
+  readonly status?: {
+    readonly observedGeneration?: number;
+    readonly replicas?: number;
+    readonly updatedReplicas?: number;
+    readonly availableReplicas?: number;
+  };
+}): WorkerAvailability {
+  const { generation = 0 } = deployment.metadata ?? {};
+  const {
+    observedGeneration = -1,
+    replicas = 0,
+    updatedReplicas = 0,
+    availableReplicas = 0,
+  } = deployment.status ?? {};
+  return {
+    generation,
+    observedGeneration,
+    replicas,
+    updatedReplicas,
+    availableReplicas,
+  };
 }
 
 /** One installable member of the cluster's run-worker control plane. */
@@ -897,13 +925,7 @@ export function makeKubernetesRunWorkerInstallApi(
           name: RUN_WORKER_NAME,
           namespace: SYSTEM_NAMESPACE,
         }),
-      ).pipe(
-        Effect.map((deployment) => ({
-          generation: deployment.metadata?.generation ?? 0,
-          observedGeneration: deployment.status?.observedGeneration ?? -1,
-          availableReplicas: deployment.status?.availableReplicas ?? 0,
-        })),
-      ),
+      ).pipe(Effect.map(workerAvailabilityOf)),
     wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
   });
 }

@@ -36,18 +36,19 @@ export class RunWorkerUnavailable extends Error {
 /**
  * Whether the rollout the cluster reports is the installed one and is serving.
  *
- * `observedGeneration` is what separates a worker that is up from the previous
- * revision of a worker that is being replaced: until the controller has caught
- * up to the generation just installed, `availableReplicas` still describes the
- * image the last submission chose.
+ * Every submission installs the image it just built, so every submission rolls
+ * the Deployment, and `availableReplicas` counts the outgoing revision too.
+ * Treating that as readiness hands the workflow to a Pod the rollout deletes.
  *
  * @param availability Rollout state read back from the installed Deployment.
- * @returns Whether at least one replica of the installed revision is available.
+ * @returns Whether the installed revision is the only one still serving.
  */
 export function workerIsAvailable(availability: WorkerAvailability): boolean {
   return (
     availability.observedGeneration >= availability.generation &&
-    availability.availableReplicas > 0
+    availability.updatedReplicas > 0 &&
+    availability.replicas === availability.updatedReplicas &&
+    availability.availableReplicas >= availability.updatedReplicas
   );
 }
 
