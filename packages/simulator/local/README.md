@@ -88,13 +88,21 @@ pnpm nx run @moltzap/simulator:local-run -- local/end-to-end.mjs
 The support image defaults to `MOLTZAP_CONTROLLER_IMAGE`, so this uses the same
 immutable image for the controller and the Sandbox bootstrap initializer.
 
-A larger cohort needs capacity to seat it. The GKE profile's agent pool
-autoscales, so it takes sizes a local cluster generally cannot:
+A larger cohort needs two things. Capacity to seat it: the GKE profile's agent
+pool autoscales, so it takes sizes a local cluster generally cannot. And time to
+reach it: `MOLTZAP_STARTUP_TIMEOUT_MS` is how long the controller waits for the
+whole roster to be admitted and ready, and its two-minute default does not cover
+provisioning nodes and pulling an image onto each one.
 
 ```bash
-MOLTZAP_COHORT_SIZE=100 packages/simulator/gke/cluster.sh run \
+MOLTZAP_COHORT_SIZE=100 \
+MOLTZAP_STARTUP_TIMEOUT_MS=900000 \
+packages/simulator/gke/cluster.sh run \
   packages/simulator/local/end-to-end.mjs
 ```
+
+Leaving the budget at its default is the failure a large cold cohort hits first,
+and it reports as `agent sandbox "…" was not ready within 2m`.
 
 The checked-in module and profile tests do not by themselves prove that a run
 completed on a live cluster.

@@ -152,7 +152,7 @@ pod templates; Kueue admission alone is not treated as placement or readiness.
 The profile is source-complete but this repository cannot prove live GKE
 qualification without a caller-authorized project with billing, API enablement,
 quota, and credentials. Do not claim the ADR's GKE gate until the same
-two-agent smoke and one OpenClaw evaluation complete through `Run.execute`,
+end-to-end run and one OpenClaw evaluation complete through `Run.execute`,
 their ledgers are readable in the artifact bucket, and run-owned Kubernetes
 residue is zero.
 
