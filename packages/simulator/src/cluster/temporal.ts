@@ -42,17 +42,23 @@ import { makeKubernetesRunLifecycleOperations } from "./watch.js";
 const WORKFLOW_TYPE = "runSocietyWorkflow";
 const DEFAULT_TEMPORAL_NAMESPACE = "default";
 
-/** Coarse controller state observed by the host-side activity. */
+/**
+ * Coarse controller state observed by the host-side activity.
+ *
+ * `completed` is every controller that produced a decodable result, whether or
+ * not the run inside it succeeded — the activity returns both the same way. The
+ * two were one state with an optional result and a detail that was dead
+ * whenever the result was present, which invited them to disagree.
+ */
 export type ControllerObservation =
   | { readonly _tag: "running" }
   | {
-      readonly _tag: "succeeded";
+      readonly _tag: "completed";
       readonly result: RunControllerResult;
     }
   | {
       readonly _tag: "failed";
       readonly detail: string;
-      readonly result?: RunControllerResult;
     };
 
 /** Process environment read by the in-cluster worker Deployment. */
@@ -166,12 +172,9 @@ function runControllerOnce(
       for (;;) {
         const observation = yield* operations.observeController(input);
         switch (observation._tag) {
-          case "succeeded":
+          case "completed":
             return observation.result;
           case "failed":
-            if (observation.result !== undefined) {
-              return observation.result;
-            }
             return yield* Effect.fail(
               new ControllerAttemptFailed(observation.detail),
             );

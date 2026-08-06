@@ -107,7 +107,7 @@ describe("controller Job diagnostics", () => {
         encodedSummary(PROGRAM_SUMMARY),
       ),
     ).toEqual({
-      _tag: "succeeded",
+      _tag: "completed",
       result: { exitCode: 0, summary: PROGRAM_SUMMARY },
     });
   });
@@ -128,10 +128,17 @@ describe("controller Job diagnostics", () => {
         job({ failed: 1 }),
         `${encodedSummary(summary)}\nSimulator controller execution failed`,
       ),
+      // A decodable failure summary is a completed observation: the activity
+      // returns it rather than failing, so the reason the Job gave rides the
+      // result or disappears with the namespace.
     ).toEqual({
-      _tag: "failed",
-      detail: "controller Job failed\nSimulator controller execution failed",
-      result: { exitCode: 1, summary },
+      _tag: "completed",
+      result: {
+        exitCode: 1,
+        summary,
+        diagnostic:
+          "controller Job failed\nSimulator controller execution failed",
+      },
     });
   });
 
@@ -198,7 +205,7 @@ it("reads a bounded log tail once the Job is terminal", async () => {
   await expect(
     Effect.runPromise(observeController(api, INPUT)),
   ).resolves.toEqual({
-    _tag: "succeeded",
+    _tag: "completed",
     result: { exitCode: 0, summary: PROGRAM_SUMMARY },
   });
 
