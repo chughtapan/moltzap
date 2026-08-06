@@ -251,8 +251,9 @@ test("the evals verb hands the sweep every identity it cannot derive", async () 
   // The forward supervisor is a background job of this shell; exec would strand
   // it with no trap left to reap it.
   assert.doesNotMatch(script, /exec corepack/);
-  // One prelude, so a trap fix cannot reach `run` and miss `evals`.
-  assert.equal(script.match(/begin_cluster_session/g)?.length, 3);
+  // One prelude, shared rather than re-inlined per verb.
+  assert.match(script, /^begin_cluster_session\(\) \{$/m);
+  assert.match(script, /^\s+begin_cluster_session$/m);
   assert.equal(
     script.match(/open_temporal_forward "\$forward_port"/g)?.length,
     1,

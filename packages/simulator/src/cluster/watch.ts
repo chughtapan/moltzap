@@ -29,7 +29,10 @@ import { prepareRun } from "./scaffold.js";
 
 const OBSERVATION_INTERVAL_MS = 1_000;
 const FAILED_JOB_DETAIL = "controller Job failed";
-const DIAGNOSTIC_LIMIT = 4_096;
+/** Characters of sanitized controller output one failure retains. */
+const RETAINED_DIAGNOSTIC_CHARACTERS = 4_096;
+/** Bytes of controller log fetched, ahead of redaction and that bound. */
+const FETCHED_LOG_BYTES = RETAINED_DIAGNOSTIC_CHARACTERS * 2;
 const CONTROLLER_LOG_TAIL_LINES = 200;
 const SENSITIVE_LOG_LINE =
   /(authorization|bearer|token|secret|password|api[-_ ]?key|agent[-_ ]?key)/iu;
@@ -71,7 +74,7 @@ export function sanitizeControllerDiagnostic(value: string): string {
     )
     .join("\n")
     .trim();
-  return normalized.slice(-DIAGNOSTIC_LIMIT);
+  return normalized.slice(-RETAINED_DIAGNOSTIC_CHARACTERS);
 }
 
 function conditionDetail(job: JobObservation): string | undefined {
@@ -152,9 +155,8 @@ function failureDetail(job: JobObservation, logs: string): string {
   );
 }
 
-// A run that failed with a decodable summary is a completed observation, not a
-// failed one: the activity returns it rather than failing, so the reason the
-// Job gave has to ride the result or it is gone with the namespace.
+// The activity returns a failed run rather than failing, so the reason the Job
+// gave has to ride the result or it is gone with the namespace.
 function failedControllerObservation(
   job: JobObservation,
   logs: string,
@@ -195,11 +197,7 @@ function terminalControllerLogs(
   namespace: string,
 ): Effect.Effect<string | undefined> {
   return api
-    .readControllerLogs(
-      namespace,
-      CONTROLLER_LOG_TAIL_LINES,
-      DIAGNOSTIC_LIMIT * 2,
-    )
+    .readControllerLogs(namespace, CONTROLLER_LOG_TAIL_LINES, FETCHED_LOG_BYTES)
     .pipe(
       Effect.catchAll((failure) =>
         Effect.logWarning(

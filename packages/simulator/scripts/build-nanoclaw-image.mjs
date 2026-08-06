@@ -71,8 +71,7 @@ const workspacePackages = {
  */
 export function assertRepository(repository) {
   // The repository half excludes `@` so a trailing digest cannot be smuggled in
-  // behind an earlier one — the same reason the image schema excludes it. One
-  // rule, checked when the argument arrives rather than only after the build.
+  // behind an earlier one — the same reason the image schema excludes it.
   if (repository.length === 0 || /[@\s]/.test(repository)) {
     throw new TypeError(
       "a nanoclaw image repository must be nonempty and carry no digest",
