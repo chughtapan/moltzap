@@ -73,6 +73,9 @@ test("the image satisfies the NanoClaw container runtime contract", async () => 
     /dist\/moltzap-eval-provision\.js|"moltzap-eval-provision\.js"/,
   );
   assert.match(entrypoint, /cli\.sock/);
+  // An MCP server may be stdio or streamable HTTP, and the entrypoint owns
+  // neither shape: rebuilding one here would drop the other's only field.
+  assert.match(entrypoint, /\{ name, \.\.\.definition \}/);
 
   // Every layer this image is assembled from is immutable.
   const bases = dockerfile.match(/^(?:FROM|COPY --from=)\S*[^\n]*$/gmu) ?? [];
