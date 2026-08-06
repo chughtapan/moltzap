@@ -33,10 +33,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: node scripts/test/simulator-packages.mjs
-      - name: Verify simulator infrastructure profiles
+      - name: Verify infrastructure profiles
         run: |
           pnpm nx run @moltzap/simulator:local-profile-check
           pnpm nx run @moltzap/simulator:gke-profile-check
+          pnpm nx run @moltzap/evals:phoenix-terraform-check
       - run: pnpm typecheck
       - run: pnpm lint
       # Exact runs fail when a required project target disappears; run-many
