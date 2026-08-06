@@ -53,6 +53,7 @@ const IMAGE_DIGEST = "a".repeat(64);
 const EXPECTED_NAMESPACE = "mz-run-1";
 const EXPECTED_STARTUP_TIMEOUT_MS = 120_000;
 const EXPECTED_COHORT_SIZE = 2;
+const CHOSEN_COHORT_SIZE = 100;
 const REJECTED_COHORT_SIZES = ["0", "-1", "2.5", "1000", "many"];
 const EXECUTION_RESULT = "executed";
 const EXPECTED_MODULE_SPECIFIER = "file:///var/run/moltzap/experiment/main.mjs";
@@ -166,10 +167,10 @@ test("reads a run-chosen cohort size and refuses one no roster could have", () =
   Effect.sync(() => {
     const sized = controllerConfigurationFromEnvironment({
       ...VALID_ENVIRONMENT,
-      MOLTZAP_COHORT_SIZE: "100",
+      MOLTZAP_COHORT_SIZE: String(CHOSEN_COHORT_SIZE),
     });
 
-    assert.strictEqual(sized.cohortSize, 100);
+    assert.strictEqual(sized.cohortSize, CHOSEN_COHORT_SIZE);
 
     for (const encoded of REJECTED_COHORT_SIZES) {
       assert.throws(() =>
