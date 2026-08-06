@@ -15,6 +15,16 @@ that cannot fit never half-starts, and every run writes a ledger it can be read
 back from. Two profiles share that path: a local cluster for development and a
 GKE profile for experiments at size.
 
+### Changed: one end-to-end experiment, sized by its run
+
+`packages/simulator/local/end-to-end.mjs` replaces the two-, four-, ten-, and
+hundred-agent modules. The path is the same at two agents and at a hundred, so
+the roster size is an input rather than four near-copies of one file.
+`MOLTZAP_COHORT_SIZE` carries it, defaulting to two, and travels the same
+validated path as the startup budget: the submitter refuses what could never be
+a count, the controller bounds it, and the experiment reads it through the
+controller's own configuration rather than the process.
+
 ### Added: a GKE profile that scales agents on demand
 
 `packages/simulator/gke/cluster.sh` covers the profile's whole lifecycle with
