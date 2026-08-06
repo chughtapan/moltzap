@@ -100,4 +100,5 @@ planning database as continuing authority.
 | [v2 lives top-level](20260721-v2-lives-top-level.md) | 2026-07-21 | partially-superseded | [Six packages and one version](20260728-six-deep-packages-one-version.md), [V2 authority](20260729-v2-authority-lives-with-v2.md), [opaque Router order](20260729-router-order-is-opaque.md) |
 | [AGENTS.md is the single source](20260721-agents-md-single-source.md) | 2026-07-21 | partially-superseded | [progressive disclosure](20260805-agent-instructions-progressive-disclosure.md) |
 | [Agent instructions load progressively](20260805-agent-instructions-progressive-disclosure.md) | 2026-08-05 | accepted | — |
+| [Decision evidence lives in the brain](20260806-evidence-lives-in-the-brain.md) | 2026-08-06 | accepted | — |
 | [The network is a router](20260720-the-network-is-a-router.md) | 2026-07-20 | partially-superseded | [Layer boundaries](20260728-layer-boundaries-and-fault-model.md), [mechanical Transcript commit](20260728-transcript-is-mechanical-atomic-commit.md) |
