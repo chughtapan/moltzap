@@ -210,7 +210,7 @@ test("represents process exit and signal as distinct classes", () =>
     );
   }));
 
-test("keeps router commitment evidence content-blind", () =>
+test("carries the committed message body on the commitment", () =>
   Effect.gen(function* () {
     const committed = yield* coreEvents.decode({
       _tag: "moltzap.router-message-committed/v1",
@@ -218,21 +218,23 @@ test("keeps router commitment evidence content-blind", () =>
       messageId: MESSAGE_ID,
       senderId: AGENT_ID,
       routerSequence: 0,
+      parts: [{ type: "text", text: "router plaintext" }],
+      createdAtMillis: 1_754_000_000_000,
     });
-    const contentBearing = yield* coreEvents
+    const bodiless = yield* coreEvents
       .decode({
         _tag: "moltzap.router-message-committed/v1",
         conversationId: CONVERSATION_ID,
         messageId: MESSAGE_ID,
         senderId: AGENT_ID,
         routerSequence: 0,
-        parts: [{ type: "text", text: "router plaintext" }],
       })
       .pipe(Effect.either);
 
     assert.instanceOf(committed, RouterMessageCommitted);
+    assert.lengthOf(committed.parts, 1);
     assert.isTrue(
-      Either.match(contentBearing, {
+      Either.match(bodiless, {
         onLeft: () => true,
         onRight: () => false,
       }),
