@@ -87,16 +87,37 @@ export interface CheckedWorkspaceFile {
 }
 
 /** One stdio MCP server mounted into a runtime container's workspace. */
-export interface McpServer {
+interface StdioMcpServer {
   readonly name: string;
   readonly command: string;
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
 }
 
+interface HttpMcpServer {
+  readonly name: string;
+  readonly url: string;
+}
+
+/**
+ * One MCP server a runtime mounts: spawned over stdio inside the container,
+ * or reached remotely over streamable HTTP. A remote URL may embed a
+ * per-agent capability token, so sanitized configurations treat the URL like
+ * credential material: digested by origin only, never recorded.
+ */
+export type McpServer = StdioMcpServer | HttpMcpServer;
+
 const decodeWorkspaceRelativePath = Schema.decodeUnknownSync(
   workspaceRelativePath,
 );
+
+const mcpServerUrl = Schema.String.pipe(
+  Schema.filter((value) => URL.canParse(value), {
+    message: () => "an MCP server url must be a parseable absolute URL",
+  }),
+);
+
+const decodeMcpServerUrl = Schema.decodeUnknownSync(mcpServerUrl);
 
 /** Digest standing in for material a sanitized configuration must not carry. */
 export const configurationDigest = Schema.String.pipe(
@@ -122,10 +143,13 @@ export class McpServerConfiguration extends Schema.Class<McpServerConfiguration>
 )({
   name: Schema.String,
   definitionDigest: configurationDigest,
-  redacted: Schema.Tuple(
-    Schema.Literal("command"),
-    Schema.Literal("args"),
-    Schema.Literal("environmentValues"),
+  redacted: Schema.Union(
+    Schema.Tuple(
+      Schema.Literal("command"),
+      Schema.Literal("args"),
+      Schema.Literal("environmentValues"),
+    ),
+    Schema.Tuple(Schema.Literal("url")),
   ),
 }) {}
 
@@ -159,12 +183,16 @@ export function snapshotMcpServers(
     ? undefined
     : Object.freeze(
         servers.map((server) =>
-          Object.freeze({
-            name: server.name,
-            command: server.command,
-            args: Object.freeze([...server.args]),
-            env: Object.freeze({ ...server.env }),
-          }),
+          Object.freeze(
+            "url" in server
+              ? { name: server.name, url: decodeMcpServerUrl(server.url) }
+              : {
+                  name: server.name,
+                  command: server.command,
+                  args: Object.freeze([...server.args]),
+                  env: Object.freeze({ ...server.env }),
+                },
+          ),
         ),
       );
 }
@@ -198,20 +226,39 @@ export function workspaceConfiguration(
 }
 
 /**
- * The digested form of one MCP server. Only the environment *keys* are
- * digested: the values are provider credentials, and including them would let
- * anyone holding a candidate secret confirm it against a published ledger.
+ * The sanitized record of one MCP server: a value-free definition digest and
+ * the matching redaction list, produced together so they cannot drift. Only
+ * environment *keys* and the URL *origin* are digested: values and token
+ * paths are secrets, and digesting them would let anyone holding a candidate
+ * confirm it against a published ledger.
  * @param server MCP server whose definition is being recorded.
- * @returns The canonical, value-free JSON that stands in for the server.
+ * @returns The sanitized MCP server record.
  */
-function mcpServerDefinition(server: McpServer): string {
-  return JSON.stringify({
+function sanitizedMcpServer(server: McpServer): McpServerConfiguration {
+  const { definition, redacted } =
+    "url" in server
+      ? {
+          definition: JSON.stringify({
+            name: server.name,
+            origin: new URL(server.url).origin,
+          }),
+          redacted: ["url"] as const,
+        }
+      : {
+          definition: JSON.stringify({
+            name: server.name,
+            command: server.command,
+            args: server.args,
+            environmentKeys: Object.keys(server.env).sort((left, right) =>
+              left.localeCompare(right),
+            ),
+          }),
+          redacted: ["command", "args", "environmentValues"] as const,
+        };
+  return McpServerConfiguration.make({
     name: server.name,
-    command: server.command,
-    args: server.args,
-    environmentKeys: Object.keys(server.env).sort((left, right) =>
-      left.localeCompare(right),
-    ),
+    definitionDigest: digestText(definition),
+    redacted,
   });
 }
 
@@ -223,13 +270,7 @@ function mcpServerDefinition(server: McpServer): string {
 export function mcpConfiguration(
   servers?: readonly McpServer[],
 ): readonly McpServerConfiguration[] {
-  return (servers ?? []).map((server) =>
-    McpServerConfiguration.make({
-      name: server.name,
-      definitionDigest: digestText(mcpServerDefinition(server)),
-      redacted: ["command", "args", "environmentValues"],
-    }),
-  );
+  return (servers ?? []).map(sanitizedMcpServer);
 }
 
 /**
