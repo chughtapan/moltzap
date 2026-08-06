@@ -49,6 +49,7 @@ const BRIDGE_HOST = "127.0.0.2";
 const MODEL_ID = "claude-sonnet-4-5";
 const WORKSPACE_CONTENT = "Alice";
 const MCP_SECRET = "secret-mcp-value";
+const MCP_URL = "https://calendar.test/mcp/opaque-token";
 
 const connection: AgentConnection<"alice"> = {
   agent: makeAgentHandle("alice", AGENT_ID),
@@ -66,12 +67,15 @@ const renderedRuntimeConfig = Schema.parseJson(
     autoRegisterConversations: Schema.Boolean,
     modelId: Schema.optional(Schema.String),
     mcpServers: Schema.Array(
-      Schema.Struct({
-        name: Schema.String,
-        command: Schema.String,
-        args: Schema.Array(Schema.String),
-        env: Schema.Record({ key: Schema.String, value: Schema.String }),
-      }),
+      Schema.Union(
+        Schema.Struct({
+          name: Schema.String,
+          command: Schema.String,
+          args: Schema.Array(Schema.String),
+          env: Schema.Record({ key: Schema.String, value: Schema.String }),
+        }),
+        Schema.Struct({ name: Schema.String, url: Schema.String }),
+      ),
     ),
   }),
 );
@@ -137,6 +141,7 @@ function makeFixture() {
           args: ["--stdio"],
           env: { PRIVATE_TOKEN: MCP_SECRET },
         },
+        { name: "calendar", url: MCP_URL },
       ],
     });
     const capability = containerRuntimeFor(runtime);
@@ -190,10 +195,15 @@ function assertBootstrap(fixture: Fixture): void {
   assert.strictEqual(runtimeConfig.stateDirectory, STATE_DIR);
   assert.strictEqual(runtimeConfig.modelId, MODEL_ID);
   assert.isTrue(runtimeConfig.autoRegisterConversations);
-  assert.strictEqual(
-    runtimeConfig.mcpServers[0]?.env.PRIVATE_TOKEN,
-    MCP_SECRET,
-  );
+  assert.deepStrictEqual(runtimeConfig.mcpServers, [
+    {
+      name: "private-tool",
+      command: "tool-server",
+      args: ["--stdio"],
+      env: { PRIVATE_TOKEN: MCP_SECRET },
+    },
+    { name: "calendar", url: MCP_URL },
+  ]);
   assert.strictEqual(profile.profiles["simulator-agent"].agentId, AGENT_ID);
   assert.strictEqual(
     profile.profiles["simulator-agent"].apiKey,
@@ -209,6 +219,10 @@ function assertBootstrap(fixture: Fixture): void {
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),
     AGENT_KEY_TEXT,
+  );
+  assert.notInclude(
+    JSON.stringify(runtimeConfigurationProjection(runtime)),
+    MCP_URL,
   );
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),

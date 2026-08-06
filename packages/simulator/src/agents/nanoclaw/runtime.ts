@@ -92,7 +92,7 @@ export interface NanoClawRuntimeOptions {
    */
   readonly autoRegisterConversations?: boolean;
 
-  /** Stdio MCP servers mounted into the NanoClaw container workspace. */
+  /** MCP servers reachable from the NanoClaw container. */
   readonly mcpServers?: readonly McpServer[];
 }
 
@@ -156,12 +156,7 @@ function runtimeConfig(
       workspaceDirectory: NANOCLAW_WORKSPACE_DIR,
       autoRegisterConversations: settings.autoRegisterConversations,
       ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
-      mcpServers: (settings.mcpServers ?? []).map((server) => ({
-        name: server.name,
-        command: server.command,
-        args: [...server.args],
-        env: { ...server.env },
-      })),
+      mcpServers: settings.mcpServers ?? [],
     },
     null,
     2,
