@@ -4,7 +4,11 @@
 import { Command as CliCommand, Options } from "@effect/cli";
 import { Command, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import type { CompletedLedgerReceipt } from "@moltzap/simulator";
+import {
+  isEntryModule,
+  type CompletedLedgerReceipt,
+  type LedgerReceipt,
+} from "@moltzap/simulator";
 import {
   LedgerStorageError,
   type CompletedLedgerArtifacts,
@@ -83,6 +87,7 @@ import {
   type EvaluationSweepCell,
 } from "./sweep.js";
 import {
+  submissionDiagnostic,
   submitEvaluationCell,
   type EvaluationSubmissionResult,
   type SimulatorProfile,
@@ -162,7 +167,8 @@ interface EvaluationExecutionImages {
   readonly nanoclawApplicationImage: Image;
 }
 
-interface AttemptContext {
+/** One cell's identity while its attempt is being produced. */
+export interface AttemptContext {
   readonly cell: EvaluationSweepCell;
   readonly definition: BundledEvaluationCase;
   readonly startedAt: DateTime.Utc;
@@ -483,33 +489,56 @@ function completeExecution(
   });
 }
 
-function ledgerAllocationFailed(context: AttemptContext) {
+// Both infrastructure attempts already own a `detail`, and Phoenix already
+// publishes it as a run's error. The controller's own account of the failure
+// belongs there rather than beside it: a canned sentence is what an operator
+// reads today, and it says only that something went wrong.
+const ALLOCATION_FAILED_DETAIL =
+  "the simulator controller could not allocate its durable ledger";
+const RUN_FAILED_DETAIL =
+  "the simulator controller reported an infrastructure failure";
+
+/**
+ * Record that ledger allocation failed, with whatever account the run left.
+ * @param context Cell identity and the instant execution began.
+ * @param diagnostic The controller's own account, when it produced one.
+ * @returns The terminal attempt this cell commits.
+ */
+export function ledgerAllocationFailed(
+  context: AttemptContext,
+  diagnostic?: string,
+) {
   return DateTime.now.pipe(
     Effect.map((completedAt) =>
       LedgerAllocationFailedAttempt.make({
         ...terminalFields(context, completedAt),
         failure: LedgerStorageError.make({
           operation: "allocate",
-          detail:
-            "the simulator controller could not allocate its durable ledger",
+          detail: diagnostic ?? ALLOCATION_FAILED_DETAIL,
         }),
       }),
     ),
   );
 }
 
-function runInfrastructureFailed(
+/**
+ * Record an infrastructure failure, with whatever account the run left.
+ * @param context Cell identity and the instant execution began.
+ * @param receipt Durable evidence the controller retained.
+ * @param diagnostic The controller's own account, when it produced one.
+ * @returns The terminal attempt this cell commits.
+ */
+export function runInfrastructureFailed(
   context: AttemptContext,
-  receipt: EvaluationSubmissionResult["result"]["summary"] & {
-    readonly _tag: "ClusterLost";
-  },
+  receipt: LedgerReceipt,
+  diagnostic?: string,
 ) {
   return DateTime.now.pipe(
     Effect.map((completedAt) =>
       RunFailedAttempt.make({
         ...terminalFields(context, completedAt),
-        receipt: receipt.receipt,
-        detail: "the simulator controller reported an infrastructure failure",
+        receipt,
+        detail: diagnostic ?? RUN_FAILED_DETAIL,
       }),
     ),
   );
@@ -572,11 +601,12 @@ function completeSubmission(
   submission: EvaluationSubmissionResult,
 ) {
   const summary = submission.result.summary;
+  const diagnostic = submissionDiagnostic(submission);
   if (summary._tag === "LedgerAllocationFailed") {
-    return ledgerAllocationFailed(context);
+    return ledgerAllocationFailed(context, diagnostic);
   }
   if (summary._tag === "ClusterLost") {
-    return runInfrastructureFailed(context, summary);
+    return runInfrastructureFailed(context, summary.receipt, diagnostic);
   }
   return readCompletedArtifacts(
     environment,
@@ -712,41 +742,66 @@ function requiredEnvironment(key: string) {
   );
 }
 
+/** Environment key naming one digest-pinned image an evaluation run needs. */
+export type EvaluationImageKey =
+  | "MOLTZAP_CONTROLLER_IMAGE"
+  | "MOLTZAP_SUPPORT_IMAGE"
+  | "MOLTZAP_NANOCLAW_IMAGE";
+
+// Nothing else in the repository produces these references, so a missing one is
+// an operator who has not run the producer yet rather than one who forgot to
+// export a value they already had. Naming the producer is the whole remedy.
+const imageProducer: Readonly<Record<EvaluationImageKey, string>> = {
+  MOLTZAP_CONTROLLER_IMAGE:
+    "packages/simulator/scripts/build-controller-image.mjs",
+  MOLTZAP_SUPPORT_IMAGE:
+    "packages/simulator/scripts/build-controller-image.mjs",
+  MOLTZAP_NANOCLAW_IMAGE: "packages/simulator/scripts/build-nanoclaw-image.mjs",
+};
+
+/**
+ * Say which producer builds an evaluation image the environment omitted.
+ * @param key Environment key the run could not read.
+ * @returns The operator-facing requirement, naming the producing script.
+ */
+export function missingImageDetail(key: EvaluationImageKey): string {
+  return `${key} is required for evaluation execution; build it with ${imageProducer[key]} and pass the printed pinnedImage`;
+}
+
+/**
+ * Say which producer prints the pinned form of a rejected evaluation image.
+ * @param key Environment key whose value was not digest-pinned.
+ * @returns The operator-facing requirement, naming the producing script.
+ */
+export function invalidImageDetail(key: EvaluationImageKey): string {
+  return `${key} must be a lowercase SHA-256 digest-pinned image; ${imageProducer[key]} prints one as pinnedImage`;
+}
+
 function distributedApplicationImage(
-  key:
-    | "MOLTZAP_CONTROLLER_IMAGE"
-    | "MOLTZAP_SUPPORT_IMAGE"
-    | "MOLTZAP_NANOCLAW_IMAGE",
+  key: EvaluationImageKey,
   value: string,
 ): Effect.Effect<Image, EvaluationSourceStateError> {
   return Schema.decodeUnknown(image)(value).pipe(
     Effect.mapError(() =>
-      EvaluationSourceStateError.make({
-        detail: `${key} must be a lowercase SHA-256 digest-pinned image`,
-      }),
+      EvaluationSourceStateError.make({ detail: invalidImageDetail(key) }),
     ),
+  );
+}
+
+function requiredImage(key: EvaluationImageKey) {
+  return Config.string(key).pipe(
+    Effect.mapError(() =>
+      EvaluationSourceStateError.make({ detail: missingImageDetail(key) }),
+    ),
+    Effect.flatMap((value: string) => distributedApplicationImage(key, value)),
   );
 }
 
 function executionImages() {
   return Effect.all({
-    controllerImage: requiredEnvironment("MOLTZAP_CONTROLLER_IMAGE").pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_CONTROLLER_IMAGE", value),
-      ),
-    ),
-    peerApplicationImage: requiredEnvironment("MOLTZAP_SUPPORT_IMAGE").pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_SUPPORT_IMAGE", value),
-      ),
-    ),
-    nanoclawApplicationImage: requiredEnvironment(
-      "MOLTZAP_NANOCLAW_IMAGE",
-    ).pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_NANOCLAW_IMAGE", value),
-      ),
-    ),
+    controllerImage: requiredImage("MOLTZAP_CONTROLLER_IMAGE"),
+    peerApplicationImage: requiredImage("MOLTZAP_SUPPORT_IMAGE"),
+    nanoclawApplicationImage: requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
   });
 }
 
@@ -957,5 +1012,14 @@ const cli = CliCommand.run(evaluationCommand, {
   version: CLI_VERSION,
 });
 
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli owns argv decoding at the process boundary.
-cli(process.argv).pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
+// Guarded so this module can be imported: without it, reading any value here
+// runs the CLI against the importer's argv, which is why the operator-facing
+// vocabulary above had to live in a module that does not read it.
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
+if (isEntryModule(import.meta.url, process.argv[1])) {
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli owns argv decoding at the process boundary.
+  cli(process.argv).pipe(
+    Effect.provide(NodeContext.layer),
+    NodeRuntime.runMain,
+  );
+}
