@@ -26,13 +26,19 @@ WORKDIR /build/app
 # HUSKY=0 because upstream's `prepare` script installs git hooks, and the
 # extracted tarball is not a repository.
 ENV HUSKY=0
+# The final `rm -rf` drops what no agent turn reads and what is never small:
+# upstream's marketing imagery is ~8.5MB, its translated docs another ~0.6MB,
+# and better-sqlite3 keeps the whole SQLite C amalgamation beside the prebuild
+# it actually loads. The agent pool autoscales from zero, so every retained byte
+# is pulled onto a fresh node for every run.
 RUN npm install --no-audit --no-fund \
   && npm run build \
   && test -f dist/index.js \
   && test -f dist/moltzap-eval-provision.js \
   && node_modules/.bin/tsx scripts/upgrade-state.ts set "" moltzap-simulator \
   && npm prune --omit=dev \
-  && rm -rf vendor /root/.npm
+  && rm -rf vendor /root/.npm ./assets ./docs ./repo-tokens \
+    ./README_*.md ./CHANGELOG.md node_modules/better-sqlite3/deps
 
 FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
 
