@@ -83,7 +83,10 @@ import {
   type EvaluationSweepCell,
 } from "./sweep.js";
 import {
+  invalidImageDetail,
+  missingImageDetail,
   submitEvaluationCell,
+  type EvaluationImageKey,
   type EvaluationSubmissionResult,
   type SimulatorProfile,
 } from "./submission.js";
@@ -713,40 +716,30 @@ function requiredEnvironment(key: string) {
 }
 
 function distributedApplicationImage(
-  key:
-    | "MOLTZAP_CONTROLLER_IMAGE"
-    | "MOLTZAP_SUPPORT_IMAGE"
-    | "MOLTZAP_NANOCLAW_IMAGE",
+  key: EvaluationImageKey,
   value: string,
 ): Effect.Effect<Image, EvaluationSourceStateError> {
   return Schema.decodeUnknown(image)(value).pipe(
     Effect.mapError(() =>
-      EvaluationSourceStateError.make({
-        detail: `${key} must be a lowercase SHA-256 digest-pinned image`,
-      }),
+      EvaluationSourceStateError.make({ detail: invalidImageDetail(key) }),
     ),
+  );
+}
+
+function requiredImage(key: EvaluationImageKey) {
+  return Config.string(key).pipe(
+    Effect.mapError(() =>
+      EvaluationSourceStateError.make({ detail: missingImageDetail(key) }),
+    ),
+    Effect.flatMap((value: string) => distributedApplicationImage(key, value)),
   );
 }
 
 function executionImages() {
   return Effect.all({
-    controllerImage: requiredEnvironment("MOLTZAP_CONTROLLER_IMAGE").pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_CONTROLLER_IMAGE", value),
-      ),
-    ),
-    peerApplicationImage: requiredEnvironment("MOLTZAP_SUPPORT_IMAGE").pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_SUPPORT_IMAGE", value),
-      ),
-    ),
-    nanoclawApplicationImage: requiredEnvironment(
-      "MOLTZAP_NANOCLAW_IMAGE",
-    ).pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_NANOCLAW_IMAGE", value),
-      ),
-    ),
+    controllerImage: requiredImage("MOLTZAP_CONTROLLER_IMAGE"),
+    peerApplicationImage: requiredImage("MOLTZAP_SUPPORT_IMAGE"),
+    nanoclawApplicationImage: requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
   });
 }
 
