@@ -178,6 +178,16 @@ authority order.
 
 ## Acceptance
 
-Not accepted. A maintainer accepts or rejects a blind review result; reviewer
-prose is not self-certifying. The cohort-size reconciliation is a maintainer
-call, not an agent call.
+Superseded by a later review and then overridden.
+
+A fourth review of candidate `335d8cac` passed questions one, two, three, five,
+and six, and failed question four: a dated correction carried a binding change
+on an unattributed human acceptance. That was corrected at `79e4af96` by
+retaining the literal reply, stating what was searched and when, and restoring
+the scale-claim non-goals no source event addressed.
+
+Tapan Chugh then overrode the remaining gate and directed that landing proceed
+without a further passing review. The blockers this record names are resolved in
+the candidate; the override covers the requirement for a fresh reviewer to
+confirm it, not the findings themselves. Recorded here because an override is a
+maintainer decision the log should carry, not an absence.
