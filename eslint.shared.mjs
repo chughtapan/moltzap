@@ -204,7 +204,7 @@ const makeDocumentationRules = (languageOptions) => ({
 });
 
 // `@failure` is the project-wide convention for Effect error-channel
-// documentation (see workspace AGENTS.md). Every package gets it for
+// documentation, registered here rather than in prose. Every package gets it for
 // free; pass `customJsDocTags` to extend the list per package.
 const DEFAULT_CUSTOM_JSDOC_TAGS = ["failure"];
 

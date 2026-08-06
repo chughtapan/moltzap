@@ -31,14 +31,7 @@ import { execFileSync } from "node:child_process";
  * that says who runs it and when; "it might be useful" is not a reason.
  * The gate fails on a stale entry, so this list cannot rot quietly.
  */
-const ALLOWLIST: ReadonlyMap<string, string> = new Map([
-  [
-    "scripts/architecture/check-no-upward-imports.sh",
-    "Informational burn-down receipt for cross-layer relative imports. Reports " +
-      "224 violations and exits non-zero, so it cannot join `pnpm lint` without " +
-      "failing the build. Kept runnable by hand until the count reaches zero.",
-  ],
-]);
+const ALLOWLIST: ReadonlyMap<string, string> = new Map();
 
 /**
  * Every git call is rooted at the repo, never at the caller's cwd: the Nx
@@ -57,6 +50,10 @@ const git = (args: readonly string[]): string =>
  * `git grep` exits 1 to mean "no match", which `execFileSync` raises as an
  * error. Only that exit code is benign; anything else is a real failure and
  * must not be swallowed into a false "unreferenced" verdict.
+ *
+ * This file is excluded from its own search: it names every allowlisted path,
+ * so counting it as a reference would make each allowlist entry
+ * self-justifying.
  */
 const gitGrepFiles = (needle: string): readonly string[] => {
   try {
@@ -68,8 +65,6 @@ const gitGrepFiles = (needle: string): readonly string[] => {
       "--",
       ".",
       ":(exclude)scripts/__tests__",
-      // This file names every allowlisted path, so counting it as a reference
-      // would make each allowlist entry look self-justifying.
       ":(exclude)scripts/repo/check-script-reachability.ts",
     ]).split("\n");
   } catch (error) {
