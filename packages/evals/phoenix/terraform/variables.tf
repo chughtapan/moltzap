@@ -70,21 +70,13 @@ variable "phoenix_image" {
   }
 }
 
-variable "upstream_repository_id" {
-  description = "Artifact Registry remote repository that mirrors Docker Hub. Cloud Run pulls the pinned digest through this rather than from Docker Hub directly, which is what Google recommends for any image that is not a Docker Official or Sponsored OSS image."
-  type        = string
-  default     = "docker-hub-remote"
-}
-
 variable "sql_tier" {
   description = <<-EOT
     Cloud SQL machine type.
 
     This database holds evaluation dashboards, not a serving workload: it is
     written once per publish and read by a handful of people. The smallest
-    shared-core tier carries that comfortably. Raise it before raising
-    max_instances, because a second Phoenix instance multiplies connections
-    against the same instance.
+    shared-core tier carries that comfortably.
   EOT
   type        = string
   default     = "db-g1-small"
@@ -98,17 +90,6 @@ variable "sql_database_version" {
   validation {
     condition     = can(regex("^POSTGRES_[0-9]+$", var.sql_database_version))
     error_message = "sql_database_version must be a POSTGRES_<major> identifier."
-  }
-}
-
-variable "sql_disk_size_gb" {
-  description = "Initial Cloud SQL data disk. Autoresize is on, so this is a floor rather than a budget."
-  type        = number
-  default     = 10
-
-  validation {
-    condition     = var.sql_disk_size_gb >= 10
-    error_message = "sql_disk_size_gb must be at least 10, the Cloud SQL minimum."
   }
 }
 
@@ -168,47 +149,6 @@ variable "min_instances" {
   validation {
     condition     = var.min_instances >= 0 && floor(var.min_instances) == var.min_instances
     error_message = "min_instances must be a non-negative integer."
-  }
-}
-
-variable "max_instances" {
-  description = <<-EOT
-    Ceiling on running instances.
-
-    One. Phoenix is not deployed here as a horizontally scaled service, and
-    several instances behind one URL would share a database without sharing
-    their in-memory queues. Raise it only after establishing that the Phoenix
-    version in use supports it.
-  EOT
-  type        = number
-  default     = 1
-
-  validation {
-    condition     = var.max_instances >= 1 && floor(var.max_instances) == var.max_instances
-    error_message = "max_instances must be a positive integer."
-  }
-}
-
-variable "ingress" {
-  description = <<-EOT
-    Cloud Run ingress setting.
-
-    `INGRESS_TRAFFIC_ALL` is the default because the publisher runs from
-    developer machines and from the GKE cluster, and because the browser UI is
-    the point. Network reach is not the access control here; Phoenix's own
-    authentication is, which is why it is enabled before the first revision
-    ever serves a request.
-  EOT
-  type        = string
-  default     = "INGRESS_TRAFFIC_ALL"
-
-  validation {
-    condition = contains([
-      "INGRESS_TRAFFIC_ALL",
-      "INGRESS_TRAFFIC_INTERNAL_ONLY",
-      "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER",
-    ], var.ingress)
-    error_message = "ingress must be one of INGRESS_TRAFFIC_ALL, INGRESS_TRAFFIC_INTERNAL_ONLY, or INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER."
   }
 }
 

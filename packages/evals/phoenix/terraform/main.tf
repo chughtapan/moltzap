@@ -44,15 +44,9 @@ locals {
   )
 
   # Every entry is generated here and read only by the service account below.
-  # for_each iterates the identifiers rather than this map, because a map whose
-  # values are sensitive cannot be a for_each argument.
-  secret_ids = toset([
-    "database-url",
-    "phoenix-secret",
-    "admin-initial-password",
-  ])
-
-  secret_values = {
+  # Driving the secret, its version, and its IAM grant from one map is what
+  # keeps a secret from ever existing without the grant that makes it readable.
+  secrets = {
     "database-url"           = local.database_url
     "phoenix-secret"         = random_password.phoenix_secret.result
     "admin-initial-password" = random_password.admin_initial.result
@@ -77,7 +71,7 @@ resource "google_project_service" "required" {
 resource "google_artifact_registry_repository" "upstream" {
   project       = var.project_id
   location      = var.region
-  repository_id = var.upstream_repository_id
+  repository_id = "${var.name_prefix}-docker-hub-remote"
   description   = "Pull-through mirror of Docker Hub for the pinned Phoenix image"
   format        = "DOCKER"
   mode          = "REMOTE_REPOSITORY"
@@ -99,8 +93,6 @@ resource "google_artifact_registry_repository_iam_member" "run_image_reader" {
   repository = google_artifact_registry_repository.upstream.name
   role       = "roles/artifactregistry.reader"
   member     = "serviceAccount:${local.run_service_agent}"
-
-  depends_on = [google_project_service.required]
 }
 
 resource "google_service_account" "phoenix" {
@@ -167,7 +159,7 @@ resource "google_sql_database_instance" "phoenix" {
     edition                     = "ENTERPRISE"
     availability_type           = "ZONAL"
     disk_type                   = "PD_SSD"
-    disk_size                   = var.sql_disk_size_gb
+    disk_size                   = 10
     disk_autoresize             = true
     deletion_protection_enabled = var.deletion_protection
 
@@ -222,7 +214,7 @@ resource "google_sql_user" "phoenix" {
 }
 
 resource "google_secret_manager_secret" "phoenix" {
-  for_each = local.secret_ids
+  for_each = local.secrets
 
   project   = var.project_id
   secret_id = "${var.name_prefix}-${each.key}"
@@ -235,19 +227,21 @@ resource "google_secret_manager_secret" "phoenix" {
 }
 
 resource "google_secret_manager_secret_version" "phoenix" {
-  for_each = local.secret_ids
+  for_each = local.secrets
 
   secret      = google_secret_manager_secret.phoenix[each.key].id
-  secret_data = local.secret_values[each.key]
+  secret_data = each.value
 }
 
-# Access is granted on each secret rather than project-wide, so the runtime
-# identity can read these three and nothing else the project later acquires.
+# Iterating the secrets themselves, rather than a second list of names, is what
+# makes it impossible to add a secret and forget its grant. Access is granted
+# per secret rather than project-wide, so the runtime identity can read these
+# three and nothing else the project later acquires.
 resource "google_secret_manager_secret_iam_member" "phoenix_accessor" {
-  for_each = local.secret_ids
+  for_each = google_secret_manager_secret.phoenix
 
   project   = var.project_id
-  secret_id = google_secret_manager_secret.phoenix[each.key].secret_id
+  secret_id = each.value.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.phoenix.email}"
 }
@@ -256,7 +250,7 @@ resource "google_cloud_run_v2_service" "phoenix" {
   project             = var.project_id
   name                = var.name_prefix
   location            = var.region
-  ingress             = var.ingress
+  ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = var.deletion_protection
 
   template {
@@ -264,9 +258,12 @@ resource "google_cloud_run_v2_service" "phoenix" {
     execution_environment = "EXECUTION_ENVIRONMENT_GEN2"
     timeout               = "600s"
 
+    # One instance, not a variable. Phoenix is not deployed here as a
+    # horizontally scaled service: several instances behind one URL would share
+    # a database without sharing their in-memory span queues.
     scaling {
       min_instance_count = var.min_instances
-      max_instance_count = var.max_instances
+      max_instance_count = 1
     }
 
     volumes {
@@ -416,8 +413,6 @@ resource "google_cloud_run_v2_service" "phoenix" {
     google_project_iam_member.cloudsql_client,
     google_secret_manager_secret_iam_member.phoenix_accessor,
     google_secret_manager_secret_version.phoenix,
-    google_sql_database.phoenix,
-    google_sql_user.phoenix,
   ]
 }
 
