@@ -161,12 +161,16 @@ _Class_
 ```ts
 export class ClusterError extends Data.TaggedError("ClusterError")<{
   readonly detail: string;
-}> {}
+}> {
+  override get message(): string {
+    return this.detail;
+  }
+}
 ```
 
 Cluster loss that ends a run without exposing its backend.
 
-### [`ClusterLost`](./run/execute.ts#L144)
+### [`ClusterLost`](./run/execute.ts#L97)
 
 _Class_
 
@@ -191,7 +195,7 @@ export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
 
 Opaque service set supplied by a local-Kubernetes or GKE Layer.
 
-### [`CompletedLedgerReceipt`](./run/execute.ts#L111)
+### [`CompletedLedgerReceipt`](./run/execute.ts#L64)
 
 _Class_
 
@@ -543,7 +547,7 @@ export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>
 
 A controlled endpoint committed a message through the data plane.
 
-### [`EventCatalog`](./events/catalog.ts#L152)
+### [`EventCatalog`](./events/catalog.ts#L130)
 
 _Class_
 
@@ -638,7 +642,7 @@ The exact immutable event universe for one definition.
 The private type identifier makes catalog arguments nominal: a structural
 object cannot claim a schema, constructor list, and tag list that disagree.
 
-### [`EventCatalogDefinitionError`](./events/catalog.ts#L54)
+### [`EventCatalogDefinitionError`](./events/catalog.ts#L59)
 
 _Class_
 
@@ -646,25 +650,12 @@ _Class_
 export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalogDefinitionError>()(
   "EventCatalogDefinitionError",
   {
-    failure: Schema.Literal(
-      "duplicate-tag",
-      "invalid-event-class",
-      "invalid-tag",
-    ),
+    failure: Schema.Literal("duplicate-tag", "invalid-tag"),
     tag: Schema.String,
   },
 ) {
   override get message(): string {
-    switch (this.failure) {
-      case "duplicate-tag":
-        return `Duplicate event tag "${this.tag}"`;
-      case "invalid-event-class":
-        return `Event catalog member "${this.tag}" is not a schema-backed class`;
-      case "invalid-tag":
-        return `Event tag "${this.tag}" must be namespaced and versioned, for example "acme.consensus-reached/v1"`;
-      default:
-        return `Unknown event catalog failure "${this.failure}" for "${this.tag}"`;
-    }
+    return definitionFailureMessage[this.failure](this.tag);
   }
 }
 ```
@@ -676,10 +667,7 @@ Invalid catalogs fail during definition construction, before a run starts.
 _TypeAlias_
 
 ```ts
-export type EventCatalogDefinitionFailure =
-  | "duplicate-tag"
-  | "invalid-event-class"
-  | "invalid-tag";
+export type EventCatalogDefinitionFailure = "duplicate-tag" | "invalid-tag";
 ```
 
 Represents event catalog definition failure conditions.
@@ -730,7 +718,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](./run/execute.ts#L120)
+### [`IncompleteLedgerReceipt`](./run/execute.ts#L73)
 
 _Class_
 
@@ -758,7 +746,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt`](./run/execute.ts#L135)
+### [`LedgerReceipt`](./run/execute.ts#L88)
 
 _TypeAlias_
 
@@ -768,7 +756,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt`](./run/execute.ts#L129)
+### [`LedgerReceipt`](./run/execute.ts#L82)
 
 _Variable_
 
@@ -1113,7 +1101,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](./run/execute.ts#L138)
+### [`ProgramFinished`](./run/execute.ts#L91)
 
 _Class_
 
@@ -1244,7 +1232,7 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
 
 Router release or stopped-router evidence collection failed.
 
-### [`Run`](./definition.ts#L358)
+### [`Run`](./definition.ts#L310)
 
 _Variable_
 
@@ -1256,7 +1244,7 @@ export const Run: Readonly<{ execute: typeof executeRunSpec }> = Object.freeze({
 
 Discoverable execution entry point for one experiment society.
 
-### [`RunSpec`](./definition.ts#L169)
+### [`RunSpec`](./definition.ts#L150)
 
 _Interface_
 
@@ -1283,7 +1271,7 @@ export interface RunSpec<
    * distinguishes a definition from a lookalike, and a lookalike has no
    * runner to invoke.
    */
-  readonly [runSpecTypeId]?: RunSpecRunner<
+  readonly [runSpecTypeId]?: () => RunSpecExecution<
     Id,
     CustomerCatalogs,
     Definitions,
@@ -1309,7 +1297,7 @@ export interface RunSpec<
 
 Immutable code-first definition of one experiment society.
 
-### [`RunSpec`](./definition.ts#L353)
+### [`RunSpec`](./definition.ts#L305)
 
 _Variable_
 
@@ -1365,7 +1353,7 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 Stable code identity persisted in every ledger manifest.
 
-### [`SimulatorRunFailure`](./run/execute.ts#L159)
+### [`SimulatorRunFailure`](./run/execute.ts#L112)
 
 _TypeAlias_
 
@@ -1377,20 +1365,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOptions`](./run/execute.ts#L69)
-
-_Interface_
-
-```ts
-export interface SimulatorRunOptions {
-  readonly provenance?: JsonObject;
-  readonly metadata?: JsonObject;
-}
-```
-
-Optional run metadata; platform and runtime policy belong in Layers.
-
-### [`SimulatorRunOutcome`](./run/execute.ts#L152)
+### [`SimulatorRunOutcome`](./run/execute.ts#L105)
 
 _TypeAlias_
 
