@@ -141,12 +141,16 @@ conformance-artifacts/
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .gstack/
-.claude/
+# Agent config: personal state stays out, checked-in skills stay in. A child
+# of an excluded directory cannot be re-included, so this must glob.
+.claude/*
+!.claude/skills/
 
 # MoltZap runtime state (created by scripts/setup/quickstart.sh)
 /moltzap.yaml
 /.moltzap/
-.codex
+.codex/*
+!.codex/skills/
 /.tmp/
 
 # Local scratch space; holds the Node compile cache

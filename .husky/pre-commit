@@ -1,11 +1,26 @@
 #!/usr/bin/env sh
+#
+# Everything here is gated on what is staged, so a commit that touches nothing
+# relevant pays nothing. The heavy checks live at pre-push and in CI.
+#
+# Decision records are checked at commit time because the changelog rule needs
+# the diff: a body edit with no status change and no dated row is a silent
+# rewrite, invisible in review because it looks like a typo fix.
+#
+# Formatting never fails a commit. Small, frequent commits are the norm here and
+# a fix-then-retry cycle would multiply across every one of them. Re-staging is
+# scoped to paths already staged, so an unrelated working-tree edit can never be
+# swept in. oxfmt is resolved by absolute path because git invokes hooks without
+# node_modules/.bin on PATH.
 set -e
 
-# Format the staged files and re-stage exactly those paths. Formatting never
-# fails a commit: small, frequent commits are the norm here, and a
-# fix-then-retry cycle would multiply across every one of them. Re-staging is
-# scoped to paths already staged so an unrelated working-tree edit can never be
-# swept into the commit. Everything heavier runs at pre-push or in CI.
+ROOT="$(git rev-parse --show-toplevel)"
+
+if git diff --cached --name-only --diff-filter=ACMR \
+  | grep -qE '^docs/(decisions|decision-evidence)/'; then
+  "$ROOT/node_modules/.bin/tsx" "$ROOT/scripts/docs/adr/check-shape.ts" --staged
+fi
+
 STAGED=$(mktemp)
 trap 'rm -f "$STAGED"' EXIT
 
@@ -14,9 +29,5 @@ git diff --cached --name-only --diff-filter=ACMR -z \
 
 [ -s "$STAGED" ] || exit 0
 
-# Resolve the binary explicitly: git invokes hooks without node_modules/.bin on
-# PATH, so a bare `oxfmt` works from a pnpm-run commit and fails from an editor.
-OXFMT="$(git rev-parse --show-toplevel)/node_modules/.bin/oxfmt"
-
-xargs -0 "$OXFMT" < "$STAGED"
+xargs -0 "$ROOT/node_modules/.bin/oxfmt" < "$STAGED"
 xargs -0 git add -- < "$STAGED"
