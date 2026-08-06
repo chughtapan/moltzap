@@ -28,6 +28,7 @@ export {
 } from "./ledger/schema.js";
 /** Re-exports the public API from `./ledger/storage.js`. */
 export {
+  ledgerArtifactFiles,
   LedgerStorage,
   LedgerStorageError,
   type LedgerAllocation,

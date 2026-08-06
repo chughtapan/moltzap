@@ -52,6 +52,16 @@ export interface RuntimeCapacitySlot {
   readonly requests: Readonly<Record<string, string>>;
 }
 
+/**
+ * The capacity one run reserves. A reservation that admits nothing would let a
+ * run hold cluster ownership with no roster behind it, so the empty case is
+ * spelled out of the type rather than refused after the fact.
+ */
+export type ReservedCapacity = readonly [
+  RuntimeCapacitySlot,
+  ...RuntimeCapacitySlot[],
+];
+
 /** Everything one Sandbox Pod template needs about a rendered application. */
 export interface SandboxApplication {
   readonly image: Image;
@@ -74,7 +84,7 @@ interface AggregateWorkloadInput {
   readonly queueName: string;
   readonly labels: Readonly<Record<string, string>>;
   readonly owner: KubernetesRunOwner;
-  readonly slots: readonly RuntimeCapacitySlot[];
+  readonly slots: ReservedCapacity;
   readonly placement?: KubernetesPodPlacement;
 }
 
@@ -183,11 +193,6 @@ export function aggregateWorkloadManifest(
   input: AggregateWorkloadInput,
 ): KubernetesManifest {
   const groups = groupCapacity(input.slots);
-  if (groups.length === 0) {
-    throw new ClusterError({
-      detail: "aggregate capacity reservation requires at least one runtime",
-    });
-  }
   if (groups.length > MAX_KUEUE_POD_SETS) {
     throw new ClusterError({
       detail: `aggregate capacity reservation has ${String(groups.length)} resource classes; Kueue accepts at most ${String(MAX_KUEUE_POD_SETS)}`,

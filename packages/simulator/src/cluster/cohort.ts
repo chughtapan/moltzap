@@ -49,6 +49,7 @@ import {
   aggregateWorkloadManifest,
   bootstrapSecretManifest,
   type KubernetesRunOwner,
+  type ReservedCapacity,
   type RuntimeCapacitySlot,
   type SandboxApplication,
   sandboxManifest,
@@ -58,7 +59,20 @@ import type { KubernetesPodPlacement } from "./profile.js";
 const WORKLOAD_NAME = "society";
 const APPLICATION_CONTAINER_NAME = "application";
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
-const DEFAULT_POLL_INTERVAL = Duration.millis(250);
+
+/**
+ * Admission and readiness hold the run at its starting line, so they are
+ * observed at the rate someone waits at.
+ */
+const DEFAULT_READINESS_INTERVAL = Duration.millis(250);
+
+/**
+ * Liveness only has to notice an ending. Every agent and the reservation
+ * observe it for the whole run rather than for a startup window, and each
+ * observation is a quorum read of the cluster's own store, so the run's
+ * standing cost is this interval divided into the roster.
+ */
+const DEFAULT_LIVENESS_INTERVAL = Duration.seconds(5);
 
 interface TerminatedApplication {
   readonly exitCode: number;
@@ -67,14 +81,23 @@ interface TerminatedApplication {
   readonly message?: string;
 }
 
-interface KubernetesSessionState {
+/** Run-scoped facts every observation of one prepared roster shares. */
+interface KubernetesSession {
   readonly options: KubernetesClusterOptions;
-  /** Roster entries whose Sandbox reached readiness and attached. */
-  readonly acquired: Set<string>;
-  readonly resourceNames: ReadonlyMap<string, string>;
-  readonly pollInterval: Duration.Duration;
+  readonly readinessInterval: Duration.Duration;
+  readonly livenessInterval: Duration.Duration;
   /** Carries an acquired Sandbox that vanished into the session's failure. */
   readonly lost: Deferred.Deferred<never, ClusterError>;
+}
+
+interface KubernetesSessionState<
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+> extends KubernetesSession {
+  /** Roster entries whose Sandbox reached readiness and attached. */
+  readonly acquired: Set<string>;
+  readonly resourceNames: Readonly<
+    Record<Extract<keyof Definitions, string>, string>
+  >;
 }
 
 /** Inputs already owned by the run controller and hidden from customer code. */
@@ -90,7 +113,10 @@ export interface KubernetesClusterOptions {
   >;
   readonly rosterPlacement?: KubernetesPodPlacement;
   readonly startupTimeout: Duration.Duration;
-  readonly pollInterval?: Duration.Duration;
+  /** How often admission and readiness are observed while the run starts. */
+  readonly readinessInterval?: Duration.Duration;
+  /** How often a running agent and the reservation are observed to still be there. */
+  readonly livenessInterval?: Duration.Duration;
 }
 
 function clusterError(detail: string): ClusterError {
@@ -130,7 +156,7 @@ function positiveConditionDetail(
 function workloadAdmission(
   api: KubernetesSocietyApi,
   within: Duration.Duration,
-  pollInterval: Duration.Duration,
+  readinessInterval: Duration.Duration,
 ): Effect.Effect<void, ClusterError> {
   const observe: Effect.Effect<void, ClusterError> = Effect.suspend(() =>
     api.readWorkload(WORKLOAD_NAME).pipe(
@@ -152,7 +178,7 @@ function workloadAdmission(
         return currentConditionIsTrue(workload, "Admitted") &&
           workload.status?.admission !== undefined
           ? Effect.void
-          : Effect.sleep(pollInterval).pipe(Effect.zipRight(observe));
+          : Effect.sleep(readinessInterval).pipe(Effect.zipRight(observe));
       }),
     ),
   );
@@ -227,9 +253,15 @@ function readySandboxAddress(
 
 /**
  * Observe one agent's readiness for dispatch. Readiness is the Sandbox Ready
- * condition, one live application Pod, and the application's controller bridge
- * port accepting a connection: the last is what the controller is about to do,
- * so nothing weaker can claim the agent can serve it.
+ * condition, the application's controller bridge port accepting a connection,
+ * and one live application Pod: the bridge is what the controller is about to
+ * do, so nothing weaker can claim the agent can serve it.
+ *
+ * A Sandbox reports Ready as soon as its container starts, well before a
+ * runtime listens, and this repeats for the whole startup budget. The bridge
+ * probe is a local connect that costs the cluster nothing, while listing Pods
+ * is a quorum read of every Pod behind the selector, so the probe gates the
+ * list rather than the other way around.
  * @param api Cluster operations for this run.
  * @param sandboxName Sandbox resource that backs one roster entry.
  * @param port Controller bridge port declared by the rendered application.
@@ -249,27 +281,27 @@ function observeReadySandbox(
     if (address === undefined) {
       return undefined;
     }
-    const pods = yield* api.listPods(address.selector);
-    if (liveApplicationPod(pods) === undefined) {
+    if (!(yield* api.bridgeAccepts(address.fqdn, port))) {
       return undefined;
     }
-    return (yield* api.bridgeAccepts(address.fqdn, port))
-      ? address.fqdn
-      : undefined;
+    const pods = yield* api.listPods(address.selector);
+    return liveApplicationPod(pods) === undefined ? undefined : address.fqdn;
   });
 }
 
 function waitForReadySandbox(
   sandboxName: string,
   port: number,
-  state: KubernetesSessionState,
+  session: KubernetesSession,
 ): Effect.Effect<string, ClusterError> {
-  const { api, startupTimeout } = state.options;
+  const { api, startupTimeout } = session.options;
   const observe: Effect.Effect<string, ClusterError> = Effect.suspend(() =>
     observeReadySandbox(api, sandboxName, port).pipe(
       Effect.flatMap((fqdn) =>
         fqdn === undefined
-          ? Effect.sleep(state.pollInterval).pipe(Effect.zipRight(observe))
+          ? Effect.sleep(session.readinessInterval).pipe(
+              Effect.zipRight(observe),
+            )
           : Effect.succeed(fqdn),
       ),
     ),
@@ -354,17 +386,17 @@ function sandboxLost(sandboxName: string, cause: ClusterError): ClusterError {
  * waiting on an agent that no longer exists with nothing reporting it, so the
  * loss both ends the session and stands as this agent's terminal evidence.
  * @param sandboxName Sandbox resource that backs one roster entry.
- * @param state Run-scoped acquisition bookkeeping.
+ * @param session Run-scoped observation cadence and loss channel.
  * @returns An Effect that completes with this agent's terminal evidence.
  */
 function observeTermination(
   sandboxName: string,
-  state: KubernetesSessionState,
+  session: KubernetesSession,
 ): Effect.Effect<RuntimeTermination> {
-  const read = terminationSoFar(state.options.api, sandboxName).pipe(
+  const read = terminationSoFar(session.options.api, sandboxName).pipe(
     Effect.retry(
-      Schedule.spaced(state.pollInterval).pipe(
-        Schedule.upTo(state.options.startupTimeout),
+      Schedule.spaced(session.livenessInterval).pipe(
+        Schedule.upTo(session.options.startupTimeout),
       ),
     ),
   );
@@ -373,7 +405,9 @@ function observeTermination(
       read.pipe(
         Effect.flatMap((evidence) =>
           evidence === undefined
-            ? Effect.sleep(state.pollInterval).pipe(Effect.zipRight(observe))
+            ? Effect.sleep(session.livenessInterval).pipe(
+                Effect.zipRight(observe),
+              )
             : Effect.succeed(evidence),
         ),
       ),
@@ -381,7 +415,7 @@ function observeTermination(
   return observe.pipe(
     Effect.catchAll((cause) => {
       const lost = sandboxLost(sandboxName, cause);
-      return Deferred.fail(state.lost, lost).pipe(
+      return Deferred.fail(session.lost, lost).pipe(
         Effect.as(RuntimeFailed.make({ detail: lost.detail })),
       );
     }),
@@ -527,15 +561,15 @@ function holdResource(
  * here — a vanished Sandbox is discovered by the termination observation that
  * already reads it. An agent that merely dies is the run's own business,
  * reported as that agent's evidence rather than as lost cluster ownership.
- * @param state Run-scoped acquisition bookkeeping.
+ * @param session Run-scoped observation cadence and loss channel.
  * @returns An Effect that fails once the run no longer owns what it reserved.
  */
 function sessionFailure(
-  state: KubernetesSessionState,
+  session: KubernetesSession,
 ): Effect.Effect<never, ClusterError> {
   const observe: Effect.Effect<never, ClusterError> = Effect.suspend(() =>
     Effect.gen(function* () {
-      const workload = yield* state.options.api.readWorkload(WORKLOAD_NAME);
+      const workload = yield* session.options.api.readWorkload(WORKLOAD_NAME);
       if (
         workload.metadata.deletionTimestamp !== undefined ||
         currentConditionIsTrue(workload, "Evicted") ||
@@ -548,11 +582,11 @@ function sessionFailure(
           ),
         );
       }
-      yield* Effect.sleep(state.pollInterval);
+      yield* Effect.sleep(session.livenessInterval);
       return yield* observe;
     }),
   );
-  return Effect.raceFirst(observe, Deferred.await(state.lost));
+  return Effect.raceFirst(observe, Deferred.await(session.lost));
 }
 
 function agentLabels(resourceName: string): Readonly<Record<string, string>> {
@@ -654,7 +688,7 @@ type KubernetesAgentAcquisition<
 function attachReadyApplication<Gateway, AcquisitionError>(
   application: Application<Gateway, AcquisitionError>,
   sandboxName: string,
-  state: KubernetesSessionState,
+  session: KubernetesSession,
 ): Effect.Effect<
   RunningAgent<Gateway>,
   AcquisitionError | ClusterError,
@@ -664,15 +698,15 @@ function attachReadyApplication<Gateway, AcquisitionError>(
     const fqdn = yield* waitForReadySandbox(
       sandboxName,
       application.port,
-      state,
+      session,
     );
-    const stopped = observeTermination(sandboxName, state);
+    const stopped = observeTermination(sandboxName, session);
     // A runtime can watch its own controller bridge die while the container
     // keeps reporting Running, which nothing in the cluster's view of the
     // Sandbox would ever show. Whichever stop arrives first is the evidence.
     const reported = yield* Deferred.make<RuntimeTermination>();
     const gateway = yield* application.attach(
-      new URL(`ws://${fqdn}:${String(application.port)}`),
+      { host: fqdn, port: application.port },
       stopped,
       (termination) =>
         Deferred.succeed(reported, termination).pipe(Effect.asVoid),
@@ -689,7 +723,7 @@ function acquireKubernetesAgent<
   Name extends Extract<keyof Definitions, string>,
 >(
   input: Slot<Definitions, Name>,
-  state: KubernetesSessionState,
+  state: KubernetesSessionState<Definitions>,
 ): KubernetesAgentAcquisition<Definitions, Name> {
   return Effect.gen(function* () {
     const container = containerRuntimeFor(input.runtime);
@@ -700,12 +734,7 @@ function acquireKubernetesAgent<
         ),
       );
     }
-    const resourceName = state.resourceNames.get(input.name);
-    if (resourceName === undefined) {
-      return yield* Effect.fail(
-        clusterError(`roster entry "${input.name}" was not prepared`),
-      );
-    }
+    const resourceName = state.resourceNames[input.name];
     const application = yield* container.render(input);
     yield* installRenderedApplication(
       application,
@@ -748,6 +777,9 @@ function liveForDispatch(
  * established during acquisition; this is the only check that an agent has not
  * died in the window between its own acquisition and the cohort's dispatch, so
  * it reads each Sandbox exactly once rather than re-entering the wait.
+ *
+ * Only roster entries are ever acquired, so a count that matches the roster is
+ * the complete roster.
  * @param roster Complete roster the run reserved capacity for.
  * @param state Run-scoped acquisition bookkeeping.
  * @returns An Effect that completes only when every agent can be dispatched.
@@ -757,7 +789,7 @@ function cohortReadiness<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 >(
   roster: AgentRoster<Id, Definitions>,
-  state: KubernetesSessionState,
+  state: KubernetesSessionState<Definitions>,
 ): Effect.Effect<void, ClusterError> {
   return Effect.gen(function* () {
     if (state.acquired.size !== roster.validatedDefinitions.length) {
@@ -769,18 +801,8 @@ function cohortReadiness<
     }
     yield* Effect.forEach(
       roster.validatedDefinitions,
-      (entry) => {
-        const sandboxName = state.acquired.has(entry.name)
-          ? state.resourceNames.get(entry.name)
-          : undefined;
-        return sandboxName === undefined
-          ? Effect.fail(
-              clusterError(
-                `cohort gate is missing roster entry "${entry.name}"`,
-              ),
-            )
-          : liveForDispatch(state.options.api, sandboxName);
-      },
+      (entry) =>
+        liveForDispatch(state.options.api, state.resourceNames[entry.name]),
       { concurrency: 8, discard: true },
     );
   });
@@ -791,7 +813,7 @@ function makeKubernetesSession<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 >(
   roster: AgentRoster<Id, Definitions>,
-  state: KubernetesSessionState,
+  state: KubernetesSessionState<Definitions>,
 ): Society<Definitions> {
   return Object.freeze({
     acquireAgent: <Name extends Extract<keyof Definitions, string>>(
@@ -805,42 +827,72 @@ function makeKubernetesSession<
 function namesForRoster<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(roster: AgentRoster<Id, Definitions>): ReadonlyMap<string, string> {
-  return new Map(
-    roster.validatedDefinitions.map((entry, index) => [
-      entry.name,
-      agentResourceName(index, entry.name),
-    ]),
-  );
+>(
+  roster: AgentRoster<Id, Definitions>,
+): Readonly<Record<Extract<keyof Definitions, string>, string>> {
+  return /* Safe because a roster's validated entries are exactly its definition keys, each present once. */ Object.freeze(
+    Object.fromEntries(
+      roster.validatedDefinitions.map((entry, index) => [
+        entry.name,
+        agentResourceName(index, entry.name),
+      ]),
+    ),
+  ) as Readonly<Record<Extract<keyof Definitions, string>, string>>;
 }
 
+/**
+ * Refuse a roster that reserves nothing before the run holds any cluster
+ * resource, which is what lets the reservation itself require a runtime.
+ * @param slots Capacity projected from every roster entry, in roster order.
+ * @returns The same slots once at least one of them exists.
+ */
+function reservableSlots(
+  slots: readonly RuntimeCapacitySlot[],
+): Effect.Effect<ReservedCapacity, ClusterError> {
+  const [first, ...rest] = slots;
+  return first === undefined
+    ? Effect.fail(
+        clusterError(
+          "aggregate capacity reservation requires at least one runtime",
+        ),
+      )
+    : Effect.succeed([first, ...rest]);
+}
+
+/**
+ * Project the whole roster's capacity. Every fact here is already held by the
+ * runtime value, so this reads rather than asks the cluster anything.
+ * @param roster Complete roster the run reserves capacity for.
+ * @returns Capacity for every entry, in roster order.
+ */
 function capacityForRoster<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 >(
   roster: AgentRoster<Id, Definitions>,
-): Effect.Effect<readonly RuntimeCapacitySlot[], ClusterError> {
-  return Effect.forEach(
-    roster.validatedDefinitions,
-    (entry) => {
+): Effect.Effect<ReservedCapacity, ClusterError> {
+  return Effect.gen(function* () {
+    const slots: RuntimeCapacitySlot[] = [];
+    for (const entry of roster.validatedDefinitions) {
       const container = containerRuntimeFor(entry.runtime);
-      return container === undefined
-        ? Effect.fail(
-            clusterError(
-              `runtime "${entry.runtime.name}" has no Kubernetes container realization`,
-            ),
-          )
-        : Effect.succeed({
-            image: container.image,
-            requests: resourceRequests(container.resources),
-          });
-    },
-    { concurrency: 8 },
-  );
+      if (container === undefined) {
+        return yield* Effect.fail(
+          clusterError(
+            `runtime "${entry.runtime.name}" has no Kubernetes container realization`,
+          ),
+        );
+      }
+      slots.push({
+        image: container.image,
+        requests: resourceRequests(container.resources),
+      });
+    }
+    return yield* reservableSlots(slots);
+  });
 }
 
 function reserveCompleteRoster(
-  slots: readonly RuntimeCapacitySlot[],
+  slots: ReservedCapacity,
   options: KubernetesClusterOptions,
 ): Effect.Effect<void, ClusterError, Scope.Scope> {
   const labels = {
@@ -873,12 +925,18 @@ function prepareKubernetesSociety<
   return Effect.gen(function* () {
     const resourceNames = namesForRoster(roster);
     yield* reserveCompleteRoster(yield* capacityForRoster(roster), options);
-    const pollInterval = options.pollInterval ?? DEFAULT_POLL_INTERVAL;
-    yield* workloadAdmission(options.api, options.startupTimeout, pollInterval);
+    const readinessInterval =
+      options.readinessInterval ?? DEFAULT_READINESS_INTERVAL;
+    yield* workloadAdmission(
+      options.api,
+      options.startupTimeout,
+      readinessInterval,
+    );
     return makeKubernetesSession(roster, {
       options,
       resourceNames,
-      pollInterval,
+      readinessInterval,
+      livenessInterval: options.livenessInterval ?? DEFAULT_LIVENESS_INTERVAL,
       acquired: new Set(),
       lost: yield* Deferred.make<never, ClusterError>(),
     });

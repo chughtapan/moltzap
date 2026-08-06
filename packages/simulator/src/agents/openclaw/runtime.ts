@@ -2,21 +2,24 @@
 
 import type { AgentName } from "@moltzap/protocol/identity";
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
-import { posix } from "node:path";
 import { httpBaseUrl } from "@moltzap/protocol/network";
 import {
+  acquisitionFailureFor,
   defineContainerRuntime,
+  image,
+  routableBridgeEndpoint,
   stoppedBeforeAttach,
   type Application,
+  type ApplicationEndpoint,
+  type ContainerAgentRuntime,
   type ContainerRuntime,
   type File,
-  type Image,
 } from "../container.js";
 import {
-  type AgentRuntime,
+  deepFreeze,
   type AgentRuntimeInput,
+  type RuntimeAcquisitionError,
   type RuntimeTermination,
-  RuntimeAcquisitionError,
 } from "../agent.js";
 import {
   Duration,
@@ -26,7 +29,22 @@ import {
   Schema,
   type Scope,
 } from "effect";
-import { serializeMoltZapProfileConfig } from "../workspace.js";
+import {
+  bootstrapFile,
+  configurationDigest,
+  digestText,
+  McpServerConfiguration,
+  mcpConfiguration,
+  serializeMoltZapProfileConfig,
+  snapshotMcpServers,
+  snapshotWorkspaceFiles,
+  WorkspaceFileConfiguration,
+  workspaceConfiguration,
+  workspaceFilePath,
+  type CheckedWorkspaceFile,
+  type McpServer,
+  type WorkspaceFile,
+} from "../workspace.js";
 import {
   buildOpenClawConfig,
   type OpenClawSandboxConfig,
@@ -48,61 +66,27 @@ export type {
 
 const OPENCLAW_RUNTIME_NAME = "openclaw";
 const DEFAULT_OPENCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
-const OPENCLAW_DISTRIBUTED_GATEWAY_PORT = 18_789;
-const OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
-const OPENCLAW_DISTRIBUTED_STATE_DIR = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/state`;
-const OPENCLAW_DISTRIBUTED_CONFIG_PATH = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/openclaw.json`;
-const OPENCLAW_DISTRIBUTED_PROFILE_HOME = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/moltzap`;
-const OPENCLAW_DISTRIBUTED_PROFILE_PATH = `${OPENCLAW_DISTRIBUTED_PROFILE_HOME}/config.json`;
-const OPENCLAW_DISTRIBUTED_WORKSPACE_DIR = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/workspace`;
-const OPENCLAW_DISTRIBUTED_CHANNEL_PATH = `${OPENCLAW_DISTRIBUTED_BOOTSTRAP_DIR}/openclaw-channel`;
+const OPENCLAW_GATEWAY_PORT = 18_789;
+const OPENCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
+const APPLICATION_STATE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/state`;
+const APPLICATION_CONFIG_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw.json`;
+const OPENCLAW_PROFILE_HOME = `${OPENCLAW_BOOTSTRAP_DIR}/moltzap`;
+const OPENCLAW_PROFILE_PATH = `${OPENCLAW_PROFILE_HOME}/config.json`;
+const OPENCLAW_WORKSPACE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/workspace`;
+const OPENCLAW_CHANNEL_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw-channel`;
 const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
 const OPENCLAW_DEVICE_TOKEN_BYTES = 32;
 const OPENCLAW_ED25519_PUBLIC_KEY_BYTES = 32;
-const STOCK_OPENCLAW_IMAGE =
-  "ghcr.io/openclaw/openclaw@sha256:27612bb8e5a766ace76fbc2c19276cc9e321f66ad065292eae197f0f5624d371" satisfies Image;
-const DISTRIBUTED_APPLICATION_RESOURCES = Object.freeze({
+const STOCK_OPENCLAW_IMAGE = image.make(
+  "ghcr.io/openclaw/openclaw@sha256:27612bb8e5a766ace76fbc2c19276cc9e321f66ad065292eae197f0f5624d371",
+);
+const APPLICATION_RESOURCES = Object.freeze({
   cpuMillis: 1_000,
   memoryBytes: 1_024 * 1_024 * 1_024,
   ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
 });
 
-interface OpenClawWorkspaceFile {
-  readonly relativePath: string;
-  readonly content: string;
-}
-
-interface OpenClawMcpServer {
-  readonly name: string;
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly env: Readonly<Record<string, string>>;
-}
-
-const configurationDigest = Schema.String.pipe(
-  Schema.pattern(/^[\da-f]{64}$/u),
-  Schema.brand("OpenClawConfigurationDigest"),
-);
-
-class OpenClawWorkspaceFileConfiguration extends Schema.Class<OpenClawWorkspaceFileConfiguration>(
-  "OpenClawWorkspaceFileConfiguration",
-)({
-  relativePath: Schema.String,
-  contentDigest: configurationDigest,
-  redacted: Schema.Tuple(Schema.Literal("content")),
-}) {}
-
-class OpenClawMcpServerConfiguration extends Schema.Class<OpenClawMcpServerConfiguration>(
-  "OpenClawMcpServerConfiguration",
-)({
-  name: Schema.String,
-  definitionDigest: configurationDigest,
-  redacted: Schema.Tuple(
-    Schema.Literal("command"),
-    Schema.Literal("args"),
-    Schema.Literal("environmentValues"),
-  ),
-}) {}
+const acquisitionFailure = acquisitionFailureFor(OPENCLAW_RUNTIME_NAME);
 
 class OpenClawNativePolicyConfiguration extends Schema.Class<OpenClawNativePolicyConfiguration>(
   "OpenClawNativePolicyConfiguration",
@@ -118,9 +102,9 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   "OpenClawRuntimeConfiguration",
 )({
   startupTimeout: Schema.DurationFromMillis,
-  workspaceFiles: Schema.Array(OpenClawWorkspaceFileConfiguration),
+  workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
   modelOverride: Schema.optional(Schema.String),
-  mcpServers: Schema.Array(OpenClawMcpServerConfiguration),
+  mcpServers: Schema.Array(McpServerConfiguration),
   tools: Schema.optional(OpenClawNativePolicyConfiguration),
   sandbox: Schema.optional(OpenClawNativePolicyConfiguration),
 }) {}
@@ -128,56 +112,20 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
 /** Configuration captured by one reusable OpenClaw runtime value. */
 export interface OpenClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
-  readonly workspaceFiles?: readonly OpenClawWorkspaceFile[];
+  readonly workspaceFiles?: readonly WorkspaceFile[];
   readonly modelId?: string;
-  readonly mcpServers?: readonly OpenClawMcpServer[];
+  readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
 }
 
 interface OpenClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
-  readonly workspaceFiles: readonly OpenClawWorkspaceFile[];
+  readonly workspaceFiles: readonly CheckedWorkspaceFile[];
   readonly modelId?: string;
-  readonly mcpServers?: readonly OpenClawMcpServer[];
+  readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
-}
-
-/** Failure returned when OpenClaw cannot become router-visible. */
-export type OpenClawRuntimeAcquisitionError = RuntimeAcquisitionError;
-
-function snapshotWorkspaceFiles(
-  files?: readonly OpenClawWorkspaceFile[],
-): readonly OpenClawWorkspaceFile[] {
-  return Object.freeze((files ?? []).map((file) => Object.freeze({ ...file })));
-}
-
-function snapshotMcpServers(
-  servers?: readonly OpenClawMcpServer[],
-): readonly OpenClawMcpServer[] | undefined {
-  return servers === undefined
-    ? undefined
-    : Object.freeze(
-        servers.map((server) =>
-          Object.freeze({
-            name: server.name,
-            command: server.command,
-            args: Object.freeze([...server.args]),
-            env: Object.freeze({ ...server.env }),
-          }),
-        ),
-      );
-}
-
-function freezeNativeConfiguration(value: unknown): void {
-  if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
-    return;
-  }
-  for (const nested of Object.values(value)) {
-    freezeNativeConfiguration(nested);
-  }
-  Object.freeze(value);
 }
 
 function snapshotNativeConfiguration<Value extends object>(
@@ -186,9 +134,7 @@ function snapshotNativeConfiguration<Value extends object>(
   if (value === undefined) {
     return undefined;
   }
-  const snapshot = structuredClone(value);
-  freezeNativeConfiguration(snapshot);
-  return snapshot;
+  return deepFreeze(structuredClone(value));
 }
 
 function snapshotOptions(
@@ -202,47 +148,6 @@ function snapshotOptions(
     tools: snapshotNativeConfiguration(options.tools),
     sandbox: snapshotNativeConfiguration(options.sandbox),
   });
-}
-
-function digestText(value: string): typeof configurationDigest.Type {
-  return Schema.decodeUnknownSync(configurationDigest)(
-    createHash("sha256").update(value, "utf8").digest("hex"),
-  );
-}
-
-function workspaceConfiguration(
-  files: readonly OpenClawWorkspaceFile[],
-): readonly OpenClawWorkspaceFileConfiguration[] {
-  return files.map((file) =>
-    OpenClawWorkspaceFileConfiguration.make({
-      relativePath: file.relativePath,
-      contentDigest: digestText(file.content),
-      redacted: ["content"],
-    }),
-  );
-}
-
-function mcpServerDefinition(server: OpenClawMcpServer): string {
-  return JSON.stringify({
-    name: server.name,
-    command: server.command,
-    args: server.args,
-    environmentKeys: Object.keys(server.env).sort((left, right) =>
-      left.localeCompare(right),
-    ),
-  });
-}
-
-function mcpConfiguration(
-  servers?: readonly OpenClawMcpServer[],
-): readonly OpenClawMcpServerConfiguration[] {
-  return (servers ?? []).map((server) =>
-    OpenClawMcpServerConfiguration.make({
-      name: server.name,
-      definitionDigest: digestText(mcpServerDefinition(server)),
-      redacted: ["command", "args", "environmentValues"],
-    }),
-  );
 }
 
 function nativePolicyConfiguration(
@@ -274,64 +179,10 @@ function runtimeConfiguration(
   });
 }
 
-function acquisitionFailure(
-  agentName: string,
-  operation: string,
-  cause: unknown,
-): RuntimeAcquisitionError {
-  return RuntimeAcquisitionError.make({
-    runtime: OPENCLAW_RUNTIME_NAME,
-    agent: agentName,
-    detail: `${operation}: ${String(cause)}`,
-  });
-}
-
-type OpenClawDistributedGatewayAcquirer = (
+type OpenClawGatewayAcquirer = (
   session: OpenClawGatewaySession,
   within: Duration.Duration,
 ) => Effect.Effect<OpenClawGateway, unknown, Scope.Scope>;
-
-class DistributedOpenClawConfigurationError extends Schema.TaggedError<DistributedOpenClawConfigurationError>()(
-  "DistributedOpenClawConfigurationError",
-  { detail: Schema.String },
-) {
-  override get message(): string {
-    return this.detail;
-  }
-}
-
-function distributedConfigurationError(
-  detail: string,
-): DistributedOpenClawConfigurationError {
-  return DistributedOpenClawConfigurationError.make({ detail });
-}
-
-function distributedWorkspacePath(relativePath: string): `/${string}` {
-  if (
-    relativePath.length === 0 ||
-    relativePath.includes("\\") ||
-    posix.isAbsolute(relativePath)
-  ) {
-    throw distributedConfigurationError(
-      `invalid OpenClaw workspace path: ${relativePath}`,
-    );
-  }
-  const normalized = posix.normalize(relativePath);
-  if (
-    normalized === "." ||
-    normalized === ".." ||
-    normalized.startsWith("../")
-  ) {
-    throw distributedConfigurationError(
-      `OpenClaw workspace path must stay below its root: ${relativePath}`,
-    );
-  }
-  return `${OPENCLAW_DISTRIBUTED_WORKSPACE_DIR}/${normalized}`;
-}
-
-function bootstrapFile(path: `/${string}`, content: string): File {
-  return Object.freeze({ path, content, mode: 0o600 });
-}
 
 interface OpenClawGatewayPairing {
   readonly deviceIdentity: OpenClawGatewayDeviceIdentity;
@@ -381,7 +232,7 @@ function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
   });
 }
 
-function distributedBootstrapFiles<Name extends string>(
+function bootstrapFiles<Name extends string>(
   settings: OpenClawRuntimeSettings,
   input: AgentRuntimeInput<Name>,
   gatewayToken: Redacted.Redacted,
@@ -392,7 +243,7 @@ function distributedBootstrapFiles<Name extends string>(
       agentName: input.agentName,
       gatewayToken,
       gatewayBind: "lan",
-      channelPath: OPENCLAW_DISTRIBUTED_CHANNEL_PATH,
+      channelPath: OPENCLAW_CHANNEL_PATH,
       ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
       ...(settings.mcpServers === undefined
         ? {}
@@ -400,7 +251,7 @@ function distributedBootstrapFiles<Name extends string>(
       ...(settings.tools === undefined ? {} : { tools: settings.tools }),
       ...(settings.sandbox === undefined ? {} : { sandbox: settings.sandbox }),
     },
-    OPENCLAW_DISTRIBUTED_WORKSPACE_DIR,
+    OPENCLAW_WORKSPACE_DIR,
   );
   const profile = serializeMoltZapProfileConfig({
     agentName: input.agentName,
@@ -409,47 +260,27 @@ function distributedBootstrapFiles<Name extends string>(
   });
   return Object.freeze([
     bootstrapFile(
-      OPENCLAW_DISTRIBUTED_CONFIG_PATH,
+      APPLICATION_CONFIG_PATH,
       JSON.stringify(nativeConfig, null, 2),
     ),
-    bootstrapFile(OPENCLAW_DISTRIBUTED_PROFILE_PATH, profile),
+    bootstrapFile(OPENCLAW_PROFILE_PATH, profile),
     bootstrapFile(
-      `${OPENCLAW_DISTRIBUTED_STATE_DIR}/devices/paired.json`,
+      `${APPLICATION_STATE_DIR}/devices/paired.json`,
       pairing.pairedDevices,
     ),
     ...settings.workspaceFiles.map((file) =>
-      bootstrapFile(distributedWorkspacePath(file.relativePath), file.content),
+      bootstrapFile(
+        workspaceFilePath(OPENCLAW_WORKSPACE_DIR, file.relativePath),
+        file.content,
+      ),
     ),
   ]);
 }
 
-function distributedGatewayUrl(
-  parsed: URL,
+function bridgeUrl(
+  endpoint: ApplicationEndpoint,
 ): OpenClawGatewaySession["gatewayUrl"] {
-  const forbiddenHosts = new Set([
-    "0.0.0.0",
-    "127.0.0.1",
-    "localhost",
-    "::1",
-    "[::1]",
-  ]);
-  const invalid = [
-    parsed.protocol !== "ws:",
-    forbiddenHosts.has(parsed.hostname),
-    parsed.port !== String(OPENCLAW_DISTRIBUTED_GATEWAY_PORT),
-    parsed.username.length > 0,
-    parsed.password.length > 0,
-    parsed.pathname !== "/",
-    parsed.search.length > 0,
-    parsed.hash.length > 0,
-  ].includes(true);
-  if (invalid) {
-    throw distributedConfigurationError(
-      `OpenClaw distributed gateway must be a credential-free, non-loopback ws URL on port ${String(OPENCLAW_DISTRIBUTED_GATEWAY_PORT)}`,
-    );
-  }
-  // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The protocol validation above accepts only a ws URL.
-  return parsed.href as OpenClawGatewaySession["gatewayUrl"];
+  return `ws://${endpoint.host}:${String(endpoint.port)}/`;
 }
 
 function stoppedBeforeGatewayHello(
@@ -462,22 +293,22 @@ function stoppedBeforeGatewayHello(
   );
 }
 
-interface DistributedOpenClawBridge {
+interface OpenClawBridge {
   readonly startupTimeout: Duration.Duration;
   readonly agentName: AgentName;
   readonly gatewayToken: Redacted.Redacted;
   readonly deviceIdentity: OpenClawGatewayDeviceIdentity;
-  readonly acquireGateway: OpenClawDistributedGatewayAcquirer;
+  readonly acquireGateway: OpenClawGatewayAcquirer;
 }
 
-function attachDistributedOpenClaw(
-  bridge: DistributedOpenClawBridge,
-  endpoint: URL,
+function attachOpenClaw(
+  bridge: OpenClawBridge,
+  endpoint: ApplicationEndpoint,
   stopped: Effect.Effect<RuntimeTermination>,
 ): Effect.Effect<OpenClawGateway, RuntimeAcquisitionError, Scope.Scope> {
   return Effect.gen(function* () {
     const gatewayUrl = yield* Effect.try({
-      try: () => distributedGatewayUrl(endpoint),
+      try: () => bridgeUrl(routableBridgeEndpoint(endpoint)),
       catch: (cause) =>
         acquisitionFailure(
           bridge.agentName,
@@ -508,9 +339,9 @@ function attachDistributedOpenClaw(
   });
 }
 
-function makeDistributedOpenClawApplication<Name extends string>(
+function makeOpenClawApplication<Name extends string>(
   settings: OpenClawRuntimeSettings,
-  acquireGateway: OpenClawDistributedGatewayAcquirer,
+  acquireGateway: OpenClawGatewayAcquirer,
   input: AgentRuntimeInput<Name>,
 ): Application<OpenClawGateway, RuntimeAcquisitionError> {
   const gatewayToken = Redacted.make(
@@ -532,37 +363,38 @@ function makeDistributedOpenClawApplication<Name extends string>(
       "run",
       "--allow-unconfigured",
       "--port",
-      String(OPENCLAW_DISTRIBUTED_GATEWAY_PORT),
+      String(OPENCLAW_GATEWAY_PORT),
     ] as const),
     environment: Object.freeze({
-      HOME: OPENCLAW_DISTRIBUTED_STATE_DIR,
-      OPENCLAW_STATE_DIR: OPENCLAW_DISTRIBUTED_STATE_DIR,
-      OPENCLAW_CONFIG_PATH: OPENCLAW_DISTRIBUTED_CONFIG_PATH,
-      MOLTZAP_CONFIG_HOME: OPENCLAW_DISTRIBUTED_PROFILE_HOME,
+      HOME: APPLICATION_STATE_DIR,
+      OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
+      OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
+      MOLTZAP_CONFIG_HOME: OPENCLAW_PROFILE_HOME,
       MOLTZAP_SERVER_URL: httpBaseUrl(input.connection.routerUrl),
       OPENCLAW_DISABLE_BONJOUR: "1",
     }),
     ...(settings.modelId === undefined
       ? {}
       : { credentials: Object.freeze(["OPENAI_API_KEY"] as const) }),
-    port: OPENCLAW_DISTRIBUTED_GATEWAY_PORT,
-    files: distributedBootstrapFiles(settings, input, gatewayToken, pairing),
-    attach: (endpoint: URL, stopped: Effect.Effect<RuntimeTermination>) =>
-      attachDistributedOpenClaw(bridge, endpoint, stopped),
+    port: OPENCLAW_GATEWAY_PORT,
+    files: bootstrapFiles(settings, input, gatewayToken, pairing),
+    attach: (
+      endpoint: ApplicationEndpoint,
+      stopped: Effect.Effect<RuntimeTermination>,
+    ) => attachOpenClaw(bridge, endpoint, stopped),
   });
 }
 
-function renderDistributedOpenClaw<Name extends string>(
+function renderOpenClaw<Name extends string>(
   settings: OpenClawRuntimeSettings,
-  acquireGateway: OpenClawDistributedGatewayAcquirer,
+  acquireGateway: OpenClawGatewayAcquirer,
   input: AgentRuntimeInput<Name>,
 ): Effect.Effect<
   Application<OpenClawGateway, RuntimeAcquisitionError>,
   RuntimeAcquisitionError
 > {
   return Effect.try({
-    try: () =>
-      makeDistributedOpenClawApplication(settings, acquireGateway, input),
+    try: () => makeOpenClawApplication(settings, acquireGateway, input),
     catch: (cause) =>
       acquisitionFailure(
         input.agentName,
@@ -572,15 +404,15 @@ function renderDistributedOpenClaw<Name extends string>(
   });
 }
 
-function openClawDistributedCapability(
+function openClawCapability(
   settings: OpenClawRuntimeSettings,
-  acquireGateway: OpenClawDistributedGatewayAcquirer,
+  acquireGateway: OpenClawGatewayAcquirer,
 ): ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError> {
   return Object.freeze({
     image: STOCK_OPENCLAW_IMAGE,
-    resources: DISTRIBUTED_APPLICATION_RESOURCES,
+    resources: APPLICATION_RESOURCES,
     render: <Name extends string>(input: AgentRuntimeInput<Name>) =>
-      renderDistributedOpenClaw(settings, acquireGateway, input),
+      renderOpenClaw(settings, acquireGateway, input),
   });
 }
 
@@ -591,16 +423,13 @@ function openClawDistributedCapability(
  */
 export function openClawRuntime(
   options: OpenClawRuntimeOptions = {},
-): AgentRuntime<
+): ContainerAgentRuntime<
   OpenClawGateway,
-  OpenClawRuntimeAcquisitionError,
+  RuntimeAcquisitionError,
   typeof OpenClawRuntimeConfiguration
 > {
   const settings = snapshotOptions(options);
-  const capability = openClawDistributedCapability(
-    settings,
-    acquireOpenClawGateway,
-  );
+  const capability = openClawCapability(settings, acquireOpenClawGateway);
   return defineContainerRuntime({
     name: OPENCLAW_RUNTIME_NAME,
     configuration: {

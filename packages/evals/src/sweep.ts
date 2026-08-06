@@ -1,6 +1,7 @@
 /** @file Typed evaluation plans, attempts, reports, and state transitions. */
 
 import { CompletedLedgerReceipt, LedgerReceipt } from "@moltzap/simulator";
+import { image } from "@moltzap/simulator/agents";
 import {
   jsonValue,
   LedgerStorageError,
@@ -28,9 +29,6 @@ import {
 const REPORT_FORMAT_VERSION = 3;
 const SAMPLE_NUMBER = 1;
 const positiveInteger = Schema.Int.pipe(Schema.positive());
-const distributedImage = Schema.String.pipe(
-  Schema.pattern(/^.+@sha256:[0-9a-f]{64}$/u),
-);
 
 /** Filesystem-safe identity for one local evaluation report. */
 export const evaluationReportId = Schema.String.pipe(
@@ -119,9 +117,9 @@ export class LocalEvaluationInfrastructure extends Schema.TaggedClass<LocalEvalu
   "LocalEvaluationInfrastructure",
   {
     profile: Schema.Literal("local"),
-    controllerImage: distributedImage,
-    peerApplicationImage: distributedImage,
-    nanoclawApplicationImage: distributedImage,
+    controllerImage: image,
+    peerApplicationImage: image,
+    nanoclawApplicationImage: image,
     temporalAddress: Schema.NonEmptyString,
     artifactDirectory: Schema.NonEmptyString,
   },
@@ -132,9 +130,9 @@ export class GkeEvaluationInfrastructure extends Schema.TaggedClass<GkeEvaluatio
   "GkeEvaluationInfrastructure",
   {
     profile: Schema.Literal("gke"),
-    controllerImage: distributedImage,
-    peerApplicationImage: distributedImage,
-    nanoclawApplicationImage: distributedImage,
+    controllerImage: image,
+    peerApplicationImage: image,
+    nanoclawApplicationImage: image,
     temporalAddress: Schema.NonEmptyString,
     kubeContext: Schema.NonEmptyString,
     artifactBucket: Schema.NonEmptyString,

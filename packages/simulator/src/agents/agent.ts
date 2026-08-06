@@ -180,7 +180,12 @@ function configurationValue<Value>(
   });
 }
 
-function deepFreeze<Value>(value: Value): Value {
+/**
+ * Freeze a value and everything reachable from it.
+ * @param value Value to freeze in place.
+ * @returns The same value, now deeply immutable.
+ */
+export function deepFreeze<Value>(value: Value): Value {
   if (typeof value !== "object" || value === null) {
     return value;
   }

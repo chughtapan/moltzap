@@ -11,12 +11,16 @@ import type { KubernetesExecutionProfile } from "./profile.js";
 import type { RunSocietyWorkflowInput } from "./reclaim.js";
 
 /**
- * Create everything one run needs before its controller starts, in order.
+ * Create everything one run needs before its controller starts.
  *
- * The order is the contract. The run root's UID owns every object created after
- * it, so nothing can be built until it exists. The controller Job is created
- * last because it immediately acts through the run-scoped RBAC and dials the
- * router Service by name: started any earlier, it races objects it depends on.
+ * Two orderings are the contract, and only those two. The run root's UID owns
+ * every object created after it, so nothing can be built until it exists. The
+ * controller Job is created last because it immediately acts through the
+ * run-scoped RBAC and dials the router Service by name: started any earlier, it
+ * races objects it depends on. What sits between them — the experiment and its
+ * queue, the controller's identity and permissions, the router endpoint — names
+ * nothing in the others, so the three are created together and the run reaches
+ * its controller in three round trips instead of six.
  *
  * @param api Kubernetes access held by the worker running this activity.
  * @param input Serializable run identity, images, and experiment module.
@@ -32,9 +36,14 @@ export function prepareRun(
   return Effect.gen(function* () {
     const ownerUid = yield* api.createRunRoot(input);
     const manifests = ownedRunControlManifests(input, ownerUid, profile);
-    yield* api.createExperimentAndQueue(input.namespace, manifests);
-    yield* api.createControllerAccess(input.namespace, manifests);
-    yield* api.createRouterService(input.namespace, manifests);
+    yield* Effect.all(
+      [
+        api.createExperimentAndQueue(input.namespace, manifests),
+        api.createControllerAccess(input.namespace, manifests),
+        api.createRouterService(input.namespace, manifests),
+      ],
+      { concurrency: 3, discard: true },
+    );
     yield* api.startController(input.namespace, manifests);
   }).pipe(Effect.withSpan("prepareRun"));
 }

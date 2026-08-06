@@ -8,7 +8,11 @@ import {
 } from "@moltzap/simulator";
 import type { Image } from "@moltzap/simulator/agents";
 import { Effect, Either, Schema } from "effect";
-import type { ConditionId, EvaluationCaseId } from "./model.js";
+import type {
+  EvaluationCaseId,
+  EvaluationConditionId,
+  EvaluationConditionName,
+} from "./model.js";
 
 /** Repository-owned Kubernetes profile selected for an evaluation sweep. */
 export type SimulatorProfile = "local" | "gke";
@@ -70,7 +74,7 @@ export class EvaluationSubmissionFailed extends Schema.TaggedError<EvaluationSub
 ) {}
 
 interface SubmissionCondition {
-  readonly id: ConditionId;
+  readonly id: EvaluationConditionId;
   readonly modelId: string;
 }
 
@@ -102,14 +106,15 @@ function conditionExpression(input: SubmitEvaluationCellInput): string {
     `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
     `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
   ];
-  if (input.condition.id === "openclaw/v2") {
-    return `openClawEvaluationCondition({ runtime: { ${shared.join(", ")} }, execution: { ${execution.join(", ")} } })`;
-  }
-  if (input.condition.id === "nanoclaw/v2") {
-    return `nanoclawEvaluationCondition({ runtime: { ${shared.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`;
-  }
-  const unsupported = `unsupported evaluation condition ${input.condition.id}`;
-  return `(() => { throw new Error(${literal(unsupported)}); })()`;
+  // Total over the conditions that exist, so the generated module never has to
+  // carry a throw for a condition the caller could not have named.
+  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
+    "openclaw/v2": `openClawEvaluationCondition({ runtime: { ${shared.join(", ")} }, execution: { ${execution.join(", ")} } })`,
+    "nanoclaw/v2": `nanoclawEvaluationCondition({ runtime: { ${shared.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`,
+  };
+  // Indexing needs the plain spelling; the brand is not part of the key set.
+  const condition: EvaluationConditionName = input.condition.id;
+  return byCondition[condition];
 }
 
 /**

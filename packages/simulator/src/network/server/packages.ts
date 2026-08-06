@@ -1,7 +1,7 @@
 /** @file Installed production-router binary resolution. */
 
 import { createRequire } from "node:module";
-import { dirname, join, sep } from "node:path";
+import { dirname, join } from "node:path";
 import { Data } from "effect";
 
 const PACKAGE_RESOLUTION_ANCHOR = import.meta.url;
@@ -19,17 +19,11 @@ interface PackageJson {
   readonly bin?: unknown;
 }
 
-interface PackageJsonResolution {
-  readonly rejectedRoots: ReadonlySet<string>;
-  readonly root: string | null;
-  readonly unexpectedCause: unknown;
-}
-
-interface PackageJsonCandidateResolution {
-  readonly rejectedRoot: string | null;
-  readonly root: string | null;
-  readonly unexpectedCause: unknown;
-}
+/** What one candidate `package.json` lookup established. */
+type PackageJsonCandidate =
+  | { readonly _tag: "matched"; readonly root: string }
+  | { readonly _tag: "absent" }
+  | { readonly _tag: "unexpected"; readonly cause: unknown };
 
 function isPackageJson(value: unknown): value is PackageJson {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -66,40 +60,6 @@ function parsePackageJson(
   return manifest;
 }
 
-function packageRootFromResolvedFile(
-  packageName: string,
-  resolvedFile: string,
-): string {
-  const packageSegments = packageName.split("/");
-  const resolvedSegments = resolvedFile.split(sep);
-  for (
-    let index = resolvedSegments.length - packageSegments.length;
-    index >= 0;
-    index -= 1
-  ) {
-    if (
-      packageSegments.every(
-        (segment, offset) => resolvedSegments[index + offset] === segment,
-      )
-    ) {
-      return resolvedSegments
-        .slice(0, index + packageSegments.length)
-        .join(sep);
-    }
-  }
-  const packageBaseName = packageSegments.at(-1);
-  if (packageBaseName !== undefined) {
-    const packageIndex = resolvedSegments.lastIndexOf(packageBaseName);
-    if (packageIndex >= 0) {
-      return resolvedSegments.slice(0, packageIndex + 1).join(sep);
-    }
-  }
-  throw new PackageResolutionFailed({
-    packageName,
-    message: `Unable to find package root for ${resolvedFile}`,
-  });
-}
-
 function isExpectedResolutionFailure(cause: unknown): boolean {
   const code =
     cause instanceof Error && "code" in cause ? cause.code : undefined;
@@ -112,16 +72,14 @@ function resolvePackageJsonCandidate(
   requireFromAnchor: NodeJS.Require,
   packageName: string,
   candidate: string,
-): PackageJsonCandidateResolution {
+): PackageJsonCandidate {
   let packageJsonPath: string;
   try {
     packageJsonPath = requireFromAnchor.resolve(candidate);
   } catch (cause) {
-    return {
-      rejectedRoot: null,
-      root: null,
-      unexpectedCause: isExpectedResolutionFailure(cause) ? null : cause,
-    };
+    return isExpectedResolutionFailure(cause)
+      ? { _tag: "absent" }
+      : { _tag: "unexpected", cause };
   }
   const packageRoot = dirname(packageJsonPath);
   try {
@@ -131,28 +89,33 @@ function resolvePackageJsonCandidate(
       packageName,
     );
     return manifest.name === packageName
-      ? { rejectedRoot: null, root: packageRoot, unexpectedCause: null }
-      : { rejectedRoot: packageRoot, root: null, unexpectedCause: null };
+      ? { _tag: "matched", root: packageRoot }
+      : { _tag: "absent" };
   } catch (cause) {
-    return {
-      rejectedRoot: packageRoot,
-      root: null,
-      unexpectedCause: cause,
-    };
+    return { _tag: "unexpected", cause };
   }
 }
 
-function resolvePackageJson(
-  requireFromAnchor: NodeJS.Require,
+/**
+ * Candidates are tried nearest first: the package's own `package.json` export,
+ * then each `node_modules` directory on the anchor's resolution path. Reading
+ * the manifest by absolute path is what lets an `exports` map that hides
+ * `./package.json` still be resolved.
+ * @param anchor Module-resolution anchor.
+ * @param packageName Package whose install root is wanted.
+ * @returns The install root, or null when no candidate names the package.
+ */
+function resolvePackageRoot(
+  anchor: string | URL,
   packageName: string,
-): PackageJsonResolution {
+): string | null {
+  const requireFromAnchor = createRequire(anchor);
   const packageJsonCandidates = [
     `${packageName}/package.json`,
     ...(requireFromAnchor.resolve.paths(packageName) ?? []).map((lookupPath) =>
       join(lookupPath, packageName, "package.json"),
     ),
   ];
-  const rejectedRoots = new Set<string>();
   let unexpectedCause: unknown = null;
   for (const candidate of packageJsonCandidates) {
     const resolution = resolvePackageJsonCandidate(
@@ -160,50 +123,21 @@ function resolvePackageJson(
       packageName,
       candidate,
     );
-    if (resolution.root !== null) {
-      return { rejectedRoots, root: resolution.root, unexpectedCause: null };
+    if (resolution._tag === "matched") {
+      return resolution.root;
     }
-    if (resolution.rejectedRoot !== null) {
-      rejectedRoots.add(resolution.rejectedRoot);
+    if (resolution._tag === "unexpected") {
+      unexpectedCause ??= resolution.cause;
     }
-    unexpectedCause ??= resolution.unexpectedCause;
   }
-  return { rejectedRoots, root: null, unexpectedCause };
-}
-
-function resolvePackageRoot(
-  anchor: string | URL,
-  packageName: string,
-): string | null {
-  const requireFromAnchor = createRequire(anchor);
-  const packageJsonResolution = resolvePackageJson(
-    requireFromAnchor,
-    packageName,
-  );
-  if (packageJsonResolution.root !== null) {
-    return packageJsonResolution.root;
-  }
-  try {
-    const publicEntryRoot = packageRootFromResolvedFile(
+  if (unexpectedCause !== null) {
+    throw new PackageResolutionFailed({
       packageName,
-      requireFromAnchor.resolve(packageName),
-    );
-    return packageJsonResolution.rejectedRoots.has(publicEntryRoot)
-      ? null
-      : publicEntryRoot;
-  } catch (cause) {
-    if (!isExpectedResolutionFailure(cause)) {
-      throw cause;
-    }
-    if (packageJsonResolution.unexpectedCause !== null) {
-      throw new PackageResolutionFailed({
-        packageName,
-        cause: packageJsonResolution.unexpectedCause,
-        message: `Unable to resolve package metadata for ${packageName}`,
-      });
-    }
-    return null;
+      cause: unexpectedCause,
+      message: `Unable to resolve package metadata for ${packageName}`,
+    });
   }
+  return null;
 }
 
 function resolveInstalledPackageRoot(

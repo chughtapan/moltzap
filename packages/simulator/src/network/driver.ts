@@ -10,11 +10,7 @@ import {
   type Router,
   type RouterStopped,
 } from "./router.js";
-import {
-  networkError,
-  type NetworkError,
-  type NetworkOperation,
-} from "./failure.js";
+import { networkError, type NetworkError } from "./failure.js";
 import { makeAgentHandle, makeParticipantHandle } from "./participant.js";
 import {
   Cause,
@@ -88,13 +84,6 @@ interface IdentityBinding {
   readonly operation: "attach-agent" | "attach-endpoint";
 }
 
-function fail(operation: NetworkOperation, cause: unknown): NetworkError {
-  return networkError(
-    operation,
-    cause instanceof Error ? cause.message : cause,
-  );
-}
-
 function identityFor(
   runtime: RouterRuntime,
   binding: IdentityBinding,
@@ -109,7 +98,7 @@ function identityFor(
         if (existing !== undefined) {
           return existing.role === binding.role
             ? existing.identity
-            : yield* fail(
+            : yield* networkError(
                 binding.operation,
                 `network identity "${binding.name}" is already bound as an ${existing.role}`,
               );
@@ -117,7 +106,11 @@ function identityFor(
         const identity = yield* restore(
           runtime.driver
             .register(binding.agentName)
-            .pipe(Effect.mapError((cause) => fail(binding.operation, cause))),
+            .pipe(
+              Effect.mapError((cause) =>
+                networkError(binding.operation, cause),
+              ),
+            ),
         );
         yield* Ref.update(runtime.bindings, (current) => {
           const updated = new Map(current);
@@ -166,7 +159,7 @@ function attachEndpoint<const Name extends string>(
     });
     const transport = yield* runtime.driver
       .attachEndpoint(identity.key)
-      .pipe(Effect.mapError((cause) => fail("attach-endpoint", cause)));
+      .pipe(Effect.mapError((cause) => networkError("attach-endpoint", cause)));
     return {
       participant: makeParticipantHandle(name, identity.agentId),
       transport,
@@ -179,7 +172,7 @@ function completeStopped(runtime: RouterRuntime): Effect.Effect<void> {
     Effect.matchCauseEffect({
       onFailure: (cause) => {
         const failure = Option.getOrElse(Cause.failureOption(cause), () =>
-          fail("stop-router", Cause.pretty(cause)),
+          networkError("stop-router", Cause.pretty(cause)),
         );
         return Deferred.fail(runtime.stopped, failure);
       },
@@ -195,7 +188,7 @@ function acquireRouter(
 ): Effect.Effect<Router, NetworkError, Scope.Scope> {
   return Effect.gen(function* () {
     const driver = yield* acquireDriver(options).pipe(
-      Effect.mapError((cause) => fail("acquire-router", cause)),
+      Effect.mapError((cause) => networkError("acquire-router", cause)),
     );
     const runtime: RouterRuntime = {
       driver,

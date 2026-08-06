@@ -45,7 +45,7 @@ import {
   type Router,
   type RouterProviderService,
 } from "../network.js";
-import { runSociety, type SimulatorRunOptions } from "../run/execute.js";
+import { runSociety } from "../run/execute.js";
 import type { AgentRuntimeLike } from "../agents/agent.js";
 import { defineFakeRuntime, makeFakeCluster } from "../cluster/fake.js";
 import { Cluster } from "../cluster/cluster.js";
@@ -71,14 +71,12 @@ const runKernel = <
 >(
   roster: AgentRoster<typeof DEFINITION_ID, Definitions>,
   program: Effect.Effect<A, E, R>,
-  options: SimulatorRunOptions = {},
 ) =>
   runSociety({
     definitionId: DEFINITION_ID,
     eventServices,
     roster,
     program,
-    options,
   }).pipe(Effect.provideService(Cluster, makeFakeCluster()));
 export const kernelHarness = Object.freeze({
   agents: rosterBinding.agents,

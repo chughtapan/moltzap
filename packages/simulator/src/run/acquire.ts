@@ -10,10 +10,9 @@ import {
 } from "../events/core.js";
 import type { LedgerFailure, LedgerWriter } from "../ledger/append.js";
 import type { Router } from "../network/router.js";
-import { type Slot, type Society, ClusterError } from "../cluster/cluster.js";
+import { type Society, ClusterError } from "../cluster/cluster.js";
 import type {
   AgentRoster,
-  AgentRosterAcquisitionError,
   RuntimeGatewayOf,
   StartedAgent,
   StartedAgents,
@@ -21,7 +20,6 @@ import type {
 import {
   RuntimeFailed,
   type AgentRuntimeLike,
-  type RunningAgent,
   type RuntimeTermination,
 } from "../agents/agent.js";
 import { nonEmptyCause, runtimeEvent } from "./outcomes.js";
@@ -56,13 +54,6 @@ interface AcquireAgentInput<
   readonly writer: RuntimeEventWriter;
 }
 
-interface RuntimeAcquireInput<
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  Name extends Extract<keyof Definitions, string>,
-> extends Slot<Definitions, Name> {
-  readonly session: Society<Definitions>;
-}
-
 interface AcquireRosterInput<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
@@ -71,26 +62,6 @@ interface AcquireRosterInput<
   readonly roster: AgentRoster<Id, Definitions>;
   readonly session: Society<Definitions>;
   readonly writer: RuntimeEventWriter;
-}
-
-function runtimeAcquire<
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  Name extends Extract<keyof Definitions, string>,
->(
-  input: RuntimeAcquireInput<Definitions, Name>,
-): Effect.Effect<
-  RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
-  AgentRosterAcquisitionError<Definitions> | ClusterError,
-  Scope.Scope
-> {
-  // The keyed entry keeps its exact gateway while this supervisor widens its
-  // failure and service requirements to the complete roster unions.
-  return input.session.acquireAgent({
-    name: input.name,
-    runtime: input.runtime,
-    agentName: input.agentName,
-    connection: input.connection,
-  });
 }
 
 function attemptAgent<
@@ -107,8 +78,7 @@ function attemptAgent<
       input.name,
       input.agentName,
     );
-    const running = yield* runtimeAcquire<Definitions, Name>({
-      session: input.session,
+    const running = yield* input.session.acquireAgent({
       name: input.name,
       runtime: input.runtime,
       agentName: input.agentName,

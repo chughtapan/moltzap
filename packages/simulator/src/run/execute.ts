@@ -17,12 +17,7 @@ import {
   type LedgerFailure,
   type LedgerWriter,
 } from "../ledger/append.js";
-import {
-  LedgerCompletion,
-  ledgerRef,
-  type JsonValue,
-  type JsonObject,
-} from "../ledger/schema.js";
+import { LedgerCompletion, ledgerRef } from "../ledger/schema.js";
 import type { LedgerStorageError } from "../ledger/storage.js";
 import {
   LinkController,
@@ -64,48 +59,6 @@ type DefinitionEventServices<
 > = ReturnType<
   typeof makeDefinitionEventServices<Id, CustomerSchema, CustomerClasses>
 >;
-
-/** Optional run metadata; platform and runtime policy belong in Layers. */
-export interface SimulatorRunOptions {
-  readonly provenance?: JsonObject;
-  readonly metadata?: JsonObject;
-}
-
-function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
-  return Array.isArray(value);
-}
-
-function snapshotJsonValue(value: JsonValue): JsonValue {
-  if (isJsonArray(value)) {
-    return Object.freeze(value.map(snapshotJsonValue));
-  }
-  if (typeof value === "object" && value !== null) {
-    return snapshotJsonObject(value);
-  }
-  return value;
-}
-
-function snapshotJsonObject(value: JsonObject): JsonObject {
-  return Object.freeze(
-    Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        key,
-        snapshotJsonValue(entry),
-      ]),
-    ),
-  );
-}
-
-function snapshotRunOptions(options: SimulatorRunOptions): SimulatorRunOptions {
-  return Object.freeze({
-    ...(options.provenance === undefined
-      ? {}
-      : { provenance: snapshotJsonObject(options.provenance) }),
-    ...(options.metadata === undefined
-      ? {}
-      : { metadata: snapshotJsonObject(options.metadata) }),
-  });
-}
 
 /** Physical receipt for a ledger whose completion marker is durable. */
 export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerReceipt>()(
@@ -181,7 +134,6 @@ interface RunInput<
   >;
   readonly roster: AgentRoster<Id, Definitions>;
   readonly program: Effect.Effect<A, E, R>;
-  readonly options: SimulatorRunOptions;
 }
 
 interface ProgramLayerInput<
@@ -280,20 +232,6 @@ interface SocietyExecutionInput<
   readonly session: Society<Definitions>;
 }
 
-function composeProvenance<
-  Id extends string,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(roster: AgentRoster<Id, Definitions>, customerProvenance?: JsonObject) {
-  return {
-    ...customerProvenance,
-    agents: Object.entries(roster.definitions).map(([name, runtime]) => ({
-      name,
-      runtime: runtime.name,
-      configuration: runtimeConfigurationProjection(runtime),
-    })),
-  };
-}
-
 function allocateRunLedger<
   Id extends string,
   CustomerSchema extends CatalogSchema,
@@ -305,8 +243,16 @@ function allocateRunLedger<
 >(input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>) {
   return makeRunLedger(input.eventServices.catalog, {
     definitionId: input.definitionId,
-    provenance: composeProvenance(input.roster, input.options.provenance),
-    metadata: input.options.metadata ?? {},
+    provenance: {
+      agents: Object.entries(input.roster.definitions).map(
+        ([name, runtime]) => ({
+          name,
+          runtime: runtime.name,
+          configuration: runtimeConfigurationProjection(runtime),
+        }),
+      ),
+    },
+    metadata: {},
   });
 }
 
@@ -428,30 +374,15 @@ function executeProgram<
   });
 }
 
-function recordRouterStop<
-  Id extends string,
-  CustomerSchema extends CatalogSchema,
-  CustomerClasses extends EventClass,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
->(
-  context: KernelContext<
-    Id,
-    CustomerSchema,
-    CustomerClasses,
-    Definitions,
-    A,
-    E,
-    R
-  >,
+function recordRouterStop(
+  routerRef: Ref.Ref<Option.Option<Router>>,
+  writer: LedgerWriter<typeof routerEvents>,
 ) {
-  return Ref.get(context.router).pipe(
+  return Ref.get(routerRef).pipe(
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.void,
-        onSome: (router) => recordStoppedRouter(router, context.routerWriter),
+        onSome: (router) => recordStoppedRouter(router, writer),
       }),
     ),
   );
@@ -525,7 +456,9 @@ function finalizeRun<
   execution: Exit.Exit<Exit.Exit<A, E>, SimulatorRunFailure<Definitions>>,
 ) {
   return Effect.gen(function* () {
-    const routerStop = yield* Effect.exit(recordRouterStop(context));
+    const routerStop = yield* Effect.exit(
+      recordRouterStop(context.router, context.routerWriter),
+    );
     const completion = yield* Effect.exit(context.active.complete());
     const receipt = Exit.isSuccess(completion)
       ? CompletedLedgerReceipt.make({
@@ -566,10 +499,6 @@ function finalizeRun<
   });
 }
 
-type RestoreInterruptibility = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-) => Effect.Effect<A, E, R>;
-
 function runContext<
   Id extends string,
   CustomerSchema extends CatalogSchema,
@@ -588,7 +517,9 @@ function runContext<
     E,
     R
   >,
-  restore: RestoreInterruptibility,
+  restore: <RestoredA, RestoredE, RestoredR>(
+    effect: Effect.Effect<RestoredA, RestoredE, RestoredR>,
+  ) => Effect.Effect<RestoredA, RestoredE, RestoredR>,
 ) {
   return restore(
     Effect.raceFirst(
@@ -630,20 +561,6 @@ function executeRun<
   ).pipe(Effect.withSpan("Simulator.run"));
 }
 
-type RunRequirements<
-  Id extends string,
-  CustomerSchema extends CatalogSchema,
-  CustomerClasses extends EventClass,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
-> = Effect.Effect.Context<
-  ReturnType<
-    typeof executeRun<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>
-  >
->;
-
 /**
  * Execute one definition against one mixed roster. Nested scopes stop
  * endpoints, runtimes, and the router before publishing ledger completion.
@@ -663,12 +580,19 @@ export function runSociety<
 ): Effect.Effect<
   SimulatorRunOutcome<A, E, Definitions>,
   LedgerStorageError,
-  RunRequirements<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>
+  Effect.Effect.Context<
+    ReturnType<
+      typeof executeRun<
+        Id,
+        CustomerSchema,
+        CustomerClasses,
+        Definitions,
+        A,
+        E,
+        R
+      >
+    >
+  >
 > {
-  return executeRun(
-    Object.freeze({
-      ...input,
-      options: snapshotRunOptions(input.options),
-    }),
-  );
+  return executeRun(input);
 }

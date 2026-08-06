@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { Effect, type ParseResult, Schema, Stream } from "effect";
 import type { ParseOptions } from "effect/SchemaAST";
-import type {
-  EventCatalog,
-  EventClass,
-  EventClassOf,
-  VersionedEventTag,
+import {
+  versionedEventTag,
+  type EventCatalog,
+  type EventClass,
+  type EventClassOf,
+  type VersionedEventTag,
 } from "../events/catalog.js";
 import {
   LedgerCompletion,
@@ -14,21 +15,16 @@ import {
   type LedgerRef,
   makeLedgerRecordSchema,
   type LedgerRecord,
+  versionedDefinitionId,
 } from "./schema.js";
 import { ledgerEvents } from "./append.js";
 import {
   LedgerStorage,
   LedgerStorageError,
+  ledgerReaderFor,
   type LedgerArtifact,
-  type LedgerStorageService,
+  type LedgerReader,
 } from "./storage.js";
-
-const versionedEventTagSchema = Schema.String.pipe(
-  Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
-);
-const versionedIdentifierSchema = Schema.String.pipe(
-  Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
-);
 
 const ledgerInvalidReasonSchema = Schema.Literal(
   "catalog-tags-not-sorted",
@@ -62,8 +58,8 @@ export class LedgerInvalid extends Schema.TaggedError<LedgerInvalid>()(
 export class LedgerCatalogMismatch extends Schema.TaggedError<LedgerCatalogMismatch>()(
   "LedgerCatalogMismatch",
   {
-    expectedTags: Schema.Array(versionedEventTagSchema),
-    actualTags: Schema.Array(versionedEventTagSchema),
+    expectedTags: Schema.Array(versionedEventTag),
+    actualTags: Schema.Array(versionedEventTag),
   },
 ) {
   override get message(): string {
@@ -75,8 +71,8 @@ export class LedgerCatalogMismatch extends Schema.TaggedError<LedgerCatalogMisma
 export class LedgerDefinitionMismatch extends Schema.TaggedError<LedgerDefinitionMismatch>()(
   "LedgerDefinitionMismatch",
   {
-    expectedDefinitionId: versionedIdentifierSchema,
-    actualDefinitionId: versionedIdentifierSchema,
+    expectedDefinitionId: versionedDefinitionId,
+    actualDefinitionId: versionedDefinitionId,
   },
 ) {
   override get message(): string {
@@ -212,9 +208,9 @@ function verifyCatalog<
 
 function verifyDefinition(
   manifest: LedgerManifest,
-  expectedDefinitionId?: string,
+  expectedDefinitionId: string | null,
 ): Effect.Effect<void, LedgerDefinitionMismatch> {
-  return expectedDefinitionId === undefined ||
+  return expectedDefinitionId === null ||
     manifest.definitionId === expectedDefinitionId
     ? Effect.void
     : Effect.fail(
@@ -361,27 +357,24 @@ export const readLedgerManifest = Effect.fn("readLedgerManifest")(function* (
   LedgerInvalid | LedgerStorageError,
   LedgerStorage
 > {
-  const storage = yield* LedgerStorage;
-  const text = yield* storage.read(ref, "manifest");
+  const reader = ledgerReaderFor(yield* LedgerStorage, ref);
+  const text = yield* reader.read("manifest");
   const manifest = yield* decodeJson("manifest", LedgerManifest, text);
   yield* validateManifestTags(manifest);
   return manifest;
 });
 
 function readLedgerArtifacts(
-  ref: LedgerRef,
-): Effect.Effect<LedgerArtifacts, LedgerStorageError, LedgerStorage> {
-  return Effect.gen(function* () {
-    const storage = yield* LedgerStorage;
-    return yield* Effect.all(
-      {
-        manifest: storage.read(ref, "manifest"),
-        records: storage.read(ref, "records"),
-        completion: storage.read(ref, "completion"),
-      },
-      { concurrency: 3 },
-    );
-  });
+  reader: LedgerReader,
+): Effect.Effect<LedgerArtifacts, LedgerStorageError> {
+  return Effect.all(
+    {
+      manifest: reader.read("manifest"),
+      records: reader.read("records"),
+      completion: reader.read("completion"),
+    },
+    { concurrency: 3 },
+  );
 }
 
 function decodeLedgerHeader<
@@ -390,7 +383,7 @@ function decodeLedgerHeader<
 >(
   catalog: EventCatalog<SchemaType, Classes>,
   files: LedgerArtifacts,
-  expectedDefinitionId?: string,
+  expectedDefinitionId: string | null,
 ) {
   return Effect.gen(function* () {
     const manifest = yield* decodeJson(
@@ -411,16 +404,16 @@ function decodeLedgerHeader<
 }
 
 function verifyLedgerDigests(
+  reader: LedgerReader,
   files: LedgerArtifacts,
   manifest: LedgerManifest,
   completion: LedgerCompletion,
-): Effect.Effect<void, LedgerInvalid | LedgerStorageError, LedgerStorage> {
+): Effect.Effect<void, LedgerInvalid | LedgerStorageError> {
   return Effect.gen(function* () {
-    const storage = yield* LedgerStorage;
     const digests = yield* Effect.all(
       {
-        manifest: storage.digest(files.manifest),
-        records: storage.digest(files.records),
+        manifest: reader.digest(files.manifest),
+        records: reader.digest(files.records),
       },
       { concurrency: 2 },
     );
@@ -446,6 +439,41 @@ function decodeLedgerRecords<
   );
 }
 
+function openLedgerWith<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(
+  reader: LedgerReader,
+  catalog: EventCatalog<SchemaType, Classes>,
+  ref: LedgerRef,
+  expectedDefinitionId: string | null,
+): Effect.Effect<
+  CompletedRunLedger<EventCatalog<SchemaType, Classes>>,
+  LedgerOpenError
+> {
+  return Effect.gen(function* () {
+    const files = yield* readLedgerArtifacts(reader);
+    const { completion, manifest } = yield* decodeLedgerHeader(
+      catalog,
+      files,
+      expectedDefinitionId,
+    );
+    yield* verifyLedgerDigests(reader, files, manifest, completion);
+    const records = yield* decodeLedgerRecords(catalog, files.records);
+    yield* validateRecords(manifest.runId, completion, records);
+    const snapshot = Object.freeze([...records]);
+    const recordStream = Stream.fromIterable(snapshot);
+    const completed: CompletedRunLedger<EventCatalog<SchemaType, Classes>> = {
+      ref,
+      manifest,
+      completion,
+      records: recordStream,
+      events: (eventClass) => ledgerEvents(catalog, recordStream, eventClass),
+    };
+    return Object.freeze(completed);
+  });
+}
+
 /**
  * Validate a completed ledger before exposing its reusable typed record
  * stream. The exact catalog is required; no unknown-event branch escapes.
@@ -466,48 +494,15 @@ export function openLedger<
   LedgerOpenError,
   LedgerStorage
 > {
-  return Effect.gen(function* () {
-    const files = yield* readLedgerArtifacts(ref);
-    const { completion, manifest } = yield* decodeLedgerHeader(
-      catalog,
-      files,
-      expectedDefinitionId,
-    );
-    yield* verifyLedgerDigests(files, manifest, completion);
-    const records = yield* decodeLedgerRecords(catalog, files.records);
-    yield* validateRecords(manifest.runId, completion, records);
-    const snapshot = Object.freeze([...records]);
-    const recordStream = Stream.fromIterable(snapshot);
-    const completed: CompletedRunLedger<EventCatalog<SchemaType, Classes>> = {
-      ref,
-      manifest,
-      completion,
-      records: recordStream,
-      events: (eventClass) => ledgerEvents(catalog, recordStream, eventClass),
-    };
-    return Object.freeze(completed);
-  }).pipe(Effect.withSpan("openLedger"));
+  const definitionId = expectedDefinitionId ?? null;
+  return Effect.flatMap(LedgerStorage, (storage) =>
+    openLedgerWith(ledgerReaderFor(storage, ref), catalog, ref, definitionId),
+  ).pipe(Effect.withSpan("openLedger"));
 }
 
-function artifactStorage(
-  ref: LedgerRef,
-  artifacts: CompletedLedgerArtifacts,
-): LedgerStorageService {
+function artifactReader(artifacts: CompletedLedgerArtifacts): LedgerReader {
   return {
-    allocate: () => Effect.dieMessage("completed artifacts are read-only"),
-    read: (requestedRef, artifact) => {
-      if (requestedRef !== ref) {
-        return Effect.fail(
-          LedgerStorageError.make({
-            operation: "read",
-            detail: "the retrieved artifacts belong to a different ledger",
-            ref: requestedRef,
-            artifact,
-          }),
-        );
-      }
-      return Effect.succeed(artifacts[artifact]);
-    },
+    read: (artifact) => Effect.succeed(artifacts[artifact]),
     digest: (text) =>
       Effect.try({
         try: () => createHash("sha256").update(text, "utf8").digest("hex"),
@@ -552,15 +547,11 @@ export function openLedgerArtifacts<
   CompletedRunLedger<EventCatalog<SchemaType, Classes>>,
   LedgerOpenError
 > {
-  const storage = artifactStorage(ref, artifacts);
-  if (expectedDefinitionId === undefined) {
-    return openLedger(catalog, ref).pipe(
-      Effect.provideService(LedgerStorage, storage),
-      Effect.withSpan("openLedgerArtifacts"),
-    );
-  }
-  return openLedger(catalog, ref, expectedDefinitionId).pipe(
-    Effect.provideService(LedgerStorage, storage),
-    Effect.withSpan("openLedgerArtifacts"),
-  );
+  const definitionId = expectedDefinitionId ?? null;
+  return openLedgerWith(
+    artifactReader(artifacts),
+    catalog,
+    ref,
+    definitionId,
+  ).pipe(Effect.withSpan("openLedgerArtifacts"));
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
+import { image } from "../../agents/container.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import {
@@ -22,6 +23,10 @@ import {
 } from "./objects.js";
 
 const OWNER = { name: "run", uid: "run-uid" };
+const SUPPORT_IMAGE = image.make(`registry/simulator@sha256:${"c".repeat(64)}`);
+const APPLICATION_IMAGE = image.make(
+  `registry/openclaw@sha256:${"d".repeat(64)}`,
+);
 const SECRET_CONTENT = "secret-content";
 const PARTIAL_ADMISSION_FIELD = "minCount";
 const PLACEMENT = {
@@ -64,10 +69,10 @@ function sandboxFixture(withPlacement = false) {
     labels: { "moltzap.dev/run": "run-1" },
     owner: OWNER,
     bootstrapSecretName: "agent-1-alice-bootstrap",
-    supportImage: "registry/simulator@sha256:support",
+    supportImage: SUPPORT_IMAGE,
     ...(withPlacement ? { placement: PLACEMENT } : {}),
     application: {
-      image: "registry/openclaw@sha256:application",
+      image: APPLICATION_IMAGE,
       entrypoint: ["openclaw", "gateway", "run"],
       environment: { HOME: "/var/lib/moltzap/openclaw" },
       credentials: ["OPENAI_API_KEY"],
@@ -115,25 +120,6 @@ it("reserves identical runtimes as one all-or-nothing pod set", () => {
   expect(JSON.stringify(manifest)).not.toContain(PARTIAL_ADMISSION_FIELD);
 });
 
-it("rejects an empty roster before creating capacity", () => {
-  let failure: unknown;
-  try {
-    aggregateWorkloadManifest({
-      namespace: "mz-run",
-      name: "society",
-      queueName: "simulator",
-      labels: {},
-      owner: OWNER,
-      slots: [],
-    });
-  } catch (cause) {
-    failure = cause;
-  }
-  expect(failure).toMatchObject({
-    detail: "aggregate capacity reservation requires at least one runtime",
-  });
-});
-
 it("stores bootstrap content as immutable Secret data", () => {
   const manifest = bootstrapSecretManifest({
     namespace: "mz-run",
@@ -164,13 +150,11 @@ it("creates one application container without bootstrap bytes in its environment
         spec: {
           automountServiceAccountToken: false,
           restartPolicy: "Never",
-          initContainers: [
-            { name: "bootstrap", image: "registry/simulator@sha256:support" },
-          ],
+          initContainers: [{ name: "bootstrap", image: SUPPORT_IMAGE }],
           containers: [
             {
               name: "application",
-              image: "registry/openclaw@sha256:application",
+              image: APPLICATION_IMAGE,
               command: ["openclaw"],
               args: ["gateway", "run"],
               env: [

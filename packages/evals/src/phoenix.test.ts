@@ -5,6 +5,7 @@ import {
   type Types,
 } from "@arizeai/phoenix-client";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
+import { image } from "@moltzap/simulator/agents";
 import {
   LedgerCompletion,
   LedgerStorageError,
@@ -46,6 +47,8 @@ import {
   LocalEvaluationInfrastructure,
   LedgerAllocationFailedAttempt,
 } from "./sweep.js";
+
+const testImage = Schema.decodeSync(image);
 
 const DATASET_NAME = "moltzap-evaluations";
 const DATASET_DESCRIPTION =
@@ -125,9 +128,9 @@ function plan(definitionId = "moltzap.test.phoenix/v1"): EvaluationReportPlan {
     }),
     infrastructure: LocalEvaluationInfrastructure.make({
       profile: "local",
-      controllerImage: `controller@sha256:${"a".repeat(64)}`,
-      peerApplicationImage: `peer@sha256:${"b".repeat(64)}`,
-      nanoclawApplicationImage: `nanoclaw@sha256:${"c".repeat(64)}`,
+      controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
+      peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
+      nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
       temporalAddress: "127.0.0.1:7233",
       artifactDirectory: "/var/lib/moltzap/artifacts",
     }),

@@ -12,14 +12,16 @@ import {
   Fiber,
   Option,
   Schema,
+  type Scope,
 } from "effect";
 import { makeAgentHandle } from "../network/participant.js";
 import type { AgentConnection } from "../network/router.js";
 import {
   defineContainerRuntime,
+  image,
+  type ApplicationEndpoint,
   type CredentialName,
   type File,
-  type Image,
 } from "../agents/container.js";
 import { AgentRoster } from "../agents/roster.js";
 import {
@@ -43,10 +45,12 @@ import {
   type KubernetesClusterOptions,
 } from "./cohort.js";
 
-const SUPPORT_IMAGE =
-  "registry.example/simulator@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" satisfies Image;
-const APPLICATION_IMAGE =
-  "registry.example/runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" satisfies Image;
+const SUPPORT_IMAGE = image.make(
+  "registry.example/simulator@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+);
+const APPLICATION_IMAGE = image.make(
+  "registry.example/runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+);
 const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
   "https://router.run.svc.cluster.local:3000",
 );
@@ -83,6 +87,10 @@ const UNREQUESTED_CREDENTIAL_VALUE = "openai-key-never-requested";
 const INJECTED_API_DETAIL = "observe agent sandbox: injected transport loss";
 
 const POLL_INTERVAL = Duration.millis(1);
+/** A liveness interval no test run can reach, so only readiness can progress. */
+const UNREACHED_INTERVAL = Duration.hours(1);
+/** Long enough for a poll loop to reach its next sleep. */
+const SETTLED = Duration.millis(5);
 const GENEROUS_TIMEOUT = Duration.seconds(1);
 /** Long enough for the poll loop to run many times, short enough to expire. */
 const MISSED_TIMEOUT = Duration.millis(50);
@@ -93,6 +101,7 @@ const UNREACHABLE_PROBE = Number.MAX_SAFE_INTEGER;
 const NO_CLUSTER_FAILURE = "<no cluster error observed>";
 
 const NOT_ADMITTED = "was not admitted within";
+const EMPTY_RESERVATION = "requires at least one runtime";
 const DELETED_BEFORE_ADMISSION = "was deleted before admission";
 const EVICTED_BEFORE_ADMISSION = "was evicted before admission";
 const ADMISSION_LOST = "capacity admission was lost during execution";
@@ -238,6 +247,27 @@ function deletingPod(pod: PodObservation): PodObservation {
   };
 }
 
+/**
+ * Every backing-Pod shape that is not the one live Pod readiness requires.
+ * @param state Fake cluster state the Pod observations are drawn from.
+ * @param name Sandbox resource the selector resolved to.
+ * @param shape Which unready shape to present.
+ * @returns The Pods that Sandbox's selector resolves to.
+ */
+function backingPods(
+  state: FakeKubernetesState,
+  name: string,
+  shape: "none" | "several" | "terminating",
+): readonly PodObservation[] {
+  const pod = applicationPod(state, `${name}-pod`);
+  if (shape === "none") {
+    return [];
+  }
+  return shape === "several"
+    ? [pod, applicationPod(state, `${name}-pod-replacement`)]
+    : [deletingPod(pod)];
+}
+
 function pods(
   state: FakeKubernetesState,
   selector: string,
@@ -336,10 +366,78 @@ const DEFAULT_BOOTSTRAP_FILES: readonly File[] = [
   },
 ];
 
+const DUPLICATED_BOOTSTRAP_FILE = {
+  path: `${BOOTSTRAP_ROOT}/config.json`,
+  content: BOOTSTRAP_CONTENT,
+  mode: READABLE_FILE_MODE,
+} satisfies File;
+
+/** One bootstrap request the run must refuse before any Secret exists. */
+interface RefusedBootstrap {
+  readonly reason: string;
+  readonly files: readonly File[];
+  readonly detail: string;
+}
+
+/** One way the complete-roster reservation fails to reach admission. */
+interface UnadmittedReservation {
+  readonly reason: string;
+  readonly detail: string;
+  readonly apply?: (state: FakeKubernetesState) => void;
+}
+
+const UNADMITTED_RESERVATIONS: readonly UnadmittedReservation[] = [
+  {
+    reason: "deleted before admission",
+    detail: DELETED_BEFORE_ADMISSION,
+    apply: (state) => {
+      state.workloadDeleting = true;
+    },
+  },
+  {
+    reason: "evicted before admission",
+    detail: EVICTED_BEFORE_ADMISSION,
+    apply: (state) => {
+      state.evicted = true;
+    },
+  },
+  { reason: "never admitted", detail: NOT_ADMITTED },
+];
+
+const REFUSED_BOOTSTRAPS: readonly RefusedBootstrap[] = [
+  {
+    reason: "escapes the bootstrap root",
+    files: [
+      {
+        path: `${BOOTSTRAP_ROOT}/../escape.json`,
+        content: BOOTSTRAP_CONTENT,
+        mode: READABLE_FILE_MODE,
+      },
+    ],
+    detail: ESCAPING_BOOTSTRAP_PATH,
+  },
+  {
+    reason: "materializes one path twice",
+    files: [DUPLICATED_BOOTSTRAP_FILE, DUPLICATED_BOOTSTRAP_FILE],
+    detail: DUPLICATE_BOOTSTRAP_PATH,
+  },
+  {
+    reason: "asks for a mode outside the permission range",
+    files: [
+      {
+        path: `${BOOTSTRAP_ROOT}/config.json`,
+        content: BOOTSTRAP_CONTENT,
+        mode: INVALID_FILE_MODE,
+      },
+    ],
+    detail: INVALID_BOOTSTRAP_MODE,
+  },
+];
+
 interface FakeRuntimeOptions {
   readonly files?: readonly File[];
   readonly credentials?: readonly CredentialName[];
-  readonly onAttach?: (endpoint: URL) => void;
+  readonly onAttach?: (endpoint: ApplicationEndpoint) => void;
   /** A stop only the runtime can see, reported the moment it attaches. */
   readonly reportedStop?: RuntimeTermination;
 }
@@ -361,7 +459,7 @@ function fakeRuntime(options: FakeRuntimeOptions = {}) {
         port: GATEWAY_PORT,
         files: options.files ?? DEFAULT_BOOTSTRAP_FILES,
         attach: (
-          endpoint: URL,
+          endpoint: ApplicationEndpoint,
           stopped: Effect.Effect<RuntimeTermination>,
           reportStopped: (
             termination: RuntimeTermination,
@@ -417,6 +515,7 @@ function connection<const Name extends string>(
 
 interface PlatformOptions {
   readonly startupTimeout?: Duration.Duration;
+  readonly livenessInterval?: Duration.Duration;
   readonly runtimeCredentials?: KubernetesClusterOptions["runtimeCredentials"];
 }
 
@@ -432,7 +531,8 @@ function makePlatform(
     supportImage: SUPPORT_IMAGE,
     runtimeCredentials: options.runtimeCredentials,
     startupTimeout: options.startupTimeout ?? GENEROUS_TIMEOUT,
-    pollInterval: POLL_INTERVAL,
+    readinessInterval: POLL_INTERVAL,
+    livenessInterval: options.livenessInterval ?? POLL_INTERVAL,
   });
 }
 
@@ -486,6 +586,25 @@ function acquireCohort<
   ).pipe(Effect.exit);
 }
 
+/**
+ * Run one scoped platform attempt under a deadline. A poll loop that never
+ * settles reports the cluster events it reached instead of hanging the suite.
+ * @param state Fake cluster state whose event trail names the progress made.
+ * @param attempt Scoped attempt to run.
+ * @returns The attempt's own result, or a failure naming what it reached.
+ */
+function runWithin<A, E>(
+  state: FakeKubernetesState,
+  attempt: Effect.Effect<A, E, Scope.Scope>,
+): Effect.Effect<A, E | Error> {
+  return Effect.scoped(attempt).pipe(
+    Effect.timeoutFail({
+      duration: GENEROUS_TIMEOUT,
+      onTimeout: () => new Error(`timed out after: ${state.events.join(",")}`),
+    }),
+  );
+}
+
 function detailOf(candidates: Iterable<unknown>): string | undefined {
   for (const candidate of candidates) {
     if (candidate instanceof ClusterError) {
@@ -532,7 +651,8 @@ test("reserves the complete roster before creating any Sandbox and releases ever
       });
       const platform = makePlatform(state);
 
-      yield* Effect.scoped(
+      yield* runWithin(
+        state,
         Effect.gen(function* () {
           const preparing = yield* Effect.fork(platform.prepare(roster));
           yield* Deferred.await(workloadObserved);
@@ -541,12 +661,6 @@ test("reserves the complete roster before creating any Sandbox and releases ever
           const session = yield* Fiber.join(preparing);
           yield* acquireAll(session, roster);
           yield* session.cohortReady;
-        }),
-      ).pipe(
-        Effect.timeoutFail({
-          duration: GENEROUS_TIMEOUT,
-          onTimeout: () =>
-            new Error(`timed out after: ${state.events.join(",")}`),
         }),
       );
 
@@ -584,7 +698,8 @@ test("reports a finished Sandbox as runtime evidence without failing platform ow
       });
       const platform = makePlatform(state);
 
-      yield* Effect.scoped(
+      yield* runWithin(
+        state,
         Effect.gen(function* () {
           const session = yield* platform.prepare(roster);
           const running = yield* acquireFirst(session, roster);
@@ -596,12 +711,6 @@ test("reports a finished Sandbox as runtime evidence without failing platform ow
           assert.strictEqual(termination.code, OBSERVED_EXIT_CODE);
           yield* Effect.sleep(Duration.millis(5));
           assert.isTrue(Option.isNone(yield* Fiber.poll(ownership)));
-        }),
-      ).pipe(
-        Effect.timeoutFail({
-          duration: GENEROUS_TIMEOUT,
-          onTimeout: () =>
-            new Error(`timed out after: ${state.events.join(",")}`),
         }),
       );
     }),
@@ -683,60 +792,29 @@ describe("readiness", () => {
 });
 
 describe("aggregate capacity admission", () => {
-  test("fails when the capacity reservation is deleted before admission", () =>
+  test("creates no Sandbox and releases a reservation that never admitted", () =>
     Effect.runPromise(
       Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        state.workloadDeleting = true;
-        const roster = AgentRoster.make("acme.kubernetes-workload-gone/v1", {
-          alice: fakeRuntime(),
-        });
+        for (const refused of UNADMITTED_RESERVATIONS) {
+          const state = makeState(yield* Deferred.make<undefined>());
+          refused.apply?.(state);
+          const roster = AgentRoster.make("acme.kubernetes-unadmitted/v1", {
+            alice: fakeRuntime(),
+          });
 
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
+          const exit = yield* acquireCohort(
+            makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
+            roster,
+          );
 
-        assert.include(failureDetail(exit), DELETED_BEFORE_ADMISSION);
-        assert.lengthOf(created(state, SANDBOX_CREATED), 0);
-      }),
-    ));
-
-  test("fails when the capacity reservation is evicted before admission", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        state.evicted = true;
-        const roster = AgentRoster.make("acme.kubernetes-workload-evicted/v1", {
-          alice: fakeRuntime(),
-        });
-
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
-
-        assert.include(failureDetail(exit), EVICTED_BEFORE_ADMISSION);
-        assert.lengthOf(created(state, SANDBOX_CREATED), 0);
-      }),
-    ));
-
-  test("fails when the complete roster is never admitted", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        const roster = AgentRoster.make("acme.kubernetes-never-admitted/v1", {
-          alice: fakeRuntime(),
-        });
-
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
-
-        assert.include(failureDetail(exit), NOT_ADMITTED);
-        assert.lengthOf(created(state, SANDBOX_CREATED), 0);
-        assert.strictEqual(state.events.at(-1), WORKLOAD_DELETED);
+          assert.include(failureDetail(exit), refused.detail, refused.reason);
+          assert.lengthOf(created(state, SANDBOX_CREATED), 0, refused.reason);
+          assert.strictEqual(
+            state.events.at(-1),
+            WORKLOAD_DELETED,
+            refused.reason,
+          );
+        }
       }),
     ));
 });
@@ -752,7 +830,8 @@ describe("session ownership", () => {
         });
         const platform = makePlatform(state);
 
-        yield* Effect.scoped(
+        yield* runWithin(
+          state,
           Effect.gen(function* () {
             const session = yield* platform.prepare(roster);
             yield* acquireFirst(session, roster);
@@ -761,12 +840,6 @@ describe("session ownership", () => {
             state.admitted = false;
             const exit = yield* Fiber.await(ownership);
             assert.include(failureDetail(exit), ADMISSION_LOST);
-          }),
-        ).pipe(
-          Effect.timeoutFail({
-            duration: GENEROUS_TIMEOUT,
-            onTimeout: () =>
-              new Error(`timed out after: ${state.events.join(",")}`),
           }),
         );
       }),
@@ -784,7 +857,8 @@ describe("session ownership", () => {
           startupTimeout: MISSED_TIMEOUT,
         });
 
-        yield* Effect.scoped(
+        yield* runWithin(
+          state,
           Effect.gen(function* () {
             const session = yield* platform.prepare(roster);
             const running = yield* acquireFirst(session, roster);
@@ -801,12 +875,6 @@ describe("session ownership", () => {
             assert.include(failureDetail(exit), SANDBOX_UNOBSERVABLE);
             assert.include(failureDetail(exit), INJECTED_API_DETAIL);
             assert.isTrue(state.admitted);
-          }),
-        ).pipe(
-          Effect.timeoutFail({
-            duration: GENEROUS_TIMEOUT,
-            onTimeout: () =>
-              new Error(`timed out after: ${state.events.join(",")}`),
           }),
         );
       }),
@@ -829,6 +897,22 @@ describe("roster gates", () => {
         );
 
         assert.include(failureDetail(exit), NO_CONTAINER_REALIZATION);
+        assert.lengthOf(created(state, WORKLOAD_CREATED), 0);
+      }),
+    ));
+
+  test("refuses a roster that reserves no capacity at all", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const state = makeState(yield* Deferred.make<undefined>());
+        state.admitted = true;
+        const roster = AgentRoster.make("acme.kubernetes-empty-roster/v1", {});
+
+        const exit = yield* Effect.scoped(
+          makePlatform(state).prepare(roster),
+        ).pipe(Effect.exit);
+
+        assert.include(failureDetail(exit), EMPTY_RESERVATION);
         assert.lengthOf(created(state, WORKLOAD_CREATED), 0);
       }),
     ));
@@ -860,81 +944,24 @@ describe("roster gates", () => {
 });
 
 describe("bootstrap data", () => {
-  test("refuses a bootstrap file that escapes the bootstrap root", () =>
+  test("creates no Secret for a bootstrap the initializer cannot trust", () =>
     Effect.runPromise(
       Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        state.admitted = true;
-        const roster = AgentRoster.make("acme.kubernetes-escaping-file/v1", {
-          alice: fakeRuntime({
-            files: [
-              {
-                path: `${BOOTSTRAP_ROOT}/../escape.json`,
-                content: BOOTSTRAP_CONTENT,
-                mode: READABLE_FILE_MODE,
-              },
-            ],
-          }),
-        });
+        for (const refused of REFUSED_BOOTSTRAPS) {
+          const state = makeState(yield* Deferred.make<undefined>());
+          state.admitted = true;
+          const roster = AgentRoster.make("acme.kubernetes-bad-bootstrap/v1", {
+            alice: fakeRuntime({ files: refused.files }),
+          });
 
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
+          const exit = yield* acquireCohort(
+            makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
+            roster,
+          );
 
-        assert.include(failureDetail(exit), ESCAPING_BOOTSTRAP_PATH);
-        assert.lengthOf(created(state, SECRET_CREATED), 0);
-      }),
-    ));
-
-  test("refuses a bootstrap that materializes the same path twice", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        state.admitted = true;
-        const duplicated = {
-          path: `${BOOTSTRAP_ROOT}/config.json`,
-          content: BOOTSTRAP_CONTENT,
-          mode: READABLE_FILE_MODE,
-        } satisfies File;
-        const roster = AgentRoster.make("acme.kubernetes-duplicate-file/v1", {
-          alice: fakeRuntime({ files: [duplicated, duplicated] }),
-        });
-
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
-
-        assert.include(failureDetail(exit), DUPLICATE_BOOTSTRAP_PATH);
-        assert.lengthOf(created(state, SECRET_CREATED), 0);
-      }),
-    ));
-
-  test("refuses a bootstrap file mode outside the permission range", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        state.admitted = true;
-        const roster = AgentRoster.make("acme.kubernetes-invalid-mode/v1", {
-          alice: fakeRuntime({
-            files: [
-              {
-                path: `${BOOTSTRAP_ROOT}/config.json`,
-                content: BOOTSTRAP_CONTENT,
-                mode: INVALID_FILE_MODE,
-              },
-            ],
-          }),
-        });
-
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
-
-        assert.include(failureDetail(exit), INVALID_BOOTSTRAP_MODE);
-        assert.lengthOf(created(state, SECRET_CREATED), 0);
+          assert.include(failureDetail(exit), refused.detail, refused.reason);
+          assert.lengthOf(created(state, SECRET_CREATED), 0, refused.reason);
+        }
       }),
     ));
 });
@@ -1014,68 +1041,26 @@ describe("credential injection", () => {
 });
 
 describe("application pod discovery", () => {
-  test("treats a Sandbox with no backing Pod as not ready", () =>
+  test("dispatches no Sandbox that is not backed by exactly one live Pod", () =>
     Effect.runPromise(
       Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        state.admitted = true;
-        state.podsFor = () => [];
-        const roster = AgentRoster.make("acme.kubernetes-zero-pods/v1", {
-          alice: fakeRuntime(),
-        });
+        for (const shape of ["none", "several", "terminating"] as const) {
+          const state = makeState(yield* Deferred.make<undefined>());
+          state.admitted = true;
+          state.podsFor = (name) => backingPods(state, name, shape);
+          const roster = AgentRoster.make(`acme.kubernetes-${shape}-pods/v1`, {
+            alice: fakeRuntime(),
+          });
 
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
+          const exit = yield* acquireCohort(
+            makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
+            roster,
+          );
 
-        assert.include(failureDetail(exit), NOT_READY);
-        assert.strictEqual(state.bridgeProbes, 0);
-      }),
-    ));
-
-  test("treats a Sandbox with more than one backing Pod as not ready", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        state.admitted = true;
-        state.podsFor = (name) => [
-          applicationPod(state, `${name}-pod`),
-          applicationPod(state, `${name}-pod-replacement`),
-        ];
-        const roster = AgentRoster.make("acme.kubernetes-many-pods/v1", {
-          alice: fakeRuntime(),
-        });
-
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
-
-        assert.include(failureDetail(exit), NOT_READY);
-        assert.strictEqual(state.bridgeProbes, 0);
-      }),
-    ));
-
-  test("treats a Sandbox whose only Pod is terminating as not ready", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const state = makeState(yield* Deferred.make<undefined>());
-        state.admitted = true;
-        state.podsFor = (name) => [
-          deletingPod(applicationPod(state, `${name}-pod`)),
-        ];
-        const roster = AgentRoster.make("acme.kubernetes-deleting-pod/v1", {
-          alice: fakeRuntime(),
-        });
-
-        const exit = yield* acquireCohort(
-          makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
-          roster,
-        );
-
-        assert.include(failureDetail(exit), NOT_READY);
-        assert.strictEqual(state.bridgeProbes, 0);
+          assert.include(failureDetail(exit), NOT_READY, shape);
+          // The bridge answered throughout: only the Pod observation refused.
+          assert.isAbove(state.bridgeProbes, 0, shape);
+        }
       }),
     ));
 });
@@ -1092,7 +1077,8 @@ describe("termination evidence", () => {
         });
         const platform = makePlatform(state);
 
-        yield* Effect.scoped(
+        yield* runWithin(
+          state,
           Effect.gen(function* () {
             const session = yield* platform.prepare(roster);
             const running = yield* acquireFirst(session, roster);
@@ -1101,12 +1087,6 @@ describe("termination evidence", () => {
             const termination = yield* running.termination;
             assert.instanceOf(termination, RuntimeSignaled);
             assert.strictEqual(termination.signal, SIGNAL_EVIDENCE);
-          }),
-        ).pipe(
-          Effect.timeoutFail({
-            duration: GENEROUS_TIMEOUT,
-            onTimeout: () =>
-              new Error(`timed out after: ${state.events.join(",")}`),
           }),
         );
       }),
@@ -1124,7 +1104,8 @@ describe("termination evidence", () => {
         });
         const platform = makePlatform(state);
 
-        yield* Effect.scoped(
+        yield* runWithin(
+          state,
           Effect.gen(function* () {
             const session = yield* platform.prepare(roster);
             const running = yield* acquireFirst(session, roster);
@@ -1135,12 +1116,6 @@ describe("termination evidence", () => {
             const termination = yield* running.termination;
             assert.instanceOf(termination, RuntimeFailed);
             assert.strictEqual(termination.detail, RUNTIME_BRIDGE_LOST);
-          }),
-        ).pipe(
-          Effect.timeoutFail({
-            duration: GENEROUS_TIMEOUT,
-            onTimeout: () =>
-              new Error(`timed out after: ${state.events.join(",")}`),
           }),
         );
       }),
@@ -1156,7 +1131,8 @@ describe("termination evidence", () => {
         });
         const platform = makePlatform(state);
 
-        yield* Effect.scoped(
+        yield* runWithin(
+          state,
           Effect.gen(function* () {
             const session = yield* platform.prepare(roster);
             const running = yield* acquireFirst(session, roster);
@@ -1168,11 +1144,43 @@ describe("termination evidence", () => {
             assert.strictEqual(termination.code, OBSERVED_EXIT_CODE);
             assert.strictEqual(state.sandboxReadFailures, 0);
           }),
-        ).pipe(
-          Effect.timeoutFail({
-            duration: GENEROUS_TIMEOUT,
-            onTimeout: () =>
-              new Error(`timed out after: ${state.events.join(",")}`),
+        );
+      }),
+    ));
+});
+
+describe("observation cadence", () => {
+  test("holds a running agent to the liveness interval, not the readiness one", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const state = makeState(yield* Deferred.make<undefined>());
+        state.admitted = true;
+        state.acceptingFromProbe = READY_AFTER_PROBES;
+        const roster = AgentRoster.make("acme.kubernetes-cadence/v1", {
+          alice: fakeRuntime(),
+        });
+        const platform = makePlatform(state, {
+          livenessInterval: UNREACHED_INTERVAL,
+        });
+
+        yield* runWithin(
+          state,
+          Effect.gen(function* () {
+            // Reaching a bridge that opens only after several probes proves
+            // readiness kept its own interval.
+            const session = yield* platform.prepare(roster);
+            const running = yield* acquireFirst(session, roster);
+            yield* session.cohortReady;
+            assert.isAtLeast(state.bridgeProbes, READY_AFTER_PROBES);
+
+            const observing = yield* Effect.fork(running.termination);
+            yield* Effect.sleep(SETTLED);
+            yield* Effect.sync(() => {
+              state.finished = true;
+            });
+            yield* Effect.sleep(SETTLED);
+
+            assert.isTrue(Option.isNone(yield* Fiber.poll(observing)));
           }),
         );
       }),

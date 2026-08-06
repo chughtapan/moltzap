@@ -35,13 +35,13 @@ const AGENT_KEY_TEXT =
 const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
 // eslint-disable-next-line sonarjs/no-clear-text-protocols -- the private in-cluster router contract is intentionally HTTP.
 const ROUTER_URL = serverBaseUrl("http://router.society.svc:3000");
-const GATEWAY_URL = "ws://alice.society.svc:18789";
+const GATEWAY_HOST = "alice.society.svc";
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const OPENCLAW_CONFIG_PATH = `${BOOTSTRAP_ROOT}openclaw.json`;
 const PROFILE_PATH = `${BOOTSTRAP_ROOT}moltzap/config.json`;
 const CHANNEL_PATH = `${BOOTSTRAP_ROOT}openclaw-channel`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
-const DISTRIBUTED_GATEWAY_PORT = 18_789;
+const GATEWAY_PORT = 18_789;
 const APPLICATION_STATE_DIR = `${BOOTSTRAP_ROOT}state`;
 const PAIRED_DEVICES_PATH = `${APPLICATION_STATE_DIR}/devices/paired.json`;
 const WORKSPACE_CONTENT = "Alice";
@@ -116,16 +116,6 @@ function requireFile(files: readonly File[], path: string): string {
   return file.content;
 }
 
-function requireCapability(
-  runtime: ReturnType<typeof openClawRuntime>,
-): OpenClawContainerRuntime {
-  const capability = containerRuntimeFor(runtime);
-  if (capability === undefined) {
-    throw new Error("stock OpenClaw runtime has no container realization");
-  }
-  return capability;
-}
-
 function makeStockFixture() {
   return Effect.gen(function* () {
     const runtime = openClawRuntime({
@@ -134,7 +124,7 @@ function makeStockFixture() {
         { relativePath: "IDENTITY.md", content: WORKSPACE_CONTENT },
       ],
     });
-    const capability = requireCapability(runtime);
+    const capability = containerRuntimeFor(runtime);
     const application = yield* capability.render({
       agentName: AGENT_NAME,
       connection,
@@ -184,9 +174,9 @@ function assertApplicationContainer(fixture: StockFixture): void {
     "run",
     "--allow-unconfigured",
     "--port",
-    String(DISTRIBUTED_GATEWAY_PORT),
+    String(GATEWAY_PORT),
   ]);
-  assert.strictEqual(application.port, DISTRIBUTED_GATEWAY_PORT);
+  assert.strictEqual(application.port, GATEWAY_PORT);
   assert.strictEqual(
     application.environment.OPENCLAW_CONFIG_PATH,
     OPENCLAW_CONFIG_PATH,
@@ -281,7 +271,7 @@ function exactBridgeTest() {
     const response = yield* Effect.scoped(
       Effect.gen(function* () {
         const gateway = yield* fixture.application.attach(
-          new URL(GATEWAY_URL),
+          { host: GATEWAY_HOST, port: GATEWAY_PORT },
           Effect.never,
           unreportedStop,
         );
@@ -296,7 +286,10 @@ function exactBridgeTest() {
 
     assert.instanceOf(response, OpenClawGatewaySucceeded);
     assert.strictEqual(response.runId, BRIDGE_RUN_ID);
-    assert.strictEqual(observed.options?.url, `${GATEWAY_URL}/`);
+    assert.strictEqual(
+      observed.options?.url,
+      `ws://${GATEWAY_HOST}:${String(GATEWAY_PORT)}/`,
+    );
     assert.strictEqual(
       observed.options?.token,
       fixture.config.gateway.auth.token,
@@ -308,7 +301,7 @@ function exactBridgeTest() {
   });
 }
 
-describe("distributed OpenClaw runtime", () => {
+describe("OpenClaw container runtime", () => {
   test(
     "renders one stock application container with credentials confined to bootstrap files",
     stockCapabilityTest,
