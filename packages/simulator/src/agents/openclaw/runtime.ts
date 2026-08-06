@@ -16,6 +16,7 @@ import {
   type File,
 } from "../container.js";
 import {
+  AgentRuntimeDefinitionError,
   deepFreeze,
   type AgentRuntimeInput,
   type RuntimeAcquisitionError,
@@ -140,14 +141,81 @@ function snapshotNativeConfiguration<Value extends object>(
 function snapshotOptions(
   options: OpenClawRuntimeOptions,
 ): OpenClawRuntimeSettings {
+  const workspaceFiles = snapshotWorkspaceFiles(options.workspaceFiles);
+  const tools = snapshotNativeConfiguration(options.tools);
+  assertWorkspaceFilesReachable(
+    workspaceFiles,
+    tools?.deny?.includes("*") ?? false,
+  );
   return Object.freeze({
     startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
-    workspaceFiles: snapshotWorkspaceFiles(options.workspaceFiles),
+    workspaceFiles,
     modelId: options.modelId,
     mcpServers: snapshotMcpServers(options.mcpServers),
-    tools: snapshotNativeConfiguration(options.tools),
+    tools,
     sandbox: snapshotNativeConfiguration(options.sandbox),
   });
+}
+
+/**
+ * Workspace filenames OpenClaw injects into model context. Any other name is
+ * written to disk but never reaches the model. Pinned to the packaged
+ * OpenClaw version; the drift canary asserts this list against the installed
+ * package so a version bump that changes the set breaks loudly.
+ */
+export const OPENCLAW_CONTEXT_FILENAMES: readonly string[] = Object.freeze([
+  "AGENTS.md",
+  "SOUL.md",
+  "TOOLS.md",
+  "IDENTITY.md",
+  "USER.md",
+  "HEARTBEAT.md",
+  "BOOTSTRAP.md",
+  "MEMORY.md",
+]);
+
+const OPENCLAW_CONTEXT_FILENAME_SET: ReadonlySet<string> = new Set(
+  OPENCLAW_CONTEXT_FILENAMES,
+);
+
+/**
+ * Names of declared workspace files the model can never see through context
+ * injection.
+ * @param files Checked workspace files the definition declares.
+ * @returns Relative paths outside OpenClaw's context-injection set.
+ */
+function invisibleWorkspaceFiles(
+  files: readonly CheckedWorkspaceFile[],
+): readonly string[] {
+  return Object.freeze(
+    files
+      .filter((file) => !OPENCLAW_CONTEXT_FILENAME_SET.has(file.relativePath))
+      .map((file) => file.relativePath),
+  );
+}
+
+/**
+ * Refuse a definition whose workspace files are provably invisible: outside
+ * OpenClaw's context-injection set while the deny list is the wildcard, so no
+ * tool could ever read them either. Other deny shapes may also block every
+ * read, but only the wildcard is knowable without interpreting native policy;
+ * those shapes intentionally degrade to the acquisition-time warning.
+ * @param files Checked workspace files the definition declares.
+ * @param denyListIsWildcard Whether the native deny list is exactly the wildcard.
+ */
+function assertWorkspaceFilesReachable(
+  files: readonly CheckedWorkspaceFile[],
+  denyListIsWildcard: boolean,
+): void {
+  const invisible = invisibleWorkspaceFiles(files);
+  if (invisible.length > 0 && denyListIsWildcard) {
+    throw AgentRuntimeDefinitionError.make({
+      detail:
+        `workspace files can never reach the model: ${invisible.join(", ")} ` +
+        `are outside OpenClaw's context-injection set (${OPENCLAW_CONTEXT_FILENAMES.join(", ")}) ` +
+        "and every tool is denied",
+    });
+  }
 }
 
 function nativePolicyConfiguration(
@@ -299,6 +367,7 @@ interface OpenClawBridge {
   readonly gatewayToken: Redacted.Redacted;
   readonly deviceIdentity: OpenClawGatewayDeviceIdentity;
   readonly acquireGateway: OpenClawGatewayAcquirer;
+  readonly invisibleWorkspaceFiles: readonly string[];
 }
 
 function attachOpenClaw(
@@ -307,6 +376,11 @@ function attachOpenClaw(
   stopped: Effect.Effect<RuntimeTermination>,
 ): Effect.Effect<OpenClawGateway, RuntimeAcquisitionError, Scope.Scope> {
   return Effect.gen(function* () {
+    if (bridge.invisibleWorkspaceFiles.length > 0) {
+      yield* Effect.logWarning(
+        `workspace files outside OpenClaw's context-injection set are only reachable through tools: ${bridge.invisibleWorkspaceFiles.join(", ")}`,
+      );
+    }
     const gatewayUrl = yield* Effect.try({
       try: () => bridgeUrl(routableBridgeEndpoint(endpoint)),
       catch: (cause) =>
@@ -354,6 +428,7 @@ function makeOpenClawApplication<Name extends string>(
     gatewayToken,
     deviceIdentity: pairing.deviceIdentity,
     acquireGateway,
+    invisibleWorkspaceFiles: invisibleWorkspaceFiles(settings.workspaceFiles),
   };
   return Object.freeze({
     entrypoint: Object.freeze([

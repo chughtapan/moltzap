@@ -8,7 +8,7 @@ import type {
   ToolsConfig,
 } from "openclaw/plugin-sdk/config-types";
 import { Redacted } from "effect";
-import { SIMULATOR_PROFILE_NAME } from "../workspace.js";
+import { SIMULATOR_PROFILE_NAME, type McpServer } from "../workspace.js";
 
 const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
@@ -20,17 +20,10 @@ export type OpenClawToolsConfig = ToolsConfig;
 /** Native OpenClaw sandbox configuration for the runtime's default agent. */
 export type OpenClawSandboxConfig = NonNullable<AgentDefaultsConfig["sandbox"]>;
 
-interface OpenClawMcpServer {
-  readonly name: string;
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly env: Readonly<Record<string, string>>;
-}
-
 interface OpenClawConfigInput {
   readonly agentName: AgentName;
   readonly modelId?: string;
-  readonly mcpServers?: readonly OpenClawMcpServer[];
+  readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
   readonly gatewayToken: Redacted.Redacted;
@@ -39,7 +32,7 @@ interface OpenClawConfigInput {
 }
 
 function mcpConfigSection(
-  mcpServers?: readonly OpenClawMcpServer[],
+  mcpServers?: readonly McpServer[],
 ): Pick<OpenClawConfig, "mcp"> {
   if (mcpServers === undefined || mcpServers.length === 0) {
     return {};
@@ -49,12 +42,14 @@ function mcpConfigSection(
       servers: Object.fromEntries(
         mcpServers.map((server) => [
           server.name,
-          {
-            transport: "stdio" as const,
-            command: server.command,
-            args: [...server.args],
-            env: { ...server.env },
-          },
+          "url" in server
+            ? { transport: "streamable-http" as const, url: server.url }
+            : {
+                transport: "stdio" as const,
+                command: server.command,
+                args: [...server.args],
+                env: { ...server.env },
+              },
         ]),
       ),
     },
