@@ -482,6 +482,26 @@ function workerAvailabilityOf(deployment: {
   };
 }
 
+// Only the worker's own container counts. An injected sidecar is not what a
+// submission would be replacing, so it cannot make an unchanged image look
+// like a roll.
+function installedWorkerImage(deployment: {
+  readonly spec?: {
+    readonly template: {
+      readonly spec?: {
+        readonly containers: ReadonlyArray<{
+          readonly name: string;
+          readonly image?: string;
+        }>;
+      };
+    };
+  };
+}): string | undefined {
+  return deployment.spec?.template.spec?.containers.find(
+    (container) => container.name === RUN_WORKER_NAME,
+  )?.image;
+}
+
 /** One installable member of the cluster's run-worker control plane. */
 export type RunWorkerObject = keyof RunWorkerManifests;
 
@@ -556,6 +576,16 @@ export interface RunWorkerInstallApi {
   readonly install: (
     object: RunWorkerObject,
   ) => Effect.Effect<void, KubernetesCallFailed>;
+  /**
+   * The image the installed worker runs now, or nothing when none is installed.
+   *
+   * This is what makes a submission able to tell an apply that changes the Pod
+   * template from one that changes nothing, before it applies anything.
+   */
+  readonly readInstalledWorkerImage: () => Effect.Effect<
+    string | undefined,
+    KubernetesCallFailed
+  >;
   readonly readWorkerAvailability: () => Effect.Effect<
     WorkerAvailability,
     KubernetesCallFailed
@@ -914,18 +944,30 @@ export function makeKubernetesRunWorkerInstallApi(
 ): RunWorkerInstallApi {
   const clients = installClients(options.profile);
   const applies = installedObjectApplies(clients, runWorkerManifests(options));
+  const readWorker = () =>
+    attempt("observe run worker", () =>
+      clients.apps.readNamespacedDeployment({
+        name: RUN_WORKER_NAME,
+        namespace: SYSTEM_NAMESPACE,
+      }),
+    );
   return Object.freeze({
     install: (object: RunWorkerObject) =>
       attempt(`apply run worker ${object}`, applies[object]).pipe(
         Effect.asVoid,
       ),
+    // A cluster with no worker yet reads as no image rather than as a failure:
+    // nothing is installed, so nothing can be interrupted by installing.
+    readInstalledWorkerImage: () =>
+      readWorker().pipe(
+        Effect.map(installedWorkerImage),
+        Effect.catchIf(
+          (failure) => failure.absent,
+          () => Effect.succeed(undefined),
+        ),
+      ),
     readWorkerAvailability: () =>
-      attempt("observe run worker", () =>
-        clients.apps.readNamespacedDeployment({
-          name: RUN_WORKER_NAME,
-          namespace: SYSTEM_NAMESPACE,
-        }),
-      ).pipe(Effect.map(workerAvailabilityOf)),
+      readWorker().pipe(Effect.map(workerAvailabilityOf)),
     wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
   });
 }

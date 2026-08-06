@@ -15,6 +15,8 @@ import {
   ROUTER_SERVICE_NAME,
   RUN_OWNER_NAME,
   RUN_WORKER_NAME,
+  RUN_WORKER_PRESTOP_SECONDS,
+  RUN_WORKER_TERMINATION_GRACE_SECONDS,
   runNamespaceManifest,
   runOwnerManifest,
   runWorkerManifests,
@@ -479,6 +481,27 @@ it("serves the run queue from a Deployment carrying the host's choices", () => {
       },
     ],
   });
+});
+
+// A rolled worker is deleted while it may still be heartbeating a controller
+// activity. Delaying the signal is what lets that attempt beat once more, and
+// the grace period has to outlast the delay or the kill lands during it.
+it("holds the worker's Pod open before signalling it, and longer still after", () => {
+  const { deployment } = runWorkerManifests(WORKER_OPTIONS);
+  const pod = deployment.spec?.template.spec;
+  assert(pod !== undefined);
+  const [worker] = pod.containers;
+  assert(worker !== undefined);
+
+  expect(worker.lifecycle?.preStop?.exec?.command).toContain(
+    `sleep ${String(RUN_WORKER_PRESTOP_SECONDS)}`,
+  );
+  expect(pod.terminationGracePeriodSeconds).toBe(
+    RUN_WORKER_TERMINATION_GRACE_SECONDS,
+  );
+  expect(RUN_WORKER_PRESTOP_SECONDS).toBeLessThan(
+    RUN_WORKER_TERMINATION_GRACE_SECONDS,
+  );
 });
 
 it("holds cluster-wide namespace deletion and every permission it delegates", () => {

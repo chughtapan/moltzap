@@ -21,10 +21,15 @@ import type {
   runSocietyWorkflow,
 } from "./reclaim.js";
 import { isEntryModule } from "./entry.js";
-import { installRunWorker } from "./install.js";
+import {
+  installRunWorker,
+  type OpenRunReading,
+  type RunWorkerInstallRequest,
+} from "./install.js";
 import {
   makeKubernetesRunWorkerInstallApi,
   type KubernetesCallFailed,
+  type RunWorkerInstallApi,
 } from "./kubernetes/calls.js";
 import { IN_CLUSTER_TEMPORAL_ADDRESS } from "./kubernetes/objects.js";
 import {
@@ -70,6 +75,8 @@ export interface RunTemporalSocietyOptions {
   readonly temporalNamespace?: string;
   /** Temporal endpoint as the in-cluster worker reaches it, not as the host does. */
   readonly workerTemporalAddress?: string;
+  /** Whether the operator accepted rolling the worker over its open runs. */
+  readonly forceWorkerRoll?: boolean;
 }
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Temporal activities, workers, clients, and their host-operation dependencies are SDK-required Promise boundaries. */
@@ -352,6 +359,99 @@ export async function executeRunSocietyWorkflow(
   );
 }
 
+/** The most open runs one reading names before it stops counting. */
+const OPEN_RUN_SAMPLE = 20;
+
+/** Temporal execution status of a run its task queue has not finished. */
+export const OPEN_RUN_STATUS = "Running";
+
+/**
+ * The exact listing surface reading a queue's unfinished work needs.
+ *
+ * Narrower than the client's own, so that what this reads is the whole of what
+ * it depends on and a test can supply it without standing up a Temporal server.
+ */
+export interface OpenRunLister {
+  readonly list: (options: {
+    readonly query: string;
+  }) => AsyncIterable<{ readonly workflowId: string }>;
+}
+
+// Bounded, because the caller only has to know that some run is still open and
+// which ones to name; an unbounded listing walks every page of the visibility
+// store to answer a question the first page already answered.
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
+async function listOpenRunIds(
+  client: OpenRunLister,
+  taskQueue: string,
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
+): Promise<readonly string[]> {
+  const workflowIds: string[] = [];
+  for await (const execution of client.list({
+    query: `TaskQueue = '${taskQueue}' AND ExecutionStatus = '${OPEN_RUN_STATUS}'`,
+  })) {
+    workflowIds.push(execution.workflowId);
+    if (workflowIds.length >= OPEN_RUN_SAMPLE) {
+      break;
+    }
+  }
+  return workflowIds;
+}
+
+/**
+ * Read which runs the task queue has not finished yet.
+ *
+ * A queue that cannot be listed reads as unreadable rather than as empty. The
+ * difference is the whole point: an empty answer clears a submission to replace
+ * the worker, so a failed query that returned one would authorize exactly the
+ * roll this reading exists to prevent.
+ *
+ * @param client Temporal client already connected to the run's namespace.
+ * @param taskQueue Queue the cluster's worker serves.
+ * @returns The open runs it named, or that it could not be asked.
+ */
+export function readOpenRuns(
+  client: OpenRunLister,
+  taskQueue: string,
+): Effect.Effect<OpenRunReading> {
+  return Effect.tryPromise(() => listOpenRunIds(client, taskQueue)).pipe(
+    Effect.map(
+      (workflowIds): OpenRunReading => ({ _tag: "open", workflowIds }),
+    ),
+    // Logged rather than reported: the cause names the connection the submitter
+    // used, and operator-facing text is what the refusal already carries.
+    Effect.tapErrorCause(Effect.logError),
+    Effect.catchAll(() =>
+      Effect.succeed<OpenRunReading>({ _tag: "unreadable" }),
+    ),
+  );
+}
+
+function installRequest(
+  options: RunTemporalSocietyOptions,
+  client: OpenRunLister,
+): RunWorkerInstallRequest {
+  return {
+    desiredImage: options.input.controllerImage,
+    readOpenRuns: () => readOpenRuns(client, options.taskQueue),
+    forced: options.forceWorkerRoll ?? false,
+  };
+}
+
+function runWorkerInstallApi(
+  options: RunTemporalSocietyOptions,
+  namespace: string,
+): RunWorkerInstallApi {
+  return makeKubernetesRunWorkerInstallApi({
+    controllerImage: options.input.controllerImage,
+    taskQueue: options.taskQueue,
+    temporalAddress:
+      options.workerTemporalAddress ?? IN_CLUSTER_TEMPORAL_ADDRESS,
+    temporalNamespace: namespace,
+    profile: options.executionProfile ?? LOCAL_KUBERNETES_EXECUTION_PROFILE,
+  });
+}
+
 /**
  * Submit one run to the cluster's worker and wait for its controller result.
  *
@@ -359,6 +459,11 @@ export async function executeRunSocietyWorkflow(
  * end with the process, stranding the workflow's cleanup and leaving the run's
  * namespace behind, so the queue is served by a Deployment that outlives any one
  * submission and that this call installs before submitting.
+ *
+ * The client connects first so that the install can be told what replacing the
+ * worker would cost. Installing first makes that question unanswerable: by the
+ * time anything could be asked, the Deployment is already rolling and the runs
+ * the answer was about are already failing.
  *
  * @param options Temporal endpoint plus caller-owned workflow and run inputs.
  * @returns The successful controller activity result.
@@ -369,18 +474,7 @@ export async function runTemporalSociety(
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<RunControllerResult> {
   const namespace = options.temporalNamespace ?? DEFAULT_TEMPORAL_NAMESPACE;
-  await runAtPromiseBoundary(
-    installRunWorker(
-      makeKubernetesRunWorkerInstallApi({
-        controllerImage: options.input.controllerImage,
-        taskQueue: options.taskQueue,
-        temporalAddress:
-          options.workerTemporalAddress ?? IN_CLUSTER_TEMPORAL_ADDRESS,
-        temporalNamespace: namespace,
-        profile: options.executionProfile ?? LOCAL_KUBERNETES_EXECUTION_PROFILE,
-      }),
-    ),
-  );
+  await runAtPromiseBoundary(Effect.logInfo("connecting Temporal"));
   const connection = await Connection.connect(
     options.temporalAddress === undefined
       ? undefined
@@ -388,6 +482,13 @@ export async function runTemporalSociety(
   );
   try {
     const client = new Client({ connection, namespace });
+    await runAtPromiseBoundary(
+      installRunWorker(
+        runWorkerInstallApi(options, namespace),
+        installRequest(options, client.workflow),
+      ),
+    );
+    await runAtPromiseBoundary(Effect.logInfo("starting workflow"));
     return await executeRunSocietyWorkflow(options.input, {
       client: client.workflow,
       taskQueue: options.taskQueue,
