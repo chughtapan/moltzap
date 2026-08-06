@@ -8,7 +8,11 @@ import type {
   ToolsConfig,
 } from "openclaw/plugin-sdk/config-types";
 import { Redacted } from "effect";
-import { SIMULATOR_PROFILE_NAME, type McpServer } from "../workspace.js";
+import {
+  isHttpMcpServer,
+  SIMULATOR_PROFILE_NAME,
+  type McpServer,
+} from "../workspace.js";
 
 const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
@@ -42,7 +46,7 @@ function mcpConfigSection(
       servers: Object.fromEntries(
         mcpServers.map((server) => [
           server.name,
-          "url" in server
+          isHttpMcpServer(server)
             ? { transport: "streamable-http" as const, url: server.url }
             : {
                 transport: "stdio" as const,
