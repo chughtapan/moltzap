@@ -4,11 +4,13 @@ set -euo pipefail
 # Lifecycle for the GKE qualification profile; see README.md. These verbs move
 # the controller only. The agent pool autoscales from zero on its own.
 
+readonly simulator_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 readonly profile_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly terraform_root="$profile_root/terraform"
 
 usage() {
-  echo "usage: $0 (setup|up|down|delete) [--delete-artifacts]" >&2
+  echo "usage: $0 (setup|up|run SPEC|down|delete) [--delete-artifacts]" >&2
   exit 64
 }
 
@@ -17,15 +19,19 @@ readonly command="$1"
 shift
 
 delete_artifacts=false
+run_spec=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --delete-artifacts) delete_artifacts=true ;;
-    *) usage ;;
+    *)
+      [[ "$command" == "run" && -z "$run_spec" ]] || usage
+      run_spec="$1"
+      ;;
   esac
   shift
 done
 
-for executable in terraform gcloud kubectl helm; do
+for executable in terraform gcloud kubectl helm docker node; do
   if ! command -v "$executable" >/dev/null 2>&1; then
     echo "required executable is unavailable: $executable" >&2
     exit 69
@@ -36,14 +42,17 @@ terraform_output() {
   terraform -chdir="$terraform_root" output -raw "$1"
 }
 
+registry_host() {
+  terraform_output controller_repository | cut -d/ -f1
+}
+
 attach_kubectl() {
   gcloud container clusters get-credentials "$(terraform_output cluster_name)" \
     --zone "$(terraform_output cluster_location)" \
     --project "$(terraform_output project_id)"
 }
 
-# Terraform owns the system pool's size, so scaling through it keeps state
-# truthful. Resizing out of band leaves the next apply trying to undo it.
+# Scaling out of band leaves the next apply trying to undo it.
 set_system_nodes() {
   terraform -chdir="$terraform_root" apply -input=false -auto-approve \
     -var="system_nodes=$1"
@@ -51,14 +60,48 @@ set_system_nodes() {
 
 case "$command" in
   setup)
-    # Creating the substrate is the slow, billable step, so it keeps
-    # Terraform's interactive approval rather than assuming consent.
     terraform -chdir="$terraform_root" init -input=false
     terraform -chdir="$terraform_root" apply
     attach_kubectl
     "$profile_root/install-addons.sh" "$(kubectl config current-context)"
+
+    # Experiment-grade Temporal, shared with the local profile.
+    kubectl apply -f "$simulator_root/local/temporal.yaml"
+    kubectl rollout status deployment/temporal -n moltzap-system --timeout=5m
+
+    gcloud auth configure-docker "$(registry_host)" --quiet
     echo
-    echo "setup complete; the controller is online and agents scale on demand"
+    echo "setup complete; submit a run with '$0 run SPEC.mjs'"
+    ;;
+
+  run)
+    [[ -n "$run_spec" ]] || usage
+    [[ -f "$run_spec" ]] || { echo "no such run spec: $run_spec" >&2; exit 66; }
+    # gke/profile.json is read from the package root, so resolve before moving.
+    run_spec="$(cd "$(dirname "$run_spec")" && pwd)/$(basename "$run_spec")"
+    attach_kubectl
+
+    # The profile rejects a mutable tag, so use the digest the registry reports.
+    repository="$(terraform_output controller_repository)/controller"
+    built="$(node "$simulator_root/scripts/build-controller-image.mjs" \
+      --repository "$repository" | tail -1)"
+    tag="$(printf '%s' "$built" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).image))')"
+    docker push "$tag" >/dev/null
+    pinned="$(docker inspect --format '{{index .RepoDigests 0}}' "$tag")"
+    echo "controller image: $pinned"
+
+    kubectl port-forward -n moltzap-system svc/temporal 7233:7233 >/dev/null 2>&1 &
+    readonly forward=$!
+    trap 'kill "$forward" 2>/dev/null || true' EXIT
+    until nc -z localhost 7233 2>/dev/null; do sleep 1; done
+
+    cd "$simulator_root"
+    MOLTZAP_KUBE_CONTEXT="$(kubectl config current-context)" \
+    MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform_output artifact_bucket_name)" \
+    MOLTZAP_TEMPORAL_ADDRESS="localhost:7233" \
+    MOLTZAP_CONTROLLER_IMAGE="$pinned" \
+    MOLTZAP_SUPPORT_IMAGE="$pinned" \
+      node dist/cluster/profiles/gke.js "$run_spec"
     ;;
 
   up)
@@ -84,8 +127,7 @@ case "$command" in
     ;;
 
   delete)
-    # The bucket holds run ledgers and evaluation artifacts, which are the
-    # output of the experiments rather than part of the cluster.
+    # The bucket holds run ledgers, which outlive the cluster.
     bucket="$(terraform_output artifact_bucket_name)"
     if [[ "$delete_artifacts" != true ]]; then
       objects="$(gcloud storage ls --recursive "gs://$bucket/**" 2>/dev/null | wc -l | tr -d ' ')"

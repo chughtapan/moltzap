@@ -44,12 +44,12 @@ variable "agent_machine_type" {
 
 variable "agent_max_nodes" {
   description = <<-EOT
-    Ceiling for the autoscaled agent pool, which idles at zero nodes. One
-    seats the ten-agent cohort; raise it only past what a single machine type
-    can hold, and raise the chart's ClusterQueue quota to match.
+    Ceiling for the autoscaled agent pool, which idles at zero nodes. CPU binds
+    first, seating about fourteen agents per e2-standard-16, so eight nodes
+    hold the hundred-agent soak. Raise the chart's ClusterQueue quota to match.
   EOT
   type        = number
-  default     = 1
+  default     = 8
 
   validation {
     condition     = var.agent_max_nodes >= 1 && floor(var.agent_max_nodes) == var.agent_max_nodes

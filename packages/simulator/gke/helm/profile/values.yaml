@@ -13,10 +13,12 @@ agentPool:
     value: "true"
     effect: NoSchedule
 
-# Held below one e2-standard-16's measured allocatable capacity (15890m cpu,
-# 57Gi memory, 43Gi ephemeral storage), not its advertised size. Sized with
+# Admits a hundred agents, each requesting 1 cpu, 1Gi of memory, and 1Gi of
+# ephemeral storage beside a smaller support container. Held below what
+# agent_max_nodes e2-standard-16 nodes actually allocate (15890m cpu, 57Gi
+# memory, 43Gi ephemeral storage each), not what they advertise. Sized with
 # agent_max_nodes; see the profile README.
 quota:
-  cpu: "15"
-  memory: 52Gi
-  ephemeralStorage: 36Gi
+  cpu: "110"
+  memory: 130Gi
+  ephemeralStorage: 110Gi

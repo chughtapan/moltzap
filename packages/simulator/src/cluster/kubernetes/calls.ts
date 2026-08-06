@@ -12,13 +12,14 @@ import {
   CoreV1Api,
   CustomObjectsApi,
   KubeConfig,
+  PatchStrategy,
   RbacAuthorizationV1Api,
+  setHeaderOptions,
   type V1Job,
   type V1JobCondition,
-  type V1ObjectMeta,
 } from "@kubernetes/client-node";
 import { Duration, Effect, Schema } from "effect";
-import { ClusterError } from "../cluster.js";
+import { clusterError, type ClusterError } from "../cluster.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import {
@@ -180,12 +181,6 @@ export interface KubernetesSocietyApi {
     host: string,
     port: number,
   ) => Effect.Effect<boolean>;
-}
-
-function clusterError(operation: string, cause: unknown): ClusterError {
-  return new ClusterError({
-    detail: `${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
-  });
 }
 
 function request<A>(operation: string, evaluate: () => PromiseLike<A>) {
@@ -522,12 +517,13 @@ export interface RunControlApi {
 /** Kubernetes access the host needs to install the cluster's run worker. */
 export interface RunWorkerInstallApi {
   /**
-   * Create one control-plane object, or replace the revision already installed.
+   * Declare one control-plane object as this manager owns it.
    *
    * The worker outlives every submission, so each install meets an object that
-   * is either absent or a previous revision of itself. Replacing at the
-   * observed resourceVersion makes a concurrent submitter's write a visible
-   * conflict rather than a silent overwrite.
+   * is either absent or a previous revision of itself; applying states the
+   * revision the submission wants without asking first which one is there.
+   * Ownership is what makes that safe: a field some other manager took over is
+   * refused as a conflict rather than silently overwritten.
    */
   readonly install: (
     object: RunWorkerObject,
@@ -811,153 +807,56 @@ interface InstallClients {
   readonly rbac: RbacAuthorizationV1Api;
 }
 
-/**
- * One object's three generated-client calls, each already bound to its own
- * manifest. Every call is handed straight to `attempt`, which is where it
- * becomes an Effect carrying a typed failure.
- */
-interface InstalledObjectApi {
-  readonly read: () => PromiseLike<{ metadata?: V1ObjectMeta }>;
-  readonly create: () => PromiseLike<unknown>;
-  readonly replace: () => PromiseLike<unknown>;
-}
-
-function installOne(
-  operation: string,
-  manifest: { metadata?: V1ObjectMeta },
-  api: InstalledObjectApi,
-): Effect.Effect<void, KubernetesCallFailed> {
-  return attempt(`read ${operation}`, api.read).pipe(
-    Effect.matchEffect({
-      onFailure: (failure) =>
-        failure.absent
-          ? attempt(`create ${operation}`, api.create)
-          : Effect.fail(failure),
-      onSuccess: (existing) => {
-        const metadata = manifest.metadata ?? {};
-        metadata.resourceVersion = existing.metadata?.resourceVersion;
-        manifest.metadata = metadata;
-        return attempt(`replace ${operation}`, api.replace);
-      },
-    }),
-    Effect.asVoid,
-  );
-}
+/** One object's apply call, already bound to the manifest it declares. */
+type InstalledObjectApply = () => PromiseLike<unknown>;
 
 const NAMED_WORKER = Object.freeze({
   name: RUN_WORKER_NAME,
   namespace: SYSTEM_NAMESPACE,
 } as const);
 
-function namespaceApi(
-  clients: InstallClients,
-  manifests: RunWorkerManifests,
-): InstalledObjectApi {
-  return {
-    read: () => clients.core.readNamespace({ name: SYSTEM_NAMESPACE }),
-    create: () =>
-      clients.core.createNamespace({ body: manifests.namespace, ...APPLIED }),
-    replace: () =>
-      clients.core.replaceNamespace({
-        name: SYSTEM_NAMESPACE,
-        body: manifests.namespace,
-        ...APPLIED,
-      }),
-  };
-}
+/**
+ * Field ownership plus the content type that makes a patch an apply. Ownership
+ * is forced because an earlier submission's create owns these fields under
+ * Update, which conflicts with an Apply even from the same manager. The run
+ * worker's objects have no other writer.
+ */
+const APPLY = Object.freeze({ ...APPLIED, force: true } as const);
+const APPLY_OPTIONS = setHeaderOptions(
+  "Content-Type",
+  PatchStrategy.ServerSideApply,
+);
 
-function serviceAccountApi(
+function installedObjectApplies(
   clients: InstallClients,
   manifests: RunWorkerManifests,
-): InstalledObjectApi {
+): Readonly<Record<RunWorkerObject, InstalledObjectApply>> {
   return {
-    read: () => clients.core.readNamespacedServiceAccount(NAMED_WORKER),
-    create: () =>
-      clients.core.createNamespacedServiceAccount({
-        namespace: SYSTEM_NAMESPACE,
-        body: manifests.serviceAccount,
-        ...APPLIED,
-      }),
-    replace: () =>
-      clients.core.replaceNamespacedServiceAccount({
-        ...NAMED_WORKER,
-        body: manifests.serviceAccount,
-        ...APPLIED,
-      }),
-  };
-}
-
-function clusterRoleApi(
-  clients: InstallClients,
-  manifests: RunWorkerManifests,
-): InstalledObjectApi {
-  return {
-    read: () => clients.rbac.readClusterRole({ name: RUN_WORKER_NAME }),
-    create: () =>
-      clients.rbac.createClusterRole({
-        body: manifests.clusterRole,
-        ...APPLIED,
-      }),
-    replace: () =>
-      clients.rbac.replaceClusterRole({
-        name: RUN_WORKER_NAME,
-        body: manifests.clusterRole,
-        ...APPLIED,
-      }),
-  };
-}
-
-function clusterRoleBindingApi(
-  clients: InstallClients,
-  manifests: RunWorkerManifests,
-): InstalledObjectApi {
-  return {
-    read: () => clients.rbac.readClusterRoleBinding({ name: RUN_WORKER_NAME }),
-    create: () =>
-      clients.rbac.createClusterRoleBinding({
-        body: manifests.clusterRoleBinding,
-        ...APPLIED,
-      }),
-    replace: () =>
-      clients.rbac.replaceClusterRoleBinding({
-        name: RUN_WORKER_NAME,
-        body: manifests.clusterRoleBinding,
-        ...APPLIED,
-      }),
-  };
-}
-
-function deploymentApi(
-  clients: InstallClients,
-  manifests: RunWorkerManifests,
-): InstalledObjectApi {
-  return {
-    read: () => clients.apps.readNamespacedDeployment(NAMED_WORKER),
-    create: () =>
-      clients.apps.createNamespacedDeployment({
-        namespace: SYSTEM_NAMESPACE,
-        body: manifests.deployment,
-        ...APPLIED,
-      }),
-    replace: () =>
-      clients.apps.replaceNamespacedDeployment({
-        ...NAMED_WORKER,
-        body: manifests.deployment,
-        ...APPLIED,
-      }),
-  };
-}
-
-function installedObjectApis(
-  clients: InstallClients,
-  manifests: RunWorkerManifests,
-): Readonly<Record<RunWorkerObject, InstalledObjectApi>> {
-  return {
-    namespace: namespaceApi(clients, manifests),
-    serviceAccount: serviceAccountApi(clients, manifests),
-    clusterRole: clusterRoleApi(clients, manifests),
-    clusterRoleBinding: clusterRoleBindingApi(clients, manifests),
-    deployment: deploymentApi(clients, manifests),
+    namespace: () =>
+      clients.core.patchNamespace(
+        { name: SYSTEM_NAMESPACE, body: manifests.namespace, ...APPLY },
+        APPLY_OPTIONS,
+      ),
+    serviceAccount: () =>
+      clients.core.patchNamespacedServiceAccount(
+        { ...NAMED_WORKER, body: manifests.serviceAccount, ...APPLY },
+        APPLY_OPTIONS,
+      ),
+    clusterRole: () =>
+      clients.rbac.patchClusterRole(
+        { name: RUN_WORKER_NAME, body: manifests.clusterRole, ...APPLY },
+        APPLY_OPTIONS,
+      ),
+    clusterRoleBinding: () =>
+      clients.rbac.patchClusterRoleBinding(
+        { name: RUN_WORKER_NAME, body: manifests.clusterRoleBinding, ...APPLY },
+        APPLY_OPTIONS,
+      ),
+    deployment: () =>
+      clients.apps.patchNamespacedDeployment(
+        { ...NAMED_WORKER, body: manifests.deployment, ...APPLY },
+        APPLY_OPTIONS,
+      ),
   };
 }
 
@@ -986,11 +885,12 @@ export function makeKubernetesRunWorkerInstallApi(
   options: RunWorkerOptions,
 ): RunWorkerInstallApi {
   const clients = installClients(options.profile);
-  const manifests = runWorkerManifests(options);
-  const apis = installedObjectApis(clients, manifests);
+  const applies = installedObjectApplies(clients, runWorkerManifests(options));
   return Object.freeze({
     install: (object: RunWorkerObject) =>
-      installOne(`run worker ${object}`, manifests[object], apis[object]),
+      attempt(`apply run worker ${object}`, applies[object]).pipe(
+        Effect.asVoid,
+      ),
     readWorkerAvailability: () =>
       attempt("observe run worker", () =>
         clients.apps.readNamespacedDeployment({
