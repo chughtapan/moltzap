@@ -4,7 +4,8 @@
     ".": {
       "entry": ["eslint.shared.mjs", "vitest.workspace-aliases.ts"],
       "project": ["*.mjs", "*.ts"],
-      "ignoreDependencies": ["@mermaid-js/mermaid-cli", "typedoc"]
+      "ignoreDependencies": ["@mermaid-js/mermaid-cli", "tsx", "typedoc"],
+      "ignoreBinaries": ["tsx"]
     },
     "packages/client": {
       "entry": [

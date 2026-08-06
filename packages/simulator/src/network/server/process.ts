@@ -167,9 +167,7 @@ class ServerProcessFailed extends Data.TaggedError("ServerProcessFailed")<{
   }
 }
 
-const failureDetails: Readonly<
-  Record<Exclude<ServerProcessOperation, "cleanup">, string>
-> = {
+const failureDetails: Readonly<Record<ServerProcessOperation, string>> = {
   "resolve-binary": "the installed server binary is unavailable",
   "create-run-directory": "the run data directory could not be created",
   "write-configuration": "the run configuration could not be written",
@@ -179,6 +177,7 @@ const failureDetails: Readonly<
   "wait-for-health":
     "the server did not become healthy before the startup deadline",
   "register-agent": "the server rejected agent registration",
+  cleanup: "server process cleanup did not complete",
 };
 
 type OwnedRunDirectory =
@@ -213,19 +212,14 @@ function processFailure(
   operation: ServerProcessOperation,
   detail?: string,
 ): ServerProcessFailed {
-  const safeDetail =
-    detail ??
-    (operation === "cleanup"
-      ? "server process cleanup did not complete"
-      : failureDetails[operation]);
   return new ServerProcessFailed({
     operation,
-    detail: safeDetail,
+    detail: detail ?? failureDetails[operation],
   });
 }
 
 function atStage<A, R>(
-  operation: Exclude<ServerProcessOperation, "cleanup">,
+  operation: ServerProcessOperation,
   effect: Effect.Effect<A, unknown, R>,
 ): Effect.Effect<A, ServerProcessFailed, R> {
   return effect.pipe(Effect.mapError(() => processFailure(operation)));
@@ -740,20 +734,22 @@ function acquireServerProcessDriver<ProcessHandle>(
 }
 
 /**
- * Install a controller-owned server process as the run's router driver.
- * @param options Advertised Service URL and startup deadline.
+ * Install a controller-owned server process as the run's router driver. The
+ * startup deadline arrives with each acquisition, so only the advertised URL
+ * is fixed here.
+ * @param advertisedServerUrl Service URL handed to agents outside the Pod.
  * @param operations Injectable lifecycle operations.
  * @internal
  * @returns A Layer providing the router driver acquirer.
  */
 export function serverProcessRouterOperationsLayer<ProcessHandle>(
-  options: ServerProcessRouterOptions,
+  advertisedServerUrl: ServerBaseUrl,
   operations: ServerProcessRouterOperations<ProcessHandle>,
 ): Layer.Layer<RouterOperations> {
   return Layer.succeed(RouterOperations, (driverOptions) =>
     acquireServerProcessDriver(
       {
-        advertisedServerUrl: options.advertisedServerUrl,
+        advertisedServerUrl,
         startupTimeout: driverOptions.startupTimeout,
       },
       operations,
@@ -773,7 +769,7 @@ export function serverProcessRouterProviderLayer(
   return routerProviderLayer({ startupTimeout: options.startupTimeout }).pipe(
     Layer.provide(
       serverProcessRouterOperationsLayer(
-        options,
+        options.advertisedServerUrl,
         realServerProcessOperations(),
       ),
     ),

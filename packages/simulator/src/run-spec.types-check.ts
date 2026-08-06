@@ -12,9 +12,7 @@ import {
   type Exit,
   Layer,
   Schema,
-  type Scope,
   type Stream,
-  type Tracer,
 } from "effect";
 import { EventCatalog } from "./events/catalog.js";
 import { coreEvents } from "./events/core.js";
@@ -169,23 +167,10 @@ type OuterErrorsAreClusterOnly = Expect<
     ClusterUnavailable | LedgerStorageError
   >
 >;
+// Exhaustive: the cluster Layer's extra output, the kernel services it
+// supplies, Scope, and the parent span are all absent from this exact union.
 type ExternalRequirementsAreExact = Expect<
   Equal<ExecutionRequirements, ClusterInput | CustomerRequirement>
->;
-type LayerExtraOutputIsRemoved = Expect<
-  Equal<Extract<ExecutionRequirements, ClusterExtra>, never>
->;
-type KernelServicesAreRemoved = Expect<
-  Equal<
-    Extract<ExecutionRequirements, LedgerStorage | RouterProvider | Cluster>,
-    never
-  >
->;
-type ScopeDoesNotLeak = Expect<
-  Equal<Extract<ExecutionRequirements, Scope.Scope>, never>
->;
-type ParentSpanDoesNotLeak = Expect<
-  Equal<Extract<ExecutionRequirements, Tracer.ParentSpan>, never>
 >;
 type LiveRecordsRetainClusterError = Expect<
   Equal<Stream.Stream.Error<ExecuteContext["ledger"]["records"]>, LedgerFailure>
@@ -237,10 +222,6 @@ export type RunSpecCanaries = [
   CustomerExitIsRetained,
   OuterErrorsAreClusterOnly,
   ExternalRequirementsAreExact,
-  LayerExtraOutputIsRemoved,
-  KernelServicesAreRemoved,
-  ScopeDoesNotLeak,
-  ParentSpanDoesNotLeak,
   LiveRecordsRetainClusterError,
   CompletedRecordsCannotFail,
   ProgramFinishedExitIsExact,

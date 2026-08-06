@@ -175,32 +175,12 @@ test("scope teardown interrupts an unfinished runtime observation", () =>
     Effect.provideService(RouterProvider, fakeRouterProvider()),
   ));
 
-test("captures run description values before the lazy Effect executes", () =>
+test("records the roster as the manifest's complete run description", () =>
   Effect.gen(function* () {
-    const provenance = {
-      suite: "captured-suite",
-      environment: { region: "west" },
-      agents: ["caller-supplied"],
-    };
-    const metadata = {
-      case: "captured-case",
-      labels: ["original"],
-    };
-    const run = kernelHarness.run(
+    const result = yield* kernelHarness.run(
       ongoingRoster,
       Effect.succeed("policy-complete"),
-      {
-        provenance,
-        metadata,
-      },
     );
-
-    provenance.suite = "mutated-suite";
-    provenance.environment.region = "east";
-    metadata.case = "mutated-case";
-    metadata.labels.push("mutated");
-
-    const result = yield* run;
     assert.instanceOf(result, ProgramFinished);
     if (!(result instanceof ProgramFinished)) {
       return;
@@ -208,8 +188,6 @@ test("captures run description values before the lazy Effect executes", () =>
     const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
 
     assert.deepStrictEqual(ledger.manifest.provenance, {
-      suite: "captured-suite",
-      environment: { region: "west" },
       agents: [
         {
           name: "alice",
@@ -218,10 +196,7 @@ test("captures run description values before the lazy Effect executes", () =>
         },
       ],
     });
-    assert.deepStrictEqual(ledger.manifest.metadata, {
-      case: "captured-case",
-      labels: ["original"],
-    });
+    assert.deepStrictEqual(ledger.manifest.metadata, {});
   }).pipe(
     Effect.provideService(LedgerStorage, memoryStorage()),
     Effect.provideService(RouterProvider, fakeRouterProvider()),

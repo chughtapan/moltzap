@@ -3,10 +3,14 @@ import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { SimulatorDefinitionId } from "@moltzap/simulator";
-import type { Image } from "@moltzap/simulator/agents";
-import { decodeConditionId, decodeEvaluationCaseId } from "./model.js";
+import { image } from "@moltzap/simulator/agents";
+import {
+  decodeEvaluationCaseId,
+  decodeEvaluationConditionId,
+  type EvaluationConditionName,
+} from "./model.js";
 import {
   evaluationControllerModule,
   simulatorProfileEntrypoint,
@@ -14,15 +18,16 @@ import {
   type SubmitEvaluationCellInput,
 } from "./submission.js";
 
-const PEER_IMAGE =
-  "registry.example/moltzap-support@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" satisfies Image;
-const NANOCLAW_IMAGE =
-  "registry.example/nanoclaw-application@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" satisfies Image;
+const decodeImage = Schema.decodeSync(image);
+const PEER_IMAGE = decodeImage(
+  "registry.example/moltzap-support@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+);
+const NANOCLAW_IMAGE = decodeImage(
+  "registry.example/nanoclaw-application@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+);
 const DEFINITION_ID = "moltzap.eval-006/v4" satisfies SimulatorDefinitionId;
 
-function input(
-  condition: "openclaw/v2" | "nanoclaw/v2",
-): SubmitEvaluationCellInput {
+function input(condition: EvaluationConditionName): SubmitEvaluationCellInput {
   return {
     workspaceRoot: "/workspace/moltzap",
     profile: "local",
@@ -30,7 +35,7 @@ function input(
     definitionId: DEFINITION_ID,
     attemptId: "eval-006-nanoclaw-1",
     condition: {
-      id: decodeConditionId(condition),
+      id: decodeEvaluationConditionId(condition),
       modelId: condition === "openclaw/v2" ? "openai/gpt-5" : "claude/test",
     },
     peerApplicationImage: PEER_IMAGE,

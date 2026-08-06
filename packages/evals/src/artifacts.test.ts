@@ -1,11 +1,17 @@
+import { Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { assert, it } from "@effect/vitest";
 import { ledgerRef } from "@moltzap/simulator/ledger";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   EvaluationArtifactReadFailed,
+  evaluationArtifactBucket,
+  evaluationArtifactLocation,
+  localArtifactRoot,
   readEvaluationLedgerArtifactsWith,
+  type EvaluationArtifactLocation,
   type EvaluationArtifactOperations,
+  type EvaluationArtifactStorage,
 } from "./artifacts.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- These tests pin the external artifact identities and immutable file set. */
@@ -51,18 +57,37 @@ function operations(
   });
 }
 
+const localArtifactStorage = Effect.gen(function* () {
+  const path = yield* Path.Path;
+  return {
+    profile: "local",
+    root: Option.getOrThrow(
+      localArtifactRoot(path, "/var/lib/moltzap/artifacts"),
+    ),
+  } as const satisfies EvaluationArtifactStorage;
+});
+
+const gkeStorage = {
+  profile: "gke",
+  bucket: Option.getOrThrow(evaluationArtifactBucket("moltzap-eval-artifacts")),
+} as const satisfies EvaluationArtifactStorage;
+
+function locate(storage: EvaluationArtifactStorage) {
+  return Option.getOrThrow(
+    evaluationArtifactLocation(storage, "mz-run-917", REF),
+  );
+}
+
 test("reads the exact local namespace ledger artifact set", () => {
   const files: string[] = [];
   const objects: string[] = [];
-  return readEvaluationLedgerArtifactsWith(
-    {
-      profile: "local",
-      namespace: "mz-run-917",
-      ref: REF,
-      localArtifacts: "/var/lib/moltzap/artifacts",
-    },
-    operations(files, objects),
-  ).pipe(
+  return localArtifactStorage.pipe(
+    Effect.flatMap((storage) =>
+      readEvaluationLedgerArtifactsWith(
+        locate(storage),
+        operations(files, objects),
+      ),
+    ),
     Effect.tap((artifacts) => {
       assert.deepStrictEqual(artifacts, ARTIFACTS);
       assert.deepStrictEqual(objects, []);
@@ -83,12 +108,7 @@ test("reads the exact GCS namespace ledger artifact set", () => {
   const files: string[] = [];
   const objects: string[] = [];
   return readEvaluationLedgerArtifactsWith(
-    {
-      profile: "gke",
-      namespace: "mz-run-917",
-      ref: REF,
-      gkeArtifactBucket: "moltzap-eval-artifacts",
-    },
+    locate(gkeStorage),
     operations(files, objects),
   ).pipe(
     Effect.tap((artifacts) => {
@@ -108,21 +128,16 @@ test("reads the exact GCS namespace ledger artifact set", () => {
 });
 
 test("surfaces an unavailable artifact as an operational read failure", () =>
-  readEvaluationLedgerArtifactsWith(
-    {
-      profile: "local",
-      namespace: "mz-run-917",
-      ref: REF,
-      localArtifacts: "/var/lib/moltzap/artifacts",
-    },
-    {
-      readFile: (identity) =>
-        identity.endsWith("/records.ndjson")
-          ? Effect.fail("records are unavailable")
-          : Effect.succeed(content(identity)),
-      readObject: () => Effect.dieMessage("unexpected object read"),
-    },
-  ).pipe(
+  localArtifactStorage.pipe(
+    Effect.flatMap((storage) =>
+      readEvaluationLedgerArtifactsWith(locate(storage), {
+        readFile: (identity) =>
+          identity.endsWith("/records.ndjson")
+            ? Effect.fail("records are unavailable")
+            : Effect.succeed(content(identity)),
+        readObject: () => Effect.dieMessage("unexpected object read"),
+      }),
+    ),
     Effect.flip,
     Effect.tap((failure) => {
       assert.instanceOf(failure, EvaluationArtifactReadFailed);
@@ -132,4 +147,30 @@ test("surfaces an unavailable artifact as an operational read failure", () =>
     Effect.provide(NodeContext.layer),
   ));
 
+test("refuses a relative artifact root before any run is addressed", () =>
+  Path.Path.pipe(
+    Effect.tap((path) => {
+      assert.isTrue(Option.isNone(localArtifactRoot(path, "artifacts")));
+      assert.isTrue(Option.isSome(localArtifactRoot(path, "/artifacts")));
+    }),
+    Effect.provide(NodeContext.layer),
+  ));
+
+test("refuses an artifact bucket Cloud Storage would not name", () =>
+  Effect.sync(() => {
+    assert.isTrue(Option.isNone(evaluationArtifactBucket("Moltzap-Artifacts")));
+    assert.isTrue(Option.isNone(evaluationArtifactBucket("moltzap/artifacts")));
+    assert.isTrue(Option.isSome(evaluationArtifactBucket("moltzap-artifacts")));
+  }));
+
+test("refuses a ledger ref that is not one storage path segment", () =>
+  Effect.sync(() => {
+    const forged = Schema.decodeSync(ledgerRef)("../outside");
+    const located: Option.Option<EvaluationArtifactLocation> =
+      evaluationArtifactLocation(gkeStorage, "mz-run-917", forged);
+    assert.isTrue(Option.isNone(located));
+  }));
+
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- External artifact identity assertions end here. */
+
+// @agent-code-guard/regression-only: the identities are fixed external contracts and each rejection example pins one candidate the constructors must refuse before a run is addressed

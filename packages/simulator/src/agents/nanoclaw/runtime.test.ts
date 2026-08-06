@@ -11,10 +11,10 @@ import { describe } from "vitest";
 import { makeAgentHandle, type AgentConnection } from "../../network.js";
 import {
   containerRuntimeFor,
+  image,
   type Application,
   type ContainerRuntime,
   type File,
-  type Image,
 } from "../container.js";
 import {
   RuntimeFailed,
@@ -34,17 +34,17 @@ const AGENT_KEY_TEXT =
 const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
 // eslint-disable-next-line sonarjs/no-clear-text-protocols -- the private in-cluster router contract is intentionally HTTP.
 const ROUTER_URL = serverBaseUrl("http://router.society.svc:3000");
-const APPLICATION_IMAGE =
-  "example.invalid/nanoclaw-application@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" satisfies Image;
+const APPLICATION_IMAGE = image.make(
+  "example.invalid/nanoclaw-application@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+);
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const RUNTIME_CONFIG_PATH = `${BOOTSTRAP_ROOT}nanoclaw/runtime.json`;
 const PROFILE_PATH = `${BOOTSTRAP_ROOT}moltzap/config.json`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
-const DISTRIBUTED_ENTRYPOINT = "/opt/moltzap/nanoclaw/entrypoint.mjs";
-const DISTRIBUTED_GATEWAY_PORT = 18_790;
-const DISTRIBUTED_STATE_DIR = "/var/lib/moltzap/nanoclaw";
+const ENTRYPOINT = "/opt/moltzap/nanoclaw/entrypoint.mjs";
+const GATEWAY_PORT = 18_790;
+const STATE_DIR = "/var/lib/moltzap/nanoclaw";
 const GATEWAY_BIND_HOST = "0.0.0.0";
-const GATEWAY_HOST = "alice.society.svc";
 const BRIDGE_HOST = "127.0.0.2";
 const MODEL_ID = "claude-sonnet-4-5";
 const WORKSPACE_CONTENT = "Alice";
@@ -121,16 +121,6 @@ function unreportedStop(): Effect.Effect<never> {
   return Effect.dieMessage("the NanoClaw runtime reported an unexpected stop");
 }
 
-function requireCapability(
-  runtime: ReturnType<typeof nanoclawRuntime>,
-): NanoClawContainerRuntime {
-  const capability = containerRuntimeFor(runtime);
-  if (capability === undefined) {
-    throw new Error("configured NanoClaw runtime has no container realization");
-  }
-  return capability;
-}
-
 function makeFixture() {
   return Effect.gen(function* () {
     const runtime = nanoclawRuntime({
@@ -149,7 +139,7 @@ function makeFixture() {
         },
       ],
     });
-    const capability = requireCapability(runtime);
+    const capability = containerRuntimeFor(runtime);
     const application = yield* capability.render({
       agentName: AGENT_NAME,
       connection,
@@ -179,20 +169,14 @@ function assertApplicationContainer(fixture: Fixture): void {
     memoryBytes: 1_024 * 1_024 * 1_024,
     ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
   });
-  assert.deepStrictEqual(application.entrypoint, [
-    "node",
-    DISTRIBUTED_ENTRYPOINT,
-  ]);
-  assert.strictEqual(application.port, DISTRIBUTED_GATEWAY_PORT);
+  assert.deepStrictEqual(application.entrypoint, ["node", ENTRYPOINT]);
+  assert.strictEqual(application.port, GATEWAY_PORT);
   assert.strictEqual(application.environment.MOLTZAP_SERVER_URL, ROUTER_URL);
   assert.strictEqual(
     application.environment.MOLTZAP_NANOCLAW_CONFIG,
     RUNTIME_CONFIG_PATH,
   );
-  assert.strictEqual(
-    application.environment.MOLTZAP_NANOCLAW_STATE,
-    DISTRIBUTED_STATE_DIR,
-  );
+  assert.strictEqual(application.environment.MOLTZAP_NANOCLAW_STATE, STATE_DIR);
   assert.deepStrictEqual(application.credentials, ["ANTHROPIC_API_KEY"]);
   assert.notInclude(projection, AGENT_KEY_TEXT);
   assert.notInclude(projection, MCP_SECRET);
@@ -202,8 +186,8 @@ function assertBootstrap(fixture: Fixture): void {
   const { application, profile, runtime, runtimeConfig } = fixture;
   assert.strictEqual(runtimeConfig.agentName, AGENT_NAME);
   assert.strictEqual(runtimeConfig.gateway.host, GATEWAY_BIND_HOST);
-  assert.strictEqual(runtimeConfig.gateway.port, DISTRIBUTED_GATEWAY_PORT);
-  assert.strictEqual(runtimeConfig.stateDirectory, DISTRIBUTED_STATE_DIR);
+  assert.strictEqual(runtimeConfig.gateway.port, GATEWAY_PORT);
+  assert.strictEqual(runtimeConfig.stateDirectory, STATE_DIR);
   assert.strictEqual(runtimeConfig.modelId, MODEL_ID);
   assert.isTrue(runtimeConfig.autoRegisterConversations);
   assert.strictEqual(
@@ -243,17 +227,13 @@ function applicationContractTest() {
 function rejectedEndpointTest() {
   return Effect.gen(function* () {
     const fixture = yield* makeFixture();
-    // Every rejected shape must fail before the bridge opens a socket, so the
-    // cases stay deterministic without a gateway on the other end.
-    for (const rejected of [
-      `http://${GATEWAY_HOST}:${String(DISTRIBUTED_GATEWAY_PORT)}`,
-      `ws://127.0.0.1:${String(DISTRIBUTED_GATEWAY_PORT)}`,
-      `ws://localhost:${String(DISTRIBUTED_GATEWAY_PORT)}`,
-      `ws://${GATEWAY_HOST}:${String(DISTRIBUTED_GATEWAY_PORT + 1)}`,
-    ]) {
+    // A loopback answer is the only address shape the endpoint type still
+    // permits, and it must fail before the bridge opens a socket, so the cases
+    // stay deterministic without a gateway on the other end.
+    for (const host of ["0.0.0.0", "127.0.0.1", "localhost", "::1", "[::1]"]) {
       const failure = yield* Effect.scoped(
         fixture.application.attach(
-          new URL(rejected),
+          { host, port: GATEWAY_PORT },
           Effect.never,
           unreportedStop,
         ),
@@ -263,6 +243,19 @@ function rejectedEndpointTest() {
       assert.include(failure.detail, "resolve distributed gateway");
     }
   });
+}
+
+function rejectedWorkspacePathTest(): void {
+  // Escapes are refused where the runtime is defined, which is before any
+  // router credential exists to be written into a bootstrap file.
+  for (const relativePath of ["", "../escape.md", "/etc/passwd", "a\\b.md"]) {
+    assert.throws(() =>
+      nanoclawRuntime({
+        applicationImage: APPLICATION_IMAGE,
+        workspaceFiles: [{ relativePath, content: WORKSPACE_CONTENT }],
+      }),
+    );
+  }
 }
 
 /**
@@ -281,7 +274,7 @@ function startBridge(): Effect.Effect<() => void, never, Scope.Scope> {
     const server = createServer((socket) => accepted.push(socket));
     yield* Effect.acquireRelease(
       Effect.async<undefined>((resume) => {
-        server.listen(DISTRIBUTED_GATEWAY_PORT, BRIDGE_HOST, () => {
+        server.listen(GATEWAY_PORT, BRIDGE_HOST, () => {
           resume(Effect.succeed(undefined));
         });
       }),
@@ -307,7 +300,7 @@ function gatewayDisconnectTest() {
     // The Sandbox observation never completes: the container is still Running
     // as far as the cluster can see, exactly as when only the bridge dies.
     yield* fixture.application.attach(
-      new URL(`ws://${BRIDGE_HOST}:${String(DISTRIBUTED_GATEWAY_PORT)}`),
+      { host: BRIDGE_HOST, port: GATEWAY_PORT },
       Effect.never,
       (termination) =>
         Deferred.succeed(reported, termination).pipe(Effect.asVoid),
@@ -327,7 +320,7 @@ function descriptorRegistrationTest(): void {
   assert.notProperty(runtime, "acquire");
 }
 
-describe("distributed NanoClaw runtime", () => {
+describe("NanoClaw container runtime", () => {
   test(
     "renders one application container and its closed bootstrap contract",
     applicationContractTest,
@@ -335,6 +328,10 @@ describe("distributed NanoClaw runtime", () => {
   test(
     "refuses any endpoint that is not the runtime's fixed bridge",
     rejectedEndpointTest,
+  );
+  effectIt(
+    "refuses a workspace path that escapes its root when the runtime is defined",
+    rejectedWorkspacePathTest,
   );
   liveTest(
     "reports its own bridge disconnecting as the agent's termination",

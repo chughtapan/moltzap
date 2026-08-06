@@ -25,7 +25,8 @@ type PreparationStage = Extract<
 
 // The run root issues the UID every other object is owned by, and the
 // controller acts through the run-scoped RBAC and dials the router Service the
-// moment it starts, so it goes last.
+// moment it starts, so it goes last. Nothing constrains the stages between
+// them relative to each other.
 const ROOT: PreparationStage = "createRunRoot";
 const START: PreparationStage = "startController";
 const BEFORE_START: readonly PreparationStage[] = [
@@ -106,7 +107,10 @@ it("creates the run root before anything it owns and the controller last", async
     prepareRun(api, INPUT, LOCAL_KUBERNETES_EXECUTION_PROFILE),
   );
 
-  expect(calls).toEqual([...BEFORE_START, START]);
+  expect(calls[0]).toBe(ROOT);
+  expect(calls.at(-1)).toBe(START);
+  expect(calls).toHaveLength(BEFORE_START.length + 1);
+  expect(new Set(calls)).toEqual(new Set([...BEFORE_START, START]));
   expect(new Set(namespaces)).toEqual(new Set([INPUT.namespace]));
 });
 
@@ -119,8 +123,8 @@ it("never starts a controller whose access or endpoint failed to appear", async 
     );
 
     expect(failure.message).toBe(`${stage} failed`);
+    expect(calls).toContain(stage);
     expect(calls).not.toContain(START);
-    expect(calls.at(-1)).toBe(stage);
   }
 });
 

@@ -8,6 +8,7 @@ import {
   makeEndpoint,
   makeParticipantHandle,
   makeRouterStopReport,
+  networkError,
   routerSequence,
   type EndpointInbox,
   type EndpointTransport,
@@ -16,6 +17,7 @@ import {
 } from "../network.js";
 
 const SEND_OPERATION = "send" satisfies NetworkOperation;
+const BOUNDARY_DETAIL = "the boundary refused the request";
 const id = (suffix: string) =>
   agentId(`00000000-0000-4000-8000-${suffix.padStart(12, "0")}`);
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
@@ -112,6 +114,14 @@ it.effect("rejects invalid content before calling the transport", () =>
     assert.strictEqual(sends, 0);
   }),
 );
+
+it("reads one operation the same way for a thrown and a described cause", () => {
+  const thrown = networkError(SEND_OPERATION, new Error(BOUNDARY_DETAIL));
+  const described = networkError(SEND_OPERATION, BOUNDARY_DETAIL);
+
+  assert.strictEqual(thrown.detail, described.detail);
+  assert.strictEqual(thrown.detail, BOUNDARY_DETAIL);
+});
 
 it("constructs stopped-router evidence without platform storage", () => {
   const stopped = stoppedRouter();

@@ -6,6 +6,7 @@
 import type { Effect } from "effect";
 import {
   containerRuntimeFor,
+  image,
   type Application,
   type ContainerRuntime,
 } from "../container.js";
@@ -20,14 +21,16 @@ type Equal<Left, Right> = [Left] extends [Right]
   : false;
 
 const runtime = nanoclawRuntime({
-  applicationImage:
+  applicationImage: image.make(
     "example.invalid/nanoclaw@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  ),
 });
 
 /** Configured NanoClaw preserves its exact private container realization. */
-export const nanoclawContainerRuntimeCanary:
-  | ContainerRuntime<NanoClawGateway, RuntimeAcquisitionError>
-  | undefined = containerRuntimeFor(runtime);
+export const nanoclawContainerRuntimeCanary: ContainerRuntime<
+  NanoClawGateway,
+  RuntimeAcquisitionError
+> = containerRuntimeFor(runtime);
 
 type NanoClawApplication = Application<
   NanoClawGateway,

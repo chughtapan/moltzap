@@ -210,10 +210,7 @@ function provider(harness: FakeHarness) {
       routerProviderLayer({ startupTimeout: STARTUP_TIMEOUT }).pipe(
         Layer.provide(
           serverProcessRouterOperationsLayer(
-            {
-              advertisedServerUrl: ADVERTISED_SERVER_URL,
-              startupTimeout: STARTUP_TIMEOUT,
-            },
+            ADVERTISED_SERVER_URL,
             harness.operations,
           ),
         ),

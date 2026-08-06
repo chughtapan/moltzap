@@ -5,14 +5,13 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Context, Data, Effect, Layer } from "effect";
 import type { CompletedLedgerReceipt } from "../../run/execute.js";
+import {
+  ledgerArtifactFiles,
+  ledgerArtifacts,
+  type LedgerArtifactFile,
+} from "../../ledger/storage.js";
 
-const artifactNames = [
-  "manifest.json",
-  "records.ndjson",
-  "completion.json",
-] as const;
-
-type ArtifactName = (typeof artifactNames)[number];
+type ArtifactName = LedgerArtifactFile;
 
 /** Active POSIX ledger and retained export root for one completed receipt. */
 export interface ControllerLedgerExportOptions {
@@ -72,13 +71,14 @@ export function exportCompletedLedger(
     yield* operations
       .makeDirectory(destination)
       .pipe(Effect.mapError(() => exportFailure("directory")));
-    for (const artifact of artifactNames) {
+    for (const artifact of ledgerArtifacts) {
+      const file = ledgerArtifactFiles[artifact];
       const content = yield* operations
-        .readFile(join(source, artifact))
-        .pipe(Effect.mapError(() => exportFailure("read", artifact)));
+        .readFile(join(source, file))
+        .pipe(Effect.mapError(() => exportFailure("read", file)));
       yield* operations
-        .writeFile(join(destination, artifact), content)
-        .pipe(Effect.mapError(() => exportFailure("write", artifact)));
+        .writeFile(join(destination, file), content)
+        .pipe(Effect.mapError(() => exportFailure("write", file)));
     }
   }).pipe(Effect.withSpan("controller.exportCompletedLedger"));
 }

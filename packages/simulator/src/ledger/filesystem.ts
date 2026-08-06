@@ -12,6 +12,7 @@ import {
   ledgerRef,
 } from "./schema.js";
 import {
+  ledgerArtifactFiles,
   LedgerStorage,
   LedgerStorageError,
   type LedgerAllocation,
@@ -21,9 +22,6 @@ import {
 } from "./storage.js";
 import { Clock, DateTime, Effect, Layer, Ref, Schema } from "effect";
 
-const MANIFEST_FILE = "manifest.json";
-const RECORDS_FILE = "records.ndjson";
-const COMPLETION_FILE = "completion.json";
 const encoder = new TextEncoder();
 
 type StorageOperation = LedgerStorageError["operation"];
@@ -71,12 +69,6 @@ interface PreparedAllocation {
   readonly manifestDigest: typeof ledgerDigest.Type;
   readonly directory: string;
 }
-
-const artifactFiles: Record<LedgerArtifact, string> = {
-  manifest: MANIFEST_FILE,
-  records: RECORDS_FILE,
-  completion: COMPLETION_FILE,
-};
 
 function describeCause(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -228,7 +220,7 @@ function appendDurably(
   return Effect.scoped(
     Effect.gen(function* () {
       const file = yield* active.runtime.fileSystem.open(
-        join(active.directory, RECORDS_FILE),
+        join(active.directory, ledgerArtifactFiles.records),
         { flag: "r+" },
       );
       const info = yield* file.stat;
@@ -293,14 +285,14 @@ function persistAllocation(
   const persistFiles = Effect.gen(function* () {
     yield* syncPath(runtime, runtime.root, "allocate", prepared.ref);
     yield* writeExclusive(runtime, {
-      path: join(prepared.directory, MANIFEST_FILE),
+      path: join(prepared.directory, ledgerArtifactFiles.manifest),
       text: prepared.manifestText,
       operation: "allocate",
       ref: prepared.ref,
       artifact: "manifest",
     });
     yield* writeExclusive(runtime, {
-      path: join(prepared.directory, RECORDS_FILE),
+      path: join(prepared.directory, ledgerArtifactFiles.records),
       text: "",
       operation: "allocate",
       ref: prepared.ref,
@@ -476,7 +468,7 @@ function makeCompletionCandidate(
 }
 
 function completionPath(active: ActiveLedger): string {
-  return join(active.directory, COMPLETION_FILE);
+  return join(active.directory, ledgerArtifactFiles.completion);
 }
 
 function completionExists(
@@ -746,7 +738,9 @@ function artifactPath(
   artifact: LedgerArtifact,
 ): Effect.Effect<string, LedgerStorageError> {
   return Schema.decodeUnknown(Schema.UUID)(ref).pipe(
-    Effect.map((uuid) => join(runtime.root, uuid, artifactFiles[artifact])),
+    Effect.map((uuid) =>
+      join(runtime.root, uuid, ledgerArtifactFiles[artifact]),
+    ),
     Effect.mapError((cause) =>
       storageError(
         "read",

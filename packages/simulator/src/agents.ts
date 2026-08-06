@@ -17,8 +17,12 @@ export {
 /** Re-exports the container descriptor boundary from `./agents/container.js`. */
 export {
   defineContainerRuntime,
+  image,
+  routableBridgeEndpoint,
   stoppedBeforeAttach,
   type Application,
+  type ApplicationEndpoint,
+  type ContainerAgentRuntime,
   type ContainerRuntime,
   type CredentialName,
   type File,
@@ -39,7 +43,6 @@ export type {
 /** Re-exports the public API from `./agents/openclaw/runtime.js`. */
 export {
   openClawRuntime,
-  type OpenClawRuntimeAcquisitionError,
   type OpenClawRuntimeOptions,
   type OpenClawSandboxConfig,
   type OpenClawToolsConfig,
@@ -58,7 +61,6 @@ export {
 /** Re-exports the public API from `./agents/nanoclaw/runtime.js`. */
 export {
   nanoclawRuntime,
-  type NanoClawRuntimeAcquisitionError,
   type NanoClawRuntimeOptions,
 } from "./agents/nanoclaw/runtime.js";
 

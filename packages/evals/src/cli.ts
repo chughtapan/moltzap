@@ -9,7 +9,7 @@ import {
   LedgerStorageError,
   type CompletedLedgerArtifacts,
 } from "@moltzap/simulator/ledger";
-import type { Image } from "@moltzap/simulator/agents";
+import { image, type Image } from "@moltzap/simulator/agents";
 import { Config, DateTime, Duration, Effect, Option, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import {
@@ -28,8 +28,13 @@ import {
   type EvaluationExecutionResult,
 } from "./execution.js";
 import {
+  evaluationArtifactBucket,
+  evaluationArtifactLocation,
+  localArtifactRoot,
   readEvaluationLedgerArtifacts,
-  type EvaluationArtifactLocation,
+  type ArtifactBucket,
+  type EvaluationArtifactStorage,
+  type LocalArtifactRoot,
 } from "./artifacts.js";
 import {
   GradeCompleted,
@@ -42,7 +47,12 @@ import {
   transcriptFromLedger,
   type EvaluationTranscript,
 } from "./grading.js";
-import { decodeJudgePolicyId, type JudgePolicyId } from "./model.js";
+import {
+  decodeJudgePolicyId,
+  type EvaluationConditionId,
+  type EvaluationConditionName,
+  type JudgePolicyId,
+} from "./model.js";
 import { PhoenixPublisher, phoenixPublisherLive } from "./phoenix.js";
 import {
   createStoredEvaluationReport,
@@ -82,8 +92,6 @@ const CLI_VERSION = "0.0.0";
 const RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
 const PEER_OBSERVATION_TIMEOUT = Duration.minutes(5);
 const CASE_TIMEOUT = Duration.minutes(20);
-const DISTRIBUTED_IMAGE = /^.+@sha256:[0-9a-f]{64}$/u;
-const GCS_BUCKET = /^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$/u;
 const JUDGE_POLICY: JudgePolicyId = decodeJudgePolicyId(
   "openai-gpt-5.6-sol/v1",
 );
@@ -132,13 +140,13 @@ interface CommonExecutionEnvironment {
 
 interface LocalExecutionEnvironment extends CommonExecutionEnvironment {
   readonly profile: "local";
-  readonly localArtifacts: string;
+  readonly localArtifacts: LocalArtifactRoot;
 }
 
 interface GkeExecutionEnvironment extends CommonExecutionEnvironment {
   readonly profile: "gke";
   readonly kubeContext: string;
-  readonly gkeArtifactBucket: string;
+  readonly gkeArtifactBucket: ArtifactBucket;
 }
 
 // Each profile carries exactly the target it needs. One flat record with
@@ -507,51 +515,54 @@ function runInfrastructureFailed(
   );
 }
 
-function artifactLocation(
+function artifactStorage(
   environment: EvaluationExecutionEnvironment,
-  namespace: string,
-  receipt: CompletedLedgerReceipt,
-): EvaluationArtifactLocation {
-  const addressed = { namespace, ref: receipt.ledger };
+): EvaluationArtifactStorage {
   return environment.profile === "local"
-    ? {
-        ...addressed,
-        profile: environment.profile,
-        localArtifacts: environment.localArtifacts,
-      }
-    : {
-        ...addressed,
-        profile: environment.profile,
-        gkeArtifactBucket: environment.gkeArtifactBucket,
-      };
+    ? { profile: environment.profile, root: environment.localArtifacts }
+    : { profile: environment.profile, bucket: environment.gkeArtifactBucket };
 }
 
-function completeSubmittedProgram(
+function readCompletedArtifacts(
   environment: EvaluationExecutionEnvironment,
   context: AttemptContext,
   namespace: string,
   receipt: CompletedLedgerReceipt,
 ) {
-  return readEvaluationLedgerArtifacts(
-    artifactLocation(environment, namespace, receipt),
-  ).pipe(
-    Effect.matchEffect({
-      onFailure: (failure) =>
-        rejectEvidence(context, receipt, describeUnknown(failure)),
-      onSuccess: (artifacts) =>
-        projectEvaluationControllerResult(
-          context.definition,
+  return Option.match(
+    evaluationArtifactLocation(
+      artifactStorage(environment),
+      namespace,
+      receipt.ledger,
+    ),
+    {
+      onNone: () =>
+        rejectEvidence(
+          context,
           receipt,
-          artifacts,
-        ).pipe(
+          "the controller ledger ref is not one artifact path segment",
+        ),
+      onSome: (location) =>
+        readEvaluationLedgerArtifacts(location).pipe(
           Effect.matchEffect({
             onFailure: (failure) =>
               rejectEvidence(context, receipt, describeUnknown(failure)),
-            onSuccess: (outcome) =>
-              completeExecution(context, outcome, artifacts),
+            onSuccess: (artifacts) =>
+              projectEvaluationControllerResult(
+                context.definition,
+                receipt,
+                artifacts,
+              ).pipe(
+                Effect.matchEffect({
+                  onFailure: (failure) =>
+                    rejectEvidence(context, receipt, describeUnknown(failure)),
+                  onSuccess: (outcome) =>
+                    completeExecution(context, outcome, artifacts),
+                }),
+              ),
           }),
         ),
-    }),
+    },
   );
 }
 
@@ -567,12 +578,25 @@ function completeSubmission(
   if (summary._tag === "ClusterLost") {
     return runInfrastructureFailed(context, summary);
   }
-  return completeSubmittedProgram(
+  return readCompletedArtifacts(
     environment,
     context,
     submission.namespace,
     summary.receipt,
   );
+}
+
+function conditionModelId(
+  models: CommonExecutionEnvironment["models"],
+  condition: EvaluationConditionId,
+): string {
+  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
+    "openclaw/v2": models.openclaw,
+    "nanoclaw/v2": models.nanoclaw,
+  };
+  // Indexing needs the plain spelling; the brand is not part of the key set.
+  const name: EvaluationConditionName = condition;
+  return byCondition[name];
 }
 
 function submissionInput(
@@ -588,10 +612,7 @@ function submissionInput(
     attemptId: context.cell.attemptId,
     condition: {
       id: condition.id,
-      modelId:
-        condition.id === "openclaw/v2"
-          ? environment.models.openclaw
-          : environment.models.nanoclaw,
+      modelId: conditionModelId(environment.models, condition.id),
     },
     peerApplicationImage: environment.peerApplicationImage,
     nanoclawApplicationImage: environment.nanoclawApplicationImage,
@@ -698,15 +719,13 @@ function distributedApplicationImage(
     | "MOLTZAP_NANOCLAW_IMAGE",
   value: string,
 ): Effect.Effect<Image, EvaluationSourceStateError> {
-  if (!DISTRIBUTED_IMAGE.test(value)) {
-    return Effect.fail(
+  return Schema.decodeUnknown(image)(value).pipe(
+    Effect.mapError(() =>
       EvaluationSourceStateError.make({
         detail: `${key} must be a lowercase SHA-256 digest-pinned image`,
       }),
-    );
-  }
-  // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The preceding exact digest pattern proves the simulator template-literal image contract.
-  return Effect.succeed(value as Image);
+    ),
+  );
 }
 
 function executionImages() {
@@ -731,32 +750,39 @@ function executionImages() {
   });
 }
 
-function localArtifactDirectory(path: Path.Path) {
-  return requiredEnvironment("MOLTZAP_LOCAL_ARTIFACTS").pipe(
+function requiredArtifactTarget<Target>(
+  key: "MOLTZAP_LOCAL_ARTIFACTS" | "MOLTZAP_GKE_ARTIFACT_BUCKET",
+  requirement: string,
+  accept: (value: string) => Option.Option<Target>,
+) {
+  return requiredEnvironment(key).pipe(
     Effect.flatMap((value) =>
-      path.isAbsolute(value)
-        ? Effect.succeed(value)
-        : Effect.fail(
+      Option.match(accept(value), {
+        onNone: () =>
+          Effect.fail(
             EvaluationSourceStateError.make({
-              detail: "MOLTZAP_LOCAL_ARTIFACTS must be an absolute path",
+              detail: `${key} must be ${requirement}`,
             }),
           ),
+        onSome: Effect.succeed,
+      }),
     ),
   );
 }
 
+function localArtifactDirectory(path: Path.Path) {
+  return requiredArtifactTarget(
+    "MOLTZAP_LOCAL_ARTIFACTS",
+    "an absolute path",
+    (value) => localArtifactRoot(path, value),
+  );
+}
+
 function gkeArtifactBucket() {
-  return requiredEnvironment("MOLTZAP_GKE_ARTIFACT_BUCKET").pipe(
-    Effect.flatMap((value) =>
-      GCS_BUCKET.test(value)
-        ? Effect.succeed(value)
-        : Effect.fail(
-            EvaluationSourceStateError.make({
-              detail:
-                "MOLTZAP_GKE_ARTIFACT_BUCKET must be a valid Cloud Storage bucket name",
-            }),
-          ),
-    ),
+  return requiredArtifactTarget(
+    "MOLTZAP_GKE_ARTIFACT_BUCKET",
+    "a valid Cloud Storage bucket name",
+    evaluationArtifactBucket,
   );
 }
 

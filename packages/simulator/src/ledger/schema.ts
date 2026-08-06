@@ -1,5 +1,10 @@
 import { Schema } from "effect";
-import type { EventCatalog, EventClass, EventOf } from "../events/catalog.js";
+import {
+  versionedEventTag,
+  type EventCatalog,
+  type EventClass,
+  type EventOf,
+} from "../events/catalog.js";
 
 /** Provides the ledger format version runtime value. */
 export const LEDGER_FORMAT_VERSION = 1;
@@ -39,10 +44,8 @@ const jsonObjectSchema = Schema.Record({
 /** Represents json object values. */
 export type JsonObject = typeof jsonObjectSchema.Type;
 
-const versionedIdentifierSchema = Schema.String.pipe(
-  Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
-);
-const versionedEventTagSchema = Schema.String.pipe(
+/** The persisted spelling of a simulator definition's identity. */
+export const versionedDefinitionId = Schema.String.pipe(
   Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
 );
 const nonNegativeInteger = Schema.Int.pipe(Schema.nonNegative());
@@ -60,9 +63,9 @@ export class LedgerManifest extends Schema.Class<LedgerManifest>(
   "LedgerManifest",
 )({
   ledgerFormatVersion: Schema.Literal(LEDGER_FORMAT_VERSION),
-  definitionId: versionedIdentifierSchema,
+  definitionId: versionedDefinitionId,
   runId: Schema.NonEmptyString,
-  catalogTags: Schema.Array(versionedEventTagSchema),
+  catalogTags: Schema.Array(versionedEventTag),
   createdAt: Schema.DateTimeUtc,
   provenance: jsonObjectSchema,
   metadata: jsonObjectSchema,

@@ -1,6 +1,7 @@
 /**
  * Type canary: a private container realization preserves its runtime's exact
- * principal gateway and acquisition-error types through render and attach.
+ * principal gateway and acquisition-error types through render and attach, and
+ * a runtime built by `defineContainerRuntime` always has one to read.
  */
 
 import type { Effect } from "effect";
@@ -22,9 +23,13 @@ type Equal<Left, Right> = [Left] extends [Right]
 const runtime = openClawRuntime();
 
 /** Stock OpenClaw preserves its exact private container realization type. */
-export const openClawContainerRuntimeCanary:
-  | ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError>
-  | undefined = containerRuntimeFor(runtime);
+export const openClawContainerRuntimeCanary = containerRuntimeFor(runtime);
+
+/** Reading back the realization of a defined container runtime has no absent case. */
+export const containerRuntimeIsAlwaysPresent: Equal<
+  typeof openClawContainerRuntimeCanary,
+  ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError>
+> = true;
 
 type OpenClawApplication = Application<
   OpenClawGateway,

@@ -92,7 +92,6 @@ export {
   ClusterLost,
   type SimulatorRunFailure,
   type SimulatorRunOutcome,
-  type SimulatorRunOptions,
 } from "./run/execute.js";
 
 /** Re-exports the mechanism-neutral cluster error. */

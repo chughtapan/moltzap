@@ -1,5 +1,6 @@
 import { Command, FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
+import { image } from "@moltzap/simulator/agents";
 import { assert, describe, it as effectIt } from "@effect/vitest";
 import {
   Cause,
@@ -41,6 +42,8 @@ import { LedgerStorageError } from "@moltzap/simulator/ledger";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- storage tests pin transaction, resume, and privacy invariants. */
 
+const testImage = Schema.decodeSync(image);
+
 const it = effectIt.scoped;
 const liveIt = effectIt.scopedLive;
 const caseId = decodeEvaluationCaseId;
@@ -78,9 +81,9 @@ function localInfrastructure(
 ): LocalEvaluationInfrastructure {
   return LocalEvaluationInfrastructure.make({
     profile: "local",
-    controllerImage: `controller@sha256:${"a".repeat(64)}`,
-    peerApplicationImage: `peer@sha256:${"b".repeat(64)}`,
-    nanoclawApplicationImage: `nanoclaw@sha256:${"c".repeat(64)}`,
+    controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
+    peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
+    nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
     temporalAddress: "127.0.0.1:7233",
     artifactDirectory,
   });

@@ -32,7 +32,9 @@ export class NetworkError extends Schema.TaggedError<NetworkError>()(
 }
 
 /**
- * Normalize an implementation failure at the network boundary.
+ * Normalize an implementation failure at the network boundary. Error causes
+ * contribute their message alone so one operation reads the same way whether
+ * the boundary raised a thrown Error or a plain description.
  * @param operation Failed network operation.
  * @param cause Implementation failure.
  * @returns Typed network failure.
@@ -41,5 +43,8 @@ export function networkError(
   operation: NetworkOperation,
   cause: unknown,
 ): NetworkError {
-  return NetworkError.make({ operation, detail: String(cause) });
+  return NetworkError.make({
+    operation,
+    detail: cause instanceof Error ? cause.message : String(cause),
+  });
 }

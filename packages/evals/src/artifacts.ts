@@ -2,23 +2,40 @@
 
 import { Command, FileSystem, Path } from "@effect/platform";
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
-import type {
-  CompletedLedgerArtifacts,
-  LedgerRef,
+import {
+  ledgerArtifactFiles,
+  type CompletedLedgerArtifacts,
+  type LedgerArtifact,
+  type LedgerRef,
 } from "@moltzap/simulator/ledger";
-import { Effect, Either, Schema } from "effect";
-import type { SimulatorProfile } from "./submission.js";
+import { Brand, Effect, Option, Schema } from "effect";
 
-const ARTIFACT_FILES = Object.freeze({
-  manifest: "manifest.json",
-  records: "records.ndjson",
-  completion: "completion.json",
-} as const);
-const bucketName = Schema.String.pipe(
+/**
+ * Absolute host directory a local run writes its completed artifacts under.
+ * Only `localArtifactRoot` produces one, so no read re-checks absoluteness.
+ */
+export type LocalArtifactRoot = string & Brand.Brand<"LocalArtifactRoot">;
+
+const asLocalArtifactRoot = Brand.nominal<LocalArtifactRoot>();
+
+const artifactBucket = Schema.String.pipe(
   Schema.pattern(/^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$/u),
+  Schema.brand("ArtifactBucket"),
 );
-const decodeBucketName = Schema.decodeUnknownEither(bucketName);
-const decodeLedgerDirectory = Schema.decodeUnknownEither(Schema.UUID);
+/** Cloud Storage bucket a GKE run writes its completed artifacts into. */
+export type ArtifactBucket = typeof artifactBucket.Type;
+
+/**
+ * A ledger ref is only a storage identity; the profiles that happen to store a
+ * ledger under its own directory need one path segment, and a ref carrying a
+ * separator or a parent reference would address a neighbouring run instead.
+ */
+const ledgerDirectory = Schema.UUID.pipe(Schema.brand("LedgerDirectory"));
+/** One completed ledger addressed as exactly one storage path segment. */
+type LedgerDirectory = typeof ledgerDirectory.Type;
+
+const decodeLedgerDirectory = Schema.decodeUnknownOption(ledgerDirectory);
+const decodeArtifactBucket = Schema.decodeUnknownOption(artifactBucket);
 
 /** Artifact retrieval failed before canonical ledger validation. */
 export class EvaluationArtifactReadFailed extends Schema.TaggedError<EvaluationArtifactReadFailed>()(
@@ -40,13 +57,62 @@ export interface EvaluationArtifactOperations<Requirements = never> {
   ) => Effect.Effect<string, unknown, Requirements>;
 }
 
-/** Host storage identities for one completed simulator run. */
+// The target belongs to the profile, not to a run: a location carrying both an
+// optional directory and an optional bucket can be built for a profile whose
+// own target was never resolved, and every read then has to re-decide that.
+/** Validated artifact target owned by the profile a sweep runs on. */
+export type EvaluationArtifactStorage =
+  | Readonly<{ profile: "local"; root: LocalArtifactRoot }>
+  | Readonly<{ profile: "gke"; bucket: ArtifactBucket }>;
+
+/** Host storage identity for one completed simulator run. */
 export interface EvaluationArtifactLocation {
-  readonly profile: SimulatorProfile;
+  readonly storage: EvaluationArtifactStorage;
   readonly namespace: string;
-  readonly ref: LedgerRef;
-  readonly localArtifacts?: string;
-  readonly gkeArtifactBucket?: string;
+  readonly ledger: LedgerDirectory;
+}
+
+/**
+ * Accept an artifact root only where the host path service calls it absolute.
+ * @param path Platform path service that decides absoluteness.
+ * @param value Candidate root read from the host environment.
+ * @returns The branded root, absent when the candidate is relative.
+ */
+export function localArtifactRoot(
+  path: Path.Path,
+  value: string,
+): Option.Option<LocalArtifactRoot> {
+  return path.isAbsolute(value)
+    ? Option.some(asLocalArtifactRoot(value))
+    : Option.none();
+}
+
+/**
+ * Accept a Cloud Storage bucket named the way Cloud Storage names buckets.
+ * @param value Candidate bucket read from the host environment.
+ * @returns The branded bucket, absent when the name is not one.
+ */
+export function evaluationArtifactBucket(
+  value: string,
+): Option.Option<ArtifactBucket> {
+  return decodeArtifactBucket(value);
+}
+
+/**
+ * Address one completed run inside the artifact storage its profile owns.
+ * @param storage Validated target owned by the profile the run executed on.
+ * @param namespace Run namespace the simulator submitter reported.
+ * @param ref Ledger identity the controller committed for the run.
+ * @returns The addressed location, absent when the ref is not one segment.
+ */
+export function evaluationArtifactLocation(
+  storage: EvaluationArtifactStorage,
+  namespace: string,
+  ref: LedgerRef,
+): Option.Option<EvaluationArtifactLocation> {
+  return decodeLedgerDirectory(ref).pipe(
+    Option.map((ledger) => Object.freeze({ storage, namespace, ledger })),
+  );
 }
 
 const liveOperations: EvaluationArtifactOperations<
@@ -66,116 +132,54 @@ const liveOperations: EvaluationArtifactOperations<
 
 function readFailure(
   location: EvaluationArtifactLocation,
-  artifact: keyof typeof ARTIFACT_FILES,
+  artifact: LedgerArtifact,
   cause: unknown,
 ): EvaluationArtifactReadFailed {
   return EvaluationArtifactReadFailed.make({
-    profile: location.profile,
+    profile: location.storage.profile,
     artifact,
     detail: String(cause).trim() || "artifact read failed",
   });
 }
 
-function ledgerDirectory(
-  location: EvaluationArtifactLocation,
-  artifact: keyof typeof ARTIFACT_FILES,
-) {
-  return Either.match(decodeLedgerDirectory(location.ref), {
-    onLeft: (): Effect.Effect<string, EvaluationArtifactReadFailed> =>
-      Effect.fail(
-        readFailure(
-          location,
-          artifact,
-          "ledger ref is not one UUID path segment",
-        ),
-      ),
-    onRight: (directory): Effect.Effect<string, EvaluationArtifactReadFailed> =>
-      Effect.succeed(directory),
-  });
-}
-
 function localIdentity(
+  root: LocalArtifactRoot,
   location: EvaluationArtifactLocation,
-  artifact: keyof typeof ARTIFACT_FILES,
+  artifact: LedgerArtifact,
   path: Path.Path,
-): Effect.Effect<string, EvaluationArtifactReadFailed> {
-  const root = location.localArtifacts;
-  if (root === undefined || !path.isAbsolute(root)) {
-    return Effect.fail(
-      readFailure(
-        location,
-        artifact,
-        "MOLTZAP_LOCAL_ARTIFACTS must be an absolute path",
-      ),
-    );
-  }
-  return ledgerDirectory(location, artifact).pipe(
-    Effect.map((directory) =>
-      path.join(
-        root,
-        location.namespace,
-        "ledger",
-        directory,
-        ARTIFACT_FILES[artifact],
-      ),
-    ),
+): string {
+  return path.join(
+    root,
+    location.namespace,
+    "ledger",
+    location.ledger,
+    ledgerArtifactFiles[artifact],
   );
 }
 
 function gcsIdentity(
+  bucket: ArtifactBucket,
   location: EvaluationArtifactLocation,
-  artifact: keyof typeof ARTIFACT_FILES,
-): Effect.Effect<string, EvaluationArtifactReadFailed> {
-  const bucket = location.gkeArtifactBucket;
-  if (bucket === undefined) {
-    return Effect.fail(
-      readFailure(
-        location,
-        artifact,
-        "MOLTZAP_GKE_ARTIFACT_BUCKET must be a valid Cloud Storage bucket",
-      ),
-    );
-  }
-  return Either.match(decodeBucketName(bucket), {
-    onLeft: (): Effect.Effect<string, EvaluationArtifactReadFailed> =>
-      Effect.fail(
-        readFailure(
-          location,
-          artifact,
-          "MOLTZAP_GKE_ARTIFACT_BUCKET must be a valid Cloud Storage bucket",
-        ),
-      ),
-    onRight: (
-      decodedBucket,
-    ): Effect.Effect<string, EvaluationArtifactReadFailed> =>
-      ledgerDirectory(location, artifact).pipe(
-        Effect.map(
-          (directory) =>
-            `gs://${decodedBucket}/${encodeURIComponent(location.namespace)}/ledger/${directory}/${ARTIFACT_FILES[artifact]}`,
-        ),
-      ),
-  });
+  artifact: LedgerArtifact,
+): string {
+  return `gs://${bucket}/${encodeURIComponent(location.namespace)}/ledger/${location.ledger}/${ledgerArtifactFiles[artifact]}`;
 }
 
 function readArtifact<Requirements>(
   location: EvaluationArtifactLocation,
-  artifact: keyof typeof ARTIFACT_FILES,
+  artifact: LedgerArtifact,
   operations: EvaluationArtifactOperations<Requirements>,
   path: Path.Path,
 ) {
-  const identity =
-    location.profile === "local"
-      ? localIdentity(location, artifact, path)
-      : gcsIdentity(location, artifact);
-  return identity.pipe(
-    Effect.flatMap((identity) =>
-      (location.profile === "local"
-        ? operations.readFile(identity)
-        : operations.readObject(identity)
-      ).pipe(
-        Effect.mapError((cause) => readFailure(location, artifact, cause)),
-      ),
-    ),
+  const storage = location.storage;
+  const read =
+    storage.profile === "local"
+      ? operations.readFile(
+          localIdentity(storage.root, location, artifact, path),
+        )
+      : operations.readObject(gcsIdentity(storage.bucket, location, artifact));
+  return read.pipe(
+    Effect.mapError((cause) => readFailure(location, artifact, cause)),
   );
 }
 

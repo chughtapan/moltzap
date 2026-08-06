@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { NodeRuntime } from "@effect/platform-node";
 import { Effect, Either, Schema } from "effect";
 import { isEntryModule } from "../entry.js";
+import { ledgerArtifactFiles } from "../../ledger/storage.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import {
   liveSubmitOperations,
@@ -81,9 +82,9 @@ const runtimeProfileSchema = Schema.Struct({
         `${GKE_ARTIFACT_MOUNT_PATH}/{runNamespace}/ledger`,
       ),
       publicationOrder: Schema.Tuple(
-        Schema.Literal("manifest.json"),
-        Schema.Literal("records.ndjson"),
-        Schema.Literal("completion.json"),
+        Schema.Literal(ledgerArtifactFiles.manifest),
+        Schema.Literal(ledgerArtifactFiles.records),
+        Schema.Literal(ledgerArtifactFiles.completion),
       ),
     }),
   }),

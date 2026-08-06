@@ -26,9 +26,12 @@ import {
   type AgentRuntime,
   type AgentRuntimeInput,
   type Application,
+  type ApplicationEndpoint,
   defineContainerRuntime,
   type File,
+  image,
   type Image,
+  routableBridgeEndpoint,
   RuntimeAcquisitionError,
   type RuntimeTermination,
   stoppedBeforeAttach,
@@ -67,9 +70,6 @@ const EVALUATION_PEER_RESOURCES = Object.freeze({
   ephemeralStorageBytes: 128 * 1024 * 1024,
 });
 const decodeAgentName = Schema.decodeSync(agentName);
-const distributedContainerImage = Schema.String.pipe(
-  Schema.pattern(/^.+@sha256:[0-9a-f]{64}$/u),
-);
 
 const evaluationPeerObservation = Schema.Union(
   CodePeerMessageReceived,
@@ -179,7 +179,7 @@ export type EvaluationPeerApplicationPlan =
 class EvaluationPeerRuntimeConfiguration extends Schema.Class<EvaluationPeerRuntimeConfiguration>(
   "EvaluationPeerRuntimeConfiguration",
 )({
-  applicationImage: distributedContainerImage,
+  applicationImage: image,
   plan: EvaluationPeerApplicationPlan,
 }) {}
 
@@ -736,20 +736,8 @@ function acquisitionFailure(
   });
 }
 
-function bridgeResultUrl(endpoint: URL): Option.Option<string> {
-  const isWebSocket =
-    endpoint.protocol === "ws:" || endpoint.protocol === "wss:";
-  const hasCredentials =
-    endpoint.username.length > 0 || endpoint.password.length > 0;
-  if (!isWebSocket || hasCredentials || endpoint.hostname.length === 0) {
-    return Option.none();
-  }
-  const url = new URL(endpoint.href);
-  url.protocol = endpoint.protocol === "wss:" ? "https:" : "http:";
-  url.pathname = "/result";
-  url.search = "";
-  url.hash = "";
-  return Option.some(url.href);
+function bridgeResultUrl(endpoint: ApplicationEndpoint): string {
+  return `http://${endpoint.host}:${String(endpoint.port)}/result`;
 }
 
 function readBridgeResult(
@@ -812,31 +800,32 @@ function awaitBridgeResult(
 
 function attachEvaluationPeer(
   agent: string,
-  endpoint: URL,
+  endpoint: ApplicationEndpoint,
   stopped: Effect.Effect<RuntimeTermination>,
 ): Effect.Effect<EvaluationPeerGateway, RuntimeAcquisitionError> {
-  return Option.match(bridgeResultUrl(endpoint), {
-    onNone: () =>
-      Effect.fail(
-        acquisitionFailure(
-          agent,
-          "evaluation peer bridge requires a credential-free WebSocket service URL",
-        ),
+  return Effect.try({
+    try: () => bridgeResultUrl(routableBridgeEndpoint(endpoint)),
+    catch: (cause) =>
+      acquisitionFailure(
+        agent,
+        `resolve peer bridge endpoint: ${String(cause)}`,
       ),
-    onSome: (url) => {
-      const result = awaitBridgeResult(url).pipe(
-        Effect.raceFirst(
-          stoppedBeforeAttach(stopped, (detail) =>
-            failure(
-              "bridge",
-              `peer application stopped before publishing its result: ${detail}`,
+  }).pipe(
+    Effect.map((url) =>
+      evaluationPeerGatewayFromBridge(
+        awaitBridgeResult(url).pipe(
+          Effect.raceFirst(
+            stoppedBeforeAttach(stopped, (detail) =>
+              failure(
+                "bridge",
+                `peer application stopped before publishing its result: ${detail}`,
+              ),
             ),
           ),
         ),
-      );
-      return Effect.succeed(evaluationPeerGatewayFromBridge(result));
-    },
-  });
+      ),
+    ),
+  );
 }
 
 function bootstrapFiles<Name extends string>(
@@ -875,8 +864,10 @@ function peerApplication<Name extends string>(
     environment: Object.freeze({ NODE_ENV: "production" }),
     port: EVALUATION_PEER_BRIDGE_PORT,
     files: bootstrapFiles(plan, input),
-    attach: (endpoint: URL, stopped: Effect.Effect<RuntimeTermination>) =>
-      attachEvaluationPeer(input.agentName, endpoint, stopped),
+    attach: (
+      endpoint: ApplicationEndpoint,
+      stopped: Effect.Effect<RuntimeTermination>,
+    ) => attachEvaluationPeer(input.agentName, endpoint, stopped),
   });
 }
 

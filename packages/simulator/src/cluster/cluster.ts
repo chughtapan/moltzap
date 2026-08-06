@@ -16,6 +16,20 @@ export class ClusterError extends Data.TaggedError("ClusterError")<{
   readonly detail: string;
 }> {}
 
+/**
+ * Normalize an implementation failure at a cluster boundary. Error causes
+ * contribute their message alone so one operation reads the same way whether
+ * the boundary raised a thrown Error or a plain description.
+ * @param operation Failed cluster operation.
+ * @param cause Implementation failure.
+ * @returns Typed cluster failure.
+ */
+export function clusterError(operation: string, cause: unknown): ClusterError {
+  return new ClusterError({
+    detail: `${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
+  });
+}
+
 /** One exact roster entry presented to a private cluster implementation. */
 export interface Slot<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,

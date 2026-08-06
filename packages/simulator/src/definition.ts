@@ -113,7 +113,6 @@ function provideCluster<
     eventServices,
     roster,
     program,
-    options: {},
   }).pipe(Effect.provide(cluster));
 }
 
@@ -137,24 +136,6 @@ type RunSpecExecution<
     Layer.Layer.Error<ClusterLayer>,
     Layer.Layer.Context<ClusterLayer>
   >
->;
-
-type RunSpecRunner<
-  Id extends SimulatorDefinitionId,
-  CustomerCatalogs extends readonly AnyEventCatalog[],
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
-  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
-> = () => RunSpecExecution<
-  Id,
-  CustomerCatalogs,
-  Definitions,
-  A,
-  E,
-  R,
-  ClusterLayer
 >;
 
 /**
@@ -188,7 +169,7 @@ export interface RunSpec<
    * distinguishes a definition from a lookalike, and a lookalike has no
    * runner to invoke.
    */
-  readonly [runSpecTypeId]?: RunSpecRunner<
+  readonly [runSpecTypeId]?: () => RunSpecExecution<
     Id,
     CustomerCatalogs,
     Definitions,
@@ -218,31 +199,11 @@ function snapshotReadonlyArray(values: readonly unknown[]): readonly unknown[] {
   return Object.freeze([...values]);
 }
 
-function makeRunSpecProgram<
-  const Id extends SimulatorDefinitionId,
-  const CustomerCatalogs extends readonly AnyEventCatalog[],
-  const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
->(
-  eventServices: DefinitionEventServices<Id, CustomerCatalogs>,
-  roster: AgentRoster<Id, Definitions>,
-  execute: (
-    context: RunExecutionContext<Id, CustomerCatalogs, Definitions>,
-  ) => Effect.Effect<A, E, R>,
-) {
-  return Effect.gen(function* () {
-    const agents = yield* roster.startedAgents;
-    const events = yield* eventServices.events;
-    const network = yield* Network;
-    const ledger = yield* eventServices.ledger;
-    const context: RunExecutionContext<Id, CustomerCatalogs, Definitions> =
-      Object.freeze({ agents, events, network, ledger });
-    return yield* Effect.suspend(() => execute(context));
-  });
-}
-
+// An opaque ClusterLayer is not assignable to the projection of its own type
+// parameters, so the widening lives in this overload pair rather than in an
+// annotation. Passing the layer unwidened infers the constrained
+// Layer<never, unknown, unknown> instead, which drops the layer's exact
+// outputs from the run's type and leaves extra outputs unsatisfied.
 function concreteLayer<
   ClusterLayer extends Layer.Layer<never, unknown, unknown>,
 >(
@@ -258,27 +219,6 @@ function concreteLayer(
   return cluster;
 }
 
-function makeRunSpecRunner<
-  const Id extends SimulatorDefinitionId,
-  const CustomerCatalogs extends readonly AnyEventCatalog[],
-  const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
-  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
->(
-  eventServices: DefinitionEventServices<Id, CustomerCatalogs>,
-  roster: AgentRoster<Id, Definitions>,
-  execute: (
-    context: RunExecutionContext<Id, CustomerCatalogs, Definitions>,
-  ) => Effect.Effect<A, E, R>,
-  cluster: ClusterLayer,
-): RunSpecRunner<Id, CustomerCatalogs, Definitions, A, E, R, ClusterLayer> {
-  const program = makeRunSpecProgram(eventServices, roster, execute);
-  const providedCluster = concreteLayer(cluster);
-  return () => provideCluster(eventServices, roster, program, providedCluster);
-}
-
 function defineRunSpec<
   const Id extends SimulatorDefinitionId,
   const CustomerCatalogs extends readonly AnyEventCatalog[],
@@ -292,14 +232,21 @@ function defineRunSpec<
 ): RunSpec<Id, CustomerCatalogs, Definitions, A, E, R, ClusterLayer> {
   const id = input.id;
   validateDefinitionId(id);
-  const events = snapshotReadonlyArray(input.events);
+  const catalogs = snapshotReadonlyArray(input.events);
   const cluster = input.cluster;
   const execute = input.execute;
-  const customerCatalog = EventCatalog.merge(EventCatalog.empty(), ...events);
+  const customerCatalog = EventCatalog.merge(EventCatalog.empty(), ...catalogs);
   const eventServices = makeDefinitionEventServices(id, customerCatalog);
   const roster = makeAgentRosterBinding(id).agents(input.agents);
-  // Non-enumerable, so spreading a spec drops the brand: a copy carrying a
-  // replaced execute must not silently run the original program.
+  const program = Effect.gen(function* () {
+    const agents = yield* roster.startedAgents;
+    const events = yield* eventServices.events;
+    const network = yield* Network;
+    const ledger = yield* eventServices.ledger;
+    const context: RunExecutionContext<Id, CustomerCatalogs, Definitions> =
+      Object.freeze({ agents, events, network, ledger });
+    return yield* Effect.suspend(() => execute(context));
+  });
   const spec: RunSpec<
     Id,
     CustomerCatalogs,
@@ -308,14 +255,19 @@ function defineRunSpec<
     E,
     R,
     ClusterLayer
-  > = Object.freeze(
-    Object.defineProperty(
-      { id, events, agents: roster.definitions, cluster, execute },
-      runSpecTypeId,
-      { value: makeRunSpecRunner(eventServices, roster, execute, cluster) },
-    ),
-  );
-  return spec;
+  > = {
+    id,
+    events: catalogs,
+    agents: roster.definitions,
+    cluster,
+    execute,
+    [runSpecTypeId]: () =>
+      provideCluster(eventServices, roster, program, concreteLayer(cluster)),
+  };
+  // Non-enumerable, so spreading a spec drops the brand: a copy carrying a
+  // replaced execute must not silently run the original program.
+  Object.defineProperty(spec, runSpecTypeId, { enumerable: false });
+  return Object.freeze(spec);
 }
 
 /**

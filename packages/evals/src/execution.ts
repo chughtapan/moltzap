@@ -56,10 +56,10 @@ import {
   evaluationEvents,
 } from "./events.js";
 import {
-  decodeConditionId,
+  decodeEvaluationConditionId,
   decodeEvaluationEvidenceId,
-  type ConditionId,
   type EvaluationCaseId,
+  type EvaluationConditionId,
   type EvaluationEvidenceId,
 } from "./model.js";
 import type {
@@ -180,7 +180,7 @@ interface EvaluationConditionDefinitionConsumer<Result> {
 
 /** Concrete condition with its exact gateway retained behind a rank-2 binder. */
 export interface EvaluationCondition {
-  readonly id: ConditionId;
+  readonly id: EvaluationConditionId;
   readonly runtimeName: string;
   readonly runtimeConfiguration: JsonValue;
   readonly withDefinition: <Result>(
@@ -195,7 +195,7 @@ export interface EvaluationConditionDefinition<
   RuntimeFailure,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 > {
-  readonly id: ConditionId;
+  readonly id: EvaluationConditionId;
   readonly runtime: AgentRuntime<Gateway, RuntimeFailure, ConfigurationSchema>;
   readonly principal: PrincipalDriverFactory<Gateway, DriverFailure>;
   readonly execution: EvaluationExecutionPolicy;
@@ -811,7 +811,7 @@ function evaluationCondition<
 export function openClawEvaluationCondition(
   options: OpenClawEvaluationConditionOptions,
 ) {
-  const id = decodeConditionId("openclaw/v2");
+  const id = decodeEvaluationConditionId("openclaw/v2");
   const runtime = openClawRuntime({
     ...options.runtime,
     tools: BUNDLED_OPENCLAW_TOOLS,
@@ -832,7 +832,7 @@ export function openClawEvaluationCondition(
 export function nanoclawEvaluationCondition(
   options: NanoClawEvaluationConditionOptions,
 ) {
-  const id = decodeConditionId("nanoclaw/v2");
+  const id = decodeEvaluationConditionId("nanoclaw/v2");
   const runtime = nanoclawRuntime(options.runtime);
   return evaluationCondition({
     id,
