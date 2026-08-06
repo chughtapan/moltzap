@@ -5,7 +5,8 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer, type Cause } from "effect";
+import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
 import type { KubernetesExecutionProfile } from "./profile.js";
 import type { RunControllerResult } from "./reclaim.js";
 import {
@@ -144,26 +145,34 @@ function readExperiment(
   path: string,
   operations: SubmitOperationsService,
 ): Effect.Effect<string, RunSubmissionError> {
-  return operations
-    .readTextFile(path)
-    .pipe(
-      Effect.mapError(() =>
-        failure("module", "the RunSpec entrypoint could not be read"),
-      ),
-    );
+  return operations.readTextFile(path).pipe(
+    // Which of a missing file, a directory, and a permission denial it was
+    // reaches the operator only here: the reported detail is deliberately the
+    // same sentence for all three.
+    Effect.tapErrorCause(Effect.logError),
+    Effect.mapError(() =>
+      failure("module", "the RunSpec entrypoint could not be read"),
+    ),
+  );
+}
+
+// A refused worker roll is the operator's own next action rather than a fault
+// in the run, so its text is reported instead of the generic detail. It names
+// only images, run ids, and an environment variable; every other failure stays
+// sanitized, because its detail can carry the connection the submitter used.
+function submissionFailure(cause: Cause.UnknownException): RunSubmissionError {
+  return cause.error instanceof RunWorkerRollRefused
+    ? failure("configuration", cause.error.message)
+    : failure("execution", "the Temporal-managed run did not complete");
 }
 
 function executeTemporalRun(
   options: RunTemporalSocietyOptions,
   operations: SubmitOperationsService,
 ): Effect.Effect<RunControllerResult, RunSubmissionError> {
-  // The cause is logged rather than reported, because the detail is operator
-  // output and the connection it carries can hold a credential.
   return Effect.tryPromise(() => operations.runTemporalSociety(options)).pipe(
     Effect.tapErrorCause(Effect.logError),
-    Effect.mapError(() =>
-      failure("execution", "the Temporal-managed run did not complete"),
-    ),
+    Effect.mapError(submissionFailure),
   );
 }
 
@@ -205,6 +214,7 @@ interface PreparedRun {
   readonly executionProfile: KubernetesExecutionProfile;
   readonly startupTimeoutMs?: number;
   readonly cohortSize?: number;
+  readonly forceWorkerRoll: boolean;
   readonly connection: {
     readonly taskQueue: string;
     readonly temporalAddress: string;
@@ -279,6 +289,9 @@ function prepareRun(
     path: experimentPath(args),
     controllerImage,
     executionProfile,
+    // Exactly "1", so that an operator who exported the variable to something
+    // else has not silently accepted losing a run.
+    forceWorkerRoll: environment[FORCE_WORKER_ROLL_VARIABLE] === "1",
     ...runSizing(environment),
     supportImage: requiredImage(
       environment,
@@ -323,6 +336,7 @@ function executePreparedRun(
     const result = yield* executeTemporalRun(
       {
         executionProfile: prepared.executionProfile,
+        forceWorkerRoll: prepared.forceWorkerRoll,
         workflowId: identity.runId,
         taskQueue: prepared.connection.taskQueue,
         temporalAddress: prepared.connection.temporalAddress,
