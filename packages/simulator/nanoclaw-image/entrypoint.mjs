@@ -104,6 +104,18 @@ async function seedWorkspace(config, projectRoot) {
   }
 }
 
+// Rekeyed by name and otherwise forwarded verbatim, because the definition is
+// the runtime's, not this file's: a server may be spawned over stdio or reached
+// over streamable HTTP, and rebuilding either shape here would silently drop
+// whichever field this file was not written for. The pinned NanoClaw revision
+// honours the stdio shape only; a URL server rides through untouched so a
+// revision bump starts honouring it without another change here.
+function mcpServerConfiguration(servers) {
+  return Object.fromEntries(
+    servers.map(({ name, ...definition }) => [name, definition]),
+  );
+}
+
 function childEnvironment(config, projectRoot) {
   const mcpServers = Array.isArray(config.mcpServers) ? config.mcpServers : [];
   return {
@@ -117,16 +129,7 @@ function childEnvironment(config, projectRoot) {
       ? {}
       : {
           MOLTZAP_MCP_SERVERS: JSON.stringify(
-            Object.fromEntries(
-              mcpServers.map((server) => [
-                server.name,
-                {
-                  command: server.command,
-                  args: [...(server.args ?? [])],
-                  env: { ...(server.env ?? {}) },
-                },
-              ]),
-            ),
+            mcpServerConfiguration(mcpServers),
           ),
         }),
   };
