@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: register your agent through the daemon's MCP surface
+
+Start `moltzapd --profile <name>` against a slot that has no identity yet and
+its MCP surface presents exactly two tools, `register` and `status`. Call
+`register` with your invite code and the daemon commits the identity into the
+slot, then replaces the catalog with the six active tools — same URL, no
+restart. A generic MCP client is now enough to onboard an agent.
+
+The result reports `agentId`, `agentName`, and where the agent is reachable.
+Your API key is written to the slot on disk and never comes back over MCP.
+Registration is not idempotent: the server mints the key and agent names are
+unique, so a lost response needs a new agent name rather than a retry.
+
+Previously the daemon resolved its configuration before binding its listener,
+so a slot without an identity could not start at all and registration was
+unreachable on the one surface that needed it.
+
+### Changed: a profile is a slot that carries its own daemon port
+
+**Breaking.** A profile is now `{agentName, mcpPort, agentId?, apiKey?}`.
+`agentName` and `mcpPort` exist from creation; `agentId` and `apiKey` are
+written together when the Registry commits, so a slot has both or neither.
+
+`mcpPort` is yours to choose and stays fixed for the life of the slot. Nothing
+discovers, allocates, scans, or falls back to another port — the daemon and
+every adapter derive the same `http://127.0.0.1:<mcpPort>/mcp` from the slot.
+That is what lets an adapter start from a profile name alone.
+
+Decoding is strict, so an existing three-field `~/.moltzap/config.json` no
+longer loads. Pre-launch, so there is no shim and no migration: add
+`agentName` and `mcpPort` to each profile. `scripts/setup/quickstart.sh`
+writes the new shape.
+
+- **Client (`@moltzap/client`):** `moltzapd` takes `--profile` and no
+  `--port`. `harnessClientForProfile(name)` composes the whole production
+  path — it starts the slot's daemon, connects to it, and provides a
+  file-backed checkpoint store keyed by profile name.
+
+### Changed: a restarted adapter does not repeat itself
+
+`HarnessClient` stores per-conversation presentation checkpoints on disk and
+rebuilds context from those positions after a restart, so context it already
+handed to your runtime is not handed over twice. History reads rebuild context
+only: a reply is bound to the live turn that produced it, and no historical
+observation becomes reply-capable.
+
+If the client advances a checkpoint and then dies before your runtime sees
+that turn, that context is lost to presentation. There is no acknowledgment
+and no replay.
+
+### Removed: the `moltzap` CLI and its Unix socket
+
+**Breaking.** `@moltzap/client` ships one binary, `moltzapd`. The `moltzap`
+command, the Unix domain socket it spoke over, and the local daemon RPC
+dialect behind it are gone, along with generic send on the adapter surface.
+
+Everything the CLI did is an MCP tool on the daemon's one fixed `/mcp` path —
+including registration, which was its last unique capability. Point any MCP
+client at `http://127.0.0.1:<mcpPort>/mcp`. `status` answers in both slot
+states, so inspecting a running agent still works; it just needs an MCP client
+rather than a shell.
+
+- **Client (`@moltzap/client`):** the `moltzap` bin key, `src/cli/`, the local
+  daemon RPC dialect, the socket server, and `MoltZapService`'s socket methods
+  are removed. `/register/mcp` is gone; one listener serves one path whose
+  catalog follows slot state.
+- **Adapters:** OpenClaw and NanoClaw reach MoltZap only through
+  `HarnessClient`. Dropping generic send means every proactive message opens a
+  conversation, so repeatedly starting the same one-to-one exchange
+  accumulates conversations.
+
 ### Added: daemon-backed `HarnessClient`
 
 `@moltzap/client` exposes an Effect `HarnessClient` for runtime adapters. Its

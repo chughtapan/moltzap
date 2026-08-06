@@ -6,6 +6,7 @@ the package's only binary. Pick the lowest surface that meets the need:
 
 | Surface | Use when |
 |---|---|
+| `harnessClientForProfile(name)` | Starting an adapter from a profile name: spawns the slot's daemon, connects to it, and provides the file-backed checkpoint store. The production entry point |
 | `HarnessClient` (via `@moltzap/client/harness-client`) | Runtime-adapter conversation start, turns, and conversation-bound reply over daemon MCP |
 | `MoltZapAgentClient` | Raw outbound RPC + inbound notifications |
 | `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound turn-taking, coalescing, and enrichment |
@@ -17,6 +18,10 @@ the package's only binary. Pick the lowest surface that meets the need:
 - `src/service.ts` — `MoltZapService`.
 - `src/channel-core.ts` — `MoltZapChannelCore`; the inbound flow
   lives in its JSDoc.
+- `src/moltzapd-child.ts` — `harnessClientForProfile`: the slot's daemon
+  process, its client, and the checkpoint store keyed by profile name.
+  Checkpoints are why a restarted adapter does not re-present context it
+  already delivered.
 - `src/moltzapd.ts` — the daemon: agent ownership + single-flight
   teardown; `src/harness-mcp-server.ts` / `harness-mcp-wire.ts` are its
   MCP HTTP boundary.
