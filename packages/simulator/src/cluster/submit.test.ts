@@ -5,8 +5,10 @@ import { Cause, Data, Effect, Layer, Logger } from "effect";
 import type { RunControllerResult } from "./reclaim.js";
 import { LOCAL_KUBERNETES_EXECUTION_PROFILE } from "./profile.js";
 import {
+  boundedDiagnostic,
   runKubernetesSociety,
   SUBMIT_STAGE,
+  SUBMITTED_DIAGNOSTIC_MAX_BYTES,
   SubmitOperations,
   type RunEnvironment,
   type RunSubmission,
@@ -176,6 +178,40 @@ describe("the cohort's startup budget", () => {
 
       expect(String(failure)).toContain(STARTUP_TIMEOUT_VARIABLE);
     }
+  });
+});
+
+describe("the published controller diagnostic", () => {
+  const byteLength = (value: string) =>
+    new TextEncoder().encode(value).byteLength;
+
+  it("keeps text already inside the bound exactly as it was", () => {
+    for (const value of ["", "controller Job failed", "é".repeat(64)]) {
+      expect(boundedDiagnostic(value)).toBe(value);
+    }
+  });
+
+  // A multi-byte log is what makes a character bound and a byte bound differ,
+  // and the trim has to land on a code point rather than inside one.
+  it("holds every encoding to the byte bound without splitting a code point", () => {
+    for (const unit of ["x", "é", "漢", "🙂"]) {
+      const bounded = boundedDiagnostic(
+        unit.repeat(SUBMITTED_DIAGNOSTIC_MAX_BYTES),
+      );
+
+      expect(byteLength(bounded)).toBeLessThanOrEqual(
+        SUBMITTED_DIAGNOSTIC_MAX_BYTES,
+      );
+      expect(bounded).not.toContain("\uFFFD");
+      expect(bounded.endsWith(unit)).toBe(true);
+    }
+  });
+
+  // The reason a controller stopped is the last thing it writes.
+  it("keeps the tail rather than the head", () => {
+    const value = `${"x".repeat(SUBMITTED_DIAGNOSTIC_MAX_BYTES)}TAIL`;
+
+    expect(boundedDiagnostic(value).endsWith("TAIL")).toBe(true);
   });
 });
 

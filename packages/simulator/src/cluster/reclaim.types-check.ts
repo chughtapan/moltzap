@@ -3,6 +3,7 @@
  * data, and the coarse workflow preserves the controller's operational result.
  */
 
+import type { ControllerFailedRunSummary } from "./controller/summary.js";
 import type {
   CleanupRunInput,
   RunControllerResult,
@@ -46,6 +47,21 @@ type WorkflowResultIsOperational = Expect<
   Equal<Awaited<ReturnType<typeof runSocietyWorkflow>>, RunControllerResult>
 >;
 
+// A whole-shape equality rather than a key list: with exactOptionalPropertyTypes
+// off, `keyof` and an indexed access both read the same for `diagnostic?: string`
+// and `diagnostic: string | undefined`, so only this form pins the optionality
+// that keeps every existing producer of the failed branch compiling.
+type FailedResultIsClosed = Expect<
+  Equal<
+    Extract<RunControllerResult, { readonly exitCode: 1 }>,
+    {
+      readonly exitCode: 1;
+      readonly summary: ControllerFailedRunSummary;
+      readonly diagnostic?: string;
+    }
+  >
+>;
+
 /** Compile-time assertions for the private coarse-workflow boundary. */
 export type TemporalWorkflowCanaries = [
   WorkflowInputKeysAreClosed,
@@ -53,4 +69,5 @@ export type TemporalWorkflowCanaries = [
   ControllerActivityInputIsExact,
   CleanupActivityInputIsExact,
   WorkflowResultIsOperational,
+  FailedResultIsClosed,
 ];

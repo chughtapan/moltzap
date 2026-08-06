@@ -46,6 +46,14 @@ export class SubmitOperations extends Context.Tag(
   "@moltzap/simulator/SubmitOperations",
 )<SubmitOperations, SubmitOperationsService>() {}
 
+/**
+ * Upper bound on the diagnostic one submission publishes to its caller.
+ *
+ * The stdout line is a contract, and an unbounded field makes the whole line
+ * long rather than the one field long.
+ */
+export const SUBMITTED_DIAGNOSTIC_MAX_BYTES = 8 * 1_024;
+
 /** Successful submission reported to the operator. */
 export interface RunSubmission {
   readonly runId: string;
@@ -320,6 +328,38 @@ function prepareRun(
   };
 }
 
+/**
+ * Hold a diagnostic to the published byte bound, keeping its tail.
+ *
+ * The tail because a controller writes the reason it stopped last. On the byte
+ * array because a UTF-16 slice cannot express a byte count, and the
+ * continuation-byte skip puts the cut on a code-point boundary rather than
+ * leaving a replacement character at the front.
+ *
+ * @param value Sanitized controller output collected by the host activity.
+ * @returns The same text, or its last whole code points within the bound.
+ */
+export function boundedDiagnostic(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.byteLength <= SUBMITTED_DIAGNOSTIC_MAX_BYTES) {
+    return value;
+  }
+  let start = bytes.byteLength - SUBMITTED_DIAGNOSTIC_MAX_BYTES;
+  while (start < bytes.byteLength && ((bytes[start] ?? 0) & 0xc0) === 0x80) {
+    start += 1;
+  }
+  return new TextDecoder().decode(bytes.subarray(start));
+}
+
+// The value crossed Temporal and a worker this process does not own, so the
+// bound is enforced here rather than trusted.
+function boundedResult(result: RunControllerResult): RunControllerResult {
+  if (result.exitCode === 0 || result.diagnostic === undefined) {
+    return result;
+  }
+  return { ...result, diagnostic: boundedDiagnostic(result.diagnostic) };
+}
+
 function executePreparedRun(
   prepared: PreparedRun,
   operations: SubmitOperationsService,
@@ -365,7 +405,7 @@ function executePreparedRun(
       },
       operations,
     );
-    return Object.freeze({ ...identity, result });
+    return Object.freeze({ ...identity, result: boundedResult(result) });
   });
 }
 
