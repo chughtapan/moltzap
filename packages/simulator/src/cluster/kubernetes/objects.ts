@@ -391,6 +391,22 @@ export const RUN_WORKER_NAME = "run-worker";
 export const IN_CLUSTER_TEMPORAL_ADDRESS = `temporal.${SYSTEM_NAMESPACE}.svc.cluster.local:7233`;
 
 const RUN_WORKER_ENTRYPOINT = "/opt/moltzap/dist/cluster/temporal.js";
+/**
+ * Delay held before the worker Pod is signalled, in seconds.
+ *
+ * The worker's controller activity beats every 10 seconds against a 60-second
+ * heartbeat deadline. Holding SIGTERM for longer than one beat lets an attempt
+ * that is mid-interval signal once more before the process is asked to stop, so
+ * a roll cannot fail an attempt that was still alive when the Pod was deleted.
+ */
+export const RUN_WORKER_PRESTOP_SECONDS = 15;
+/**
+ * Time the worker Pod has to stop before it is killed, in seconds.
+ *
+ * The rest of the heartbeat deadline, so the SDK's own shutdown has room after
+ * the pre-stop delay returns rather than being killed at the default 30.
+ */
+export const RUN_WORKER_TERMINATION_GRACE_SECONDS = 60;
 const CONTROLLER_PORT = 3_000;
 const CONTROLLER_ENTRYPOINT = "/opt/moltzap/dist/cluster/controller/main.js";
 const EXPERIMENT_DIRECTORY = "/opt/moltzap/experiment";
@@ -1004,6 +1020,20 @@ function runWorkerContainer(options: RunWorkerOptions): V1Container {
     ],
     terminationMessagePolicy: "FallbackToLogsOnError",
     resources: { requests: { cpu: "100m", memory: "256Mi" } },
+    // A shell sleep rather than the Kubernetes `sleep` handler, which needs a
+    // 1.29 control plane; the worker's own image is Debian-based, so `sleep` is
+    // there on every cluster this installs into.
+    lifecycle: {
+      preStop: {
+        exec: {
+          command: [
+            "/bin/sh",
+            "-c",
+            `sleep ${String(RUN_WORKER_PRESTOP_SECONDS)}`,
+          ],
+        },
+      },
+    },
     securityContext: {
       allowPrivilegeEscalation: false,
       capabilities: { drop: ["ALL"] },
@@ -1031,6 +1061,7 @@ function runWorkerDeployment(options: RunWorkerOptions): V1Deployment {
           automountServiceAccountToken: true,
           enableServiceLinks: false,
           serviceAccountName: RUN_WORKER_NAME,
+          terminationGracePeriodSeconds: RUN_WORKER_TERMINATION_GRACE_SECONDS,
           containers: [runWorkerContainer(options)],
         },
       },

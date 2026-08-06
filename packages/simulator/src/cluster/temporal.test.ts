@@ -18,9 +18,12 @@ import type {
 import {
   executeRunSocietyWorkflow,
   LifecycleOperations,
+  OPEN_RUN_STATUS,
+  readOpenRuns,
   runLifecycleActivities,
   type ControllerObservation,
   type LifecycleOperationsService,
+  type OpenRunLister,
   type RunSocietyWorkflowExecutionOptions,
 } from "./temporal.js";
 
@@ -198,6 +201,49 @@ describe("run lifecycle activities", () => {
       "wait",
       "observe-namespace",
     ]);
+  });
+});
+
+describe("readOpenRuns", () => {
+  const taskQueue = "moltzap-simulator";
+  const openRunIds = ["mz-open-1", "mz-open-2"];
+
+  async function* listed(
+    workflowIds: readonly string[],
+  ): AsyncIterable<{ readonly workflowId: string }> {
+    for (const workflowId of workflowIds) {
+      yield await Promise.resolve({ workflowId });
+    }
+  }
+
+  it("names the runs the queue has not finished, asking only about that queue", async () => {
+    const queries: string[] = [];
+    const client: OpenRunLister = {
+      list: (options) => {
+        queries.push(options.query);
+        return listed(openRunIds);
+      },
+    };
+
+    await expect(
+      Effect.runPromise(readOpenRuns(client, taskQueue)),
+    ).resolves.toEqual({ _tag: "open", workflowIds: openRunIds });
+    expect(queries[0]).toContain(taskQueue);
+    expect(queries[0]).toContain(OPEN_RUN_STATUS);
+  });
+
+  // The distinction the roll guard depends on: a queue that cannot be listed
+  // must not read as a queue with nothing on it.
+  it("reports a listing it could not make as unreadable rather than as empty", async () => {
+    const client: OpenRunLister = {
+      list: () => {
+        throw new Error("visibility store unavailable");
+      },
+    };
+
+    await expect(
+      Effect.runPromise(readOpenRuns(client, taskQueue)),
+    ).resolves.toEqual({ _tag: "unreadable" });
   });
 });
 
