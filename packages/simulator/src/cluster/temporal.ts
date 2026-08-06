@@ -46,9 +46,7 @@ const DEFAULT_TEMPORAL_NAMESPACE = "default";
  * Coarse controller state observed by the host-side activity.
  *
  * `completed` is every controller that produced a decodable result, whether or
- * not the run inside it succeeded — the activity returns both the same way. The
- * two were one state with an optional result and a detail that was dead
- * whenever the result was present, which invited them to disagree.
+ * not the run inside it succeeded — the activity returns both the same way.
  */
 export type ControllerObservation =
   | { readonly _tag: "running" }
@@ -365,8 +363,17 @@ export async function executeRunSocietyWorkflow(
 /** The most open runs one reading names before it stops counting. */
 const OPEN_RUN_SAMPLE = 20;
 
-/** Temporal execution status of a run its task queue has not finished. */
-export const OPEN_RUN_STATUS = "Running";
+/** Visibility-query clause matching a run its task queue has not finished. */
+export const OPEN_RUN_FILTER = "ExecutionStatus = 'Running'";
+
+/**
+ * One operator-supplied value as a visibility-query string literal.
+ * @param value Value the query compares a field against.
+ * @returns The quoted literal, with any quote inside it doubled.
+ */
+function queryLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
 
 /**
  * The exact listing surface reading a queue's unfinished work needs.
@@ -391,7 +398,7 @@ async function listOpenRunIds(
 ): Promise<readonly string[]> {
   const workflowIds: string[] = [];
   for await (const execution of client.list({
-    query: `TaskQueue = '${taskQueue}' AND ExecutionStatus = '${OPEN_RUN_STATUS}'`,
+    query: `TaskQueue = ${queryLiteral(taskQueue)} AND ${OPEN_RUN_FILTER}`,
   })) {
     workflowIds.push(execution.workflowId);
     if (workflowIds.length >= OPEN_RUN_SAMPLE) {

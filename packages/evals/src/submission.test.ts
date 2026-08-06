@@ -140,16 +140,11 @@ effect.each([undefined, CARRIED_DIAGNOSTIC])(
 // The rest of that line is the run's only receipt. Refusing an over-long
 // diagnostic would discard it, turning a cell that failed with evidence into a
 // cell with no attempt at all.
-it("keeps the receipt when a submitter diagnostic exceeds the bound", () =>
+it("keeps the receipt when a submitter diagnostic is over-long", () =>
   Effect.gen(function* () {
-    const decoded = yield* decodeSubmissionOutput(
-      submitterLine("x".repeat(OVERSIZED_DIAGNOSTIC_LENGTH)),
-    );
+    const oversized = "x".repeat(OVERSIZED_DIAGNOSTIC_LENGTH);
+    const decoded = yield* decodeSubmissionOutput(submitterLine(oversized));
 
-    // The receipt survives; only the decoration is trimmed.
     assert.isTrue("receipt" in decoded.result.summary);
-    assert.isBelow(
-      (submissionDiagnostic(decoded) ?? "").length,
-      OVERSIZED_DIAGNOSTIC_LENGTH,
-    );
+    assert.strictEqual(submissionDiagnostic(decoded), oversized);
   }));
