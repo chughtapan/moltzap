@@ -38,6 +38,7 @@
     "docs:check:doc-imports-resolve": "pnpm exec tsx scripts/docs/check-doc-imports-resolve.ts",
     "docs:check:gates-test": "pnpm exec tsx scripts/__tests__/gates.test.ts",
     "test:compute-next-version": "bash scripts/release/compute-next-version.test.sh",
+    "check:agent-setup": "bash scripts/repo/check-agent-setup.sh",
     "test:pack:simulator": "pnpm nx build @moltzap/simulator && node scripts/test/simulator-packages.mjs",
     "prepare": "husky && node scripts/setup/restore-tsgo-exec-bit.mjs",
     "effect:source": "./scripts/setup/prepare-effect.sh",

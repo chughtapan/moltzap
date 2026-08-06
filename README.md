@@ -245,10 +245,10 @@ three surfaces from a single pass:
 
 CI runs `pnpm docs:check:drift` to gate generated output, and
 `pnpm docs:check:mermaid` to validate every `mermaid` fenced block via
-`mmdc`. Contributors should start with the package CLAUDE.md
-([protocol](packages/protocol/CLAUDE.md),
-[server](packages/server/CLAUDE.md),
-[client](packages/client/CLAUDE.md)) and follow links into the
+`mmdc`. Contributors should start with the package AGENTS.md
+([protocol](packages/protocol/AGENTS.md),
+[server](packages/server/AGENTS.md),
+[client](packages/client/AGENTS.md)) and follow links into the
 auto-generated module pages from there.
 
 ## License
