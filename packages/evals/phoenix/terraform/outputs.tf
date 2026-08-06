@@ -25,7 +25,7 @@ output "phoenix_image_reference" {
 output "secret_ids" {
   description = "Secret Manager secret IDs holding the database URL, the JWT signing secret, and the initial admin password."
   value = {
-    for id in local.secret_ids : id => google_secret_manager_secret.phoenix[id].secret_id
+    for id, secret in google_secret_manager_secret.phoenix : id => secret.secret_id
   }
 }
 

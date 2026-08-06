@@ -9,34 +9,26 @@ This is the destination of `pnpm nx run @moltzap/evals:publish`. Nothing else in
 the repository depends on it, and the publisher reaches it over plain HTTPS, so
 the module owns no TypeScript and the package owns no Terraform beyond it.
 
-## Why here and not under the GKE profile
+## Why Cloud Run, and why not under the GKE profile
 
-`packages/simulator/gke` provisions a cluster whose lifecycle is deliberately
-short. `cluster.sh down` parks it and `cluster.sh delete` destroys it, and both
-are routine — the profile's own README describes deletion as an ordinary
-operation costed at about eight minutes. Published dashboards are the opposite:
-they are the retained result of a run, and they are read long after the cluster
-that produced them is gone.
+Both answers are the same answer. `packages/simulator/gke` provisions a cluster
+whose lifecycle is deliberately short: `cluster.sh down` parks it and
+`cluster.sh delete` destroys it, and both are routine — that profile's README
+costs deletion at about eight minutes. Published dashboards are the opposite.
+They are the retained result of a run, read long after the cluster that produced
+them is gone. A dashboard that disappears whenever the thing it describes is
+torn down is not a dashboard.
 
-Filing this beside that cluster's Terraform would put the two on one shelf and
-invite one `terraform destroy` to take both. It also lives in the wrong package:
+So Phoenix does not run on the cluster, and its Terraform does not live beside
+the cluster's, where one `terraform destroy` could take both. Cloud Run is the
+smallest thing that survives: no cluster to keep alive between runs, and the
+state that matters is in Cloud SQL rather than in the compute at all, so the
+service can be deleted and re-applied without touching the data.
+
+It sits in `packages/evals` because that is where the contract is consumed —
 `PHOENIX_HOST` and `PHOENIX_API_KEY` are read by `packages/evals/src/phoenix.ts`
-and by nothing in the simulator. The layout mirrors the GKE profile's shape —
-a named directory holding a README and a `terraform/` root — one package over,
-where the consumer of the contract lives.
-
-## Why Cloud Run
-
-Phoenix could run on the GKE cluster. It should not, for the same reason it is
-not filed there: an in-cluster deployment is destroyed with the cluster, and
-would have to be restored, re-seeded, and re-pointed every time a qualification
-run recycled the substrate. A dashboard that disappears whenever the thing it
-describes is torn down is not a dashboard.
-
-Cloud Run is the smallest thing that survives that. It has no cluster to keep
-alive between runs, it scales to a single instance, and the state that actually
-matters is in Cloud SQL rather than in the compute at all. The service can be
-deleted and re-applied without touching the data.
+and by nothing in the simulator. The layout mirrors the GKE profile's shape, a
+named directory holding a README and a `terraform/` root, one package over.
 
 ## Why not Phoenix Cloud
 
@@ -81,12 +73,10 @@ migration from open to closed that someone can forget to perform.
 
 Phoenix bootstraps one account, `admin@localhost`, whose initial password is
 normally the literal string `admin`. This module overrides it with a generated
-password held in Secret Manager, so the well-known default is never valid:
-
-```bash
-gcloud secrets versions access latest \
-  --project PROJECT_ID --secret moltzap-phoenix-admin-initial-password
-```
+password held in Secret Manager, so the well-known default is never valid. The
+`admin_bootstrap` output prints the login URL and the exact `gcloud` command
+that reads it; take it from there rather than from a name written down here,
+which goes stale the moment `name_prefix` changes.
 
 That password is a bootstrap credential, not a shared one. Sign in with it,
 change it immediately, and then create a **named account per person** from the
@@ -147,14 +137,11 @@ dashboards matter; `destroy` does not.
 
 ## How it is put together
 
-**Image.** `phoenix_image` is a Docker Hub repository path pinned by digest, and
-a `validation` block rejects anything ending in a tag. It is mirrored through an
-Artifact Registry remote repository rather than pulled from Docker Hub directly,
-which is what Google recommends for images that are not Docker Official or
-Sponsored OSS. The digest survives the mirror, so the reference still names
-exactly one image. Cloud Run pulls it as its own service agent, not as the
-runtime identity, which is why the repository grant names
-`service-PROJECT_NUMBER@serverless-robot-prod.iam.gserviceaccount.com`.
+**Image.** `phoenix_image` is a Docker Hub repository path pinned by digest;
+two `validation` blocks reject a tag and reject a fully qualified reference. The
+variable's own description carries the rationale and the command that resolves a
+new digest. It is mirrored through an Artifact Registry remote repository, which
+preserves the digest, so the reference still names exactly one image.
 
 **Database.** Cloud Run mounts the Cloud SQL Auth proxy socket at
 `/cloudsql/INSTANCE_CONNECTION_NAME` through a `cloud_sql_instance` volume — the
@@ -214,15 +201,29 @@ serves exclusively.
 exist until the service does. If the browser UI reports a CSRF failure on
 sign-in, set it to the `service_url` output in a follow-up apply.
 
-**Ingress.** `allUsers` holds `roles/run.invoker`, which is a requirement rather
-than a shortcut. Cloud Run's IAM authentication claims the `Authorization`
-header for its own identity token, and the publisher needs that header for its
-Phoenix bearer key; both cannot own it. Phoenix's own authentication is
-therefore the access control, which is why it is enabled before the first
-revision serves anything. Setting `allow_public_invoker = false` locks out the
-publisher as well as everyone else. A project under a domain-restricted-sharing
-org policy will reject the `allUsers` grant, and needs an exception or an
-internal ingress design instead.
+**Ingress.** `allUsers` holds `roles/run.invoker` — a requirement, not a
+shortcut, for the reason set out on the `allow_public_invoker` variable: Cloud
+Run's IAM authentication and the publisher's bearer key cannot both own the
+`Authorization` header. Phoenix's own authentication is therefore the access
+control. A project under a domain-restricted-sharing org policy will reject the
+`allUsers` grant and needs an exception, or a different design.
+
+## What it costs
+
+This module provisions standing infrastructure, which the GKE profile
+deliberately does not. `min_instances = 1` with always-allocated CPU keeps one
+Cloud Run instance billed continuously, and Cloud SQL bills whether or not
+anyone opens a dashboard; together they are the dominant line, well above the
+storage the data itself uses. Confirm current rates against the pricing pages
+before committing to it.
+
+That is the price of the property this module exists for — a dashboard that is
+up when someone follows a link to it, holding spans that were buffered when the
+last publish finished. `min_instances = 0` removes most of the compute charge
+and is the right setting if the instance is only ever read through the UI: the
+cost is a slow first request, since a cold start replays the migration check,
+and a narrow window in which a publish's final spans can be lost. Nothing else
+in the module assumes one is running.
 
 ## Checking it
 
@@ -230,15 +231,9 @@ internal ingress design instead.
 pnpm nx run @moltzap/evals:phoenix-terraform-check
 ```
 
-`terraform fmt -check`, then `terraform init -backend=false`, then
-`terraform validate`. It contacts no Google Cloud project and reads no
-credentials, so it proves the configuration is well formed and internally
-consistent and proves nothing about whether an apply would succeed. It skips
-with a notice when `terraform` is not installed; it does not skip when
-validation fails.
-
-Provider resolution reaches the Terraform registry the first time it runs in a
-working tree, against the committed `.terraform.lock.hcl`.
+`terraform fmt -check`, then `init -backend=false`, then `validate`. CI runs it
+beside the simulator profile checks. `terraform-check.sh` documents what the
+check does and does not prove.
 
 ## Upstream contracts
 

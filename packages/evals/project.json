@@ -87,8 +87,13 @@
     },
     "phoenix-terraform-check": {
       "executor": "nx:run-commands",
+      "cache": true,
       "inputs": [
-        "{projectRoot}/phoenix/**/*"
+        "{projectRoot}/phoenix/**/*",
+        "{projectRoot}/phoenix/terraform/.terraform.lock.hcl",
+        {
+          "runtime": "terraform version 2>/dev/null || echo none"
+        }
       ],
       "options": {
         "cwd": "packages/evals",
