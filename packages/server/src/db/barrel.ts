@@ -40,7 +40,5 @@ export {
 /** Re-exports the public API from `./kysely-vendor.js`. */
 /** Re-exports the public API from `./postgres-dialect.js`. */
 export { PostgresDialect } from "./postgres-dialect.js";
-/** Re-exports the public API from `./snowflake.js`. */
-export { nextSnowflakeId } from "./snowflake.js";
 /** Re-exports the public API from `./sql.js`. */
 export { sql } from "./sql.js";
