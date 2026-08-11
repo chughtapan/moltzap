@@ -36,10 +36,16 @@ interface Conversations extends Omit<RawConversations, "id" | "created_by_id"> {
 }
 
 interface Messages
-  extends Omit<RawMessages, "id" | "conversation_id" | "sender_id" | "parts"> {
+  extends Omit<
+    RawMessages,
+    "id" | "conversation_id" | "sender_id" | "parts" | "seq"
+  > {
   id: GeneratedBranded<MessageId>;
   conversation_id: Branded<ConversationId>;
   sender_id: Branded<AgentId>;
+
+  /** The database identity is readable but never application-writable. */
+  seq: ColumnType<string, never, never>;
 
   /**
    * Serialized `MessageParts`. The write side is `string` so every insert

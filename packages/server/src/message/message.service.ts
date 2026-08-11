@@ -7,9 +7,9 @@ import {
   decodeConversationReadCursor,
   encodeConversationCheckpoint,
   encodeConversationReadCursor,
-  nextSnowflakeId,
   takeFirstOption,
   takeFirstOrFail,
+  transaction,
 } from "#db";
 import {
   type ConversationCheckpoint,
@@ -23,6 +23,7 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import {
   messageId as MessageIdSchema,
   type ConversationId,
+  type MessageId,
 } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import {
@@ -33,7 +34,7 @@ import {
   MAX_PAGE_LIMIT,
 } from "@moltzap/protocol/rpc";
 import { type Cause, Effect, Option, Schema } from "effect";
-import { SqlError } from "@effect/sql/SqlError";
+import type { SqlError } from "@effect/sql/SqlError";
 import type { ConversationService } from "#conversation";
 import type { NetworkSendService } from "#network";
 
@@ -68,6 +69,58 @@ interface SendInsertResult {
   readonly message: Message;
   readonly parts: MessageParts;
   readonly excludeConnectionId?: ConnectionId;
+}
+
+interface OrderedMessageInsert {
+  readonly id: MessageId;
+  readonly conversationId: ConversationId;
+  readonly senderAgentId: AgentId;
+  readonly parts: string;
+  readonly createdAt: Date;
+}
+
+/**
+ * Allocate a durable read position only after this writer owns the
+ * conversation row lock. Checkpoints are conversation-scoped, so the lock
+ * makes identity allocation follow same-conversation commit order while
+ * unrelated conversations remain concurrent. The transaction retains the
+ * lock until its insert commits.
+ * @param db Database that owns both the lock and the insert transaction.
+ * @param input Message values whose order is being committed.
+ * @returns The committed message row.
+ * @internal
+ */
+export function insertMessageInCheckpointOrder(
+  db: Db,
+  input: OrderedMessageInsert,
+): Effect.Effect<MessageRow, SqlError> {
+  return transaction(db, (trx) =>
+    Effect.gen(function* () {
+      yield* takeFirstOrFail(
+        trx
+          .selectFrom("conversations")
+          .select("id")
+          .where("id", "=", input.conversationId)
+          .forUpdate(),
+      );
+      return yield* takeFirstOrFail(
+        trx
+          .insertInto("messages")
+          .values({
+            id: input.id,
+            conversation_id: input.conversationId,
+            sender_id: input.senderAgentId,
+            parts: input.parts,
+            created_at: input.createdAt,
+          })
+          .returningAll(),
+      );
+    }),
+  ).pipe(
+    Effect.withSpan("insertMessageInCheckpointOrder", {
+      attributes: { conversationId: input.conversationId },
+    }),
+  );
 }
 
 interface SendMessageInput {
@@ -187,23 +240,12 @@ export class MessageService {
     input: SendInsertInput,
   ): Effect.Effect<MessageRow, SqlError> {
     const messageIdValue = decodeMessageId(crypto.randomUUID());
-    const createdAtIso = new Date().toISOString();
-    return Effect.tryPromise({
-      try: () =>
-        this.db
-          .insertInto("messages")
-          .values({
-            id: messageIdValue,
-            conversation_id: input.conversationId,
-            sender_id: input.senderAgentId,
-            seq: nextSnowflakeId().toString(),
-            parts: JSON.stringify(input.parts),
-            created_at: new Date(createdAtIso),
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow(),
-      catch: (cause) =>
-        new SqlError({ cause, message: "insert messages failed" }),
+    return insertMessageInCheckpointOrder(this.db, {
+      id: messageIdValue,
+      conversationId: input.conversationId,
+      senderAgentId: input.senderAgentId,
+      parts: JSON.stringify(input.parts),
+      createdAt: new Date(),
     });
   }
 

@@ -13,7 +13,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L125)
+### [`MessageService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L178)
 
 _Class_
 
@@ -83,23 +83,12 @@ export class MessageService {
     input: SendInsertInput,
   ): Effect.Effect<MessageRow, SqlError> {
     const messageIdValue = decodeMessageId(crypto.randomUUID());
-    const createdAtIso = new Date().toISOString();
-    return Effect.tryPromise({
-      try: () =>
-        this.db
-          .insertInto("messages")
-          .values({
-            id: messageIdValue,
-            conversation_id: input.conversationId,
-            sender_id: input.senderAgentId,
-            seq: nextSnowflakeId().toString(),
-            parts: JSON.stringify(input.parts),
-            created_at: new Date(createdAtIso),
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow(),
-      catch: (cause) =>
-        new SqlError({ cause, message: "insert messages failed" }),
+    return insertMessageInCheckpointOrder(this.db, {
+      id: messageIdValue,
+      conversationId: input.conversationId,
+      senderAgentId: input.senderAgentId,
+      parts: JSON.stringify(input.parts),
+      createdAt: new Date(),
     });
   }
 
@@ -138,6 +127,17 @@ export class MessageService {
         );
         const delivered = yield* this.broadcastCommittedMessage(
           input,
+          recipientList,
+        );
+        yield* this.recordTrace(input, recipientList, delivered);
+        yield* this.logMessageSent(input);
+        return input.carrier.message;
+      }.bind(this),
+    );
+  }
+
+  private broadcastCommittedMessage(
+    input: SendCommitInput,
 ```
 
 `agent/message/send` server entry point. The `send` method persists the
