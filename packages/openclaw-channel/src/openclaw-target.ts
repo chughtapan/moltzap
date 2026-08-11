@@ -23,7 +23,7 @@ interface ResolvedConversationTarget {
   readonly display: string;
 }
 
-/** Normalized target consumed by OpenClaw directory and outbound adapters. */
+/** Normalized target consumed by OpenClaw messaging and outbound adapters. */
 export type ResolvedMoltZapTarget =
   | ResolvedAgentTarget
   | ResolvedConversationTarget;

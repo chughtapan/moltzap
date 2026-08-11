@@ -62,41 +62,101 @@ const installTurnPublisher = (
 interface ActivatorInput {
   readonly profileName: string;
   readonly phase: DaemonPhaseState;
-  readonly daemonScope: Scope.Scope;
+  readonly activationScope: Scope.Scope;
 }
 
-// Builds the transition from a committed slot to a serving agent. Everything it
-// acquires belongs to the daemon scope, so a slot that registers mid-life is
-// torn down exactly like one that started registered.
+interface DaemonResourceScopes {
+  readonly activationScope: Scope.CloseableScope;
+  readonly daemonScope: Scope.CloseableScope;
+}
+
+/**
+ * Creates the daemon's nested resource owners. The activation scope is
+ * registered before the listener, so sequential LIFO shutdown closes the MCP
+ * listener before disconnecting the active channel core.
+ * @param parentScope Scope that owns the complete daemon lifetime.
+ * @returns Separate owners for the listener and activation resources.
+ * @internal
+ */
+export const makeDaemonResourceScopes = (
+  parentScope: Scope.Scope,
+): Effect.Effect<DaemonResourceScopes> =>
+  Effect.gen(function* () {
+    const daemonScope = yield* Scope.fork(
+      parentScope,
+      ExecutionStrategy.sequential,
+    );
+    const activationScope = yield* Scope.fork(
+      daemonScope,
+      ExecutionStrategy.sequential,
+    );
+    return { activationScope, daemonScope };
+  }).pipe(Effect.withSpan("makeDaemonResourceScopes"));
+
+/**
+ * Runs one activation attempt in a child of the daemon scope.
+ *
+ * A successful attempt remains owned by the daemon. A failed or interrupted
+ * attempt closes completely before its error reaches the caller, so a later
+ * attempt cannot overlap a partial service, core, or network connection.
+ *
+ * @param daemonScope Scope owning a successful activation.
+ * @param attempt Scoped resources acquired by one activation attempt.
+ * @returns The attempt result after failed resources have been released.
+ * @internal
+ */
+export const runScopedActivationAttempt = <A, E>(
+  daemonScope: Scope.Scope,
+  attempt: Effect.Effect<A, E, Scope.Scope>,
+): Effect.Effect<A, E> =>
+  Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const attemptScope = yield* Scope.fork(
+        daemonScope,
+        ExecutionStrategy.sequential,
+      );
+      return yield* restore(attempt.pipe(Scope.extend(attemptScope))).pipe(
+        Effect.onExit((exit) =>
+          Exit.isSuccess(exit) ? Effect.void : Scope.close(attemptScope, exit),
+        ),
+      );
+    }),
+  ).pipe(Effect.withSpan("runScopedActivationAttempt"));
+
+// Builds the transition from a committed slot to a serving agent. Each attempt
+// has its own child scope so a failed startup cannot leak partial resources
+// into the daemon lifetime.
 const makeActivator =
-  ({ profileName, phase, daemonScope }: ActivatorInput) =>
+  ({ profileName, phase, activationScope }: ActivatorInput) =>
   (
     publish: (turn: HarnessTurnEvent) => boolean,
   ): Effect.Effect<void, ServiceConfigError | ServiceRpcError> =>
-    Effect.gen(function* () {
-      const service = yield* MoltZapService.make(profileName);
-      const core = yield* acquireCore(service);
-      installTurnPublisher(core, publish);
-      yield* core.connect();
-      phase.setActive(makeActiveTools(service, core));
-    }).pipe(Scope.extend(daemonScope));
+    runScopedActivationAttempt(
+      activationScope,
+      Effect.gen(function* () {
+        const service = yield* MoltZapService.make(profileName);
+        const core = yield* acquireCore(service);
+        installTurnPublisher(core, publish);
+        yield* core.connect();
+        phase.setActive(makeActiveTools(service, core));
+      }),
+    );
 
 // Binds the slot's listener, then activates if the slot already carries an
 // identity. The listener comes first either way: registration has to be
 // reachable on a daemon that cannot yet build a service.
 const serveProfileSlot = (
   profileName: string,
-  daemonScope: Scope.Scope,
+  activationScope: Scope.Scope,
 ): Effect.Effect<MoltzapdServer, DaemonError, Scope.Scope> =>
   Effect.gen(function* () {
     const name = yield* parseProfileName(profileName);
     const record = yield* resolveProfileRecord(name);
     const phase = makeDaemonPhaseState();
-    // Registration and its activation are one transition. Serializing them
-    // keeps a second concurrent call from building a second service against
-    // the same slot.
+    // Registration and initial activation share one transition lock so a live
+    // listener cannot begin another registration during startup.
     const activation = yield* Effect.makeSemaphore(1);
-    const activate = makeActivator({ profileName, phase, daemonScope });
+    const activate = makeActivator({ profileName, phase, activationScope });
 
     const handler = makeHarnessMcpHttpHandler({
       implementation: MCP_IMPLEMENTATION,
@@ -119,7 +179,7 @@ const serveProfileSlot = (
       handler,
     });
     if (isRegisteredProfile(record)) {
-      yield* activate(handler.publish);
+      yield* activation.withPermits(1)(activate(handler.publish));
     }
     return server;
   });
@@ -162,11 +222,9 @@ export const acquireMoltzapd = (
 ): Effect.Effect<MoltzapdServer, DaemonError, Scope.Scope> =>
   Effect.gen(function* () {
     const parentScope = yield* Effect.scope;
-    const daemonScope = yield* Scope.fork(
-      parentScope,
-      ExecutionStrategy.sequential,
-    );
-    const acquire = serveProfileSlot(options.profileName, daemonScope).pipe(
+    const { activationScope, daemonScope } =
+      yield* makeDaemonResourceScopes(parentScope);
+    const acquire = serveProfileSlot(options.profileName, activationScope).pipe(
       Scope.extend(daemonScope),
     );
     return yield* acquire.pipe(
@@ -184,11 +242,17 @@ export const acquireMoltzapd = (
  * disconnecting the agent transport.
  *
  * @param options Existing named profile owning this daemon.
+ * @param readySignal Effect that tells a supervising process this daemon owns
+ * its listener and, for a registered profile, its network connection.
  * @returns A non-terminating daemon Effect whose scope closes on interruption.
  */
 export const runMoltzapd = (
   options: MoltzapdOptions,
+  readySignal: Effect.Effect<unknown, Error>,
 ): Effect.Effect<never, DaemonError> =>
   Effect.scoped(
-    acquireMoltzapd(options).pipe(Effect.zipRight(Effect.never)),
+    acquireMoltzapd(options).pipe(
+      Effect.zipRight(readySignal),
+      Effect.zipRight(Effect.never),
+    ),
   ).pipe(Effect.withSpan("runMoltzapd"));

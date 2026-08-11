@@ -80,11 +80,12 @@ interface OpenClawEnvironment {
 }
 
 interface AdapterCase {
-  readonly kind: "openclaw" | "nanoclaw";
   readonly profileName: string;
   readonly ownerName: string;
   readonly peerName: string;
 }
+
+type AdapterScenario = "openclaw" | "openclaw-restart" | "nanoclaw";
 
 interface AdapterExchange {
   readonly harness: HarnessClientService;
@@ -111,14 +112,12 @@ interface CaseInput {
 }
 
 const OPENCLAW_CASE: AdapterCase = {
-  kind: "openclaw",
   profileName: OPENCLAW_PROFILE,
   ownerName: OPENCLAW_OWNER_NAME,
   peerName: OPENCLAW_PEER_NAME,
 };
 
 const NANOCLAW_CASE: AdapterCase = {
-  kind: "nanoclaw",
   profileName: NANOCLAW_PROFILE,
   ownerName: NANOCLAW_OWNER_NAME,
   peerName: NANOCLAW_PEER_NAME,
@@ -199,6 +198,17 @@ const messageText = (message: Message): string =>
   message.parts
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("");
+
+const createPeerDm = (
+  peer: ConnectedHarnessAgent,
+  owner: RegisterResponse,
+): Effect.Effect<ConversationId, Error> =>
+  peer.client
+    .sendRpc(agentConversationCreate, { participants: [owner.agentId] })
+    .pipe(
+      Effect.map((created) => created.conversation.id),
+      Effect.mapError(toError),
+    );
 
 // One slot names one loopback port, so the plugin is the only thing that may
 // acquire its client. The peer therefore opens the conversation, and the
@@ -354,12 +364,15 @@ const makeOpenClawStatusHandler =
     }
   };
 
-// No injected client: the plugin resolves the slot from the account id and
-// acquires its own HarnessClient, exactly as a real OpenClaw install does.
-const startOpenClawGateway = (profileName: string, fixture: OpenClawFixture) =>
+// The plugin resolves the slot from the account id and acquires its own
+// HarnessClient, matching a real OpenClaw install.
+const startOpenClawGateway = (
+  plugin: OpenClawPlugin,
+  profileName: string,
+  fixture: OpenClawFixture,
+) =>
   Effect.gen(function* () {
     const abortController = new AbortController();
-    const plugin = createMoltzapChannelPlugin();
     const startFiber = yield* Effect.fork(
       tryPromise(() =>
         plugin.gateway.startAccount({
@@ -391,12 +404,17 @@ const startOpenClawGateway = (profileName: string, fixture: OpenClawFixture) =>
         Effect.asVoid,
       ),
     );
+    return { startFiber };
   });
 
 const runOpenClawExchange = (exchange: OpenClawExchange) =>
   Effect.gen(function* () {
     const fixture = yield* prepareOpenClawFixture;
-    yield* startOpenClawGateway(exchange.profileName, fixture);
+    yield* startOpenClawGateway(
+      createMoltzapChannelPlugin(),
+      exchange.profileName,
+      fixture,
+    );
     yield* awaitDeferred(
       fixture.connected,
       "OpenClaw Harness gateway readiness",
@@ -407,6 +425,52 @@ const runOpenClawExchange = (exchange: OpenClawExchange) =>
       conversationId: exchange.conversationId,
       expectedReply: OPENCLAW_REPLY,
       inboundText: fixture.inboundText,
+    });
+  });
+
+// A replacement start enters while the first production generation still
+// owns the profile slot. The fixed port can serve the replacement only after
+// the first start and its packaged daemon have both finished releasing.
+const runOpenClawPluginRestart = (input: CaseInput) =>
+  Effect.gen(function* () {
+    const conversationId = yield* createPeerDm(input.peer, input.owner);
+    yield* assertPeerConversationBoundary(
+      input.peer,
+      input.owner,
+      conversationId,
+    );
+
+    const plugin = createMoltzapChannelPlugin();
+    const firstFixture = yield* prepareOpenClawFixture;
+    const first = yield* startOpenClawGateway(
+      plugin,
+      input.profileName,
+      firstFixture,
+    );
+    yield* awaitDeferred(
+      firstFixture.connected,
+      "first OpenClaw Harness gateway readiness",
+    );
+
+    const secondFixture: OpenClawFixture = {
+      ...firstFixture,
+      inboundText: yield* Deferred.make<string>(),
+      connected: yield* Deferred.make<boolean>(),
+    };
+    yield* startOpenClawGateway(plugin, input.profileName, secondFixture);
+    yield* awaitDeferred(
+      secondFixture.connected,
+      "replacement OpenClaw Harness gateway readiness",
+    );
+    expect(Option.isSome(yield* Fiber.poll(first.startFiber))).toBe(true);
+    yield* Fiber.join(first.startFiber);
+
+    yield* runPeerExchange({
+      peer: input.peer,
+      owner: input.owner,
+      conversationId,
+      expectedReply: OPENCLAW_REPLY,
+      inboundText: secondFixture.inboundText,
     });
   });
 
@@ -557,22 +621,8 @@ const runRestartLifetime = (
     }),
   );
 
-const createPeerDm = (
-  peer: ConnectedHarnessAgent,
-  owner: RegisterResponse,
-): Effect.Effect<ConversationId, Error> =>
-  peer.client
-    .sendRpc(agentConversationCreate, { participants: [owner.agentId] })
-    .pipe(
-      Effect.map((created) => created.conversation.id),
-      Effect.mapError(toError),
-    );
-
-// The OpenClaw plugin takes an injected client, so the test acquires the
-// slot's client itself and asserts the conversation boundary through it.
-// The production composition end to end: the plugin's own daemon, the endpoint
-// derived from the slot, and a real file-backed checkpoint store — no
-// test-only acquisition path anywhere in the chain.
+// Exercises the production composition end to end: the plugin's own daemon,
+// the endpoint derived from the slot, and a real file-backed checkpoint store.
 const runOpenClawCase = (input: CaseInput) =>
   Effect.gen(function* () {
     const conversationId = yield* createPeerDm(input.peer, input.owner);
@@ -630,7 +680,20 @@ const runNanoClawCase = (input: CaseInput) =>
     });
   });
 
-const runAdapterCase = (adapterCase: AdapterCase) =>
+const runAdapterScenario = (scenario: AdapterScenario, input: CaseInput) => {
+  switch (scenario) {
+    case "openclaw":
+      return runOpenClawCase(input);
+    case "openclaw-restart":
+      return runOpenClawPluginRestart(input);
+    case "nanoclaw":
+      return runNanoClawCase(input);
+    default:
+      return Effect.dieMessage("unsupported Harness adapter integration case");
+  }
+};
+
+const runAdapterCase = (adapterCase: AdapterCase, scenario: AdapterScenario) =>
   Effect.scoped(
     Effect.gen(function* () {
       const server = yield* acquireCoreTestServer;
@@ -656,11 +719,7 @@ const runAdapterCase = (adapterCase: AdapterCase) =>
           serverUrl: server.baseUrl,
           mcpPort,
         },
-        Effect.scoped(
-          adapterCase.kind === "openclaw"
-            ? runOpenClawCase(input)
-            : runNanoClawCase(input),
-        ),
+        Effect.scoped(runAdapterScenario(scenario, input)),
       );
     }),
   ).pipe(Effect.provide(NodeContext.layer));
@@ -749,12 +808,16 @@ const runRestartCase = () =>
     }),
   ).pipe(Effect.provide(NodeContext.layer));
 
+// @agent-code-guard/regression-only: real process lifetimes pin fixed adapter boundaries and release ordering rather than a generated input domain.
 describe("packaged moltzapd Harness adapters", () => {
   it("delivers and replies through the real OpenClaw dispatcher", () =>
-    Effect.runPromise(runAdapterCase(OPENCLAW_CASE)));
+    Effect.runPromise(runAdapterCase(OPENCLAW_CASE, "openclaw")));
+
+  it("restarts one OpenClaw plugin after its packaged daemon releases", () =>
+    Effect.runPromise(runAdapterCase(OPENCLAW_CASE, "openclaw-restart")));
 
   it("delivers and replies through the NanoClaw adapter", () =>
-    Effect.runPromise(runAdapterCase(NANOCLAW_CASE)));
+    Effect.runPromise(runAdapterCase(NANOCLAW_CASE, "nanoclaw")));
 
   it("rebuilds context from stored checkpoints after a restart", () =>
     Effect.runPromise(runRestartCase()));

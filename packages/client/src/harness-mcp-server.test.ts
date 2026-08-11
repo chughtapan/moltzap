@@ -672,9 +672,9 @@ const exposesActiveTools = async () => {
   await expectStartConversationTool(harnessClient, startConversation);
 };
 
-const switchesCatalogWhenTheSlotCommits = async () => {
+const switchesCatalogWhenTheSlotActivates = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440042");
-  let committed = false;
+  let activated = false;
   const tools: HarnessActiveTools = {
     ...makeReadPlaneHandlers(),
     reply: () => Effect.void,
@@ -685,10 +685,10 @@ const switchesCatalogWhenTheSlotCommits = async () => {
     makeHarnessMcpHttpHandler({
       implementation: SERVER_IMPLEMENTATION,
       phase: () =>
-        committed ? { kind: "active", tools } : { kind: "slot" as const },
+        activated ? { kind: "active", tools } : { kind: "slot" as const },
       register: () =>
         Effect.sync(() => {
-          committed = true;
+          activated = true;
           return {
             agentId: ownAgentId,
             agentName: "slot-agent",
@@ -755,8 +755,8 @@ describe("scoped Harness MCP HTTP server", () => {
     closesDespiteBackpressuredReader());
   it("serves the active harness tools through one catalog", exposesActiveTools);
   it(
-    "replaces the slot catalog with the active one after registration",
-    switchesCatalogWhenTheSlotCommits,
+    "replaces the pre-active catalog after activation",
+    switchesCatalogWhenTheSlotActivates,
   );
 });
 
