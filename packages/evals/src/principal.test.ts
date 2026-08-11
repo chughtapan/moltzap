@@ -1,22 +1,22 @@
 import { assert, describe, it } from "@effect/vitest";
 import { agentId } from "@moltzap/protocol/testing";
 import {
-  NanoclawGatewayError,
-  NanoclawGatewayInput,
-  NanoclawGatewayOutput,
-  type NanoclawGateway,
+  NanoClawGatewayError,
+  NanoClawGatewayInput,
+  NanoClawGatewayOutput,
+  type NanoClawGateway,
   type OpenClawGateway,
   OpenClawGatewayRequest,
-  OpenClawGatewayRequestFailed,
+  OpenClawGatewayRequestError,
   OpenClawGatewayResponse,
   OpenClawGatewaySucceeded,
   type StartedAgent,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { makeAgentHandle } from "@moltzap/simulator/network";
 import { Deferred, Effect, Option, Ref, Schema, Stream } from "effect";
 import {
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
 } from "./events.js";
@@ -52,7 +52,7 @@ const OPENCLAW_RESPONSE = Schema.decodeSync(OpenClawGatewayResponse)({
   },
 });
 
-const NANOCLAW_OUTPUT = NanoclawGatewayOutput.make({
+const NANOCLAW_OUTPUT = NanoClawGatewayOutput.make({
   text: "Conversation created.",
 });
 
@@ -213,7 +213,7 @@ function openClawUniqueKeysTest() {
 function openClawFailureTest() {
   return Effect.gen(function* () {
     const recorder = yield* makeEventRecorder();
-    const failure = OpenClawGatewayRequestFailed.make({
+    const failure = OpenClawGatewayRequestError.make({
       detail: "native agent RPC rejected the instruction",
     });
     const gateway: OpenClawGateway = {
@@ -226,7 +226,7 @@ function openClawFailureTest() {
       .pipe(Effect.flip);
     const recorded = yield* Ref.get(recorder.events);
 
-    assert.instanceOf(observed, OpenClawGatewayRequestFailed);
+    assert.instanceOf(observed, OpenClawGatewayRequestError);
     assert.strictEqual(observed.detail, failure.detail);
     assert.strictEqual(recorded.length, 1);
     assertOpenClawSubmitted(INSTRUCTION_TEXT, idempotencyKey(0), recorded[0]);
@@ -236,11 +236,11 @@ function openClawFailureTest() {
   });
 }
 
-function assertNanoclawInput(
+function assertNanoClawInput(
   expectedText: string,
   event?: EvaluationEvent,
 ): void {
-  if (!(event instanceof NanoclawPrincipalInputSent)) {
+  if (!(event instanceof NanoClawPrincipalInputSent)) {
     assert.fail("expected a NanoClaw input event");
   }
   assert.strictEqual(event.caseId, CASE_ID);
@@ -248,12 +248,12 @@ function assertNanoclawInput(
   assert.strictEqual(event.agentId, TARGET_ID);
   assert.deepStrictEqual(
     event.input,
-    NanoclawGatewayInput.make({ text: expectedText }),
+    NanoClawGatewayInput.make({ text: expectedText }),
   );
 }
 
-function assertNanoclawOutput(event?: EvaluationEvent): void {
-  if (!(event instanceof NanoclawPrincipalOutputReceived)) {
+function assertNanoClawOutput(event?: EvaluationEvent): void {
+  if (!(event instanceof NanoClawPrincipalOutputReceived)) {
     assert.fail("expected a NanoClaw output event");
   }
   assert.strictEqual(event.caseId, CASE_ID);
@@ -262,10 +262,10 @@ function assertNanoclawOutput(event?: EvaluationEvent): void {
   assert.deepStrictEqual(event.output, NANOCLAW_OUTPUT);
 }
 
-function recordingNanoclawGateway(
-  inputs: Ref.Ref<readonly NanoclawGatewayInput[]>,
+function recordingNanoClawGateway(
+  inputs: Ref.Ref<readonly NanoClawGatewayInput[]>,
   outputPulls: Ref.Ref<number>,
-): NanoclawGateway {
+): NanoClawGateway {
   return {
     submit: (input) => Ref.update(inputs, (received) => [...received, input]),
     outputs: Stream.fromEffect(
@@ -279,17 +279,17 @@ function recordingNanoclawGateway(
 function nanoclawOutputObservationTest() {
   return Effect.gen(function* () {
     const recorder = yield* makeEventRecorder();
-    const inputs = yield* Ref.make<readonly NanoclawGatewayInput[]>([]);
+    const inputs = yield* Ref.make<readonly NanoClawGatewayInput[]>([]);
     const outputPulls = yield* Ref.make(0);
     const outputRecorded = yield* Deferred.make<undefined>();
-    const gateway = recordingNanoclawGateway(inputs, outputPulls);
+    const gateway = recordingNanoClawGateway(inputs, outputPulls);
     const driver = yield* nanoclawPrincipalDriver.make(ATTEMPT_ID);
     const emit: EmitEvaluationEvent = (event) =>
       recorder
         .emit(event)
         .pipe(
           Effect.tap(() =>
-            event instanceof NanoclawPrincipalOutputReceived
+            event instanceof NanoClawPrincipalOutputReceived
               ? Deferred.succeed(outputRecorded, undefined)
               : Effect.void,
           ),
@@ -302,7 +302,7 @@ function nanoclawOutputObservationTest() {
 
     const recorded = yield* Ref.get(recorder.events);
     assert.strictEqual(recorded.length, 1);
-    assertNanoclawOutput(recorded[0]);
+    assertNanoClawOutput(recorded[0]);
     assert.strictEqual(yield* Ref.get(outputPulls), 1);
   }).pipe(Effect.scoped);
 }
@@ -310,9 +310,9 @@ function nanoclawOutputObservationTest() {
 function nanoclawUncorrelatedOutputTest() {
   return Effect.gen(function* () {
     const recorder = yield* makeEventRecorder();
-    const inputs = yield* Ref.make<readonly NanoclawGatewayInput[]>([]);
+    const inputs = yield* Ref.make<readonly NanoClawGatewayInput[]>([]);
     const outputPulls = yield* Ref.make(0);
-    const gateway = recordingNanoclawGateway(inputs, outputPulls);
+    const gateway = recordingNanoClawGateway(inputs, outputPulls);
     const driver = yield* nanoclawPrincipalDriver.make(ATTEMPT_ID);
     const secondMessage = "Submit another principal instruction.";
 
@@ -329,12 +329,12 @@ function nanoclawUncorrelatedOutputTest() {
     const recorded = yield* Ref.get(recorder.events);
 
     assert.deepStrictEqual(yield* Ref.get(inputs), [
-      NanoclawGatewayInput.make({ text: INSTRUCTION_TEXT }),
-      NanoclawGatewayInput.make({ text: secondMessage }),
+      NanoClawGatewayInput.make({ text: INSTRUCTION_TEXT }),
+      NanoClawGatewayInput.make({ text: secondMessage }),
     ]);
     assert.strictEqual(recorded.length, 2);
-    assertNanoclawInput(INSTRUCTION_TEXT, recorded[0]);
-    assertNanoclawInput(secondMessage, recorded[1]);
+    assertNanoClawInput(INSTRUCTION_TEXT, recorded[0]);
+    assertNanoClawInput(secondMessage, recorded[1]);
     assert.isTrue(Option.isNone(firstOutput));
     assert.isTrue(Option.isNone(secondOutput));
     assert.strictEqual(yield* Ref.get(outputPulls), 0);
@@ -344,16 +344,16 @@ function nanoclawUncorrelatedOutputTest() {
 function nanoclawSubmitFailureTest() {
   return Effect.gen(function* () {
     const recorder = yield* makeEventRecorder();
-    const failure = NanoclawGatewayError.make({
+    const failure = NanoClawGatewayError.make({
       operation: "submit",
       detail: "native socket rejected the input",
     });
-    const gateway: NanoclawGateway = {
+    const gateway: NanoClawGateway = {
       submit: (input) =>
         Effect.gen(function* () {
           assert.deepStrictEqual(
             input,
-            NanoclawGatewayInput.make({ text: INSTRUCTION_TEXT }),
+            NanoClawGatewayInput.make({ text: INSTRUCTION_TEXT }),
           );
           return yield* Effect.fail(failure);
         }),
@@ -367,7 +367,7 @@ function nanoclawSubmitFailureTest() {
       .drive(target(gateway), INSTRUCTION, recorder.emit)
       .pipe(Effect.flip);
 
-    assert.instanceOf(observed, NanoclawGatewayError);
+    assert.instanceOf(observed, NanoClawGatewayError);
     assert.strictEqual(observed.operation, failure.operation);
     assert.strictEqual(observed.detail, failure.detail);
     assert.deepStrictEqual(yield* Ref.get(recorder.events), []);

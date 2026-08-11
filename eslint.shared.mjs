@@ -269,7 +269,7 @@ export function rootEslintConfig(options = {}) {
     },
     packageIgnores,
     {
-      files: ["*.ts"],
+      files: ["*.ts", "examples/**/*.ts"],
       languageOptions,
       plugins: {
         ...guard.configs.strict.plugins,

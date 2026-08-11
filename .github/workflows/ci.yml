@@ -13,6 +13,11 @@ env:
   NX_SELF_HOSTED_REMOTE_CACHE_SERVER: https://nx-cache-server-production.up.railway.app
   NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ secrets.NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN }}
   NX_SKIP_REMOTE_CACHE: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'true' || 'false' }}
+  # The blind review gate resolves against the brain, and provenance
+  # verification will once check-shape.ts stops reading the filesystem. Fork PRs
+  # receive no secrets; that is accepted rather than degraded, because a check
+  # that silently skips is the failure mode it exists to prevent.
+  GBRAIN_DATABASE_URL: ${{ secrets.GBRAIN_DATABASE_URL }}
 
 jobs:
   ci:
@@ -29,6 +34,12 @@ jobs:
       - run: pnpm build
       - run: pnpm nx run @moltzap/client:test:pack
       - run: node scripts/test/simulator-packages.mjs
+      - name: Verify infrastructure profiles
+        run: |
+          pnpm nx run @moltzap/simulator:local-profile-check
+          pnpm nx run @moltzap/simulator:gke-profile-check
+          pnpm nx run @moltzap/simulator:nanoclaw-image-check
+          pnpm nx run @moltzap/evals:phoenix-terraform-check
       - run: pnpm typecheck
       - run: pnpm lint
       # Exact runs fail when a required project target disappears; run-many

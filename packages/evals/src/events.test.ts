@@ -3,12 +3,12 @@ import { agentName } from "@moltzap/protocol/identity";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { ProgramSucceeded, RouterMessageCommitted } from "@moltzap/simulator";
 import {
-  NanoclawGatewayInput,
-  NanoclawGatewayOutput,
+  NanoClawGatewayInput,
+  NanoClawGatewayOutput,
   OpenClawGatewayRequest,
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
-} from "@moltzap/simulator/runtime";
+} from "@moltzap/simulator/agents";
 import { routerSequence } from "@moltzap/simulator/network";
 import { Effect, Schema, Stream } from "effect";
 import {
@@ -16,8 +16,8 @@ import {
   CodePeerMessageSent,
   EvaluationEvidenceProjectionError,
   EvaluationEvidenceSelected,
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   PeerExchangeNotObserved,
@@ -82,18 +82,18 @@ const OPENCLAW_OUTPUT = OpenClawPrincipalFinalOutput.make({
   }),
 });
 
-const NANOCLAW_INPUT = NanoclawPrincipalInputSent.make({
+const NANOCLAW_INPUT = NanoClawPrincipalInputSent.make({
   caseId: CASE_ID,
   agentName: BOB_NAME,
   agentId: BOB_ID,
-  input: NanoclawGatewayInput.make({ text: NANOCLAW_INPUT_TEXT }),
+  input: NanoClawGatewayInput.make({ text: NANOCLAW_INPUT_TEXT }),
 });
 
-const NANOCLAW_OUTPUT = NanoclawPrincipalOutputReceived.make({
+const NANOCLAW_OUTPUT = NanoClawPrincipalOutputReceived.make({
   caseId: CASE_ID,
   agentName: BOB_NAME,
   agentId: BOB_ID,
-  output: NanoclawGatewayOutput.make({ text: NANOCLAW_OUTPUT_TEXT }),
+  output: NanoClawGatewayOutput.make({ text: NANOCLAW_OUTPUT_TEXT }),
 });
 
 const CODE_SENT = CodePeerMessageSent.make({
@@ -120,6 +120,8 @@ const ROUTER_COMMIT = RouterMessageCommitted.make({
   messageId: MESSAGE_ID,
   senderId: ALICE_ID,
   routerSequence: routerSequence(0),
+  parts: [{ type: "text", text: SOCIAL_TEXT }],
+  createdAtMillis: 0,
 });
 
 const OPENCLAW_SELECTION = EvaluationEvidenceSelected.make({
@@ -169,8 +171,8 @@ it("declares the complete customer event universe", () => {
   const eventClasses = [
     OpenClawPrincipalInstructionAttempted,
     OpenClawPrincipalFinalOutput,
-    NanoclawPrincipalInputSent,
-    NanoclawPrincipalOutputReceived,
+    NanoClawPrincipalInputSent,
+    NanoClawPrincipalOutputReceived,
     CodePeerMessageSent,
     CodePeerMessageReceived,
     PeerExchangeNotObserved,
@@ -215,28 +217,25 @@ it.effect("projects native gateway evidence in ledger order", () =>
   }),
 );
 
-it.effect(
-  "pairs endpoint content testimony with content-blind router commits",
-  () =>
-    Effect.gen(function* () {
-      const evidence = yield* projectEvaluationEvidence(evaluationLedger());
+it.effect("pairs endpoint content testimony with router commits", () =>
+  Effect.gen(function* () {
+    const evidence = yield* projectEvaluationEvidence(evaluationLedger());
 
-      assert.deepStrictEqual(
-        evidence.social.map((entry) => entry.eventId),
-        [CODE_SENT_ID, CODE_RECEIVED_ID],
-      );
-      assert.deepStrictEqual(
-        evidence.social.map((entry) => entry.routerCommitEventId),
-        [ROUTER_COMMIT_ID, ROUTER_COMMIT_ID],
-      );
-      for (const entry of evidence.social) {
-        assert.strictEqual(entry.routerCommit, ROUTER_COMMIT);
-        assert.deepStrictEqual(entry.observation.parts, [
-          { type: "text", text: SOCIAL_TEXT },
-        ]);
-        assert.isFalse(Reflect.has(entry.routerCommit, "parts"));
-      }
-    }),
+    assert.deepStrictEqual(
+      evidence.social.map((entry) => entry.eventId),
+      [CODE_SENT_ID, CODE_RECEIVED_ID],
+    );
+    assert.deepStrictEqual(
+      evidence.social.map((entry) => entry.routerCommitEventId),
+      [ROUTER_COMMIT_ID, ROUTER_COMMIT_ID],
+    );
+    for (const entry of evidence.social) {
+      assert.strictEqual(entry.routerCommit, ROUTER_COMMIT);
+      assert.deepStrictEqual(entry.observation.parts, [
+        { type: "text", text: SOCIAL_TEXT },
+      ]);
+    }
+  }),
 );
 
 it.effect("returns selected evidence identities in selection order", () =>

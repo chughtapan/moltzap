@@ -6,7 +6,7 @@ import {
   type MessageParts,
   messagePartsSchema,
 } from "@moltzap/protocol/message";
-import { OpenClawGatewayTimedOut } from "@moltzap/simulator/runtime";
+import { OpenClawGatewayTimedOut } from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";
 import { TARGET_AGENT_NAME, type EvaluationCaseMetadata } from "./cases.js";
 import {
@@ -16,8 +16,8 @@ import {
   EvaluationEvidenceProjectionError,
   type EvaluationEvidenceLedger,
   type GatewayEvidence,
-  NanoclawPrincipalInputSent,
-  NanoclawPrincipalOutputReceived,
+  NanoClawPrincipalInputSent,
+  NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   type PeerTimeoutEvidence,
@@ -224,7 +224,7 @@ function gatewayParts(
       "[OpenClaw returned no principal output]",
     );
   }
-  if (observation instanceof NanoclawPrincipalInputSent) {
+  if (observation instanceof NanoClawPrincipalInputSent) {
     return textParts(
       observation.input.text,
       "[Empty NanoClaw principal input]",
@@ -240,10 +240,10 @@ function isGatewayOutput(
   observation: GatewayEvidence["observation"],
 ): observation is
   | OpenClawPrincipalFinalOutput
-  | NanoclawPrincipalOutputReceived {
+  | NanoClawPrincipalOutputReceived {
   return (
     observation instanceof OpenClawPrincipalFinalOutput ||
-    observation instanceof NanoclawPrincipalOutputReceived
+    observation instanceof NanoClawPrincipalOutputReceived
   );
 }
 

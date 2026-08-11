@@ -18,13 +18,29 @@ export const evaluationEvidenceId = Schema.NonEmptyString.pipe(
 /** Ledger envelope identity admitted as evaluation evidence. */
 export type EvaluationEvidenceId = typeof evaluationEvidenceId.Type;
 
+const CONDITION_ID = /^[a-z0-9][a-z0-9._-]*\/v[1-9]\d*$/u;
+
 /** Schema for one runtime condition and its configuration contract. */
 export const conditionId = Schema.NonEmptyString.pipe(
-  Schema.pattern(/^[a-z0-9][a-z0-9._-]*\/v[1-9]\d*$/u),
+  Schema.pattern(CONDITION_ID),
   Schema.brand("ConditionId"),
 );
 /** Stable identity of one runtime condition and its configuration contract. */
 export type ConditionId = typeof conditionId.Type;
+
+/**
+ * The complete set of conditions the bundled matrix compares. Consumers that
+ * must act per condition are total over this union, so introducing a third
+ * runtime is a compile error rather than a fallback that picks an existing one.
+ */
+const evaluationConditionId = Schema.Literal("openclaw/v2", "nanoclaw/v2").pipe(
+  Schema.pattern(CONDITION_ID),
+  Schema.brand("ConditionId"),
+);
+/** One condition the bundled matrix compares, as its own literal. */
+export type EvaluationConditionId = typeof evaluationConditionId.Type;
+/** The unbranded spelling of one bundled matrix condition. */
+export type EvaluationConditionName = typeof evaluationConditionId.Encoded;
 
 /** Schema for one versioned behavioral criterion. */
 export const criterionId = Schema.NonEmptyString.pipe(
@@ -106,6 +122,10 @@ export const decodeEvaluationEvidenceId =
   Schema.decodeSync(evaluationEvidenceId);
 /** Decode trusted code constants through the canonical condition-id schema. */
 export const decodeConditionId = Schema.decodeSync(conditionId);
+/** Decode trusted code constants through the bundled matrix-condition schema. */
+export const decodeEvaluationConditionId = Schema.decodeSync(
+  evaluationConditionId,
+);
 /** Decode trusted code constants through the canonical criterion-id schema. */
 export const decodeCriterionId = Schema.decodeSync(criterionId);
 /** Decode trusted code constants through the canonical judge-policy schema. */
