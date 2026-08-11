@@ -37,38 +37,42 @@ const exported = (
 });
 
 describe("exportsForModuleFolder", () => {
+  // The cache entries below are synthetic. They name a package that does not
+  // exist so that they describe a shape rather than a layout: fixtures spelled
+  // as real paths silently stop being true at the next rename, and nothing
+  // resolves them to disk to notice.
   it("gives a package root every symbol exported by its entry point", () => {
     const root = exported(
       1,
       "defineSociety",
-      "@moltzap/simulator",
-      "packages/simulator/src/definition.ts",
+      "@example/widgets",
+      "packages/widgets/src/definition.ts",
     );
     const nested = exported(
       2,
       "openClawRuntime",
-      "@moltzap/simulator",
-      "packages/simulator/src/runtime/openclaw/runtime.ts",
+      "@example/widgets",
+      "packages/widgets/src/runtime/openclaw/runtime.ts",
     );
     const privateCapability = exported(
       3,
       "makeRuntimeProcess",
-      "@moltzap/simulator",
-      "packages/simulator/src/runtime/process.ts",
+      "@example/widgets",
+      "packages/widgets/src/runtime/process.ts",
     );
     const cache: TypeDocCache = {
       all: [root, nested, privateCapability],
       byPackage: new Map([
-        ["@moltzap/simulator", [root, nested, privateCapability]],
+        ["@example/widgets", [root, nested, privateCapability]],
       ]),
-      byPackageEntrypoint: new Map([["@moltzap/simulator", [root, nested]]]),
+      byPackageEntrypoint: new Map([["@example/widgets", [root, nested]]]),
       byFolder: new Map([
-        ["packages/simulator/src", [root]],
-        ["packages/simulator/src/runtime", [nested]],
+        ["packages/widgets/src", [root]],
+        ["packages/widgets/src/runtime", [nested]],
       ]),
     };
 
-    expect(exportsForPackageRoot(cache, "@moltzap/simulator")).toEqual([
+    expect(exportsForPackageRoot(cache, "@example/widgets")).toEqual([
       root,
       nested,
     ]);
@@ -78,27 +82,27 @@ describe("exportsForModuleFolder", () => {
     const nested = exported(
       1,
       "openClawRuntime",
-      "@moltzap/simulator",
-      "packages/simulator/src/runtime/openclaw/runtime.ts",
+      "@example/widgets",
+      "packages/widgets/src/runtime/openclaw/runtime.ts",
     );
     const sibling = exported(
       2,
       "openLedger",
-      "@moltzap/simulator",
-      "packages/simulator/src/ledger/open.ts",
+      "@example/widgets",
+      "packages/widgets/src/ledger/open.ts",
     );
     const cache: TypeDocCache = {
       all: [nested, sibling],
-      byPackage: new Map([["@moltzap/simulator", [nested, sibling]]]),
-      byPackageEntrypoint: new Map([["@moltzap/simulator", [nested, sibling]]]),
+      byPackage: new Map([["@example/widgets", [nested, sibling]]]),
+      byPackageEntrypoint: new Map([["@example/widgets", [nested, sibling]]]),
       byFolder: new Map([
-        ["packages/simulator/src/runtime", [nested]],
-        ["packages/simulator/src/ledger", [sibling]],
+        ["packages/widgets/src/runtime", [nested]],
+        ["packages/widgets/src/ledger", [sibling]],
       ]),
     };
 
     expect(
-      exportsForModuleFolder(cache, "packages/simulator/src/runtime"),
+      exportsForModuleFolder(cache, "packages/widgets/src/runtime"),
     ).toEqual([nested]);
   });
 });
