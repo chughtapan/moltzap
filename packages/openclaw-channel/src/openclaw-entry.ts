@@ -1,16 +1,15 @@
 /**
  * OpenClaw plugin entry point for MoltZap.
  *
- * Wraps the existing MoltZapAgentClient + mapping modules into the
- * ChannelPlugin shape expected by OpenClaw's api.registerChannel().
+ * Projects the daemon-backed HarnessClient into the ChannelPlugin shape
+ * expected by OpenClaw's api.registerChannel().
  *
  * Installed via: openclaw plugin install `@moltzap/openclaw-channel`
  * Config:        channels.moltzap.accounts[].{id, agentName}.
  *
- * OpenClaw's plugin interface imposes Promise-based contracts at the boundary
- * (`startAccount`, `sendText`, `deliver`, `listPeers`, `listGroups`, etc.) —
- * those shapes are fixed. Internally we use Effect and only pay the
- * `Effect.runPromise` tax at the plugin surface.
+ * OpenClaw's plugin interface imposes Promise-based lifecycle, outbound, and
+ * delivery contracts at the boundary. Internally we use Effect and only pay
+ * the `Effect.runPromise` tax at the plugin surface.
  */
 
 import { harnessClientForProfile } from "@moltzap/client";
@@ -41,8 +40,7 @@ import {
 } from "./context-log.js";
 import { createHarnessReplyDeliver } from "./harness-turn-delivery.js";
 import {
-  finishHarnessClient,
-  stopActiveGatewayAccount,
+  HarnessGatewayLifecycle,
   type ActiveHarnessClient,
 } from "./openclaw-gateway-lifecycle.js";
 import {
@@ -307,11 +305,9 @@ function resolveAccount(
 }
 
 /**
- * Wait for an AbortSignal to fire, as an Effect. Completes synchronously if
- * the signal is already aborted; otherwise registers a one-shot `abort`
- * listener and resolves when it fires.
- * @param signal Value supplied to the operation.
- * @returns The log outbound reply result.
+ * Resolves on abort and removes its listener when the waiting fiber ends.
+ * @param signal Cancellation source owned by OpenClaw.
+ * @returns An interruptible wait for the signal's abort event.
  */
 const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
   Effect.async<undefined>((resume) => {
@@ -319,13 +315,13 @@ const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
       resume(Effect.void.pipe(Effect.as(undefined)));
       return;
     }
-    signal.addEventListener(
-      "abort",
-      () => {
-        resume(Effect.void.pipe(Effect.as(undefined)));
-      },
-      { once: true },
-    );
+    const onAbort = (): void => {
+      resume(Effect.void.pipe(Effect.as(undefined)));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    return Effect.sync(() => {
+      signal.removeEventListener("abort", onAbort);
+    });
   });
 
 /**
@@ -456,32 +452,45 @@ function createConfigSection() {
 }
 
 function createGatewaySection(
-  activeHarnessClients: Map<string, ActiveHarnessClient>,
+  lifecycle: HarnessGatewayLifecycle,
   deps: MoltzapChannelPluginDeps,
 ) {
   return {
     startAccount(ctx: OpenClawStartAccountContext) {
-      return startGatewayAccount(ctx, activeHarnessClients, deps);
+      return startGatewayAccount(ctx, lifecycle, deps);
     },
     stopAccount(ctx: OpenClawStopAccountContext) {
-      return stopGatewayAccount(ctx, activeHarnessClients);
+      return stopGatewayAccount(ctx, lifecycle);
     },
   };
 }
 
 function startGatewayAccount(
   ctx: OpenClawStartAccountContext,
-  activeHarnessClients: Map<string, ActiveHarnessClient>,
+  lifecycle: HarnessGatewayLifecycle,
   deps: MoltzapChannelPluginDeps,
 ) {
-  return Effect.runPromise(
-    startGatewayAccountEffect(ctx, activeHarnessClients, deps),
-  );
+  return Effect.runPromise(startGatewayAccountEffect(ctx, lifecycle, deps));
+}
+
+function acquireGatewayClient(
+  ctx: OpenClawStartAccountContext,
+  deps: MoltzapChannelPluginDeps,
+) {
+  const profileName = ctx.accountId.trim();
+  // The OpenClaw account id names the profile slot, so the daemon, its
+  // loopback endpoint, and checkpoint store all follow from it.
+  return Effect.suspend(() => {
+    const injected = deps.harnessClientForAccount?.(profileName, ctx.account);
+    return injected === undefined
+      ? harnessClientForProfile(profileName)
+      : Effect.succeed(injected);
+  });
 }
 
 function startGatewayAccountEffect(
   ctx: OpenClawStartAccountContext,
-  activeHarnessClients: Map<string, ActiveHarnessClient>,
+  lifecycle: HarnessGatewayLifecycle,
   deps: MoltzapChannelPluginDeps,
 ): Effect.Effect<void, unknown> {
   const { accountId, account, abortSignal, log } = ctx;
@@ -495,66 +504,54 @@ function startGatewayAccountEffect(
     if (abortSignal.aborted) {
       return;
     }
-    // The OpenClaw account id names the profile slot, so the daemon, its
-    // loopback endpoint, and the checkpoint store all follow from it.
-    const injected = deps.harnessClientForAccount?.(profileName, account);
-    const harnessClient =
-      injected ?? (yield* harnessClientForProfile(profileName));
-    return yield* runHarnessGateway(ctx, harnessClient, {
-      activeHarnessClients,
-      contextLogDir,
+    return yield* lifecycle.run({
+      accountId: ctx.accountId,
+      acquireClient: acquireGatewayClient(ctx, deps),
+      isCancelled: () => ctx.abortSignal.aborted,
+      waitForCancellation: waitForAbort(ctx.abortSignal),
+      runClient: (active) => runHarnessGateway(ctx, active, { contextLogDir }),
     });
-  }).pipe(Effect.scoped);
+  });
 }
 
 interface HarnessGatewayRuntime {
-  readonly activeHarnessClients: Map<string, ActiveHarnessClient>;
   readonly contextLogDir?: string;
 }
 
 function runHarnessGateway(
   ctx: OpenClawStartAccountContext,
-  client: HarnessClientService,
+  active: ActiveHarnessClient,
   runtime: HarnessGatewayRuntime,
 ): Effect.Effect<void, unknown> {
-  const { activeHarnessClients, contextLogDir } = runtime;
-  return Effect.gen(function* () {
-    const stopSignal = yield* Deferred.make<undefined>();
-    const active = { client, stopSignal };
-    yield* stopActiveGatewayAccount(activeHarnessClients, ctx.accountId);
-    yield* Effect.sync(() => activeHarnessClients.set(ctx.accountId, active));
-    yield* reportHarnessConnected(client, ctx).pipe(
-      Effect.zipRight(
-        Effect.raceFirst(
-          client.turns.pipe(
-            Stream.runForEach((turn) =>
-              handleInboundMessage({
-                ctx,
-                ownAgentId: client.agentId,
-                contextLogDir,
-                turn,
-              }).pipe(
-                Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch"),
-                Effect.catchAll((cause) =>
-                  logHarnessTurnFailure(turn, cause, ctx.log),
-                ),
-                Effect.catchAllDefect((cause) =>
-                  logHarnessTurnFailure(turn, cause, ctx.log),
-                ),
+  const { client, generation } = active;
+  return reportHarnessConnected(client, ctx).pipe(
+    Effect.zipRight(
+      Effect.raceFirst(
+        client.turns.pipe(
+          Stream.runForEach((turn) =>
+            handleInboundMessage({
+              ctx,
+              ownAgentId: client.agentId,
+              contextLogDir: runtime.contextLogDir,
+              turn,
+            }).pipe(
+              Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch"),
+              Effect.catchAll((cause) =>
+                logHarnessTurnFailure(turn, cause, ctx.log),
+              ),
+              Effect.catchAllDefect((cause) =>
+                logHarnessTurnFailure(turn, cause, ctx.log),
               ),
             ),
           ),
-          Effect.raceFirst(
-            waitForAbort(ctx.abortSignal),
-            Deferred.await(stopSignal),
-          ),
+        ),
+        Effect.raceFirst(
+          waitForAbort(ctx.abortSignal),
+          Deferred.await(generation.stopSignal),
         ),
       ),
-      Effect.ensuring(
-        finishHarnessClient(activeHarnessClients, ctx.accountId, active),
-      ),
-    );
-  });
+    ),
+  );
 }
 
 function logHarnessTurnFailure(
@@ -751,18 +748,16 @@ function logUnqueuedDispatch(
 
 function stopGatewayAccount(
   ctx: OpenClawStopAccountContext,
-  activeHarnessClients: Map<string, ActiveHarnessClient>,
+  lifecycle: HarnessGatewayLifecycle,
 ) {
-  if (activeHarnessClients.has(ctx.accountId)) {
+  if (lifecycle.hasGeneration(ctx.accountId)) {
     ctx.log?.info?.("MoltZap: stopping");
   }
-  return Effect.runPromise(
-    stopActiveGatewayAccount(activeHarnessClients, ctx.accountId),
-  );
+  return Effect.runPromise(lifecycle.stop(ctx.accountId));
 }
 
 function createOutboundSection(
-  activeHarnessClients: Map<string, ActiveHarnessClient>,
+  activeHarnessClients: ReadonlyMap<string, ActiveHarnessClient>,
 ) {
   return {
     deliveryMode: "gateway" as const,
@@ -820,7 +815,7 @@ interface ActiveHarnessOutbound {
 type ActiveOutbound = ActiveHarnessOutbound;
 
 function getActiveOutbound(
-  activeHarnessClients: Map<string, ActiveHarnessClient>,
+  activeHarnessClients: ReadonlyMap<string, ActiveHarnessClient>,
   accountId?: string | null,
 ): ActiveOutbound | undefined {
   const requested = accountId?.trim();
@@ -862,7 +857,7 @@ function dispatchHarnessOutbound(
 }
 
 function sendTextEffect(
-  activeHarnessClients: Map<string, ActiveHarnessClient>,
+  activeHarnessClients: ReadonlyMap<string, ActiveHarnessClient>,
   ctx: {
     cfg: OpenClawConfig;
     to: string;
@@ -893,14 +888,13 @@ function sendTextEffect(
 }
 
 /**
- * Factory: returns a fresh plugin object whose `activeClients` map
- * lives in this closure. `register(api)` calls this so each
- * registration gets its own per-plugin state.
+ * Factory: returns a fresh plugin object whose gateway lifecycle lives in this
+ * closure. `register(api)` calls this so each registration gets its own
+ * per-plugin state.
  *
  * The plugin exposes the openclaw lifecycle hooks (`startAccount`,
- * `stopAccount`), the outbound `sendText`, the inbound `onInbound`
- * adapter (registered inside `startAccount`), the `deliver` callback,
- * and `resolveTarget` for openclaw's targeting layer.
+ * `stopAccount`), outbound `sendText`, inbound turn dispatch and its `deliver`
+ * callback, and `resolveTarget` for openclaw's targeting layer.
  *
  * ```mermaid
  * sequenceDiagram
@@ -919,7 +913,7 @@ function sendTextEffect(
  *   Plugin->>Plugin: turn.reply(text)
  *   Harness->>Daemon: reply routed to its originating conversation
  *   OC->>Plugin: stopAccount(ctx)
- *   Plugin->>Plugin: signal the drain to stop
+ *   Plugin->>Plugin: signal the drain and await scoped release
  * ```
  *
  * `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
@@ -934,7 +928,7 @@ function sendTextEffect(
 export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},
 ) {
-  const activeHarnessClients = new Map<string, ActiveHarnessClient>();
+  const lifecycle = new HarnessGatewayLifecycle();
 
   return {
     id: CHANNEL_ID,
@@ -942,8 +936,8 @@ export function createMoltzapChannelPlugin(
     capabilities: { chatTypes: ["dm" as const, "group" as const] },
     messaging: createMessagingSection(),
     config: createConfigSection(),
-    gateway: createGatewaySection(activeHarnessClients, deps),
-    outbound: createOutboundSection(activeHarnessClients),
+    gateway: createGatewaySection(lifecycle, deps),
+    outbound: createOutboundSection(lifecycle.outboundClients),
   };
 }
 
@@ -953,9 +947,9 @@ export type MoltzapChannelPlugin = ReturnType<
 >;
 
 /**
- * Shared singleton so a single registration reuses the same `activeClients`
- * closure across `startAccount` and `sendText`. Tests import this directly
- * to assert against that shared state.
+ * Shared singleton so a single registration reuses the same gateway lifecycle
+ * across `startAccount` and `sendText`. Tests import this directly to assert
+ * against that shared state.
  */
 export const moltzapChannelPlugin: MoltzapChannelPlugin =
   createMoltzapChannelPlugin();

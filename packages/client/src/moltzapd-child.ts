@@ -7,27 +7,49 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeContext } from "@effect/platform-node";
 import * as KeyValueStore from "@effect/platform/KeyValueStore";
-import { Data, Duration, Effect, Layer, type Scope } from "effect";
+import {
+  Data,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Layer,
+  type Scope,
+} from "effect";
+import type { AgentId } from "@moltzap/protocol/identity";
 import packageJson from "../package.json" with { type: "json" };
 import {
   acquireHarnessClient,
   type HarnessClientService,
 } from "./harness-client.js";
+import {
+  decodeHarnessStatusResult,
+  HARNESS_STATUS_TOOL,
+} from "./harness/index.js";
 import { getMoltZapConfigDir } from "./local-paths.js";
-import { parseProfileName, resolveProfileRecord } from "./profile.js";
+import { isMoltzapdReadyMessage } from "./moltzapd-child-ipc.js";
+import {
+  isRegisteredProfile,
+  parseProfileName,
+  resolveProfileRecord,
+} from "./profile.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const MCP_PATH = "/mcp";
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const POLL_INTERVAL = Duration.millis(25);
 const STARTUP_TIMEOUT = Duration.seconds(15);
+const STARTUP_TIMEOUT_MILLIS = Duration.toMillis(STARTUP_TIMEOUT);
 const SHUTDOWN_TIMEOUT = Duration.seconds(5);
+const OUTPUT_TAIL_LIMIT = 64 * 1024;
+const OUTPUT_TRUNCATED_NOTICE = "[earlier moltzapd output truncated]\n";
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const daemonEntry = join(packageRoot, packageJson.bin.moltzapd);
 
 interface RunningDaemon {
   readonly child: ChildProcess;
   readonly logs: () => string;
+  readonly readiness: Deferred.Deferred<undefined>;
 }
 
 class MoltzapdChildError extends Data.TaggedError("MoltzapdChildError")<{
@@ -35,13 +57,13 @@ class MoltzapdChildError extends Data.TaggedError("MoltzapdChildError")<{
   readonly cause?: unknown;
 }> {}
 
-/** Explicit endpoint for a packaged daemon owned by the enclosing test scope. */
+/** Scoped endpoint for a packaged profile daemon owned by the caller. */
 export interface MoltzapdChild {
   readonly mcpUrl: string;
   readonly logs: () => string;
 }
 
-/** Inputs for starting the packaged daemon against caller-scoped test config. */
+/** Inputs for starting a packaged profile daemon. */
 export interface MoltzapdChildOptions {
   readonly profileName: string;
 }
@@ -59,8 +81,29 @@ const toError = (cause: unknown): MoltzapdChildError => {
   return moltzapdChildError(message, cause);
 };
 
-const startDaemon = (profileName: string): RunningDaemon => {
+const makeOutputTail = () => {
   let output = "";
+  let truncated = false;
+
+  const append = (chunk: string): void => {
+    output += chunk;
+    if (output.length > OUTPUT_TAIL_LIMIT) {
+      output = output.slice(-OUTPUT_TAIL_LIMIT);
+      truncated = true;
+    }
+  };
+  const read = (): string =>
+    truncated ? `${OUTPUT_TRUNCATED_NOTICE}${output}` : output;
+
+  return {
+    append,
+    read,
+  };
+};
+
+const startDaemon = (profileName: string): RunningDaemon => {
+  const output = makeOutputTail();
+  const readiness = Effect.runSync(Deferred.make<undefined>());
   const child = spawn(
     process.execPath,
     [daemonEntry, "--profile", profileName],
@@ -68,15 +111,24 @@ const startDaemon = (profileName: string): RunningDaemon => {
       cwd: packageRoot,
       // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The isolated child inherits the caller-scoped test profile and server URL.
       env: { ...process.env },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
     },
   );
-  const append = (chunk: Uint8Array): void => {
-    output += new TextDecoder().decode(chunk);
+  const onMessage = (message: unknown): void => {
+    if (isMoltzapdReadyMessage(message)) {
+      child.off("message", onMessage);
+      Effect.runSync(Deferred.succeed(readiness, undefined));
+    }
   };
-  child.stdout?.on("data", append);
-  child.stderr?.on("data", append);
-  return { child, logs: () => output };
+  child.on("message", onMessage);
+  child.once("exit", () => {
+    child.off("message", onMessage);
+  });
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", output.append);
+  child.stderr?.on("data", output.append);
+  return { child, logs: output.read, readiness };
 };
 
 const waitForExit = (running: RunningDaemon): Effect.Effect<undefined> => {
@@ -111,6 +163,45 @@ const stopDaemon = (running: RunningDaemon): Effect.Effect<void> =>
     yield* waitForExit(running);
   });
 
+const exitDescription = (running: RunningDaemon): string => {
+  if (running.child.signalCode !== null) {
+    return ` after signal ${running.child.signalCode}`;
+  }
+  if (running.child.exitCode !== null) {
+    return ` with code ${String(running.child.exitCode)}`;
+  }
+  return "";
+};
+
+const exitedBeforeReadiness = (running: RunningDaemon): MoltzapdChildError =>
+  moltzapdChildError(
+    `moltzapd exited${exitDescription(running)} before readiness\n${running.logs()}`,
+  );
+
+const failWhenDaemonExits = (
+  running: RunningDaemon,
+): Effect.Effect<never, MoltzapdChildError> =>
+  waitForExit(running).pipe(
+    Effect.flatMap(() => Effect.fail(exitedBeforeReadiness(running))),
+  );
+
+const observeDaemonDuringReadiness = <A, E, R>(
+  running: RunningDaemon,
+  readiness: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | MoltzapdChildError, R> =>
+  Effect.raceFirst(readiness, failWhenDaemonExits(running));
+
+const ensureDaemonIsRunning = (
+  running: RunningDaemon,
+): Effect.Effect<void, MoltzapdChildError> =>
+  running.child.exitCode === null && running.child.signalCode === null
+    ? Effect.void
+    : Effect.fail(exitedBeforeReadiness(running));
+
+const waitForReadySignal = (
+  running: RunningDaemon,
+): Effect.Effect<void, MoltzapdChildError> => Deferred.await(running.readiness);
+
 const acquireDaemon = (
   profileName: string,
 ): Effect.Effect<RunningDaemon, never, Scope.Scope> =>
@@ -133,9 +224,18 @@ const connectMcpOnce = (url: URL): Effect.Effect<Client, MoltzapdChildError> =>
     // A client that fails to connect still holds a transport, so the failure
     // path closes it before surfacing the cause.
     yield* Effect.tryPromise({
-      try: () => client.connect(new StreamableHTTPClientTransport(url)),
+      try: (signal) =>
+        client.connect(new StreamableHTTPClientTransport(url), {
+          signal,
+          timeout: STARTUP_TIMEOUT_MILLIS,
+          maxTotalTimeout: STARTUP_TIMEOUT_MILLIS,
+        }),
       catch: toError,
-    }).pipe(Effect.tapError(() => closeMcpClient(client)));
+    }).pipe(
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit) ? Effect.void : closeMcpClient(client),
+      ),
+    );
     return client;
   });
 
@@ -145,11 +245,7 @@ const waitForMcpClient = (
 ): Effect.Effect<Client, MoltzapdChildError> => {
   const poll: Effect.Effect<Client, MoltzapdChildError> = Effect.suspend(() => {
     if (running.child.exitCode !== null || running.child.signalCode !== null) {
-      return Effect.fail(
-        moltzapdChildError(
-          `moltzapd exited before readiness\n${running.logs()}`,
-        ),
-      );
+      return Effect.fail(exitedBeforeReadiness(running));
     }
     return connectMcpOnce(url).pipe(
       Effect.catchAll(() =>
@@ -157,45 +253,115 @@ const waitForMcpClient = (
       ),
     );
   });
-  return poll.pipe(
-    Effect.timeoutFail({
-      duration: STARTUP_TIMEOUT,
-      onTimeout: () =>
-        moltzapdChildError(`moltzapd did not expose MCP\n${running.logs()}`),
-    }),
-  );
+  return poll;
 };
 
 const callStatus = (client: Client) =>
   Effect.tryPromise({
-    try: () => client.callTool({ name: "status", arguments: {} }),
+    try: (signal) =>
+      client.callTool(
+        { name: HARNESS_STATUS_TOOL, arguments: {} },
+        {
+          signal,
+          timeout: STARTUP_TIMEOUT_MILLIS,
+          maxTotalTimeout: STARTUP_TIMEOUT_MILLIS,
+        },
+      ),
     catch: toError,
   });
 
-const isConnectedStatus = (content: unknown): boolean =>
-  typeof content === "object" &&
-  content !== null &&
-  "connected" in content &&
-  content.connected === true;
+const identityMismatch = (
+  profileName: string,
+  expectedAgentId: AgentId,
+  actualIdentity: string,
+): MoltzapdChildError =>
+  moltzapdChildError(
+    `moltzapd profile identity mismatch: ${profileName} expects ${expectedAgentId}, but the MCP endpoint reports ${actualIdentity}`,
+  );
 
-const waitForConnectedStatus = (
+const verifyConnectedStatus = (
   client: Client,
   running: RunningDaemon,
-): Effect.Effect<void, MoltzapdChildError> => {
-  const poll: Effect.Effect<void, MoltzapdChildError> = callStatus(client).pipe(
-    Effect.flatMap((status) =>
-      isConnectedStatus(status.structuredContent)
-        ? Effect.void
-        : Effect.sleep(POLL_INTERVAL).pipe(Effect.zipRight(poll)),
+  profileName: string,
+  expectedAgentId: AgentId,
+): Effect.Effect<void, MoltzapdChildError> =>
+  callStatus(client).pipe(
+    Effect.flatMap((result) =>
+      decodeHarnessStatusResult(result.structuredContent).pipe(
+        Effect.mapError(toError),
+      ),
     ),
-  );
-  return poll.pipe(
-    Effect.timeoutFail({
-      duration: STARTUP_TIMEOUT,
-      onTimeout: () =>
-        moltzapdChildError(`moltzapd did not connect\n${running.logs()}`),
+    Effect.flatMap((status) => {
+      if (status.agentId === undefined) {
+        return Effect.fail(
+          identityMismatch(profileName, expectedAgentId, "no AgentId"),
+        );
+      }
+      if (status.agentId !== expectedAgentId) {
+        return Effect.fail(
+          identityMismatch(profileName, expectedAgentId, status.agentId),
+        );
+      }
+      return status.connected
+        ? Effect.void
+        : Effect.fail(
+            moltzapdChildError(
+              `moltzapd signaled readiness without connecting\n${running.logs()}`,
+            ),
+          );
     }),
   );
+
+interface DaemonReadinessInput {
+  readonly expectedAgentId: AgentId;
+  readonly profileName: string;
+  readonly running: RunningDaemon;
+  readonly url: URL;
+}
+
+/**
+ * Bounds and interrupts the complete child-readiness sequence.
+ * @param readiness IPC, endpoint connection, status, and liveness checks.
+ * @param logs Bounded child output included in the timeout diagnostic.
+ * @param within Startup budget; production uses one fixed local deadline.
+ * @returns The readiness result before the shared deadline.
+ * @internal
+ */
+export const withMoltzapdStartupDeadline = <A, E, R>(
+  readiness: Effect.Effect<A, E, R>,
+  logs: () => string,
+  within: Duration.DurationInput = STARTUP_TIMEOUT,
+): Effect.Effect<A, E | MoltzapdChildError, R> =>
+  readiness.pipe(
+    Effect.timeoutFail({
+      duration: within,
+      onTimeout: () =>
+        moltzapdChildError(
+          `moltzapd did not become ready before its startup deadline\n${logs()}`,
+        ),
+    }),
+  );
+
+// IPC binds readiness to this exact ChildProcess. The status check then binds
+// the endpoint reached through the profile's port to its persisted AgentId.
+const verifySpawnedDaemon = ({
+  expectedAgentId,
+  profileName,
+  running,
+  url,
+}: DaemonReadinessInput): Effect.Effect<void, MoltzapdChildError> => {
+  const verifyEndpoint = Effect.scoped(
+    Effect.acquireRelease(waitForMcpClient(url, running), closeMcpClient).pipe(
+      Effect.flatMap((client) =>
+        verifyConnectedStatus(client, running, profileName, expectedAgentId),
+      ),
+    ),
+  );
+  const readiness = observeDaemonDuringReadiness(
+    running,
+    waitForReadySignal(running).pipe(Effect.zipRight(verifyEndpoint)),
+  ).pipe(Effect.zipRight(ensureDaemonIsRunning(running)));
+  return withMoltzapdStartupDeadline(readiness, running.logs);
 };
 
 /**
@@ -216,19 +382,24 @@ export const acquireMoltzapdChild = (
     const record = yield* resolveProfileRecord(name).pipe(
       Effect.mapError(toError),
     );
+    if (!isRegisteredProfile(record)) {
+      return yield* Effect.fail(
+        moltzapdChildError(
+          `moltzapd profile ${options.profileName} is not registered`,
+        ),
+      );
+    }
     const running = yield* acquireDaemon(options.profileName);
     const url = new URL(
       MCP_PATH,
       `http://${LOOPBACK_HOST}:${String(record.mcpPort)}`,
     );
-    yield* Effect.scoped(
-      Effect.acquireRelease(
-        waitForMcpClient(url, running),
-        closeMcpClient,
-      ).pipe(
-        Effect.flatMap((client) => waitForConnectedStatus(client, running)),
-      ),
-    );
+    yield* verifySpawnedDaemon({
+      expectedAgentId: record.agentId,
+      profileName: options.profileName,
+      running,
+      url,
+    });
     return { mcpUrl: url.href, logs: running.logs };
   }).pipe(Effect.withSpan("acquireMoltzapdChild"));
 

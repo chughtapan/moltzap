@@ -41,7 +41,7 @@ the package's only binary. Pick the lowest surface that meets the need:
   argument parsing.
 - `src/moltzapd.ts`, `src/moltzapd-catalog.ts`,
   `src/moltzapd-registration.ts` — the daemon's composition, its two
-  catalog states, and the Registry commit that moves between them.
+  catalog states, and the post-commit activation that moves between them.
 
 Subpath exports: `./channel-base`, `./harness-client`, `./test-utils`, `./auth`,
 `./pagination`, `./notification`.
