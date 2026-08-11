@@ -171,50 +171,39 @@ the principal interface for a roster agent and must not impersonate that
 agent. Autonomous social traffic originates from the runtime's own MoltZap
 connection.
 
-
-The run kernel owns the link fabric and installs both `LinkController` and the
-`LinkDriver` behind it, so shaping traffic needs no additional layers:
+The run kernel owns the link fabric and provides `LinkController` while a
+`RunSpec` customer program executes. Link policies apply to
+experiment-controlled endpoints in the controller process:
 
 ```ts
-import {
-  LinkController,
-  linkPolicy,
-} from "@moltzap/simulator";
+import { LinkController, Run, RunSpec, linkPolicy } from "@moltzap/simulator";
 import { Effect } from "effect";
 
-const partitioned = Effect.scoped(
-  Effect.gen(function* () {
-    const agents = yield* roster.startedAgents;
-    const links = yield* LinkController;
+const runSpec = RunSpec.define({
+  id: "acme.partition/v1",
+  events: [],
+  agents,
+  cluster,
+  execute: ({ network }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sender = yield* network.endpoint("sender");
+        const receiver = yield* network.endpoint("receiver");
+        const socket = yield* sender.open(receiver.participant);
+        const links = yield* LinkController;
 
-    yield* links.disable(
-      agents.alice.agent,
-      agents.bob.agent,
-    );
-    yield* links.delay(
-      agents.bob.agent,
-      agents.carol.agent,
-      "250 millis",
-    );
-    yield* links.hold(
-      agents.carol.agent,
-      agents.alice.agent,
-    );
-    yield* links.shape(
-      agents.alice.agent,
-      agents.carol.agent,
-      linkPolicy.dropAll("lossy uplink"),
-      "uplink loss",
-    );
+        yield* links.shape(
+          sender.participant,
+          receiver.participant,
+          linkPolicy.dropAll("partition"),
+          "partition",
+        );
+        yield* socket.send("blocked while the policy scope is open");
+      }),
+    ),
+});
 
-    yield* exercisePartition;
-  }),
-);
-
-const faultedRun = Society.run(
-  roster,
-  partitioned,
-).pipe(Effect.provide(Platform));
+const outcome = Run.execute(runSpec);
 ```
 
 Every verb installs a policy on one directed pair for the lifetime of the
@@ -242,7 +231,7 @@ The ledger records control and consequence separately:
 | `LinkMessageDelayed` | One message was deferred by the recorded total before delivery |
 | `LinkMessageHeld` | One message was parked until its holding lease cleared |
 
-### Policy applies at the receiver
+### Policy applies to controlled endpoint receivers
 
 A directed pair is realized where the kernel can observe deliveries, which is
 the receiving side, in this process. Outbound traffic is never intercepted:
@@ -252,20 +241,16 @@ path and every other pair untouched.
 | Receiver | Shaped | Why |
 |---|---|---|
 | Experiment endpoints | Yes | The kernel decorates the transport it hands every `Network.endpoint` |
-| `effectRuntime` roster agents | Yes | The runtime applies the kernel's `interceptInbound` stage to its own subscription |
-| `openClawRuntime` / `nanoclawRuntime` roster agents | No | The agent receives in its own process and the kernel has no control channel into it |
+| Roster agent application containers | No | The agent receives in its own process and is not an attached controller-process endpoint |
 
-Naming a receiver the kernel cannot reach fails instead of silently shaping
-nothing: `LinkController` verbs return a `NetworkFailure` when `to` is not an
-in-process receiver. A custom `defineRuntime` implementation is shapeable
-exactly when it acquires the `interceptInbound` stage offered in its runtime
-input and applies it to the stream it hands its agent.
+Naming a receiver the link fabric cannot reach fails instead of silently
+shaping nothing: `LinkController` verbs return `NetworkError` when `to` is not
+an attached experiment endpoint.
 
 The router commits every message whatever the policy says. A dropped delivery
 is committed and never observed, so the ledger holds its
 `RouterMessageCommitted` with no matching `EndpointMessageReceived` for an
-endpoint receiver, and an agent receiver simply never acts on it. Read the
-pair of events, never either one alone.
+endpoint receiver. Read the pair of events, never either one alone.
 
 ## One run-owned lifecycle
 
