@@ -69,9 +69,10 @@ requires its own decision.
 
 Decode is strict: unknown fields and malformed entries fail rather than
 being ignored. An existing three-field `config.json` therefore fails to
-load. This is accepted without a shim, a migration, or a release note,
-because the product is pre-launch and the two shapes are mutually
-undecodable — a coexistence period is not available to be chosen.
+load. This is accepted without a compatibility shim or automated
+migration because the product is pre-launch and the two shapes are
+mutually undecodable — a coexistence period is not available to be
+chosen. Release notes tell operators how to rewrite the file.
 
 ## Consequences
 
@@ -94,4 +95,5 @@ alters the outcome is a supersession, not a row here.
 
 | Date | Change |
 |---|---|
+| 2026-08-11 | Reconciled the compatibility wording with the checked-in release note. Strict decoding, no shim, and no automated migration remain unchanged. |
 | 2026-08-05 | Cite the harness-client record as a plain filename rather than a link. No other ADR body hyperlinks a sibling, and the docs site resolves links as routes rather than paths, so the linked form was the tree's one broken link. |
