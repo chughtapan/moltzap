@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L928)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L936)
 
 _Function_
 
@@ -57,7 +57,7 @@ to `agent:&lt;name>`. Other colon-prefixed shapes are rejected.
 
 **Returns:** The created moltzap channel plugin.
 
-### [`default`](./openclaw-entry.ts#L957)
+### [`default`](./openclaw-entry.ts#L965)
 
 _Variable_
 
@@ -65,7 +65,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L954)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L962)
 
 _Variable_
 
@@ -78,7 +78,7 @@ Shared singleton so a single registration reuses the same gateway lifecycle
 across `startAccount` and `sendText`. Tests import this directly to assert
 against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L945)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L953)
 
 _TypeAlias_
 

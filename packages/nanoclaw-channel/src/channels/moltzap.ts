@@ -186,6 +186,12 @@ export class MoltZapAdapter implements ChannelAdapter {
   >(MAX_TRACKED_CONVERSATIONS);
   private readonly acquireClient: HarnessClientAcquisition;
   private readonly evalMode: boolean;
+  // The host may overlap lifecycle calls. Holding this permit through client
+  // acquisition and scope closure ensures teardown observes pending setup,
+  // and concurrent setup calls share the same acquired client.
+  private readonly lifecycleTransition = Effect.runSync(
+    Effect.makeSemaphore(1),
+  );
   private ownAgentId = "";
   private harnessScope: Scope.CloseableScope | null = null;
   private harnessDrainFiber: Fiber.RuntimeFiber<void> | null = null;
@@ -219,12 +225,16 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   setup(config: ChannelSetup) {
-    this.setupConfig = config;
     return Effect.runPromise(
-      this.connect().pipe(
-        Effect.tap(() =>
-          Effect.logInfo("MoltZap connected").pipe(
-            Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
+      this.lifecycleTransition.withPermits(1)(
+        Effect.sync(() => {
+          this.setupConfig = config;
+        }).pipe(
+          Effect.zipRight(this.connect()),
+          Effect.tap(() =>
+            Effect.logInfo("MoltZap connected").pipe(
+              Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
+            ),
           ),
         ),
       ),
@@ -232,7 +242,9 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   teardown() {
-    return Effect.runPromise(this.disconnect());
+    return Effect.runPromise(
+      this.lifecycleTransition.withPermits(1)(this.disconnect()),
+    );
   }
 
   isConnected(): boolean {

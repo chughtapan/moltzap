@@ -1,6 +1,6 @@
 import { describe, expect, it as vitestIt, vi } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Data, Deferred, Effect, Either, Queue, Stream } from "effect";
+import { Data, Deferred, Effect, Either, Fiber, Queue, Stream } from "effect";
 import type {
   HarnessClientService,
   HarnessTurn,
@@ -473,12 +473,77 @@ function setupWhileConnectedDoesNotReacquire() {
   );
 }
 
+async function concurrentSetupsSharePendingAcquisition() {
+  const acquisitionStarted = Effect.runSync(Deferred.make<undefined>());
+  const resumeAcquisition = Effect.runSync(Deferred.make<undefined>());
+  let acquisitionAttempts = 0;
+  const harness = createHarness({
+    acquire: (client, counts) =>
+      Effect.sync(() => {
+        acquisitionAttempts += 1;
+      }).pipe(
+        Effect.zipRight(Deferred.succeed(acquisitionStarted, undefined)),
+        Effect.zipRight(Deferred.await(resumeAcquisition)),
+        Effect.zipRight(countedAcquisition(client, counts)),
+      ),
+  });
+
+  const firstSetup = harness.adapter.setup(harness.config);
+  await Effect.runPromise(Deferred.await(acquisitionStarted));
+  const secondSetup = harness.adapter.setup(harness.config);
+  await Promise.resolve();
+  const attemptsWhilePending = acquisitionAttempts;
+
+  Effect.runSync(Deferred.succeed(resumeAcquisition, undefined));
+  await Promise.all([firstSetup, secondSetup]);
+
+  expect(attemptsWhilePending).toBe(1);
+  expect(harness.counts.acquired).toBe(1);
+  expect(harness.adapter.isConnected()).toBe(true);
+
+  await harness.adapter.teardown();
+  expect(harness.counts.released).toBe(1);
+}
+
 function teardownClosesTheAdapterOwnedScope() {
   const harness = createHarness();
   return Effect.gen(function* () {
     yield* setup(harness);
     expect(harness.counts.released).toBe(0);
     yield* teardown(harness);
+    expect(harness.counts.released).toBe(1);
+    expect(harness.adapter.isConnected()).toBe(false);
+  });
+}
+
+function teardownWaitsForPendingAcquisition() {
+  const acquisitionStarted = Effect.runSync(Deferred.make<undefined>());
+  const resumeAcquisition = Effect.runSync(Deferred.make<undefined>());
+  const teardownReturned = Effect.runSync(Deferred.make<undefined>());
+  const harness = createHarness({
+    acquire: (client, counts) =>
+      Deferred.succeed(acquisitionStarted, undefined).pipe(
+        Effect.zipRight(Deferred.await(resumeAcquisition)),
+        Effect.zipRight(countedAcquisition(client, counts)),
+      ),
+  });
+  return Effect.gen(function* () {
+    const setupFiber = yield* setup(harness).pipe(Effect.fork);
+    yield* Deferred.await(acquisitionStarted);
+    const teardownFiber = yield* teardown(harness).pipe(
+      Effect.ensuring(Deferred.succeed(teardownReturned, undefined)),
+      Effect.fork,
+    );
+
+    yield* Effect.yieldNow();
+    const returnedWhileAcquiring = yield* Deferred.isDone(teardownReturned);
+
+    yield* Deferred.succeed(resumeAcquisition, undefined);
+    yield* Fiber.join(setupFiber);
+    yield* Fiber.join(teardownFiber);
+
+    expect(returnedWhileAcquiring).toBe(false);
+    expect(harness.counts.acquired).toBe(1);
     expect(harness.counts.released).toBe(1);
     expect(harness.adapter.isConnected()).toBe(false);
   });
@@ -1060,9 +1125,17 @@ describe("MoltZapAdapter lifecycle", () => {
     "setup while connected does not reacquire the client",
     setupWhileConnectedDoesNotReacquire,
   );
+  vitestIt(
+    "concurrent setup calls share a pending client acquisition",
+    concurrentSetupsSharePendingAcquisition,
+  );
   it(
     "teardown closes the adapter-owned client scope",
     teardownClosesTheAdapterOwnedScope,
+  );
+  it(
+    "teardown waits for a pending acquisition and closes it",
+    teardownWaitsForPendingAcquisition,
   );
   it(
     "setup after teardown acquires a fresh client and drains it",
