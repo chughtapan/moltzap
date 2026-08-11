@@ -210,6 +210,7 @@ const packageDefinitions = {
   },
   "nanoclaw-channel": {
     beforeShared: {
+      folderReadmeFileNames: ["README.md", "MODULE.md"],
       sharedFolderNames: [
         {
           folder: "db",
