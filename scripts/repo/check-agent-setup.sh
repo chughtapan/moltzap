@@ -15,6 +15,20 @@
 #
 # Exits 0 when every required item is present, 1 otherwise. Advisory items
 # print a note and never change the exit code.
+#
+# Two probes are deliberately absent. /simplify ships with the harness and has
+# no SKILL.md on disk, so testing for one would report a permanent false
+# absence. codex quota is not probed either: a rate-limited codex fails exactly
+# like a missing one, quietly, but detecting it costs a request per session.
+#
+# gbrain carries the decision-evidence corpus, so provenance verification and
+# the blind gate's source-event question both resolve against it. An absent
+# brain is not a degraded experience, it is an unanswerable question.
+#
+# Hook freshness is advisory. .husky/pre-commit is tracked, so every branch
+# carries its own copy and a fix on main reaches nobody until they merge; this
+# repo has had 70 worktrees on a stale 165s hook at once. A branch may differ
+# on purpose.
 
 set -uo pipefail
 
@@ -47,9 +61,6 @@ fi
 command -v pnpm >/dev/null 2>&1 && ok "pnpm" "$(pnpm --version)" || gone "pnpm" "not on PATH — see packageManager in package.json"
 
 # ── review path ─────────────────────────────────────────────────────────────
-# Only file-backed skills can be probed. /simplify ships with the harness and
-# has no SKILL.md on disk, so testing for one would report a permanent false
-# absence. Its presence is the harness's problem, not this repo's.
 for skill in plan-eng-review review ship land-and-deploy codex; do
   if [ -f "$HOME/.claude/skills/$skill/SKILL.md" ]; then
     ok "/$skill" ""
@@ -58,10 +69,6 @@ for skill in plan-eng-review review ship land-and-deploy codex; do
   fi
 done
 
-# codex backs /review's always-on adversarial pass and /plan-eng-review's
-# outside voice. Installed is checkable; having quota is not, and a rate-limited
-# codex fails the same way a missing one does — quietly, one model instead of
-# two.
 if command -v codex >/dev/null 2>&1; then
   ok "codex" "$(codex --version 2>/dev/null | head -1)"
   note "codex quota" "not probed — a rate-limited codex degrades review silently"
@@ -69,10 +76,17 @@ else
   gone "codex" "not on PATH — /review falls back to a single model"
 fi
 
+if command -v gbrain >/dev/null 2>&1; then
+  if gbrain doctor --json >/dev/null 2>&1; then
+    ok "gbrain" "$(gbrain --version 2>/dev/null | head -1)"
+  else
+    gone "gbrain" "installed but not reachable — run 'gbrain doctor' for the engine error"
+  fi
+else
+  gone "gbrain" "not on PATH — run /setup-gbrain; provenance and the blind gate resolve against it"
+fi
+
 # ── hook freshness ──────────────────────────────────────────────────────────
-# .husky/pre-commit is tracked, so every branch carries its own copy and a fix
-# on main reaches nobody until they merge. This repo has had 70 worktrees on a
-# stale 165s hook at once. Advisory: a branch may differ on purpose.
 if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
   local_hook=$(git hash-object .husky/pre-commit 2>/dev/null || echo none)
   main_hook=$(git rev-parse "origin/main:.husky/pre-commit" 2>/dev/null || echo none)

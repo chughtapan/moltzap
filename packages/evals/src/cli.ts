@@ -4,11 +4,13 @@
 import { Command as CliCommand, Options } from "@effect/cli";
 import { Command, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
+import { isEntryModule, type CompletedLedgerReceipt } from "@moltzap/simulator";
 import {
-  simulatorLayer,
-  type CompletedLedgerReceipt,
-} from "@moltzap/simulator";
-import { DateTime, Duration, Either, Effect, Option, Schema } from "effect";
+  LedgerStorageError,
+  type CompletedLedgerArtifacts,
+} from "@moltzap/simulator/ledger";
+import { image, type Image } from "@moltzap/simulator/agents";
+import { Config, DateTime, Duration, Effect, Option, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import {
   evaluationCase,
@@ -17,13 +19,23 @@ import {
   type EvaluationCaseMetadata,
 } from "./cases.js";
 import {
-  behavioralEvaluation,
   EvaluationExecutionFailed,
   nanoclawEvaluationCondition,
+  openEvaluationLedger,
   openClawEvaluationCondition,
+  projectEvaluationControllerResult,
   type EvaluationCondition,
   type EvaluationExecutionResult,
 } from "./execution.js";
+import {
+  evaluationArtifactBucket,
+  evaluationArtifactLocation,
+  localArtifactRoot,
+  readEvaluationLedgerArtifacts,
+  type ArtifactBucket,
+  type EvaluationArtifactStorage,
+  type LocalArtifactRoot,
+} from "./artifacts.js";
 import {
   GradeCompleted,
   GradingRefused,
@@ -35,7 +47,12 @@ import {
   transcriptFromLedger,
   type EvaluationTranscript,
 } from "./grading.js";
-import { decodeJudgePolicyId, type JudgePolicyId } from "./model.js";
+import {
+  decodeJudgePolicyId,
+  type EvaluationConditionId,
+  type EvaluationConditionName,
+  type JudgePolicyId,
+} from "./model.js";
 import { PhoenixPublisher, phoenixPublisherLive } from "./phoenix.js";
 import {
   createStoredEvaluationReport,
@@ -50,26 +67,32 @@ import {
   EvaluationCasePlan,
   EvaluationConditionPlan,
   EvaluationReportPlan,
+  GkeEvaluationInfrastructure,
   EvidenceRejectedAttempt,
   JudgePolicySnapshot,
   LedgerAllocationFailedAttempt,
+  LocalEvaluationInfrastructure,
   RunFailedAttempt,
   decodeEvaluationReportId,
   ensureSweepOperationallyComplete,
   evaluationReportId,
   makeAssessedAttempt,
   makeJudgingUnavailableAttempt,
+  type EvaluationInfrastructure,
   type EvaluationReportId,
   type EvaluationSweepCell,
-  type TerminalAttempt,
 } from "./sweep.js";
+import {
+  submissionDiagnostic,
+  submitEvaluationCell,
+  type EvaluationSubmissionResult,
+  type SimulatorProfile,
+} from "./submission.js";
 
 const CLI_VERSION = "0.0.0";
 const RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
-const ROUTER_STARTUP_TIMEOUT = Duration.minutes(10);
 const PEER_OBSERVATION_TIMEOUT = Duration.minutes(5);
 const CASE_TIMEOUT = Duration.minutes(20);
-const LEDGER_DIRECTORY = [".moltzap", "evals", "ledgers"] as const;
 const JUDGE_POLICY: JudgePolicyId = decodeJudgePolicyId(
   "openai-gpt-5.6-sol/v1",
 );
@@ -101,9 +124,47 @@ class SemanticJudgeCalibrationFailed extends Schema.TaggedError<SemanticJudgeCal
 interface RuntimeOptions {
   readonly openclawModel: string;
   readonly nanoclawModel: string;
+  readonly profile: SimulatorProfile;
 }
 
-interface AttemptContext {
+interface CommonExecutionEnvironment {
+  readonly workspaceRoot: string;
+  readonly peerApplicationImage: Image;
+  readonly nanoclawApplicationImage: Image;
+  readonly controllerImage: Image;
+  readonly temporalAddress: string;
+  readonly models: Readonly<{
+    readonly openclaw: string;
+    readonly nanoclaw: string;
+  }>;
+}
+
+interface LocalExecutionEnvironment extends CommonExecutionEnvironment {
+  readonly profile: "local";
+  readonly localArtifacts: LocalArtifactRoot;
+}
+
+interface GkeExecutionEnvironment extends CommonExecutionEnvironment {
+  readonly profile: "gke";
+  readonly kubeContext: string;
+  readonly gkeArtifactBucket: ArtifactBucket;
+}
+
+// Each profile carries exactly the target it needs. One flat record with
+// optional fields would let a plan be built for a profile whose artifact target
+// was never resolved, and the only place to catch that is a runtime throw.
+type EvaluationExecutionEnvironment =
+  | LocalExecutionEnvironment
+  | GkeExecutionEnvironment;
+
+interface EvaluationExecutionImages {
+  readonly controllerImage: Image;
+  readonly peerApplicationImage: Image;
+  readonly nanoclawApplicationImage: Image;
+}
+
+/** One cell's identity while its attempt is being produced. */
+export interface AttemptContext {
   readonly cell: EvaluationSweepCell;
   readonly definition: BundledEvaluationCase;
   readonly startedAt: DateTime.Utc;
@@ -184,6 +245,7 @@ const exactSourceRevision = Effect.fn("evals.exactSourceRevision")(
 
 function evaluationConditions(
   options: RuntimeOptions,
+  nanoclawApplicationImage: Image,
 ): readonly [EvaluationCondition, EvaluationCondition] {
   const execution = {
     peerObservationTimeout: PEER_OBSERVATION_TIMEOUT,
@@ -192,7 +254,6 @@ function evaluationConditions(
   return [
     openClawEvaluationCondition({
       runtime: {
-        installMode: "workspace",
         startupTimeout: RUNTIME_STARTUP_TIMEOUT,
         modelId: options.openclawModel,
       },
@@ -200,7 +261,7 @@ function evaluationConditions(
     }),
     nanoclawEvaluationCondition({
       runtime: {
-        installMode: "workspace",
+        applicationImage: nanoclawApplicationImage,
         autoRegisterConversations: true,
         startupTimeout: RUNTIME_STARTUP_TIMEOUT,
         modelId: options.nanoclawModel,
@@ -249,9 +310,33 @@ function conditionPlan(
   });
 }
 
+function planInfrastructure(
+  environment: EvaluationExecutionEnvironment,
+): EvaluationInfrastructure {
+  const shared = {
+    controllerImage: environment.controllerImage,
+    peerApplicationImage: environment.peerApplicationImage,
+    nanoclawApplicationImage: environment.nanoclawApplicationImage,
+    temporalAddress: environment.temporalAddress,
+  };
+  return environment.profile === "local"
+    ? LocalEvaluationInfrastructure.make({
+        ...shared,
+        profile: environment.profile,
+        artifactDirectory: environment.localArtifacts,
+      })
+    : GkeEvaluationInfrastructure.make({
+        ...shared,
+        profile: environment.profile,
+        kubeContext: environment.kubeContext,
+        artifactBucket: environment.gkeArtifactBucket,
+      });
+}
+
 function reportPlan(
   sourceRevision: string,
   conditions: NonEmptyReadonlyArray<EvaluationCondition>,
+  environment: EvaluationExecutionEnvironment,
 ): EvaluationReportPlan {
   const [firstCase, ...remainingCases] = evaluationCases;
   const [firstCondition, ...remainingConditions] = conditions;
@@ -263,6 +348,7 @@ function reportPlan(
       ...remainingConditions.map(conditionPlan),
     ],
     judgePolicy: judgePolicySnapshot(),
+    infrastructure: planInfrastructure(environment),
     samplesPerCell: 1,
   });
 }
@@ -358,8 +444,13 @@ function persistGrade(
 function assessExecution(
   context: AttemptContext,
   receipt: CompletedLedgerReceipt,
+  artifacts: CompletedLedgerArtifacts,
 ) {
-  return behavioralEvaluation.openLedger(receipt.ledger).pipe(
+  return openEvaluationLedger(
+    context.definition,
+    receipt.ledger,
+    artifacts,
+  ).pipe(
     Effect.flatMap((ledger) =>
       transcriptFromLedger(ledger, context.definition),
     ),
@@ -380,6 +471,7 @@ function assessExecution(
 function completeExecution(
   context: AttemptContext,
   outcome: EvaluationExecutionResult,
+  artifacts: CompletedLedgerArtifacts,
 ) {
   return Effect.gen(function* () {
     if (outcome instanceof EvaluationExecutionFailed) {
@@ -389,11 +481,162 @@ function completeExecution(
         detail: outcome.detail,
       });
     }
-    return yield* assessExecution(context, outcome.receipt);
+    return yield* assessExecution(context, outcome.receipt, artifacts);
   });
 }
 
+/** Summary of a submission that never reached a gradeable run. */
+type InfrastructureSummary = Exclude<
+  EvaluationSubmissionResult["result"]["summary"],
+  { readonly _tag: "ProgramFinished" }
+>;
+
+// A run that never got a ledger and a run that lost its cluster are different
+// operator problems, and this text is all that says which happened when the
+// controller left no account of its own.
+const INFRASTRUCTURE_FAILED_DETAIL: Readonly<
+  Record<InfrastructureSummary["_tag"], string>
+> = {
+  LedgerAllocationFailed:
+    "the simulator controller could not allocate its durable ledger",
+  ClusterLost: "the simulator controller reported an infrastructure failure",
+};
+
+/**
+ * Record an infrastructure failure, with whatever account the run left.
+ * @param context Cell identity and the instant execution began.
+ * @param summary Terminal summary the controller printed for this cell.
+ * @param diagnostic The controller's own account, when it produced one.
+ * @returns The terminal attempt this cell commits.
+ */
+export function infrastructureFailed(
+  context: AttemptContext,
+  summary: InfrastructureSummary,
+  diagnostic?: string,
+) {
+  return DateTime.now.pipe(
+    Effect.map((completedAt) => {
+      const detail = diagnostic ?? INFRASTRUCTURE_FAILED_DETAIL[summary._tag];
+      const fields = terminalFields(context, completedAt);
+      return summary._tag === "LedgerAllocationFailed"
+        ? LedgerAllocationFailedAttempt.make({
+            ...fields,
+            failure: LedgerStorageError.make({ operation: "allocate", detail }),
+          })
+        : RunFailedAttempt.make({
+            ...fields,
+            receipt: summary.receipt,
+            detail,
+          });
+    }),
+  );
+}
+
+function artifactStorage(
+  environment: EvaluationExecutionEnvironment,
+): EvaluationArtifactStorage {
+  return environment.profile === "local"
+    ? { profile: environment.profile, root: environment.localArtifacts }
+    : { profile: environment.profile, bucket: environment.gkeArtifactBucket };
+}
+
+function readCompletedArtifacts(
+  environment: EvaluationExecutionEnvironment,
+  context: AttemptContext,
+  namespace: string,
+  receipt: CompletedLedgerReceipt,
+) {
+  return Option.match(
+    evaluationArtifactLocation(
+      artifactStorage(environment),
+      namespace,
+      receipt.ledger,
+    ),
+    {
+      onNone: () =>
+        rejectEvidence(
+          context,
+          receipt,
+          "the controller ledger ref is not one artifact path segment",
+        ),
+      onSome: (location) =>
+        readEvaluationLedgerArtifacts(location).pipe(
+          Effect.matchEffect({
+            onFailure: (failure) =>
+              rejectEvidence(context, receipt, describeUnknown(failure)),
+            onSuccess: (artifacts) =>
+              projectEvaluationControllerResult(
+                context.definition,
+                receipt,
+                artifacts,
+              ).pipe(
+                Effect.matchEffect({
+                  onFailure: (failure) =>
+                    rejectEvidence(context, receipt, describeUnknown(failure)),
+                  onSuccess: (outcome) =>
+                    completeExecution(context, outcome, artifacts),
+                }),
+              ),
+          }),
+        ),
+    },
+  );
+}
+
+function completeSubmission(
+  environment: EvaluationExecutionEnvironment,
+  context: AttemptContext,
+  submission: EvaluationSubmissionResult,
+) {
+  const summary = submission.result.summary;
+  return summary._tag === "ProgramFinished"
+    ? readCompletedArtifacts(
+        environment,
+        context,
+        submission.namespace,
+        summary.receipt,
+      )
+    : infrastructureFailed(context, summary, submissionDiagnostic(submission));
+}
+
+function conditionModelId(
+  models: CommonExecutionEnvironment["models"],
+  condition: EvaluationConditionId,
+): string {
+  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
+    "openclaw/v2": models.openclaw,
+    "nanoclaw/v2": models.nanoclaw,
+  };
+  // Indexing needs the plain spelling; the brand is not part of the key set.
+  const name: EvaluationConditionName = condition;
+  return byCondition[name];
+}
+
+function submissionInput(
+  environment: EvaluationExecutionEnvironment,
+  context: AttemptContext,
+  condition: EvaluationCondition,
+) {
+  return {
+    workspaceRoot: environment.workspaceRoot,
+    profile: environment.profile,
+    caseId: context.definition.id,
+    definitionId: context.definition.definitionId,
+    attemptId: context.cell.attemptId,
+    condition: {
+      id: condition.id,
+      modelId: conditionModelId(environment.models, condition.id),
+    },
+    peerApplicationImage: environment.peerApplicationImage,
+    nanoclawApplicationImage: environment.nanoclawApplicationImage,
+    runtimeStartupTimeoutMillis: Duration.toMillis(RUNTIME_STARTUP_TIMEOUT),
+    peerObservationTimeoutMillis: Duration.toMillis(PEER_OBSERVATION_TIMEOUT),
+    caseTimeoutMillis: Duration.toMillis(CASE_TIMEOUT),
+  } as const;
+}
+
 function executeCell(
+  environment: EvaluationExecutionEnvironment,
   conditions: readonly EvaluationCondition[],
   cell: EvaluationSweepCell,
 ) {
@@ -405,28 +648,10 @@ function executeCell(
       definition,
       startedAt: yield* DateTime.now,
     };
-    const execution = yield* definition
-      .withDefinition({
-        execute: (exact) =>
-          condition.execute(exact, { attemptId: cell.attemptId }),
-      })
-      .pipe(Effect.either);
-    return yield* Either.match(execution, {
-      onLeft: (failure) =>
-        DateTime.now.pipe(
-          Effect.map(
-            (completedAt): TerminalAttempt =>
-              LedgerAllocationFailedAttempt.make({
-                ...terminalFields(context, completedAt),
-                failure,
-              }),
-          ),
-        ),
-      onRight: (outcome) =>
-        completeExecution(context, outcome).pipe(
-          Effect.map((attempt): TerminalAttempt => attempt),
-        ),
-    });
+    const submission = yield* submitEvaluationCell(
+      submissionInput(environment, context, condition),
+    );
+    return yield* completeSubmission(environment, context, submission);
   }).pipe(Effect.withSpan("evals.executeCell"));
 }
 
@@ -448,21 +673,13 @@ function reportIdNow() {
   );
 }
 
-function simulatorPlatform(ledgerDirectory: string) {
-  return simulatorLayer({
-    ledgerDirectory,
-    router: { startupTimeout: ROUTER_STARTUP_TIMEOUT },
-  });
-}
-
 function executeReport(
-  ledgerDirectory: string,
+  environment: EvaluationExecutionEnvironment,
   conditions: readonly EvaluationCondition[],
 ) {
-  return runEvaluationSweep((cell) => executeCell(conditions, cell)).pipe(
-    Effect.provide(SemanticJudgeOpenAi),
-    Effect.provide(simulatorPlatform(ledgerDirectory)),
-  );
+  return runEvaluationSweep((cell) =>
+    executeCell(environment, conditions, cell),
+  ).pipe(Effect.provide(SemanticJudgeOpenAi));
 }
 
 function logReport(report: CompletedEvaluationReport, path: string) {
@@ -487,10 +704,168 @@ const nanoclawModelOption = Options.text("nanoclaw-model").pipe(
   Options.withSchema(Schema.NonEmptyString),
   Options.withDescription("Exact NanoClaw model ID."),
 );
+const profileOption = Options.text("profile").pipe(
+  Options.withSchema(Schema.Literal("local", "gke")),
+  Options.withDefault("local"),
+  Options.withDescription("Repository-owned Kubernetes execution profile."),
+);
 const runtimeOptions = {
   openclawModel: openclawModelOption,
   nanoclawModel: nanoclawModelOption,
+  profile: profileOption,
 } as const;
+
+function requiredEnvironment(key: string) {
+  return Config.string(key).pipe(
+    Effect.mapError(() =>
+      EvaluationSourceStateError.make({
+        detail: `${key} is required for evaluation execution`,
+      }),
+    ),
+  );
+}
+
+const CONTROLLER_IMAGE_PRODUCER =
+  "packages/simulator/scripts/build-controller-image.mjs";
+
+// Nothing else in the repository produces these references, so a missing one is
+// an operator who has not run the producer yet rather than one who forgot to
+// export a value they already had. Naming the producer is the whole remedy.
+const imageProducer = {
+  MOLTZAP_CONTROLLER_IMAGE: CONTROLLER_IMAGE_PRODUCER,
+  MOLTZAP_SUPPORT_IMAGE: CONTROLLER_IMAGE_PRODUCER,
+  MOLTZAP_NANOCLAW_IMAGE: "packages/simulator/scripts/build-nanoclaw-image.mjs",
+} as const;
+
+/** Environment key naming one digest-pinned image an evaluation run needs. */
+export type EvaluationImageKey = keyof typeof imageProducer;
+
+/**
+ * Say which producer builds an evaluation image the environment omitted.
+ * @param key Environment key the run could not read.
+ * @returns The operator-facing requirement, naming the producing script.
+ */
+export function missingImageDetail(key: EvaluationImageKey): string {
+  return `${key} is required for evaluation execution; build it with ${imageProducer[key]} and pass the printed pinnedImage`;
+}
+
+/**
+ * Say which producer prints the pinned form of a rejected evaluation image.
+ * @param key Environment key whose value was not digest-pinned.
+ * @returns The operator-facing requirement, naming the producing script.
+ */
+export function invalidImageDetail(key: EvaluationImageKey): string {
+  return `${key} must be a lowercase SHA-256 digest-pinned image; ${imageProducer[key]} prints one as pinnedImage`;
+}
+
+function distributedApplicationImage(
+  key: EvaluationImageKey,
+  value: string,
+): Effect.Effect<Image, EvaluationSourceStateError> {
+  return Schema.decodeUnknown(image)(value).pipe(
+    Effect.mapError(() =>
+      EvaluationSourceStateError.make({ detail: invalidImageDetail(key) }),
+    ),
+  );
+}
+
+function requiredImage(key: EvaluationImageKey) {
+  return Config.string(key).pipe(
+    Effect.mapError(() =>
+      EvaluationSourceStateError.make({ detail: missingImageDetail(key) }),
+    ),
+    Effect.flatMap((value: string) => distributedApplicationImage(key, value)),
+  );
+}
+
+function executionImages() {
+  return Effect.all({
+    controllerImage: requiredImage("MOLTZAP_CONTROLLER_IMAGE"),
+    peerApplicationImage: requiredImage("MOLTZAP_SUPPORT_IMAGE"),
+    nanoclawApplicationImage: requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
+  });
+}
+
+function requiredArtifactTarget<Target>(
+  key: "MOLTZAP_LOCAL_ARTIFACTS" | "MOLTZAP_GKE_ARTIFACT_BUCKET",
+  requirement: string,
+  accept: (value: string) => Option.Option<Target>,
+) {
+  return requiredEnvironment(key).pipe(
+    Effect.flatMap((value) =>
+      Option.match(accept(value), {
+        onNone: () =>
+          Effect.fail(
+            EvaluationSourceStateError.make({
+              detail: `${key} must be ${requirement}`,
+            }),
+          ),
+        onSome: Effect.succeed,
+      }),
+    ),
+  );
+}
+
+function localArtifactDirectory(path: Path.Path) {
+  return requiredArtifactTarget(
+    "MOLTZAP_LOCAL_ARTIFACTS",
+    "an absolute path",
+    (value) => localArtifactRoot(path, value),
+  );
+}
+
+function gkeArtifactBucket() {
+  return requiredArtifactTarget(
+    "MOLTZAP_GKE_ARTIFACT_BUCKET",
+    "a valid Cloud Storage bucket name",
+    evaluationArtifactBucket,
+  );
+}
+
+function commonEnvironment(
+  root: string,
+  options: RuntimeOptions,
+  images: EvaluationExecutionImages,
+) {
+  return {
+    workspaceRoot: root,
+    ...images,
+    models: {
+      openclaw: options.openclawModel,
+      nanoclaw: options.nanoclawModel,
+    },
+  } as const;
+}
+
+function executionEnvironment(
+  root: string,
+  options: RuntimeOptions,
+): Effect.Effect<
+  EvaluationExecutionEnvironment,
+  EvaluationSourceStateError,
+  Path.Path
+> {
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const common = {
+      ...commonEnvironment(root, options, yield* executionImages()),
+      temporalAddress: yield* requiredEnvironment("MOLTZAP_TEMPORAL_ADDRESS"),
+    };
+    if (options.profile === "local") {
+      return {
+        ...common,
+        profile: options.profile,
+        localArtifacts: yield* localArtifactDirectory(path),
+      };
+    }
+    return {
+      ...common,
+      profile: options.profile,
+      kubeContext: yield* requiredEnvironment("MOLTZAP_KUBE_CONTEXT"),
+      gkeArtifactBucket: yield* gkeArtifactBucket(),
+    };
+  });
+}
 
 function runOrResume(
   mode: "run" | "resume",
@@ -500,21 +875,23 @@ function runOrResume(
   return Effect.gen(function* () {
     const root = yield* workspaceRoot();
     const sourceRevision = yield* exactSourceRevision();
-    const conditions = evaluationConditions(options);
-    const plan = reportPlan(sourceRevision, conditions);
+    const environment = yield* executionEnvironment(root, options);
+    const conditions = evaluationConditions(
+      options,
+      environment.nanoclawApplicationImage,
+    );
+    const plan = reportPlan(sourceRevision, conditions, environment);
     const resolvedId = Option.isSome(reportId)
       ? reportId.value
       : yield* reportIdNow();
     const databasePath = yield* reportLocation(root, resolvedId);
-    const path = yield* Path.Path;
-    const ledgerDirectory = path.join(root, ...LEDGER_DIRECTORY);
     return yield* Effect.gen(function* () {
       if (mode === "run") {
         yield* createStoredEvaluationReport(resolvedId, plan);
       } else {
         yield* resumeStoredEvaluationReport(plan);
       }
-      const completed = yield* executeReport(ledgerDirectory, conditions);
+      const completed = yield* executeReport(environment, conditions);
       yield* logReport(completed, databasePath);
       return yield* ensureSweepOperationallyComplete(completed);
     }).pipe(Effect.provide(evaluationResultStoreLayer(databasePath)));
@@ -616,5 +993,13 @@ const cli = CliCommand.run(evaluationCommand, {
   version: CLI_VERSION,
 });
 
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli owns argv decoding at the process boundary.
-cli(process.argv).pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
+// Guarded so this module can be imported: without it, reading any value here
+// runs the CLI against the importer's argv.
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
+if (isEntryModule(import.meta.url, process.argv[1])) {
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli owns argv decoding at the process boundary.
+  cli(process.argv).pipe(
+    Effect.provide(NodeContext.layer),
+    NodeRuntime.runMain,
+  );
+}

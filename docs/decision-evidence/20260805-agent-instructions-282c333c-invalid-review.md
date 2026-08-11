@@ -18,7 +18,7 @@ invalidated run is evidence. The candidate was **not** faulted; see below.
 The reviewer ran two repo-wide greps early in navigation without excluding
 `*-cold-review.md` and `*-invalid-review.md`. They returned content lines from
 `20260728-gate-1-8a58b135-cold-review.md` and
-`20260728-gate-1-post-merge-invalid-review-attempts.md`, one of which was
+`20260728-gate-1-post-merge-invalid-review.md`, one of which was
 reviewer answer prose.
 
 It disclosed this and stopped, rather than judging its own contamination

@@ -34,7 +34,7 @@ import {
   type TerminalAttempt as TerminalAttemptType,
 } from "./sweep.js";
 
-const REPORT_FORMAT_VERSION = 2;
+const REPORT_FORMAT_VERSION = 3;
 const RESULT_DIRECTORY_MODE = 0o700;
 const RESULT_FILE_MODE = 0o600;
 const EMPTY_DATABASE = new Uint8Array();

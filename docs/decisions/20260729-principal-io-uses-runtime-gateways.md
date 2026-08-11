@@ -1,13 +1,41 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-29
 decision-makers: Tapan Chugh
+superseded-by: 20260801-main-simulator-runs-container-societies-on-kubernetes.md
 ---
 
 # Principal I/O uses runtime-native gateways
 
 Decision provenance: [stored principal-gateway
 trajectory](../decision-evidence/20260729-principal-runtime-gateway-trajectory.md#principal-io-uses-each-runtime-gateway).
+
+## Supersession
+
+The following scope remains current: principal control uses each runtime's
+exact native gateway; MoltZap carries agent-produced social traffic; code and
+process agents receive no social shortcut; the simulator defines no universal
+gateway union, command language, correlation model, or gateway semantics;
+gateway and router evidence remain distinct; runtime termination remains
+evidence interpreted by customer policy; and the behavioral-evaluation
+contract below remains current.
+
+[`20260801-main-simulator-runs-container-societies-on-kubernetes.md`](./20260801-main-simulator-runs-container-societies-on-kubernetes.md)
+replaces only the host-bound acquisition and code-peer realization on the
+current main simulator path. `AgentRuntime.acquire` and
+`effectRuntime({ build })` closures with shared in-process gateway/behavior
+state are transitional host implementations, not the Kubernetes runtime
+boundary. Each current runtime instead owns a container entrypoint and a
+runtime-specific controller bridge that returns the same exact gateway and
+termination shape after readiness. Code-peer policy runs inside its own agent
+container. Arbitrary Effect values are not serialized, and the replacement
+does not introduce a generic cross-runtime proxy protocol.
+
+Historical statements below that require an in-process Effect API or shared
+scoped state describe the replaced host implementation. The current
+distributed runtime contract lives in the replacement record; all other
+gateway, evidence, evaluation, and v2 boundaries in this record remain
+current.
 
 Scope: this record governs the Phase 1 source baseline in
 `packages/simulator`, the private `packages/evals` application, and the

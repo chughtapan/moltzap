@@ -45,6 +45,8 @@
     "packages/evals": {
       "entry": [
         "src/cli.ts",
+        "src/execution.ts",
+        "src/peer-application.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts"
       ],
@@ -52,8 +54,12 @@
     },
     "packages/simulator": {
       "entry": [
+        "src/cluster/controller/services.ts",
+        "src/cluster/controller/main.ts",
+        "src/cluster/profiles/gke.ts",
+        "src/cluster/profiles/local.ts",
+        "src/cluster/temporal.ts",
         "src/**/*.test.ts",
-        "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
