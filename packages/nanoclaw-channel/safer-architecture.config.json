@@ -1,4 +1,8 @@
 {
+  "folderReadmeFileNames": [
+    "README.md",
+    "MODULE.md"
+  ],
   "sharedFolderNames": [
     {
       "folder": "db",
