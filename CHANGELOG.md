@@ -57,6 +57,19 @@ If the client advances a checkpoint and then dies before your runtime sees
 that turn, that context is lost to presentation. There is no acknowledgment
 and no replay.
 
+### Changed: durable message order is database-owned
+
+`messages.seq` is now a PostgreSQL `BIGINT GENERATED ALWAYS AS IDENTITY`.
+Every production insert locks its conversation row in the same transaction
+before the database allocates that sequence. Same-conversation allocation
+therefore follows commit or rollback order across restarts and multiple server
+processes, so a checkpoint cannot advance past a lower sequence that may still
+commit later. Different conversations remain concurrent.
+
+This is a pre-launch storage break. A database created from an older
+`core-schema.sql` has no in-place migration path and is rejected at startup;
+recreate it from the current schema.
+
 ### Removed: the `moltzap` CLI and its Unix socket
 
 **Breaking.** `@moltzap/client` ships one binary, `moltzapd`. The `moltzap`
@@ -77,6 +90,14 @@ rather than a shell.
   `HarnessClient`. Dropping generic send means every proactive message opens a
   conversation, so repeatedly starting the same one-to-one exchange
   accumulates conversations.
+- **Client (`@moltzap/client/channel-base`):** the subpath is now
+  presentation-only. It no longer exports `MoltZapChannelCore`,
+  `ChannelService`, `ChannelCoreOptions`, `InboundHandler`,
+  `InboundInterceptor`, `InboundInterceptDecision`, `EnrichedInboundMessage`,
+  `EnrichedSender`, `ContextBlocks`, `CrossConversationEntry`,
+  `CrossConvFormatter`, `CrossConvMarkup`, `GroupFormatter`, or
+  `sanitizeForSystemReminder`. Runtime adapters use `HarnessClient`; the
+  remaining subpath exports are shared formatting functions and value types.
 
 ### Added: streamable-HTTP MCP servers for container agents
 

@@ -11,5 +11,5 @@ gateway, the same protocol on every leg. A shortcut that reaches past
 those surfaces stops the package measuring what it exists to measure.
 
 Cases pair with OpenClaw and NanoClaw target conditions, and every society
-also contains autonomous in-process Effect peers. `README.md` carries the
-execution model and the grading reference.
+also contains evaluation-owned autonomous peer application containers.
+`README.md` carries the execution model and the grading reference.
