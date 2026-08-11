@@ -23,7 +23,10 @@ import {
   decodeEvaluationCaseId,
   decodeEvaluationEvidenceId,
 } from "./model.js";
-import type { EvaluationPeerGateway, EvaluationPeerRuntime } from "./peer.js";
+import type {
+  EvaluationPeerDefinition,
+  EvaluationPeerGateway,
+} from "./peer.js";
 
 const test = it.effect;
 const OBSERVE_PEER_OPERATION = "observe:peer";
@@ -35,8 +38,8 @@ const PRINCIPAL_OUTPUT_ID = decodeEvaluationEvidenceId(
 const PEER_OUTPUT_ID = decodeEvaluationEvidenceId("case-test:peer-output");
 const PASSED_VERDICT = "passed";
 
-type DirectTestPeerRuntimes = Readonly<{
-  [PEER_AGENT_NAME]: EvaluationPeerRuntime;
+type DirectTestPeerDefinitions = Readonly<{
+  [PEER_AGENT_NAME]: EvaluationPeerDefinition;
 }>;
 
 function evidence(text: string): CriterionEvidence {
@@ -66,7 +69,7 @@ function peer<const Name extends string>(
   };
 }
 
-function peers(): EvaluationCasePeers<DirectTestPeerRuntimes> {
+function peers(): EvaluationCasePeers<DirectTestPeerDefinitions> {
   return {
     [PEER_AGENT_NAME]: peer(
       PEER_AGENT_NAME,
@@ -76,7 +79,10 @@ function peers(): EvaluationCasePeers<DirectTestPeerRuntimes> {
 }
 
 interface ProgramRecorder {
-  readonly context: EvaluationCaseProgramContext<DirectTestPeerRuntimes, never>;
+  readonly context: EvaluationCaseProgramContext<
+    DirectTestPeerDefinitions,
+    never
+  >;
   readonly operations: readonly string[];
 }
 
@@ -86,7 +92,10 @@ function programRecorder(): ProgramRecorder {
     [roster[PEER_AGENT_NAME], "peer"],
   ]);
   const operations: string[] = [];
-  const context: EvaluationCaseProgramContext<DirectTestPeerRuntimes, never> = {
+  const context: EvaluationCaseProgramContext<
+    DirectTestPeerDefinitions,
+    never
+  > = {
     peers: roster,
     instruct: (message) =>
       Effect.sync(() => {

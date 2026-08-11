@@ -2,6 +2,7 @@ import { assert, it as effectIt } from "@effect/vitest";
 import { agentName } from "@moltzap/protocol/identity";
 import { agentId } from "@moltzap/protocol/testing";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
+import { image } from "@moltzap/simulator/agents";
 import {
   LedgerCompletion,
   LedgerStorageError,
@@ -37,6 +38,7 @@ import {
   EvaluationSweepIncomplete,
   InProgressEvaluationReport,
   JudgePolicySnapshot,
+  LocalEvaluationInfrastructure,
   JudgingUnavailableAttempt,
   LedgerAllocationFailedAttempt,
   RunFailedAttempt,
@@ -57,6 +59,8 @@ import {
   type EvaluationSweepCell,
   type TerminalAttempt as TerminalAttemptType,
 } from "./sweep.js";
+
+const testImage = Schema.decodeSync(image);
 
 const it = effectIt.scoped;
 const instant = DateTime.unsafeMake(0);
@@ -105,6 +109,14 @@ function plan(
       tools: "none",
       timeoutMillis: 1_000,
       maxRetries: 2,
+    }),
+    infrastructure: LocalEvaluationInfrastructure.make({
+      profile: "local",
+      controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
+      peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
+      nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
+      temporalAddress: "127.0.0.1:7233",
+      artifactDirectory: "/var/lib/moltzap/artifacts",
     }),
     samplesPerCell: 1,
   });
@@ -428,6 +440,7 @@ function exactResumePlanTest() {
         }),
       ],
       judgePolicy: reportPlan.judgePolicy,
+      infrastructure: reportPlan.infrastructure,
       samplesPerCell: reportPlan.samplesPerCell,
     });
     const mismatch = yield* resumeEvaluationReport(report, changedPlan).pipe(

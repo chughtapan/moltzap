@@ -153,6 +153,9 @@ vite.config.ts.timestamp-*
 !.codex/skills/
 /.tmp/
 
+# Local scratch space; holds the Node compile cache
+/.scratch/
+
 .nx/cache
 .nx/workspace-data
 .nx/polygraph

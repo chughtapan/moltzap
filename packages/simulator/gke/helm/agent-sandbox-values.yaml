@@ -1,0 +1,14 @@
+namespace:
+  create: false
+  name: agent-sandbox-system
+
+image:
+  repository: registry.k8s.io/agent-sandbox/agent-sandbox-controller
+  tag: v0.5.4
+  pullPolicy: IfNotPresent
+
+controller:
+  extensions: false
+
+nodeSelector:
+  moltzap.dev/pool: system
