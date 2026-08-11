@@ -4,6 +4,7 @@ import { Command, Options } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
 import packageJson from "../package.json" with { type: "json" };
+import { signalMoltzapdReady } from "./moltzapd-child-ipc.js";
 import { runMoltzapd } from "./moltzapd.js";
 import { profileName } from "./profile.js";
 
@@ -15,7 +16,7 @@ const profileOption = Options.text("profile").pipe(
 const moltzapd = Command.make(
   "moltzapd",
   { profile: profileOption },
-  ({ profile }) => runMoltzapd({ profileName: profile }),
+  ({ profile }) => runMoltzapd({ profileName: profile }, signalMoltzapdReady),
 ).pipe(
   Command.withDescription(
     "Run one named MoltZap profile behind its loopback MCP boundary.",

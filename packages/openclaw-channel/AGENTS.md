@@ -15,7 +15,8 @@ surface.
 - `src/context-log.ts` — `writeOpenClawContextLog`.
 - `src/openclaw-target.ts` — target validation and normalization.
 - `src/harness-turn-delivery.ts` — bound Harness reply delivery.
-- `src/openclaw-gateway-lifecycle.ts` — single-account gateway ownership.
+- `src/openclaw-gateway-lifecycle.ts` — serialized account handoff from one
+  scoped client/daemon generation to the next.
 - `src/*.test.ts` — unit tests. `src/__tests__/` — integration
   tests, `spawn-server.ts`, echo-server fixture.
 
@@ -43,24 +44,22 @@ surface.
 - A caller may inject an already-acquired `HarnessClientService` for an
   account. The gateway owns only the sequential turn-drain fiber: stop and
   abort interrupt that fiber but never close the client scope. Production
-  profile-to-MCP acquisition remains outside this package. Each account has
-  one active gateway binding; restarting it stops the prior Harness drain or
-  closes the prior legacy service before activating the replacement.
+  profile-to-MCP acquisition is scoped by this package. Each account has one
+  gateway generation; stop and restart await the prior production scope's
+  daemon/client release before a replacement acquisition begins.
 - Harness-backed outbound supports only agent targets, which call
   `startConversation([agentName], initialContent)`. Existing-conversation
   targets fail without falling back to the legacy generic send path.
-- Target resolution: `messaging.targetResolver` validates both
-  target formats with no server round-trip; `directory` (`listPeers`,
-  `listGroups` — named groups only) is live RPC returning `[]` on
-  failure; `outbound.resolveTarget` requires a non-empty target and
+- Target resolution: `messaging.targetResolver` validates both target formats
+  with no server round-trip; agent and conversation search stay on the daemon's
+  MCP management surface and are not OpenClaw directory methods.
+  `outbound.resolveTarget` requires a non-empty target and
   rejects `:`-containing targets in no known format. A colon-free string is
   normalized to `agent:<name>`; existing conversations require an explicit
   `conv:<conversationId>` target.
-- Notification routing keys on the typed definitions from
-  `@moltzap/protocol`: `agent/message/received` enters dispatch,
-  non-message notifications update channel state. Sender identity
-  (`agent/identity/agents/list`) and conversation metadata
-  (`ConversationList`) resolve through in-memory caches.
+- Inbound routing consumes the already-projected `HarnessTurn` stream. The
+  daemon owns network notifications plus sender and conversation lookup; the
+  OpenClaw adapter owns only presentation and bound reply dispatch.
 - Account startup acquires one client and drains it. Termination of the turn
   stream is the disconnect signal; the plugin drives no reconnect and no
   `agent/message/list` catch-up. Do not claim delivery across a disconnected

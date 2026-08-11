@@ -28,7 +28,7 @@ active agent and holds only stable presentation checkpoints.
 
 **Returns:** The scoped adapter-facing service value.
 
-### [`acquireMoltzapdChild`](./moltzapd-child.ts#L209)
+### [`acquireMoltzapdChild`](./moltzapd-child.ts#L375)
 
 _Function_
 
@@ -115,7 +115,7 @@ export class HarnessClient extends Context.Tag("@moltzap/client/HarnessClient")<
 
 Effect service tag consumed by runtime adapters.
 
-### [`harnessClientForProfile`](./moltzapd-child.ts#L250)
+### [`harnessClientForProfile`](./moltzapd-child.ts#L421)
 
 _Function_
 
@@ -215,7 +215,7 @@ export declare class MoltZapAgentClient extends ProtocolClientLifecycle<AgentCal
 
 Implements molt zap agent client.
 
-### [`MoltzapdChild`](./moltzapd-child.ts#L39)
+### [`MoltzapdChild`](./moltzapd-child.ts#L61)
 
 _Interface_
 
@@ -226,9 +226,9 @@ export interface MoltzapdChild {
 }
 ```
 
-Explicit endpoint for a packaged daemon owned by the enclosing test scope.
+Scoped endpoint for a packaged profile daemon owned by the caller.
 
-### [`MoltzapdChildOptions`](./moltzapd-child.ts#L45)
+### [`MoltzapdChildOptions`](./moltzapd-child.ts#L67)
 
 _Interface_
 
@@ -238,7 +238,7 @@ export interface MoltzapdChildOptions {
 }
 ```
 
-Inputs for starting the packaged daemon against caller-scoped test config.
+Inputs for starting a packaged profile daemon.
 
 ### [`MoltZapService`](./service.ts#L196)
 
