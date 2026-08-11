@@ -1,6 +1,4 @@
-/**
- * Unit tests for profile selection, profile coexistence, and no-persist mode.
- */
+/** Unit tests for profile selection, coexistence, and persistence. */
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
@@ -13,7 +11,6 @@ import {
 } from "@moltzap/protocol/testing";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import {
-  emitNoPersist,
   loadLayeredConfig,
   parseProfileName,
   ProfileInvalidNameError,
@@ -89,13 +86,6 @@ afterEach(() => {
 
 const withNodeContext = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(NodeContext.layer));
-
-const defaultRecord = (apiKey: string = DEFAULT_API_KEY): ProfileRecord => ({
-  agentName: DEFAULT_AGENT_NAME,
-  mcpPort: SLOT_MCP_PORT,
-  agentId: DEFAULT_AGENT_ID,
-  apiKey: redactedAgentKey(apiKey),
-});
 
 const namedRecord = (apiKey: string, agentName: string): ProfileRecord => ({
   agentName,
@@ -393,28 +383,6 @@ function writeSecondProfilePreservesFirst() {
   );
 }
 
-function emitNoPersistLeavesConfigDirUnchanged() {
-  return withNodeContext(
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const configHome = yield* makeConfigHome;
-      const before = yield* fileSystem.readDirectory(configHome);
-
-      yield* emitNoPersist(defaultRecord());
-      const after = yield* fileSystem.readDirectory(configHome);
-      expect(after).toEqual(before);
-    }),
-  );
-}
-
-function emitNoPersistReturnsRecord() {
-  return Effect.gen(function* () {
-    const record = defaultRecord();
-    const result = yield* emitNoPersist(record);
-    expect(result.record).toEqual(record);
-  });
-}
-
 function profileInvalidNameErrorCarriesFields() {
   return Effect.sync(() => {
     const err = new ProfileInvalidNameError({
@@ -488,18 +456,6 @@ describe("writeProfile", () => {
   it(
     "adding a second profile preserves the first",
     writeSecondProfilePreservesFirst,
-  );
-});
-
-describe("emitNoPersist", () => {
-  it(
-    "never writes to the moltzap config directory",
-    emitNoPersistLeavesConfigDirUnchanged,
-  );
-
-  it(
-    "returns the record unchanged for the caller to print",
-    emitNoPersistReturnsRecord,
   );
 });
 

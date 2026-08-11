@@ -40,7 +40,7 @@ Multiple accounts run side-by-side; OpenClaw selects one per inbound/outbound vi
 ## How it works
 
 1. The plugin acquires a `HarnessClient` for the account's profile slot. The daemon, not the plugin, holds the network connection — the plugin never opens a socket
-2. Inbound turns arrive over the daemon's loopback MCP subscription, already carrying sender names, group metadata, and cross-conversation context, and are dispatched to the agent pipeline
+2. The daemon emits raw inbound turns over loopback MCP. `HarnessClient` resolves sender names and group metadata, projects cross-conversation context from its local checkpoints, and gives the enriched turn to the plugin for dispatch
 3. Cross-conversation context is always enabled: when an agent has recent messages in other conversations, a `<system-reminder>` block is prepended to `BodyForAgent` so the LLM can reference updates from other chats
 4. The agent's LLM response goes back through the turn's own bound `reply`, which routes to the conversation that produced it. The plugin never addresses a reply itself
 5. After a restart the client rebuilds context from stored checkpoints, so context it already presented is not presented again
@@ -58,4 +58,4 @@ graph LR
     HC -->|reply tool| D
 ```
 
-The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow. Dispatch ordering and the peek/commit lifecycle for cross-conversation context markers are the daemon's, reaching the plugin as already-ordered turns.
+The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow. `HarnessClient` owns dispatch ordering and the peek/commit lifecycle for cross-conversation context markers, then yields the plugin an already-ordered turn.

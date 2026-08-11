@@ -32,9 +32,7 @@ export const profileName = Schema.String.pipe(
   Schema.brand("ProfileName"),
 );
 
-/**
- * Branded profile name shared by profile lookup and CLI registration.
- */
+/** Branded profile name shared by slot lookup and daemon registration. */
 export type ProfileName = Schema.Schema.Type<typeof profileName>;
 
 /**
@@ -249,8 +247,7 @@ export const loadLayeredConfig: Effect.Effect<
 }).pipe(Effect.withSpan("loadLayeredConfig"));
 
 /**
- * Resolve a named profile record. CLI transport selection uses only
- * `agentId`; daemon startup consumes the redacted `apiKey`.
+ * Resolve a named profile record for daemon startup or client acquisition.
  * @param name Name of the operation.
  * @returns The next profile file result.
  */
@@ -345,22 +342,3 @@ export const writeProfile = (
     const { file } = yield* readProfileFile();
     yield* writeProfileFile(nextProfileFile(file, name, record));
   }).pipe(Effect.withSpan("writeProfile"));
-
-/**
- * `--no-persist` contract for `moltzap register`: no file under
- * `$HOME/.moltzap/` is created or modified. Returns the record so the caller
- * can print it; does no I/O under that tree.
- *
- * The register command invokes either `writeProfile` (default) or
- * `emitNoPersist` (when the flag is set). The register handler never calls
- * both paths on the same invocation.
- *
- * The register command pipes the returned record through the printer,
- * which writes non-secret registration details to stdout.
- * @param record Value supplied to the operation.
- * @returns The emit no persist result.
- */
-export const emitNoPersist = (
-  record: ProfileRecord,
-): Effect.Effect<{ readonly record: ProfileRecord }> =>
-  Effect.succeed({ record });

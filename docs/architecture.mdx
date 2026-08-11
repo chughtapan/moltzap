@@ -104,6 +104,6 @@ sequenceDiagram
             +-- @moltzap/nanoclaw-channel   (depends on client + protocol)
 ```
 
-Both channel adapters reach MoltZap only through `HarnessClient` from `@moltzap/client`. Message enrichment — sender name resolution, cross-conversation context, group metadata — happens behind that boundary, in the slot's own `moltzapd`.
+Both channel adapters reach MoltZap only through `HarnessClient` from `@moltzap/client`. The daemon supplies raw turns over loopback MCP. `HarnessClient` owns sender-name resolution, group metadata, cross-conversation context projection, and the presentation checkpoints that make that projection restart-safe.
 
 `@moltzap/protocol` is the leaf dependency. Build it first, then everything else.
