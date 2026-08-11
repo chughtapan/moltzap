@@ -465,6 +465,10 @@ function createGatewaySection(
   };
 }
 
+function canonicalAccountId(accountId: string): string {
+  return accountId.trim();
+}
+
 function startGatewayAccount(
   ctx: OpenClawStartAccountContext,
   lifecycle: HarnessGatewayLifecycle,
@@ -474,10 +478,10 @@ function startGatewayAccount(
 }
 
 function acquireGatewayClient(
+  profileName: string,
   ctx: OpenClawStartAccountContext,
   deps: MoltzapChannelPluginDeps,
 ) {
-  const profileName = ctx.accountId.trim();
   // The OpenClaw account id names the profile slot, so the daemon, its
   // loopback endpoint, and checkpoint store all follow from it.
   return Effect.suspend(() => {
@@ -494,19 +498,19 @@ function startGatewayAccountEffect(
   deps: MoltzapChannelPluginDeps,
 ): Effect.Effect<void, unknown> {
   const { accountId, account, abortSignal, log } = ctx;
-  const profileName = accountId.trim();
+  const accountKey = canonicalAccountId(accountId);
   const contextLogDir = readOpenClawContextLogDir();
   log?.info?.(`MoltZap: connecting as ${account.agentName ?? accountId}`);
   return Effect.gen(function* () {
-    if (profileName.length === 0) {
+    if (accountKey.length === 0) {
       return yield* new MoltZapAccountProfileMissingError();
     }
     if (abortSignal.aborted) {
       return;
     }
     return yield* lifecycle.run({
-      accountId: ctx.accountId,
-      acquireClient: acquireGatewayClient(ctx, deps),
+      accountId: accountKey,
+      acquireClient: acquireGatewayClient(accountKey, ctx, deps),
       isCancelled: () => ctx.abortSignal.aborted,
       waitForCancellation: waitForAbort(ctx.abortSignal),
       runClient: (active) => runHarnessGateway(ctx, active, { contextLogDir }),
@@ -750,10 +754,11 @@ function stopGatewayAccount(
   ctx: OpenClawStopAccountContext,
   lifecycle: HarnessGatewayLifecycle,
 ) {
-  if (lifecycle.hasGeneration(ctx.accountId)) {
+  const accountKey = canonicalAccountId(ctx.accountId);
+  if (lifecycle.hasGeneration(accountKey)) {
     ctx.log?.info?.("MoltZap: stopping");
   }
-  return Effect.runPromise(lifecycle.stop(ctx.accountId));
+  return Effect.runPromise(lifecycle.stop(accountKey));
 }
 
 function createOutboundSection(
@@ -808,7 +813,6 @@ class MoltZapTargetMalformedError extends Data.TaggedError(
 
 interface ActiveHarnessOutbound {
   readonly _tag: "harness";
-  readonly accountId: string;
   readonly client: HarnessClientService;
 }
 
@@ -816,14 +820,14 @@ type ActiveOutbound = ActiveHarnessOutbound;
 
 function getActiveOutbound(
   activeHarnessClients: ReadonlyMap<string, ActiveHarnessClient>,
-  accountId?: string | null,
+  accountKey?: string | null,
 ): ActiveOutbound | undefined {
-  const requested = accountId?.trim();
-  if (requested) {
-    const harness = activeHarnessClients.get(requested);
+  const requestedKey = accountKey ?? "";
+  if (requestedKey) {
+    const harness = activeHarnessClients.get(requestedKey);
     return harness === undefined
       ? undefined
-      : { _tag: "harness", accountId: requested, client: harness.client };
+      : { _tag: "harness", client: harness.client };
   }
   if (activeHarnessClients.size !== 1) {
     return undefined;
@@ -831,7 +835,7 @@ function getActiveOutbound(
   const first = activeHarnessClients.entries().next().value;
   return first === undefined
     ? undefined
-    : { _tag: "harness", accountId: first[0], client: first[1].client };
+    : { _tag: "harness", client: first[1].client };
 }
 
 function dispatchHarnessOutbound(
@@ -865,15 +869,19 @@ function sendTextEffect(
     accountId?: string | null;
   },
 ) {
+  const accountKey =
+    ctx.accountId === undefined || ctx.accountId === null
+      ? ctx.accountId
+      : canonicalAccountId(ctx.accountId);
   const requestedAccountId = ctx.accountId ?? "(unspecified)";
   return Effect.gen(function* () {
-    const active = getActiveOutbound(activeHarnessClients, ctx.accountId);
+    const active = getActiveOutbound(activeHarnessClients, accountKey);
     if (active === undefined) {
       return yield* new MoltZapClientNotConnectedError({
         accountId: requestedAccountId,
       });
     }
-    yield* dispatchHarnessOutbound(active.client, active.accountId, ctx);
+    yield* dispatchHarnessOutbound(active.client, requestedAccountId, ctx);
     return new OpenClawSendTextSuccess();
   }).pipe(
     Effect.withSpan("createMoltzapChannelPlugin.sendText"),
