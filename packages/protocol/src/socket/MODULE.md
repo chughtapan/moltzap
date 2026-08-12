@@ -153,7 +153,7 @@ export type CloseKind = Data.TaggedEnum<{
 
 Represents close kind values.
 
-### [`connectionId`](./connection.ts#L24)
+### [`connectionId`](./server.ts#L56)
 
 _Variable_
 
@@ -163,7 +163,7 @@ export const connectionId = Schema.decodeSync(connectionIdSchema)
 
 Validates and decodes connection id values.
 
-### [`ConnectionId`](./connection.ts#L15)
+### [`ConnectionId`](./server.ts#L46)
 
 _TypeAlias_
 
@@ -171,18 +171,12 @@ _TypeAlias_
 export type ConnectionId = string & Brand.Brand<"ConnectionId">;
 ```
 
-Server-internal WebSocket connection identifier. Minted at WS accept
-(`crypto.randomUUID()`); not on the wire. Branded so it cannot be
-confused with `AgentId`, `AppId`, or other ids in service signatures.
+Server-internal WebSocket connection identifier. The socket boundary mints
+one at accept time and downstream services carry the brand end-to-end.
+Synthetic strings remain valid for conformance fixtures because the brand,
+rather than a UUID predicate, is the boundary.
 
-Construction stays at the socket boundary; downstream code carries the
-brand end-to-end.
-
-Schema-level format: branded string (no UUID predicate). The mint site
-happens to use UUIDs, but conformance-test fixtures sometimes pass synthetic
-strings; the brand boundary is the type system, not a format check.
-
-### [`connectionIdSchema`](./connection.ts#L17)
+### [`connectionIdSchema`](./server.ts#L49)
 
 _Variable_
 
@@ -279,7 +273,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 
 Provides the concrete agent client over the shared socket lifecycle.
 
-### [`MoltZapServer`](./server.ts#L232)
+### [`MoltZapServer`](./server.ts#L263)
 
 _Class_
 
@@ -407,7 +401,7 @@ export class MoltZapServer<
 
 Implements molt zap server.
 
-### [`MoltZapServerOptions`](./server.ts#L52)
+### [`MoltZapServerOptions`](./server.ts#L83)
 
 _Interface_
 
@@ -437,7 +431,7 @@ export interface MoltZapServerOptions<
 
 Configures molt zap server.
 
-### [`MoltZapServerSession`](./server.ts#L37)
+### [`MoltZapServerSession`](./server.ts#L68)
 
 _Interface_
 
@@ -453,7 +447,7 @@ export interface MoltZapServerSession {
 
 Describes molt zap server session.
 
-### [`newConnectionId`](./connection.ts#L30)
+### [`newConnectionId`](./server.ts#L59)
 
 _Function_
 
@@ -461,9 +455,7 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-Provides the new connection id runtime value.
-
-**Returns:** The new connection id result.
+Mints a connection identifier at socket acceptance.
 
 ### [`openProtocolAgentClientSocket`](./lifecycle.ts#L446)
 
@@ -629,7 +621,7 @@ stateDiagram-v2
   Stopping --> Stopped: OwnerDone completes terminal close
 ```
 
-### [`ReverseCallError`](./server.ts#L124)
+### [`ReverseCallError`](./server.ts#L155)
 
 _TypeAlias_
 
@@ -639,7 +631,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
 Represents reverse call error conditions.
 
-### [`ReverseClient`](./server.ts#L142)
+### [`ReverseClient`](./server.ts#L173)
 
 _Interface_
 
@@ -684,7 +676,7 @@ export interface RpcCallOptions {
 
 Configures rpc call.
 
-### [`ServerSocketWrite`](./server.ts#L32)
+### [`ServerSocketWrite`](./server.ts#L63)
 
 _TypeAlias_
 
@@ -699,6 +691,5 @@ Represents server socket write values.
 ## Files
 
 - `close-info.ts`
-- `connection.ts`
 - `lifecycle.ts`
 - `server.ts`

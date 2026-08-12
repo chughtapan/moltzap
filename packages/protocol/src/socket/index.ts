@@ -27,9 +27,15 @@ export type {
 } from "./lifecycle.js";
 
 /** Re-exports the public API from `./server.js`. */
-export { MoltZapServer } from "./server.js";
+export {
+  connectionId,
+  connectionIdSchema,
+  MoltZapServer,
+  newConnectionId,
+} from "./server.js";
 /** Re-exports the public API from `./server.js`. */
 export type {
+  ConnectionId,
   MoltZapServerOptions,
   MoltZapServerSession,
   ReverseCallError,
@@ -46,11 +52,3 @@ export {
 } from "./close-info.js";
 /** Re-exports the public API from `./close-info.js`. */
 export type { CloseInfo, CloseKind } from "./close-info.js";
-
-/** Re-exports the public API from `./connection.js`. */
-export {
-  type ConnectionId,
-  connectionIdSchema,
-  connectionId,
-  newConnectionId,
-} from "./connection.js";

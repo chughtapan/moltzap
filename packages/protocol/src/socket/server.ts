@@ -1,8 +1,17 @@
 import type * as Socket from "@effect/platform/Socket";
 import { RpcClient, type RpcGroup, RpcServer } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
-import { Cause, Deferred, Effect, Exit, Layer, Mailbox, Scope } from "effect";
-import { type ConnectionId, newConnectionId } from "./connection.js";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Layer,
+  Mailbox,
+  Schema,
+  Scope,
+  type Brand,
+} from "effect";
 import {
   reverseRpcGroup,
   serverInboundGroup,
@@ -27,6 +36,28 @@ import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
 import type { AuthenticatedAgent } from "#identity/principals";
 import type { ActiveAgent } from "#identity/requirements";
 import type { ConversationSendAccess } from "#conversation/requirements";
+
+/**
+ * Server-internal WebSocket connection identifier. The socket boundary mints
+ * one at accept time and downstream services carry the brand end-to-end.
+ * Synthetic strings remain valid for conformance fixtures because the brand,
+ * rather than a UUID predicate, is the boundary.
+ */
+export type ConnectionId = string & Brand.Brand<"ConnectionId">;
+
+/** Validates and decodes connection id values. */
+export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
+  Schema.String.pipe(
+    Schema.brand("ConnectionId"),
+    Schema.annotations({ description: "Branded ConnectionId" }),
+  );
+
+/** Validates and decodes connection id values. */
+export const connectionId = Schema.decodeSync(connectionIdSchema);
+
+/** Mints a connection identifier at socket acceptance. */
+export const newConnectionId = (): ConnectionId =>
+  connectionId(crypto.randomUUID());
 
 /** Represents server socket write values. */
 export type ServerSocketWrite = (
