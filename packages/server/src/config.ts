@@ -15,7 +15,7 @@
  * through the two public types above.
  */
 
-import { FileSystem, Path } from "@effect/platform";
+import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { parse as parseYaml } from "yaml";
 import {
@@ -78,9 +78,6 @@ export interface StandaloneBootPlan {
   readonly adminUserId: UserId;
 
   readonly registrationSecret?: RegistrationSecret;
-
-  /** Directory the YAML file was loaded from. */
-  readonly configDirectory: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -348,23 +345,6 @@ function interpolateString(
       );
 }
 
-function resolveConfigDir(
-  configPath: string,
-): Effect.Effect<string, never, FileSystem.FileSystem | Path.Path> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    return yield* fs.realPath(configPath).pipe(
-      Effect.map((real) => path.dirname(real)),
-      Effect.catchAll((cause) =>
-        Effect.logWarning("Failed to resolve config path symlink:", cause).pipe(
-          Effect.as(path.dirname(configPath)),
-        ),
-      ),
-    );
-  }).pipe(Effect.withSpan("resolveConfigDir"));
-}
-
 // ─────────────────────────────────────────────────────────────────────
 // Env reading + StandaloneBootPlan build
 // ─────────────────────────────────────────────────────────────────────
@@ -437,7 +417,6 @@ function makeInvalidEnvError(
 
 interface BootPlanInputs {
   readonly yaml: YamlConfig;
-  readonly configDirectory: string;
   readonly processEnv: ProcessEnvSnapshot;
   readonly configPath: string;
 }
@@ -553,7 +532,6 @@ function assembleBootPlan(
     devMode: fields.devMode,
     adminUserId: fields.adminUserId,
     registrationSecret: fields.registrationSecret,
-    configDirectory: inputs.configDirectory,
   };
 }
 
@@ -648,15 +626,12 @@ export function loadStandaloneConfig(
       input.configPath !== undefined || processEnv.MOLTZAP_CONFIG !== undefined;
     const configPath = resolveConfigPath(input.configPath, processEnv);
 
-    const { yaml, configDirectory } = yield* loadYamlFromDisk(
-      configPath,
-      processEnv,
-      explicit,
-    ).pipe(Effect.provide(NodeContext.layer));
+    const yaml = yield* loadYamlFromDisk(configPath, processEnv, explicit).pipe(
+      Effect.provide(NodeContext.layer),
+    );
 
     return yield* buildBootPlan({
       yaml,
-      configDirectory,
       processEnv,
       configPath,
     });
@@ -667,11 +642,7 @@ function loadYamlFromDisk(
   configPath: string,
   processEnv: ProcessEnvSnapshot,
   explicit: boolean,
-): Effect.Effect<
-  { yaml: YamlConfig; configDirectory: string },
-  ConfigLoadError,
-  FileSystem.FileSystem | Path.Path
-> {
+): Effect.Effect<YamlConfig, ConfigLoadError, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const raw = yield* readConfigFile(configPath).pipe(
       Effect.catchTag("ConfigLoadError", (error) => {
@@ -682,7 +653,7 @@ function loadYamlFromDisk(
       }),
     );
     if (raw === null) {
-      return { yaml: EMPTY_YAML, configDirectory: globalThis.process.cwd() };
+      return EMPTY_YAML;
     }
     const parsed = yield* parseYamlDocument(raw, configPath);
     const decoded = yield* decodeYamlMapping(parsed, configPath);
@@ -691,8 +662,6 @@ function loadYamlFromDisk(
       configPath,
       processEnv,
     );
-    const yaml = yield* decodeYamlShape(interpolated, configPath);
-    const configDirectory = yield* resolveConfigDir(configPath);
-    return { yaml, configDirectory };
+    return yield* decodeYamlShape(interpolated, configPath);
   });
 }
