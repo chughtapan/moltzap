@@ -4,8 +4,8 @@
  * Reads the TypeDoc JSON cache, then renders every eligible folder's
  * MODULE.md + Mintlify MDX twin. Intended to be invoked from
  * `pnpm docs:generate` after the existing RPC method/notification
- * rendering pass — but during the pilot rollout it ships as a
- * standalone script (`tsx packages/protocol/scripts/generate-modules.ts`).
+ * rendering pass. It is also available as a standalone script at
+ * `tsx packages/protocol/scripts/generate-modules.ts`.
  *
  * Effect entry point: provide `NodeContext.layer` so FileSystem and
  * Path services resolve.
@@ -21,7 +21,7 @@ import {
 import { writeModulesNav } from "./docs/mintlify-nav.js";
 import {
   generateModuleDocs,
-  REQUIRED_V2_PACKAGE_SUBPATHS,
+  REQUIRED_PACKAGE_SUBPATHS,
 } from "./docs/modules.js";
 import { loadTypeDoc } from "./docs/typedoc-load.js";
 
@@ -33,7 +33,7 @@ const NAV_PATH = resolve(DOCS_MODULES_DIR, "_nav.json");
 
 const program = Effect.gen(function* () {
   const cache = yield* loadTypeDoc(CACHE_PATH, {
-    packageSubpaths: REQUIRED_V2_PACKAGE_SUBPATHS,
+    packageSubpaths: REQUIRED_PACKAGE_SUBPATHS,
   });
   const results = yield* generateModuleDocs(cache, {
     workspaceRoot: WORKSPACE_ROOT,

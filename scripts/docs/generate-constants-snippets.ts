@@ -182,9 +182,7 @@ const collect = (): readonly Constant[] => {
   const protocolVersion = readPackageVersion(
     resolve(workspaceRoot, "packages/protocol/package.json"),
   );
-  const v2ProtocolVersion = readVersionFile(
-    resolve(workspaceRoot, "v2/VERSION"),
-  );
+  const moltzapVersion = readVersionFile(resolve(workspaceRoot, "v2/VERSION"));
   const defaultServerPort = readTopLevelLiteral(
     resolve(workspaceRoot, "packages/server/src/config.ts"),
     "DEFAULT_SERVER_PORT",
@@ -245,8 +243,8 @@ const collect = (): readonly Constant[] => {
     requireString(
       "V2_PROTOCOL_VERSION",
       "v2/VERSION",
-      v2ProtocolVersion,
-      "Current V2 MoltZap compatibility value shared by all six V2 packages and ready representations.",
+      moltzapVersion,
+      "Current MoltZap wire compatibility value for Identity and Router representations; package release versioning is independent and deferred.",
     ),
     requireNumber(
       "DEFAULT_SERVER_PORT",

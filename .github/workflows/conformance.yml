@@ -2,7 +2,7 @@ name: Conformance
 
 on:
   push:
-    branches: [main, v2]
+    branches: [main, v2, cutover/four-layer-v2]
   pull_request:
     paths:
       - "packages/protocol/**"
@@ -13,7 +13,7 @@ on:
       - "docker-compose.conformance.yml"
       - ".github/workflows/conformance.yml"
 
-# Self-hosted Nx remote cache (Railway). Trusted events -- pushes to main/v2 and
+# Self-hosted Nx remote cache (Railway). Trusted events -- pushes to maintained branches and
 # same-repo pull requests -- read and populate the shared cache. Fork PRs receive
 # no repository secrets and a writable shared cache is a poisoning vector, so they
 # skip the remote cache and run cold.

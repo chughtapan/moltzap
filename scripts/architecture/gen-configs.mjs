@@ -1,3 +1,5 @@
+/** @file Generates package-local architecture analyzer configurations. */
+
 import { writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
@@ -587,7 +589,7 @@ const architectureConfigDefinitions = [
     definition,
   })),
   {
-    packageRoot: "v2/identity",
+    packageRoot: "packages/identity",
     definition: {
       config: {
         packageRuntime: "node",
@@ -659,7 +661,7 @@ const architectureConfigDefinitions = [
     },
   },
   {
-    packageRoot: "v2/router",
+    packageRoot: "packages/router",
     definition: {
       config: {
         packageRuntime: "node",

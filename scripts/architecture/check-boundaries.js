@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 /**
- * Architecture boundary checks for both tracks.
+ * Architecture boundary checks during the package cutover.
  *
- * v1 (`packages/*`) rules cover wildcard exports, barrel discipline, and the
- * published export maps. v2 (`v2/*`) rules cover the frozen package set, the
- * shared compatibility value, the export and binary maps, and the three
- * import rules that keep the clean slate clean.
+ * Shared `packages/*` rules cover wildcard exports and barrel discipline.
+ * Identity and Router additionally enforce their final package names, public
+ * entrypoints, binaries, project references, and dependency direction. The
+ * remaining packages stay visible while their cutover lanes retire protocol
+ * and server and narrow the adapter, simulator, and eval dependencies.
  *
- * The v2 table below is a hand transcription of frozen law in
- * docs/architecture/components.md. It is written down rather than derived so
- * that drift fails whichever side moves, but it is not self-certifying:
- * re-verify it against that document whenever the document changes.
+ * The relocated-package table is a hand transcription of the current package
+ * contract. It is written down rather than derived so drift fails whichever
+ * side moves, but it is not self-certifying: re-verify it against
+ * docs/spec/layer-interfaces.md whenever that contract changes.
  *
  * Every rule asserts its input set is non-empty before reporting success. A
  * check that walks nothing passes vacuously and is indistinguishable from no
@@ -24,58 +25,22 @@ const v2Root = path.join(repo, "v2");
 const packagesRoot = path.join(repo, "packages");
 const failures = [];
 
-// `deps` lists the only v2 packages a package may reach, in package.json, in
-// TypeScript project references, in knip's ignore list, and in source imports
-// alike.
-const V2_PACKAGES = {
+// `deps` lists the only workspace packages each relocated package may reach in
+// package.json, TypeScript project references, knip ignores, and source imports.
+const RELOCATED_PACKAGES = {
   identity: {
-    npmName: "@moltzap/v2-identity",
+    npmName: "@moltzap/identity",
     deps: [],
     exports: [".", "./registry", "./registry/server"],
     bin: ["moltzap-registry"],
   },
   router: {
-    npmName: "@moltzap/v2-router",
+    npmName: "@moltzap/router",
     deps: ["identity"],
     exports: [".", "./server"],
     bin: ["moltzap-router"],
   },
-  transcript: {
-    npmName: "@moltzap/v2-transcript",
-    deps: ["identity", "router"],
-    exports: [".", "./server"],
-    bin: ["moltzap-ledger"],
-  },
-  harness: {
-    npmName: "@moltzap/v2-harness",
-    deps: ["identity", "router", "transcript"],
-    exports: [".", "./server"],
-    bin: ["moltzapd"],
-  },
-  simulator: {
-    npmName: "@moltzap/v2-simulator",
-    deps: ["identity", "harness"],
-    exports: [".", "./adapter", "./ledger"],
-    bin: [],
-  },
-  testbed: {
-    npmName: "@moltzap/v2-testbed",
-    deps: ["identity", "router", "transcript", "harness", "simulator"],
-    exports: ["."],
-    bin: [],
-  },
 };
-
-// Simulator and testbed are experiment and acquisition machinery. The
-// packages that ship the product must never reach for them.
-const NON_PRODUCTION = ["simulator", "testbed"];
-const PRODUCTION = Object.keys(V2_PACKAGES).filter(
-  (dir) => !NON_PRODUCTION.includes(dir),
-);
-
-const v2DirByNpmName = new Map(
-  Object.entries(V2_PACKAGES).map(([dir, meta]) => [meta.npmName, dir]),
-);
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -161,7 +126,7 @@ function packageRoot(specifier) {
   return parts[0];
 }
 
-// ─── v1 source rules ──────────────────────────────────────────────────────
+// ─── Shared source rules ──────────────────────────────────────────────────
 
 function checkSourceFile(file) {
   const text = fs.readFileSync(file, "utf8");
@@ -204,16 +169,15 @@ function checkSourceFile(file) {
     }
   }
 
-  // v1 ships the product too, so the no-simulator/testbed rule binds it. The
-  // literal guard keeps the common case to one substring scan.
+  // Relocated code has no compatibility package names. Scanning every current
+  // package prevents a retiring consumer from keeping a hidden old import.
   if (text.includes("@moltzap/v2-")) {
     for (const { specifier, index } of importSpecifiers(text)) {
-      const target = v2DirByNpmName.get(packageRoot(specifier));
-      if (target !== undefined && NON_PRODUCTION.includes(target)) {
+      if (packageRoot(specifier).startsWith("@moltzap/v2-")) {
         fail(
           file,
           lineAt(text, index),
-          `production package must not import non-production package "${target}"`,
+          `removed compatibility package import "${packageRoot(specifier)}"`,
         );
       }
     }
@@ -233,7 +197,7 @@ function assertExportMap(pkgPath, expected) {
 const sourceFiles = walk(packagesRoot);
 if (sourceFiles.length === 0) {
   failures.push(
-    "packages/: no TypeScript sources scanned; the v1 rules would pass vacuously",
+    "packages/: no TypeScript sources scanned; shared rules would pass vacuously",
   );
 }
 for (const file of sourceFiles) checkSourceFile(file);
@@ -251,7 +215,7 @@ assertExportMap("packages/protocol", [
 ]);
 assertExportMap("packages/server", [".", "./test-utils"]);
 
-// ─── v2 package set ───────────────────────────────────────────────────────
+// ─── Relocated package set ────────────────────────────────────────────────
 
 const v2Dirs = fs.existsSync(v2Root)
   ? fs
@@ -265,7 +229,7 @@ const v2Dirs = fs.existsSync(v2Root)
       .sort()
   : [];
 
-failOnSetDrift("v2/", "package set drifted", v2Dirs, Object.keys(V2_PACKAGES));
+failOnSetDrift("v2/", "executable package roots remain", v2Dirs, []);
 
 // Architectural numbering helps readers navigate specifications, but it
 // obscures domain ownership in executable artifacts. Source and package
@@ -273,16 +237,16 @@ failOnSetDrift("v2/", "package set drifted", v2Dirs, Object.keys(V2_PACKAGES));
 const DOCUMENTATION_ONLY_LAYER_NOTATION =
   /(?:^|[^A-Za-z0-9])(?:[Ll][12](?=$|[^a-z0-9])|[Ll]ayer(?:[ _-]?(?:[12]|[Oo]ne|[Tt]wo))(?=$|[^a-z0-9]))/g;
 
-let v2VocabularyFileCount = 0;
-for (const dir of v2Dirs) {
-  const files = walkNonDocumentationFiles(path.join(v2Root, dir));
+let relocatedVocabularyFileCount = 0;
+for (const dir of Object.keys(RELOCATED_PACKAGES)) {
+  const files = walkNonDocumentationFiles(path.join(packagesRoot, dir));
   if (files.length === 0) {
     failures.push(
-      `v2/${dir}: no non-documentation files scanned; the vocabulary rule would pass vacuously here`,
+      `packages/${dir}: no non-documentation files scanned; the vocabulary rule would pass vacuously here`,
     );
     continue;
   }
-  v2VocabularyFileCount += files.length;
+  relocatedVocabularyFileCount += files.length;
 
   for (const file of files) {
     const relativePath = rel(file);
@@ -304,31 +268,44 @@ for (const dir of v2Dirs) {
   }
 }
 
-// ─── One CalVer, carried by v2/VERSION and all six manifests ──────────────
+// ─── Compatibility value ──────────────────────────────────────────────────
 
-const versionFile = path.join(v2Root, "VERSION");
-let v2Version = null;
-if (!fs.existsSync(versionFile)) {
+const compatibilityVersionFile = path.join(v2Root, "VERSION");
+let compatibilityVersion = null;
+if (!fs.existsSync(compatibilityVersionFile)) {
   failures.push(
-    "v2/VERSION: missing; it is the sole MoltZap compatibility value",
+    "v2/VERSION: missing; it is the current MoltZap wire compatibility value",
   );
 } else {
-  v2Version = fs.readFileSync(versionFile, "utf8").trim();
-  if (!/^\d{4}\.\d{3,4}\.\d+$/.test(v2Version)) {
-    failures.push(`v2/VERSION: "${v2Version}" is not a YYYY.MDD.PATCH CalVer`);
+  compatibilityVersion = fs
+    .readFileSync(compatibilityVersionFile, "utf8")
+    .trim();
+  if (!/^\d{4}\.\d{3,4}\.\d+$/.test(compatibilityVersion)) {
+    failures.push(
+      `v2/VERSION: "${compatibilityVersion}" is not a YYYY.MDD.PATCH CalVer`,
+    );
   }
 }
 
-// ─── v2 manifests, project references, and knip ignores ───────────────────
+// ─── Relocated manifests, references, and knip ignores ────────────────────
 
 const knipWorkspaces = readJson(path.join(repo, "knip.json")).workspaces ?? {};
+const workspacePackageNames = new Set();
+for (const entry of fs.readdirSync(packagesRoot, { withFileTypes: true })) {
+  const manifestPath = path.join(packagesRoot, entry.name, "package.json");
+  if (entry.isDirectory() && fs.existsSync(manifestPath)) {
+    workspacePackageNames.add(readJson(manifestPath).name);
+  }
+}
+if (workspacePackageNames.size === 0) {
+  failures.push(
+    "packages/: no workspace manifests found; dependency rules would pass vacuously",
+  );
+}
 
-for (const dir of v2Dirs) {
-  const expected = V2_PACKAGES[dir];
-  if (expected === undefined) continue;
-
-  const where = `v2/${dir}/package.json`;
-  const manifest = readJson(path.join(v2Root, dir, "package.json"));
+for (const [dir, expected] of Object.entries(RELOCATED_PACKAGES)) {
+  const where = `packages/${dir}/package.json`;
+  const manifest = readJson(path.join(packagesRoot, dir, "package.json"));
 
   if (manifest.name !== expected.npmName) {
     failures.push(
@@ -336,14 +313,10 @@ for (const dir of v2Dirs) {
     );
   }
 
-  if (v2Version !== null && manifest.version !== v2Version) {
-    failures.push(
-      `${where}: version "${manifest.version}" does not match v2/VERSION "${v2Version}"`,
-    );
-  }
-
   if (manifest.private !== true) {
-    failures.push(`${where}: must set "private": true; v2 publishes nothing`);
+    failures.push(
+      `${where}: must stay private until release policy is admitted`,
+    );
   }
 
   failOnSetDrift(
@@ -362,7 +335,7 @@ for (const dir of v2Dirs) {
   // Binaries are checked in rather than built, so the target exists at
   // install time and a declared binary is never a dangling link.
   for (const [name, target] of Object.entries(manifest.bin ?? {})) {
-    const binPath = path.join(v2Root, dir, target);
+    const binPath = path.join(packagesRoot, dir, target);
     if (!fs.existsSync(binPath)) {
       failures.push(
         `${where}: binary "${name}" points at missing file "${target}"`,
@@ -377,25 +350,27 @@ for (const dir of v2Dirs) {
     }
   }
 
-  const wantedDeps = expected.deps.map((d) => V2_PACKAGES[d].npmName);
+  const wantedDeps = expected.deps.map(
+    (dependency) => RELOCATED_PACKAGES[dependency].npmName,
+  );
   failOnSetDrift(
     where,
-    "v2 dependencies violate the frozen DAG",
+    "workspace dependencies violate the relocated DAG",
     Object.keys(manifest.dependencies ?? {}).filter((name) =>
-      v2DirByNpmName.has(name),
+      workspacePackageNames.has(name),
     ),
     wantedDeps,
   );
 
   // Project references must encode the same DAG, or `tsc -b` and the manifest
   // disagree about what this package may reach.
-  const tsconfigPath = path.join(v2Root, dir, "tsconfig.json");
+  const tsconfigPath = path.join(packagesRoot, dir, "tsconfig.json");
   if (!fs.existsSync(tsconfigPath)) {
-    failures.push(`v2/${dir}/tsconfig.json: missing`);
+    failures.push(`packages/${dir}/tsconfig.json: missing`);
   } else {
     failOnSetDrift(
-      `v2/${dir}/tsconfig.json`,
-      "project references violate the frozen DAG",
+      `packages/${dir}/tsconfig.json`,
+      "project references violate the relocated DAG",
       (readJson(tsconfigPath).references ?? []).map((ref) =>
         path.basename(ref.path),
       ),
@@ -406,9 +381,9 @@ for (const dir of v2Dirs) {
   // Knip ignores describe dependencies reached outside its static TypeScript
   // graph, such as an executable launched by path. Source-visible imports need
   // no ignore, so only validate that every ignore is declared and that an
-  // ignored v2 package belongs to the frozen DAG.
+  // ignored workspace package belongs to the relocated DAG.
   const ignoredDependencies =
-    knipWorkspaces[`v2/${dir}`]?.ignoreDependencies ?? [];
+    knipWorkspaces[`packages/${dir}`]?.ignoreDependencies ?? [];
   const declaredDependencies = new Set([
     ...Object.keys(manifest.dependencies ?? {}),
     ...Object.keys(manifest.devDependencies ?? {}),
@@ -420,97 +395,65 @@ for (const dir of v2Dirs) {
   );
   if (undeclaredIgnores.length > 0) {
     failures.push(
-      `knip.json workspaces["v2/${dir}"]: ignored dependencies are not declared by ${where}: ${undeclaredIgnores.join(", ")}`,
+      `knip.json workspaces["packages/${dir}"]: ignored dependencies are not declared by ${where}: ${undeclaredIgnores.join(", ")}`,
     );
   }
-  const disallowedIgnoredV2Dependencies = ignoredDependencies.filter(
-    (name) => v2DirByNpmName.has(name) && !wantedDeps.includes(name),
+  const disallowedIgnoredWorkspaceDependencies = ignoredDependencies.filter(
+    (name) => workspacePackageNames.has(name) && !wantedDeps.includes(name),
   );
-  if (disallowedIgnoredV2Dependencies.length > 0) {
+  if (disallowedIgnoredWorkspaceDependencies.length > 0) {
     failures.push(
-      `knip.json workspaces["v2/${dir}"]: ignored v2 dependencies violate the frozen DAG: ${disallowedIgnoredV2Dependencies.join(", ")}`,
+      `knip.json workspaces["packages/${dir}"]: ignored workspace dependencies violate the relocated DAG: ${disallowedIgnoredWorkspaceDependencies.join(", ")}`,
     );
   }
 }
 
-// ─── v2 import rules ──────────────────────────────────────────────────────
+// ─── Relocated import rules ───────────────────────────────────────────────
 
-// Workspace packages whose source lives under packages/ are v1. Resolving the
-// rule against the real layout keeps it correct however either track names
-// its packages.
-const v1PackageNames = new Set();
-if (fs.existsSync(packagesRoot)) {
-  for (const entry of fs.readdirSync(packagesRoot, { withFileTypes: true })) {
-    const manifestPath = path.join(packagesRoot, entry.name, "package.json");
-    if (entry.isDirectory() && fs.existsSync(manifestPath)) {
-      v1PackageNames.add(readJson(manifestPath).name);
-    }
-  }
-}
-if (v1PackageNames.size === 0) {
-  failures.push(
-    "packages/: no v1 workspace manifests found; the v2-imports-no-v1 rule would pass vacuously",
-  );
-}
-
-let v2SourceCount = 0;
-for (const dir of v2Dirs) {
-  const files = walk(path.join(v2Root, dir));
+let relocatedSourceCount = 0;
+for (const [dir, expected] of Object.entries(RELOCATED_PACKAGES)) {
+  const packageDirectory = path.join(packagesRoot, dir);
+  const files = walk(packageDirectory);
   if (files.length === 0) {
     failures.push(
-      `v2/${dir}: no TypeScript sources scanned; the import rules would pass vacuously here`,
+      `packages/${dir}: no TypeScript sources scanned; import rules would pass vacuously here`,
     );
     continue;
   }
-  v2SourceCount += files.length;
+  relocatedSourceCount += files.length;
 
-  const allowed = new Set(V2_PACKAGES[dir]?.deps ?? []);
-  const isProduction = PRODUCTION.includes(dir);
+  const allowedWorkspacePackages = new Set([
+    expected.npmName,
+    ...expected.deps.map(
+      (dependency) => RELOCATED_PACKAGES[dependency].npmName,
+    ),
+  ]);
 
   for (const file of files) {
     const text = fs.readFileSync(file, "utf8");
     for (const { specifier, index } of importSpecifiers(text)) {
-      // Rule 1 — v2 imports nothing from v1, by package name or by reaching
-      // into the packages/ tree with a relative path.
       const root = packageRoot(specifier);
-      if (v1PackageNames.has(root)) {
+      if (
+        workspacePackageNames.has(root) &&
+        !allowedWorkspacePackages.has(root)
+      ) {
         fail(
           file,
           lineAt(text, index),
-          `v2 must not import v1 package "${root}"`,
+          `dependency DAG violation: "${dir}" may not import "${root}"`,
         );
         continue;
       }
-      if (/(^|\/)\.\.\/packages\//.test(specifier)) {
+      if (
+        specifier.startsWith(".") &&
+        !path
+          .resolve(path.dirname(file), specifier)
+          .startsWith(`${packageDirectory}${path.sep}`)
+      ) {
         fail(
           file,
           lineAt(text, index),
-          `v2 must not reach into packages/ by relative path ("${specifier}")`,
-        );
-        continue;
-      }
-
-      const target = v2DirByNpmName.get(root);
-      if (target === undefined || target === dir) continue;
-
-      // Rule 2 — nothing that ships the product may import the simulator or
-      // the testbed. Checked before the DAG so the violation is named for
-      // what it actually is.
-      if (isProduction && NON_PRODUCTION.includes(target)) {
-        fail(
-          file,
-          lineAt(text, index),
-          `production package "${dir}" must not import non-production package "${target}"`,
-        );
-        continue;
-      }
-
-      // Rule 3 — every remaining cross-package import follows the DAG.
-      if (!allowed.has(target)) {
-        fail(
-          file,
-          lineAt(text, index),
-          `dependency DAG violation: "${dir}" may not import "${target}" (allowed: ${[...allowed].join(", ") || "none"})`,
+          `relocated package must not cross its boundary by relative path ("${specifier}")`,
         );
       }
     }
@@ -519,12 +462,17 @@ for (const dir of v2Dirs) {
 
 // ─── The compatibility value is exported, and matches ─────────────────────
 
-const identityIndex = path.join(v2Root, "identity", "src", "index.ts");
-const identityVersion = path.join(v2Root, "identity", "src", "version.ts");
-if (v2Version !== null) {
+const identityIndex = path.join(packagesRoot, "identity", "src", "index.ts");
+const identityVersion = path.join(
+  packagesRoot,
+  "identity",
+  "src",
+  "version.ts",
+);
+if (compatibilityVersion !== null) {
   if (!fs.existsSync(identityIndex)) {
     failures.push(
-      "v2/identity/src/index.ts: missing; it exports the compatibility value",
+      "packages/identity/src/index.ts: missing; it exports the compatibility value",
     );
   } else {
     const reExport = fs
@@ -534,13 +482,13 @@ if (v2Version !== null) {
       );
     if (reExport === null) {
       failures.push(
-        "v2/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
+        "packages/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
       );
     }
   }
   if (!fs.existsSync(identityVersion)) {
     failures.push(
-      "v2/identity/src/version.ts: missing; it owns the compatibility value",
+      "packages/identity/src/version.ts: missing; it owns the compatibility value",
     );
   } else {
     const match = fs
@@ -548,11 +496,11 @@ if (v2Version !== null) {
       .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']+)["']/);
     if (match === null) {
       failures.push(
-        "v2/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
+        "packages/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
       );
-    } else if (match[1] !== v2Version) {
+    } else if (match[1] !== compatibilityVersion) {
       failures.push(
-        `v2/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${v2Version}"`,
+        `packages/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${compatibilityVersion}"`,
       );
     }
   }
@@ -567,5 +515,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${v2Dirs.length} v2 packages, ${v2SourceCount} v2 sources, and ${v2VocabularyFileCount} v2 non-documentation files scanned at version ${v2Version}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} package sources, no executable v2 package roots, ${relocatedSourceCount} relocated sources, and ${relocatedVocabularyFileCount} relocated non-documentation files scanned at compatibility version ${compatibilityVersion}`,
 );

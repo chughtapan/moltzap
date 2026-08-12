@@ -20,22 +20,10 @@
       "path": "packages/simulator"
     },
     {
-      "path": "v2/identity"
+      "path": "packages/identity"
     },
     {
-      "path": "v2/router"
-    },
-    {
-      "path": "v2/transcript"
-    },
-    {
-      "path": "v2/harness"
-    },
-    {
-      "path": "v2/simulator"
-    },
-    {
-      "path": "v2/testbed"
+      "path": "packages/router"
     }
   ]
 }

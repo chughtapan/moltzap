@@ -2,6 +2,7 @@
   "group": "Modules",
   "pages": [
     "modules/client/src",
+    "modules/identity/src",
     "modules/openclaw-channel/src",
     "modules/protocol/conversation",
     "modules/protocol/conversation/requirements",
@@ -23,6 +24,7 @@
     "modules/protocol/testing/conformance/identity",
     "modules/protocol/testing/conformance/transport",
     "modules/protocol/testing/toxics",
+    "modules/router/src",
     "modules/server-core/conversation",
     "modules/server-core/conversation/requirements",
     "modules/server-core/core",
@@ -32,8 +34,6 @@
     "modules/server-core/network",
     "modules/server-core/socket",
     "modules/server-core/test-utils",
-    "modules/simulator/src",
-    "modules/v2/identity/src",
-    "modules/v2/router/src"
+    "modules/simulator/src"
   ]
 }

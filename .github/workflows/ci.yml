@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, v2]
+    branches: [main, v2, cutover/four-layer-v2]
   pull_request:
 
-# Self-hosted Nx remote cache (Railway). Trusted events -- pushes to main/v2 and
+# Self-hosted Nx remote cache (Railway). Trusted events -- pushes to maintained branches and
 # same-repo pull requests -- read and populate the shared cache. Fork PRs receive
 # no repository secrets and a writable shared cache is a poisoning vector, so they
 # skip the remote cache and run cold.
@@ -43,7 +43,7 @@ jobs:
       # and affected intentionally skip projects that do not define a target.
       - name: Verify identity and Router project floor
         run: |
-          for project in @moltzap/v2-identity @moltzap/v2-router; do
+          for project in @moltzap/identity @moltzap/router; do
             for target in build typecheck typecheck:tests test test:integration lint arch:check; do
               pnpm nx run "${project}:${target}"
             done

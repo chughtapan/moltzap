@@ -34,9 +34,7 @@
       ],
       "outputs": [
         "{workspaceRoot}/docs",
-        "{workspaceRoot}/packages/**/src/**/MODULE.md",
-        "{workspaceRoot}/v2/identity/src/**/MODULE.md",
-        "{workspaceRoot}/v2/router/src/**/MODULE.md"
+        "{workspaceRoot}/packages/**/src/**/MODULE.md"
       ],
       "executor": "nx:run-commands",
       "options": {
@@ -77,9 +75,7 @@
         "{workspaceRoot}/scripts/architecture/gen-configs.mjs"
       ],
       "outputs": [
-        "{workspaceRoot}/packages/*/safer-architecture.config.json",
-        "{workspaceRoot}/v2/identity/safer-architecture.config.json",
-        "{workspaceRoot}/v2/router/safer-architecture.config.json"
+        "{workspaceRoot}/packages/*/safer-architecture.config.json"
       ],
       "executor": "nx:run-commands",
       "options": {
@@ -95,7 +91,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "test -z \"$(git ls-files --others --exclude-standard -- 'v2/identity/safer-architecture.config.json' 'v2/router/safer-architecture.config.json')\" && git diff --exit-code -- 'packages/*/safer-architecture.config.json' 'v2/identity/safer-architecture.config.json' 'v2/router/safer-architecture.config.json'"
+        "command": "test -z \"$(git ls-files --others --exclude-standard -- 'packages/*/safer-architecture.config.json')\" && git diff --exit-code -- 'packages/*/safer-architecture.config.json'"
       }
     },
     "lint:architecture-boundaries": {

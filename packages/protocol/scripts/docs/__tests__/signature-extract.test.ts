@@ -1,3 +1,5 @@
+/** @file Unit tests for TypeScript declaration selection and signature rendering. */
+
 import { describe, expect, it } from "vitest";
 import { ReflectionKind } from "typedoc";
 import { extractSignatureText, resolveExportDeclaration } from "../modules.js";
@@ -242,7 +244,7 @@ describe("extractSignatureText", () => {
   });
 
   it("renders the type declaration from a Schema value/type pair", () => {
-    const fileName = "v2/identity/src/identifiers.ts";
+    const fileName = "packages/identity/src/identifiers.ts";
     const source = [
       "export const AgentId = Schema.String;",
       "export type AgentId = typeof AgentId.Type;",
@@ -262,8 +264,35 @@ describe("extractSignatureText", () => {
     });
   });
 
+  it("keeps multiline aliases complete for the final identity package", () => {
+    const fileName = "packages/identity/src/registry.ts";
+    const source = [
+      "export type RegistryLookupResult =",
+      '  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>',
+      '  | Readonly<{ kind: "not_found" }>;',
+      "export interface Unrelated {",
+      "  readonly value: string;",
+      "}",
+      "",
+    ].join("\n");
+    const resolved = resolveExportDeclaration(
+      mergedExport("RegistryLookupResult", ReflectionKind.TypeAlias, [
+        { fileName, line: 1, character: 12 },
+      ]),
+      new Map([[fileName, source]]),
+    );
+
+    expect(resolved.signatureText).toBe(
+      [
+        "export type RegistryLookupResult =",
+        '  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>',
+        '  | Readonly<{ kind: "not_found" }>;',
+      ].join("\n"),
+    );
+  });
+
   it("renders the value declaration from an interface/value pair", () => {
-    const fileName = "v2/identity/src/agent-key.ts";
+    const fileName = "packages/identity/src/agent-key.ts";
     const source = [
       "export interface AgentSigningAuthority {",
       '  readonly _brand: "AgentSigningAuthority";',

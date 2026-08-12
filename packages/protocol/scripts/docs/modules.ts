@@ -35,27 +35,31 @@ export interface ModuleRenderConfig {
  * Mintlify.
  */
 const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob";
+const CUTOVER_SOURCE_BRANCH = "cutover/four-layer-v2";
 
 /**
- * Active v2 package roots are required generator inputs even before their
+ * Final package roots are required generator inputs even before their
  * public barrels contain behavioral exports.
  */
-const REQUIRED_V2_MODULE_FOLDERS = [
-  "v2/identity/src",
-  "v2/router/src",
+const REQUIRED_MODULE_FOLDERS = [
+  "packages/identity/src",
+  "packages/router/src",
 ] as const;
 
-/** TypeDoc package projects required by the active v2 MODULE pages. */
-const REQUIRED_V2_PACKAGE_NAMES = [
-  "@moltzap/v2-identity",
-  "@moltzap/v2-router",
+/** Retired source roots included in orphan MODULE discovery. */
+const RETIRED_MODULE_FOLDERS = ["v2/identity/src", "v2/router/src"] as const;
+
+/** TypeDoc package projects required by the final MODULE pages. */
+const REQUIRED_PACKAGE_NAMES = [
+  "@moltzap/identity",
+  "@moltzap/router",
 ] as const;
 
-/** Package subpaths admitted to generated v2 module documentation. */
-export const REQUIRED_V2_PACKAGE_SUBPATHS = [
-  "@moltzap/v2-identity/registry",
-  "@moltzap/v2-identity/registry/server",
-  "@moltzap/v2-router/server",
+/** Package subpaths admitted to generated final module documentation. */
+export const REQUIRED_PACKAGE_SUBPATHS = [
+  "@moltzap/identity/registry",
+  "@moltzap/identity/registry/server",
+  "@moltzap/router/server",
 ] as const;
 
 interface LinkContext {
@@ -109,7 +113,7 @@ export const generateModuleDocs = (
 > =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
-    const missingTypeDocPackages = REQUIRED_V2_PACKAGE_NAMES.filter(
+    const missingTypeDocPackages = REQUIRED_PACKAGE_NAMES.filter(
       (packageName) => !cache.byPackageEntrypoint.has(packageName),
     );
     if (missingTypeDocPackages.length > 0) {
@@ -117,7 +121,7 @@ export const generateModuleDocs = (
         `Required TypeDoc packages were not loaded: ${missingTypeDocPackages.join(", ")}`,
       );
     }
-    const missingPackageSubpaths = REQUIRED_V2_PACKAGE_SUBPATHS.filter(
+    const missingPackageSubpaths = REQUIRED_PACKAGE_SUBPATHS.filter(
       (importPath) =>
         (cache.byPackageEntrypoint.get(importPath)?.length ?? 0) === 0,
     );
@@ -144,7 +148,7 @@ export const generateModuleDocs = (
       yield* emitWarnings(warnings);
     }
     const renderedFolders = new Set(rendered.map((result) => result.folder));
-    const missingRequiredFolders = REQUIRED_V2_MODULE_FOLDERS.filter(
+    const missingRequiredFolders = REQUIRED_MODULE_FOLDERS.filter(
       (folder) => !renderedFolders.has(folder),
     );
     if (missingRequiredFolders.length > 0) {
@@ -188,12 +192,12 @@ function pruneOrphans(
       if (liveSlugs.has(slug)) {
         continue;
       }
-      yield* fs.remove(abs).pipe(Effect.catchAll(() => Effect.void));
+      yield* fs.remove(abs).pipe(Effect.orDie);
       process.stdout.write(`  pruned orphan MDX: ${rel}\n`);
     }
     const moduleRoots = [
       path.resolve(config.workspaceRoot, "packages"),
-      ...REQUIRED_V2_MODULE_FOLDERS.map((folder) =>
+      ...RETIRED_MODULE_FOLDERS.map((folder) =>
         path.resolve(config.workspaceRoot, folder),
       ),
     ];
@@ -205,7 +209,7 @@ function pruneOrphans(
       if (liveFolders.has(folder)) {
         continue;
       }
-      yield* fs.remove(abs).pipe(Effect.catchAll(() => Effect.void));
+      yield* fs.remove(abs).pipe(Effect.orDie);
       process.stdout.write(`  pruned orphan MODULE.md: ${folder}\n`);
     }
   });
@@ -218,26 +222,23 @@ function listFilesWithSuffix(
 ): Effect.Effect<readonly string[]> {
   return Effect.gen(function* () {
     const out: string[] = [];
+    const rootExists = yield* fs.exists(root).pipe(Effect.orDie);
+    if (!rootExists) {
+      return out;
+    }
     const stack = [root];
     while (stack.length > 0) {
       const dir = stack.pop();
       if (dir === undefined) {
         break;
       }
-      const entries = yield* fs
-        .readDirectory(dir)
-        .pipe(Effect.catchAll(() => Effect.succeed([])));
+      const entries = yield* fs.readDirectory(dir).pipe(Effect.orDie);
       for (const name of entries) {
         if (name === "node_modules" || name === "dist") {
           continue;
         }
         const abs = `${dir}/${name}`;
-        const stat = yield* fs
-          .stat(abs)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)));
-        if (stat === null) {
-          continue;
-        }
+        const stat = yield* fs.stat(abs).pipe(Effect.orDie);
         if (stat.type === "Directory") {
           stack.push(abs);
         } else if (name.endsWith(suffix)) {
@@ -270,29 +271,27 @@ function discoverFolders(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const seen = new Set<string>(REQUIRED_V2_MODULE_FOLDERS);
+    const seen = new Set<string>(REQUIRED_MODULE_FOLDERS);
     for (const ex of cache.all) {
       const folder = folderOf(ex);
       if (!isDocumentedSourceFolder(folder)) {
         continue;
       }
       const indexPath = path.resolve(config.workspaceRoot, folder, "index.ts");
-      const hasIndex = yield* fs
-        .exists(indexPath)
-        .pipe(Effect.catchAll(() => Effect.succeed(false)));
+      const hasIndex = yield* fs.exists(indexPath).pipe(Effect.orDie);
       if (!hasIndex) {
         continue;
       }
       const indexSource = yield* fs
         .readFileString(indexPath)
-        .pipe(Effect.catchAll(() => Effect.succeed("")));
+        .pipe(Effect.orDie);
       if (isInternalModuleSource(indexSource)) {
         continue;
       }
       if (isPackageRoot(folder)) {
         if (
           isEmptyBarrelSource(indexSource) &&
-          !isRequiredV2ModuleFolder(folder)
+          !isRequiredModuleFolder(folder)
         ) {
           continue;
         }
@@ -311,24 +310,15 @@ function discoverFolders(
  */
 function isPackageRoot(folder: string): boolean {
   const parts = sourcePathParts(folder);
-  return (
-    parts.length === 3 &&
-    (parts[0] === "packages" || parts[0] === "v2") &&
-    parts[2] === "src"
-  );
+  return parts.length === 3 && parts[0] === "packages" && parts[2] === "src";
 }
 
 function isDocumentedSourceFolder(folder: string): boolean {
-  return (
-    folder.startsWith("packages/") ||
-    REQUIRED_V2_MODULE_FOLDERS.some(
-      (root) => folder === root || folder.startsWith(`${root}/`),
-    )
-  );
+  return folder.startsWith("packages/");
 }
 
-function isRequiredV2ModuleFolder(folder: string): boolean {
-  return REQUIRED_V2_MODULE_FOLDERS.some((required) => required === folder);
+function isRequiredModuleFolder(folder: string): boolean {
+  return REQUIRED_MODULE_FOLDERS.some((required) => required === folder);
 }
 
 /**
@@ -361,9 +351,7 @@ function renderFolder(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const indexPath = path.resolve(config.workspaceRoot, folder, "index.ts");
-    const indexSource = yield* fs
-      .readFileString(indexPath)
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
+    const indexSource = yield* fs.readFileString(indexPath).pipe(Effect.orDie);
     const purpose = readLeadingJsDoc(indexSource);
     if (purpose === null) {
       return yield* Effect.fail(makeMissingJsDoc(folder));
@@ -398,7 +386,7 @@ function renderFolder(
       ...enriched,
       ...subpaths.flatMap((subpath) => subpath.exports),
     ];
-    const sourceFiles = isRequiredV2ModuleFolder(folder)
+    const sourceFiles = isRequiredModuleFolder(folder)
       ? yield* collectProductionSourceFiles(folder, config, fs, path)
       : documentedExports.flatMap((entry) =>
           entry.sources.map((source) => source.fileName),
@@ -483,7 +471,7 @@ function packageSubpathsForPackage(
     exports: readonly TypeDocExport[];
   }>
 > {
-  return REQUIRED_V2_PACKAGE_SUBPATHS.filter((importPath) =>
+  return REQUIRED_PACKAGE_SUBPATHS.filter((importPath) =>
     importPath.startsWith(`${packageName}/`),
   ).map((importPath) => ({
     importPath,
@@ -535,9 +523,7 @@ function enrichWithSignatures(
           continue;
         }
         const abs = path.resolve(config.workspaceRoot, sourceLocation.fileName);
-        const source = yield* fs
-          .readFileString(abs)
-          .pipe(Effect.catchAll(() => Effect.succeed("")));
+        const source = yield* fs.readFileString(abs).pipe(Effect.orDie);
         fileCache.set(sourceLocation.fileName, source);
       }
       const resolved = resolveExportDeclarationWithCache(
@@ -602,7 +588,7 @@ function resolveExportDeclarationWithCache(
       text,
       fallbackSource.line,
       ex.kind,
-      fallbackSource.fileName.startsWith("v2/"),
+      isCutoverSourceFile(fallbackSource.fileName),
     ),
   };
 }
@@ -680,16 +666,10 @@ function writeAtomic(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     const dir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
-    yield* fs
-      .makeDirectory(dir, { recursive: true })
-      .pipe(Effect.catchAll(() => Effect.void));
+    yield* fs.makeDirectory(dir, { recursive: true }).pipe(Effect.orDie);
     const tmp = `${absolutePath}.tmp.${process.pid}`;
-    yield* fs
-      .writeFileString(tmp, content)
-      .pipe(Effect.catchAll(() => Effect.void));
-    yield* fs
-      .rename(tmp, absolutePath)
-      .pipe(Effect.catchAll(() => Effect.void));
+    yield* fs.writeFileString(tmp, content).pipe(Effect.orDie);
+    yield* fs.rename(tmp, absolutePath).pipe(Effect.orDie);
   });
 }
 
@@ -751,7 +731,7 @@ function renderPublicSurface(
   }
   for (const ex of sorted) {
     const displayName =
-      isRequiredV2ModuleFolder(folder) && (nameCounts.get(ex.name) ?? 0) > 1
+      isRequiredModuleFolder(folder) && (nameCounts.get(ex.name) ?? 0) > 1
         ? `${ex.name} (${declarationRole(ex)})`
         : ex.name;
     lines.push(
@@ -937,7 +917,7 @@ function renderFilesSection(
     lines.push("_No source files tracked under this folder by TypeDoc._");
   } else {
     for (const f of files) {
-      const displayPath = isRequiredV2ModuleFolder(folder)
+      const displayPath = isRequiredModuleFolder(folder)
         ? path.relative(folder, f)
         : path.basename(f);
       lines.push(`- \`${displayPath}\``);
@@ -1016,13 +996,10 @@ function modulePageSlug(folder: string): string {
 }
 
 function packageSlugFor(parts: readonly string[]): string {
-  if (parts.length < 2 || (parts[0] !== "packages" && parts[0] !== "v2")) {
+  if (parts.length < 2 || parts[0] !== "packages") {
     return "unknown";
   }
   const pkg = parts[1];
-  if (parts[0] === "v2") {
-    return `v2/${pkg ?? "unknown"}`;
-  }
   if (pkg === "server") {
     return "server-core";
   }
@@ -1048,8 +1025,14 @@ function sourcePathParts(folder: string): readonly string[] {
  * @returns GitHub source permalink.
  */
 function sourcePermalink(fileName: string, line: number): string {
-  const branch = fileName.startsWith("v2/") ? "v2" : "main";
+  const branch = isCutoverSourceFile(fileName) ? CUTOVER_SOURCE_BRANCH : "main";
   return `${SOURCE_LINK_BASE}/${branch}/${fileName}#L${line}`;
+}
+
+function isCutoverSourceFile(fileName: string): boolean {
+  return REQUIRED_MODULE_FOLDERS.some((folder) =>
+    fileName.startsWith(`${folder}/`),
+  );
 }
 
 function isBehavioral(ex: TypeDocExport): boolean {

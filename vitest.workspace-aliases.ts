@@ -1,3 +1,5 @@
+/** @file Workspace source aliases shared by Vitest project configurations. */
+
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,15 +10,15 @@ interface WorkspaceSourceAlias {
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 
-function fromRoot(...segments: string[]): string {
-  return path.join(repoRoot, ...segments);
-}
-
 function alias(specifier: string, ...segments: string[]): WorkspaceSourceAlias {
   return {
     find: new RegExp(`^${specifier}$`),
     replacement: fromRoot(...segments),
   };
+}
+
+function fromRoot(...segments: string[]): string {
+  return path.join(repoRoot, ...segments);
 }
 
 /** Source aliases, ordered with specific subpaths before package roots. */

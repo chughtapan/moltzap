@@ -11,7 +11,7 @@
  *
  * Constants watched (see `docs/snippets/constants/values.json`):
  *   - PROTOCOL_VERSION       — exact string match.
- *   - V2_PROTOCOL_VERSION    — exact string match.
+ *   - V2_PROTOCOL_VERSION    — exact compatibility string match.
  *   - DEFAULT_APP_ID         — UUID string.
  *   - API_KEY_PREFIX         — string ("moltzap_agent_").
  *   - DEFAULT_SERVER_PORT    — port-shaped match (`:3000\b`).
@@ -180,12 +180,12 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
     });
   }
 
-  const v2pv = byName.get("V2_PROTOCOL_VERSION");
-  if (v2pv && v2pv.kind === "string") {
+  const v2ProtocolVersion = byName.get("V2_PROTOCOL_VERSION");
+  if (v2ProtocolVersion && v2ProtocolVersion.kind === "string") {
     rules.push({
       name: "V2_PROTOCOL_VERSION",
-      regex: new RegExp(escape(v2pv.value as string)),
-      hint: "Mark the file with `{/* @bake-constants: V2_PROTOCOL_VERSION */}` so the V2 value is baked from `v2/VERSION`.",
+      regex: new RegExp(escape(v2ProtocolVersion.value as string)),
+      hint: "Mark the file with `{/* @bake-constants: V2_PROTOCOL_VERSION */}` so the compatibility value is baked from `v2/VERSION`.",
     });
   }
 

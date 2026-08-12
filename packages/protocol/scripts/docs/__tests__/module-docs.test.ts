@@ -1,6 +1,9 @@
+/** @file End-to-end acceptance tests for generated MODULE and MDX surfaces. */
+
 import { NodeContext } from "@effect/platform-node";
 import { Effect } from "effect";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -13,10 +16,10 @@ import { ReflectionKind } from "typedoc";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   generateModuleDocs,
-  REQUIRED_V2_PACKAGE_SUBPATHS,
+  REQUIRED_PACKAGE_SUBPATHS,
   type ModuleRenderResult,
 } from "../modules.js";
-import { loadTypeDoc } from "../typedoc-load.js";
+import { loadTypeDoc, type TypeDocCache } from "../typedoc-load.js";
 
 const GITHUB_SOURCE = "https://github.com/chughtapan/moltzap/blob";
 
@@ -24,7 +27,7 @@ let sandbox = "";
 let rendered: readonly ModuleRenderResult[] = [];
 let identityModule = "";
 let identityMdx = "";
-let legacyIdentityMdx = "";
+let typeDocCache: TypeDocCache;
 
 function writeFixture(relativePath: string, contents: string): void {
   const absolutePath = join(sandbox, relativePath);
@@ -63,59 +66,55 @@ beforeAll(async () => {
   );
   writeFixture(
     "packages/identity/src/index.ts",
-    '/** @file Legacy identity package. */\nexport const LegacyIdentity = "legacy";\n',
-  );
-
-  writeFixture(
-    "v2/identity/package.json",
-    JSON.stringify({ name: "@moltzap/v2-identity" }),
-  );
-  writeFixture(
-    "v2/identity/src/index.ts",
     "/** @file Public identity values. */\nexport interface AgentCard {}\n",
   );
   writeFixture(
-    "v2/identity/src/registry.ts",
+    "packages/identity/src/registry.ts",
     'export class Registry {}\nexport type OperationId = string;\nexport const OperationId = "operation";\n',
   );
   writeFixture(
-    "v2/identity/src/registry/server.ts",
+    "packages/identity/src/registry/server.ts",
     'export class StartupError extends Error {}\n/** Complete production Registry process composition. */\nexport const layer = "layer";\n',
   );
   writeFixture(
-    "v2/identity/src/registry/client.ts",
+    "packages/identity/src/registry/client.ts",
     "export const privateClient = {};\n",
   );
-  writeFixture("v2/identity/src/registry/README.md", "# Registry\n");
+  writeFixture("packages/identity/src/registry/README.md", "# Registry\n");
   writeFixture(
-    "v2/identity/src/ignored.test.ts",
+    "packages/identity/src/ignored.test.ts",
     "export const ignoredTest = true;\n",
   );
   writeFixture(
-    "v2/identity/src/registry/__tests__/fixture.ts",
+    "packages/identity/src/registry/__tests__/fixture.ts",
     "export const ignoredFixture = true;\n",
   );
   writeFixture(
-    "v2/identity/src/registry/registry.types-check.ts",
+    "packages/identity/src/registry/registry.types-check.ts",
     "export type IgnoredCanary = true;\n",
   );
 
   writeFixture(
-    "v2/router/package.json",
-    JSON.stringify({ name: "@moltzap/v2-router" }),
+    "packages/router/package.json",
+    JSON.stringify({ name: "@moltzap/router" }),
   );
   writeFixture(
-    "v2/router/src/index.ts",
+    "packages/router/src/index.ts",
     "/** @file Public Router values. */\nexport class Router {}\n",
   );
   writeFixture(
-    "v2/router/src/server.ts",
+    "packages/router/src/server.ts",
     'export { RouterServer } from "./router/server.js";\n',
   );
   writeFixture(
-    "v2/router/src/router/server.ts",
+    "packages/router/src/router/server.ts",
     'export namespace RouterServer {\n  export const layer = "layer";\n}\n',
   );
+
+  writeFixture("docs/modules/v2/identity/src.mdx", "stale identity page\n");
+  writeFixture("docs/modules/v2/router/src.mdx", "stale router page\n");
+  writeFixture("v2/identity/src/MODULE.md", "# stale identity module\n");
+  writeFixture("v2/router/src/MODULE.md", "# stale router module\n");
 
   writeFileSync(
     cachePath,
@@ -123,28 +122,6 @@ beforeAll(async () => {
       children: [
         {
           name: "@moltzap/identity",
-          children: [
-            {
-              id: 1,
-              name: "index",
-              kind: ReflectionKind.Module,
-              children: [
-                {
-                  id: 2,
-                  name: "LegacyIdentity",
-                  kind: ReflectionKind.Variable,
-                  sources: source(
-                    "index.ts",
-                    2,
-                    `${GITHUB_SOURCE}/fixture/packages/identity/src/index.ts#L2`,
-                  ),
-                },
-              ],
-            },
-          ],
-        },
-        {
-          name: "@moltzap/v2-identity",
           children: [
             {
               id: 3,
@@ -155,7 +132,7 @@ beforeAll(async () => {
                   id: 4,
                   name: "AgentCard",
                   kind: ReflectionKind.Interface,
-                  sources: source("v2/identity/src/index.ts", 2),
+                  sources: source("packages/identity/src/index.ts", 2),
                 },
               ],
             },
@@ -168,19 +145,19 @@ beforeAll(async () => {
                   id: 6,
                   name: "Registry",
                   kind: ReflectionKind.Class,
-                  sources: source("v2/identity/src/registry.ts", 1),
+                  sources: source("packages/identity/src/registry.ts", 1),
                 },
                 {
                   id: 7,
                   name: "OperationId",
                   kind: ReflectionKind.TypeAlias,
-                  sources: source("v2/identity/src/registry.ts", 2),
+                  sources: source("packages/identity/src/registry.ts", 2),
                 },
                 {
                   id: 8,
                   name: "OperationId",
                   kind: ReflectionKind.Variable,
-                  sources: source("v2/identity/src/registry.ts", 3),
+                  sources: source("packages/identity/src/registry.ts", 3),
                 },
               ],
             },
@@ -194,7 +171,7 @@ beforeAll(async () => {
                   name: "StartupError",
                   kind: ReflectionKind.Class,
                   sources: source(
-                    "C:\\workspace\\moltzap\\v2\\identity\\src\\registry\\server.ts",
+                    "C:\\workspace\\moltzap\\packages\\identity\\src\\registry\\server.ts",
                     1,
                   ),
                 },
@@ -202,7 +179,10 @@ beforeAll(async () => {
                   id: 11,
                   name: "layer",
                   kind: ReflectionKind.Variable,
-                  sources: source("v2/identity/src/registry/server.ts", 3),
+                  sources: source(
+                    "packages/identity/src/registry/server.ts",
+                    3,
+                  ),
                   comment: {
                     summary: [
                       {
@@ -223,14 +203,17 @@ beforeAll(async () => {
                   id: 13,
                   name: "privateClient",
                   kind: ReflectionKind.Variable,
-                  sources: source("v2/identity/src/registry/client.ts", 1),
+                  sources: source(
+                    "packages/identity/src/registry/client.ts",
+                    1,
+                  ),
                 },
               ],
             },
           ],
         },
         {
-          name: "@moltzap/v2-router",
+          name: "@moltzap/router",
           children: [
             {
               id: 14,
@@ -241,7 +224,7 @@ beforeAll(async () => {
                   id: 15,
                   name: "Router",
                   kind: ReflectionKind.Class,
-                  sources: source("v2/router/src/index.ts", 2),
+                  sources: source("packages/router/src/index.ts", 2),
                 },
               ],
             },
@@ -254,13 +237,16 @@ beforeAll(async () => {
                   id: 17,
                   name: "RouterServer",
                   kind: ReflectionKind.Namespace,
-                  sources: source("v2/router/src/router/server.ts", 1),
+                  sources: source("packages/router/src/router/server.ts", 1),
                   children: [
                     {
                       id: 18,
                       name: "layer",
                       kind: ReflectionKind.Variable,
-                      sources: source("v2/router/src/router/server.ts", 2),
+                      sources: source(
+                        "packages/router/src/router/server.ts",
+                        2,
+                      ),
                     },
                   ],
                 },
@@ -272,29 +258,22 @@ beforeAll(async () => {
     }),
   );
 
-  const cache = await Effect.runPromise(
+  typeDocCache = await Effect.runPromise(
     loadTypeDoc(cachePath, {
-      packageSubpaths: REQUIRED_V2_PACKAGE_SUBPATHS,
+      packageSubpaths: REQUIRED_PACKAGE_SUBPATHS,
     }).pipe(Effect.provide(NodeContext.layer)),
   );
   rendered = await Effect.runPromise(
-    generateModuleDocs(cache, {
+    generateModuleDocs(typeDocCache, {
       workspaceRoot: sandbox,
       docsModulesDir,
     }).pipe(Effect.provide(NodeContext.layer)),
   );
   identityModule = readFileSync(
-    join(sandbox, "v2/identity/src/MODULE.md"),
+    join(sandbox, "packages/identity/src/MODULE.md"),
     "utf8",
   );
-  identityMdx = readFileSync(
-    join(docsModulesDir, "v2/identity/src.mdx"),
-    "utf8",
-  );
-  legacyIdentityMdx = readFileSync(
-    join(docsModulesDir, "identity/src.mdx"),
-    "utf8",
-  );
+  identityMdx = readFileSync(join(docsModulesDir, "identity/src.mdx"), "utf8");
 });
 
 afterAll(() => {
@@ -307,10 +286,10 @@ describe("module documentation", () => {
   it("renders Registry APIs only under their public package subpaths", () => {
     const [publicSurface = ""] = identityModule.split("## Package subpaths");
     const registrySection = identityModule
-      .split("### `@moltzap/v2-identity/registry`\n")[1]
-      ?.split("### `@moltzap/v2-identity/registry/server`\n")[0];
+      .split("### `@moltzap/identity/registry`\n")[1]
+      ?.split("### `@moltzap/identity/registry/server`\n")[0];
     const serverSection = identityModule.split(
-      "### `@moltzap/v2-identity/registry/server`\n",
+      "### `@moltzap/identity/registry/server`\n",
     )[1];
 
     expect(publicSurface).not.toContain("### [`Registry`]");
@@ -324,7 +303,7 @@ describe("module documentation", () => {
     expect(identityModule).toContain(
       "Complete production Registry process composition.",
     );
-    expect(identityModule).not.toContain("@moltzap/v2-identity/server");
+    expect(identityModule).not.toContain("@moltzap/identity/server");
     expect(identityModule).not.toContain("#### [`RegistryServer`]");
     expect(identityModule).not.toContain("RegistryServer.");
     expect(identityModule).not.toContain("privateClient");
@@ -344,17 +323,61 @@ describe("module documentation", () => {
     );
   });
 
-  it("keeps v1 and v2 pages and source links distinct", () => {
+  it("uses final package paths and cutover-branch source links", () => {
     expect(rendered.map(({ folder, pageSlug }) => [folder, pageSlug])).toEqual([
       ["packages/identity/src", "identity/src"],
-      ["v2/identity/src", "v2/identity/src"],
-      ["v2/router/src", "v2/router/src"],
+      ["packages/router/src", "router/src"],
     ]);
-    expect(legacyIdentityMdx).toContain(
-      `${GITHUB_SOURCE}/main/packages/identity/src/index.ts#L2`,
-    );
+    expect(identityModule).toContain("# identity/src\n");
+    expect(identityModule).toContain("_`packages/identity/src`_");
+    expect(existsSync(join(sandbox, "docs/modules/router/src.mdx"))).toBe(true);
     expect(identityMdx).toContain(
-      `${GITHUB_SOURCE}/v2/v2/identity/src/registry/server.ts#L1`,
+      `${GITHUB_SOURCE}/cutover/four-layer-v2/packages/identity/src/registry/server.ts#L1`,
     );
+  });
+
+  it("requires final TypeDoc package names and public subpaths", async () => {
+    const missingPackageEntries = new Map(typeDocCache.byPackageEntrypoint);
+    missingPackageEntries.delete("@moltzap/router");
+    await expect(
+      Effect.runPromise(
+        generateModuleDocs(
+          { ...typeDocCache, byPackageEntrypoint: missingPackageEntries },
+          {
+            workspaceRoot: sandbox,
+            docsModulesDir: join(sandbox, "docs/modules"),
+          },
+        ).pipe(Effect.provide(NodeContext.layer)),
+      ),
+    ).rejects.toThrow(
+      "Required TypeDoc packages were not loaded: @moltzap/router",
+    );
+
+    const missingSubpathEntries = new Map(typeDocCache.byPackageEntrypoint);
+    missingSubpathEntries.delete("@moltzap/identity/registry/server");
+    await expect(
+      Effect.runPromise(
+        generateModuleDocs(
+          { ...typeDocCache, byPackageEntrypoint: missingSubpathEntries },
+          {
+            workspaceRoot: sandbox,
+            docsModulesDir: join(sandbox, "docs/modules"),
+          },
+        ).pipe(Effect.provide(NodeContext.layer)),
+      ),
+    ).rejects.toThrow(
+      "Required TypeDoc package subpaths were not loaded: @moltzap/identity/registry/server",
+    );
+  });
+
+  it("prunes generated pages for retired v2 source roots", () => {
+    expect(existsSync(join(sandbox, "docs/modules/v2/identity/src.mdx"))).toBe(
+      false,
+    );
+    expect(existsSync(join(sandbox, "docs/modules/v2/router/src.mdx"))).toBe(
+      false,
+    );
+    expect(existsSync(join(sandbox, "v2/identity/src/MODULE.md"))).toBe(false);
+    expect(existsSync(join(sandbox, "v2/router/src/MODULE.md"))).toBe(false);
   });
 });

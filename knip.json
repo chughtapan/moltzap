@@ -76,7 +76,7 @@
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
-    "v2/identity": {
+    "packages/identity": {
       "entry": [
         "src/registry/process.ts",
         "src/**/*.test.ts",
@@ -89,7 +89,7 @@
         "@electric-sql/pglite-socket"
       ]
     },
-    "v2/router": {
+    "packages/router": {
       "entry": [
         "src/router/process.ts",
         "src/**/*.test.ts",
@@ -97,28 +97,6 @@
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs"]
-    },
-    "v2/transcript": {
-      "ignoreDependencies": ["@moltzap/v2-identity", "@moltzap/v2-router"]
-    },
-    "v2/harness": {
-      "ignoreDependencies": [
-        "@moltzap/v2-identity",
-        "@moltzap/v2-transcript",
-        "@moltzap/v2-router"
-      ]
-    },
-    "v2/simulator": {
-      "ignoreDependencies": ["@moltzap/v2-harness", "@moltzap/v2-identity"]
-    },
-    "v2/testbed": {
-      "ignoreDependencies": [
-        "@moltzap/v2-harness",
-        "@moltzap/v2-identity",
-        "@moltzap/v2-simulator",
-        "@moltzap/v2-transcript",
-        "@moltzap/v2-router"
-      ]
     }
   }
 }
