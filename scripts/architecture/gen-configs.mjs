@@ -538,7 +538,7 @@ const packageDefinitions = {
         },
         {
           folder: "db",
-          maxChildren: 11,
+          maxChildren: 10,
           reason:
             "The database boundary keeps schema, client, and migration adapters together while each concern remains named and cohesive",
         },

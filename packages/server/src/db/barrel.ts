@@ -1,8 +1,13 @@
 /** @file Internal DB/query helper barrel for server-core source aliases. */
 
-/** Re-exports the public API from `./layer.js`. */
-export { DbTag } from "./layer.js";
-/** Re-exports the public API from `./database.js`. */
+import { Context } from "effect";
+
+import type { Db } from "./database.js";
+
+/** Implements the database service tag exposed by this boundary. */
+export class DbTag extends Context.Tag("moltzap/Db")<DbTag, Db>() {}
+
+/** Re-exports the public types from `./database.js`. */
 export type { Database, Db, MessageRow } from "./database.js";
 /** Re-exports the public API from `./effect-kysely-toolkit.js`. */
 export {
