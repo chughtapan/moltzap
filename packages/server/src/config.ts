@@ -40,7 +40,6 @@ import type { Db } from "#db";
 /** Describes core config. */
 export interface CoreConfig {
   db: Db;
-  dbCleanup?: () => PromiseLike<undefined>;
   port: number;
   corsOrigins: string[];
   registrationSecret?: RegistrationSecret;

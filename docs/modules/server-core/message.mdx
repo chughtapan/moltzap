@@ -29,10 +29,6 @@ export class MessageService {
     this.networkSendService = deps.networkSend;
   }
 
-  close(): Effect.Effect<void> {
-    return Effect.void;
-  }
-
   sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult> {
     return catchSqlErrorAsDefect(this.sendInsertEffect(input));
   }
@@ -138,6 +134,10 @@ export class MessageService {
         );
         const delivered = yield* this.broadcastCommittedMessage(
           input,
+          recipientList,
+        );
+        yield* this.recordTrace(input, recipientList, delivered);
+        yield* this.logMessageSent(input);
 ```
 
 `agent/message/send` server entry point. The `send` method persists the

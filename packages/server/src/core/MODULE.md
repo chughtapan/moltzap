@@ -15,13 +15,12 @@ _Interface_
 ```ts
 export interface CoreApp {
   readonly port: number;
-  close: () => PromiseLike<undefined>;
 }
 ```
 
 Describes core app.
 
-### [`createCoreApp`](./app.ts#L94)
+### [`createCoreApp`](./app.ts#L40)
 
 _Function_
 
@@ -69,7 +68,7 @@ export const resolveServices = Effect.all({
 
 Provides the resolve services runtime value.
 
-### [`ServerBootFailedError`](./app.ts#L34)
+### [`ServerBootFailedError`](./app.ts#L18)
 
 _Class_
 

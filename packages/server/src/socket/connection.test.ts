@@ -53,12 +53,8 @@ function authenticateTwoConnections(
   auth: AgentContext,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
-    yield* connections.addUnauthenticated(CONN_ID, Effect.void, originator);
-    yield* connections.addUnauthenticated(
-      OTHER_CONN_ID,
-      Effect.void,
-      originator,
-    );
+    yield* connections.addUnauthenticated(CONN_ID, originator);
+    yield* connections.addUnauthenticated(OTHER_CONN_ID, originator);
     yield* connections.authenticate(CONN_ID, auth);
     yield* connections.authenticate(OTHER_CONN_ID, auth);
   });
@@ -101,7 +97,7 @@ describe("ConnectionManager conversation subscriptions", () => {
       yield* expectAgentSubscribed(connections, CONVERSATION_ID, false);
       yield* expectAgentSubscribed(connections, CURRENT_CONVERSATION_ID, false);
 
-      yield* connections.addUnauthenticated(CONN_ID, Effect.void, originator);
+      yield* connections.addUnauthenticated(CONN_ID, originator);
       yield* connections.authenticate(CONN_ID, yield* authContext());
       yield* connections.hydrateConversationIds(CONN_ID, [
         CURRENT_CONVERSATION_ID,

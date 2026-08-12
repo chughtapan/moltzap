@@ -8,7 +8,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](./connection.ts#L37)
+### [`AgentConnection`](./connection.ts#L35)
 
 _Interface_
 
@@ -68,7 +68,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`Connection`](./connection.ts#L47)
+### [`Connection`](./connection.ts#L45)
 
 _TypeAlias_
 
@@ -78,7 +78,7 @@ export type Connection = UnauthenticatedConnection | AgentConnection;
 
 The two-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L124)
+### [`ConnectionManager`](./connection.ts#L122)
 
 _Class_
 
@@ -104,13 +104,11 @@ export class ConnectionManager {
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
    * at WebSocket open. The Connect handler promotes it to the agent arm.
    * @param connId Value supplied to the operation.
-   * @param shutdown Closes the connection's protocol scope.
    * @param originator Value supplied to the operation.
    * @returns The add unauthenticated result.
    */
   addUnauthenticated(
     connId: ConnectionId,
-    shutdown: Effect.Effect<void>,
     originator: Originator,
   ): Effect.Effect<void> {
     return Ref.update(this.stateRef, (state) => ({
@@ -118,7 +116,7 @@ export class ConnectionManager {
       connections: HashMap.set(
         state.connections,
         connId,
-        new UnauthenticatedConnection({ connId, shutdown, originator }),
+        new UnauthenticatedConnection({ connId, originator }),
       ),
     }));
   }
@@ -131,17 +129,6 @@ export class ConnectionManager {
   peek(connId: ConnectionId): Effect.Effect<Option.Option<Connection>> {
     return Ref.get(this.stateRef).pipe(
       Effect.map((state) => HashMap.get(state.connections, connId)),
-    );
-  }
-
-  /**
-   * Snapshot of every connection arm. Callers iterate + discriminate on `_tag`
-   * (e.g. the shutdown loop runs `arm.shutdown`).
-   * @returns The current result.
-   */
-  allConnections(): Effect.Effect<readonly Connection[]> {
-    return Ref.get(this.stateRef).pipe(
-      Effect.map((state) => Array.from(HashMap.values(state.connections))),
     );
   }
 
@@ -185,7 +172,6 @@ export class ConnectionManager {
           (unauth): [TransitionOutcome, typeof state] => {
             const authed = new AgentConnection({
               connId: unauth.connId,
-              shutdown: unauth.shutdown,
               originator: unauth.originator,
               auth,
             });
@@ -202,6 +188,21 @@ export class ConnectionManager {
       );
     });
   }
+
+  /**
+   * Atomic delete + return. Returns the removed
+   * arm (or `undefined`) so the caller `Match.tag`s for auth-gated cleanup.
+   * @param connId Value supplied to the operation.
+   * @returns The current result.
+   */
+  removeAndReturn(connId: ConnectionId): Effect.Effect<Connection | undefined> {
+    return Ref.modify(
+      this.stateRef,
+      (state): [Connection | undefined, ConnectionManagerState] => {
+        const current = HashMap.get(state.connections, connId);
+        if (Option.isNone(current)) {
+          return [undefined, state];
+        }
 ```
 
 Implements connection manager.
@@ -257,7 +258,7 @@ callbacks/notifications through. Constructed by protocol `MoltZapServer`
 during socket accept and passed to
 `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
 
-### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L87)
+### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L86)
 
 _TypeAlias_
 
@@ -271,7 +272,7 @@ export type PrincipalBoundaryCanaries = [
 
 Compile-time assertions for the principal and boot-failure boundaries.
 
-### [`principalCanaryRefs`](./principal.types-check.ts#L96)
+### [`principalCanaryRefs`](./principal.types-check.ts#L95)
 
 _Variable_
 
@@ -286,7 +287,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`TransitionOutcome`](./connection.ts#L55)
+### [`TransitionOutcome`](./connection.ts#L53)
 
 _TypeAlias_
 
@@ -300,7 +301,7 @@ arm carries the minted connection so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](./connection.ts#L31)
+### [`UnauthenticatedConnection`](./connection.ts#L29)
 
 _Interface_
 

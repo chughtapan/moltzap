@@ -49,18 +49,14 @@ const operationFailed = (
 
 interface DbHandle {
   db: Db;
-  cleanup: () => Effect.Effect<void, StandaloneOperationFailed>;
   runMigrationSql: (
     sql: string,
   ) => Effect.Effect<void, StandaloneOperationFailed>;
 }
 
-/* eslint-disable @typescript-eslint/no-invalid-void-type -- PGlite's third-party close contract returns Promise<void>. */
 interface PgLiteClientHandle {
-  readonly close: () => PromiseLike<void>;
   readonly exec: (sql: string) => PromiseLike<unknown>;
 }
-/* eslint-enable @typescript-eslint/no-invalid-void-type -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */
 
 function createPgLiteDb(
   dataDir?: string,
@@ -86,29 +82,9 @@ function createPgLiteDb(
 
     return {
       db,
-      cleanup: () => cleanupPgLiteDb(db, kpg.client),
       runMigrationSql: (sqlText: string) =>
         runPgLiteMigrationSql(kpg.client, sqlText),
     };
-  });
-}
-
-function cleanupPgLiteDb(
-  db: Db,
-  client: PgLiteClientHandle,
-): Effect.Effect<void, StandaloneOperationFailed> {
-  return Effect.tryPromise({
-    try: () => db.destroy(),
-    catch: (cause) => operationFailed("destroy pglite kysely", cause),
-  }).pipe(Effect.flatMap(() => closePgLiteClient(client)));
-}
-
-function closePgLiteClient(
-  client: PgLiteClientHandle,
-): Effect.Effect<void, StandaloneOperationFailed> {
-  return Effect.tryPromise({
-    try: () => client.close(),
-    catch: (cause) => operationFailed("close pglite client", cause),
   });
 }
 
@@ -253,7 +229,6 @@ export function startServer(configPath?: string) {
 interface StandaloneServerHandle {
   readonly app: CoreApp;
   readonly bootPlan: StandaloneBootPlan;
-  readonly stop: CoreApp["close"];
 }
 
 function startServerEffect(
@@ -272,7 +247,7 @@ function startServerEffect(
     });
     const app = createCoreApp(coreConfig);
     yield* logStandaloneStarted(app);
-    return { app, bootPlan, stop: () => app.close() };
+    return { app, bootPlan };
   }).pipe(Effect.withSpan("startServerEffect"));
 }
 
@@ -287,8 +262,6 @@ function makeCoreConfig(options: {
   const { bootPlan, handle } = options;
   return {
     db: handle.db,
-    dbCleanup: () =>
-      Effect.runPromise(handle.cleanup().pipe(Effect.as(undefined))),
     port: bootPlan.port,
     corsOrigins: bootPlan.corsOrigins,
     registrationSecret: bootPlan.registrationSecret,

@@ -19,8 +19,6 @@ export type Originator = ReverseClient;
  */
 interface ConnectionBase {
   readonly connId: ConnectionId;
-  /** Close this connection's scope, tearing down the underlying socket. */
-  readonly shutdown: Effect.Effect<void>;
   readonly originator: Originator;
 }
 
@@ -142,13 +140,11 @@ export class ConnectionManager {
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
    * at WebSocket open. The Connect handler promotes it to the agent arm.
    * @param connId Value supplied to the operation.
-   * @param shutdown Closes the connection's protocol scope.
    * @param originator Value supplied to the operation.
    * @returns The add unauthenticated result.
    */
   addUnauthenticated(
     connId: ConnectionId,
-    shutdown: Effect.Effect<void>,
     originator: Originator,
   ): Effect.Effect<void> {
     return Ref.update(this.stateRef, (state) => ({
@@ -156,7 +152,7 @@ export class ConnectionManager {
       connections: HashMap.set(
         state.connections,
         connId,
-        new UnauthenticatedConnection({ connId, shutdown, originator }),
+        new UnauthenticatedConnection({ connId, originator }),
       ),
     }));
   }
@@ -169,17 +165,6 @@ export class ConnectionManager {
   peek(connId: ConnectionId): Effect.Effect<Option.Option<Connection>> {
     return Ref.get(this.stateRef).pipe(
       Effect.map((state) => HashMap.get(state.connections, connId)),
-    );
-  }
-
-  /**
-   * Snapshot of every connection arm. Callers iterate + discriminate on `_tag`
-   * (e.g. the shutdown loop runs `arm.shutdown`).
-   * @returns The current result.
-   */
-  allConnections(): Effect.Effect<readonly Connection[]> {
-    return Ref.get(this.stateRef).pipe(
-      Effect.map((state) => Array.from(HashMap.values(state.connections))),
     );
   }
 
@@ -223,7 +208,6 @@ export class ConnectionManager {
           (unauth): [TransitionOutcome, typeof state] => {
             const authed = new AgentConnection({
               connId: unauth.connId,
-              shutdown: unauth.shutdown,
               originator: unauth.originator,
               auth,
             });

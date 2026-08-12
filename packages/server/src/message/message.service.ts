@@ -101,10 +101,6 @@ export class MessageService {
     this.networkSendService = deps.networkSend;
   }
 
-  close(): Effect.Effect<void> {
-    return Effect.void;
-  }
-
   sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult> {
     return catchSqlErrorAsDefect(this.sendInsertEffect(input));
   }
