@@ -6,20 +6,13 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentContext } from "./context.js";
 
 /**
- * The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
- * callbacks/notifications through. Constructed by protocol `MoltZapServer`
- * during socket accept and passed to
- * `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
- */
-export type Originator = ReverseClient;
-
-/**
  * Shared base fields across both connection arms. Module-private — not
  * exported. Every arm intersects this; the discriminator is the class tag.
  */
 interface ConnectionBase {
   readonly connId: ConnectionId;
-  readonly originator: Originator;
+  /** Reverse RPC client created during socket accept for server→agent notifications. */
+  readonly originator: ReverseClient;
 }
 
 // Module-private classes with private members keep external modules from
@@ -145,7 +138,7 @@ export class ConnectionManager {
    */
   addUnauthenticated(
     connId: ConnectionId,
-    originator: Originator,
+    originator: ReverseClient,
   ): Effect.Effect<void> {
     return Ref.update(this.stateRef, (state) => ({
       ...state,

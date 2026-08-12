@@ -8,7 +8,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](./connection.ts#L35)
+### [`AgentConnection`](./connection.ts#L28)
 
 _Interface_
 
@@ -68,7 +68,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`Connection`](./connection.ts#L45)
+### [`Connection`](./connection.ts#L38)
 
 _TypeAlias_
 
@@ -78,7 +78,7 @@ export type Connection = UnauthenticatedConnection | AgentConnection;
 
 The two-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L122)
+### [`ConnectionManager`](./connection.ts#L115)
 
 _Class_
 
@@ -109,7 +109,7 @@ export class ConnectionManager {
    */
   addUnauthenticated(
     connId: ConnectionId,
-    originator: Originator,
+    originator: ReverseClient,
   ): Effect.Effect<void> {
     return Ref.update(this.stateRef, (state) => ({
       ...state,
@@ -245,19 +245,6 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`Originator`](./connection.ts#L14)
-
-_TypeAlias_
-
-```ts
-export type Originator = ReverseClient;
-```
-
-The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
-callbacks/notifications through. Constructed by protocol `MoltZapServer`
-during socket accept and passed to
-`ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
-
 ### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L74)
 
 _TypeAlias_
@@ -285,7 +272,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`TransitionOutcome`](./connection.ts#L53)
+### [`TransitionOutcome`](./connection.ts#L46)
 
 _TypeAlias_
 
@@ -299,7 +286,7 @@ arm carries the minted connection so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](./connection.ts#L29)
+### [`UnauthenticatedConnection`](./connection.ts#L22)
 
 _Interface_
 

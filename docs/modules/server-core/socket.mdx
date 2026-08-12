@@ -13,7 +13,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L35)
+### [`AgentConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L28)
 
 _Interface_
 
@@ -73,7 +73,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`Connection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L45)
+### [`Connection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L38)
 
 _TypeAlias_
 
@@ -83,7 +83,7 @@ export type Connection = UnauthenticatedConnection | AgentConnection;
 
 The two-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L122)
+### [`ConnectionManager`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L115)
 
 _Class_
 
@@ -114,7 +114,7 @@ export class ConnectionManager {
    */
   addUnauthenticated(
     connId: ConnectionId,
-    originator: Originator,
+    originator: ReverseClient,
   ): Effect.Effect<void> {
     return Ref.update(this.stateRef, (state) => ({
       ...state,
@@ -250,19 +250,6 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`Originator`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L14)
-
-_TypeAlias_
-
-```ts
-export type Originator = ReverseClient;
-```
-
-The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
-callbacks/notifications through. Constructed by protocol `MoltZapServer`
-during socket accept and passed to
-`ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
-
 ### [`PrincipalBoundaryCanaries`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/principal.types-check.ts#L74)
 
 _TypeAlias_
@@ -290,7 +277,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`TransitionOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L53)
+### [`TransitionOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L46)
 
 _TypeAlias_
 
@@ -304,7 +291,7 @@ arm carries the minted connection so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L29)
+### [`UnauthenticatedConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L22)
 
 _Interface_
 
