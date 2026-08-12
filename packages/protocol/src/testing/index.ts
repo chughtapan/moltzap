@@ -1,13 +1,11 @@
 /**
  * @file Public barrel for protocol testing utilities.
  *
- * `@moltzap/protocol/testing` — test fixtures, typed lifecycle clients,
- * and arbitrary derivation.
+ * `@moltzap/protocol/testing` — test fixtures and typed lifecycle clients.
  */
-import * as arbitraries from "./arbitraries/index.js";
 
 // safer-arch-ignore no-public-test-helper-leak: The explicitly exported ./testing subpath is the supported cross-package fixture API.
-// safer-arch-ignore no-public-vendor-type-leak: The ./testing entrypoint deliberately exposes fast-check arbitraries as property-test support.
+// safer-arch-ignore no-public-vendor-type-leak: The ./testing entrypoint deliberately exposes FastCheck-backed agent-key generators as test support.
 
 // Brand-decoders for test fixtures. Production code does not validate IDs
 // at the caller.
@@ -59,7 +57,3 @@ export {
   registerTestAgent,
   type TestAgent,
 } from "./test-fixtures.js";
-
-// Arbitraries are namespaced to keep generated values scoped.
-/** Re-exports the public API from `current module`. */
-export { arbitraries };

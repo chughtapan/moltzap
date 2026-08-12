@@ -17,7 +17,6 @@
     "modules/protocol/socket/catalog",
     "modules/protocol/src",
     "modules/protocol/testing",
-    "modules/protocol/testing/arbitraries",
     "modules/router/src",
     "modules/server-core/conversation",
     "modules/server-core/conversation/requirements",
