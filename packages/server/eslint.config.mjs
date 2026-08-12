@@ -24,9 +24,8 @@ const cursorOpacityGuard = {
   },
 };
 
-const generatedDatabaseRules = {
+const databaseRowRules = {
   files: [
-    "src/db/database.generated.ts",
     "src/db/database.ts",
     "src/conversation/conversation.service.ts",
     "src/message/message.service.ts",
@@ -48,6 +47,6 @@ export default [
     customJsDocTags: ["internal"],
     tsconfigRootDir: import.meta.dirname,
   }),
-  generatedDatabaseRules,
+  databaseRowRules,
   cursorOpacityGuard,
 ];

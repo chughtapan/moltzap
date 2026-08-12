@@ -1,45 +1,58 @@
-// @generated — thin wrapper over kysely-codegen output for core schema.
-// Run `pnpm db:generate` after changing src/db/core-schema.sql.
+/** @file Authored Kysely row contract for the standalone PGlite schema. */
 
-import type { ColumnType, Selectable } from "kysely";
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import type { ColumnType, Selectable } from "kysely";
 
-import type {
-  Agents as RawAgents,
-  ConversationParticipants as RawConversationParticipants,
-  Conversations as RawConversations,
-  Messages as RawMessages,
-} from "./database.generated.js";
-
+type AgentStatus = "active" | "suspended";
 type Branded<T extends string> = ColumnType<T, string, string>;
+type Generated<T> =
+  T extends ColumnType<infer S, infer I, infer U>
+    ? ColumnType<S, I | undefined, U>
+    : ColumnType<T, T | undefined, T>;
 type GeneratedBranded<T extends string> = ColumnType<
   T,
   string | undefined,
   string
 >;
+type Int8 = ColumnType<
+  string,
+  bigint | number | string,
+  bigint | number | string
+>;
+type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
-interface Agents extends Omit<RawAgents, "id" | "owner_user_id"> {
+interface Agents {
+  api_key_id: string;
+  api_key_secret_hash: string;
+  created_at: Generated<Timestamp>;
+  description: string | null;
+  display_name: string | null;
   id: GeneratedBranded<AgentId>;
+  name: string;
   owner_user_id: Branded<UserId>;
+  status: Generated<AgentStatus>;
+  updated_at: Generated<Timestamp>;
 }
 
-interface ConversationParticipants
-  extends Omit<RawConversationParticipants, "agent_id" | "conversation_id"> {
+interface ConversationParticipants {
   agent_id: Branded<AgentId>;
   conversation_id: Branded<ConversationId>;
 }
 
-interface Conversations extends Omit<RawConversations, "id" | "created_by_id"> {
-  id: GeneratedBranded<ConversationId>;
+interface Conversations {
+  created_at: Generated<Timestamp>;
   created_by_id: Branded<AgentId>;
+  id: GeneratedBranded<ConversationId>;
+  name: string | null;
+  updated_at: Generated<Timestamp>;
 }
 
-interface Messages
-  extends Omit<RawMessages, "id" | "conversation_id" | "sender_id" | "parts"> {
-  id: GeneratedBranded<MessageId>;
+interface Messages {
   conversation_id: Branded<ConversationId>;
-  sender_id: Branded<AgentId>;
+  created_at: Generated<Timestamp>;
+  id: GeneratedBranded<MessageId>;
+  is_deleted: Generated<boolean>;
 
   /**
    * Serialized `MessageParts`. The write side is `string` so every insert
@@ -47,6 +60,8 @@ interface Messages
    * so every read goes through the strict `decodeMessageParts` boundary.
    */
   parts: ColumnType<unknown, string, string>;
+  sender_id: Branded<AgentId>;
+  seq: Int8;
 }
 
 /** Represents message row values. */

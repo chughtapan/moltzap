@@ -2,8 +2,8 @@
 
 This folder is the storage substrate shared by server domains.
 
-- `database.ts` overlays protocol brands on the generated Kysely schema, while
-  `client.ts`, `layer.ts`, and `barrel.ts` expose the server's `Db` boundary.
+- `database.ts` owns the Kysely row map and protocol brands, while `client.ts`,
+  `layer.ts`, and `barrel.ts` expose the server's `Db` boundary.
 - The Effect/Kysely adapter and vendor shim isolate query execution and
   transaction types.
 - Cursor, snowflake, SQL, and migration modules provide persistence utilities.

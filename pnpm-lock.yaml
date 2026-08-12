@@ -439,9 +439,6 @@ importers:
       fast-check:
         specifier: ^3.23.1
         version: 3.23.2
-      kysely-codegen:
-        specifier: ^0.20.0
-        version: 0.20.0(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(kysely@0.28.16)(pg@8.20.0)
       tsc-alias:
         specifier: ^1.8.17
         version: 1.8.17
@@ -7207,41 +7204,6 @@ packages:
       tedious:
         optional: true
 
-  kysely-codegen@0.20.0:
-    resolution: {integrity: sha512-LSi2KBG7uDmNCZ+XurLSA9LH7XFyyoQ6xb5DLJSInPTSYLVApjOP2KwO8mSaREWTtoX+C2AG2GTlYR0DLjTbcA==}
-    engines: {node: '>=20.0.0'}
-    hasBin: true
-    peerDependencies:
-      '@libsql/kysely-libsql': '>=0.3.0 <0.5.0'
-      '@tediousjs/connection-string': ^1.0.0
-      better-sqlite3: '>=7.6.2 <13.0.0'
-      kysely: '>=0.27.0 <1.0.0'
-      kysely-bun-sqlite: '>=0.3.2 <1.0.0'
-      kysely-bun-worker: '>=1.2.0 <2.0.0'
-      mysql2: '>=2.3.3 <4.0.0'
-      pg: '>=8.8.0 <9.0.0'
-      tarn: '>=3.0.0 <4.0.0'
-      tedious: '>=18.0.0 <20.0.0'
-    peerDependenciesMeta:
-      '@libsql/kysely-libsql':
-        optional: true
-      '@tediousjs/connection-string':
-        optional: true
-      better-sqlite3:
-        optional: true
-      kysely-bun-sqlite:
-        optional: true
-      kysely-bun-worker:
-        optional: true
-      mysql2:
-        optional: true
-      pg:
-        optional: true
-      tarn:
-        optional: true
-      tedious:
-        optional: true
-
   kysely-pglite@0.6.1:
     resolution: {integrity: sha512-+q9FS6km6Y9yLLxe4SAMu4cQA3qIOSqdZ9uidVDU7g90Z/ZEjDhEKX/Rk5xug0HoGpCfMLHC2XGLqiVMZXqnRw==}
     hasBin: true
@@ -8379,10 +8341,6 @@ packages:
   plimit-lit@1.6.1:
     resolution: {integrity: sha512-B7+VDyb8Tl6oMJT9oSO2CW8XC/T4UcJGrwOVoNGwOQsQYhlpfajmrMj5xeejqaASq3V/EqThyOeATEOMuSEXiA==}
     engines: {node: '>=12'}
-
-  pluralize@8.0.0:
-    resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
-    engines: {node: '>=4'}
 
   pngjs@5.0.0:
     resolution: {integrity: sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==}
@@ -18034,24 +17992,6 @@ snapshots:
       better-sqlite3: 12.11.1
       pg: 8.20.0
 
-  kysely-codegen@0.20.0(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(kysely@0.28.16)(pg@8.20.0):
-    dependencies:
-      chalk: 4.1.2
-      cosmiconfig: 9.0.1(@typescript/typescript6@6.0.2)
-      diff: 8.0.4
-      dotenv: 17.3.1
-      dotenv-expand: 12.0.3
-      kysely: 0.28.16
-      micromatch: 4.0.8
-      minimist: 1.2.8
-      pluralize: 8.0.0
-      zod: 4.3.6
-    optionalDependencies:
-      better-sqlite3: 12.11.1
-      pg: 8.20.0
-    transitivePeerDependencies:
-      - typescript
-
   kysely-pglite@0.6.1(@electric-sql/pglite@0.4.4)(better-sqlite3@12.11.1)(kysely@0.28.16)(pg@8.20.0):
     dependencies:
       '@electric-sql/pglite': 0.4.4
@@ -19761,8 +19701,6 @@ snapshots:
   plimit-lit@1.6.1:
     dependencies:
       queue-lit: 1.5.2
-
-  pluralize@8.0.0: {}
 
   pngjs@5.0.0: {}
 
