@@ -15,6 +15,8 @@ evidence described below have landed on this branch.
 
 Preparation artifacts for that gate are:
 
+- [`../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md`](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md),
+  the source-faithful public exchange and mechanical event ledger;
 - [`four-layer-authority-handoff.md`](./four-layer-authority-handoff.md), the
   current-decision and specification supersession inventory;
 - [`four-layer-interface-slate.md`](./four-layer-interface-slate.md), the
