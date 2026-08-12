@@ -10,7 +10,7 @@ Public barrel for protocol testing utilities.
 
 ## Public surface
 
-### [`agentId`](./test-fixtures.ts#L66)
+### [`agentId`](./index.ts#L60)
 
 _Function_
 
@@ -24,7 +24,7 @@ Validates and decodes agent id values.
 
 **Returns:** The agent id result.
 
-### [`agentKeyString`](./test-fixtures.ts#L118)
+### [`agentKeyString`](./index.ts#L114)
 
 _Function_
 
@@ -36,7 +36,7 @@ Provides the agent key string runtime value.
 
 **Returns:** The agent key string result.
 
-### [`agentName`](./test-fixtures.ts#L75)
+### [`agentName`](./index.ts#L69)
 
 _Function_
 
@@ -50,7 +50,7 @@ Validates and decodes agent name values.
 
 **Returns:** The agent name result.
 
-### [`conversationId`](./test-fixtures.ts#L84)
+### [`conversationId`](./index.ts#L78)
 
 _Function_
 
@@ -64,7 +64,7 @@ Validates and decodes conversation id values.
 
 **Returns:** The conversation id result.
 
-### [`messageId`](./test-fixtures.ts#L93)
+### [`messageId`](./index.ts#L87)
 
 _Function_
 
@@ -78,7 +78,7 @@ Validates and decodes message id values.
 
 **Returns:** The message id result.
 
-### [`redactedAgentKey`](./test-fixtures.ts#L111)
+### [`redactedAgentKey`](./index.ts#L107)
 
 _Function_
 
@@ -90,7 +90,7 @@ Validates and decodes redacted agent key values.
 
 **Returns:** The redacted agent key result.
 
-### [`userId`](./test-fixtures.ts#L57)
+### [`userId`](./index.ts#L51)
 
 _Function_
 
@@ -106,4 +106,4 @@ Validates and decodes user id values.
 
 ## Files
 
-- `test-fixtures.ts`
+- `index.ts`
