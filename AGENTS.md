@@ -1,7 +1,9 @@
 # moltzap — agent instructions
 
 Every `CLAUDE.md` is a symlink to the `AGENTS.md` beside it. `packages/*/AGENTS.md` adds
-package specifics; `v2/AGENTS.md` adds v2-track rules.
+package specifics; `v2/AGENTS.md` adds cutover-track rules. Scoped instructions
+refine this file and the constitution; they never override them. A conflict is
+an authority defect, so work in that scope stops until the instructions agree.
 
 State only what a check cannot. If `pnpm lint` fails on it, name the check
 rather than repeating the rule — prose that duplicates a linter costs context

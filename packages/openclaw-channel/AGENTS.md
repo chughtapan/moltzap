@@ -1,70 +1,50 @@
 # @moltzap/openclaw-channel
 
-OpenClaw gateway channel plugin: bridges MoltZap messages into the
-OpenClaw agent framework. The plugin contract is Promise-based;
-internals use Effect and pay `Effect.runPromise` only at the plugin
-surface.
+OpenClaw gateway channel plugin. The host contract is Promise-based; internal
+work may use Effect and crosses through `Effect.runPromise` only at the plugin
+surface. The channel id remains `"moltzap"`.
 
-## Structure
+## Cutover boundary
 
-- `src/openclaw-entry.ts` — the plugin: gateway `startAccount`,
-  notification routing, wraps `MoltZapChannelCore`
-  (`@moltzap/client/channel-base`) for inbound enrichment and
-  turn ordering, projects `EnrichedInboundMessage` into
-  OpenClaw's `DispatchContext`, deliver callback.
-- `src/context-log.ts` — `writeOpenClawContextLog`.
-- `src/*.test.ts` — unit tests. `src/__tests__/` — integration
-  tests, `spawn-server.ts`, echo-server fixture.
+This adapter consumes public `@moltzap/client` capabilities only. It must not
+import Identity, Router, protocol, server, Client internals, simulator, evals,
+or another adapter. It receives an injected or MCP-backed `HarnessClient`; it
+does not acquire a daemon, profile, Registry admission material, signing key,
+raw Router credential, network client, or local store.
 
-## Concepts
+The current channel-core, notification-RPC, profile/account, CLI/socket, and
+direct-server source is transitional deletion and rewrite input. Do not expand
+it, add a compatibility facade, or preserve it through re-exports. Rebuild the
+adapter against the final `HarnessClient` only after its four exact public
+interface choices have been admitted.
 
-- **Account** — OpenClaw channel identity; its `id` is the MoltZap
-  profile name from `~/.moltzap/config.json`; OpenClaw stores no
-  MoltZap API keys.
-- **Target** — `agent:<name>` or `conv:<conversationId>`.
-  `isMoltZapTarget` is the accepting predicate.
-- **Context log** — per-message JSONL dump of the enriched inbound
-  payload; directory named by `MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR`.
+## Host integration law
 
-## Code
+- Project an emitted Client turn into OpenClaw's dispatch context without
+  fabricating authority from a conversation id or history record.
+- Keep the originating turn's bound, content-only reply capability with the
+  corresponding OpenClaw delivery. A delayed delivery cannot fall forward to
+  a newer turn.
+- Established output uses that bound capability only. There is no generic
+  send, raw RPC fallback, target-based reply, CLI/socket path, or adapter
+  escape hatch.
+- OpenClaw target and directory behavior may initiate or discover work only
+  through the final Client contract. It cannot authorize an established reply.
+- Keep host failures and Client failures typed at the boundary. A delivery
+  failure follows the Promise-based OpenClaw contract without exposing Client
+  internals.
+- Never use `unknown` types; define explicit host-facing interfaces.
 
-- Channel ID is always `"moltzap"`.
-- Replies dispatch via `dispatchReplyWithBufferedBlockDispatcher`
-  (`channelRuntime.reply`); OpenClaw calls `deliver` directly, never
-  `routeReply()` (`OriginatingChannel === Surface` always holds for
-  MoltZap→MoltZap), so the deliver callback MUST send the reply via
-  `core.sendReply(conversationId, text)`.
-- Each final `deliver` call sends through
-  `core.sendReply(conversationId, text)`. A send failure returns `false`
-  per `OpenClawDeliver: PromiseLike<boolean>` so the host may retry.
-- Target resolution: `messaging.targetResolver` validates both
-  target formats with no server round-trip; `directory` (`listPeers`,
-  `listGroups` — named groups only) is live RPC returning `[]` on
-  failure; `outbound.resolveTarget` requires a non-empty target and
-  rejects `:`-containing targets in no known format — a colon-free
-  string passes resolution and `parseConversationTarget` reads it as a
-  bare conversation id.
-- Notification routing keys on the typed definitions from
-  `@moltzap/protocol`: `agent/message/received` enters dispatch,
-  non-message notifications update channel state. Sender identity
-  (`agent/identity/agents/list`) and conversation metadata
-  (`ConversationList`) resolve through in-memory caches.
-- Account startup connects once. A nonterminal disconnect updates channel
-  status, but the plugin does not yet drive reconnect or
-  `agent/message/list` catch-up. Do not claim delivery across a disconnected
-  window until both behaviors have a full-agent fault test.
-- Single agent per service: each `MoltZapService` maps to exactly
-  one agent; the daemon binds `~/.moltzap/service-<agentId>.sock`
-  and symlinks `~/.moltzap/service.sock` to it for CLI discovery.
-- Never use `unknown` types — use explicit typed interfaces.
+The exact turn context, operation identity/recovery, result representation,
+and public search/history methods are deliberately deferred. Preserve current
+compatible host behavior as migration evidence, but do not freeze its
+transitional payload, formatter, target, or retry details as the final API.
 
 ## Tests
 
-- `pnpm test` — vitest unit tests. `pnpm test:integration` needs
-  Docker (testcontainers Postgres) and a built `@moltzap/server`;
-  it spawns the server via `src/__tests__/spawn-server.ts`. Test
-  helpers: `@moltzap/client/test-utils` (`stripWsPath`,
-  `registerStandaloneAgentPair`).
-- Never mock dispatch or delivery in integration/e2e — use a real
-  MoltZap server (testcontainers) and verify the actual round-trip.
-  Unit tests may mock the channelRuntime to verify contract shape.
+- Unit tests may fake the public Client capability to verify OpenClaw contract
+  projection and reply binding.
+- Integration tests exercise the final Client boundary; they must not restore
+  dependencies on deleted protocol/server packages, profiles, raw Router
+  credentials, or compatibility shims.
+- Run package tasks through Nx from the workspace root.

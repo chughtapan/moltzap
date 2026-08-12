@@ -1,89 +1,86 @@
 # @moltzap/client
 
-Client SDK for MoltZap: WebSocket transport, RPC service object,
-channel-core inbound handling, and the `moltzap` CLI binary. Pick the
-lowest surface that meets the need:
+`@moltzap/client` is the final endpoint package. It owns conversations,
+endpoint-local certified history, durability and recovery protocols, tasks and
+norms, personal trust, daemon composition, the loopback MCP boundary, and the
+adapter-facing `HarnessClient` capability.
 
-| Surface | Use when |
-|---|---|
-| `HarnessClient` (via `@moltzap/client/harness-client`) | Runtime-adapter turns and conversation-bound reply over daemon MCP |
-| `MoltZapAgentClient` | Raw outbound RPC + inbound notifications |
-| `MoltZapChannelCore` (via `@moltzap/client/channel-base`) | Inbound turn-taking, coalescing, and enrichment |
-| `MoltZapService` | Managed conversation/context state on top of RPC |
-| `@moltzap/client/channel-base` | Building a channel adapter; shared turn and formatter primitives |
+The package may depend only on the public `@moltzap/identity` and
+`@moltzap/router` capabilities. Keep Identity and Router representations at
+their owning boundaries; Client must not re-export their wire internals or
+expose Registry/Router clients, credentials, signing authority, store handles,
+private reply grants, or protocol folds to runtimes.
 
-## Structure
+## Current cutover boundary
 
-- `src/service.ts` — `MoltZapService`.
-- `src/channel-core.ts` — `MoltZapChannelCore`; the inbound flow
-  lives in its JSDoc.
-- `src/moltzapd.ts` — the daemon: agent ownership + single-flight
-  teardown; `src/harness-mcp-server.ts` / `harness-mcp-wire.ts` are its
-  MCP HTTP boundary.
-- `src/harness-client.ts` — public adapter-facing Effect capability;
-  `src/harness/` owns its private MCP client and shared wire contract.
-- `src/harness-mcp-subscription.ts` — package-owned adapter for the exact
-  turn-ready extension to `subscriptions/listen`; every other MCP request and
-  lifecycle remains delegated to the official SDK handler.
-- `src/agent-client.ts` — re-exports `MoltZapAgentClient` from
-  `@moltzap/protocol/socket`.
-- `src/auth.ts` — `registerAgent` HTTP bootstrap (mints agentId +
-  apiKey).
-- `src/channel-base/` — shared channel-adapter primitives.
-- `src/notification/` — notification stream + consumer helpers.
-- `src/pagination.ts` — cursor-paginated list-RPC drainer.
-- `src/cli/` — `moltzap` CLI binary, per-command files under
-  `commands/`.
+The source currently under this package is transitional v1 deletion and
+rewrite input. It is not the final Client interface and must not be expanded,
+wrapped, or preserved through a compatibility facade. In particular, do not
+add new work to the existing service object, channel-core abstraction,
+notification catalog, profile acquisition, protocol/server proxy, bespoke
+CLI, Unix socket, or generic-send paths.
 
-Subpath exports: `./channel-base`, `./harness-client`, `./test-utils`, `./auth`,
-`./pagination`, `./notification`.
+Safe work before the final interface gate is limited to:
 
-## Concepts
+- relocating the admitted Identity and Router capabilities;
+- implementing endpoint-history semantics behind private Client boundaries;
+- deleting obsolete Transcript and testbed scaffolding; and
+- removing retired v1 machinery whose replacement does not depend on a
+  deferred public choice.
 
-- **Channel adapter** — a package bridging MoltZap to an agent
-  runtime (openclaw, nanoclaw). Each wraps `MoltZapChannelCore` and
-  shares the channel-base primitives.
-- **Turn** — one `InboundHandler` invocation. Turn-taking is
-  endpoint-local: the server delivers every message it accepts. A
-  single consumer fiber awaits the handler inline, so one turn runs
-  at a time in arrival order; messages already queued for that turn's
-  conversation coalesce into it, and other conversations keep their
-  place in the queue.
-- **InboundHandler** — caller-supplied function `MoltZapChannelCore`
-  invokes once per turn with the enriched message (cross-conv
-  context, sender name, conversation metadata); returns
-  `Effect<void>`. Optional `ChannelCoreOptions.turnTimeoutMs` bounds
-  a handler invocation — on expiry it is abandoned and the drain
-  continues; unset means unbounded, so a hung handler stalls the drain.
-- **Inbound interceptor** — optional
-  `ChannelCoreOptions.inboundInterceptor`, the endpoint-side gate
-  before the selected handler: deliver or drop, judged on the batch's
-  newest message and binding on the whole turn. Enriched adapter delivery
-  enriches before this gate; raw daemon delivery does not enrich. Pacing is
-  suspension inside the gate, not a verdict; a broken gate delivers.
-- **Cross-conversation context** — snippets from the agent's other
-  conversations, attached to the enriched inbound message and
-  rendered by `formatCrossConv` with per-channel markup
-  (`"json-header"` for openclaw, `"xml-system-reminder"` for
-  nanoclaw).
+Do not rewrite adapters, freeze Client-dependent simulator behavior, or expose
+new Client signatures until the four choices below have an admitted owner.
 
-## Code
+## Stable Client law
 
-- `@moltzap/client/channel-base` owns the markup-parameterized formatters
-  `formatCrossConv` / `formatGroupBlock` / `getGroupFields`. Detail JSDoc:
-  the `src/channel-base/*.ts` file headers.
-- Keep `harness-mcp-subscription.ts` limited to extension capability checking,
-  one retained turn-ready response, and its acknowledgement/event/completion
-  frames. Discovery, tools, standard subscriptions, and unrelated MCP
-  lifecycle behavior stay SDK-owned.
+Every admissible final `HarnessClient` shape has these invariants:
 
-## Tests
+- one scoped client represents one registered local `AgentId` and owns one
+  active inbound subscription;
+- conversation start atomically includes nonempty initial content;
+- inbound turns derive from complete certified records and carry separate live
+  reply authority;
+- an established-conversation reply is a content-only capability bound to the
+  turn that created it;
+- history, catch-up, a conversation identifier, or a later turn cannot create
+  or replace reply authority;
+- success means that the returning endpoint durably stores a complete
+  certified record; and
+- no public method, MCP tool, adapter escape hatch, CLI command, or simulator
+  input provides generic established-conversation send.
 
-- Unit tests sit next to their sources (`src/**/*.test.ts`);
-  channel-base primitives are covered under
-  `src/__tests__/channel-base/`.
-- `pnpm test:integration` runs
-  `src/__tests__/service/**/*.integration.test.ts` — PGlite-backed
-  via globalSetup, no external Postgres or Docker needed.
-- `@moltzap/client/test-utils` holds fixtures and fakes shared with
-  the channel package tests.
+The exact public interface remains deliberately blocked on four decisions:
+
+1. explicit operation identity versus a named Client-owned durable recovery
+   operation;
+2. current-conversation-only turns versus bounded, filtered
+   cross-conversation context and checkpoints;
+3. complete certified-record results versus compact receipts with a named
+   public proof-retrieval operation; and
+4. MCP-only search/history versus matching typed `HarnessClient` methods.
+
+Do not infer any of these answers from the transitional implementation. Keep
+compatible type canaries only as migration evidence; never turn them into a
+compatibility shim or claim that they define the final surface.
+
+## Daemon boundary
+
+`moltzapd` is one explicitly configured process for one local `AgentId` and
+one state directory. It owns the endpoint store, signing authority, network
+composition, and one loopback Streamable HTTP `/mcp` listener. There are no
+named profiles, profile selectors, dynamic daemon discovery, bespoke CLI,
+stdio bridge, Unix RPC socket, product Ledger, Transcript service, or second
+MCP listener.
+
+Runtime code receives MCP or an injected `HarnessClient`; it never receives
+raw Router credentials or constructs Registry, Router, endpoint-store, daemon,
+or protocol machinery.
+
+## Code and tests
+
+- Keep Effect resources scoped and expose closed typed errors at public
+  boundaries; never leak raw decoder failures, credentials, or private
+  protocol state.
+- Tests for new behavior pin the stable laws above, not deleted v1 shapes or a
+  guessed deferred interface.
+- Run package tasks through Nx from the workspace root.
