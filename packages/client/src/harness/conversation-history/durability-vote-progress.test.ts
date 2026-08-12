@@ -10,14 +10,18 @@ import { describe, expect, it } from "vitest";
 
 import type { InvalidMembershipSizeError } from "./durability-quorum.js";
 import {
+  type DurabilityRecordMismatchError,
   type DurabilityVoteDisposition,
   durabilityVoteDisposition,
   type DurabilityVoteMerge,
   type DurabilityVoteProgress,
   makeDurabilityVoteProgress,
-  mergeVerifiedDurabilitySigner,
+  mergeVerifiedDurabilityVote,
   type NonMemberDurabilitySignerError,
 } from "./durability-vote-progress.js";
+
+const RECORD_HASH = "record:current";
+const OTHER_RECORD_HASH = "record:conflict";
 
 const makeAgentId = (seed: number): AgentIdValue =>
   Schema.decodeUnknownSync(AgentId)(
@@ -34,29 +38,52 @@ const memberSet = (memberCount: number): ReadonlySet<AgentIdValue> => {
 
 const validProgress = (
   members: ReadonlySet<AgentIdValue>,
-): DurabilityVoteProgress =>
-  Either.match(makeDurabilityVoteProgress(members), {
-    onLeft: (error) => {
-      throw error;
+): DurabilityVoteProgress<string> =>
+  Either.match(
+    makeDurabilityVoteProgress({
+      recordHash: RECORD_HASH,
+      memberAgentIds: members,
+    }),
+    {
+      onLeft: (error) => {
+        throw error;
+      },
+      onRight: (progress) => progress,
     },
-    onRight: (progress) => progress,
-  });
+  );
 
 const invalidMembership = (
   members: ReadonlySet<AgentIdValue>,
 ): InvalidMembershipSizeError =>
-  Either.match(makeDurabilityVoteProgress(members), {
-    onLeft: (error) => error,
-    onRight: () => {
-      throw new Error("Expected invalid membership");
+  Either.match(
+    makeDurabilityVoteProgress({
+      recordHash: RECORD_HASH,
+      memberAgentIds: members,
+    }),
+    {
+      onLeft: (error) => error,
+      onRight: () => {
+        throw new Error("Expected invalid membership");
+      },
     },
+  );
+
+const mergeVote = (
+  progress: DurabilityVoteProgress<string>,
+  signerAgentId: AgentIdValue,
+  recordHash = RECORD_HASH,
+) =>
+  mergeVerifiedDurabilityVote({
+    progress,
+    vote: { recordHash, signerAgentId },
+    sameRecordHash: (left, right) => left === right,
   });
 
 const validMerge = (
-  progress: DurabilityVoteProgress,
+  progress: DurabilityVoteProgress<string>,
   signerAgentId: AgentIdValue,
-): DurabilityVoteMerge =>
-  Either.match(mergeVerifiedDurabilitySigner(progress, signerAgentId), {
+): DurabilityVoteMerge<string> =>
+  Either.match(mergeVote(progress, signerAgentId), {
     onLeft: (error) => {
       throw error;
     },
@@ -64,20 +91,41 @@ const validMerge = (
   });
 
 const nonMemberMerge = (
-  progress: DurabilityVoteProgress,
+  progress: DurabilityVoteProgress<string>,
   signerAgentId: AgentIdValue,
 ): NonMemberDurabilitySignerError =>
-  Either.match(mergeVerifiedDurabilitySigner(progress, signerAgentId), {
-    onLeft: (error) => error,
+  Either.match(mergeVote(progress, signerAgentId), {
+    onLeft: (error) => {
+      if (error._tag === "NonMemberDurabilitySignerError") {
+        return error;
+      }
+      throw error;
+    },
     onRight: () => {
       throw new Error("Expected a non-member signer failure");
     },
   });
 
+const recordMismatch = (
+  progress: DurabilityVoteProgress<string>,
+  signerAgentId: AgentIdValue,
+): DurabilityRecordMismatchError<string> =>
+  Either.match(mergeVote(progress, signerAgentId, OTHER_RECORD_HASH), {
+    onLeft: (error) => {
+      if (error._tag === "DurabilityRecordMismatchError") {
+        return error;
+      }
+      throw error;
+    },
+    onRight: () => {
+      throw new Error("Expected a record-binding failure");
+    },
+  });
+
 const mergeAll = (
-  initial: DurabilityVoteProgress,
+  initial: DurabilityVoteProgress<string>,
   signerAgentIds: readonly AgentIdValue[],
-): DurabilityVoteProgress => {
+): DurabilityVoteProgress<string> => {
   let progress = initial;
   for (const signerAgentId of signerAgentIds) {
     progress = validMerge(progress, signerAgentId).progress;
@@ -127,7 +175,23 @@ describe("makeDurabilityVoteProgress", () => {
   });
 });
 
-describe("mergeVerifiedDurabilitySigner non-member handling", () => {
+describe("mergeVerifiedDurabilityVote refusal", () => {
+  it("rejects a vote bound to another record before inspecting its signer", () => {
+    const members = memberSet(4);
+    const signerAgentId = [...members][0];
+    if (signerAgentId === undefined) {
+      throw new Error("Expected a nonempty membership fixture");
+    }
+    const progress = validProgress(members);
+
+    expect(recordMismatch(progress, signerAgentId)).toMatchObject({
+      _tag: "DurabilityRecordMismatchError",
+      expectedRecordHash: RECORD_HASH,
+      receivedRecordHash: OTHER_RECORD_HASH,
+    });
+    expect(progress.signerAgentIds.size).toBe(0);
+  });
+
   it("rejects a non-member with a typed error and no mutation", () => {
     const members = memberSet(4);
     const firstMember = [...members][0];
@@ -148,7 +212,7 @@ describe("mergeVerifiedDurabilitySigner non-member handling", () => {
   });
 });
 
-describe("mergeVerifiedDurabilitySigner duplicate handling", () => {
+describe("mergeVerifiedDurabilityVote duplicate handling", () => {
   it("makes duplicates harmless before and after completion", () => {
     const members = [...memberSet(4)];
     const [firstMember, secondMember, thirdMember, fourthMember] = members;
@@ -191,7 +255,7 @@ describe("mergeVerifiedDurabilitySigner duplicate handling", () => {
   });
 });
 
-describe("mergeVerifiedDurabilitySigner immutability", () => {
+describe("mergeVerifiedDurabilityVote immutability", () => {
   it("leaves every input set unchanged when a new signer is accepted", () => {
     const members = memberSet(7);
     const signerAgentId = [...members][0];
