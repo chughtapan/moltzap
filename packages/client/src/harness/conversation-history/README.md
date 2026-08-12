@@ -19,11 +19,12 @@ conversation history:
   vote for an action-certified record;
 - nonempty, contiguous, duplicate-free certified catch-up suffix plans for one
   atomic local transaction without runtime attention;
-  and
 - predecessor- and quorum-gated plans carrying complete evidence into atomic
-  certified-head advancement; and
+  certified-head advancement;
 - restart recovery classification for staged, quorum-complete, and already
   certified durable states without duplicate promotion;
+- restart recovery classification for partial, quorum-complete, and already
+  current Router re-anchors without duplicate promotion;
 - evidence-only enrichment of an existing certified history position without
   creating another action, head advance, or runtime turn.
 

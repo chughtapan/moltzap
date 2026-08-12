@@ -36,7 +36,7 @@ export interface ReanchorAdvance<Domain, BodyHash, VoteEvidence> {
 }
 
 /** Private inputs loaded from one endpoint-store transaction. */
-interface ReanchorAdvanceInput<Domain, BodyHash, VoteEvidence> {
+export interface ReanchorAdvanceInput<Domain, BodyHash, VoteEvidence> {
   readonly staged: StagedReanchorCandidate<Domain, BodyHash>;
   readonly voteProgress: ReanchorVoteProgress<BodyHash, VoteEvidence>;
   readonly sameBodyHash: (left: BodyHash, right: BodyHash) => boolean;
