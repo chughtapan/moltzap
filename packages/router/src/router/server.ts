@@ -48,8 +48,7 @@ const runRouterServer = Effect.gen(function* () {
  *
  * ```mermaid
  * flowchart LR
- *   Binary["moltzap-router"] --> Process["runRouterProcess"]
- *   Process --> Server["runRouterServer"]
+ *   Binary["moltzap-router"] --> Server["RouterServer.layer"]
  *   Server --> App["buildRouterApp"]
  *   App --> Http["makeRouterHttpApp"]
  *   Http --> Authentication["AuthenticatedHttp"]

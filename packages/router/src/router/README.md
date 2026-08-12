@@ -7,8 +7,8 @@ durable state.
 
 Start with:
 
-- `process.ts` loads configuration and runs the standalone process.
-- `server.ts` is the actual composition root for the production Effect layers.
+- `server.ts` is the composition root launched directly by the standalone
+  binary.
 - `http.ts` exposes readiness plus authenticated send and poll routes.
 - `rpc.ts` owns the private operation group, authenticated-request proof,
   handlers, and in-process dispatch.

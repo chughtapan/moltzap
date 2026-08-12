@@ -1,4 +1,9 @@
 #!/usr/bin/env node
-import { runRouterProcess } from "../dist/router/process.js";
+import { NodeRuntime } from "@effect/platform-node";
+import { ConfigProvider, Effect, Layer } from "effect";
+import { RouterServer } from "../dist/server.js";
 
-runRouterProcess();
+Layer.launch(RouterServer.layer).pipe(
+  Effect.withConfigProvider(ConfigProvider.fromEnv()),
+  NodeRuntime.runMain,
+);
