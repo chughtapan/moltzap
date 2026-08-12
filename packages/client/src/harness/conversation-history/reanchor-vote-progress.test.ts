@@ -1,6 +1,6 @@
 /**
- * @file Pins stable-body binding, fixed membership, immutable merging, and
- * one-shot threshold completion for private Router re-anchor vote progress.
+ * @file Pins stable-body binding, complete evidence retention, immutable
+ * merging, and one-shot completion for private Router re-anchor votes.
  */
 
 import { AgentId, type AgentId as AgentIdValue } from "@moltzap/identity";
@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import type { InvalidMembershipSizeError } from "./durability-quorum.js";
 import {
+  type ConflictingReanchorVoteEvidenceError,
   makeReanchorVoteProgress,
   mergeVerifiedReanchorVote,
   type NonMemberReanchorSignerError,
@@ -21,6 +22,22 @@ import {
 
 const BODY_HASH = "anchor-body:current";
 const OTHER_BODY_HASH = "anchor-body:conflict";
+
+interface OpaqueVoteEvidence {
+  readonly fixture: string;
+}
+
+const voteEvidenceFor = (
+  signerAgentId: AgentIdValue,
+  variant = "verified",
+): OpaqueVoteEvidence => ({
+  fixture: `${signerAgentId}:${variant}`,
+});
+
+const sameVoteEvidence = (
+  left: OpaqueVoteEvidence,
+  right: OpaqueVoteEvidence,
+): boolean => left.fixture === right.fixture;
 
 const makeAgentId = (seed: number): AgentIdValue =>
   Schema.decodeUnknownSync(AgentId)(
@@ -35,11 +52,21 @@ const memberSet = (memberCount: number): ReadonlySet<AgentIdValue> => {
   return members;
 };
 
+const evidenceMapFor = (
+  signerAgentIds: readonly AgentIdValue[],
+): ReadonlyMap<AgentIdValue, OpaqueVoteEvidence> => {
+  const evidenceBySigner = new Map<AgentIdValue, OpaqueVoteEvidence>();
+  for (const signerAgentId of signerAgentIds) {
+    evidenceBySigner.set(signerAgentId, voteEvidenceFor(signerAgentId));
+  }
+  return evidenceBySigner;
+};
+
 const validProgress = (
   members: ReadonlySet<AgentIdValue>,
-): ReanchorVoteProgress<string> =>
+): ReanchorVoteProgress<string, OpaqueVoteEvidence> =>
   Either.match(
-    makeReanchorVoteProgress({
+    makeReanchorVoteProgress<string, OpaqueVoteEvidence>({
       bodyHash: BODY_HASH,
       memberAgentIds: members,
     }),
@@ -53,7 +80,7 @@ const validProgress = (
 
 const invalidMembership = (): InvalidMembershipSizeError =>
   Either.match(
-    makeReanchorVoteProgress({
+    makeReanchorVoteProgress<string, OpaqueVoteEvidence>({
       bodyHash: BODY_HASH,
       memberAgentIds: new Set<AgentIdValue>(),
     }),
@@ -66,41 +93,71 @@ const invalidMembership = (): InvalidMembershipSizeError =>
   );
 
 const mergeVote = (
-  progress: ReanchorVoteProgress<string>,
+  progress: ReanchorVoteProgress<string, OpaqueVoteEvidence>,
   signerAgentId: AgentIdValue,
-  bodyHash = BODY_HASH,
-): Either.Either<
-  ReanchorVoteMerge<string>,
-  ReanchorBodyMismatchError<string> | NonMemberReanchorSignerError
-> =>
+  options: {
+    readonly bodyHash?: string;
+    readonly evidence?: OpaqueVoteEvidence;
+  } = {},
+) =>
   mergeVerifiedReanchorVote({
     progress,
-    vote: { bodyHash, signerAgentId },
+    vote: {
+      bodyHash: options.bodyHash ?? BODY_HASH,
+      signerAgentId,
+      evidence: options.evidence ?? voteEvidenceFor(signerAgentId),
+    },
     sameBodyHash: (left, right) => left === right,
+    sameVoteEvidence,
   });
 
 const validMerge = (
-  progress: ReanchorVoteProgress<string>,
+  progress: ReanchorVoteProgress<string, OpaqueVoteEvidence>,
   signerAgentId: AgentIdValue,
-): ReanchorVoteMerge<string> =>
-  Either.match(mergeVote(progress, signerAgentId), {
-    onLeft: (error) => {
-      throw error;
+  evidence?: OpaqueVoteEvidence,
+): ReanchorVoteMerge<string, OpaqueVoteEvidence> => {
+  const effectiveEvidence = evidence ?? voteEvidenceFor(signerAgentId);
+  return Either.match(
+    mergeVote(progress, signerAgentId, { evidence: effectiveEvidence }),
+    {
+      onLeft: (error) => {
+        throw error;
+      },
+      onRight: (merge) => merge,
     },
-    onRight: (merge) => merge,
-  });
+  );
+};
+
+type VoteFailure =
+  | ConflictingReanchorVoteEvidenceError<OpaqueVoteEvidence>
+  | NonMemberReanchorSignerError
+  | ReanchorBodyMismatchError<string>;
 
 const failedMerge = (
-  progress: ReanchorVoteProgress<string>,
+  progress: ReanchorVoteProgress<string, OpaqueVoteEvidence>,
   signerAgentId: AgentIdValue,
-  bodyHash = BODY_HASH,
-): ReanchorBodyMismatchError<string> | NonMemberReanchorSignerError =>
-  Either.match(mergeVote(progress, signerAgentId, bodyHash), {
+  options: {
+    readonly bodyHash?: string;
+    readonly evidence?: OpaqueVoteEvidence;
+  } = {},
+): VoteFailure =>
+  Either.match(mergeVote(progress, signerAgentId, options), {
     onLeft: (error) => error,
     onRight: () => {
       throw new Error("Expected re-anchor vote merge to fail");
     },
   });
+
+const mergeAll = (
+  initial: ReanchorVoteProgress<string, OpaqueVoteEvidence>,
+  signerAgentIds: readonly AgentIdValue[],
+): ReanchorVoteProgress<string, OpaqueVoteEvidence> => {
+  let progress = initial;
+  for (const signerAgentId of signerAgentIds) {
+    progress = validMerge(progress, signerAgentId).progress;
+  }
+  return progress;
+};
 
 describe("makeReanchorVoteProgress", () => {
   it("rejects empty membership through the shared quorum profile", () => {
@@ -124,43 +181,127 @@ describe("makeReanchorVoteProgress", () => {
     expect(progress.memberAgentIds).toEqual(
       new Set([firstMember, secondMember]),
     );
-    expect(progress.signerAgentIds.size).toBe(0);
+    expect(progress.voteEvidenceBySigner.size).toBe(0);
   });
 });
 
 describe("mergeVerifiedReanchorVote refusal", () => {
-  it("rejects a different stable body before inspecting its signer", () => {
-    const members = memberSet(4);
-    const signerAgentId = [...members][0];
-    if (signerAgentId === undefined) {
-      throw new Error("Expected a nonempty membership fixture");
-    }
-    const progress = validProgress(members);
+  it("rejects another body before inspecting an outsider signer", () => {
+    const progress = validProgress(memberSet(4));
+    const outsider = makeAgentId(250);
 
-    expect(failedMerge(progress, signerAgentId, OTHER_BODY_HASH)).toMatchObject(
-      {
-        _tag: "ReanchorBodyMismatchError",
-        expectedBodyHash: BODY_HASH,
-        receivedBodyHash: OTHER_BODY_HASH,
-      },
-    );
-    expect(progress.signerAgentIds.size).toBe(0);
+    expect(
+      failedMerge(progress, outsider, { bodyHash: OTHER_BODY_HASH }),
+    ).toMatchObject({
+      _tag: "ReanchorBodyMismatchError",
+      expectedBodyHash: BODY_HASH,
+      receivedBodyHash: OTHER_BODY_HASH,
+    });
+    expect(progress.voteEvidenceBySigner.size).toBe(0);
   });
 
   it("rejects a verified non-member without mutating progress", () => {
-    const progress = validProgress(memberSet(4));
+    const members = memberSet(4);
+    const firstMember = [...members][0];
+    if (firstMember === undefined) {
+      throw new Error("Expected a nonempty membership fixture");
+    }
+    const progress = validMerge(validProgress(members), firstMember).progress;
+    const evidenceSnapshot = new Map(progress.voteEvidenceBySigner);
     const outsider = makeAgentId(250);
 
     expect(failedMerge(progress, outsider)).toMatchObject({
       _tag: "NonMemberReanchorSignerError",
       signerAgentId: outsider,
     });
-    expect(progress.signerAgentIds.size).toBe(0);
+    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
   });
 });
 
-describe("mergeVerifiedReanchorVote threshold", () => {
-  it("completes exactly once at the shared threshold for every profile", () => {
+describe("mergeVerifiedReanchorVote conflict handling", () => {
+  it("rejects differing evidence from an existing signer", () => {
+    const members = memberSet(4);
+    const signerAgentId = [...members][0];
+    if (signerAgentId === undefined) {
+      throw new Error("Expected a nonempty membership fixture");
+    }
+    const acceptedEvidence = voteEvidenceFor(signerAgentId, "accepted");
+    const receivedEvidence = voteEvidenceFor(signerAgentId, "conflict");
+    const progress = validMerge(
+      validProgress(members),
+      signerAgentId,
+      acceptedEvidence,
+    ).progress;
+    const evidenceSnapshot = new Map(progress.voteEvidenceBySigner);
+
+    expect(
+      failedMerge(progress, signerAgentId, { evidence: receivedEvidence }),
+    ).toMatchObject({
+      _tag: "ConflictingReanchorVoteEvidenceError",
+      signerAgentId,
+      existingEvidence: acceptedEvidence,
+      receivedEvidence,
+    });
+    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
+  });
+});
+
+describe("mergeVerifiedReanchorVote duplicate handling", () => {
+  it("keeps equal duplicates harmless and later votes as enrichment", () => {
+    const [first, second, third, fourth] = [...memberSet(4)];
+    if (
+      first === undefined ||
+      second === undefined ||
+      third === undefined ||
+      fourth === undefined
+    ) {
+      throw new Error("Expected four membership fixtures");
+    }
+    const firstEvidence = voteEvidenceFor(first);
+    const equalEvidence = voteEvidenceFor(first);
+    const initial = validProgress(new Set([first, second, third, fourth]));
+    const accepted = validMerge(initial, first, firstEvidence);
+    const duplicate = validMerge(accepted.progress, first, equalEvidence);
+    const collecting = validMerge(duplicate.progress, second);
+    const completed = validMerge(collecting.progress, third);
+    const enriched = validMerge(completed.progress, fourth);
+
+    expect(equalEvidence).not.toBe(firstEvidence);
+    expect(duplicate).toEqual({
+      progress: accepted.progress,
+      disposition: reanchorVoteDisposition.duplicate,
+      newlyCompleted: false,
+    });
+    expect(completed.newlyCompleted).toBe(true);
+    expect(enriched.disposition).toBe(reanchorVoteDisposition.enriched);
+  });
+});
+
+describe("mergeVerifiedReanchorVote immutability", () => {
+  it("copies the evidence map when accepting a new vote", () => {
+    const members = memberSet(4);
+    const signerAgentId = [...members][0];
+    if (signerAgentId === undefined) {
+      throw new Error("Expected a nonempty membership fixture");
+    }
+    const progress = validProgress(members);
+    const evidenceSnapshot = new Map(progress.voteEvidenceBySigner);
+    const evidence = voteEvidenceFor(signerAgentId);
+    const merge = validMerge(progress, signerAgentId, evidence);
+
+    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
+    expect(merge.progress.memberAgentIds).toBe(progress.memberAgentIds);
+    expect(merge.progress.voteEvidenceBySigner).not.toBe(
+      progress.voteEvidenceBySigner,
+    );
+    expect(merge.progress.voteEvidenceBySigner).toEqual(
+      new Map([[signerAgentId, evidence]]),
+    );
+  });
+});
+
+describe("re-anchor vote completion law", () => {
+  it("completes exactly once at every fixed-membership threshold", () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 100 }), (memberCount) => {
         const members = [...memberSet(memberCount)];
@@ -177,60 +318,26 @@ describe("mergeVerifiedReanchorVote threshold", () => {
         }
 
         expect(completionCount).toBe(1);
-        expect(progress.signerAgentIds).toEqual(new Set(members));
+        expect(progress.voteEvidenceBySigner).toEqual(evidenceMapFor(members));
       }),
     );
   });
 });
 
-describe("mergeVerifiedReanchorVote duplicate handling", () => {
-  it("treats duplicates as harmless and later new votes as enrichment", () => {
-    const members = [...memberSet(4)];
-    const [firstMember, secondMember, thirdMember, fourthMember] = members;
-    if (
-      firstMember === undefined ||
-      secondMember === undefined ||
-      thirdMember === undefined ||
-      fourthMember === undefined
-    ) {
-      throw new Error("Expected four membership fixtures");
-    }
-    const first = validMerge(validProgress(new Set(members)), firstMember);
-    const duplicate = validMerge(first.progress, firstMember);
-    const second = validMerge(duplicate.progress, secondMember);
-    const completion = validMerge(second.progress, thirdMember);
-    const enrichment = validMerge(completion.progress, fourthMember);
-
-    expect(duplicate).toEqual({
-      progress: first.progress,
-      disposition: reanchorVoteDisposition.duplicate,
-      newlyCompleted: false,
-    });
-    expect(completion.newlyCompleted).toBe(true);
-    expect(enrichment).toMatchObject({
-      disposition: reanchorVoteDisposition.enriched,
-      newlyCompleted: false,
-    });
-  });
-});
-
-describe("mergeVerifiedReanchorVote order law", () => {
-  it("produces the same signer map regardless of vote arrival order", () => {
+describe("re-anchor vote order law", () => {
+  it("produces the same complete evidence in either arrival order", () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 100 }), (memberCount) => {
         const members = [...memberSet(memberCount)];
         const initial = validProgress(new Set(members));
-        const mergeAll = (order: readonly AgentIdValue[]) => {
-          let progress = initial;
-          for (const signerAgentId of order) {
-            progress = validMerge(progress, signerAgentId).progress;
-          }
-          return progress;
-        };
+        const forward = mergeAll(initial, members);
+        const reverse = mergeAll(initial, [...members].reverse());
 
-        expect(mergeAll(members).signerAgentIds).toEqual(
-          mergeAll([...members].reverse()).signerAgentIds,
+        expect(forward.memberAgentIds).toEqual(reverse.memberAgentIds);
+        expect(forward.voteEvidenceBySigner).toEqual(
+          reverse.voteEvidenceBySigner,
         );
+        expect(forward.quorum).toEqual(reverse.quorum);
       }),
     );
   });

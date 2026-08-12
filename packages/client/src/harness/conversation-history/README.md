@@ -4,8 +4,10 @@ This folder owns package-private, representation-neutral laws for endpoint
 conversation history:
 
 - durability threshold arithmetic;
-- single-candidate staging and mergeable fixed-member vote progress for Router
+- single-candidate staging and mergeable fixed-member vote evidence for Router
   re-anchors;
+- quorum-gated current-anchor plans carrying an independent complete evidence
+  snapshot;
 - mergeable fixed-member durability-vote progress retaining complete verified
   evidence by signer;
 - fail-closed selection of one verified descendant head before re-anchoring;

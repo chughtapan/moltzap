@@ -1,6 +1,6 @@
 /**
- * @file Accumulates verified Router re-anchor signers for one stable anchor
- * body against one immutable conversation-membership snapshot.
+ * @file Accumulates complete verified Router re-anchor vote evidence for one
+ * stable body against one immutable conversation-membership snapshot.
  */
 
 import type { AgentId } from "@moltzap/identity";
@@ -28,19 +28,28 @@ export class ReanchorBodyMismatchError<BodyHash> extends Data.TaggedError(
   readonly receivedBodyHash: BodyHash;
 }> {}
 
-/** Immutable verified-signer state for one staged re-anchor body. */
-export interface ReanchorVoteProgress<BodyHash> {
+/** One signer supplied different evidence after its first verified vote. */
+export class ConflictingReanchorVoteEvidenceError<
+  VoteEvidence,
+> extends Data.TaggedError("ConflictingReanchorVoteEvidenceError")<{
+  readonly signerAgentId: AgentId;
+  readonly existingEvidence: VoteEvidence;
+  readonly receivedEvidence: VoteEvidence;
+}> {}
+
+/** Immutable verified-vote state for one staged re-anchor body. */
+export interface ReanchorVoteProgress<BodyHash, VoteEvidence> {
   /** Stable hash binding the selected head and Router-epoch transition. */
   readonly bodyHash: BodyHash;
   /** Membership captured when collection begins. */
   readonly memberAgentIds: ReadonlySet<AgentId>;
-  /** Distinct verified fixed members accumulated for this anchor. */
-  readonly signerAgentIds: ReadonlySet<AgentId>;
+  /** Complete verified vote evidence keyed by its fixed-member signer. */
+  readonly voteEvidenceBySigner: ReadonlyMap<AgentId, VoteEvidence>;
   /** Threshold shared with durability voting. */
   readonly quorum: DurabilityQuorum;
 }
 
-/** Closed meanings for one successful re-anchor signer merge. */
+/** Closed meanings for one successful re-anchor vote merge. */
 export const reanchorVoteDisposition = {
   duplicate: "duplicate",
   collecting: "collecting",
@@ -48,13 +57,13 @@ export const reanchorVoteDisposition = {
   enriched: "enriched",
 } as const;
 
-/** Meaning of one successful re-anchor signer merge. */
-type ReanchorVoteDisposition =
+/** Meaning of one successful re-anchor vote merge. */
+export type ReanchorVoteDisposition =
   (typeof reanchorVoteDisposition)[keyof typeof reanchorVoteDisposition];
 
 /** Immutable result of merging one already-verified re-anchor vote. */
-export interface ReanchorVoteMerge<BodyHash> {
-  readonly progress: ReanchorVoteProgress<BodyHash>;
+export interface ReanchorVoteMerge<BodyHash, VoteEvidence> {
+  readonly progress: ReanchorVoteProgress<BodyHash, VoteEvidence>;
   readonly disposition: ReanchorVoteDisposition;
   readonly newlyCompleted: boolean;
 }
@@ -66,28 +75,33 @@ interface ReanchorVoteProgressInput<BodyHash> {
 }
 
 /** One vote whose signature and signed fields have already been verified. */
-interface VerifiedReanchorVote<BodyHash> {
+interface VerifiedReanchorVote<BodyHash, VoteEvidence> {
   readonly bodyHash: BodyHash;
   readonly signerAgentId: AgentId;
+  readonly evidence: VoteEvidence;
 }
 
-/** Private merge inputs that leave hash representation with the caller. */
-interface ReanchorVoteMergeInput<BodyHash> {
-  readonly progress: ReanchorVoteProgress<BodyHash>;
-  readonly vote: VerifiedReanchorVote<BodyHash>;
+/** Private merge inputs that leave hash and evidence equality with the caller. */
+interface ReanchorVoteMergeInput<BodyHash, VoteEvidence> {
+  readonly progress: ReanchorVoteProgress<BodyHash, VoteEvidence>;
+  readonly vote: VerifiedReanchorVote<BodyHash, VoteEvidence>;
   readonly sameBodyHash: (left: BodyHash, right: BodyHash) => boolean;
+  readonly sameVoteEvidence: (
+    left: VoteEvidence,
+    right: VoteEvidence,
+  ) => boolean;
 }
 
 /**
  * Starts re-anchor vote collection from one staged body and fixed membership.
  *
  * @param input Staged body identity and complete fixed membership.
- * @returns Empty signer progress or the quorum's invalid-membership failure.
+ * @returns Empty vote progress or the quorum's invalid-membership failure.
  */
-export const makeReanchorVoteProgress = <BodyHash>(
+export const makeReanchorVoteProgress = <BodyHash, VoteEvidence>(
   input: ReanchorVoteProgressInput<BodyHash>,
 ): Either.Either<
-  ReanchorVoteProgress<BodyHash>,
+  ReanchorVoteProgress<BodyHash, VoteEvidence>,
   InvalidMembershipSizeError
 > => {
   const membershipSnapshot = new Set(input.memberAgentIds);
@@ -95,7 +109,7 @@ export const makeReanchorVoteProgress = <BodyHash>(
   return Either.map(durabilityQuorum(membershipSnapshot.size), (quorum) => ({
     bodyHash: input.bodyHash,
     memberAgentIds: membershipSnapshot,
-    signerAgentIds: new Set<AgentId>(),
+    voteEvidenceBySigner: new Map<AgentId, VoteEvidence>(),
     quorum,
   }));
 };
@@ -103,18 +117,20 @@ export const makeReanchorVoteProgress = <BodyHash>(
 /**
  * Merges one vote after its signature and anchor-body fields are verified.
  *
- * A vote for another body fails instead of entering this signer's map. Hash
- * equality remains caller-supplied so this private state selects no concrete
- * anchor-hash representation.
+ * A vote for another body fails before its signer or evidence is inspected.
+ * Hash and evidence equality remain caller-supplied so this private state
+ * selects no concrete anchor or vote representation.
  *
- * @param input Current progress, verified vote, and trusted hash equality.
+ * @param input Current progress, verified vote, and trusted equalities.
  * @returns Updated immutable progress or a closed binding/member failure.
  */
-export const mergeVerifiedReanchorVote = <BodyHash>(
-  input: ReanchorVoteMergeInput<BodyHash>,
+export const mergeVerifiedReanchorVote = <BodyHash, VoteEvidence>(
+  input: ReanchorVoteMergeInput<BodyHash, VoteEvidence>,
 ): Either.Either<
-  ReanchorVoteMerge<BodyHash>,
-  ReanchorBodyMismatchError<BodyHash> | NonMemberReanchorSignerError
+  ReanchorVoteMerge<BodyHash, VoteEvidence>,
+  | ConflictingReanchorVoteEvidenceError<VoteEvidence>
+  | NonMemberReanchorSignerError
+  | ReanchorBodyMismatchError<BodyHash>
 > => {
   const { progress, vote } = input;
   if (!input.sameBodyHash(progress.bodyHash, vote.bodyHash)) {
@@ -132,27 +148,41 @@ export const mergeVerifiedReanchorVote = <BodyHash>(
       }),
     );
   }
-  if (progress.signerAgentIds.has(vote.signerAgentId)) {
+  if (progress.voteEvidenceBySigner.has(vote.signerAgentId)) {
+    const existingEvidence =
+      /* Safe because the preceding presence check distinguishes stored evidence from an absent signer. */ progress.voteEvidenceBySigner.get(
+        vote.signerAgentId,
+      ) as VoteEvidence;
+    if (!input.sameVoteEvidence(existingEvidence, vote.evidence)) {
+      return Either.left(
+        new ConflictingReanchorVoteEvidenceError({
+          signerAgentId: vote.signerAgentId,
+          existingEvidence,
+          receivedEvidence: vote.evidence,
+        }),
+      );
+    }
     return successfulMerge(progress, reanchorVoteDisposition.duplicate, false);
   }
 
-  return mergeNewSigner(progress, vote.signerAgentId);
+  return mergeNewVote(progress, vote.signerAgentId, vote.evidence);
 };
 
-function mergeNewSigner<BodyHash>(
-  progress: ReanchorVoteProgress<BodyHash>,
+function mergeNewVote<BodyHash, VoteEvidence>(
+  progress: ReanchorVoteProgress<BodyHash, VoteEvidence>,
   signerAgentId: AgentId,
-): Either.Either<ReanchorVoteMerge<BodyHash>> {
+  evidence: VoteEvidence,
+): Either.Either<ReanchorVoteMerge<BodyHash, VoteEvidence>> {
   const wasComplete = meetsDurabilityThreshold(
     progress.quorum,
-    progress.signerAgentIds.size,
+    progress.voteEvidenceBySigner.size,
   );
-  const signerAgentIds = new Set(progress.signerAgentIds);
-  signerAgentIds.add(signerAgentId);
-  const nextProgress = { ...progress, signerAgentIds };
+  const voteEvidenceBySigner = new Map(progress.voteEvidenceBySigner);
+  voteEvidenceBySigner.set(signerAgentId, evidence);
+  const nextProgress = { ...progress, voteEvidenceBySigner };
   const newlyCompleted =
     !wasComplete &&
-    meetsDurabilityThreshold(progress.quorum, signerAgentIds.size);
+    meetsDurabilityThreshold(progress.quorum, voteEvidenceBySigner.size);
 
   if (newlyCompleted) {
     return successfulMerge(
@@ -170,10 +200,10 @@ function mergeNewSigner<BodyHash>(
   );
 }
 
-function successfulMerge<BodyHash>(
-  progress: ReanchorVoteProgress<BodyHash>,
+function successfulMerge<BodyHash, VoteEvidence>(
+  progress: ReanchorVoteProgress<BodyHash, VoteEvidence>,
   disposition: ReanchorVoteDisposition,
   newlyCompleted: boolean,
-): Either.Either<ReanchorVoteMerge<BodyHash>> {
+): Either.Either<ReanchorVoteMerge<BodyHash, VoteEvidence>> {
   return Either.right({ progress, disposition, newlyCompleted });
 }
