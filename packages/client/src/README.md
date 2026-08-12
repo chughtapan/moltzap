@@ -10,7 +10,6 @@ adapter-facing `HarnessClient` capability.
   composition waits for the admitted acquisition and recovery contract.
 - `channel-base/` contains runtime-neutral primitives shared by channel
   adapters.
-- `notification/` owns notification-stream helpers.
 - `test-utils/` and `__tests__/` contain local semantic fixtures and unit
   coverage. The server-backed v1 integration lane is absent; final process
   coverage waits for the admitted daemon interface instead of preserving a

@@ -17,8 +17,9 @@ The source currently under this package is transitional v1 deletion and
 rewrite input. It is not the final Client interface and must not be expanded,
 wrapped, or preserved through a compatibility facade. In particular, do not
 add new work to the existing service object, channel-core abstraction,
-notification catalog, profile acquisition, protocol/server proxy, bespoke
-CLI, Unix socket, or generic-send paths.
+profile acquisition, protocol/server proxy, bespoke
+CLI, Unix socket, or generic-send paths. Do not reintroduce a standalone
+notification catalog.
 
 Safe work before the final interface gate is limited to:
 
