@@ -8,7 +8,7 @@ User identity identifiers.
 
 ## Public surface
 
-### [`userId`](./ids.ts#L8)
+### [`userId`](./index.ts#L11)
 
 _Variable_
 
@@ -21,7 +21,7 @@ export const userId: Schema.Schema<UserId, string> = formatString("uuid").pipe(
 
 Validates and decodes user id values.
 
-### [`UserId`](./ids.ts#L6)
+### [`UserId`](./index.ts#L9)
 
 _TypeAlias_
 
@@ -33,4 +33,4 @@ Represents user id values.
 
 ## Files
 
-- `ids.ts`
+- `index.ts`
