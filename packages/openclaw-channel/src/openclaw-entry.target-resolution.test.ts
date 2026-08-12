@@ -1,8 +1,14 @@
-import { describe, expect, it as vitestIt } from "vitest";
+/** @file OpenClaw target and account-configuration contract tests. */
+
 import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
+import { describe, expect, it as vitestIt } from "vitest";
 
-import { moltzapChannelPlugin } from "./openclaw-entry.js";
+import manifest from "../openclaw.plugin.json" with { type: "json" };
+import {
+  makeMoltZapChannelConfigJsonSchema,
+  moltzapChannelPlugin,
+} from "./openclaw-entry.js";
 
 const looksLikeId =
   moltzapChannelPlugin.messaging.targetResolver.looksLikeId.bind(
@@ -45,6 +51,8 @@ const NORMALIZED_SOURCE = "normalized";
 const ACCOUNT_A = "account-a";
 const ACCOUNT_B = "account-b";
 const UNKNOWN_ACCOUNT = "unknown-account";
+const DRAFT_07_SCHEMA = "http://json-schema.org/draft-07/schema#";
+const EMPTY_REQUIRED_COUNT = 0;
 
 const accountCfg = {
   channels: {
@@ -114,6 +122,19 @@ function returnsNullForUnrecognizedFormats() {
     );
     expect(result).toBeNull();
   });
+}
+
+function makeManifestChannelSchema() {
+  const { $schema, ...generated } = makeMoltZapChannelConfigJsonSchema();
+  expect($schema).toBe(DRAFT_07_SCHEMA);
+
+  if (!("required" in generated)) {
+    throw new Error("expected an object schema");
+  }
+
+  const { required, ...embeddedSchema } = generated;
+  expect(required).toHaveLength(EMPTY_REQUIRED_COUNT);
+  return embeddedSchema;
 }
 
 describe("isMoltZapTarget accepted ids", () => {
@@ -228,4 +249,12 @@ describe("config.resolveAccount", () => {
       expect(isConfiguredAccount(account)).toBe(false);
     },
   );
+});
+
+describe("openclaw.plugin.json channel config", () => {
+  vitestIt("matches the schema derived from MoltZapAccount", () => {
+    expect(manifest.channelConfigs.moltzap.schema).toEqual(
+      makeManifestChannelSchema(),
+    );
+  });
 });
