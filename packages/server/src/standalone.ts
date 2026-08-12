@@ -172,11 +172,6 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound> {
     const exists = (candidate: string) =>
       fs.exists(candidate).pipe(Effect.orElseSucceed(() => false));
 
-    // Docker: copied to package root
-    const dockerPath = join(dirnameValue, "..", "core-schema.sql");
-    if (yield* exists(dockerPath)) {
-      return dockerPath;
-    }
     // Dev (tsx): running from src/, schema in src/db/
     const devPath = join(dirnameValue, "db", "core-schema.sql");
     if (yield* exists(devPath)) {
