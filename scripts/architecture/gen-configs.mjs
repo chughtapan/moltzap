@@ -92,6 +92,11 @@ const packageDefinitions = {
       ],
       facadeFiles: [
         {
+          file: "harness/conversation-history/certified-head-advance.ts",
+          reason:
+            "Private certified-history type and promotion boundary shared by staging, catch-up, and durability planners",
+        },
+        {
           file: "channel-core.ts",
           reason:
             "Named public boundary for channel-adapter dispatch, admission, and enrichment",
