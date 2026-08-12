@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { controllerPackageDependencies } from "../simulator/build-controller-image.mjs";
 
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -144,6 +145,15 @@ async function verifyControllerImageAssembly() {
     "the packed evaluation package must include its compiled entrypoints",
   );
   requireCondition(
+    JSON.stringify(controllerPackageDependencies) ===
+      JSON.stringify([
+        "@moltzap/evals",
+        "@moltzap/server-core",
+        "@moltzap/simulator",
+      ]),
+    "the controller image must directly install evals, simulator, and the retiring server binary",
+  );
+  requireCondition(
     channelPackage.peerDependenciesMeta?.openclaw?.optional === true,
     "the OpenClaw overlay must preserve its optional runtime peer",
   );
@@ -235,6 +245,10 @@ async function verifyPackedFiles(extractedPackage) {
   requireCondition(
     manifest.dependencies?.["@moltzap/openclaw-channel"] === undefined,
     "packed simulator must not depend on the OpenClaw adapter",
+  );
+  requireCondition(
+    manifest.dependencies?.["@moltzap/server-core"] === undefined,
+    "packed simulator must not depend on the retiring server package",
   );
 }
 

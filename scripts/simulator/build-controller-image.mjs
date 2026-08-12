@@ -39,6 +39,12 @@ const workspacePackages = {
   "@moltzap/server-core": join(workspaceRoot, "packages", "server"),
   "@moltzap/simulator": simulatorRoot,
 };
+/** Workspace tarballs installed directly into the controller image. */
+export const controllerPackageDependencies = [
+  "@moltzap/evals",
+  "@moltzap/server-core",
+  "@moltzap/simulator",
+];
 
 function report(message) {
   process.stderr.write(`[moltzap controller image] ${message}\n`);
@@ -115,7 +121,7 @@ async function stage() {
       `${JSON.stringify(
         packageManifest(
           "moltzap-controller-image",
-          ["@moltzap/simulator", "@moltzap/evals"],
+          controllerPackageDependencies,
           archives,
         ),
         null,
@@ -166,14 +172,14 @@ function buildDigest(metadata) {
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
-  report("building simulator, evals, and workspace dependencies");
+  report("building controller-image workspace packages");
   await exec(
     "pnpm",
     [
       "nx",
       "run-many",
       "--target=build",
-      "--projects=@moltzap/simulator,@moltzap/evals,@moltzap/openclaw-channel",
+      `--projects=${Object.keys(workspacePackages).join(",")}`,
     ],
     {
       cwd: workspaceRoot,

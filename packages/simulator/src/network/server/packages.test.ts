@@ -1,5 +1,7 @@
-/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function -- Regression-only package-resolution cases share one isolated module-layout fixture and stay grouped at the resolution boundary. */
-
+/**
+ * @file Exercises installed-package binary discovery against isolated
+ * synthetic Node module layouts.
+ */
 import {
   mkdirSync,
   mkdtempSync,
@@ -12,11 +14,11 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { resolveInstalledPackageBin } from "./packages.js";
 
+/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function -- Regression-only package-resolution cases share one isolated module-layout fixture and stay grouped at the resolution boundary. */
+
 const SCOPED_PACKAGE_NAME = "@moltzap-test/resolved";
 const DECOY_MANIFEST_NAME = "some-other-package";
 const MISSING_PACKAGE_NAME = "@moltzap-test/definitely-missing";
-const SERVER_PACKAGE_NAME = "@moltzap/server-core";
-const SERVER_BIN_NAME = "moltzap-server";
 const TEST_BIN_NAME = "test-server";
 const TEST_BIN_PATH = "bin/test-server";
 const fixtureRoot = mkdtempSync(join(tmpdir(), "package-bin-resolution-test-"));
@@ -24,12 +26,6 @@ const fixtureRoot = mkdtempSync(join(tmpdir(), "package-bin-resolution-test-"));
 afterAll(() => {
   rmSync(fixtureRoot, { recursive: true, force: true });
 });
-
-function writePackage(root: string, manifest: Record<string, unknown>): void {
-  mkdirSync(join(root, "bin"), { recursive: true });
-  writeFileSync(join(root, "package.json"), JSON.stringify(manifest));
-  writeFileSync(join(root, TEST_BIN_PATH), "");
-}
 
 function seedConsumer(
   fixtureName: string,
@@ -76,6 +72,12 @@ function seedLayeredConsumer(
     bin: { [TEST_BIN_NAME]: TEST_BIN_PATH },
   });
   return { anchor, packageRoot };
+}
+
+function writePackage(root: string, manifest: Record<string, unknown>): void {
+  mkdirSync(join(root, "bin"), { recursive: true });
+  writeFileSync(join(root, "package.json"), JSON.stringify(manifest));
+  writeFileSync(join(root, TEST_BIN_PATH), "");
 }
 
 function expectedTestBinary(packageRoot: string): string {
@@ -155,12 +157,6 @@ describe("resolveInstalledPackageBin", () => {
         fixture.anchor,
       ),
     ).toThrow(`does not expose bin ${TEST_BIN_NAME}`);
-  });
-
-  it("resolves the installed production router binary", () => {
-    expect(
-      resolveInstalledPackageBin(SERVER_PACKAGE_NAME, SERVER_BIN_NAME),
-    ).toMatch(/[\\/]bin[\\/]moltzap-server$/u);
   });
 });
 

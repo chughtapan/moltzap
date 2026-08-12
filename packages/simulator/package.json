@@ -172,7 +172,6 @@
     "@kubernetes/client-node": "1.4.0",
     "@moltzap/client": "workspace:^",
     "@moltzap/protocol": "workspace:^",
-    "@moltzap/server-core": "workspace:*",
     "@temporalio/activity": "1.21.1",
     "@temporalio/client": "1.21.1",
     "@temporalio/worker": "1.21.1",

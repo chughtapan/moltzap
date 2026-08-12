@@ -22,6 +22,7 @@ COPY controller-package.json ./package.json
 COPY tarballs ./tarballs
 RUN npm install --omit=dev --no-audit --no-fund \
   && test -f node_modules/@moltzap/evals/dist/peer-application.js \
+  && test -x node_modules/.bin/moltzap-server \
   && rm -rf tarballs /root/.npm \
   && mkdir -p /opt/moltzap \
   && ln -s /srv/moltzap/node_modules/@moltzap/simulator/dist /opt/moltzap/dist \

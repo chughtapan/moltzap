@@ -505,9 +505,6 @@ importers:
       '@moltzap/protocol':
         specifier: workspace:^
         version: link:../protocol
-      '@moltzap/server-core':
-        specifier: workspace:*
-        version: link:../server
       '@temporalio/activity':
         specifier: 1.21.1
         version: 1.21.1
