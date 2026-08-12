@@ -1,7 +1,19 @@
-import { Schema } from "effect";
+import { Either, Schema } from "effect";
 import { Rpc, type RpcMiddleware } from "@effect/rpc";
-import { closedStructGuard } from "./strict-decode.js";
 import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
+
+const STRICT_DECODE = { onExcessProperty: "error" } as const;
+
+function closedStructGuard<A, I>(
+  schema: Schema.Schema<A, I>,
+): (value: unknown) => value is A {
+  const decode = Schema.decodeUnknownEither(schema);
+  return (value: unknown): value is A =>
+    Either.match(decode(value, STRICT_DECODE), {
+      onLeft: () => false,
+      onRight: () => true,
+    });
+}
 
 /**
  * Internal factory for descriptor construction (`defineRpc`,

@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { JSONSchema, type Schema } from "effect";
+import { Either, JSONSchema, Schema } from "effect";
 import {
   stringEnum,
   formatString,
   dateTimeStringSchema,
 } from "./wire-string.js";
-import { decodesStrictly } from "./strict-decode.js";
 
 const dateTimeString = dateTimeStringSchema();
 const INVALID_ENUM_VALUE = 123;
 
 const accepts = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
-  decodesStrictly(schema, value);
+  Either.isRight(
+    Schema.decodeUnknownEither(schema)(value, {
+      onExcessProperty: "error",
+    }),
+  );
 
 describe("stringEnum", () => {
   const schema = stringEnum(["user", "agent"]);

@@ -65,9 +65,6 @@ export {
 /** Re-exports the public API from `./pagination.js`. */
 export type { ListCursor } from "./pagination.js";
 
-/** Re-exports the public API from `./strict-decode.js`. */
-export { closedStructGuard, decodesStrictly } from "./strict-decode.js";
-
 /** Re-exports the public API from `./wire-string.js`. */
 export {
   dateTimeStringSchema,

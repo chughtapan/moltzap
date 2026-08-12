@@ -652,9 +652,9 @@ audit retains these proven shapes:
   `packages/protocol/src/conversation/types.ts → conversationId`,
   `messageId` demonstrate one distinctly branded Effect Schema per
   semantic identifier;
-- `packages/protocol/src/transport/strict-decode.ts →
-  decodesStrictly`, `closedStructGuard` demonstrates why every closed
-  boundary must pass `onExcessProperty: "error"`;
+- `packages/protocol/src/transport/definition.ts → closedStructGuard`
+  demonstrates why every closed boundary must pass
+  `onExcessProperty: "error"`;
 - `packages/protocol/src/transport/definition.ts → defineRpc`,
   `applyRequirementMiddlewares` demonstrates per-operation Effect RPC
   schemas, ordered required middleware, and middleware failures
