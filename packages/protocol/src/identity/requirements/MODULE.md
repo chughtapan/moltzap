@@ -8,7 +8,7 @@ Identity-owned refinement requirement tags.
 
 ## Public surface
 
-### [`ActiveAgent`](./active-agent.ts#L10)
+### [`ActiveAgent`](./index.ts#L14)
 
 _Class_
 
@@ -23,4 +23,4 @@ Agent-principal refinement: the connected agent must be active.
 
 ## Files
 
-- `active-agent.ts`
+- `index.ts`
