@@ -872,6 +872,27 @@ const assertRestartFence = (
     return fencedSend.routerInstanceId;
   });
 
+const assertRetryIndexReset = (
+  sentMessage: SentMessage,
+  sender: RegisteredAgent,
+  currentRouterInstanceId: BatchResult["routerInstanceId"],
+  runRouter: RouterRunner,
+) =>
+  Effect.gen(function* () {
+    const retry = yield* runRouter(
+      Router.send({
+        request: {
+          ...sentMessage.initialRequest,
+          expectedRouterInstanceId: currentRouterInstanceId,
+          mode: "retry",
+        },
+        callerAgentId: sender.agentCard.agentId,
+        signingAuthority: sender.signingAuthority,
+      }),
+    );
+    expect(retry).toStrictEqual({ kind: "retry_identity_unknown" });
+  });
+
 const assertMalformedMessageRemainsFenced = (
   infrastructure: Infrastructure,
   sentMessage: SentMessage,
@@ -971,6 +992,44 @@ const assertCachedCallerSurvivesRegistryOutage = (
     );
   });
 
+const assertRestartBehavior = (
+  infrastructure: Infrastructure,
+  agents: RegisteredAgents,
+  sentMessage: SentMessage,
+  restartedRouter: RouterRunner,
+) =>
+  Effect.gen(function* () {
+    const currentRouterInstanceId = yield* assertRestartFence(
+      sentMessage,
+      agents.sender,
+      restartedRouter,
+    );
+    yield* assertRetryIndexReset(
+      sentMessage,
+      agents.sender,
+      currentRouterInstanceId,
+      restartedRouter,
+    );
+    yield* assertMalformedMessageRemainsFenced(
+      infrastructure,
+      sentMessage,
+      agents.sender,
+      currentRouterInstanceId,
+    );
+    yield* assertCursorInvalidation(
+      sentMessage,
+      agents.firstRecipient,
+      currentRouterInstanceId,
+      restartedRouter,
+    );
+    yield* assertCachedCallerSurvivesRegistryOutage(
+      infrastructure,
+      agents,
+      currentRouterInstanceId,
+      restartedRouter,
+    );
+  });
+
 const runEndToEndBehavior = Effect.gen(function* () {
   const infrastructure = yield* startInfrastructure;
   const firstRouterProcess = yield* startRouter(infrastructure);
@@ -993,27 +1052,10 @@ const runEndToEndBehavior = Effect.gen(function* () {
   yield* stopProcess(firstRouterProcess);
   yield* startRouter(infrastructure);
   const restartedRouter = makeRouterRunner(infrastructure.routerOrigin);
-  const currentRouterInstanceId = yield* assertRestartFence(
-    sentMessage,
-    agents.sender,
-    restartedRouter,
-  );
-  yield* assertMalformedMessageRemainsFenced(
-    infrastructure,
-    sentMessage,
-    agents.sender,
-    currentRouterInstanceId,
-  );
-  yield* assertCursorInvalidation(
-    sentMessage,
-    agents.firstRecipient,
-    currentRouterInstanceId,
-    restartedRouter,
-  );
-  yield* assertCachedCallerSurvivesRegistryOutage(
+  yield* assertRestartBehavior(
     infrastructure,
     agents,
-    currentRouterInstanceId,
+    sentMessage,
     restartedRouter,
   );
 }).pipe(
