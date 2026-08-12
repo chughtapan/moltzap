@@ -8,5 +8,3 @@ export { AgentEndpointResolverTag, NetworkSendServiceTag } from "./layer.js";
 export { connectAgent } from "./connect.handlers.js";
 /** Re-exports the public API from `./network-send.js`. */
 export { NetworkSendService } from "./network-send.js";
-/** Re-exports the public API from `./notification-broadcast.js`. */
-export { broadcastNotificationToAgents } from "./notification-broadcast.js";

@@ -15,7 +15,7 @@ import type { AgentContext } from "#socket";
 import { ConversationServiceTag } from "./layer.js";
 import { agentArm } from "../moltzap/handler-runtime.js";
 import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
-import { broadcastNotificationToAgents } from "#network";
+import { NetworkSendServiceTag } from "#network";
 
 const agentConversationCreateBody = Effect.fn("conversation.create.agent")(
   function* (
@@ -50,15 +50,25 @@ interface ConversationCreateInput {
 }
 
 function fanoutConversationCreate(input: ConversationCreateInput) {
-  return broadcastNotificationToAgents(
-    [...input.participants],
-    conversationCreatedNotificationDefinition,
-    {
-      conversationId: input.conversation.id,
-      name: input.name,
-      participants: [...input.participants],
-    },
-  ).pipe(Effect.withSpan("conversation.create.fanout"));
+  const agentIds = [...input.participants];
+  return Effect.gen(function* () {
+    if (agentIds.length === 0) {
+      return;
+    }
+    const networkSendService = yield* NetworkSendServiceTag;
+    yield* networkSendService.broadcastNotification(
+      agentIds,
+      conversationCreatedNotificationDefinition,
+      {
+        conversationId: input.conversation.id,
+        name: input.name,
+        participants: [...input.participants],
+      },
+    );
+  }).pipe(
+    Effect.withSpan("notifications.broadcastToAgents"),
+    Effect.withSpan("conversation.create.fanout"),
+  );
 }
 
 const conversationListBody = Effect.fn("conversation.list")(function* (

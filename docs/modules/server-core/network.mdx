@@ -172,29 +172,6 @@ export class AgentEndpointResolverTag extends Context.Tag(
 
 Implements agent endpoint resolver tag.
 
-### [`broadcastNotificationToAgents`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/notification-broadcast.ts#L24)
-
-_Function_
-
-```ts
-export const broadcastNotificationToAgents = <
-  D extends AnyNotificationDefinition,
->(
-  agentIds: readonly AgentId[],
-  definition: D,
-  params: NotificationParamsOf<D>,
-  options?: BroadcastOptions,
-): Effect.Effect<void, never, NetworkSendServiceTag>
-```
-
-Fan a server→client notification out to every live connection of each agent
-in `agentIds`. The notification rides the reverse `RpcClient` on each target
-connection (fired fork-and-forget, the `void` result settles on the client's
-ack); the client's reverse `RpcServer` routes it into its
-`SubscriberRegistry`.
-
-**Returns:** The broadcast notification to agents result.
-
 ### [`connectAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/connect.handlers.ts#L205)
 
 _Variable_
@@ -372,4 +349,3 @@ Implements network send service tag.
 - `connect.handlers.ts`
 - `layer.ts`
 - `network-send.ts`
-- `notification-broadcast.ts`
