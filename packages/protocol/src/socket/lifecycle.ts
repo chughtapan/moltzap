@@ -12,6 +12,7 @@ import {
   Exit,
   Fiber,
   Layer,
+  Logger,
   Mailbox,
   ManagedRuntime,
   Match,
@@ -34,7 +35,6 @@ import {
   extractCloseInfo,
   type CloseInfo,
 } from "./close-info.js";
-import { clientRuntimeLoggerLayer } from "./client-runtime.config.js";
 import {
   type NotificationDelivery,
   type NotificationParamsOf,
@@ -65,6 +65,11 @@ const NORMAL_CLOSE_CODE = 1000;
 const GRACEFUL_CLOSE_WRITE_TIMEOUT = Duration.seconds(1);
 const MSG_NOT_CONNECTED = "WebSocket not connected";
 const SCOPED_SUBSCRIPTION_CAPACITY = 1_024;
+
+const clientRuntimeLoggerLayer = Logger.replace(
+  Logger.defaultLogger,
+  Logger.withConsoleError(Logger.stringLogger),
+);
 
 /** Configures rpc call. */
 export interface RpcCallOptions {

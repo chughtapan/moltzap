@@ -62,7 +62,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   ),
   alias("@moltzap/protocol/message", "packages/protocol/src/message/index.ts"),
   alias("@moltzap/protocol/socket", "packages/protocol/src/socket/index.ts"),
-  alias("@moltzap/protocol", "packages/protocol/src/index.ts"),
   alias("@moltzap/simulator/network", "packages/simulator/src/network.ts"),
   alias("@moltzap/simulator/ledger", "packages/simulator/src/ledger.ts"),
   alias("@moltzap/simulator", "packages/simulator/src/index.ts"),

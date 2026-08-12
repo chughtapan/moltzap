@@ -17,10 +17,6 @@
       "reason": "Stable lifecycle contract shared by the agent and app socket clients while socket/index.ts curates the published socket surface"
     },
     {
-      "file": "socket/client-runtime.config.ts",
-      "reason": "Internal managed-runtime boot policy that sends protocol diagnostics to stderr so client applications can reserve stdout for structured output"
-    },
-    {
       "file": "socket/server.ts",
       "reason": "Stable server socket contract that composes transport and requirement layers behind MoltZapServer"
     },
