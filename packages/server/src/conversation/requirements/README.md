@@ -23,5 +23,5 @@ that needs no server service is a pure guard in `@moltzap/protocol` instead.
 ## Shape
 
 Obtains return the requirement's value type and fail with the tag's declared
-`failure` schema, so the middleware layers in `moltzap/server-socket.ts` can
-wire them without a cast.
+`failure` schema, so the middleware layers in `standalone.ts` can wire them
+without a cast.

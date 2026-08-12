@@ -3,7 +3,7 @@
 Server-side WebSocket connection/session primitives.
 
 The protocol package owns the RPC catalogs, socket lifecycle classes, and
-requirement middleware tags. `moltzap/` supplies the server-side protocol
+requirement middleware tags. `standalone.ts` supplies the server-side protocol
 adapter. This folder only owns the live connection registry and context value
 types used by server services.
 
@@ -15,8 +15,8 @@ types used by server services.
 
 ## Flow
 
-1. `moltzap/server-socket.ts` opens a protocol `MoltZapServer` session and
-   registers an unauthenticated connection in `ConnectionManager`.
+1. `standalone.ts` opens a protocol `MoltZapServer` session and registers an
+   unauthenticated connection in `ConnectionManager`.
 2. `agent/network/connect` authenticates the live connection arm.
 3. Domain services read connection/context primitives through `#socket`.
 4. Socket close removes the connection and updates routing state.
