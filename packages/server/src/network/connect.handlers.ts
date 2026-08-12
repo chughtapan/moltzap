@@ -1,5 +1,5 @@
 // safer-arch-ignore no-cross-domain-sibling-import: The connection handshake is an adapter boundary that authenticates principals and registers their domain services atomically.
-import { Data, Effect, Match, Option } from "effect";
+import { Effect, Match, Option } from "effect";
 import {
   type agentConnect,
   PROTOCOL_VERSION,
@@ -18,11 +18,8 @@ import {
   type AgentContext,
   ConnectionManagerTag,
   ConnectionTag,
-  type Connection,
   type ConnectionManager,
 } from "#socket";
-import { ConnectionHooksTag } from "../core/hooks.js";
-import { DbTag } from "#db";
 import { AuthServiceTag } from "../identity/agents/layer.js";
 import type { AuthService } from "../identity/agents/auth.service.js";
 import { ConversationServiceTag } from "../conversation/layer.js";
@@ -35,11 +32,6 @@ type AgentConnectParams = ParamsOf<typeof agentConnect>;
 
 /** The empty HelloOk — success is the only payload. */
 const HELLO_OK: HelloOk = {};
-
-class ConnectionHookError extends Data.TaggedError("ConnectionHookError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
 
 /**
  * Agent API-key path — mints the closed-union `AgentContext` arm directly.
@@ -150,68 +142,9 @@ const completeAgentConnect = Effect.fn("connect.completeAgentConnect")(
       connId,
       auth,
     );
-    // eslint-disable-next-line @typescript-eslint/no-use-before-define -- connection hooks run after module initialization.
-    yield* fireConnectionHooks(auth, connId);
     return HELLO_OK;
   },
 );
-
-/**
- * Fire every registered connection hook for a freshly-authenticated agent arm.
- * Hooks carry `agentId`, the agent's display name (DB lookup, falling back to
- * the id), `ownerUserId`, and `connId`. Each runs with a 2-second timeout;
- * a throw or timeout is logged and does not fail the Connect.
- * @param auth Value supplied to the operation.
- * @param connId Value supplied to the operation.
- * @returns The fire connection hooks result.
- */
-const fireConnectionHooks = Effect.fn("connect.fireConnectionHooks")(function* (
-  auth: AgentContext,
-  connId: ConnectionId,
-) {
-  const hooks = yield* ConnectionHooksTag;
-  if (hooks.connectionHooks.length === 0) {
-    return;
-  }
-  const db = yield* DbTag;
-  const row = yield* Effect.tryPromise(() =>
-    db
-      .selectFrom("agents")
-      .select("name")
-      .where("id", "=", auth.agentId)
-      .executeTakeFirst(),
-  ).pipe(Effect.orElseSucceed(() => undefined));
-  const agentName = row?.name ?? auth.agentId;
-  for (const hook of hooks.connectionHooks) {
-    yield* Effect.tryPromise({
-      try: () =>
-        Promise.resolve(
-          hook({
-            agentId: auth.agentId,
-            agentName,
-            ownerUserId: auth.ownerUserId,
-            connId,
-          }),
-        ),
-      catch: (cause) =>
-        new ConnectionHookError({
-          message: "Connection hook failed",
-          cause,
-        }),
-    }).pipe(
-      Effect.timeoutFail({
-        duration: "2 seconds",
-        onTimeout: () =>
-          new ConnectionHookError({ message: "Connection hook timed out" }),
-      }),
-      Effect.catchAll((err) =>
-        Effect.logWarning("Connection hook error").pipe(
-          Effect.annotateLogs({ err, agentId: auth.agentId, connId }),
-        ),
-      ),
-    );
-  }
-});
 
 function checkConnectProtocol(params: AgentConnectParams) {
   // Protocol-range gate runs BEFORE auth resolution: clients outside the
@@ -229,16 +162,6 @@ function checkConnectProtocol(params: AgentConnectParams) {
   );
 }
 
-const reemitHelloIfAuthenticated = Effect.fn(
-  "connect.reemitHelloIfAuthenticated",
-)(function* (conn: Connection) {
-  if (conn._tag === "AgentConnection") {
-    yield* fireConnectionHooks(conn.auth, conn.connId);
-    return Option.some(HELLO_OK);
-  }
-  return Option.none<HelloOk>();
-});
-
 /**
  * Connect preamble: gate the protocol range, then re-emit `HelloOk` for an
  * already-authenticated arm (idempotent re-auth). Returns the live connection
@@ -251,7 +174,10 @@ function connectPreamble(params: AgentConnectParams) {
   return Effect.gen(function* () {
     yield* checkConnectProtocol(params);
     const conn = yield* ConnectionTag;
-    const reemitted = yield* reemitHelloIfAuthenticated(conn);
+    const reemitted =
+      conn._tag === "AgentConnection"
+        ? Option.some(HELLO_OK)
+        : Option.none<HelloOk>();
     return { conn, reemitted };
   });
 }

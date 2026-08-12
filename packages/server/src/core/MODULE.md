@@ -8,63 +8,13 @@ Narrow core wiring barrel for server-core internals.
 
 ## Public surface
 
-### [`ConnectionHook`](./types.ts#L7)
-
-_TypeAlias_
-
-```ts
-export type ConnectionHook = (params: {
-  agentId: AgentId;
-  agentName: string;
-  /** Owner user ID resolved at agent/network/connect time. */
-  ownerUserId: UserId;
-  connId: ConnectionId;
-}) => PromiseLike<undefined> | undefined;
-```
-
-Represents connection hook values.
-
-### [`ConnectionHooks`](./hooks.ts#L8)
-
-_Interface_
-
-```ts
-export interface ConnectionHooks {
-  readonly connectionHooks: readonly ConnectionHook[];
-  readonly disconnectionHooks: readonly DisconnectionHook[];
-}
-```
-
-Describes connection hooks.
-
-### [`ConnectionHooksTag`](./hooks.ts#L14)
-
-_Class_
-
-```ts
-export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
-  ConnectionHooksTag,
-  ConnectionHooks
->() {}
-```
-
-Implements connection hooks tag.
-
-### [`CoreApp`](./types.ts#L23)
+### [`CoreApp`](./types.ts#L5)
 
 _Interface_
 
 ```ts
 export interface CoreApp {
   readonly port: number;
-  onConnection: (hook: ConnectionHook) => void;
-
-  /**
-   * Fires when a WebSocket closes, after auth was established. Use for
-   * per-user cleanup (e.g., `last_seen_at` updates). Does not fire for
-   * connections that never authenticated.
-   */
-  onDisconnection: (hook: DisconnectionHook) => void;
 
   /**
    * Outbound-routing primitive. Apps emit events out-of-band via
@@ -91,7 +41,7 @@ export interface CoreApp {
 
 Describes core app.
 
-### [`createCoreApp`](./app.ts#L106)
+### [`createCoreApp`](./app.ts#L94)
 
 _Function_
 
@@ -102,20 +52,6 @@ export function createCoreApp(config: CoreConfig): CoreApp
 Creates core app.
 
 **Returns:** The created core app.
-
-### [`DisconnectionHook`](./types.ts#L16)
-
-_TypeAlias_
-
-```ts
-export type DisconnectionHook = (params: {
-  agentId: AgentId;
-  ownerUserId: UserId;
-  connId: ConnectionId;
-}) => PromiseLike<undefined> | undefined;
-```
-
-Represents disconnection hook values.
 
 ### [`ResolvedServices`](./layers.ts#L58)
 
@@ -153,7 +89,7 @@ export const resolveServices = Effect.all({
 
 Provides the resolve services runtime value.
 
-### [`ServerBootFailedError`](./app.ts#L35)
+### [`ServerBootFailedError`](./app.ts#L34)
 
 _Class_
 
@@ -186,6 +122,5 @@ Provides the services live runtime value.
 ## Files
 
 - `app.ts`
-- `hooks.ts`
 - `layers.ts`
 - `types.ts`

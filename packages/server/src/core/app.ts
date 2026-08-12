@@ -13,9 +13,8 @@ import {
 
 import { DbTag } from "#db";
 
-import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
+import type { CoreApp } from "./types.js";
 import type { CoreConfig } from "#config";
-import { ConnectionHooksTag } from "./hooks.js";
 import { servicesLive, resolveServices } from "./layers.js";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
 import { makeMoltzapSocketHandler } from "../moltzap/server-socket.js";
@@ -80,22 +79,11 @@ const runCleanupStep = (
 function makeCoreRuntime(config: CoreConfig) {
   const baseLive = Layer.succeed(DbTag, config.db);
   const fullLive = Layer.provideMerge(servicesLive, baseLive);
-  // The connection/disconnection hook arrays are created here so the native
-  // `agent/network/connect` handler can fire the connection hooks via
-  // `ConnectionHooksTag`. They are mutable references the `CoreApp.onConnection`
-  // / `onDisconnection` accessors push into AFTER this runtime is built; the
-  // native handler reads the live array contents per connect.
-  const connectionHooks: ConnectionHook[] = [];
-  const disconnectionHooks: DisconnectionHook[] = [];
-  const hooksLive = Layer.succeed(ConnectionHooksTag, {
-    connectionHooks,
-    disconnectionHooks,
-  });
   const dispatchRuntime = ManagedRuntime.make(
-    Layer.mergeAll(NodeHttpServer.layerContext, fullLive, hooksLive),
+    Layer.mergeAll(NodeHttpServer.layerContext, fullLive),
   );
   const services = dispatchRuntime.runSync(resolveServices);
-  return { dispatchRuntime, services, connectionHooks, disconnectionHooks };
+  return { dispatchRuntime, services };
 }
 
 /**
@@ -104,12 +92,8 @@ function makeCoreRuntime(config: CoreConfig) {
  * @returns The created core app.
  */
 export function createCoreApp(config: CoreConfig): CoreApp {
-  const { dispatchRuntime, services, connectionHooks, disconnectionHooks } =
-    makeCoreRuntime(config);
-  const handleSocket = makeMoltzapSocketHandler({
-    services,
-    disconnectionHooks,
-  });
+  const { dispatchRuntime, services } = makeCoreRuntime(config);
+  const handleSocket = makeMoltzapSocketHandler({ services });
   const httpApp = makeCoreHttpApp({
     config,
     authService: services.authService,
@@ -143,8 +127,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     config,
     dispatchRuntime,
     services,
-    connectionHooks,
-    disconnectionHooks,
     appScope,
     getPort: () => actualPort,
   });
@@ -156,8 +138,6 @@ interface CoreAppApiOptions {
   readonly config: CoreConfig;
   readonly dispatchRuntime: CoreRuntime["dispatchRuntime"];
   readonly services: CoreRuntime["services"];
-  readonly connectionHooks: ConnectionHook[];
-  readonly disconnectionHooks: DisconnectionHook[];
   readonly appScope: Scope.CloseableScope;
   readonly getPort: () => number;
 }
@@ -168,8 +148,6 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     get port() {
       return options.getPort();
     },
-    onConnection: (hook) => options.connectionHooks.push(hook),
-    onDisconnection: (hook) => options.disconnectionHooks.push(hook),
     networkSendService: services.networkSendService,
     connections: services.connections,
     close: () =>

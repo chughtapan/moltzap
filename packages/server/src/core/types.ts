@@ -1,35 +1,9 @@
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConnectionManager } from "#socket";
 import type { NetworkSendService } from "#network";
-
-/** Represents connection hook values. */
-export type ConnectionHook = (params: {
-  agentId: AgentId;
-  agentName: string;
-  /** Owner user ID resolved at agent/network/connect time. */
-  ownerUserId: UserId;
-  connId: ConnectionId;
-}) => PromiseLike<undefined> | undefined;
-
-/** Represents disconnection hook values. */
-export type DisconnectionHook = (params: {
-  agentId: AgentId;
-  ownerUserId: UserId;
-  connId: ConnectionId;
-}) => PromiseLike<undefined> | undefined;
 
 /** Describes core app. */
 export interface CoreApp {
   readonly port: number;
-  onConnection: (hook: ConnectionHook) => void;
-
-  /**
-   * Fires when a WebSocket closes, after auth was established. Use for
-   * per-user cleanup (e.g., `last_seen_at` updates). Does not fire for
-   * connections that never authenticated.
-   */
-  onDisconnection: (hook: DisconnectionHook) => void;
 
   /**
    * Outbound-routing primitive. Apps emit events out-of-band via

@@ -8,4 +8,4 @@ export { servicesLive, resolveServices } from "./layers.js";
 export type { ResolvedServices } from "./layers.js";
 
 /** Re-exports the public API from `./types.js`. */
-export type { CoreApp, DisconnectionHook } from "./types.js";
+export type { CoreApp } from "./types.js";
