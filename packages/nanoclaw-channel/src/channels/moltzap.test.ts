@@ -23,11 +23,7 @@ import {
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
 import { getRegisteredChannelAdapter } from "./channel-registry.js";
-import {
-  EVAL_AGENT_GROUP_ID,
-  makeMoltZapAdapter,
-  MoltZapAdapter,
-} from "./moltzap.js";
+import { makeMoltZapAdapter, MoltZapAdapter } from "./moltzap.js";
 
 interface InboundContent {
   readonly text: string;
@@ -67,8 +63,7 @@ const DEVS_GROUP_NAME = "devs";
 const MOLTZAP_CHANNEL_NAME = "moltzap";
 const JID_PREFIX = "mz:";
 const TELEGRAM_JID = "tg:1234";
-const WHATSAPP_JID = "wa:5551234567";
-const RAW_CONVERSATION_JID = "conv-raw";
+const EVAL_AGENT_GROUP_ID = "eval-agent";
 const CONV_1 = "conv-1";
 const CONV_42 = "conv-42";
 const CONV_43 = "conv-43";
@@ -177,18 +172,6 @@ function registersAdapterWithNeverMentions() {
 
 function factoryReturnsNullWithoutProfile() {
   expect(makeMoltZapAdapter({ profileName: null, evalMode: false })).toBeNull();
-}
-
-function ownsPrefixedJids() {
-  const harness = createHarness();
-  expect(harness.adapter.ownsJid(asJid(CONV_1))).toBe(true);
-}
-
-function rejectsOtherChannelJids() {
-  const harness = createHarness();
-  expect(harness.adapter.ownsJid(TELEGRAM_JID)).toBe(false);
-  expect(harness.adapter.ownsJid(WHATSAPP_JID)).toBe(false);
-  expect(harness.adapter.ownsJid(RAW_CONVERSATION_JID)).toBe(false);
 }
 
 function stripsPrefixAndForwardsSend() {
@@ -739,11 +722,6 @@ describe("MoltZapAdapter registration", () => {
     "factory returns null when no profile is configured",
     factoryReturnsNullWithoutProfile,
   );
-});
-
-describe("MoltZapAdapter ownership", () => {
-  vitestIt("returns true for mz-prefixed JIDs", ownsPrefixedJids);
-  vitestIt("returns false for other channel JIDs", rejectsOtherChannelJids);
 });
 
 describe("MoltZapAdapter deliver basics", () => {

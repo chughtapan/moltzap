@@ -46,8 +46,7 @@ const MOLTZAP_CHANNEL = "moltzap";
 const MOLTZAP_JID_PREFIX = "mz:";
 const EVAL_NAME_ID_CHARS = 8;
 const MAX_TRACKED_CONVERSATIONS = 4096;
-/** Provides the eval agent group id runtime value. */
-export const EVAL_AGENT_GROUP_ID = "eval-agent";
+const EVAL_AGENT_GROUP_ID = "eval-agent";
 
 // Every message a MoltZap conversation delivers is addressed to this agent
 // (the server routes per-conversation), so wirings engage on everything and
@@ -144,7 +143,7 @@ interface MoltZapAdapterState {
  *   participant Router as nanoclaw router
  *   Core->>Handler: onInbound(enriched)<br>WS frame decoded + enriched
  *   note over Handler: Step 1 — jidFromConversationId<br>platformId = "mz:" + conversationId
- *   note over Handler: Step 2 — rememberConversation<br>conversationsByJid.set(jid, conversationId)
+ *   note over Handler: Step 2 — conversationsByJid.set<br>retain the branded conversation route
  *   note over Handler: Step 3 — ensureEvalWiring (eval mode only)<br>conversation rows target the harness-seeded agent
  *   Handler->>Router: Step 4 — setup.onMetadata(jid, name, isGroup)
  *   Handler->>Router: Step 5 — setup.onInbound(jid, null, message)
@@ -252,10 +251,6 @@ export class MoltZapAdapter implements ChannelAdapter {
     return Effect.runPromise(send.pipe(Effect.as(undefined)));
   }
 
-  ownsJid(jid: string): boolean {
-    return jid.startsWith(MOLTZAP_JID_PREFIX);
-  }
-
   private initializeCore() {
     return Effect.gen(
       function* (this: MoltZapAdapter) {
@@ -295,7 +290,7 @@ export class MoltZapAdapter implements ChannelAdapter {
   ): Effect.Effect<void, MoltZapChannelError | ServiceRpcError> {
     return Effect.gen(
       function* (this: MoltZapAdapter) {
-        if (!this.ownsJid(jid)) {
+        if (!jid.startsWith(MOLTZAP_JID_PREFIX)) {
           return yield* new MoltZapChannelError({
             reason: `MoltZap channel does not own jid: ${jid}`,
           });
@@ -315,15 +310,6 @@ export class MoltZapAdapter implements ChannelAdapter {
         yield* core.sendReply(conversation.conversationId, text);
       }.bind(this),
     );
-  }
-
-  private rememberConversation(
-    jid: string,
-    enriched: EnrichedInboundMessage,
-  ): void {
-    this.conversationsByJid.set(jid, {
-      conversationId: enriched.conversationId,
-    });
   }
 
   // The host turn is awaited rather than forked, which is what keeps a reply
@@ -347,7 +333,9 @@ export class MoltZapAdapter implements ChannelAdapter {
         return Effect.void;
       }
       const jid = jidFromConversationId(enriched.conversationId);
-      this.rememberConversation(jid, enriched);
+      this.conversationsByJid.set(jid, {
+        conversationId: enriched.conversationId,
+      });
       const isGroup = enriched.conversationMeta?.type === "group";
       if (this.evalMode) {
         this.ensureEvalWiring(jid, enriched, isGroup);
@@ -429,17 +417,6 @@ export class MoltZapAdapter implements ChannelAdapter {
     if (getMessagingGroupByPlatform(MOLTZAP_CHANNEL, jid) !== undefined) {
       return;
     }
-    this.createEvalWiring(jid, enriched, isGroup);
-  }
-
-  // Persisted policy fields come from MOLTZAP_CONTEXT_DEFAULTS so the wiring
-  // row cannot drift from the declared channel contract. Row ids derive from
-  // the full conversation id, making the platform lookup the freshness guard.
-  private createEvalWiring(
-    jid: string,
-    enriched: EnrichedInboundMessage,
-    isGroup: boolean,
-  ): void {
     const now = new Date().toISOString();
     const shortId = enriched.conversationId.slice(0, EVAL_NAME_ID_CHARS);
     const messagingGroupId = `mg-eval-${enriched.conversationId}`;
