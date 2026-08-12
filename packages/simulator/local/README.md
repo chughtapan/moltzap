@@ -8,7 +8,7 @@ cluster and image-build tooling here, not a simulator execution backend.
 ## Build the controller/support image
 
 ```bash
-pnpm nx run @moltzap/simulator:local-controller-image
+pnpm nx run workspace:simulator-controller-image
 ```
 
 The builder compiles and packs the workspace packages into one local image and

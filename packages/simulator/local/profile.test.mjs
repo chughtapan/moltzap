@@ -76,16 +76,7 @@ test("the end-to-end run sizes its roster from the run rather than the file", as
   assert.match(endToEnd, /deny: \["\*"\]/);
 });
 
-test("controller image exposes the agreed controller and support layout", async () => {
-  const dockerfile = await read("controller-image/Dockerfile");
-  assert.match(
-    dockerfile,
-    /ENTRYPOINT \["node", "\/opt\/moltzap\/dist\/cluster\/controller\/main\.js"\]/,
-  );
-  assert.match(dockerfile, /\/opt\/moltzap\/application-overlay/);
-  assert.match(dockerfile, /\/opt\/moltzap\/dist/);
-  assert.match(dockerfile, /node:22\.22\.0-bookworm-slim@sha256:[0-9a-f]{64}/);
-
+test("local cluster makes the pinned controller image discoverable", async () => {
   const setup = await read("../scripts/local-create-cluster.mjs");
   assert.match(setup, /makePinnedImageDiscoverable/);
   assert.match(setup, /template\.replaceAll\(ARTIFACT_TOKEN/);
@@ -100,33 +91,6 @@ test("controller image exposes the agreed controller and support layout", async 
     setup,
     /makePinnedImageDiscoverable\(\n\s+kind,\n\s+options\.cluster,\n\s+imageSource,\n\s+options\.image,/,
   );
-});
-
-test("controller image packages the compiled evaluation application", async () => {
-  const evalPackage = JSON.parse(await read("../../evals/package.json"));
-  assert.ok(
-    evalPackage.files?.includes("dist"),
-    "the packed evaluation package must include its compiled entrypoints",
-  );
-
-  const dockerfile = await read("controller-image/Dockerfile");
-  assert.match(
-    dockerfile,
-    /node_modules\/@moltzap\/evals\/dist\/peer-application\.js/,
-  );
-});
-
-test("controller overlay preserves runtime peers and verifies the plugin entry", async () => {
-  const dockerfile = await read("controller-image/Dockerfile");
-  const channelPackage = JSON.parse(
-    await read("../../openclaw-channel/package.json"),
-  );
-  assert.doesNotMatch(dockerfile, /--omit=peer/);
-  assert.match(
-    dockerfile,
-    /await import\("\.\/node_modules\/@moltzap\/openclaw-channel\/dist\/openclaw-entry\.js"\)/,
-  );
-  assert.equal(channelPackage.peerDependenciesMeta?.openclaw?.optional, true);
 });
 
 test("local image discovery retries are bounded", async () => {

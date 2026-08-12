@@ -16,9 +16,21 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const packageRoot = join(workspaceRoot, "packages", "simulator");
+const controllerImageBuilder = join(
+  workspaceRoot,
+  "scripts",
+  "simulator",
+  "build-controller-image.mjs",
+);
+const controllerImageDockerfile = join(
+  workspaceRoot,
+  "scripts/simulator/controller-image/Dockerfile",
+);
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-simulator-pack-"));
 const forbiddenSimulatorPaths = [
+  "scripts/build-controller-image.mjs",
   "scripts/build-server-image.mjs",
+  "local/controller-image/Dockerfile",
   "server-image/Dockerfile",
   "server-image/moltzap.yaml",
   "src/layer.ts",
@@ -106,6 +118,60 @@ async function verifyRepositoryCutover() {
       );
     }),
   );
+}
+
+async function verifyControllerImageAssembly() {
+  const [dockerfile, evalPackageSource, channelPackageSource] =
+    await Promise.all([
+      readFile(controllerImageDockerfile, "utf8"),
+      readFile(
+        join(workspaceRoot, "packages", "evals", "package.json"),
+        "utf8",
+      ),
+      readFile(
+        join(workspaceRoot, "packages", "openclaw-channel", "package.json"),
+        "utf8",
+      ),
+    ]);
+  const evalPackage = JSON.parse(evalPackageSource);
+  const channelPackage = JSON.parse(channelPackageSource);
+
+  requireCondition(
+    evalPackage.files?.includes("dist"),
+    "the packed evaluation package must include its compiled entrypoints",
+  );
+  requireCondition(
+    channelPackage.peerDependenciesMeta?.openclaw?.optional === true,
+    "the OpenClaw overlay must preserve its optional runtime peer",
+  );
+  requireCondition(
+    /ENTRYPOINT \["node", "\/opt\/moltzap\/dist\/cluster\/controller\/main\.js"\]/.test(
+      dockerfile,
+    ),
+    "controller image must start the compiled controller",
+  );
+  for (const expected of [
+    "/opt/moltzap/application-overlay",
+    "/opt/moltzap/dist",
+    "node_modules/@moltzap/evals/dist/peer-application.js",
+    'await import("./node_modules/@moltzap/openclaw-channel/dist/openclaw-entry.js")',
+  ]) {
+    requireCondition(
+      dockerfile.includes(expected),
+      `controller image is missing ${expected}`,
+    );
+  }
+  requireCondition(
+    /node:22\.22\.0-bookworm-slim@sha256:[0-9a-f]{64}/.test(dockerfile),
+    "controller image base must be digest-pinned",
+  );
+  requireCondition(
+    !dockerfile.includes("--omit=peer"),
+    "controller overlay must install runtime peers",
+  );
+  await exec(process.execPath, ["--check", controllerImageBuilder], {
+    cwd: workspaceRoot,
+  });
 }
 
 async function packedTarball() {
@@ -207,6 +273,7 @@ async function verifyConsumerImports(extractedPackage) {
 
 try {
   await verifyRepositoryCutover();
+  await verifyControllerImageAssembly();
   const tarball = await packedTarball();
   const extractedRoot = join(temporaryRoot, "extracted");
   await mkdir(extractedRoot);

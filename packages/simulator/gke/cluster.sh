@@ -6,6 +6,7 @@ set -euo pipefail
 
 readonly profile_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly simulator_root="$(cd "$profile_root/.." && pwd)"
+readonly workspace_root="$(cd "$simulator_root/../.." && pwd)"
 readonly terraform_root="$profile_root/terraform"
 readonly system_namespace="moltzap-system"
 
@@ -88,7 +89,7 @@ read_json_field() {
 publish_controller_image() {
   local repository built tag
   repository="$(terraform_output controller_repository)/controller"
-  built="$(node "$simulator_root/scripts/build-controller-image.mjs" \
+  built="$(node "$workspace_root/scripts/simulator/build-controller-image.mjs" \
     --repository "$repository" | tail -1)"
   tag="$(printf '%s' "$built" | read_json_field image)"
   docker push "$tag" >/dev/null

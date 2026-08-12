@@ -73,7 +73,7 @@ substitutes a mutable or placeholder image.
 Build the shared controller/support image and create the pinned local profile:
 
 ```bash
-pnpm nx run @moltzap/simulator:local-controller-image
+pnpm nx run workspace:simulator-controller-image
 pnpm nx run @moltzap/simulator:local-cluster-create -- \
   --image CONTROLLER_IMAGE_AT_SHA256
 ```

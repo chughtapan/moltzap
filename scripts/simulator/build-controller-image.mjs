@@ -1,5 +1,7 @@
-// Builds the shared controller/support image and prints both its local tag and
-// manifest-digest identity. The caller decides whether to load or push it.
+/**
+ * @file Builds the shared controller and application-overlay image, then
+ * prints both its local tag and manifest-digest identity.
+ */
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
@@ -17,9 +19,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
-const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const workspaceRoot = dirname(dirname(packageRoot));
-const dockerfile = join(packageRoot, "local", "controller-image", "Dockerfile");
+const scriptRoot = dirname(fileURLToPath(import.meta.url));
+const workspaceRoot = dirname(dirname(scriptRoot));
+const simulatorRoot = join(workspaceRoot, "packages", "simulator");
+const dockerfile = join(scriptRoot, "controller-image", "Dockerfile");
 const DEFAULT_REPOSITORY = "moltzap-simulator-controller";
 const BUILD_TIMEOUT_MS = 30 * 60 * 1_000;
 const PACK_TIMEOUT_MS = 5 * 60 * 1_000;
@@ -34,7 +37,7 @@ const workspacePackages = {
   ),
   "@moltzap/protocol": join(workspaceRoot, "packages", "protocol"),
   "@moltzap/server-core": join(workspaceRoot, "packages", "server"),
-  "@moltzap/simulator": packageRoot,
+  "@moltzap/simulator": simulatorRoot,
 };
 
 function report(message) {
@@ -170,7 +173,7 @@ async function main() {
       "nx",
       "run-many",
       "--target=build",
-      "--projects=@moltzap/simulator,@moltzap/evals",
+      "--projects=@moltzap/simulator,@moltzap/evals,@moltzap/openclaw-channel",
     ],
     {
       cwd: workspaceRoot,

@@ -87,6 +87,14 @@
         "command": "pnpm exec tsx scripts/docs/check-doc-imports-resolve.ts"
       }
     },
+    "simulator-controller-image": {
+      "cache": false,
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/simulator/build-controller-image.mjs"
+      }
+    },
     "arch:config:generate": {
       "cache": true,
       "inputs": [
