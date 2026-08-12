@@ -216,12 +216,7 @@ const packageDefinitions = {
         {
           folder: "db",
           reason:
-            "Persistence helpers (agent/messaging groups, container configs) the moltzap channel adapter composes over.",
-        },
-        {
-          folder: "modules",
-          reason:
-            "Cross-cutting modules (permissions) the channel adapter depends on.",
+            "Host-substitution seam for the messaging-group module NanoClaw supplies when the adapter is installed.",
         },
       ],
     },
