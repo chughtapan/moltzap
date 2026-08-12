@@ -13,3 +13,6 @@ export class AuthenticatedAgent extends RpcMiddleware.Tag<AuthenticatedAgent>()(
   "@moltzap/protocol/requirement/AuthenticatedAgent",
   { failure: principalGateFailure },
 ) {}
+
+/** The principal-requirement tag that heads a gated RPC descriptor. */
+export type PrincipalRequirement = typeof AuthenticatedAgent;
