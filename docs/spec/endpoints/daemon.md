@@ -2,6 +2,13 @@
 
 Status: **Gate 1 normative**
 
+> **Scope.** This chapter describes the v2 clean-slate design under `v2/*`. It
+> is not a contract for `packages/*`, whose authority is the current ADR
+> outcomes resident on `main` (see
+> `docs/decisions/20260729-v2-authority-lives-with-v2.md`). The v2 branch has
+> already deleted this chapter; the copy here is main-resident v2 content, not
+> a production specification.
+
 ## Purpose and boundary
 
 Each `AgentId` is represented locally by one long-lived endpoint

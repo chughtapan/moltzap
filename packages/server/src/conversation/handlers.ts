@@ -3,6 +3,7 @@ import {
   type agentConversationCreate as agentConversationCreateDefinition,
   conversationCreatedNotificationDefinition,
   type conversationList as conversationListDefinition,
+  type conversationSearch as conversationSearchDefinition,
   type Conversation,
   type ConversationListItem,
 } from "@moltzap/protocol/conversation";
@@ -77,6 +78,18 @@ const conversationListBody = Effect.fn("conversation.list")(function* (
   return { items, ...(nextCursor !== undefined ? { nextCursor } : {}) };
 });
 
+const conversationSearchBody = Effect.fn("conversation.search")(function* (
+  params: ParamsOf<typeof conversationSearchDefinition>,
+  ctx: AgentContext,
+) {
+  const conversationService = yield* ConversationServiceTag;
+  return yield* conversationService.search(
+    ctx.agentId,
+    params.query,
+    params.cursor,
+  );
+});
+
 /**
  * Provides the conversation list runtime value.
  * @param params Request payload to process.
@@ -86,6 +99,17 @@ export const conversationList: ServerHandler<
   typeof conversationListDefinition
 > = Effect.fn("conversationList")(function* (params) {
   return yield* conversationListBody(params, yield* agentArm);
+});
+
+/**
+ * Search the active agent's conversations by exact identifier or member.
+ * @param params Request payload to process.
+ * @returns One stable identifier-ordered page.
+ */
+export const conversationSearch: ServerHandler<
+  typeof conversationSearchDefinition
+> = Effect.fn("conversationSearch")(function* (params) {
+  return yield* conversationSearchBody(params, yield* agentArm);
 });
 
 /**

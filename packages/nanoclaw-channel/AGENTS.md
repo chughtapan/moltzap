@@ -8,9 +8,13 @@ channel plugins.
 ## Structure
 
 - `src/channels/moltzap.ts` — `MoltZapAdapter`, the entry point
-  (package `main`); implements nanoclaw's `ChannelAdapter` contract
-  over `MoltZapChannelCore` from `@moltzap/client/channel-base` and
-  self-registers via `registerChannelAdapter`.
+  (package `main`); implements nanoclaw's `ChannelAdapter` contract over a
+  Harness client whose lifetime it owns, and self-registers via
+  `registerChannelAdapter`. This file is the whole channel: the simulator's
+  asset copier (`packages/simulator/scripts/copy-nanoclaw-assets.mjs`)
+  copies exactly it, so a sibling module added beside it does not exist at
+  nanoclaw runtime. New logic belongs in this file or behind a
+  `@moltzap/client` export.
 - `src/channels/adapter.ts`, `src/channels/channel-registry.ts`,
   `src/db/messaging-groups.ts`, `src/types.ts` — stub mirrors of the
   NanoClaw modules the channel imports. Keep them aligned with the
@@ -23,7 +27,7 @@ channel plugins.
 
 - **Platform id (JID)** — channel-level addressing string,
   `mz:<conversationId>`; `jidFromConversationId` converts one way, and
-  replies read the branded conversation id back from the per-jid map.
+  replies read the latest bound route back from the per-jid map.
 - **Wiring** — nanoclaw routes by `(channel_type, platform_id)` →
   `messaging_groups` → `messaging_group_agents`. Production wirings
   are provisioned out of band.
@@ -35,13 +39,21 @@ channel plugins.
 
 ## Code
 
-- `handleInbound` awaits the host turn rather than forking it. That
-  binds a reply to the turn that produced it: the per-jid
-  conversation entry holds the newest inbound, so a reply outliving
-  its own turn would address the wrong conversation.
-- `MoltZapChannelError` covers host-shape failures (un-owned jid,
-  unknown conversation, disconnected channel); send failures keep
-  their `ServiceRpcError` type.
+- The adapter drains `HarnessClient.turns` sequentially and retains each
+  turn's bound `reply` closure by jid. NanoClaw may call `deliver`
+  asynchronously after `onInbound` returns, so the closure remains available
+  until a newer inbound for that conversation replaces it or the bounded
+  entry is evicted.
+- `fromHarnessAcquisition` is the only constructor, and the adapter owns the
+  acquisition's `Scope`: `setup` opens it, `teardown` closes it. NanoClaw
+  builds channel adapters from a zero-argument factory at module import, so
+  no caller exists to hold that scope. `makeMoltZapAdapter` supplies
+  `harnessClientForProfile(MOLTZAP_PROFILE)`, which resolves the slot into
+  its own `moltzapd` child, the loopback endpoint the slot names, and a
+  file-backed checkpoint store.
+- `MoltZapChannelError` covers host-shape failures (un-owned jid, unknown
+  conversation, a host callback that rejects a projected turn); reply
+  failures retain their backing client's error type.
 - Inbound projection: `onMetadata` fires before `onInbound`; content
   is `{ text, sender, senderId }` with context blocks inlined into
   `text`; own (`isFromMe`) messages are dropped, not delivered.
@@ -53,7 +65,12 @@ channel plugins.
 - `vitest.integration.globalSetup.ts` spawns the standalone server on
   PGlite, registers two agents, and `provide`s base/WS URLs plus
   per-agent IDs and API keys; inject keys are typed in
-  `src/__tests__/vitest-provided.d.ts`.
-- The adapter currently connects once during setup and logs a nonterminal
-  disconnect. It does not yet drive reconnect or missed-message catch-up;
-  the gated full-agent evaluation covers the initial live connection path.
+  `src/__tests__/vitest-provided.d.ts`. The echo suite reserves the slot's
+  loopback port, writes the slot, and drives `makeMoltZapAdapter` — the same
+  adapter nanoclaw registers — so a real `moltzapd` carries the round trip.
+- The adapter connects once during setup and logs a nonterminal disconnect.
+  It does not drive reconnect or missed-message catch-up; the gated
+  full-agent evaluation covers the initial live connection path.
+- Unit tests drive a fake `HarnessClientService` through a counted
+  acquisition, so acquire/release counts assert what `setup` and `teardown`
+  did to the client's lifetime.

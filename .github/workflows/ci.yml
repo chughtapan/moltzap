@@ -32,6 +32,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm nx run @moltzap/client:test:pack
       - run: node scripts/test/simulator-packages.mjs
       - name: Verify infrastructure profiles
         run: |

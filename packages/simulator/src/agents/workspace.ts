@@ -12,17 +12,29 @@ const PROFILE_CONFIG_INDENT_SPACES = 2;
 export const SIMULATOR_PROFILE_NAME = "simulator-agent";
 
 /**
+ * Loopback port the slot's daemon binds inside its own container.
+ *
+ * A profile records the port rather than discovering one: the daemon and every
+ * adapter derive the same MCP URL from the slot, so nothing allocates or falls
+ * back. One fixed value stays collision-free because each agent owns a network
+ * namespace, and it sits beside the gateway ports the same container binds.
+ */
+export const SLOT_MCP_CONTAINER_PORT = 18_791;
+
+/**
  * Serialize the per-agent MoltZap profile mounted into a runtime container.
  * @param profile Runtime identity and redacted credentials.
  * @param profile.agentName Router-visible agent name.
  * @param profile.agentId Registered agent identity.
  * @param profile.apiKey Registered agent credential.
+ * @param profile.mcpPort Loopback port the slot's daemon binds.
  * @returns The JSON profile configuration.
  */
 export function serializeMoltZapProfileConfig(profile: {
   readonly agentName: AgentName;
   readonly agentId: AgentId;
   readonly apiKey: AgentKey;
+  readonly mcpPort: number;
 }): string {
   return JSON.stringify(
     {
@@ -31,6 +43,7 @@ export function serializeMoltZapProfileConfig(profile: {
           agentId: profile.agentId,
           apiKey: Redacted.value(profile.apiKey),
           agentName: profile.agentName,
+          mcpPort: profile.mcpPort,
         },
       },
     },

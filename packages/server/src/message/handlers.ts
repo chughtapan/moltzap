@@ -1,5 +1,6 @@
 import type {
   messagesList as messagesListDefinition,
+  messagesRead as messagesReadDefinition,
   messagesSend as messagesSendDefinition,
 } from "@moltzap/protocol/message";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
@@ -36,6 +37,21 @@ const handleMessageList = Effect.fn("messages.list")(function* (
   });
 });
 
+const handleMessageRead = Effect.fn("messages.read")(function* (
+  params: ParamsOf<typeof messagesReadDefinition>,
+  ctx: AgentContext,
+) {
+  const messageService = yield* MessageServiceTag;
+  return yield* messageService.read({
+    conversationId: params.conversationId,
+    requesterAgentId: ctx.agentId,
+    ...(params.checkpoint === undefined
+      ? {}
+      : { checkpoint: params.checkpoint }),
+    ...(params.cursor === undefined ? {} : { cursor: params.cursor }),
+  });
+});
+
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 //
 // Requirement middleware gates each frame before these bodies run. The bodies
@@ -67,4 +83,15 @@ export const messagesList: ServerHandler<typeof messagesListDefinition> =
     // `MessageService.list` before any row is projected.
     const ctx = yield* agentArm;
     return yield* handleMessageList(params, ctx);
+  });
+
+/**
+ * Provides the checkpointed messages read runtime value.
+ * @param params Request payload to process.
+ * @returns The messages read result.
+ */
+export const messagesRead: ServerHandler<typeof messagesReadDefinition> =
+  Effect.fn("messagesRead")(function* (params) {
+    const ctx = yield* agentArm;
+    return yield* handleMessageRead(params, ctx);
   });

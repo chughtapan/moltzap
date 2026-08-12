@@ -15,6 +15,7 @@ import {
   register,
   agentCardSchema,
   agentsList,
+  agentsSearch,
   AgentNotFoundError,
   validateAgent,
   validateAgentCard,
@@ -34,6 +35,7 @@ export {
   register,
   agentCardSchema,
   agentsList,
+  agentsSearch,
   AgentNotFoundError,
   validateAgent,
   validateAgentCard,
@@ -53,4 +55,4 @@ export type { PrincipalRequirement } from "./principals/index.js";
 export { ActiveAgent } from "./requirements/index.js";
 
 /** Identity RPC catalog accepted by agent clients. */
-export const identityRpcMethods = [agentsList] as const;
+export const identityRpcMethods = [agentsList, agentsSearch] as const;

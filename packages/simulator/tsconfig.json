@@ -21,6 +21,9 @@
       "path": "../client"
     },
     {
+      "path": "../nanoclaw-channel"
+    },
+    {
       "path": "../openclaw-channel"
     },
     {

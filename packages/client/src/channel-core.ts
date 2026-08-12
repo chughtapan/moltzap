@@ -15,9 +15,11 @@ import type {
   ServiceRpcError,
 } from "./service.js";
 import { enrichChannelMessage } from "./channel-core-enrichment.js";
+/** Projects MCP-reconstructed context through the channel-owned presentation. */
+export { projectHarnessTurn } from "./channel-core-enrichment.js";
 
 /** Describes enriched sender. */
-export interface EnrichedSender {
+interface EnrichedSender {
   id: string;
   name: string;
 }

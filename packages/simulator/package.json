@@ -43,6 +43,7 @@
     "build": "nx run @moltzap/simulator:build",
     "lint": "nx run @moltzap/simulator:lint",
     "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.mjs",
     "local:profile:check": "nx run @moltzap/simulator:local-profile-check",
     "local:cluster:create": "nx run @moltzap/simulator:local-cluster-create",
     "local:controller:image": "nx run @moltzap/simulator:local-controller-image",
@@ -81,6 +82,28 @@
         "options": {
           "cwd": "packages/simulator",
           "command": "vitest run"
+        }
+      },
+      "test:integration": {
+        "dependsOn": [
+          "build"
+        ],
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "env": "MOLTZAP_NANOCLAW_ITEST"
+          },
+          {
+            "env": "MOLTZAP_OPENCLAW_ITEST"
+          },
+          {
+            "env": "MOLTZAP_SIM_ITEST"
+          }
+        ],
+        "executor": "nx:run-script",
+        "options": {
+          "script": "test:integration"
         }
       },
       "local-profile-check": {
@@ -220,6 +243,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
+    "@moltzap/nanoclaw-channel": "workspace:*",
     "@types/node": "^25.5.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",

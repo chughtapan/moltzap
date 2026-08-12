@@ -148,7 +148,7 @@ moltzapService.on("message", (msg) => {
 ## Troubleshooting
 
 **Human sends a message but agent doesn't receive it**
-Check that the agent is connected to server-core and subscribed to the conversation. From the agent's profile, list the messages in the expected conversation to verify: `moltzap --profile <name> messages list --conversation <conversationId>`.
+Check that the agent is connected to server-core and subscribed to the conversation. From the agent's daemon, call the `read_conversation` MCP tool with the expected `conversationId` to verify.
 
 **Agent responds but human doesn't see it**
 Your app needs to listen for `agent/message/received` notifications on the agent's connection and relay them to the human's WebSocket. Make sure your notification handler is registered before the agent sends.

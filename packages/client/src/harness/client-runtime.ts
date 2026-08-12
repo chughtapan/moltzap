@@ -25,13 +25,24 @@ interface HarnessClientInternalOptions {
   readonly url: string;
 }
 
-interface HarnessTurnInternal {
-  readonly conversationId: ConversationId;
-  readonly messages: HarnessTurnEvent["messages"];
+/**
+ * Decoded live observation and its private reply authority.
+ * @internal
+ */
+export interface HarnessTurnInternal {
+  readonly event: HarnessTurnEvent;
   readonly reply: (payload: string) => Effect.Effect<void, Error>;
 }
 
-interface HarnessClientInternalService {
+/**
+ * Package-owned MCP session consumed by the public domain projection.
+ * @internal
+ */
+export interface HarnessClientInternalService {
+  readonly callTool: (
+    name: string,
+    input: Readonly<Record<string, unknown>>,
+  ) => Effect.Effect<unknown, Error>;
   readonly turns: Stream.Stream<HarnessTurnInternal, Error>;
 }
 
@@ -54,6 +65,31 @@ const asError = (cause: unknown): Error =>
 
 const closeQuietly = (close: () => Promise<void>): Effect.Effect<void> =>
   Effect.tryPromise({ try: close, catch: asError }).pipe(Effect.ignore);
+
+const callStructuredTool = (
+  client: Client,
+  name: string,
+  input: Readonly<Record<string, unknown>>,
+): Effect.Effect<unknown, Error> =>
+  Effect.tryPromise({
+    try: (signal) =>
+      client.callTool({ name, arguments: { ...input } }, { signal }),
+    catch: asError,
+  }).pipe(
+    Effect.flatMap((result) => {
+      if (result.isError === true) {
+        // eslint-disable-next-line agent-code-guard/effect-error-erasure -- The private MCP adapter normalizes untyped tool failures to the public client's existing Error contract.
+        return Effect.fail(new Error(`Harness MCP tool ${name} failed`));
+      }
+      if (result.structuredContent === undefined) {
+        // eslint-disable-next-line agent-code-guard/effect-error-erasure -- Missing structured content is an incompatible MCP response at the public client's existing Error boundary.
+        return Effect.fail(
+          new Error(`Harness MCP tool ${name} returned no structured content`),
+        );
+      }
+      return Effect.succeed(result.structuredContent);
+    }),
+  );
 
 const turnPayload = (params: unknown): unknown => {
   if (typeof params !== "object" || params === null || Array.isArray(params)) {
@@ -97,8 +133,7 @@ const makeTurn = (
 ): HarnessTurnInternal => {
   const originatingConversationId = harnessTurnConversationId(event);
   return {
-    conversationId: originatingConversationId,
-    messages: event.messages,
+    event,
     reply: (payload) => callReply(client, originatingConversationId, payload),
   };
 };
@@ -208,6 +243,8 @@ export const acquireHarnessClientInternal = (
     yield* Effect.forkScoped(observeSubscription(subscription, queue));
 
     return {
+      callTool: (name: string, input: Readonly<Record<string, unknown>>) =>
+        callStructuredTool(client, name, input),
       turns: Stream.fromQueue(queue).pipe(Stream.flattenTake),
     };
   }).pipe(Effect.withSpan("acquireHarnessClient"));
