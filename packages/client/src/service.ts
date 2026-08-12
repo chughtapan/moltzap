@@ -64,14 +64,12 @@ import {
 } from "./config.js";
 import { renderPart } from "./message-rendering.js";
 import { getOr, snapshot } from "./refs.js";
-import { appendClientEventTrace } from "./service-event-trace.js";
 import {
   buildContextEntries,
   type ContextCandidate,
   type CrossConvState,
   makeContextCandidate,
   newMessagesForConversation,
-  notificationTraceRecord,
 } from "./service-helpers.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
@@ -725,7 +723,6 @@ export class MoltZapService {
   // --- Internals ---
 
   protected handleNotification(notification: ClientNotificationDelivery): void {
-    this.recordNotificationTrace(notification);
     fanout(this.handlers.rawNotification, notification);
     this.dispatchTypedNotification(notification);
   }
@@ -896,16 +893,6 @@ export class MoltZapService {
         }
         return HashMap.set(outer, currentConvId, markers);
       }),
-    );
-  }
-
-  private recordNotificationTrace(
-    notification: ClientNotificationDelivery,
-  ): void {
-    Effect.runFork(
-      appendClientEventTrace(
-        notificationTraceRecord(notification, this.ownAgentIdValue),
-      ),
     );
   }
 

@@ -1,11 +1,9 @@
 /**
  * @file Pure transformations that derive cross-conversation summaries and
- * diagnostic trace records from endpoint-local state.
+ * cross-conversation summaries from endpoint-local state.
  */
 
 import type { Message } from "@moltzap/protocol/message";
-import type { NotificationDelivery } from "@moltzap/protocol/rpc";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import { HashMap, Option } from "effect";
 import type { ConversationMeta, CrossConversationEntry } from "./service.js";
 import { renderPart } from "./message-rendering.js";
@@ -107,36 +105,6 @@ export function buildContextEntries(
   return { entries, pendingAdvances };
 }
 
-/**
- * Reduces a decoded notification to non-sensitive correlation fields suitable
- * for best-effort diagnostics.
- * @param notification Descriptor-tagged notification already decoded at the boundary.
- * @param agentId Identifier of the agent targeted by the operation.
- * @returns A timestamped record containing only available correlation fields.
- */
-export function notificationTraceRecord(
-  notification: NotificationDelivery<AnyNotificationDefinition>,
-  agentId?: string,
-): Record<string, unknown> {
-  const params = recordOrEmpty(notification.params);
-  const message = recordProperty(params, "message");
-  const conversation = recordProperty(params, "conversation");
-  const notificationConversationId = stringProperty(params, "conversationId");
-  return {
-    ts: new Date().toISOString(),
-    agentId: agentId ?? "unknown",
-    notification: notification.method,
-    messageId: message?.id,
-    messageConversationId: message?.conversationId,
-    messageSenderId: message?.senderId,
-    conversationId: traceConversationId(
-      conversation,
-      notificationConversationId,
-    ),
-    conversationName: conversation?.name,
-  };
-}
-
 function contextEntryForCandidate(
   candidate: ContextCandidate,
   state: CrossConvState,
@@ -177,35 +145,4 @@ function minutesSince(timestamp: string): number {
       (Date.now() - new Date(timestamp).getTime()) / MILLISECONDS_PER_MINUTE,
     ),
   );
-}
-
-function recordOrEmpty(value: unknown): Record<string, unknown> {
-  return isPlainRecord(value) ? value : {};
-}
-
-function recordProperty(
-  record: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> | undefined {
-  const value = record[key];
-  return isPlainRecord(value) ? value : undefined;
-}
-
-function stringProperty(
-  record: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = record[key];
-  return typeof value === "string" ? value : undefined;
-}
-
-function traceConversationId(
-  conversation?: Record<string, unknown>,
-  fallback?: string,
-): unknown {
-  return conversation === undefined ? fallback : (conversation.id ?? fallback);
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
