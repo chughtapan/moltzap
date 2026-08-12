@@ -113,6 +113,9 @@ importers:
       '@modelcontextprotocol/server':
         specifier: 2.0.0-beta.5
         version: 2.0.0-beta.5
+      '@moltzap/identity':
+        specifier: workspace:*
+        version: link:../identity
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol
