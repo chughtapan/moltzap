@@ -148,11 +148,6 @@ const packageDefinitions = {
             "Mixed-roster execution and runtime-native condition adapters form the application execution boundary",
         },
         {
-          file: "src/grading.ts",
-          reason:
-            "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary",
-        },
-        {
           file: "src/transcript.ts",
           reason:
             "Normalized transcript vocabulary and evidence-ID invariants every grading stage binds to",

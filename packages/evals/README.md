@@ -54,7 +54,7 @@ evidence policy.
 | `src/execution.ts` | Cell `RunSpec` construction, case execution, and result projection |
 | `src/submission.ts` | Generated module and local/GKE submission boundary |
 | `src/artifacts.ts` | Exact local or Cloud Storage ledger-artifact retrieval |
-| `src/grading.ts` | Transcript, judge, assessment, and calibration boundary |
+| `src/transcript.ts`, `src/assessment.ts`, `src/judge.ts`, `src/calibration.ts` | Evidence validation and grading pipeline |
 | `src/sweep.ts` | Immutable plans, terminal attempts, reports, and state transitions |
 | `src/results.ts` | Report-local SQLite persistence and transactional resume |
 | `src/phoenix.ts` | Completed-report publication boundary composed by the CLI |

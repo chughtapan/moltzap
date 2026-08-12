@@ -13,12 +13,14 @@ import { DateTime, Effect, Schema } from "effect";
 import { describe } from "vitest";
 import {
   CodeAssessment,
+  GradeReport,
+} from "./assessment.js";
+import { JudgeUnavailable } from "./judge.js";
+import {
   EvaluationTarget,
   EvaluationTranscript,
   GatewayTranscriptItem,
-  GradeReport,
-  JudgeUnavailable,
-} from "./grading.js";
+} from "./transcript.js";
 import {
   decodeConditionId,
   decodeCriterionId,

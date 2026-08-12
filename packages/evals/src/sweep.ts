@@ -19,12 +19,12 @@ import {
 } from "./model.js";
 import {
   CodeAssessment,
-  EvaluationTranscript,
   GradeReport,
-  judgeError,
   validateAssessmentEvidence,
   type CriterionAssessment,
-} from "./grading.js";
+} from "./assessment.js";
+import { judgeError } from "./judge.js";
+import { EvaluationTranscript } from "./transcript.js";
 
 const REPORT_FORMAT_VERSION = 3;
 const SAMPLE_NUMBER = 1;

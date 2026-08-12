@@ -3,7 +3,7 @@
 import type { PhoenixClient } from "@arizeai/phoenix-client";
 import type { JsonValue as JsonValueType } from "@moltzap/simulator/ledger";
 import { DateTime, Effect } from "effect";
-import type { CriterionAssessment } from "./grading.js";
+import type { CriterionAssessment } from "./assessment.js";
 import { type PhoenixRequestFailed, phoenixRequest } from "./phoenix-client.js";
 import type {
   EvaluationConditionPlan,

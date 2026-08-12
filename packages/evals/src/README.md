@@ -24,8 +24,8 @@ The source graph has four layers:
    deterministic criteria and delegates unresolved questions to the
    provider-neutral judge in `judge.ts`, `judge-openai.ts` supplies the
    production judge layer, and `calibration.ts` holds the fixed corpus that
-   keeps a live judge honest. `grading.ts` is the curated boundary over all
-   five; nothing outside this layer imports the modules directly.
+   keeps a live judge honest. Callers import each capability from its owning
+   module.
 4. `sweep.ts` and `results.ts` own report state, Effect SQL persistence, and
    resume. The `phoenix-*` modules adapt a completed report to the Phoenix
    protocol behind the `phoenix.ts` publication boundary, with every SDK
