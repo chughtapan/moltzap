@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
-superseded-by: 20260801-inbound-notifications-separate-content-from-grants.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The firewall is the agent's boundary: two directions, everything crosses
@@ -11,23 +11,20 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-The core Decision Outcome—one inbound and one outbound agent-boundary
-direction—remains current. Historical body phrases about generic plain send,
-pinned norm-bundle tools, and norm-bundle tool results are not current Gate 1
-surfaces.
+One inbound and one outbound agent boundary remains current. Local signing,
+attention, disclosure, and reliance decisions remain endpoint-owned;
+committed content and live reply authority remain separate; outbound model
+action remains conversation start or a bound reply, never generic send.
 
-`20260801-inbound-notifications-separate-content-from-grants.md` replaces the
-indivisible turn-ready crossing. Conversation-labelled committed content may
-cross inbound without reply authority; a provider-specific grant is a separate
-fact and only a grant-bearing client turn permits generation.
-`20260801-model-output-is-start-or-bound-reply.md` replaces outbound selection
-with conversation start or a bound payload-only reply and keeps generic send
-absent without assigning new START mechanics. Peer protocol proposals,
-validation, and signatures remain
-autonomous Harness behavior below the runtime-facing boundary. Runtime-specific
-semantic L5 screening across local MCP remains explicitly deferred. Current
-crossings live in `docs/spec/harness/ingress.md`,
-`docs/spec/harness/output.md`, and `docs/spec/harness/screening.md`.
+`20260811-four-layer-endpoint-replicated-harness.md` renames this scope to
+four-layer personal trust and removes L5 numbering plus privileged L7
+institution inputs. Institutional, monitoring, credential, and governance
+statements arrive as ordinary signed conversation content or task protocols
+and receive only the local meaning the endpoint assigns. Runtime-specific
+semantic screening and the exact attention interface remain deliberately
+deferred. The replacement record, `docs/spec/enforcement.md`,
+`docs/spec/harness/screening.md`, `docs/spec/harness/ingress.md`, and
+`docs/spec/harness/output.md` own the current boundary.
 
 ## Context and Problem Statement
 
@@ -76,3 +73,11 @@ as realization of the two mounts; screening.md's placement text
 generalizes from messages to boundary crossings; the slot guarantees
 (fail-closed, agent-local verdicts, filters attention never the
 record) apply uniformly to every crossing.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

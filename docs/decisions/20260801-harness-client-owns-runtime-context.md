@@ -1,12 +1,34 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-01
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # HarnessClient owns runtime context
 
 Decision provenance: [HarnessClient owns runtime context](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harnessclient-owns-runtime-context).
+
+## Supersession
+
+`HarnessClient` remains the sole adapter-facing Effect capability, owns any
+runtime-context projection and bound replies, and keeps runtime-turn delivery
+distinct from durable history reads. Content/history remains separate from
+live reply authority, with at most one live reply authority per conversation.
+Runtime adapters continue to depend on the client rather than Router,
+Registry, simulator, or storage internals.
+
+`20260811-four-layer-endpoint-replicated-harness.md` moves the capability from
+the `v2/harness` package to `@moltzap/client` and replaces Ledger-backed history
+with endpoint-local certified records. It does not silently decide whether the
+final turn contains only its current conversation or universal
+cross-conversation context with durable checkpoints, whether search/history is
+MCP-only or also a TypeScript service method, or whether a completed operation
+returns a full certified record or a compact receipt with proof retrieval.
+Those former exact choices are not authority for the final API and are
+deliberately deferred to one later interface decision. The replacement record,
+`docs/spec/conversation-history.md`, and `docs/spec/harness/client.md` own the
+new storage boundary and readiness gate.
 
 ## Context and Problem Statement
 

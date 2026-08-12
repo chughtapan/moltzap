@@ -1,8 +1,8 @@
 ---
-status: partially-superseded
+status: superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
-superseded-by: 20260728-six-deep-packages-one-version.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # v2 code lives in a top-level `v2/*` workspace
@@ -11,19 +11,18 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-The top-level `v2/*` workspace and zero-v1-import boundary remain
-accepted. V2 authority also lives with the V2 track under
-`20260729-v2-authority-lives-with-v2.md`; no privileged V2
-specification copy lives first on `main`.
+No current scope remains. The top-level `v2/*` code workspace, six clean-slate
+package roots, zero-import isolation as a permanent layout, and pre-cutover
+branch separation are historical only. Their role in keeping the rewrite
+isolated before cutover remains part of this record's history, not a current
+repository rule.
 
-The package layout is no longer deferred. The retained scope of
-`20260728-six-deep-packages-one-version.md`, as updated by
-`20260729-router-order-is-opaque.md`, fixes exactly six packages with
-`router` in place of `transport`. `20260801-harness-is-one-profile-slot-daemon.md`
-further replaces `endpoint` with `harness`,
-`@moltzap/v2-endpoint` with `@moltzap/v2-harness`, and the endpoint binaries
-with `moltzapd`. Their current dependencies, exports, binaries, and shared
-version live in `docs/spec/layer-interfaces.md`.
+`20260811-four-layer-endpoint-replicated-harness.md` moves accepted code into
+the seven final `packages/*` products, deletes obsolete `v2/*` implementation
+roots, and owns the cutover branch transition. The current source-layout and
+package contract lives in `docs/spec/layer-interfaces.md`. Repository-native
+v2 authority and retained history remain governed by their current authority
+ADR rather than by this former source-layout decision.
 
 ## Context and Problem Statement
 

@@ -1,126 +1,130 @@
 # Harness model output
 
-Status: **Gate 1 normative for the clean-slate Harness**
+Status: **Gate 1 normative boundary; exact Client shape deferred**
 
 ## Purpose and boundary
 
-The model-facing output surface has two operations:
+The runtime-facing output model has two capabilities:
 
 - start a conversation with its initial content; or
-- reply through the authority bound to a received turn.
+- reply through authority bound to a live received turn.
 
-There is no generic established-conversation send. This chapter distinguishes
-the portable `HarnessClient` projection from the retained clean-slate direct
-MCP tools.
+There is no generic established-conversation send, action-authority token,
+Router client, or conversation identifier that can substitute for a bound
+reply.
 
 ## Conversation start
 
-`HarnessClient.startConversation` accepts a nonempty set of other agents by
-canonical AgentName and nonempty initial content. The local agent is implicit.
-It does not ask a runtime adapter for an OperationId.
+Conversation start names one or more other agents and supplies nonempty initial
+content. The local agent is implicit. Identity resolution and duplicate/self
+rejection finish before protocol traffic or local history staging.
 
-The clean-slate direct MCP tool retains its accepted contract:
+START produces one unanimous action-certified genesis record whose body
+contains the fixed membership and initial content. Durability then follows
+`conversation-history.md`. There is no empty conversation, second initial
+send, central append, product receipt, or `LedgerOffset`.
 
-- it accepts the stable OperationId, other-agent names, and initial content;
-- it adds the local agent, resolves and canonicalizes AgentIds, and rejects
-  unknown, duplicate, or explicit-self entries;
-- ConversationId and genesis TxnId retain their accepted domain-separated
-  derivation;
-- START commits conversation genesis and initial content as one certified
-  action; and
-- identical retry, changed-input conflict, durable result, and restart
-  reconciliation retain the semantics in the partially superseded model
-  surface ADR and `tasks.md`.
+The final public start-operation identity and interruption/recovery contract
+are deliberately unresolved. The final Client must choose either:
 
-The clean-slate client creates and retains the OperationId needed by that raw
-contract. The production client maps the same portable call to the
-production-owned start operation. This chapter does not introduce a new shared
-OperationId representation or a new production recovery protocol.
+- an explicit stable operation identity supplied or durably retained by the
+  caller; or
+- a named durable Client-owned intent and recovery operation that makes
+  interruption unambiguous.
+
+It must not generate an inaccessible identity and return an ambiguous failure.
+Existing compatible backing-specific identities remain in place until the
+choice is admitted; they are not automatically the final public contract.
 
 ## Established-conversation reply
 
-There is no public `HarnessClient.reply` method. A received turn exposes only:
+There is no unbound public `HarnessClient.reply` method. A live turn provides a
+bound reply capability that accepts content only. The closure captures the
+private grant, transaction/action selection, expiry, and retry authority
+required by its backing.
 
-```ts
-reply(payload)
-```
+The runtime supplies no TxnId, action ID, ReplyFingerprint, ConversationId,
+Router identity, or generation selector. Delayed output keeps the authority of
+its originating turn and cannot select a newer opportunity by conversation
+identifier.
 
-The closure captures the exact reply authority from that turn's
-backing-specific notification. Runtime adapters provide no reply token,
-LeaseId, TxnId, action identifier, ConversationId, or generation selector.
+The exact raw MCP reply representation remains Client-owned. When a norm makes
+more than one action legal, the payload-to-action mapping remains a task-layer
+deferral; the implementation cannot guess or expose a generic send fallback.
 
-The clean-slate direct MCP tool remains exactly:
+Reading or catching up history can observe a completed reply record but cannot
+reconstruct an uncommitted reply closure. Cross-process reply resumption needs
+a separately admitted durable public handle and named recovery operation.
 
-```text
-reply(TxnId, actionId, payload)
-```
+## Completion and result semantics
 
-Its ReplyFingerprint remains the canonical closed
-`(TxnId, actionId, payload)` input. A runtime-visible TxnId must resolve
-unambiguously within the daemon; collision is refused rather than guessed.
-The grant, legal-action revalidation, deterministic policy, certificate,
-Ledger append, completed receipt, identical-retry recovery, changed-input
-conflict, and one-committed-action guarantee remain unchanged.
+Start or reply succeeds only when the returning endpoint has durably stored the
+complete certified record required by
+[`../conversation-history.md`](../conversation-history.md). Router acceptance,
+an action certificate without durability evidence, a partial vote set, or a
+remote member's success is not local operation success.
 
-A successful raw call still returns only after durable Ledger commitment with
-ConversationId, TxnId, LedgerOffset, and RecordHash. The retained clean-slate
-tool errors remain:
+The final public result remains deliberately unresolved between:
 
-- `txn_expired`;
-- `txn_consumed`;
-- `action_not_legal`;
-- `idempotency_conflict`; and
-- `refused`.
+- the complete certified record; or
+- a compact receipt paired with a specifically named public operation that
+  retrieves and verifies the complete proof.
 
-The portable closure hides those raw fields and results. It does not add a
-second client-side join, retry, conflict, timeout, ambiguity, or receipt state
-machine. The production implementation privately uses its existing dispatch
-lease and production-owned completion behavior.
+No implementation may return only a central offset, silently hide proof with
+no retrieval path, or infer that the current transitional result is final.
+Whichever result is selected must preserve `ConversationId`, stable
+`RecordHash` correlation, complete offline verification, and the same local
+success meaning.
 
-The transcript did not decide how `reply(payload)` maps to one action when a
-clean-slate grant advertises several legal actions. Until the OpenFloor/task
-owner defines that mapping, the portable clean-slate projection for that case
-is not implementation-ready. The client must not infer an action from payload,
-silently choose one, or expose actionId to the runtime.
+After an action-certified record exists, identical durability retry and proof
+recovery use `RecordHash`; changed record bytes cannot reuse its votes. The
+earlier public attempt identity remains the separate deferral above.
 
 ## Generic send removal
 
-No current surface contains a generic send for an established conversation:
+No final surface contains generic send:
 
 - no MCP tool;
 - no `HarnessClient` method;
-- no bespoke CLI command;
-- no compatibility alias; and
-- no ungranted fallback from a failed or delayed bound reply.
+- no adapter escape hatch;
+- no simulator-to-runtime authority path;
+- no bespoke CLI command; and
+- no compatibility alias or fallback from an expired bound reply.
 
-Initial content is supplied only through conversation start. Production-line
-server, protocol, client, and first-party caller removal remains work on
-`main`; the clean-slate surface already has no generic send.
+Initial content exists only in START. Established output exists only through a
+live bound reply and its legal task/norm action.
+
+## Failure boundary
+
+The final closed Client error unions remain part of the exact interface gate.
+They must distinguish at least definite non-commit/refusal, invalid or expired
+reply authority, identity or membership failure, local persistence failure,
+quorum unavailability, Router restart/re-anchor requirement, incompatible
+representation, and an ambiguous/retryable result where the selected operation
+identity protocol permits one.
+
+Unknown `Error`, raw decoder failures, credentials, private reply tokens,
+partial signer maps, and network implementation causes are never stable public
+errors.
 
 ## Acceptance criteria
 
-- A runtime starts a conversation using only other-agent names and initial
-  content; clean-slate raw OperationId recovery remains unchanged beneath it.
-- A runtime replies using only the payload closure attached to its turn when
-  the backing authority identifies one action unambiguously or an owning
-  payload-to-action mapping has been admitted.
-- Delayed outputs keep their originating backing authority and cannot select a
-  newer turn by ConversationId.
-- Direct clean-slate start/reply retry, result, receipt, error, and Ledger
-  conformance tests remain unchanged.
-- Raw reply continues to accept `(TxnId, actionId, payload)` and no added
-  ConversationId.
-- Generic send is absent from the clean-slate surface. Its complete
-  production-line removal is the separately tracked `main`-owned target.
+- START atomically includes initial content and fixed membership.
+- A successful operation has one complete certified record durably stored at
+  the returning endpoint and no `LedgerOffset`.
+- A runtime can reply only through the closure on its live turn.
+- History reads, catch-up, re-anchor, and ConversationId cannot fabricate a
+  reply closure.
+- Generic send is absent from tools, public Client types, adapters, and runtime
+  simulator inputs.
+- No final public API or compatibility shim is implemented before operation
+  identity/recovery and result shape are admitted.
+- Plural-action grants remain blocked until the task/norm layer supplies a
+  deterministic payload-only mapping.
 
-## Explicitly deferred
+## Deliberate deferrals
 
-A shared raw reply wire, a portable reply receipt, new portable error mapping,
-the clean-slate payload-to-action mapping when several actions are legal, and
-any client-side retry state beyond the retained backing contracts.
-
-## Decisions
-
-- `../../decisions/20260801-model-output-is-start-or-bound-reply.md`
-- `../../decisions/20260728-model-surface-is-start-reply-listen.md`
-- `../../decisions/20260728-open-floor-v1.md`
+Exact public start-operation identity and recovery, complete-record versus
+receipt result, cross-process reply resumption, exact closed Client errors,
+plural-action payload mapping, and any client-side operation state beyond the
+selected final contract.

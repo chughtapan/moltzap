@@ -1,9 +1,11 @@
 # Harness vocabulary and implementation slate
 
-Status: **implementation handoff; non-normative**
+Status: **historical implementation handoff; non-normative and superseded**
 
-Normative authority lives in the current ADRs and `docs/spec/`. This slate
-orders that work. It does not invent contracts absent from those sources.
+This slate preserves the pre-cutover Harness implementation archaeology. Its
+Ledger, profile, split-path, and retained-recovery directions are not current.
+Normative authority lives in the current ADRs and `docs/spec/`; current work is
+ordered by [`first-implementation.md`](./first-implementation.md).
 
 ## Outcome
 

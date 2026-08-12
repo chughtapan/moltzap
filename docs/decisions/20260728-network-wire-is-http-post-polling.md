@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
-superseded-by: 20260729-router-order-is-opaque.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Gate 1 uses closed HTTP POST operations and bounded Router polling
@@ -11,14 +11,13 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1
 
 ## Supersession
 
-The following scope remains current: independent closed
-per-operation HTTP routes; no network JSON-RPC multiplexer or
-WebSocket; endpoint-wide bounded Router long polling with a maximum
-25-second hold; opaque client-held continuation; explicit send modes
-and expected-instance fencing; retained identical retry recovery;
-`feed_gap`, `router_restarted`, and `retry_identity_unknown` behavior;
-and the separation of the daemon's loopback MCP surface from both
-network planes.
+The Registry and Router retain independent closed per-operation HTTP routes;
+there is no network JSON-RPC multiplexer or WebSocket. Endpoint-wide bounded
+Router long polling, opaque client-held continuation, explicit send modes and
+expected-instance fencing, retained-identical retry recovery, and the
+`feed_gap`, `router_restarted`, and `retry_identity_unknown` results remain
+current. The daemon's loopback MCP surface remains separate from both network
+planes.
 
 `20260729-identity-uses-jcs-jose-authenticated-http.md` replaces
 deterministic CBOR request encoding and the old request-authentication
@@ -33,6 +32,14 @@ application TLS requirement. Router now polls at
 global order is never a public position. Current L2 guarantees live in
 `docs/spec/router.md`; exact request, result, and cursor
 representations live in `docs/spec/router-representation.md`.
+
+`20260811-four-layer-endpoint-replicated-harness.md` removes all Ledger routes,
+versions, receipts, and reconciliation operations from the network wire and
+replaces permanent Router-restart fencing above L2 with endpoint-owned
+certified re-anchoring. It does not change the retained Registry and Router
+HTTP contracts. Current network operations live in `docs/spec/identity.md` and
+`docs/spec/router.md`; endpoint history and restart recovery live in the
+replacement record and `docs/spec/conversation-history.md`.
 
 ## Context and Problem Statement
 
@@ -106,3 +113,11 @@ results including send mode and current instance, per-operation retry
 equality preimages, and MCP JSON Schemas, with vectors from two
 independent implementations. Only manifest/project scaffolding may
 precede it; implementers do not choose missing constants.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

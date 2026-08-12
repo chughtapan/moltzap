@@ -1,12 +1,31 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-29
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # V2 authority lives with V2
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#v2-authority-lives-with-v2).
+
+## Supersession
+
+Repository-native authority, the stated authority order, atomic landing of an
+ADR with its traceability and normative specifications, and the rule that chat,
+issues, private state, or another branch alone cannot make a binding decision
+remain current. Retained v2 authority and history do not require a duplicate
+main-branch copy.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces perpetual
+main-to-v2 forward merges, authority tied to code under `v2/*`, and continued
+pre-cutover branch isolation. It admits one final main merge, freezes routine
+forward merges, moves implementation to the seven final `packages/*` owners,
+and makes the cutover branch the consolidation path. Exact npm publication and
+version-transition policy remains deliberately deferred, so the replacement
+does not silently change the existing publication owner. The replacement
+record, `AGENTS.md`, `v2/VISION.md`, and `docs/spec/README.md` own the current
+cutover authority.
 
 ## Context and Problem Statement
 

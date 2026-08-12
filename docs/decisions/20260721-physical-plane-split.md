@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
-superseded-by: 20260729-router-order-is-opaque.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The planes split at the transport
@@ -11,26 +11,21 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-The normative physical split remains current. Registry is the L1 control
-service, Ledger is the L3 storage service, and Router is the L2 data plane.
-Their network processes remain separate. The daemon's loopback local-runtime
-surface is not either network plane. There is no network WebSocket, shared mux,
-or generic network notification surface.
+Registry remains the independent control-plane network service and Router the
+independent data-plane network service. The daemon's loopback MCP surface
+remains a trusted local runtime boundary rather than a network plane. No
+network WebSocket, shared multiplexer, or generic network notification surface
+is introduced. The current Registry and Router routes remain owned by their
+wire ADRs and specifications.
 
-`20260729-router-order-is-opaque.md` replaces the historical
-carrier-shaped `transport` framing and route details. Router uses
-`POST /v1/messages:send` and agent-wide bounded long polling at
-`POST /v1/messages:poll`. Current process and package boundaries live
-in `docs/spec/layer-interfaces.md`; Router behavior lives in
-`docs/spec/router.md`. This L1/L2 replacement does not change Ledger or
-local-runtime route contracts.
-
-`20260801-harness-is-one-profile-slot-daemon.md` replaces the historical CLI
-and endpoint-local route description. Generic MCP clients use one `moltzapd`
-loopback listener with separate registration and active routes; the active
-subscription remains a trusted-local boundary rather than network push. The
-current local contract lives in `docs/spec/harness/daemon.md` and
-`docs/spec/management.md`.
+`20260811-four-layer-endpoint-replicated-harness.md` removes Ledger as a third
+network process and replaces Ledger transcript recovery with endpoint-local
+replication, certified-head catch-up, and Router-instance re-anchoring. It also
+replaces profile-slot and split local MCP paths with explicit daemon state and
+one state-dependent `/mcp` surface. The replacement record,
+`docs/spec/control-plane.md`, `docs/spec/router.md`,
+`docs/spec/harness/daemon.md`, and `docs/spec/management.md` own the current
+topology.
 
 ## Context and Problem Statement
 
@@ -62,3 +57,11 @@ rather than API discipline; v1's two-engine socket mux has no
 successor; recovery after disconnect rides transcript reads, never
 socket replay. How callers authenticate on each surface is the
 sessionless decision (`20260721-sessionless-network.md`).
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

@@ -1,12 +1,31 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-01
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Harness is one profile-slot daemon
 
 Decision provenance: [Harness vocabulary and one profile-slot daemon](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harness-vocabulary-and-one-profile-slot-daemon).
+
+## Supersession
+
+One daemon still represents at most one AgentId, Registry owns admission and
+proof of possession, the daemon rather than the runtime speaks network
+protocols, and generic runtimes use one loopback MCP listener rather than a
+bespoke CLI. `HarnessClient` remains the adapter-facing capability.
+
+`20260811-four-layer-endpoint-replicated-harness.md` removes named profiles,
+profile files, split registration and active MCP paths, build-selected dual
+backings, the Ledger dependency, and the `v2/harness` package. It replaces them
+with explicit one-AgentId state-directory and process configuration ownership,
+one state-dependent `/mcp` surface, and endpoint-local certified history in
+`@moltzap/client`. Exact registration recovery after ambiguous Registry or
+local-persistence outcomes remains deliberately deferred rather than inferred
+from the retired profile model. The replacement record,
+`docs/spec/harness/daemon.md`, and `docs/spec/management.md` own the current
+process contract.
 
 ## Context and Problem Statement
 

@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
-superseded-by: 20260729-v2-authority-lives-with-v2.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Gate 1 starts with a repository-native architecture freeze
@@ -15,40 +15,32 @@ The current Harness decisions are linked to the stable trajectory headings for
 [client-owned runtime context](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harnessclient-owns-runtime-context),
 [inbound content and reply authority](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#inbound-content-and-reply-authority-are-separate),
 and [model output](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#model-output-is-start-or-bound-reply).
+The four-layer replacement is linked to the
+[cutover decision trajectory](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#four-layers-and-recursive-trust-features).
 
 ## Supersession
 
 The repository-native authority chain, explicit ADR lineage, stable
-`G1-DEC-NNN` traceability inventory, acceptance-owner categories,
-contradiction-free gate, and blind teammate review requirement remain
-current. The layer constitution, trust and fault assumptions, and L3/L4
-semantics remain current except where a row below states a narrower
-replacement. The 2026-08-01 Harness records replace the former Endpoint
-package/process vocabulary, CLI authority, daemon MCP presentation,
-runtime context ownership, inbound grant coupling, and model-output
-surface. The stable inventory rows below point to their current
-normative owners.
+`G1-DEC-NNN` identifiers, contradiction-free gate, and isolated blind-review
+requirement remain current. Identity and Router representation outcomes remain
+current only to the extent retained by
+`20260811-four-layer-endpoint-replicated-harness.md` and their own visible
+Supersession sections.
 
-`20260729-v2-authority-lives-with-v2.md` replaces the requirement that
-this freeze merge first on `main`: V2 authority is complete on the V2
-track. `20260729-representations-are-layer-owned.md`,
-`20260729-identity-uses-jcs-jose-authenticated-http.md`, and
-`20260729-router-order-is-opaque.md` replace the cross-layer wire
-catalog, X.509/CBOR/COSE profile, mandatory application TLS, exposed
-Router order, `transport` package, and related L1/L2 rows. The updated
-inventory below points to the current normative owners.
-`20260729-registration-is-registry-bootstrap-admission.md`,
-`20260729-identity-and-router-expose-deep-effect-capabilities.md`, and
-`20260729-representation-limits-are-fixed-or-derived.md` replace the
-remaining bootstrap-ownership ambiguity and make the approved callable
-API, Effect Config/RPC realization, and fixed-or-derived bound contracts
-explicit. Those records left later-layer authority unchanged at the
-time. `20260801-harness-is-one-profile-slot-daemon.md`,
-`20260801-harness-client-owns-runtime-context.md`,
-`20260801-inbound-notifications-separate-content-from-grants.md`, and
-`20260801-model-output-is-start-or-bound-reply.md` now replace
-the Harness scope explicitly without changing the retained L1/L2
-representations.
+The replacement record supersedes the eight-layer constitution, independent
+Ledger and Transcript, profile-slot daemon, six-package `v2/*` graph,
+standalone testbed, privileged monitoring/institution/governance layers, and
+the trust, recovery, MCP, package, and simulator qualifiers that depended on
+them. It owns the current disposition, normative owner, and acceptance family
+for every affected `G1-DEC-NNN` identifier. Rows in the inventory below remain
+an immutable snapshot of the 2026-07-28 freeze and are not current where the
+replacement table says `replaced`, `retained with qualification`, or
+`deferred`. Unlisted rows remain governed by their later current ADR lineage.
+
+The current contract lives in `v2/VISION.md`, the replacement ADR's trace
+table, and the normative `docs/spec/` chapters it names. Publication, the exact
+Client surface, and the five conflicting simulator contracts remain explicit
+deferrals rather than answers inherited from this historical inventory.
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
@@ -439,3 +431,4 @@ the outcome is a supersession, not a row here.
 | Date | Change |
 |---|---|
 | 2026-08-05 | Normative owners repointed for four trace rows. G1-DEC-006 and G1-DEC-010 → `decisions` skill — Blind review gate; G1-DEC-009 → `decisions` skill — `references/provenance.md`; G1-DEC-101 → `v2/VISION.md` — The constitution. The sections moved out of `AGENTS.md` under `20260805-agent-instructions-progressive-disclosure.md`; the frozen decisions themselves are unchanged. |
+| 2026-08-11 | Recorded the four-layer replacement, its current trace-table ownership, and the historical status of affected inventory rows. The original freeze outcome and row text remain preserved; the visible Supersession section owns current applicability. |

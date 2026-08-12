@@ -1,234 +1,209 @@
-# L4 — tasks, norms, and OpenFloorV1
+# Tasks, norms, and OpenFloorV1
 
 Status: **Gate 1 normative for OpenFloorV1**
 
 ## Purpose and boundary
 
-L3 supplies the Harness protocol engine for certified actions.
-L4 decides which action is legal and which member is eligible to
-contend. Router and Ledger never interpret an L4 decision.
+The communication layer supplies attributed opaque delivery, fixed
+conversation membership, certified history, durability, catch-up, and Router
+re-anchor. The task/norm layer decides which action is legal and which member
+may contend. Router never interprets that decision, and durability votes never
+substitute for it.
 
-Gate 1 ships one built-in, versioned group-chat norm:
-`OpenFloorV1`. It is intentionally degenerate and does not pre-empt the
-general collective-action vocabulary chartered by #765.
+Gate 1 ships one built-in versioned group-chat norm, `OpenFloorV1`. It does not
+pre-empt a future general collective-action vocabulary.
 
 ## Fixed conversation profile
 
-OpenFloorV1 operates on:
+OpenFloorV1 uses:
 
-- immutable MembershipEpoch 0;
+- one immutable fixed membership epoch;
 - actions `START` and `MULTICAST` only;
-- exact fixed-member unanimity;
-- protocol-fixed 90-second transaction TTL;
-- contention resolved by shared L2 order.
+- one action signature from every fixed member;
+- a protocol-fixed 90-second transaction TTL; and
+- contention resolved by shared volatile Router order.
 
-There is no ADD, LEAVE, ALL_GATHER, ALL_TO_ALL, addressed-turn rule,
-membership recovery, or configurable quorum in Gate 1.
+There is no ADD, LEAVE, addressed-turn rule, configurable action quorum, or
+membership transition in Gate 1. The non-unanimous threshold in
+`conversation-history.md` is storage durability only.
 
-## ContentPartV1
+## Content
 
-START and MULTICAST content is a nonempty array of a closed union. Each
-part is exactly one of:
+START and MULTICAST content is a nonempty array of a closed union. Each part is
+exactly one of:
 
-- `{ text: string }`;
+- `{ text: string }`; or
 - `{ data: JsonValue }`.
 
 Canonical JSON semantics apply to `JsonValue`. Raw bytes, URLs, files,
-filenames, media types, metadata, images, and audio are not Gate 1
-content.
+filenames, media types, metadata, images, and audio are outside this profile.
 
 ## START
 
 `start_conversation` supplies the complete fixed member set and initial
 content. START has no BEGIN/ACK round.
 
-Every named member's Harness performs deterministic structural and
-cryptographic validation and signs a valid proposal that includes its
-own AgentId. The complete set of START signatures is the consent
-evidence. There is no roster pin, invitation tool, contact allowlist,
-or preconsent record.
+Every named member performs deterministic structural and cryptographic
+validation and signs an acceptable proposal that includes its own AgentId. The
+complete member signer set is the action certificate and consent evidence.
 
-The author appends the unanimous START certificate. Its committed
-record is both conversation genesis and the first content action; no
-empty conversation or synthetic first reply is created.
+The resulting action-certified START record is conversation genesis and the
+first content action. There is no committed empty conversation followed by a
+separate send. Durability voting begins only after the unanimous action
+certificate and `RecordHash` exist.
 
-## MULTICAST eligibility
+## MULTICAST eligibility and contention
 
-After every committed START or MULTICAST, OpenFloorV1 marks every fixed
-member eligible. Each eligible member's Harness may ask the engine to
-emit BEGIN against the current committed base.
+After every certified START or MULTICAST, OpenFloorV1 marks every fixed member
+eligible. When no transaction is open:
 
-Eligibility is an L4 policy output. It is not hardcoded into Router,
-Ledger, MCP delivery, or the general L3 state machine.
-
-## Contention and grant
-
-When no transaction is open:
-
-1. any eligible member may emit BEGIN;
-2. the first valid BEGIN in the shared private L2 order after the
-   current committed Ledger head becomes the sole candidate;
+1. any eligible member may emit BEGIN against the current certified head;
+2. the first valid BEGIN in the shared private Router order becomes the sole
+   candidate;
 3. later contenders wait;
-4. every fixed member may ACK that exact candidate after local
-   validation;
-5. unanimous ACK evidence creates one volatile reply grant for the
-   candidate's author.
+4. every fixed member may ACK that exact candidate after local validation; and
+5. unanimous ACK evidence creates one volatile reply grant for the candidate's
+   author.
 
-The engine serializes this process per conversation. A grant reserves
-one response opportunity and produces one TxnId. Exactly one `reply`
-selection may consume it. An ACK authorizes that reply opportunity; it
-does not sign content that has not yet been produced and is not the
-final action certificate.
+The endpoint engine serializes this fold per conversation. A grant reserves
+one response opportunity and produces one private transaction identity. ACK
+authorizes that opportunity; it is not the final content signature and is not
+durability evidence.
 
-## Legal actions
+## Legal actions and bound reply
 
-At grant time, L4 returns the currently legal actions as descriptors:
+At grant time the task/norm layer returns the currently legal action
+descriptors: stable action ID, description, and closed payload schema. The raw
+endpoint protocol validates a selected descriptor again before compiling
+MULTICAST.
 
-- stable action ID;
-- human-facing description;
-- closed JSON Schema for the payload.
-
-Gate 1 exposes these descriptors in the backing-specific grant notification
-and uses one generic `reply(txnId, actionId, payload)` tool. SharedCore
-validates the selection again before compiling MULTICAST protocol messages.
-
-The raw clean-slate tool remains available to generic MCP clients with its
-accepted schema. `HarnessClient` keeps TxnId and action selection private and
-exposes only `reply(payload)` to the runtime. The source exchange did not
-choose the payload-to-action mapping when more than one descriptor is legal,
-so that portable projection waits for an OpenFloor/task decision rather than
-guessing or exposing actionId.
-
-Per-action MCP tools and marketplace-distributed MCP norm bundles remain
-future hypotheses. They are not Gate 1 conformance surfaces.
+The runtime-facing capability exposes a live bound reply rather than generic
+send. How payload-only `reply(content)` maps to a raw action when more than one
+descriptor is legal remains deliberately unresolved. Client must not guess an
+action, infer it from content, or expose private action-selection machinery to
+work around that gap.
 
 ## Action proposal and certification
 
-After `reply`, the author compiles the selected action and sends the
-exact proposed `MULTICAST` binding through L2. The proposal binds the
-winning TxnId, committed base, Router instance, author, selected action,
-deterministic content, and `ReplyFingerprint`, the digest of the
-canonical closed `(TxnId, actionId, payload)` input.
+After reply selection, the author sends the exact proposed MULTICAST binding
+through Router. It binds:
 
-Every fixed member independently rechecks the proposal against its live
-winning candidate, the advertised legal action, and its local Harness policy.
-A member also recomputes the ReplyFingerprint from the selected Gate 1
-action and payload. A member that accepts signs the complete action
-binding. The author may append only after collecting exactly one final
-action signature from every fixed member.
+- the conversation and immutable membership epoch;
+- the current `previousRecordHash`;
+- the applicable Router-epoch-anchor hash;
+- the private transaction and action identity required by the closed norm
+  representation;
+- author and deterministic content; and
+- the canonical reply-input fingerprint required by OpenFloorV1.
 
-ACK evidence and final action signatures are distinct protocol
-evidence. Ledger mechanically verifies the final signer set and action
-binding, but never reconstructs or evaluates the preceding BEGIN/ACK
-grant.
+Every fixed member independently rechecks the proposal against its winning
+candidate, advertised legal action, certified base, Router epoch, and local
+personal-trust decision. A member that accepts signs the complete action
+binding. Exactly one valid action signature from every fixed member forms the
+action certificate.
 
-## Commit notification
+The action certificate is part of the canonical action-certified record and
+therefore part of the `RecordHash` preimage. ACK evidence is not. Durability
+votes sign the resulting `RecordHash` afterward and are not part of that
+preimage.
 
-After Ledger acknowledges the append, a live author schedules one
-best-effort commit-notice attempt as an ordinary L2 message. Failure
-does not change the durable action result; the author may retry while
-it remains live. A notice is only a wake-up hint; every recipient reads
-the canonical Ledger record before attention. Duplicate notices are
-harmless, and a lost notice is recovered by periodic Ledger
-reconciliation.
+## Durability completion
 
-There is no transactional outbox. Author failure after append may lose
-all notices without changing the committed action.
+Durability follows [`../conversation-history.md`](../conversation-history.md):
+
+- an honest member durably stages before voting;
+- all members vote for `n < 4`, otherwise `n - f` vote where
+  `f = floor((n - 1) / 3)`;
+- any member may assemble and disseminate completed evidence; and
+- local success requires the complete certified record durably stored at the
+  returning endpoint.
+
+The action author has no exclusive completion role. Once the action
+certificate exists, author failure does not prevent another available member
+from completing durability when the required votes are obtainable.
+
+Certificate completion, duplicate vote delivery, catch-up, and signer-map
+enrichment create no additional action and no runtime attention.
 
 ## TTL and no-reply behavior
 
 Every open transaction expires 90 seconds after each member's local
-observation. The value is part of the protocol version and is not
-profile-configurable.
+observation. The value is part of the OpenFloorV1 version and is not daemon-
+configuration data.
 
 Expiry:
 
-- abandons only the volatile fold;
-- creates no Transcript record;
-- permits a fresh BEGIN against the same committed head;
+- abandons only volatile contention and grant state;
+- creates no action-certified or certified record;
+- permits fresh contention against the same certified head; and
 - rejects a late reply.
 
-There is no explicit pass, abort, renewal, adapter completion signal,
-or dispute operation. A delivered runtime turn that produces no reply
-releases solely through TTL.
-
-Clock and delivery skew can reduce the effective signing window but
-cannot violate safety.
+There is no explicit pass, abort, renewal, adapter completion signal, or
+dispute operation. A runtime turn that produces no reply releases solely
+through TTL. Clock and delivery skew can reduce the effective signing window
+but cannot weaken verification.
 
 ## Validity responsibility
 
-Before signing START, ACKing BEGIN, signing a proposed action, or
-surfacing attention, a member's Harness performs the checks applicable to that
-stage:
+Before signing START, ACKing BEGIN, signing a proposed action, casting a
+durability vote, or producing attention, an endpoint performs the checks
+applicable to that stage:
 
-- closed structure and cryptographic attribution;
-- exact conversation, epoch, Router instance, base offset, and hash;
+- closed structure, version, cryptographic attribution, and membership;
+- current certified predecessor and Router-epoch binding;
 - OpenFloorV1 eligibility and candidate precedence;
-- deterministic Harness policy currently in scope.
+- legal action, live grant, and reply-input binding;
+- deterministic lower-layer and local personal-trust checks; and
+- for a durability vote, the staging law in `conversation-history.md`.
 
-If one honest required member rejects a proposed action under those
-checks, the final certificate cannot form. Ledger verifies only the
-resulting certificate mechanics. If every required member signs an
-illegal proposal, semantic validity is outside the guarantee.
+If one honest required member rejects a proposed action, the unanimous action
+certificate cannot form. If every required member signs an illegal proposal,
+semantic validity is outside the guarantee. Durability verification never
+repairs that failure.
 
 ## Conditional liveness
 
-OpenFloorV1 makes no fairness or starvation-freedom claim.
+OpenFloorV1 makes no fairness or starvation-freedom claim. New action progress
+requires:
 
-Progress requires:
-
-- every fixed member's card already pinned or resolvable through the
-  correct Registry;
+- the fixed members' verification material pinned or resolvable;
 - one correct non-equivocating Router;
-- one available correct Ledger;
-- every fixed member available, receiving required messages, and
-  signing within the effective TTL;
-- the author remaining available through append acknowledgment.
+- every fixed member available for unanimous action certification within the
+  effective TTL; and
+- after action certification, the durability threshold available.
 
-Any unavailable or withholding member can halt progress. Author failure
-after collecting signatures can leave an action uncommitted because
-Gate 1 has no append takeover.
+Because action validity is unanimous, a withholding member can halt a new
+OpenFloorV1 action even though durability completion for `n >= 4` uses `n - f`.
+The durability threshold improves completion after certification; it does not
+change action liveness.
 
-Every future L4 protocol must state its membership/fault model, quorum
-rule, required correct/available participants, delivery/timing
-assumption, and abort/retry condition separately from safety.
+Router or endpoint outage can halt progress without changing already certified
+history. After Router restart, no new action begins until the fixed members
+complete the re-anchor protocol in `conversation-history.md`.
 
 ## Acceptance criteria
 
-- START commits initial content only after every named member signs and
-  never emits BEGIN/ACK.
-- Simultaneous BEGINs deterministically select the earliest valid
-  Router position.
-- A missing or extra ACK cannot form a reply grant.
-- A missing, extra, or content-mismatched final action signature cannot
-  form an accepted certificate.
-- One honest member's policy refusal prevents commit without requiring
-  Ledger to understand the policy.
+- START signs and certifies initial content as one genesis record without
+  BEGIN/ACK.
+- Simultaneous BEGINs select the earliest valid Router position for all honest
+  members.
+- Missing, extra, invalid, or content-mismatched action signatures cannot form
+  an action certificate.
+- Durability votes cannot authorize an action, and action signatures cannot
+  satisfy the durability threshold.
+- One honest member's action refusal prevents action certification without
+  requiring Router or a storage service to understand policy.
+- After certification, a non-author member can assemble and disseminate the
+  complete durability evidence.
 - TTL expiry creates no record and allows fresh contention.
-- Late, duplicate, and second-use replies are rejected.
-- Withholding and author-crash tests demonstrate the documented loss of
-  liveness without weakening committed-state safety.
-- The registered catalog's model-output subset remains exactly
-  `start_conversation` and `reply`, with no send or action-specific tool,
-  regardless of legal-action descriptors.
+- Late, duplicate, and second-use replies are rejected without generic send.
+- Withholding tests distinguish unanimous action-liveness failure from
+  post-certification durability-threshold behavior.
 
-## Explicitly deferred
+## Deliberate deferrals
 
-Dynamic membership and membership/key-epoch transitions,
-non-unanimous quorums, addressed turns, fairness, append takeover,
-exact-attempt recovery, append-only dispute protocols and remedies,
-pass/abort/renewal, witness or monitor history authorization, FROST
-compression, per-action tools, externally distributed norm bundles, a
-deterministic executable `NormPin` contract, and the #765 action
-vocabulary.
-
-## Decisions
-
-- `../../decisions/20260801-inbound-notifications-separate-content-from-grants.md`
-- `../../decisions/20260801-model-output-is-start-or-bound-reply.md`
-- `../../decisions/20260728-open-floor-v1.md`
-- `../../decisions/20260723-lifecycle-rides-l3.md`
-
-## Historical inputs
-
-- `../../decisions/20260724-norms-are-mcp-skill-bundles.md`
+Dynamic membership, non-unanimous action certificates, addressed turns,
+fairness, exact public attempt recovery, pass/abort/renewal, disputes and
+remedies, witness/observer authorization, signature compression, per-action
+runtime tools, distributed norm bundles, a portable executable norm-pin
+contract, and payload-only reply selection when several actions are legal.

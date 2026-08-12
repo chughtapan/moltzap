@@ -1,4 +1,4 @@
-# L2: opaque globally ordered multicast
+# Router: opaque globally ordered multicast
 
 Status: **Gate 1 normative**
 
@@ -7,15 +7,15 @@ Exact representation:
 
 ## Purpose and boundary
 
-L2 accepts one attributed SignedMessage, places it in one global Router
+Router accepts one attributed SignedMessage, places it in one global Router
 order, and makes the identical SignedMessage visible to every explicit
 recipient in that order. The order is a private Router mechanism.
 
-L2 is an unprogrammable, content-blind data plane. It does not own
+Router is an unprogrammable, content-blind data plane. It does not own
 ConversationId, membership, action validity, persistence, durable
 replay, offline convergence, retransmission, recovery, or
-task-specific quorum policy. Harness subsystems own those responsibilities
-using Ledger and opaque protocol messages.
+task-specific quorum policy. Endpoints own those responsibilities using
+endpoint-local certified history and opaque protocol messages.
 
 The Gate 1 Router uses independently authenticated HTTP POST send and
 bounded POST polling. It has no WebSocket, network SSE, reverse
@@ -33,11 +33,11 @@ Router outage may halt progress. Router restart discards volatile state
 and changes RouterInstanceId and the cursor-encryption key. Restart is a
 safety boundary, not transparent recovery.
 
-Endpoints may be Byzantine. L2 prevents one accepted send from becoming
+Endpoints may be Byzantine. Router prevents one accepted send from becoming
 different bytes or a different relative position for different
 recipients. It does not judge the opaque body.
 
-The L2 ordering guarantee assumes a Harness receives the correct
+The Router ordering guarantee assumes an endpoint receives the correct
 Router response without network-path modification. Router responses
 are unsigned, so Gate 1 does not defend against a path attacker that
 reorders a batch or substitutes response fields. A deployment whose
@@ -46,7 +46,7 @@ Router application.
 
 ## Public package boundary
 
-`@moltzap/v2-router` root-exports exactly:
+`@moltzap/router` root-exports exactly:
 
 - the same-named Effect Schema values and TypeScript types
   `RouterInstanceId`, `SignedMessageDigest`, `PollCursor`,
@@ -56,10 +56,10 @@ Router application.
 - `RouterConnectionError`, `RouterRequestTimeoutError`, and
   `RouterInvalidResponseError`.
 
-`@moltzap/v2-router/server` exports only `RouterServer`, including its
+`@moltzap/router/server` exports only `RouterServer`, including its
 nested `StartupError`. Router consumes identity values, signed
 artifacts, signing authority, and shared HTTP errors from
-`@moltzap/v2-identity`; it does not redeclare or re-export aliases for
+`@moltzap/identity`; it does not redeclare or re-export aliases for
 them.
 
 There is no public Router order, delivery wrapper, client class,
@@ -89,7 +89,7 @@ The mapping is exclusive:
 
 Router poll results contain parsed and bounded, but untrusted,
 SignedMessage values. They therefore do not add
-`SignedMessageVerificationError` to `Router.poll`; Harness
+`SignedMessageVerificationError` to `Router.poll`; the endpoint
 verifies every returned message before accepting the PollCursor.
 
 ## Operations
@@ -195,7 +195,7 @@ middleware tag. Health remains a direct route outside RPC.
 
 A send contains:
 
-- the RouterInstanceId most recently learned by Harness;
+- the RouterInstanceId most recently learned by the endpoint;
 - mode `initial` or `retry`; and
 - one complete encoded SignedMessage.
 
@@ -241,10 +241,11 @@ entry conflicts, including one with identical bytes.
 - changed SignedMessage bytes return `idempotency_conflict`; and
 - an absent or evicted identity returns `retry_identity_unknown`.
 
-After `retry_identity_unknown`, a live L3 attempt may wrap the same
-signed L3 evidence in a fresh SignedMessage with a fresh MessageId and
+After `retry_identity_unknown`, a live communication attempt may wrap the same
+signed action or durability evidence in a fresh SignedMessage with a fresh
+MessageId and
 send it as `initial`. This does not mint a new grant, protocol
-signature, or action. Harness deduplicates the inner L3 evidence.
+signature, or action. The endpoint deduplicates the inner evidence.
 
 The accepted SignedMessageDigest is an immediate equality receipt for
 the retained live entry. It proves no position, delivery, durability,
@@ -330,11 +331,11 @@ deployment-configurable in Gate 1.
 
 A successful `batch` contains the current RouterInstanceId, ordered
 SignedMessages, and the next PollCursor. Retrying the same PollCursor
-may return an already observed complete batch. Harness advances its
+may return an already observed complete batch. The endpoint advances its
 volatile cursor only after accepting the entire result.
 
 The Router client parses and bounds returned SignedMessages but does
-not mark them verified. Harness verifies every returned
+not mark them verified. The endpoint verifies every returned
 SignedMessage before accepting the batch or its PollCursor.
 
 Router never treats an HTTP write, disconnect, timeout, or cancellation
@@ -342,12 +343,13 @@ as cursor advancement.
 
 ### Omitted cursor
 
-An omitted PollCursor atomically snapshots the current tail and returns
-an immediate empty batch anchored at that tail. A newly started Harness
-uses this only after reconciling durable Ledger state.
+An omitted PollCursor atomically snapshots the current tail and returns an
+immediate empty batch anchored at that tail. A newly started endpoint uses
+this only after reconciling its local certified heads and any required
+fixed-member catch-up.
 
-The empty batch reveals the current RouterInstanceId and gives Harness
-the instance it binds into new L3 evidence and subsequent
+The empty batch reveals the current RouterInstanceId and gives the endpoint
+the instance it binds into new communication evidence and subsequent
 sends. It does not replay retained volatile history.
 
 ### Continuation
@@ -385,25 +387,28 @@ keeps no per-recipient retention index.
 
 ## Feed gap and restart recovery
 
-After `feed_gap`, Harness:
+After `feed_gap`, an endpoint:
 
-1. abandons volatile protocol folds;
-2. reconciles every known conversation from Ledger;
-3. opens fresh eligible protocol work from committed heads; and
-4. anchors with an omitted PollCursor.
+1. abandons incomplete volatile protocol folds;
+2. verifies its local certified heads and automatically catches up missing
+   ancestry from authenticated fixed-member peers;
+3. resumes eligible protocol work only from a verified certified head; and
+4. anchors polling with an omitted PollCursor.
 
-L2 performs none of those L3 steps.
+Router performs none of those endpoint steps.
 
-Router restart invalidates every old PollCursor. Harness learns the new
-instance from an omitted-cursor batch or a send
-`router_restarted` result. They fence conversations whose epoch
-descriptor names the old instance from new actions. New STARTs may use
-the new instance.
+Router restart invalidates every old PollCursor. An endpoint learns the new
+instance from an omitted-cursor batch or a `router_restarted` send result.
+Router continues to reject old-instance sends, but existing conversations are
+not permanently fenced. Fixed members compare certified ancestry and complete
+the quorum re-anchor protocol in
+[`conversation-history.md`](./conversation-history.md) before creating new
+actions in the new Router instance. Missing ancestry or quorum blocks
+progress; endpoints never guess a head or lower the threshold.
 
-A fully certified old-instance action may still append exactly once
-because its safety decision completed before restart. Old conversations
-remain readable. This exception belongs to L3 Ledger admission, not
-Router.
+Already certified old-instance history remains readable and verifiable. A
+re-anchor extends its Router-epoch proof chain without rewriting history or
+making Router durable.
 
 ## Sessionlessness
 
@@ -412,9 +417,9 @@ MoltZap version metadata. A held long poll is only an HTTP optimization.
 Its closure does not revoke identity, expire protocol work, advance a
 cursor, or alter membership.
 
-Reconnect is not equivalent to never disconnecting. Volatile retention
-may produce `feed_gap`; restart produces a new instance and invalidates
-cursors. Durable recovery belongs to L3.
+Reconnect is not equivalent to never disconnecting. Volatile retention may
+produce `feed_gap`; restart produces a new instance and invalidates cursors.
+Durable recovery belongs to endpoint-owned communication history.
 
 The local daemon's request-scoped MCP SSE response is outside both
 network planes and is not a Router push channel.
@@ -557,11 +562,11 @@ RouterInstanceId and order.
 5. A successful batch reveals the current RouterInstanceId without
    cursor decoding or a send.
 6. Cursor advancement is entirely client-held.
-7. L2 provides no durable recovery guarantee.
-8. Router restart is observable and fences new actions in old-instance
-   conversations.
+7. Router provides no durable recovery guarantee.
+8. Router restart is observable and rejects old-instance sends; an existing
+   conversation resumes only after endpoint quorum re-anchor.
 9. Re-reading a retained batch is permitted and does not create a
-   second L3 fact.
+   second communication fact.
 
 ## Acceptance criteria
 
@@ -608,15 +613,16 @@ RouterInstanceId and order.
   calculators with actual Schema, JCS, and JWE encodings while using
   the identity-owned SignedMessage maximum without reproducing its
   General JWS formula.
-- Conversation recovery is implementable using Ledger without L2
-  durable replay.
+- Conversation recovery is implementable through endpoint-owned certified
+  history, fixed-member catch-up, and quorum re-anchor without Router durable
+  replay.
 
 ## Explicitly deferred
 
-Persistent feeds, offline convergence, Router replication, ordering
-consensus, fork detection, transparent restart, per-recipient retention
-indexes, negotiated resource limits, network push transports, and a
-required end-to-end encryption or key-distribution profile.
+Persistent feeds, Router replication, ordering consensus, Router-level fork
+detection, transparent Router restart, per-recipient retention indexes,
+negotiated resource limits, network push transports, and a required
+end-to-end encryption or key-distribution profile.
 
 ## Decisions
 

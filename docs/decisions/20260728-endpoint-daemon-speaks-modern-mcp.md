@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
-superseded-by: 20260801-harness-is-one-profile-slot-daemon.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The endpoint daemon exposes modern MCP over loopback HTTP
@@ -11,24 +11,23 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1
 
 ## Supersession
 
-The following portions remain current: the pinned MCP core and official SDK
-boundary; fixed loopback port and modern Streamable HTTP framing; exact
-discovery and `xyz.moltzap/events-v1` subscription mechanics; one active
-listener; acknowledgment ordering; transient at-most-once delivery; raw
-clean-slate START and `reply(TxnId, actionId, payload)` behavior; durable reply
-receipts and Ledger reconciliation; local trust; and harness-specific
-supervision.
+The pinned MCP core and official SDK boundary, modern Streamable HTTP framing,
+one loopback listener, discovery, local subscription ownership, local trust,
+acknowledgment ordering, transient notification delivery, and daemon-specific
+supervision remain current where they do not depend on profiles or Ledger.
+`HarnessClient` continues to own runtime context projection and checkpoints;
+content observations and live reply grants remain distinct.
 
-`20260801-harness-is-one-profile-slot-daemon.md` replaces the package/process
-vocabulary, adds the pre-registration profile-slot state and separate
-registration path, and replaces the CLI with MCP tools on the same listener.
-`20260801-harness-client-owns-runtime-context.md` and
-`20260801-inbound-notifications-separate-content-from-grants.md` replace only
-the daemon's ownership of runtime context presentation with
-conversation-labelled observations and client-owned checkpoints. The retained
-raw event, pre-write delivery watermarks, grant, reply, Ledger, recovery,
-framing, and listener contracts are not redesigned. Current normative
-contracts live under `docs/spec/harness/` and in `docs/spec/management.md`.
+`20260811-four-layer-endpoint-replicated-harness.md` retires profile and Ledger
+state, Ledger receipt reconciliation, split local paths, and the old package
+ownership. It replaces them with one state-dependent `/mcp` surface and
+endpoint-owned certified history. The exact event extension, attention,
+completion, reply-recovery, and post-process subscription semantics remain
+with the current interface ADRs or deliberately deferred follow-up work; the
+replacement does not invent them. The current framing and daemon contract
+lives in the replacement record, `docs/spec/harness/daemon.md`,
+`docs/spec/management.md`, `docs/spec/harness/ingress.md`, and
+`docs/spec/harness/client.md`.
 
 ## Context and Problem Statement
 
@@ -92,3 +91,11 @@ The daemon is HTTP MCP, not a stdio MCP server. Harnesses own
 supervision and translation into native model input. Local
 authorization, hostile-host defense, dynamic discovery, and a universal
 service manager are deferred.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

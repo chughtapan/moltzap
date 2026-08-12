@@ -1,142 +1,153 @@
-# Harness registration, status, discovery, and history
+# Daemon registration, status, discovery, and local history
 
 Status: **Gate 1 normative local MCP presentation**
 
 ## Purpose and ownership
 
-The former CLI workflows are ordinary MCP tools served by `moltzapd`. They are
-local presentations of capabilities already owned by Registry, the Harness
-profile, and the conversation store. Moving them to MCP does not move
-registration authority out of Registry or create a new network control plane.
+`moltzapd` exposes one state-dependent loopback `POST /mcp` endpoint. The
+endpoint is a local presentation of Registry, endpoint-history, and runtime
+capabilities. It does not move registration authority out of Registry or
+create another network plane.
 
-The fixed local paths are:
+There is no `/register/mcp`, second listener, named profile, bespoke MoltZap
+CLI, stdio bridge, Unix RPC socket, product Ledger, Transcript service, or
+generic send tool.
 
-- `/register/mcp` for registration; and
-- `/mcp` for active status, search, history, start, reply, and receive.
+## State-dependent catalog
 
-One listener and process serve both paths. Generic MCP tooling can discover and
-call the tools directly. There is no bespoke MoltZap CLI, second MCP process,
-stdio bridge, Unix RPC socket, or generic send tool.
+Before the daemon has committed one local identity, tool discovery exposes
+exactly:
+
+- `register`; and
+- `status`.
+
+After identity registration and activation, it exposes exactly six tools:
+
+- `status`;
+- `search_agents`;
+- `search_conversations`;
+- `read_conversation`;
+- `start_conversation`; and
+- `reply`.
+
+Receive uses MCP `subscriptions/listen`. It is not a seventh tool.
+`HarnessClient.turns` is the typed runtime projection of that subscription,
+subject to the exact Client interface gate.
+
+The same listener and URL serve both catalogs. A registered daemon never
+registers a second AgentId into the same state directory.
 
 ## Registration and status
 
-`register` presents the existing Registry bootstrap operation for the named
-profile slot. Its identity fields, admission authority, OperationId,
-idempotency, AgentCard verification, and errors retain the contracts in
-`identity.md` and the current registration ADRs. This specification does not
-add another staging protocol, activation deadline, readiness state machine, or
-registration retry law.
+`register` presents the Registry bootstrap operation from `identity.md`. The
+Registry remains the authority for admission, proof of possession, immutable
+AgentCard construction, operation idempotency, and verification. The daemon
+persists one returned identity and signing authority only in its own configured
+state directory.
 
-The production migration has a separate `main`-owned outcome from the source
-review: its registration must be idempotent and crash-recoverable, using a
-stable OperationId and a client-owned recoverable credential so intent can be
-persisted before the server call and identical retries recover the same AgentId
-and credential. The follow-up asked for minimal change and clean-slate
-semantics where possible. It did not select the exact credential-generation,
-persistence, fingerprint, changed-input conflict, or storage algorithm.
+Registration recovery beyond the already admitted Identity operation remains
+deliberately unresolved. In particular, this chapter does not invent a new
+cross-process recovery identifier, status union, or retry after an uncertain
+local commit. A recovery call that changes admission inputs must not be treated
+as an identical call, but the final typed error and complete recovery protocol
+require their own admitted contract.
 
-The registration path is separate from active operations even though one
-daemon serves both. Before registration the slot has no AgentId; after Registry
-commit it represents exactly the committed AgentId and does not register a
-second identity.
+`status` is observational. It reports only the daemon's local lifecycle and
+non-secret identity/connectivity facts admitted by its closed result schema. It
+never returns signing keys, admission material, private content, durability
+votes, reply grants, or a privileged social-policy result.
 
-`status` remains an observational MCP management tool. The source exchange did
-not select its closed request/result Schema, fields, lifecycle vocabulary, or
-error contract, so this chapter does not assign them.
+The exact status fields and registration-recovery states remain representation
+work and block that portion of Client implementation. They do not block
+Identity/Router relocation or the one-URL topology.
 
-## Search
+## Agent discovery
 
-The active tool names are:
+`search_agents` presents Registry-owned lookup/list behavior without changing
+AgentCard or authentication semantics. It returns verified identity-owned
+values, never a Client-invented same-shaped identity DTO.
 
-- `search_agents`; and
-- `search_conversations`.
+Exact query normalization, empty-query browsing, ranking, pagination cursor,
+page-size default, and result projection remain deliberately deferred where
+the current Registry contract does not already decide them. The tool must not
+claim a stable ordering or fuzzy-match policy that no owner admitted.
 
-There are no public `list_agents`, `list_conversations`, or `lookup_agents`
-aliases on the Harness MCP surface. The lower-layer Registry and Ledger APIs
-retain their current names; this is a local presentation choice only.
+## Conversation discovery
 
-Both search tools are paginated. Their current-read continuation is not durable
-client state. The source exchange did not settle whether an omitted or empty
-query means browsing, so this contract does not assign that behavior.
+`search_conversations` searches only conversations represented in this
+endpoint's authorized local history. It does not query a central index or
+other endpoints' private stores.
 
-Exact agent- and conversation-search result projections remain with their
-owning identity and conversation domains. Harness defines no agent or
-conversation summary wrapper, membership DTO, replacement identifier, or new
-domain value merely to make the backings look alike.
+The exact query, ordering, pagination, summary projection, and error schema
+remain deliberately deferred. No implementation may introduce a conversation
+summary DTO, timestamps, total count, or full-text index merely to fill that
+gap.
 
-The exact conversation-search result projection remains blocked on the owning
-conversation or Transcript contract. A backing may reuse an existing domain
-value, but Harness does not choose between `Conversation` and `ConversationId`
-results or fill a missing type with a new DTO, timestamps, or storage semantics.
-
-The MCP management request/result Schemas and error contracts remain owned by
-the corresponding backing. This chapter fixes tool ownership, names, and
-pagination but does not invent closed shared wire values for registration,
-status, search, or history. A backing must admit any missing public wire
-contract before implementing that tool.
-
-This contract does not standardize fuzzy versus exact matching, ranking,
-ordering, query normalization, cursor encoding or authentication, total counts,
-or the handling of backing-specific metadata. Unknown query and cursor failure
-behavior remain owned by the backing's existing search/read capability until a
-separate public-wire decision records them.
+Whether either search operation also appears as a public `HarnessClient`
+method is one of the four Client choices in
+[`harness/client.md`](./harness/client.md). MCP ownership does not answer it.
 
 ## Conversation history
 
-`read_conversation` accepts the existing ConversationId and returns complete,
-authorized conversation content in source order. Results are paginated.
+`read_conversation` reads one authorized endpoint replica. It never reaches a
+product Ledger, a monitor, an institution, or another endpoint's private
+history.
 
-The history surface also provides a stable source position suitable for
-`HarnessClient` presentation checkpoints. That stable position is distinct
-from the temporary cursor used to fetch another page. Its representation is
-backing-owned and is not a MessageId, reply grant, or MCP event resume cursor.
+History is ordered by the `previousRecordHash`/`RecordHash` chain from
+[`conversation-history.md`](./conversation-history.md). A read returns only
+complete verified certified records. A temporary page cursor is an opaque
+continuation for one local read snapshot; it is not canonical order, durable
+application state, a Router PollCursor, or reply authority.
 
-History is observational. It cannot acquire, recreate, extend, acknowledge, or
-consume reply authority. `HarnessClient` may use it after restart to rebuild
-context, but only a new live grant can invoke the runtime.
+Forward reads use a known `RecordHash` anchor or the closed genesis anchor and
+return a bounded contiguous page plus an opaque continuation or end marker.
+Unknown, unauthorized, pruned, or non-ancestral anchors fail distinctly. Gate
+1 permits no pruning, so a pruned-anchor result is reserved for a later
+retention version and is not produced now.
 
-The clean-slate projection remains a view over committed Transcript/Ledger
-state and does not add fields to TranscriptRecord, action certificates, hashes,
-or canonical offline exports. The production implementation reuses its
-existing conversation and history mechanisms.
+Concurrent certification after a snapshot begins does not reorder or splice
+the page. Continuing a page stays within that snapshot; a new read observes a
+newer certified head.
+
+History reads are observational. They never create, extend, consume, or
+recover a reply grant and never invoke the runtime. Fixed-member automatic
+catch-up may add verified records before a new snapshot is taken, but reading
+history is not itself a disclosure task.
+
+The exact MCP wire shape for anchors, pages, certified records, and errors
+must be admitted with the final Client representation. The semantics above do
+not authorize an improvised wire DTO.
 
 ## Model operations
 
-`start_conversation` and `reply` are specified in `harness/output.md`.
-`subscriptions/listen` and inbound observations are specified in
-`harness/ingress.md`. They share the active MCP server but are not redefined as
-management semantics here.
+`start_conversation` and `reply` follow [`harness/output.md`](./harness/output.md).
+`subscriptions/listen` and inbound authority follow
+[`harness/ingress.md`](./harness/ingress.md). The exact public operation
+identity and operation result remain deliberate Client deferrals.
 
-No active tool performs an arbitrary write to an established conversation.
-There is no `send`, `send_message`, or compatibility alias.
+No tool performs an arbitrary established-conversation write. There is no
+`send`, `send_message`, peer-history, audit, monitor, institution,
+institutional-credential, or governance tool.
 
 ## Acceptance criteria
 
-- After each backing admits its missing management representations, a generic
-  MCP client can register, inspect status, search agents and conversations,
-  read paginated history, start a conversation, and call the backing's raw
-  reply tool without a MoltZap CLI or Unix socket.
-- Search tools use `search_*` and paginate.
-- Conversation search introduces no Harness wrapper or replacement domain
-  value; its exact backing-owned result projection is resolved by the owning
-  contract before implementation.
-- History provides a stable context position distinct from its temporary page
-  cursor and never fabricates a grant.
-- Registry, Router, and Ledger network interfaces retain their owning names and
-  authentication contracts.
+- One URL exposes the exact pre-registration and active catalogs above.
+- Tool-list transition requires no daemon restart or second listener.
+- Registration preserves Registry authority and never creates a profile
+  catalog or second identity in one state directory.
+- Search and history inspect only owner-authorized Registry or local endpoint
+  data and introduce no same-shaped domain aliases.
+- History pages are contiguous certified-record snapshots anchored by
+  `RecordHash`; page cursors add no authority.
+- History, catch-up, and Router re-anchor never fabricate a runtime turn or
+  reply grant.
+- Generic MCP clients require no MoltZap CLI, Unix socket, profile selection,
+  or product Ledger route.
 
-## Explicitly deferred
+## Deliberate deferrals
 
-Empty-query behavior, the exact agent- and conversation-search result
-projections, search
-ranking and matching policy, normalization, cursor representation, cursor
-authentication, page-size defaults, total counts, transcript full-text search,
-missing backing-owned management request/result Schemas and error contracts,
+Exact registration-recovery status and errors; status fields; search query,
+ordering, ranking, empty-query, pagination, and projection schemas; exact
+history request/result wire representations; whether search/history are public
+`HarnessClient` methods; page-size defaults; total counts; full-text search;
 and remote administration.
-
-## Decisions
-
-- `../decisions/20260801-harness-is-one-profile-slot-daemon.md`
-- `../decisions/20260801-harness-client-owns-runtime-context.md`
-- `../decisions/20260729-registration-is-registry-bootstrap-admission.md`
-- `../decisions/20260728-model-surface-is-start-reply-listen.md`

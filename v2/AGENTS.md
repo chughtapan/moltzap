@@ -1,136 +1,118 @@
-# moltzap v2 track
+# moltzap four-layer cutover track
 
-Extends the workspace-root `AGENTS.md`; governs work under `v2/*` and
-on the `v2` branch.
+Extends the workspace-root `AGENTS.md`. This directory now owns the
+replacement constitution, historical inputs, and handoff evidence. Final
+executable products live under `packages/*`.
 
 ## Authority and reading order
 
-Read these sources in order. A lower source explains or implements a
-higher one and must not contradict it.
+Read these sources in order. A lower source explains or implements a higher
+one and must not contradict it.
 
-1. `AGENTS.md` and `v2/VISION.md` — project law and the layer
-   constitution.
-2. Current ADR outcomes in `docs/decisions/`—accepted records and the
-   explicitly retained portions of partially-superseded records—
-   beginning with `20260728-gate-1-architecture-freeze.md`.
-3. Normative Gate 1 chapters in `docs/spec/`.
-4. `docs/architecture/` — orientation and the durable execution plan.
-5. `docs/decision-evidence/` and `v2/inputs/` — decision context, review
-   evidence, research, audits, and source provenance. These explain
-   authority but never create it. `v2/drafts/` is historical input only.
+1. `AGENTS.md` and `v2/VISION.md` — project law and the constitution.
+2. Current ADR outcomes in `docs/decisions/` — accepted records and the
+   explicitly retained portions of partially superseded records — beginning
+   with `20260811-four-layer-endpoint-replicated-harness.md`.
+3. Normative chapters in `docs/spec/`.
+4. `docs/architecture/` — orientation and execution material.
+5. `docs/decision-evidence/`, `v2/inputs/`, and `v2/drafts/` — provenance and
+   historical input, never implementation authority.
 
-The freeze manifest assigns every Gate 1 decision a `G1-DEC-NNN`
-identifier and maps it to its normative owner and acceptance evidence.
-No implementation may rely on a decision found only in chat, an issue,
-an agent-private directory, a fully superseded record, or a portion
-explicitly marked replaced.
+The current trace tables assign stable `G1-DEC-NNN` identifiers to normative
+owners and acceptance evidence. No implementation may rely on a decision found
+only in chat, an issue, private state, a fully superseded record, or a replaced
+portion of a partially superseded record.
 
-## Structure
+## Final product graph
 
-V2 has exactly six deep packages:
+The cutover finishes with exactly seven workspace products:
 
-| Package | Owns |
-|---|---|
-| `identity` | L1 contracts and representation, AuthenticatedHttp, Registry client, PostgreSQL Registry server, `moltzap-registry` |
-| `router` | L2 contracts and representation, Router client, in-memory Router server, `moltzap-router` |
-| `transcript` | L3 record contracts, Ledger client, PostgreSQL Ledger server, `moltzap-ledger` |
-| `harness` | interpretive protocol engine, SQLite state, `HarnessClient`, daemon MCP, `moltzapd` |
-| `simulator` | portable code-first kernel, runtime roster, event catalog, simulation `RunLedger` |
-| `testbed` | platform acquisition, external processes, fault layers, substitutes, black-box subjects |
+| Directory | Package | Direct production dependencies |
+|---|---|---|
+| `packages/identity` | `@moltzap/identity` | none |
+| `packages/router` | `@moltzap/router` | identity |
+| `packages/client` | `@moltzap/client` | identity, router |
+| `packages/openclaw-channel` | `@moltzap/openclaw-channel` | client |
+| `packages/nanoclaw-channel` | `@moltzap/nanoclaw-channel` | client |
+| `packages/simulator` | `@moltzap/simulator` | identity, router, client |
+| `packages/evals` | `@moltzap/evals` | client, simulator |
 
-The production dependency graph is:
+The packages take these names immediately. There are no generation aliases,
+compatibility shims, umbrella protocol/server packages, product Ledger,
+transcript package, profile package, or standalone testbed. Production
+packages do not depend on simulator or evals. Runtime adapters depend on the
+Client root only.
 
-```text
-router     -> identity
-transcript -> identity + router contracts
-harness    -> identity + router + transcript
-simulator  -> identity + harness public capabilities
-testbed    -> identity + router + transcript + harness + simulator
-```
-
-`transcript` may depend on the Router contracts needed to retain L2
-evidence; it never depends on a Router implementation. `simulator` and
-`testbed` are never production dependencies. `wire`, `protocol`,
-`endpoint`, `endpoint-core`, `daemon-api`, `cli`, `harness-adapter`, and
-`conformance` are not packages.
-
-All six manifests and the MoltZap compatibility value match the exact
-CalVer in `v2/VERSION`. MCP revision `2026-07-28` and simulator
-definition/event/RunLedger persisted-schema versions are independent.
+Image construction and deployment assembly are root-owned artifact work, not
+runtime dependency edges. Simulator `RunLedger` remains run evidence and is
+not a product conversation store.
 
 ## Implementation rules
 
-- **Gate 0 first.** No simulator landing, v2 scaffolding, or product
-  implementation begins until the repository-native architecture freeze
-  is contradiction-free, mechanically checked, and passes the root
-  blind teammate review gate.
-- **Spec first.** Do not write implementation code ahead of the
-  normative chapter and current ADR outcome that govern it.
-- **Layer notation stays in documentation.** Numbered architecture
-  labels such as `L1` and `L2` are documentation shorthand only. Do not
-  use them in package metadata, paths, source or test identifiers,
-  comments or JSDoc, runtime strings, configuration, errors, fixtures,
-  migrations, or generated code. Name the owning domain directly:
-  `identity`, `Registry`, `router`, and `Router`. The architecture check
-  scans every non-documentation file in each v2 package for this rule.
-- **Layer-owned representation.** Each implemented layer owns a separate
-  representation chapter and its private mechanisms. Do not create a
-  cross-layer wire catalog, compatibility corpus, codec package, or
-  shared representation vocabulary for L1/L2. A representation change
-  never silently assigns another layer's representation; any later-layer
-  contract change requires its own current ADR and normative owner.
-- **Deep modules.** Each package owns its public contract, production
-  implementation, binary where applicable, and tests. Keep mechanisms
-  private; do not create pass-through packages or accessor layers.
-- **Zero v1 imports.** Nothing under `v2/` imports a workspace module
-  whose source resolves under `packages/`, or reaches into that tree by
-  relative path. V2 packages may import one another only along the
-  frozen v2 DAG. Port behavior by reimplementation against v2
-  contracts. Enforce both rules in CI.
-- **Effect at the edge and through the core.** Define validated boundary
-  models with Effect Schema, model dependencies as cohesive services,
-  compose resource-owning implementations with scoped Layers at process
-  roots, use Effect SQL and Migrator for Registry/Ledger/Harness storage,
-  and keep typed failures rather than throwing across boundaries.
-- **Network boundaries stay separate.** Registry, Router, and Ledger are
-  independent HTTP processes. Router and Ledger are siblings; Harness
-  subsystems coordinate them. The daemon's loopback MCP surface is a local runtime
-  boundary, not the Router data plane.
-- **One local profile slot.** One `moltzapd` owns one named profile slot and
-  one fixed-port loopback listener. It serves registration at
-  `/register/mcp` and registered management/runtime operations at `/mcp`.
-  Generic MCP clients and `HarnessClient` use those paths; there is no
-  bespoke CLI, Unix socket, stdio server, second MCP process, or bind
-  fallback.
-- **Compile-time client interoperability.** The clean-slate application targets
-  the minimal structural `HarnessClient` consumer shape. Its complete Effect
-  signatures and portable errors require an admitted owner. Production
-  adoption remains `main`-owned; after both exact contracts are admitted,
-  their independently owned service values pass a bidirectional compile-time
-  canary. Raw MCP schemas, Tags, Layers, and implementations remain
-  backing-owned; no runtime generation detection or cross-track import is
-  permitted.
-- **Harness authority.** Only endpoints' Harness subsystems interpret bodies,
-  run protocols, apply L4/L5/L7 rules, and decide which certificates to sign.
-  Router is opaque delivery; Ledger is mechanical atomic storage.
-- **One production stack.** The simulator surrounds the same production
-  capabilities as a system driver. Testbed adds acquisition and faults;
-  it never reimplements or wraps an umbrella production server.
-- **Case studies remain consumers.** `moltzap-propagation-bench`,
-  `moltzap-arena`, OpenClaw, and NanoClaw exercise public interfaces.
-  A consumer that must reach into v2 internals exposes an interface gap.
+- **Authority first.** A changed behavior or public boundary needs a current
+  ADR outcome, normative owner, stable trace row, and accepted blind-review
+  candidate before implementation.
+- **Use the final homes.** Move accepted Identity and Router implementations
+  directly into `packages/identity` and `packages/router`. Do not add code to a
+  temporary `v2/*` package or retain a forwarding package.
+- **Deep ownership.** Each package owns its public contracts, production
+  implementation, process binary where applicable, configuration, tests, and
+  migrations. Mechanisms and private wire codecs remain private.
+- **Representation stays owned.** Identity owns AgentCard and authenticated
+  HTTP representation. Router owns its opaque message, poll, cursor, and
+  instance representation. Client owns conversations, certified records,
+  durability evidence, endpoint storage, catch-up, tasks, trust, and daemon
+  MCP representation. Do not create a cross-package codec catalog.
+- **Effect throughout.** Boundary values use Effect Schema. Dependencies are
+  cohesive Effect services; resource implementations compose through scoped
+  Layers at process roots; expected failures remain typed.
+- **Network boundaries remain separate.** Registry and Router are independent
+  HTTP processes. Each endpoint daemon owns local storage and speaks those
+  protocols. Its one loopback MCP endpoint is a local runtime boundary, not a
+  network plane.
+- **Explicit daemon configuration.** A daemon receives its state directory,
+  MCP bind address and port, Registry origin and admission material, and Router
+  origin explicitly. It has no profile selector, profile file, bespoke CLI,
+  Unix socket, stdio server, second MCP process, or bind fallback.
+- **Consumer-only adapters.** OpenClaw and NanoClaw use the public
+  `HarnessClient` capability or its MCP transport. They do not import Identity,
+  Router, Client internals, or one another.
+- **One simulator.** Preserve every non-conflicting latest-`main` simulator
+  facade and behavior while replacing production-stack dependencies. The
+  explicitly deferred authority conflicts are not implemented through inert
+  fields, lazy compatibility behavior, or hidden raw Router access.
+- **Delete displaced code.** Once a final owner is usable, remove the old
+  protocol, server, profile, CLI/socket, central-Ledger, `v2/*` implementation,
+  and testbed code in the same migration lane. Do not polish code whose only
+  planned outcome is deletion.
+- **Keep graphs equal.** Package manifests, TypeScript references, Nx project
+  dependencies, architecture checks, release configuration, Knip, aliases,
+  generated docs, and CI must express the same seven-package graph.
 
-## Simulator provenance gate
+## Deliberate implementation gates
 
-The v2 simulator port may start only from the immutable SHA recorded in
-`v2/inputs/simulator-handoff-20260728.md`. Until the source rewrite is
-fully tracked, rebased onto current `main`, constitution-aligned, landed,
-and green under non-vacuous architecture, build, type, lint, unit, and
-evaluation checks, that manifest remains `pending` and its SHA remains
-unset. Never copy from or edit the dirty source worktree.
+The constitution permits independent Identity and Router relocation and the
+mechanical seven-package graph work. Client or simulator work that would answer
+one of these questions waits for its named normative decision:
 
-Preserve the landed kernel's `Simulator.define`, closed EventCatalog,
-typed `RunLedger`, scoped runtime roster, and private lifecycle engine.
-Replace v1-facing contracts with v2 public capabilities. The simulator
-`RunLedger` is run evidence; the product `Transcript` is society state.
-They are different stores and types.
+- public start-operation recovery identity;
+- whether a live turn presents only its conversation or universal context;
+- whether success returns the complete certified record or a compact receipt
+  plus a public retrieval operation;
+- whether TypeScript `HarnessClient` includes history/search or leaves those
+  operations on MCP;
+- the five simulator conflicts involving content-free open, generic send,
+  message-only receive, runtime Router authority, and persisted Router-commit
+  semantics; and
+- package publication and version policy.
+
+Do not infer an answer from an execution handoff or preserve conflicting
+behavior behind a compatibility shim.
+
+## Verification
+
+Run work through `pnpm nx`. A structural lane passes only when its package
+targets, architecture graph, import boundaries, packing probes, and relevant
+documentation checks are non-vacuous. Before final merge, run the full build,
+typed lint, tests, generated-doc checks, package-install probes, and absence
+checks for every retired public surface.

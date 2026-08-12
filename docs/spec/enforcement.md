@@ -1,97 +1,104 @@
-# Future L6/L7 — oversight and institutions
+# Recursive monitoring, institutions, and governance
 
-Status: **post-Gate-1, non-normative except separation laws**
+Status: **Gate 1 normative separation contract**
 
 ## Boundary
 
-L6 social oversight and L7 institutional trust are higher-layer
-services and protocols. Gate 1 deploys neither.
+Monitoring, institutions, institutional claims, and governance are not
+infrastructure layers or privileged services. They are ordinary agents, signed
+conversation content, tasks, and norms built recursively on the four-layer
+stack.
 
-The separation from L1 is binding:
+Gate 1 ships no monitor service, institution service, institutional-credential
+service, governance service, privileged trust root, or privileged history
+reader.
 
-- the Identity Registry publishes AgentCards and cryptographic identity
-  facts only;
-- each future institution is a separate service and trust domain;
-- an institution issues its own versioned, signed, institution-scoped
-  statements keyed by `AgentId`;
-- no AgentCard or Registry identity record combines identity and
-  institutional facts;
-- Router and Ledger never query or evaluate institutions.
+This removal does not remove cryptographic identity or operational
+authentication. Agent signing keys, AgentCards, Registry bootstrap admission,
+registered-agent HTTP signatures, Router authentication, and deployment
+credentials remain governed by Identity and Router.
 
-Harness later composes L1 identity with statements from whichever
-institutions its local norms and personal-trust configuration
-recognize.
+## Identity separation
 
-## Network admission
+Registry publishes immutable AgentCards and cryptographic identity facts only.
+It does not publish or derive:
 
-Network services perform L1 and mechanical protocol checks only:
+- institutional standing, membership, or accreditation;
+- sanctions, revocation status, or an `active` policy bit;
+- monitor findings or testimony;
+- task legality, trust, or governance outcomes; or
+- private-history visibility.
 
-- identity and key validity;
-- exact schema, version, COSE certificate, and request authentication;
-- technical conversation, epoch, Router-instance, and base bindings;
-- exact Gate 1 certificate signer set and signatures.
+An ordinary agent that acts as an institution has an ordinary AgentId and
+signing key. Its statement is attributed conversation content. The statement
+gains no product-wide meaning until a local task/norm and personal-trust policy
+choose to interpret or rely on it.
 
-Institutional standing never becomes Router or Ledger admission.
-Operational quotas and abuse controls protect resources without
-pretending to be social policy.
+## No privileged path
 
-## L6 monitoring direction
+A monitor, institution, or governance agent receives no special:
 
-A deterministic monitor is a contract over committed Transcript
-records. Given the same self-contained records and monitor version, it
-produces the same result.
+- package import or deep capability;
+- credential type or authentication profile;
+- Registry or Router route;
+- durability or re-anchor vote;
+- private-history read, bypass, or disclosure grant;
+- task/norm precedence; or
+- global policy installation mechanism.
 
-Judgment that cannot be deterministic is testimony attributed to its
-speaker, not hidden inside a monitor or Ledger verdict. Monitoring does
-not mutate history or turn an invalid attempt into a committed record.
+Registry and Router never query one. Client's endpoint store does not identify
+one as a privileged reader. Service identity and ordinary conversation
+membership are the only base authorization inputs.
 
-## L7 institution direction
+## Monitoring as an ordinary task
 
-A future institution statement must be:
+A deterministic monitoring task may consume certified records that an endpoint
+is authorized and willing to disclose. Given the same complete disclosed
+records and the same task version, it may produce a deterministic signed
+finding.
 
-- signed by that institution;
-- versioned and scoped to the issuing institution;
-- keyed to canonical AgentId;
-- independently revocable or supersedable by that institution;
-- consumed by Harness under an explicit norm.
+Nondeterministic judgment is attributed testimony from its speaker. Neither a
+finding nor testimony mutates certified history, retroactively validates an
+action, changes a durability certificate, or becomes a Router/L1 verdict.
 
-It does not rotate L1 keys, edit AgentCards, set a Registry `active`
-bit, or globally reconfigure identity. L1 recovery and L7 consequences
-remain distinct protocols.
+Cross-history comparison is likewise a task. Fixed members already receive
+automatic catch-up for their own conversation; a non-member monitor must ask
+an endpoint to disclose records, and that endpoint's personal-trust policy may
+refuse or limit the response.
 
-## Gate 1 behavior
+## Institutions and governance as protocols
 
-- no L7 service or statement schema is shipped;
-- no institution is configured or queried;
-- no monitor result changes action certification;
-- no revocation or institutional-status claim is inferred from
-  Registry lookup;
-- no Harness claims semantic L6/L7 conformance.
+Institutional statements, credentials, revocations, appeals, voting rules, and
+governance outcomes require explicit versioned task/norm protocols. Until such
+a protocol is admitted, they remain ordinary signed content with local meaning
+only.
 
-## Future questions
+A later protocol may define supersession or revocation among one issuer's
+statements. It cannot rotate L1 keys, edit AgentCards, reconfigure Router,
+weaken action/durability verification, or install a globally authoritative
+policy by naming an agent an institution.
 
-- institution discovery and trust roots;
-- statement vocabulary and revocation;
-- norm selection and conflicts among institutions;
-- monitor publication and testimony;
-- consequences, appeals, and governance;
-- privacy and selective disclosure.
+Independent agents may issue contradictory claims about the same AgentId.
+Personal trust decides which, if any, to rely on without changing that
+AgentId's identity.
 
-These remain questions until separately accepted. They cannot be
-answered by extending AgentCard or Ledger rows.
+## Acceptance criteria
 
-## Separation acceptance criteria
+- Identity and Router schemas contain no institution, monitor, governance,
+  sanction, or policy field.
+- The seven-package dependency graph contains no privileged institution or
+  monitor client.
+- No MCP tool grants monitor, institution, credential, governance, peer-history,
+  or audit access.
+- An institution-agent outage cannot prevent identity verification, Router
+  delivery, or mechanical verification of already held certified history.
+- Tests represent monitoring and institutional exchanges with ordinary agents,
+  conversations, tasks, norms, and local disclosure decisions.
+- Absence checks for institutional credentials do not reject identity signing
+  keys, request-authentication profiles, or deployment secrets.
 
-- Registry schemas contain no institution, active, sanction, or policy
-  field.
-- Router/Ledger dependency graphs contain no institution client.
-- A future institution outage cannot prevent L1 verification or
-  mechanical reading of committed records.
-- The same AgentId may be described differently by independent
-  institutions without changing its AgentCard.
+## Explicitly deferred
 
-## Decisions
-
-- `../decisions/20260724-monitors-are-deterministic-contracts.md`
-- `../decisions/20260724-l7-is-policy-attached-to-identity.md`
-- `../decisions/20260728-layer-boundaries-and-fault-model.md`
+Institution discovery, institutional claim vocabularies, statement revocation,
+monitor publication, appeals, consequences, governance protocols, selective
+disclosure, and trust-policy portability.

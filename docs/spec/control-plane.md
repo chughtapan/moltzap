@@ -1,263 +1,134 @@
-# Control plane and durable Transcript storage
+# Network control plane
 
 Status: **Gate 1 normative**
 
 ## Purpose and boundary
 
-The network control plane consists of closed HTTP operations against
-two independent services:
+Gate 1 has two network services:
 
-- the L1 Identity Registry, which creates and resolves AgentCards;
-- the L3 Ledger, which atomically stores member-certified actions.
+- the Identity Registry is the control-plane authority for immutable agent
+  identity; and
+- the Router is the content-blind volatile data plane for attributed opaque
+  multicast.
 
-Router is the L2 data plane and is specified in `router.md`.
-Harness MCP is a trusted local control surface and is specified in
-`harness/daemon.md`. Neither is an operation on this control plane.
+There is no network Ledger, Transcript service, conversation registry,
+conversation-storage control plane, monitor service, institution service, or
+governance service. Conversation state is replicated by endpoints under
+[`conversation-history.md`](./conversation-history.md).
 
-The Registry and Ledger do not share a listener, process, database, or
-in-process dependency. There is no conversation-registry service.
+The daemon's loopback MCP surface is a local runtime boundary. It is neither a
+third network service nor a network control plane.
 
-## Common HTTP contract
+## Common network-service laws
 
-Every domain operation is a separate POST route. Registry operations
-use the closed JSON representation in `identity-representation.md`;
-this L1/L2 revision does not change the Ledger's closed deterministic
-CBOR representation. There is no JSON-RPC method multiplexer,
-REST/OpenAPI migration target, content negotiation, or unknown-field
-tolerance.
+Registry and Router preserve the exact HTTP, representation, authentication,
+configuration, and error contracts in their owning chapters. Each operation:
 
-Every domain POST:
+- uses the fixed route and exact closed representation owned by its layer;
+- strictly decodes with Effect Schema;
+- uses the identity-owned authentication profile assigned by that route, with
+  Registry public reads remaining public;
+- rejects a version mismatch according to the owning precedence law;
+- applies owner-defined idempotency without a cross-service generic retry
+  mechanism; and
+- returns one closed success or error result.
 
-- carries the exact value from `v2/VERSION` using the version field and
-  representation defined by its current owning contract;
-- uses the authentication profile defined by that owner, with Registry
-  lookup and list explicitly public;
-- is domain-side-effect-free when it is a read, or independently
-  idempotent under the retry identity defined by its owner when it
-  mutates;
-- rejects a version mismatch before domain handling or domain-state
-  mutation, although owner-defined authentication and replay state may
-  already have changed;
-- returns a closed tagged success or error result.
+Both services expose unauthenticated `GET /healthz`. Health is readiness only
+and returns no identity, Router feed, conversation, history, or endpoint data.
 
-Each service exposes unauthenticated `GET /healthz`. Health is
-readiness only and returns no identities, conversation state, offsets,
-or other domain data.
+Protocol bounds are fixed or deployment-configured only where the owning
+Identity or Router chapter says so. Nothing advertises or negotiates a new
+cross-service compatibility profile.
 
-Protocol-level resource limits are not advertised or negotiated.
-Each service configures only the finite local bounds named by its
-owner, and that owner defines the closed outcome when a bound is
-exceeded.
-
-## Identity Registry operations
+## Registry operations
 
 | Operation | Guarantee |
 |---|---|
-| `POST /v1/identities:register` | verifies bootstrap admission and proof of possession, atomically applies operation idempotency and name/key uniqueness, and returns one immutable complete AgentCard |
-| `POST /v1/identities:lookup` | resolves canonical `AgentId` or `AgentName` to the complete immutable AgentCard |
-| `POST /v1/identities:list` | returns a bounded deterministic page of complete AgentCards plus `hasMore`; a caller resumes after the last returned AgentId |
+| `POST /v1/identities:register` | verifies bootstrap admission and proof of possession, atomically applies registration idempotency plus name/key uniqueness, and returns one immutable complete AgentCard |
+| `POST /v1/identities:lookup` | resolves canonical `AgentId` or `AgentName` to one complete immutable AgentCard |
+| `POST /v1/identities:list` | returns a bounded deterministic page of complete AgentCards plus `hasMore`, resumed after the last returned `AgentId` |
 
-Registration and card semantics are owned by `identity.md`.
+Registration, AgentCard semantics, persistence, AuthenticatedHttp, and exact
+failure precedence remain owned by [`identity.md`](./identity.md) and
+[`identity-representation.md`](./identity-representation.md). Relocation to
+`@moltzap/identity` changes no wire bytes or authentication behavior.
 
-## Ledger operations
+Registry returns complete immutable identity facts only. It contains no
+conversation membership, history head, institutional standing, monitor result,
+sanction, trust score, or governance policy.
 
-| Operation | Guarantee |
-|---|---|
-| `POST /v1/actions:append` | mechanically validates and atomically appends one fully certified `START` or `MULTICAST` |
-| `POST /v1/actions:read` | returns either a bounded ordered read-forward page or one exact transaction result for a conversation |
-| `POST /v1/conversations:list` | returns the authenticated member's conversations and current committed heads for reconciliation |
+## Router orientation
 
-Read operations remain POSTs so their closed bodies and signatures use
-the same contract as mutations. Only a fixed epoch-0 member may read a
-conversation's complete Transcript.
+Router send and poll remain the exact operations in [`router.md`](./router.md)
+and [`router-representation.md`](./router-representation.md). Router provides
+one volatile non-equivocating order within one process instance. It owns no
+durable replay, conversation recovery, certificate admission, or storage
+acknowledgment.
 
-`actions:read` has a closed tagged request union:
+An accepted Router send proves only acceptance of one exact SignedMessage into
+the retained volatile feed. It does not prove delivery, action validity,
+durability, quorum, or recipient storage.
 
-- read-forward mode names ConversationId and the last applied
-  LedgerOffset, returning the next bounded page;
-- exact-transaction mode names ConversationId, epoch, and TxnId,
-  returning the committed result or a closed not-found outcome.
+## Endpoint history is not a control service
 
-There is no scan-by-TxnId operation across conversations. Harness
-uses its live Txn-to-conversation binding or its reconciled local
-receipt index for exact recovery.
+Each fixed member stores and verifies its own conversation history. Endpoint
+durability votes and Router-epoch re-anchor votes are ordinary opaque
+communication messages between explicit fixed members. Any member may assemble
+their threshold evidence.
 
-## Certified action
+There is no public network operation corresponding to:
 
-The author's Harness submits one deterministic `moltzap-l3-action-v1` COSE_Sign
-certificate. The signed action binding includes:
+- `actions:append`;
+- `actions:read`;
+- `conversations:list` on a Ledger;
+- global Transcript export;
+- `LedgerOffset` lookup; or
+- privileged monitor/institution history access.
 
-- exact MoltZap version;
-- `ConversationId`, immutable membership epoch 0, and complete epoch
-  verification descriptor;
-- `RouterInstanceId`;
-- `TxnId`;
-- base `LedgerOffset` and base `RecordHash`, or the genesis base for
-  START;
-- action author;
-- action kind, exactly `START` or `MULTICAST`;
-- deterministic action content and digest;
-- for MULTICAST, the selected action ID and ReplyFingerprint binding
-  the canonical closed reply input;
-- one independently verifiable signature from every fixed member.
+Local MCP search and history read the daemon's authorized endpoint replica and
+are governed by [`management.md`](./management.md). Fixed-member catch-up is
+governed by [`conversation-history.md`](./conversation-history.md). A
+non-member disclosure or cross-history comparison is an ordinary task subject
+to local personal trust.
 
-The complete epoch descriptor contains the verification material
-needed to verify every signer without a live Registry.
+## Availability and failure isolation
 
-Only the signed action author may append. Another member may retain the
-certificate but cannot take over submission. The author resolves an
-ambiguous response by retrying the exact certificate or reading that
-exact transaction.
+- Registry outage blocks registration and uncached lookup. Pinned AgentCards
+  and self-contained conversation verification material remain usable.
+- Router outage blocks new opaque delivery and may block vote dissemination,
+  catch-up, and re-anchor. It does not alter durable endpoint histories.
+- One endpoint-store outage affects that endpoint and may affect threshold
+  progress; it does not mutate Registry or Router state.
+- A missing durability or re-anchor threshold remains incomplete. No service
+  lowers a threshold or substitutes a network acknowledgment.
 
-## Mechanical admission
+Service availability affects progress rather than changing accepted safety or
+verification rules.
 
-Ledger is policy-blind but certificate-profile-strict. It verifies
-only:
+## Simulator evidence
 
-1. closed deterministic CBOR and the exact COSE profile;
-2. exact MoltZap version and allowed action kind;
-3. signature validity and one signer for each, and only each, member
-   embedded in epoch 0;
-4. author identity and author-only submission;
-5. ConversationId, epoch, RouterInstanceId, TxnId, content digest, and
-   certificate bindings;
-6. expected current base offset and hash;
-7. retry identity and byte equality.
-
-Ledger never evaluates:
-
-- whether a BEGIN won L2 order;
-- whether a grant was live;
-- whether a member's Harness should have signed;
-- L4 eligibility, L5 screening, or L7 policy;
-- content meaning, task correctness, or result quality.
-
-Each member's Harness owns those decisions and refuses to sign invalid
-actions. Under Gate 1 unanimity, one honest required member that rejects a
-proposal prevents its certificate from forming. If every required member
-signs an invalid action, Ledger cannot distinguish it from a valid one; that
-case is outside the guarantee.
-
-Invalid attempts remain outside the Transcript. Ledger does not append
-them as “ineffective” records.
-
-## Atomic append
-
-One database transaction:
-
-1. reserves `(ConversationId, epoch, TxnId)` and its certificate bytes;
-2. locks and verifies the current conversation head;
-3. assigns the next dense `LedgerOffset`;
-4. computes the next hash from the previous hash and complete logical
-   record;
-5. appends exactly one canonical `TranscriptRecord`;
-6. advances the conversation head;
-7. makes the record readable to every fixed member.
-
-Only after commit may Ledger acknowledge success. The acknowledgment
-therefore proves the exact record is durable and readable. Atomic
-commit does not mean N recipient copies, live fan-out, or delivery
-status rows.
-
-An identical retry returns the committed offset and hash. Reuse of the
-transaction key with changed certificate bytes is an idempotency
-conflict.
-
-## TranscriptRecord
-
-Each logical record is independently verifiable and contains:
-
-- ConversationId, epoch, offset, previous hash, and record hash;
-- RouterInstanceId and action binding;
-- action author and deterministic content;
-- selected action and ReplyFingerprint for MULTICAST;
-- complete member/card verification descriptor;
-- complete COSE_Sign certificate.
-
-Reads and exports require no live Registry. Physical compression,
-dictionaries, or content-addressed deduplication may be added later
-only if they reconstruct the identical logical record, signature
-preimage, and hash.
-
-The Transcript is product conversation state. It is distinct from the
-simulator `RunLedger`, which stores run evidence and has its own schema
-version.
-
-## Commit notification and recovery
-
-After Ledger acknowledgment, a live author schedules one best-effort
-commit-notice attempt through Router. Failure does not change the
-durable action result; the author may retry while it remains live.
-That message is a wake-up hint, not a commit proof, and duplicate
-notices are harmless. Recipients read Ledger before producing
-attention.
-
-There is no transactional outbox. A crash after append and before send
-may lose the notice. Harness recovers through periodic
-`conversations:list` followed by per-conversation `actions:read`.
-
-## Persistence realization
-
-This section is non-normative except for the externally observable
-atomicity above.
-
-Registry uses PostgreSQL through `@effect/sql/SqlClient`, Effect SQL
-transactions, and `@effect/sql/Migrator`. Its repositories depend on
-the SQL capability rather than a raw driver or the retired
-Effect–Kysely bridge. Registry migrations run at the
-startup/deployment boundary.
-
-Fast Registry tests expose PGlite through
-`@electric-sql/pglite-socket` so the same PostgreSQL `SqlClient`
-repositories run unchanged. PGlite does not prove multi-connection
-isolation; PostgreSQL Testcontainers cover Registry concurrency,
-migration, durability, and atomicity properties. This L1/L2 revision
-leaves the Ledger persistence realization and its test requirements
-unchanged.
-
-## Failure outcomes
-
-- stale base: no append, return the canonical current head;
-- identical retry: original committed result;
-- changed retry: idempotency conflict;
-- malformed/unknown field, version, COSE, or signature: refusal before
-  domain-state mutation; an authenticated L1 wrong-version request
-  consumes its claimed nonce as the identity contract requires;
-- unavailable Registry: Registry operations fail, as may Router or
-  Harness operations requiring an uncached identity; pinned-card and
-  self-contained Ledger verification continue without a Registry query;
-- unavailable Ledger: the operation fails without weakening commit
-  semantics;
-- author crash before acknowledged append: action may remain
-  uncommitted; no takeover occurs in Gate 1.
+Simulator `RunLedger` remains a distinct run-evidence store with independent
+persisted-schema versions. Its name and `@moltzap/simulator/ledger` export do
+not imply a product Ledger, network API, canonical conversation store, or
+privileged history reader.
 
 ## Acceptance criteria
 
-- Concurrent PostgreSQL appends serialize to dense offsets and one
-  hash chain.
-- Acknowledgment is never observable before the record is readable.
-- A failed append leaves no idempotency reservation, partial record, or
-  advanced head.
-- Ledger accepts the exact required signer set mechanically and rejects
-  missing, duplicate, extra, or invalid signatures.
-- Changing a grant or policy fact without changing the certificate
-  cannot make Ledger evaluate that fact.
-- Reads reconstruct byte-equivalent, independently verifiable records
-  with Registry unavailable.
-- Lost commit notices are recovered by list/read-forward without
-  duplicate runtime attention.
-- Exact-transaction read recovers the committed offset and hash after
-  a lost append or local MCP success response without scanning another
-  conversation.
+- The deployed network topology contains one Registry and one Router and no
+  product Ledger/Transcript process or route.
+- Registry and Router conformance remain byte-for-byte compatible through
+  package relocation and preserve their authentication profiles.
+- Registry schemas contain only identity facts and no institution, policy, or
+  conversation state.
+- Router cannot decode or route on `ConversationId`, task, history, or
+  durability evidence.
+- Endpoint-history progress and failure tests never treat Router acceptance as
+  durability evidence.
+- Current code and generated docs contain no product Ledger operation while
+  simulator `RunLedger` remains intact.
 
 ## Explicitly deferred
 
-Append takeover, dispute and recovery protocols, dynamic membership,
-non-unanimous certificates, transparent physical compression,
-transactional outbox, public observer roles, and Ledger replication.
-
-## Decisions
-
-- `../decisions/20260728-transcript-is-mechanical-atomic-commit.md`
-- `../decisions/20260724-collectives-are-ledger-transactions.md`
-- `../decisions/20260723-lifecycle-rides-l3.md`
+Registry replication, Router replication or durable feeds, alternate
+fixed-member catch-up transports, public observer/history services, and any
+future institution or governance protocol.

@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
-superseded-by: 20260728-open-floor-v1.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Conversation lifecycle rides in-band at L3
@@ -11,10 +11,17 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-In-band L3 START genesis remains accepted. Gate 1 fixes membership at
-epoch 0, includes initial content in START, and implements no ADD,
-LEAVE, or empty-conversation lifecycle. The model initiates genesis
-only through `start_conversation`.
+In-band START genesis, a client-minted ConversationId, fixed epoch-0
+membership, initial START content, and no control-plane create operation remain
+current. Dynamic membership, ADD, LEAVE, and empty conversations remain
+outside the accepted profile unless a later decision admits them.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces the central
+conversation index, Ledger offset, and store-owned transcript with fixed-member
+endpoint histories and certified hash-chain positions. The replacement record,
+`docs/spec/conversation-history.md`, and `docs/spec/harness/tasks.md` own current
+storage and lifecycle semantics; the exact runtime-facing start and recovery
+interface is deliberately deferred in `docs/spec/harness/client.md`.
 
 ## Context and Problem Statement
 
@@ -74,3 +81,11 @@ Consequences: five dissolution verdicts flip from control to data
 transcript-ordered"); the control plane's op surface shrinks to
 identity ops and reads; conversation ids are client-minted;
 first-conversation bootstrap needs no provisioning.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

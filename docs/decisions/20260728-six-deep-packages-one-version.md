@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
-superseded-by: 20260801-harness-is-one-profile-slot-daemon.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # V2 has six deep packages and one Moltzap version
@@ -11,22 +11,19 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1
 
 ## Supersession
 
-The following scope remains current: V2 has exactly six deep packages;
-production contracts and implementations stay behind their owning package;
-production packages do not depend on simulator or testbed; `v2/*` imports
-nothing from `packages/*`; Identity exports `.`, `./registry`, and
-`./registry/server`, the other production packages export `.` and `./server`;
-and one CalVer value matches all six manifests and MoltZap compatibility while
-MCP and simulator persisted formats version independently.
+Deep package ownership remains current: public contracts and implementations
+stay behind their owning package, production packages never depend on
+simulation or evaluation products, and MCP and simulator persisted formats
+version independently from product packages.
 
-`20260729-router-order-is-opaque.md` replaces `transport` with `router`, the npm
-project with `@moltzap/v2-router`, and `moltzap-directory` with
-`moltzap-registry`. `20260801-harness-is-one-profile-slot-daemon.md` replaces
-`endpoint` with `harness`, the npm project with `@moltzap/v2-harness`, and
-`moltzap-agentd` plus the CLI with the sole Harness binary `moltzapd`. All
-dependency edges use the replacement package names; the package count remains
-six. The current package map and DAG live in
-`docs/spec/layer-interfaces.md`.
+`20260811-four-layer-endpoint-replicated-harness.md` replaces the six `v2/*`
+packages, `@moltzap/v2-*` names, `v2/VERSION`, Ledger and testbed owners, former
+exports and binaries, shared six-package CalVer rule, and old dependency DAG
+with exactly seven final `packages/*` products: `@moltzap/identity`,
+`@moltzap/router`, `@moltzap/client`, `@moltzap/simulator`, `@moltzap/evals`,
+`@moltzap/openclaw-channel`, and `@moltzap/nanoclaw-channel`. Exact publication
+and version-transition policy remains deliberately deferred. The replacement
+record and `docs/spec/layer-interfaces.md` own the current package map.
 
 ## Context and Problem Statement
 
@@ -68,3 +65,11 @@ Each production package owns the concrete service behind its
 abstraction. Testbed cannot become a production dependency. When the
 packages are scaffolded in Phase 2, CI must enforce the dependency
 graph, exports, binaries, v1 isolation, and shared Moltzap version.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

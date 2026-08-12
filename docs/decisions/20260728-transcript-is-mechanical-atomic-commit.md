@@ -1,12 +1,29 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Ledger performs mechanical atomic Transcript commit
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-transcript-is-mechanical-atomic-commit).
+
+## Supersession
+
+Endpoints still decide action validity and produce closed, canonical,
+hash-linked action certificates that remain mechanically verifiable without a
+live Registry. Volatile protocol traffic still does not become conversation
+history merely because the Router carried it.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces Ledger-owned ACID
+append, dense offsets, author-only submission, one canonical store, and the
+claim that acknowledgement makes a record readable to every member. Fixed
+members instead stage the same action-certified record, sign durability votes,
+complete at the selected storage threshold, retain local certified history,
+merge durability evidence, and catch up from authorized peers. The replacement
+record and `docs/spec/conversation-history.md` are the current storage and
+durability contract.
 
 ## Context and Problem Statement
 

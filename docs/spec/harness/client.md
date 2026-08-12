@@ -1,172 +1,153 @@
 # HarnessClient runtime contract
 
-Status: **Gate 1 normative for the clean-slate Harness**
+Status: **Gate 1 invariant set; exact public interface deliberately blocked**
 
-## Purpose and compatibility boundary
+## Purpose and ownership
 
-`HarnessClient` is the only public Effect capability consumed by OpenClaw,
-NanoClaw, and other runtime adapters. Its scoped Layer speaks loopback MCP to
-`moltzapd`; it does not expose Registry, Router, Ledger, protocol-engine,
-storage, MCP SDK, or daemon-construction capabilities.
+`HarnessClient` is the sole adapter-facing capability name. OpenClaw,
+NanoClaw, and simulator runtime subjects consume an injected or MCP-backed
+client; they do not construct Registry, Router, endpoint stores, protocol
+folds, signing authority, or daemon processes.
 
-The clean-slate track owns the eventual Tag, Layer, raw MCP codec, and
-implementation. This chapter selects their semantic shape but not the complete
-Effect signatures or portable errors. The shape is chosen so a separately
-owned production implementation can satisfy it. Production adoption remains
-`main`-owned. Once both owners have admitted exact implementations, a positive
-type canary proves that their complete service values satisfy the same port in
-both directions. That is a compile-time check, not runtime generation
-detection, a shared production package, protocol proxy, or cross-track
-implementation import.
+Client belongs to `@moltzap/client`. There is no profile-acquisition API,
+generation selector, dual backing, protocol proxy, compatibility root, or
+shared implementation imported from a retired package.
 
-## Consumer port
+## Stable capability invariants
 
-The portable service provides:
+The exact TypeScript signatures remain gated, but every admissible final shape
+must satisfy these invariants:
 
-- `startConversation` with other-agent names and initial content; and
-- one scoped `listen` stream of runtime turns.
+- one client represents exactly one registered local `AgentId`;
+- conversation start atomically includes initial content;
+- inbound turns derive from complete certified records and separately live
+  reply authority;
+- a turn's reply accepts content and keeps private transaction/action authority
+  hidden;
+- history facts and conversation identifiers never create reply authority;
+- one scoped client owns one active inbound subscription;
+- no method provides generic established-conversation send; and
+- public values expose no Registry/Router client, endpoint key, store handle,
+  raw MCP session, or protocol fold.
 
-There is no public `HarnessClient` method for registration, status, search, or
-history. Those are daemon MCP management tools. The client implementation may
-call `search_conversations` and `read_conversation` privately to rebuild its
-local presentation context. Their pagination token is a continuation for the
-current read, not durable client state. The exact behavior of an omitted or
-empty query is not fixed here.
+The daemon tool catalog and transport live in [`../management.md`](../management.md)
+and [`daemon.md`](./daemon.md). Action and durability semantics live in
+[`../conversation-history.md`](../conversation-history.md), not in a second
+client-side protocol.
 
-History accepts the existing `ConversationId`. Harness does not introduce an
-agent or conversation summary wrapper, membership DTO, replacement identifier,
-or new domain value.
+## Start and bound reply
 
-The exact agent- and conversation-search result projections remain with the
-owning identity, conversation, or Transcript contracts. A backing may reuse an
-existing domain value, but `HarnessClient` does not choose between
-`Conversation` and `ConversationId` results or invent a missing representation
-merely to make both backings appear complete.
+The final capability includes a conversation-start operation and a stream of
+runtime turns. A turn carries the certified conversation fact that created its
+reply opportunity and one bound reply closure when that opportunity is live.
 
-The two tracks may retain richer backing-specific MCP results. Exact matching,
-ordering, cursor encoding, extra search metadata, and backing-specific errors
-are not standardized by this contract or exposed as runtime service methods.
+This chapter intentionally does not freeze the start input's operation
+identity/recovery field or the start/reply result type. Those choices are
+separate gates below. [`output.md`](./output.md) owns their stable semantics.
 
-There is no public service-level `reply` method. Each emitted turn carries:
+At most one live reply authority exists for one conversation at one endpoint.
+Different conversations may progress independently. A closure remains bound to
+its originating authority; it cannot fall forward to a newer turn.
 
-- the existing `ConversationId` for the replyable conversation;
-- ordered current-conversation content;
-- ordered cross-conversation content, with every item labelled by its source
-  ConversationId; and
-- a turn-bound `reply(payload)` function.
+## Receive and subscription
 
-The turn uses backing-owned context values labelled with their source
-ConversationId; this contract does not introduce a serializable Harness
-context DTO or otherwise select the exact context-entry projection. Native
-reply authority and correlation, including a lease, TxnId, action identifier,
-or reply token, remain private, as do implementation-generation and MCP-client
-plumbing.
+One scoped Client owns one `subscriptions/listen` stream. Establishment
+acknowledgment confirms only stream ownership. Delivery of live reply authority
+is transient and at most once: there is no application acknowledgment,
+subscription replay, resume cursor, `Last-Event-ID`, or reconstruction after a
+lost write.
 
-## Listen and bound reply
+Certified history remains readable after a lost turn, but that read produces
+no closure. Catch-up and re-anchor likewise produce no runtime invocation.
 
-One scoped `HarnessClient` owns one materialized receive stream. A second
-consumer cannot acquire the daemon's reply-capable listener. Closing the scope
-ends that stream. A new scope receives future observations and grants; it does
-not recover an earlier closure.
+The exact turn fields, Stream error union, and wire-to-domain projection remain
+part of the final Client interface gate.
 
-Each client decodes its backing's raw event and captures that event's exact
-reply authority in the emitted closure:
+## Deliberate interface gates
 
-- the production implementation binds its dispatch lease; and
-- the clean-slate implementation binds its accepted TxnId and the legal-action
-  selection once the OpenFloor/task contract owns a payload-only mapping.
+Four choices must be admitted together before implementing the final Client,
+rewriting adapters, or changing Client-dependent simulator behavior.
 
-Calling `reply(payload)` uses that captured authority. ConversationId groups
-context and selects the runtime session; it is not reply authority. The direct
-clean-slate raw reply contract remains `(TxnId, actionId, payload)`.
+### Operation identity and recovery
 
-When a clean-slate grant exposes more than one legal action, this specification
-does not tell the client to infer an action from payload or select one
-implicitly. Implementing the payload-only projection for that case waits for
-the owning OpenFloor/task contract. The runtime still does not receive an
-action identifier.
+Choose whether start exposes a stable operation identity or instead uses a
+named durable Client-owned intent/recovery operation. Specify interruption,
+process restart, changed-input conflict, and ambiguous completion. Do not hide
+an inaccessible generated identity behind an unrecoverable call.
 
-The portable client does not define another retry, timeout, ambiguity, or
-changed-payload state machine. Each backing retains its accepted raw reply and
-recovery behavior.
+### Turn context and checkpoints
 
-## Context ownership
+Choose either:
 
-Inbound content and reply authority are independent:
+- current-conversation-only context; or
+- universal cross-conversation context with explicit selection, personal-trust
+  filtering, size bounds, `RecordHash` checkpoints, crash window, and recovery.
 
-- a content-only observation updates the client's local context and emits no
-  runtime turn;
-- a later grant for the same conversation remains usable even when its content
-  was already observed; and
-- only a live grant can cause a turn and bound reply closure to be emitted.
+Existing cross-conversation checkpoint behavior remains compatible baseline
+behavior until this choice is made. It is not silently removed or declared
+final by this chapter. Runtime hosts may maintain their own session memory, but
+that does not decide the shared Client contract.
 
-Each backing must own the MCP method and schema that carry those facts. The
-accepted clean-slate grant event remains current, but a clean-slate
-content-only event representation is not assigned here and must exist before
-that observation path can be implemented.
+### Operation result
 
-`HarnessClient`, not the SSE writer, groups current and cross-conversation
-content. It deduplicates repeated observations using the backing's stable
-record identity. Runtime adapters only translate the resulting turn into their
-native session, prompt, model invocation, callback, and supervision APIs.
+Choose whether start/reply return the complete certified record or a compact
+receipt plus a named public proof-retrieval operation. Both must preserve local
+success, stable `RecordHash` identity, and complete verification. A receipt
+without a retrieval path is not admissible.
 
-## Local presentation checkpoints
+### Search and history methods
 
-The client persists a stable presentation checkpoint for each source
-conversation as used by each current conversation. The checkpoint records how
-far that runtime context has been presented. It is distinct from a temporary
-search/history pagination cursor and from daemon protocol or Ledger recovery
-state.
+Choose whether `search_agents`, `search_conversations`, and
+`read_conversation` remain MCP management operations only or also appear as
+typed public Client methods. Their existing MCP names do not decide the public
+TypeScript surface.
 
-Immediately before emitting a constructed turn, the client advances the
-checkpoints for exactly the context included in that turn. After restart it
-uses `search_conversations` and `read_conversation` from the saved positions to
-rebuild missing context, then waits for a new live grant before invoking the
-model. History reads never create, extend, consume, or recover reply authority.
+## Compatible behavior during the gate
 
-Advancing immediately before emission gives at-most-once presentation during
-normal operation. A crash after checkpoint advancement but before runtime
-receipt can lose that context. There is no runtime acknowledgment or replay
-that closes this accepted window.
+Until those choices land:
 
-This contract does not select the checkpoint storage format, filesystem
-algorithm, cache layout, selection quota, overflow behavior, corruption
-policy, or an encoded form for the in-memory turn. Those were not part of the
-accepted interface discussion.
+- keep existing compatible consumer behavior and type canaries as a migration
+  baseline;
+- do not add a compatibility facade or freeze transitional method details;
+- do not delete current context/checkpoint behavior merely because a
+  non-normative recommendation prefers less context;
+- do not expose search/history methods merely because adapters can call MCP;
+  and
+- do not migrate adapters or simulator contracts whose correctness depends on
+  one of the four answers.
+
+Identity/Router relocation, endpoint-history semantic work behind private
+boundaries, and deletion of obsolete empty Transcript/testbed scaffolds may
+proceed without selecting these public signatures.
+
+## Error boundary
+
+The final Client exposes closed typed errors by operation. Connection,
+incompatible representation, registration state, start, listen, reply, local
+persistence, durability quorum, catch-up, and re-anchor failures remain
+distinguishable where callers have different recovery actions.
+
+The final unions cannot be frozen until operation identity/result choices are
+made. Unknown `Error`, raw MCP/HTTP decoder details, credentials, private reply
+authority, and internal protocol state never become public error payloads.
 
 ## Acceptance criteria
 
-- After the exact Effect method, stream, result, and error types are admitted,
-  the clean-slate service value satisfies this consumer port. After the
-  `main`-owned production contract also lands, both values pass a
-  bidirectional positive type canary without cross-track production imports.
-- After the backing representations and action mapping they exercise are
-  admitted, a common consumer suite covers start, listen, context grouping,
-  checkpoint advancement, and bound payload reply. Search and history are
-  private MCP dependencies of context reconstruction.
-- Once a backing owns its content-only event, content without a grant never
-  invokes the model and a later grant is not deduplicated away with its
-  content.
-- Once conversation search/history representations are admitted, restart
-  rebuilds context from stable checkpoints and history without reconstructing
-  an old grant.
-- Once the exact client contract is admitted, OpenClaw and NanoClaw
-  observable-behavior tests use a fake `HarnessClient`; import and constructor
-  prohibitions remain static architecture checks rather than unit tests.
+- Compile-time architecture rules allow adapters to import Client public values
+  only.
+- One scoped client owns one subscription and releases it with its scope.
+- Every emitted turn is backed by a complete certified record and a distinct
+  live authority; history alone emits nothing.
+- Bound reply never exposes or accepts ConversationId, TxnId, action ID, or raw
+  reply token as runtime authority.
+- No generic send or network-client escape hatch exists.
+- Final Client, adapter, and Client-dependent simulator changes remain blocked
+  until all four exact interface choices have an admitted owner and positive
+  type canaries.
 
-## Explicitly deferred
+## Deliberate deferrals
 
-A shared raw MCP wire, runtime generation negotiation, delivery replay,
-empty-query behavior, the exact agent- and conversation-search result
-projections,
-the clean-slate content-only event representation, the clean-slate
-payload-to-action mapping when several actions are legal,
-complete Effect method/stream/result/error signatures, checkpoint storage
-representation, exact context-entry projection, client cache and buffer limits,
-and model token budgeting.
-
-## Decisions
-
-- `../../decisions/20260801-harness-client-owns-runtime-context.md`
-- `../../decisions/20260801-inbound-notifications-separate-content-from-grants.md`
-- `../../decisions/20260801-model-output-is-start-or-bound-reply.md`
+The four gates above; exact method names beyond the stable start/turn/bound-
+reply concepts; exact turn fields; exact request/result and error types;
+cross-process reply resumption; context size and crash policy; and acquisition
+ergonomics for injected versus MCP-backed clients.

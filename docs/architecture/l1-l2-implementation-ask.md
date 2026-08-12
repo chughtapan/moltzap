@@ -2,7 +2,13 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **ACTIVE IMPLEMENTATION ASK — AUTHORITY REVIEW PASSED AND ACCEPTED; READY FOR CODE**
+Status: **HISTORICAL IMPLEMENTATION HANDOFF — SUPERSEDED BY THE FOUR-LAYER CUTOVER**
+
+This page preserves the implementation archaeology for the accepted Identity
+and Router contracts. Its six-package graph, `v2/*` destinations, Ledger
+qualifiers, version plan, and execution gate are not current. Implementers use
+[`first-implementation.md`](./first-implementation.md); retained Identity and
+Router behavior is owned by the current ADR lineage and normative specs.
 
 Governing architecture:
 [`20260728-gate-1-architecture-freeze.md`](../decisions/20260728-gate-1-architecture-freeze.md)

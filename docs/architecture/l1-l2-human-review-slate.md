@@ -2,7 +2,10 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **DRAFT — HUMAN REVIEW REQUIRED; HARNESS PLACEHOLDER REPLACED**
+Status: **HISTORICAL REVIEW SLATE — SUPERSEDED BY THE FOUR-LAYER CUTOVER**
+
+This review input is preserved for provenance. It is not a current interface,
+package, or implementation handoff.
 
 Implementation handoff:
 [`l1-l2-implementation-ask.md`](./l1-l2-implementation-ask.md)
