@@ -1,23 +1,19 @@
 # core/
 
-Server boot and composition root: `createCoreApp`, the service-graph Layer
-composition, and the `ManagedRuntime`.
+Internal service-graph Layer composition for the standalone executable.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
 | Imports FROM | every domain — it composes the whole service graph |
-| Imports TO   | nothing imports `#core` for policy; the standalone entry and protocol adapters use boot/runtime types |
+| Imports TO   | the standalone entry and protocol adapters consume resolved runtime services |
 
-Boot constructs and wires the service graph but holds no domain policy. The
-dependency is one-way (`core → domain`, never back), so there is no boot↔domain
-tag cycle.
+The graph wires domain services but holds no domain policy. The dependency is
+one-way (`core → domain`, never back), so there is no composition↔domain tag
+cycle.
 
 ## Files
 
-- `app.ts` — `createCoreApp`: builds the `CoreApp` (services + Kysely + Layers +
-  `ManagedRuntime`) and starts its listener.
 - `layers.ts` — `ServicesLive` / `resolveServices`: the service-graph Layer
   composition that wires every domain service.
-- `types.ts` — boot-surface types only: `CoreApp`.

@@ -8,30 +8,6 @@ Narrow core wiring barrel for server-core internals.
 
 ## Public surface
 
-### [`CoreApp`](./types.ts#L2)
-
-_Interface_
-
-```ts
-export interface CoreApp {
-  readonly port: number;
-}
-```
-
-Describes core app.
-
-### [`createCoreApp`](./app.ts#L28)
-
-_Function_
-
-```ts
-export function createCoreApp(config: CoreConfig): CoreApp
-```
-
-Creates core app.
-
-**Returns:** The created core app.
-
 ### [`ResolvedServices`](./layers.ts#L58)
 
 _Interface_
@@ -83,6 +59,4 @@ Provides the services live runtime value.
 
 ## Files
 
-- `app.ts`
 - `layers.ts`
-- `types.ts`

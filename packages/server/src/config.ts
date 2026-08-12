@@ -2,17 +2,14 @@
  * @file Canonical server config. The only file in the package that knows
  * about YAML, env vars, or config file paths.
  *
- * Two public types:
- *   - `CoreConfig` — the programmatic input to `createCoreApp(...)`.
- *     Live database instances sit here.
- *   - `StandaloneBootPlan` — the flat output of `loadStandaloneConfig`.
- *     What `standalone.ts` reads after parsing YAML + env.
+ * One public type: `StandaloneBootPlan`, the flat output of
+ * `loadStandaloneConfig` that `standalone.ts` reads after parsing YAML + env.
  *
  * One public function: `loadStandaloneConfig({configPath?, processEnv?})`.
  *
  * The internal YAML shape (`YamlConfig`) is not exported — operators
  * write YAML, but no consumer references its TS type. Everything flows
- * through the two public types above.
+ * through the boot plan above.
  */
 
 import { FileSystem } from "@effect/platform";
@@ -31,33 +28,6 @@ import {
 import { TreeFormatter } from "effect/ParseResult";
 import { type RegistrationSecret, registrationSecret } from "#config/secrets";
 import { type UserId, userId } from "@moltzap/protocol/identity";
-import type { Db } from "#db";
-
-// ─────────────────────────────────────────────────────────────────────
-// Public: CoreConfig — `createCoreApp` boot input
-// ─────────────────────────────────────────────────────────────────────
-
-/** Describes core config. */
-export interface CoreConfig {
-  db: Db;
-  port: number;
-  corsOrigins: string[];
-  registrationSecret?: RegistrationSecret;
-
-  /**
-   * Boot-time admin owner id. Agents registered through the default
-   * `/api/v1/auth/register` route are owned by this user until the
-   * full app-specific registration flow is installed.
-   */
-  adminUserId: UserId;
-
-  /**
-   * When true, core does not mount its default `/api/v1/auth/register`
-   * route. Apps that want their own invite-gated / rate-limited register
-   * flow set this and mount their own handler.
-   */
-  skipDefaultRegisterRoute?: boolean;
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Public: StandaloneBootPlan — `loadStandaloneConfig` output

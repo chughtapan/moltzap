@@ -7,13 +7,16 @@ import {
 import type * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Exit, Redacted, Schema } from "effect";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import { register, type AgentKey } from "@moltzap/protocol/identity";
+import {
+  register,
+  type AgentKey,
+  type UserId,
+} from "@moltzap/protocol/identity";
 
 import type { ServerTags } from "#moltzap";
 import type { ResolvedServices } from "#core";
 import type { ConnectionTag } from "#socket";
 import { safeEqual } from "#identity/credential-keys";
-import type { CoreConfig } from "#config";
 import type { RegistrationSecret } from "#config/secrets";
 
 const HTTP_CREATED = 201;
@@ -47,7 +50,9 @@ class HttpEarlyResponse extends Data.TaggedError("HttpEarlyResponse")<{
 }> {}
 
 interface CoreHttpAppOptions {
-  readonly config: CoreConfig;
+  readonly corsOrigins: readonly string[];
+  readonly registrationSecret?: RegistrationSecret;
+  readonly adminUserId: UserId;
   readonly authService: ResolvedServices["authService"];
   readonly connections: ResolvedServices["connections"];
   readonly handleSocket: (
@@ -65,15 +70,14 @@ interface RegisterAgentSuccess {
 }
 
 /**
- * Build the core HTTP app. Composes the two always-on routes
- * (`/health`, `/ws`) with the auth surface
- * (`/api/v1/auth/register`) and wraps the router in CORS.
+ * Build the core HTTP app. Composes the health, WebSocket, and registration
+ * routes and wraps the router in CORS.
  *
- * | Route                              | Mounted unless         | Method | Body                          | Status                                                       |
- * |------------------------------------|------------------------|--------|-------------------------------|--------------------------------------------------------------|
- * | `/health`                          | always                 | GET    | —                             | 200 `{status, connections}`                                  |
- * | `/ws`                              | always                 | GET    | WS Upgrade                    | 101                                                          |
- * | `/api/v1/auth/register`            | `skipDefaultRegisterRoute` | POST | `Register.params`           | 201 `{agentId, apiKey}`; 400/403/500                         |
+ * | Route                   | Method | Body              | Status                               |
+ * | ----------------------- | ------ | ----------------- | ------------------------------------ |
+ * | `/health`               | GET    | —                 | 200 `{status, connections}`          |
+ * | `/ws`                   | GET    | WS Upgrade        | 101                                  |
+ * | `/api/v1/auth/register` | POST   | `Register.params` | 201 `{agentId, apiKey}`; 400/403/500 |
  * The bodied route funnels through `readDecodedBody` for JSON
  * decode + Effect-Schema strict (excess-rejecting) decode. Invite-gate
  * checks use `safeEqual`
@@ -86,10 +90,8 @@ export function makeCoreHttpApp(options: CoreHttpAppOptions) {
   const healthRoute = makeHealthRoute(options.connections);
   const registerRoute = makeRegisterRoute(options);
   const wsRoute = makeWsRoute(options.handleSocket);
-  const router = options.config.skipDefaultRegisterRoute
-    ? HttpRouter.empty.pipe(healthRoute, wsRoute)
-    : HttpRouter.empty.pipe(healthRoute, registerRoute, wsRoute);
-  return withCors(router, options.config.corsOrigins);
+  const router = HttpRouter.empty.pipe(healthRoute, registerRoute, wsRoute);
+  return withCors(router, options.corsOrigins);
 }
 
 function makeHealthRoute(connections: ResolvedServices["connections"]) {
@@ -116,7 +118,7 @@ function makeRegisterRoute(options: CoreHttpAppOptions) {
         const body = yield* readDecodedBody(request, decodeRegisterBody);
         yield* authorizeInviteCode(
           optionalSecretValue(body.inviteCode),
-          options.config.registrationSecret,
+          options.registrationSecret,
         );
         // eslint-disable-next-line @typescript-eslint/no-use-before-define -- route construction is declaration-order independent.
         return yield* registerAgent(body, options);
@@ -201,7 +203,7 @@ const registerAgent = Effect.fn("http.registerAgent")(function* (
   options: CoreHttpAppOptions,
 ) {
   const exit = yield* Effect.exit(
-    options.authService.registerAgent(body, options.config.adminUserId),
+    options.authService.registerAgent(body, options.adminUserId),
   );
   if (Exit.isSuccess(exit)) {
     return registerSuccessResponse(exit.value);

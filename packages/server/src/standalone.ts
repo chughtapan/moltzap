@@ -1,18 +1,20 @@
 /** Standalone server — loads YAML config, boots PGlite, and starts the server. */
+// safer-arch-ignore no-cross-domain-sibling-import: This executable is the server composition root and assembles the protocol socket adapter with every runtime domain.
 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Data, Effect } from "effect";
+import { Data, Effect, Layer, ManagedRuntime, Scope } from "effect";
 import { FileSystem } from "@effect/platform";
-import { NodeFileSystem } from "@effect/platform-node";
-import { createCoreApp, type CoreApp } from "#core";
+import { NodeFileSystem, NodeHttpServer } from "@effect/platform-node";
+import { resolveServices, servicesLive } from "#core";
 import {
   loadStandaloneConfig,
-  type CoreConfig,
   type ConfigLoadError,
   type StandaloneBootPlan,
 } from "#config";
-import { sql, makeEffectKysely, type Database, type Db } from "#db";
+import { sql, makeEffectKysely, type Database, type Db, DbTag } from "#db";
+import { makeCoreHttpApp, makeNodeHttpServer } from "#http";
+import { makeMoltzapSocketHandler } from "./moltzap/server-socket.js";
 
 const dirnameValue = dirname(fileURLToPath(import.meta.url));
 
@@ -227,8 +229,12 @@ export function startServer(configPath?: string) {
 }
 
 interface StandaloneServerHandle {
-  readonly app: CoreApp;
+  readonly app: StandaloneApp;
   readonly bootPlan: StandaloneBootPlan;
+}
+
+interface StandaloneApp {
+  readonly port: number;
 }
 
 function startServerEffect(
@@ -241,11 +247,7 @@ function startServerEffect(
     yield* Effect.logWarning("Boot admin user configured").pipe(
       Effect.annotateLogs({ adminUserId: bootPlan.adminUserId }),
     );
-    const coreConfig = makeCoreConfig({
-      bootPlan,
-      handle: database,
-    });
-    const app = createCoreApp(coreConfig);
+    const app = startStandaloneApp(bootPlan, database.db);
     yield* logStandaloneStarted(app);
     return { app, bootPlan };
   }).pipe(Effect.withSpan("startServerEffect"));
@@ -255,21 +257,64 @@ function migrateStandaloneDatabase(handle: DbHandle) {
   return autoMigrateEffect(handle).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
-function makeCoreConfig(options: {
-  readonly bootPlan: StandaloneBootPlan;
-  readonly handle: DbHandle;
-}): CoreConfig {
-  const { bootPlan, handle } = options;
-  return {
-    db: handle.db,
-    port: bootPlan.port,
+function makeStandaloneRuntime(db: Db) {
+  const baseLive = Layer.succeed(DbTag, db);
+  const fullLive = Layer.provideMerge(servicesLive, baseLive);
+  const dispatchRuntime = ManagedRuntime.make(
+    Layer.mergeAll(NodeHttpServer.layerContext, fullLive),
+  );
+  const services = dispatchRuntime.runSync(resolveServices);
+  return { dispatchRuntime, services };
+}
+
+function startStandaloneApp(
+  bootPlan: StandaloneBootPlan,
+  db: Db,
+): StandaloneApp {
+  const { dispatchRuntime, services } = makeStandaloneRuntime(db);
+  const handleSocket = makeMoltzapSocketHandler({ services });
+  const httpApp = makeCoreHttpApp({
     corsOrigins: bootPlan.corsOrigins,
     registrationSecret: bootPlan.registrationSecret,
     adminUserId: bootPlan.adminUserId,
+    authService: services.authService,
+    connections: services.connections,
+    handleSocket,
+  });
+  const appScope = Effect.runSync(Scope.make());
+  let actualPort = bootPlan.port;
+  const startup = Effect.gen(function* () {
+    const serverSvc = yield* NodeHttpServer.make(makeNodeHttpServer, {
+      port: bootPlan.port,
+      host: "0.0.0.0",
+    });
+    yield* serverSvc.serve(httpApp);
+    const addr = serverSvc.address;
+    actualPort = addr._tag === "TcpAddress" ? addr.port : bootPlan.port;
+    yield* Effect.logInfo("MoltZap core server listening").pipe(
+      Effect.annotateLogs({ port: actualPort }),
+    );
+  }).pipe(
+    Effect.withSpan("startStandaloneApp.startup"),
+    Scope.extend(appScope),
+  );
+
+  dispatchRuntime.runPromise(startup).catch((err: unknown) => {
+    Effect.runFork(
+      Effect.logError("Server startup failed").pipe(
+        Effect.annotateLogs({ err }),
+      ),
+    );
+  });
+
+  return {
+    get port() {
+      return actualPort;
+    },
   };
 }
 
-function logStandaloneStarted(app: CoreApp): Effect.Effect<void> {
+function logStandaloneStarted(app: StandaloneApp): Effect.Effect<void> {
   return Effect.logInfo("MoltZap server started (standalone mode)").pipe(
     Effect.annotateLogs({
       port: app.port,

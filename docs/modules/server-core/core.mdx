@@ -13,30 +13,6 @@ Narrow core wiring barrel for server-core internals.
 
 ## Public surface
 
-### [`CoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/types.ts#L2)
-
-_Interface_
-
-```ts
-export interface CoreApp {
-  readonly port: number;
-}
-```
-
-Describes core app.
-
-### [`createCoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/app.ts#L28)
-
-_Function_
-
-```ts
-export function createCoreApp(config: CoreConfig): CoreApp
-```
-
-Creates core app.
-
-**Returns:** The created core app.
-
 ### [`ResolvedServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L58)
 
 _Interface_
@@ -88,6 +64,4 @@ Provides the services live runtime value.
 
 ## Files
 
-- `app.ts`
 - `layers.ts`
-- `types.ts`
