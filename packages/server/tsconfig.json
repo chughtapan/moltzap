@@ -12,7 +12,7 @@
         "./src/socket/index.ts"
       ],
       "#http": [
-        "./src/http/index.ts"
+        "./src/http/routes.ts"
       ],
       "#config": [
         "./src/config.ts"

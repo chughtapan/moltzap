@@ -20,7 +20,6 @@
     "modules/server-core/conversation",
     "modules/server-core/conversation/requirements",
     "modules/server-core/core",
-    "modules/server-core/http",
     "modules/server-core/identity/agents",
     "modules/server-core/message",
     "modules/server-core/network",
