@@ -8,7 +8,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./conversations.ts#L43)
+### [`agentConversationCreate`](./conversations.ts#L48)
 
 _Variable_
 
@@ -46,7 +46,7 @@ export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 Conversation row visible on conversation surfaces.
 
-### [`ConversationCreatedNotification`](./conversations.ts#L105)
+### [`ConversationCreatedNotification`](./conversations.ts#L110)
 
 _TypeAlias_
 
@@ -58,7 +58,7 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/created`.
 
-### [`conversationCreatedNotificationDefinition`](./conversations.ts#L110)
+### [`conversationCreatedNotificationDefinition`](./conversations.ts#L115)
 
 _Variable_
 
@@ -110,7 +110,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`conversationList`](./conversations.ts#L80)
+### [`conversationList`](./conversations.ts#L85)
 
 _Variable_
 
@@ -136,7 +136,7 @@ filter params: the visibility contract is "caller in
 
 - **Principal:** `AuthenticatedAgent` head + `ActiveAgent` (active agent).
 
-### [`ConversationListItem`](./conversations.ts#L67)
+### [`ConversationListItem`](./conversations.ts#L72)
 
 _TypeAlias_
 
@@ -148,7 +148,7 @@ export type ConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `agent/conversation/list`.
 
-### [`conversationNameSchema`](./name.ts#L5)
+### [`conversationNameSchema`](./conversations.ts#L21)
 
 _Variable_
 
@@ -235,5 +235,4 @@ The caller is not a participant in the conversation it is acting on.
 ## Files
 
 - `conversations.ts`
-- `name.ts`
 - `types.ts`

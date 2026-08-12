@@ -15,9 +15,6 @@ export {
 } from "./types.js";
 /** Re-exports the public API from `./types.js`. */
 export type { Conversation } from "./types.js";
-/** Re-exports the public API from `./name.js`. */
-export { conversationNameSchema } from "./name.js";
-
 /** Re-exports the public API from `./requirements/index.js`. */
 export { ConversationSendAccess } from "./requirements/index.js";
 /** Re-exports the public API from `./requirements/index.js`. */
@@ -28,6 +25,7 @@ export {
   agentConversationCreate,
   conversationList,
   conversationCreatedNotificationDefinition,
+  conversationNameSchema,
 } from "./conversations.js";
 /** Re-exports the public API from `./conversations.js`. */
 export type {

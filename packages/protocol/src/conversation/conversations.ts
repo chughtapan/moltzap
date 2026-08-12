@@ -14,9 +14,14 @@ import {
   conversationSchema,
   ConversationNotFoundError,
 } from "./types.js";
-import { conversationNameSchema } from "./name.js";
 
 const conversationSchemaValue = conversationSchema();
+
+/** Display name accepted when a conversation is created. */
+export const conversationNameSchema = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(100),
+);
 
 // Wire bound on the create participants list. Mirrors the server's group
 // capacity so an oversized request is rejected at decode, before any

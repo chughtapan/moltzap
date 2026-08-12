@@ -13,7 +13,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L43)
+### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L48)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 Conversation row visible on conversation surfaces.
 
-### [`ConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L105)
+### [`ConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L110)
 
 _TypeAlias_
 
@@ -63,7 +63,7 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/created`.
 
-### [`conversationCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L110)
+### [`conversationCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L115)
 
 _Variable_
 
@@ -115,7 +115,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L80)
+### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L85)
 
 _Variable_
 
@@ -141,7 +141,7 @@ filter params: the visibility contract is "caller in
 
 - **Principal:** `AuthenticatedAgent` head + `ActiveAgent` (active agent).
 
-### [`ConversationListItem`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L67)
+### [`ConversationListItem`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L72)
 
 _TypeAlias_
 
@@ -153,7 +153,7 @@ export type ConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `agent/conversation/list`.
 
-### [`conversationNameSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/name.ts#L5)
+### [`conversationNameSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L21)
 
 _Variable_
 
@@ -240,5 +240,4 @@ The caller is not a participant in the conversation it is acting on.
 ## Files
 
 - `conversations.ts`
-- `name.ts`
 - `types.ts`
