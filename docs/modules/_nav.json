@@ -15,7 +15,6 @@
     "modules/protocol/network",
     "modules/protocol/socket",
     "modules/protocol/socket/catalog",
-    "modules/protocol/src",
     "modules/protocol/testing",
     "modules/router/src",
     "modules/server-core/conversation",

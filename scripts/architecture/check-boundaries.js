@@ -218,7 +218,6 @@ if (sourceFiles.length === 0) {
 for (const file of sourceFiles) checkSourceFile(file);
 
 assertExportMap("packages/protocol", [
-  ".",
   "./conversation",
   "./identity",
   "./message",
