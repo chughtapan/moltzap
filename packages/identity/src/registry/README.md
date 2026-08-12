@@ -7,8 +7,8 @@ storage.
 
 Start with:
 
-- `process.ts` loads configuration and runs the standalone process.
-- `server.ts` is the actual composition root for the production Effect layers.
+- `server.ts` is the composition root for the production Effect layers; the
+  package executable launches it with process-environment configuration.
 - `http.ts` exposes readiness and the registration, lookup, and list routes.
 - `admission.ts` authenticates registration before storage work.
 - `rpc.ts` owns the private operation group, admission proof, handlers, and

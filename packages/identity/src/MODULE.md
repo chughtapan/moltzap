@@ -766,7 +766,7 @@ export class StartupError extends Data.TaggedError(
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L69)
+#### [`layer`](./registry/server.ts#L68)
 
 _Variable_
 
@@ -780,8 +780,7 @@ Complete production Registry process composition.
 
 ```mermaid
 flowchart TD
-  Binary["moltzap-registry"] --> Process["runRegistryProcess"]
-  Process --> Server["runRegistryServer"]
+  Binary["moltzap-registry"] --> Server["runRegistryServer"]
   Server --> Configuration["loadRegistryConfiguration"]
   Server --> Storage["RegistryStorage"]
   Server --> Http["makeRegistryHttpApp"]
@@ -809,7 +808,6 @@ flowchart TD
 - `registry/contract.ts`
 - `registry/http.ts`
 - `registry/migrations/0001_registry.ts`
-- `registry/process.ts`
 - `registry/README.md`
 - `registry/rpc.ts`
 - `registry/server.ts`

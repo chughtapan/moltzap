@@ -1,4 +1,9 @@
 #!/usr/bin/env node
-import { runRegistryProcess } from "../dist/registry/process.js";
+import { NodeRuntime } from "@effect/platform-node";
+import { ConfigProvider, Effect, Layer } from "effect";
+import { layer } from "../dist/registry/server.js";
 
-runRegistryProcess();
+Layer.launch(layer).pipe(
+  Effect.withConfigProvider(ConfigProvider.fromEnv()),
+  NodeRuntime.runMain,
+);

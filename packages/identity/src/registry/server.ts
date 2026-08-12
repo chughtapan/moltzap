@@ -53,8 +53,7 @@ const runRegistryServer = Effect.gen(function* () {
  *
  * ```mermaid
  * flowchart TD
- *   Binary["moltzap-registry"] --> Process["runRegistryProcess"]
- *   Process --> Server["runRegistryServer"]
+ *   Binary["moltzap-registry"] --> Server["runRegistryServer"]
  *   Server --> Configuration["loadRegistryConfiguration"]
  *   Server --> Storage["RegistryStorage"]
  *   Server --> Http["makeRegistryHttpApp"]
