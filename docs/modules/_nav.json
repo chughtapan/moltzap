@@ -27,7 +27,6 @@
     "modules/server-core/message",
     "modules/server-core/network",
     "modules/server-core/socket",
-    "modules/server-core/test-utils",
     "modules/simulator/src"
   ]
 }

@@ -58,9 +58,6 @@
       ],
       "#dispatch/handlers": [
         "./src/dispatch/handlers.ts"
-      ],
-      "#test-utils": [
-        "./src/test-utils/index.ts"
       ]
     }
   },

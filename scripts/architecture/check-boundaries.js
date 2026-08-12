@@ -228,7 +228,7 @@ assertExportMap("packages/protocol", [
   "./socket/catalog",
   "./testing",
 ]);
-assertExportMap("packages/server", [".", "./test-utils"]);
+assertExportMap("packages/server", ["."]);
 
 // ─── Retired Client process and test planes ───────────────────────────────
 

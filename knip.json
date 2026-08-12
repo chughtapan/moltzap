@@ -75,7 +75,6 @@
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
-        "src/**/__tests__/**/*.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]

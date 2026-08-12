@@ -22,10 +22,6 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    },
-    "./test-utils": {
-      "import": "./dist/test-utils/index.js",
-      "types": "./dist/test-utils/index.d.ts"
     }
   },
   "scripts": {
@@ -35,7 +31,6 @@
     "dev": "tsx watch src/standalone.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
-    "test:integration": "vitest run -c vitest.integration.config.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
