@@ -1001,7 +1001,7 @@ export type LinkVerdict = Data.TaggedEnum<{
 
 Closed per-delivery decision returned by a link policy.
 
-### [`MessageParts`](./../../protocol/dist/message/parts.d.ts#L41)
+### [`MessageParts`](./../../protocol/dist/message/messages.d.ts#L48)
 
 _TypeAlias_
 

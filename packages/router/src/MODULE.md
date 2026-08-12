@@ -315,7 +315,7 @@ export class StartupError extends Data.TaggedError("RouterServerStartupError")<{
 
 Closed Router startup phase.
 
-#### [`RouterServer.layer`](./router/server.ts#L62)
+#### [`RouterServer.layer`](./router/server.ts#L61)
 
 _Variable_
 
@@ -328,8 +328,7 @@ Complete production Router process composition.
 
 ```mermaid
 flowchart LR
-  Binary["moltzap-router"] --> Process["runRouterProcess"]
-  Process --> Server["runRouterServer"]
+  Binary["moltzap-router"] --> Server["RouterServer.layer"]
   Server --> App["buildRouterApp"]
   App --> Http["makeRouterHttpApp"]
   Http --> Authentication["AuthenticatedHttp"]
@@ -351,7 +350,6 @@ flowchart LR
 - `router/poll-cursor.ts`
 - `router/poll-waiters.ts`
 - `router/poll.ts`
-- `router/process.ts`
 - `router/README.md`
 - `router/rpc.ts`
 - `router/send.ts`
