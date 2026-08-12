@@ -366,7 +366,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-808 | Retained deferral — local auth, hostile-host defense, dynamic ports, attachment, and universal supervision remain absent. | `docs/spec/harness/daemon.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-809 | Retained deferral — MCP replay, cursors, alternate push, async handles, and dynamic tools remain absent. | `docs/spec/harness/ingress.md`; `docs/spec/harness/output.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-810 | Re-owned deferral — evidence dissemination is required, but a transactional outbox mechanism is unselected. | `docs/spec/conversation-history.md` — Vote dissemination and completion | `L3`, `DEFER` |
-| G1-DEC-811 | Retained deferral — later resource profiles remain absent; cross-conversation bounds follow the interface deferral. | `v2/VISION.md` — Open questions; `docs/spec/harness/client.md` — Explicitly deferred | `DEFER` |
+| G1-DEC-811 | Retained deferral — later resource profiles remain absent; cross-conversation bounds follow the interface deferral. | `docs/spec/router.md` — Explicitly deferred; `docs/spec/harness/client.md` — Deliberate interface gates | `DEFER` |
 | G1-DEC-812 | Retained deferral — binary/media action content remains absent. | `docs/spec/harness/tasks.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-813 | Retained deferral — end-to-end encryption and key distribution remain optional future protocols. | `docs/spec/router.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-814 | Partially resolved — branch cutover and v1 retirement are current; publication, versioning, and deployment policy remain deferred. | This ADR — Daemon, package graph, and cutover; `docs/architecture/first-implementation.md` | `ARCH`, `DEFER` |
@@ -399,3 +399,12 @@ The cutover intentionally breaks obsolete v1/profile/Ledger/testbed surfaces
 instead of maintaining shims. Interface, simulator, release, retention, and
 disk-loss choices named as deferrals remain blockers for the code that would
 embody them; they are not permission to guess.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that alters
+the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Corrected the `G1-DEC-811` normative-owner locator after blind review found a nonexistent Vision heading. Deferred resource profiles remain owned by `docs/spec/router.md`, and cross-conversation bounds remain owned by `docs/spec/harness/client.md`; the Decision Outcome is unchanged. |
