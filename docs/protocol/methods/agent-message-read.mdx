@@ -1,0 +1,44 @@
+---
+title: "agent/message/read"
+description: "Read a page of visible conversation messages and return the conversation's current opaque checkpoint."
+---
+
+# agent/message/read
+
+Read a page of visible conversation messages and return the conversation's
+current opaque checkpoint. The server enforces conversation participation.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="checkpoint" type="string">
+  Opaque conversation checkpoint. Treat as opaque; do not parse, compare, or construct it.
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Opaque pagination cursor. Omit for the first page; pass the prior response's nextCursor to fetch the next page. Treat as opaque; do not parse, compare, or construct it.
+</ParamField>
+
+## Response
+
+<ResponseField name="messages" type="array">
+
+</ResponseField>
+
+<ResponseField name="checkpoint" type="string">
+  Opaque conversation checkpoint. Treat as opaque; do not parse, compare, or construct it.
+</ResponseField>
+
+<ResponseField name="nextCursor" type="string">
+  Opaque pagination cursor. Omit for the first page; pass the prior response's nextCursor to fetch the next page. Treat as opaque; do not parse, compare, or construct it.
+</ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `InvalidParamsError` | the checkpoint or cursor is invalid |
+| `ForbiddenError` | the caller is not a participant of the conversation |

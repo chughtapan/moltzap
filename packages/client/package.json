@@ -14,7 +14,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "moltzap": "./dist/cli/index.js"
+    "moltzapd": "./dist/moltzapd-main.js"
   },
   "exports": {
     ".": {
@@ -51,8 +51,7 @@
     "lint": "nx run @moltzap/client:lint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mjs",
-    "test:conformance": "vitest run -c vitest.conformance.config.mjs",
-    "docs:generate": "nx run @moltzap/client:build && pnpm exec tsx scripts/generate-cli-docs.ts",
+    "docs:generate": "pnpm exec tsx scripts/generate-ws-connect-snippet.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -69,6 +68,33 @@
         "options": {
           "cwd": "packages/client",
           "command": "eslint . --cache --max-warnings=0"
+        }
+      },
+      "test:integration": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "packages/client",
+          "command": "vitest run --config vitest.integration.config.mjs"
+        }
+      },
+      "test:pack": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/scripts/test-client-package.mjs"
+        ],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test-client-package.mjs"
         }
       },
       "arch:check": {

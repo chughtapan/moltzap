@@ -13,7 +13,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L96)
+### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L120)
 
 _Variable_
 
@@ -29,7 +29,7 @@ Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L85)
+### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L98)
 
 _Variable_
 
@@ -45,7 +45,23 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L225)
+### [`conversationSearch`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L109)
+
+_Variable_
+
+```ts
+export const conversationSearch: ServerHandler<
+  typeof conversationSearchDefinition
+> = Effect.fn("conversationSearch")(function* (params) {
+  return yield* conversationSearchBody(params, yield* agentArm);
+})
+```
+
+Search the active agent's conversations by exact identifier or member.
+
+**Returns:** One stable identifier-ordered page.
+
+### [`ConversationService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L346)
 
 _Class_
 

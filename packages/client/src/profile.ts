@@ -17,6 +17,8 @@ const PROFILE_NAME_REASON =
   "must be 3-32 chars, lowercase alphanumeric and hyphens, cannot start or end with a hyphen";
 
 const CONFIG_FILE_MODE = 0o600;
+const MIN_TCP_PORT = 1;
+const MAX_TCP_PORT = 65_535;
 const JSON_INDENT_SPACES = 2;
 const getConfigDir = getMoltZapConfigDir;
 const getConfigFilePathSync = getMoltZapConfigPath;
@@ -30,19 +32,54 @@ export const profileName = Schema.String.pipe(
   Schema.brand("ProfileName"),
 );
 
-/**
- * Branded profile name shared by profile lookup and CLI registration.
- */
+/** Branded profile name shared by slot lookup and daemon registration. */
 export type ProfileName = Schema.Schema.Type<typeof profileName>;
 
-const profileRecordSchema = Schema.Struct({
-  agentId: agentId,
-  apiKey: agentKey,
-  agentName: Schema.String,
-});
+/**
+ * Loopback port the slot's daemon listens on. Operator-supplied and stable for
+ * the life of the slot: the daemon and every adapter derive the same MCP URL
+ * from it, so nothing discovers, allocates, or falls back to another port.
+ */
+const mcpPort = Schema.Number.pipe(
+  Schema.int(),
+  Schema.between(MIN_TCP_PORT, MAX_TCP_PORT),
+);
 
-/** One profile's persisted auth record. */
+/**
+ * A slot exists before registration and carries no AgentId. Registry commit
+ * adds the identity pair, which is irreversible for that slot.
+ */
+const profileRecordSchema = Schema.Struct({
+  agentName: Schema.String,
+  mcpPort,
+  agentId: Schema.optional(agentId),
+  apiKey: Schema.optional(agentKey),
+}).pipe(
+  Schema.filter(
+    (record) =>
+      (record.agentId === undefined) === (record.apiKey === undefined) ||
+      "agentId and apiKey are written together at Registry commit",
+  ),
+);
+
+/** One profile's persisted slot, with its identity once Registry has committed. */
 export type ProfileRecord = Schema.Schema.Type<typeof profileRecordSchema>;
+
+/** A slot whose Registry commit has happened, so it can authenticate. */
+export interface RegisteredProfileRecord extends ProfileRecord {
+  readonly agentId: NonNullable<ProfileRecord["agentId"]>;
+  readonly apiKey: NonNullable<ProfileRecord["apiKey"]>;
+}
+
+/**
+ * Narrow a slot to its registered form.
+ * @param record Slot to inspect.
+ * @returns Whether Registry has committed an identity for the slot.
+ */
+export const isRegisteredProfile = (
+  record: ProfileRecord,
+): record is RegisteredProfileRecord =>
+  record.agentId !== undefined && record.apiKey !== undefined;
 
 const profileMapSchema = Schema.Record({
   key: profileName,
@@ -64,16 +101,16 @@ export interface LayeredConfig {
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
-/** Exhaustive error union for the profile surface. */
-export type ProfileError =
-  | ProfileNotFoundError
-  | ProfileInvalidNameError
-  | ProfileConfigReadError
-  | ProfileConfigWriteError;
-
 /** Reports profile not found failures. */
 export class ProfileNotFoundError extends Data.TaggedError(
   "ProfileNotFoundError",
+)<{
+  readonly name: string;
+}> {}
+
+/** Reports a slot that exists but has no committed Registry identity. */
+export class ProfileNotRegisteredError extends Data.TaggedError(
+  "ProfileNotRegisteredError",
 )<{
   readonly name: string;
 }> {}
@@ -210,8 +247,7 @@ export const loadLayeredConfig: Effect.Effect<
 }).pipe(Effect.withSpan("loadLayeredConfig"));
 
 /**
- * Resolve a named profile record. CLI transport selection uses only
- * `agentId`; daemon startup consumes the redacted `apiKey`.
+ * Resolve a named profile record for daemon startup or client acquisition.
  * @param name Name of the operation.
  * @returns The next profile file result.
  */
@@ -306,22 +342,3 @@ export const writeProfile = (
     const { file } = yield* readProfileFile();
     yield* writeProfileFile(nextProfileFile(file, name, record));
   }).pipe(Effect.withSpan("writeProfile"));
-
-/**
- * `--no-persist` contract for `moltzap register`: no file under
- * `$HOME/.moltzap/` is created or modified. Returns the record so the caller
- * can print it; does no I/O under that tree.
- *
- * The register command invokes either `writeProfile` (default) or
- * `emitNoPersist` (when the flag is set). The register handler never calls
- * both paths on the same invocation.
- *
- * The register command pipes the returned record through the printer,
- * which writes non-secret registration details to stdout.
- * @param record Value supplied to the operation.
- * @returns The emit no persist result.
- */
-export const emitNoPersist = (
-  record: ProfileRecord,
-): Effect.Effect<{ readonly record: ProfileRecord }> =>
-  Effect.succeed({ record });

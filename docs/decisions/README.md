@@ -52,6 +52,9 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
+| [The profile slot is the unit of local identity](20260805-profile-slot-is-the-unit-of-local-identity.md) | 2026-08-05 | accepted | — |
+| [HarnessClient is the production adapter contract](20260805-harness-client-is-the-production-adapter-contract.md) | 2026-08-05 | accepted | — |
+| [The daemon serves one loopback MCP path and retires the CLI](20260805-daemon-serves-one-loopback-mcp-path.md) | 2026-08-05 | accepted | — |
 | [The main simulator runs container societies on Kubernetes](20260801-main-simulator-runs-container-societies-on-kubernetes.md) | 2026-08-01 | accepted | — |
 | [Principal I/O uses runtime-native gateways](20260729-principal-io-uses-runtime-gateways.md) | 2026-07-29 | partially-superseded | [Main Kubernetes society execution](20260801-main-simulator-runs-container-societies-on-kubernetes.md) |
 | [Evaluation runs produce typed reports published to Phoenix](20260729-effect-native-evaluation-results.md) | 2026-07-29 | partially-superseded | [Principal runtime gateways](20260729-principal-io-uses-runtime-gateways.md) |

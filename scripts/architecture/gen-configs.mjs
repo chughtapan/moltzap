@@ -84,13 +84,18 @@ const packageDefinitions = {
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 25,
-          maxChildrenIncludingTests: 27,
+          maxChildren: 26,
+          maxChildrenIncludingTests: 28,
           reason:
             "The client SDK keeps its peer public surfaces and their focused implementation modules flat at the source root; AGENTS.md documents the package structure",
         },
       ],
       facadeFiles: [
+        {
+          file: "harness-client.ts",
+          reason:
+            "Named adapter-facing boundary for the loopback daemon client, published as the ./harness-client subpath",
+        },
         {
           file: "channel-core.ts",
           reason:
@@ -102,24 +107,19 @@ const packageDefinitions = {
             "Named public boundary for the managed MoltZap client service",
         },
         {
-          file: "cli/transport.ts",
-          reason:
-            "Shared CLI transport contract composed by the individual command modules",
-        },
-        {
-          file: "local-daemon-rpc.ts",
-          reason:
-            "Typed local-daemon IPC descriptor and codec boundary shared by the service, socket server, and CLI",
-        },
-        {
-          file: "local-history.ts",
-          reason:
-            "Local history DTO, schema, and formatting boundary shared by the daemon RPC contract and service implementation",
-        },
-        {
           file: "profile.ts",
           reason:
-            "Named-profile persistence contract shared by client configuration and CLI transport selection",
+            "Named-profile persistence contract shared by client configuration and the daemon that owns each slot",
+        },
+        {
+          file: "harness-mcp-wire.ts",
+          reason:
+            "MCP catalog contract shared by the daemon composition and the listener that serves it",
+        },
+        {
+          file: "moltzapd-catalog.ts",
+          reason:
+            "Slot and active catalog boundary shared by the daemon composition and its registration handler",
         },
       ],
     },
@@ -210,6 +210,7 @@ const packageDefinitions = {
   },
   "nanoclaw-channel": {
     beforeShared: {
+      folderReadmeFileNames: ["README.md", "MODULE.md"],
       sharedFolderNames: [
         {
           folder: "db",

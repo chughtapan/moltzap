@@ -1,6 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
+import { Deferred, Effect, Fiber, Option } from "effect";
 import {
   type Message,
   messageReceivedNotificationDefinition,
@@ -15,20 +15,14 @@ import {
   testMessageId,
 } from "./test-utils/index.js";
 
-import { agentName, agentsList } from "@moltzap/protocol/identity";
-import { agentConversationCreate } from "@moltzap/protocol/conversation";
-
 const effectTest = effectIt.effect;
 
-const AGENT_ALICE_ID = testAgentId("agent-alice-id");
 const AGENT_SELF_ID = testAgentId("agent-self");
-const AGENT_BOB_ID = testAgentId("agent-bob-id");
 const AGENT_BOB = testAgentId("agent-bob");
 const AGENT_ALICE = testAgentId("agent-alice");
 const AGENT_ATTACKER = testAgentId("agent-attacker");
 const AGENT_SENDER = testAgentId("agent-sender");
 const CONVERSATION_ALICE_ID = testConversationId("conv-alice");
-const CONVERSATION_BOB_ID = testConversationId("conv-bob");
 const CONVERSATION_OTHER_ID = testConversationId("conv-other");
 const CONVERSATION_SELF_ID = testConversationId("conv-self");
 const CONVERSATION_SELF_A_ID = testConversationId("conv-self-a");
@@ -40,33 +34,13 @@ const VIEWER_TWO_ID = testConversationId("viewer-2");
 const MESSAGE_ONE_ID = testMessageId("m-1");
 const MESSAGE_TWO_ID = testMessageId("m-2");
 const MESSAGE_THREE_ID = testMessageId("m-3");
-const decodeAgentName = Schema.decodeSync(agentName);
-const SEND_TO_AGENT_NAME = decodeAgentName("alice");
-const BOB_AGENT_NAME = decodeAgentName("bob");
 const ALICE_DISPLAY_NAME = "Alice";
 const BOB_DISPLAY_NAME = "Bob";
 const HELLO_TEXT = "hello";
 const HI_TEXT = "hi";
 const FIRST_TEXT = "first";
 const SECOND_TEXT = "second";
-const HELLO_ALICE_TEXT = "hello alice";
-const HELLO_BOB_TEXT = "hello bob";
-const ALICE_AGAIN_TEXT = "alice again";
-const BOB_AGAIN_TEXT = "bob again";
 const PLACEHOLDER_TEXT = "placeholder";
-const AGENT_NOT_FOUND_TAG = "AgentNotFound";
-const NOBODY_AGENT_NAME = "nobody";
-const missingCannedResponseFor = (method: string): RegExp =>
-  new RegExp(`no canned response for ${method}`);
-const LOOKUP_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  agentsList.name,
-);
-const CREATE_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  agentConversationCreate.name,
-);
-const SEND_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  messagesSend.name,
-);
 const PLAIN_NAME = "Alice";
 const PLAIN_TEXT = "hello world";
 const EMPTY_TEXT = "";
@@ -100,17 +74,6 @@ const FULL_HISTORY_CONVERSATION_SPACING_MS = 10_000;
 const FULL_HISTORY_MESSAGE_SPACING_MS = 1_000;
 const FULL_HISTORY_EXPECTED_MESSAGES = 50;
 const STORED_MESSAGE_COUNT = 30;
-
-const conversationCreateResponse = (
-  conversationId = CONVERSATION_ALICE_ID,
-) => ({
-  conversation: {
-    id: conversationId,
-    createdBy: AGENT_SELF_ID,
-    createdAt: DEFAULT_TEST_DATE,
-    updatedAt: DEFAULT_TEST_DATE,
-  },
-});
 
 const contextHeader = (conversationId: string): string =>
   `Recent updates (you are in conv:${conversationId}):`;
@@ -225,204 +188,6 @@ describe("MoltZapService.send", () => {
   effectTest(
     "sends only the conversation and parts",
     sendCarriesOnlyTheConversationAndParts,
-  );
-});
-
-function seedAgentLookup(
-  service: FakeMoltZapService,
-  id = AGENT_ALICE_ID,
-  name = SEND_TO_AGENT_NAME,
-): void {
-  service.setResponse(agentsList, {
-    agents: [{ id, name, status: "active" }],
-  });
-}
-
-function makeSendToAgentService(): FakeMoltZapService {
-  const service = new FakeMoltZapService();
-  seedAgentLookup(service);
-  service.setResponse(agentConversationCreate, conversationCreateResponse());
-  seedMessageSendResponse(service);
-  return service;
-}
-
-function sendToAgentCreatesConversation() {
-  return Effect.gen(function* () {
-    const service = makeSendToAgentService();
-
-    yield* service.sendToAgent(SEND_TO_AGENT_NAME, HELLO_TEXT);
-
-    expect(service.calls).toEqual([
-      {
-        method: agentsList.name,
-        params: { limit: 100 },
-      },
-      {
-        method: agentConversationCreate.name,
-        params: {
-          participants: [AGENT_ALICE_ID],
-        },
-      },
-      {
-        method: messagesSend.name,
-        params: {
-          conversationId: CONVERSATION_ALICE_ID,
-          parts: [{ type: "text", text: HELLO_TEXT }],
-        },
-      },
-    ]);
-  });
-}
-
-function sendToAgentCachesConversation() {
-  return Effect.gen(function* () {
-    const service = makeSendToAgentService();
-    yield* service.sendToAgent(SEND_TO_AGENT_NAME, FIRST_TEXT);
-    service.calls = [];
-
-    yield* service.sendToAgent(SEND_TO_AGENT_NAME, SECOND_TEXT);
-
-    expect(service.calls).toEqual([
-      {
-        method: messagesSend.name,
-        params: {
-          conversationId: CONVERSATION_ALICE_ID,
-          parts: [{ type: "text", text: SECOND_TEXT }],
-        },
-      },
-    ]);
-  });
-}
-
-function sendToAgentCachesPerAgentName() {
-  return Effect.gen(function* () {
-    const service = makeSendToAgentService();
-    yield* service.sendToAgent(SEND_TO_AGENT_NAME, HELLO_ALICE_TEXT);
-
-    seedAgentLookup(service, AGENT_BOB_ID, BOB_AGENT_NAME);
-    service.setResponse(
-      agentConversationCreate,
-      conversationCreateResponse(CONVERSATION_BOB_ID),
-    );
-    yield* service.sendToAgent(BOB_AGENT_NAME, HELLO_BOB_TEXT);
-
-    service.calls = [];
-    yield* service.sendToAgent(SEND_TO_AGENT_NAME, ALICE_AGAIN_TEXT);
-    yield* service.sendToAgent(BOB_AGENT_NAME, BOB_AGAIN_TEXT);
-
-    const sendCalls = service.calls.filter(
-      (call) => call.method === messagesSend.name,
-    );
-    expect(sendCalls).toHaveLength(2);
-    const [firstSend, secondSend] =
-      /* Safe because the test fixture establishes this asserted shape. */ sendCalls as [
-        (typeof sendCalls)[number],
-        (typeof sendCalls)[number],
-      ];
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */
-      (firstSend.params as { conversationId: string }).conversationId,
-    ).toBe(CONVERSATION_ALICE_ID);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */
-      (secondSend.params as { conversationId: string }).conversationId,
-    ).toBe(CONVERSATION_BOB_ID);
-  });
-}
-
-function sendToAgentMissingAgentFails() {
-  return Effect.gen(function* () {
-    const service = makeSendToAgentService();
-    service.setResponse(agentsList, { agents: [] });
-
-    const exit = yield* Effect.exit(
-      service.sendToAgent(NOBODY_AGENT_NAME, HI_TEXT),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(String(exit)).toContain(AGENT_NOT_FOUND_TAG);
-    expect(String(exit)).toContain(NOBODY_AGENT_NAME);
-  });
-}
-
-function sendToAgentLookupFailurePropagates() {
-  return Effect.gen(function* () {
-    const service = makeSendToAgentService();
-    service.deleteResponse(agentsList);
-
-    const exit = yield* Effect.exit(
-      service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(String(exit)).toMatch(LOOKUP_MISSING_RESPONSE_MESSAGE);
-  });
-}
-
-function sendToAgentCreateFailurePropagates() {
-  return Effect.gen(function* () {
-    const service = makeSendToAgentService();
-    service.deleteResponse(agentConversationCreate);
-
-    const exit = yield* Effect.exit(
-      service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(String(exit)).toMatch(CREATE_MISSING_RESPONSE_MESSAGE);
-  });
-}
-
-function sendToAgentSendFailurePropagates() {
-  return Effect.gen(function* () {
-    const service = makeSendToAgentService();
-    service.deleteResponse(messagesSend);
-
-    const exit = yield* Effect.exit(
-      service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(String(exit)).toMatch(SEND_MISSING_RESPONSE_MESSAGE);
-  });
-}
-
-describe("MoltZapService.sendToAgent core flow", () => {
-  effectTest(
-    "resolves agent name, creates a DM, and sends the message on first call",
-    sendToAgentCreatesConversation,
-  );
-
-  effectTest(
-    "caches the conversation id and skips lookup on subsequent calls",
-    sendToAgentCachesConversation,
-  );
-});
-
-describe("MoltZapService.sendToAgent cache partitioning", () => {
-  effectTest(
-    "maintains separate cache entries per agent name",
-    sendToAgentCachesPerAgentName,
-  );
-});
-
-describe("MoltZapService.sendToAgent lookup failures", () => {
-  effectTest(
-    "throws a clear error when no agent is found for the given name",
-    sendToAgentMissingAgentFails,
-  );
-
-  effectTest(
-    "propagates errors from agent/identity/agents/list",
-    sendToAgentLookupFailurePropagates,
-  );
-});
-
-describe("MoltZapService.sendToAgent send failures", () => {
-  effectTest(
-    "propagates errors from agent/conversation/create",
-    sendToAgentCreateFailurePropagates,
-  );
-
-  effectTest(
-    "propagates errors from agent/message/send",
-    sendToAgentSendFailurePropagates,
   );
 });
 

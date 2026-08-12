@@ -198,6 +198,25 @@ const checkRecord = (
 };
 
 /**
+ * Whether a record matches the side being merged in. A merge adopts the other
+ * parent's record verbatim, and comparing against the first parent alone reads
+ * that as an unexplained rewrite; the receipt for such an edit belongs to
+ * whichever branch authored it, not to the commit that inherits it.
+ */
+const matchesMergeParent = (path: string, current: string): boolean => {
+  try {
+    return (
+      execFileSync("git", ["-C", repoRoot, "show", `MERGE_HEAD:${path}`], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }) === current
+    );
+  } catch {
+    return false; // no merge under way, or the record is absent on that side
+  }
+};
+
+/**
  * A staged record whose body changed, whose status did not, and which gained
  * no changelog row. The `decisions` skill permits editing a record in place
  * only with a dated receipt.
@@ -218,6 +237,7 @@ const checkChangelogRow = (path: string): Violation | undefined => {
   }
   const current = readFileSync(join(repoRoot, path), "utf8");
   if (current === previous) return undefined;
+  if (matchesMergeParent(path, current)) return undefined;
 
   if (
     frontmatterField(current, "status") !== frontmatterField(previous, "status")

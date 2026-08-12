@@ -65,12 +65,11 @@ CREATE INDEX idx_participants_lookup
 
 -- Messages. `parts` holds the wire `MessageParts` array verbatim; the read
 -- path decodes it strictly, so a hand-edited row cannot reach the wire.
--- seq: snowflake ID = Date.now() * 1000 + monotonicCounter
 CREATE TABLE messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id UUID NOT NULL REFERENCES conversations(id),
   sender_id UUID NOT NULL REFERENCES agents(id),
-  seq BIGINT NOT NULL,
+  seq BIGINT GENERATED ALWAYS AS IDENTITY,
   parts JSONB NOT NULL,
   is_deleted BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

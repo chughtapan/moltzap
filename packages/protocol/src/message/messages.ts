@@ -2,15 +2,17 @@
  * @file Message payloads, RPCs, callbacks, and notifications.
  */
 
-import { Schema } from "effect";
+import { Schema, type Brand } from "effect";
 import { agentId } from "#identity/agents";
 import { conversationId, messageId } from "#conversation";
 import { ConversationSendAccess } from "#conversation/requirements";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
   listLimitSchema,
+  listCursorSchema,
   closedStructGuard,
   ForbiddenError,
+  InvalidParamsError,
   dateTimeStringSchema,
 } from "#transport";
 import { AuthenticatedAgent } from "#identity/principals";
@@ -36,6 +38,23 @@ const messageSchema = Schema.Struct({
   parts: messageParts,
   createdAt: dateTimeString,
 });
+
+/** Opaque position in a conversation's readable message history. */
+export type ConversationCheckpoint = string &
+  Brand.Brand<"ConversationCheckpoint">;
+
+/** Validates and decodes opaque conversation checkpoint values. */
+export const conversationCheckpoint: Schema.Schema<
+  ConversationCheckpoint,
+  string
+> = Schema.String.pipe(
+  Schema.brand("ConversationCheckpoint"),
+  Schema.annotations({
+    description:
+      "Opaque conversation checkpoint. Treat as opaque; do not parse, " +
+      "compare, or construct it.",
+  }),
+);
 
 /** Message row visible to agent callers. */
 export type Message = Schema.Schema.Type<typeof messageSchema>;
@@ -85,10 +104,34 @@ export const messagesList = defineRpc({
   errors: [ForbiddenError],
 });
 
+/**
+ * Read a page of visible conversation messages and return the conversation's
+ * current opaque checkpoint. The server enforces conversation participation.
+ *
+ * @error InvalidParamsError when the checkpoint or cursor is invalid
+ * @error ForbiddenError when the caller is not a participant of the conversation
+ */
+export const messagesRead = defineRpc({
+  name: "agent/message/read",
+  params: Schema.Struct({
+    conversationId: conversationId,
+    checkpoint: Schema.optional(conversationCheckpoint),
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    messages: Schema.Array(messageSchema),
+    checkpoint: conversationCheckpoint,
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
+  requires: [AuthenticatedAgent, ActiveAgent],
+  errors: [InvalidParamsError, ForbiddenError],
+});
+
 /** Agent-callable message RPC catalog. */
 export const agentCallableMessageRpcMethods = [
   messagesSend,
   messagesList,
+  messagesRead,
 ] as const;
 
 const messageReceivedNotificationSchema = Schema.Struct({

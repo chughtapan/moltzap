@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1226)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L936)
 
 _Function_
 
@@ -20,33 +20,32 @@ export function createMoltzapChannelPlugin(
 )
 ```
 
-Factory: returns a fresh plugin object whose `activeClients` map
-lives in this closure. `register(api)` calls this so each
-registration gets its own per-plugin state.
+Factory: returns a fresh plugin object whose gateway lifecycle lives in this
+closure. `register(api)` calls this so each registration gets its own
+per-plugin state.
 
 The plugin exposes the openclaw lifecycle hooks (`startAccount`,
-`stopAccount`), the outbound `sendText`, the inbound `onInbound`
-adapter (registered inside `startAccount`), the `deliver` callback,
-and `resolveTarget` for openclaw's targeting layer.
+`stopAccount`), outbound `sendText`, inbound turn dispatch and its `deliver`
+callback, and `resolveTarget` for openclaw's targeting layer.
 
 ```mermaid
 sequenceDiagram
   participant OC as openclaw runtime
   participant Plugin as moltzap plugin
-  participant Core as MoltZapChannelCore
-  participant Server as MoltZap server
+  participant Harness as HarnessClient
+  participant Daemon as moltzapd
   OC->>Plugin: startAccount(ctx)
-  Plugin->>Core: new MoltZapAgentClient → MoltZapChannelCore
-  Plugin->>Core: core.connect() — WS auth
-  Plugin->>Core: core.onInbound(handler) — register dispatch
-  Core->>Plugin: enriched message arrives
+  Plugin->>Harness: harnessClientForProfile(accountId)
+  Harness->>Daemon: start the slot child and connect over loopback MCP
+  Plugin->>Harness: drain turns sequentially
+  Harness-->>Plugin: HarnessTurn carrying its bound reply
   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
   note over OC: agent pipeline → LLM
-  OC->>Plugin: deliver(payload, opts) — createReplyDeliver
-  Plugin->>Server: core.sendReply(conversationId, text)
+  OC->>Plugin: deliver(payload, opts) — createHarnessReplyDeliver
+  Plugin->>Plugin: turn.reply(text)
+  Harness->>Daemon: reply routed to its originating conversation
   OC->>Plugin: stopAccount(ctx)
-  Plugin->>Core: core.disconnect()
-  Plugin->>Plugin: activeClients.delete(account)
+  Plugin->>Plugin: signal the drain and await scoped release
 ```
 
 `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
@@ -58,7 +57,7 @@ to `agent:&lt;name>`. Other colon-prefixed shapes are rejected.
 
 **Returns:** The created moltzap channel plugin.
 
-### [`default`](./openclaw-entry.ts#L1256)
+### [`default`](./openclaw-entry.ts#L965)
 
 _Variable_
 
@@ -66,7 +65,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1253)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L962)
 
 _Variable_
 
@@ -75,11 +74,11 @@ export const moltzapChannelPlugin: MoltzapChannelPlugin =
   createMoltzapChannelPlugin()
 ```
 
-Shared singleton so a single registration reuses the same `activeClients`
-closure across `startAccount` and `sendText`. Tests import this directly
-to assert against that shared state.
+Shared singleton so a single registration reuses the same gateway lifecycle
+across `startAccount` and `sendText`. Tests import this directly to assert
+against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1244)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L953)
 
 _TypeAlias_
 
@@ -90,6 +89,74 @@ export type MoltzapChannelPlugin = ReturnType<
 ```
 
 Represents moltzap channel plugin values.
+
+### [`OpenClawConfig`](./openclaw-entry.ts#L180)
+
+_Interface_
+
+```ts
+export interface OpenClawConfig {
+  readonly [key: string]: unknown;
+  readonly channels?: {
+    readonly moltzap?: {
+      readonly accounts?: readonly MoltZapAccount[];
+    };
+  };
+}
+```
+
+OpenClaw's config object; the plugin reads only its `channels.moltzap` section.
+
+### [`OpenClawResolveTargetParams`](./openclaw-entry.ts#L258)
+
+_Interface_
+
+```ts
+export interface OpenClawResolveTargetParams {
+  readonly cfg: OpenClawConfig;
+  readonly accountId?: string | null;
+  readonly input: string;
+  readonly normalized: string;
+  readonly preferredKind?: "user" | "group" | "channel";
+}
+```
+
+One target-resolution request from OpenClaw's targeting layer.
+
+### [`OpenClawStartAccountContext`](./openclaw-entry.ts#L208)
+
+_Interface_
+
+```ts
+export interface OpenClawStartAccountContext {
+  cfg: OpenClawConfig;
+  accountId: string;
+  account: MoltZapAccount;
+  abortSignal: AbortSignal;
+  log?: OpenClawLogger;
+  setStatus: (next: Record<string, unknown>) => void;
+  channelRuntime?: {
+    reply?: {
+      dispatchReplyWithBufferedBlockDispatcher?: OpenClawReplyDispatcher;
+    };
+  };
+}
+```
+
+What OpenClaw hands the plugin when it starts one configured account.
+
+### [`OpenClawStopAccountContext`](./openclaw-entry.ts#L223)
+
+_Interface_
+
+```ts
+export interface OpenClawStopAccountContext {
+  accountId: string;
+  log?: Pick<OpenClawLogger, "info">;
+}
+```
+
+What OpenClaw hands the plugin when it stops one configured account.
 
 ## Files
 

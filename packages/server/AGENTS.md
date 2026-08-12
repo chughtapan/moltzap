@@ -19,7 +19,7 @@ packages/server/src/
 ├── network/         # connection liveness, send routing, outbound caps
 ├── conversation/    # conversation service + requirements
 ├── message/         # message service + message RPC handlers
-├── db/              # Kysely schema, snowflake IDs, effect-kysely-toolkit
+├── db/              # Kysely schema, database-owned order, effect-kysely-toolkit
 ├── config.ts        # YAML config loader; config/secrets.ts — secret material
 ├── test-utils/      # PGlite boot + test drivers
 ├── standalone.ts    # startServer(configPath) — binary entry

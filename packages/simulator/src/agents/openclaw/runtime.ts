@@ -37,6 +37,7 @@ import {
   McpServerConfiguration,
   mcpConfiguration,
   serializeMoltZapProfileConfig,
+  SLOT_MCP_CONTAINER_PORT,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
   WorkspaceFileConfiguration,
@@ -325,6 +326,7 @@ function bootstrapFiles<Name extends string>(
     agentName: input.agentName,
     agentId: input.connection.agent.id,
     apiKey: input.connection.key,
+    mcpPort: SLOT_MCP_CONTAINER_PORT,
   });
   return Object.freeze([
     bootstrapFile(
