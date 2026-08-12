@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { httpBaseUrl, serverBaseUrl, webSocketUrl } from "./server-url.js";
+import { httpBaseUrl, serverBaseUrl, webSocketUrl } from "./index.js";
 
 const PROPERTY_RUNS = 100;
 const PATH_BEARING_URL = "http://localhost:9999/elsewhere";

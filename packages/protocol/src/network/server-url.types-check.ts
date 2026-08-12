@@ -1,12 +1,12 @@
 /**
- * @file Type canary for the socket endpoint constructor (`network/server-url.ts`).
+ * @file Type canary for the socket endpoint constructor (`network/index.ts`).
  *
  * The invariant: `webSocketUrl` appends its route to whatever it is handed, so
  * only a value proven path-free may reach it. If the parameter loosens back to
  * `string`, a caller holding a complete socket endpoint compiles again and
  * dials `/ws/ws` — the failure this brand exists to make unrepresentable.
  */
-import { serverBaseUrl, webSocketUrl } from "./server-url.js";
+import { serverBaseUrl, webSocketUrl } from "./index.js";
 
 type ExpectFalse<T extends false> = T;
 type WebSocketUrlInput = Parameters<typeof webSocketUrl>[0];

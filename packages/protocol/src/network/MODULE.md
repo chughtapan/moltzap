@@ -4,7 +4,12 @@ _`packages/protocol/src/network`_
 
 ## Purpose
 
-Public barrel for connect protocol descriptors.
+Public network address and connect-protocol surface.
+
+`webSocketUrl` appends the socket route unconditionally, so the two halves
+of that invariant live together: a value that already carries a path would
+dial `/ws/ws`, and the resulting socket never opens. `ServerBaseUrl` makes
+such a value unconstructible.
 
 ## Public surface
 
@@ -79,7 +84,7 @@ export type HelloOk = Schema.Schema.Type<typeof helloOkSchema>;
 
 Represents hello ok values.
 
-### [`httpBaseUrl`](./server-url.ts#L111)
+### [`httpBaseUrl`](./index.ts#L111)
 
 _Function_
 
@@ -163,7 +168,7 @@ Reason discriminant carried in `ProtocolMismatchError.data.reason`:
 `maxProtocol`; the client must update. `server-below-client-min` — the
 client is newer than the server supports.
 
-### [`serverBaseUrl`](./server-url.ts#L104)
+### [`serverBaseUrl`](./index.ts#L104)
 
 _Variable_
 
@@ -176,7 +181,7 @@ such as one a locally started server just reported. Decode with
 `Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
 configuration or another package.
 
-### [`ServerBaseUrl`](./server-url.ts#L68)
+### [`ServerBaseUrl`](./index.ts#L68)
 
 _TypeAlias_
 
@@ -187,7 +192,7 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
 A MoltZap server address carrying no path, query, or fragment, over
 `http`, `https`, `ws`, or `wss`.
 
-### [`serverBaseUrlSchema`](./server-url.ts#L74)
+### [`serverBaseUrlSchema`](./index.ts#L74)
 
 _Variable_
 
@@ -230,7 +235,7 @@ export const serverUrlTypeCanaries:
 
 Retains both the runtime positive control and compile-time negative proof.
 
-### [`webSocketUrl`](./server-url.ts#L119)
+### [`webSocketUrl`](./index.ts#L119)
 
 _Function_
 
@@ -245,5 +250,5 @@ The socket endpoint a client dials for the given server.
 ## Files
 
 - `connect.ts`
-- `server-url.ts`
+- `index.ts`
 - `server-url.types-check.ts`
