@@ -647,17 +647,12 @@ const architectureConfigDefinitions = [
         folderChildCountOverrides: [
           {
             folder: "router",
-            maxChildren: 12,
+            maxChildren: 11,
             reason:
-              "The Router implementation keeps contract, client, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, server, and process as the cohesive boundaries of one independently runnable service",
+              "The Router implementation keeps contract, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, server, and process as the cohesive boundaries of one independently runnable service",
           },
         ],
         facadeFiles: [
-          {
-            file: "router/client.ts",
-            reason:
-              "Private HTTP client boundary used by the public Router capability",
-          },
           {
             file: "router/feed.ts",
             reason:
