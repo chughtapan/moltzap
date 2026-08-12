@@ -1,3 +1,5 @@
+/** @file Unit tests for module-documentation JSDoc parsing. */
+
 import { describe, expect, it } from "vitest";
 import { parseFailureTag, readLeadingJsDoc } from "../modules.js";
 

@@ -1,4 +1,4 @@
-/** @file End-to-end acceptance tests for generated MODULE and MDX surfaces. */
+/** @file Workspace acceptance tests for generated MODULE and MDX surfaces. */
 
 import { NodeContext } from "@effect/platform-node";
 import { Effect } from "effect";

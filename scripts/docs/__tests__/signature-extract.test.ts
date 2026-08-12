@@ -1,4 +1,4 @@
-/** @file Unit tests for TypeScript declaration selection and signature rendering. */
+/** @file Workspace tests for TypeScript declaration selection and signature rendering. */
 
 import { describe, expect, it } from "vitest";
 import { ReflectionKind } from "typedoc";

@@ -1,3 +1,5 @@
+/** @file Unit tests for workspace Mermaid block discovery and extraction. */
+
 import { statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,8 +8,6 @@ import { extractMermaidBlocks, MERMAID_ROOTS } from "../mermaid-lint.js";
 
 const WORKSPACE_ROOT = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
   "..",
   "..",
   "..",

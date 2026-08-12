@@ -1,5 +1,5 @@
 /**
- * @file Per-folder MODULE.md + Mintlify MDX generator.
+ * @file Workspace per-folder MODULE.md + Mintlify MDX generator.
  *
  * Folders opt in by adding a leading file-level JSDoc block to
  * `index.ts`. Output is deterministic: sorted exports, LF endings,

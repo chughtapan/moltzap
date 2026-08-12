@@ -33,6 +33,7 @@
         "docsGeneration"
       ],
       "outputs": [
+        "{workspaceRoot}/README.md",
         "{workspaceRoot}/docs",
         "{workspaceRoot}/packages/**/src/**/MODULE.md"
       ],
@@ -42,8 +43,25 @@
         "parallel": false,
         "commands": [
           "pnpm --filter @moltzap/protocol docs:generate",
+          "pnpm exec typedoc",
+          "pnpm exec tsx scripts/docs/generate-modules.ts",
           "pnpm --filter @moltzap/client exec tsx scripts/generate-cli-docs.ts",
           "pnpm exec tsx scripts/docs/generate-constants-snippets.ts"
+        ]
+      }
+    },
+    "docs:check:mermaid": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "pnpm exec puppeteer browsers install chrome-headless-shell",
+          "pnpm exec tsx scripts/docs/check-mermaid.ts"
         ]
       }
     },
@@ -113,7 +131,11 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "tsc --noEmit -p tsconfig.eslint.json"
+        "parallel": false,
+        "commands": [
+          "tsc --noEmit -p tsconfig.eslint.json",
+          "tsc --noEmit -p scripts/docs/tsconfig.json"
+        ]
       }
     },
     "lint:effect": {
@@ -241,6 +263,20 @@
       "options": {
         "cwd": ".",
         "command": "pnpm exec tsx scripts/repo/check-agent-files.ts"
+      }
+    },
+    "test": {
+      "cache": true,
+      "inputs": [
+        "{workspaceRoot}/scripts/docs/**/*.ts",
+        "{workspaceRoot}/scripts/docs/mermaid-puppeteer.json",
+        "{workspaceRoot}/scripts/docs/tsconfig.json",
+        "{workspaceRoot}/tsconfig.base.json"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "pnpm exec vitest run --config scripts/docs/vitest.config.ts"
       }
     }
   }

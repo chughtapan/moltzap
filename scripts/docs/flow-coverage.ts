@@ -1,5 +1,5 @@
 /**
- * @file Behavioral-export flow-coverage report.
+ * @file Workspace behavioral-export flow-coverage report.
  *
  * Walks the typedoc cache filtered to behavioral exports (functions,
  * methods, Effect-returning constants), then lists those with neither

@@ -1,5 +1,5 @@
 /**
- * @file Writer for the generator-owned Mintlify navigation slice.
+ * @file Workspace writer for the generator-owned Mintlify navigation slice.
  *
  * Emits `docs/modules/_nav.json` containing the Modules group with
  * one entry per generated MDX page. `docs/docs.json` references this

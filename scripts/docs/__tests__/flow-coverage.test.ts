@@ -1,3 +1,5 @@
+/** @file Unit tests for workspace behavioral-flow coverage. */
+
 import { describe, expect, it } from "vitest";
 import { ReflectionKind } from "typedoc";
 import { computeFlowCoverage, isBehavioralExport } from "../flow-coverage.js";

@@ -1,5 +1,5 @@
 /**
- * @file Typed read accessors over a TypeDoc JSON dump.
+ * @file Workspace documentation accessors over a TypeDoc JSON dump.
  *
  * The dump at `node_modules/.cache/typedoc.json` is produced once per
  * `pnpm docs:generate` run by invoking TypeDoc with `entryPointStrategy:

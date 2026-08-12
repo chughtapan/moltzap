@@ -1,5 +1,5 @@
 /**
- * @file Collect every fenced ```mermaid block under the trees named by
+ * @file Collect workspace fenced ```mermaid blocks under the trees named by
  * `MERMAID_ROOTS` and validate each by piping it through `mmdc` (the
  * official Mermaid CLI). Returns the list of failures grouped by file.
  */

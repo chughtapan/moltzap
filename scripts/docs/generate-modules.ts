@@ -5,7 +5,7 @@
  * MODULE.md + Mintlify MDX twin. Intended to be invoked from
  * `pnpm docs:generate` after the existing RPC method/notification
  * rendering pass. It is also available as a standalone script at
- * `tsx packages/protocol/scripts/generate-modules.ts`.
+ * `tsx scripts/docs/generate-modules.ts`.
  *
  * Effect entry point: provide `NodeContext.layer` so FileSystem and
  * Path services resolve.
@@ -14,19 +14,13 @@ import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  computeFlowCoverage,
-  printFlowCoverage,
-} from "./docs/flow-coverage.js";
-import { writeModulesNav } from "./docs/mintlify-nav.js";
-import {
-  generateModuleDocs,
-  REQUIRED_PACKAGE_SUBPATHS,
-} from "./docs/modules.js";
-import { loadTypeDoc } from "./docs/typedoc-load.js";
+import { computeFlowCoverage, printFlowCoverage } from "./flow-coverage.js";
+import { writeModulesNav } from "./mintlify-nav.js";
+import { generateModuleDocs, REQUIRED_PACKAGE_SUBPATHS } from "./modules.js";
+import { loadTypeDoc } from "./typedoc-load.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const WORKSPACE_ROOT = resolve(SCRIPT_DIR, "..", "..", "..");
+const WORKSPACE_ROOT = resolve(SCRIPT_DIR, "..", "..");
 const CACHE_PATH = resolve(WORKSPACE_ROOT, "node_modules/.cache/typedoc.json");
 const DOCS_MODULES_DIR = resolve(WORKSPACE_ROOT, "docs", "modules");
 const NAV_PATH = resolve(DOCS_MODULES_DIR, "_nav.json");

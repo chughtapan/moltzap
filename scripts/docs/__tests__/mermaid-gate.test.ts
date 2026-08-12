@@ -1,5 +1,5 @@
 /**
- * @file The gate's job is to fail. These exercise the paths where an input
+ * @file The workspace gate's job is to fail. These exercise paths where an input
  * cannot be inspected at all — an unreadable directory, an unreadable file,
  * an unwritable temp slot — because each one used to be swallowed into an
  * empty value and reported as a clean pass.

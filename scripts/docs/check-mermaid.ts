@@ -3,6 +3,7 @@
  * `MERMAID_ROOTS` for fenced ```mermaid blocks, pipes each through
  * `mmdc`, exits non-zero if any block fails to parse — or if any of them
  * could not be read in the first place.
+ * Collection and command execution live in `scripts/docs/mermaid-lint.ts`.
  */
 import { FileSystem, Path, type CommandExecutor } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
@@ -18,10 +19,10 @@ import {
   type MermaidBlock,
   type MermaidFailure,
   type MermaidGateError,
-} from "./docs/mermaid-lint.js";
+} from "./mermaid-lint.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const WORKSPACE_ROOT = resolve(SCRIPT_DIR, "..", "..", "..");
+const WORKSPACE_ROOT = resolve(SCRIPT_DIR, "..", "..");
 const TEMP_DIR = resolve(
   WORKSPACE_ROOT,
   "node_modules",
