@@ -32,7 +32,6 @@ const databaseRowRules = {
     "src/identity/agents/handlers.ts",
     "src/db/schema-migration.test.ts",
     "src/standalone.ts",
-    "src/test-utils/core-schema-sql.ts",
   ],
   rules: {
     // Kysely and SQL row contracts retain the database's exact snake_case

@@ -1,5 +1,10 @@
 import { it as effectIt } from "@effect/vitest";
+import { FileSystem } from "@effect/platform";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Exit } from "effect";
+import { KyselyPGlite } from "kysely-pglite";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
 import {
   agentId,
@@ -7,14 +12,50 @@ import {
   messageId,
   userId,
 } from "@moltzap/protocol/testing";
+import type { Database } from "./database.js";
 import {
-  makePgliteHarness,
-  PGLITE_HOOK_TIMEOUT_MS,
-  type PgliteHarness,
-} from "../test-utils/pglite-harness.js";
-import { takeFirstOrFail } from "./effect-kysely-toolkit.js";
+  makeEffectKysely,
+  takeFirstOrFail,
+  type EffectKysely,
+} from "./effect-kysely-toolkit.js";
 
 const it = effectIt.scoped;
+const PGLITE_HOOK_TIMEOUT_MS = 30_000;
+const CORE_SCHEMA_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "core-schema.sql",
+);
+
+interface PgliteHarness {
+  readonly db: EffectKysely<Database>;
+  readonly exec: (sql: string) => Effect.Effect<unknown, unknown>;
+  readonly close: Effect.Effect<void, unknown>;
+}
+
+function makePgliteHarness(): Effect.Effect<PgliteHarness, unknown> {
+  return Effect.gen(function* () {
+    const kpg = yield* Effect.tryPromise({
+      try: () => KyselyPGlite.create(),
+      catch: (cause) => cause,
+    });
+    const exec = (sql: string): Effect.Effect<unknown, unknown> =>
+      Effect.tryPromise({
+        try: () => kpg.client.exec(sql),
+        catch: (cause) => cause,
+      });
+    const close = Effect.tryPromise({
+      try: () => kpg.client.close(),
+      catch: (cause) => cause,
+    });
+    const db = makeEffectKysely<Database>({ dialect: kpg.dialect });
+    const schema = yield* FileSystem.FileSystem.pipe(
+      Effect.flatMap((fs) => fs.readFileString(CORE_SCHEMA_PATH, "utf-8")),
+      Effect.provide(NodeFileSystem.layer),
+    );
+    yield* exec(schema);
+    return { db, exec, close };
+  });
+}
 
 const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
 const OWNER_USER_ID = userId("00000000-0000-4000-8000-00000000a9e0");
