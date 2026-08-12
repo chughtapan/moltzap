@@ -33,7 +33,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     "#transport/descriptor",
     "packages/protocol/src/transport/descriptor.ts",
   ),
-  alias("#rpc", "packages/protocol/src/rpc.ts"),
   alias("#identity", "packages/protocol/src/identity/index.ts"),
   alias("#identity/agents", "packages/protocol/src/identity/agents/index.ts"),
   alias("#identity/users", "packages/protocol/src/identity/users/index.ts"),

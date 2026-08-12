@@ -11,9 +11,6 @@
       "#transport/descriptor": [
         "./src/transport/descriptor.ts"
       ],
-      "#rpc": [
-        "./src/rpc.ts"
-      ],
       "#identity": [
         "./src/identity/index.ts"
       ],
