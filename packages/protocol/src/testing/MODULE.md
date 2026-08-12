@@ -10,7 +10,7 @@ Public barrel for protocol testing utilities.
 
 ## Public surface
 
-### [`agentId`](./test-fixtures.ts#L89)
+### [`agentId`](./test-fixtures.ts#L67)
 
 _Function_
 
@@ -24,7 +24,7 @@ Validates and decodes agent id values.
 
 **Returns:** The agent id result.
 
-### [`agentKeyArbitrary`](./test-fixtures.ts#L139)
+### [`agentKeyArbitrary`](./test-fixtures.ts#L117)
 
 _Variable_
 
@@ -35,7 +35,7 @@ export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
 
 Provides the agent key arbitrary runtime value.
 
-### [`agentKeyString`](./test-fixtures.ts#L146)
+### [`agentKeyString`](./test-fixtures.ts#L124)
 
 _Function_
 
@@ -47,7 +47,7 @@ Provides the agent key string runtime value.
 
 **Returns:** The agent key string result.
 
-### [`agentKeyStringArbitrary`](./test-fixtures.ts#L126)
+### [`agentKeyStringArbitrary`](./test-fixtures.ts#L104)
 
 _Variable_
 
@@ -61,7 +61,7 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
 
 Provides the agent key string arbitrary runtime value.
 
-### [`agentName`](./test-fixtures.ts#L98)
+### [`agentName`](./test-fixtures.ts#L76)
 
 _Function_
 
@@ -75,24 +75,7 @@ Validates and decodes agent name values.
 
 **Returns:** The agent name result.
 
-### [`AgentRegistrationError`](./test-fixtures.ts#L188)
-
-_Class_
-
-```ts
-export class AgentRegistrationError extends Data.TaggedError(
-  "TestingAgentRegistrationError",
-)<{
-  readonly baseUrl: string;
-  readonly agentName: string;
-  readonly status: number;
-  readonly body: string;
-}> {}
-```
-
-HTTP registration failed (network, non-2xx, malformed response).
-
-### [`connectionId`](./test-fixtures.ts#L154)
+### [`connectionId`](./test-fixtures.ts#L132)
 
 _Variable_
 
@@ -102,7 +85,7 @@ export const connectionId = decodeConnectionId
 
 Provides the connection id runtime value.
 
-### [`conversationId`](./test-fixtures.ts#L107)
+### [`conversationId`](./test-fixtures.ts#L85)
 
 _Function_
 
@@ -116,7 +99,7 @@ Validates and decodes conversation id values.
 
 **Returns:** The conversation id result.
 
-### [`messageId`](./test-fixtures.ts#L116)
+### [`messageId`](./test-fixtures.ts#L94)
 
 _Function_
 
@@ -130,7 +113,7 @@ Validates and decodes message id values.
 
 **Returns:** The message id result.
 
-### [`redactedAgentKey`](./test-fixtures.ts#L136)
+### [`redactedAgentKey`](./test-fixtures.ts#L114)
 
 _Function_
 
@@ -142,35 +125,7 @@ Validates and decodes redacted agent key values.
 
 **Returns:** The redacted agent key result.
 
-### [`registerTestAgent`](./test-fixtures.ts#L278)
-
-_Function_
-
-```ts
-export function registerTestAgent(
-  opts: RegisterTestAgentOptions,
-): Effect.Effect<TestAgent, AgentRegistrationError>
-```
-
-Registers test agent.
-
-**Returns:** The register test agent result.
-
-### [`TestAgent`](./test-fixtures.ts#L164)
-
-_Interface_
-
-```ts
-export interface TestAgent {
-  readonly agentId: Schema.Schema.Type<typeof agentIdSchema>;
-  readonly apiKey: AgentKey;
-  readonly name: string;
-}
-```
-
-Describes test agent.
-
-### [`userId`](./test-fixtures.ts#L80)
+### [`userId`](./test-fixtures.ts#L58)
 
 _Function_
 

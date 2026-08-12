@@ -27,11 +27,3 @@ export {
 // descriptor-level helpers only.
 /** Re-exports the public API from `#transport/descriptor`. */
 export { decodeRpcResult } from "#transport/descriptor";
-
-// Test-agent registration helper.
-/** Re-exports the public API from `./test-fixtures.js`. */
-export {
-  AgentRegistrationError,
-  registerTestAgent,
-  type TestAgent,
-} from "./test-fixtures.js";

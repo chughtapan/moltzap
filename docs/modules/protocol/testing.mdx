@@ -15,7 +15,7 @@ Public barrel for protocol testing utilities.
 
 ## Public surface
 
-### [`agentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L89)
+### [`agentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L67)
 
 _Function_
 
@@ -29,7 +29,7 @@ Validates and decodes agent id values.
 
 **Returns:** The agent id result.
 
-### [`agentKeyArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L139)
+### [`agentKeyArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L117)
 
 _Variable_
 
@@ -40,7 +40,7 @@ export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
 
 Provides the agent key arbitrary runtime value.
 
-### [`agentKeyString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L146)
+### [`agentKeyString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L124)
 
 _Function_
 
@@ -52,7 +52,7 @@ Provides the agent key string runtime value.
 
 **Returns:** The agent key string result.
 
-### [`agentKeyStringArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L126)
+### [`agentKeyStringArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L104)
 
 _Variable_
 
@@ -66,7 +66,7 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
 
 Provides the agent key string arbitrary runtime value.
 
-### [`agentName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L98)
+### [`agentName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L76)
 
 _Function_
 
@@ -80,24 +80,7 @@ Validates and decodes agent name values.
 
 **Returns:** The agent name result.
 
-### [`AgentRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L188)
-
-_Class_
-
-```ts
-export class AgentRegistrationError extends Data.TaggedError(
-  "TestingAgentRegistrationError",
-)<{
-  readonly baseUrl: string;
-  readonly agentName: string;
-  readonly status: number;
-  readonly body: string;
-}> {}
-```
-
-HTTP registration failed (network, non-2xx, malformed response).
-
-### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L154)
+### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L132)
 
 _Variable_
 
@@ -107,7 +90,7 @@ export const connectionId = decodeConnectionId
 
 Provides the connection id runtime value.
 
-### [`conversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L107)
+### [`conversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L85)
 
 _Function_
 
@@ -121,7 +104,7 @@ Validates and decodes conversation id values.
 
 **Returns:** The conversation id result.
 
-### [`messageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L116)
+### [`messageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L94)
 
 _Function_
 
@@ -135,7 +118,7 @@ Validates and decodes message id values.
 
 **Returns:** The message id result.
 
-### [`redactedAgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L136)
+### [`redactedAgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L114)
 
 _Function_
 
@@ -147,35 +130,7 @@ Validates and decodes redacted agent key values.
 
 **Returns:** The redacted agent key result.
 
-### [`registerTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L278)
-
-_Function_
-
-```ts
-export function registerTestAgent(
-  opts: RegisterTestAgentOptions,
-): Effect.Effect<TestAgent, AgentRegistrationError>
-```
-
-Registers test agent.
-
-**Returns:** The register test agent result.
-
-### [`TestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L164)
-
-_Interface_
-
-```ts
-export interface TestAgent {
-  readonly agentId: Schema.Schema.Type<typeof agentIdSchema>;
-  readonly apiKey: AgentKey;
-  readonly name: string;
-}
-```
-
-Describes test agent.
-
-### [`userId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L80)
+### [`userId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L58)
 
 _Function_
 

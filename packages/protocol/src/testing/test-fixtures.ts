@@ -1,20 +1,10 @@
 /**
- * Test fixtures — branded-ID constructors + real-server agent registration.
+ * @file Branded identifier and credential constructors for test fixtures.
  *
- * Both halves exist solely to construct fixture data for conformance
- * properties: the branded-ID constructors decode string literals into
- * branded UserId/AgentId/ConversationId/etc.; the registration helper
- * POSTs `/api/v1/auth/register` and returns `{ agentId, apiKey }`.
- *
- * Registration returns `Effect&lt;TestAgent, AgentRegistrationError>` —
- * no bare throws.
+ * The constructors decode fixture literals through the production schemas so
+ * test data retains the same branded types as runtime values.
  */
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "@effect/platform";
-import { Data, Effect, FastCheck, Schema } from "effect";
+import { FastCheck, Schema } from "effect";
 import {
   agentId as agentIdSchema,
   agentName as agentNameSchema,
@@ -28,11 +18,6 @@ import {
   messageId as messageIdSchema,
 } from "#conversation";
 
-const UNIQUE_SUFFIX_RADIX = 36;
-const UNIQUE_SUFFIX_START = 2;
-const UNIQUE_SUFFIX_END = 8;
-const HTTP_SUCCESS_MIN = 200;
-const HTTP_SUCCESS_MAX_EXCLUSIVE = 300;
 const AGENT_KEY_PREFIX = "moltzap_agent_";
 const KEY_ID_HEX_CHARS = 16;
 const SECRET_HEX_CHARS = 48;
@@ -57,13 +42,6 @@ const HEX_DIGITS = [
   "e",
   "f",
 ] as const;
-
-function uniqueSuffixFragment(): string {
-  return globalThis.crypto
-    .randomUUID()
-    .replaceAll("-", "")
-    .slice(UNIQUE_SUFFIX_START, UNIQUE_SUFFIX_END);
-}
 
 // --- Branded-ID constructors ---
 //
@@ -152,154 +130,3 @@ export const agentKeyString = (seed: number): string => {
 };
 /** Provides the connection id runtime value. */
 export const connectionId = decodeConnectionId;
-
-// --- Real-server agent registration ---
-//
-// The protocol package owns this helper (not the consumer) because every
-// implementation that wants to run the suite needs it, the HTTP shape is
-// part of the protocol contract, and doing it here keeps the consumer-side
-// wrapper thin.
-
-/** Describes test agent. */
-export interface TestAgent {
-  readonly agentId: Schema.Schema.Type<typeof agentIdSchema>;
-  readonly apiKey: AgentKey;
-  readonly name: string;
-}
-
-interface RegisterTestAgentOptions {
-  readonly baseUrl: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly inviteCode?: string;
-  readonly uniqueSuffix?: string | false;
-}
-
-const registrationResponseSchema = Schema.Struct({
-  agentId: agentIdSchema,
-  apiKey: agentKey,
-});
-type RegistrationResponse = Schema.Schema.Type<
-  typeof registrationResponseSchema
->;
-const registrationResponseText = Schema.parseJson(registrationResponseSchema);
-
-/** HTTP registration failed (network, non-2xx, malformed response). */
-export class AgentRegistrationError extends Data.TaggedError(
-  "TestingAgentRegistrationError",
-)<{
-  readonly baseUrl: string;
-  readonly agentName: string;
-  readonly status: number;
-  readonly body: string;
-}> {}
-
-/**
- * Register an agent against the real server's HTTP endpoint. The
- * returned `apiKey` is the `agentKey` TestClient sends in `agent/network/connect`.
- *
- * Every call uses a unique suffix so replays don't collide on the
- * server's "duplicate name" check; seeded replays pass a stable
- * `uniqueSuffix` to make the name deterministic.
- * @param opts Value supplied to the operation.
- * @returns The registration name result.
- */
-function registrationName(opts: RegisterTestAgentOptions): string {
-  const suffix =
-    opts.uniqueSuffix === false
-      ? ""
-      : (opts.uniqueSuffix ??
-        `${Date.now().toString(UNIQUE_SUFFIX_RADIX)}-${uniqueSuffixFragment()}`);
-  return suffix === "" ? opts.name : `${opts.name}-${suffix}`;
-}
-
-function registrationRequestBody(
-  opts: RegisterTestAgentOptions,
-  name: string,
-): Record<string, string> {
-  const requestBody: Record<string, string> = { name };
-  if (opts.description !== undefined) {
-    requestBody.description = opts.description;
-  }
-  if (opts.inviteCode !== undefined) {
-    requestBody.inviteCode = opts.inviteCode;
-  }
-  return requestBody;
-}
-
-const registrationErrorMapper =
-  (opts: RegisterTestAgentOptions, agentName: string) =>
-  (cause: unknown): AgentRegistrationError => {
-    if (cause instanceof AgentRegistrationError) {
-      return cause;
-    }
-    return new AgentRegistrationError({
-      baseUrl: opts.baseUrl,
-      agentName,
-      status: 0,
-      body: cause instanceof Error ? cause.message : String(cause),
-    });
-  };
-
-function ensureRegistrationSuccess(
-  opts: RegisterTestAgentOptions,
-  agentName: string,
-  status: number,
-  body: string,
-): Effect.Effect<void, AgentRegistrationError> {
-  if (status >= HTTP_SUCCESS_MIN && status < HTTP_SUCCESS_MAX_EXCLUSIVE) {
-    return Effect.void;
-  }
-  return Effect.fail(
-    new AgentRegistrationError({
-      baseUrl: opts.baseUrl,
-      agentName,
-      status,
-      body,
-    }),
-  );
-}
-
-const parseRegistrationResponse = (
-  body: string,
-  toRegistrationError: (cause: unknown) => AgentRegistrationError,
-): Effect.Effect<RegistrationResponse, AgentRegistrationError> =>
-  Schema.decodeUnknown(registrationResponseText)(body).pipe(
-    Effect.mapError(toRegistrationError),
-  );
-
-// --- Real-server app credential minting ---
-//
-/**
- * Registers test agent.
- * @param opts Value supplied to the operation.
- * @returns The register test agent result.
- */
-export function registerTestAgent(
-  opts: RegisterTestAgentOptions,
-): Effect.Effect<TestAgent, AgentRegistrationError> {
-  const name = registrationName(opts);
-  const requestBody = registrationRequestBody(opts, name);
-  const toRegistrationError = registrationErrorMapper(opts, name);
-  return Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient;
-    const request = HttpClientRequest.post(
-      `${opts.baseUrl}/api/v1/auth/register`,
-    ).pipe(
-      HttpClientRequest.setHeader("Content-Type", "application/json"),
-      HttpClientRequest.bodyUnsafeJson(requestBody),
-    );
-    const response = yield* client
-      .execute(request)
-      .pipe(Effect.mapError(toRegistrationError));
-    const body = yield* response.text.pipe(
-      Effect.mapError(toRegistrationError),
-    );
-    yield* ensureRegistrationSuccess(opts, name, response.status, body);
-    const parsed = yield* parseRegistrationResponse(body, toRegistrationError);
-    return { ...parsed, name } satisfies TestAgent;
-  }).pipe(
-    Effect.provide(FetchHttpClient.layer),
-    Effect.withSpan("registerTestAgent"),
-  );
-}
