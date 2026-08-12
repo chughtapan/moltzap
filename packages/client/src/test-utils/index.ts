@@ -1,9 +1,8 @@
 /**
- * @file Collects deterministic identifiers, protocol fixtures, typed service
- * doubles, and black-box connection helpers for package and adapter tests.
+ * @file Collects deterministic identifiers, protocol fixtures, and typed
+ * service doubles for package and adapter tests.
  */
 import type { Message } from "@moltzap/protocol/message";
-import { serverBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import { Data, Effect } from "effect";
 import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
@@ -16,38 +15,14 @@ export {
   type CreateFakeChannelServiceOptions,
   type FakeChannelService,
 } from "./channel-service-fixture.js";
-/** Re-exports the public API from `./standalone-provisioning.js`. */
-export {
-  registerStandaloneAgentPair,
-  type StandaloneAgentPair,
-  type StandaloneAgentPairNames,
-} from "./standalone-provisioning.js";
-/** Re-exports the public API from `./harness.js`. */
-export {
-  type ConnectedHarnessAgent,
-  type HarnessAgentClient,
-  registerAndConnect,
-} from "./harness.js";
-/** Re-exports the public API from `../auth.js`. */
-export { registerAgent, type RegisterResponse } from "../auth.js";
 
 /** Re-exports the public API from `./fake-service.js`. */
 export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
-/** Re-exports the public API from `../config.test-utils.js`. */
-export { withTestServiceConfig } from "../config.test-utils.js";
 
 /** Re-exports the public API from `./ids.js`. */
 export { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
 const FLUSH_DISPATCH_TURNS = 20;
-
-/**
- * Reduce a test server's WebSocket endpoint to the base a client connects to.
- * @param wsUrl Test server WebSocket URL.
- * @returns Path-free base URL.
- */
-export const stripWsPath = (wsUrl: string): ServerBaseUrl =>
-  serverBaseUrl(wsUrl);
 
 class FlushDispatchChainError extends Data.TaggedError(
   "FlushDispatchChainError",
