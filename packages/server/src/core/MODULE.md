@@ -4,11 +4,11 @@ _`packages/server/src/core`_
 
 ## Purpose
 
-Narrow core wiring barrel for server-core internals.
+Core service graph composition.
 
 ## Public surface
 
-### [`ResolvedServices`](./layers.ts#L58)
+### [`ResolvedServices`](./index.ts#L58)
 
 _Interface_
 
@@ -26,7 +26,7 @@ export interface ResolvedServices {
 
 Describes resolved services.
 
-### [`resolveServices`](./layers.ts#L69)
+### [`resolveServices`](./index.ts#L69)
 
 _Variable_
 
@@ -44,7 +44,7 @@ export const resolveServices = Effect.all({
 
 Provides the resolve services runtime value.
 
-### [`servicesLive`](./layers.ts#L52)
+### [`servicesLive`](./index.ts#L52)
 
 _Variable_
 
@@ -59,4 +59,4 @@ Provides the services live runtime value.
 
 ## Files
 
-- `layers.ts`
+- `index.ts`

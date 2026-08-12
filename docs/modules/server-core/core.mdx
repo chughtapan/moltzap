@@ -1,6 +1,6 @@
 ---
 title: "server-core/core"
-description: "Narrow core wiring barrel for server-core internals."
+description: "Core service graph composition."
 ---
 
 # server-core/core
@@ -9,11 +9,11 @@ _`packages/server/src/core`_
 
 ## Purpose
 
-Narrow core wiring barrel for server-core internals.
+Core service graph composition.
 
 ## Public surface
 
-### [`ResolvedServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L58)
+### [`ResolvedServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/index.ts#L58)
 
 _Interface_
 
@@ -31,7 +31,7 @@ export interface ResolvedServices {
 
 Describes resolved services.
 
-### [`resolveServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L69)
+### [`resolveServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/index.ts#L69)
 
 _Variable_
 
@@ -49,7 +49,7 @@ export const resolveServices = Effect.all({
 
 Provides the resolve services runtime value.
 
-### [`servicesLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L52)
+### [`servicesLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/index.ts#L52)
 
 _Variable_
 
@@ -64,4 +64,4 @@ Provides the services live runtime value.
 
 ## Files
 
-- `layers.ts`
+- `index.ts`

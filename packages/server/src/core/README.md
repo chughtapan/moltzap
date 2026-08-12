@@ -15,5 +15,5 @@ cycle.
 
 ## Files
 
-- `layers.ts` — `ServicesLive` / `resolveServices`: the service-graph Layer
+- `index.ts` — `ServicesLive` / `resolveServices`: the service-graph Layer
   composition that wires every domain service.
