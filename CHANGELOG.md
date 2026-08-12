@@ -76,11 +76,13 @@ recreate it from the current schema.
 command, the Unix domain socket it spoke over, and the local daemon RPC
 dialect behind it are gone, along with generic send on the adapter surface.
 
-Everything the CLI did is an MCP tool on the daemon's one fixed `/mcp` path —
-including registration, which was its last unique capability. Point any MCP
-client at `http://127.0.0.1:<mcpPort>/mcp`. `status` answers in both slot
-states, so inspecting a running agent still works; it just needs an MCP client
-rather than a shell.
+Every retained operator workflow is an MCP tool on the daemon's one fixed
+`/mcp` path, including registration, which was the CLI's last unique
+capability. Generic send is intentionally removed rather than replaced by a
+tool; runtimes start conversations and use replies bound to live turns. Point
+any MCP client at `http://127.0.0.1:<mcpPort>/mcp`. `status` answers in both
+slot states, so inspecting a running agent still works; it just needs an MCP
+client rather than a shell.
 
 - **Client (`@moltzap/client`):** the `moltzap` bin key, `src/cli/`, the local
   daemon RPC dialect, the socket server, and `MoltZapService`'s socket methods
