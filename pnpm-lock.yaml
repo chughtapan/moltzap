@@ -39,8 +39,8 @@ importers:
         specifier: ^9
         version: 9.39.4(jiti@1.21.7)
       eslint-plugin-agent-code-guard:
-        specifier: 0.0.20
-        version: 0.0.20(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7))
+        specifier: 0.0.21
+        version: 0.0.21(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7))
       husky:
         specifier: ^9.0.0
         version: 9.1.7
@@ -5446,6 +5446,10 @@ packages:
     resolution: {integrity: sha512-KRs7WVDKg86PWiuAqhDrAQnTXZKraVcCc6vFdL14qrZ/DcWwuRo7VoiYXalXO7S5GKpqYiVEwCbgFDfxNHKJBQ==}
     engines: {node: ^12.20.0 || >=14}
 
+  comment-parser@1.4.1:
+    resolution: {integrity: sha512-buhp5kePrmda3vhc5B9t7pUQXAb2Tnd0qgpkIhPhkHXxJpiPJ11H0ZEU0oBpJ2QztSbzG/ZxMj/CHsYJqRHmyg==}
+    engines: {node: '>= 12.0.0'}
+
   comment-parser@1.4.6:
     resolution: {integrity: sha512-ObxuY6vnbWTN6Od72xfwN9DbzC7Y2vv8u1Soi9ahRKL37gb6y1qk6/dgjs+3JWuXJHWvsg3BXIwzd/rkmAwavg==}
     engines: {node: '>= 12.0.0'}
@@ -6123,8 +6127,8 @@ packages:
       eslint-plugin-import-x:
         optional: true
 
-  eslint-plugin-agent-code-guard@0.0.20:
-    resolution: {integrity: sha512-mzlJ4tI8BJ3oxrGYn4tATgM9UXiN+W7/chiidyfGxIiASsOlEEL/4/ehg/S0SmXXGeN3MgDNOKQ/KORKFbUJdA==}
+  eslint-plugin-agent-code-guard@0.0.21:
+    resolution: {integrity: sha512-9NgCQ9Bwuny3wCfU2p359/1K6nUxgW3m0GQ2YY8YDU83dzmAkL/q2bxqyli2HqTu/HagfoS8sBWAp/qhnkD0dA==}
     hasBin: true
     peerDependencies:
       eslint: '>=9'
@@ -6148,6 +6152,12 @@ packages:
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
     peerDependencies:
       eslint: ^7.0.0 || ^8.0.0 || ^9.0.0 || ^10.0.0
+
+  eslint-plugin-perfectionist@5.10.1:
+    resolution: {integrity: sha512-Kprsp9Us0GqAesYaAIzUViw57xYp5WBqzXrcE0Mtww++E5fexWXYBipMuuD7yvyH4vvpBH0+oJ+OMAmZ0oYXkw==}
+    engines: {node: ^20.0.0 || >=22.0.0}
+    peerDependencies:
+      eslint: ^8.45.0 || ^9.0.0 || ^10.0.0
 
   eslint-plugin-sonarjs@4.0.3:
     resolution: {integrity: sha512-5drkJKLC9qQddIiaATV0e8+ygbUc7b0Ti6VB7M2d3jmKNh3X0RaiIJYTs3dr9xnlhlrxo+/s1FoO3Jgv6O/c7g==}
@@ -8068,6 +8078,10 @@ packages:
 
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
+
+  natural-orderby@5.0.0:
+    resolution: {integrity: sha512-kKHJhxwpR/Okycz4HhQKKlhWe4ASEfPgkSWNmKFHd7+ezuQlxkA5cM3+XkBPvm1gmHen3w53qsYAv+8GwRrBlg==}
+    engines: {node: '>=18'}
 
   negotiator@0.6.3:
     resolution: {integrity: sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg==}
@@ -15979,6 +15993,8 @@ snapshots:
 
   commander@9.5.0: {}
 
+  comment-parser@1.4.1: {}
+
   comment-parser@1.4.6: {}
 
   compress-commons@6.0.2:
@@ -16730,14 +16746,16 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-agent-code-guard@0.0.20(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7)):
+  eslint-plugin-agent-code-guard@0.0.21(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7)):
     dependencies:
       '@eslint-community/eslint-plugin-eslint-comments': 4.7.2(eslint@9.39.4(jiti@1.21.7))
       '@typescript-eslint/utils': 8.65.0(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7))
+      comment-parser: 1.4.1
       eslint: 9.39.4(jiti@1.21.7)
       eslint-import-resolver-typescript: 4.4.5(eslint-plugin-import-x@4.17.1(@typescript-eslint/utils@8.65.0(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7)))(eslint@9.39.4(jiti@1.21.7)))(eslint@9.39.4(jiti@1.21.7))
       eslint-plugin-import-x: 4.17.1(@typescript-eslint/utils@8.65.0(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7)))(eslint@9.39.4(jiti@1.21.7))
       eslint-plugin-jsdoc: 62.9.0(eslint@9.39.4(jiti@1.21.7))
+      eslint-plugin-perfectionist: 5.10.1(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7))
       eslint-plugin-sonarjs: 4.0.3(eslint@9.39.4(jiti@1.21.7))
       knip: 6.14.1(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
       typescript: '@typescript/typescript6@6.0.2'
@@ -16785,6 +16803,15 @@ snapshots:
       to-valid-identifier: 1.0.0
     transitivePeerDependencies:
       - supports-color
+
+  eslint-plugin-perfectionist@5.10.1(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7)):
+    dependencies:
+      '@typescript-eslint/utils': 8.65.0(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@1.21.7))
+      eslint: 9.39.4(jiti@1.21.7)
+      natural-orderby: 5.0.0
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
 
   eslint-plugin-sonarjs@4.0.3(eslint@9.39.4(jiti@1.21.7)):
     dependencies:
@@ -19300,6 +19327,8 @@ snapshots:
   napi-postinstall@0.3.4: {}
 
   natural-compare@1.4.0: {}
+
+  natural-orderby@5.0.0: {}
 
   negotiator@0.6.3: {}
 

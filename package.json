@@ -54,7 +54,7 @@
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitest/coverage-v8": "^3.2.4",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.20",
+    "eslint-plugin-agent-code-guard": "0.0.21",
     "husky": "^9.0.0",
     "mint": "4.2.749",
     "nx": "^22.7.5",

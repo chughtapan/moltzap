@@ -116,6 +116,9 @@ const TAG_CLASS_FACTORIES = [
 
 const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   ...guard.configs.strict.rules,
+  "agent-code-guard/no-vacuous-jsdoc": "error",
+  "agent-code-guard/prefer-stepdown-function-order": "error",
+  "agent-code-guard/require-stable-file-shell": "error",
   "@typescript-eslint/naming-convention": [
     "error",
     {
