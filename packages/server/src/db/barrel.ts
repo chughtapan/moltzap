@@ -1,11 +1,9 @@
 /** @file Internal DB/query helper barrel for server-core source aliases. */
 
-/** Re-exports the public API from `./client.js`. */
-export type { Db } from "./client.js";
 /** Re-exports the public API from `./layer.js`. */
 export { DbTag } from "./layer.js";
 /** Re-exports the public API from `./database.js`. */
-export type { Database, MessageRow } from "./database.js";
+export type { Database, Db, MessageRow } from "./database.js";
 /** Re-exports the public API from `./effect-kysely-toolkit.js`. */
 export {
   catchSqlErrorAsDefect,
@@ -28,5 +26,5 @@ export {
 export type { ListCursorPosition } from "./list-cursor.js";
 /** Re-exports the public API from `./snowflake.js`. */
 export { nextSnowflakeId } from "./snowflake.js";
-/** Re-exports the public API from `./sql.js`. */
-export { sql } from "./sql.js";
+/** Re-exports the public API from `kysely`. */
+export { sql } from "kysely";

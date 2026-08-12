@@ -2,7 +2,7 @@
 
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ColumnType, Selectable } from "kysely";
+import type { ColumnType, Kysely, Selectable } from "kysely";
 
 type AgentStatus = "active" | "suspended";
 type Branded<T extends string> = ColumnType<T, string, string>;
@@ -74,3 +74,6 @@ export interface Database {
   conversation_participants: ConversationParticipants;
   messages: Messages;
 }
+
+/** Represents the standalone database client. */
+export type Db = Kysely<Database>;

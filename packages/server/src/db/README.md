@@ -2,11 +2,10 @@
 
 This folder is the storage substrate shared by server domains.
 
-- `database.ts` owns the Kysely row map and protocol brands, while `client.ts`,
-  `layer.ts`, and `barrel.ts` expose the server's `Db` boundary.
-- The Effect/Kysely adapter and vendor shim isolate query execution and
-  transaction types.
-- Cursor, snowflake, SQL, and migration modules provide persistence utilities.
+- `database.ts` owns the Kysely row map, protocol brands, and `Db` type, while
+  `layer.ts` and `barrel.ts` expose the server's database boundary.
+- The Effect/Kysely adapter owns query execution and transaction helpers.
+- Cursor, snowflake, and migration modules provide persistence utilities.
 
 Message bodies are stored as plaintext JSONB; the read path decodes them
 strictly, so a hand-edited row cannot reach the wire.

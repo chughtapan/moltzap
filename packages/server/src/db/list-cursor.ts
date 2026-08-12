@@ -15,7 +15,7 @@ import type {
   ExpressionBuilder,
   ReferenceExpression,
   SqlBool,
-} from "./kysely-vendor.js";
+} from "kysely";
 
 /** `sortKey` is the ISO-8601 `created_at`; `id` is the tie-break UUID. */
 export interface ListCursorPosition {

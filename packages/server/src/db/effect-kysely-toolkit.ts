@@ -27,7 +27,7 @@ import {
   type KyselyConfig,
   type RawBuilder,
   type Transaction,
-} from "./kysely-vendor.js";
+} from "kysely";
 import type { EffectKysely as SqlEffectKysely } from "@effect/sql-kysely/Pg";
 
 // Pulls in `declare module "kysely"` augmentations so `yield* qb` type-checks.
