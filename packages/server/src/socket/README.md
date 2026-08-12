@@ -9,9 +9,8 @@ types used by server services.
 
 ## Files
 
-- `connection.ts` — connection manager and reverse-client alias used by
-  server services.
-- `context.ts` — server auth context value types.
+- `connection.ts` — connection manager, service tags, and authenticated
+  principal context used by server services.
 
 ## Flow
 

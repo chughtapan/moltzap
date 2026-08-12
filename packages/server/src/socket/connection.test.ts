@@ -8,8 +8,11 @@ import {
   type ReverseClient,
 } from "@moltzap/protocol/socket";
 import { agentId, conversationId, userId } from "@moltzap/protocol/testing";
-import { agentContextFrom, type AgentContext } from "./context.js";
-import { ConnectionManager } from "./connection.js";
+import {
+  agentContextFrom,
+  type AgentContext,
+  ConnectionManager,
+} from "./connection.js";
 
 const CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
   "00000000-0000-4000-8000-00000000c718",

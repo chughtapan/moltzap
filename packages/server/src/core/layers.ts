@@ -7,9 +7,9 @@ import { Effect, Layer } from "effect";
 import { type Db, DbTag } from "#db";
 import {
   connectionManagerLive,
+  type ConnectionManager,
   ConnectionManagerTag,
-} from "../socket/layer.js";
-import type { ConnectionManager } from "../socket/connection.js";
+} from "../socket/connection.js";
 import {
   agentEndpointResolverLive,
   AgentEndpointResolverTag,

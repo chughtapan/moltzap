@@ -8,7 +8,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](./connection.ts#L28)
+### [`AgentConnection`](./connection.ts#L89)
 
 _Interface_
 
@@ -22,7 +22,7 @@ class AgentConnection extends Data.TaggedClass("AgentConnection")<
 
 Re-exports the public API from `current module`.
 
-### [`AgentContext`](./context.ts#L16)
+### [`AgentContext`](./connection.ts#L29)
 
 _Class_
 
@@ -37,7 +37,7 @@ export class AgentContext extends Data.TaggedClass("AgentContext")<{
 The principal context stored on an authenticated socket connection. Every
 gated method's `requires` head selects this arm.
 
-### [`agentContextFrom`](./context.ts#L32)
+### [`agentContextFrom`](./connection.ts#L45)
 
 _Function_
 
@@ -55,7 +55,7 @@ types it as `string`, so any other value is an impossible-state defect.
 
 **Returns:** The agent context from result.
 
-### [`AgentStatus`](./context.ts#L10)
+### [`AgentStatus`](./connection.ts#L23)
 
 _TypeAlias_
 
@@ -68,7 +68,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`Connection`](./connection.ts#L38)
+### [`Connection`](./connection.ts#L99)
 
 _TypeAlias_
 
@@ -78,7 +78,7 @@ export type Connection = UnauthenticatedConnection | AgentConnection;
 
 The two-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L115)
+### [`ConnectionManager`](./connection.ts#L176)
 
 _Class_
 
@@ -207,7 +207,7 @@ export class ConnectionManager {
 
 Implements connection manager.
 
-### [`connectionManagerLive`](./layer.ts#L19)
+### [`connectionManagerLive`](./connection.ts#L405)
 
 _Variable_
 
@@ -220,7 +220,7 @@ export const connectionManagerLive = Layer.sync(
 
 Provides the connection manager live runtime value.
 
-### [`ConnectionManagerTag`](./layer.ts#L14)
+### [`ConnectionManagerTag`](./connection.ts#L400)
 
 _Class_
 
@@ -232,7 +232,7 @@ export class ConnectionManagerTag extends Context.Tag(
 
 Implements connection manager tag.
 
-### [`ConnectionTag`](./layer.ts#L8)
+### [`ConnectionTag`](./connection.ts#L394)
 
 _Class_
 
@@ -245,7 +245,7 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L74)
+### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L73)
 
 _TypeAlias_
 
@@ -258,7 +258,7 @@ export type PrincipalBoundaryCanaries = [
 
 Compile-time assertions for the principal boundaries.
 
-### [`principalCanaryRefs`](./principal.types-check.ts#L82)
+### [`principalCanaryRefs`](./principal.types-check.ts#L81)
 
 _Variable_
 
@@ -272,7 +272,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`TransitionOutcome`](./connection.ts#L46)
+### [`TransitionOutcome`](./connection.ts#L107)
 
 _TypeAlias_
 
@@ -286,7 +286,7 @@ arm carries the minted connection so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](./connection.ts#L22)
+### [`UnauthenticatedConnection`](./connection.ts#L83)
 
 _Interface_
 
@@ -303,6 +303,4 @@ Re-exports the public API from `current module`.
 ## Files
 
 - `connection.ts`
-- `context.ts`
-- `layer.ts`
 - `principal.types-check.ts`

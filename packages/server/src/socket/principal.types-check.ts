@@ -3,20 +3,19 @@
  * and the agent principal context. These assertions encode the type-level
  * invariants the runtime never re-checks: the nominal brand boundary, per-arm
  * `auth` narrowing, and exhaustive `Match.tag` discrimination. A regression in
- * `connection.ts` / `context.ts` surfaces here as a compile error, not at
- * runtime.
+ * `connection.ts` surfaces here as a compile error, not at runtime.
  *
  * This file is never executed. Positive assignments and conditional-type
  * assertions carry the payload without suppressing compiler diagnostics.
  */
 import { Match } from "effect";
 import type {
+  AgentContext,
   AgentConnection,
   Connection,
   TransitionOutcome,
   UnauthenticatedConnection,
 } from "./connection.js";
-import type { AgentContext } from "./context.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
 declare const agentConn: AgentConnection;
