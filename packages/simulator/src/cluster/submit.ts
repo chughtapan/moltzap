@@ -1,13 +1,15 @@
-/* eslint-disable agent-code-guard/promise-type -- File loading and the Temporal SDK are Promise-native at this submission boundary. */
 /** @file Shared submission of one experiment to a Temporal-managed cluster. */
 
-import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+/* eslint-disable agent-code-guard/promise-type -- File loading and the Temporal SDK are Promise-native at this submission boundary. */
+
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Context, Data, Effect, Layer } from "effect";
+import { type Cause, Context, Data, Effect, Layer } from "effect";
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import type { KubernetesExecutionProfile } from "./profile.js";
 import type { RunControllerResult } from "./reclaim.js";
+import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
 import {
   runTemporalSociety,
   type RunTemporalSocietyOptions,
@@ -153,6 +155,18 @@ function readExperiment(
     );
 }
 
+/**
+ * Preserve actionable rollout-refusal guidance while sanitizing every failure
+ * whose detail may include a credential-bearing connection string.
+ * @param cause Promise rejection normalized by Effect.
+ * @returns A public submission failure with safe operator-facing detail.
+ */
+function submissionFailure(cause: Cause.UnknownException): RunSubmissionError {
+  return cause.error instanceof RunWorkerRollRefused
+    ? failure("configuration", cause.error.message)
+    : failure("execution", "the Temporal-managed run did not complete");
+}
+
 function executeTemporalRun(
   options: RunTemporalSocietyOptions,
   operations: SubmitOperationsService,
@@ -161,9 +175,7 @@ function executeTemporalRun(
   // output and the connection it carries can hold a credential.
   return Effect.tryPromise(() => operations.runTemporalSociety(options)).pipe(
     Effect.tapErrorCause(Effect.logError),
-    Effect.mapError(() =>
-      failure("execution", "the Temporal-managed run did not complete"),
-    ),
+    Effect.mapError(submissionFailure),
   );
 }
 
@@ -205,6 +217,7 @@ interface PreparedRun {
   readonly executionProfile: KubernetesExecutionProfile;
   readonly startupTimeoutMs?: number;
   readonly cohortSize?: number;
+  readonly forceWorkerRoll: boolean;
   readonly connection: {
     readonly taskQueue: string;
     readonly temporalAddress: string;
@@ -279,6 +292,7 @@ function prepareRun(
     path: experimentPath(args),
     controllerImage,
     executionProfile,
+    forceWorkerRoll: environment[FORCE_WORKER_ROLL_VARIABLE] === "1",
     ...runSizing(environment),
     supportImage: requiredImage(
       environment,
@@ -323,6 +337,7 @@ function executePreparedRun(
     const result = yield* executeTemporalRun(
       {
         executionProfile: prepared.executionProfile,
+        forceWorkerRoll: prepared.forceWorkerRoll,
         workflowId: identity.runId,
         taskQueue: prepared.connection.taskQueue,
         temporalAddress: prepared.connection.temporalAddress,

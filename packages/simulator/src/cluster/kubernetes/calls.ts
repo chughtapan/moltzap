@@ -189,18 +189,28 @@ export function makeKubernetesRunWorkerInstallApi(
 ): RunWorkerInstallApi {
   const clients = installClients(options.profile);
   const applies = installedObjectApplies(clients, runWorkerManifests(options));
+  const readWorker = () =>
+    kubernetesCall("observe run worker", () =>
+      clients.apps.readNamespacedDeployment({
+        name: RUN_WORKER_NAME,
+        namespace: SYSTEM_NAMESPACE,
+      }),
+    );
   return Object.freeze({
     install: (object: RunWorkerObject) =>
       kubernetesCall(`apply run worker ${object}`, applies[object]).pipe(
         Effect.asVoid,
       ),
+    readInstalledWorkerImage: () =>
+      readWorker().pipe(
+        Effect.map(installedWorkerImage),
+        Effect.catchIf(
+          (failure) => failure.absent,
+          () => Effect.succeed(undefined),
+        ),
+      ),
     readWorkerAvailability: () =>
-      kubernetesCall("observe run worker", () =>
-        clients.apps.readNamespacedDeployment({
-          name: RUN_WORKER_NAME,
-          namespace: SYSTEM_NAMESPACE,
-        }),
-      ).pipe(Effect.map(workerAvailabilityOf)),
+      readWorker().pipe(Effect.map(workerAvailabilityOf)),
     wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
   });
 }
@@ -638,6 +648,32 @@ function workerAvailabilityOf(deployment: {
   };
 }
 
+/**
+ * Read the worker container image without mistaking an injected sidecar.
+ * @param deployment Narrow Deployment shape returned by the Kubernetes client.
+ * @param deployment.spec Optional workload specification.
+ * @param deployment.spec.template Pod template owned by the Deployment.
+ * @param deployment.spec.template.spec Optional Pod specification.
+ * @param deployment.spec.template.spec.containers Named Pod containers.
+ * @returns The worker container image, or nothing when it is unavailable.
+ */
+function installedWorkerImage(deployment: {
+  readonly spec?: {
+    readonly template: {
+      readonly spec?: {
+        readonly containers: ReadonlyArray<{
+          readonly name: string;
+          readonly image?: string;
+        }>;
+      };
+    };
+  };
+}): string | undefined {
+  return deployment.spec?.template.spec?.containers.find(
+    (container) => container.name === RUN_WORKER_NAME,
+  )?.image;
+}
+
 /** One installable member of the cluster's run-worker control plane. */
 export type RunWorkerObject = keyof RunWorkerManifests;
 
@@ -694,6 +730,11 @@ export interface RunWorkerInstallApi {
   readonly install: (
     object: RunWorkerObject,
   ) => Effect.Effect<void, KubernetesCallFailed>;
+  /** Installed worker image, or nothing when the Deployment is absent. */
+  readonly readInstalledWorkerImage: () => Effect.Effect<
+    string | undefined,
+    KubernetesCallFailed
+  >;
   readonly readWorkerAvailability: () => Effect.Effect<
     WorkerAvailability,
     KubernetesCallFailed

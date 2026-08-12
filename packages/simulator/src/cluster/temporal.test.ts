@@ -1,26 +1,31 @@
+/** @file Temporal activity, visibility, workflow, and client boundary tests. */
+
 /* eslint-disable agent-code-guard/async-keyword -- Temporal activity and client tests await the SDK's Promise-native boundary. */
 /* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only activity timelines pin one Temporal attempt and cleanup ordering. */
 
-import { describe, expect, it, vi } from "vitest";
 import { Effect, Schema } from "effect";
-import { CompletedLedgerReceipt } from "../run/execute.js";
-import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
-import {
-  ledgerAllocationFailedSummary,
-  programFinishedSummary,
-} from "./controller/summary.js";
-import { KubernetesCallFailed } from "./kubernetes/calls.js";
+import { describe, expect, it, vi } from "vitest";
 import type {
   RunControllerResult,
   RunLifecycleActivities,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
+import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
+import { CompletedLedgerReceipt } from "../run/execute.js";
 import {
+  ledgerAllocationFailedSummary,
+  programFinishedSummary,
+} from "./controller/summary.js";
+import { KubernetesCallFailed } from "./kubernetes/calls.js";
+import {
+  type ControllerObservation,
   executeRunSocietyWorkflow,
   LifecycleOperations,
-  runLifecycleActivities,
-  type ControllerObservation,
   type LifecycleOperationsService,
+  OPEN_RUN_STATUS,
+  type OpenRunLister,
+  readOpenRuns,
+  runLifecycleActivities,
   type RunSocietyWorkflowExecutionOptions,
 } from "./temporal.js";
 
@@ -198,6 +203,47 @@ describe("run lifecycle activities", () => {
       "wait",
       "observe-namespace",
     ]);
+  });
+});
+
+describe("readOpenRuns", () => {
+  const taskQueue = "moltzap-simulator";
+  const openRunIds = ["mz-open-1", "mz-open-2"];
+
+  async function* listed(
+    workflowIds: readonly string[],
+  ): AsyncIterable<{ readonly workflowId: string }> {
+    for (const workflowId of workflowIds) {
+      yield await Promise.resolve({ workflowId });
+    }
+  }
+
+  it("names unfinished runs from only the worker's task queue", async () => {
+    const queries: string[] = [];
+    const client: OpenRunLister = {
+      list: (options) => {
+        queries.push(options.query);
+        return listed(openRunIds);
+      },
+    };
+
+    await expect(
+      Effect.runPromise(readOpenRuns(client, taskQueue)),
+    ).resolves.toEqual({ _tag: "open", workflowIds: openRunIds });
+    expect(queries[0]).toContain(taskQueue);
+    expect(queries[0]).toContain(OPEN_RUN_STATUS);
+  });
+
+  it("distinguishes an unreadable visibility store from an empty queue", async () => {
+    const client: OpenRunLister = {
+      list: () => {
+        throw new Error("visibility store unavailable");
+      },
+    };
+
+    await expect(
+      Effect.runPromise(readOpenRuns(client, taskQueue)),
+    ).resolves.toEqual({ _tag: "unreadable" });
   });
 });
 

@@ -1,9 +1,10 @@
-// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent, ledger, and router identities the run gives them.
 /**
  * @file Every Kubernetes object the simulator builds: the run's aggregate
  * admission and sandbox resources, the run-scoped control objects created
  * before the controller starts, and the cluster's long-lived run worker.
  */
+
+// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent, ledger, and router identities the run gives them.
 
 import type {
   V1ClusterRole,
@@ -20,20 +21,20 @@ import type {
   V1ServiceAccount,
   V1Volume,
 } from "@kubernetes/client-node";
-import { ClusterError } from "../cluster.js";
 import type {
   CredentialName,
   Image,
   Resources,
 } from "../../agents/container.js";
+import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import type { KubernetesManifest } from "./calls.js";
+import { ClusterError } from "../cluster.js";
 import {
   encodeKubernetesExecutionProfile,
-  LOCAL_KUBERNETES_EXECUTION_PROFILE,
   type KubernetesExecutionProfile,
   type KubernetesPodPlacement,
+  LOCAL_KUBERNETES_EXECUTION_PROFILE,
 } from "../profile.js";
-import type { RunSocietyWorkflowInput } from "../reclaim.js";
 
 const MAX_KUEUE_POD_SETS = 8;
 const BOOTSTRAP_INPUT_PATH = "/var/run/moltzap/secret";
@@ -391,6 +392,13 @@ export const RUN_WORKER_NAME = "run-worker";
 export const IN_CLUSTER_TEMPORAL_ADDRESS = `temporal.${SYSTEM_NAMESPACE}.svc.cluster.local:7233`;
 
 const RUN_WORKER_ENTRYPOINT = "/opt/moltzap/dist/cluster/temporal.js";
+/**
+ * The worker beats every ten seconds, so this delay permits one final heartbeat
+ * before Kubernetes signals its process.
+ */
+export const RUN_WORKER_PRESTOP_SECONDS = 15;
+/** The grace period outlasts pre-stop so the SDK can shut down afterward. */
+export const RUN_WORKER_TERMINATION_GRACE_SECONDS = 60;
 const CONTROLLER_PORT = 3_000;
 const CONTROLLER_ENTRYPOINT = "/opt/moltzap/dist/cluster/controller/main.js";
 const EXPERIMENT_DIRECTORY = "/opt/moltzap/experiment";
@@ -1004,6 +1012,17 @@ function runWorkerContainer(options: RunWorkerOptions): V1Container {
     ],
     terminationMessagePolicy: "FallbackToLogsOnError",
     resources: { requests: { cpu: "100m", memory: "256Mi" } },
+    lifecycle: {
+      preStop: {
+        exec: {
+          command: [
+            "/bin/sh",
+            "-c",
+            `sleep ${String(RUN_WORKER_PRESTOP_SECONDS)}`,
+          ],
+        },
+      },
+    },
     securityContext: {
       allowPrivilegeEscalation: false,
       capabilities: { drop: ["ALL"] },
@@ -1031,6 +1050,7 @@ function runWorkerDeployment(options: RunWorkerOptions): V1Deployment {
           automountServiceAccountToken: true,
           enableServiceLinks: false,
           serviceAccountName: RUN_WORKER_NAME,
+          terminationGracePeriodSeconds: RUN_WORKER_TERMINATION_GRACE_SECONDS,
           containers: [runWorkerContainer(options)],
         },
       },
