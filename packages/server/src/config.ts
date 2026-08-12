@@ -4,7 +4,7 @@
  *
  * Two public types:
  *   - `CoreConfig` — the programmatic input to `createCoreApp(...)`.
- *     Live instances (Db, SpanProcessor) sit here.
+ *     Live database instances sit here.
  *   - `StandaloneBootPlan` — the flat output of `loadStandaloneConfig`.
  *     What `standalone.ts` reads after parsing YAML + env.
  *
@@ -30,7 +30,6 @@ import {
 } from "effect";
 import { TreeFormatter } from "effect/ParseResult";
 import { type RegistrationSecret, registrationSecret } from "#config/secrets";
-import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { type UserId, userId } from "@moltzap/protocol/identity";
 import type { Db } from "#db";
 
@@ -60,17 +59,6 @@ export interface CoreConfig {
    * flow set this and mount their own handler.
    */
   skipDefaultRegisterRoute?: boolean;
-
-  /**
-   * Optional OpenTelemetry span processor. Tests typically pass
-   * `new SimpleSpanProcessor(new InMemorySpanExporter())` so they can
-   * read finished spans via the exporter; production deployments
-   * usually leave this unset and rely on `OTEL_EXPORTER_OTLP_ENDPOINT`
-   * env var (the server builds a `BatchSpanProcessor(OTLPTraceExporter)`
-   * when set). When neither is provided, spans live in Effect's fiber
-   * context but are not exported.
-   */
-  spanProcessor?: SpanProcessor;
 }
 
 // ─────────────────────────────────────────────────────────────────────

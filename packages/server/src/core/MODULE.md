@@ -91,7 +91,7 @@ export interface CoreApp {
 
 Describes core app.
 
-### [`createCoreApp`](./app.ts#L125)
+### [`createCoreApp`](./app.ts#L106)
 
 _Function_
 
@@ -116,54 +116,6 @@ export type DisconnectionHook = (params: {
 ```
 
 Represents disconnection hook values.
-
-### [`makeTracingLayer`](./tracing.ts#L43)
-
-_Function_
-
-```ts
-export function makeTracingLayer(input: TracingLayerInput): Layer.Layer<never>
-```
-
-Build a tracing Layer that wires the OTel SDK with the given span
-processor. The processor controls how spans get exported (OTLP batch
-in production; in-memory simple processor in tests).
-
-**Returns:** The created tracing layer.
-
-### [`readDefaultSpanProcessor`](./tracing.ts#L102)
-
-_Variable_
-
-```ts
-export const readDefaultSpanProcessor: Effect.Effect<SpanProcessor | null> =
-  Effect.all({
-    tracesEndpoint: Config.option(
-      Config.string("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
-    ),
-    baseEndpoint: Config.option(Config.string("OTEL_EXPORTER_OTLP_ENDPOINT")),
-  }).pipe(
-    Effect.map(({ tracesEndpoint, baseEndpoint }) => {
-      const url = resolveTracesEndpoint(
-        Option.getOrUndefined(tracesEndpoint),
-        Option.getOrUndefined(baseEndpoint),
-      );
-      return url === null
-        ? null
-        : new BatchSpanProcessor(new OTLPTraceExporter({ url }));
-    }),
-    Effect.orElseSucceed(() => null),
-  )
-```
-
-Default span-processor factory for production boot.
-
-Reads the OTLP endpoint env vars. If either is set, returns a
-`BatchSpanProcessor` wrapping an `OTLPTraceExporter` pointed at the resolved
-traces URL. The trace-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` takes
-precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
-returns `null` — the caller falls through to a no-op tracing Layer (spans
-stay in Effect's fiber context but are not exported).
 
 ### [`ResolvedServices`](./layers.ts#L58)
 
@@ -201,22 +153,7 @@ export const resolveServices = Effect.all({
 
 Provides the resolve services runtime value.
 
-### [`resolveTracesEndpoint`](./tracing.ts#L77)
-
-_Function_
-
-```ts
-export function resolveTracesEndpoint(
-  tracesEndpoint?: string,
-  baseEndpoint?: string,
-): string | null
-```
-
-Resolves traces endpoint.
-
-**Returns:** The resolve traces endpoint result.
-
-### [`ServerBootFailedError`](./app.ts#L37)
+### [`ServerBootFailedError`](./app.ts#L35)
 
 _Class_
 
@@ -251,5 +188,4 @@ Provides the services live runtime value.
 - `app.ts`
 - `hooks.ts`
 - `layers.ts`
-- `tracing.ts`
 - `types.ts`

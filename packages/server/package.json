@@ -76,7 +76,6 @@
     }
   },
   "dependencies": {
-    "@effect/opentelemetry": "^0.64.0",
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
     "@effect/rpc": "^0.76.0",
@@ -84,12 +83,6 @@
     "@effect/sql-kysely": "^0.48.0",
     "@electric-sql/pglite": "^0.4.4",
     "@moltzap/protocol": "workspace:*",
-    "@opentelemetry/api": "1.9.1",
-    "@opentelemetry/exporter-trace-otlp-http": "0.205.0",
-    "@opentelemetry/resources": "2.7.1",
-    "@opentelemetry/sdk-trace-base": "2.7.1",
-    "@opentelemetry/sdk-trace-node": "2.7.1",
-    "@opentelemetry/semantic-conventions": "1.41.1",
     "effect": "^3.22.0",
     "kysely": "^0.28.2",
     "kysely-pglite": "^0.6.1",

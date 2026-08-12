@@ -11,8 +11,6 @@ import {
   Scope,
 } from "effect";
 
-import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
 import { DbTag } from "#db";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
@@ -79,19 +77,7 @@ const runCleanupStep = (
     catch: (cause) => new ServerCloseError({ cause }),
   }).pipe(logAndSwallowCause(label));
 
-function resolveSpanProcessor(
-  configured?: SpanProcessor,
-): SpanProcessor | null {
-  if (configured !== undefined) {
-    return configured;
-  }
-  return Effect.runSync(readDefaultSpanProcessor);
-}
-
 function makeCoreRuntime(config: CoreConfig) {
-  const spanProcessor = resolveSpanProcessor(config.spanProcessor);
-  const tracingLive =
-    spanProcessor === null ? Layer.empty : makeTracingLayer({ spanProcessor });
   const baseLive = Layer.succeed(DbTag, config.db);
   const fullLive = Layer.provideMerge(servicesLive, baseLive);
   // The connection/disconnection hook arrays are created here so the native
@@ -106,12 +92,7 @@ function makeCoreRuntime(config: CoreConfig) {
     disconnectionHooks,
   });
   const dispatchRuntime = ManagedRuntime.make(
-    Layer.mergeAll(
-      NodeHttpServer.layerContext,
-      fullLive,
-      hooksLive,
-      tracingLive,
-    ),
+    Layer.mergeAll(NodeHttpServer.layerContext, fullLive, hooksLive),
   );
   const services = dispatchRuntime.runSync(resolveServices);
   return { dispatchRuntime, services, connectionHooks, disconnectionHooks };

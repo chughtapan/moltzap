@@ -1,7 +1,7 @@
 # core/
 
 Server boot and composition root: `createCoreApp`, the service-graph Layer
-composition, the `ManagedRuntime`, tracing, and connection-hook wiring.
+composition, the `ManagedRuntime`, and connection-hook wiring.
 
 ## Layer rules
 
@@ -22,6 +22,5 @@ tag cycle.
 - `layers.ts` — `ServicesLive` / `resolveServices`: the service-graph Layer
   composition that wires every domain service.
 - `hooks.ts` — `ConnectionHooksTag`: the connection/disconnection hook service.
-- `tracing.ts` — OpenTelemetry tracing Layer (provides the `withSpan` exporter).
 - `types.ts` — boot-surface types only: `CoreApp`, `ConnectionHook`,
   `DisconnectionHook`.
