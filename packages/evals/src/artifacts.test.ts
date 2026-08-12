@@ -1,17 +1,19 @@
+/** @file Contract tests for exact local and Cloud Storage artifact retrieval. */
+
 import { Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { assert, it } from "@effect/vitest";
 import { ledgerRef } from "@moltzap/simulator/ledger";
 import { Effect, Option, Schema } from "effect";
 import {
-  EvaluationArtifactReadFailed,
   evaluationArtifactBucket,
   evaluationArtifactLocation,
-  localArtifactRoot,
-  readEvaluationLedgerArtifactsWith,
   type EvaluationArtifactLocation,
   type EvaluationArtifactOperations,
+  EvaluationArtifactReadFailed,
   type EvaluationArtifactStorage,
+  localArtifactRoot,
+  readEvaluationLedgerArtifactsWith,
 } from "./artifacts.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- These tests pin the external artifact identities and immutable file set. */
