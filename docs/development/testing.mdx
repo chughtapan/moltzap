@@ -84,11 +84,9 @@ The conformance gate exercises the real server/client surfaces through the proto
 pnpm test:conformance:toxiproxy
 ```
 
-That command starts `docker-compose.conformance.yml`, waits for `TOXIPROXY_URL` (default `http://127.0.0.1:8474`), then runs conformance for:
+That command starts `docker-compose.conformance.yml`, waits for `TOXIPROXY_URL` (default `http://127.0.0.1:8474`), then runs the server-side protocol conformance suite:
 
 - `@moltzap/server-core`
-- `@moltzap/client`
-- `@moltzap/openclaw-channel`
 
 For heavier local stress, run:
 

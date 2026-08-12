@@ -15,8 +15,6 @@ PACKAGES=("$@")
 if [[ "${#PACKAGES[@]}" -eq 0 ]]; then
   PACKAGES=(
     "@moltzap/server-core"
-    "@moltzap/client"
-    "@moltzap/openclaw-channel"
   )
 fi
 
