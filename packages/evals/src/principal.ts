@@ -1,23 +1,22 @@
 /** @file Runtime-native principal drivers for bundled evaluation conditions. */
 
-import { agentName } from "@moltzap/protocol/identity";
 import type { CustomerEvents, LedgerFailure } from "@moltzap/simulator";
 import {
-  NanoClawGatewayInput,
-  type NanoClawGatewayError,
   type NanoClawGateway,
-  OpenClawGatewayRequest,
+  type NanoClawGatewayError,
+  NanoClawGatewayInput,
   type OpenClawGateway,
+  OpenClawGatewayRequest,
   type OpenClawGatewayRequestError,
   type StartedAgent,
 } from "@moltzap/simulator/agents";
 import { Effect, Option, Ref, Schema, Stream } from "effect";
 import {
+  type evaluationEvents,
   NanoClawPrincipalInputSent,
   NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
-  type evaluationEvents,
 } from "./events.js";
 import {
   decodeEvaluationEvidenceId,
@@ -25,7 +24,9 @@ import {
   type EvaluationEvidenceId,
 } from "./model.js";
 
-const decodeAgentName = Schema.decodeSync(agentName);
+const decodeAgentName = Schema.decodeSync(
+  OpenClawPrincipalInstructionAttempted.fields.agentName,
+);
 
 /** Definition-bound customer event writer used by concrete principal drivers. */
 export type EmitEvaluationEvent = CustomerEvents<
