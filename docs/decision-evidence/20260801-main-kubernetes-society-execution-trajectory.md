@@ -319,38 +319,24 @@ rationale or strengthen a proposal into a human statement.
    at `2026-08-01T20:54:08Z`; the second was last updated at
    `2026-08-01T21:02:01Z`. Issue comment `5153770731`, stored actor/account
    `chughtapan`, was posted at `2026-08-01T22:35:05Z` and records the first
-   candidate's failed review plus the correction gate. The issue body and
-   comments are agent-published mechanical artifacts, not independent
-   human-authored rationale. Issue comment `5173168998`, also stored under
-   account `chughtapan`, records the acceptance checkpoint after the live user
-   reply; the connector exposed no creation timestamp, so none is invented.
+   candidate review and correction gate. The issue body and comments are
+   agent-published mechanical artifacts, not independent human-authored
+   rationale. Issue comment `5173168998`, also stored under account
+   `chughtapan`, records the acceptance checkpoint after the live user reply;
+   the connector exposed no creation timestamp, so none is invented.
 
-   Source system: git and isolated Codex review. The simplified candidate was
-   frozen as commit `1939ee8b92e95151473c323de8dd702e880dbde5`, tree
-   `b2a487141545e4cced7bc7ab0e0d08f344cebea3`. Fresh reviewer
-   `/root/candidate_blind_review_2` ran from `2026-08-04T00:32:44Z` through
-   `2026-08-04T00:43:38Z` with no author intervention. Its overall result was
-   `FAIL`: questions 1, 2, and 4 passed; questions 3, 5, and 6 failed because
-   the candidate required every code peer to run in its own container while
-   retaining the earlier host-local `effectRuntime({ build })` gateway and
-   shared-state realization. The unedited result is retained at
-   [`20260804-main-kubernetes-society-execution-cold-review.md`](./20260804-main-kubernetes-society-execution-cold-review.md).
+   Source system: git and isolated Codex review. Candidate commits
+   `1939ee8b92e95151473c323de8dd702e880dbde5` and
+   `2749adbd99eaffd16f063a45de7be01c253f7ef1` record successive mechanical
+   revisions. `[omitted from the ordinary trajectory: prior blind-review
+   answers, findings, per-question verdicts, overall results, reviewer
+   identities, and artifact links; the unedited records remain quarantined in
+   their sibling *-cold-review.md files]`.
 
    Source system: GitHub. Issue comment `5173321800`, stored under account
-   `chughtapan`, records the failed-review checkpoint and correction gate. The
-   connector exposed no creation timestamp, so none is invented. This is an
-   agent-published mechanical artifact, not human rationale.
-
-   Source system: git and isolated Codex review. The corrected candidate was
-   frozen as commit `2749adbd99eaffd16f063a45de7be01c253f7ef1`, tree
-   `ce6655004c93d03e6276a07756a5086ce68aa662`. Different fresh reviewer
-   `/root/candidate_blind_review_3` ran from `2026-08-04T01:03:05Z` through
-   `2026-08-04T01:10:58Z` with no author intervention or repository
-   modification. All six questions passed and the overall result was `PASS`
-   with no blockers. The reviewer states that maintainer acceptance remains
-   required because the result is not self-certifying. The unedited result is
-   retained at
-   [`20260804-main-kubernetes-society-execution-second-cold-review.md`](./20260804-main-kubernetes-society-execution-second-cold-review.md).
+   `chughtapan`, records a candidate-review checkpoint and correction gate.
+   The connector exposed no creation timestamp, so none is invented. This is
+   an agent-published mechanical artifact, not human rationale.
 
 Source gaps, stated plainly:
 
@@ -461,9 +447,10 @@ The only retained human statement on cohort size is `lets get to 10 agents
 first and then scale`, and the accepted final-shape prompt says `Two-agent,
 ten-agent, and all 32 OpenClaw/NanoClaw evaluation runs`. A later amendment
 replaced ten with four while citing no event, and the profile tooling continued
-to enforce ten. The blind review recorded at
-[`20260806-main-kubernetes-society-execution-third-cold-review.md`](./20260806-main-kubernetes-society-execution-third-cold-review.md)
-reported that contradiction against candidate `78ff2f94`.
+to enforce ten. Candidate `78ff2f94` therefore contained a repository-visible
+contradiction. `[omitted from the ordinary trajectory: the associated
+blind-review findings and verdicts; the unedited record remains quarantined in
+its sibling *-cold-review.md file]`.
 
 A live exchange then directed one end-to-end experiment sized by its run rather
 than any fixed number, accepted point corrections to the record, and stated the
