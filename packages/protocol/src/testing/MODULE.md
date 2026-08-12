@@ -6,7 +6,7 @@ _`packages/protocol/src/testing`_
 
 Public barrel for protocol testing utilities.
 
-`@moltzap/protocol/testing` — test fixtures and typed lifecycle clients.
+`@moltzap/protocol/testing` — test fixtures and assertion helpers.
 
 ## Public surface
 
@@ -116,21 +116,6 @@ Validates and decodes conversation id values.
 
 **Returns:** The conversation id result.
 
-### [`makeTestAgentClient`](./lifecycle.ts#L158)
-
-_Function_
-
-```ts
-export function makeTestAgentClient(
-  agentId: AgentId,
-  options: AgentClientOptions,
-): Effect.Effect<TestAgentClient, unknown>
-```
-
-Creates test agent client.
-
-**Returns:** The created test agent client.
-
 ### [`messageId`](./test-fixtures.ts#L116)
 
 _Function_
@@ -239,42 +224,6 @@ export interface TestAgent {
 
 Describes test agent.
 
-### [`TestAgentClient`](./lifecycle.ts#L42)
-
-_Interface_
-
-```ts
-export interface TestAgentClient {
-  readonly principal: "agent";
-  readonly agentId?: AgentId;
-  close(): Effect.Effect<void>;
-  subscribe<D extends AnyNotificationDefinition>(
-    definition: D,
-    refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError>;
-  subscribeAll(
-    refinement?: (
-      delivery: NotificationDelivery<AnyNotificationDefinition>,
-    ) => boolean,
-  ): Stream.Stream<
-    NotificationDelivery<AnyNotificationDefinition>,
-    NotConnectedError
-  >;
-  sendRpc<D extends AnyAgentCallableRpcDefinition>(
-    definition: D,
-    params: ClientDefinitionPayload<D>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<ClientDefinitionSuccess<D>, ClientDefinitionError<D>>;
-  call<Tag extends AgentCallableTag>(
-    tag: Tag,
-    payload: PayloadForTag<AgentCallableRpcs, Tag>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, AgentRpcError<Tag>>;
-}
-```
-
-Describes test agent client.
-
 ### [`TestingError`](./errors.ts#L60)
 
 _TypeAlias_
@@ -289,20 +238,6 @@ export type TestingError =
 ```
 
 Represents testing error conditions.
-
-### [`TestServer`](./lifecycle.ts#L35)
-
-_Interface_
-
-```ts
-export interface TestServer {
-  readonly baseUrl: string;
-  readonly wsUrl: string;
-  readonly close: Effect.Effect<void, unknown>;
-}
-```
-
-Describes test server.
 
 ### [`TransportClosedError`](./errors.ts#L10)
 
@@ -390,7 +325,6 @@ export const WIRE_ERROR_TAG =
 ## Files
 
 - `errors.ts`
-- `lifecycle.ts`
 - `test-fixtures.ts`
 - `wait.ts`
 - `wire-error-tags.ts`

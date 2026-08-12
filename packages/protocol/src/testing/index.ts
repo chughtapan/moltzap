@@ -1,7 +1,7 @@
 /**
  * @file Public barrel for protocol testing utilities.
  *
- * `@moltzap/protocol/testing` — test fixtures and typed lifecycle clients.
+ * `@moltzap/protocol/testing` — test fixtures and assertion helpers.
  */
 
 // safer-arch-ignore no-public-test-helper-leak: The explicitly exported ./testing subpath is the supported cross-package fixture API.
@@ -35,10 +35,6 @@ export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 /** Re-exports the public API from `./wait.js`. */
 export { waitForValue, waitUntil } from "./wait.js";
 
-/** Re-exports the public API from `./lifecycle.js`. */
-export { makeTestAgentClient } from "./lifecycle.js";
-/** Re-exports the public API from `./lifecycle.js`. */
-export type { TestAgentClient, TestServer } from "./lifecycle.js";
 // Errors.
 /** Re-exports the public API from `./errors.js`. */
 export {
