@@ -1,12 +1,12 @@
 /** @file Repository-local Kubernetes submission for one generated evaluation cell. */
 
+import type { Image } from "@moltzap/simulator/agents";
 import { Command, FileSystem, Path } from "@effect/platform";
 import {
   CompletedLedgerReceipt,
   LedgerReceipt,
   type SimulatorDefinitionId,
 } from "@moltzap/simulator";
-import type { Image } from "@moltzap/simulator/agents";
 import { Effect, Either, Schema } from "effect";
 import type {
   EvaluationCaseId,
@@ -16,22 +16,6 @@ import type {
 
 /** Repository-owned Kubernetes profile selected for an evaluation sweep. */
 export type SimulatorProfile = "local" | "gke";
-
-/**
- * Path segments, below the simulator package root, of a profile's executable.
- *
- * The submitter spawns this file by path rather than importing it, so nothing
- * typechecks the spelling. It is exported so a drift canary can compare it
- * against the same path in the simulator's own package scripts.
- *
- * @param profile Kubernetes profile whose executable is being located.
- * @returns Segments to join onto `packages/simulator`.
- */
-export function simulatorProfileEntrypoint(
-  profile: SimulatorProfile,
-): readonly string[] {
-  return ["dist", "cluster", "profiles", `${profile}.js`];
-}
 
 const programFinishedSummary = Schema.Struct({
   _tag: Schema.Literal("ProgramFinished"),
@@ -93,90 +77,6 @@ export interface SubmitEvaluationCellInput {
   readonly caseTimeoutMillis: number;
 }
 
-function literal(value: string): string {
-  return Schema.encodeSync(Schema.parseJson(Schema.String))(value);
-}
-
-function conditionExpression(input: SubmitEvaluationCellInput): string {
-  const shared = [
-    `startupTimeout: Duration.millis(${String(input.runtimeStartupTimeoutMillis)})`,
-    `modelId: ${literal(input.condition.modelId)}`,
-  ];
-  const execution = [
-    `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
-    `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
-  ];
-  // Total over the conditions that exist, so the generated module never has to
-  // carry a throw for a condition the caller could not have named.
-  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
-    "openclaw/v2": `openClawEvaluationCondition({ runtime: { ${shared.join(", ")} }, execution: { ${execution.join(", ")} } })`,
-    "nanoclaw/v2": `nanoclawEvaluationCondition({ runtime: { ${shared.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`,
-  };
-  // Indexing needs the plain spelling; the brand is not part of the key set.
-  const condition: EvaluationConditionName = input.condition.id;
-  return byCondition[condition];
-}
-
-/**
- * Render the only module source admitted by the evaluation submitter.
- * @param input Exact case, condition, image, and timeout bindings.
- * @returns A closed ESM module exporting one cell RunSpec.
- */
-export function evaluationControllerModule(
-  input: SubmitEvaluationCellInput,
-): string {
-  const condition = conditionExpression(input);
-  return [
-    'import { Duration } from "effect";',
-    'import { evaluationCase } from "/opt/moltzap/node_modules/@moltzap/evals/dist/cases.js";',
-    'import { evaluationCellRunSpec, nanoclawEvaluationCondition, openClawEvaluationCondition } from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js";',
-    'import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
-    `const definition = evaluationCase(${literal(input.caseId)});`,
-    `if (definition === undefined || definition.definitionId !== ${literal(input.definitionId)}) throw new Error("evaluation case definition is unavailable");`,
-    `const condition = ${condition};`,
-    "export const runSpec = evaluationCellRunSpec({",
-    "  definition,",
-    "  condition,",
-    `  attemptId: ${literal(input.attemptId)},`,
-    `  peerApplicationImage: ${literal(input.peerApplicationImage)},`,
-    "  cluster: controllerServicesFromEnvironment(),",
-    "});",
-    "",
-  ].join("\n");
-}
-
-function commandFailure(cause: unknown): EvaluationSubmissionFailed {
-  return EvaluationSubmissionFailed.make({
-    stage: "command",
-    detail: String(cause).trim() || "simulator submitter failed",
-  });
-}
-
-function decodeSubmissionOutput(
-  output: string,
-): Effect.Effect<EvaluationSubmissionResult, EvaluationSubmissionFailed> {
-  const lines = output.split(/\r?\n/u);
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index]?.trim();
-    if (line === undefined || line.length === 0) {
-      continue;
-    }
-    const decoded = Schema.decodeUnknownEither(
-      Schema.parseJson(evaluationSubmissionResult),
-    )(line, { onExcessProperty: "error" });
-    const result = Either.getOrUndefined(decoded);
-    if (result !== undefined) {
-      return Effect.succeed(result);
-    }
-  }
-  return Effect.fail(
-    EvaluationSubmissionFailed.make({
-      stage: "result",
-      detail: "simulator submitter printed no valid final result",
-    }),
-  );
-}
-
 /**
  * Submit one generated module through the existing simulator local/GKE CLI.
  * @param input Exact generated-cell submission facts.
@@ -220,4 +120,104 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
       return yield* decodeSubmissionOutput(output);
     }),
   ).pipe(Effect.withSpan("submitEvaluationCell"));
+}
+
+/**
+ * Render the only module source admitted by the evaluation submitter.
+ * @param input Exact case, condition, image, and timeout bindings.
+ * @returns A closed ESM module exporting one cell RunSpec.
+ */
+export function evaluationControllerModule(
+  input: SubmitEvaluationCellInput,
+): string {
+  const condition = conditionExpression(input);
+  return [
+    'import { Duration } from "effect";',
+    'import { evaluationCase } from "/opt/moltzap/node_modules/@moltzap/evals/dist/cases.js";',
+    'import { evaluationCellRunSpec, nanoclawEvaluationCondition, openClawEvaluationCondition } from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js";',
+    'import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
+    `const definition = evaluationCase(${literal(input.caseId)});`,
+    `if (definition === undefined || definition.definitionId !== ${literal(input.definitionId)}) throw new Error("evaluation case definition is unavailable");`,
+    `const condition = ${condition};`,
+    "export const runSpec = evaluationCellRunSpec({",
+    "  definition,",
+    "  condition,",
+    `  attemptId: ${literal(input.attemptId)},`,
+    `  peerApplicationImage: ${literal(input.peerApplicationImage)},`,
+    "  cluster: controllerServicesFromEnvironment(),",
+    "});",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Path segments, below the simulator package root, of a profile's executable.
+ *
+ * The submitter spawns this file by path rather than importing it, so nothing
+ * typechecks the spelling. It is exported so a drift canary can compare it
+ * against the same path in the simulator's own package scripts.
+ *
+ * @param profile Kubernetes profile whose executable is being located.
+ * @returns Segments to join onto `packages/simulator`.
+ */
+export function simulatorProfileEntrypoint(
+  profile: SimulatorProfile,
+): readonly string[] {
+  return ["dist", "cluster", "profiles", `${profile}.js`];
+}
+
+function conditionExpression(input: SubmitEvaluationCellInput): string {
+  const shared = [
+    `startupTimeout: Duration.millis(${String(input.runtimeStartupTimeoutMillis)})`,
+    `modelId: ${literal(input.condition.modelId)}`,
+  ];
+  const execution = [
+    `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
+    `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
+  ];
+  // Total over the conditions that exist, so the generated module never has to
+  // carry a throw for a condition the caller could not have named.
+  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
+    "openclaw/v2": `openClawEvaluationCondition({ runtime: { ${shared.join(", ")} }, execution: { ${execution.join(", ")} } })`,
+    "nanoclaw/v2": `nanoclawEvaluationCondition({ runtime: { ${shared.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`,
+  };
+  // Indexing needs the plain spelling; the brand is not part of the key set.
+  const condition: EvaluationConditionName = input.condition.id;
+  return byCondition[condition];
+}
+
+function literal(value: string): string {
+  return Schema.encodeSync(Schema.parseJson(Schema.String))(value);
+}
+
+function commandFailure(cause: unknown): EvaluationSubmissionFailed {
+  return EvaluationSubmissionFailed.make({
+    stage: "command",
+    detail: String(cause).trim() || "simulator submitter failed",
+  });
+}
+
+function decodeSubmissionOutput(
+  output: string,
+): Effect.Effect<EvaluationSubmissionResult, EvaluationSubmissionFailed> {
+  const lines = output.split(/\r?\n/u);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim();
+    if (line === undefined || line.length === 0) {
+      continue;
+    }
+    const decoded = Schema.decodeUnknownEither(
+      Schema.parseJson(evaluationSubmissionResult),
+    )(line, { onExcessProperty: "error" });
+    const result = Either.getOrUndefined(decoded);
+    if (result !== undefined) {
+      return Effect.succeed(result);
+    }
+  }
+  return Effect.fail(
+    EvaluationSubmissionFailed.make({
+      stage: "result",
+      detail: "simulator submitter printed no valid final result",
+    }),
+  );
 }

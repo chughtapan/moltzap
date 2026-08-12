@@ -1,11 +1,13 @@
-import { assert, effect, it } from "@effect/vitest";
+/** @file Contract tests for generated evaluation cell submission. */
+
+import type { SimulatorDefinitionId } from "@moltzap/simulator";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
+import { assert, effect, it } from "@effect/vitest";
+import { image } from "@moltzap/simulator/agents";
+import { Effect, Schema } from "effect";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect, Schema } from "effect";
-import type { SimulatorDefinitionId } from "@moltzap/simulator";
-import { image } from "@moltzap/simulator/agents";
 import {
   decodeEvaluationCaseId,
   decodeEvaluationConditionId,
@@ -13,8 +15,8 @@ import {
 } from "./model.js";
 import {
   evaluationControllerModule,
-  simulatorProfileEntrypoint,
   type SimulatorProfile,
+  simulatorProfileEntrypoint,
   type SubmitEvaluationCellInput,
 } from "./submission.js";
 
