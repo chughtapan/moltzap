@@ -109,7 +109,18 @@ deliberate deferral, not a summary of a decision.
 
    > why are we keeping the legacy stuff?
 
-2. **Agent turn, Claude Code session `b48667a3-8edc-4cb4-9525-b21c9a43e8ee`.**
+2. **Stored user turn, Codex session
+   `019fba0c-9f1e-7911-9496-45b305a00cb5`.** Locator: stored input
+   history entry; event kind: user turn; `2026-08-04T07:51:13Z`.
+   Stored role: `user`. The source exposes no separate message identifier,
+   enclosing turn locator, or parent locator. The same literal turn is
+   durably transcribed in repository `chughtapan/moltzap`, issue `#926`,
+   comment `5198672021`, posted at `2026-08-05T23:46:22Z` by stored account
+   `chughtapan`; that repository copy is agent-authored.
+
+   > we can include participants in conversation passed by mcp to harness client but not on the main wire
+
+3. **Agent turn, Claude Code session `b48667a3-8edc-4cb4-9525-b21c9a43e8ee`.**
    Locator: message `836728c5-1a19-41e2-bbd2-51145b0ab17c`;
    parent `8b3c1616-93e0-4ef7-996d-9d66db1e72df`;
    `2026-08-04T21:46:43.133Z`. Stored role: `assistant`;
@@ -134,7 +145,7 @@ deliberate deferral, not a summary of a decision.
    >
    > **#6 — docker suites.** No ADR. Pure engineering call.
 
-3. **Stored user turn, Claude Code session
+4. **Stored user turn, Claude Code session
    `b48667a3-8edc-4cb4-9525-b21c9a43e8ee`.** Locator: message
    `5a444536-1723-4d8b-8633-9b0af7c78166`; parent
    `06fff468-741f-42dc-a347-32b48e6097ba`;
@@ -143,7 +154,7 @@ deliberate deferral, not a summary of a decision.
 
    > keep status as a tool; docker suites? simplify as much as possible
 
-4. **Stored user turn, Claude Code session
+5. **Stored user turn, Claude Code session
    `b48667a3-8edc-4cb4-9525-b21c9a43e8ee`.** Locator: message
    `6ca4d0c9-07b1-446d-80e6-11aebd3c3c7e`; parent
    `93de7e93-a798-412b-b7d8-2f90039137a3`;
@@ -151,7 +162,7 @@ deliberate deferral, not a summary of a decision.
 
    > reviews should be checked in; if there is a confision ADR wins always
 
-5. **Mechanical repository events.** Pull requests
+6. **Mechanical repository events.** Pull requests
    [`#959`](https://github.com/chughtapan/moltzap/pull/959)
    (`2026-08-05T07:29:22Z`, *refactor(openclaw): drive the adapter only
    through HarnessClient*),
@@ -163,7 +174,7 @@ deliberate deferral, not a summary of a decision.
    acquires its own client*). Author account `chughtapan`;
    agent-authored bodies.
 
-6. **Stored issue comment.** Locator: repository `chughtapan/moltzap`;
+7. **Stored issue comment.** Locator: repository `chughtapan/moltzap`;
    issue `#926`; comment `5185240471`; author account `chughtapan`;
    `2026-08-04T22:17:18Z`. Agent-authored. Records the classification
    sweep the divergence ledger rests on. `[omitted: the ownership table,
@@ -181,6 +192,14 @@ authority* are transcribed from
 whose own text says production adoption is `main`-owned. Treat the ADR
 as adopting that text for production, not as reporting a separate
 human choice.
+
+No retained user event directly selects the complete statement that
+`HarnessClient` is the sole production adapter-facing capability. The
+question in event 1 rejects keeping unspecified legacy machinery, the direct
+event 2 selects the membership projection boundary, and the later events
+settle narrower tool and review questions. The accepted ADR makes the
+sole-capability outcome current, but this ledger has no separate human
+selection event for that broader adoption.
 
 <a id="the-daemon-serves-one-loopback-mcp-path"></a>
 
@@ -384,5 +403,10 @@ decision to make it idempotent or to leave it so.
    human source.** They are adopted from a clean-slate record. See the
    note in that section.
 
-5. **The checkpoint store's durability properties are undecided, not
+5. **The sole production `HarnessClient` adoption has no direct human
+   selection event.** The accepted ADR is current, but the retained events in
+   that section select only narrower parts of its contract. See the note in
+   that section.
+
+6. **The checkpoint store's durability properties are undecided, not
    deferred by a stated decision.** No retained event discusses them.
