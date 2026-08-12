@@ -1,6 +1,7 @@
 /**
  * @file Guards one endpoint's staged action-certified record within the exact
- * domain where an honest member must not sign conflicting children.
+ * domain where an honest member must not cast durability votes for
+ * conflicting children.
  */
 
 import { Data, Either } from "effect";
@@ -120,7 +121,8 @@ interface ActionRecordSlotInput<
  * The caller loads a slot keyed by conversation, immutable membership epoch,
  * and current certified head. This plan never authorizes signing by itself.
  * Only after the caller durably commits a newly `staged` candidate may it sign
- * that record. A `duplicate` result merely reports the existing durable slot.
+ * a durability vote for that action-certified record. A `duplicate` result
+ * merely reports the existing durable slot.
  *
  * @param input Current head, durable slot, verified candidate, and equality.
  * @returns A stage/duplicate result or one closed fail-closed reason.

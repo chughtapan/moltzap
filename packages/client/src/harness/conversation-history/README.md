@@ -10,9 +10,11 @@ conversation history:
   snapshot;
 - mergeable fixed-member durability-vote progress retaining complete verified
   evidence by signer;
+- exact-member OpenFloorV1 action-certificate progress retaining every verified
+  signature independently from storage durability;
 - fail-closed selection of one verified descendant head before re-anchoring;
-- head-bound single-child staging before an honest member may sign an
-  action-certified record;
+- head-bound single-child staging before an honest member may sign a durability
+  vote for an action-certified record;
 - nonempty, contiguous, duplicate-free certified catch-up suffix plans for one
   atomic local transaction without runtime attention;
   and

@@ -1,6 +1,6 @@
 /**
  * @file Pins head-bound, single-child durable staging before an honest member
- * may sign one action-certified record.
+ * may sign its durability vote for one action-certified record.
  */
 
 import { Either } from "effect";
