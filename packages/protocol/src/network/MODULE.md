@@ -13,7 +13,7 @@ such a value unconstructible.
 
 ## Public surface
 
-### [`agentConnect`](./connect.ts#L193)
+### [`agentConnect`](./index.ts#L278)
 
 _Variable_
 
@@ -21,7 +21,7 @@ _Variable_
 export const agentConnect = defineRpc({
   name: "agent/network/connect",
   params: Schema.Struct({
-    agentKey: agentKey,
+    agentKey,
     minProtocol: Schema.String,
     maxProtocol: Schema.String,
   }),
@@ -36,18 +36,10 @@ export const agentConnect = defineRpc({
 })
 ```
 
-Authenticate an agent WebSocket connection. Must be the first message on a
-new agent client connection.
+Authenticates an agent WebSocket connection as its first RPC. Success carries
+no payload because the connecting client already knows its identity.
 
-- **Principal:** none — the unauthenticated handshake. No principal exists
-  pre-auth, so `requires` is empty and no gate runs before it.
-- **Params:** `agentKey`, `minProtocol`, `maxProtocol`.
-- **Result:** an empty HelloOk; success is the signal (the client holds its
-  own id).
-
-**Returns:** An empty HelloOk; success is the signal (the client holds its own id).
-
-### [`checkProtocolRange`](./connect.ts#L119)
+### [`checkProtocolRange`](./index.ts#L215)
 
 _Function_
 
@@ -58,11 +50,9 @@ export function checkProtocolRange(
 ): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError>
 ```
 
-Executes the check protocol range operation.
+Checks whether the server version falls within the client's range.
 
-**Returns:** The check protocol range result.
-
-### [`compareProtocolVersion`](./connect.ts#L94)
+### [`compareProtocolVersion`](./index.ts#L197)
 
 _Function_
 
@@ -70,11 +60,9 @@ _Function_
 export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1
 ```
 
-Executes the compare protocol version operation.
+Compares numeric protocol-version segments.
 
-**Returns:** The compare protocol version result.
-
-### [`HelloOk`](./connect.ts#L27)
+### [`HelloOk`](./index.ts#L147)
 
 _TypeAlias_
 
@@ -84,7 +72,7 @@ export type HelloOk = Schema.Schema.Type<typeof helloOkSchema>;
 
 Represents hello ok values.
 
-### [`httpBaseUrl`](./index.ts#L111)
+### [`httpBaseUrl`](./index.ts#L126)
 
 _Function_
 
@@ -96,7 +84,7 @@ The HTTP control-plane origin for the same server.
 
 **Returns:** The http base url result.
 
-### [`InvalidProtocolVersionError`](./connect.ts#L66)
+### [`InvalidProtocolVersionError`](./index.ts#L174)
 
 _Class_
 
@@ -112,7 +100,7 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 
 Reports invalid protocol version failures.
 
-### [`PROTOCOL_VERSION`](./connect.ts#L12)
+### [`PROTOCOL_VERSION`](./index.ts#L138)
 
 _Variable_
 
@@ -122,7 +110,7 @@ export const PROTOCOL_VERSION = packageJson.version
 
 The published package version is also the wire-protocol version.
 
-### [`ProtocolMismatchError`](./connect.ts#L47)
+### [`ProtocolMismatchError`](./index.ts#L155)
 
 _Class_
 
@@ -146,14 +134,9 @@ export class ProtocolMismatchError extends Schema.TaggedError<ProtocolMismatchEr
 }
 ```
 
-Raised by connect methods when the client's `[minProtocol, maxProtocol]`
-range does not bracket the server's `PROTOCOL_VERSION`. The server's connect
-handlers raise it BEFORE auth resolution
-so old clients are rejected at the version gate. `data` carries the
-diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
-concretely typed so `error.data.reason` narrows at every reader.
+Raised when the client's version range does not include the server.
 
-### [`ProtocolMismatchReason`](./connect.ts#L35)
+### [`ProtocolMismatchReason`](./index.ts#L150)
 
 _TypeAlias_
 
@@ -163,12 +146,9 @@ export type ProtocolMismatchReason =
   | "server-below-client-min";
 ```
 
-Reason discriminant carried in `ProtocolMismatchError.data.reason`:
-`server-above-client-max` — the server is newer than the client's
-`maxProtocol`; the client must update. `server-below-client-min` — the
-client is newer than the server supports.
+Identifies which side of the client's range excludes the server version.
 
-### [`serverBaseUrl`](./index.ts#L104)
+### [`serverBaseUrl`](./index.ts#L119)
 
 _Variable_
 
@@ -181,7 +161,7 @@ such as one a locally started server just reported. Decode with
 `Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
 configuration or another package.
 
-### [`ServerBaseUrl`](./index.ts#L68)
+### [`ServerBaseUrl`](./index.ts#L83)
 
 _TypeAlias_
 
@@ -192,7 +172,7 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
 A MoltZap server address carrying no path, query, or fragment, over
 `http`, `https`, `ws`, or `wss`.
 
-### [`serverBaseUrlSchema`](./index.ts#L74)
+### [`serverBaseUrlSchema`](./index.ts#L89)
 
 _Variable_
 
@@ -235,7 +215,7 @@ export const serverUrlTypeCanaries:
 
 Retains both the runtime positive control and compile-time negative proof.
 
-### [`webSocketUrl`](./index.ts#L119)
+### [`webSocketUrl`](./index.ts#L134)
 
 _Function_
 
@@ -249,6 +229,5 @@ The socket endpoint a client dials for the given server.
 
 ## Files
 
-- `connect.ts`
 - `index.ts`
 - `server-url.types-check.ts`

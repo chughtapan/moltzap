@@ -12,7 +12,7 @@ import {
   PROTOCOL_VERSION,
   ProtocolMismatchError,
   type ProtocolMismatchReason,
-} from "./connect.js";
+} from "./index.js";
 
 describe("PROTOCOL_VERSION", () => {
   it("uses the package version as its single source of truth", () => {

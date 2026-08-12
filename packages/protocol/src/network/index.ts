@@ -6,7 +6,22 @@
  * dial `/ws/ws`, and the resulting socket never opens. `ServerBaseUrl` makes
  * such a value unconstructible.
  */
-import { ParseResult, Schema, String as StringOps, type Brand } from "effect";
+import {
+  Data,
+  Effect,
+  ParseResult,
+  Schema,
+  String as StringOps,
+  type Brand,
+} from "effect";
+import packageJson from "../../package.json" with { type: "json" };
+import { agentKey } from "#identity/agents";
+import {
+  AlreadyConnected,
+  defineRpc,
+  InvalidParamsError,
+  UnauthorizedError,
+} from "#transport";
 
 /** Route the server serves the WebSocket upgrade on. */
 const SOCKET_ROUTE = "/ws";
@@ -119,13 +134,160 @@ export const httpBaseUrl = (base: ServerBaseUrl): string =>
 export const webSocketUrl = (base: ServerBaseUrl): string =>
   base.replace(WS_SCHEME_PREFIX, "ws") + SOCKET_ROUTE;
 
-export {
-  agentConnect,
-  PROTOCOL_VERSION,
-  compareProtocolVersion,
-  checkProtocolRange,
-  InvalidProtocolVersionError,
-  ProtocolMismatchError,
-} from "./connect.js";
-/** Re-exports the public API from `./connect.js`. */
-export type { HelloOk, ProtocolMismatchReason } from "./connect.js";
+/** The published package version is also the wire-protocol version. */
+export const PROTOCOL_VERSION = packageJson.version;
+
+// The HelloOk carries no payload: a connecting client already knows its own
+// identity, the protocol version is fixed by the build, and the server policy
+// is not read by any client. The handshake's only observable outcome is
+// success versus its typed failure channel.
+const helloOkSchema = Schema.Struct({});
+
+/** Represents hello ok values. */
+export type HelloOk = Schema.Schema.Type<typeof helloOkSchema>;
+
+/** Identifies which side of the client's range excludes the server version. */
+export type ProtocolMismatchReason =
+  | "server-above-client-max"
+  | "server-below-client-min";
+
+/** Raised when the client's version range does not include the server. */
+export class ProtocolMismatchError extends Schema.TaggedError<ProtocolMismatchError>()(
+  "ProtocolMismatchError",
+  {
+    message: Schema.optional(Schema.String),
+    data: Schema.Struct({
+      reason: Schema.Literal(
+        "server-above-client-max",
+        "server-below-client-min",
+      ),
+      serverVersion: Schema.String,
+      clientMinProtocol: Schema.String,
+      clientMaxProtocol: Schema.String,
+    }),
+  },
+) {
+  static readonly message = "Client protocol version not supported";
+}
+
+/** Reports invalid protocol version failures. */
+export class InvalidProtocolVersionError extends Data.TaggedError(
+  "InvalidProtocolVersionError",
+)<{ readonly version: string; readonly segment: string }> {
+  override get message(): string {
+    return `compareProtocolVersion: invalid segment ${JSON.stringify(this.segment)} in ${JSON.stringify(this.version)}`;
+  }
+}
+
+const NUMERIC_SEGMENT_RE = /^\d+$/;
+
+function parseVersionSegments(version: string): readonly number[] {
+  const parts = StringOps.split(version, ".");
+  const segments: number[] = [];
+  for (const part of parts) {
+    if (!NUMERIC_SEGMENT_RE.test(part)) {
+      throw new InvalidProtocolVersionError({ version, segment: part });
+    }
+    segments.push(Number(part));
+  }
+  return segments;
+}
+
+/** Compares numeric protocol-version segments. */
+export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1 {
+  const segmentsA = parseVersionSegments(a);
+  const segmentsB = parseVersionSegments(b);
+  const len = Math.max(segmentsA.length, segmentsB.length);
+  for (let i = 0; i < len; i++) {
+    const ai = segmentsA[i] ?? 0;
+    const bi = segmentsB[i] ?? 0;
+    if (ai < bi) {
+      return -1;
+    }
+    if (ai > bi) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/** Checks whether the server version falls within the client's range. */
+export function checkProtocolRange(
+  params: { readonly minProtocol: string; readonly maxProtocol: string },
+  serverVersion: string,
+): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError> {
+  return Effect.gen(function* () {
+    const high = yield* compareThrough(serverVersion, params.maxProtocol);
+    if (high > 0) {
+      return yield* failProtocolMismatch(
+        params,
+        "server-above-client-max",
+        serverVersion,
+      );
+    }
+    const low = yield* compareThrough(serverVersion, params.minProtocol);
+    if (low < 0) {
+      return yield* failProtocolMismatch(
+        params,
+        "server-below-client-min",
+        serverVersion,
+      );
+    }
+  }).pipe(Effect.withSpan("checkProtocolRange"));
+}
+
+function compareThrough(
+  a: string,
+  b: string,
+): Effect.Effect<-1 | 0 | 1, InvalidProtocolVersionError> {
+  return Effect.try({
+    try: () => compareProtocolVersion(a, b),
+    catch: (cause): InvalidProtocolVersionError => {
+      if (cause instanceof InvalidProtocolVersionError) {
+        return cause;
+      }
+      return new InvalidProtocolVersionError({
+        version: `${a} vs ${b}`,
+        segment: cause instanceof Error ? cause.message : String(cause),
+      });
+    },
+  });
+}
+
+function failProtocolMismatch(
+  params: { readonly minProtocol: string; readonly maxProtocol: string },
+  reason: ProtocolMismatchReason,
+  serverVersion: string,
+): Effect.Effect<never, ProtocolMismatchError> {
+  return Effect.fail(
+    new ProtocolMismatchError({
+      data: {
+        clientMinProtocol: params.minProtocol,
+        clientMaxProtocol: params.maxProtocol,
+        serverVersion,
+        reason,
+      },
+    }),
+  );
+}
+
+/**
+ * Authenticates an agent WebSocket connection as its first RPC. Success carries
+ * no payload because the connecting client already knows its identity.
+ */
+export const agentConnect = defineRpc({
+  name: "agent/network/connect",
+  params: Schema.Struct({
+    agentKey,
+    minProtocol: Schema.String,
+    maxProtocol: Schema.String,
+  }),
+  result: helloOkSchema,
+  requires: [],
+  errors: [
+    InvalidParamsError,
+    UnauthorizedError,
+    ProtocolMismatchError,
+    AlreadyConnected,
+  ],
+});
