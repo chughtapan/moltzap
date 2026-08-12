@@ -89,6 +89,12 @@ const packageDefinitions = {
           reason:
             "The client SDK keeps its peer public surfaces and their focused implementation modules flat at the source root; AGENTS.md documents the package structure",
         },
+        {
+          folder: "harness/conversation-history",
+          maxChildren: 11,
+          reason:
+            "Conversation history keeps each representation-neutral invariant in a focused peer module so its fail-closed law remains independently testable",
+        },
       ],
       facadeFiles: [
         {

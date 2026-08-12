@@ -12,6 +12,8 @@ conversation history:
   evidence by signer;
 - exact-member OpenFloorV1 action-certificate progress retaining every verified
   signature independently from storage durability;
+- immutable action-certified record assembly binding opaque bodies, canonical
+  fixed membership, Router anchors, and exact-member action evidence;
 - fail-closed selection of one verified descendant head before re-anchoring;
 - head-bound single-child staging before an honest member may sign a durability
   vote for an action-certified record;
