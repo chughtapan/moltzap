@@ -2,8 +2,7 @@
 /**
  * @file Source-of-truth generator for doc-embedded constants. Reads
  * the canonical literals out of TS source files via the TypeScript
- * compiler API (no regex over the source — the AST is the contract)
- * and the quickstart port out of `scripts/setup/quickstart.sh`. Emits two
+ * compiler API (no regex over the source — the AST is the contract). Emits two
  * sibling files under `docs/snippets/constants/`:
  *
  *   - `values.json` — JSON record consumed by
@@ -105,23 +104,6 @@ const readTopLevelLiteral = (
     : ok(found);
 };
 
-/**
- * Read the quickstart's preferred host port out of `scripts/setup/quickstart.sh`.
- * Shell file → regex is the right tool; the source line is
- * `PORT="${MOLTZAP_PORT:-41973}"` and the gate treats this snippet as
- * the canonical home for the literal.
- */
-const readQuickstartPort = (filePath: string): ReadResult<number> => {
-  const text = readFileSync(filePath, "utf8");
-  const m = text.match(/MOLTZAP_PORT:-(\d+)/);
-  if (m === null || m[1] === undefined) {
-    return err(
-      `quickstart.sh: could not find MOLTZAP_PORT default in ${filePath}`,
-    );
-  }
-  return ok(Number(m[1]));
-};
-
 /** Read a package version from its canonical package.json manifest. */
 const readPackageVersion = (filePath: string): ReadResult<string> => {
   let parsed: unknown;
@@ -191,9 +173,6 @@ const collect = (): readonly Constant[] => {
     resolve(workspaceRoot, "packages/server/src/identity/credential-keys.ts"),
     "API_KEY_PREFIX",
   );
-  const quickstartPort = readQuickstartPort(
-    resolve(workspaceRoot, "scripts/setup/quickstart.sh"),
-  );
 
   const failures: string[] = [];
   const requireString = (
@@ -257,12 +236,6 @@ const collect = (): readonly Constant[] => {
       "packages/server/src/identity/credential-keys.ts",
       apiKeyPrefix,
       "Stable string prefix on every agent API key.",
-    ),
-    requireNumber(
-      "QUICKSTART_PORT",
-      "scripts/setup/quickstart.sh",
-      quickstartPort,
-      "Port the quickstart.sh script binds the local server to (chosen to avoid 3000/3100 conflicts).",
     ),
   ];
 
@@ -535,8 +508,7 @@ const main = (): void => {
       (c) =>
         c.name === "PROTOCOL_VERSION" ||
         c.name === "V2_PROTOCOL_VERSION" ||
-        c.name === "DEFAULT_SERVER_PORT" ||
-        c.name === "QUICKSTART_PORT",
+        c.name === "DEFAULT_SERVER_PORT",
     )
     .map((c) => `${c.name}=${c.value}`)
     .join(", ");

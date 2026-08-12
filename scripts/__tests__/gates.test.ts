@@ -666,10 +666,6 @@ const testNodeVersionFloorConsistency = (): void => {
       "utf8",
     ),
   ) as { readonly engines?: { readonly node?: string } };
-  const quickstart = readFileSync(
-    resolve(workspaceRoot, "scripts/setup/quickstart.sh"),
-    "utf8",
-  );
   const quickstartDocs = readFileSync(
     resolve(workspaceRoot, "docs/quickstart.mdx"),
     "utf8",
@@ -682,13 +678,6 @@ const testNodeVersionFloorConsistency = (): void => {
     "protocol package declares Node.js 22+",
     protocolManifest.engines?.node === ">=22.0.0",
     `expected engines.node >=22.0.0, got ${String(protocolManifest.engines?.node)}`,
-  );
-  assert(
-    "quickstart preflight enforces Node.js 22+",
-    quickstart.includes("install Node.js 22+") &&
-      quickstart.includes('if [ "$node_major" -lt 22 ]') &&
-      quickstart.includes("Node.js 22+ required"),
-    "scripts/setup/quickstart.sh does not consistently enforce Node.js 22+",
   );
   assert(
     "setup docs advertise Node.js 22+",

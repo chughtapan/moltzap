@@ -15,7 +15,6 @@
  *   - DEFAULT_APP_ID         — UUID string.
  *   - API_KEY_PREFIX         — string ("moltzap_agent_").
  *   - DEFAULT_SERVER_PORT    — port-shaped match (`:3000\b`).
- *   - QUICKSTART_PORT        — port-shaped match (`:41973\b`).
  *
  * Plus a structural sweep for any other version-shaped literal
  * `\d{4}\.\d{3,4}\.\d+` in `docs/`, to catch new doc drift before
@@ -216,17 +215,6 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
     );
   }
 
-  const qsp = byName.get("QUICKSTART_PORT");
-  if (qsp && qsp.kind === "number") {
-    rules.push(
-      portRule(
-        qsp.value as number,
-        "QUICKSTART_PORT",
-        `import { QUICKSTART_PORT } from '/snippets/constants/values.mdx' and interpolate as \`localhost:{QUICKSTART_PORT}\`.`,
-      ),
-    );
-  }
-
   // Catch-all: any version-shaped literal in docs. Drops false positives
   // that look like sizes or non-versions by requiring at least two dots
   // in the YYYY.MDD.patch shape. The skip is intentionally narrow: a
@@ -250,7 +238,7 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
   rules.push({
     name: "STALE_PORT_3100",
     regex: /(?::|port:\s*|PORT=)3100\b/i,
-    hint: `Port 3100 is stale doc drift. Use {DEFAULT_SERVER_PORT} (3000) for the code default, or {QUICKSTART_PORT} (41973) for the quickstart binding.`,
+    hint: `Port 3100 is stale doc drift. Use {DEFAULT_SERVER_PORT} (3000) for the code default.`,
   });
 
   return rules;
