@@ -1,6 +1,6 @@
 /**
- * @file The principal-kind gate consumed by the per-method `AuthMiddleware`
- * impl Layers in the protocol socket adapter.
+ * @file Live connection-arm lookup and principal narrowing for requirement
+ * middleware and already-gated handler bodies.
  *
  * The gate narrows the live 2-arm `Connection` to the `AgentContext` a gated
  * method's `requires` head demands, failing with a `ForbiddenError` INSTANCE.
@@ -10,6 +10,7 @@
  * requirement, so the narrowing and the `requires` head are the SAME arm by
  * construction.
  */
+// safer-arch-ignore folder-explicit-api-required: This is the deliberate principal-read facade shared by domain RPC handlers and socket composition.
 import { Effect, Option } from "effect";
 import {
   AuthenticatedAgent,
@@ -17,7 +18,13 @@ import {
 } from "@moltzap/protocol/identity";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ConnectionManager, Connection, AgentContext } from "#socket";
+import {
+  ConnectionManagerTag,
+  ConnectionTag,
+  type AgentContext,
+  type Connection,
+  type ConnectionManager,
+} from "#socket";
 
 const FORBIDDEN_AGENT_ONLY =
   "This method requires an authenticated agent principal";
@@ -55,6 +62,35 @@ export const peekLiveArm = (
       }),
     ),
   );
+
+/**
+ * Read the live connection arm for this request. `ConnectionTag` is the
+ * per-socket build-time snapshot, so only its stable connection id is used to
+ * re-read the arm that may have transitioned after connect.
+ */
+const liveArm = Effect.gen(function* () {
+  const snapshot = yield* ConnectionTag;
+  const manager = yield* ConnectionManagerTag;
+  return yield* peekLiveArm(manager, snapshot.connId);
+});
+
+/**
+ * Read the agent context after requirement middleware has gated the handler.
+ * A non-agent arm is an impossible-state defect because the gate runs first.
+ */
+export const agentArm: Effect.Effect<
+  AgentContext,
+  never,
+  ConnectionTag | ConnectionManagerTag
+> = Effect.gen(function* () {
+  const connection = yield* liveArm;
+  if (connection._tag !== "AgentConnection") {
+    return yield* Effect.dieMessage(
+      `handler: agent-gated method reached on ${connection._tag} arm`,
+    );
+  }
+  return connection.auth;
+}).pipe(Effect.withSpan("serverHandlers.agentArm"));
 
 /**
  * Narrow the live arm to the agent principal. Rejects the pre-connect arm and,

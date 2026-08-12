@@ -13,7 +13,7 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentContext } from "#socket";
 import { ConversationServiceTag } from "./layer.js";
-import { agentArm } from "../moltzap/handler-runtime.js";
+import { agentArm } from "../moltzap/principal-gate.js";
 import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
 import { NetworkSendServiceTag } from "#network";
 

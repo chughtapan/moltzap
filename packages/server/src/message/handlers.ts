@@ -5,7 +5,7 @@ import type {
 } from "@moltzap/protocol/message";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
-import { agentArm } from "../moltzap/handler-runtime.js";
+import { agentArm } from "../moltzap/principal-gate.js";
 import { Effect } from "effect";
 import { ConnectionTag, type AgentContext } from "#socket";
 import { MessageServiceTag } from "./layer.js";

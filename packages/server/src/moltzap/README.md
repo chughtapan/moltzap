@@ -8,8 +8,8 @@ services.
 
 ## Files
 
-- `handler-runtime.ts` — request principal reads for already-gated handlers.
-- `principal-gate.ts` — live connection arm lookup and principal narrowing.
+- `principal-gate.ts` — live connection-arm lookup and principal narrowing for
+  requirement middleware and already-gated handlers.
 - `server-socket.ts` — binds the RPC handler and requirement Layer catalogs and
   bridges an Effect socket to `MoltZapServer` sessions.
 
