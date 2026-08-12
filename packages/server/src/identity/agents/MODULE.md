@@ -24,7 +24,7 @@ Provides the agents list runtime value.
 
 **Returns:** The agents list result.
 
-### [`AuthService`](./auth.service.ts#L24)
+### [`AuthService`](./auth.service.ts#L25)
 
 _Class_
 
@@ -120,7 +120,7 @@ export class AuthService {
 
 Implements auth service.
 
-### [`authServiceLive`](./layer.ts#L16)
+### [`authServiceLive`](./auth.service.ts#L120)
 
 _Variable_
 
@@ -136,7 +136,7 @@ export const authServiceLive = Layer.effect(
 
 Provides the auth service live runtime value.
 
-### [`AuthServiceTag`](./layer.ts#L10)
+### [`AuthServiceTag`](./auth.service.ts#L114)
 
 _Class_
 
@@ -153,4 +153,3 @@ Implements auth service tag.
 
 - `auth.service.ts`
 - `handlers.ts`
-- `layer.ts`

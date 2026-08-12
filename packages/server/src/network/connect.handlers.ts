@@ -20,8 +20,10 @@ import {
   ConnectionTag,
   type ConnectionManager,
 } from "#socket";
-import { AuthServiceTag } from "../identity/agents/layer.js";
-import type { AuthService } from "../identity/agents/auth.service.js";
+import {
+  type AuthService,
+  AuthServiceTag,
+} from "../identity/agents/auth.service.js";
 import {
   type ConversationService,
   ConversationServiceTag,

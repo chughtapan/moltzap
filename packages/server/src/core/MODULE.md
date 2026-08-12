@@ -8,7 +8,7 @@ Core service graph composition.
 
 ## Public surface
 
-### [`ResolvedServices`](./index.ts#L61)
+### [`ResolvedServices`](./index.ts#L64)
 
 _Interface_
 
@@ -26,7 +26,7 @@ export interface ResolvedServices {
 
 Describes resolved services.
 
-### [`resolveServices`](./index.ts#L72)
+### [`resolveServices`](./index.ts#L75)
 
 _Variable_
 
@@ -44,7 +44,7 @@ export const resolveServices = Effect.all({
 
 Provides the resolve services runtime value.
 
-### [`servicesLive`](./index.ts#L55)
+### [`servicesLive`](./index.ts#L58)
 
 _Variable_
 

@@ -18,8 +18,11 @@ import {
 } from "../network/layer.js";
 import type { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import type { NetworkSendService } from "../network/network-send.js";
-import { authServiceLive, AuthServiceTag } from "../identity/agents/layer.js";
-import type { AuthService } from "../identity/agents/auth.service.js";
+import {
+  authServiceLive,
+  type AuthService,
+  AuthServiceTag,
+} from "../identity/agents/auth.service.js";
 import {
   type ConversationService,
   conversationServiceLive,

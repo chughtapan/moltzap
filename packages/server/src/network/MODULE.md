@@ -167,7 +167,7 @@ export class AgentEndpointResolverTag extends Context.Tag(
 
 Implements agent endpoint resolver tag.
 
-### [`connectAgent`](./connect.handlers.ts#L207)
+### [`connectAgent`](./connect.handlers.ts#L209)
 
 _Variable_
 

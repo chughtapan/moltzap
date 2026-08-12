@@ -1,6 +1,7 @@
-import { Effect, Option } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import {
   type Db,
+  DbTag,
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
@@ -108,4 +109,19 @@ export class AuthService {
     );
   }
 }
+
+/** Implements auth service tag. */
+export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
+  AuthServiceTag,
+  AuthService
+>() {}
+
+/** Provides the auth service live runtime value. */
+export const authServiceLive = Layer.effect(
+  AuthServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new AuthService(db);
+  }).pipe(Effect.withSpan("AuthServiceLive")),
+);
 // safer-arch-ignore folder-explicit-api-required: AuthService is the identity/agents service boundary consumed directly by composition code to avoid handler-barrel cycles.
