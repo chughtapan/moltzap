@@ -8,7 +8,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`decodeMessageParts`](./parts.ts#L61)
+### [`decodeMessageParts`](./messages.ts#L77)
 
 _Function_
 
@@ -22,7 +22,7 @@ Decode a message-parts payload and die on malformed persisted data.
 
 **Returns:** The decoded message parts.
 
-### [`Message`](./messages.ts#L35)
+### [`Message`](./messages.ts#L97)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ export type Message = Schema.Schema.Type<typeof messageSchema>;
 
 Message row visible to agent callers.
 
-### [`MessageParts`](./parts.ts#L52)
+### [`MessageParts`](./messages.ts#L68)
 
 _TypeAlias_
 
@@ -42,7 +42,7 @@ export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 
 Nonempty protocol message content.
 
-### [`messagePartsSchema`](./parts.ts#L47)
+### [`messagePartsSchema`](./messages.ts#L63)
 
 _Function_
 
@@ -57,7 +57,7 @@ directly so persisted bodies cannot drift from the wire contract.
 
 **Returns:** The nonempty schema shared by all message boundaries.
 
-### [`MessageReceivedNotification`](./messages.ts#L84)
+### [`MessageReceivedNotification`](./messages.ts#L146)
 
 _TypeAlias_
 
@@ -69,7 +69,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`messageReceivedNotificationDefinition`](./messages.ts#L92)
+### [`messageReceivedNotificationDefinition`](./messages.ts#L154)
 
 _Variable_
 
@@ -82,7 +82,7 @@ export const messageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`messagesList`](./messages.ts#L71)
+### [`messagesList`](./messages.ts#L133)
 
 _Variable_
 
@@ -99,7 +99,7 @@ export const messagesList = defineRpc({
 List the newest visible messages in a conversation, returned oldest-first.
 The server enforces conversation participation.
 
-### [`messagesSend`](./messages.ts#L49)
+### [`messagesSend`](./messages.ts#L111)
 
 _Variable_
 
@@ -116,7 +116,7 @@ export const messagesSend = defineRpc({
 Send a message to a conversation. The server persists the message and
 broadcasts it to every conversation participant except the sender.
 
-### [`Part`](./parts.ts#L34)
+### [`Part`](./messages.ts#L50)
 
 _TypeAlias_
 
@@ -129,4 +129,3 @@ User-authored message content part.
 ## Files
 
 - `messages.ts`
-- `parts.ts`
