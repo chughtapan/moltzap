@@ -115,7 +115,12 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
         Command.stderr("inherit"),
       );
       const output = yield* Command.string(command).pipe(
-        Effect.mapError(commandFailure),
+        Effect.mapError((cause) =>
+          EvaluationSubmissionFailed.make({
+            stage: "command",
+            detail: String(cause).trim() || "simulator submitter failed",
+          }),
+        ),
       );
       return yield* decodeSubmissionOutput(output);
     }),
@@ -188,13 +193,6 @@ function conditionExpression(input: SubmitEvaluationCellInput): string {
 
 function literal(value: string): string {
   return Schema.encodeSync(Schema.parseJson(Schema.String))(value);
-}
-
-function commandFailure(cause: unknown): EvaluationSubmissionFailed {
-  return EvaluationSubmissionFailed.make({
-    stage: "command",
-    detail: String(cause).trim() || "simulator submitter failed",
-  });
 }
 
 function decodeSubmissionOutput(
