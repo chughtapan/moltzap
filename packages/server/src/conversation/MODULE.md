@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./handlers.ts#L96)
+### [`agentConversationCreate`](./handlers.ts#L120)
 
 _Variable_
 
@@ -24,7 +24,7 @@ Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationList`](./handlers.ts#L85)
+### [`conversationList`](./handlers.ts#L98)
 
 _Variable_
 
@@ -40,7 +40,23 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](./conversation.service.ts#L225)
+### [`conversationSearch`](./handlers.ts#L109)
+
+_Variable_
+
+```ts
+export const conversationSearch: ServerHandler<
+  typeof conversationSearchDefinition
+> = Effect.fn("conversationSearch")(function* (params) {
+  return yield* conversationSearchBody(params, yield* agentArm);
+})
+```
+
+Search the active agent's conversations by exact identifier or member.
+
+**Returns:** One stable identifier-ordered page.
+
+### [`ConversationService`](./conversation.service.ts#L346)
 
 _Class_
 

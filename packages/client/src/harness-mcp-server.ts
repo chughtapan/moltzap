@@ -23,7 +23,6 @@ import {
   type Scope,
 } from "effect";
 
-const REGISTER_MCP_PATH = "/register/mcp";
 const HARNESS_MCP_PATH = "/mcp";
 const POST_METHOD = "POST";
 const LOOPBACK_HOST = "127.0.0.1";
@@ -33,8 +32,7 @@ const RESPONSE_DRAIN_GRACE_PERIOD = Duration.seconds(1);
 
 interface HarnessMcpHttpServerOptions {
   readonly port: number;
-  readonly registrationHandler: McpHttpHandler;
-  readonly harnessHandler: McpHttpHandler;
+  readonly handler: McpHttpHandler;
 }
 
 interface HarnessMcpRequestListener {
@@ -120,25 +118,20 @@ const makeResponseTracker = (): ResponseTracker => {
 };
 
 /**
- * Routes the daemon's two loopback MCP surfaces through one Node listener.
+ * Routes the daemon's loopback MCP surface through one Node listener. Host and
+ * path are fixed: every profile slot is reachable at the same `/mcp` URL
+ * whether or not it has committed an identity.
  *
- * @param registrationHandler Official SDK handler for registration.
- * @param harnessHandler Official SDK handler for the active agent surface.
- * @returns A guarded Node request listener for both handlers.
+ * @param handler Official SDK handler for the state-gated catalog.
+ * @returns A guarded Node request listener for that handler.
  */
 const makeHarnessMcpRequestListener = (
-  registrationHandler: FetchLikeMcpHandler,
-  harnessHandler: FetchLikeMcpHandler,
+  handler: FetchLikeMcpHandler,
 ): HarnessMcpRequestListener => {
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
-  const registrationNodeHandler = toNodeHandler(registrationHandler);
-  const harnessNodeHandler = toNodeHandler(harnessHandler);
+  const nodeHandler: NodeMcpRequestHandler = toNodeHandler(handler);
   const responses = makeResponseTracker();
-  const handlers: ReadonlyMap<string, NodeMcpRequestHandler> = new Map([
-    [REGISTER_MCP_PATH, registrationNodeHandler],
-    [HARNESS_MCP_PATH, harnessNodeHandler],
-  ]);
 
   const listener: RequestListener = (request, response): void => {
     if (
@@ -149,9 +142,8 @@ const makeHarnessMcpRequestListener = (
     }
 
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-    const handler = handlers.get(pathname);
 
-    if (handler === undefined) {
+    if (pathname !== HARNESS_MCP_PATH) {
       respond(404, "Not found.", response);
       return;
     }
@@ -161,7 +153,7 @@ const makeHarnessMcpRequestListener = (
       return;
     }
 
-    responses.track(handler(request, response), response);
+    responses.track(nodeHandler(request, response), response);
   };
 
   return {
@@ -190,10 +182,7 @@ const listen = (
   options: HarnessMcpHttpServerOptions,
 ): Effect.Effect<RunningHarnessMcpHttpServer, Error> =>
   Effect.async<RunningHarnessMcpHttpServer, Error>((resume) => {
-    const requests = makeHarnessMcpRequestListener(
-      options.registrationHandler,
-      options.harnessHandler,
-    );
+    const requests = makeHarnessMcpRequestListener(options.handler);
     const server = createServer(requests.listener);
     const destroyConnections = trackConnections(server);
     const onError = (error: Error): void => {
@@ -267,12 +256,7 @@ const closeHandler = (handler: McpHttpHandler): Effect.Effect<void> =>
 
 const closeHandlers = (
   options: HarnessMcpHttpServerOptions,
-): Effect.Effect<void> =>
-  Effect.forEach(
-    new Set([options.registrationHandler, options.harnessHandler]),
-    closeHandler,
-    { concurrency: 2, discard: true },
-  );
+): Effect.Effect<void> => closeHandler(options.handler);
 
 const release = (
   running: RunningHarnessMcpHttpServer,

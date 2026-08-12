@@ -230,6 +230,69 @@ function assertExportMap(pkgPath, expected) {
   );
 }
 
+function assertBinMap(pkgPath, expected) {
+  const pkg = readJson(path.join(repo, pkgPath, "package.json"));
+  const bin = pkg.bin ?? {};
+  failOnSetDrift(
+    `${pkgPath}/package.json`,
+    "bin changed",
+    typeof bin === "string" ? [path.basename(pkgPath)] : Object.keys(bin),
+    expected,
+  );
+}
+
+// ─── adapter containment ──────────────────────────────────────────────────
+
+// Channel adapters reach MoltZap only through the client's published subpaths,
+// and only through the ones that carry adapter-facing contracts. A deep import
+// would let an adapter build its own transport beside HarnessClient, which is
+// exactly the coexistence this package set removed.
+const ADAPTER_PACKAGES = ["openclaw-channel", "nanoclaw-channel"];
+// Shipped sources only. Test scaffolding legitimately drives a peer agent and
+// registers fixtures against a real server; none of it reaches a user.
+const TEST_FILE = /(^|\/)(__tests__\/|vitest\.)|\.test\.ts$|\.test-utils\.ts$/;
+const ADAPTER_CLIENT_SUBPATHS = new Set([
+  "@moltzap/client",
+  "@moltzap/client/channel-base",
+  "@moltzap/client/harness-client",
+  "@moltzap/client/notification",
+  "@moltzap/client/pagination",
+  "@moltzap/client/test-utils",
+]);
+// Daemon-side machinery. Naming these by symbol catches a re-export chain that
+// the subpath rule alone would let through.
+const DAEMON_ONLY_SYMBOLS =
+  /\b(MoltZapService|MoltZapChannelCore|MoltZapAgentClient|ChannelService|acquireMoltzapd|runMoltzapd)\b/;
+
+function checkAdapterFile(file) {
+  const text = fs.readFileSync(file, "utf8");
+
+  for (const { specifier, index } of importSpecifiers(text)) {
+    if (
+      specifier.startsWith("@moltzap/client") &&
+      !ADAPTER_CLIENT_SUBPATHS.has(specifier)
+    ) {
+      fail(
+        file,
+        lineAt(text, index),
+        `adapter may not import "${specifier}"; use a published adapter-facing subpath`,
+      );
+    }
+  }
+
+  for (const match of text.matchAll(
+    /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'][^"']*["']/g,
+  )) {
+    if (DAEMON_ONLY_SYMBOLS.test(match[1])) {
+      fail(
+        file,
+        lineAt(text, match.index),
+        "adapter may not import daemon-side machinery; reach MoltZap through HarnessClient",
+      );
+    }
+  }
+}
+
 const sourceFiles = walk(packagesRoot);
 if (sourceFiles.length === 0) {
   failures.push(
@@ -250,6 +313,34 @@ assertExportMap("packages/protocol", [
   "./testing",
 ]);
 assertExportMap("packages/server", [".", "./test-utils"]);
+assertExportMap("packages/client", [
+  ".",
+  "./auth",
+  "./channel-base",
+  "./harness-client",
+  "./notification",
+  "./pagination",
+  "./test-utils",
+]);
+
+// The bespoke `moltzap` CLI is gone. Only the daemon ships as a binary.
+assertBinMap("packages/client", ["moltzapd"]);
+assertBinMap("packages/server", ["moltzap-server"]);
+
+let adapterSourceCount = 0;
+for (const adapter of ADAPTER_PACKAGES) {
+  const files = walk(path.join(packagesRoot, adapter)).filter(
+    (file) => !TEST_FILE.test(rel(file)),
+  );
+  if (files.length === 0) {
+    failures.push(
+      `packages/${adapter}: no shipped TypeScript sources scanned; the adapter containment rules would pass vacuously`,
+    );
+    continue;
+  }
+  adapterSourceCount += files.length;
+  for (const file of files) checkAdapterFile(file);
+}
 
 // ─── v2 package set ───────────────────────────────────────────────────────
 
@@ -567,5 +658,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${v2Dirs.length} v2 packages, ${v2SourceCount} v2 sources, and ${v2VocabularyFileCount} v2 non-documentation files scanned at version ${v2Version}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${adapterSourceCount} adapter sources, ${v2Dirs.length} v2 packages, ${v2SourceCount} v2 sources, and ${v2VocabularyFileCount} v2 non-documentation files scanned at version ${v2Version}`,
 );

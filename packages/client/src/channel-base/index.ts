@@ -5,37 +5,20 @@
 export { BoundedMap } from "../bounded-map.js";
 
 /** Re-exports the public API from `./format-cross-conv.js`. */
-export {
-  formatCrossConv,
-  type CrossConvFormatter,
-  type CrossConvMarkup,
-} from "./format-cross-conv.js";
+export { formatCrossConv } from "./format-cross-conv.js";
 
 /** Re-exports the public API from `./format-group-block.js`. */
 export {
   formatGroupBlock,
   getGroupFields,
   type GroupFields,
-  type GroupFormatter,
 } from "./format-group-block.js";
 
+// Presentation shapes only. `MoltZapChannelCore` and `ChannelService` are
+// daemon-side machinery: an adapter that reached them would be building its own
+// transport instead of talking to one through HarnessClient.
 /** Re-exports the public API from `../channel-core.js`. */
-export {
-  MoltZapChannelCore,
-  type ChannelCoreOptions,
-  type ChannelService,
-  type ContextBlocks,
-  type EnrichedConversationMeta,
-  type EnrichedInboundMessage,
-  type EnrichedSender,
-  type InboundHandler,
-  type InboundInterceptDecision,
-  type InboundInterceptor,
-} from "../channel-core.js";
+export { type EnrichedConversationMeta } from "../channel-core.js";
 
 /** Re-exports the public API from `../service.js`. */
-export {
-  sanitizeForSystemReminder,
-  type CrossConversationEntry,
-  type CrossConvMessage,
-} from "../service.js";
+export { type CrossConvMessage } from "../service.js";

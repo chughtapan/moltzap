@@ -1,47 +1,65 @@
 /**
  * Echo integration test for `@moltzap/nanoclaw-channel`.
  *
- * Boots `MoltZapAdapter` against a real MoltZap server (PGlite-backed,
- * spawned by the global setup), uses a peer `MoltZapService` to drive
- * inbound messages, and verifies the host-facing callbacks
- * (`setup.onInbound`, `setup.onMetadata`) fire with the expected shape
- * and `deliver(jid, null, message)` round-trips back to the peer.
+ * Drives the adapter nanoclaw itself registers: the production factory, which
+ * resolves a profile slot into its own `moltzapd` child, the loopback MCP
+ * endpoint the slot names, and a file-backed checkpoint store. A peer agent
+ * on the same server (PGlite-backed, spawned by the global setup) opens a DM
+ * and sends into it, so the assertions cover the whole path — daemon startup,
+ * turn projection, the host-facing callbacks, and `deliver` back to the peer.
  */
 
-/* eslint-disable agent-code-guard/no-effect-error-coalescing -- test scaffolding coalesces wire-level Service/Rpc errors into a single test-context error class for cleaner diagnostic output; production rule does not apply to integration test scaffolding. */
-
-import { afterAll, beforeAll, describe, expect, inject } from "vitest";
+import { describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Data, Effect, Schema } from "effect";
-import { MoltZapService } from "@moltzap/client";
-import { withTestServiceConfig } from "@moltzap/client/test-utils";
+import {
+  Data,
+  Deferred,
+  Effect,
+  Fiber,
+  Option,
+  Schema,
+  type Scope,
+  Stream,
+} from "effect";
+import { MoltZapAgentClient } from "@moltzap/client";
+import {
+  reserveTestMcpPort,
+  withTestServiceConfig,
+} from "@moltzap/client/test-utils";
 import {
   type AgentKey,
   agentKey,
   type AgentId,
 } from "@moltzap/protocol/identity";
-import type { Message } from "@moltzap/protocol/message";
-import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
-  agentConversationCreate,
-  type ConversationId,
-} from "@moltzap/protocol/conversation";
+  messageReceivedNotificationDefinition,
+  messagesSend,
+  type Message,
+} from "@moltzap/protocol/message";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
-import { MoltZapAdapter } from "../channels/moltzap.js";
+import {
+  makeMoltZapAdapter,
+  type MoltZapAdapter,
+} from "../channels/moltzap.js";
 import type {
   ChannelSetup,
   InboundMessage,
   OutboundMessage,
 } from "../channels/adapter.js";
 
-class EchoIntegrationError extends Data.TaggedError("EchoIntegrationError")<{
-  readonly operation: string;
-  readonly cause: unknown;
-}> {}
+/** The production factory refused the profile slot this suite just wrote. */
+class MissingAdapterError extends Data.TaggedError("MissingAdapterError")<
+  Record<never, never>
+> {
+  override get message(): string {
+    return "the production factory returned no adapter";
+  }
+}
 
 interface InjectedConfig {
-  readonly wsUrl: string;
+  readonly baseUrl: string;
   readonly channelApiKey: AgentKey;
   readonly peerApiKey: AgentKey;
   readonly channelAgentId: AgentId;
@@ -59,22 +77,8 @@ interface ChatMetadataCapture {
   readonly isGroup?: boolean;
 }
 
-interface Harness {
-  readonly adapter: MoltZapAdapter;
-  readonly peerService: MoltZapService;
-  readonly inboundMessages: InboundCapture[];
-  readonly chatMetadata: ChatMetadataCapture[];
-  readonly peerInbox: Message[];
-  readonly conversationId: ConversationId;
-  readonly chatJid: string;
-  readonly peerAgentId: string;
-  readonly stop: () => PromiseLike<undefined>;
-}
-
-const WAIT_FOR_TICK_MS = 25;
-const INBOUND_NOTIFICATION_TIMEOUT_MS = 15_000;
-const PING_ONE = "ping-one";
-const PING_TWO = "ping-two";
+const REPLY_TIMEOUT = "20 seconds";
+const PING = "ping-one";
 const TEXT_TYPE = "text";
 const ECHO_PREFIX = "echo-";
 const CHANNEL_PROFILE_NAME = "channel-agent";
@@ -82,7 +86,13 @@ const MOLTZAP_CHANNEL_NAME = "moltzap";
 const JID_PREFIX = "mz:";
 const OUTBOUND_KIND_CHAT = "chat";
 
-let h: Harness;
+const toError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+const tryPromise = <A>(
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, Error> =>
+  Effect.tryPromise({ try: evaluate, catch: toError });
 
 function injectString(key: string): string {
   return inject(
@@ -90,18 +100,18 @@ function injectString(key: string): string {
   );
 }
 
+function decodeInjectedAgentKey(key: string): AgentKey {
+  return Schema.decodeUnknownSync(agentKey)(injectString(key));
+}
+
 function injectedConfig(): InjectedConfig {
   return {
-    wsUrl: injectString("moltzapWsUrl"),
+    baseUrl: injectString("moltzapBaseUrl"),
     channelApiKey: decodeInjectedAgentKey("agentAApiKey"),
     peerApiKey: decodeInjectedAgentKey("agentBApiKey"),
     channelAgentId: makeAgentId(injectString("agentAAgentId")),
     peerAgentId: makeAgentId(injectString("agentBAgentId")),
   };
-}
-
-function decodeInjectedAgentKey(key: string): AgentKey {
-  return Schema.decodeUnknownSync(agentKey)(injectString(key));
 }
 
 function contentText(msg: InboundMessage): string {
@@ -111,298 +121,182 @@ function contentText(msg: InboundMessage): string {
   );
 }
 
-function channelSenderId(agentId: string): string {
-  return `${MOLTZAP_CHANNEL_NAME}:${agentId}`;
+function senderIdOf(msg: InboundMessage): string {
+  return (
+    /* Safe because the test fixture establishes this asserted shape. */
+    (msg.content as { readonly senderId: string }).senderId
+  );
 }
 
 function makeOutbound(text: string): OutboundMessage {
   return { kind: OUTBOUND_KIND_CHAT, content: { text } };
 }
 
-function tryPromise<A>(
-  operation: string,
-  evaluate: () => PromiseLike<A>,
-): Effect.Effect<A, EchoIntegrationError> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => new EchoIntegrationError({ operation, cause }),
-  });
+function messageText(message: Message): string {
+  return message.parts
+    .flatMap((part) => (part.type === TEXT_TYPE ? [part.text] : []))
+    .join("");
 }
 
-function waitFor(
-  predicate: () => boolean,
-  timeoutMs: number,
-  label: string,
-): Effect.Effect<void, EchoIntegrationError> {
-  return Effect.tryPromise({
-    try: () => waitForPromise(predicate, timeoutMs, label),
-    catch: (cause) =>
-      new EchoIntegrationError({ operation: `waitFor(${label})`, cause }),
-  });
+/**
+ * Nanoclaw's host contract: the router calls `deliver` from its own turn
+ * handling, so the echo runs inside `onInbound` exactly where a session's
+ * model output would.
+ * @param adapter Adapter under test.
+ * @param inbound Resolved with the first host-facing inbound message.
+ * @param metadata Chat-metadata events observed for the conversation.
+ * @returns The setup nanoclaw would install.
+ */
+function echoSetup(
+  adapter: MoltZapAdapter,
+  inbound: Deferred.Deferred<InboundCapture>,
+  metadata: ChatMetadataCapture[],
+): ChannelSetup {
+  return {
+    onInbound: (...[jid, , msg]) => {
+      Effect.runSync(Deferred.succeed(inbound, { jid, msg }));
+      return adapter.deliver(
+        jid,
+        null,
+        makeOutbound(`${ECHO_PREFIX}${contentText(msg)}`),
+      );
+    },
+    onMetadata: (jid, name, isGroup) => {
+      metadata.push({ jid, name, isGroup });
+    },
+  };
 }
 
-function waitForPromise(
-  predicate: () => boolean,
-  timeoutMs: number,
-  label: string,
-) {
-  return new Promise<undefined>((resolve, reject) => {
-    const start = Date.now();
-    const tick = (): void => {
-      if (predicate()) {
-        resolve(undefined);
-        return;
-      }
-      if (Date.now() - start > timeoutMs) {
-        reject(new Error(`waitFor(${label}) timed out`));
-        return;
-      }
-      setTimeout(tick, WAIT_FOR_TICK_MS);
-    };
-    tick();
-  });
-}
-
-function makeAdapter(
-  config: InjectedConfig,
-  inboundMessages: InboundCapture[],
-  chatMetadata: ChatMetadataCapture[],
-): Effect.Effect<MoltZapAdapter, unknown> {
-  return Effect.gen(function* () {
-    const adapter = MoltZapAdapter.fromProfile(CHANNEL_PROFILE_NAME, false);
-    const setup: ChannelSetup = {
-      onInbound: (...args) => {
-        const [jid, , msg] = args;
-        inboundMessages.push({ jid, msg });
-        autoEcho(adapter, jid, contentText(msg));
-      },
-      onMetadata: (jid, name, isGroup) => {
-        chatMetadata.push({ jid, name, isGroup });
-      },
-    };
-    yield* withTestServiceConfig(
-      {
-        agentId: config.channelAgentId,
-        agentKey: config.channelApiKey,
-        serverUrl: config.wsUrl,
+function acquireAdapter(
+  inbound: Deferred.Deferred<InboundCapture>,
+  metadata: ChatMetadataCapture[],
+): Effect.Effect<MoltZapAdapter, Error, Scope.Scope> {
+  return Effect.acquireRelease(
+    Effect.suspend(() => {
+      const adapter = makeMoltZapAdapter({
         profileName: CHANNEL_PROFILE_NAME,
-        agentName: CHANNEL_PROFILE_NAME,
-      },
-      tryPromise("adapter.setup", () => adapter.setup(setup)),
-    );
-    return adapter;
-  });
-}
-
-function autoEcho(adapter: MoltZapAdapter, jid: string, content: string): void {
-  // Auto-echo failures (e.g. retries on a closed dispatch during teardown)
-  // are absorbed: the host-facing test asserts at the peer-inbox boundary
-  // so individual deliver failures do not invalidate the test. Modeled
-  // as a fire-and-forget Effect (the simulated host responding to inbound).
-  Effect.runFork(
-    Effect.tryPromise({
-      try: () =>
-        adapter.deliver(jid, null, makeOutbound(`${ECHO_PREFIX}${content}`)),
-      catch: noopOnError,
-    }).pipe(Effect.ignore),
+        evalMode: false,
+      });
+      if (adapter === null) {
+        return new MissingAdapterError();
+      }
+      return tryPromise(() =>
+        adapter.setup(echoSetup(adapter, inbound, metadata)),
+      ).pipe(Effect.as(adapter));
+    }),
+    (adapter) => tryPromise(() => adapter.teardown()).pipe(Effect.ignore),
   );
 }
 
-function noopOnError(): void {
-  // Intentional no-op: auto-echo loop swallows transient failures.
+function acquirePeer(
+  config: InjectedConfig,
+): Effect.Effect<MoltZapAgentClient, Error, Scope.Scope> {
+  return Effect.acquireRelease(
+    Effect.suspend(() => {
+      const peer = new MoltZapAgentClient({
+        serverUrl: config.baseUrl,
+        agentKey: config.peerApiKey,
+      });
+      return peer.connect().pipe(Effect.mapError(toError), Effect.as(peer));
+    }),
+    (peer) => peer.close().pipe(Effect.ignore),
+  );
 }
 
-function bootPeerService(
+function takeChannelReply(
+  peer: MoltZapAgentClient,
   config: InjectedConfig,
-  peerInbox: Message[],
-): Effect.Effect<MoltZapService, unknown> {
-  return Effect.succeed(
-    MoltZapService.fromConfig({
-      agentId: config.peerAgentId,
-      agentKey: config.peerApiKey,
-      serverUrl: serverBaseUrl(config.wsUrl),
+  conversationId: string,
+): Effect.Effect<Message, Error> {
+  return peer.subscribe(messageReceivedNotificationDefinition).pipe(
+    Stream.filter(
+      ({ message }) =>
+        message.senderId === config.channelAgentId &&
+        message.conversationId === conversationId,
+    ),
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: REPLY_TIMEOUT,
+      onTimeout: () => new Error("timed out waiting for the adapter echo"),
     }),
-  ).pipe(
-    Effect.tap((peerService) =>
-      Effect.sync(() => {
-        peerService.on("message", (payload) => {
-          peerInbox.push(payload.message);
-        });
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.die(new Error("peer reply stream closed before delivery")),
+        onSome: ({ message }) => Effect.succeed(message),
       }),
     ),
+    Effect.mapError(toError),
   );
 }
 
-function createDm(
-  peerService: MoltZapService,
-  channelAgentId: AgentId,
-): Effect.Effect<{ conversationId: ConversationId }, EchoIntegrationError> {
-  return peerService
-    .call(agentConversationCreate.name, {
-      participants: [channelAgentId],
-    })
-    .pipe(
-      Effect.map((res) => ({ conversationId: res.conversation.id })),
-      Effect.mapError(
-        (cause) => new EchoIntegrationError({ operation: "createDm", cause }),
-      ),
-    );
-}
-
-function connectPeerService(
-  peerService: MoltZapService,
-): Effect.Effect<void, EchoIntegrationError> {
-  return peerService.connect().pipe(
-    Effect.mapError(
-      (cause) =>
-        new EchoIntegrationError({
-          operation: "peerService.connect",
-          cause,
-        }),
-    ),
-  );
-}
-
-function makeHarness(
-  config: InjectedConfig,
-): Effect.Effect<Harness, EchoIntegrationError> {
+function runEchoExchange(config: InjectedConfig) {
   return Effect.gen(function* () {
-    const inboundMessages: InboundCapture[] = [];
-    const chatMetadata: ChatMetadataCapture[] = [];
-    const peerInbox: Message[] = [];
-    const adapter = yield* makeAdapter(
-      config,
-      inboundMessages,
-      chatMetadata,
-    ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new EchoIntegrationError({ operation: "makeAdapter", cause }),
-      ),
+    const inbound = yield* Deferred.make<InboundCapture>();
+    const metadata: ChatMetadataCapture[] = [];
+    const adapter = yield* acquireAdapter(inbound, metadata);
+    const peer = yield* acquirePeer(config);
+
+    const created = yield* peer
+      .callDefinition(agentConversationCreate, {
+        participants: [config.channelAgentId],
+      })
+      .pipe(Effect.mapError(toError));
+    const conversationId = created.conversation.id;
+    const chatJid = `${JID_PREFIX}${conversationId}`;
+
+    const echoFiber = yield* Effect.fork(
+      takeChannelReply(peer, config, conversationId),
     );
-    const peerService = yield* bootPeerService(config, peerInbox).pipe(
-      Effect.mapError(
-        (cause) =>
-          new EchoIntegrationError({ operation: "bootPeerService", cause }),
-      ),
+    yield* peer
+      .callDefinition(messagesSend, {
+        conversationId,
+        parts: [{ type: TEXT_TYPE, text: PING }],
+      })
+      .pipe(Effect.mapError(toError));
+
+    const delivered = yield* Deferred.await(inbound).pipe(
+      Effect.timeoutFail({
+        duration: REPLY_TIMEOUT,
+        onTimeout: () => new Error("timed out waiting for the host inbound"),
+      }),
     );
-    yield* connectPeerService(peerService);
-    const { conversationId } = yield* createDm(
-      peerService,
-      config.channelAgentId,
+    expect(delivered.jid).toBe(chatJid);
+    expect(contentText(delivered.msg)).toBe(PING);
+    expect(senderIdOf(delivered.msg)).toBe(
+      `${MOLTZAP_CHANNEL_NAME}:${config.peerAgentId}`,
     );
-    return {
-      adapter,
-      peerService,
-      inboundMessages,
-      chatMetadata,
-      peerInbox,
-      conversationId,
-      chatJid: `${JID_PREFIX}${conversationId}`,
-      peerAgentId: config.peerAgentId,
-      stop: () => stopAdapterAndPeer(adapter, peerService),
-    };
-  });
-}
 
-function stopAdapterAndPeer(
-  adapter: MoltZapAdapter,
-  peerService: MoltZapService,
-) {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* Effect.tryPromise({
-        try: () => adapter.teardown(),
-        catch: () => undefined,
-      }).pipe(Effect.ignore);
-      peerService.close();
-      return undefined;
-    }),
-  );
-}
+    // Metadata precedes the inbound dispatch, so it is already recorded by
+    // the time the inbound deferred resolves.
+    expect(metadata.some((entry) => entry.jid === chatJid)).toBe(true);
+    expect(adapter.isConnected()).toBe(true);
 
-beforeAll(() => Effect.runPromise(initHarness()));
-afterAll(() => stopHarness());
-
-function initHarness() {
-  return Effect.gen(function* () {
-    h = yield* makeHarness(injectedConfig());
-  });
-}
-
-function stopHarness() {
-  return h === undefined ? Promise.resolve(undefined) : h.stop();
-}
-
-function messageContains(message: Message, needle: string): boolean {
-  return message.parts.some(
-    (part) => part.type === TEXT_TYPE && part.text.includes(needle),
-  );
-}
-
-function inboundHas(needle: string): boolean {
-  return h.inboundMessages.some((c) => contentText(c.msg).includes(needle));
-}
-
-function peerInboxHas(needle: string): boolean {
-  return h.peerInbox.some((m) => messageContains(m, needle));
-}
-
-function peerSend(text: string): Effect.Effect<void, EchoIntegrationError> {
-  return h.peerService
-    .send(h.conversationId, text)
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new EchoIntegrationError({ operation: "peerService.send", cause }),
-      ),
-    );
+    const echo = yield* Fiber.join(echoFiber);
+    expect(messageText(echo)).toBe(`${ECHO_PREFIX}${PING}`);
+  }).pipe(Effect.scoped);
 }
 
 describe("nanoclaw echo integration", () => {
-  it(
-    "delivers inbound messages to the host onInbound callback",
-    deliversInbound,
-  );
-  it("emits a chat-metadata event for the conversation", emitsChatMetadata);
-  it("deliver round-trips back to the peer's inbox", roundTripsToPeer);
+  it("round-trips a peer message through the production adapter", () => {
+    const config = injectedConfig();
+    return Effect.scoped(
+      Effect.gen(function* () {
+        // The daemon binds exactly the port its slot records, so the port is
+        // reserved here and written into the slot before the adapter starts.
+        const mcpPort = yield* reserveTestMcpPort;
+        return yield* withTestServiceConfig(
+          {
+            profileName: CHANNEL_PROFILE_NAME,
+            agentName: CHANNEL_PROFILE_NAME,
+            agentId: config.channelAgentId,
+            agentKey: config.channelApiKey,
+            serverUrl: config.baseUrl,
+            mcpPort,
+          },
+          runEchoExchange(config),
+        );
+      }),
+    );
+  });
 });
-
-function deliversInbound() {
-  return Effect.gen(function* () {
-    yield* peerSend(PING_ONE);
-    yield* waitFor(
-      () => inboundHas(PING_ONE),
-      INBOUND_NOTIFICATION_TIMEOUT_MS,
-      "ping-one inbound",
-    );
-    const seen = h.inboundMessages.find((c) =>
-      contentText(c.msg).includes(PING_ONE),
-    );
-    expect(seen?.jid).toBe(h.chatJid);
-    expect(
-      /* Safe because the test fixture establishes this asserted shape. */
-      (seen!.msg.content as { senderId: string }).senderId,
-    ).toBe(channelSenderId(h.peerAgentId));
-  });
-}
-
-function emitsChatMetadata() {
-  return Effect.sync(() => {
-    expect(h.chatMetadata.some((m) => m.jid === h.chatJid)).toBe(true);
-  });
-}
-
-function roundTripsToPeer() {
-  return Effect.gen(function* () {
-    yield* peerSend(PING_TWO);
-    yield* waitFor(
-      () => peerInboxHas(`${ECHO_PREFIX}${PING_TWO}`),
-      INBOUND_NOTIFICATION_TIMEOUT_MS,
-      "echo-pong-two on peer",
-    );
-    expect(peerInboxHas(`${ECHO_PREFIX}${PING_TWO}`)).toBe(true);
-  });
-}
-
-/* eslint-enable agent-code-guard/no-effect-error-coalescing -- Restore strict defaults after the scoped file-level exception. */

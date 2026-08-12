@@ -2,8 +2,12 @@
 // safer-arch-ignore folder-explicit-api-required: ConversationService is the deliberate concrete service boundary paired with the public conversation index.
 import {
   type Db,
+  READ_PLANE_PAGE_SIZE,
   sql,
   catchSqlErrorAsDefect,
+  decodeSearchCursor,
+  normalizeSearchQuery,
+  paginateSearchRows,
   rawQuery,
   takeFirstOption,
   takeFirstOrFail,
@@ -12,20 +16,23 @@ import {
 import {
   type Conversation,
   type ConversationId,
+  conversationId as conversationIdSchema,
   ConversationFullError,
   ConversationNotFoundError,
 } from "@moltzap/protocol/conversation";
 import {
   type AgentId,
   type UserId,
+  agentId as agentIdSchema,
   AgentNotFoundError,
 } from "@moltzap/protocol/identity";
 import type { SqlError } from "@effect/sql/SqlError";
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   InvalidParamsError,
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
+  type ListCursor,
 } from "@moltzap/protocol/rpc";
 import type { ConnectionManager } from "#socket";
 
@@ -53,6 +60,12 @@ interface ListConversationsInput {
   readonly cursor?: string;
 }
 
+interface SearchConversationsInput {
+  readonly agentId: AgentId;
+  readonly query?: string;
+  readonly cursor?: string;
+}
+
 function mapConversation(row: ConversationColumns): Conversation {
   return {
     id: row.id,
@@ -73,6 +86,114 @@ interface ConversationListEntry {
 interface ConversationPage {
   readonly items: readonly ConversationListEntry[];
   readonly cursor?: string;
+}
+
+interface ConversationSearchPage {
+  readonly conversations: readonly Conversation[];
+  readonly nextCursor?: ListCursor;
+}
+
+function conversationSearchTokenFilter(normalizedQuery: string) {
+  if (normalizedQuery === "") {
+    return sql``;
+  }
+  const searchId = Schema.decodeOption(agentIdSchema)(normalizedQuery);
+  if (Option.isSome(searchId)) {
+    return sql`
+      AND (
+        conversation.id = ${searchId.value}::uuid
+        OR EXISTS (
+          SELECT 1
+          FROM conversation_participants matching_membership
+          WHERE matching_membership.conversation_id = conversation.id
+            AND matching_membership.agent_id = ${searchId.value}::uuid
+        )
+      )
+    `;
+  }
+  return sql`
+    AND EXISTS (
+      SELECT 1
+      FROM conversation_participants matching_membership
+      JOIN agents matching_agent
+        ON matching_agent.id = matching_membership.agent_id
+      WHERE matching_membership.conversation_id = conversation.id
+        AND matching_agent.name = ${normalizedQuery}
+    )
+  `;
+}
+
+function conversationSearchCursorFilter(lastId?: ConversationId) {
+  return lastId === undefined
+    ? sql``
+    : sql`AND conversation.id > ${lastId}::uuid`;
+}
+
+function queryConversationSearchRows(
+  db: Db,
+  input: {
+    readonly agentId: AgentId;
+    readonly normalizedQuery: string;
+    readonly lastId?: ConversationId;
+  },
+): Effect.Effect<readonly ConversationColumns[], SqlError> {
+  return rawQuery(
+    db,
+    sql<ConversationColumns>`
+      SELECT
+        conversation.id,
+        conversation.name,
+        conversation.created_by_id,
+        conversation.created_at,
+        conversation.updated_at
+      FROM conversation_participants caller_membership
+      JOIN conversations conversation
+        ON conversation.id = caller_membership.conversation_id
+      WHERE caller_membership.agent_id = ${input.agentId}
+        ${conversationSearchTokenFilter(input.normalizedQuery)}
+        ${conversationSearchCursorFilter(input.lastId)}
+      ORDER BY conversation.id ASC
+      LIMIT ${READ_PLANE_PAGE_SIZE + 1}
+    `,
+  );
+}
+
+function searchConversations(
+  db: Db,
+  input: SearchConversationsInput,
+): Effect.Effect<ConversationSearchPage, InvalidParamsError> {
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const normalizedQuery = normalizeSearchQuery(input.query);
+      const binding = {
+        kind: "conversations" as const,
+        query: normalizedQuery,
+        agentId: input.agentId,
+      };
+      const cursorPosition =
+        input.cursor === undefined
+          ? undefined
+          : yield* decodeSearchCursor(input.cursor, binding);
+      const lastId =
+        cursorPosition === undefined
+          ? undefined
+          : Schema.decodeSync(conversationIdSchema)(cursorPosition.lastId);
+      const rows = yield* queryConversationSearchRows(db, {
+        agentId: input.agentId,
+        normalizedQuery,
+        ...(lastId === undefined ? {} : { lastId }),
+      });
+      const { page, nextCursor } = paginateSearchRows(
+        rows,
+        binding,
+        (row) => row.id,
+      );
+      return {
+        conversations: page.map(mapConversation),
+        ...(nextCursor === undefined ? {} : { nextCursor }),
+      };
+    }),
+  ).pipe(Effect.withSpan("searchConversations"));
 }
 
 // Two queries regardless of page size: one for the page, one for the
@@ -131,7 +252,7 @@ function queryParticipantsFor(
 // The cursor carries both halves of the sort key. Paging on a different
 // expression than the one that orders the page lets a row move across the
 // boundary between requests and vanish from every later page.
-interface ListCursor {
+interface ConversationListCursor {
   readonly updatedAt: string;
   readonly id: string;
 }
@@ -155,7 +276,7 @@ const CURSOR_ID_RE =
 
 function parseListCursor(
   cursor?: string,
-): Effect.Effect<ListCursor | null, InvalidParamsError> {
+): Effect.Effect<ConversationListCursor | null, InvalidParamsError> {
   if (cursor == null) {
     return Effect.succeed(null);
   }
@@ -178,7 +299,7 @@ function parseListCursor(
 interface ListRowsInput {
   readonly agentId: AgentId;
   readonly limit: number;
-  readonly cursorParam: ListCursor | null;
+  readonly cursorParam: ConversationListCursor | null;
 }
 
 // Sort key and cursor key are the same stored pair, so the page boundary lands
@@ -202,7 +323,7 @@ function queryConversationListRows(
   );
 }
 
-function cursorListFilter(cursorParam: ListCursor | null) {
+function cursorListFilter(cursorParam: ConversationListCursor | null) {
   if (cursorParam === null) {
     return sql``;
   }
@@ -368,6 +489,14 @@ export class ConversationService {
     cursor?: string,
   ): Effect.Effect<ConversationPage, InvalidParamsError> {
     return listConversations(this.db, { agentId, limit, cursor });
+  }
+
+  search(
+    agentId: AgentId,
+    query?: string,
+    cursor?: string,
+  ): Effect.Effect<ConversationSearchPage, InvalidParamsError> {
+    return searchConversations(this.db, { agentId, query, cursor });
   }
 
   getParticipantAgentIds(

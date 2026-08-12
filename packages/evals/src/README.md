@@ -1,12 +1,5 @@
 # Evaluation application boundary
 
-> **Implementation transition:** The [main-track Kubernetes
-> contract](../../../docs/decisions/20260801-main-simulator-runs-container-societies-on-kubernetes.md)
-> moves enabled attempts to the core `Run.execute` Kubernetes path. Host
-> acquisition below describes the implementation being replaced. Peer policy
-> remains evaluation-owned but runs in one peer application container and
-> reports through its exact evaluation-owned observation bridge.
-
 This directory is a private application above `@moltzap/simulator`.
 `cli.ts` is its executable entry point. Customer society and scenario
 languages compose the simulator package directly instead of depending on an
@@ -16,7 +9,8 @@ The source graph has four layers:
 
 1. `model.ts`, `events.ts`, `principal.ts`, and `peer.ts` define branded
    vocabulary, the complete evidence universe, runtime-native principal
-   adapters, and autonomous Effect peers.
+   adapters, and autonomous peer application containers whose Effect policy
+   remains evaluation-owned.
 2. `cases.ts` owns the ordered code-defined policies, exact peer rosters, and
    criteria. `execution.ts` interprets one case against one concrete target
    runtime and the production router.
@@ -32,10 +26,12 @@ The source graph has four layers:
    Promise entering Effect through `phoenix-client.ts` alone. `cli.ts`
    supplies the platform and concrete service layers once.
 
-Gateway evidence describes principal interaction with the target runtime.
-Social evidence describes traffic committed through the router. Peer gateways
-only expose autonomous observations; they never provide a shortcut for social
-traffic.
+Enabled attempts use the core `Run.execute` Kubernetes path. Gateway evidence
+describes principal interaction with the target runtime. Social evidence
+describes traffic committed through the router. Each peer policy runs in its
+own application container, and its exact evaluation-owned observation bridge
+reports what the peer observed; the bridge never provides a shortcut for
+social traffic.
 
 Tests stay beside their owner. Add a failure type only for a state that the
 owning API cannot exclude by construction.

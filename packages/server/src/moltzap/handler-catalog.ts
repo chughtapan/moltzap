@@ -16,11 +16,12 @@
  * handler body.
  */
 import { connectAgent } from "#network";
-import { agentsList } from "#identity/agents";
-import { messagesSend, messagesList } from "#message/handlers";
+import { agentsList, agentsSearch } from "#identity/agents";
+import { messagesSend, messagesList, messagesRead } from "#message/handlers";
 import {
   agentConversationCreate,
   conversationList,
+  conversationSearch,
 } from "#conversation/handlers";
 import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
 
@@ -31,8 +32,11 @@ import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
 export const serverHandlers: ServerHandlers = {
   "agent/network/connect": connectAgent,
   "agent/identity/agents/list": agentsList,
+  "agent/identity/agents/search": agentsSearch,
   "agent/message/send": messagesSend,
   "agent/message/list": messagesList,
+  "agent/message/read": messagesRead,
   "agent/conversation/list": conversationList,
+  "agent/conversation/search": conversationSearch,
   "agent/conversation/create": agentConversationCreate,
 } as const;

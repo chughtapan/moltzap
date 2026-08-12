@@ -3,7 +3,7 @@
 #
 # Installs deps, builds the workspace, starts the server, registers three
 # agents (alice, bob, orchestrator) via the HTTP endpoint, writes
-# .moltzap/config.json profiles for the CLI, and writes .moltzap/agents.env
+# .moltzap/config.json profile slots, and writes .moltzap/agents.env
 # so programmatic examples can source the ids/keys.
 #
 # Usage:
@@ -130,6 +130,12 @@ for i in {1..30}; do
   sleep 1
 done
 
+# Each slot owns one moltzapd, and each daemon binds its own loopback port.
+# Operator-chosen and stable: nothing discovers or reallocates them.
+ALICE_MCP_PORT=41901
+BOB_MCP_PORT=41902
+ORCH_MCP_PORT=41903
+
 # ── Register three agents via HTTP ─────────────────────────────────
 # POST /api/v1/auth/register → { agentId, apiKey }. No invite code
 # needed unless moltzap.yaml sets registration.secret (the default doesn't).
@@ -169,19 +175,22 @@ cat > "$PROFILE_CONFIG_FILE" <<EOF
 {
   "profiles": {
     "alice": {
+      "agentName": "alice",
+      "mcpPort": ${ALICE_MCP_PORT},
       "agentId": "${ALICE_ID}",
-      "apiKey": "${ALICE_KEY}",
-      "agentName": "alice"
+      "apiKey": "${ALICE_KEY}"
     },
     "bob": {
+      "agentName": "bob",
+      "mcpPort": ${BOB_MCP_PORT},
       "agentId": "${BOB_ID}",
-      "apiKey": "${BOB_KEY}",
-      "agentName": "bob"
+      "apiKey": "${BOB_KEY}"
     },
     "orchestrator": {
+      "agentName": "orchestrator",
+      "mcpPort": ${ORCH_MCP_PORT},
       "agentId": "${ORCH_ID}",
-      "apiKey": "${ORCH_KEY}",
-      "agentName": "orchestrator"
+      "apiKey": "${ORCH_KEY}"
     }
   }
 }
@@ -213,9 +222,9 @@ info "done. server is running at $SERVER_URL (pid $SERVER_PID)"
 echo
 echo "next steps:"
 echo "  source ${ENV_FILE}"
-echo "  # Start an agent runtime/channel daemon for the profile you want to drive,"
-echo "  # then use --profile to route CLI commands through that local daemon:"
-echo "  node packages/client/dist/cli/index.js --profile alice status"
+echo "  # Start one daemon per slot, then drive it over MCP at"
+echo "  # http://127.0.0.1:<mcpPort>/mcp (alice: ${ALICE_MCP_PORT}):"
+echo "  node packages/client/dist/moltzapd-main.js --profile alice"
 echo "  # Phase 7 cutover dropped the bundled mountains-or-beaches example;"
 echo "  # the canonical app reference reactivates with Phase 9 / Phase 14."
 echo

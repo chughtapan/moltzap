@@ -21,4 +21,13 @@ export {
   type HarnessClientOptions,
   type HarnessClientService,
   type HarnessTurn,
+  type ConversationWithParticipants,
 } from "./harness-client.js";
+
+/** Re-exports the production composition of a slot's daemon and its client. */
+export {
+  acquireMoltzapdChild,
+  harnessClientForProfile,
+  type MoltzapdChild,
+  type MoltzapdChildOptions,
+} from "./moltzapd-child.js";

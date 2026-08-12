@@ -11,14 +11,18 @@ import {
 } from "@modelcontextprotocol/server";
 import { Effect, Exit, Scope } from "effect";
 import { describe, expect, it } from "vitest";
+import { conversationSearch } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { acquireHarnessMcpHttpServer } from "../harness-mcp-server.js";
 import {
   decodeHarnessReplyRoute,
+  decodeHarnessSearchConversationsResult,
+  decodeHarnessStartConversationResult,
   decodeHarnessTurnEvent,
   HARNESS_EVENTS_EXTENSION,
   HARNESS_REPLY_TOOL,
+  harnessStartConversationInputJsonSchema,
   harnessReplyInputJsonSchema,
   harnessReplyRequestMeta,
   harnessReplyResultJsonSchema,
@@ -52,6 +56,14 @@ const otherConversationMessage = {
   ...secondMessage,
   conversationId: conversationId("00000000-0000-4000-8000-000000000002"),
 } satisfies Message;
+
+const conversationWithParticipants = {
+  id: CONVERSATION_ID,
+  createdBy: SENDER_ID,
+  participants: [SENDER_ID],
+  createdAt: firstMessage.createdAt,
+  updatedAt: secondMessage.createdAt,
+};
 
 const replyInputJsonSchema = fromJsonSchema<HarnessReplyInput>(
   /* Safe because Effect and MCP expose the same JSON Schema wire shape with different array mutability declarations. */ harnessReplyInputJsonSchema as JsonSchemaType,
@@ -100,17 +112,62 @@ const keepsPrivateRoutingMetadataClosed = async () => {
   ).rejects.toBeDefined();
 };
 
+const keepsConversationMembershipOnMcpOnly = () => {
+  const page = { conversations: [conversationWithParticipants] };
+  expect(Effect.runSync(decodeHarnessSearchConversationsResult(page))).toEqual(
+    page,
+  );
+  expect(conversationSearch.validateResult(page)).toBe(false);
+};
+
+const keepsStartConversationContractClosed = async () => {
+  const result = { conversation: conversationWithParticipants };
+  await expect(
+    Effect.runPromise(decodeHarnessStartConversationResult(result)),
+  ).resolves.toEqual(result);
+  await expect(
+    Effect.runPromise(
+      decodeHarnessStartConversationResult({
+        conversation: {
+          ...conversationWithParticipants,
+          participants: undefined,
+        },
+      }),
+    ),
+  ).rejects.toBeDefined();
+  await expect(
+    Effect.runPromise(
+      decodeHarnessStartConversationResult({ ...result, invented: true }),
+    ),
+  ).rejects.toBeDefined();
+
+  expect(harnessStartConversationInputJsonSchema).toMatchObject({
+    type: "object",
+    properties: {
+      otherAgentNames: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "string",
+          minLength: 3,
+          maxLength: 32,
+          pattern: "^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$",
+        },
+      },
+      initialContent: { type: "string", minLength: 1 },
+    },
+    required: ["otherAgentNames", "initialContent"],
+    additionalProperties: false,
+  });
+};
+
 interface ObservedReply {
   arguments?: unknown;
   route?: HarnessReplyRoute;
 }
 
-const makeRuntimeHandlers = (observed: ObservedReply) => {
-  const registrationHandler = createMcpHandler(
-    () => new McpServer({ name: "registration-test", version: "1.0.0" }),
-    { legacy: "reject" },
-  );
-  const harnessHandler = createMcpHandler(() => {
+const makeRuntimeHandler = (observed: ObservedReply) =>
+  createMcpHandler(() => {
     const server = new McpServer({
       name: "harness-runtime-test",
       version: "1.0.0",
@@ -134,8 +191,6 @@ const makeRuntimeHandlers = (observed: ObservedReply) => {
     );
     return server;
   });
-  return { harnessHandler, registrationHandler };
-};
 
 const assertPayloadOnlyDiscovery = async (client: Client) => {
   const replyTool = (await client.listTools()).tools.find(
@@ -154,14 +209,10 @@ const assertPayloadOnlyDiscovery = async (client: Client) => {
 
 const preservesPrivateRoute = async () => {
   const observed: ObservedReply = {};
-  const { harnessHandler, registrationHandler } = makeRuntimeHandlers(observed);
+  const handler = makeRuntimeHandler(observed);
   const scope = Effect.runSync(Scope.make());
   const listener = await Effect.runPromise(
-    acquireHarnessMcpHttpServer({
-      port: 0,
-      registrationHandler,
-      harnessHandler,
-    }).pipe(Scope.extend(scope)),
+    acquireHarnessMcpHttpServer({ port: 0, handler }).pipe(Scope.extend(scope)),
   );
   const address = listener.address();
   if (address === null || typeof address === "string") {
@@ -206,6 +257,11 @@ describe("Harness MCP runtime contract", () => {
     decodesProtocolMessageBatch());
   it("keeps private routing metadata closed", () =>
     keepsPrivateRoutingMetadataClosed());
+  it("adds conversation membership only on the MCP projection", () => {
+    keepsConversationMembershipOnMcpOnly();
+  });
+  it("keeps start input canonical and its enriched result closed", () =>
+    keepsStartConversationContractClosed());
   it("preserves the private route through an official MCP client call", () =>
     preservesPrivateRoute());
 });

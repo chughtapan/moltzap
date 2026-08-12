@@ -32,6 +32,7 @@ import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "../service.js";
 import type { RpcCallOptions } from "../agent-client.js";
+import type { PresentationState } from "../presentation/index.js";
 import { testAgentId } from "./ids.js";
 
 const TEST_AGENT_KEY = redactedAgentKey(agentKeyString(0));
@@ -122,12 +123,12 @@ export class FakeMoltZapService extends MoltZapService {
    */
   addMessage(convId: string, msg: Message): void {
     Effect.runSync(
-      Ref.update(this.parentMessagesRef, (m) => {
+      Ref.update(this.parentMessagesRef, (messages) => {
         const existing = Option.getOrElse(
-          HashMap.get(m, convId),
+          HashMap.get(messages, convId),
           (): readonly Message[] => [],
         );
-        return HashMap.set(m, convId, [...existing, msg]);
+        return HashMap.set(messages, convId, [...existing, msg]);
       }),
     );
   }
@@ -161,32 +162,33 @@ export class FakeMoltZapService extends MoltZapService {
    */
   setAgentNameDirect(id: string, name: string): void {
     Effect.runSync(
-      Ref.update(this.parentAgentNamesRef, (m) =>
-        HashMap.set(m, testAgentId(id), name),
-      ),
+      this.parentPresentationState.cacheAgentNames([
+        { id: testAgentId(id), name },
+      ]),
     );
   }
 
   /**
-   * Typed views of the parent class's private Refs, exposed only to this
-   * fake so its test-only harness methods can stage state without going
-   * through the WebSocket pipeline.
-   * @returns The parent messages ref result.
+   * Typed view used to stage presentation state without WebSocket ingress.
+   * @returns Mutable state owner used only by the fixture's seeding helpers.
    */
-  private get parentMessagesRef(): ParentInternals["messagesRef"] {
-    return Reflect.get(this, "messagesRef");
+  private get parentPresentationState(): ParentInternals["presentationState"] {
+    return Reflect.get(this, "presentationState");
   }
 
-  private get parentAgentNamesRef(): ParentInternals["agentNamesRef"] {
-    return Reflect.get(this, "agentNamesRef");
+  private get parentMessagesRef(): PresentationStateInternals["messagesRef"] {
+    return /* Safe because PresentationState owns this initialized Ref and the fixture accesses it only to preserve its uncapped seeding behavior. */ Reflect.get(
+      this.parentPresentationState,
+      "messagesRef",
+    ) as PresentationStateInternals["messagesRef"];
   }
 }
 
-/**
- * Shape of the parent `MoltZapService`'s private Refs, exposed in the fake
- *  via `this.internals` so the test-only harness methods can seed state.
- */
+/** Shape of the parent state owner exposed only to this test fake. */
 interface ParentInternals {
+  presentationState: PresentationState;
+}
+
+interface PresentationStateInternals {
   messagesRef: Ref.Ref<HashMap.HashMap<string, readonly Message[]>>;
-  agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>>;
 }

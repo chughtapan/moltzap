@@ -6,6 +6,8 @@
 export {
   messagesSend,
   messagesList,
+  messagesRead,
+  conversationCheckpoint,
   messageReceivedNotificationDefinition,
   agentCallableMessageRpcMethods,
   messageNotifications,
@@ -17,6 +19,7 @@ export {
 } from "./messages.js";
 /** Re-exports the public API from `./messages.js`. */
 export type {
+  ConversationCheckpoint,
   Message,
   MessageParts,
   MessageReceivedNotification,

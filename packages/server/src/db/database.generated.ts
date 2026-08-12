@@ -72,5 +72,5 @@ export interface Messages {
    */
   parts: Json;
   sender_id: string;
-  seq: Int8;
+  seq: Generated<Int8>;
 }

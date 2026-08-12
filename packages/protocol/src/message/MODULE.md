@@ -8,7 +8,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L89)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L131)
 
 _Variable_
 
@@ -16,10 +16,42 @@ _Variable_
 export const agentCallableMessageRpcMethods = [
   messagesSend,
   messagesList,
+  messagesRead,
 ] as const
 ```
 
 Agent-callable message RPC catalog.
+
+### [`conversationCheckpoint`](./messages.ts#L47)
+
+_Variable_
+
+```ts
+export const conversationCheckpoint: Schema.Schema<
+  ConversationCheckpoint,
+  string
+> = Schema.String.pipe(
+  Schema.brand("ConversationCheckpoint"),
+  Schema.annotations({
+    description:
+      "Opaque conversation checkpoint. Treat as opaque; do not parse, " +
+      "compare, or construct it.",
+  }),
+)
+```
+
+Validates and decodes opaque conversation checkpoint values.
+
+### [`ConversationCheckpoint`](./messages.ts#L43)
+
+_TypeAlias_
+
+```ts
+export type ConversationCheckpoint = string &
+  Brand.Brand<"ConversationCheckpoint">;
+```
+
+Opaque position in a conversation's readable message history.
 
 ### [`decodeMessageParts`](./parts.ts#L65)
 
@@ -49,7 +81,7 @@ Decode persisted plaintext message parts and die on malformed persisted data.
 
 **Returns:** The decoded message parts text.
 
-### [`Message`](./messages.ts#L41)
+### [`Message`](./messages.ts#L60)
 
 _TypeAlias_
 
@@ -59,7 +91,7 @@ export type Message = Schema.Schema.Type<typeof messageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageNotifications`](./messages.ts#L113)
+### [`messageNotifications`](./messages.ts#L156)
 
 _Variable_
 
@@ -96,7 +128,7 @@ directly so persisted bodies cannot drift from the wire contract.
 
 **Returns:** The nonempty schema shared by all message boundaries.
 
-### [`MessageReceivedNotification`](./messages.ts#L99)
+### [`MessageReceivedNotification`](./messages.ts#L142)
 
 _TypeAlias_
 
@@ -108,7 +140,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`messageReceivedNotificationDefinition`](./messages.ts#L107)
+### [`messageReceivedNotificationDefinition`](./messages.ts#L150)
 
 _Variable_
 
@@ -121,7 +153,7 @@ export const messageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`messagesList`](./messages.ts#L80)
+### [`messagesList`](./messages.ts#L99)
 
 _Variable_
 
@@ -138,7 +170,32 @@ export const messagesList = defineRpc({
 List the newest visible messages in a conversation, returned oldest-first.
 The server enforces conversation participation.
 
-### [`messagesSend`](./messages.ts#L58)
+### [`messagesRead`](./messages.ts#L114)
+
+_Variable_
+
+```ts
+export const messagesRead = defineRpc({
+  name: "agent/message/read",
+  params: Schema.Struct({
+    conversationId: conversationId,
+    checkpoint: Schema.optional(conversationCheckpoint),
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    messages: Schema.Array(messageSchema),
+    checkpoint: conversationCheckpoint,
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
+  requires: [AuthenticatedAgent, ActiveAgent],
+  errors: [InvalidParamsError, ForbiddenError],
+})
+```
+
+Read a page of visible conversation messages and return the conversation's
+current opaque checkpoint. The server enforces conversation participation.
+
+### [`messagesSend`](./messages.ts#L77)
 
 _Variable_
 
@@ -165,7 +222,7 @@ export type Part = Schema.Schema.Type<typeof partSchema>;
 
 User-authored message content part.
 
-### [`validateMessage`](./messages.ts#L44)
+### [`validateMessage`](./messages.ts#L63)
 
 _Variable_
 

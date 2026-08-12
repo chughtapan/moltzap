@@ -435,9 +435,9 @@ packages/server/src/
     client.ts
     database.ts
     database.generated.ts
+    core-schema.sql
     sql.ts
     list-cursor.ts
-    snowflake.ts
 
   identity/
     agents/
@@ -466,7 +466,7 @@ packages/server/src/
 
   message/
     handlers.ts
-    message.service.ts
+    message.service.ts      # service + database-owned message ordering
     layer.ts
     index.ts
 
