@@ -1,9 +1,9 @@
 /** @file Definition-time bootstrap material shared by container runtimes. */
 
 import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
+import { Redacted, Schema } from "effect";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { Redacted, Schema } from "effect";
 import type { File } from "./container.js";
 
 const PROFILE_CONFIG_INDENT_SPACES = 2;
@@ -37,15 +37,6 @@ export function serializeMoltZapProfileConfig(profile: {
     null,
     PROFILE_CONFIG_INDENT_SPACES,
   );
-}
-
-function staysBelowWorkspaceRoot(value: string): boolean {
-  // A backslash is an ordinary character to posix.normalize, so a Windows-style
-  // separator would survive normalization and reach the container verbatim.
-  if (value.includes("\\") || posix.isAbsolute(value)) {
-    return false;
-  }
-  return value !== "." && value !== ".." && !value.startsWith("../");
 }
 
 /**
@@ -87,16 +78,42 @@ export interface CheckedWorkspaceFile {
 }
 
 /** One stdio MCP server mounted into a runtime container's workspace. */
-export interface McpServer {
+interface StdioMcpServer {
   readonly name: string;
   readonly command: string;
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
 }
 
+/** One remote MCP server reached over streamable HTTP. */
+interface HttpMcpServer {
+  readonly name: string;
+  readonly url: string;
+}
+
+/** One MCP server reachable from a runtime container. */
+export type McpServer = StdioMcpServer | HttpMcpServer;
+
+/**
+ * Distinguishes remote streamable-HTTP servers from spawned stdio servers.
+ * @param server MCP server whose transport is being selected.
+ * @returns Whether the definition carries a remote URL.
+ */
+export function isHttpMcpServer(server: McpServer): server is HttpMcpServer {
+  return "url" in server;
+}
+
 const decodeWorkspaceRelativePath = Schema.decodeUnknownSync(
   workspaceRelativePath,
 );
+
+const mcpServerUrl = Schema.String.pipe(
+  Schema.filter((value) => URL.canParse(value), {
+    message: () => "an MCP server url must be a parseable absolute URL",
+  }),
+);
+
+const decodeMcpServerUrl = Schema.decodeUnknownSync(mcpServerUrl);
 
 /** Digest standing in for material a sanitized configuration must not carry. */
 export const configurationDigest = Schema.String.pipe(
@@ -122,10 +139,13 @@ export class McpServerConfiguration extends Schema.Class<McpServerConfiguration>
 )({
   name: Schema.String,
   definitionDigest: configurationDigest,
-  redacted: Schema.Tuple(
-    Schema.Literal("command"),
-    Schema.Literal("args"),
-    Schema.Literal("environmentValues"),
+  redacted: Schema.Union(
+    Schema.Tuple(
+      Schema.Literal("command"),
+      Schema.Literal("args"),
+      Schema.Literal("environmentValues"),
+    ),
+    Schema.Tuple(Schema.Literal("url")),
   ),
 }) {}
 
@@ -159,12 +179,16 @@ export function snapshotMcpServers(
     ? undefined
     : Object.freeze(
         servers.map((server) =>
-          Object.freeze({
-            name: server.name,
-            command: server.command,
-            args: Object.freeze([...server.args]),
-            env: Object.freeze({ ...server.env }),
-          }),
+          Object.freeze(
+            isHttpMcpServer(server)
+              ? { name: server.name, url: decodeMcpServerUrl(server.url) }
+              : {
+                  name: server.name,
+                  command: server.command,
+                  args: Object.freeze([...server.args]),
+                  env: Object.freeze({ ...server.env }),
+                },
+          ),
         ),
       );
 }
@@ -198,24 +222,6 @@ export function workspaceConfiguration(
 }
 
 /**
- * The digested form of one MCP server. Only the environment *keys* are
- * digested: the values are provider credentials, and including them would let
- * anyone holding a candidate secret confirm it against a published ledger.
- * @param server MCP server whose definition is being recorded.
- * @returns The canonical, value-free JSON that stands in for the server.
- */
-function mcpServerDefinition(server: McpServer): string {
-  return JSON.stringify({
-    name: server.name,
-    command: server.command,
-    args: server.args,
-    environmentKeys: Object.keys(server.env).sort((left, right) =>
-      left.localeCompare(right),
-    ),
-  });
-}
-
-/**
  * Record which MCP servers a runtime mounts without recording their secrets.
  * @param servers MCP servers a runtime mounts, if any.
  * @returns The sanitized MCP server records.
@@ -223,13 +229,7 @@ function mcpServerDefinition(server: McpServer): string {
 export function mcpConfiguration(
   servers?: readonly McpServer[],
 ): readonly McpServerConfiguration[] {
-  return (servers ?? []).map((server) =>
-    McpServerConfiguration.make({
-      name: server.name,
-      definitionDigest: digestText(mcpServerDefinition(server)),
-      redacted: ["command", "args", "environmentValues"],
-    }),
-  );
+  return (servers ?? []).map(sanitizedMcpServer);
 }
 
 /**
@@ -254,4 +254,47 @@ export function workspaceFilePath(
  */
 export function bootstrapFile(path: `/${string}`, content: string): File {
   return Object.freeze({ path, content, mode: 0o600 });
+}
+
+function staysBelowWorkspaceRoot(value: string): boolean {
+  // A backslash is an ordinary character to posix.normalize, so a Windows-style
+  // separator would survive normalization and reach the container verbatim.
+  if (value.includes("\\") || posix.isAbsolute(value)) {
+    return false;
+  }
+  return value !== "." && value !== ".." && !value.startsWith("../");
+}
+
+/**
+ * Sanitizes one MCP definition without retaining credential material. Stdio
+ * definitions keep only environment keys; remote definitions keep only their
+ * origin so capability-bearing paths cannot be confirmed from run evidence.
+ * @param server MCP server whose definition is being recorded.
+ * @returns The value-free configuration projection.
+ */
+function sanitizedMcpServer(server: McpServer): McpServerConfiguration {
+  const { definition, redacted } = isHttpMcpServer(server)
+    ? {
+        definition: JSON.stringify({
+          name: server.name,
+          origin: new URL(server.url).origin,
+        }),
+        redacted: ["url"] as const,
+      }
+    : {
+        definition: JSON.stringify({
+          name: server.name,
+          command: server.command,
+          args: server.args,
+          environmentKeys: Object.keys(server.env).sort((left, right) =>
+            left.localeCompare(right),
+          ),
+        }),
+        redacted: ["command", "args", "environmentValues"] as const,
+      };
+  return McpServerConfiguration.make({
+    name: server.name,
+    definitionDigest: digestText(definition),
+    redacted,
+  });
 }
