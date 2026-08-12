@@ -1,17 +1,20 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Config, ConfigProvider, Data, Effect, Option } from "effect";
+/**
+ * @file Adapts MoltZap Client conversations to NanoClaw's channel contract,
+ * including inbound projection, turn-bound replies, and eval-only wiring.
+ */
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
-import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   BoundedMap,
-  MoltZapChannelCore,
+  type ChannelService,
+  type EnrichedInboundMessage,
   formatCrossConv,
   formatGroupBlock,
   getGroupFields,
-  type ChannelService,
-  type EnrichedInboundMessage,
+  MoltZapChannelCore,
 } from "@moltzap/client/channel-base";
+import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 
+import type { MessagingGroupAgent } from "../types.js";
 import type {
   ChannelAdapter,
   ChannelDefaults,
@@ -19,13 +22,14 @@ import type {
   InboundMessage,
   OutboundMessage,
 } from "./adapter.js";
-import { registerChannelAdapter } from "./channel-registry.js";
 import {
   createMessagingGroup,
   createMessagingGroupAgent,
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
-import type { MessagingGroupAgent } from "../types.js";
+import { registerChannelAdapter } from "./channel-registry.js";
+
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 
 // `MoltZapChannelError` covers nanoclaw's host-shape failures: un-owned jid,
 // unknown conversation, disconnected channel. Send failures keep their own
@@ -84,19 +88,19 @@ const moltZapChannelEnv = Config.all({
  * conversations by `(channelType, platformId)`; this channel uses
  * `mz:<conversationId>` platform ids, and replies read the branded
  * conversation id back from the per-jid map rather than re-parsing the jid.
- * @param conversationId Value supplied to the operation.
- * @returns The jid from conversation id result.
+ * @param conversationId Canonical identity carried by an inbound conversation.
+ * @returns The NanoClaw platform id reserved for that conversation.
  */
-function jidFromConversationId(conversationId: string): string {
+const jidFromConversationId = (conversationId: string): string => {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
-}
+};
 
 interface MoltZapChannelEnv {
   readonly profileName: string | null;
   readonly evalMode: boolean;
 }
 
-function loadMoltZapChannelEnv(): MoltZapChannelEnv {
+const loadMoltZapChannelEnv = (): MoltZapChannelEnv => {
   const env = Effect.runSync(
     moltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
   );
@@ -104,9 +108,9 @@ function loadMoltZapChannelEnv(): MoltZapChannelEnv {
     profileName: Option.getOrNull(env.profileName),
     evalMode: env.evalMode === "1",
   };
-}
+};
 
-function extractOutboundText(message: OutboundMessage): string | null {
+const extractOutboundText = (message: OutboundMessage): string | null => {
   const content = message.content;
   if (typeof content === "string") {
     return content;
@@ -120,7 +124,7 @@ function extractOutboundText(message: OutboundMessage): string | null {
     return content.text;
   }
   return null;
-}
+};
 
 interface MoltZapAdapterState {
   readonly core: MoltZapChannelCore | null;
@@ -164,7 +168,7 @@ export class MoltZapAdapter implements ChannelAdapter {
   // error until its next inbound refreshes the entry.
   private readonly conversationsByJid = new BoundedMap<
     string,
-    { readonly conversationId: ConversationId }
+    { readonly conversationId: EnrichedInboundMessage["conversationId"] }
   >(MAX_TRACKED_CONVERSATIONS);
   private ownAgentId: string;
   private core: MoltZapChannelCore | null;
@@ -233,9 +237,9 @@ export class MoltZapAdapter implements ChannelAdapter {
    * Outbound reply path: the reply addresses the conversation recorded by the
    * jid's most recent inbound, which is the turn the router is answering
    * because `handleInbound` awaits that turn.
-   * @param platformId Value supplied to the operation.
-   * @param args Thread identifier and outbound message supplied by Nanoclaw.
-   * @returns The text result.
+   * @param platformId NanoClaw routing id for the conversation being answered.
+   * @param args Host thread metadata and the outbound message payload.
+   * @returns A promise that settles after the reply path finishes.
    */
   deliver(
     platformId: string,
@@ -366,6 +370,23 @@ export class MoltZapAdapter implements ChannelAdapter {
     });
   }
 
+  private toInboundMessage(
+    enriched: EnrichedInboundMessage,
+    isGroup: boolean,
+  ): InboundMessage {
+    return {
+      id: enriched.id,
+      kind: "chat",
+      content: {
+        text: this.contentFor(enriched),
+        sender: enriched.sender.name ?? enriched.sender.id,
+        senderId: `${MOLTZAP_CHANNEL}:${enriched.sender.id}`,
+      },
+      timestamp: enriched.createdAt,
+      isGroup,
+    };
+  }
+
   // Nanoclaw's router consumes the content text verbatim into prompt XML,
   // so structured context blocks are rendered as `<system-reminder>` markup
   // here via channel-base's `xml-system-reminder` variant.
@@ -390,32 +411,15 @@ export class MoltZapAdapter implements ChannelAdapter {
     return `${blocks.join("\n\n")}\n\n${enriched.text}`;
   }
 
-  private toInboundMessage(
-    enriched: EnrichedInboundMessage,
-    isGroup: boolean,
-  ): InboundMessage {
-    return {
-      id: enriched.id,
-      kind: "chat",
-      content: {
-        text: this.contentFor(enriched),
-        sender: enriched.sender.name ?? enriched.sender.id,
-        senderId: `${MOLTZAP_CHANNEL}:${enriched.sender.id}`,
-      },
-      timestamp: enriched.createdAt,
-      isGroup,
-    };
-  }
-
   /**
    * Harness conversations come into existence during a run, so eval mode
    * creates their messaging group and wiring before the router can drop the
    * first message. The harness provisions the target agent group and its
    * container config before startup; NanoClaw's sender resolver owns user
    * rows. Production registrations stay out of band.
-   * @param jid Value supplied to the operation.
-   * @param enriched Value supplied to the operation.
-   * @param isGroup Value supplied to the operation.
+   * @param jid NanoClaw platform id used for the messaging-group lookup.
+   * @param enriched Inbound event that supplies conversation identity and metadata.
+   * @param isGroup Whether NanoClaw should route the conversation as a group.
    */
   private ensureEvalWiring(
     jid: string,
@@ -464,9 +468,9 @@ export class MoltZapAdapter implements ChannelAdapter {
 }
 
 /**
- * Creates molt zap adapter.
- * @param env Value supplied to the operation.
- * @returns The created molt zap adapter.
+ * Creates the configured NanoClaw adapter when a MoltZap profile is present.
+ * @param env Explicit channel environment, or process configuration when omitted.
+ * @returns A profile-backed adapter, or `null` when the channel is disabled.
  */
 export function makeMoltZapAdapter(
   env?: MoltZapChannelEnv,

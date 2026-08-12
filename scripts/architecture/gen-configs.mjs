@@ -225,6 +225,10 @@ const packageDefinitions = {
         },
       ],
     },
+    afterShared: {
+      publicTypePackages: [publicTypePackage.effect, publicTypePackage.client],
+      allowedTestPublicSubpaths: [],
+    },
   },
   "openclaw-channel": {
     beforeShared: {

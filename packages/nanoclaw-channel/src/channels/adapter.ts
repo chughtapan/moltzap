@@ -1,11 +1,13 @@
-/* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- nanoclaw's ChannelAdapter contract is Promise-based; the mirrored signatures must match upstream verbatim. */
-// Stub types matching the subset of nanoclaw's src/channels/adapter.ts that
-// moltzap.ts touches. When moltzap.ts is copied into a real nanoclaw
-// checkout, these imports resolve against nanoclaw's own adapter module
-// (same signatures). Keep this mirrored surface aligned with the digest-pinned
-// NanoClaw application image used by simulator runs.
+/**
+ * @file Minimal NanoClaw channel contract used to compile the MoltZap adapter
+ * outside its host application. The module path and signatures mirror the
+ * digest-pinned NanoClaw image used by simulator runs, so the installed adapter
+ * binds to NanoClaw's own declarations.
+ */
 
-/** Describes channel setup. */
+/* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- nanoclaw's ChannelAdapter contract is Promise-based; the mirrored signatures must match upstream verbatim. */
+
+/** Host callbacks a channel invokes for projected metadata and messages. */
 export interface ChannelSetup {
   onInbound(
     platformId: string,
@@ -15,7 +17,7 @@ export interface ChannelSetup {
   onMetadata(platformId: string, name?: string, isGroup?: boolean): void;
 }
 
-/** Describes inbound message. */
+/** Inbound message shape accepted by NanoClaw's channel host. */
 export interface InboundMessage {
   id: string;
   kind: "chat" | "chat-sdk";
@@ -30,7 +32,7 @@ interface OutboundFile {
   data: Uint8Array;
 }
 
-/** Describes outbound message. */
+/** Outbound message shape emitted by the NanoClaw host. */
 export interface OutboundMessage {
   kind: string;
   content: unknown;
@@ -44,14 +46,14 @@ interface ChannelContextDefaults {
   unknownSenderPolicy: "strict" | "request_approval" | "public";
 }
 
-/** Describes channel defaults. */
+/** Routing defaults NanoClaw applies to direct and group contexts. */
 export interface ChannelDefaults {
   dm: ChannelContextDefaults;
   group: ChannelContextDefaults;
   mentions: "platform" | "dm-only" | "never";
 }
 
-/** Describes channel adapter. */
+/** Lifecycle and delivery surface implemented by a NanoClaw channel. */
 export interface ChannelAdapter {
   name: string;
   channelType: string;
@@ -73,7 +75,7 @@ type ChannelAdapterFactory = () =>
   | Promise<ChannelAdapter>
   | null;
 
-/** Describes channel registration. */
+/** Factory and defaults recorded under a NanoClaw channel name. */
 export interface ChannelRegistration {
   factory: ChannelAdapterFactory;
   defaults?: ChannelDefaults;

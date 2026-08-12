@@ -17,7 +17,6 @@ if [[ "${#PACKAGES[@]}" -eq 0 ]]; then
     "@moltzap/server-core"
     "@moltzap/client"
     "@moltzap/openclaw-channel"
-    "@moltzap/nanoclaw-channel"
   )
 fi
 

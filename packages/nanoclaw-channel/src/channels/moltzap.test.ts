@@ -1,31 +1,33 @@
-import { describe, expect, it as vitestIt } from "vitest";
+/** @file Contract tests for the NanoClaw channel adapter boundary. */
+
 import { live as it } from "@effect/vitest";
-import { Effect, Either } from "effect";
 import {
   buildMessage,
   createFakeChannelService,
+  type FakeChannelService,
   flushDispatchChain,
   testAgentId,
   testConversationId,
   testMessageId,
-  type FakeChannelService,
 } from "@moltzap/client/test-utils";
+import { Effect, Either } from "effect";
+import { describe, expect, it as vitestIt } from "vitest";
 
-import {
-  EVAL_AGENT_GROUP_ID,
-  makeMoltZapAdapter,
-  MoltZapAdapter,
-} from "./moltzap.js";
 import type {
   ChannelSetup,
   InboundMessage,
   OutboundMessage,
 } from "./adapter.js";
-import { getRegisteredChannelAdapter } from "./channel-registry.js";
 import {
   getMessagingGroupAgentByPair,
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
+import { getRegisteredChannelAdapter } from "./channel-registry.js";
+import {
+  EVAL_AGENT_GROUP_ID,
+  makeMoltZapAdapter,
+  MoltZapAdapter,
+} from "./moltzap.js";
 
 interface InboundContent {
   readonly text: string;
@@ -128,127 +130,9 @@ const MESSAGES_OPEN_PATTERN = /<messages>/g;
 const MESSAGES_CLOSE_PATTERN = /<\/messages>/g;
 const NO_SENT_MESSAGE = "nope";
 
-function createRecordedSetup(): RecordedChannelSetup {
-  const received: ReceivedMessage[] = [];
-  const metadata: MetadataRecord[] = [];
-  const callOrder: string[] = [];
-  return {
-    onInbound: (jid, threadId, msg) => {
-      received.push({ jid, threadId, msg });
-      callOrder.push(ON_INBOUND);
-    },
-    onMetadata: (jid, name, isGroup) => {
-      metadata.push({ jid, name, isGroup });
-      callOrder.push(ON_METADATA);
-    },
-    received,
-    metadata,
-    callOrder,
-  };
-}
-
-function createHarness(evalMode = false): Harness {
-  const fake = createFakeChannelService({ ownAgentId: AGENT_SELF });
-  const config = createRecordedSetup();
-  const adapter = MoltZapAdapter.fromService(fake.service, evalMode);
-  return { fake, config, adapter };
-}
-
-function asJid(conversationId: string): string {
-  return `${JID_PREFIX}${testConversationId(conversationId)}`;
-}
-
-function senderIdFor(label: string): string {
-  return `${MOLTZAP_CHANNEL_NAME}:${testAgentId(label)}`;
-}
-
-function makeOutbound(text: string): OutboundMessage {
-  return { kind: OUTBOUND_KIND_CHAT, content: { text } };
-}
-
-function inboundContent(msg: InboundMessage): InboundContent {
-  return /* Safe because the test fixture establishes this asserted shape. */ msg.content as InboundContent;
-}
-
-function firstReceivedContent(harness: Harness): string {
-  return inboundContent(
-    /* Safe because the test fixture establishes this asserted shape. */ harness
-      .config.received[0]!.msg,
-  ).text;
-}
-
-function runPromise<A>(
-  evaluate: () => PromiseLike<A>,
-): Effect.Effect<A, unknown> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => cause,
-  });
-}
-
-function flushDispatch(): Effect.Effect<void, unknown> {
-  return runPromise(() => flushDispatchChain());
-}
-
-function setup(harness: Harness): Effect.Effect<void, unknown> {
-  return runPromise(() => harness.adapter.setup(harness.config));
-}
-
-function teardown(harness: Harness): Effect.Effect<void, unknown> {
-  return runPromise(() => harness.adapter.teardown());
-}
-
-function deliver(
-  adapter: MoltZapAdapter,
-  jid: string,
-  text: string,
-): Effect.Effect<void, unknown> {
-  return runPromise(() => adapter.deliver(jid, null, makeOutbound(text)));
-}
-
-function expectPromiseFailure(
-  effect: Effect.Effect<void, unknown>,
-  pattern: RegExp,
-): Effect.Effect<void> {
-  return Effect.gen(function* () {
-    const result = yield* Effect.either(effect);
-    Either.match(result, {
-      onLeft: (error) => {
-        expect(String(error)).toMatch(pattern);
-      },
-      onRight: () => expect.unreachable("expected promise boundary failure"),
-    });
-  });
-}
-
-function setDmConversation(harness: Harness, conversationId: string): void {
-  harness.fake.state.setConversation(conversationId, {
-    type: "dm",
-    participants: [],
-  });
-  harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
-}
-
-function setGroupConversation(harness: Harness): void {
-  harness.fake.state.setConversation(CONV_1, {
-    type: "group",
-    name: DEVS_GROUP_NAME,
-    participants: [`agent:${AGENT_ALICE}`],
-  });
-  harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
-}
-
-function emitText(
-  harness: Harness,
-  conversationId: string,
-  text: string,
-): void {
-  harness.fake.emit.message(
-    buildMessage({
-      conversationId,
-      parts: [{ type: "text", text }],
-    }),
-  );
+interface GatedChannelSetup extends ChannelSetup {
+  readonly startedTurns: string[];
+  releaseTurn(): void;
 }
 
 function constructsSynchronouslyWithoutReadingTheProfile() {
@@ -340,37 +224,6 @@ function rejectsDeliverWithoutInboundConversation() {
     deliver(harness.adapter, asJid(CONV_1), NO_SENT_MESSAGE),
     UNKNOWN_CONVERSATION_PATTERN,
   );
-}
-
-interface GatedChannelSetup extends ChannelSetup {
-  readonly startedTurns: string[];
-  releaseTurn(): void;
-}
-
-/**
- * Holds every inbound turn open until released, so a reply can be observed
- * while its own turn is still the one in flight.
- * @returns A setup whose turns block until `releaseTurn` is called.
- */
-function createGatedSetup(): GatedChannelSetup {
-  const startedTurns: string[] = [];
-  const pending: Array<() => void> = [];
-  return {
-    onInbound: (jid) => {
-      startedTurns.push(jid);
-      // The host contract is promise-based, so a held turn is a pending promise.
-      return new Promise<undefined>((resolve) => {
-        pending.push(() => {
-          resolve(undefined);
-        });
-      });
-    },
-    onMetadata: () => {},
-    startedTurns,
-    releaseTurn: () => {
-      pending.shift()?.();
-    },
-  };
 }
 
 function overlappingTurnsStaySerialized() {
@@ -710,6 +563,155 @@ function sanitizesCrossConversationSenderName() {
     expect(content.match(MESSAGES_OPEN_PATTERN)).toHaveLength(1);
     expect(content.match(MESSAGES_CLOSE_PATTERN)).toHaveLength(1);
   });
+}
+
+function createHarness(evalMode = false): Harness {
+  const fake = createFakeChannelService({ ownAgentId: AGENT_SELF });
+  const config = createRecordedSetup();
+  const adapter = MoltZapAdapter.fromService(fake.service, evalMode);
+  return { fake, config, adapter };
+}
+
+function createRecordedSetup(): RecordedChannelSetup {
+  const received: ReceivedMessage[] = [];
+  const metadata: MetadataRecord[] = [];
+  const callOrder: string[] = [];
+  return {
+    onInbound: (jid, threadId, msg) => {
+      received.push({ jid, threadId, msg });
+      callOrder.push(ON_INBOUND);
+    },
+    onMetadata: (jid, name, isGroup) => {
+      metadata.push({ jid, name, isGroup });
+      callOrder.push(ON_METADATA);
+    },
+    received,
+    metadata,
+    callOrder,
+  };
+}
+
+function asJid(conversationId: string): string {
+  return `${JID_PREFIX}${testConversationId(conversationId)}`;
+}
+
+function senderIdFor(label: string): string {
+  return `${MOLTZAP_CHANNEL_NAME}:${testAgentId(label)}`;
+}
+
+function firstReceivedContent(harness: Harness): string {
+  return inboundContent(
+    /* Safe because the test fixture establishes this asserted shape. */ harness
+      .config.received[0]!.msg,
+  ).text;
+}
+
+function inboundContent(msg: InboundMessage): InboundContent {
+  return /* Safe because the test fixture establishes this asserted shape. */ msg.content as InboundContent;
+}
+
+function flushDispatch(): Effect.Effect<void, unknown> {
+  return runPromise(() => flushDispatchChain());
+}
+
+function setup(harness: Harness): Effect.Effect<void, unknown> {
+  return runPromise(() => harness.adapter.setup(harness.config));
+}
+
+function teardown(harness: Harness): Effect.Effect<void, unknown> {
+  return runPromise(() => harness.adapter.teardown());
+}
+
+function deliver(
+  adapter: MoltZapAdapter,
+  jid: string,
+  text: string,
+): Effect.Effect<void, unknown> {
+  return runPromise(() => adapter.deliver(jid, null, makeOutbound(text)));
+}
+
+function makeOutbound(text: string): OutboundMessage {
+  return { kind: OUTBOUND_KIND_CHAT, content: { text } };
+}
+
+function runPromise<A>(
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, unknown> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => cause,
+  });
+}
+
+function expectPromiseFailure(
+  effect: Effect.Effect<void, unknown>,
+  pattern: RegExp,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const result = yield* Effect.either(effect);
+    Either.match(result, {
+      onLeft: (error) => {
+        expect(String(error)).toMatch(pattern);
+      },
+      onRight: () => expect.unreachable("expected promise boundary failure"),
+    });
+  });
+}
+
+function setDmConversation(harness: Harness, conversationId: string): void {
+  harness.fake.state.setConversation(conversationId, {
+    type: "dm",
+    participants: [],
+  });
+  harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
+}
+
+function setGroupConversation(harness: Harness): void {
+  harness.fake.state.setConversation(CONV_1, {
+    type: "group",
+    name: DEVS_GROUP_NAME,
+    participants: [`agent:${AGENT_ALICE}`],
+  });
+  harness.fake.state.setAgentName(AGENT_ALICE, ALICE_NAME);
+}
+
+function emitText(
+  harness: Harness,
+  conversationId: string,
+  text: string,
+): void {
+  harness.fake.emit.message(
+    buildMessage({
+      conversationId,
+      parts: [{ type: "text", text }],
+    }),
+  );
+}
+
+/**
+ * Holds every inbound turn open until released, so a reply can be observed
+ * while its own turn is still the one in flight.
+ * @returns A setup whose turns block until `releaseTurn` is called.
+ */
+function createGatedSetup(): GatedChannelSetup {
+  const startedTurns: string[] = [];
+  const pending: Array<() => void> = [];
+  return {
+    onInbound: (jid) => {
+      startedTurns.push(jid);
+      // The host contract is promise-based, so a held turn is a pending promise.
+      return new Promise<undefined>((resolve) => {
+        pending.push(() => {
+          resolve(undefined);
+        });
+      });
+    },
+    onMetadata: () => {},
+    startedTurns,
+    releaseTurn: () => {
+      pending.shift()?.();
+    },
+  };
 }
 
 describe("MoltZapAdapter lifecycle", () => {

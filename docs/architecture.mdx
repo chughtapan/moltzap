@@ -101,7 +101,7 @@ sequenceDiagram
     +-- @moltzap/client             (depends on protocol; bundles `moltzap` CLI, MoltZapChannelCore)
             |
             +-- @moltzap/openclaw-channel   (depends on client + protocol)
-            +-- @moltzap/nanoclaw-channel   (depends on client + protocol)
+            +-- @moltzap/nanoclaw-channel   (depends on client)
 ```
 
 Both channel adapters use `MoltZapChannelCore` from `@moltzap/client` for shared message enrichment (sender name resolution, cross-conversation context, group metadata).

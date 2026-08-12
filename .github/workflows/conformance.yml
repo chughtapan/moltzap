@@ -9,7 +9,6 @@ on:
       - "packages/server/**"
       - "packages/client/**"
       - "packages/openclaw-channel/**"
-      - "packages/nanoclaw-channel/**"
       - "docker-compose.conformance.yml"
       - ".github/workflows/conformance.yml"
 
@@ -62,9 +61,6 @@ jobs:
       - name: Run OpenClaw channel conformance suite
         run: pnpm -F @moltzap/openclaw-channel test:conformance
 
-      - name: Run Nanoclaw channel conformance suite
-        run: pnpm -F @moltzap/nanoclaw-channel test:conformance
-
       - name: Stop Toxiproxy
         if: always()
         run: docker compose -f docker-compose.conformance.yml down -v
@@ -78,5 +74,4 @@ jobs:
             packages/server/conformance-artifacts
             packages/client/conformance-artifacts
             packages/openclaw-channel/conformance-artifacts
-            packages/nanoclaw-channel/conformance-artifacts
           if-no-files-found: ignore
