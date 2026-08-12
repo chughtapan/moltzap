@@ -5,14 +5,21 @@
  * the connection manager supplies the reverse RPC client and conversation
  * subscription state for each connection.
  */
-import { Effect, HashSet, Option } from "effect";
-import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { AgentConnection, ConnectionManager } from "#socket";
-import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
+import type { ConnectionId } from "@moltzap/protocol/socket";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
+import { Context, Effect, HashSet, Layer, Option } from "effect";
+import {
+  type AgentConnection,
+  type ConnectionManager,
+  ConnectionManagerTag,
+} from "#socket";
+import {
+  type AgentEndpointResolver,
+  AgentEndpointResolverTag,
+} from "./agent-endpoint-resolver.js";
 
 interface BroadcastOptions {
   readonly forConversation?: ConversationId;
@@ -170,3 +177,18 @@ export class NetworkSendService {
     );
   }
 }
+
+/** Implements network send service tag. */
+export class NetworkSendServiceTag extends Context.Tag(
+  "moltzap/NetworkSendService",
+)<NetworkSendServiceTag, NetworkSendService>() {}
+
+/** Provides the network send service live runtime value. */
+export const networkSendServiceLive = Layer.effect(
+  NetworkSendServiceTag,
+  Effect.gen(function* () {
+    const resolver = yield* AgentEndpointResolverTag;
+    const connections = yield* ConnectionManagerTag;
+    return new NetworkSendService(resolver, connections);
+  }).pipe(Effect.withSpan("NetworkSendServiceLive")),
+);

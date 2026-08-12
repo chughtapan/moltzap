@@ -18,8 +18,8 @@
   "folderChildCountOverrides": [
     {
       "folder": "router",
-      "maxChildren": 11,
-      "reason": "The Router implementation keeps contract, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, server, and process as the cohesive boundaries of one independently runnable service"
+      "maxChildren": 10,
+      "reason": "The Router implementation keeps contract, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, and process as the cohesive boundaries of one independently runnable service"
     }
   ],
   "facadeFiles": [
@@ -46,10 +46,6 @@
     {
       "file": "router/send.ts",
       "reason": "Authenticated send behavior boundary over identity proof and feed capabilities"
-    },
-    {
-      "file": "router/server.ts",
-      "reason": "Production process-composition boundary exported through the server subpath"
     }
   ]
 }

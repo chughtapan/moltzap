@@ -543,13 +543,6 @@ const packageDefinitions = {
             "The database boundary keeps schema, client, and migration adapters together while each concern remains named and cohesive",
         },
       ],
-      facadeFiles: [
-        {
-          file: "network/layer.ts",
-          reason:
-            "The network layer module is the composition facade for its Effect service tags and live implementations",
-        },
-      ],
     },
   },
 };
@@ -647,9 +640,9 @@ const architectureConfigDefinitions = [
         folderChildCountOverrides: [
           {
             folder: "router",
-            maxChildren: 11,
+            maxChildren: 10,
             reason:
-              "The Router implementation keeps contract, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, server, and process as the cohesive boundaries of one independently runnable service",
+              "The Router implementation keeps contract, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, and process as the cohesive boundaries of one independently runnable service",
           },
         ],
         facadeFiles: [
@@ -682,11 +675,6 @@ const architectureConfigDefinitions = [
             file: "router/send.ts",
             reason:
               "Authenticated send behavior boundary over identity proof and feed capabilities",
-          },
-          {
-            file: "router/server.ts",
-            reason:
-              "Production process-composition boundary exported through the server subpath",
           },
         ],
       },

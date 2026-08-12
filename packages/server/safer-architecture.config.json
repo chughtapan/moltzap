@@ -56,11 +56,5 @@
       "maxChildren": 11,
       "reason": "The database boundary keeps schema, client, and migration adapters together while each concern remains named and cohesive"
     }
-  ],
-  "facadeFiles": [
-    {
-      "file": "network/layer.ts",
-      "reason": "The network layer module is the composition facade for its Effect service tags and live implementations"
-    }
   ]
 }

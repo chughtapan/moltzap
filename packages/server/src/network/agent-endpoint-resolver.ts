@@ -24,9 +24,9 @@
  * Out of scope: cross-process / multi-server scaling. Resolver state is
  * process-local.
  */
-import { Effect, HashMap, HashSet, Option, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
+import { Context, Effect, HashMap, HashSet, Layer, Option, Ref } from "effect";
 
 /**
  * Snapshot of the resolver's combined state. Held in a single {@link Ref}
@@ -171,3 +171,14 @@ export class AgentEndpointResolver {
     );
   }
 }
+
+/** Implements agent endpoint resolver tag. */
+export class AgentEndpointResolverTag extends Context.Tag(
+  "moltzap/AgentEndpointResolver",
+)<AgentEndpointResolverTag, AgentEndpointResolver>() {}
+
+/** Provides the agent endpoint resolver live runtime value. */
+export const agentEndpointResolverLive = Layer.effect(
+  AgentEndpointResolverTag,
+  AgentEndpointResolver.make,
+);

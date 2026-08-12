@@ -142,7 +142,7 @@ reverse views never disagree, even under concurrent add /
 remove calls from independent `agent/network/connect` and disconnect
 fibers.
 
-### [`agentEndpointResolverLive`](./layer.ts#L21)
+### [`agentEndpointResolverLive`](./agent-endpoint-resolver.ts#L181)
 
 _Variable_
 
@@ -155,7 +155,7 @@ export const agentEndpointResolverLive = Layer.effect(
 
 Provides the agent endpoint resolver live runtime value.
 
-### [`AgentEndpointResolverTag`](./layer.ts#L11)
+### [`AgentEndpointResolverTag`](./agent-endpoint-resolver.ts#L176)
 
 _Class_
 
@@ -167,7 +167,7 @@ export class AgentEndpointResolverTag extends Context.Tag(
 
 Implements agent endpoint resolver tag.
 
-### [`connectAgent`](./connect.handlers.ts#L209)
+### [`connectAgent`](./connect.handlers.ts#L211)
 
 _Variable_
 
@@ -179,7 +179,7 @@ Provides the connect agent runtime value.
 
 **Returns:** The connect agent result.
 
-### [`NetworkSendService`](./network-send.ts#L26)
+### [`NetworkSendService`](./network-send.ts#L33)
 
 _Class_
 
@@ -309,7 +309,7 @@ export class NetworkSendService {
 Typed notification fan-out service. Use the constructor directly in code;
 route through `NetworkSendServiceTag` in DI-aware code.
 
-### [`networkSendServiceLive`](./layer.ts#L27)
+### [`networkSendServiceLive`](./network-send.ts#L187)
 
 _Variable_
 
@@ -326,7 +326,7 @@ export const networkSendServiceLive = Layer.effect(
 
 Provides the network send service live runtime value.
 
-### [`NetworkSendServiceTag`](./layer.ts#L16)
+### [`NetworkSendServiceTag`](./network-send.ts#L182)
 
 _Class_
 
@@ -342,5 +342,4 @@ Implements network send service tag.
 
 - `agent-endpoint-resolver.ts`
 - `connect.handlers.ts`
-- `layer.ts`
 - `network-send.ts`

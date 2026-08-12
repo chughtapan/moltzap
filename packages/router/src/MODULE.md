@@ -299,29 +299,33 @@ Equality receipt for one complete retained SignedMessage.
 
 ### `@moltzap/router/server`
 
-#### [`RouterServer`](./router/server.ts#L1)
+#### [`RouterServer`](./server.ts#L30)
 
 _Namespace_
 
-#### [`RouterServer.StartupError`](./router/server.ts#L26)
+Production Router process surface.
+
+#### [`RouterServer.StartupError`](./server.ts#L32)
 
 _Class_
 
 ```ts
-export class StartupError extends Data.TaggedError("RouterServerStartupError")<{
-  readonly phase: "configuration" | "listener";
-}> {}
+  export class StartupError extends Data.TaggedError(
+    "RouterServerStartupError",
+  )<{
+    readonly phase: "configuration" | "listener";
+  }> {}
 ```
 
 Closed Router startup phase.
 
-#### [`RouterServer.layer`](./router/server.ts#L61)
+#### [`RouterServer.layer`](./server.ts#L69)
 
 _Variable_
 
 ```ts
-export const layer: Layer.Layer<never, StartupError> =
-  Layer.scopedDiscard(runRouterServer)
+  export const layer: Layer.Layer<never, StartupError> =
+    Layer.scopedDiscard(runRouterServer)
 ```
 
 Complete production Router process composition.
@@ -352,5 +356,4 @@ flowchart LR
 - `router/README.md`
 - `router/rpc.ts`
 - `router/send.ts`
-- `router/server.ts`
 - `server.ts`

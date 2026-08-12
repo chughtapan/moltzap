@@ -1,36 +1,38 @@
 // safer-arch-ignore no-cross-domain-sibling-import: The connection handshake is an adapter boundary that authenticates principals and registers their domain services atomically.
-import { Effect, Match, Option } from "effect";
-import {
-  type agentConnect,
-  PROTOCOL_VERSION,
-  checkProtocolRange,
-  type HelloOk,
-} from "@moltzap/protocol/network";
-import {
-  UnauthorizedError,
-  type ParamsOf,
-  InvalidParamsError,
-} from "@moltzap/protocol/rpc";
 import type { AgentKey } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import {
-  agentContextFrom,
+  type agentConnect,
+  checkProtocolRange,
+  type HelloOk,
+  PROTOCOL_VERSION,
+} from "@moltzap/protocol/network";
+import {
+  InvalidParamsError,
+  type ParamsOf,
+  UnauthorizedError,
+} from "@moltzap/protocol/rpc";
+import { Effect, Match, Option } from "effect";
+import {
   type AgentContext,
+  agentContextFrom,
+  type ConnectionManager,
   ConnectionManagerTag,
   ConnectionTag,
-  type ConnectionManager,
 } from "#socket";
+import {
+  type ConversationService,
+  ConversationServiceTag,
+} from "../conversation/conversation.service.js";
 import {
   type AuthService,
   AuthServiceTag,
 } from "../identity/agents/auth.service.js";
 import {
-  type ConversationService,
-  ConversationServiceTag,
-} from "../conversation/conversation.service.js";
-import { AgentEndpointResolverTag } from "./layer.js";
-import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
+  type AgentEndpointResolver,
+  AgentEndpointResolverTag,
+} from "./agent-endpoint-resolver.js";
 
 type AgentConnectParams = ParamsOf<typeof agentConnect>;
 

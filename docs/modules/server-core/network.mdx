@@ -147,7 +147,7 @@ reverse views never disagree, even under concurrent add /
 remove calls from independent `agent/network/connect` and disconnect
 fibers.
 
-### [`agentEndpointResolverLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L21)
+### [`agentEndpointResolverLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/agent-endpoint-resolver.ts#L181)
 
 _Variable_
 
@@ -160,7 +160,7 @@ export const agentEndpointResolverLive = Layer.effect(
 
 Provides the agent endpoint resolver live runtime value.
 
-### [`AgentEndpointResolverTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L11)
+### [`AgentEndpointResolverTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/agent-endpoint-resolver.ts#L176)
 
 _Class_
 
@@ -172,7 +172,7 @@ export class AgentEndpointResolverTag extends Context.Tag(
 
 Implements agent endpoint resolver tag.
 
-### [`connectAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/connect.handlers.ts#L209)
+### [`connectAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/connect.handlers.ts#L211)
 
 _Variable_
 
@@ -184,7 +184,7 @@ Provides the connect agent runtime value.
 
 **Returns:** The connect agent result.
 
-### [`NetworkSendService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L26)
+### [`NetworkSendService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L33)
 
 _Class_
 
@@ -314,7 +314,7 @@ export class NetworkSendService {
 Typed notification fan-out service. Use the constructor directly in code;
 route through `NetworkSendServiceTag` in DI-aware code.
 
-### [`networkSendServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L27)
+### [`networkSendServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L187)
 
 _Variable_
 
@@ -331,7 +331,7 @@ export const networkSendServiceLive = Layer.effect(
 
 Provides the network send service live runtime value.
 
-### [`NetworkSendServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L16)
+### [`NetworkSendServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L182)
 
 _Class_
 
@@ -347,5 +347,4 @@ Implements network send service tag.
 
 - `agent-endpoint-resolver.ts`
 - `connect.handlers.ts`
-- `layer.ts`
 - `network-send.ts`

@@ -6,33 +6,33 @@ import { Effect, Layer } from "effect";
 
 import { type Db, DbTag } from "#db";
 import {
-  connectionManagerLive,
-  type ConnectionManager,
-  ConnectionManagerTag,
-} from "../socket/connection.js";
-import {
+  type AgentEndpointResolver,
   agentEndpointResolverLive,
   AgentEndpointResolverTag,
+  type NetworkSendService,
   networkSendServiceLive,
   NetworkSendServiceTag,
-} from "../network/layer.js";
-import type { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
-import type { NetworkSendService } from "../network/network-send.js";
-import {
-  authServiceLive,
-  type AuthService,
-  AuthServiceTag,
-} from "../identity/agents/auth.service.js";
+} from "#network";
 import {
   type ConversationService,
   conversationServiceLive,
   ConversationServiceTag,
 } from "../conversation/conversation.service.js";
 import {
+  type AuthService,
+  authServiceLive,
+  AuthServiceTag,
+} from "../identity/agents/auth.service.js";
+import {
   type MessageService,
   messageServiceLive,
   MessageServiceTag,
 } from "../message/message.service.js";
+import {
+  type ConnectionManager,
+  connectionManagerLive,
+  ConnectionManagerTag,
+} from "../socket/connection.js";
 
 const coreRuntimeServicesLive = Layer.mergeAll(
   connectionManagerLive,
