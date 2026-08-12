@@ -1,6 +1,6 @@
 /**
- * @file Pins predecessor, record-binding, and threshold gates for atomic
- * promotion from staged material to one certified-history head.
+ * @file Pins predecessor, record-binding, complete evidence, and threshold
+ * gates for atomic promotion to one certified-history head.
  */
 
 import { AgentId, type AgentId as AgentIdValue } from "@moltzap/identity";
@@ -23,6 +23,14 @@ import {
 const GENESIS_HASH = "record:genesis";
 const NEXT_HASH = "record:next";
 
+interface OpaqueVoteEvidence {
+  readonly fixture: string;
+}
+
+const voteEvidenceFor = (signerAgentId: AgentIdValue): OpaqueVoteEvidence => ({
+  fixture: `verified:${signerAgentId}`,
+});
+
 const makeAgentId = (seed: number): AgentIdValue =>
   Schema.decodeUnknownSync(AgentId)(
     `agt_${Encoding.encodeBase64Url(new Uint8Array(16).fill(seed))}`,
@@ -39,9 +47,9 @@ const membersFor = (memberCount: number): readonly AgentIdValue[] => {
 const emptyProgress = (
   recordHash: string,
   members: readonly AgentIdValue[],
-): DurabilityVoteProgress<string> =>
+): DurabilityVoteProgress<string, OpaqueVoteEvidence> =>
   Either.match(
-    makeDurabilityVoteProgress({
+    makeDurabilityVoteProgress<string, OpaqueVoteEvidence>({
       recordHash,
       memberAgentIds: new Set(members),
     }),
@@ -54,16 +62,21 @@ const emptyProgress = (
   );
 
 const addSigners = (
-  progress: DurabilityVoteProgress<string>,
+  progress: DurabilityVoteProgress<string, OpaqueVoteEvidence>,
   signers: readonly AgentIdValue[],
-): DurabilityVoteProgress<string> => {
+): DurabilityVoteProgress<string, OpaqueVoteEvidence> => {
   let current = progress;
   for (const signerAgentId of signers) {
     current = Either.match(
       mergeVerifiedDurabilityVote({
         progress: current,
-        vote: { recordHash: current.recordHash, signerAgentId },
+        vote: {
+          recordHash: current.recordHash,
+          signerAgentId,
+          evidence: voteEvidenceFor(signerAgentId),
+        },
         sameRecordHash: (left, right) => left === right,
+        sameVoteEvidence: (left, right) => left.fixture === right.fixture,
       }),
       {
         onLeft: (error) => {
@@ -91,7 +104,7 @@ const transition = (input: {
     string,
     { readonly content: string }
   >;
-  readonly voteProgress: DurabilityVoteProgress<string>;
+  readonly voteProgress: DurabilityVoteProgress<string, OpaqueVoteEvidence>;
 }) =>
   planCertifiedHeadAdvance({
     ...input,
@@ -100,7 +113,11 @@ const transition = (input: {
 
 const successfulTransition = (
   result: ReturnType<typeof transition>,
-): CertifiedHeadAdvance<string, { readonly content: string }> =>
+): CertifiedHeadAdvance<
+  string,
+  { readonly content: string },
+  OpaqueVoteEvidence
+> =>
   Either.match(result, {
     onLeft: (error) => {
       throw error;
@@ -239,12 +256,51 @@ describe("planCertifiedHeadAdvance completed threshold", () => {
 
         expect(advance).toEqual({
           staged,
+          durabilityEvidenceBySigner: progress.voteEvidenceBySigner,
           nextHead: { _tag: "certified", recordHash: NEXT_HASH },
         });
         expect(advance.staged).not.toBe(staged);
+        expect(advance.durabilityEvidenceBySigner).not.toBe(
+          progress.voteEvidenceBySigner,
+        );
         expect(Object.isFrozen(advance.staged)).toBe(true);
         expect(Object.isFrozen(advance.nextHead)).toBe(true);
       }),
+    );
+  });
+});
+
+describe("planCertifiedHeadAdvance evidence snapshot", () => {
+  it("keeps an independent complete-evidence snapshot after planning", () => {
+    const members = membersFor(4);
+    const initial = emptyProgress(NEXT_HASH, members);
+    const progress = addSigners(
+      initial,
+      members.slice(0, initial.quorum.requiredVotes),
+    );
+    const advance = successfulTransition(
+      transition({
+        currentHead: { _tag: "empty" },
+        staged: stage(NEXT_HASH, null),
+        voteProgress: progress,
+      }),
+    );
+    const progressMap =
+      /* Safe because the test deliberately mutates the concrete Map created by the progress helper to prove plan independence. */ progress.voteEvidenceBySigner as Map<
+        AgentIdValue,
+        OpaqueVoteEvidence
+      >;
+    progressMap.clear();
+
+    expect(advance.durabilityEvidenceBySigner).toEqual(
+      new Map(
+        members
+          .slice(0, initial.quorum.requiredVotes)
+          .map((signerAgentId) => [
+            signerAgentId,
+            voteEvidenceFor(signerAgentId),
+          ]),
+      ),
     );
   });
 });

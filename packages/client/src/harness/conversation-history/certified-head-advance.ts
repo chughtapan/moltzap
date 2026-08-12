@@ -3,6 +3,7 @@
  * predecessor, and verified durability-vote progress agree.
  */
 
+import type { AgentId } from "@moltzap/identity";
 import { Data, Either } from "effect";
 
 import type { DurabilityVoteProgress } from "./durability-vote-progress.js";
@@ -48,16 +49,18 @@ export class IncompleteDurabilityEvidenceError extends Data.TaggedError(
 }> {}
 
 /** A transition the endpoint store may commit atomically with its record. */
-export interface CertifiedHeadAdvance<RecordHash, Record> {
+export interface CertifiedHeadAdvance<RecordHash, Record, VoteEvidence> {
   readonly staged: StagedActionCertifiedRecord<RecordHash, Record>;
+  /** Independent snapshot of every complete verified durability vote. */
+  readonly durabilityEvidenceBySigner: ReadonlyMap<AgentId, VoteEvidence>;
   readonly nextHead: CertifiedHistoryHead<RecordHash>;
 }
 
 /** Private inputs loaded from one endpoint-store transaction. */
-interface CertifiedHeadAdvanceInput<RecordHash, Record> {
+interface CertifiedHeadAdvanceInput<RecordHash, Record, VoteEvidence> {
   readonly currentHead: CertifiedHistoryHead<RecordHash>;
   readonly staged: StagedActionCertifiedRecord<RecordHash, Record>;
-  readonly voteProgress: DurabilityVoteProgress<RecordHash>;
+  readonly voteProgress: DurabilityVoteProgress<RecordHash, VoteEvidence>;
   readonly sameRecordHash: (left: RecordHash, right: RecordHash) => boolean;
 }
 
@@ -72,10 +75,10 @@ interface CertifiedHeadAdvanceInput<RecordHash, Record> {
  * @param input Current head, staged record, verified votes, and hash equality.
  * @returns An immutable advance plan or a closed fail-closed reason.
  */
-export const planCertifiedHeadAdvance = <RecordHash, Record>(
-  input: CertifiedHeadAdvanceInput<RecordHash, Record>,
+export const planCertifiedHeadAdvance = <RecordHash, Record, VoteEvidence>(
+  input: CertifiedHeadAdvanceInput<RecordHash, Record, VoteEvidence>,
 ): Either.Either<
-  CertifiedHeadAdvance<RecordHash, Record>,
+  CertifiedHeadAdvance<RecordHash, Record, VoteEvidence>,
   | CertifiedPredecessorMismatchError<RecordHash>
   | IncompleteDurabilityEvidenceError
   | StagedRecordVoteMismatchError<RecordHash>
@@ -97,6 +100,9 @@ export const planCertifiedHeadAdvance = <RecordHash, Record>(
 
   return Either.right({
     staged: snapshotStagedRecord(input.staged),
+    durabilityEvidenceBySigner: new Map(
+      input.voteProgress.voteEvidenceBySigner,
+    ),
     nextHead: Object.freeze({
       _tag: "certified" as const,
       recordHash: input.staged.recordHash,
@@ -104,8 +110,8 @@ export const planCertifiedHeadAdvance = <RecordHash, Record>(
   });
 };
 
-function findRecordMismatch<RecordHash, Record>(
-  input: CertifiedHeadAdvanceInput<RecordHash, Record>,
+function findRecordMismatch<RecordHash, Record, VoteEvidence>(
+  input: CertifiedHeadAdvanceInput<RecordHash, Record, VoteEvidence>,
 ): StagedRecordVoteMismatchError<RecordHash> | null {
   if (
     input.sameRecordHash(input.staged.recordHash, input.voteProgress.recordHash)
@@ -118,8 +124,8 @@ function findRecordMismatch<RecordHash, Record>(
   });
 }
 
-function findPredecessorMismatch<RecordHash, Record>(
-  input: CertifiedHeadAdvanceInput<RecordHash, Record>,
+function findPredecessorMismatch<RecordHash, Record, VoteEvidence>(
+  input: CertifiedHeadAdvanceInput<RecordHash, Record, VoteEvidence>,
 ): CertifiedPredecessorMismatchError<RecordHash> | null {
   const expectedPreviousRecordHash = previousHashFor(input.currentHead);
   if (
@@ -137,14 +143,19 @@ function findPredecessorMismatch<RecordHash, Record>(
   });
 }
 
-function findIncompleteEvidence<RecordHash>(
-  progress: DurabilityVoteProgress<RecordHash>,
+function findIncompleteEvidence<RecordHash, VoteEvidence>(
+  progress: DurabilityVoteProgress<RecordHash, VoteEvidence>,
 ): IncompleteDurabilityEvidenceError | null {
-  if (meetsDurabilityThreshold(progress.quorum, progress.signerAgentIds.size)) {
+  if (
+    meetsDurabilityThreshold(
+      progress.quorum,
+      progress.voteEvidenceBySigner.size,
+    )
+  ) {
     return null;
   }
   return new IncompleteDurabilityEvidenceError({
-    signerCount: progress.signerAgentIds.size,
+    signerCount: progress.voteEvidenceBySigner.size,
     requiredVotes: progress.quorum.requiredVotes,
   });
 }

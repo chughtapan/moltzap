@@ -1,6 +1,6 @@
 /**
- * @file Accumulates verified durability signers for one record against one
- * immutable conversation-membership snapshot.
+ * @file Accumulates complete verified durability-vote evidence for one record
+ * against one immutable conversation-membership snapshot.
  */
 
 import type { AgentId } from "@moltzap/identity";
@@ -28,19 +28,28 @@ export class DurabilityRecordMismatchError<RecordHash> extends Data.TaggedError(
   readonly receivedRecordHash: RecordHash;
 }> {}
 
-/** Immutable verified-signer state for one action-certified record. */
-export interface DurabilityVoteProgress<RecordHash> {
+/** One signer supplied different evidence after its first verified vote. */
+export class ConflictingDurabilityVoteEvidenceError<
+  VoteEvidence,
+> extends Data.TaggedError("ConflictingDurabilityVoteEvidenceError")<{
+  readonly signerAgentId: AgentId;
+  readonly existingEvidence: VoteEvidence;
+  readonly receivedEvidence: VoteEvidence;
+}> {}
+
+/** Immutable verified-vote state for one action-certified record. */
+export interface DurabilityVoteProgress<RecordHash, VoteEvidence> {
   /** Stable hash of the exact staged action-certified record. */
   readonly recordHash: RecordHash;
   /** Membership captured when collection begins. */
   readonly memberAgentIds: ReadonlySet<AgentId>;
-  /** Distinct verified fixed members accumulated for this record. */
-  readonly signerAgentIds: ReadonlySet<AgentId>;
+  /** Complete verified vote evidence keyed by its fixed-member signer. */
+  readonly voteEvidenceBySigner: ReadonlyMap<AgentId, VoteEvidence>;
   /** Threshold derived once from the captured membership. */
   readonly quorum: DurabilityQuorum;
 }
 
-/** Closed meanings for one successful signer merge. */
+/** Closed meanings for one successful vote merge. */
 export const durabilityVoteDisposition = {
   duplicate: "duplicate",
   collecting: "collecting",
@@ -48,13 +57,13 @@ export const durabilityVoteDisposition = {
   enriched: "enriched",
 } as const;
 
-/** Meaning of one successful signer merge. */
+/** Meaning of one successful vote merge. */
 export type DurabilityVoteDisposition =
   (typeof durabilityVoteDisposition)[keyof typeof durabilityVoteDisposition];
 
-/** Immutable result of merging one already-verified signer identity. */
-export interface DurabilityVoteMerge<RecordHash> {
-  readonly progress: DurabilityVoteProgress<RecordHash>;
+/** Immutable result of merging one already-verified vote. */
+export interface DurabilityVoteMerge<RecordHash, VoteEvidence> {
+  readonly progress: DurabilityVoteProgress<RecordHash, VoteEvidence>;
   readonly disposition: DurabilityVoteDisposition;
   readonly newlyCompleted: boolean;
 }
@@ -66,28 +75,33 @@ interface DurabilityVoteProgressInput<RecordHash> {
 }
 
 /** One vote whose signature and signed fields have already been verified. */
-interface VerifiedDurabilityVote<RecordHash> {
+interface VerifiedDurabilityVote<RecordHash, VoteEvidence> {
   readonly recordHash: RecordHash;
   readonly signerAgentId: AgentId;
+  readonly evidence: VoteEvidence;
 }
 
-/** Private merge inputs that leave hash representation with the caller. */
-interface DurabilityVoteMergeInput<RecordHash> {
-  readonly progress: DurabilityVoteProgress<RecordHash>;
-  readonly vote: VerifiedDurabilityVote<RecordHash>;
+/** Private merge inputs that leave hash and evidence equality with the caller. */
+interface DurabilityVoteMergeInput<RecordHash, VoteEvidence> {
+  readonly progress: DurabilityVoteProgress<RecordHash, VoteEvidence>;
+  readonly vote: VerifiedDurabilityVote<RecordHash, VoteEvidence>;
   readonly sameRecordHash: (left: RecordHash, right: RecordHash) => boolean;
+  readonly sameVoteEvidence: (
+    left: VoteEvidence,
+    right: VoteEvidence,
+  ) => boolean;
 }
 
 /**
  * Starts vote collection for one staged record and fixed membership.
  *
  * @param input Stable record identity and complete conversation membership.
- * @returns Empty signer progress or the quorum's invalid-membership failure.
+ * @returns Empty vote progress or the quorum's invalid-membership failure.
  */
-export const makeDurabilityVoteProgress = <RecordHash>(
+export const makeDurabilityVoteProgress = <RecordHash, VoteEvidence>(
   input: DurabilityVoteProgressInput<RecordHash>,
 ): Either.Either<
-  DurabilityVoteProgress<RecordHash>,
+  DurabilityVoteProgress<RecordHash, VoteEvidence>,
   InvalidMembershipSizeError
 > => {
   const membershipSnapshot = new Set(input.memberAgentIds);
@@ -95,29 +109,31 @@ export const makeDurabilityVoteProgress = <RecordHash>(
   return Either.map(durabilityQuorum(membershipSnapshot.size), (quorum) => ({
     recordHash: input.recordHash,
     memberAgentIds: membershipSnapshot,
-    signerAgentIds: new Set<AgentId>(),
+    voteEvidenceBySigner: new Map<AgentId, VoteEvidence>(),
     quorum,
   }));
 };
 
-const successfulMerge = <RecordHash>(
-  progress: DurabilityVoteProgress<RecordHash>,
+const successfulMerge = <RecordHash, VoteEvidence>(
+  progress: DurabilityVoteProgress<RecordHash, VoteEvidence>,
   disposition: DurabilityVoteDisposition,
   newlyCompleted: boolean,
-): Either.Either<DurabilityVoteMerge<RecordHash>> =>
+): Either.Either<DurabilityVoteMerge<RecordHash, VoteEvidence>> =>
   Either.right({ progress, disposition, newlyCompleted });
 
 /**
  * Merges one vote after its signature and record binding are verified.
  *
- * @param input Current progress, verified vote, and trusted hash equality.
+ * @param input Current progress, verified vote, and trusted equalities.
  * @returns Updated progress and the exact threshold-transition disposition.
  */
-export const mergeVerifiedDurabilityVote = <RecordHash>(
-  input: DurabilityVoteMergeInput<RecordHash>,
+export const mergeVerifiedDurabilityVote = <RecordHash, VoteEvidence>(
+  input: DurabilityVoteMergeInput<RecordHash, VoteEvidence>,
 ): Either.Either<
-  DurabilityVoteMerge<RecordHash>,
-  DurabilityRecordMismatchError<RecordHash> | NonMemberDurabilitySignerError
+  DurabilityVoteMerge<RecordHash, VoteEvidence>,
+  | ConflictingDurabilityVoteEvidenceError<VoteEvidence>
+  | DurabilityRecordMismatchError<RecordHash>
+  | NonMemberDurabilitySignerError
 > => {
   const { progress, vote } = input;
   if (!input.sameRecordHash(progress.recordHash, vote.recordHash)) {
@@ -136,7 +152,20 @@ export const mergeVerifiedDurabilityVote = <RecordHash>(
     );
   }
 
-  if (progress.signerAgentIds.has(vote.signerAgentId)) {
+  if (progress.voteEvidenceBySigner.has(vote.signerAgentId)) {
+    const existingEvidence =
+      /* Safe because the preceding presence check distinguishes stored evidence from an absent signer. */ progress.voteEvidenceBySigner.get(
+        vote.signerAgentId,
+      ) as VoteEvidence;
+    if (!input.sameVoteEvidence(existingEvidence, vote.evidence)) {
+      return Either.left(
+        new ConflictingDurabilityVoteEvidenceError({
+          signerAgentId: vote.signerAgentId,
+          existingEvidence,
+          receivedEvidence: vote.evidence,
+        }),
+      );
+    }
     return successfulMerge(
       progress,
       durabilityVoteDisposition.duplicate,
@@ -144,23 +173,24 @@ export const mergeVerifiedDurabilityVote = <RecordHash>(
     );
   }
 
-  return mergeNewSigner(progress, vote.signerAgentId);
+  return mergeNewVote(progress, vote.signerAgentId, vote.evidence);
 };
 
-function mergeNewSigner<RecordHash>(
-  progress: DurabilityVoteProgress<RecordHash>,
+function mergeNewVote<RecordHash, VoteEvidence>(
+  progress: DurabilityVoteProgress<RecordHash, VoteEvidence>,
   signerAgentId: AgentId,
-): Either.Either<DurabilityVoteMerge<RecordHash>> {
+  evidence: VoteEvidence,
+): Either.Either<DurabilityVoteMerge<RecordHash, VoteEvidence>> {
   const wasComplete = meetsDurabilityThreshold(
     progress.quorum,
-    progress.signerAgentIds.size,
+    progress.voteEvidenceBySigner.size,
   );
-  const signerAgentIds = new Set(progress.signerAgentIds);
-  signerAgentIds.add(signerAgentId);
-  const nextProgress = { ...progress, signerAgentIds };
+  const voteEvidenceBySigner = new Map(progress.voteEvidenceBySigner);
+  voteEvidenceBySigner.set(signerAgentId, evidence);
+  const nextProgress = { ...progress, voteEvidenceBySigner };
   const newlyCompleted =
     !wasComplete &&
-    meetsDurabilityThreshold(progress.quorum, signerAgentIds.size);
+    meetsDurabilityThreshold(progress.quorum, voteEvidenceBySigner.size);
 
   if (newlyCompleted) {
     return successfulMerge(

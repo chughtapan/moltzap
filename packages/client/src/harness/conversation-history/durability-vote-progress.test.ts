@@ -1,6 +1,6 @@
 /**
- * @file Pins fixed-membership, immutable merge, and one-shot completion laws
- * for private durability signer progress.
+ * @file Pins fixed-membership, complete evidence retention, immutable merge,
+ * and one-shot completion laws for private durability-vote progress.
  */
 
 import { AgentId, type AgentId as AgentIdValue } from "@moltzap/identity";
@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import type { InvalidMembershipSizeError } from "./durability-quorum.js";
 import {
+  type ConflictingDurabilityVoteEvidenceError,
   type DurabilityRecordMismatchError,
   type DurabilityVoteDisposition,
   durabilityVoteDisposition,
@@ -22,6 +23,32 @@ import {
 
 const RECORD_HASH = "record:current";
 const OTHER_RECORD_HASH = "record:conflict";
+
+interface OpaqueVoteEvidence {
+  readonly fixture: string;
+}
+
+const voteEvidenceFor = (
+  signerAgentId: AgentIdValue,
+  variant = "verified",
+): OpaqueVoteEvidence => ({
+  fixture: `${signerAgentId}:${variant}`,
+});
+
+const sameVoteEvidence = (
+  left: OpaqueVoteEvidence,
+  right: OpaqueVoteEvidence,
+): boolean => left.fixture === right.fixture;
+
+const evidenceMapFor = (
+  signerAgentIds: readonly AgentIdValue[],
+): ReadonlyMap<AgentIdValue, OpaqueVoteEvidence> =>
+  new Map(
+    signerAgentIds.map((signerAgentId) => [
+      signerAgentId,
+      voteEvidenceFor(signerAgentId),
+    ]),
+  );
 
 const makeAgentId = (seed: number): AgentIdValue =>
   Schema.decodeUnknownSync(AgentId)(
@@ -38,9 +65,9 @@ const memberSet = (memberCount: number): ReadonlySet<AgentIdValue> => {
 
 const validProgress = (
   members: ReadonlySet<AgentIdValue>,
-): DurabilityVoteProgress<string> =>
+): DurabilityVoteProgress<string, OpaqueVoteEvidence> =>
   Either.match(
-    makeDurabilityVoteProgress({
+    makeDurabilityVoteProgress<string, OpaqueVoteEvidence>({
       recordHash: RECORD_HASH,
       memberAgentIds: members,
     }),
@@ -56,7 +83,7 @@ const invalidMembership = (
   members: ReadonlySet<AgentIdValue>,
 ): InvalidMembershipSizeError =>
   Either.match(
-    makeDurabilityVoteProgress({
+    makeDurabilityVoteProgress<string, OpaqueVoteEvidence>({
       recordHash: RECORD_HASH,
       memberAgentIds: members,
     }),
@@ -69,29 +96,45 @@ const invalidMembership = (
   );
 
 const mergeVote = (
-  progress: DurabilityVoteProgress<string>,
+  progress: DurabilityVoteProgress<string, OpaqueVoteEvidence>,
   signerAgentId: AgentIdValue,
-  recordHash = RECORD_HASH,
+  options: {
+    readonly evidence?: OpaqueVoteEvidence;
+    readonly recordHash?: string;
+  } = {},
 ) =>
   mergeVerifiedDurabilityVote({
     progress,
-    vote: { recordHash, signerAgentId },
+    vote: {
+      recordHash: options.recordHash ?? RECORD_HASH,
+      signerAgentId,
+      evidence: options.evidence ?? voteEvidenceFor(signerAgentId),
+    },
     sameRecordHash: (left, right) => left === right,
+    sameVoteEvidence,
   });
 
 const validMerge = (
-  progress: DurabilityVoteProgress<string>,
+  progress: DurabilityVoteProgress<string, OpaqueVoteEvidence>,
   signerAgentId: AgentIdValue,
-): DurabilityVoteMerge<string> =>
-  Either.match(mergeVote(progress, signerAgentId), {
-    onLeft: (error) => {
-      throw error;
+  evidence?: OpaqueVoteEvidence,
+): DurabilityVoteMerge<string, OpaqueVoteEvidence> => {
+  const effectiveEvidence = evidence ?? voteEvidenceFor(signerAgentId);
+  return Either.match(
+    mergeVote(progress, signerAgentId, {
+      evidence: effectiveEvidence,
+    }),
+    {
+      onLeft: (error) => {
+        throw error;
+      },
+      onRight: (merge) => merge,
     },
-    onRight: (merge) => merge,
-  });
+  );
+};
 
 const nonMemberMerge = (
-  progress: DurabilityVoteProgress<string>,
+  progress: DurabilityVoteProgress<string, OpaqueVoteEvidence>,
   signerAgentId: AgentIdValue,
 ): NonMemberDurabilitySignerError =>
   Either.match(mergeVote(progress, signerAgentId), {
@@ -107,25 +150,47 @@ const nonMemberMerge = (
   });
 
 const recordMismatch = (
-  progress: DurabilityVoteProgress<string>,
+  progress: DurabilityVoteProgress<string, OpaqueVoteEvidence>,
   signerAgentId: AgentIdValue,
 ): DurabilityRecordMismatchError<string> =>
-  Either.match(mergeVote(progress, signerAgentId, OTHER_RECORD_HASH), {
+  Either.match(
+    mergeVote(progress, signerAgentId, {
+      recordHash: OTHER_RECORD_HASH,
+    }),
+    {
+      onLeft: (error) => {
+        if (error._tag === "DurabilityRecordMismatchError") {
+          return error;
+        }
+        throw error;
+      },
+      onRight: () => {
+        throw new Error("Expected a record-binding failure");
+      },
+    },
+  );
+
+const conflictingEvidence = (
+  progress: DurabilityVoteProgress<string, OpaqueVoteEvidence>,
+  signerAgentId: AgentIdValue,
+  evidence: OpaqueVoteEvidence,
+): ConflictingDurabilityVoteEvidenceError<OpaqueVoteEvidence> =>
+  Either.match(mergeVote(progress, signerAgentId, { evidence }), {
     onLeft: (error) => {
-      if (error._tag === "DurabilityRecordMismatchError") {
+      if (error._tag === "ConflictingDurabilityVoteEvidenceError") {
         return error;
       }
       throw error;
     },
     onRight: () => {
-      throw new Error("Expected a record-binding failure");
+      throw new Error("Expected conflicting vote evidence to fail");
     },
   });
 
 const mergeAll = (
-  initial: DurabilityVoteProgress<string>,
+  initial: DurabilityVoteProgress<string, OpaqueVoteEvidence>,
   signerAgentIds: readonly AgentIdValue[],
-): DurabilityVoteProgress<string> => {
+): DurabilityVoteProgress<string, OpaqueVoteEvidence> => {
   let progress = initial;
   for (const signerAgentId of signerAgentIds) {
     progress = validMerge(progress, signerAgentId).progress;
@@ -166,7 +231,7 @@ describe("makeDurabilityVoteProgress", () => {
     expect(input).toEqual(originalInput);
     expect(progress.memberAgentIds).not.toBe(input);
     expect(progress.memberAgentIds).toEqual(originalInput);
-    expect(progress.signerAgentIds.size).toBe(0);
+    expect(progress.voteEvidenceBySigner.size).toBe(0);
 
     input.delete(firstMember);
     input.add(laterMember);
@@ -189,7 +254,7 @@ describe("mergeVerifiedDurabilityVote refusal", () => {
       expectedRecordHash: RECORD_HASH,
       receivedRecordHash: OTHER_RECORD_HASH,
     });
-    expect(progress.signerAgentIds.size).toBe(0);
+    expect(progress.voteEvidenceBySigner.size).toBe(0);
   });
 
   it("rejects a non-member with a typed error and no mutation", () => {
@@ -200,7 +265,7 @@ describe("mergeVerifiedDurabilityVote refusal", () => {
     }
     const progress = validMerge(validProgress(members), firstMember).progress;
     const memberSnapshot = new Set(progress.memberAgentIds);
-    const signerSnapshot = new Set(progress.signerAgentIds);
+    const evidenceSnapshot = new Map(progress.voteEvidenceBySigner);
     const outsider = makeAgentId(250);
 
     expect(nonMemberMerge(progress, outsider)).toMatchObject({
@@ -208,7 +273,35 @@ describe("mergeVerifiedDurabilityVote refusal", () => {
       signerAgentId: outsider,
     });
     expect(progress.memberAgentIds).toEqual(memberSnapshot);
-    expect(progress.signerAgentIds).toEqual(signerSnapshot);
+    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
+  });
+});
+
+describe("mergeVerifiedDurabilityVote conflict handling", () => {
+  it("rejects differing evidence from an existing signer", () => {
+    const members = memberSet(4);
+    const signerAgentId = [...members][0];
+    if (signerAgentId === undefined) {
+      throw new Error("Expected a nonempty membership fixture");
+    }
+    const acceptedEvidence = voteEvidenceFor(signerAgentId, "accepted");
+    const receivedEvidence = voteEvidenceFor(signerAgentId, "conflict");
+    const progress = validMerge(
+      validProgress(members),
+      signerAgentId,
+      acceptedEvidence,
+    ).progress;
+    const evidenceSnapshot = new Map(progress.voteEvidenceBySigner);
+
+    expect(
+      conflictingEvidence(progress, signerAgentId, receivedEvidence),
+    ).toMatchObject({
+      _tag: "ConflictingDurabilityVoteEvidenceError",
+      signerAgentId,
+      existingEvidence: acceptedEvidence,
+      receivedEvidence,
+    });
+    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
   });
 });
 
@@ -225,8 +318,15 @@ describe("mergeVerifiedDurabilityVote duplicate handling", () => {
       throw new Error("Expected four membership fixtures");
     }
     const initial = validProgress(new Set(members));
-    const first = validMerge(initial, firstMember);
-    const duplicateBefore = validMerge(first.progress, firstMember);
+    const firstEvidence = voteEvidenceFor(firstMember);
+    const duplicateEvidence = voteEvidenceFor(firstMember);
+    expect(duplicateEvidence).not.toBe(firstEvidence);
+    const first = validMerge(initial, firstMember, firstEvidence);
+    const duplicateBefore = validMerge(
+      first.progress,
+      firstMember,
+      duplicateEvidence,
+    );
     const second = validMerge(duplicateBefore.progress, secondMember);
     const completion = validMerge(second.progress, thirdMember);
     const duplicateAfter = validMerge(completion.progress, thirdMember);
@@ -256,7 +356,7 @@ describe("mergeVerifiedDurabilityVote duplicate handling", () => {
 });
 
 describe("mergeVerifiedDurabilityVote immutability", () => {
-  it("leaves every input set unchanged when a new signer is accepted", () => {
+  it("leaves membership and prior evidence unchanged when a new vote is accepted", () => {
     const members = memberSet(7);
     const signerAgentId = [...members][0];
     if (signerAgentId === undefined) {
@@ -264,14 +364,19 @@ describe("mergeVerifiedDurabilityVote immutability", () => {
     }
     const progress = validProgress(members);
     const memberSnapshot = new Set(progress.memberAgentIds);
-    const signerSnapshot = new Set(progress.signerAgentIds);
-    const merge = validMerge(progress, signerAgentId);
+    const evidenceSnapshot = new Map(progress.voteEvidenceBySigner);
+    const evidence = voteEvidenceFor(signerAgentId);
+    const merge = validMerge(progress, signerAgentId, evidence);
 
     expect(progress.memberAgentIds).toEqual(memberSnapshot);
-    expect(progress.signerAgentIds).toEqual(signerSnapshot);
+    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
     expect(merge.progress.memberAgentIds).toBe(progress.memberAgentIds);
-    expect(merge.progress.signerAgentIds).not.toBe(progress.signerAgentIds);
-    expect(merge.progress.signerAgentIds).toEqual(new Set([signerAgentId]));
+    expect(merge.progress.voteEvidenceBySigner).not.toBe(
+      progress.voteEvidenceBySigner,
+    );
+    expect(merge.progress.voteEvidenceBySigner).toEqual(
+      new Map([[signerAgentId, evidence]]),
+    );
   });
 });
 
@@ -284,7 +389,7 @@ describe("durability vote progress completion law", () => {
         let completionCount = 0;
 
         for (const signerAgentId of members) {
-          const signerCountBefore = progress.signerAgentIds.size;
+          const signerCountBefore = progress.voteEvidenceBySigner.size;
           const merge = validMerge(progress, signerAgentId);
           const expectedDisposition = expectedDispositionAfterAdding(
             signerCountBefore,
@@ -299,14 +404,14 @@ describe("durability vote progress completion law", () => {
         }
 
         expect(completionCount).toBe(1);
-        expect(progress.signerAgentIds).toEqual(new Set(members));
+        expect(progress.voteEvidenceBySigner).toEqual(evidenceMapFor(members));
       }),
     );
   });
 });
 
 describe("durability vote progress order law", () => {
-  it("produces the same signer progress regardless of arrival order", () => {
+  it("produces the same complete evidence regardless of arrival order", () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 100 }), (memberCount) => {
         const members = [...memberSet(memberCount)];
@@ -315,7 +420,9 @@ describe("durability vote progress order law", () => {
         const reverse = mergeAll(initial, [...members].reverse());
 
         expect(forward.memberAgentIds).toEqual(reverse.memberAgentIds);
-        expect(forward.signerAgentIds).toEqual(reverse.signerAgentIds);
+        expect(forward.voteEvidenceBySigner).toEqual(
+          reverse.voteEvidenceBySigner,
+        );
         expect(forward.quorum).toEqual(reverse.quorum);
       }),
     );

@@ -1,15 +1,17 @@
 # Conversation history
 
 This folder owns package-private, representation-neutral laws for endpoint
-conversation history. It currently separates three concerns:
+conversation history:
 
 - durability threshold arithmetic;
 - single-candidate staging and mergeable fixed-member vote progress for Router
   re-anchors;
-- mergeable fixed-member durability-vote progress; and
+- mergeable fixed-member durability-vote progress retaining complete verified
+  evidence by signer;
 - fail-closed selection of one verified descendant head before re-anchoring;
   and
-- predecessor- and quorum-gated plans for atomic certified-head advancement.
+- predecessor- and quorum-gated plans carrying complete evidence into atomic
+  certified-head advancement.
 
 Callers verify signatures, membership descriptors, record ancestry, and
 Router bindings before entering these helpers. The helpers do not select a
