@@ -92,8 +92,8 @@ export interface CertifiedEvidenceEnrichment<RecordHash, VoteEvidence> {
   readonly disposition: "unchanged" | "enriched";
 }
 
-/** Private inputs loaded from one endpoint-store transaction. */
-interface CertifiedHeadAdvanceInput<RecordHash, Record, VoteEvidence> {
+/** Inputs loaded from one endpoint-store transaction. */
+export interface CertifiedHeadAdvanceInput<RecordHash, Record, VoteEvidence> {
   readonly currentHead: CertifiedHistoryHead<RecordHash>;
   readonly staged: StagedActionCertifiedRecord<RecordHash, Record>;
   readonly voteProgress: DurabilityVoteProgress<RecordHash, VoteEvidence>;

@@ -91,7 +91,7 @@ const packageDefinitions = {
         },
         {
           folder: "harness/conversation-history",
-          maxChildren: 11,
+          maxChildren: 12,
           reason:
             "Conversation history keeps each representation-neutral invariant in a focused peer module so its fail-closed law remains independently testable",
         },

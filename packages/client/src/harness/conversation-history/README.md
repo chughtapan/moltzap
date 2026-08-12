@@ -22,6 +22,8 @@ conversation history:
   and
 - predecessor- and quorum-gated plans carrying complete evidence into atomic
   certified-head advancement; and
+- restart recovery classification for staged, quorum-complete, and already
+  certified durable states without duplicate promotion;
 - evidence-only enrichment of an existing certified history position without
   creating another action, head advance, or runtime turn.
 
