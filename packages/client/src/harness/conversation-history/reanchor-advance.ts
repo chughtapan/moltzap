@@ -9,6 +9,7 @@ import { Data, Either } from "effect";
 import type { StagedReanchorCandidate } from "./reanchor-candidate-slot.js";
 import type { ReanchorVoteProgress } from "./reanchor-vote-progress.js";
 import { meetsDurabilityThreshold } from "./durability-quorum.js";
+import { readonlyMapSnapshot } from "./immutable-collections.js";
 
 /** Vote progress belongs to another staged re-anchor body. */
 export class StagedReanchorVoteMismatchError<BodyHash> extends Data.TaggedError(
@@ -78,6 +79,8 @@ export const planReanchorAdvance = <Domain, BodyHash, VoteEvidence>(
 
   return Either.right({
     currentAnchor: Object.freeze({ ...input.staged }),
-    reanchorEvidenceBySigner: new Map(input.voteProgress.voteEvidenceBySigner),
+    reanchorEvidenceBySigner: readonlyMapSnapshot(
+      input.voteProgress.voteEvidenceBySigner,
+    ),
   });
 };

@@ -6,6 +6,11 @@
 import type { AgentId } from "@moltzap/identity";
 import { Data, Either } from "effect";
 
+import {
+  readonlyMapSnapshot,
+  readonlySetSnapshot,
+} from "./immutable-collections.js";
+
 /** Action-certificate collection cannot begin without a fixed member. */
 export class EmptyActionCertificateMembershipError extends Data.TaggedError(
   "EmptyActionCertificateMembershipError",
@@ -255,63 +260,4 @@ function snapshotCompletion<ActionBodyHash, SignatureEvidence>(
       progress.signatureEvidenceBySigner,
     ),
   });
-}
-
-function readonlySetSnapshot<Value>(
-  values: Iterable<Value>,
-): ReadonlySet<Value> {
-  const snapshot = new Set(values);
-  const view: ReadonlySet<Value> = {
-    get size() {
-      return snapshot.size;
-    },
-    has: (value: Value) => snapshot.has(value),
-    entries: () => snapshot.entries(),
-    keys: () => snapshot.keys(),
-    values: () => snapshot.values(),
-    forEach: (...parameters: Parameters<ReadonlySet<Value>["forEach"]>) => {
-      const callback = parameters[0];
-      const thisArgument: unknown = parameters[1];
-      for (const value of snapshot) {
-        if (thisArgument === undefined) {
-          callback(value, value, view);
-        } else {
-          callback.call(thisArgument, value, value, view);
-        }
-      }
-    },
-    [Symbol.iterator]: () => snapshot[Symbol.iterator](),
-  };
-  return Object.freeze(view);
-}
-
-function readonlyMapSnapshot<Key, Value>(
-  entries: Iterable<readonly [Key, Value]>,
-): ReadonlyMap<Key, Value> {
-  const snapshot = new Map(entries);
-  const view: ReadonlyMap<Key, Value> = {
-    get size() {
-      return snapshot.size;
-    },
-    get: (key: Key) => snapshot.get(key),
-    has: (key: Key) => snapshot.has(key),
-    entries: () => snapshot.entries(),
-    keys: () => snapshot.keys(),
-    values: () => snapshot.values(),
-    forEach: (
-      ...parameters: Parameters<ReadonlyMap<Key, Value>["forEach"]>
-    ) => {
-      const callback = parameters[0];
-      const thisArgument: unknown = parameters[1];
-      for (const [key, value] of snapshot) {
-        if (thisArgument === undefined) {
-          callback(value, key, view);
-        } else {
-          callback.call(thisArgument, value, key, view);
-        }
-      }
-    },
-    [Symbol.iterator]: () => snapshot[Symbol.iterator](),
-  };
-  return Object.freeze(view);
 }

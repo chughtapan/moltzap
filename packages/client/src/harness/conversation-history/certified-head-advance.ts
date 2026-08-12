@@ -8,6 +8,7 @@ import { Data, Either } from "effect";
 
 import type { DurabilityVoteProgress } from "./durability-vote-progress.js";
 import { meetsDurabilityThreshold } from "./durability-quorum.js";
+import { readonlyMapSnapshot } from "./immutable-collections.js";
 
 /** One endpoint's current durable certified-history position. */
 export type CertifiedHistoryHead<RecordHash> =
@@ -100,7 +101,7 @@ export const planCertifiedHeadAdvance = <RecordHash, Record, VoteEvidence>(
 
   return Either.right({
     staged: snapshotStagedRecord(input.staged),
-    durabilityEvidenceBySigner: new Map(
+    durabilityEvidenceBySigner: readonlyMapSnapshot(
       input.voteProgress.voteEvidenceBySigner,
     ),
     nextHead: Object.freeze({

@@ -254,10 +254,13 @@ describe("planCertifiedHeadAdvance completed threshold", () => {
           }),
         );
 
-        expect(advance).toEqual({
-          staged,
-          durabilityEvidenceBySigner: progress.voteEvidenceBySigner,
-          nextHead: { _tag: "certified", recordHash: NEXT_HASH },
+        expect(advance.staged).toEqual(staged);
+        expect(new Map(advance.durabilityEvidenceBySigner)).toEqual(
+          new Map(progress.voteEvidenceBySigner),
+        );
+        expect(advance.nextHead).toEqual({
+          _tag: "certified",
+          recordHash: NEXT_HASH,
         });
         expect(advance.staged).not.toBe(staged);
         expect(advance.durabilityEvidenceBySigner).not.toBe(
@@ -278,21 +281,21 @@ describe("planCertifiedHeadAdvance evidence snapshot", () => {
       initial,
       members.slice(0, initial.quorum.requiredVotes),
     );
+    const mutableEvidence = new Map(progress.voteEvidenceBySigner);
+    const mutableProgress = {
+      ...progress,
+      voteEvidenceBySigner: mutableEvidence,
+    };
     const advance = successfulTransition(
       transition({
         currentHead: { _tag: "empty" },
         staged: stage(NEXT_HASH, null),
-        voteProgress: progress,
+        voteProgress: mutableProgress,
       }),
     );
-    const progressMap =
-      /* Safe because the test deliberately mutates the concrete Map created by the progress helper to prove plan independence. */ progress.voteEvidenceBySigner as Map<
-        AgentIdValue,
-        OpaqueVoteEvidence
-      >;
-    progressMap.clear();
+    mutableEvidence.clear();
 
-    expect(advance.durabilityEvidenceBySigner).toEqual(
+    expect(new Map(advance.durabilityEvidenceBySigner)).toEqual(
       new Map(
         members
           .slice(0, initial.quorum.requiredVotes)
@@ -301,6 +304,14 @@ describe("planCertifiedHeadAdvance evidence snapshot", () => {
             voteEvidenceFor(signerAgentId),
           ]),
       ),
+    );
+    for (const name of ["set", "delete", "clear"]) {
+      expect(
+        Reflect.get(advance.durabilityEvidenceBySigner, name),
+      ).toBeUndefined();
+    }
+    expect(advance.durabilityEvidenceBySigner.size).toBe(
+      initial.quorum.requiredVotes,
     );
   });
 });

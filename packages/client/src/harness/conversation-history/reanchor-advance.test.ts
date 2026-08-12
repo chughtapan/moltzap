@@ -178,10 +178,10 @@ describe("planReanchorAdvance completed threshold", () => {
         const staged = candidate();
         const advance = successfulTransition(transition(staged, progress));
 
-        expect(advance).toEqual({
-          currentAnchor: staged,
-          reanchorEvidenceBySigner: progress.voteEvidenceBySigner,
-        });
+        expect(advance.currentAnchor).toEqual(staged);
+        expect(new Map(advance.reanchorEvidenceBySigner)).toEqual(
+          new Map(progress.voteEvidenceBySigner),
+        );
         expect(advance.currentAnchor).not.toBe(staged);
         expect(advance.reanchorEvidenceBySigner).not.toBe(
           progress.voteEvidenceBySigner,
@@ -207,7 +207,12 @@ describe("planReanchorAdvance evidence snapshot", () => {
 
     mutableEvidence.clear();
 
-    expect(advance.reanchorEvidenceBySigner).toEqual(expectedEvidence);
+    expect(new Map(advance.reanchorEvidenceBySigner)).toEqual(expectedEvidence);
+    for (const name of ["set", "delete", "clear"]) {
+      expect(
+        Reflect.get(advance.reanchorEvidenceBySigner, name),
+      ).toBeUndefined();
+    }
     expect(advance.reanchorEvidenceBySigner.size).toBe(
       initial.quorum.requiredVotes,
     );

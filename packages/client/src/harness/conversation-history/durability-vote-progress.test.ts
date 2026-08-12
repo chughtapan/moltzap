@@ -230,12 +230,12 @@ describe("makeDurabilityVoteProgress", () => {
 
     expect(input).toEqual(originalInput);
     expect(progress.memberAgentIds).not.toBe(input);
-    expect(progress.memberAgentIds).toEqual(originalInput);
+    expect(new Set(progress.memberAgentIds)).toEqual(originalInput);
     expect(progress.voteEvidenceBySigner.size).toBe(0);
 
     input.delete(firstMember);
     input.add(laterMember);
-    expect(progress.memberAgentIds).toEqual(originalInput);
+    expect(new Set(progress.memberAgentIds)).toEqual(originalInput);
     expect(progress.quorum.memberCount).toBe(originalInput.size);
   });
 });
@@ -272,8 +272,8 @@ describe("mergeVerifiedDurabilityVote refusal", () => {
       _tag: "NonMemberDurabilitySignerError",
       signerAgentId: outsider,
     });
-    expect(progress.memberAgentIds).toEqual(memberSnapshot);
-    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
+    expect(new Set(progress.memberAgentIds)).toEqual(memberSnapshot);
+    expect(new Map(progress.voteEvidenceBySigner)).toEqual(evidenceSnapshot);
   });
 });
 
@@ -301,7 +301,7 @@ describe("mergeVerifiedDurabilityVote conflict handling", () => {
       existingEvidence: acceptedEvidence,
       receivedEvidence,
     });
-    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
+    expect(new Map(progress.voteEvidenceBySigner)).toEqual(evidenceSnapshot);
   });
 });
 
@@ -368,15 +368,27 @@ describe("mergeVerifiedDurabilityVote immutability", () => {
     const evidence = voteEvidenceFor(signerAgentId);
     const merge = validMerge(progress, signerAgentId, evidence);
 
-    expect(progress.memberAgentIds).toEqual(memberSnapshot);
-    expect(progress.voteEvidenceBySigner).toEqual(evidenceSnapshot);
+    expect(new Set(progress.memberAgentIds)).toEqual(memberSnapshot);
+    expect(new Map(progress.voteEvidenceBySigner)).toEqual(evidenceSnapshot);
     expect(merge.progress.memberAgentIds).toBe(progress.memberAgentIds);
     expect(merge.progress.voteEvidenceBySigner).not.toBe(
       progress.voteEvidenceBySigner,
     );
-    expect(merge.progress.voteEvidenceBySigner).toEqual(
+    expect(new Map(merge.progress.voteEvidenceBySigner)).toEqual(
       new Map([[signerAgentId, evidence]]),
     );
+    for (const name of ["add", "delete", "clear"]) {
+      expect(Reflect.get(progress.memberAgentIds, name)).toBeUndefined();
+    }
+    for (const evidenceView of [
+      progress.voteEvidenceBySigner,
+      merge.progress.voteEvidenceBySigner,
+    ]) {
+      for (const name of ["set", "delete", "clear"]) {
+        expect(Reflect.get(evidenceView, name)).toBeUndefined();
+      }
+    }
+    expect(progress.voteEvidenceBySigner.size).toBe(0);
   });
 });
 
@@ -404,7 +416,9 @@ describe("durability vote progress completion law", () => {
         }
 
         expect(completionCount).toBe(1);
-        expect(progress.voteEvidenceBySigner).toEqual(evidenceMapFor(members));
+        expect(new Map(progress.voteEvidenceBySigner)).toEqual(
+          evidenceMapFor(members),
+        );
       }),
     );
   });
@@ -419,9 +433,11 @@ describe("durability vote progress order law", () => {
         const forward = mergeAll(initial, members);
         const reverse = mergeAll(initial, [...members].reverse());
 
-        expect(forward.memberAgentIds).toEqual(reverse.memberAgentIds);
-        expect(forward.voteEvidenceBySigner).toEqual(
-          reverse.voteEvidenceBySigner,
+        expect(new Set(forward.memberAgentIds)).toEqual(
+          new Set(reverse.memberAgentIds),
+        );
+        expect(new Map(forward.voteEvidenceBySigner)).toEqual(
+          new Map(reverse.voteEvidenceBySigner),
         );
         expect(forward.quorum).toEqual(reverse.quorum);
       }),

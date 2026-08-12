@@ -12,6 +12,10 @@ import {
   type InvalidMembershipSizeError,
   meetsDurabilityThreshold,
 } from "./durability-quorum.js";
+import {
+  readonlyMapSnapshot,
+  readonlySetSnapshot,
+} from "./immutable-collections.js";
 
 /** One verified re-anchor signer is outside the fixed membership. */
 export class NonMemberReanchorSignerError extends Data.TaggedError(
@@ -104,14 +108,18 @@ export const makeReanchorVoteProgress = <BodyHash, VoteEvidence>(
   ReanchorVoteProgress<BodyHash, VoteEvidence>,
   InvalidMembershipSizeError
 > => {
-  const membershipSnapshot = new Set(input.memberAgentIds);
+  const membershipSnapshot = readonlySetSnapshot(input.memberAgentIds);
 
-  return Either.map(durabilityQuorum(membershipSnapshot.size), (quorum) => ({
-    bodyHash: input.bodyHash,
-    memberAgentIds: membershipSnapshot,
-    voteEvidenceBySigner: new Map<AgentId, VoteEvidence>(),
-    quorum,
-  }));
+  return Either.map(durabilityQuorum(membershipSnapshot.size), (quorum) =>
+    Object.freeze({
+      bodyHash: input.bodyHash,
+      memberAgentIds: membershipSnapshot,
+      voteEvidenceBySigner: readonlyMapSnapshot(
+        new Map<AgentId, VoteEvidence>(),
+      ),
+      quorum,
+    }),
+  );
 };
 
 /**
@@ -177,9 +185,10 @@ function mergeNewVote<BodyHash, VoteEvidence>(
     progress.quorum,
     progress.voteEvidenceBySigner.size,
   );
-  const voteEvidenceBySigner = new Map(progress.voteEvidenceBySigner);
-  voteEvidenceBySigner.set(signerAgentId, evidence);
-  const nextProgress = { ...progress, voteEvidenceBySigner };
+  const evidenceSnapshot = new Map(progress.voteEvidenceBySigner);
+  evidenceSnapshot.set(signerAgentId, evidence);
+  const voteEvidenceBySigner = readonlyMapSnapshot(evidenceSnapshot);
+  const nextProgress = Object.freeze({ ...progress, voteEvidenceBySigner });
   const newlyCompleted =
     !wasComplete &&
     meetsDurabilityThreshold(progress.quorum, voteEvidenceBySigner.size);
