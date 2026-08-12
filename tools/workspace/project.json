@@ -36,7 +36,6 @@
         "cwd": ".",
         "parallel": false,
         "commands": [
-          "pnpm --filter @moltzap/protocol docs:generate",
           "pnpm exec typedoc",
           "pnpm exec tsx scripts/docs/generate-modules.ts",
           "pnpm exec tsx scripts/docs/generate-constants-snippets.ts"

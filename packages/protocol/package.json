@@ -74,7 +74,6 @@
   "scripts": {
     "build": "nx run @moltzap/protocol:build",
     "lint": "nx run @moltzap/protocol:lint",
-    "docs:generate": "tsx scripts/generate-docs.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck:tests": "tsc -p tsconfig.test.json"
@@ -120,7 +119,6 @@
     "eslint": "^9",
     "fast-check": "^3.23.1",
     "tsc-alias": "^1.8.17",
-    "tsx": "^4.19.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^3.0.0"
   }

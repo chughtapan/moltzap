@@ -116,10 +116,8 @@ jobs:
           # Build all packages so pre-commit typecheck passes
           pnpm build
 
-          # Regenerate docs after version bump. The protocol package version
-          # is the PROTOCOL_VERSION source of truth, so its change re-bakes
-          # `docs/snippets/constants/values.{mdx,json}` and generated module
-          # reference pages. Without this, the husky pre-commit drift gate
+          # Regenerate generated module reference pages after package version
+          # changes. Without this, the husky pre-commit drift gate
           # (`pnpm docs:generate && git diff --quiet`) detects the regen at
           # commit time and aborts with exit code 1.
           pnpm docs:generate

@@ -46,7 +46,7 @@
         "src/testing/conformance/**/*.ts",
         "vitest*.config.mjs"
       ],
-      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/evals": {
       "entry": [

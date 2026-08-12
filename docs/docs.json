@@ -40,8 +40,6 @@
           {
             "group": "Development",
             "pages": [
-              "development/local-setup",
-              "development/testing",
               "development/evals",
               "development/eval-add-evaluation",
               "development/eval-grading-reference",

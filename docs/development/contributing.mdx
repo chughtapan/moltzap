@@ -3,92 +3,55 @@ title: Contributing
 description: Contribution guidelines and conventions
 ---
 
-import { DEFAULT_SERVER_PORT } from "/snippets/constants/values.mdx";
-
 # Contributing
 
 ## Monorepo conventions
 
 - **Package manager**: pnpm 10+ with workspaces
 - **TypeScript**: strict mode, ES modules
-- **Linting**: oxlint
+- **Runtime model**: Effect services and typed error channels
 - **Formatting**: oxfmt
 - **Testing**: vitest
-- **Build order**: protocol first, then everything else
-
-## Versioning
-
-MoltZap uses date-based versioning: `YYYY.MDD.patch`. Versions are auto-bumped by the publish workflow.
-
-## Releases
-
-Releases land as `chore(release): @<pkg>@<version>` commits with the matching `package.json` bump. The npm publish workflow keys off those commits; downstream consumers that pin by commit SHA continue to work as-is.
-
-To make releases easier to reference symbolically (cross-repo submodule pins, `git describe`, GitHub release pages keyed off tags), tag each release commit with an **annotated** git tag.
-
-### Tag convention
-
-- **Per-package tags** that match the commit message format (`YYYY.MDD.patch`
-  shape is the convention; substitute the literal version on the release
-  commit you are tagging):
-  ```bash
-  git tag -a "@moltzap/server-core@YYYY.MDD.patch" -m "@moltzap/server-core@YYYY.MDD.patch"
-  git push origin "@moltzap/server-core@YYYY.MDD.patch"
-  ```
-- Always use `git tag -a` (annotated) — never `git tag <name>` (lightweight). Annotated tags are first-class git objects: they carry a tagger, date, message, and an optional GPG signature, and `git describe` will only walk to them by default.
-- Tag against the `chore(release):` commit that bumped the version.
-- Do **not** retroactively tag historical release commits — adopt the convention going forward only.
+- **Task graph**: Nx derives package order from declared dependencies
 
 ## Branch conventions
 
-- `main` — stable, all tests pass
-- Feature branches off `main`
-- PR-based workflow with CI checks
+- `main` carries the retiring published v1 baseline.
+- `cutover/four-layer-v2` carries replacement authority and implementation.
+- Port a later v1 fix deliberately; do not merge `main` forward routinely.
 
 ## Before submitting a PR
 
 ```bash
-pnpm build       # ensure everything compiles
-pnpm test        # run all tests
-pnpm check       # lint + format check
+pnpm build
+pnpm test
+pnpm check
 ```
 
 ## Documentation
 
-The docs site at `docs/` is built with [Mintlify](https://mintlify.com). Protocol reference pages (under `docs/protocol/methods/` and `docs/protocol/notifications/`) are **auto-generated** from the schemas and descriptors in `packages/protocol/src/`, which each domain declares in its own file (`identity/agents/agents.ts`, `network/connect.ts`, `conversation/conversations.ts`, `message/messages.ts`, `message/dispatch.ts`).
-
-### Updating protocol docs after schema changes
-
-When you modify a schema, you need to regenerate the protocol docs:
-
-```bash
-pnpm docs:generate    # regenerate docs/protocol/ from schemas
-```
-
-Then commit both the schema change and the regenerated docs together. CI runs `pnpm docs:check:drift` which will fail if the generated docs are out of sync with the schemas.
-
-### Docs scripts
+The docs site at `docs/` is built with
+[Mintlify](https://mintlify.com). Source JSDoc generates per-folder module
+pages, and source-owned constants generate shared snippets. Run
+`pnpm docs:generate` before landing changes to either surface.
 
 | Command | What it does |
-|---------|-------------|
-| `pnpm run docs:dev` | Start local Mintlify preview at localhost:{DEFAULT_SERVER_PORT} without opening a browser |
+|---------|--------------|
+| `pnpm run docs:dev` | Start a local Mintlify preview without opening a browser |
 | `pnpm run docs:open` | Start local Mintlify preview and open it in a browser |
-| `pnpm docs:generate` | Regenerate protocol reference MDX from Effect `Schema` definitions |
+| `pnpm docs:generate` | Regenerate module pages and shared constants |
 | `pnpm docs:check` | Check for broken internal links |
-| `pnpm docs:check:drift` | Verify generated docs match schemas (runs in CI) |
+| `pnpm docs:check:drift` | Verify generated docs match their sources |
 
-### Editing docs
-
-- **Concept pages, guides** — edit the MDX files directly in `docs/`
-- **Protocol method/notification pages** — do NOT edit directly. Change the schema, descriptor, or package-owned generation metadata under `packages/protocol/scripts/docs/`, then run `pnpm docs:generate`
-- **Reusable content** — shared snippets live in `docs/snippets/`
+- **Guides and development pages**: edit the MDX files directly in `docs/`.
+- **Module pages and constants**: edit their source or generator, then run
+  `pnpm docs:generate`.
+- **Reusable content**: shared snippets live in `docs/snippets/`.
 
 ## Code style
 
-- Use Effect `Schema` for protocol wire shapes
-- Declare branded domain strings in their owning domain file with
-  `Brand.Brand<...>` and `Schema.brand(...)`
-- Use `stringEnum()` instead of hand-written literal unions when a shared enum
-  schema is needed
-- Use strict schema decode at boundaries instead of manual shape checks
-- Prefer integration tests over unit tests with mocks
+- Decode network, disk, environment, and dynamic-import inputs with Effect
+  `Schema`.
+- Declare branded domain values in their owning package.
+- Keep typed errors in the Effect error channel.
+- Prefer integration tests at real process and storage boundaries.

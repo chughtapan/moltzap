@@ -1,9 +1,8 @@
 #!/usr/bin/env tsx
 /**
- * @file Source-of-truth generator for doc-embedded constants. Reads
- * the canonical literals out of TS source files via the TypeScript
- * compiler API (no regex over the source — the AST is the contract). Emits two
- * sibling files under `docs/snippets/constants/`:
+ * @file Source-of-truth generator for the doc-embedded MoltZap compatibility
+ * value. Reads the canonical version file and emits two sibling files under
+ * `docs/snippets/constants/`:
  *
  *   - `values.json` — JSON record consumed by
  *     `scripts/docs/check-no-hardcoded-constants.ts` (the drift gate).
@@ -36,7 +35,6 @@ import {
 } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..");
@@ -55,76 +53,6 @@ const err = (reason: string): ReadResult<never> => ({
   reason,
 });
 
-const parseSource = (filePath: string): ts.SourceFile => {
-  const text = readFileSync(filePath, "utf8");
-  return ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, true);
-};
-
-const literalFromInitializer = (
-  init: ts.Expression,
-): string | number | null => {
-  const inner = ts.isAsExpression(init) ? init.expression : init;
-  if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) {
-    return inner.text;
-  }
-  if (ts.isNumericLiteral(inner)) return Number(inner.text);
-  if (ts.isCallExpression(inner) && inner.arguments.length === 1) {
-    const arg = inner.arguments[0];
-    if (arg !== undefined) return literalFromInitializer(arg);
-  }
-  return null;
-};
-
-/**
- * Find a top-level `const NAME = <Literal>` declaration whose initializer is a
- * string or numeric literal (optionally with a trailing `as <TypeReference>`),
- * or a one-argument constructor wrapping that literal, e.g.
- * `Schema.decodeSync(AppId)("...")`.
- */
-const readTopLevelLiteral = (
-  filePath: string,
-  identifier: string,
-): ReadResult<string | number> => {
-  const src = parseSource(filePath);
-  let found: string | number | null = null;
-  for (const stmt of src.statements) {
-    if (!ts.isVariableStatement(stmt)) continue;
-    for (const decl of stmt.declarationList.declarations) {
-      if (!ts.isIdentifier(decl.name) || decl.name.text !== identifier)
-        continue;
-      const init = decl.initializer;
-      if (init === undefined) continue;
-      found = literalFromInitializer(init);
-    }
-  }
-  return found === null
-    ? err(
-        `identifier '${identifier}' not found as a top-level literal in ${filePath}`,
-      )
-    : ok(found);
-};
-
-/** Read a package version from its canonical package.json manifest. */
-const readPackageVersion = (filePath: string): ReadResult<string> => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(filePath, "utf8"));
-  } catch (cause) {
-    return err(
-      `could not parse ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
-    );
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("version" in parsed) ||
-    typeof parsed.version !== "string"
-  ) {
-    return err(`expected a string version field in ${filePath}`);
-  }
-  return ok(parsed.version);
-};
-
 /** Read one nonempty trimmed string from a repository version file. */
 const readVersionFile = (filePath: string): ReadResult<string> => {
   let value: string;
@@ -142,7 +70,7 @@ const readVersionFile = (filePath: string): ReadResult<string> => {
 
 // ─── Constant specs ───────────────────────────────────────────────────────
 
-interface StringConstant {
+interface Constant {
   readonly kind: "string";
   readonly name: string;
   readonly value: string;
@@ -150,29 +78,8 @@ interface StringConstant {
   readonly note: string;
 }
 
-interface NumberConstant {
-  readonly kind: "number";
-  readonly name: string;
-  readonly value: number;
-  readonly sourcePath: string;
-  readonly note: string;
-}
-
-type Constant = StringConstant | NumberConstant;
-
 const collect = (): readonly Constant[] => {
-  const protocolVersion = readPackageVersion(
-    resolve(workspaceRoot, "packages/protocol/package.json"),
-  );
   const moltzapVersion = readVersionFile(resolve(workspaceRoot, "v2/VERSION"));
-  const defaultServerPort = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/server/src/config.ts"),
-    "DEFAULT_SERVER_PORT",
-  );
-  const apiKeyPrefix = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/server/src/identity/credential-keys.ts"),
-    "API_KEY_PREFIX",
-  );
 
   const failures: string[] = [];
   const requireString = (
@@ -180,7 +87,7 @@ const collect = (): readonly Constant[] => {
     sourcePath: string,
     res: ReadResult<string | number>,
     note: string,
-  ): StringConstant | null => {
+  ): Constant | null => {
     if (res._tag === "err") {
       failures.push(`${name}: ${res.reason}`);
       return null;
@@ -193,49 +100,12 @@ const collect = (): readonly Constant[] => {
     }
     return { kind: "string", name, value: res.value, sourcePath, note };
   };
-  const requireNumber = (
-    name: string,
-    sourcePath: string,
-    res: ReadResult<string | number>,
-    note: string,
-  ): NumberConstant | null => {
-    if (res._tag === "err") {
-      failures.push(`${name}: ${res.reason}`);
-      return null;
-    }
-    if (typeof res.value !== "number") {
-      failures.push(
-        `${name}: expected numeric literal, got ${typeof res.value}`,
-      );
-      return null;
-    }
-    return { kind: "number", name, value: res.value, sourcePath, note };
-  };
-
   const constants: ReadonlyArray<Constant | null> = [
-    requireString(
-      "PROTOCOL_VERSION",
-      "packages/protocol/package.json",
-      protocolVersion,
-      "Current wire-protocol version sent by clients and checked by the server during connect.",
-    ),
     requireString(
       "V2_PROTOCOL_VERSION",
       "v2/VERSION",
       moltzapVersion,
       "Current MoltZap wire compatibility value for Identity and Router representations; package release versioning is independent and deferred.",
-    ),
-    requireNumber(
-      "DEFAULT_SERVER_PORT",
-      "packages/server/src/config.ts",
-      defaultServerPort,
-      "Code-level fallback port used by ServerConfigLoader when PORT is unset.",
-    ),
-    requireString(
-      "API_KEY_PREFIX",
-      "packages/server/src/identity/credential-keys.ts",
-      apiKeyPrefix,
-      "Stable string prefix on every agent API key.",
     ),
   ];
 
@@ -261,11 +131,7 @@ const renderMdx = (constants: readonly Constant[]): string => {
   const lines: string[] = [AUTO_GEN_NOTE, ""];
   for (const c of constants) {
     lines.push(`{/* ${c.note} Source: ${c.sourcePath}. */}`);
-    if (c.kind === "string") {
-      lines.push(`export const ${c.name} = ${JSON.stringify(c.value)};`);
-    } else {
-      lines.push(`export const ${c.name} = ${c.value};`);
-    }
+    lines.push(`export const ${c.name} = ${JSON.stringify(c.value)};`);
     lines.push("");
   }
   return lines.join("\n");
@@ -275,8 +141,8 @@ interface JsonRecord {
   readonly generatedBy: string;
   readonly constants: readonly {
     readonly name: string;
-    readonly value: string | number;
-    readonly kind: "string" | "number";
+    readonly value: string;
+    readonly kind: "string";
     readonly sourcePath: string;
     readonly note: string;
   }[];
@@ -503,15 +369,7 @@ const main = (): void => {
     process.exit(1);
   }
 
-  const headlines = constants
-    .filter(
-      (c) =>
-        c.name === "PROTOCOL_VERSION" ||
-        c.name === "V2_PROTOCOL_VERSION" ||
-        c.name === "DEFAULT_SERVER_PORT",
-    )
-    .map((c) => `${c.name}=${c.value}`)
-    .join(", ");
+  const headlines = constants.map((c) => `${c.name}=${c.value}`).join(", ");
   const bakedSuffix =
     allBakes.length === 0
       ? "no consumer files needed re-baking"

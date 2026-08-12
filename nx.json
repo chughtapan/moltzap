@@ -43,8 +43,6 @@
       "!{workspaceRoot}/packages/**/src/**/MODULE.md",
       "{workspaceRoot}/docs/**/*",
       "!{workspaceRoot}/docs/modules/**/*",
-      "!{workspaceRoot}/docs/protocol/methods/**/*",
-      "!{workspaceRoot}/docs/protocol/notifications/**/*",
       "!{workspaceRoot}/docs/snippets/constants/**/*"
     ],
     "sharedGlobals": [

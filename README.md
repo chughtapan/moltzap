@@ -83,7 +83,6 @@ move to the replacement boundaries.
 pnpm install && pnpm build   # setup
 pnpm test                     # all tests
 pnpm typecheck                # tsc across all packages
-pnpm dev                      # dev server (packages/server)
 ```
 
 ### Fresh `git worktree add` checkout
@@ -103,28 +102,24 @@ or activate the Node version in [`.node-version`](.node-version) and run
 `pnpm run docs:dev` for a local preview. Use `pnpm run docs:open` when you
 also want the preview to open in a browser.
 
-`pnpm docs:generate` walks TypeDoc across the workspace and writes
-three surfaces from a single pass:
+`pnpm docs:generate` walks TypeDoc across the workspace and refreshes:
 
-- **Protocol reference** — `docs/protocol/{methods,notifications}/*.mdx`
-  generated from `defineRpc` / `defineNotification` JSDoc plus their
-  Effect `Schema` definitions.
 - **Per-folder module pages** — `packages/*/src/**/MODULE.md` next to
   source, with one MDX mirror under `docs/modules/`. Any folder whose
   `index.ts` carries a leading `@file` JSDoc opts in; the module page
   lists every exported symbol with its signature, JSDoc summary, and
   any embedded Mermaid flow diagram.
+- **Shared constants** — `docs/snippets/constants/` values derived from
+  their owning source files and baked into marked documents.
 - **Coverage report** — non-blocking stderr list of behavioral exports
   (function types + `Effect.Effect<...>` constants) missing a JSDoc
   summary or flow diagram.
 
 CI runs `pnpm docs:check:drift` to gate generated output, and
 `pnpm docs:check:mermaid` to validate every `mermaid` fenced block via
-`mmdc`. Contributors should start with the package AGENTS.md
-([protocol](packages/protocol/AGENTS.md),
-[server](packages/server/AGENTS.md),
-[client](packages/client/AGENTS.md)) and follow links into the
-auto-generated module pages from there.
+`mmdc`. Contributors should start with the
+[workspace instructions](AGENTS.md), then the scoped `AGENTS.md` for the
+final package they are changing.
 
 ## License
 

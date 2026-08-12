@@ -2,9 +2,8 @@
  * @file Driver for the per-folder MODULE.md generator.
  *
  * Reads the TypeDoc JSON cache, then renders every eligible folder's
- * MODULE.md + Mintlify MDX twin. Intended to be invoked from
- * `pnpm docs:generate` after the existing RPC method/notification
- * rendering pass. It is also available as a standalone script at
+ * MODULE.md + Mintlify MDX twin. Invoked by `pnpm docs:generate`
+ * after TypeDoc writes the shared JSON cache. It is also available at
  * `tsx scripts/docs/generate-modules.ts`.
  *
  * Effect entry point: provide `NodeContext.layer` so FileSystem and
