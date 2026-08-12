@@ -6,12 +6,28 @@ import {
   type ConnectionId,
   type MoltZapServerSession,
 } from "@moltzap/protocol/socket";
+import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
 
 import type { ResolvedServices } from "#core";
+import {
+  agentConversationCreate,
+  conversationList,
+} from "#conversation/handlers";
+import { agentsList } from "#identity/agents";
+import { messagesList, messagesSend } from "#message/handlers";
+import { connectAgent } from "#network";
 import { ConnectionManagerTag, ConnectionTag } from "#socket";
-import { serverHandlers } from "./handler-catalog.js";
 import { makeRequirementMiddlewareLayers } from "./auth-middleware-layers.js";
 import { peekLiveArm } from "./principal-gate.js";
+
+const serverHandlers: ServerHandlers = {
+  "agent/network/connect": connectAgent,
+  "agent/identity/agents/list": agentsList,
+  "agent/message/send": messagesSend,
+  "agent/message/list": messagesList,
+  "agent/conversation/list": conversationList,
+  "agent/conversation/create": agentConversationCreate,
+} as const;
 
 const makeConnectionTagLayer = (
   connId: ConnectionId,

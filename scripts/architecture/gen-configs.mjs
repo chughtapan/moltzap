@@ -558,11 +558,6 @@ const packageDefinitions = {
           reason:
             "The network layer module is the composition facade for its Effect service tags and live implementations",
         },
-        {
-          file: "moltzap/handler-catalog.ts",
-          reason:
-            "The handler catalog is the explicit adapter facade that binds domain handlers to protocol method tags",
-        },
       ],
     },
   },
