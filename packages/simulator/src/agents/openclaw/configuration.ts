@@ -1,6 +1,5 @@
 /** @file Native OpenClaw configuration rendered into an application container. */
 
-import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { AgentName } from "@moltzap/protocol/identity";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type {
@@ -11,7 +10,7 @@ import { Redacted } from "effect";
 import { SIMULATOR_PROFILE_NAME } from "../workspace.js";
 
 const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
-const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
+const OPENCLAW_CHANNEL_ID = "moltzap";
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 
 /** Native OpenClaw tool exposure and execution configuration. */
@@ -36,44 +35,6 @@ interface OpenClawConfigInput {
   readonly gatewayToken: Redacted.Redacted;
   readonly gatewayBind?: "loopback" | "lan";
   readonly channelPath?: string;
-}
-
-function mcpConfigSection(
-  mcpServers?: readonly OpenClawMcpServer[],
-): Pick<OpenClawConfig, "mcp"> {
-  if (mcpServers === undefined || mcpServers.length === 0) {
-    return {};
-  }
-  return {
-    mcp: {
-      servers: Object.fromEntries(
-        mcpServers.map((server) => [
-          server.name,
-          {
-            transport: "stdio" as const,
-            command: server.command,
-            args: [...server.args],
-            env: { ...server.env },
-          },
-        ]),
-      ),
-    },
-  };
-}
-
-function pluginConfiguration(
-  channelPath?: string,
-): Pick<OpenClawConfig, "plugins"> {
-  return channelPath === undefined
-    ? {}
-    : {
-        plugins: {
-          entries: {
-            [OPENCLAW_EXTENSION_NAME]: { enabled: true },
-          },
-          load: { paths: [channelPath] },
-        },
-      };
 }
 
 /**
@@ -126,4 +87,42 @@ export function buildOpenClawConfig(
       },
     },
   };
+}
+
+function mcpConfigSection(
+  mcpServers?: readonly OpenClawMcpServer[],
+): Pick<OpenClawConfig, "mcp"> {
+  if (mcpServers === undefined || mcpServers.length === 0) {
+    return {};
+  }
+  return {
+    mcp: {
+      servers: Object.fromEntries(
+        mcpServers.map((server) => [
+          server.name,
+          {
+            transport: "stdio" as const,
+            command: server.command,
+            args: [...server.args],
+            env: { ...server.env },
+          },
+        ]),
+      ),
+    },
+  };
+}
+
+function pluginConfiguration(
+  channelPath?: string,
+): Pick<OpenClawConfig, "plugins"> {
+  return channelPath === undefined
+    ? {}
+    : {
+        plugins: {
+          entries: {
+            [OPENCLAW_EXTENSION_NAME]: { enabled: true },
+          },
+          load: { paths: [channelPath] },
+        },
+      };
 }

@@ -21,9 +21,6 @@
       "path": "../client"
     },
     {
-      "path": "../openclaw-channel"
-    },
-    {
       "path": "../protocol"
     },
     {

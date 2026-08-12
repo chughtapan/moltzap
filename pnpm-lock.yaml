@@ -538,9 +538,6 @@ importers:
       '@moltzap/client':
         specifier: workspace:^
         version: link:../client
-      '@moltzap/openclaw-channel':
-        specifier: workspace:^
-        version: link:../openclaw-channel
       '@moltzap/protocol':
         specifier: workspace:^
         version: link:../protocol

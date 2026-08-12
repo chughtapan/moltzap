@@ -231,6 +231,10 @@ async function verifyPackedFiles(extractedPackage) {
       JSON.stringify([".", "./network", "./ledger", "./agents"]),
     "packed simulator exports must be root, network, ledger, and agents",
   );
+  requireCondition(
+    manifest.dependencies?.["@moltzap/openclaw-channel"] === undefined,
+    "packed simulator must not depend on the OpenClaw adapter",
+  );
 }
 
 async function verifyConsumerImports(extractedPackage) {
