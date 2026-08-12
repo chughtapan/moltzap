@@ -13,8 +13,6 @@ export {
   takeFirstOrFail,
   transaction,
 } from "./effect-kysely-toolkit.js";
-/** Re-exports the public API from `./effect-kysely-toolkit.js`. */
-export type { EffectKysely } from "./effect-kysely-toolkit.js";
 /** Re-exports the public API from `./list-cursor.js`. */
 export {
   decodeListCursor,

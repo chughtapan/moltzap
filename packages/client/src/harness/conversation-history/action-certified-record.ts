@@ -9,7 +9,7 @@ import type { CompleteActionCertificate } from "./action-certificate-progress.js
 import { readonlyMapSnapshot } from "./immutable-collections.js";
 
 /** Fixed membership verification material with its canonical member order. */
-export interface FixedMembershipDescriptor<MembershipDescriptor> {
+interface FixedMembershipDescriptor<MembershipDescriptor> {
   readonly memberAgentIds: readonly AgentId[];
   readonly verificationDescriptor: MembershipDescriptor;
 }

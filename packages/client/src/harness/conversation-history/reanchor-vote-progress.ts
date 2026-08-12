@@ -62,7 +62,7 @@ export const reanchorVoteDisposition = {
 } as const;
 
 /** Meaning of one successful re-anchor vote merge. */
-export type ReanchorVoteDisposition =
+type ReanchorVoteDisposition =
   (typeof reanchorVoteDisposition)[keyof typeof reanchorVoteDisposition];
 
 /** Immutable result of merging one already-verified re-anchor vote. */

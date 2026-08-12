@@ -21,7 +21,7 @@ export type CertifiedCatchUpSuffix<RecordHash, Record> = readonly [
 ];
 
 /** The received suffix does not begin at the endpoint's current head. */
-export class CatchUpAnchorMismatchError<RecordHash> extends Data.TaggedError(
+class CatchUpAnchorMismatchError<RecordHash> extends Data.TaggedError(
   "CatchUpAnchorMismatchError",
 )<{
   readonly expectedPreviousRecordHash: RecordHash | null;
@@ -29,7 +29,7 @@ export class CatchUpAnchorMismatchError<RecordHash> extends Data.TaggedError(
 }> {}
 
 /** A later received record does not extend the preceding received record. */
-export class CatchUpSequenceGapError<RecordHash> extends Data.TaggedError(
+class CatchUpSequenceGapError<RecordHash> extends Data.TaggedError(
   "CatchUpSequenceGapError",
 )<{
   readonly recordIndex: number;
@@ -38,9 +38,9 @@ export class CatchUpSequenceGapError<RecordHash> extends Data.TaggedError(
 }> {}
 
 /** One record hash occurs more than once within the received suffix. */
-export class RepeatedCatchUpRecordHashError<
-  RecordHash,
-> extends Data.TaggedError("RepeatedCatchUpRecordHashError")<{
+class RepeatedCatchUpRecordHashError<RecordHash> extends Data.TaggedError(
+  "RepeatedCatchUpRecordHashError",
+)<{
   readonly firstRecordHash: RecordHash;
   readonly repeatedRecordHash: RecordHash;
   readonly firstIndex: number;
