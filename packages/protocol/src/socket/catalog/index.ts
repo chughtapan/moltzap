@@ -7,25 +7,28 @@
  */
 import { type Rpc, RpcGroup } from "@effect/rpc";
 import {
-  agentCallableConversationRpcMethods,
-  conversationNotifications,
+  agentConversationCreate,
+  conversationCreatedNotificationDefinition,
+  conversationList,
 } from "#conversation";
-import { identityRpcMethods } from "#identity";
-import { agentCallableMessageRpcMethods, messageNotifications } from "#message";
+import { agentsList } from "#identity";
 import {
-  agentCallableNetworkRpcMethods,
-  networkNotifications,
-  networkRpcMethods,
-} from "#network";
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
+} from "#message";
+import { agentConnect } from "#network";
 
 /**
  * Client-to-server descriptors an agent principal may originate.
  */
 export const agentCallableMethods = [
-  ...identityRpcMethods,
-  ...agentCallableNetworkRpcMethods,
-  ...agentCallableConversationRpcMethods,
-  ...agentCallableMessageRpcMethods,
+  agentsList,
+  agentConnect,
+  conversationList,
+  agentConversationCreate,
+  messagesSend,
+  messagesList,
 ] as const;
 
 /**
@@ -35,19 +38,20 @@ export const agentCallableMethods = [
  * unauthenticated connect descriptor included once.
  */
 export const serverInboundMethods = [
-  ...identityRpcMethods,
-  ...networkRpcMethods,
-  ...agentCallableConversationRpcMethods,
-  ...agentCallableMessageRpcMethods,
+  agentsList,
+  agentConnect,
+  conversationList,
+  agentConversationCreate,
+  messagesSend,
+  messagesList,
 ] as const;
 
 /**
  * Every server-to-client notification descriptor.
  */
 export const notificationDefinitions = [
-  ...networkNotifications,
-  ...conversationNotifications,
-  ...messageNotifications,
+  conversationCreatedNotificationDefinition,
+  messageReceivedNotificationDefinition,
 ] as const;
 
 /** Any client-to-server descriptor the server handles. */

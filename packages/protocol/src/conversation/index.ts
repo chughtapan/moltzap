@@ -28,8 +28,6 @@ export {
   agentConversationCreate,
   conversationList,
   conversationCreatedNotificationDefinition,
-  agentCallableConversationRpcMethods,
-  conversationNotifications,
 } from "./conversations.js";
 /** Re-exports the public API from `./conversations.js`. */
 export type {

@@ -111,14 +111,3 @@ export const conversationCreatedNotificationDefinition = defineNotification({
   name: "agent/conversation/created",
   params: conversationCreatedNotificationSchema,
 });
-
-/** Agent-callable conversation RPC catalog. */
-export const agentCallableConversationRpcMethods = [
-  conversationList,
-  agentConversationCreate,
-] as const;
-
-/** Conversation notification catalog. */
-export const conversationNotifications = [
-  conversationCreatedNotificationDefinition,
-] as const;

@@ -8,16 +8,6 @@ Public barrel for connect protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L27)
-
-_Variable_
-
-```ts
-export const agentCallableNetworkRpcMethods = [agentConnect] as const
-```
-
-Network RPCs callable by agent clients.
-
 ### [`agentConnect`](./connect.ts#L193)
 
 _Variable_
@@ -116,26 +106,6 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 ```
 
 Reports invalid protocol version failures.
-
-### [`networkNotifications`](./index.ts#L33)
-
-_Variable_
-
-```ts
-export const networkNotifications = [] as const
-```
-
-Network notifications emitted by the server.
-
-### [`networkRpcMethods`](./index.ts#L30)
-
-_Variable_
-
-```ts
-export const networkRpcMethods = [agentConnect] as const
-```
-
-Network RPCs accepted by the server.
 
 ### [`PROTOCOL_VERSION`](./connect.ts#L12)
 
@@ -275,6 +245,5 @@ The socket endpoint a client dials for the given server.
 ## Files
 
 - `connect.ts`
-- `index.ts`
 - `server-url.ts`
 - `server-url.types-check.ts`

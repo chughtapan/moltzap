@@ -76,12 +76,6 @@ export const messagesList = defineRpc({
   errors: [ForbiddenError],
 });
 
-/** Agent-callable message RPC catalog. */
-export const agentCallableMessageRpcMethods = [
-  messagesSend,
-  messagesList,
-] as const;
-
 const messageReceivedNotificationSchema = Schema.Struct({
   message: messageSchema,
 });
@@ -99,10 +93,5 @@ export const messageReceivedNotificationDefinition = defineNotification({
   name: "agent/message/received",
   params: messageReceivedNotificationSchema,
 });
-
-/** Message notification catalog. */
-export const messageNotifications = [
-  messageReceivedNotificationDefinition,
-] as const;
 
 // safer-arch-ignore no-fat-orchestrator: TRIAGE: This message-domain descriptor catalog owns RPCs, callbacks, and notifications; evaluate splitting those families as the catalog grows.

@@ -13,19 +13,6 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L116)
-
-_Variable_
-
-```ts
-export const agentCallableConversationRpcMethods = [
-  conversationList,
-  agentConversationCreate,
-] as const
-```
-
-Agent-callable conversation RPC catalog.
-
 ### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L43)
 
 _Variable_
@@ -193,18 +180,6 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 ```
 
 The referenced conversation does not exist (or is not visible to the caller).
-
-### [`conversationNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L122)
-
-_Variable_
-
-```ts
-export const conversationNotifications = [
-  conversationCreatedNotificationDefinition,
-] as const
-```
-
-Conversation notification catalog.
 
 ### [`conversationSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L79)
 

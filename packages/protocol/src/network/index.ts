@@ -20,14 +20,3 @@ export {
   serverBaseUrl,
   webSocketUrl,
 } from "./server-url.js";
-
-import { agentConnect } from "./connect.js";
-
-/** Network RPCs callable by agent clients. */
-export const agentCallableNetworkRpcMethods = [agentConnect] as const;
-
-/** Network RPCs accepted by the server. */
-export const networkRpcMethods = [agentConnect] as const;
-
-/** Network notifications emitted by the server. */
-export const networkNotifications = [] as const;

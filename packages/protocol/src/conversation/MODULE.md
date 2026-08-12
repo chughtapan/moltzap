@@ -8,19 +8,6 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](./conversations.ts#L116)
-
-_Variable_
-
-```ts
-export const agentCallableConversationRpcMethods = [
-  conversationList,
-  agentConversationCreate,
-] as const
-```
-
-Agent-callable conversation RPC catalog.
-
 ### [`agentConversationCreate`](./conversations.ts#L43)
 
 _Variable_
@@ -188,18 +175,6 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 ```
 
 The referenced conversation does not exist (or is not visible to the caller).
-
-### [`conversationNotifications`](./conversations.ts#L122)
-
-_Variable_
-
-```ts
-export const conversationNotifications = [
-  conversationCreatedNotificationDefinition,
-] as const
-```
-
-Conversation notification catalog.
 
 ### [`conversationSchema`](./types.ts#L79)
 

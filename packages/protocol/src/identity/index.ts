@@ -45,6 +45,3 @@ export { AuthenticatedAgent } from "./principals/index.js";
 export type { PrincipalRequirement } from "./principals/index.js";
 /** Re-exports the public API from `./requirements/index.js`. */
 export { ActiveAgent } from "./requirements/index.js";
-
-/** Identity RPC catalog accepted by agent clients. */
-export const identityRpcMethods = [agentsList] as const;

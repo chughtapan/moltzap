@@ -7,8 +7,6 @@ export {
   messagesSend,
   messagesList,
   messageReceivedNotificationDefinition,
-  agentCallableMessageRpcMethods,
-  messageNotifications,
   decodeMessageParts,
   messagePartsSchema,
 } from "./messages.js";

@@ -13,16 +13,6 @@ Public barrel for connect protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L27)
-
-_Variable_
-
-```ts
-export const agentCallableNetworkRpcMethods = [agentConnect] as const
-```
-
-Network RPCs callable by agent clients.
-
 ### [`agentConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L193)
 
 _Variable_
@@ -121,26 +111,6 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 ```
 
 Reports invalid protocol version failures.
-
-### [`networkNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L33)
-
-_Variable_
-
-```ts
-export const networkNotifications = [] as const
-```
-
-Network notifications emitted by the server.
-
-### [`networkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/index.ts#L30)
-
-_Variable_
-
-```ts
-export const networkRpcMethods = [agentConnect] as const
-```
-
-Network RPCs accepted by the server.
 
 ### [`PROTOCOL_VERSION`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/connect.ts#L12)
 
@@ -280,6 +250,5 @@ The socket endpoint a client dials for the given server.
 ## Files
 
 - `connect.ts`
-- `index.ts`
 - `server-url.ts`
 - `server-url.types-check.ts`
