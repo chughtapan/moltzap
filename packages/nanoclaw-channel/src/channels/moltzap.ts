@@ -74,12 +74,14 @@ const MOLTZAP_DEFAULTS: ChannelDefaults = {
   mentions: "never",
 };
 
-const moltZapEvalModeEnv = Config.string("MOLTZAP_EVAL_MODE").pipe(
-  Config.withDefault("0"),
-);
 const moltZapChannelEnv = Config.all({
-  profileName: Config.option(Config.string("MOLTZAP_PROFILE")),
-  evalMode: moltZapEvalModeEnv,
+  profileName: Config.option(Config.string("MOLTZAP_PROFILE")).pipe(
+    Config.map(Option.getOrNull),
+  ),
+  evalMode: Config.string("MOLTZAP_EVAL_MODE").pipe(
+    Config.withDefault("0"),
+    Config.map((value) => value === "1"),
+  ),
 });
 
 /**
@@ -98,16 +100,6 @@ interface MoltZapChannelEnv {
   readonly profileName: string | null;
   readonly evalMode: boolean;
 }
-
-const loadMoltZapChannelEnv = (): MoltZapChannelEnv => {
-  const env = Effect.runSync(
-    moltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
-  );
-  return {
-    profileName: Option.getOrNull(env.profileName),
-    evalMode: env.evalMode === "1",
-  };
-};
 
 const extractOutboundText = (message: OutboundMessage): string | null => {
   const content = message.content;
@@ -452,7 +444,13 @@ export class MoltZapAdapter implements ChannelAdapter {
 export function makeMoltZapAdapter(
   env?: MoltZapChannelEnv,
 ): MoltZapAdapter | null {
-  const resolvedEnv = env ?? loadMoltZapChannelEnv();
+  const resolvedEnv =
+    env ??
+    Effect.runSync(
+      moltZapChannelEnv.pipe(
+        Effect.withConfigProvider(ConfigProvider.fromEnv()),
+      ),
+    );
   if (resolvedEnv.profileName === null) {
     return null;
   }
