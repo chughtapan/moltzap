@@ -22,7 +22,13 @@ import {
   String as StringOps,
   type Stream,
 } from "effect";
-import { type agentConnect, serverBaseUrlSchema, webSocketUrl } from "#network";
+import type { AgentKey } from "#identity/agents";
+import {
+  agentConnect,
+  PROTOCOL_VERSION,
+  serverBaseUrlSchema,
+  webSocketUrl,
+} from "#network";
 import {
   agentCallableGroup,
   reverseRpcGroup,
@@ -1335,6 +1341,47 @@ export class ProtocolClientLifecycle<
         Effect.logWarning("onDisconnect handler threw", cause),
       ),
     );
+  }
+}
+
+type AgentCallableTag = AgentCallableRpcs["_tag"];
+
+/** Configures an agent client. */
+export interface AgentClientOptions {
+  readonly serverUrl: string;
+  readonly agentKey: AgentKey;
+  readonly onDisconnect?: (close: CloseInfo) => void;
+}
+
+/** Provides the concrete agent client over the shared socket lifecycle. */
+export class MoltZapAgentClient extends ProtocolClientLifecycle<
+  AgentCallableRpcs,
+  AgentClientDispatch
+> {
+  constructor(options: AgentClientOptions) {
+    super({
+      serverUrl: options.serverUrl,
+      connectTag: agentConnect.name,
+      connectPayload: {
+        agentKey: options.agentKey,
+        minProtocol: PROTOCOL_VERSION,
+        maxProtocol: PROTOCOL_VERSION,
+      },
+      openSession: openProtocolAgentClientSocket,
+      onDisconnect: options.onDisconnect,
+    });
+  }
+
+  call<Tag extends AgentCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AgentCallableRpcs, Tag>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<
+    SuccessForTag<AgentCallableRpcs, Tag>,
+    ErrorForTag<AgentCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
+  > {
+    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
+    return this.callEffect(tag, payload, timeoutMs);
   }
 }
 /* eslint-enable max-lines -- lifecycle state machine ends here -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

@@ -7,19 +7,16 @@
  */
 // safer-arch-ignore no-large-public-surface: Socket is the stable compatibility facade for clients, server lifecycle, and close semantics.
 
-/** Re-exports the public API from `./agent-client.js`. */
-export { MoltZapAgentClient } from "./agent-client.js";
-/** Re-exports the public API from `./agent-client.js`. */
-export type { AgentClientOptions } from "./agent-client.js";
-
 /** Re-exports the public API from `./lifecycle.js`. */
 export {
+  MoltZapAgentClient,
   RPC_TIMEOUT_MS,
   openProtocolAgentClientSocket,
   ProtocolClientLifecycle,
 } from "./lifecycle.js";
 /** Re-exports the public API from `./lifecycle.js`. */
 export type {
+  AgentClientOptions,
   ClientConnectError,
   ClientDefinitionError,
   ClientDefinitionPayload,
