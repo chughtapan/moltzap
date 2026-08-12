@@ -1,6 +1,6 @@
 /**
- * @file The principal-kind gate, consumed by the per-method `AuthMiddleware`
- * impl Layers (`auth-middleware-layers.ts`).
+ * @file The principal-kind gate consumed by the per-method `AuthMiddleware`
+ * impl Layers in the protocol socket adapter.
  *
  * The gate narrows the live 2-arm `Connection` to the `AgentContext` a gated
  * method's `requires` head demands, failing with a `ForbiddenError` INSTANCE.
