@@ -1,7 +1,8 @@
 # http/
 
-Transport-server HTTP wiring: the route table and the Node listener. It holds
-no domain policy; it routes requests to the services that do.
+Transport-server HTTP wiring for the route table. It holds no domain policy;
+it routes requests to the services that do. The standalone composition root
+owns the Node listener.
 
 ## Layer rules
 
@@ -14,5 +15,3 @@ no domain policy; it routes requests to the services that do.
 
 - `routes.ts` — `makeCoreHttpApp`: the HTTP route table (health, the WebSocket
   upgrade, and `/api/v1/auth/register`).
-- `node-http-server.ts` — `makeNodeHttpServer`: the bare Node `http.Server` the
-  boot process listens on.

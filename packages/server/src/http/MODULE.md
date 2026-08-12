@@ -32,19 +32,6 @@ checks use `safeEqual`
 
 **Returns:** The created core http app.
 
-### [`makeNodeHttpServer`](./node-http-server.ts#L7)
-
-_Function_
-
-```ts
-export function makeNodeHttpServer()
-```
-
-Creates node http server.
-
-**Returns:** The created node http server.
-
 ## Files
 
-- `node-http-server.ts`
 - `routes.ts`

@@ -1,6 +1,7 @@
 /** Standalone server — loads YAML config, boots PGlite, and starts the server. */
 // safer-arch-ignore no-cross-domain-sibling-import: This executable is the server composition root and assembles the protocol socket adapter with every runtime domain.
 
+import { createServer } from "node:http";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Data, Effect, Layer, ManagedRuntime, Scope } from "effect";
@@ -13,7 +14,7 @@ import {
   type StandaloneBootPlan,
 } from "#config";
 import { sql, makeEffectKysely, type Database, type Db, DbTag } from "#db";
-import { makeCoreHttpApp, makeNodeHttpServer } from "#http";
+import { makeCoreHttpApp } from "#http";
 import { makeMoltzapSocketHandler } from "./moltzap/server-socket.js";
 
 const dirnameValue = dirname(fileURLToPath(import.meta.url));
@@ -284,7 +285,7 @@ function startStandaloneApp(
   const appScope = Effect.runSync(Scope.make());
   let actualPort = bootPlan.port;
   const startup = Effect.gen(function* () {
-    const serverSvc = yield* NodeHttpServer.make(makeNodeHttpServer, {
+    const serverSvc = yield* NodeHttpServer.make(() => createServer(), {
       port: bootPlan.port,
       host: "0.0.0.0",
     });
