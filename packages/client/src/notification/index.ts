@@ -4,8 +4,8 @@
 
 /** Re-exports the public API from `./errors.js`. */
 export {
-  NotificationTimeoutError,
-  StreamClosedError as NotificationStreamClosedError,
-  type StreamCloseReason,
   type NotificationConsumerError,
+  StreamClosedError as NotificationStreamClosedError,
+  NotificationTimeoutError,
+  type StreamCloseReason,
 } from "./errors.js";

@@ -1,32 +1,37 @@
-import { it as effectIt } from "@effect/vitest";
-import type { Message } from "@moltzap/protocol/message";
-import type { AgentId } from "@moltzap/protocol/identity";
+/**
+ * @file Shared fixtures, branded identifiers, and assertions for channel-core
+ * tests.
+ */
+
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { Message } from "@moltzap/protocol/message";
+import { it as effectIt } from "@effect/vitest";
 import { Data, Effect } from "effect";
 
+import type { CrossConversationEntry } from "./service.js";
 import {
-  MoltZapChannelCore,
   type ChannelService,
   type EnrichedInboundMessage,
   type InboundInterceptDecision,
+  MoltZapChannelCore,
 } from "./channel-core.js";
-import type { CrossConversationEntry } from "./service.js";
 import {
   buildMessage,
   createFakeChannelService,
+  type FakeChannelService,
   flushDispatchChainEffect,
   testAgentId,
   testConversationId,
   testMessageId,
-  type FakeChannelService,
 } from "./test-utils/index.js";
 
 /** Re-exports the public API from `current module`. */
 export {
-  MoltZapChannelCore,
   buildMessage,
   createFakeChannelService,
   flushDispatchChainEffect,
+  MoltZapChannelCore,
 };
 /** Re-exports the public API from `current module`. */
 export type {
@@ -37,23 +42,23 @@ export type {
   Message,
 };
 
-/** Provides the effect test runtime value. */
+/** Effect-aware Vitest helper for test cases that do not allocate a scope. */
 export const effectTest = effectIt.effect;
-/** Provides the alice cached name runtime value. */
+/** Cached name that distinguishes synchronous sender lookup in assertions. */
 export const ALICE_CACHED_NAME = "Alice (cached)";
-/** Provides the alice resolved name runtime value. */
+/** Resolved name that distinguishes fallback sender lookup in assertions. */
 export const ALICE_RESOLVED_NAME = "Alice (via resolve)";
-/** Provides the multiline text runtime value. */
+/** Two-line payload used to pin joining of adjacent text parts. */
 export const MULTILINE_TEXT = "line one\nline two";
-/** Provides the caption text runtime value. */
+/** Caption on a non-text fixture part that enrichment must omit. */
 export const CAPTION_TEXT = "caption";
-/** Provides the first text runtime value. */
+/** Primary payload used by single-message and coalescing tests. */
 export const FIRST_TEXT = "first";
-/** Provides the second text runtime value. */
+/** Follow-up payload used by coalescing and ordering tests. */
 export const SECOND_TEXT = "second";
-/** Provides the devs group name runtime value. */
+/** Stable display name for group-conversation metadata assertions. */
 export const DEVS_GROUP_NAME = "devs";
-/** Provides the first visit text runtime value. */
+/** Context payload whose one-time visibility pins marker commits. */
 export const FIRST_VISIT_TEXT = "first visit";
 
 /** Reports test inbound handler failures. */
@@ -63,22 +68,22 @@ export class TestInboundHandlerError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-/** Provides the agent runtime value. */
+/** Decodes a short fixture label as a branded agent identifier. */
 export const agent: (agentLabel: string) => AgentId = testAgentId;
-/** Provides the conversation runtime value. */
+/** Decodes a short fixture label as a branded conversation identifier. */
 export const conversation: (conversationLabel: string) => ConversationId =
   testConversationId;
-/** Provides the message runtime value. */
+/** Decodes a short fixture label as a branded message identifier. */
 export const message: (messageLabel: string) => MessageId = testMessageId;
 /**
- * Provides the participant runtime value.
- * @param agentLabel Value supplied to the operation.
- * @returns The created channel core fixture.
+ * Formats a fixture agent using the service's stored participant-key shape.
+ * @param agentLabel Short fixture identifier to brand and prefix.
+ * @returns The participant key used by conversation metadata fixtures.
  */
 export const participant = (agentLabel: string): string =>
   "agent:" + agent(agentLabel);
 
-/** Describes channel core fixture. */
+/** Connected fake service, core, and sink used by enrichment-focused tests. */
 export interface ChannelCoreFixture {
   readonly fake: FakeChannelService;
   readonly service: ChannelService;
@@ -87,8 +92,8 @@ export interface ChannelCoreFixture {
 }
 
 /**
- * Creates channel core fixture.
- * @returns The created channel core fixture.
+ * Creates a core whose enriched handler appends every delivered turn.
+ * @returns The fake service controls and accumulated inbound messages.
  */
 export function createChannelCoreFixture(): ChannelCoreFixture {
   const fake = createFakeChannelService({ ownAgentId: "agent-self" });
@@ -103,8 +108,8 @@ export function createChannelCoreFixture(): ChannelCoreFixture {
 }
 
 /**
- * Executes the custom setup operation.
- * @returns The custom setup result.
+ * Creates the compact fixture used by tests that need only a fake and sink.
+ * @returns The fake service, core, and accumulated delivered messages.
  */
 export function customSetup(): {
   fake: FakeChannelService;
@@ -123,8 +128,8 @@ export function customSetup(): {
 }
 
 /**
- * Executes the force resolve agent name path operation.
- * @param fake Value supplied to the operation.
+ * Bypasses the fake's name cache so enrichment exercises deferred resolution.
+ * @param fake Service fixture whose cache lookup should always miss.
  */
 export function forceResolveAgentNamePath(fake: FakeChannelService): void {
   /* Safe because the surrounding invariant establishes this asserted shape. */

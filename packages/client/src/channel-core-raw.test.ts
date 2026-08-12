@@ -1,5 +1,7 @@
 /**
- * Raw scheduled-turn delivery preserves the channel core's serialized queue
+ * @file Verifies raw scheduled-turn delivery through the serialized queue.
+ *
+ * Raw delivery preserves the channel core's serialized queue
  * semantics while leaving presentation enrichment and markers to its client.
  */
 
@@ -8,17 +10,17 @@ import { Data, Deferred, Effect } from "effect";
 import { expect, vi } from "vitest";
 
 import {
-  FIRST_TEXT,
-  SECOND_TEXT,
   buildMessage,
   conversation,
   createFakeChannelService,
-  flushDispatchChainEffect,
-  message,
-  MoltZapChannelCore,
   type EnrichedInboundMessage,
   type FakeChannelService,
+  FIRST_TEXT,
+  flushDispatchChainEffect,
+  message,
   type Message,
+  MoltZapChannelCore,
+  SECOND_TEXT,
 } from "./channel-core-test-support.js";
 
 const CONV_1 = "conv-1";

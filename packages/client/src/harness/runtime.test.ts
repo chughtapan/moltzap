@@ -1,4 +1,8 @@
-/* eslint-disable agent-code-guard/async-keyword -- The official MCP SDK exposes Promise-native client and handler lifecycle APIs at this interoperability boundary. */
+/**
+ * @file Pins exact MCP schemas, strict decoding, and private conversation
+ * routing metadata for the harness runtime boundary.
+ */
+import type { Message } from "@moltzap/protocol/message";
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -6,27 +10,28 @@ import {
 import {
   createMcpHandler,
   fromJsonSchema,
-  McpServer,
   type JsonSchemaType,
+  McpServer,
 } from "@modelcontextprotocol/server";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { Effect, Exit, Scope } from "effect";
 import { describe, expect, it } from "vitest";
-import type { Message } from "@moltzap/protocol/message";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { acquireHarnessMcpHttpServer } from "../harness-mcp-server.js";
 import {
   decodeHarnessReplyRoute,
   decodeHarnessTurnEvent,
   HARNESS_EVENTS_EXTENSION,
   HARNESS_REPLY_TOOL,
+  type HarnessReplyInput,
   harnessReplyInputJsonSchema,
   harnessReplyRequestMeta,
-  harnessReplyResultJsonSchema,
-  harnessTurnConversationId,
-  type HarnessReplyInput,
   type HarnessReplyResult,
+  harnessReplyResultJsonSchema,
   type HarnessReplyRoute,
+  harnessTurnConversationId,
 } from "./runtime.js";
+
+/* eslint-disable agent-code-guard/async-keyword -- The official MCP SDK exposes Promise-native client and handler lifecycle APIs at this interoperability boundary. */
 
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000001");

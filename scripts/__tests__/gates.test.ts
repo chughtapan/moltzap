@@ -452,7 +452,7 @@ const testBakeFailureFailClosed = (): void => {
   // Regression: plant an unknown constant name into an existing bake
   // marker. The bake step should see no matching constant and push a
   // BakeFailure, which trips the fail-closed exit.
-  const target = "docs/quickstart.mdx";
+  const target = "docs/protocol/overview.mdx";
   plantFile(target, (s) =>
     s.replace(
       /\{\/\*\s*@bake-constants:\s*([^*]+?)\s*\*\/\}/,

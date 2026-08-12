@@ -1,9 +1,14 @@
-import { JSONSchema, Schema } from "effect";
+/**
+ * @file Defines package-private MCP schemas and metadata for daemon turns,
+ * conversation-bound replies, and transitional daemon status.
+ */
 import {
   conversationId,
   type ConversationId,
 } from "@moltzap/protocol/conversation";
+import { agentId } from "@moltzap/protocol/identity";
 import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { JSONSchema, Schema } from "effect";
 
 /** Harness MCP extension carrying the runtime event contract. */
 export const HARNESS_EVENTS_EXTENSION = "xyz.moltzap/events-v1";
@@ -38,12 +43,30 @@ const harnessReplyInputSchema = Schema.Struct({
   payload: Schema.String,
 });
 
+const emptyStatusInputJsonSchema = {
+  type: "object",
+  properties: {},
+  additionalProperties: false,
+} as const;
+
 /** The reply operation has no additional result data. */
 const harnessReplyResultSchema = Schema.Struct({});
 
 /** Private route nested under the harness extension key in MCP request metadata. */
 const harnessReplyRouteSchema = Schema.Struct({
   conversationId,
+});
+
+/** Status takes no arguments because the daemon already owns its local slot. */
+const harnessStatusInputSchema = Schema.Struct({}).annotations({
+  jsonSchema: emptyStatusInputJsonSchema,
+});
+
+/** Transitional identity and connection state preserved during daemon cutover. */
+const harnessStatusResultSchema = Schema.Struct({
+  agentId: Schema.optional(agentId),
+  connected: Schema.Boolean,
+  conversations: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
 });
 
 /** Decoded harness turn event. */
@@ -66,9 +89,18 @@ export type HarnessReplyRoute = Schema.Schema.Type<
   typeof harnessReplyRouteSchema
 >;
 
+/** Decoded daemon status input. */
+export type HarnessStatusInput = Schema.Schema.Type<
+  typeof harnessStatusInputSchema
+>;
+
+/** Decoded transitional daemon status result. */
+export type HarnessStatusResult = Schema.Schema.Type<
+  typeof harnessStatusResultSchema
+>;
+
 const decodeTurnEvent = Schema.decodeUnknown(harnessTurnEventSchema);
 const decodeReplyRoute = Schema.decodeUnknown(harnessReplyRouteSchema);
-
 const strictDecodeOptions = { onExcessProperty: "error" } as const;
 
 /** JSON Schema advertised for the payload-only reply tool arguments. */
@@ -80,6 +112,18 @@ export const harnessReplyInputJsonSchema = JSONSchema.make(
 /** JSON Schema advertised for the empty reply result. */
 export const harnessReplyResultJsonSchema = JSONSchema.make(
   harnessReplyResultSchema,
+  { target: "jsonSchema2020-12" },
+);
+
+/** JSON Schema advertised for the empty status arguments. */
+export const harnessStatusInputJsonSchema = JSONSchema.make(
+  harnessStatusInputSchema,
+  { target: "jsonSchema2020-12" },
+);
+
+/** JSON Schema advertised for the transitional daemon status result. */
+export const harnessStatusResultJsonSchema = JSONSchema.make(
+  harnessStatusResultSchema,
   { target: "jsonSchema2020-12" },
 );
 

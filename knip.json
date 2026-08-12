@@ -18,7 +18,6 @@
     "packages/client": {
       "entry": [
         "src/**/*.test.ts",
-        "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
         "src/**/__tests__/**/*.ts",
         "vitest*.config.mjs"
@@ -28,7 +27,6 @@
     "packages/nanoclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
-        "src/**/__tests__/**/*.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
@@ -36,7 +34,6 @@
     "packages/openclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
-        "src/**/*.integration.test.ts",
         "src/**/__tests__/**/*.ts",
         "vitest*.config.mjs"
       ],

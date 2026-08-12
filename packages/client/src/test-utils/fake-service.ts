@@ -1,6 +1,6 @@
 /**
- * Fake `MoltZapService` test double, reusable across the client's own tests
- * and downstream consumers (nanoclaw, openclaw).
+ * @file Provides a typed `MoltZapService` test double for Client and adapter
+ * tests that need canned RPC responses and observable calls.
  *
  * Strategy: extend the real `MoltZapService`, keeping all stateful logic
  * intact, and override only `call` so every RPC is answered from a
@@ -13,25 +13,25 @@
  * every test that uses the fake.
  */
 
+import type { RpcGroup } from "@effect/rpc";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
-import { serverBaseUrl } from "@moltzap/protocol/network";
-import type {
-  agentCallableGroup,
-  AnyAgentCallableRpcDefinition,
-  AnyNotificationDefinition,
-} from "@moltzap/protocol/socket/catalog";
+import type { Message } from "@moltzap/protocol/message";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
   PayloadForTag,
   SuccessForTag,
 } from "@moltzap/protocol/rpc";
-import type { Message } from "@moltzap/protocol/message";
-import type { RpcGroup } from "@effect/rpc";
+import type {
+  agentCallableGroup,
+  AnyAgentCallableRpcDefinition,
+  AnyNotificationDefinition,
+} from "@moltzap/protocol/socket/catalog";
+import { serverBaseUrl } from "@moltzap/protocol/network";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
-import { MoltZapService, type ServiceRpcError } from "../service.js";
 import type { RpcCallOptions } from "../agent-client.js";
+import { MoltZapService, type ServiceRpcError } from "../service.js";
 import { testAgentId } from "./ids.js";
 
 const TEST_AGENT_KEY = redactedAgentKey(agentKeyString(0));
@@ -52,7 +52,7 @@ export interface RecordedCall {
   opts?: RpcCallOptions;
 }
 
-/** Implements fake molt zap service. */
+/** Records RPC calls while answering them from definition-keyed responders. */
 export class FakeMoltZapService extends MoltZapService {
   calls: RecordedCall[] = [];
   private readonly responses: FakeResponseMap = {};
@@ -73,8 +73,8 @@ export class FakeMoltZapService extends MoltZapService {
 
   /**
    * Register a canned response, typed against the real RPC descriptor.
-   * @param definition Protocol definition to process.
-   * @param result Value supplied to the operation.
+   * @param definition Descriptor whose tag selects this response.
+   * @param result Successful payload returned whenever that descriptor runs.
    */
   setResponse<Tag extends FakeAgentCallableTag>(
     definition: Extract<AnyAgentCallableRpcDefinition, { readonly name: Tag }>,
@@ -85,7 +85,7 @@ export class FakeMoltZapService extends MoltZapService {
 
   /**
    * Remove a previously-registered response.
-   * @param definition Protocol definition to process.
+   * @param definition Descriptor whose responder should be removed.
    */
   deleteResponse(definition: AnyAgentCallableRpcDefinition): void {
     Reflect.deleteProperty(this.responses, definition.name);
@@ -112,13 +112,11 @@ export class FakeMoltZapService extends MoltZapService {
     });
   }
 
-  // --- Test harness: reach into private state ---
-
   /**
    * Insert a message into the service's internal buffer without going
    * through the WebSocket path. Tests use this to stage context-building state.
-   * @param convId Value supplied to the operation.
-   * @param msg Value supplied to the operation.
+   * @param convId Conversation buffer that receives the message.
+   * @param msg Protocol message appended to that buffer.
    */
   addMessage(convId: string, msg: Message): void {
     Effect.runSync(
@@ -134,8 +132,8 @@ export class FakeMoltZapService extends MoltZapService {
 
   /**
    * Deliver already Schema-decoded notification params through the service.
-   * @param definition Protocol definition to process.
-   * @param params Request payload to process.
+   * @param definition Descriptor that supplies the notification method.
+   * @param params Decoded parameters delivered to subscribers.
    */
   emitEvent<D extends AnyNotificationDefinition>(
     definition: D,
@@ -156,8 +154,8 @@ export class FakeMoltZapService extends MoltZapService {
 
   /**
    * Pin an agent name in the internal cache without an RPC round-trip.
-   * @param id Value supplied to the operation.
-   * @param name Name of the operation.
+   * @param id Agent label converted to the fixture's stable identifier.
+   * @param name Display name cached for that agent.
    */
   setAgentNameDirect(id: string, name: string): void {
     Effect.runSync(
@@ -171,7 +169,7 @@ export class FakeMoltZapService extends MoltZapService {
    * Typed views of the parent class's private Refs, exposed only to this
    * fake so its test-only harness methods can stage state without going
    * through the WebSocket pipeline.
-   * @returns The parent messages ref result.
+   * @returns The parent service's conversation-message buffer.
    */
   private get parentMessagesRef(): ParentInternals["messagesRef"] {
     return Reflect.get(this, "messagesRef");
@@ -183,8 +181,8 @@ export class FakeMoltZapService extends MoltZapService {
 }
 
 /**
- * Shape of the parent `MoltZapService`'s private Refs, exposed in the fake
- *  via `this.internals` so the test-only harness methods can seed state.
+ * Narrow view of the parent `MoltZapService` Refs accessed reflectively by
+ * this test double.
  */
 interface ParentInternals {
   messagesRef: Ref.Ref<HashMap.HashMap<string, readonly Message[]>>;

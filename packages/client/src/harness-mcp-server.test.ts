@@ -1,4 +1,8 @@
-/* eslint-disable agent-code-guard/async-keyword -- The official MCP SDK and Node loopback server expose Promise-native lifecycle APIs at this interoperability boundary. */
+/**
+ * @file Exercises loopback MCP server lifecycle, request validation, active
+ * subscription shutdown, and scope-driven cleanup.
+ */
+import type { AgentId } from "@moltzap/protocol/identity";
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -6,29 +10,29 @@ import {
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
+  createMcpHandler,
+  type Implementation,
+  type McpHttpHandler,
+  McpServer,
   PROTOCOL_VERSION_META_KEY,
   SERVER_INFO_META_KEY,
   SUBSCRIPTION_ID_META_KEY,
-  createMcpHandler,
-  McpServer,
-  type Implementation,
-  type McpHttpHandler,
 } from "@modelcontextprotocol/server";
+import { agentId } from "@moltzap/protocol/testing";
+import { Cause, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These loopback contract tests require raw Host headers and connection-refusal assertions that the Effect client does not expose.
 import {
+  type IncomingMessage,
   Agent as NodeHttpAgent,
   request as nodeRequest,
-  type IncomingMessage,
 } from "node:http";
-import { Cause, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { agentId } from "@moltzap/protocol/testing";
-import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
-import { HARNESS_EVENTS_EXTENSION } from "./harness/index.js";
-import { localDaemonCommands } from "./local-daemon-rpc.js";
-import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import { makeHarnessMcpSubscriptionHandler } from "./harness-mcp-subscription.js";
+import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
+import { HARNESS_EVENTS_EXTENSION } from "./harness/index.js";
+
+/* eslint-disable agent-code-guard/async-keyword -- The official MCP SDK and Node loopback server expose Promise-native lifecycle APIs at this interoperability boundary. */
 
 const LOCALHOST = "127.0.0.1";
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
@@ -337,23 +341,15 @@ const closesActiveSubscriptionWhenScopeReleases = async () => {
   expect(running.server.listening).toBe(false);
 };
 
+const makeStatusHandler = (ownAgentId: AgentId, conversations: number) => () =>
+  Effect.succeed({ agentId: ownAgentId, connected: true, conversations });
+
 const makeSubscriptionHarnessHandlers = () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440041");
-  const localHandlers = makeLocalDaemonHandlers({
-    ownAgentId,
-    connected: () => true,
-    conversationCount: () => 0,
-    call: () => {
-      throw new Error("subscription must not call an agent RPC");
-    },
-    handleHistoryRequest: () => {
-      throw new Error("subscription must not read local history");
-    },
-  });
   return makeHarnessMcpHttpHandlers({
     implementation: SERVER_IMPLEMENTATION,
     reply: () => Effect.void,
-    status: localHandlers[localDaemonCommands.status],
+    status: makeStatusHandler(ownAgentId, 0),
   });
 };
 
@@ -513,21 +509,10 @@ const closesDespiteBackpressuredReader = async () => {
 
 const exposesStatusAndReplyTools = async () => {
   const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
-  const localHandlers = makeLocalDaemonHandlers({
-    ownAgentId,
-    connected: () => true,
-    conversationCount: () => 3,
-    call: () => {
-      throw new Error("status must not call an agent RPC");
-    },
-    handleHistoryRequest: () => {
-      throw new Error("status must not read local history");
-    },
-  });
   const handlers = makeHarnessMcpHttpHandlers({
     implementation: SERVER_IMPLEMENTATION,
     reply: () => Effect.void,
-    status: localHandlers[localDaemonCommands.status],
+    status: makeStatusHandler(ownAgentId, 3),
   });
   const baseUrl = await makeServerWithHandlers(
     handlers.registration,
@@ -544,9 +529,25 @@ const exposesStatusAndReplyTools = async () => {
   expect(harnessClient.getDiscoverResult()?.capabilities.extensions).toEqual({
     [HARNESS_EVENTS_EXTENSION]: {},
   });
-  expect(
-    (await harnessClient.listTools()).tools.map((tool) => tool.name),
-  ).toEqual(["status", "reply"]);
+  const tools = (await harnessClient.listTools()).tools;
+  expect(tools.map((tool) => tool.name)).toEqual(["status", "reply"]);
+  expect(tools.find((tool) => tool.name === "status")).toMatchObject({
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        agentId: { type: "string" },
+        connected: { type: "boolean" },
+        conversations: { type: "integer", minimum: 0 },
+      },
+      required: ["connected", "conversations"],
+      additionalProperties: false,
+    },
+  });
 
   const result = await harnessClient.callTool({
     name: "status",

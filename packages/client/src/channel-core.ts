@@ -1,14 +1,16 @@
 /**
- * Channel core: serialized inbound turn delivery over a MoltZapService.
- * Owns the inbound queue, same-conversation coalescing, the interceptor
- * gate, the per-turn timeout, and channel teardown. Enriched adapter delivery
- * uses channel-core-enrichment.ts; raw daemon delivery receives the coalesced
- * Message batch without reading or committing presentation context.
+ * @file Serializes inbound runtime turns over a MoltZapService connection.
+ *
+ * The channel core owns the inbound queue, same-conversation coalescing, the
+ * interceptor gate, the per-turn timeout, and channel teardown. Enriched
+ * adapter delivery uses `enrichChannelMessage`; raw daemon delivery receives
+ * the coalesced Message batch without reading or committing presentation
+ * context.
  */
 
-import { Cause, Chunk, Duration, Effect, Fiber, Option, Queue } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
+import { Cause, Chunk, Duration, Effect, Fiber, Option, Queue } from "effect";
 import type {
   CrossConversationEntry,
   CrossConvMessage,
@@ -229,7 +231,7 @@ function runBackgroundLog(effect: Effect.Effect<void>): void {
  * Turn-taking is entirely endpoint-local: the server delivers every message
  * it accepts, and this core decides when the runtime sees them.
  *
- * Inbound path from wire bytes to user handler:.
+ * The following sequence traces the inbound path from wire bytes to a handler.
  *
  * ```mermaid
  * sequenceDiagram
@@ -302,57 +304,9 @@ export class MoltZapChannelCore {
     this.registerConnectionListeners();
   }
 
-  private registerMessageListener(): void {
-    this.service.on("message", ({ message }) => {
-      // A core with no handler — a daemon that owns the connection without
-      // running a turn loop — observes messages it will never deliver.
-      // Dropping here keeps the queue from holding work nothing consumes, and
-      // makes the pre-registration window a definite drop rather than a race
-      // between the consumer fiber and the embedder's onInbound call.
-      if (this.stopped || this.inboundHandler === null) {
-        return;
-      }
-      Queue.unsafeOffer(this.inboundQueue, message);
-    });
-  }
-
-  private startConsumerFiber(): Fiber.RuntimeFiber<void> {
-    const consumer = Effect.forever(
-      Queue.take(this.inboundQueue).pipe(
-        Effect.flatMap((message) =>
-          this.runInboundTurn(message).pipe(
-            Effect.catchAllCause((cause) =>
-              this.logInboundFailure(message, cause),
-            ),
-          ),
-        ),
-      ),
-    );
-    return Effect.runFork(consumer);
-  }
-
-  private logInboundFailure(
-    message: Message,
-    cause: Cause.Cause<unknown>,
-  ): Effect.Effect<void> {
-    return effectLogError("MoltZapChannelCore: inbound handler failed", {
-      messageId: message.id,
-      conversationId: message.conversationId,
-      causePretty: Cause.pretty(cause),
-      ...errorSummary(Cause.squash(cause)),
-    });
-  }
-
-  private registerConnectionListeners(): void {
-    this.service.on("disconnect", () => {
-      this.connected = false;
-      this.fanout(this.disconnectHandlers, "disconnect");
-    });
-  }
-
   /**
-   * Replaces any previous handler.
-   * @param handler Handler invoked for matching requests.
+   * Replaces any previous enriched-message handler.
+   * @param handler Handler invoked for each admitted enriched turn.
    */
   onInbound<E>(handler: InboundHandler<E>): void {
     this.inboundHandler = { _tag: "enriched", handler };
@@ -370,21 +324,6 @@ export class MoltZapChannelCore {
 
   onDisconnect(handler: () => void): void {
     this.disconnectHandlers.push(handler);
-  }
-
-  private fanout(handlers: ReadonlyArray<() => void>, label: string): void {
-    for (const h of handlers) {
-      try {
-        h();
-      } catch (err) {
-        runBackgroundLog(
-          effectLogError(`MoltZapChannelCore: ${label} handler threw`, {
-            err,
-            label,
-          }),
-        );
-      }
-    }
   }
 
   connect(): Effect.Effect<void, ServiceRpcError> {
@@ -445,16 +384,95 @@ export class MoltZapChannelCore {
   }
 
   /**
-   * Reply into a conversation.
-   * @param conversationId Value supplied to the operation.
-   * @param text Text to process.
-   * @returns The send result.
+   * Sends text through the service's conversation-scoped operation.
+   * @param conversationId Conversation receiving the reply.
+   * @param text Text content sent to the service.
+   * @returns Completion or the service's typed RPC failure.
    */
   sendReply(
     conversationId: ConversationId,
     text: string,
   ): Effect.Effect<void, ServiceRpcError> {
     return this.service.send(conversationId, text);
+  }
+
+  /**
+   * Enriches one nonempty inbound batch without retaining channel state.
+   * @param service Service used for sender, conversation, and context lookups.
+   * @param messageOrMessages One message or a coalesced nonempty batch.
+   * @returns The enriched message and its deferred context commit callback.
+   */
+  static enrichMessage(
+    service: ChannelService,
+    messageOrMessages: Message | readonly Message[],
+  ): Effect.Effect<{
+    enriched: EnrichedInboundMessage;
+    commitContext?: () => void;
+  }> {
+    return enrichChannelMessage(service, messageOrMessages);
+  }
+
+  private registerMessageListener(): void {
+    this.service.on("message", ({ message }) => {
+      // A core with no handler — a daemon that owns the connection without
+      // running a turn loop — observes messages it will never deliver.
+      // Dropping here keeps the queue from holding work nothing consumes, and
+      // makes the pre-registration window a definite drop rather than a race
+      // between the consumer fiber and the embedder's onInbound call.
+      if (this.stopped || this.inboundHandler === null) {
+        return;
+      }
+      Queue.unsafeOffer(this.inboundQueue, message);
+    });
+  }
+
+  private startConsumerFiber(): Fiber.RuntimeFiber<void> {
+    const consumer = Effect.forever(
+      Queue.take(this.inboundQueue).pipe(
+        Effect.flatMap((message) =>
+          this.runInboundTurn(message).pipe(
+            Effect.catchAllCause((cause) =>
+              this.logInboundFailure(message, cause),
+            ),
+          ),
+        ),
+      ),
+    );
+    return Effect.runFork(consumer);
+  }
+
+  private logInboundFailure(
+    message: Message,
+    cause: Cause.Cause<unknown>,
+  ): Effect.Effect<void> {
+    return effectLogError("MoltZapChannelCore: inbound handler failed", {
+      messageId: message.id,
+      conversationId: message.conversationId,
+      causePretty: Cause.pretty(cause),
+      ...errorSummary(Cause.squash(cause)),
+    });
+  }
+
+  private registerConnectionListeners(): void {
+    this.service.on("disconnect", () => {
+      this.connected = false;
+      this.fanout(this.disconnectHandlers, "disconnect");
+    });
+  }
+
+  private fanout(handlers: ReadonlyArray<() => void>, label: string): void {
+    for (const h of handlers) {
+      try {
+        h();
+      } catch (err) {
+        runBackgroundLog(
+          effectLogError(`MoltZapChannelCore: ${label} handler threw`, {
+            err,
+            label,
+          }),
+        );
+      }
+    }
   }
 
   private runInboundTurn(primary: Message): Effect.Effect<void, unknown> {
@@ -629,22 +647,5 @@ export class MoltZapChannelCore {
       }
       return sameConversation;
     });
-  }
-
-  /**
-   * Stateless enrichment helper. Falls back to `sender.id` if
-   * `resolveAgentName` throws (e.g. Service not yet connected).
-   * @param service Value supplied to the operation.
-   * @param messageOrMessages Value supplied to the operation.
-   * @returns The enriched message and its context-commit callback.
-   */
-  static enrichMessage(
-    service: ChannelService,
-    messageOrMessages: Message | readonly Message[],
-  ): Effect.Effect<{
-    enriched: EnrichedInboundMessage;
-    commitContext?: () => void;
-  }> {
-    return enrichChannelMessage(service, messageOrMessages);
   }
 }

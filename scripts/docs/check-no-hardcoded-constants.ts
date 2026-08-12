@@ -63,21 +63,10 @@ const ALLOW_PREFIXES: readonly string[] = [
 ];
 
 /**
- * Individual files that are auto-generated as a whole. Same semantics
- * as `ALLOW_PREFIXES` but at the file granularity.
- *
- * `ws-connect-example.mdx` is generator-output too, but its generator
- * now sources `API_KEY_PREFIX` + `PROTOCOL_VERSION` from their canonical
- * package/TS sources (see `packages/client/scripts/generate-cli-docs.ts →
- * readApiKeyPrefix / readProtocolVersion`), so the gate runs against
- * it normally and would surface any future hand-edit that drops a
- * literal.
+ * Individual files that are generated as a whole. Same semantics as
+ * `ALLOW_PREFIXES` but at the file granularity.
  */
-const ALLOW_FILES: readonly string[] = [
-  "docs/cli/reference.mdx",
-  "docs/snippets/cli-commands-table.mdx",
-  "docs/snippets/cli-global-flags.mdx",
-];
+const ALLOW_FILES: readonly string[] = [];
 
 const isAllowed = (relPath: string): boolean =>
   ALLOW_FILES.includes(relPath) ||

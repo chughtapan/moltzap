@@ -1,9 +1,11 @@
-import * as fc from "fast-check";
-import { describe, expect, it } from "vitest";
+/** @file Pins conversation-scoped FIFO deduplication for inbound messages. */
+
 import {
   type Message,
   messageReceivedNotificationDefinition,
 } from "@moltzap/protocol/message";
+import * as fc from "fast-check";
+import { describe, expect, it } from "vitest";
 import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
 import {
   buildMessage,
@@ -144,6 +146,12 @@ function makeObservedService(): {
   return { seen, service };
 }
 
+function saturateDedupWindow(service: FakeMoltZapService): void {
+  for (let i = 1; i <= DEDUP_OVERFLOW_COUNT; i++) {
+    emitMessage(service, `evict-msg-${i}`, CONV_A);
+  }
+}
+
 function emitMessage(
   service: FakeMoltZapService,
   id: string,
@@ -156,10 +164,4 @@ function emitMessage(
   });
   service.emitEvent(messageReceivedNotificationDefinition, { message: msg });
   return msg;
-}
-
-function saturateDedupWindow(service: FakeMoltZapService): void {
-  for (let i = 1; i <= DEDUP_OVERFLOW_COUNT; i++) {
-    emitMessage(service, `evict-msg-${i}`, CONV_A);
-  }
 }

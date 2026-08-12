@@ -1,21 +1,26 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP handler and retained POST response stream expose Promise-native lifecycle contracts. */
+/**
+ * @file Adds the MoltZap turn-ready subscription to an official MCP HTTP
+ * handler while delegating every standard MCP request unchanged.
+ */
 import {
-  CLIENT_CAPABILITIES_META_KEY,
-  MissingRequiredClientCapabilityError,
-  SERVER_INFO_META_KEY,
-  SUBSCRIPTION_ID_META_KEY,
   classifyInboundRequest,
-  isJsonContentType,
+  CLIENT_CAPABILITIES_META_KEY,
   type Implementation,
+  isJsonContentType,
   type McpHandlerRequestOptions,
   type McpHttpHandler,
+  MissingRequiredClientCapabilityError,
   type RequestId,
+  SERVER_INFO_META_KEY,
+  SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
 import {
   HARNESS_EVENTS_EXTENSION,
   HARNESS_TURN_READY_FILTER,
   HARNESS_TURN_READY_NOTIFICATION,
 } from "./harness/index.js";
+
+/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP handler and retained POST response stream expose Promise-native lifecycle contracts. */
 
 // The SDK remains authoritative for the MCP server. Its public event publisher
 // has a closed event union, so this adapter owns only MoltZap's exact
@@ -247,70 +252,6 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     };
   }
 
-  private reportError(error: unknown): void {
-    if (this.onerror === undefined) {
-      return;
-    }
-    try {
-      this.onerror(error instanceof Error ? error : new Error(String(error)));
-    } catch (reportingError) {
-      console.error(
-        "Harness MCP subscription error reporter failed",
-        reportingError,
-      );
-    }
-  }
-
-  private enqueueMessage(
-    subscription: ActiveSubscription,
-    message: JsonObject,
-  ): boolean {
-    if (subscription.closed || subscription.controller === undefined) {
-      return false;
-    }
-    try {
-      const frame = `data: ${JSON.stringify(message)}\n\n`;
-      subscription.controller.enqueue(this.encoder.encode(frame));
-      return true;
-    } catch (error) {
-      this.reportError(error);
-      return false;
-    }
-  }
-
-  private teardown(subscription: ActiveSubscription, graceful: boolean): void {
-    if (subscription.closed) {
-      return;
-    }
-    if (graceful) {
-      this.enqueueMessage(subscription, this.completeMessage(subscription.id));
-    }
-    subscription.closed = true;
-    subscription.abortCleanup?.();
-    if (this.active === subscription) {
-      this.active = undefined;
-    }
-    try {
-      subscription.controller?.close();
-    } catch (error) {
-      this.reportError(error);
-    }
-  }
-
-  private completeMessage(id: RequestId): JsonObject {
-    return {
-      jsonrpc: JSON_RPC_VERSION,
-      id,
-      result: {
-        resultType: "complete",
-        _meta: {
-          [SUBSCRIPTION_ID_META_KEY]: id,
-          [SERVER_INFO_META_KEY]: this.implementation,
-        },
-      },
-    };
-  }
-
   private serve(
     request: Request,
     listenRequest: CustomListenRequest,
@@ -414,6 +355,56 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     }
   }
 
+  private teardown(subscription: ActiveSubscription, graceful: boolean): void {
+    if (subscription.closed) {
+      return;
+    }
+    if (graceful) {
+      this.enqueueMessage(subscription, this.completeMessage(subscription.id));
+    }
+    subscription.closed = true;
+    subscription.abortCleanup?.();
+    if (this.active === subscription) {
+      this.active = undefined;
+    }
+    try {
+      subscription.controller?.close();
+    } catch (error) {
+      this.reportError(error);
+    }
+  }
+
+  private enqueueMessage(
+    subscription: ActiveSubscription,
+    message: JsonObject,
+  ): boolean {
+    if (subscription.closed || subscription.controller === undefined) {
+      return false;
+    }
+    try {
+      const frame = `data: ${JSON.stringify(message)}\n\n`;
+      subscription.controller.enqueue(this.encoder.encode(frame));
+      return true;
+    } catch (error) {
+      this.reportError(error);
+      return false;
+    }
+  }
+
+  private reportError(error: unknown): void {
+    if (this.onerror === undefined) {
+      return;
+    }
+    try {
+      this.onerror(error instanceof Error ? error : new Error(String(error)));
+    } catch (reportingError) {
+      console.error(
+        "Harness MCP subscription error reporter failed",
+        reportingError,
+      );
+    }
+  }
+
   private ackMessage(id: RequestId): JsonObject {
     return {
       jsonrpc: JSON_RPC_VERSION,
@@ -421,6 +412,20 @@ class HarnessMcpSubscriptionState<Payload extends object> {
       params: {
         notifications: { [HARNESS_TURN_READY_FILTER]: true },
         _meta: { [SUBSCRIPTION_ID_META_KEY]: id },
+      },
+    };
+  }
+
+  private completeMessage(id: RequestId): JsonObject {
+    return {
+      jsonrpc: JSON_RPC_VERSION,
+      id,
+      result: {
+        resultType: "complete",
+        _meta: {
+          [SUBSCRIPTION_ID_META_KEY]: id,
+          [SERVER_INFO_META_KEY]: this.implementation,
+        },
       },
     };
   }

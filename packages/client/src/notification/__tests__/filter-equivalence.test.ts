@@ -1,12 +1,11 @@
-/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, jsdoc/text-escaping -- fast-check + Effect.gen + Stream.runForEach nest by construction; fc.asyncProperty requires an async function */
-
 /**
- * Property test: `subscribe`'s Stream output equals a pure-JS filter oracle.
+ * @file Proves that `subscribe` Stream filtering matches a pure JavaScript
+ * oracle for generated notification sequences and typed predicates.
  *
  * For any property-generated sequence of inbound notifications and any
  * property-generated typed predicate `p`, the Stream-based `subscribe`
  * output equals the pure-JS reference
- * `frames.filter(frame => def === frame.definition && p(frame.params))`.
+ * `frames.filter(frame =&gt; def === frame.definition &amp;&amp; p(frame.params))`.
  * The oracle is the embedded `oracle` function below; both consume the
  * same generated predicate so each run probes a different filter point.
  *
@@ -18,24 +17,26 @@
  * reach the consumer. The compile-time counterpart lives in
  * `subscribe-signatures.types-check.ts`.
  */
-import { describe, expect, it } from "vitest";
-import * as fc from "fast-check";
-import { Effect, Fiber, Ref, Stream } from "effect";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
+import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import {
-  NotConnectedError,
   makeNotificationSubscriberRegistry,
+  NotConnectedError,
   type NotificationDelivery,
   type NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
-import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import { subscribe } from "../stream.js";
+import { Effect, Fiber, Ref, Stream } from "effect";
+import * as fc from "fast-check";
+import { describe, expect, it } from "vitest";
 import {
   buildMessage,
   testAgentId,
   testConversationId,
 } from "../../test-utils/index.js";
+import { subscribe } from "../stream.js";
+
+/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword -- fast-check + Effect.gen + Stream.runForEach nest by construction; fc.asyncProperty requires an async function */
 
 const MAX_SEQUENCE_LENGTH = 32;
 const VALUE_POOL_SIZE = 8;
@@ -93,19 +94,11 @@ const arbPredicate = fc.constantFrom(...predicatePool);
 
 const PARTICIPANTS = [testAgentId("filter-equivalence")];
 
-function createdParams(generated: GeneratedFrame): CreatedParams {
-  return {
-    conversationId: generated.conversationId,
-    name: generated.name,
-    participants: PARTICIPANTS,
-  };
-}
-
 /**
  * Pure-JS reference oracle. Filters by definition identity + predicate.
- * @param frames Value supplied to the operation.
+ * @param frames Generated frames presented to the notification registry.
  * @param predicate Predicate used to select matching values.
- * @returns The oracle result.
+ * @returns Created-notification parameters accepted by both filters.
  */
 function oracle(
   frames: readonly GeneratedFrame[],
@@ -127,10 +120,17 @@ function decodedCreated(
   };
 }
 
+function createdParams(generated: GeneratedFrame): CreatedParams {
+  return {
+    conversationId: generated.conversationId,
+    name: generated.name,
+    participants: PARTICIPANTS,
+  };
+}
+
 function otherFrame(): NotificationDelivery<
   typeof messageReceivedNotificationDefinition
 > {
-  // A frame whose `.definition` reference does NOT match
   // A frame with a different descriptor reference verifies that the registry's
   // definition-identity filter drops it before the predicate runs.
   return {
@@ -242,4 +242,4 @@ describe("subscribe filter-equivalence oracle", () => {
     ));
 });
 
-/* eslint-enable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, jsdoc/text-escaping -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. */
+/* eslint-enable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword -- Restore strict defaults after the scoped file-level exception. */

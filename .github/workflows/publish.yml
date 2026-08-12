@@ -118,8 +118,8 @@ jobs:
 
           # Regenerate docs after version bump. The protocol package version
           # is the PROTOCOL_VERSION source of truth, so its change re-bakes
-          # `docs/snippets/constants/values.{mdx,json}` plus the CLI reference +
-          # 20 command pages. Without this, the husky pre-commit drift gate
+          # `docs/snippets/constants/values.{mdx,json}` and generated module
+          # reference pages. Without this, the husky pre-commit drift gate
           # (`pnpm docs:generate && git diff --quiet`) detects the regen at
           # commit time and aborts with exit code 1.
           pnpm docs:generate

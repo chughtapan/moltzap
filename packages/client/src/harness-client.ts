@@ -1,6 +1,10 @@
-import { Context, Layer, type Effect, type Scope, type Stream } from "effect";
+/**
+ * @file Exposes the adapter-facing scoped Client capability backed by one
+ * daemon's loopback MCP boundary.
+ */
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
+import { Context, type Effect, Layer, type Scope, type Stream } from "effect";
 import { acquireHarnessClientInternal } from "./harness/index.js";
 
 /** One reply-capable batch emitted by the local harness daemon. */

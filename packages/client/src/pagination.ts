@@ -57,13 +57,13 @@ export interface DrainPaginatedListOptions<
  * `nextCursor` back as the next page's `cursor`. Fails with
  * {@link NonAdvancingCursorError} if the server returns a cursor it already
  * emitted (cycle guard).
- * @param root0 Value supplied to the operation.
- * @param root0.sendRpc Value supplied to the operation.
- * @param root0.definition Value supplied to the operation.
- * @param root0.paramsForCursor Value supplied to the operation.
- * @param root0.rowsForPage Value supplied to the operation.
- * @param root0.nextCursorForPage Value supplied to the operation.
- * @returns The drain paginated list result.
+ * @param root0 Pagination callbacks and the typed RPC descriptor to drain.
+ * @param root0.sendRpc Sends one decoded page request.
+ * @param root0.definition Identifies the list RPC being drained.
+ * @param root0.paramsForCursor Builds a page request from the prior cursor.
+ * @param root0.rowsForPage Extracts rows from a successful page.
+ * @param root0.nextCursorForPage Extracts the opaque continuation cursor.
+ * @returns All rows in server page order.
  */
 export function drainPaginatedList<
   E,

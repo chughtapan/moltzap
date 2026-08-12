@@ -1,5 +1,5 @@
 /**
- * Channel-base group-block helpers.
+ * @file Group-conversation metadata and rendering helpers for channel adapters.
  *
  * `formatGroupBlock` renders the group block for nanoclaw. The shared
  * type-narrowing predicate `getGroupFields` is consumed by openclaw
@@ -7,9 +7,9 @@
  * nanoclaw (gating the group-block render).
  */
 
-import { sanitizeForSystemReminder } from "../service.js";
 import type { EnrichedConversationMeta } from "../channel-core.js";
 import type { CrossConvMarkup } from "./format-cross-conv.js";
+import { sanitizeForSystemReminder } from "../service.js";
 
 /** Describes group fields. */
 export interface GroupFields {
@@ -28,8 +28,8 @@ const NO_PARTICIPANTS_FALLBACK = "(none listed)";
  * Pure narrowing helper — callers use the non-null return to drive
  * `formatGroupBlock` or per-channel field extraction (openclaw's
  * `groupSubject` + `groupMembers`).
- * @param meta Value supplied to the operation.
- * @returns The get group fields result.
+ * @param meta Conversation metadata to narrow.
+ * @returns Group fields for group conversations, otherwise `null`.
  */
 export function getGroupFields(
   meta?: EnrichedConversationMeta,
@@ -38,20 +38,6 @@ export function getGroupFields(
     return null;
   }
   return { name: meta.name, participants: meta.participants };
-}
-
-function formatXmlSystemReminder(fields: GroupFields): string {
-  const safeName = sanitizeForSystemReminder(
-    fields.name ?? UNNAMED_GROUP_FALLBACK,
-  );
-  const safeParticipants = fields.participants.map(sanitizeForSystemReminder);
-  return [
-    "<system-reminder>",
-    "This is a group conversation.",
-    `Group name: ${safeName}`,
-    `Participants (${fields.participants.length}): ${safeParticipants.join(", ") || NO_PARTICIPANTS_FALLBACK}`,
-    "</system-reminder>",
-  ].join("\n");
 }
 
 /**
@@ -66,9 +52,9 @@ function formatXmlSystemReminder(fields: GroupFields): string {
  *   "openclaw renders no group block" an explicit, fixtured output.
  *
  * Or pass a custom `formatter` callback.
- * @param fields Value supplied to the operation.
- * @param opts Value supplied to the operation.
- * @returns The format group block result.
+ * @param fields Narrowed group name and participant identifiers.
+ * @param opts Built-in markup selection or a channel-owned formatter.
+ * @returns The channel-specific group context block.
  */
 export function formatGroupBlock(
   fields: GroupFields,
@@ -83,4 +69,18 @@ export function formatGroupBlock(
     return formatXmlSystemReminder(fields);
   }
   return "";
+}
+
+function formatXmlSystemReminder(fields: GroupFields): string {
+  const safeName = sanitizeForSystemReminder(
+    fields.name ?? UNNAMED_GROUP_FALLBACK,
+  );
+  const safeParticipants = fields.participants.map(sanitizeForSystemReminder);
+  return [
+    "<system-reminder>",
+    "This is a group conversation.",
+    `Group name: ${safeName}`,
+    `Participants (${fields.participants.length}): ${safeParticipants.join(", ") || NO_PARTICIPANTS_FALLBACK}`,
+    "</system-reminder>",
+  ].join("\n");
 }

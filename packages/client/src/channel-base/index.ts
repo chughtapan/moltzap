@@ -6,9 +6,9 @@ export { BoundedMap } from "../bounded-map.js";
 
 /** Re-exports the public API from `./format-cross-conv.js`. */
 export {
-  formatCrossConv,
   type CrossConvFormatter,
   type CrossConvMarkup,
+  formatCrossConv,
 } from "./format-cross-conv.js";
 
 /** Re-exports the public API from `./format-group-block.js`. */
@@ -21,7 +21,6 @@ export {
 
 /** Re-exports the public API from `../channel-core.js`. */
 export {
-  MoltZapChannelCore,
   type ChannelCoreOptions,
   type ChannelService,
   type ContextBlocks,
@@ -31,11 +30,12 @@ export {
   type InboundHandler,
   type InboundInterceptDecision,
   type InboundInterceptor,
+  MoltZapChannelCore,
 } from "../channel-core.js";
 
 /** Re-exports the public API from `../service.js`. */
 export {
-  sanitizeForSystemReminder,
   type CrossConversationEntry,
   type CrossConvMessage,
+  sanitizeForSystemReminder,
 } from "../service.js";

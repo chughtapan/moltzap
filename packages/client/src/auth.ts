@@ -1,12 +1,14 @@
+/** @file HTTP client for the public agent-registration endpoint. */
+
+import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   HttpClient,
   HttpClientRequest,
   type HttpClientResponse,
 } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
-import { Data, Effect, Either, Schema } from "effect";
 import { register } from "@moltzap/protocol/identity";
-import type { ResultOf } from "@moltzap/protocol/rpc";
+import { Data, Effect, Either, Schema } from "effect";
 
 /**
  * HTTP response from the agent registration endpoints
@@ -45,10 +47,10 @@ const registerAgentError = (
  *
  * Uses the public `/api/v1/auth/register` endpoint. Server boot policy owns
  * the registered agent immediately and returns the credential once.
- * @param baseUrl Value supplied to the operation.
- * @param name Name of the operation.
- * @param opts Value supplied to the operation.
- * @returns The register agent request result.
+ * @param baseUrl HTTP origin that hosts the public registration endpoint.
+ * @param name Display name requested for the new agent.
+ * @param opts Optional description and deployment invite code.
+ * @returns The server-issued identity and credential.
  */
 export const registerAgent = (
   baseUrl: string,

@@ -86,8 +86,8 @@ const packageDefinitions = {
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 25,
-          maxChildrenIncludingTests: 27,
+          maxChildren: 22,
+          maxChildrenIncludingTests: 26,
           reason:
             "The client SDK keeps its peer public surfaces and their focused implementation modules flat at the source root; AGENTS.md documents the package structure",
         },
@@ -104,24 +104,9 @@ const packageDefinitions = {
             "Named public boundary for the managed MoltZap client service",
         },
         {
-          file: "cli/transport.ts",
-          reason:
-            "Shared CLI transport contract composed by the individual command modules",
-        },
-        {
-          file: "local-daemon-rpc.ts",
-          reason:
-            "Typed local-daemon IPC descriptor and codec boundary shared by the service, socket server, and CLI",
-        },
-        {
-          file: "local-history.ts",
-          reason:
-            "Local history DTO, schema, and formatting boundary shared by the daemon RPC contract and service implementation",
-        },
-        {
           file: "profile.ts",
           reason:
-            "Named-profile persistence contract shared by client configuration and CLI transport selection",
+            "Read-only transitional profile input used by service configuration until daemon acquisition is admitted",
         },
       ],
     },

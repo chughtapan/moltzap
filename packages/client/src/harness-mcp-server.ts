@@ -1,18 +1,16 @@
+/**
+ * @file Hosts official MCP HTTP handlers on loopback and binds listener and
+ * retained-response cleanup to the enclosing Effect scope.
+ */
+import type { McpHttpHandler } from "@modelcontextprotocol/server";
+import type { Socket } from "node:net";
 import {
   type FetchLikeMcpHandler,
-  type NodeMcpRequestHandler,
   localhostHostValidation,
   localhostOriginValidation,
+  type NodeMcpRequestHandler,
   toNodeHandler,
 } from "@modelcontextprotocol/node";
-import type { McpHttpHandler } from "@modelcontextprotocol/server";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The official MCP Node adapter supplies a Node RequestListener, so this package-private process boundary must host that exact interface.
-import {
-  createServer,
-  type RequestListener,
-  type Server as NodeHttpServer,
-} from "node:http";
-import type { Socket } from "node:net";
 import {
   Deferred,
   Duration,
@@ -22,6 +20,12 @@ import {
   Option,
   type Scope,
 } from "effect";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The official MCP Node adapter supplies a Node RequestListener, so this package-private process boundary must host that exact interface.
+import {
+  createServer,
+  type Server as NodeHttpServer,
+  type RequestListener,
+} from "node:http";
 
 const REGISTER_MCP_PATH = "/register/mcp";
 const HARNESS_MCP_PATH = "/mcp";

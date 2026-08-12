@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/client",
   "version": "2026.805.1",
-  "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
+  "description": "MoltZap endpoint runtime and harness boundary",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -13,9 +13,6 @@
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "moltzap": "./dist/cli/index.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -50,8 +47,6 @@
     "build": "nx run @moltzap/client:build",
     "lint": "nx run @moltzap/client:lint",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.mjs",
-    "docs:generate": "nx run @moltzap/client:build && pnpm exec tsx scripts/generate-cli-docs.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -60,7 +55,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/client",
-          "command": "tsc -b"
+          "command": "node scripts/clean-dist.mjs && tsc -b"
         }
       },
       "lint": {
@@ -68,6 +63,17 @@
         "options": {
           "cwd": "packages/client",
           "command": "eslint . --cache --max-warnings=0"
+        }
+      },
+      "test:pack": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test-client-package.mjs"
         }
       },
       "arch:check": {
@@ -80,13 +86,9 @@
     }
   },
   "dependencies": {
-    "@effect/cli": "^0.76.0",
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
-    "@effect/printer": "^0.50.0",
-    "@effect/printer-ansi": "^0.50.0",
     "@effect/rpc": "^0.76.0",
-    "@effect/typeclass": "^0.41.0",
     "@modelcontextprotocol/client": "2.0.0-beta.5",
     "@modelcontextprotocol/node": "2.0.0-beta.5",
     "@modelcontextprotocol/server": "2.0.0-beta.5",
@@ -96,11 +98,9 @@
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
-    "@moltzap/server-core": "workspace:*",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
     "fast-check": "^3.23.1",
-    "tsx": "^4.19.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^3.2.0"
   }

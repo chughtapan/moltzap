@@ -1,47 +1,49 @@
-import {
-  agentId as AgentIdSchema,
-  AgentNotFoundError,
-  agentsList,
-  type AgentCard,
-  type AgentId,
-} from "@moltzap/protocol/identity";
+/**
+ * @file Owns one endpoint connection, its in-memory conversation views, and
+ * typed notification and RPC dispatch for runtime adapters.
+ */
+
+import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { HelloOk } from "@moltzap/protocol/network";
-import type {
-  AnyAgentCallableRpcDefinition,
-  AnyNotificationDefinition,
-  agentCallableGroup,
-} from "@moltzap/protocol/socket/catalog";
 import type {
   ClientDefinitionPayload,
   ClientDefinitionSuccess,
 } from "@moltzap/protocol/socket";
+import type {
+  agentCallableGroup,
+  AnyAgentCallableRpcDefinition,
+  AnyNotificationDefinition,
+} from "@moltzap/protocol/socket/catalog";
 import {
   agentConversationCreate,
   type ConversationCreatedNotification,
   conversationCreatedNotificationDefinition,
-  conversationList,
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
 import {
+  type AgentCard,
+  type AgentId,
+  agentId as AgentIdSchema,
+  AgentNotFoundError,
+  agentsList,
+} from "@moltzap/protocol/identity";
+import {
   type Message,
   type MessageReceivedNotification,
   messageReceivedNotificationDefinition,
-  messagesList,
   messagesSend,
 } from "@moltzap/protocol/message";
 import {
-  NotConnectedError,
-  type RpcTimeoutError,
   isNotificationDeliveryFor,
-  type NotificationDelivery,
   type ListCursor,
-  type PayloadForTag,
+  NotConnectedError,
+  type NotificationDelivery,
   type ParamsOf,
+  type PayloadForTag,
+  type RpcTimeoutError,
   type SuccessForTag,
 } from "@moltzap/protocol/rpc";
-import type { RpcGroup, Rpc } from "@effect/rpc";
-import { BoundedMap } from "./bounded-map.js";
 import {
   Deferred,
   Effect,
@@ -54,22 +56,15 @@ import {
   Stream,
 } from "effect";
 import { MoltZapAgentClient, type RpcCallOptions } from "./agent-client.js";
+import { BoundedMap } from "./bounded-map.js";
 import {
   loadServiceConfig,
   type MoltzapServiceConfig,
   type ServiceConfigError,
 } from "./config.js";
+import { renderPart } from "./message-rendering.js";
 import { getOr, snapshot } from "./refs.js";
-import {
-  getMoltZapAgentServiceSocketPath,
-  getMoltZapServiceSocketPath,
-} from "./local-paths.js";
-import type { LocalDaemonHandlers } from "./local-daemon-rpc.js";
-import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
-import {
-  startLocalSocketServer,
-  stopLocalSocketServer,
-} from "./local-socket-server.js";
+import { appendClientEventTrace } from "./service-event-trace.js";
 import {
   buildContextEntries,
   type ContextCandidate,
@@ -78,19 +73,10 @@ import {
   newMessagesForConversation,
   notificationTraceRecord,
 } from "./service-helpers.js";
-import { renderPart } from "./message-rendering.js";
-import {
-  formatHistoryMessage,
-  type HistoryRequest,
-  type HistoryResponse,
-  lastReadIdsForSession,
-} from "./local-history.js";
-import { appendClientEventTrace } from "./service-event-trace.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
 const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
-const HISTORY_LOOKUP_CONCURRENCY = 2;
 const AGENT_LOOKUP_PAGE_SIZE = 100;
 const AGENT_LOOKUP_MAX_PAGES = 20;
 const decodeAgentId = Schema.decodeUnknownOption(AgentIdSchema);
@@ -119,7 +105,7 @@ const agentNotFound = (agentName: string): AgentNotFoundError =>
     data: { agentName },
   });
 
-/** Describes conversation meta. */
+/** Presentation metadata retained for a conversation visible to the endpoint. */
 export interface ConversationMeta {
   id: string;
   type: string;
@@ -127,7 +113,7 @@ export interface ConversationMeta {
   participants: string[];
 }
 
-/** Configures context. */
+/** Bounds the cross-conversation summary projected into a runtime prompt. */
 export interface ContextOptions {
   type: "cross-conversation";
   maxConversations?: number;
@@ -147,8 +133,8 @@ export interface CrossConversationEntry {
 
 /**
  * Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block.
- * @param s Value supplied to the operation.
- * @returns The sanitize for system reminder result.
+ * @param s Untrusted sender-controlled text destined for the reminder block.
+ * @returns Text whose markup delimiters cannot close or open reminder tags.
  */
 export function sanitizeForSystemReminder(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -158,10 +144,10 @@ export function sanitizeForSystemReminder(s: string): string {
  * Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
  * that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
  * share this formatter so sanitization and line shape stay in one place.
- * @param entries Value supplied to the operation.
- * @param opts Value supplied to the operation.
- * @param opts.header Value supplied to the operation.
- * @returns The format cross conversation block result.
+ * @param entries Structured updates to include in presentation order.
+ * @param opts Formatting controls for the enclosing reminder.
+ * @param opts.header Trusted explanatory text placed before the updates.
+ * @returns One escaped reminder block, or `null` when no update is present.
  */
 function formatCrossConversationBlock(
   entries: CrossConversationEntry[],
@@ -217,9 +203,8 @@ export interface CrossConvMessage {
 }
 
 /**
- * Per-conversation message cap. Older messages are evicted FIFO; the
- * on-disk history remains the source of truth. Sized for typical CLI
- * display windows — `conversations get` shows at most a few hundred.
+ * Per-conversation in-memory presentation cap. Older messages are evicted
+ * FIFO so a long-running service cannot grow without bound.
  */
 const MAX_MESSAGES_PER_CONV = 1000;
 
@@ -234,8 +219,8 @@ const DEDUP_WINDOW_PER_CONV = 1000;
 /**
  * Invoke every handler with `arg`, isolating throws so one bad handler
  * doesn't abort the remaining fanout.
- * @param handlers Value supplied to the operation.
- * @param arg Value supplied to the operation.
+ * @param handlers Independent subscribers in registration order.
+ * @param arg Decoded event value shared with each subscriber.
  */
 function fanout<T>(
   handlers: ReadonlyArray<NotificationHandler<T>>,
@@ -290,14 +275,6 @@ export class MoltZapService {
   > = Effect.runSync(
     Ref.make(HashMap.empty<string, HashMap.HashMap<string, string>>()),
   );
-  private readonly lastReadRef: Ref.Ref<
-    HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
-  > = Effect.runSync(
-    Ref.make(
-      HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
-    ),
-  );
-
   /**
    * The branded outer and inner keys keep conversation and message ids from
    * crossing accidentally while each conversation owns its eviction window.
@@ -339,17 +316,6 @@ export class MoltZapService {
     );
   }
 
-  static startDaemon(
-    profileName: string,
-  ): Effect.Effect<MoltZapService, unknown> {
-    return Effect.gen(function* () {
-      const service = yield* MoltZapService.make(profileName);
-      yield* service.connect();
-      yield* service.startSocketServer();
-      return service;
-    }).pipe(Effect.withSpan("MoltZapService.startDaemon"));
-  }
-
   get connected(): boolean {
     return this.connectedValue;
   }
@@ -360,7 +326,7 @@ export class MoltZapService {
 
   /**
    * Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`.
-   * @returns The client result.
+   * @returns The completed handshake after inbound fanout is subscribed.
    */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
@@ -433,259 +399,12 @@ export class MoltZapService {
     return Effect.suspend(() => this.beginShutdown());
   }
 
-  private beginShutdown(): Effect.Effect<void> {
-    if (this.shutdownCompletion !== null) {
-      return Deferred.await(this.shutdownCompletion);
-    }
-    const shutdownCompletion = Effect.runSync(Deferred.make<undefined>());
-    this.shutdownCompletion = shutdownCompletion;
-    this.connectedValue = false;
-    const stopSocketServer = this.stopSocketServer();
-    const scopeToClose = this.serviceScope;
-    const clientToClose = this.client;
-    this.serviceScope = null;
-    this.client = null;
-    const closeScope =
-      scopeToClose === null
-        ? Effect.void
-        : Scope.close(scopeToClose, Exit.void);
-    const closeClient =
-      clientToClose === null ? Effect.void : clientToClose.close();
-    Effect.runSync(
-      Effect.all([
-        Ref.set(this.conversationsRef, HashMap.empty()),
-        Ref.set(this.messagesRef, HashMap.empty()),
-        Ref.set(this.agentNamesRef, HashMap.empty()),
-        Ref.set(this.agentConversationCacheRef, HashMap.empty()),
-        Ref.set(this.lastNotifiedRef, HashMap.empty()),
-        Ref.set(this.lastReadRef, HashMap.empty()),
-      ]),
-    );
-    this.seenMessageIds.clear();
-    // Handlers are preserved across explicit close()/connect() cycles.
-    // MoltZapChannelCore subscribes once in its constructor; clearing handlers
-    // here would silently drop inbound dispatch after the next connect.
-    return Effect.uninterruptible(
-      Effect.all(
-        [stopSocketServer, closeScope.pipe(Effect.zipRight(closeClient))],
-        { concurrency: 2, discard: true },
-      ).pipe(
-        Effect.ensuring(
-          Deferred.succeed(shutdownCompletion, undefined).pipe(Effect.asVoid),
-        ),
-      ),
-    );
-  }
-
   /**
    * Starts service teardown for callers that use the legacy synchronous
    * lifecycle boundary.
    */
   close(): void {
     Effect.runFork(this.beginShutdown());
-  }
-
-  // --- Socket Server ---
-
-  private socketServerScope: Scope.CloseableScope | null = null;
-  private activeSocketPath: string | null = null;
-
-  /** Default socket path for CLI discovery. Per-instance path uses agentId. */
-  static readonly SOCKET_PATH = getMoltZapServiceSocketPath();
-
-  /**
-   * `agentId` is a server-assigned string. Treat it as untrusted: if a
-   * compromised or malicious server returns an id containing `..` or a
-   * path separator, a naive `path.join(... , agentId)` escapes `~/.moltzap`.
-   * Reject anything that isn't a safe identifier.
-   * @param id Value supplied to the operation.
-   * @returns The id result.
-   */
-  private static safeAgentIdSegment(id: string): string {
-    return /^[A-Za-z0-9_-]+$/.test(id) ? id : "default";
-  }
-
-  /**
-   * Per-instance socket path based on connected agentId.
-   * @returns The id result.
-   */
-  get socketPath(): string {
-    const id = MoltZapService.safeAgentIdSegment(this.ownAgentId ?? "default");
-    return getMoltZapAgentServiceSocketPath(id);
-  }
-
-  startSocketServer(): Effect.Effect<void, unknown> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const previous = this.resetSocketServerState();
-        yield* stopLocalSocketServer({
-          socketScope: previous.socketScope,
-          socketPath: previous.sockPath,
-          defaultSocketPath: MoltZapService.SOCKET_PATH,
-        });
-        const running = yield* startLocalSocketServer({
-          socketPath: this.socketPath,
-          defaultSocketPath: MoltZapService.SOCKET_PATH,
-          handlers: this.localDaemonHandlers(),
-        });
-        this.socketServerScope = running.socketScope;
-        this.activeSocketPath = running.socketPath;
-      }.bind(this),
-    ).pipe(Effect.withSpan("MoltZapService.startSocketServer"));
-  }
-
-  private resetSocketServerState(): {
-    readonly socketScope: Scope.CloseableScope | null;
-    readonly sockPath: string;
-  } {
-    const socketScope = this.socketServerScope;
-    this.socketServerScope = null;
-    const sockPath = this.activeSocketPath ?? this.socketPath;
-    this.activeSocketPath = null;
-    return { socketScope, sockPath };
-  }
-
-  private stopSocketServer(): Effect.Effect<void> {
-    const { socketScope, sockPath } = this.resetSocketServerState();
-    return stopLocalSocketServer({
-      socketScope,
-      socketPath: sockPath,
-      defaultSocketPath: MoltZapService.SOCKET_PATH,
-    }).pipe(Effect.withSpan("MoltZapService.stopSocketServer"));
-  }
-
-  private localDaemonHandlers(): LocalDaemonHandlers {
-    return makeLocalDaemonHandlers({
-      ownAgentId: this.ownAgentIdValue,
-      // A live thunk, not a snapshot: the handler table outlives connection
-      // cycles, and daemon/status must report the same liveness the MCP
-      // status tool reads.
-      connected: () => this.connectedValue,
-      conversationCount: () => this.getConversations().length,
-      call: this.call.bind(this),
-      handleHistoryRequest: (request) => this.handleHistoryRequest(request),
-    });
-  }
-
-  private handleHistoryRequest(
-    request: HistoryRequest,
-  ): Effect.Effect<HistoryResponse, ServiceRpcError> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const result = yield* this.call(messagesList.name, {
-          conversationId: request.conversationId,
-          limit: request.limit,
-        });
-        const convMeta = yield* this.loadHistorySupportData(
-          request.conversationId,
-          result.messages,
-        );
-        const agentNames = yield* Ref.get(this.agentNamesRef);
-        const lastReadMap = yield* Ref.get(this.lastReadRef);
-        const lastReadIds = lastReadIdsForSession(lastReadMap, request);
-        const messages = result.messages.map((message) =>
-          formatHistoryMessage(message, {
-            agentNames,
-            ownAgentId: this.ownAgentId,
-            lastReadIds,
-            hasSessionKey: request.sessionKey !== undefined,
-          }),
-        );
-        yield* this.advanceHistoryLastRead(request, result.messages);
-        return {
-          messages,
-          conversationMeta: convMeta,
-          newCount: messages.filter((message) => message.isNew).length,
-        };
-      }.bind(this),
-    );
-  }
-
-  private loadHistorySupportData(
-    convId: ConversationId,
-    messages: readonly Message[],
-  ) {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const [, convMeta] = yield* Effect.all(
-          [
-            this.refreshHistoryAgentNames(messages),
-            this.fetchHistoryConversationMeta(convId),
-          ],
-          {
-            concurrency: HISTORY_LOOKUP_CONCURRENCY,
-          },
-        );
-        return convMeta;
-      }.bind(this),
-    );
-  }
-
-  private refreshHistoryAgentNames(
-    messages: readonly Message[],
-  ): Effect.Effect<void> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const knownNames = yield* Ref.get(this.agentNamesRef);
-        const unknownAgentIds = [
-          ...new Set(messages.map((message) => message.senderId)),
-        ].filter((id) => !HashMap.has(knownNames, id));
-        if (unknownAgentIds.length === 0) {
-          return;
-        }
-        yield* this.cacheVisibleAgentNamesForIds(new Set(unknownAgentIds)).pipe(
-          Effect.asVoid,
-          Effect.catchAll(() => Effect.void),
-        );
-      }.bind(this),
-    );
-  }
-
-  private fetchHistoryConversationMeta(convId: ConversationId) {
-    // The client filters `ConversationList` output for the matching
-    // conversation id (there is no per-conversation get RPC).
-    return this.call(conversationList.name, {}).pipe(
-      Effect.map((result) => {
-        const hit = result.items.find(
-          (item) => item.conversation.id === convId,
-        );
-        return hit?.conversation;
-      }),
-      Effect.orElseSucceed(() => undefined),
-    );
-  }
-
-  private advanceHistoryLastRead(
-    request: HistoryRequest,
-    messages: readonly Message[],
-  ): Effect.Effect<void> {
-    if (request.sessionKey === undefined || messages.length === 0) {
-      return Effect.void;
-    }
-    const { conversationId, sessionKey } = request;
-    return Ref.update(this.lastReadRef, (outer) => {
-      const perSession = getOr(outer, sessionKey, () =>
-        HashMap.empty<string, ReadonlySet<string>>(),
-      );
-      const existing = getOr(
-        perSession,
-        conversationId,
-        () =>
-          /* Safe because the surrounding invariant establishes this asserted shape. */ new Set<string>() as ReadonlySet<string>,
-      );
-      if (messages.every((message) => existing.has(message.id))) {
-        return outer;
-      }
-      const nextSet = new Set(existing);
-      for (const message of messages) {
-        nextSet.add(message.id);
-      }
-      return HashMap.set(
-        outer,
-        sessionKey,
-        HashMap.set(perSession, conversationId, nextSet),
-      );
-    });
   }
 
   // --- Conversations ---
@@ -724,8 +443,8 @@ export class MoltZapService {
    * when the RPC errors or the server has no record. The error path logs
    * so ops can see repeated lookup failures; the empty-response path is
    * silent (a cold agent is an expected transient state).
-   * @param agentId Identifier of the agent targeted by the operation.
-   * @returns The decoded d agent id.
+   * @param agentId Registered identifier to resolve for presentation.
+   * @returns The visible agent name, falling back to the identifier.
    */
   resolveAgentName(agentId: string): Effect.Effect<string> {
     return Effect.gen(
@@ -787,9 +506,9 @@ export class MoltZapService {
    *   svc-->>caller: Effect.void
    * ```
    *
-   * @param conversationId Value supplied to the operation.
-   * @param text Text to process.
-   * @returns The send result.
+   * @param conversationId Existing conversation that receives the text part.
+   * @param text Text content to send as the sole message part.
+   * @returns Completion after the server accepts the send RPC.
    */
   send(
     conversationId: ConversationId,
@@ -807,9 +526,9 @@ export class MoltZapService {
    * Send to a named agent, minting the DM conversation on first use and
    * reusing it afterwards. The per-name cache is what makes the DM stable:
    * `agent/conversation/create` mints a fresh conversation on every call.
-   * @param agentName Name of the agent to reach.
-   * @param text Text to process.
-   * @returns The send result.
+   * @param agentName Visible registry name used to find the peer.
+   * @param text Text content to send into the cached or newly created DM.
+   * @returns Completion after conversation resolution and message acceptance.
    */
   sendToAgent(
     agentName: string,
@@ -840,78 +559,15 @@ export class MoltZapService {
     );
   }
 
-  private cacheAgentNames(agents: readonly AgentCard[]): Effect.Effect<void> {
-    if (agents.length === 0) {
-      return Effect.void;
-    }
-    return Ref.update(this.agentNamesRef, (names) => {
-      let next = names;
-      for (const agent of agents) {
-        next = HashMap.set(next, agent.id, agent.name);
-      }
-      return next;
-    });
-  }
-
-  private agentListParams(cursor?: ListCursor): ParamsOf<typeof agentsList> {
-    return cursor === undefined
-      ? { limit: AGENT_LOOKUP_PAGE_SIZE }
-      : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
-  }
-
-  private cacheVisibleAgentNamesForIds(
-    agentIds: ReadonlySet<string>,
-  ): Effect.Effect<void, ServiceRpcError> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        const missing = new Set(agentIds);
-        let cursor: ListCursor | undefined = undefined;
-        for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-          const params = this.agentListParams(cursor);
-          const result = yield* this.call(agentsList.name, params);
-          yield* this.cacheAgentNames(result.agents);
-          for (const agent of result.agents) {
-            missing.delete(agent.id);
-          }
-          if (missing.size === 0 || result.nextCursor === undefined) {
-            return;
-          }
-          cursor = result.nextCursor;
-        }
-      }.bind(this),
-    );
-  }
-
-  private findVisibleAgentByName(
-    agentName: string,
-  ): Effect.Effect<AgentCard | undefined, ServiceRpcError> {
-    return Effect.gen(
-      function* (this: MoltZapService) {
-        let cursor: ListCursor | undefined = undefined;
-        for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-          const params = this.agentListParams(cursor);
-          const result = yield* this.call(agentsList.name, params);
-          yield* this.cacheAgentNames(result.agents);
-          const hit = result.agents.find((agent) => agent.name === agentName);
-          if (hit !== undefined || result.nextCursor === undefined) {
-            return hit;
-          }
-          cursor = result.nextCursor;
-        }
-        return undefined;
-      }.bind(this),
-    );
-  }
-
   // --- Cross-Conversation Context ---
 
   /**
    * Generate a system reminder with updates from other conversations.
    * Each conversation has its own view of what's "new" — markers are tracked
    * per viewing conversation and advanced after notification.
-   * @param currentConvId Value supplied to the operation.
-   * @param opts Value supplied to the operation.
-   * @returns The context options result.
+   * @param currentConvId Conversation whose prompt receives the reminder.
+   * @param opts Optional caps for conversations and messages per summary.
+   * @returns An escaped reminder, or `null` when there are no unseen updates.
    */
   getContext(currentConvId: string, opts?: ContextOptions): string | null {
     const contextOptions = opts ?? {};
@@ -933,11 +589,11 @@ export class MoltZapService {
    * Call `commit()` on the result to mark the returned messages as seen so
    * subsequent peeks return only what's new. A caller that reads without
    * committing can re-peek idempotently.
-   * @param currentConvId Value supplied to the operation.
-   * @param opts Value supplied to the operation.
-   * @param opts.maxConversations Value supplied to the operation.
-   * @param opts.maxMessagesPerConv Value supplied to the operation.
-   * @returns The max convs result.
+   * @param currentConvId Conversation whose per-view markers are consulted.
+   * @param opts Optional presentation bounds that do not mutate stored history.
+   * @param opts.maxConversations Maximum other conversations to summarize.
+   * @param opts.maxMessagesPerConv Maximum unseen messages represented per summary.
+   * @returns Summaries plus an idempotent marker-advance callback.
    */
   peekContextEntries(
     currentConvId: string,
@@ -967,8 +623,8 @@ export class MoltZapService {
    * Return all new messages from all other conversations as full transcripts,
    * sorted chronologically. Uses the same lastNotified markers as
    * peekContextEntries. Call commit() to advance markers.
-   * @param currentConvId Value supplied to the operation.
-   * @returns The all messages result.
+   * @param currentConvId Conversation whose per-view markers are consulted.
+   * @returns Chronological unseen messages plus their marker-advance callback.
    */
   peekFullMessages(currentConvId: string): {
     messages: CrossConvMessage[];
@@ -1016,6 +672,165 @@ export class MoltZapService {
         this.advanceLastNotified(currentConvId, pendingAdvances);
       },
     };
+  }
+
+  // --- Notifications ---
+
+  on<K extends ServiceHandlerName>(
+    notification: K,
+    handler: NotificationHandler<ServiceHandlerPayloads[K]>,
+  ): void {
+    this.handlers[notification].push(handler);
+  }
+
+  // --- RPC passthrough ---
+
+  /**
+   * Outbound RPC, typed per method — delegates to the agent client's typed
+   * `call`. `call("agent/identity/agents/list", payload)` recovers the result and that
+   * method's tagged-error union; an app-only method does not typecheck.
+   * @param tag Agent-callable RPC method tag that selects payload and result types.
+   * @param payload Schema-compatible parameters for the selected method.
+   * @param opts Transport timeout and cancellation controls.
+   * @returns The typed server result or the service's closed transport errors.
+   */
+  call<Tag extends AgentCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AgentCallableRpcs, Tag>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, ServiceRpcError> {
+    return Effect.suspend(() => {
+      const client = this.client;
+      if (!client) {
+        return Effect.fail(new NotConnectedError({ message: "Not connected" }));
+      }
+      return client.call(tag, payload, opts);
+    });
+  }
+
+  callDefinition<D extends AnyAgentCallableRpcDefinition>(
+    definition: D,
+    payload: ClientDefinitionPayload<D>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<ClientDefinitionSuccess<D>, ServiceRpcError> {
+    return Effect.suspend(() => {
+      const client = this.client;
+      if (!client) {
+        return Effect.fail(new NotConnectedError({ message: "Not connected" }));
+      }
+      return client.callDefinition(definition, payload, opts);
+    });
+  }
+
+  // --- Internals ---
+
+  protected handleNotification(notification: ClientNotificationDelivery): void {
+    this.recordNotificationTrace(notification);
+    fanout(this.handlers.rawNotification, notification);
+    this.dispatchTypedNotification(notification);
+  }
+
+  private beginShutdown(): Effect.Effect<void> {
+    if (this.shutdownCompletion !== null) {
+      return Deferred.await(this.shutdownCompletion);
+    }
+    const shutdownCompletion = Effect.runSync(Deferred.make<undefined>());
+    this.shutdownCompletion = shutdownCompletion;
+    this.connectedValue = false;
+    const scopeToClose = this.serviceScope;
+    const clientToClose = this.client;
+    this.serviceScope = null;
+    this.client = null;
+    const closeScope =
+      scopeToClose === null
+        ? Effect.void
+        : Scope.close(scopeToClose, Exit.void);
+    const closeClient =
+      clientToClose === null ? Effect.void : clientToClose.close();
+    Effect.runSync(
+      Effect.all([
+        Ref.set(this.conversationsRef, HashMap.empty()),
+        Ref.set(this.messagesRef, HashMap.empty()),
+        Ref.set(this.agentNamesRef, HashMap.empty()),
+        Ref.set(this.agentConversationCacheRef, HashMap.empty()),
+        Ref.set(this.lastNotifiedRef, HashMap.empty()),
+      ]),
+    );
+    this.seenMessageIds.clear();
+    // Handlers are preserved across explicit close()/connect() cycles.
+    // MoltZapChannelCore subscribes once in its constructor; clearing handlers
+    // here would silently drop inbound dispatch after the next connect.
+    return Effect.uninterruptible(
+      closeScope.pipe(
+        Effect.zipRight(closeClient),
+        Effect.ensuring(
+          Deferred.succeed(shutdownCompletion, undefined).pipe(Effect.asVoid),
+        ),
+      ),
+    );
+  }
+
+  private cacheVisibleAgentNamesForIds(
+    agentIds: ReadonlySet<string>,
+  ): Effect.Effect<void, ServiceRpcError> {
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        const missing = new Set(agentIds);
+        let cursor: ListCursor | undefined = undefined;
+        for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
+          const params = this.agentListParams(cursor);
+          const result = yield* this.call(agentsList.name, params);
+          yield* this.cacheAgentNames(result.agents);
+          for (const agent of result.agents) {
+            missing.delete(agent.id);
+          }
+          if (missing.size === 0 || result.nextCursor === undefined) {
+            return;
+          }
+          cursor = result.nextCursor;
+        }
+      }.bind(this),
+    );
+  }
+
+  private findVisibleAgentByName(
+    agentName: string,
+  ): Effect.Effect<AgentCard | undefined, ServiceRpcError> {
+    return Effect.gen(
+      function* (this: MoltZapService) {
+        let cursor: ListCursor | undefined = undefined;
+        for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
+          const params = this.agentListParams(cursor);
+          const result = yield* this.call(agentsList.name, params);
+          yield* this.cacheAgentNames(result.agents);
+          const hit = result.agents.find((agent) => agent.name === agentName);
+          if (hit !== undefined || result.nextCursor === undefined) {
+            return hit;
+          }
+          cursor = result.nextCursor;
+        }
+        return undefined;
+      }.bind(this),
+    );
+  }
+
+  private agentListParams(cursor?: ListCursor): ParamsOf<typeof agentsList> {
+    return cursor === undefined
+      ? { limit: AGENT_LOOKUP_PAGE_SIZE }
+      : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
+  }
+
+  private cacheAgentNames(agents: readonly AgentCard[]): Effect.Effect<void> {
+    if (agents.length === 0) {
+      return Effect.void;
+    }
+    return Ref.update(this.agentNamesRef, (names) => {
+      let next = names;
+      for (const agent of agents) {
+        next = HashMap.set(next, agent.id, agent.name);
+      }
+      return next;
+    });
   }
 
   private readCrossConvState(currentConvId: string): CrossConvState {
@@ -1084,62 +899,6 @@ export class MoltZapService {
     );
   }
 
-  // --- Notifications ---
-
-  on<K extends ServiceHandlerName>(
-    notification: K,
-    handler: NotificationHandler<ServiceHandlerPayloads[K]>,
-  ): void {
-    this.handlers[notification].push(handler);
-  }
-
-  // --- RPC passthrough ---
-
-  /**
-   * Outbound RPC, typed per method — delegates to the agent client's typed
-   * `call`. `call("agent/identity/agents/list", payload)` recovers the result and that
-   * method's tagged-error union; an app-only method does not typecheck.
-   * @param tag Value supplied to the operation.
-   * @param payload Value supplied to the operation.
-   * @param opts Value supplied to the operation.
-   * @returns The client result.
-   */
-  call<Tag extends AgentCallableTag>(
-    tag: Tag,
-    payload: PayloadForTag<AgentCallableRpcs, Tag>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, ServiceRpcError> {
-    return Effect.suspend(() => {
-      const client = this.client;
-      if (!client) {
-        return Effect.fail(new NotConnectedError({ message: "Not connected" }));
-      }
-      return client.call(tag, payload, opts);
-    });
-  }
-
-  callDefinition<D extends AnyAgentCallableRpcDefinition>(
-    definition: D,
-    payload: ClientDefinitionPayload<D>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<ClientDefinitionSuccess<D>, ServiceRpcError> {
-    return Effect.suspend(() => {
-      const client = this.client;
-      if (!client) {
-        return Effect.fail(new NotConnectedError({ message: "Not connected" }));
-      }
-      return client.callDefinition(definition, payload, opts);
-    });
-  }
-
-  // --- Internals ---
-
-  protected handleNotification(notification: ClientNotificationDelivery): void {
-    this.recordNotificationTrace(notification);
-    fanout(this.handlers.rawNotification, notification);
-    this.dispatchTypedNotification(notification);
-  }
-
   private recordNotificationTrace(
     notification: ClientNotificationDelivery,
   ): void {
@@ -1189,39 +948,6 @@ export class MoltZapService {
     return false;
   }
 
-  /**
-   * Record `messageId` in the per-conversation dedup window. Returns
-   * `true` when the id is new (caller proceeds), `false` when the id is
-   * a duplicate within the window (caller drops). On a new id, evicts
-   * the oldest entry if the window is full.
-   *
-   * Bound to the live `agent/message/received` notification path: a single
-   * server-side broadcast that surfaces the same id twice (network
-   * replay, dual subscription) is suppressed to one
-   * `on("message", ...)` event. `agent/message/list` returns raw history
-   * unfiltered; consumers that combine both feeds dedup themselves.
-   * @param convId Value supplied to the operation.
-   * @param msgId Value supplied to the operation.
-   * @returns The dedup window result.
-   */
-  private recordMessageIdIfNew(
-    convId: ConversationId,
-    msgId: MessageId,
-  ): boolean {
-    let dedupWindow = this.seenMessageIds.get(convId);
-    if (dedupWindow === undefined) {
-      dedupWindow = new BoundedMap<MessageId, true>(DEDUP_WINDOW_PER_CONV);
-      this.seenMessageIds.set(convId, dedupWindow);
-    }
-    if (dedupWindow.has(msgId)) {
-      // Replays retain their original FIFO age so repeated delivery cannot
-      // keep an old id resident forever.
-      return false;
-    }
-    dedupWindow.set(msgId, true);
-    return true;
-  }
-
   private handleMessageReceivedNotification(
     notification: MessageReceivedNotification,
   ): void {
@@ -1239,6 +965,39 @@ export class MoltZapService {
     if (msg.senderId !== this.ownAgentIdValue) {
       fanout(this.handlers.message, { message: msg });
     }
+  }
+
+  /**
+   * Record `messageId` in the per-conversation dedup window. Returns
+   * `true` when the id is new (caller proceeds), `false` when the id is
+   * a duplicate within the window (caller drops). On a new id, evicts
+   * the oldest entry if the window is full.
+   *
+   * Bound to the live `agent/message/received` notification path: a single
+   * server-side broadcast that surfaces the same id twice (network
+   * replay, dual subscription) is suppressed to one
+   * `on("message", ...)` event. `agent/message/list` returns raw history
+   * unfiltered; consumers that combine both feeds dedup themselves.
+   * @param convId Conversation whose independent dedup window owns the id.
+   * @param msgId Message identity to admit or suppress.
+   * @returns Whether this id is new within the bounded conversation window.
+   */
+  private recordMessageIdIfNew(
+    convId: ConversationId,
+    msgId: MessageId,
+  ): boolean {
+    let dedupWindow = this.seenMessageIds.get(convId);
+    if (dedupWindow === undefined) {
+      dedupWindow = new BoundedMap<MessageId, true>(DEDUP_WINDOW_PER_CONV);
+      this.seenMessageIds.set(convId, dedupWindow);
+    }
+    if (dedupWindow.has(msgId)) {
+      // Replays retain their original FIFO age so repeated delivery cannot
+      // keep an old id resident forever.
+      return false;
+    }
+    dedupWindow.set(msgId, true);
+    return true;
   }
 
   private handleConversationCreatedNotification(

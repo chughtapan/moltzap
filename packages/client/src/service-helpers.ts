@@ -1,6 +1,11 @@
+/**
+ * @file Pure transformations that derive cross-conversation summaries and
+ * diagnostic trace records from endpoint-local state.
+ */
+
+import type { Message } from "@moltzap/protocol/message";
 import type { NotificationDelivery } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import type { Message } from "@moltzap/protocol/message";
 import { HashMap, Option } from "effect";
 import type { ConversationMeta, CrossConversationEntry } from "./service.js";
 import { renderPart } from "./message-rendering.js";
@@ -8,7 +13,7 @@ import { getOr } from "./refs.js";
 
 const MILLISECONDS_PER_MINUTE = 60_000;
 
-/** Describes cross conv state. */
+/** Immutable state snapshot used to derive another conversation's context. */
 export interface CrossConvState {
   readonly messagesMap: HashMap.HashMap<string, readonly Message[]>;
   readonly conversationsMap: HashMap.HashMap<string, ConversationMeta>;
@@ -16,7 +21,7 @@ export interface CrossConvState {
   readonly viewMarkers: HashMap.HashMap<string, string>;
 }
 
-/** Describes context candidate. */
+/** Nonempty conversation update ranked by the timestamp of its newest turn. */
 export interface ContextCandidate {
   readonly convId: string;
   readonly newMsgs: readonly Message[];
@@ -28,35 +33,14 @@ interface BuiltContextEntries {
   readonly pendingAdvances: ReadonlyArray<readonly [string, string]>;
 }
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const recordOrEmpty = (value: unknown): Record<string, unknown> =>
-  isPlainRecord(value) ? value : {};
-
-const recordProperty = (
-  record: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> | undefined => {
-  const value = record[key];
-  return isPlainRecord(value) ? value : undefined;
-};
-
-const stringProperty = (
-  record: Record<string, unknown>,
-  key: string,
-): string | undefined => {
-  const value = record[key];
-  return typeof value === "string" ? value : undefined;
-};
-
 /**
- * Creates messages for conversation.
- * @param convId Value supplied to the operation.
- * @param messages Value supplied to the operation.
- * @param viewMarkers Value supplied to the operation.
- * @param currentConvId Value supplied to the operation.
- * @returns The new messages for conversation result.
+ * Selects messages newer than a viewer's marker while excluding the
+ * conversation the viewer is already reading.
+ * @param convId Conversation that owns the candidate messages.
+ * @param messages Stored messages in their presentation order.
+ * @param viewMarkers Last-seen message ids keyed by conversation.
+ * @param currentConvId Conversation whose prompt is being assembled.
+ * @returns The unseen suffix, or an empty list for the current conversation.
  */
 export function newMessagesForConversation(
   convId: string,
@@ -76,10 +60,10 @@ export function newMessagesForConversation(
 }
 
 /**
- * Creates context candidate.
- * @param convId Value supplied to the operation.
- * @param newMsgs Value supplied to the operation.
- * @returns The created context candidate.
+ * Captures the timestamp used to rank one nonempty unseen-message suffix.
+ * @param convId Conversation that owns the unseen messages.
+ * @param newMsgs Nonempty unseen suffix established by the caller.
+ * @returns A candidate ordered by its newest message timestamp.
  */
 export function makeContextCandidate(
   convId: string,
@@ -96,13 +80,61 @@ export function makeContextCandidate(
   };
 }
 
-function minutesSince(timestamp: string): number {
-  return Math.max(
-    0,
-    Math.round(
-      (Date.now() - new Date(timestamp).getTime()) / MILLISECONDS_PER_MINUTE,
+/**
+ * Projects ranked candidates into summaries and the marker updates that a
+ * caller may commit after presenting them.
+ * @param candidates Ranked, nonempty unseen-message groups.
+ * @param state Endpoint-local names and conversation metadata.
+ * @param maxMessagesPerConv Maximum messages represented by each summary.
+ * @returns Presentation entries paired with their deferred marker advances.
+ */
+export function buildContextEntries(
+  candidates: readonly ContextCandidate[],
+  state: CrossConvState,
+  maxMessagesPerConv: number,
+): BuiltContextEntries {
+  const entries: CrossConversationEntry[] = [];
+  const pendingAdvances: Array<readonly [string, string]> = [];
+  for (const candidate of candidates) {
+    const { entry, advance } = contextEntryForCandidate(
+      candidate,
+      state,
+      maxMessagesPerConv,
+    );
+    entries.push(entry);
+    pendingAdvances.push(advance);
+  }
+  return { entries, pendingAdvances };
+}
+
+/**
+ * Reduces a decoded notification to non-sensitive correlation fields suitable
+ * for best-effort diagnostics.
+ * @param notification Descriptor-tagged notification already decoded at the boundary.
+ * @param agentId Identifier of the agent targeted by the operation.
+ * @returns A timestamped record containing only available correlation fields.
+ */
+export function notificationTraceRecord(
+  notification: NotificationDelivery<AnyNotificationDefinition>,
+  agentId?: string,
+): Record<string, unknown> {
+  const params = recordOrEmpty(notification.params);
+  const message = recordProperty(params, "message");
+  const conversation = recordProperty(params, "conversation");
+  const notificationConversationId = stringProperty(params, "conversationId");
+  return {
+    ts: new Date().toISOString(),
+    agentId: agentId ?? "unknown",
+    notification: notification.method,
+    messageId: message?.id,
+    messageConversationId: message?.conversationId,
+    messageSenderId: message?.senderId,
+    conversationId: traceConversationId(
+      conversation,
+      notificationConversationId,
     ),
-  );
+    conversationName: conversation?.name,
+  };
 }
 
 function contextEntryForCandidate(
@@ -138,63 +170,42 @@ function contextEntryForCandidate(
   };
 }
 
-/**
- * Creates context entries.
- * @param candidates Value supplied to the operation.
- * @param state Value supplied to the operation.
- * @param maxMessagesPerConv Value supplied to the operation.
- * @returns The created context entries.
- */
-export function buildContextEntries(
-  candidates: readonly ContextCandidate[],
-  state: CrossConvState,
-  maxMessagesPerConv: number,
-): BuiltContextEntries {
-  const entries: CrossConversationEntry[] = [];
-  const pendingAdvances: Array<readonly [string, string]> = [];
-  for (const candidate of candidates) {
-    const { entry, advance } = contextEntryForCandidate(
-      candidate,
-      state,
-      maxMessagesPerConv,
-    );
-    entries.push(entry);
-    pendingAdvances.push(advance);
-  }
-  return { entries, pendingAdvances };
+function minutesSince(timestamp: string): number {
+  return Math.max(
+    0,
+    Math.round(
+      (Date.now() - new Date(timestamp).getTime()) / MILLISECONDS_PER_MINUTE,
+    ),
+  );
 }
 
-const traceConversationId = (
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return isPlainRecord(value) ? value : {};
+}
+
+function recordProperty(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = record[key];
+  return isPlainRecord(value) ? value : undefined;
+}
+
+function stringProperty(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function traceConversationId(
   conversation?: Record<string, unknown>,
   fallback?: string,
-): unknown =>
-  conversation === undefined ? fallback : (conversation.id ?? fallback);
+): unknown {
+  return conversation === undefined ? fallback : (conversation.id ?? fallback);
+}
 
-/**
- * Executes the notification trace record operation.
- * @param notification Value supplied to the operation.
- * @param agentId Identifier of the agent targeted by the operation.
- * @returns The notification trace record result.
- */
-export function notificationTraceRecord(
-  notification: NotificationDelivery<AnyNotificationDefinition>,
-  agentId?: string,
-): Record<string, unknown> {
-  const params = recordOrEmpty(notification.params);
-  const message = recordProperty(params, "message");
-  const conversation = recordProperty(params, "conversation");
-  const notificationConversationId = stringProperty(params, "conversationId");
-  return {
-    ts: new Date().toISOString(),
-    agentId: agentId ?? "unknown",
-    notification: notification.method,
-    messageId: message?.id,
-    messageConversationId: message?.conversationId,
-    messageSenderId: message?.senderId,
-    conversationId: traceConversationId(
-      conversation,
-      notificationConversationId,
-    ),
-    conversationName: conversation?.name,
-  };
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

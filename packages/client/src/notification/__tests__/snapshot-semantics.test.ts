@@ -1,7 +1,6 @@
-/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests -- vitest + Effect.gen + Stream.runForEach nest by construction; these properties are scenario-shaped (snapshot semantics + lifecycle); generative coverage lives in filter-equivalence.test.ts */
-
 /**
- * Snapshot-semantics property test for `subscribe` Stream cancellation.
+ * @file Pins snapshot delivery and cancellation semantics for notification
+ * streams across dispatch, unregister, and terminal client closure.
  *
  * `SubscriberRegistry.dispatch` iterates a snapshot of the subscriber list,
  * so registrations and unregistrations that happen during a dispatch do not
@@ -39,7 +38,15 @@
  * `Deferred` so the dispatch fiber parks at a known point in the handler,
  * independent of any timer.
  */
-import { describe, expect, it } from "vitest";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
+import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import {
+  makeNotificationSubscriberRegistry,
+  NotConnectedError,
+  type NotificationDelivery,
+  type NotificationParamsOf,
+} from "@moltzap/protocol/rpc";
 import {
   Cause,
   Deferred,
@@ -50,21 +57,15 @@ import {
   Ref,
   Stream,
 } from "effect";
-import {
-  NotConnectedError,
-  makeNotificationSubscriberRegistry,
-  type NotificationDelivery,
-  type NotificationParamsOf,
-} from "@moltzap/protocol/rpc";
-import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
+import { describe, expect, it } from "vitest";
 import {
   buildMessage,
   testAgentId,
   testConversationId,
 } from "../../test-utils/index.js";
 import { subscribe, subscribeAll } from "../stream.js";
+
+/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests -- vitest + Effect.gen + Stream.runForEach nest by construction; these properties are scenario-shaped (snapshot semantics + lifecycle); generative coverage lives in filter-equivalence.test.ts */
 
 const PROP_TEST_FRAME_COUNT = 6;
 const PROP_TEST_CANCEL_AT = 3;

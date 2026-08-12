@@ -1,22 +1,22 @@
 /**
- * Golden-snapshot tests for `formatCrossConv`.
+ * @file Golden-fixture coverage for cross-conversation channel framing.
  *
  * Each case asserts byte-equality between the channel-base output and the
  * fixture captured by `scripts/test/capture-channel-base-fixtures.ts`. Both markup
  * variants are covered, plus the formatter-callback escape hatch.
  */
 
+import * as fc from "fast-check";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import type { CrossConvMessage } from "../../service.js";
 import {
-  formatCrossConv,
   type CrossConvFormatter,
   type CrossConvMarkup,
+  formatCrossConv,
 } from "../../channel-base/format-cross-conv.js";
-import type { CrossConvMessage } from "../../service.js";
 
 const FIXTURES_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -40,17 +40,6 @@ const MARKUPS: readonly CrossConvMarkup[] = [
   "json-header",
   "xml-system-reminder",
 ];
-
-function bobMessage(): CrossConvMessage {
-  return {
-    conversationId: GROUP_CONV_ID,
-    conversationName: GROUP_NAME,
-    senderName: PEER_NAME,
-    senderId: PEER_ID,
-    text: "Let's target Alice.",
-    timestamp: TS_1,
-  };
-}
 
 function aliceMessage(): CrossConvMessage {
   return {
@@ -93,13 +82,6 @@ const CASES: ReadonlyArray<{
   { name: "own-agent", messages: [bobMessage(), selfMessage()] },
   { name: "sender-lookup-none", messages: [senderLookupNoneMessage()] },
 ];
-
-function fixtureFor(caseName: string, markup: CrossConvMarkup): string {
-  return readFileSync(
-    resolve(FIXTURES_DIR, `format-cross-conv-${caseName}.${markup}.md`),
-    "utf8",
-  );
-}
 
 describe("formatCrossConv — markup variants byte-identical to pre-refactor", () => {
   it(
@@ -181,4 +163,22 @@ function returnsNullForEmptyEvenWithFormatter(): void {
   expect(
     formatCrossConv([], { ownAgentId: OWN_AGENT_ID, formatter }),
   ).toBeNull();
+}
+
+function bobMessage(): CrossConvMessage {
+  return {
+    conversationId: GROUP_CONV_ID,
+    conversationName: GROUP_NAME,
+    senderName: PEER_NAME,
+    senderId: PEER_ID,
+    text: "Let's target Alice.",
+    timestamp: TS_1,
+  };
+}
+
+function fixtureFor(caseName: string, markup: CrossConvMarkup): string {
+  return readFileSync(
+    resolve(FIXTURES_DIR, `format-cross-conv-${caseName}.${markup}.md`),
+    "utf8",
+  );
 }

@@ -1,3 +1,5 @@
+/** @file Verifies the public registration request and its typed failure path. */
+
 import {
   HttpRouter,
   HttpServer,
@@ -6,10 +8,10 @@ import {
 } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
+import { agentKeyString } from "@moltzap/protocol/testing";
 import { Effect, Exit, Ref } from "effect";
 import { describe, expect } from "vitest";
 import { registerAgent } from "./auth.js";
-import { agentKeyString } from "@moltzap/protocol/testing";
 
 const it = effectIt.scoped;
 

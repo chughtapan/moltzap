@@ -1,11 +1,10 @@
 /**
- * Type canaries for the public notification subscription signatures.
+ * @file Pins the public notification subscription signatures as type-level
+ * canaries for payload narrowing, failures, and Effect requirements.
  *
  * Runtime behavior is covered by `filter-equivalence.test.ts` and
- * `snapshot-semantics.test.ts`; this file pins payload narrowing, error
- * channels, and the absence of leaked Effect requirements.
+ * `snapshot-semantics.test.ts`.
  */
-import { type Effect, Stream } from "effect";
 import type {
   NotConnectedError,
   NotificationDelivery,
@@ -14,6 +13,7 @@ import type {
 } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { type Effect, Stream } from "effect";
 import { subscribe, type subscribeAll } from "../stream.js";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;

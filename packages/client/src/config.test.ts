@@ -1,13 +1,15 @@
+/** @file Verifies profile loading and canonical server URL derivation. */
+
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
-import { Effect, Exit, Redacted, Schema } from "effect";
 import { agentId as agentIdSchema, agentKey } from "@moltzap/protocol/identity";
 import {
   agentId,
   agentKeyString,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
+import { Effect, Exit, Redacted, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { getHttpUrl, loadServiceConfig } from "./config.js";
 

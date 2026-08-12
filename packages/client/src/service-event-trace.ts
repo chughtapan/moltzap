@@ -9,21 +9,6 @@ const clientEventLogDir = Config.option(
 );
 
 /**
- * Resolve the configured trace directory while preserving empty-as-disabled.
- * @param configProvider Source used to resolve the environment-backed config.
- * @returns A nonempty configured directory, or `undefined` when disabled.
- */
-export function getClientEventLogDir(
-  configProvider?: ConfigProvider.ConfigProvider,
-): string | undefined {
-  const provider = configProvider ?? ConfigProvider.fromEnv();
-  const directory = Option.getOrUndefined(
-    Effect.runSync(clientEventLogDir.pipe(Effect.withConfigProvider(provider))),
-  );
-  return directory === "" ? undefined : directory;
-}
-
-/**
  * Append one client event trace when trace persistence is configured.
  * @param record Structured event fields to persist.
  * @returns A best-effort write Effect that logs and absorbs storage failures.
@@ -56,5 +41,20 @@ export function appendClientEventTrace(
       Effect.logWarning("moltzap client event trace write failed", error),
     ),
   );
+}
+
+/**
+ * Resolve the configured trace directory while preserving empty-as-disabled.
+ * @param configProvider Source used to resolve the environment-backed config.
+ * @returns A nonempty configured directory, or `undefined` when disabled.
+ */
+export function getClientEventLogDir(
+  configProvider?: ConfigProvider.ConfigProvider,
+): string | undefined {
+  const provider = configProvider ?? ConfigProvider.fromEnv();
+  const directory = Option.getOrUndefined(
+    Effect.runSync(clientEventLogDir.pipe(Effect.withConfigProvider(provider))),
+  );
+  return directory === "" ? undefined : directory;
 }
 // safer-arch-ignore no-trivial-sink-file: Event-trace lifecycle is isolated to keep the public service implementation within the normative function and file-size limits.

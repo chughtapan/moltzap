@@ -1,3 +1,7 @@
+/**
+ * @file Connects black-box test agents through the public registration and
+ * authenticated WebSocket boundaries.
+ */
 import { Cause, Effect } from "effect";
 import { MoltZapAgentClient } from "../agent-client.js";
 import { registerAgent, type RegisterResponse } from "../auth.js";
@@ -13,7 +17,7 @@ export interface HarnessAgentClient {
   readonly sendRpc: MoltZapAgentClient["callDefinition"];
 }
 
-/** Describes connected harness agent. */
+/** Registration material paired with its authenticated test client. */
 export interface ConnectedHarnessAgent extends RegisterResponse {
   readonly client: HarnessAgentClient;
 }
@@ -22,9 +26,9 @@ export interface ConnectedHarnessAgent extends RegisterResponse {
  * Registers an agent through the public HTTP boundary, then opens and
  * authenticates its WS client; the client derives its `/ws` endpoint from
  * the HTTP base itself.
- * @param baseUrl Value supplied to the operation.
- * @param name Name of the operation.
- * @returns The register and connect result.
+ * @param baseUrl HTTP origin used for registration and socket discovery.
+ * @param name Display name assigned to the registered test agent.
+ * @returns Registration material and the connected client capability.
  */
 export function registerAndConnect(
   baseUrl: string,

@@ -1,24 +1,26 @@
-import { beforeEach, expect, it, vi } from "vitest";
+/** @file Verifies channel lifecycle, enrichment, and handler delivery. */
+
 import { Deferred, Effect, Fiber, Option } from "effect";
+import { beforeEach, expect, it, vi } from "vitest";
 
 import {
+  agent,
   ALICE_CACHED_NAME,
   ALICE_RESOLVED_NAME,
-  CAPTION_TEXT,
-  MULTILINE_TEXT,
-  TestInboundHandlerError,
-  agent,
   buildMessage,
+  CAPTION_TEXT,
+  type ChannelCoreFixture,
   conversation,
   createChannelCoreFixture,
   customSetup,
   effectTest,
+  type EnrichedInboundMessage,
   flushDispatchChainEffect,
   forceResolveAgentNamePath,
   message,
-  type ChannelCoreFixture,
-  type EnrichedInboundMessage,
   type Message,
+  MULTILINE_TEXT,
+  TestInboundHandlerError,
 } from "./channel-core-test-support.js";
 
 let fake: ChannelCoreFixture["fake"];

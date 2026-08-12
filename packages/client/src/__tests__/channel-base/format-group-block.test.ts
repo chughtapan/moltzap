@@ -1,23 +1,23 @@
 /**
- * Golden-snapshot tests for `formatGroupBlock` + `getGroupFields`.
+ * @file Golden-fixture coverage for group metadata narrowing and framing.
  *
  * The absent case asserts `getGroupFields(meta) === null`; the non-null check
  * is the gate. For group meta, both markup variants are asserted byte-identical
  * to the fixtures captured by `scripts/test/capture-channel-base-fixtures.ts`.
  */
 
+import * as fc from "fast-check";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import type { CrossConvMarkup } from "../../channel-base/format-cross-conv.js";
+import type { EnrichedConversationMeta } from "../../channel-core.js";
 import {
   formatGroupBlock,
   getGroupFields,
   type GroupFormatter,
 } from "../../channel-base/format-group-block.js";
-import type { CrossConvMarkup } from "../../channel-base/format-cross-conv.js";
-import type { EnrichedConversationMeta } from "../../channel-core.js";
 
 const FIXTURES_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -51,13 +51,6 @@ const DM_META: EnrichedConversationMeta = {
   type: "dm",
   participants: [PEER_ID, OWN_AGENT_ID],
 };
-
-function fixtureFor(caseName: string, markup: CrossConvMarkup): string {
-  return readFileSync(
-    resolve(FIXTURES_DIR, `format-group-block-${caseName}.${markup}.md`),
-    "utf8",
-  );
-}
 
 describe("getGroupFields", () => {
   it(
@@ -183,5 +176,12 @@ function delegatesToFormatter(): void {
     `${CUSTOM_FORMATTER_OUTPUT}:${f.participants.length}`;
   expect(formatGroupBlock(fields, { formatter })).toBe(
     `${CUSTOM_FORMATTER_OUTPUT}:3`,
+  );
+}
+
+function fixtureFor(caseName: string, markup: CrossConvMarkup): string {
+  return readFileSync(
+    resolve(FIXTURES_DIR, `format-group-block-${caseName}.${markup}.md`),
+    "utf8",
   );
 }

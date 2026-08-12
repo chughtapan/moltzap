@@ -1,15 +1,18 @@
-/* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP client lifecycle is Promise-native and is converted to Effect at this private adapter edge. */
+/**
+ * @file Adapts the official MCP client lifecycle into a scoped Effect stream
+ * of reply-capable daemon turns.
+ */
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   Client,
   fromJsonSchema,
-  StreamableHTTPClientTransport,
   type JsonSchemaType,
   type McpSubscription,
+  StreamableHTTPClientTransport,
   type SubscriptionFilter,
 } from "@modelcontextprotocol/client";
-import { Effect, Queue, Stream, Take, type Scope } from "effect";
+import { Effect, Queue, type Scope, Stream, Take } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
-import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   decodeHarnessTurnEvent,
   HARNESS_EVENTS_EXTENSION,
@@ -20,6 +23,8 @@ import {
   harnessTurnConversationId,
   type HarnessTurnEvent,
 } from "./runtime.js";
+
+/* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP client lifecycle is Promise-native and is converted to Effect at this private adapter edge. */
 
 interface HarnessClientInternalOptions {
   readonly url: string;

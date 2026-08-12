@@ -1,5 +1,6 @@
 /**
- * Tagged errors for the notification consumption surface.
+ * @file Defines closed tagged failures for notification consumers and records
+ * the terminal condition that ends an otherwise empty stream.
  *
  * `Data.TaggedError` classes do NOT compose via class inheritance —
  * extending one tagged class from another produces broken `_tag`

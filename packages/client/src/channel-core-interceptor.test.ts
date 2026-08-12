@@ -1,26 +1,28 @@
 /**
- * Endpoint-side inbound interception in `MoltZapChannelCore`: the gate runs
+ * @file Exercises endpoint-side interception of coalesced channel turns.
+ *
+ * The gate runs
  * once per coalesced turn between enrichment and the handler, a drop suppresses
  * only that turn, suspending inside the gate holds the whole drain because one
  * consumer fiber owns it, and a broken gate fails open.
  */
 
-import { expect, it, vi, type MockInstance } from "vitest";
 import { Effect, type Scope } from "effect";
+import { expect, it, type MockInstance, vi } from "vitest";
 
 import {
-  FIRST_TEXT,
-  SECOND_TEXT,
   buildMessage,
   createFakeChannelService,
   effectTest,
-  flushDispatchChainEffect,
-  message,
-  MoltZapChannelCore,
   type EnrichedInboundMessage,
   type FakeChannelService,
+  FIRST_TEXT,
+  flushDispatchChainEffect,
   type InboundInterceptDecision,
+  message,
   type Message,
+  MoltZapChannelCore,
+  SECOND_TEXT,
 } from "./channel-core-test-support.js";
 
 const CONV_1 = "conv-1";
@@ -36,11 +38,6 @@ interface InterceptedCore {
   readonly core: MoltZapChannelCore;
   readonly seen: string[];
   readonly delivered: EnrichedInboundMessage[];
-}
-
-function setDmConversation(fake: FakeChannelService, convId: string): void {
-  fake.state.setConversation(convId, { type: "dm", participants: [] });
-  fake.state.setAgentName("agent-alice", "Alice");
 }
 
 function emitText(
@@ -86,6 +83,11 @@ function interceptedCore(
     }),
   );
   return { fake, core, seen, delivered };
+}
+
+function setDmConversation(fake: FakeChannelService, convId: string): void {
+  fake.state.setConversation(convId, { type: "dm", participants: [] });
+  fake.state.setAgentName("agent-alice", "Alice");
 }
 
 function dropsTurnAndKeepsDraining() {

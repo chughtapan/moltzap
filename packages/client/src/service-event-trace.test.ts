@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+/** @file Configuration tests for opt-in client event trace persistence. */
+
 import { ConfigProvider } from "effect";
+import { describe, expect, it } from "vitest";
 import { getClientEventLogDir } from "./service-event-trace.js";
 
 const EVENT_LOG_DIRECTORY_KEY = "MOLTZAP_CLIENT_EVENT_LOG_DIR";

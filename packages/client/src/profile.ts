@@ -1,14 +1,15 @@
 /**
- * Profile layer over `~/.moltzap/config.json`.
+ * @file Read-only transitional profile decoding over
+ * `~/.moltzap/config.json`.
  *
  * Named profiles live under a top-level `profiles` key. There is no singleton
  * credential fallback; every persisted identity is selected by profile name.
  */
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { Data, Effect, Either, Schema } from "effect";
 import { agentId, agentKey } from "@moltzap/protocol/identity";
-import { getMoltZapConfigDir, getMoltZapConfigPath } from "./local-paths.js";
+import { Data, Effect, Either, Schema } from "effect";
+import { getMoltZapConfigPath } from "./local-paths.js";
 
 // ─── Branded names ─────────────────────────────────────────────────────────
 
@@ -16,22 +17,19 @@ const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 const PROFILE_NAME_REASON =
   "must be 3-32 chars, lowercase alphanumeric and hyphens, cannot start or end with a hyphen";
 
-const CONFIG_FILE_MODE = 0o600;
-const JSON_INDENT_SPACES = 2;
-const getConfigDir = getMoltZapConfigDir;
 const getConfigFilePathSync = getMoltZapConfigPath;
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 
 // ─── Records ───────────────────────────────────────────────────────────────
 
 /** Validates and decodes profile name values. */
-export const profileName = Schema.String.pipe(
+const profileName = Schema.String.pipe(
   Schema.pattern(NAME_PATTERN),
   Schema.brand("ProfileName"),
 );
 
 /**
- * Branded profile name shared by profile lookup and CLI registration.
+ * Branded profile name used by transitional service configuration lookup.
  */
 export type ProfileName = Schema.Schema.Type<typeof profileName>;
 
@@ -42,7 +40,7 @@ const profileRecordSchema = Schema.Struct({
 });
 
 /** One profile's persisted auth record. */
-export type ProfileRecord = Schema.Schema.Type<typeof profileRecordSchema>;
+type ProfileRecord = Schema.Schema.Type<typeof profileRecordSchema>;
 
 const profileMapSchema = Schema.Record({
   key: profileName,
@@ -53,9 +51,7 @@ const profileFileSchema = Schema.Struct({
   profiles: Schema.optional(profileMapSchema),
 });
 type ProfileFile = Schema.Schema.Type<typeof profileFileSchema>;
-const profileFileTextSchema = Schema.parseJson(profileFileSchema, {
-  space: JSON_INDENT_SPACES,
-});
+const profileFileTextSchema = Schema.parseJson(profileFileSchema);
 
 /** Named profile view of config.json. */
 export interface LayeredConfig {
@@ -63,13 +59,6 @@ export interface LayeredConfig {
 }
 
 // ─── Errors ────────────────────────────────────────────────────────────────
-
-/** Exhaustive error union for the profile surface. */
-export type ProfileError =
-  | ProfileNotFoundError
-  | ProfileInvalidNameError
-  | ProfileConfigReadError
-  | ProfileConfigWriteError;
 
 /** Reports profile not found failures. */
 export class ProfileNotFoundError extends Data.TaggedError(
@@ -94,20 +83,12 @@ export class ProfileConfigReadError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-/** Reports profile config write failures. */
-export class ProfileConfigWriteError extends Data.TaggedError(
-  "ProfileConfigWriteError",
-)<{
-  readonly path: string;
-  readonly cause: unknown;
-}> {}
-
 // ─── Public API ────────────────────────────────────────────────────────────
 
 /**
  * Parse and brand a raw profile name. Rejects the empty string and any
  * string that fails NAME_PATTERN.
- * @param raw Value supplied to the operation.
+ * @param raw Untrusted profile label supplied by configuration or a caller.
  * @returns The decoded profile name.
  */
 export const parseProfileName = (
@@ -170,17 +151,16 @@ const decodeProfileFileText = (
   );
 
 const readProfileFile = (): Effect.Effect<
-  { file: ProfileFile; existed: boolean },
+  ProfileFile,
   ProfileConfigReadError
 > =>
   Effect.gen(function* () {
     const configPath = getConfigFilePathSync();
     const text = yield* readProfileFileText(configPath);
     if (text === null) {
-      return { file: {}, existed: false };
+      return {};
     }
-    const file = yield* decodeProfileFileText(configPath, text);
-    return { file, existed: true };
+    return yield* decodeProfileFileText(configPath, text);
   });
 
 function profilesFromFile(file: ProfileFile): Map<ProfileName, ProfileRecord> {
@@ -203,125 +183,8 @@ export const loadLayeredConfig: Effect.Effect<
   LayeredConfig,
   ProfileConfigReadError
 > = Effect.gen(function* () {
-  const { file } = yield* readProfileFile();
+  const file = yield* readProfileFile();
   return {
     profiles: profilesFromFile(file),
   };
 }).pipe(Effect.withSpan("loadLayeredConfig"));
-
-/**
- * Resolve a named profile record. CLI transport selection uses only
- * `agentId`; daemon startup consumes the redacted `apiKey`.
- * @param name Name of the operation.
- * @returns The next profile file result.
- */
-export const resolveProfileRecord = (
-  name: ProfileName,
-): Effect.Effect<
-  ProfileRecord,
-  ProfileNotFoundError | ProfileConfigReadError
-> =>
-  Effect.gen(function* () {
-    const layered = yield* loadLayeredConfig;
-    const found = layered.profiles.get(name);
-    if (found === undefined) {
-      return yield* new ProfileNotFoundError({ name });
-    }
-    return found;
-  }).pipe(Effect.withSpan("resolveProfileRecord"));
-
-function nextProfileFile(
-  file: ProfileFile,
-  name: ProfileName,
-  record: ProfileRecord,
-): ProfileFile {
-  return {
-    profiles: {
-      ...file.profiles,
-      [name]: record,
-    },
-  };
-}
-
-const encodeProfileFileText = (
-  configPath: string,
-  file: ProfileFile,
-): Effect.Effect<string, ProfileConfigWriteError> =>
-  Schema.encode(
-    profileFileTextSchema,
-    STRICT_PARSE_OPTIONS,
-  )(file).pipe(
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: (cause) =>
-          Effect.fail(new ProfileConfigWriteError({ path: configPath, cause })),
-        onRight: Effect.succeed,
-      }),
-    ),
-  );
-
-const writeProfileFile = (
-  next: ProfileFile,
-): Effect.Effect<void, ProfileConfigWriteError> => {
-  const configDir = getConfigDir();
-  const configPath = getConfigFilePathSync();
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) =>
-      encodeProfileFileText(configPath, next).pipe(
-        Effect.flatMap((text) =>
-          fileSystem.makeDirectory(configDir, { recursive: true }).pipe(
-            Effect.zipRight(
-              fileSystem.writeFileString(configPath, `${text}\n`, {
-                mode: CONFIG_FILE_MODE,
-              }),
-            ),
-          ),
-        ),
-      ),
-    ),
-    Effect.provide(NodeFileSystem.layer),
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: (cause) =>
-          Effect.fail(new ProfileConfigWriteError({ path: configPath, cause })),
-        onRight: (value) => Effect.succeed(value),
-      }),
-    ),
-  );
-};
-
-/**
- * Persist a new profile record under `profiles.&lt;name>`.
- * @param name Name of the operation.
- * @param record Value supplied to the operation.
- * @returns The write profile result.
- */
-export const writeProfile = (
-  name: ProfileName,
-  record: ProfileRecord,
-): Effect.Effect<void, ProfileConfigWriteError | ProfileConfigReadError> =>
-  Effect.gen(function* () {
-    const { file } = yield* readProfileFile();
-    yield* writeProfileFile(nextProfileFile(file, name, record));
-  }).pipe(Effect.withSpan("writeProfile"));
-
-/**
- * `--no-persist` contract for `moltzap register`: no file under
- * `$HOME/.moltzap/` is created or modified. Returns the record so the caller
- * can print it; does no I/O under that tree.
- *
- * The register command invokes either `writeProfile` (default) or
- * `emitNoPersist` (when the flag is set). The register handler never calls
- * both paths on the same invocation.
- *
- * The register command pipes the returned record through the printer,
- * which writes non-secret registration details to stdout.
- * @param record Value supplied to the operation.
- * @returns The emit no persist result.
- */
-export const emitNoPersist = (
-  record: ProfileRecord,
-): Effect.Effect<{ readonly record: ProfileRecord }> =>
-  Effect.succeed({ record });

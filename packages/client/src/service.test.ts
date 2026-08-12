@@ -1,11 +1,18 @@
+/**
+ * @file Behavioral tests for endpoint teardown, typed RPC delegation,
+ * notification deduplication, and in-memory context views.
+ */
+
 import { it as effectIt } from "@effect/vitest";
-import { describe, expect, it } from "vitest";
-import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
+import { agentName, agentsList } from "@moltzap/protocol/identity";
 import {
   type Message,
   messageReceivedNotificationDefinition,
   messagesSend,
 } from "@moltzap/protocol/message";
+import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
+import { describe, expect, it } from "vitest";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 import {
@@ -14,9 +21,6 @@ import {
   testConversationId,
   testMessageId,
 } from "./test-utils/index.js";
-
-import { agentName, agentsList } from "@moltzap/protocol/identity";
-import { agentConversationCreate } from "@moltzap/protocol/conversation";
 
 const effectTest = effectIt.effect;
 
@@ -114,18 +118,6 @@ const conversationCreateResponse = (
 
 const contextHeader = (conversationId: string): string =>
   `Recent updates (you are in conv:${conversationId}):`;
-
-function seedMessageSendResponse(service: FakeMoltZapService): void {
-  service.setResponse(messagesSend, {
-    message: buildMessage({
-      id: MESSAGE_ONE_ID,
-      conversationId: CONVERSATION_ALICE_ID,
-      senderId: AGENT_SELF_ID,
-      parts: [{ type: "text", text: PLACEHOLDER_TEXT }],
-      createdAt: DEFAULT_TEST_DATE,
-    }),
-  });
-}
 
 function shutdownMutatesStateOnlyWhenItsEffectRuns() {
   return Effect.gen(function* () {
@@ -227,24 +219,6 @@ describe("MoltZapService.send", () => {
     sendCarriesOnlyTheConversationAndParts,
   );
 });
-
-function seedAgentLookup(
-  service: FakeMoltZapService,
-  id = AGENT_ALICE_ID,
-  name = SEND_TO_AGENT_NAME,
-): void {
-  service.setResponse(agentsList, {
-    agents: [{ id, name, status: "active" }],
-  });
-}
-
-function makeSendToAgentService(): FakeMoltZapService {
-  const service = new FakeMoltZapService();
-  seedAgentLookup(service);
-  service.setResponse(agentConversationCreate, conversationCreateResponse());
-  seedMessageSendResponse(service);
-  return service;
-}
 
 function sendToAgentCreatesConversation() {
   return Effect.gen(function* () {
@@ -383,6 +357,36 @@ function sendToAgentSendFailurePropagates() {
   });
 }
 
+function makeSendToAgentService(): FakeMoltZapService {
+  const service = new FakeMoltZapService();
+  seedAgentLookup(service);
+  service.setResponse(agentConversationCreate, conversationCreateResponse());
+  seedMessageSendResponse(service);
+  return service;
+}
+
+function seedAgentLookup(
+  service: FakeMoltZapService,
+  id = AGENT_ALICE_ID,
+  name = SEND_TO_AGENT_NAME,
+): void {
+  service.setResponse(agentsList, {
+    agents: [{ id, name, status: "active" }],
+  });
+}
+
+function seedMessageSendResponse(service: FakeMoltZapService): void {
+  service.setResponse(messagesSend, {
+    message: buildMessage({
+      id: MESSAGE_ONE_ID,
+      conversationId: CONVERSATION_ALICE_ID,
+      senderId: AGENT_SELF_ID,
+      parts: [{ type: "text", text: PLACEHOLDER_TEXT }],
+      createdAt: DEFAULT_TEST_DATE,
+    }),
+  });
+}
+
 describe("MoltZapService.sendToAgent core flow", () => {
   effectTest(
     "resolves agent name, creates a DM, and sends the message on first call",
@@ -482,24 +486,6 @@ describe("sanitizeForSystemReminder containment", () => {
   );
 });
 
-function contextMessage(
-  overrides: Parameters<typeof buildMessage>[0],
-): Message {
-  return buildMessage({
-    id: MESSAGE_ONE_ID,
-    conversationId: CONVERSATION_OTHER_ID,
-    senderId: AGENT_ATTACKER,
-    parts: [{ type: "text", text: HELLO_TEXT }],
-    createdAt: new Date().toISOString(),
-    ...overrides,
-  });
-}
-
-function expectSingleSystemReminderBlock(context: string): void {
-  expect(context.match(/<system-reminder>/g)).toHaveLength(1);
-  expect(context.match(/<\/system-reminder>/g)).toHaveLength(1);
-}
-
 function contextEscapesSenderNameInjection() {
   const service = new FakeMoltZapService();
   service.setAgentNameDirect(
@@ -596,6 +582,24 @@ function contextTruncatesLongText() {
   );
 }
 
+function contextMessage(
+  overrides: Parameters<typeof buildMessage>[0],
+): Message {
+  return buildMessage({
+    id: MESSAGE_ONE_ID,
+    conversationId: CONVERSATION_OTHER_ID,
+    senderId: AGENT_ATTACKER,
+    parts: [{ type: "text", text: HELLO_TEXT }],
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  });
+}
+
+function expectSingleSystemReminderBlock(context: string): void {
+  expect(context.match(/<system-reminder>/g)).toHaveLength(1);
+  expect(context.match(/<\/system-reminder>/g)).toHaveLength(1);
+}
+
 describe("MoltZapService.getContext XML injection hardening", () => {
   it(
     "escapes senderName with </system-reminder> injection attempt",
@@ -616,31 +620,6 @@ describe("MoltZapService.getContext formatting", () => {
 
   it("truncates text longer than 120 chars", contextTruncatesLongText);
 });
-
-function addSimpleMessage(
-  service: FakeMoltZapService,
-  convId: string,
-  seq: number,
-  text = HI_TEXT,
-): void {
-  service.addMessage(
-    convId,
-    buildMessage({
-      id: `m-${seq}`,
-      conversationId: convId,
-      senderId: AGENT_BOB,
-      parts: [{ type: "text", text }],
-      createdAt: new Date().toISOString(),
-    }),
-  );
-}
-
-function makeContextEntryService(): FakeMoltZapService {
-  const service = new FakeMoltZapService();
-  service.setAgentNameDirect(AGENT_BOB, BOB_DISPLAY_NAME);
-  addSimpleMessage(service, CONVERSATION_OTHER_ID, MESSAGE_TIMESTAMP_MS);
-  return service;
-}
 
 function peekContextReturnsStructuredEntries() {
   const service = makeContextEntryService();
@@ -752,6 +731,31 @@ function peekContextReturnsOnlyNewMessageAfterCommit() {
   expect(second.entries[0]?.text).toBe(SECOND_TEXT);
 }
 
+function makeContextEntryService(): FakeMoltZapService {
+  const service = new FakeMoltZapService();
+  service.setAgentNameDirect(AGENT_BOB, BOB_DISPLAY_NAME);
+  addSimpleMessage(service, CONVERSATION_OTHER_ID, MESSAGE_TIMESTAMP_MS);
+  return service;
+}
+
+function addSimpleMessage(
+  service: FakeMoltZapService,
+  convId: string,
+  seq: number,
+  text = HI_TEXT,
+): void {
+  service.addMessage(
+    convId,
+    buildMessage({
+      id: `m-${seq}`,
+      conversationId: convId,
+      senderId: AGENT_BOB,
+      parts: [{ type: "text", text }],
+      createdAt: new Date().toISOString(),
+    }),
+  );
+}
+
 describe("MoltZapService.peekContextEntries entries", () => {
   it(
     "returns structured entries without advancing markers",
@@ -810,23 +814,6 @@ interface FullMessageInput {
   readonly senderId: string;
   readonly text: string;
   readonly createdAt: string;
-}
-
-function addFullMessage(
-  service: FakeMoltZapService,
-  input: FullMessageInput,
-): void {
-  const { conversationId, id, senderId, text, createdAt } = input;
-  service.addMessage(
-    conversationId,
-    buildMessage({
-      id,
-      conversationId,
-      senderId,
-      parts: [{ type: "text", text }],
-      createdAt,
-    }),
-  );
 }
 
 function fullMessagesAreSortedByTimestamp() {
@@ -980,6 +967,23 @@ function fullMessagesKeepStoredHistory() {
   }
   const { messages } = service.peekFullMessages(CONVERSATION_SELF_ID);
   expect(messages).toHaveLength(STORED_MESSAGE_COUNT);
+}
+
+function addFullMessage(
+  service: FakeMoltZapService,
+  input: FullMessageInput,
+): void {
+  const { conversationId, id, senderId, text, createdAt } = input;
+  service.addMessage(
+    conversationId,
+    buildMessage({
+      id,
+      conversationId,
+      senderId,
+      parts: [{ type: "text", text }],
+      createdAt,
+    }),
+  );
 }
 
 describe("MoltZapService.peekFullMessages ordering", () => {

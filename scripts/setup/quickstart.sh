@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# MoltZap local quickstart.
+# Retiring v1 server seed helper for programmatic examples.
 #
 # Installs deps, builds the workspace, starts the server, registers three
-# agents (alice, bob, orchestrator) via the HTTP endpoint, writes
-# .moltzap/config.json profiles for the CLI, and writes .moltzap/agents.env
-# so programmatic examples can source the ids/keys.
+# agents (alice, bob, orchestrator) through the server's HTTP endpoint, and
+# writes .moltzap/agents.env so programmatic examples can source their ids and
+# keys. This script does not configure the Client daemon or define its pending
+# registration, recovery, or launcher interface.
 #
 # Usage:
 #   ./scripts/setup/quickstart.sh
 #
-# Re-run anytime. Idempotent: kills any previous server it started (PID
-# file at .moltzap/server.pid) and re-registers the agents.
+# Re-running stops the previous server recorded in .moltzap/server.pid before
+# starting another. Registration requires unused agent names; remove the local
+# fixture state when you need a fresh set.
 
 set -euo pipefail
 
@@ -20,11 +22,9 @@ SERVER_URL="http://localhost:${PORT}"
 WS_URL="ws://localhost:${PORT}"
 STATE_DIR=".moltzap"
 ENV_FILE="${STATE_DIR}/agents.env"
-PROFILE_CONFIG_FILE="${STATE_DIR}/config.json"
 LOG_FILE="${STATE_DIR}/server.log"
 PID_FILE="${STATE_DIR}/server.pid"
 CONFIG_FILE="moltzap.yaml"
-CONFIG_HOME="$(pwd)/${STATE_DIR}"
 
 # Colors
 GREEN='\033[0;32m'
@@ -164,35 +164,10 @@ register orchestrator "Example app orchestrator"
 ORCH_ID="$ID"; ORCH_KEY="$KEY"
 
 # ── Write the env file ────────────────────────────────────────────
-info "writing $PROFILE_CONFIG_FILE"
-cat > "$PROFILE_CONFIG_FILE" <<EOF
-{
-  "profiles": {
-    "alice": {
-      "agentId": "${ALICE_ID}",
-      "apiKey": "${ALICE_KEY}",
-      "agentName": "alice"
-    },
-    "bob": {
-      "agentId": "${BOB_ID}",
-      "apiKey": "${BOB_KEY}",
-      "agentName": "bob"
-    },
-    "orchestrator": {
-      "agentId": "${ORCH_ID}",
-      "apiKey": "${ORCH_KEY}",
-      "agentName": "orchestrator"
-    }
-  }
-}
-EOF
-chmod 600 "$PROFILE_CONFIG_FILE"
-
 info "writing $ENV_FILE"
 cat > "$ENV_FILE" <<EOF
 # Written by scripts/setup/quickstart.sh — do not edit by hand; re-run to refresh.
 export MOLTZAP_SERVER_URL="${WS_URL}"
-export MOLTZAP_CONFIG_HOME="${CONFIG_HOME}"
 
 # Seed agents
 export MOLTZAP_ALICE_KEY="${ALICE_KEY}"
@@ -213,11 +188,9 @@ info "done. server is running at $SERVER_URL (pid $SERVER_PID)"
 echo
 echo "next steps:"
 echo "  source ${ENV_FILE}"
-echo "  # Start an agent runtime/channel daemon for the profile you want to drive,"
-echo "  # then use --profile to route CLI commands through that local daemon:"
-echo "  node packages/client/dist/cli/index.js --profile alice status"
-echo "  # Phase 7 cutover dropped the bundled mountains-or-beaches example;"
-echo "  # the canonical app reference reactivates with Phase 9 / Phase 14."
+echo "  # Use the exported ids and keys only with programmatic v1 server examples."
+echo "  # The Client cutover exposes MCP or an injected HarnessClient, not a"
+echo "  # profile-selected CLI or local socket transport."
 echo
 echo "to stop the server:"
 echo "  kill \$(cat ${PID_FILE})"

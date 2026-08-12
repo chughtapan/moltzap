@@ -1,20 +1,22 @@
-import { it as effectIt } from "@effect/vitest";
-import { describe, expect } from "vitest";
-import { Effect, Schema } from "effect";
+/** @file Pins complete pagination and repeated-cursor termination behavior. */
 
-const it = effectIt.effect;
+import type { ClientDefinitionSuccess } from "@moltzap/protocol/socket";
+import { it as effectIt } from "@effect/vitest";
 import {
   agentId,
   agentName as agentNameSchema,
   agentsList,
 } from "@moltzap/protocol/identity";
 import { listCursorSchema } from "@moltzap/protocol/rpc";
-import type { ClientDefinitionSuccess } from "@moltzap/protocol/socket";
+import { Effect, Schema } from "effect";
+import { describe, expect } from "vitest";
 import {
   drainPaginatedList,
   NonAdvancingCursorError,
   type SendRpcFn,
 } from "./pagination.js";
+
+const it = effectIt.effect;
 
 // The drainer is wire-generic; we exercise it through `agent/identity/agents/list`
 // because its result is the `{ agents: T[], nextCursor? }` shape the

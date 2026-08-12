@@ -1,9 +1,15 @@
-/* eslint-disable agent-code-guard/acquire-release-requires-scope, agent-code-guard/no-process-env-at-runtime, agent-code-guard/prefer-effect-platform -- Test-only helper scopes process.env and temp config files around one Effect. */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+/**
+ * @file Scopes environment and profile fixtures around Client configuration
+ * tests.
+ */
+
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import { Effect, Redacted } from "effect";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"; // eslint-disable-line agent-code-guard/prefer-effect-platform -- The acquire callback builds and removes its synchronous fixture before exposing the Effect under test.
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Redacted } from "effect";
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+
+/* eslint-disable agent-code-guard/acquire-release-requires-scope, agent-code-guard/no-process-env-at-runtime -- Test-only helper scopes process.env and temp config files around one Effect. */
 
 interface TestServiceConfig {
   readonly agentId: AgentId;
@@ -18,10 +24,11 @@ const ENV_CONFIG_HOME = "MOLTZAP_CONFIG_HOME";
 const CONFIG_FILE_NAME = "config.json";
 
 /**
- * Executes the with test service config operation.
- * @param config Documentation generation configuration.
- * @param effect Effect to execute.
- * @returns The with test service config result.
+ * Installs a temporary server address and, when named, a profile file for the
+ * lifetime of one Effect, then restores the caller's environment.
+ * @param config Endpoint values exposed to the Effect under test.
+ * @param effect Effect that reads the scoped configuration.
+ * @returns The original Effect with fixture acquisition and cleanup attached.
  */
 export function withTestServiceConfig<A, E, R>(
   config: TestServiceConfig,
@@ -75,4 +82,4 @@ function restoreEnv(key: string, value?: string): void {
   }
 }
 
-/* eslint-enable agent-code-guard/acquire-release-requires-scope, agent-code-guard/no-process-env-at-runtime, agent-code-guard/prefer-effect-platform -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. */
+/* eslint-enable agent-code-guard/acquire-release-requires-scope, agent-code-guard/no-process-env-at-runtime -- Restore strict defaults after the scoped exception. */

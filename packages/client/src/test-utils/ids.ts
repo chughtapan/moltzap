@@ -1,5 +1,9 @@
-import type { AgentId } from "@moltzap/protocol/identity";
+/**
+ * @file Derives stable protocol identifiers from human-readable test labels
+ * so fixtures stay deterministic without sharing mutable counters.
+ */
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { AgentId } from "@moltzap/protocol/identity";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 
 const UUID_RE =
@@ -18,6 +22,44 @@ const UUID_VERSION_END = UUID_SECOND_END + UUID_GROUP.length;
 const UUID_VARIANT_TAIL_START = UUID_VERSION_END + "0".length;
 const UUID_VARIANT_END = UUID_VERSION_END + UUID_GROUP.length;
 const UUID_TAIL_END = HEX_WORD.length * UUID_GROUP.length;
+
+/**
+ * Derives a stable test agent identifier from a readable fixture label.
+ * @param label Fixture-local label or an already valid UUID.
+ * @returns A branded agent identifier suitable for protocol fixtures.
+ */
+export const testAgentId = (label: string): AgentId =>
+  agentId(uuidFor("agent", label));
+
+/**
+ * Derives a stable test conversation identifier from a readable fixture label.
+ * @param label Fixture-local label or an already valid UUID.
+ * @returns A branded conversation identifier suitable for protocol fixtures.
+ */
+export const testConversationId = (label: string): ConversationId =>
+  conversationId(uuidFor("conversation", label));
+
+/**
+ * Derives a stable test message identifier from a readable fixture label.
+ * @param label Fixture-local label or an already valid UUID.
+ * @returns A branded message identifier suitable for protocol fixtures.
+ */
+export const testMessageId = (label: string): MessageId =>
+  messageId(uuidFor("message", label));
+
+function uuidFor(namespace: string, label: string): string {
+  if (UUID_RE.test(label)) {
+    return label;
+  }
+  const h = hex32(`${namespace}:${label}`);
+  return [
+    h.slice(0, UUID_FIRST_END),
+    h.slice(UUID_FIRST_END, UUID_SECOND_END),
+    `4${h.slice(UUID_VERSION_TAIL_START, UUID_VERSION_END)}`,
+    `8${h.slice(UUID_VARIANT_TAIL_START, UUID_VARIANT_END)}`,
+    h.slice(UUID_VARIANT_END, UUID_TAIL_END),
+  ].join("-");
+}
 
 function hex32(input: string): string {
   let h1 = FNV_OFFSET_BASIS;
@@ -39,41 +81,3 @@ function hex32(input: string): string {
     .map((p) => (p >>> 0).toString(HEX_RADIX).padStart(HEX_WORD_WIDTH, "0"))
     .join("");
 }
-
-function uuidFor(namespace: string, label: string): string {
-  if (UUID_RE.test(label)) {
-    return label;
-  }
-  const h = hex32(`${namespace}:${label}`);
-  return [
-    h.slice(0, UUID_FIRST_END),
-    h.slice(UUID_FIRST_END, UUID_SECOND_END),
-    `4${h.slice(UUID_VERSION_TAIL_START, UUID_VERSION_END)}`,
-    `8${h.slice(UUID_VARIANT_TAIL_START, UUID_VARIANT_END)}`,
-    h.slice(UUID_VARIANT_END, UUID_TAIL_END),
-  ].join("-");
-}
-
-/**
- * Provides the test agent id runtime value.
- * @param label Value supplied to the operation.
- * @returns The test agent id result.
- */
-export const testAgentId = (label: string): AgentId =>
-  agentId(uuidFor("agent", label));
-
-/**
- * Provides the test conversation id runtime value.
- * @param label Value supplied to the operation.
- * @returns The test conversation id result.
- */
-export const testConversationId = (label: string): ConversationId =>
-  conversationId(uuidFor("conversation", label));
-
-/**
- * Provides the test message id runtime value.
- * @param label Value supplied to the operation.
- * @returns The test message id result.
- */
-export const testMessageId = (label: string): MessageId =>
-  messageId(uuidFor("message", label));

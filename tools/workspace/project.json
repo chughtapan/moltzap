@@ -23,12 +23,6 @@
     },
     "docs:generate": {
       "cache": true,
-      "dependsOn": [
-        {
-          "target": "build",
-          "projects": "@moltzap/client"
-        }
-      ],
       "inputs": [
         "docsGeneration"
       ],
@@ -45,7 +39,6 @@
           "pnpm --filter @moltzap/protocol docs:generate",
           "pnpm exec typedoc",
           "pnpm exec tsx scripts/docs/generate-modules.ts",
-          "pnpm --filter @moltzap/client exec tsx scripts/generate-cli-docs.ts",
           "pnpm exec tsx scripts/docs/generate-constants-snippets.ts"
         ]
       }

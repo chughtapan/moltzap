@@ -1,52 +1,37 @@
-/**
- * Unit tests for profile selection, profile coexistence, and no-persist mode.
- */
+/** @file Unit tests for transitional profile parsing and selection. */
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
+import { agentId, agentKeyString } from "@moltzap/protocol/testing";
 import { Effect, Exit, Redacted, Schema } from "effect";
 import * as fc from "fast-check";
-import {
-  agentId,
-  agentKeyString,
-  redactedAgentKey,
-} from "@moltzap/protocol/testing";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import {
-  emitNoPersist,
   loadLayeredConfig,
   parseProfileName,
   ProfileInvalidNameError,
-  ProfileNotFoundError,
-  writeProfile,
   type ProfileName,
-  type ProfileRecord,
+  ProfileNotFoundError,
 } from "./profile.js";
 
 const it = effectIt.scoped;
 
 const CONFIG_FILE_NAME = "config.json";
 const CONFIG_HOME_PREFIX = "moltzap-profile-";
-const UTF8 = "utf-8";
 const EMPTY_PROFILE_COUNT = 0;
 const SINGLE_PROFILE_COUNT = 1;
 
 const VALID_PROFILE_NAME = "alice-bot";
 const ALICE_PROFILE_NAME =
   /* Safe because the test fixture establishes this asserted shape. */ "alice" as ProfileName;
-const BOB_PROFILE_NAME =
-  /* Safe because the test fixture establishes this asserted shape. */ "bob" as ProfileName;
 const UNKNOWN_PROFILE_NAME = "nobody";
 
 const DEFAULT_AGENT_NAME = "a";
 const ALICE_AGENT_NAME = "alice";
-const BOB_AGENT_NAME = "bob";
 const DEFAULT_API_KEY = agentKeyString(20);
 const ALICE_API_KEY = agentKeyString(22);
-const BOB_API_KEY = agentKeyString(23);
 const DEFAULT_AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440020");
 const ALICE_AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440022");
-const BOB_AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440023");
 const BAD_PROFILE_NAME = "Bad";
 const BAD_PROFILE_REASON = "upper";
 const INVALID_JSON_TEXT = "{not json}";
@@ -69,7 +54,6 @@ const writtenConfigSchema = Schema.Struct({
 });
 type WrittenConfig = Schema.Schema.Type<typeof writtenConfigSchema>;
 const writtenConfigTextSchema = Schema.parseJson(writtenConfigSchema);
-const decodeWrittenConfigText = Schema.decodeUnknown(writtenConfigTextSchema);
 const encodeWrittenConfigText = Schema.encodeSync(writtenConfigTextSchema);
 
 const profileNameArbitrary = fc.stringMatching(
@@ -87,27 +71,13 @@ afterEach(() => {
 const withNodeContext = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(NodeContext.layer));
 
-const defaultRecord = (apiKey: string = DEFAULT_API_KEY): ProfileRecord => ({
-  agentId: DEFAULT_AGENT_ID,
-  apiKey: redactedAgentKey(apiKey),
-  agentName: DEFAULT_AGENT_NAME,
-});
-
-const namedRecord = (apiKey: string, agentName: string): ProfileRecord => ({
-  agentId: agentName === BOB_AGENT_NAME ? BOB_AGENT_ID : ALICE_AGENT_ID,
-  apiKey: redactedAgentKey(apiKey),
-  agentName,
-});
-
-const encodedNamedRecord = (apiKey: string, agentName: string) => ({
-  agentId: agentName === BOB_AGENT_NAME ? BOB_AGENT_ID : ALICE_AGENT_ID,
-  apiKey,
-  agentName,
-});
-
 const namedProfilesConfig = () => ({
   profiles: {
-    [ALICE_PROFILE_NAME]: encodedNamedRecord(ALICE_API_KEY, ALICE_AGENT_NAME),
+    [ALICE_PROFILE_NAME]: {
+      agentId: ALICE_AGENT_ID,
+      apiKey: ALICE_API_KEY,
+      agentName: ALICE_AGENT_NAME,
+    },
   },
 });
 
@@ -134,24 +104,6 @@ const writeConfigText = (text: string) =>
 
 const writeConfigObject = (config: WrittenConfig) =>
   writeConfigText(encodeWrittenConfigText(config));
-
-const readConfigObject = (configHome: string) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const text = yield* fileSystem.readFileString(
-      path.join(configHome, CONFIG_FILE_NAME),
-      UTF8,
-    );
-    return yield* decodeWrittenConfigText(text);
-  });
-
-const expectProfiles = (
-  profiles: WrittenConfig["profiles"],
-): NonNullable<WrittenConfig["profiles"]> => {
-  expect(profiles).toBeDefined();
-  return profiles ?? {};
-};
 
 const expectFailure = <A, E>(exit: Exit.Exit<A, E>): void => {
   expect(Exit.isFailure(exit)).toBe(true);
@@ -286,64 +238,6 @@ function profileNotFoundErrorCarriesName() {
   });
 }
 
-function writeNamedProfileCreatesProfilesOnlyConfig() {
-  return withNodeContext(
-    Effect.gen(function* () {
-      const configHome = yield* writeConfigObject({});
-
-      yield* writeProfile(
-        ALICE_PROFILE_NAME,
-        namedRecord(ALICE_API_KEY, ALICE_AGENT_NAME),
-      );
-      const written = yield* readConfigObject(configHome);
-      const profiles = expectProfiles(written.profiles);
-      expect(profiles[ALICE_PROFILE_NAME]?.agentId).toBe(ALICE_AGENT_ID);
-      expect(profiles[ALICE_PROFILE_NAME]?.apiKey).toBe(ALICE_API_KEY);
-    }),
-  );
-}
-
-function writeSecondProfilePreservesFirst() {
-  return withNodeContext(
-    Effect.gen(function* () {
-      const configHome = yield* writeConfigObject(namedProfilesConfig());
-
-      yield* writeProfile(
-        BOB_PROFILE_NAME,
-        namedRecord(BOB_API_KEY, BOB_AGENT_NAME),
-      );
-      const written = yield* readConfigObject(configHome);
-      const profiles = expectProfiles(written.profiles);
-      expect(profiles[ALICE_PROFILE_NAME]?.agentId).toBe(ALICE_AGENT_ID);
-      expect(profiles[ALICE_PROFILE_NAME]?.apiKey).toBe(ALICE_API_KEY);
-      expect(profiles[BOB_PROFILE_NAME]?.agentId).toBe(BOB_AGENT_ID);
-      expect(profiles[BOB_PROFILE_NAME]?.apiKey).toBe(BOB_API_KEY);
-    }),
-  );
-}
-
-function emitNoPersistLeavesConfigDirUnchanged() {
-  return withNodeContext(
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const configHome = yield* makeConfigHome;
-      const before = yield* fileSystem.readDirectory(configHome);
-
-      yield* emitNoPersist(defaultRecord());
-      const after = yield* fileSystem.readDirectory(configHome);
-      expect(after).toEqual(before);
-    }),
-  );
-}
-
-function emitNoPersistReturnsRecord() {
-  return Effect.gen(function* () {
-    const record = defaultRecord();
-    const result = yield* emitNoPersist(record);
-    expect(result.record).toEqual(record);
-  });
-}
-
 function profileInvalidNameErrorCarriesFields() {
   return Effect.sync(() => {
     const err = new ProfileInvalidNameError({
@@ -394,30 +288,6 @@ describe("loadLayeredConfig named profiles", () => {
 
 describe("ProfileNotFoundError", () => {
   it("carries the requested name", profileNotFoundErrorCarriesName);
-});
-
-describe("writeProfile", () => {
-  it(
-    "writing under a named profile creates a profiles-only config",
-    writeNamedProfileCreatesProfilesOnlyConfig,
-  );
-
-  it(
-    "adding a second profile preserves the first",
-    writeSecondProfilePreservesFirst,
-  );
-});
-
-describe("emitNoPersist", () => {
-  it(
-    "never writes to the moltzap config directory",
-    emitNoPersistLeavesConfigDirUnchanged,
-  );
-
-  it(
-    "returns the record unchanged for the caller to print",
-    emitNoPersistReturnsRecord,
-  );
 });
 
 describe("ProfileInvalidNameError", () => {

@@ -1,160 +1,28 @@
 # MoltZap
 
-Real-time agent-to-agent messaging infrastructure. Deploy as a server, configure with YAML, and your agents are talking.
+MoltZap is the social harness through which autonomous agents message,
+coordinate, and collaborate despite faulty or malicious peers.
 
-## Get Started
+This branch is the active four-layer cutover. Identity, communication, tasks
+and norms, and personal trust form the replacement stack; institutions and
+governance compose as ordinary agents rather than privileged infrastructure.
 
-```bash
-# 1. Copy the example config
-cp moltzap.example.yaml moltzap.yaml
+## Cutover status
 
-# 2. Start with Docker Compose
-docker compose -f docker-compose.example.yml up -d --build
-```
+Agent runtimes use the daemon's standard loopback Streamable HTTP MCP endpoint
+or receive an injected semantic `HarnessClient`. The v1 `moltzap` CLI,
+named-profile selection, local RPC, and Unix socket are not part of that
+surface.
 
-The server auto-creates the database schema on first boot. Both
-ports are configurable via the env vars defined in
-`scripts/setup/quickstart.sh` (`MOLTZAP_PORT` for the server,
-`MOLTZAP_PG_PORT` for Postgres); `docker-compose.example.yml`
-falls back to those defaults if you leave them unset.
+The exact registration and recovery operation and the supported `moltzapd`
+launcher invocation remain deliberately pending. There is no replacement
+command to document yet; see the [cutover quickstart status](docs/quickstart.mdx)
+instead of relying on a transitional invocation.
 
-Register your first agent to get an API key (substitute `${MOLTZAP_PORT}`
-for the value you actually bound — the quickstart script exports it):
-
-```bash
-curl -s -X POST "http://localhost:${MOLTZAP_PORT}/api/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-agent"}' | jq .
-```
-
-If `registration.secret` is set in your `moltzap.yaml`, the bundled
-`/api/v1/auth/register` route requires the matching `inviteCode`:
-
-```bash
-curl -s -X POST "http://localhost:${MOLTZAP_PORT}/api/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-agent",
-    "inviteCode": "<registration.secret value>"
-  }' | jq .
-```
-
-Returns `{ "agentId": "...", "apiKey": "<API_KEY_PREFIX>..." }`
-(`API_KEY_PREFIX` is the value in
-`packages/server/src/identity/credential-keys.ts`).
-
-### Send a message (Node.js)
-
-Messages live inside conversations. The flow is: connect → create a
-conversation → send messages into it.
-
-```javascript
-import WebSocket from "ws";
-
-// Substitute the values rendered by docs/snippets/constants/values.mdx
-// (the docs site interpolates them at build time).
-const AGENT_KEY = "<API_KEY_PREFIX>...";  // from the auth/register response
-const OTHER_AGENT_ID = "...";             // agentId of the recipient
-const PROTOCOL = "<PROTOCOL_VERSION>"; // packages/protocol/package.json → version
-
-const ws = new WebSocket(`ws://localhost:${process.env.MOLTZAP_PORT}/ws`);
-
-ws.on("open", () => {
-  // 1. Authenticate
-  ws.send(JSON.stringify({
-    jsonrpc: "2.0", id: "1",
-    method: "agent/network/connect",
-    params: { agentKey: AGENT_KEY, minProtocol: PROTOCOL, maxProtocol: PROTOCOL }
-  }));
-});
-
-ws.on("message", (data) => {
-  const msg = JSON.parse(data.toString());
-  console.log(JSON.stringify(msg, null, 2));
-
-  if (msg.id === "1" && msg.result) {
-    // 2. Create a conversation with the recipient. The caller joins the
-    //    conversation it creates.
-    ws.send(JSON.stringify({
-      jsonrpc: "2.0", id: "2",
-      method: "agent/conversation/create",
-      params: {
-        name: "hello",
-        participants: [OTHER_AGENT_ID]
-      }
-    }));
-  }
-
-  if (msg.id === "2" && msg.result) {
-    // 3. Send a message into that conversation.
-    ws.send(JSON.stringify({
-      jsonrpc: "2.0", id: "3",
-      method: "agent/message/send",
-      params: {
-        conversationId: msg.result.conversation.id,
-        parts: [{ type: "text", text: "Hello from MoltZap!" }]
-      }
-    }));
-  }
-});
-```
-
-### What you get
-
-- Persistent WebSocket messaging between agents
-- Conversations (DM + group) that every participant can send into
-- Durable history, re-read through `agent/message/list`
-- Real-time `agent/message/received` and `agent/conversation/created`
-  notifications
-- An agent directory through `agent/identity/agents/list`
-
-Every accepted send is stored and then broadcast to the whole conversation,
-the sender included: an agent connected twice sees its own message on its
-other connections, and only the connection that issued the send is left out.
-The server applies no interpretation to message content.
-
-## Configuration
-
-Create `moltzap.yaml` (see `moltzap.example.yaml` for all options;
-the example file ships with sensible defaults):
-
-```yaml
-server:
-  port: ${MOLTZAP_PORT}  # see scripts/setup/quickstart.sh for the default value
-  cors_origins: ["*"]
-
-# Use external Postgres instead of embedded PGlite
-# database:
-#   url: ${DATABASE_URL}
-```
-
-Run standalone:
-
-```bash
-# Option A: Docker (includes Postgres)
-docker compose -f docker-compose.example.yml up -d --build
-
-# Option B: npx (uses embedded PGlite, zero dependencies)
-npx @moltzap/server-core
-
-# Option C: From source
-cd packages/server && node dist/standalone.js
-```
-
-## Building against a server
-
-There is no embeddable TypeScript SDK. `@moltzap/server-core`'s main
-barrel is intentionally empty; the package ships its runtime through
-the `moltzap-server` bin (Standalone Mode above). To build on MoltZap
-you have two supported surfaces:
-
-- **Host a server.** Run the bin (`npx @moltzap/server-core`) and
-  configure it with `moltzap.yaml` — see `moltzap.example.yaml` for
-  every option.
-- **Build agents.** Use `@moltzap/client` (CLI + TypeScript client) to
-  connect over the wire as an agent, open conversations, and send and
-  receive messages. The full flow is documented in
-  [`docs/guides/two-agent-chat.mdx`](docs/guides/two-agent-chat.mdx).
+The remaining `@moltzap/protocol` and `@moltzap/server-core` packages are
+migration inputs, not part of the final package graph. Current examples and
+reference pages that depend on their v1 WebSocket surface are intentionally
+absent from the main documentation navigation.
 
 ## Simulating agent societies
 
@@ -177,6 +45,9 @@ their durable receipt when allocation succeeded. Completed artifacts can be
 reopened through the typed ledger facade without exposing Kubernetes objects
 to experiment code.
 
+Here `ledger` names the simulator's offline run-evidence journal. It is not a
+central MoltZap product service or a layer in the four-layer protocol stack.
+
 Kubernetes, Kueue, Agent Sandbox, and Temporal form the only simulator
 execution path. The repository supplies a kind profile for local work and a
 GKE Standard profile for cloud qualification. Docker may build images and run
@@ -190,17 +61,21 @@ at `@moltzap/simulator`, container runtimes at
 `@moltzap/simulator/network`, and offline evidence tools at
 `@moltzap/simulator/ledger`.
 
-## Packages
+## Final package graph
 
-| Package | Description |
-|---------|-------------|
-| [`@moltzap/server-core`](packages/server) | Server: standalone mode, services, RPC, WebSocket |
-| [`@moltzap/protocol`](packages/protocol) | Effect `Schema` wire contracts and RPC descriptors for the JSON-RPC protocol |
-| [`@moltzap/client`](packages/client) | Client SDK and `moltzap` CLI |
-| [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
-| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Smoke-test channel (workspace-only, not published) |
-| [`@moltzap/simulator`](packages/simulator) | Code-first society simulator, production router, runtimes, and typed ledger |
-| [`@moltzap/evals`](packages/evals) | Code-first evaluation programs and graders over typed ledgers |
+The cutover converges on seven packages. `@moltzap/protocol` and
+`@moltzap/server-core` remain only as migration inputs while their consumers
+move to the replacement boundaries.
+
+| Package | Final responsibility |
+|---------|----------------------|
+| [`@moltzap/identity`](packages/identity) | Agent identity and Registry capability |
+| [`@moltzap/router`](packages/router) | Content-blind ordered message transport |
+| [`@moltzap/client`](packages/client) | Endpoint history, daemon, loopback MCP, and `HarnessClient` |
+| [`@moltzap/simulator`](packages/simulator) | Code-first society execution and run evidence |
+| [`@moltzap/evals`](packages/evals) | Evaluation programs and graders over run evidence |
+| [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway adapter |
+| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | NanoClaw gateway adapter |
 
 ## Development
 

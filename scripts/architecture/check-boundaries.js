@@ -4,9 +4,11 @@
  *
  * Shared `packages/*` rules cover wildcard exports and barrel discipline.
  * Identity and Router additionally enforce their final package names, public
- * entrypoints, binaries, project references, and dependency direction. The
- * remaining packages stay visible while their cutover lanes retire protocol
- * and server and narrow the adapter, simulator, and eval dependencies.
+ * entrypoints, binaries, project references, and dependency direction. Client
+ * also pins each retired CLI, Unix-RPC artifact, and server-backed v1 test
+ * lane while its final public interface remains gated. The remaining packages
+ * stay visible while their cutover lanes retire protocol and server and narrow
+ * the adapter, simulator, and eval dependencies.
  *
  * The relocated-package table is a hand transcription of the current package
  * contract. It is written down rather than derived so drift fails whichever
@@ -75,6 +77,19 @@ function walkNonDocumentationFiles(dir, out = []) {
     }
   }
   return out;
+}
+
+function directoryContainsFile(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile()) return true;
+    if (
+      entry.isDirectory() &&
+      directoryContainsFile(path.join(dir, entry.name))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function rel(file) {
@@ -214,6 +229,153 @@ assertExportMap("packages/protocol", [
   "./testing",
 ]);
 assertExportMap("packages/server", [".", "./test-utils"]);
+
+// ─── Retired Client process and test planes ───────────────────────────────
+
+const clientRoot = path.join(packagesRoot, "client");
+const retiredClientPaths = [
+  "scripts/generate-cli-docs.helpers.ts",
+  "scripts/generate-cli-docs.ts",
+  "src/__tests__/scripts/generate-cli-docs.test.ts",
+  "src/__tests__/service/context",
+  "src/__tests__/service/core",
+  "src/__tests__/service/history",
+  "src/__tests__/service/socket",
+  "src/__tests__/support",
+  "src/__tests__/vitest-provided.d.ts",
+  "src/cli",
+  "src/local-daemon-rpc.ts",
+  "src/local-history.ts",
+  "src/local-socket-server.ts",
+  "src/service-local-daemon.ts",
+  "src/service-socket-path.test.ts",
+  "vitest.integration.config.mjs",
+  "vitest.integration.globalSetup.ts",
+];
+const retiredClientWorkspacePaths = [
+  "SKILL.md",
+  "docs/cli",
+  "docs/snippets/cli-commands-table.mdx",
+  "docs/snippets/cli-global-flags.mdx",
+  "docs/snippets/install-cli.mdx",
+];
+const clientReferenceFiles = [
+  ".github/workflows/ci.yml",
+  ".github/workflows/publish.yml",
+  "docs/docs.json",
+  "knip.json",
+  "nx.json",
+  "packages/client/package.json",
+  "tools/workspace/project.json",
+];
+const retiredClientReferenceFragments = [
+  "dist/cli/index.js",
+  "docs/cli",
+  "generate-cli-docs",
+  "local-daemon-rpc",
+  "local-socket-server",
+  "service-local-daemon",
+];
+const retiredClientDependencies = [
+  "@effect/cli",
+  "@effect/printer",
+  "@effect/printer-ansi",
+  "@effect/typeclass",
+];
+const retiredClientTestFragments = [
+  "server-core",
+  "testPgHost",
+  "vitest.integration",
+];
+
+const clientSources = walk(path.join(clientRoot, "src"));
+if (clientSources.length === 0) {
+  failures.push(
+    "packages/client/src: no TypeScript sources scanned; retired-plane checks would pass vacuously",
+  );
+}
+for (const retiredPath of retiredClientPaths) {
+  const candidate = path.join(clientRoot, retiredPath);
+  const exists =
+    fs.existsSync(candidate) &&
+    (fs.statSync(candidate).isFile() || directoryContainsFile(candidate));
+  if (exists) {
+    failures.push(`packages/client/${retiredPath}: retired Client artifact`);
+  }
+}
+for (const retiredPath of retiredClientWorkspacePaths) {
+  const candidate = path.join(repo, retiredPath);
+  const exists =
+    fs.existsSync(candidate) &&
+    (fs.statSync(candidate).isFile() || directoryContainsFile(candidate));
+  if (exists) {
+    failures.push(`${retiredPath}: retired Client artifact`);
+  }
+}
+for (const file of clientSources) {
+  const source = fs.readFileSync(file, "utf8");
+  for (const fragment of retiredClientTestFragments) {
+    if (source.includes(fragment)) {
+      fail(
+        file,
+        lineAt(source, source.indexOf(fragment)),
+        `references retired Client test lane ${fragment}`,
+      );
+    }
+  }
+}
+for (const referenceFile of clientReferenceFiles) {
+  const source = fs.readFileSync(path.join(repo, referenceFile), "utf8");
+  for (const fragment of retiredClientReferenceFragments) {
+    if (source.includes(fragment)) {
+      failures.push(
+        `${referenceFile}: references retired Client artifact ${fragment}`,
+      );
+    }
+  }
+}
+
+const clientManifest = readJson(path.join(clientRoot, "package.json"));
+const clientTsconfig = readJson(path.join(clientRoot, "tsconfig.json"));
+if (Object.hasOwn(clientManifest.bin ?? {}, "moltzap")) {
+  failures.push(
+    "packages/client/package.json: retired moltzap executable is present",
+  );
+}
+if (Object.hasOwn(clientManifest.scripts ?? {}, "test:integration")) {
+  failures.push(
+    "packages/client/package.json: retired v1 integration target is present",
+  );
+}
+for (const dependency of retiredClientDependencies) {
+  if (Object.hasOwn(clientManifest.dependencies ?? {}, dependency)) {
+    failures.push(
+      `packages/client/package.json: retired CLI dependency ${dependency} is present`,
+    );
+  }
+}
+if (
+  Object.hasOwn(clientManifest.dependencies ?? {}, "@moltzap/server-core") ||
+  Object.hasOwn(clientManifest.devDependencies ?? {}, "@moltzap/server-core")
+) {
+  failures.push(
+    "packages/client/package.json: retired server-core test dependency is present",
+  );
+}
+if (
+  (clientTsconfig.references ?? []).some(
+    (reference) => reference.path === "../server",
+  )
+) {
+  failures.push(
+    "packages/client/tsconfig.json: retired server project reference is present",
+  );
+}
+if (Object.hasOwn(clientManifest.devDependencies ?? {}, "tsx")) {
+  failures.push(
+    "packages/client/package.json: retired CLI generator runtime tsx is present",
+  );
+}
 
 // ─── Relocated package set ────────────────────────────────────────────────
 

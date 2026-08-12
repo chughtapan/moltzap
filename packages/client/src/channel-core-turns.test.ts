@@ -1,26 +1,28 @@
 /**
- * Turn-taking behavior of `MoltZapChannelCore`: one turn at a time, arrival
+ * @file Pins serialized, coalesced, and timeout-bounded channel turns.
+ *
+ * `MoltZapChannelCore` runs one turn at a time in arrival
  * order across conversations, same-conversation coalescing, and the optional
  * per-turn timeout. Turn-taking is entirely endpoint-local — the server
  * delivers every message it accepts.
  */
 
-import { expect, it, vi } from "vitest";
 import { Effect } from "effect";
+import { expect, it, vi } from "vitest";
 
 import {
-  FIRST_TEXT,
-  SECOND_TEXT,
   buildMessage,
   conversation,
   createFakeChannelService,
   customSetup,
   effectTest,
+  type EnrichedInboundMessage,
+  type FakeChannelService,
+  FIRST_TEXT,
   flushDispatchChainEffect,
   message,
   MoltZapChannelCore,
-  type EnrichedInboundMessage,
-  type FakeChannelService,
+  SECOND_TEXT,
 } from "./channel-core-test-support.js";
 
 const CONV_1 = "conv-1";

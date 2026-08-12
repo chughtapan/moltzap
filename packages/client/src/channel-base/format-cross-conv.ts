@@ -1,11 +1,9 @@
 /**
- * Channel-base `formatCrossConv` — shared cross-conversation message
- * formatter parameterized by markup variant or per-channel formatter
- * callback.
+ * @file Shared cross-conversation formatter for channel adapters.
  *
- * Used by the openclaw channel (markup variant `"json-header"`) and the
- * nanoclaw channel (markup variant `"xml-system-reminder"`). Behavioral
- * parity across both is locked via golden-snapshot fixtures.
+ * `formatCrossConv` is parameterized by a markup variant or per-channel
+ * callback. OpenClaw uses `json-header`; NanoClaw uses
+ * `xml-system-reminder`. Golden fixtures keep their framing aligned.
  */
 
 import {
@@ -33,45 +31,6 @@ interface NormalizedItem {
   readonly sender: string;
   readonly text: string;
   readonly timestamp: string;
-}
-
-function normalizeMessage(
-  message: CrossConvMessage,
-  opts: { readonly ownAgentId: string },
-): NormalizedItem {
-  return {
-    conversation: message.conversationName ?? `DM with @${message.senderName}`,
-    sender: message.senderId === opts.ownAgentId ? "You" : message.senderName,
-    text: message.text,
-    timestamp: message.timestamp,
-  };
-}
-
-function formatJsonHeader(
-  messages: readonly CrossConvMessage[],
-  opts: { readonly ownAgentId: string },
-): string {
-  const items = messages.map((m) => normalizeMessage(m, opts));
-  return `${CROSS_CONV_HEADER_JSON}\n\`\`\`json\n${JSON.stringify(
-    items,
-    null,
-    JSON_INDENT_SPACES,
-  )}\n\`\`\``;
-}
-
-function formatXmlSystemReminder(
-  messages: readonly CrossConvMessage[],
-  opts: { readonly ownAgentId: string },
-): string {
-  const lines = messages.map((m) => {
-    const item = normalizeMessage(m, opts);
-    const sender = sanitizeForSystemReminder(item.sender);
-    const conv = sanitizeForSystemReminder(item.conversation);
-    const text = sanitizeForSystemReminder(item.text);
-    const time = sanitizeForSystemReminder(item.timestamp);
-    return `<message sender="${sender}" conversation="${conv}" time="${time}">${text}</message>`;
-  });
-  return ["<messages>", ...lines, "</messages>"].join("\n");
 }
 
 /**
@@ -107,4 +66,43 @@ export function formatCrossConv(
     return formatJsonHeader(messages, { ownAgentId: opts.ownAgentId });
   }
   return formatXmlSystemReminder(messages, { ownAgentId: opts.ownAgentId });
+}
+
+function formatJsonHeader(
+  messages: readonly CrossConvMessage[],
+  opts: { readonly ownAgentId: string },
+): string {
+  const items = messages.map((message) => normalizeMessage(message, opts));
+  return `${CROSS_CONV_HEADER_JSON}\n\`\`\`json\n${JSON.stringify(
+    items,
+    null,
+    JSON_INDENT_SPACES,
+  )}\n\`\`\``;
+}
+
+function formatXmlSystemReminder(
+  messages: readonly CrossConvMessage[],
+  opts: { readonly ownAgentId: string },
+): string {
+  const lines = messages.map((message) => {
+    const item = normalizeMessage(message, opts);
+    const sender = sanitizeForSystemReminder(item.sender);
+    const conv = sanitizeForSystemReminder(item.conversation);
+    const text = sanitizeForSystemReminder(item.text);
+    const time = sanitizeForSystemReminder(item.timestamp);
+    return `<message sender="${sender}" conversation="${conv}" time="${time}">${text}</message>`;
+  });
+  return ["<messages>", ...lines, "</messages>"].join("\n");
+}
+
+function normalizeMessage(
+  message: CrossConvMessage,
+  opts: { readonly ownAgentId: string },
+): NormalizedItem {
+  return {
+    conversation: message.conversationName ?? `DM with @${message.senderName}`,
+    sender: message.senderId === opts.ownAgentId ? "You" : message.senderName,
+    text: message.text,
+    timestamp: message.timestamp,
+  };
 }

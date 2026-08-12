@@ -18,9 +18,6 @@
     },
     {
       "path": "../protocol"
-    },
-    {
-      "path": "../server"
     }
   ]
 }

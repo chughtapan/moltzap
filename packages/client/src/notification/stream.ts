@@ -1,6 +1,6 @@
 /**
- * Stream-returning constructors for `MoltZapAgentClient.subscribe` and
- * `MoltZapAgentClient.subscribeAll`.
+ * @file Builds the notification streams exposed by
+ * `MoltZapAgentClient.subscribe` and `MoltZapAgentClient.subscribeAll`.
  *
  * `Stream.async` cancellation drives the registry-stored `unregister`
  * finalizer. The registry's `dispatch` snapshots `subsRef` at iteration
@@ -34,16 +34,16 @@
  *      `Stream.async`-backed consumer fails with `NotConnectedError`
  *      via `emit.fail` deterministically (no Queue/shutdown race).
  */
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type { Stream } from "effect";
 import {
   type NotConnectedError,
   type NotificationDelivery,
+  type NotificationParamsOf,
   notificationSubscribe,
   notificationSubscribeAll,
   type NotificationSubscriberRegistry,
-  type NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 
 type ClientNotificationDelivery =
   NotificationDelivery<AnyNotificationDefinition>;
@@ -57,10 +57,10 @@ type ClientNotificationDelivery =
  *
  * `refinement` is a typed predicate over the definition's params. When the
  * type-guard overload form is used, the Stream's payload narrows to `R`.
- * @param registry Value supplied to the operation.
- * @param definition Protocol definition to process.
- * @param refinement Value supplied to the operation.
- * @returns The subscribe result.
+ * @param registry Client-owned subscriber registry bound at materialization.
+ * @param definition Notification descriptor that selects inbound frames.
+ * @param refinement Optional predicate or type guard applied to decoded params.
+ * @returns A lazy stream of matching notification parameters.
  */
 export function subscribe<
   D extends AnyNotificationDefinition,
@@ -107,9 +107,9 @@ export function subscribe<D extends AnyNotificationDefinition>(
  * `SubscriberRegistry.registerAll`, whose callbacks the dispatcher hits
  * for every inbound frame regardless of definition. Same lifecycle as
  * `register(def, …)`, no definition match.
- * @param registry Value supplied to the operation.
- * @param refinement Value supplied to the operation.
- * @returns The subscribe all result.
+ * @param registry Client-owned subscriber registry bound at materialization.
+ * @param refinement Optional predicate over descriptor-and-parameter pairs.
+ * @returns A lazy stream retaining each matching delivery's descriptor.
  */
 export function subscribeAll(
   registry: NotificationSubscriberRegistry<

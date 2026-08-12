@@ -1,38 +1,43 @@
-/* eslint-disable agent-code-guard/async-keyword -- This loopback contract test hosts the Promise-native official MCP SDK. */
+/**
+ * @file Pins scoped loopback MCP composition, turn decoding, and the live
+ * conversation-bound reply capability exposed to runtime adapters.
+ */
+import type { Message } from "@moltzap/protocol/message";
 import { Client } from "@modelcontextprotocol/client";
 import {
   createMcpHandler,
   fromJsonSchema,
-  McpServer,
   type Implementation,
   type JsonSchemaType,
+  McpServer,
 } from "@modelcontextprotocol/server";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { Chunk, Effect, Exit, Fiber, Option, Scope, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { Message } from "@moltzap/protocol/message";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import {
   acquireHarnessClient,
   HarnessClient,
-  makeHarnessClientLayer,
   type HarnessTurn,
+  makeHarnessClientLayer,
 } from "./harness-client.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
+import {
+  type HarnessMcpSubscriptionHandler,
+  makeHarnessMcpSubscriptionHandler,
+} from "./harness-mcp-subscription.js";
 import {
   decodeHarnessReplyRoute,
   HARNESS_EVENTS_EXTENSION,
   HARNESS_REPLY_TOOL,
-  harnessReplyInputJsonSchema,
-  harnessReplyResultJsonSchema,
   type HarnessReplyInput,
+  harnessReplyInputJsonSchema,
   type HarnessReplyResult,
+  harnessReplyResultJsonSchema,
   type HarnessReplyRoute,
   type HarnessTurnEvent,
 } from "./harness/index.js";
-import {
-  makeHarnessMcpSubscriptionHandler,
-  type HarnessMcpSubscriptionHandler,
-} from "./harness-mcp-subscription.js";
+
+/* eslint-disable agent-code-guard/async-keyword -- This loopback contract test hosts the Promise-native official MCP SDK. */
 
 const SERVER_IMPLEMENTATION = {
   name: "harness-client-test",

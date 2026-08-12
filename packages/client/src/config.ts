@@ -1,4 +1,5 @@
-import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
+/** @file Resolves one local agent profile and its canonical server address. */
+
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   httpBaseUrl,
@@ -6,6 +7,7 @@ import {
   serverBaseUrlSchema,
   type ServerBaseUrl as ServerBaseUrlType,
 } from "@moltzap/protocol/network";
+import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
 import {
   loadLayeredConfig,
   parseProfileName,
@@ -36,8 +38,10 @@ class ConfigReadError extends Data.TaggedError("ConfigReadError")<{
   readonly path: string;
 }> {}
 
-function describeCause(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+function configReadErrorFromProfile(
+  error: ProfileConfigReadError,
+): ConfigReadError {
+  return configReadError(error.path, error.cause, "read");
 }
 
 function configReadError(
@@ -52,10 +56,8 @@ function configReadError(
   });
 }
 
-function configReadErrorFromProfile(
-  error: ProfileConfigReadError,
-): ConfigReadError {
-  return configReadError(error.path, error.cause, "read");
+function describeCause(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 const configuredServerUrl = Config.option(Config.string(SERVER_URL_ENV)).pipe(
@@ -64,7 +66,7 @@ const configuredServerUrl = Config.option(Config.string(SERVER_URL_ENV)).pipe(
 );
 
 /** Canonical path-free server address from the environment or default. */
-export const getServerUrl: Effect.Effect<ServerBaseUrlType, ConfigReadError> =
+const getServerUrl: Effect.Effect<ServerBaseUrlType, ConfigReadError> =
   configuredServerUrl.pipe(
     Effect.flatMap(Schema.decodeUnknown(serverBaseUrlSchema)),
     Effect.mapError((cause) =>
@@ -77,9 +79,10 @@ export const getHttpUrl: Effect.Effect<string, ConfigReadError> =
   getServerUrl.pipe(Effect.map(httpBaseUrl));
 
 /**
- * Provides the load service config runtime value.
- * @param profileName Value supplied to the operation.
- * @returns The load service config result.
+ * Loads the credentials for one named local profile and pairs them with the
+ * process-wide canonical server address.
+ * @param profileName Profile whose endpoint identity should be loaded.
+ * @returns The identity credential and normalized server address.
  */
 export const loadServiceConfig = (
   profileName: string,

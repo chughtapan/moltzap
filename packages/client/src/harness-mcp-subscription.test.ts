@@ -1,31 +1,36 @@
-/* eslint-disable agent-code-guard/async-keyword -- These contract tests exercise the official Promise-native MCP client, handler, and retained response stream. */
+/**
+ * @file Pins turn-ready subscription admission, retained POST framing,
+ * single-reader ownership, publication, and teardown behavior.
+ */
 import {
   Client,
   fromJsonSchema,
-  StreamableHTTPClientTransport,
   type JsonSchemaType,
+  StreamableHTTPClientTransport,
   type SubscriptionFilter,
 } from "@modelcontextprotocol/client";
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
+  createMcpHandler,
+  type Implementation,
+  McpServer,
   PROTOCOL_VERSION_META_KEY,
   SERVER_INFO_META_KEY,
   SUBSCRIPTION_ID_META_KEY,
-  createMcpHandler,
-  McpServer,
-  type Implementation,
 } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  makeHarnessMcpSubscriptionHandler,
   type HarnessMcpSubscriptionHandler,
+  makeHarnessMcpSubscriptionHandler,
 } from "./harness-mcp-subscription.js";
 import {
   HARNESS_EVENTS_EXTENSION,
   HARNESS_TURN_READY_FILTER,
   HARNESS_TURN_READY_NOTIFICATION,
 } from "./harness/index.js";
+
+/* eslint-disable agent-code-guard/async-keyword -- These contract tests exercise the official Promise-native MCP client, handler, and retained response stream. */
 
 const SERVER_IMPLEMENTATION = {
   name: "harness-subscription-test",

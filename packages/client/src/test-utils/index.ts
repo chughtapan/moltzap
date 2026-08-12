@@ -1,11 +1,18 @@
 /**
- * @file Test helpers shared by client package unit and integration tests.
+ * @file Collects deterministic identifiers, protocol fixtures, typed service
+ * doubles, and black-box connection helpers for package and adapter tests.
  */
+import type { Message } from "@moltzap/protocol/message";
+import { serverBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
+import { Data, Effect } from "effect";
+import { testAgentId, testConversationId, testMessageId } from "./ids.js";
+
 // safer-arch-ignore no-public-test-helper-leak: this dedicated test-utils subpath intentionally exposes fixtures for downstream package integration tests.
+/** Re-exports the stateful channel-service fixture and its controls. */
 export {
-  createFakeChannelService,
   type ChannelServiceEmit,
   type ChannelServiceState,
+  createFakeChannelService,
   type CreateFakeChannelServiceOptions,
   type FakeChannelService,
 } from "./channel-service-fixture.js";
@@ -17,9 +24,9 @@ export {
 } from "./standalone-provisioning.js";
 /** Re-exports the public API from `./harness.js`. */
 export {
-  registerAndConnect,
   type ConnectedHarnessAgent,
   type HarnessAgentClient,
+  registerAndConnect,
 } from "./harness.js";
 /** Re-exports the public API from `../auth.js`. */
 export { registerAgent, type RegisterResponse } from "../auth.js";
@@ -28,11 +35,6 @@ export { registerAgent, type RegisterResponse } from "../auth.js";
 export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
 /** Re-exports the public API from `../config.test-utils.js`. */
 export { withTestServiceConfig } from "../config.test-utils.js";
-
-import type { Message } from "@moltzap/protocol/message";
-import { serverBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
-import { Data, Effect } from "effect";
-import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
 /** Re-exports the public API from `./ids.js`. */
 export { testAgentId, testConversationId, testMessageId } from "./ids.js";

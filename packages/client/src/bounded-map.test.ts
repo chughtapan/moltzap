@@ -1,3 +1,5 @@
+/** @file Pins capacity, eviction, refresh, and iteration behavior for BoundedMap. */
+
 import { describe, expect, it } from "vitest";
 import { BoundedMap } from "./bounded-map.js";
 
@@ -43,10 +45,6 @@ const INVALID_CAPACITIES: readonly number[] = [
   Number.POSITIVE_INFINITY,
   Number.MAX_SAFE_INTEGER + 1,
 ];
-
-function makeMap(): BoundedMap<string, string> {
-  return new BoundedMap<string, string>(CAPACITY);
-}
 
 describe("BoundedMap", () => {
   it("keeps at most capacity entries and evicts in FIFO order", boundsFifo);
@@ -138,4 +136,8 @@ function rejectsInvalid(): void {
   for (const capacity of INVALID_CAPACITIES) {
     expect(() => new BoundedMap(capacity)).toThrow(INVALID_CAPACITY_MESSAGE);
   }
+}
+
+function makeMap(): BoundedMap<string, string> {
+  return new BoundedMap<string, string>(CAPACITY);
 }

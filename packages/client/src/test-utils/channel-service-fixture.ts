@@ -1,11 +1,14 @@
-/** Test fixture factory for ChannelService-shaped objects. */
+/**
+ * @file Provides a stateful `ChannelService` fixture whose event, send,
+ * context, and lifecycle observations remain explicit to tests.
+ */
 
-import { Effect } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
-import { testAgentId, testConversationId } from "./ids.js";
+import { Effect } from "effect";
 import type { ChannelService } from "../channel-core.js";
 import type { CrossConversationEntry, CrossConvMessage } from "../service.js";
+import { testAgentId, testConversationId } from "./ids.js";
 
 type MessageHandler = (payload: { message: Message }) => void;
 type VoidHandler = () => void;
@@ -44,26 +47,13 @@ interface ChannelServiceFixtureStore {
   ownAgentId?: string;
 }
 
-const agentKey = (id: string): string => testAgentId(id);
-const conversationKey = (id: string): string => testConversationId(id);
-
-function participantKey(participant: string): string {
-  const separatorIndex = participant.indexOf(":");
-  if (separatorIndex === -1) {
-    return participant;
-  }
-  const type = participant.slice(0, separatorIndex);
-  const id = participant.slice(separatorIndex + ":".length);
-  return type === "agent" ? `${type}:${agentKey(id)}` : participant;
-}
-
-/** Fire events on the fixture service. */
+/** Event controls for delivering messages and disconnects into the fixture. */
 export interface ChannelServiceEmit {
   message(msg: Message): void;
   disconnect(): void;
 }
 
-/** Describes channel service state. */
+/** Mutable setup controls and observable call state for the fixture. */
 export interface ChannelServiceState {
   setConversation(id: string, meta: FixtureConversationMeta): void;
   setAgentName(id: string, name: string): void;
@@ -80,16 +70,32 @@ export interface ChannelServiceState {
   resolveAgentNameCallCount(agentId: string): number;
 }
 
-/** Describes fake channel service. */
+/** Service under test paired with its event and state controls. */
 export interface FakeChannelService {
   service: ChannelService;
   emit: ChannelServiceEmit;
   state: ChannelServiceState;
 }
 
-/** Configures create fake channel service. */
+/** Initial identity overrides for a channel-service fixture. */
 export interface CreateFakeChannelServiceOptions {
   ownAgentId?: string;
+}
+
+/**
+ * Creates an isolated stateful service fixture with deterministic identifiers.
+ * @param opts Optional local-agent identity override.
+ * @returns The service and its explicit event and state controls.
+ */
+export function createFakeChannelService(
+  opts: CreateFakeChannelServiceOptions = {},
+): FakeChannelService {
+  const store = createFixtureStore(opts);
+  return {
+    service: makeService(store),
+    emit: makeEmit(store),
+    state: makeState(store),
+  };
 }
 
 function createFixtureStore(
@@ -111,6 +117,56 @@ function createFixtureStore(
     closeCalls: { count: 0 },
     connectResult: {},
     ownAgentId,
+  };
+}
+
+function makeService(store: ChannelServiceFixtureStore): ChannelService {
+  return {
+    get ownAgentId() {
+      return store.ownAgentId;
+    },
+
+    on(event: ServiceEvent, handler: ServiceHandler): void {
+      registerServiceHandler(store, event, handler);
+    },
+
+    connect() {
+      return connectFixtureService(store);
+    },
+
+    close() {
+      store.closeCalls.count++;
+    },
+
+    send: makeFixtureSend(store),
+
+    getConversation(convId: string) {
+      return getFixtureConversation(store, convId);
+    },
+
+    getAgentName(agentId: string) {
+      return store.agentNames.get(agentId);
+    },
+
+    resolveAgentName(agentId: string) {
+      return resolveFixtureAgentName(store, agentId);
+    },
+
+    peekContextEntries(currentConvId: string) {
+      const entries = store.contextEntriesByConv.get(currentConvId) ?? [];
+      const commit = (): void => {
+        store.contextEntriesByConv.set(currentConvId, []);
+      };
+      return { entries, commit };
+    },
+
+    peekFullMessages(currentConvId: string) {
+      const messages = store.fullMessagesByConv.get(currentConvId) ?? [];
+      const commit = (): void => {
+        store.fullMessagesByConv.set(currentConvId, []);
+      };
+      return { messages, commit };
+    },
   };
 }
 
@@ -181,56 +237,6 @@ function resolveFixtureAgentName(
   });
 }
 
-function makeService(store: ChannelServiceFixtureStore): ChannelService {
-  return {
-    get ownAgentId() {
-      return store.ownAgentId;
-    },
-
-    on(event: ServiceEvent, handler: ServiceHandler): void {
-      registerServiceHandler(store, event, handler);
-    },
-
-    connect() {
-      return connectFixtureService(store);
-    },
-
-    close() {
-      store.closeCalls.count++;
-    },
-
-    send: makeFixtureSend(store),
-
-    getConversation(convId: string) {
-      return getFixtureConversation(store, convId);
-    },
-
-    getAgentName(agentId: string) {
-      return store.agentNames.get(agentId);
-    },
-
-    resolveAgentName(agentId: string) {
-      return resolveFixtureAgentName(store, agentId);
-    },
-
-    peekContextEntries(currentConvId: string) {
-      const entries = store.contextEntriesByConv.get(currentConvId) ?? [];
-      const commit = (): void => {
-        store.contextEntriesByConv.set(currentConvId, []);
-      };
-      return { entries, commit };
-    },
-
-    peekFullMessages(currentConvId: string) {
-      const messages = store.fullMessagesByConv.get(currentConvId) ?? [];
-      const commit = (): void => {
-        store.fullMessagesByConv.set(currentConvId, []);
-      };
-      return { messages, commit };
-    },
-  };
-}
-
 function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
   const emit: ChannelServiceEmit = {
     message(msg) {
@@ -282,18 +288,20 @@ function makeState(store: ChannelServiceFixtureStore): ChannelServiceState {
   return state;
 }
 
-/**
- * Creates fake channel service.
- * @param opts Value supplied to the operation.
- * @returns The created fake channel service.
- */
-export function createFakeChannelService(
-  opts: CreateFakeChannelServiceOptions = {},
-): FakeChannelService {
-  const store = createFixtureStore(opts);
-  return {
-    service: makeService(store),
-    emit: makeEmit(store),
-    state: makeState(store),
-  };
+function conversationKey(id: string): string {
+  return testConversationId(id);
+}
+
+function participantKey(participant: string): string {
+  const separatorIndex = participant.indexOf(":");
+  if (separatorIndex === -1) {
+    return participant;
+  }
+  const type = participant.slice(0, separatorIndex);
+  const id = participant.slice(separatorIndex + ":".length);
+  return type === "agent" ? `${type}:${agentKey(id)}` : participant;
+}
+
+function agentKey(id: string): string {
+  return testAgentId(id);
 }

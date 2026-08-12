@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`acquireHarnessClient`](./harness-client.ts#L41)
+### [`acquireHarnessClient`](./harness-client.ts#L45)
 
 _Function_
 
@@ -37,7 +37,7 @@ export interface AgentClientOptions {
 
 Configures agent client.
 
-### [`ContextOptions`](./service.ts#L131)
+### [`ContextOptions`](./service.ts#L117)
 
 _Interface_
 
@@ -49,9 +49,9 @@ export interface ContextOptions {
 }
 ```
 
-Configures context.
+Bounds the cross-conversation summary projected into a runtime prompt.
 
-### [`ConversationMeta`](./service.ts#L123)
+### [`ConversationMeta`](./service.ts#L109)
 
 _Interface_
 
@@ -64,9 +64,9 @@ export interface ConversationMeta {
 }
 ```
 
-Describes conversation meta.
+Presentation metadata retained for a conversation visible to the endpoint.
 
-### [`HarnessClient`](./harness-client.ts#L23)
+### [`HarnessClient`](./harness-client.ts#L27)
 
 _Class_
 
@@ -79,7 +79,7 @@ export class HarnessClient extends Context.Tag("@moltzap/client/HarnessClient")<
 
 Effect service tag consumed by runtime adapters.
 
-### [`HarnessClientOptions`](./harness-client.ts#L29)
+### [`HarnessClientOptions`](./harness-client.ts#L33)
 
 _Interface_
 
@@ -92,7 +92,7 @@ export interface HarnessClientOptions {
 
 Inputs needed to connect one scoped harness client.
 
-### [`HarnessClientService`](./harness-client.ts#L17)
+### [`HarnessClientService`](./harness-client.ts#L21)
 
 _Interface_
 
@@ -105,7 +105,7 @@ export interface HarnessClientService {
 
 Adapter-facing capability backed only by the daemon's loopback MCP surface.
 
-### [`HarnessTurn`](./harness-client.ts#L7)
+### [`HarnessTurn`](./harness-client.ts#L11)
 
 _Interface_
 
@@ -122,7 +122,7 @@ export interface HarnessTurn {
 
 One reply-capable batch emitted by the local harness daemon.
 
-### [`makeHarnessClientLayer`](./harness-client.ts#L52)
+### [`makeHarnessClientLayer`](./harness-client.ts#L56)
 
 _Function_
 
@@ -149,7 +149,7 @@ export declare class MoltZapAgentClient extends ProtocolClientLifecycle<AgentCal
 
 Implements molt zap agent client.
 
-### [`MoltZapService`](./service.ts#L262)
+### [`MoltZapService`](./service.ts#L247)
 
 _Class_
 
@@ -185,14 +185,6 @@ export class MoltZapService {
   > = Effect.runSync(
     Ref.make(HashMap.empty<string, HashMap.HashMap<string, string>>()),
   );
-  private readonly lastReadRef: Ref.Ref<
-    HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
-  > = Effect.runSync(
-    Ref.make(
-      HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
-    ),
-  );
-
   /**
    * The branded outer and inner keys keep conversation and message ids from
    * crossing accidentally while each conversation owns its eviction window.
@@ -234,17 +226,6 @@ export class MoltZapService {
     );
   }
 
-  static startDaemon(
-    profileName: string,
-  ): Effect.Effect<MoltZapService, unknown> {
-    return Effect.gen(function* () {
-      const service = yield* MoltZapService.make(profileName);
-      yield* service.connect();
-      yield* service.startSocketServer();
-      return service;
-    }).pipe(Effect.withSpan("MoltZapService.startDaemon"));
-  }
-
   get connected(): boolean {
     return this.connectedValue;
   }
@@ -255,7 +236,7 @@ export class MoltZapService {
 
   /**
    * Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`.
-   * @returns The client result.
+   * @returns The completed handshake after inbound fanout is subscribed.
    */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(
@@ -274,6 +255,25 @@ export class MoltZapService {
           agentKey: this.opts.agentKey,
           // The body doesn't branch on close metadata today; the signature is
           // kept explicit so a future disconnect-handler chain can plumb
+          // code/reason through.
+          onDisconnect: () => {
+            this.connectedValue = false;
+            fanout(this.handlers.disconnect, undefined);
+          },
+        });
+        this.client = client;
+
+        // `subscribeAll().pipe(Stream.runForEach, …)` is forked into a
+        // service-owned scope. The Stream is materialized BEFORE `connect()` so
+        // subscriptions are registered with the registry pre-handshake (a
+        // pre-connect-legal operation).
+        //
+        // Stream errors of type `NotConnectedError` are surfaced on the
+        // fiber's failure channel only when the client transitions to
+        // terminal closed state (close() path); `Effect.catchAll` here
+        // would swallow them silently, so we route through `Effect.logError`
+        // before the fiber exits.
+        const serviceScope = yield* Scope.make();
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -296,7 +296,7 @@ export interface RpcCallOptions {
 
 Configures rpc call.
 
-### [`ServiceRpcError`](./service.ts#L111)
+### [`ServiceRpcError`](./service.ts#L97)
 
 _TypeAlias_
 

@@ -72,6 +72,10 @@ export class BoundedMap<K, V> implements ReadonlyMap<K, V> {
     return evicted;
   }
 
+  [Symbol.iterator](): MapIterator<[K, V]> {
+    return this.entries();
+  }
+
   entries(): MapIterator<[K, V]> {
     return this.entriesStore.entries();
   }
@@ -91,9 +95,5 @@ export class BoundedMap<K, V> implements ReadonlyMap<K, V> {
     this.entriesStore.forEach((value, key) => {
       callbackfn.call(thisArg, value, key, this);
     });
-  }
-
-  [Symbol.iterator](): MapIterator<[K, V]> {
-    return this.entries();
   }
 }
