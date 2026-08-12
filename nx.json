@@ -139,7 +139,8 @@
       },
       "inputs": [
         "default",
-        "{projectRoot}/safer-architecture.config.json"
+        "{projectRoot}/safer-architecture.config.json",
+        "{workspaceRoot}/scripts/architecture/check-package.mjs"
       ],
       "cache": true
     }

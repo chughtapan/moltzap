@@ -36,9 +36,6 @@ const vendorSdks = (files, patterns) => ({
 });
 
 export default [
-  {
-    ignores: ["nanoclaw-assets/**"],
-  },
   ...packageEslintConfig({ tsconfigRootDir: import.meta.dirname }),
 
   // Every module reaches both vendors through an adapter.

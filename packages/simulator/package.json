@@ -57,13 +57,11 @@
         "executor": "nx:run-commands",
         "inputs": [
           "production",
-          "^production",
-          "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts",
-          "{projectRoot}/nanoclaw-assets/*"
+          "^production"
         ],
         "options": {
           "cwd": "packages/simulator",
-          "command": "node scripts/clean-dist.mjs && tsc -b && node scripts/copy-nanoclaw-assets.mjs"
+          "command": "node scripts/clean-dist.mjs && tsc -b"
         }
       },
       "lint": {
@@ -161,7 +159,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "safer-architecture-lsp check ."
+          "command": "node ../../scripts/architecture/check-package.mjs ."
         }
       }
     }

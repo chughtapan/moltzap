@@ -28,6 +28,9 @@ const controllerImageDockerfile = join(
 );
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-simulator-pack-"));
 const forbiddenSimulatorPaths = [
+  "dist/nanoclaw-assets",
+  "nanoclaw-assets",
+  "scripts/copy-nanoclaw-assets.mjs",
   "scripts/build-controller-image.mjs",
   "scripts/build-server-image.mjs",
   "local/controller-image/Dockerfile",
@@ -200,8 +203,6 @@ async function verifyPackedFiles(extractedPackage) {
     "dist/ledger.d.ts",
     "dist/agents.js",
     "dist/agents.d.ts",
-    "dist/nanoclaw-assets/SKILL.md",
-    "dist/nanoclaw-assets/moltzap.ts",
   ];
   await Promise.all(
     required.map(async (relativePath) => {
