@@ -27,24 +27,6 @@ export {
 // descriptor-level helpers only.
 /** Re-exports the public API from `#transport/descriptor`. */
 export { decodeRpcResult } from "#transport/descriptor";
-/** Re-exports the public API from `./wire-error-tags.js`. */
-export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
-
-// Starvation-immune async-wait primitives. Shared by every package's tests so
-// the parallel-flake fix (no wall-clock poll deadline) lives in one place.
-/** Re-exports the public API from `./wait.js`. */
-export { waitForValue, waitUntil } from "./wait.js";
-
-// Errors.
-/** Re-exports the public API from `./errors.js`. */
-export {
-  RealServerAcquireError,
-  RpcResponseError,
-  RpcTimeoutError,
-  type TestingError,
-  TransportClosedError,
-  TransportIoError,
-} from "./errors.js";
 
 // Test-agent registration helper.
 /** Re-exports the public API from `./test-fixtures.js`. */

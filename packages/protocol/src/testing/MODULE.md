@@ -130,26 +130,6 @@ Validates and decodes message id values.
 
 **Returns:** The message id result.
 
-### [`RealServerAcquireError`](./errors.ts#L47)
-
-_Class_
-
-```ts
-export class RealServerAcquireError extends Data.TaggedError(
-  "TestingRealServerAcquireError",
-)<{
-  readonly cause: unknown;
-}> {
-  override get message(): string {
-    return this.cause instanceof Error
-      ? this.cause.message
-      : String(this.cause);
-  }
-}
-```
-
-Consumer-supplied real-server factory threw or returned an unusable handle.
-
 ### [`redactedAgentKey`](./test-fixtures.ts#L136)
 
 _Function_
@@ -176,40 +156,6 @@ Registers test agent.
 
 **Returns:** The register test agent result.
 
-### [`RpcResponseError`](./errors.ts#L36)
-
-_Class_
-
-```ts
-export class RpcResponseError extends Data.TaggedError(
-  "TestingRpcResponseError",
-)<{
-  readonly method: string;
-  readonly requestId: string;
-  readonly tag: string;
-  readonly message: string;
-  readonly data?: unknown;
-}> {}
-```
-
-Server returned a typed error for a request.
-
-### [`RpcTimeoutError`](./errors.ts#L27)
-
-_Class_
-
-```ts
-export class RpcTimeoutError extends Data.TaggedError(
-  "TestingRpcTimeoutError",
-)<{
-  readonly method: string;
-  readonly requestId: string;
-  readonly timeoutMs: number;
-}> {}
-```
-
-Wall-clock deadline for a request expired before a response.
-
 ### [`TestAgent`](./test-fixtures.ts#L164)
 
 _Interface_
@@ -223,52 +169,6 @@ export interface TestAgent {
 ```
 
 Describes test agent.
-
-### [`TestingError`](./errors.ts#L60)
-
-_TypeAlias_
-
-```ts
-export type TestingError =
-  | TransportClosedError
-  | TransportIoError
-  | RpcTimeoutError
-  | RpcResponseError
-  | RealServerAcquireError;
-```
-
-Represents testing error conditions.
-
-### [`TransportClosedError`](./errors.ts#L10)
-
-_Class_
-
-```ts
-export class TransportClosedError extends Data.TaggedError(
-  "TestingTransportClosedError",
-)<{
-  readonly direction: "outbound" | "inbound";
-  readonly code: number;
-  readonly reason: string;
-}> {}
-```
-
-Peer closed the underlying WS before a response arrived.
-
-### [`TransportIoError`](./errors.ts#L19)
-
-_Class_
-
-```ts
-export class TransportIoError extends Data.TaggedError(
-  "TestingTransportIoError",
-)<{
-  readonly direction: "outbound" | "inbound";
-  readonly cause: unknown;
-}> {}
-```
-
-Underlying transport raised (socket error, DNS, TLS, etc.).
 
 ### [`userId`](./test-fixtures.ts#L80)
 
@@ -284,47 +184,6 @@ Validates and decodes user id values.
 
 **Returns:** The user id result.
 
-### [`waitForValue`](./wait.ts#L46)
-
-_Function_
-
-```ts
-export const waitForValue = <A, E = never, R = never>(
-  probe: Effect.Effect<A | undefined, E, R>,
-  options?: { readonly pollMillis?: number },
-): Effect.Effect<A, E, R>
-```
-
-Poll `probe` until it returns a defined value, then return it.
-
-**Returns:** The wait for value result.
-
-### [`waitUntil`](./wait.ts#L28)
-
-_Function_
-
-```ts
-export const waitUntil = (
-  predicate: () => boolean,
-  options?: { readonly pollMillis?: number },
-): Effect.Effect<void>
-```
-
-Poll `predicate` until it returns true.
-
-**Returns:** The wait until result.
-
-### [`WIRE_ERROR_TAG`](./wire-error-tags.ts#L9)
-
-_Variable_
-
-```ts
-export const WIRE_ERROR_TAG =
-```
-
 ## Files
 
-- `errors.ts`
 - `test-fixtures.ts`
-- `wait.ts`
-- `wire-error-tags.ts`
