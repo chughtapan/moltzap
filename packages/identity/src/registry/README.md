@@ -7,8 +7,8 @@ storage.
 
 Start with:
 
-- `server.ts` is the composition root for the production Effect layers; the
-  package executable launches it with process-environment configuration.
+- `server.ts` validates process-environment configuration and composes the
+  production Effect layers launched by the package executable.
 - `http.ts` exposes readiness and the registration, lookup, and list routes.
 - `admission.ts` authenticates registration before storage work.
 - `rpc.ts` owns the private operation group, admission proof, handlers, and
@@ -19,7 +19,7 @@ Start with:
 
 `contract.ts` owns the closed requests, results, operation values, client
 failures, routes, and enclosing limits shared by those boundaries.
-`configuration.ts` and `migrations/` remain private implementation details.
+`migrations/` remains a private implementation detail.
 
 Consumers that compose the Registry process import `layer` and `StartupError`
 directly from `@moltzap/identity/registry/server`.

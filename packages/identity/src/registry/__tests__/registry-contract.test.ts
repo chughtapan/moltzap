@@ -32,7 +32,6 @@ import {
   Registry,
   RegistryRegisterRequest,
 } from "../../registry.js";
-import { loadRegistryConfiguration } from "../configuration.js";
 import { lookupResponseSchema, registerResponseSchema } from "../contract.js";
 import {
   makeRegistryRpcClient,
@@ -40,7 +39,11 @@ import {
   registryAdmissionLayer,
   withBootstrapAdmission,
 } from "../rpc.js";
-import { layer as registryServerLayer, StartupError } from "../server.js";
+import {
+  loadRegistryConfiguration,
+  layer as registryServerLayer,
+  StartupError,
+} from "../server.js";
 
 const CONFIGURATION_PHASE = "configuration";
 const AUTHENTICATION_FAILED_TAG = "AuthenticationFailedError";
