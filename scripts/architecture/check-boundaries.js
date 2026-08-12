@@ -155,7 +155,7 @@ function checkSourceFile(file) {
   )) {
     const names = match[1];
     if (
-      /\b(defineRpc|defineNotification|decodeRpcResult|effectiveErrorClasses|jsonRpcMethod)\b/.test(
+      /\b(defineRpc|defineNotification|effectiveErrorClasses|jsonRpcMethod)\b/.test(
         names,
       )
     ) {

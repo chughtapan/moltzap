@@ -12,7 +12,6 @@ import {
   agentKey,
   userId as userIdSchema,
 } from "#identity";
-import { connectionId as decodeConnectionId } from "#socket";
 import {
   conversationId as conversationIdSchema,
   messageId as messageIdSchema,
@@ -100,12 +99,10 @@ const hexStringArbitrary = (length: number): FastCheck.Arbitrary<string> =>
     minLength: length,
     maxLength: length,
   }).map((chars) => chars.join(""));
-/** Provides the agent key string arbitrary runtime value. */
-export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
-  FastCheck.tuple(
-    hexStringArbitrary(KEY_ID_HEX_CHARS),
-    hexStringArbitrary(SECRET_HEX_CHARS),
-  ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`);
+const agentKeyStringArbitrary: FastCheck.Arbitrary<string> = FastCheck.tuple(
+  hexStringArbitrary(KEY_ID_HEX_CHARS),
+  hexStringArbitrary(SECRET_HEX_CHARS),
+).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`);
 /**
  * Validates and decodes redacted agent key values.
  * @param value Value to process.
@@ -113,9 +110,6 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
  */
 export const redactedAgentKey = (value: string): AgentKey =>
   Schema.decodeUnknownSync(agentKey)(value);
-/** Provides the agent key arbitrary runtime value. */
-export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
-  agentKeyStringArbitrary.map(redactedAgentKey);
 /**
  * Provides the agent key string runtime value.
  * @param seed Value supplied to the operation.
@@ -128,5 +122,3 @@ export const agentKeyString = (seed: number): string => {
   });
   return value ?? FALLBACK_AGENT_KEY_STRING;
 };
-/** Provides the connection id runtime value. */
-export const connectionId = decodeConnectionId;

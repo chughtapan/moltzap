@@ -5,10 +5,8 @@ import { Schema, type Brand } from "effect";
  * (`crypto.randomUUID()`); not on the wire. Branded so it cannot be
  * confused with `AgentId`, `AppId`, or other ids in service signatures.
  *
- * Boundary: a single `as ConnectionId` cast at the WS-accept site is the
- * only acceptable construction in production code; downstream is brand-
- * typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
- * exported from `@moltzap/protocol/testing`.
+ * Construction stays at the socket boundary; downstream code carries the
+ * brand end-to-end.
  *
  * Schema-level format: branded string (no UUID predicate). The mint site
  * happens to use UUIDs, but conformance-test fixtures sometimes pass synthetic

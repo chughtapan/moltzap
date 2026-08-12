@@ -9,7 +9,6 @@ export type {
 } from "./definition.js";
 /** Re-exports the public API from `./definition.js`. */
 export {
-  decodeRpcResult,
   defineNotification,
   defineRpc,
   effectiveErrorClasses,

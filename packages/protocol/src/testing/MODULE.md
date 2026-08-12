@@ -6,11 +6,11 @@ _`packages/protocol/src/testing`_
 
 Public barrel for protocol testing utilities.
 
-`@moltzap/protocol/testing` — test fixtures and assertion helpers.
+`@moltzap/protocol/testing` — test fixture constructors.
 
 ## Public surface
 
-### [`agentId`](./test-fixtures.ts#L67)
+### [`agentId`](./test-fixtures.ts#L66)
 
 _Function_
 
@@ -24,18 +24,7 @@ Validates and decodes agent id values.
 
 **Returns:** The agent id result.
 
-### [`agentKeyArbitrary`](./test-fixtures.ts#L117)
-
-_Variable_
-
-```ts
-export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
-  agentKeyStringArbitrary.map(redactedAgentKey)
-```
-
-Provides the agent key arbitrary runtime value.
-
-### [`agentKeyString`](./test-fixtures.ts#L124)
+### [`agentKeyString`](./test-fixtures.ts#L118)
 
 _Function_
 
@@ -47,21 +36,7 @@ Provides the agent key string runtime value.
 
 **Returns:** The agent key string result.
 
-### [`agentKeyStringArbitrary`](./test-fixtures.ts#L104)
-
-_Variable_
-
-```ts
-export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
-  FastCheck.tuple(
-    hexStringArbitrary(KEY_ID_HEX_CHARS),
-    hexStringArbitrary(SECRET_HEX_CHARS),
-  ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`)
-```
-
-Provides the agent key string arbitrary runtime value.
-
-### [`agentName`](./test-fixtures.ts#L76)
+### [`agentName`](./test-fixtures.ts#L75)
 
 _Function_
 
@@ -75,17 +50,7 @@ Validates and decodes agent name values.
 
 **Returns:** The agent name result.
 
-### [`connectionId`](./test-fixtures.ts#L132)
-
-_Variable_
-
-```ts
-export const connectionId = decodeConnectionId
-```
-
-Provides the connection id runtime value.
-
-### [`conversationId`](./test-fixtures.ts#L85)
+### [`conversationId`](./test-fixtures.ts#L84)
 
 _Function_
 
@@ -99,7 +64,7 @@ Validates and decodes conversation id values.
 
 **Returns:** The conversation id result.
 
-### [`messageId`](./test-fixtures.ts#L94)
+### [`messageId`](./test-fixtures.ts#L93)
 
 _Function_
 
@@ -113,7 +78,7 @@ Validates and decodes message id values.
 
 **Returns:** The message id result.
 
-### [`redactedAgentKey`](./test-fixtures.ts#L114)
+### [`redactedAgentKey`](./test-fixtures.ts#L111)
 
 _Function_
 
@@ -125,7 +90,7 @@ Validates and decodes redacted agent key values.
 
 **Returns:** The redacted agent key result.
 
-### [`userId`](./test-fixtures.ts#L58)
+### [`userId`](./test-fixtures.ts#L57)
 
 _Function_
 

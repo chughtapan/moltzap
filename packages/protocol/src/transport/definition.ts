@@ -1,4 +1,4 @@
-import { Data, Effect, Schema } from "effect";
+import { Schema } from "effect";
 import { Rpc, type RpcMiddleware } from "@effect/rpc";
 import { closedStructGuard } from "./strict-decode.js";
 import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
@@ -458,33 +458,4 @@ export function defineNotification<
     }),
     validateParams: closedStructGuard(def.params),
   };
-}
-
-// Per-handler result decoder. The conformance test client uses this to verify a
-// response decodes against the descriptor schema.
-
-class RpcResultDecodeError extends Data.TaggedError("RpcResultDecodeError")<{
-  readonly definition: RpcDefinitionAny;
-  readonly data: unknown;
-}> {}
-
-/**
- * Decodes rpc result.
- * @param definition Protocol definition to process.
- * @param data Unknown value to decode.
- * @returns The decoded rpc result.
- */
-export function decodeRpcResult<
-  Name extends string,
-  P extends Schema.Schema.AnyNoContext,
-  R extends Schema.Schema.AnyNoContext,
-  Requires extends readonly RequirementShape[],
-  Errs extends readonly RpcErrorClass[],
->(
-  definition: RpcDefinition<Name, P, R, Requires, Errs>,
-  data: unknown,
-): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError> {
-  return definition.validateResult(data)
-    ? Effect.succeed(data)
-    : Effect.fail(new RpcResultDecodeError({ definition, data }));
 }

@@ -153,7 +153,7 @@ export type CloseKind = Data.TaggedEnum<{
 
 Represents close kind values.
 
-### [`connectionId`](./connection.ts#L26)
+### [`connectionId`](./connection.ts#L24)
 
 _Variable_
 
@@ -163,7 +163,7 @@ export const connectionId = Schema.decodeSync(connectionIdSchema)
 
 Validates and decodes connection id values.
 
-### [`ConnectionId`](./connection.ts#L17)
+### [`ConnectionId`](./connection.ts#L15)
 
 _TypeAlias_
 
@@ -175,16 +175,14 @@ Server-internal WebSocket connection identifier. Minted at WS accept
 (`crypto.randomUUID()`); not on the wire. Branded so it cannot be
 confused with `AgentId`, `AppId`, or other ids in service signatures.
 
-Boundary: a single `as ConnectionId` cast at the WS-accept site is the
-only acceptable construction in production code; downstream is brand-
-typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
-exported from `@moltzap/protocol/testing`.
+Construction stays at the socket boundary; downstream code carries the
+brand end-to-end.
 
 Schema-level format: branded string (no UUID predicate). The mint site
 happens to use UUIDs, but conformance-test fixtures sometimes pass synthetic
 strings; the brand boundary is the type system, not a format check.
 
-### [`connectionIdSchema`](./connection.ts#L19)
+### [`connectionIdSchema`](./connection.ts#L17)
 
 _Variable_
 
@@ -455,7 +453,7 @@ export interface MoltZapServerSession {
 
 Describes molt zap server session.
 
-### [`newConnectionId`](./connection.ts#L32)
+### [`newConnectionId`](./connection.ts#L30)
 
 _Function_
 
