@@ -1,8 +1,10 @@
+/**
+ * @file Defines typed failures surfaced by protocol test clients and fixtures.
+ *
+ * Callers can distinguish transport closure, transport I/O, request timeout,
+ * typed RPC failure, and real-server acquisition without inspecting messages.
+ */
 import { Data } from "effect";
-import { ToxicControlError } from "./toxics/errors.js";
-
-/** Re-exports the public API from `current module`. */
-export { ToxicControlError };
 
 /** Peer closed the underlying WS before a response arrived. */
 export class TransportClosedError extends Data.TaggedError(
@@ -60,5 +62,4 @@ export type TestingError =
   | TransportIoError
   | RpcTimeoutError
   | RpcResponseError
-  | ToxicControlError
   | RealServerAcquireError;

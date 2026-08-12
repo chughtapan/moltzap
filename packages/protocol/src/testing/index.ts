@@ -2,28 +2,27 @@
  * @file Public barrel for protocol testing utilities.
  *
  * `@moltzap/protocol/testing` — test fixtures, typed lifecycle clients,
- * arbitrary derivation, and Toxiproxy adversity helpers.
+ * and arbitrary derivation.
  */
-// safer-arch-ignore no-public-test-helper-leak: The explicitly exported ./testing subpath is the supported cross-package conformance and fixture API.
-// safer-arch-ignore no-public-vendor-type-leak: The ./testing entrypoint deliberately exposes fast-check arbitraries as property-test support for downstream conformance suites.
-
 import * as arbitraries from "./arbitraries/index.js";
-import * as toxics from "./toxics/index.js";
+
+// safer-arch-ignore no-public-test-helper-leak: The explicitly exported ./testing subpath is the supported cross-package fixture API.
+// safer-arch-ignore no-public-vendor-type-leak: The ./testing entrypoint deliberately exposes fast-check arbitraries as property-test support.
 
 // Brand-decoders for test fixtures. Production code does not validate IDs
 // at the caller.
 /** Re-exports the public API from `./test-fixtures.js`. */
 export {
-  userId,
   agentId,
+  agentKeyArbitrary,
+  agentKeyString,
+  agentKeyStringArbitrary,
   agentName,
   connectionId,
   conversationId,
   messageId,
-  agentKeyArbitrary,
-  agentKeyString,
-  agentKeyStringArbitrary,
   redactedAgentKey,
+  userId,
 } from "./test-fixtures.js";
 
 // Effect RPC owns frame encoding/decoding. The testing surface exposes
@@ -42,34 +41,25 @@ export { waitForValue, waitUntil } from "./wait.js";
 export { makeTestAgentClient } from "./lifecycle.js";
 /** Re-exports the public API from `./lifecycle.js`. */
 export type { TestAgentClient, TestServer } from "./lifecycle.js";
-/** Re-exports the public API from `./conformance/index.js`. */
-export {
-  runConformanceSuite,
-  type ConformanceSuiteOptions,
-  type SuiteResult,
-} from "./conformance/index.js";
-/** Re-exports the public API from `./toxics/client.js`. */
-export type { ToxiproxyNetworkConfig } from "./toxics/client.js";
-
 // Errors.
 /** Re-exports the public API from `./errors.js`. */
 export {
+  RealServerAcquireError,
+  RpcResponseError,
+  RpcTimeoutError,
   type TestingError,
   TransportClosedError,
   TransportIoError,
-  RpcTimeoutError,
-  RpcResponseError,
-  RealServerAcquireError,
 } from "./errors.js";
 
 // Test-agent registration helper.
 /** Re-exports the public API from `./test-fixtures.js`. */
 export {
-  type TestAgent,
   AgentRegistrationError,
   registerTestAgent,
+  type TestAgent,
 } from "./test-fixtures.js";
 
-// Arbitraries, toxics — namespaced to keep names scoped.
+// Arbitraries are namespaced to keep generated values scoped.
 /** Re-exports the public API from `current module`. */
-export { arbitraries, toxics };
+export { arbitraries };

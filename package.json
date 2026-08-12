@@ -26,8 +26,6 @@
     "format:check": "oxfmt --check .",
     "typecheck": "nx run-many -t build && nx run-many -t typecheck",
     "check": "pnpm lint && pnpm format:check",
-    "test:conformance:toxiproxy": "bash scripts/test/conformance-toxiproxy.sh",
-    "test:conformance:stress": "CONFORMANCE_STRESS=1 bash scripts/test/conformance-toxiproxy.sh",
     "docs:dev": "cd docs && mint dev --no-open",
     "docs:open": "cd docs && mint dev",
     "docs:generate": "pnpm nx run workspace:docs:generate",

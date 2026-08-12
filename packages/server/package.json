@@ -36,7 +36,6 @@
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.mjs",
-    "test:conformance": "vitest run -c vitest.conformance.config.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {

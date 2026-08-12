@@ -2,21 +2,21 @@
  * @file Closed RPC catalogs and Effect RPC groups for first-party socket wiring.
  *
  * The main socket barrel exposes lifecycle classes. This module exposes the
- * derived method/notification catalogs and group types needed by client,
- * server-core, conformance, and generated protocol reference docs.
+ * derived method/notification catalogs and group types needed by client and
+ * server-core.
  */
-import { RpcGroup, type Rpc } from "@effect/rpc";
-import { identityRpcMethods } from "#identity";
-import {
-  agentCallableNetworkRpcMethods,
-  networkRpcMethods,
-  networkNotifications,
-} from "#network";
+import { type Rpc, RpcGroup } from "@effect/rpc";
 import {
   agentCallableConversationRpcMethods,
   conversationNotifications,
 } from "#conversation";
+import { identityRpcMethods } from "#identity";
 import { agentCallableMessageRpcMethods, messageNotifications } from "#message";
+import {
+  agentCallableNetworkRpcMethods,
+  networkNotifications,
+  networkRpcMethods,
+} from "#network";
 
 /**
  * Client-to-server descriptors an agent principal may originate.

@@ -8,7 +8,7 @@ This tree owns MoltZap's wire contracts and endpoint socket machinery.
   pagination, and wire-error primitives.
 - `socket/` composes the catalogs into agent, app, and server endpoint
   lifecycles.
-- `testing/` contains protocol fixtures and reusable conformance suites.
+- `testing/` contains protocol fixtures used while consumers migrate.
 
 The protocol declares calls and guarantees. Handler implementations,
 persistence, and runtime policy belong to consuming packages. Root and subpath

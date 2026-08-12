@@ -7,7 +7,7 @@ _`packages/protocol/src/testing`_
 Public barrel for protocol testing utilities.
 
 `@moltzap/protocol/testing` — test fixtures, typed lifecycle clients,
-arbitrary derivation, and Toxiproxy adversity helpers.
+and arbitrary derivation.
 
 ## Public surface
 
@@ -146,7 +146,7 @@ Validates and decodes message id values.
 
 **Returns:** The message id result.
 
-### [`RealServerAcquireError`](./errors.ts#L45)
+### [`RealServerAcquireError`](./errors.ts#L47)
 
 _Class_
 
@@ -192,7 +192,7 @@ Registers test agent.
 
 **Returns:** The register test agent result.
 
-### [`RpcResponseError`](./errors.ts#L34)
+### [`RpcResponseError`](./errors.ts#L36)
 
 _Class_
 
@@ -210,7 +210,7 @@ export class RpcResponseError extends Data.TaggedError(
 
 Server returned a typed error for a request.
 
-### [`RpcTimeoutError`](./errors.ts#L25)
+### [`RpcTimeoutError`](./errors.ts#L27)
 
 _Class_
 
@@ -276,7 +276,7 @@ export interface TestAgentClient {
 
 Describes test agent client.
 
-### [`TestingError`](./errors.ts#L58)
+### [`TestingError`](./errors.ts#L60)
 
 _TypeAlias_
 
@@ -286,7 +286,6 @@ export type TestingError =
   | TransportIoError
   | RpcTimeoutError
   | RpcResponseError
-  | ToxicControlError
   | RealServerAcquireError;
 ```
 
@@ -306,7 +305,7 @@ export interface TestServer {
 
 Describes test server.
 
-### [`TransportClosedError`](./errors.ts#L8)
+### [`TransportClosedError`](./errors.ts#L10)
 
 _Class_
 
@@ -322,7 +321,7 @@ export class TransportClosedError extends Data.TaggedError(
 
 Peer closed the underlying WS before a response arrived.
 
-### [`TransportIoError`](./errors.ts#L17)
+### [`TransportIoError`](./errors.ts#L19)
 
 _Class_
 

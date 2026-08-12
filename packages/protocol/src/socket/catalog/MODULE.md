@@ -7,8 +7,8 @@ _`packages/protocol/src/socket/catalog`_
 Closed RPC catalogs and Effect RPC groups for first-party socket wiring.
 
 The main socket barrel exposes lifecycle classes. This module exposes the
-derived method/notification catalogs and group types needed by client,
-server-core, conformance, and generated protocol reference docs.
+derived method/notification catalogs and group types needed by client and
+server-core.
 
 ## Public surface
 
