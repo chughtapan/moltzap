@@ -16,6 +16,7 @@
  * domain-error→envelope projection — defects bypass typed errors and surface as
  * the engine's `ResponseDefect`.
  */
+// safer-arch-ignore folder-explicit-api-required: This module is the deliberate principal-read facade shared by domain RPC handlers.
 import { Effect } from "effect";
 import {
   ConnectionManagerTag,

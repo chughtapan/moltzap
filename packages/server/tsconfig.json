@@ -8,12 +8,6 @@
       "#core": [
         "./src/core/index.ts"
       ],
-      "#moltzap": [
-        "./src/moltzap/index.ts"
-      ],
-      "#moltzap/runtime": [
-        "./src/moltzap/runtime.ts"
-      ],
       "#socket": [
         "./src/socket/index.ts"
       ],

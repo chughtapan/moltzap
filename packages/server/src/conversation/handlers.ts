@@ -1,3 +1,4 @@
+// safer-arch-ignore no-cross-domain-sibling-import: Protocol handler bodies read their already-gated principal through the MoltZap adapter boundary.
 import { Effect } from "effect";
 import {
   type agentConversationCreate as agentConversationCreateDefinition,
@@ -12,7 +13,7 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentContext } from "#socket";
 import { ConversationServiceTag } from "./layer.js";
-import { agentArm } from "#moltzap/runtime";
+import { agentArm } from "../moltzap/handler-runtime.js";
 import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 

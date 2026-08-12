@@ -8,12 +8,12 @@ HTTP server construction barrel.
 
 ## Public surface
 
-### [`makeCoreHttpApp`](./routes.ts#L89)
+### [`makeCoreHttpApp`](./routes.ts#L86)
 
 _Function_
 
 ```ts
-export function makeCoreHttpApp(options: CoreHttpAppOptions)
+export function makeCoreHttpApp<R>(options: CoreHttpAppOptions<R>)
 ```
 
 Build the core HTTP app. Composes the health, WebSocket, and registration

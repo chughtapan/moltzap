@@ -13,9 +13,7 @@ import {
   type UserId,
 } from "@moltzap/protocol/identity";
 
-import type { ServerTags } from "#moltzap";
 import type { ResolvedServices } from "#core";
-import type { ConnectionTag } from "#socket";
 import { safeEqual } from "#identity/credential-keys";
 import type { RegistrationSecret } from "#config/secrets";
 
@@ -49,19 +47,18 @@ class HttpEarlyResponse extends Data.TaggedError("HttpEarlyResponse")<{
   readonly response: HttpServerResponse.HttpServerResponse;
 }> {}
 
-interface CoreHttpAppOptions {
-  readonly corsOrigins: readonly string[];
+interface RegistrationRouteOptions {
   readonly registrationSecret?: RegistrationSecret;
   readonly adminUserId: UserId;
   readonly authService: ResolvedServices["authService"];
+}
+
+interface CoreHttpAppOptions<R> extends RegistrationRouteOptions {
+  readonly corsOrigins: readonly string[];
   readonly connections: ResolvedServices["connections"];
   readonly handleSocket: (
     socket: Socket.Socket,
-  ) => Effect.Effect<
-    void,
-    Socket.SocketError,
-    Exclude<ServerTags, ConnectionTag>
-  >;
+  ) => Effect.Effect<void, Socket.SocketError, R>;
 }
 
 interface RegisterAgentSuccess {
@@ -86,7 +83,7 @@ interface RegisterAgentSuccess {
  * @param options Options that control the operation.
  * @returns The created core http app.
  */
-export function makeCoreHttpApp(options: CoreHttpAppOptions) {
+export function makeCoreHttpApp<R>(options: CoreHttpAppOptions<R>) {
   const healthRoute = makeHealthRoute(options.connections);
   const registerRoute = makeRegisterRoute(options);
   const wsRoute = makeWsRoute(options.handleSocket);
@@ -107,7 +104,7 @@ function makeHealthRoute(connections: ResolvedServices["connections"]) {
   );
 }
 
-function makeRegisterRoute(options: CoreHttpAppOptions) {
+function makeRegisterRoute(options: RegistrationRouteOptions) {
   return HttpRouter.post(
     "/api/v1/auth/register",
     handleEarlyResponse(
@@ -127,7 +124,7 @@ function makeRegisterRoute(options: CoreHttpAppOptions) {
   );
 }
 
-function makeWsRoute(handleSocket: CoreHttpAppOptions["handleSocket"]) {
+function makeWsRoute<R>(handleSocket: CoreHttpAppOptions<R>["handleSocket"]) {
   return HttpRouter.get(
     "/ws",
     Effect.gen(function* () {
@@ -200,7 +197,7 @@ function withCors<E, R>(
 
 const registerAgent = Effect.fn("http.registerAgent")(function* (
   body: RegisterParams,
-  options: CoreHttpAppOptions,
+  options: RegistrationRouteOptions,
 ) {
   const exit = yield* Effect.exit(
     options.authService.registerAgent(body, options.adminUserId),

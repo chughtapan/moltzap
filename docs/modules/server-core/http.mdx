@@ -13,12 +13,12 @@ HTTP server construction barrel.
 
 ## Public surface
 
-### [`makeCoreHttpApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/http/routes.ts#L89)
+### [`makeCoreHttpApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/http/routes.ts#L86)
 
 _Function_
 
 ```ts
-export function makeCoreHttpApp(options: CoreHttpAppOptions)
+export function makeCoreHttpApp<R>(options: CoreHttpAppOptions<R>)
 ```
 
 Build the core HTTP app. Composes the health, WebSocket, and registration

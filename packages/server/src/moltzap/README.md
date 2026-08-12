@@ -12,7 +12,6 @@ services.
 - `handler-runtime.ts` — request principal reads for already-gated handlers.
 - `auth-middleware-layers.ts` — one server Layer per protocol requirement tag.
 - `principal-gate.ts` — live connection arm lookup and principal narrowing.
-- `layer-tags.ts` — handler service-tag allowlists by protocol layer.
 - `server-socket.ts` — bridges an Effect socket to `MoltZapServer` sessions.
 
 `core/` owns runtime/service boot. `socket/` owns connection/session primitives.

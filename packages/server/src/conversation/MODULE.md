@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./handlers.ts#L96)
+### [`agentConversationCreate`](./handlers.ts#L97)
 
 _Variable_
 
@@ -24,7 +24,7 @@ Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationList`](./handlers.ts#L85)
+### [`conversationList`](./handlers.ts#L86)
 
 _Variable_
 
