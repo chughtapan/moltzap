@@ -1,7 +1,11 @@
 /**
- * @file Internal barrel for protocol transport runtime helpers.
+ * @file Internal transport runtime helpers and shared wire contracts.
  * @internal
  */
+import type { Rpc } from "@effect/rpc";
+import type { RpcClientError } from "@effect/rpc/RpcClientError";
+import { Effect } from "effect";
+
 // RPC + notification descriptor types. Effect RPC owns frame decoding; these
 // descriptors own per-method payload/result schemas and the client subscription
 // notification envelope produced after native decode.
@@ -41,19 +45,72 @@ export type {
   NotificationSubscriptionHandle,
 } from "./notification-subscribers.js";
 
-// The cast-free per-method dispatch over a non-flat `RpcClient`: the typed map
-// shape `RpcClient.make(group)` conforms to, plus `dispatchCall` for tag-keyed
-// dispatch. Shared by the production client and the server's reverse client.
-/** Re-exports the public API from `./typed-dispatch.js`. */
-export { dispatchCall, makeTypedTransportCall } from "./typed-dispatch.js";
-/** Re-exports the public API from `./typed-dispatch.js`. */
-export type {
-  TypedDispatchMap,
-  RpcForTag,
-  PayloadForTag,
-  SuccessForTag,
-  ErrorForTag,
-} from "./typed-dispatch.js";
+/** The `Rpc` member of `Rpcs` whose tag is `K`. */
+export type RpcForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Extract<Rpcs, { readonly _tag: K }>;
+
+/** The payload type one tag accepts. */
+export type PayloadForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Rpc.PayloadConstructor<RpcForTag<Rpcs, K>>;
+
+/** The success type one tag returns. */
+export type SuccessForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Rpc.Success<RpcForTag<Rpcs, K>>;
+
+/** The method's own tagged-error union for one tag. */
+export type ErrorForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Rpc.Error<RpcForTag<Rpcs, K>>;
+
+/** A tag-keyed view of the non-flat client returned by `RpcClient.make`. */
+export type TypedDispatchMap<Rpcs extends Rpc.Any, E> = {
+  readonly [K in Rpcs["_tag"]]: (
+    payload: PayloadForTag<Rpcs, K>,
+  ) => Effect.Effect<SuccessForTag<Rpcs, K>, ErrorForTag<Rpcs, K> | E>;
+};
+
+/** Dispatches one call while retaining the selected tag's exact types. */
+export function dispatchCall<
+  Rpcs extends Rpc.Any,
+  E,
+  K extends Rpcs["_tag"],
+>(
+  map: TypedDispatchMap<Rpcs, E>,
+  tag: K,
+  payload: PayloadForTag<Rpcs, K>,
+): Effect.Effect<SuccessForTag<Rpcs, K>, ErrorForTag<Rpcs, K> | E> {
+  return map[tag](payload);
+}
+
+/**
+ * Binds a non-flat client to a tag-keyed call and folds the engine's closed
+ * socket error into the caller's transport error channel.
+ */
+export function makeTypedTransportCall<
+  Rpcs extends Rpc.Any,
+  TransportError,
+>(
+  client: TypedDispatchMap<Rpcs, RpcClientError>,
+  onTransportError: () => TransportError,
+): <Tag extends Rpcs["_tag"]>(
+  tag: Tag,
+  payload: PayloadForTag<Rpcs, Tag>,
+) => Effect.Effect<
+  SuccessForTag<Rpcs, Tag>,
+  ErrorForTag<Rpcs, Tag> | TransportError
+> {
+  return (tag, payload) =>
+    dispatchCall(client, tag, payload).pipe(
+      Effect.catchTag("RpcClientError", () => Effect.fail(onTransportError())),
+    );
+}
 
 /** Re-exports the public API from `./pagination.js`. */
 export {
