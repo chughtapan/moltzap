@@ -22,8 +22,10 @@ import {
 } from "#socket";
 import { AuthServiceTag } from "../identity/agents/layer.js";
 import type { AuthService } from "../identity/agents/auth.service.js";
-import { ConversationServiceTag } from "../conversation/layer.js";
-import type { ConversationService } from "../conversation/conversation.service.js";
+import {
+  type ConversationService,
+  ConversationServiceTag,
+} from "../conversation/conversation.service.js";
 import { AgentEndpointResolverTag } from "./layer.js";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";

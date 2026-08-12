@@ -2,6 +2,7 @@
 // safer-arch-ignore folder-explicit-api-required: ConversationService is the deliberate concrete service boundary paired with the public conversation index.
 import {
   type Db,
+  DbTag,
   sql,
   catchSqlErrorAsDefect,
   rawQuery,
@@ -20,13 +21,13 @@ import {
   AgentNotFoundError,
 } from "@moltzap/protocol/identity";
 import type { SqlError } from "@effect/sql/SqlError";
-import { Effect, Option } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import {
   InvalidParamsError,
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
 } from "@moltzap/protocol/rpc";
-import type { ConnectionManager } from "#socket";
+import { type ConnectionManager, ConnectionManagerTag } from "#socket";
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`;
@@ -424,3 +425,18 @@ export class ConversationService {
     );
   }
 }
+
+/** Identifies the conversation service in the server runtime context. */
+export class ConversationServiceTag extends Context.Tag(
+  "moltzap/ConversationService",
+)<ConversationServiceTag, ConversationService>() {}
+
+/** Constructs the conversation service from its storage and connection ports. */
+export const conversationServiceLive = Layer.effect(
+  ConversationServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const connections = yield* ConnectionManagerTag;
+    return new ConversationService(db, connections);
+  }).pipe(Effect.withSpan("ConversationServiceLive")),
+);

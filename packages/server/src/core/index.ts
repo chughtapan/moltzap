@@ -21,10 +21,10 @@ import type { NetworkSendService } from "../network/network-send.js";
 import { authServiceLive, AuthServiceTag } from "../identity/agents/layer.js";
 import type { AuthService } from "../identity/agents/auth.service.js";
 import {
+  type ConversationService,
   conversationServiceLive,
   ConversationServiceTag,
-} from "../conversation/layer.js";
-import type { ConversationService } from "../conversation/conversation.service.js";
+} from "../conversation/conversation.service.js";
 import {
   type MessageService,
   messageServiceLive,

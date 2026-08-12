@@ -5,7 +5,7 @@ import type {
 } from "@moltzap/protocol/conversation";
 import type { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ConversationServiceTag } from "../layer.js";
+import { ConversationServiceTag } from "../conversation.service.js";
 import { MessageServiceTag } from "#message";
 import { catchSqlErrorAsDefect } from "#db";
 

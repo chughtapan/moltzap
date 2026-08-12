@@ -40,7 +40,7 @@ Provides the conversation list runtime value.
 
 **Returns:** The conversation list result.
 
-### [`ConversationService`](./conversation.service.ts#L223)
+### [`ConversationService`](./conversation.service.ts#L224)
 
 _Class_
 
@@ -169,7 +169,7 @@ export class ConversationService {
 
 Implements conversation service.
 
-### [`conversationServiceLive`](./layer.ts#L16)
+### [`conversationServiceLive`](./conversation.service.ts#L435)
 
 _Variable_
 
@@ -184,9 +184,9 @@ export const conversationServiceLive = Layer.effect(
 )
 ```
 
-Provides the conversation service live runtime value.
+Constructs the conversation service from its storage and connection ports.
 
-### [`ConversationServiceTag`](./layer.ts#L11)
+### [`ConversationServiceTag`](./conversation.service.ts#L430)
 
 _Class_
 
@@ -196,10 +196,9 @@ export class ConversationServiceTag extends Context.Tag(
 )<ConversationServiceTag, ConversationService>() {}
 ```
 
-Implements conversation service tag.
+Identifies the conversation service in the server runtime context.
 
 ## Files
 
 - `conversation.service.ts`
 - `handlers.ts`
-- `layer.ts`
