@@ -13,6 +13,21 @@ No v2 implementation step governed by a changed decision may begin until
 the replacement authority, lineage, specifications, and blind-review
 evidence described below have landed on this branch.
 
+Preparation artifacts for that gate are:
+
+- [`four-layer-authority-handoff.md`](./four-layer-authority-handoff.md), the
+  current-decision and specification supersession inventory;
+- [`four-layer-interface-slate.md`](./four-layer-interface-slate.md), the
+  narrower public-interface proposal for maintainer discussion; and
+- [`seven-package-cutover-handoff.md`](./seven-package-cutover-handoff.md),
+  the package, tooling, compatibility, and migration inventory; and
+- [`pr-974-forward-merge-rehearsal.md`](./pr-974-forward-merge-rehearsal.md),
+  the exact-SHA conflict and resolution handoff for the final forward merge.
+
+Those handoffs are non-normative and may refine this plan's provisional
+interface sketch. The accepted replacement authority, not a handoff, settles
+the final contract.
+
 ## Outcome
 
 MoltZap cuts over to one four-layer social harness:
@@ -58,21 +73,24 @@ remains simulation evidence and is not a product Ledger.
   persistence belong to endpoints in `@moltzap/client`.
 - Fixed membership is the first cutover profile. Dynamic membership is a
   later protocol built above the fixed-member record model.
-- Every member stages the exact canonical, hash-linked record locally
-  before signing a durability vote for that record.
-- Action validity and storage durability use different certificates.
+- Every honest member durably stages the exact canonical action-certified
+  record locally before signing a durability vote over its hash, and never
+  signs conflicting successors of one certified head.
+- Action validity and storage durability use distinct signed evidence.
   `OpenFloorV1` remains unanimous for action validity. A durability
-  certificate proves replicated storage only and never makes an action
-  semantically valid.
+  signature attests that its signer staged the record and never makes an
+  action semantically valid. Under the stated Byzantine bound and honest
+  stage-before-sign law, threshold evidence guarantees the specified honest
+  replica floor rather than proving a Byzantine signer stored bytes.
 - For `n < 4`, every member must sign the durability certificate. For
   `n >= 4`, let `f = floor((n - 1) / 3)` and require `n - f` durability
   signatures.
-- Any member may assemble and disseminate a completed durability
-  certificate. Finalization is not tied to the action author remaining
-  available.
+- Any member may assemble and disseminate equivalent valid durability
+  evidence from the mergeable signed votes. Finalization is not tied to the
+  action author remaining available.
 - Successful start and reply operations return the locally durable,
   certified proof: `ConversationId`, `TxnId`, `RecordHash`, and the
-  durability certificate. `LedgerOffset` does not exist.
+  current durability evidence. `LedgerOffset` does not exist.
 - Ordinary missing-history catch-up is automatic communication behavior.
   Cross-agent disclosure, audits, and reconciliation of private histories
   are explicit tasks governed by personal trust.
@@ -92,13 +110,18 @@ remains simulation evidence and is not a product Ledger.
   task and conversation interfaces. They do not gain privileged imports or
   hidden network paths.
 
-## Final public interface
+## Proposed public interface
 
 `@moltzap/client` is the only application-facing communication package.
 Its root exports the semantic `HarnessClient` service, its public value
 types, and closed typed errors. Process composition lives at
 `@moltzap/client/server`. Raw MCP schemas, storage repositories, Router
 wire representations, Layers, and implementation helpers remain private.
+
+The sketch below records the approved plan's minimum semantic shape. The
+interface slate refines its proof structure, operation identity, context, and
+closed errors for maintainer selection; this execution plan does not make
+either TypeScript sketch normative.
 
 The semantic surface has three operations:
 
@@ -126,12 +149,12 @@ interface CommittedTurn {
   readonly conversationId: ConversationId
   readonly txnId: TxnId
   readonly recordHash: RecordHash
-  readonly durabilityCertificate: DurabilityCertificate
+  readonly durabilityEvidence: DurabilityEvidence
 }
 ```
 
 The normative specification may refine field names and closed error
-variants before implementation, but it preserves these semantics:
+variants before implementation and is intended to preserve these semantics:
 
 - conversation start includes initial content;
 - established-conversation output is a reply bound to a live turn;
@@ -142,10 +165,11 @@ variants before implementation, but it preserves these semantics:
 
 One daemon exposes one state-dependent loopback `/mcp` endpoint:
 
-- before registration: `register` and `status`;
-- after registration: `status`, `search_agents`,
-  `search_conversations`, `read_conversation`, `start_conversation`,
-  `reply`, and `listen`.
+- before registration, tools are `register` and `status`;
+- after registration, tools are `status`, `search_agents`,
+  `search_conversations`, `read_conversation`, `start_conversation`, and
+  `reply`; and
+- receive uses MCP `subscriptions/listen`, which is not a seventh tool.
 
 There are no profiles, profile files, profile-selection flags, bespoke
 CLI, Unix socket, stdio server, second MCP process, or bind fallback. A
@@ -175,13 +199,25 @@ selection. Old `packages/protocol`, server packages, CLI machinery,
 central Ledger code, profile code, and obsolete v2 implementation
 scaffolds are deleted once their consumers move.
 
-`@moltzap/simulator` keeps its latest-`main` public API and behavior,
-including `Run.execute(RunSpec)`, its root exports, `./network`,
-`./ledger`, `./agents`, cluster acquisition, Temporal integration,
-fault layers, and simulation `RunLedger`. The cutover substitutes its
-internal production dependencies only. `@moltzap/evals` keeps its public
-evaluation surface unless a direct dependency replacement requires a
-type-preserving internal change.
+`@moltzap/simulator` keeps its latest-`main` non-conflicting public API and
+behavior, including `Run.execute(RunSpec)`, its root exports, `./network`,
+`./ledger`, `./agents`, cluster acquisition, Temporal integration, fault
+layers, and simulation `RunLedger`. The authority decisions below govern the
+conflicting symbols and persisted evidence semantics. Apart from those
+explicitly admitted resolutions, the cutover substitutes internal production
+dependencies only. `@moltzap/evals` keeps its public evaluation surface unless
+a direct dependency replacement requires a type-preserving internal change.
+
+The package inventory found one requirements conflict that the authority gate
+must resolve rather than hide: current simulator `open`/generic `send` and
+runtime `AgentConnection` capabilities expose semantics and Router authority
+the final client explicitly removes. Existing persisted Router-commit/order
+events also conflict with a volatile content-blind Router and cannot silently
+change meaning under the same schema tag. Some endpoint/run evidence can be
+source-compatibly re-owned by the simulator, but these authority-bearing
+contracts cannot preserve both old behavior and the new protocol law. The
+maintainer must explicitly exempt them with sound simulator semantics or admit
+the narrow simulator break and evidence migration before implementation.
 
 ## Delivery sequence
 
@@ -300,10 +336,12 @@ that is scheduled for deletion.
 
 ### Simulator and repository gate
 
-- existing simulator unit, integration, local, GKE, Temporal, cluster,
-  fault, packaging, and eval-facing tests pass unchanged in meaning;
-- compile-time and package-export canaries prove the simulator public API
-  is unchanged;
+- existing simulator unit, integration, local, GKE, Temporal, cluster, fault,
+  packaging, and eval-facing tests pass unchanged in meaning for retained
+  contracts and encode the explicitly admitted behavior/evidence migration for
+  reopened contracts;
+- compile-time and package-export canaries prove every non-conflicting
+  simulator public contract is unchanged and pin the admitted replacements;
 - an architecture check proves the exact seven-package set and dependency
   graph;
 - repository searches and checks prove old public symbols, profiles,
@@ -322,8 +360,9 @@ that is scheduled for deletion.
 - Safety does not depend on timing. Progress requires enough members and
   required services to become available.
 - Membership is fixed for the first profile.
-- No v1 compatibility surface survives the final cutover.
+- No retired v1 product-stack compatibility surface or shim survives the
+  final cutover. Independently versioned simulator evidence schemas are not a
+  product-v1 compatibility layer.
 - npm continues publishing from `main` until the cutover replaces `main`.
 - Routine forward merges stop after the single post-#974 merge. Relevant
   fixes are ported deliberately after that point.
-
