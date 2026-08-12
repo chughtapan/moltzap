@@ -52,12 +52,6 @@
       ],
       "#message/handlers": [
         "./src/message/handlers.ts"
-      ],
-      "#dispatch": [
-        "./src/dispatch/index.ts"
-      ],
-      "#dispatch/handlers": [
-        "./src/dispatch/handlers.ts"
       ]
     }
   },
