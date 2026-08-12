@@ -108,20 +108,6 @@ export interface HarnessTurn {
 
 One reply-capable batch emitted by the local harness daemon.
 
-### [`makeHarnessClientLayer`](./harness-client.ts#L56)
-
-_Function_
-
-```ts
-export const makeHarnessClientLayer = (
-  options: HarnessClientOptions,
-): Layer.Layer<HarnessClient, Error>
-```
-
-Builds the scoped runtime-adapter layer for one daemon endpoint.
-
-**Returns:** A Layer providing the scoped HarnessClient capability.
-
 ### [`MoltZapService`](./service.ts#L246)
 
 _Class_

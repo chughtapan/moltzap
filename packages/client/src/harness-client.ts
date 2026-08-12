@@ -4,7 +4,7 @@
  */
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
-import { Context, type Effect, Layer, type Scope, type Stream } from "effect";
+import { Context, type Effect, type Scope, type Stream } from "effect";
 import { acquireHarnessClientInternal } from "./harness/index.js";
 
 /** One reply-capable batch emitted by the local harness daemon. */
@@ -46,14 +46,3 @@ export const acquireHarnessClient = (
   options: HarnessClientOptions,
 ): Effect.Effect<HarnessClientService, Error, Scope.Scope> =>
   acquireHarnessClientInternal(options);
-
-/**
- * Builds the scoped runtime-adapter layer for one daemon endpoint.
- *
- * @param options Fixed loopback MCP endpoint.
- * @returns A Layer providing the scoped HarnessClient capability.
- */
-export const makeHarnessClientLayer = (
-  options: HarnessClientOptions,
-): Layer.Layer<HarnessClient, Error> =>
-  Layer.scoped(HarnessClient, acquireHarnessClient(options));

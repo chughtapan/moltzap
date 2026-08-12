@@ -18,7 +18,6 @@ import {
   acquireHarnessClient,
   HarnessClient,
   type HarnessTurn,
-  makeHarnessClientLayer,
 } from "./harness-client.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import {
@@ -192,12 +191,15 @@ const preservesBoundConversation = async () => {
 
   try {
     const turns = await Effect.runPromise(
-      useHarness(handler).pipe(
-        Effect.provide(
-          makeHarnessClientLayer({
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = yield* acquireHarnessClient({
             url: running.url.href,
-          }),
-        ),
+          });
+          return yield* useHarness(handler).pipe(
+            Effect.provideService(HarnessClient, harness),
+          );
+        }),
       ),
     );
     expect(turns.map((turn) => turn.conversationId)).toEqual([

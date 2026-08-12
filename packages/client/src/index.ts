@@ -14,5 +14,4 @@ export {
   type HarnessClientOptions,
   type HarnessClientService,
   type HarnessTurn,
-  makeHarnessClientLayer,
 } from "./harness-client.js";

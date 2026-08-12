@@ -1,6 +1,6 @@
 {
   "minExportedSiblingModules": 6,
-  "maxSubpathExports": 6,
+  "maxSubpathExports": 4,
   "maxPublicExports": 29,
   "minPublicFacadeModules": 9,
   "folderChildCountOverrides": [

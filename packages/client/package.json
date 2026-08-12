@@ -30,10 +30,6 @@
       "types": "./dist/auth.d.ts",
       "import": "./dist/auth.js"
     },
-    "./harness-client": {
-      "types": "./dist/harness-client.d.ts",
-      "import": "./dist/harness-client.js"
-    },
     "./pagination": {
       "types": "./dist/pagination.d.ts",
       "import": "./dist/pagination.js"
