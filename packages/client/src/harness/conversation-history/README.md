@@ -11,6 +11,8 @@ conversation history:
 - mergeable fixed-member durability-vote progress retaining complete verified
   evidence by signer;
 - fail-closed selection of one verified descendant head before re-anchoring;
+- nonempty, contiguous, duplicate-free certified catch-up suffix plans for one
+  atomic local transaction without runtime attention;
   and
 - predecessor- and quorum-gated plans carrying complete evidence into atomic
   certified-head advancement.
