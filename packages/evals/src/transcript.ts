@@ -1,34 +1,32 @@
 /** @file Normalized evaluation transcripts and their evidence-ID invariants. */
 
+import type { MessageParts } from "@moltzap/simulator";
 import { conversationId } from "@moltzap/protocol/conversation";
 import { type AgentId, agentId, agentName } from "@moltzap/protocol/identity";
-import {
-  type MessageParts,
-  messagePartsSchema,
-} from "@moltzap/protocol/message";
+import { messagePartsSchema } from "@moltzap/protocol/message";
 import { OpenClawGatewayTimedOut } from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";
-import { TARGET_AGENT_NAME, type EvaluationCaseMetadata } from "./cases.js";
+import { type EvaluationCaseMetadata, TARGET_AGENT_NAME } from "./cases.js";
 import {
   CodePeerMessageReceived,
   CodePeerMessageSent,
   type EvaluationEvidence,
-  EvaluationEvidenceProjectionError,
   type EvaluationEvidenceLedger,
+  EvaluationEvidenceProjectionError,
   type GatewayEvidence,
   NanoClawPrincipalInputSent,
   NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   type PeerTimeoutEvidence,
-  type SocialEvidence,
   projectEvaluationEvidence,
+  type SocialEvidence,
 } from "./events.js";
 import {
   type CriterionId,
   type EvaluationCaseId,
-  type EvaluationEvidenceId,
   evaluationCaseId,
+  type EvaluationEvidenceId,
   evaluationEvidenceId,
   positiveInteger,
 } from "./model.js";

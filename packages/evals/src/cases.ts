@@ -1,32 +1,31 @@
 /** @file The ordered code-first catalog of bundled behavioral evaluations. */
 
-import type { Part } from "@moltzap/protocol/message";
-import type { SimulatorDefinitionId } from "@moltzap/simulator";
+import type { MessageParts, SimulatorDefinitionId } from "@moltzap/simulator";
 import type { StartedAgent } from "@moltzap/simulator/agents";
-import { Array as Arr, Effect, type Option } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
+import { Array as Arr, Effect, type Option } from "effect";
+import {
+  CriterionDecided,
+  type CriterionId,
+  decodeCriterionId,
+  decodeEvaluationCaseId,
+  type EvaluationCaseId,
+  EvaluationCriterion,
+  type EvaluationEvidenceId,
+  type EvaluationSlice,
+  NeedsJudge,
+} from "./model.js";
 import {
   announcementPeerRuntime,
   contextPeerRuntime,
+  type EvaluationPeerDefinition,
+  type EvaluationPeerGateway,
   groupResponsePeerRuntime,
   observerPeerRuntime,
   openingPeerRuntime,
   orderedGroupPeerRuntime,
   selectedResponsePeerRuntime,
-  type EvaluationPeerDefinition,
-  type EvaluationPeerGateway,
 } from "./peer.js";
-import {
-  CriterionDecided,
-  EvaluationCriterion,
-  NeedsJudge,
-  decodeCriterionId,
-  decodeEvaluationCaseId,
-  type CriterionId,
-  type EvaluationCaseId,
-  type EvaluationEvidenceId,
-  type EvaluationSlice,
-} from "./model.js";
 
 /** Stable roster name of the runtime whose behavior is evaluated. */
 export const TARGET_AGENT_NAME = "evaluation-target";
@@ -48,7 +47,7 @@ type CriterionDecision = CriterionDecided | NeedsJudge;
 interface CriterionEvidenceItem {
   readonly evidenceId: EvaluationEvidenceId;
   readonly source: "gateway" | "social" | "peer-timeout";
-  readonly parts: readonly Part[];
+  readonly parts: ReadonlyArray<MessageParts[number]>;
 }
 
 /** Minimal ordered evidence exposed to deterministic criterion code. */
