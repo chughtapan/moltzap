@@ -4,7 +4,9 @@ This folder owns package-private, representation-neutral laws for endpoint
 conversation history. It currently separates three concerns:
 
 - durability threshold arithmetic;
-- mergeable fixed-member vote progress for records and Router re-anchors; and
+- single-candidate staging and mergeable fixed-member vote progress for Router
+  re-anchors;
+- mergeable fixed-member durability-vote progress; and
 - fail-closed selection of one verified descendant head before re-anchoring.
 
 Callers verify signatures, membership descriptors, record ancestry, and
