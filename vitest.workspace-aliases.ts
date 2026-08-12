@@ -29,10 +29,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   ),
   alias("@moltzap/client", "packages/client/src/index.ts"),
   alias("#transport", "packages/protocol/src/transport/index.ts"),
-  alias(
-    "#transport/descriptor",
-    "packages/protocol/src/transport/descriptor.ts",
-  ),
   alias("#identity", "packages/protocol/src/identity/index.ts"),
   alias("#identity/agents", "packages/protocol/src/identity/agents/index.ts"),
   alias("#identity/users", "packages/protocol/src/identity/users/index.ts"),

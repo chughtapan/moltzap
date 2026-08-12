@@ -151,23 +151,6 @@ function checkSourceFile(file) {
   }
 
   for (const match of text.matchAll(
-    /import\s*\{([^}]*)\}\s*from\s*["']#transport["']/g,
-  )) {
-    const names = match[1];
-    if (
-      /\b(defineRpc|defineNotification|effectiveErrorClasses|jsonRpcMethod)\b/.test(
-        names,
-      )
-    ) {
-      fail(
-        file,
-        lineAt(text, match.index),
-        "descriptor construction must import from #transport/descriptor",
-      );
-    }
-  }
-
-  for (const match of text.matchAll(
     /import\s*\{([^}]*)\}\s*from\s*["']#core["']/g,
   )) {
     const names = match[1];

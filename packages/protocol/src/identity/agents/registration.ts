@@ -1,6 +1,6 @@
 import { Schema, type Brand, type Redacted } from "effect";
 
-import { defineRpc } from "#transport/descriptor";
+import { defineRpc } from "#transport";
 import { ConflictError } from "#transport";
 import { agentKey } from "./credentials.js";
 import { agentId } from "./ids.js";

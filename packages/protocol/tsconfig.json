@@ -8,9 +8,6 @@
       "#transport": [
         "./src/transport/index.ts"
       ],
-      "#transport/descriptor": [
-        "./src/transport/descriptor.ts"
-      ],
       "#identity": [
         "./src/identity/index.ts"
       ],

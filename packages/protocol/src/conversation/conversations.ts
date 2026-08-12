@@ -7,7 +7,7 @@ import { agentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AuthenticatedAgent } from "#identity/principals";
 import { InvalidParamsError, listLimitSchema } from "#transport";
-import { defineNotification, defineRpc } from "#transport/descriptor";
+import { defineNotification, defineRpc } from "#transport";
 import {
   ConversationFullError,
   conversationId,

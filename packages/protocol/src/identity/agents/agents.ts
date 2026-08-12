@@ -2,7 +2,7 @@ import { Schema } from "effect";
 
 import { AuthenticatedAgent } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
-import { defineRpc } from "#transport/descriptor";
+import { defineRpc } from "#transport";
 import {
   listLimitSchema,
   listCursorSchema,

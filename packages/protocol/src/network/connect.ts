@@ -1,7 +1,7 @@
 import { Data, Effect, Schema, String as StringOps } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
 import { agentKey } from "#identity/agents";
-import { defineRpc } from "#transport/descriptor";
+import { defineRpc } from "#transport";
 import {
   UnauthorizedError,
   AlreadyConnected,

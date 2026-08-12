@@ -10,8 +10,7 @@ import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
  * @param method Wire method name.
  * @returns The json rpc method result.
  */
-export const jsonRpcMethod = <const Name extends string>(method: Name): Name =>
-  method;
+const jsonRpcMethod = <const Name extends string>(method: Name): Name => method;
 
 /**
  * A wire-discriminable tagged-error CLASS: a `Schema.TaggedError`-derived class
@@ -106,8 +105,8 @@ export interface RpcDefinition<
    * The handler-domain tagged-error classes this method can fail with: only
    * the errors the HANDLER raises, not the requirement middleware errors
    * (those come from each requirement's own `failure`). The method's effective
-   * wire error union is the union of both; see
-   * {@link effectiveErrorClasses} / {@link errorSchema}.
+   * wire error union is the union of both; `effectiveErrorClasses` constructs
+   * the `errorSchema` below.
    */
   readonly errors: Errs;
 
@@ -219,7 +218,7 @@ export type CallErrorsOf<D extends RpcDefinitionAny> =
  * @param handlerErrors Handler error classes to aggregate.
  * @returns The effective error classes result.
  */
-export function effectiveErrorClasses<
+function effectiveErrorClasses<
   const Requires extends readonly RequirementShape[],
   const Errors extends readonly RpcErrorClass[],
 >(

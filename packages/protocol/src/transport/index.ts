@@ -22,7 +22,11 @@ export type {
   ResponseErrorsOf,
 } from "./definition.js";
 /** Re-exports the public API from `./definition.js`. */
-export { isNotificationDeliveryFor } from "./definition.js";
+export {
+  defineNotification,
+  defineRpc,
+  isNotificationDeliveryFor,
+} from "./definition.js";
 
 /** Re-exports the public API from `./notification-subscribers.js`. */
 export {

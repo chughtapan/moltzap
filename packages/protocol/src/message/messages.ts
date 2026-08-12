@@ -6,7 +6,7 @@ import { Schema } from "effect";
 import { agentId } from "#identity/agents";
 import { conversationId, messageId } from "#conversation";
 import { ConversationSendAccess } from "#conversation/requirements";
-import { defineNotification, defineRpc } from "#transport/descriptor";
+import { defineNotification, defineRpc } from "#transport";
 import {
   listLimitSchema,
   ForbiddenError,

@@ -50,7 +50,6 @@
   },
   "imports": {
     "#transport": "./src/transport/index.ts",
-    "#transport/descriptor": "./src/transport/descriptor.ts",
     "#identity": "./src/identity/index.ts",
     "#identity/agents": "./src/identity/agents/index.ts",
     "#identity/users": "./src/identity/users/index.ts",
