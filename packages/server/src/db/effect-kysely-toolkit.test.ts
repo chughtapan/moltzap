@@ -5,9 +5,7 @@ import { describe, expect } from "vitest";
 import { ConflictError } from "@moltzap/protocol/rpc";
 import {
   catchSqlErrorAsDefect,
-  sqlErrorToDefect,
   takeFirstOption,
-  takeFirstOrElse,
   takeFirstOrFail,
 } from "./effect-kysely-toolkit.js";
 
@@ -15,8 +13,6 @@ const it = effectIt.effect;
 
 const SUCCESS_VALUE = 42;
 const TYPED_CONFLICT_MESSAGE = "typed";
-const MISSING_ROW_ERROR = "missing";
-const FIRST_NUMBER = 7;
 const SQL_ERROR_CAUSE = "x";
 const SQL_ERROR_MESSAGE = "y";
 
@@ -58,22 +54,6 @@ describe("catchSqlErrorAsDefect pass-through", () => {
     }));
 });
 
-describe("sqlErrorToDefect", () => {
-  it("dies on SqlError input", () =>
-    Effect.gen(function* () {
-      const err = makeSqlError();
-      const program = sqlErrorToDefect(Effect.fail(err));
-      expectDefect(yield* Effect.exit(program), err);
-    }));
-
-  it("passes successful values through", () =>
-    Effect.gen(function* () {
-      const rows = [1, 2, 3] as const;
-      const result = yield* sqlErrorToDefect(Effect.succeed(rows));
-      expect(result).toEqual(rows);
-    }));
-});
-
 describe("takeFirstOption", () => {
   it("returns None for empty input", () =>
     Effect.gen(function* () {
@@ -94,28 +74,6 @@ describe("takeFirstOption", () => {
         expect.fail("expected first row");
       }
       expect(result.value).toBe(row);
-    }));
-});
-
-describe("takeFirstOrElse", () => {
-  it("fails with caller's orElse on empty input", () =>
-    Effect.gen(function* () {
-      const program = takeFirstOrElse(
-        Effect.succeed<readonly number[]>([]),
-        missingRowError,
-      );
-      expect(expectFailure(yield* Effect.exit(program))).toBe(
-        MISSING_ROW_ERROR,
-      );
-    }));
-
-  it("returns first row on non-empty input", () =>
-    Effect.gen(function* () {
-      const result = yield* takeFirstOrElse(
-        Effect.succeed<readonly number[]>([FIRST_NUMBER, 8, 9]),
-        missingRowError,
-      );
-      expect(result).toBe(FIRST_NUMBER);
     }));
 });
 
@@ -142,10 +100,6 @@ describe("takeFirstOrFail", () => {
 
 function makeSqlError(): SqlError {
   return new SqlError({ cause: SQL_ERROR_CAUSE, message: SQL_ERROR_MESSAGE });
-}
-
-function missingRowError(): string {
-  return MISSING_ROW_ERROR;
 }
 
 function expectDefect(

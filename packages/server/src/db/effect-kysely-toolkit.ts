@@ -157,27 +157,6 @@ export const takeFirstOption = <A, E, R>(
   query.pipe(Effect.map((rows) => Option.fromNullable(rows[0])));
 
 /**
- * Take the first row or fail with a caller-supplied error. Effect
- * equivalent of `.executeTakeFirst()` followed by a manual nullish check.
- * @param query Value supplied to the operation.
- * @param orElse Value supplied to the operation.
- * @returns The take first or else result.
- */
-export const takeFirstOrElse = <A, E, R, E2>(
-  query: Effect.Effect<readonly A[], E, R>,
-  orElse: () => E2,
-): Effect.Effect<A, E | E2, R> =>
-  query.pipe(
-    Effect.flatMap((rows) =>
-      rows.length > 0
-        ? Effect.succeed(
-            /* Safe because the surrounding invariant establishes this asserted shape. */ rows[0] as A,
-          )
-        : Effect.fail(orElse()),
-    ),
-  );
-
-/**
  * Take the first row or fail with a `NoSuchElementException`. Effect
  * equivalent of `.executeTakeFirstOrThrow()`.
  * @param query Value supplied to the operation.
@@ -268,12 +247,3 @@ export const catchSqlErrorAsDefect = <A, E, R>(
         : Effect.fail(err),
     ),
   ) as Effect.Effect<A, Exclude<E, SqlError | Cause.NoSuchElementException>, R>;
-
-/**
- * Alias for callers that know their channel is just `SqlError`.
- * @param effect Effect to execute.
- * @returns The sql error to defect result.
- */
-export const sqlErrorToDefect = <A, R>(
-  effect: Effect.Effect<A, SqlError, R>,
-): Effect.Effect<A, never, R> => catchSqlErrorAsDefect(effect);
