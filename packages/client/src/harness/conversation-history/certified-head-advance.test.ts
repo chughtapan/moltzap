@@ -1,6 +1,5 @@
 /**
- * @file Pins predecessor, record-binding, complete evidence, and threshold
- * gates for atomic promotion to one certified-history head.
+ * @file Pins atomic certified-head promotion and evidence-only enrichment.
  */
 
 import { AgentId, type AgentId as AgentIdValue } from "@moltzap/identity";
@@ -11,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   type CertifiedHeadAdvance,
   type CertifiedHistoryHead,
+  planCertifiedEvidenceEnrichment,
   planCertifiedHeadAdvance,
   type StagedActionCertifiedRecord,
 } from "./certified-head-advance.js";
@@ -130,6 +130,42 @@ const failedTransition = (result: ReturnType<typeof transition>) =>
     onLeft: (error) => error,
     onRight: () => {
       throw new Error("Expected certified-head advance to fail");
+    },
+  });
+
+const evidenceFor = (
+  signers: readonly AgentIdValue[],
+): Map<AgentIdValue, OpaqueVoteEvidence> =>
+  new Map(
+    signers.map((signerAgentId) => [
+      signerAgentId,
+      voteEvidenceFor(signerAgentId),
+    ]),
+  );
+
+const enrichment = (input: {
+  readonly existingProgress: DurabilityVoteProgress<string, OpaqueVoteEvidence>;
+  readonly receivedProgress: DurabilityVoteProgress<string, OpaqueVoteEvidence>;
+}) =>
+  planCertifiedEvidenceEnrichment({
+    ...input,
+    sameRecordHash: (left, right) => left === right,
+    sameVoteEvidence: (left, right) => left.fixture === right.fixture,
+  });
+
+const successfulEnrichment = (result: ReturnType<typeof enrichment>) =>
+  Either.match(result, {
+    onLeft: (error) => {
+      throw error;
+    },
+    onRight: (plan) => plan,
+  });
+
+const failedEnrichment = (result: ReturnType<typeof enrichment>) =>
+  Either.match(result, {
+    onLeft: (error) => error,
+    onRight: () => {
+      throw new Error("Expected certified evidence enrichment to fail");
     },
   });
 
@@ -312,6 +348,182 @@ describe("planCertifiedHeadAdvance evidence snapshot", () => {
     }
     expect(advance.durabilityEvidenceBySigner.size).toBe(
       initial.quorum.requiredVotes,
+    );
+  });
+});
+
+describe("planCertifiedEvidenceEnrichment record binding", () => {
+  it("rejects votes for another certified history position", () => {
+    const members = membersFor(4);
+    const progress = addSigners(emptyProgress(NEXT_HASH, members), members);
+
+    expect(
+      failedEnrichment(
+        enrichment({
+          existingProgress: addSigners(
+            emptyProgress(GENESIS_HASH, members),
+            members.slice(0, 3),
+          ),
+          receivedProgress: progress,
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "CertifiedEvidenceRecordMismatchError",
+      existingRecordHash: GENESIS_HASH,
+      receivedRecordHash: NEXT_HASH,
+    });
+  });
+});
+
+describe("planCertifiedEvidenceEnrichment membership binding", () => {
+  it("rejects a different membership even when its threshold is complete", () => {
+    const existingMembers = membersFor(4);
+    const receivedMembers = [...existingMembers.slice(0, 3), makeAgentId(99)];
+
+    expect(
+      failedEnrichment(
+        enrichment({
+          existingProgress: addSigners(
+            emptyProgress(GENESIS_HASH, existingMembers),
+            existingMembers.slice(0, 3),
+          ),
+          receivedProgress: addSigners(
+            emptyProgress(GENESIS_HASH, receivedMembers),
+            receivedMembers.slice(0, 3),
+          ),
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "CertifiedEvidenceMembershipMismatchError",
+      existingMemberCount: 4,
+      receivedMemberCount: 4,
+    });
+  });
+});
+
+describe("planCertifiedEvidenceEnrichment certificate precondition", () => {
+  it("refuses to treat partial stored evidence as an existing certificate", () => {
+    const members = membersFor(4);
+    const progress = addSigners(
+      emptyProgress(GENESIS_HASH, members),
+      members.slice(2),
+    );
+
+    expect(
+      failedEnrichment(
+        enrichment({
+          existingProgress: addSigners(
+            emptyProgress(GENESIS_HASH, members),
+            members.slice(0, 2),
+          ),
+          receivedProgress: progress,
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "ExistingCertifiedEvidenceIncompleteError",
+      signerCount: 2,
+      requiredVotes: 3,
+    });
+  });
+});
+
+describe("planCertifiedEvidenceEnrichment membership", () => {
+  it("rejects a stored signer outside the fixed membership", () => {
+    const members = membersFor(4);
+    const outsider = makeAgentId(99);
+    const existing = addSigners(
+      emptyProgress(GENESIS_HASH, members),
+      members.slice(0, 3),
+    );
+    const existingEvidence = new Map(existing.voteEvidenceBySigner);
+    existingEvidence.set(outsider, voteEvidenceFor(outsider));
+
+    expect(
+      failedEnrichment(
+        enrichment({
+          existingProgress: {
+            ...existing,
+            voteEvidenceBySigner: existingEvidence,
+          },
+          receivedProgress: emptyProgress(GENESIS_HASH, members),
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "NonMemberDurabilitySignerError",
+      signerAgentId: outsider,
+    });
+  });
+});
+
+describe("planCertifiedEvidenceEnrichment conflicts", () => {
+  it("rejects conflicting evidence without replacing the stored vote", () => {
+    const members = membersFor(4);
+    const signerAgentId = members.at(0);
+    if (signerAgentId === undefined) {
+      throw new Error("The four-member fixture must have a first signer");
+    }
+    const progress = emptyProgress(GENESIS_HASH, members);
+    const conflictingProgress = {
+      ...progress,
+      voteEvidenceBySigner: new Map([
+        [signerAgentId, { fixture: "verified:conflict" }],
+      ]),
+    };
+
+    expect(
+      failedEnrichment(
+        enrichment({
+          existingProgress: addSigners(
+            emptyProgress(GENESIS_HASH, members),
+            members.slice(0, 3),
+          ),
+          receivedProgress: conflictingProgress,
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "ConflictingDurabilityVoteEvidenceError",
+      signerAgentId,
+      existingEvidence: voteEvidenceFor(signerAgentId),
+      receivedEvidence: { fixture: "verified:conflict" },
+    });
+  });
+});
+
+describe("planCertifiedEvidenceEnrichment merge", () => {
+  it("enriches every valid threshold subset at the same history position", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 40 }), (memberCount) => {
+        const members = membersFor(memberCount);
+        const initial = emptyProgress(GENESIS_HASH, members);
+        const existing = addSigners(
+          initial,
+          members.slice(0, initial.quorum.requiredVotes),
+        );
+        const received = addSigners(initial, [...members].reverse());
+        const plan = successfulEnrichment(
+          enrichment({
+            existingProgress: existing,
+            receivedProgress: received,
+          }),
+        );
+
+        expect(new Map(plan.durabilityEvidenceBySigner)).toEqual(
+          evidenceFor(members),
+        );
+        expect(plan.disposition).toBe(
+          memberCount === initial.quorum.requiredVotes
+            ? "unchanged"
+            : "enriched",
+        );
+        expect(plan.recordHash).toBe(GENESIS_HASH);
+        expect(Object.isFrozen(plan)).toBe(true);
+        for (const name of ["set", "delete", "clear"]) {
+          expect(
+            Reflect.get(plan.durabilityEvidenceBySigner, name),
+          ).toBeUndefined();
+        }
+        expect("nextHead" in plan).toBe(false);
+      }),
     );
   });
 });

@@ -21,7 +21,9 @@ conversation history:
   atomic local transaction without runtime attention;
   and
 - predecessor- and quorum-gated plans carrying complete evidence into atomic
-  certified-head advancement.
+  certified-head advancement; and
+- evidence-only enrichment of an existing certified history position without
+  creating another action, head advance, or runtime turn.
 
 Callers verify signatures, membership descriptors, record ancestry, and
 Router bindings before entering these helpers. The helpers do not select a
