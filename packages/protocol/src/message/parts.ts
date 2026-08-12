@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { closedStructGuard, formatString } from "#transport";
+import { formatString } from "#transport";
 
 const textPartSchema = Schema.Struct({
   type: Schema.Literal("text"),
@@ -36,7 +36,6 @@ export type Part = Schema.Schema.Type<typeof partSchema>;
 const messagePartsSchemaValue = Schema.NonEmptyArray(partSchema).pipe(
   Schema.maxItems(10),
 );
-const messagePartsTextSchema = Schema.parseJson(messagePartsSchemaValue);
 
 /**
  * Return the canonical message-parts schema.
@@ -53,9 +52,6 @@ export function messagePartsSchema(): typeof messagePartsSchemaValue {
 export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 
 const decodeMessagePartsEffect = Schema.decodeUnknown(messagePartsSchemaValue);
-const decodeMessagePartsTextEffect = Schema.decodeUnknown(
-  messagePartsTextSchema,
-);
 
 /**
  * Decode a message-parts payload and die on malformed persisted data.
@@ -69,19 +65,3 @@ export function decodeMessageParts(
     onExcessProperty: "error",
   }).pipe(Effect.orDie);
 }
-
-/**
- * Decode persisted plaintext message parts and die on malformed persisted data.
- * @param value Value to process.
- * @returns The decoded message parts text.
- */
-export function decodeMessagePartsText(
-  value: string,
-): Effect.Effect<MessageParts> {
-  return decodeMessagePartsTextEffect(value, {
-    onExcessProperty: "error",
-  }).pipe(Effect.orDie);
-}
-
-/** Return true when the value is a closed text part. */
-export const validateTextPart = closedStructGuard(textPartSchema);

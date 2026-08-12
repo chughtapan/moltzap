@@ -8,7 +8,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L89)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L80)
 
 _Variable_
 
@@ -21,7 +21,7 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`decodeMessageParts`](./parts.ts#L65)
+### [`decodeMessageParts`](./parts.ts#L61)
 
 _Function_
 
@@ -35,21 +35,7 @@ Decode a message-parts payload and die on malformed persisted data.
 
 **Returns:** The decoded message parts.
 
-### [`decodeMessagePartsText`](./parts.ts#L78)
-
-_Function_
-
-```ts
-export function decodeMessagePartsText(
-  value: string,
-): Effect.Effect<MessageParts>
-```
-
-Decode persisted plaintext message parts and die on malformed persisted data.
-
-**Returns:** The decoded message parts text.
-
-### [`Message`](./messages.ts#L41)
+### [`Message`](./messages.ts#L35)
 
 _TypeAlias_
 
@@ -59,7 +45,7 @@ export type Message = Schema.Schema.Type<typeof messageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageNotifications`](./messages.ts#L113)
+### [`messageNotifications`](./messages.ts#L104)
 
 _Variable_
 
@@ -71,7 +57,7 @@ export const messageNotifications = [
 
 Message notification catalog.
 
-### [`MessageParts`](./parts.ts#L53)
+### [`MessageParts`](./parts.ts#L52)
 
 _TypeAlias_
 
@@ -81,7 +67,7 @@ export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 
 Nonempty protocol message content.
 
-### [`messagePartsSchema`](./parts.ts#L48)
+### [`messagePartsSchema`](./parts.ts#L47)
 
 _Function_
 
@@ -96,7 +82,7 @@ directly so persisted bodies cannot drift from the wire contract.
 
 **Returns:** The nonempty schema shared by all message boundaries.
 
-### [`MessageReceivedNotification`](./messages.ts#L99)
+### [`MessageReceivedNotification`](./messages.ts#L90)
 
 _TypeAlias_
 
@@ -108,7 +94,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`messageReceivedNotificationDefinition`](./messages.ts#L107)
+### [`messageReceivedNotificationDefinition`](./messages.ts#L98)
 
 _Variable_
 
@@ -121,7 +107,7 @@ export const messageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`messagesList`](./messages.ts#L80)
+### [`messagesList`](./messages.ts#L71)
 
 _Variable_
 
@@ -138,7 +124,7 @@ export const messagesList = defineRpc({
 List the newest visible messages in a conversation, returned oldest-first.
 The server enforces conversation participation.
 
-### [`messagesSend`](./messages.ts#L58)
+### [`messagesSend`](./messages.ts#L49)
 
 _Variable_
 
@@ -164,26 +150,6 @@ export type Part = Schema.Schema.Type<typeof partSchema>;
 ```
 
 User-authored message content part.
-
-### [`validateMessage`](./messages.ts#L44)
-
-_Variable_
-
-```ts
-export const validateMessage = closedStructGuard(messageSchema)
-```
-
-Return true when the value is a closed message row.
-
-### [`validateTextPart`](./parts.ts#L87)
-
-_Variable_
-
-```ts
-export const validateTextPart = closedStructGuard(textPartSchema)
-```
-
-Return true when the value is a closed text part.
 
 ## Files
 

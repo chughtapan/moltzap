@@ -9,7 +9,6 @@ import { ConversationSendAccess } from "#conversation/requirements";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
   listLimitSchema,
-  closedStructGuard,
   ForbiddenError,
   dateTimeStringSchema,
 } from "#transport";
@@ -17,12 +16,7 @@ import { AuthenticatedAgent } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
 /** Re-exports the public API from `./parts.js`. */
-export {
-  decodeMessageParts,
-  decodeMessagePartsText,
-  messagePartsSchema,
-  validateTextPart,
-} from "./parts.js";
+export { decodeMessageParts, messagePartsSchema } from "./parts.js";
 /** Re-exports the public API from `./parts.js`. */
 export type { MessageParts, Part } from "./parts.js";
 
@@ -39,9 +33,6 @@ const messageSchema = Schema.Struct({
 
 /** Message row visible to agent callers. */
 export type Message = Schema.Schema.Type<typeof messageSchema>;
-
-/** Return true when the value is a closed message row. */
-export const validateMessage = closedStructGuard(messageSchema);
 
 const messagesSendParams = Schema.Struct({
   conversationId: conversationId,
