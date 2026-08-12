@@ -252,7 +252,7 @@ const packageDefinitions = {
         {
           file: "identity/agents/types.ts",
           reason:
-            "Agent record schemas and validation form the identity descriptor boundary consumed by the agent-list RPC while identity/agents/index.ts curates the published surface",
+            "The agent-card schema and not-found error form the identity descriptor boundary consumed by the agent-list RPC while identity/agents/index.ts curates the published surface",
         },
         {
           file: "transport/definition.ts",

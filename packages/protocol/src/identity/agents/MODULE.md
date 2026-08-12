@@ -8,17 +8,7 @@ Agent identity descriptors, schemas, and credentials.
 
 ## Public surface
 
-### [`Agent`](./types.ts#L52)
-
-_TypeAlias_
-
-```ts
-export type Agent = Schema.Schema.Type<typeof agentSchema>;
-```
-
-Represents agent values.
-
-### [`AgentCard`](./types.ts#L54)
+### [`AgentCard`](./types.ts#L37)
 
 _TypeAlias_
 
@@ -28,12 +18,21 @@ export type AgentCard = Schema.Schema.Type<typeof agentCardSchema>;
 
 Represents agent card values.
 
-### [`agentCardSchema`](./types.ts#L44)
+### [`agentCardSchema`](./types.ts#L25)
 
 _Variable_
 
 ```ts
-export const agentCardSchema = agentSchema.omit("createdAt")
+export const agentCardSchema = Schema.Struct({
+  id: agentId,
+  ownerUserId: Schema.optional(userId),
+  name: agentName,
+  displayName: Schema.optional(Schema.String),
+  description: Schema.optional(Schema.String),
+  agentType: Schema.optional(stringEnum(["OpenClaw", "NanoClaw"])),
+  metadata: Schema.optional(agentMetadataSchema),
+  status: stringEnum(["active", "suspended"]),
+})
 ```
 
 Validates and decodes agent card values.
@@ -113,7 +112,7 @@ export type AgentName = string & Brand.Brand<"AgentName">;
 
 Wire-safe agent name shared by registration input and agent records.
 
-### [`AgentNotFoundError`](./types.ts#L16)
+### [`AgentNotFoundError`](./types.ts#L9)
 
 _Class_
 
@@ -127,18 +126,6 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
 ```
 
 Reports agent not found failures.
-
-### [`agentOwnershipSchema`](./types.ts#L65)
-
-_Function_
-
-```ts
-export function agentOwnershipSchema(): typeof agentOwnershipSchemaValue
-```
-
-Executes the agent ownership schema operation.
-
-**Returns:** The agent ownership schema result.
 
 ### [`agentsList`](./agents.ts#L14)
 
@@ -205,26 +192,6 @@ export const register = defineRpc({
 ```
 
 Defines the `agent/identity/register` RPC contract.
-
-### [`validateAgent`](./types.ts#L57)
-
-_Variable_
-
-```ts
-export const validateAgent = closedStructGuard(agentSchema)
-```
-
-Provides the validate agent runtime value.
-
-### [`validateAgentCard`](./types.ts#L59)
-
-_Variable_
-
-```ts
-export const validateAgentCard = closedStructGuard(agentCardSchema)
-```
-
-Provides the validate agent card runtime value.
 
 ## Files
 

@@ -1,16 +1,9 @@
 import { Schema } from "effect";
 
-import {
-  closedStructGuard,
-  dateTimeStringSchema,
-  stringEnum,
-  errorPayloadFields,
-} from "#transport";
+import { stringEnum, errorPayloadFields } from "#transport";
 import { agentId } from "./ids.js";
 import { agentName } from "./name.js";
 import { userId } from "#identity/users";
-
-const dateTimeString = dateTimeStringSchema();
 
 /** Reports agent not found failures. */
 export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()(
@@ -28,7 +21,8 @@ const agentMetadataSchema = Schema.Struct({
   ),
 });
 
-const agentSchema = Schema.Struct({
+/** Validates and decodes agent card values. */
+export const agentCardSchema = Schema.Struct({
   id: agentId,
   ownerUserId: Schema.optional(userId),
   name: agentName,
@@ -37,31 +31,7 @@ const agentSchema = Schema.Struct({
   agentType: Schema.optional(stringEnum(["OpenClaw", "NanoClaw"])),
   metadata: Schema.optional(agentMetadataSchema),
   status: stringEnum(["active", "suspended"]),
-  createdAt: dateTimeString,
 });
 
-/** Validates and decodes agent card values. */
-export const agentCardSchema = agentSchema.omit("createdAt");
-
-const agentOwnershipSchemaValue = Schema.Struct({
-  agentId: agentId,
-  ownerUserId: userId,
-});
-
-/** Represents agent values. */
-export type Agent = Schema.Schema.Type<typeof agentSchema>;
 /** Represents agent card values. */
 export type AgentCard = Schema.Schema.Type<typeof agentCardSchema>;
-
-/** Provides the validate agent runtime value. */
-export const validateAgent = closedStructGuard(agentSchema);
-/** Provides the validate agent card runtime value. */
-export const validateAgentCard = closedStructGuard(agentCardSchema);
-
-/**
- * Executes the agent ownership schema operation.
- * @returns The agent ownership schema result.
- */
-export function agentOwnershipSchema(): typeof agentOwnershipSchemaValue {
-  return agentOwnershipSchemaValue;
-}

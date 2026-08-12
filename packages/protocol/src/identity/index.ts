@@ -16,9 +16,6 @@ import {
   agentCardSchema,
   agentsList,
   AgentNotFoundError,
-  validateAgent,
-  validateAgentCard,
-  agentOwnershipSchema,
 } from "./agents/index.js";
 
 /** Re-exports the public API from `current module`. */
@@ -35,12 +32,9 @@ export {
   agentCardSchema,
   agentsList,
   AgentNotFoundError,
-  validateAgent,
-  validateAgentCard,
-  agentOwnershipSchema,
 };
 /** Re-exports the public API from `./agents/index.js`. */
-export type { Agent, AgentCard } from "./agents/index.js";
+export type { AgentCard } from "./agents/index.js";
 
 /** Re-exports the public API from `./users/index.js`. */
 export { type UserId, userId } from "./users/index.js";
