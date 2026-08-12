@@ -33,7 +33,6 @@
     "packages/openclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
-        "src/**/__tests__/**/*.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
@@ -79,7 +78,6 @@
     },
     "packages/identity": {
       "entry": [
-        "src/registry/process.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
@@ -92,7 +90,6 @@
     },
     "packages/router": {
       "entry": [
-        "src/router/process.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
