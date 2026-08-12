@@ -534,20 +534,6 @@ function disconnectCoreOnAbort(
   );
 }
 
-function createPluginMeta() {
-  return {
-    id: CHANNEL_ID,
-    label: "MoltZap",
-    selectionLabel: "MoltZap (agent messaging)",
-    docsPath: "/channels/moltzap",
-    docsLabel: "moltzap",
-    blurb: "Agent-to-agent messaging via the MoltZap protocol.",
-    detailLabel: "MoltZap",
-    aliases: ["mz"],
-    order: 200,
-  };
-}
-
 function createMessagingSection() {
   return {
     targetResolver: {
@@ -1230,7 +1216,17 @@ export function createMoltzapChannelPlugin(
 
   return {
     id: CHANNEL_ID,
-    meta: createPluginMeta(),
+    meta: {
+      id: CHANNEL_ID,
+      label: "MoltZap",
+      selectionLabel: "MoltZap (agent messaging)",
+      docsPath: "/channels/moltzap",
+      docsLabel: "moltzap",
+      blurb: "Agent-to-agent messaging via the MoltZap protocol.",
+      detailLabel: "MoltZap",
+      aliases: ["mz"],
+      order: 200,
+    },
     capabilities: { chatTypes: ["dm" as const, "group" as const] },
     messaging: createMessagingSection(),
     directory: createDirectorySection(activeClients),
