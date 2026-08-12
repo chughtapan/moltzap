@@ -1,6 +1,5 @@
 // safer-arch-ignore folder-explicit-api-required: ConnectionManager and connection arms form the socket runtime boundary consumed by server composition.
 import { Data, Effect, HashMap, HashSet, Match, Option, Ref } from "effect";
-import type { SocketError } from "@effect/platform/Socket";
 import type { ReverseClient, ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -15,25 +14,13 @@ import type { AgentContext } from "./context.js";
 export type Originator = ReverseClient;
 
 /**
- * The per-connection socket handle registered with `ConnectionManager`.
- */
-export interface WebSocketRef {
-  /**
-   * Write a raw frame to this connection. Fails with SocketError on send
-   * failure or if the socket is already closed.
-   */
-  readonly write: (raw: string) => Effect.Effect<void, SocketError>;
-  /** Close this connection's scope, tearing down the underlying socket. */
-  readonly shutdown: Effect.Effect<void>;
-}
-
-/**
  * Shared base fields across both connection arms. Module-private — not
  * exported. Every arm intersects this; the discriminator is the class tag.
  */
 interface ConnectionBase {
   readonly connId: ConnectionId;
-  readonly socket: WebSocketRef;
+  /** Close this connection's scope, tearing down the underlying socket. */
+  readonly shutdown: Effect.Effect<void>;
   readonly originator: Originator;
 }
 
@@ -155,13 +142,13 @@ export class ConnectionManager {
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
    * at WebSocket open. The Connect handler promotes it to the agent arm.
    * @param connId Value supplied to the operation.
-   * @param socket Value supplied to the operation.
+   * @param shutdown Closes the connection's protocol scope.
    * @param originator Value supplied to the operation.
    * @returns The add unauthenticated result.
    */
   addUnauthenticated(
     connId: ConnectionId,
-    socket: WebSocketRef,
+    shutdown: Effect.Effect<void>,
     originator: Originator,
   ): Effect.Effect<void> {
     return Ref.update(this.stateRef, (state) => ({
@@ -169,7 +156,7 @@ export class ConnectionManager {
       connections: HashMap.set(
         state.connections,
         connId,
-        new UnauthenticatedConnection({ connId, socket, originator }),
+        new UnauthenticatedConnection({ connId, shutdown, originator }),
       ),
     }));
   }
@@ -187,7 +174,7 @@ export class ConnectionManager {
 
   /**
    * Snapshot of every connection arm. Callers iterate + discriminate on `_tag`
-   * (e.g. The shutdown loop reads `arm.socket.shutdown`).
+   * (e.g. the shutdown loop runs `arm.shutdown`).
    * @returns The current result.
    */
   allConnections(): Effect.Effect<readonly Connection[]> {
@@ -236,7 +223,7 @@ export class ConnectionManager {
           (unauth): [TransitionOutcome, typeof state] => {
             const authed = new AgentConnection({
               connId: unauth.connId,
-              socket: unauth.socket,
+              shutdown: unauth.shutdown,
               originator: unauth.originator,
               auth,
             });
@@ -251,48 +238,6 @@ export class ConnectionManager {
         ),
         Match.exhaustive,
       );
-    });
-  }
-
-  /**
-   * Roll an authenticated arm back to `UnauthenticatedConnection` on a
-   * post-auth failure. Idempotent: no-op when the entry is absent or already
-   * unauthenticated — safe against a racing close handler.
-   * @param connId Value supplied to the operation.
-   * @returns The current result.
-   */
-  rollbackToUnauthenticated(connId: ConnectionId): Effect.Effect<void> {
-    return Ref.update(this.stateRef, (state) => {
-      const current = HashMap.get(state.connections, connId);
-      if (
-        Option.isNone(current) ||
-        current.value._tag === "UnauthenticatedConnection"
-      ) {
-        return state;
-      }
-      const authed = current.value;
-      const connections = HashMap.set(
-        state.connections,
-        connId,
-        new UnauthenticatedConnection({
-          connId: authed.connId,
-          socket: authed.socket,
-          originator: authed.originator,
-        }),
-      );
-      if (
-        authed._tag === "AgentConnection" &&
-        !hasAgentArm(connections, authed.auth.agentId)
-      ) {
-        return {
-          connections,
-          agentConversationSubscriptions: HashMap.remove(
-            state.agentConversationSubscriptions,
-            authed.auth.agentId,
-          ),
-        };
-      }
-      return { ...state, connections };
     });
   }
 
@@ -322,50 +267,6 @@ export class ConnectionManager {
             : state.agentConversationSubscriptions;
         return [removed, { connections, agentConversationSubscriptions }];
       },
-    );
-  }
-
-  /**
-   * Read-only lookup narrowed to the agent arm. `UnauthenticatedConnection`
-   * entries are skipped structurally (no `auth.agentId` to compare).
-   * @param agentId Identifier of the agent targeted by the operation.
-   * @returns The found result.
-   */
-  getByAgentConnection(
-    agentId: AgentId,
-  ): Effect.Effect<AgentConnection | null> {
-    return Ref.get(this.stateRef).pipe(
-      Effect.map((state) => {
-        let found: AgentConnection | null = null;
-        eachAgentArm(state.connections, (conn) => {
-          if (found === null && conn.auth.agentId === agentId) {
-            found = conn;
-          }
-        });
-        return found;
-      }),
-    );
-  }
-
-  /**
-   * Every live agent-arm connection of `agentId`. Multi-tab agents have one arm
-   * per socket. Agent-only consumers read this.
-   * @param agentId Identifier of the agent targeted by the operation.
-   * @returns The out result.
-   */
-  agentConnections(
-    agentId: AgentId,
-  ): Effect.Effect<readonly AgentConnection[]> {
-    return Ref.get(this.stateRef).pipe(
-      Effect.map((state) => {
-        const out: AgentConnection[] = [];
-        eachAgentArm(state.connections, (conn) => {
-          if (conn.auth.agentId === agentId) {
-            out.push(conn);
-          }
-        });
-        return out;
-      }),
     );
   }
 

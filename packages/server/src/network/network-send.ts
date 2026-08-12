@@ -1,87 +1,26 @@
 /**
- * `network.send` — outbound routing primitive.
- *
- * Two collaborators: the {@link AgentEndpointResolver} for the durable
- * `AgentId → live ConnectionId set` lookup and the
- * {@link ConnectionManager} for the writable socket. A Tag at
- * `core/layers.ts` provides this composition.
- *
- * Outbound routing is strictly per-agent ({@link send}) or
- * per-agent-set ({@link broadcast}). App callbacks write over the app's
- * own `AppEndpoint` originator inside `AppEndpointRegistry`, not through here.
+ * @file Typed server-to-client notification fan-out over live agent
+ * connections.
+ * The endpoint resolver supplies every live connection id for an agent, and
+ * the connection manager supplies the reverse RPC client and conversation
+ * subscription state for each connection.
  */
-import { type Brand, Data, Effect, Either, HashSet, Option } from "effect";
+import { Effect, HashSet, Option } from "effect";
 import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { SocketError } from "@effect/platform/Socket";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentConnection, ConnectionManager } from "#socket";
 import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
-
-/**
- * Branded raw-string payload. The send primitive writes the exact
- * bytes to the recipient socket — no parse, no transform, no validate.
- * The nominal brand prevents an unwitting caller from passing an
- * arbitrary `string` where a wire-ready frame is expected.
- */
-export type OpaquePayload = string & Brand.Brand<"OpaquePayload">;
-
-// ---------------------------------------------------------------------------
-// Result + error channel
-// ---------------------------------------------------------------------------
-
-/**
- * Successful single-recipient write. The fan-out variant
- * {@link NetworkSendService.broadcast} returns the delivered agent ids
- * in its success channel and absorbs `DeliveryError` cases.
- */
-export class DeliveryAck extends Data.TaggedClass("DeliveryAck")<{
-  readonly to: AgentId;
-}> {}
-
-/**
- * Recipient agent has no live connection. Caller-recoverable —
- * usually drop or queue rather than retry.
- */
-class RecipientNotResolved extends Data.TaggedError("RecipientNotResolved")<{
-  readonly to: AgentId;
-}> {}
-
-/**
- * Socket write failed. The inner `SocketError` cause is
- * preserved so the caller distinguishes a write failure from a
- * resolution failure without re-running the lookup.
- */
-class WriteFailed extends Data.TaggedError("WriteFailed")<{
-  readonly to: AgentId;
-  readonly cause: SocketError;
-}> {}
-
-/** Represents delivery error conditions. */
-export type DeliveryError = RecipientNotResolved | WriteFailed;
-
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
 
 interface BroadcastOptions {
   readonly forConversation?: ConversationId;
   readonly excludeConnectionId?: ConnectionId;
-  readonly messageId?: MessageId;
-}
-
-interface BroadcastWrite {
-  readonly cid: ConnectionId;
-  readonly conn: AgentConnection;
-  readonly target: AgentId;
-  readonly payload: OpaquePayload;
-  readonly options: BroadcastOptions;
 }
 
 /**
- * Outbound-routing primitive. Use the constructor directly in code;
+ * Typed notification fan-out service. Use the constructor directly in code;
  * route through `NetworkSendServiceTag` in DI-aware code.
  */
 export class NetworkSendService {
@@ -91,76 +30,6 @@ export class NetworkSendService {
   constructor(resolver: AgentEndpointResolver, connections: ConnectionManager) {
     this.resolver = resolver;
     this.connections = connections;
-  }
-
-  /**
-   * Route `payload` to one live connection of `agentId`. Iterates the
-   * resolver set so a stale entry does not poison the send when a
-   * sibling connection is still live. {@link RecipientNotResolved}
-   * Folds "no resolver entry" and "every resolved connection has gone
-   * away" — callers can't act on the distinction without poking
-   * internal state.
-   * @param to Value supplied to the operation.
-   * @param payload Value supplied to the operation.
-   * @returns The conns result.
-   */
-  send(
-    to: AgentId,
-    payload: OpaquePayload,
-  ): Effect.Effect<DeliveryAck, DeliveryError> {
-    return Effect.gen(
-      function* (this: NetworkSendService) {
-        const conns = yield* this.resolver.resolveAll(to);
-        for (const candidate of HashSet.values(conns)) {
-          const conn = yield* this.connections.peek(candidate);
-          if (Option.isNone(conn)) {
-            continue;
-          }
-          yield* conn.value.socket.write(payload).pipe(
-            Effect.either,
-            Effect.flatMap(
-              Either.match({
-                onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
-                onRight: () => Effect.void,
-              }),
-            ),
-          );
-          return new DeliveryAck({ to });
-        }
-        return yield* new RecipientNotResolved({ to });
-      }.bind(this),
-    );
-  }
-
-  /**
-   * Fan out `payload` across every live connection of every agent in
-   * `agentIds`. Per-CONNECTION (multi-tab agents receive one frame per
-   * live connection); writes are forked so a hung recipient does not
-   * extend the caller's RPC latency.
-   *
-   * Filter options:
-   * - `forConversation` — apply the server-side conversation subscription
-   *   index gate; absent, every connection of every listed agent receives.
-   * - `excludeConnectionId` — skip the named connection. The
-   *   `agent/message/send` author uses this to avoid echoing the RPC reply
-   *   back as a notification.
-   *
-   * `delivered` lists agents whose at-least-one connection was scheduled to
-   * receive a write; the message service records that set on its delivery
-   * trace.
-   * @param agentIds Value supplied to the operation.
-   * @param payload Value supplied to the operation.
-   * @param opts Value supplied to the operation.
-   * @returns The delivered result.
-   */
-  broadcast(
-    agentIds: readonly AgentId[],
-    payload: OpaquePayload,
-    opts: BroadcastOptions = {},
-  ): Effect.Effect<{ readonly delivered: readonly AgentId[] }> {
-    return this.fanOut(agentIds, opts, (conn, cid, target) =>
-      this.forkBroadcastWrite({ cid, conn, target, payload, options: opts }),
-    );
   }
 
   /**
@@ -208,9 +77,9 @@ export class NetworkSendService {
   /**
    * Gate one resolved connection for conversation fan-out. Returns the
    * gate-passing {@link AgentConnection} (so the caller threads it into
-   * {@link forkBroadcastWrite} without a second `peek`), or `None` when
-   * the connection is excluded, gone, not an agent arm, or not a member
-   * of the target conversation.
+   * the notification sender without a second `peek`), or `None` when the
+   * connection is excluded, gone, not an agent arm, or not a member of the
+   * target conversation.
    * @param cid Value supplied to the operation.
    * @param options Options that control the operation.
    * @returns The conn opt result.
@@ -233,7 +102,7 @@ export class NetworkSendService {
         }
         const conn = connOpt.value;
         // Only authenticated agent arms participate in conversation fan-out;
-        // unauthenticated and app arms have no conversation subscriptions.
+        // unauthenticated arms have no conversation subscriptions.
         if (conn._tag !== "AgentConnection") {
           return Option.none();
         }
@@ -253,35 +122,13 @@ export class NetworkSendService {
     );
   }
 
-  private forkBroadcastWrite(write: BroadcastWrite): Effect.Effect<void> {
-    return Effect.sync(() => {
-      Effect.runFork(
-        write.conn.socket.write(write.payload).pipe(
-          Effect.catchAll((cause) =>
-            Effect.logWarning("broadcast: socket write failed").pipe(
-              Effect.annotateLogs({
-                event: "broadcast.write_failed",
-                reason: "WriteFailed",
-                connId: write.cid,
-                agentId: write.target,
-                conversationId: write.options.forConversation,
-                messageId: write.options.messageId,
-                cause: String(cause),
-              }),
-            ),
-          ),
-        ),
-      );
-    });
-  }
-
   /**
    * Fan a server→client notification out to every live connection of each agent
    * in `agentIds`. The notification rides each target connection's reverse
-   * `RpcClient` (`originator.call`), fired fork-and-forget — the `void` result
+   * `RpcClient` (`originator.notify`), fired fork-and-forget — the `void` result
    * settles on the client's ack, the fan-out does not block on the round-trip.
-   * Applies the same per-connection gate as {@link broadcast}
-   * (`connectionCanReceive`): conversation membership + `excludeConnectionId`.
+   * Applies the shared per-connection gate: conversation membership plus
+   * `excludeConnectionId`.
    * @param agentIds Value supplied to the operation.
    * @param definition Protocol definition to process.
    * @param params Request payload to process.

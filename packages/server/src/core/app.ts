@@ -148,8 +148,6 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     get port() {
       return options.getPort();
     },
-    networkSendService: services.networkSendService,
-    connections: services.connections,
     close: () =>
       Effect.runPromise(closeCoreAppEffect(options).pipe(Effect.as(undefined))),
   };
@@ -179,7 +177,7 @@ function closeCoreAppEffect(options: CoreAppApiOptions) {
   return Effect.gen(function* () {
     yield* services.messageService.close();
     for (const conn of yield* services.connections.allConnections()) {
-      yield* conn.socket.shutdown;
+      yield* conn.shutdown;
     }
     yield* Effect.sleep(Duration.millis(SHUTDOWN_DRAIN_MS));
     yield* Scope.close(options.appScope, Exit.void);

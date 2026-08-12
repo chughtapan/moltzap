@@ -1,7 +1,7 @@
 # network/
 
-Connect handlers, agent-endpoint resolution, outbound `send` and
-`broadcast`.
+Connect handlers, agent-endpoint resolution, and typed reverse-RPC
+notification fan-out.
 
 ## Layer rules
 
@@ -16,8 +16,8 @@ Connect handlers, agent-endpoint resolution, outbound `send` and
   kept fresh by `agent/network/connect` success and the disconnect
   finalizer.
 - `connect.handlers.ts` — the agent connect RPC handler.
-- `network-send.ts` — `NetworkSendService` (the sole outbound
-  routing surface; consumes the resolver + connection manager).
+- `network-send.ts` — `NetworkSendService` notification fan-out over the
+  resolver and connection manager.
 
 ## Handler shape
 

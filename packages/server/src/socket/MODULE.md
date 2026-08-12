@@ -8,7 +8,7 @@ Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
-### [`AgentConnection`](./connection.ts#L50)
+### [`AgentConnection`](./connection.ts#L37)
 
 _Interface_
 
@@ -68,7 +68,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`Connection`](./connection.ts#L60)
+### [`Connection`](./connection.ts#L47)
 
 _TypeAlias_
 
@@ -78,7 +78,7 @@ export type Connection = UnauthenticatedConnection | AgentConnection;
 
 The two-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L137)
+### [`ConnectionManager`](./connection.ts#L124)
 
 _Class_
 
@@ -104,13 +104,13 @@ export class ConnectionManager {
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
    * at WebSocket open. The Connect handler promotes it to the agent arm.
    * @param connId Value supplied to the operation.
-   * @param socket Value supplied to the operation.
+   * @param shutdown Closes the connection's protocol scope.
    * @param originator Value supplied to the operation.
    * @returns The add unauthenticated result.
    */
   addUnauthenticated(
     connId: ConnectionId,
-    socket: WebSocketRef,
+    shutdown: Effect.Effect<void>,
     originator: Originator,
   ): Effect.Effect<void> {
     return Ref.update(this.stateRef, (state) => ({
@@ -118,7 +118,7 @@ export class ConnectionManager {
       connections: HashMap.set(
         state.connections,
         connId,
-        new UnauthenticatedConnection({ connId, socket, originator }),
+        new UnauthenticatedConnection({ connId, shutdown, originator }),
       ),
     }));
   }
@@ -136,7 +136,7 @@ export class ConnectionManager {
 
   /**
    * Snapshot of every connection arm. Callers iterate + discriminate on `_tag`
-   * (e.g. The shutdown loop reads `arm.socket.shutdown`).
+   * (e.g. the shutdown loop runs `arm.shutdown`).
    * @returns The current result.
    */
   allConnections(): Effect.Effect<readonly Connection[]> {
@@ -185,7 +185,7 @@ export class ConnectionManager {
           (unauth): [TransitionOutcome, typeof state] => {
             const authed = new AgentConnection({
               connId: unauth.connId,
-              socket: unauth.socket,
+              shutdown: unauth.shutdown,
               originator: unauth.originator,
               auth,
             });
@@ -244,7 +244,7 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`Originator`](./connection.ts#L15)
+### [`Originator`](./connection.ts#L14)
 
 _TypeAlias_
 
@@ -286,7 +286,7 @@ export const principalCanaryRefs: readonly unknown[] = [
 
 Provides the principal canary refs runtime value.
 
-### [`TransitionOutcome`](./connection.ts#L68)
+### [`TransitionOutcome`](./connection.ts#L55)
 
 _TypeAlias_
 
@@ -300,7 +300,7 @@ arm carries the minted connection so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](./connection.ts#L44)
+### [`UnauthenticatedConnection`](./connection.ts#L31)
 
 _Interface_
 
@@ -313,24 +313,6 @@ class UnauthenticatedConnection extends Data.TaggedClass(
 ```
 
 Re-exports the public API from `current module`.
-
-### [`WebSocketRef`](./connection.ts#L20)
-
-_Interface_
-
-```ts
-export interface WebSocketRef {
-  /**
-   * Write a raw frame to this connection. Fails with SocketError on send
-   * failure or if the socket is already closed.
-   */
-  readonly write: (raw: string) => Effect.Effect<void, SocketError>;
-  /** Close this connection's scope, tearing down the underlying socket. */
-  readonly shutdown: Effect.Effect<void>;
-}
-```
-
-The per-connection socket handle registered with `ConnectionManager`.
 
 ## Files
 

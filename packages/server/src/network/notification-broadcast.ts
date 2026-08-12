@@ -14,7 +14,7 @@ type BroadcastOptions = NonNullable<
  * in `agentIds`. The notification rides the reverse `RpcClient` on each target
  * connection (fired fork-and-forget, the `void` result settles on the client's
  * ack); the client's reverse `RpcServer` routes it into its
- * `SubscriberRegistry`. Replaces the raw `socket.write(encodedFrame)` path.
+ * `SubscriberRegistry`.
  * @param agentIds Value supplied to the operation.
  * @param definition Protocol definition to process.
  * @param params Request payload to process.

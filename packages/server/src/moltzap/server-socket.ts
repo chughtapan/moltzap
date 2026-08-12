@@ -39,7 +39,7 @@ export function makeMoltzapSocketHandler(options: {
     onOpen: (session) =>
       options.services.connections.addUnauthenticated(
         session.connId,
-        { write: session.write, shutdown: session.shutdown },
+        session.shutdown,
         session.originator,
       ),
     // eslint-disable-next-line @typescript-eslint/no-use-before-define -- lifecycle callback is invoked after module initialization.

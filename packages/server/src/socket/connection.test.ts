@@ -6,11 +6,7 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import { connectionIdSchema } from "@moltzap/protocol/socket";
 import { agentId, conversationId, userId } from "@moltzap/protocol/testing";
 import { agentContextFrom, type AgentContext } from "./context.js";
-import {
-  ConnectionManager,
-  type Originator,
-  type WebSocketRef,
-} from "./connection.js";
+import { ConnectionManager, type Originator } from "./connection.js";
 
 const CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
   "00000000-0000-4000-8000-00000000c718",
@@ -24,11 +20,6 @@ const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000d718");
 const CURRENT_CONVERSATION_ID = conversationId(
   "00000000-0000-4000-8000-00000000d719",
 );
-
-const socket: WebSocketRef = {
-  write: () => Effect.void,
-  shutdown: Effect.void,
-};
 
 const unusedOriginatorOp = () => Effect.dieMessage("unused test originator");
 
@@ -62,8 +53,12 @@ function authenticateTwoConnections(
   auth: AgentContext,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
-    yield* connections.addUnauthenticated(CONN_ID, socket, originator);
-    yield* connections.addUnauthenticated(OTHER_CONN_ID, socket, originator);
+    yield* connections.addUnauthenticated(CONN_ID, Effect.void, originator);
+    yield* connections.addUnauthenticated(
+      OTHER_CONN_ID,
+      Effect.void,
+      originator,
+    );
     yield* connections.authenticate(CONN_ID, auth);
     yield* connections.authenticate(OTHER_CONN_ID, auth);
   });
@@ -106,7 +101,7 @@ describe("ConnectionManager conversation subscriptions", () => {
       yield* expectAgentSubscribed(connections, CONVERSATION_ID, false);
       yield* expectAgentSubscribed(connections, CURRENT_CONVERSATION_ID, false);
 
-      yield* connections.addUnauthenticated(CONN_ID, socket, originator);
+      yield* connections.addUnauthenticated(CONN_ID, Effect.void, originator);
       yield* connections.authenticate(CONN_ID, yield* authContext());
       yield* connections.hydrateConversationIds(CONN_ID, [
         CURRENT_CONVERSATION_ID,
@@ -121,18 +116,6 @@ describe("ConnectionManager conversation subscriptions", () => {
       const connections = new ConnectionManager();
 
       yield* connections.addConversationToAgents([AGENT_ID], CONVERSATION_ID);
-
-      yield* expectAgentSubscribed(connections, CONVERSATION_ID, false);
-    }));
-
-  it("clears subscriptions when the last agent arm rolls back", () =>
-    Effect.gen(function* () {
-      const connections = new ConnectionManager();
-      yield* connections.addUnauthenticated(CONN_ID, socket, originator);
-      yield* connections.authenticate(CONN_ID, yield* authContext());
-      yield* connections.hydrateConversationIds(CONN_ID, [CONVERSATION_ID]);
-
-      yield* connections.rollbackToUnauthenticated(CONN_ID);
 
       yield* expectAgentSubscribed(connections, CONVERSATION_ID, false);
     }));

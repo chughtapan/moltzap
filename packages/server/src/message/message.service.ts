@@ -234,7 +234,6 @@ export class MessageService {
         {
           forConversation: input.conversationId,
           excludeConnectionId: input.carrier.excludeConnectionId,
-          messageId: input.carrier.message.id,
         },
       )
       .pipe(Effect.map((result) => result.delivered));

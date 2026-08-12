@@ -42,7 +42,7 @@ type UnauthenticatedHasNoAuth = ExpectFalse<
 interface ForgedBase {
   readonly _tag: "AgentConnection";
   readonly connId: AgentConnection["connId"];
-  readonly socket: AgentConnection["socket"];
+  readonly shutdown: AgentConnection["shutdown"];
   readonly originator: AgentConnection["originator"];
   readonly auth: AgentContext;
 }
