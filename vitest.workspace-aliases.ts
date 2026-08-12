@@ -83,8 +83,6 @@ export const workspaceSourceAliasesWithoutProtocol: WorkspaceSourceAlias[] =
 /** Source aliases for server-internal package imports. */
 export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   alias("#core", "packages/server/src/core/index.ts"),
-  alias("#moltzap", "packages/server/src/moltzap/index.ts"),
-  alias("#moltzap/runtime", "packages/server/src/moltzap/runtime.ts"),
   alias("#socket", "packages/server/src/socket/index.ts"),
   alias("#http", "packages/server/src/http/index.ts"),
   alias("#config", "packages/server/src/config.ts"),
