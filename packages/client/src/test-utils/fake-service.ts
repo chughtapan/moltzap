@@ -22,6 +22,7 @@ import type {
   PayloadForTag,
   SuccessForTag,
 } from "@moltzap/protocol/rpc";
+import type { RpcCallOptions } from "@moltzap/protocol/socket";
 import type {
   agentCallableGroup,
   AnyAgentCallableRpcDefinition,
@@ -30,7 +31,6 @@ import type {
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
-import type { RpcCallOptions } from "../agent-client.js";
 import { MoltZapService, type ServiceRpcError } from "../service.js";
 import { testAgentId } from "./ids.js";
 

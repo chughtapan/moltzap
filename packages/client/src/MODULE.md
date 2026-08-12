@@ -23,21 +23,7 @@ lifetime of the enclosing scope. The private adapter owns MCP translation.
 
 **Returns:** The scoped adapter-facing service value.
 
-### [`AgentClientOptions`](./../../protocol/dist/socket/agent-client.d.ts#L13)
-
-_Interface_
-
-```ts
-export interface AgentClientOptions {
-    readonly serverUrl: string;
-    readonly agentKey: AgentKey;
-    readonly onDisconnect?: (close: CloseInfo) => void;
-}
-```
-
-Configures agent client.
-
-### [`ContextOptions`](./service.ts#L117)
+### [`ContextOptions`](./service.ts#L116)
 
 _Interface_
 
@@ -51,7 +37,7 @@ export interface ContextOptions {
 
 Bounds the cross-conversation summary projected into a runtime prompt.
 
-### [`ConversationMeta`](./service.ts#L109)
+### [`ConversationMeta`](./service.ts#L108)
 
 _Interface_
 
@@ -136,20 +122,7 @@ Builds the scoped runtime-adapter layer for one daemon endpoint.
 
 **Returns:** A Layer providing the scoped HarnessClient capability.
 
-### [`MoltZapAgentClient`](./../../protocol/dist/socket/agent-client.d.ts#L19)
-
-_Class_
-
-```ts
-export declare class MoltZapAgentClient extends ProtocolClientLifecycle<AgentCallableRpcs, AgentClientDispatch> {
-    constructor(options: AgentClientOptions);
-    call<Tag extends AgentCallableTag>(tag: Tag, payload: PayloadForTag<AgentCallableRpcs, Tag>, opts?: RpcCallOptions): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, ErrorForTag<AgentCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError>;
-}
-```
-
-Implements molt zap agent client.
-
-### [`MoltZapService`](./service.ts#L247)
+### [`MoltZapService`](./service.ts#L246)
 
 _Class_
 
@@ -284,19 +257,7 @@ Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
 callers compose failures and cancellation explicitly.
 
-### [`RpcCallOptions`](./../../protocol/dist/socket/lifecycle.d.ts#L12)
-
-_Interface_
-
-```ts
-export interface RpcCallOptions {
-    readonly timeoutMs?: number;
-}
-```
-
-Configures rpc call.
-
-### [`ServiceRpcError`](./service.ts#L97)
+### [`ServiceRpcError`](./service.ts#L96)
 
 _TypeAlias_
 

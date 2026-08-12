@@ -6,10 +6,6 @@
 import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type {
-  ClientDefinitionPayload,
-  ClientDefinitionSuccess,
-} from "@moltzap/protocol/socket";
-import type {
   agentCallableGroup,
   AnyAgentCallableRpcDefinition,
   AnyNotificationDefinition,
@@ -45,6 +41,12 @@ import {
   type SuccessForTag,
 } from "@moltzap/protocol/rpc";
 import {
+  type ClientDefinitionPayload,
+  type ClientDefinitionSuccess,
+  MoltZapAgentClient,
+  type RpcCallOptions,
+} from "@moltzap/protocol/socket";
+import {
   Deferred,
   Effect,
   Exit,
@@ -55,7 +57,6 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { MoltZapAgentClient, type RpcCallOptions } from "./agent-client.js";
 import { BoundedMap } from "./bounded-map.js";
 import {
   loadServiceConfig,

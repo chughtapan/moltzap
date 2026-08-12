@@ -7,12 +7,6 @@ export {
   MoltZapService,
   type ServiceRpcError,
 } from "./service.js";
-/** Re-exports the public API from `./agent-client.js`. */
-export {
-  type AgentClientOptions,
-  MoltZapAgentClient,
-  type RpcCallOptions,
-} from "./agent-client.js";
 /** Re-exports the adapter-facing daemon client capability. */
 export {
   acquireHarnessClient,
