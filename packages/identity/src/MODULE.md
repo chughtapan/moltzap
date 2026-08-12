@@ -752,7 +752,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](./registry/server.ts#L28)
+#### [`StartupError`](./registry/server.ts#L142)
 
 _Class_
 
@@ -766,7 +766,7 @@ export class StartupError extends Data.TaggedError(
 
 Closed Registry startup failure.
 
-#### [`layer`](./registry/server.ts#L68)
+#### [`layer`](./registry/server.ts#L182)
 
 _Variable_
 
@@ -804,7 +804,6 @@ flowchart TD
 - `registry.ts`
 - `registry/admission.ts`
 - `registry/client.ts`
-- `registry/configuration.ts`
 - `registry/contract.ts`
 - `registry/http.ts`
 - `registry/migrations/0001_registry.ts`

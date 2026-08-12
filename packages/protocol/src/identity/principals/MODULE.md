@@ -23,7 +23,7 @@ Principal requirement: the connection is an authenticated agent. The sole
 principal gate — every gated method heads its `requires` with this tag,
 rejecting the unauthenticated pre-connect arm.
 
-### [`PrincipalRequirement`](./authenticated-agent.ts#L17)
+### [`PrincipalRequirement`](./authenticated-agent.ts#L18)
 
 _TypeAlias_
 
