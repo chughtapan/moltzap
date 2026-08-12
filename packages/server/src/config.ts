@@ -43,7 +43,6 @@ export interface CoreConfig {
   port: number;
   corsOrigins: string[];
   registrationSecret?: RegistrationSecret;
-  devMode?: boolean;
 
   /**
    * Boot-time admin owner id. Agents registered through the default

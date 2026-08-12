@@ -1,6 +1,6 @@
 // safer-arch-ignore no-cross-domain-sibling-import: Core app is the server composition root and must assemble identity registration with the protocol socket adapter.
 import { NodeHttpServer } from "@effect/platform-node";
-import { Data, Effect, Layer, ManagedRuntime, Scope } from "effect";
+import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 
 import { DbTag } from "#db";
 
@@ -9,18 +9,6 @@ import type { CoreConfig } from "#config";
 import { servicesLive, resolveServices } from "./layers.js";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
 import { makeMoltzapSocketHandler } from "../moltzap/server-socket.js";
-
-/**
- * Typed fatal for boot failure. The `phase` discriminator names which boot step
- * failed: `"http-listen"` is `NodeHttpServer.make` / `serverSvc.serve`'s typed
- * `ServeError` (EADDRINUSE, EACCES, ...).
- */
-export class ServerBootFailedError extends Data.TaggedError(
-  "ServerBootFailedError",
-)<{
-  readonly phase: "http-listen";
-  readonly cause: unknown;
-}> {}
 
 function makeCoreRuntime(config: CoreConfig) {
   const baseLive = Layer.succeed(DbTag, config.db);

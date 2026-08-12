@@ -13,7 +13,6 @@ import {
   type Conversation,
   type ConversationId,
   ConversationFullError,
-  ConversationNotFoundError,
 } from "@moltzap/protocol/conversation";
 import {
   type AgentId,
@@ -31,7 +30,6 @@ import type { ConnectionManager } from "#socket";
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`;
-const MSG_CONVERSATION_NOT_FOUND = "Conversation not found";
 
 interface ConversationColumns {
   readonly id: ConversationId;
@@ -382,36 +380,6 @@ export class ConversationService {
             .where("conversation_id", "=", conversationId);
 
           return rows.map((r) => r.agent_id);
-        }.bind(this),
-      ),
-    );
-  }
-
-  /**
-   * By-id projection used by the list surface to surface the `Conversation`
-   * row. Fails with `ConversationNotFoundError` when the row is missing.
-   * @param conversationId Value supplied to the operation.
-   * @internal
-   * @returns The row opt result.
-   */
-  loadById(
-    conversationId: ConversationId,
-  ): Effect.Effect<Conversation, ConversationNotFoundError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: ConversationService) {
-          const rowOpt = yield* takeFirstOption(
-            this.db
-              .selectFrom("conversations")
-              .selectAll()
-              .where("id", "=", conversationId),
-          );
-          if (Option.isNone(rowOpt)) {
-            return yield* new ConversationNotFoundError({
-              message: MSG_CONVERSATION_NOT_FOUND,
-            });
-          }
-          return mapConversation(rowOpt.value);
         }.bind(this),
       ),
     );

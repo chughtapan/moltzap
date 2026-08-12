@@ -258,7 +258,7 @@ callbacks/notifications through. Constructed by protocol `MoltZapServer`
 during socket accept and passed to
 `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
 
-### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L86)
+### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L74)
 
 _TypeAlias_
 
@@ -266,13 +266,12 @@ _TypeAlias_
 export type PrincipalBoundaryCanaries = [
   UnauthenticatedHasNoAuth,
   ForgedAgentRejected,
-  InvalidBootPhaseRejected,
 ];
 ```
 
-Compile-time assertions for the principal and boot-failure boundaries.
+Compile-time assertions for the principal boundaries.
 
-### [`principalCanaryRefs`](./principal.types-check.ts#L95)
+### [`principalCanaryRefs`](./principal.types-check.ts#L82)
 
 _Variable_
 
@@ -281,7 +280,6 @@ export const principalCanaryRefs: readonly unknown[] = [
   agentIdValue,
   principalTag,
   narrowOutcome,
-  bootFail,
 ] as const
 ```
 

@@ -18,7 +18,6 @@ import type {
 } from "./connection.js";
 import type { AgentContext } from "./context.js";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ServerBootFailedError } from "#core";
 
 declare const agentConn: AgentConnection;
 declare const conn: Connection;
@@ -71,22 +70,10 @@ const narrowOutcome = (): AgentConnection | null =>
     Match.exhaustive,
   );
 
-// --- ServerBootFailedError phase discriminator -------------------------
-
-declare const httpErr: unknown;
-const bootFail: ServerBootFailedError = new ServerBootFailedError({
-  phase: "http-listen",
-  cause: httpErr,
-});
-type InvalidBootPhaseRejected = ExpectFalse<
-  "db" extends ServerBootFailedError["phase"] ? true : false
->;
-
-/** Compile-time assertions for the principal and boot-failure boundaries. */
+/** Compile-time assertions for the principal boundaries. */
 export type PrincipalBoundaryCanaries = [
   UnauthenticatedHasNoAuth,
   ForgedAgentRejected,
-  InvalidBootPhaseRejected,
 ];
 
 // Reference every binding so no-unused-vars stays quiet; the canary's job is
@@ -96,5 +83,4 @@ export const principalCanaryRefs: readonly unknown[] = [
   agentIdValue,
   principalTag,
   narrowOutcome,
-  bootFail,
 ] as const;

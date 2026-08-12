@@ -17,7 +17,7 @@ tag cycle.
 ## Files
 
 - `app.ts` — `createCoreApp`: builds the `CoreApp` (services + Kysely + Layers +
-  `ManagedRuntime`) and starts its listener. `ServerBootFailedError`.
+  `ManagedRuntime`) and starts its listener.
 - `layers.ts` — `ServicesLive` / `resolveServices`: the service-graph Layer
   composition that wires every domain service.
 - `types.ts` — boot-surface types only: `CoreApp`.

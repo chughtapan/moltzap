@@ -265,7 +265,6 @@ function makeCoreConfig(options: {
     port: bootPlan.port,
     corsOrigins: bootPlan.corsOrigins,
     registrationSecret: bootPlan.registrationSecret,
-    devMode: bootPlan.devMode,
     adminUserId: bootPlan.adminUserId,
   };
 }

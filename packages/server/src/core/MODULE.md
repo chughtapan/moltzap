@@ -20,7 +20,7 @@ export interface CoreApp {
 
 Describes core app.
 
-### [`createCoreApp`](./app.ts#L40)
+### [`createCoreApp`](./app.ts#L28)
 
 _Function_
 
@@ -67,23 +67,6 @@ export const resolveServices = Effect.all({
 ```
 
 Provides the resolve services runtime value.
-
-### [`ServerBootFailedError`](./app.ts#L18)
-
-_Class_
-
-```ts
-export class ServerBootFailedError extends Data.TaggedError(
-  "ServerBootFailedError",
-)<{
-  readonly phase: "http-listen";
-  readonly cause: unknown;
-}> {}
-```
-
-Typed fatal for boot failure. The `phase` discriminator names which boot step
-failed: `"http-listen"` is `NodeHttpServer.make` / `serverSvc.serve`'s typed
-`ServeError` (EADDRINUSE, EACCES, ...).
 
 ### [`servicesLive`](./layers.ts#L52)
 
