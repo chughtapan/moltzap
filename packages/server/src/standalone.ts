@@ -1,4 +1,4 @@
-/** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
+/** Standalone server — loads YAML config, boots PGlite, and starts the server. */
 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,13 +12,7 @@ import {
   type ConfigLoadError,
   type StandaloneBootPlan,
 } from "#config";
-import {
-  sql,
-  makeEffectKysely,
-  PostgresDialect,
-  type Database,
-  type Db,
-} from "#db";
+import { sql, makeEffectKysely, type Database, type Db } from "#db";
 
 const dirnameValue = dirname(fileURLToPath(import.meta.url));
 
@@ -126,42 +120,6 @@ function runPgLiteMigrationSql(
     try: () => client.exec(sqlText),
     catch: (cause) => operationFailed("run pglite migration sql", cause),
   }).pipe(Effect.asVoid);
-}
-
-function createPostgresDb(
-  url: string,
-): Effect.Effect<DbHandle, StandaloneOperationFailed> {
-  return Effect.gen(function* () {
-    const pg = yield* Effect.tryPromise({
-      try: () => import("pg"),
-      catch: (cause) => operationFailed("load pg", cause),
-    });
-    const pool = new pg.default.Pool({ connectionString: url, max: 20 });
-    // Effect-patched Kysely: builder chains can be used as `Effect`s inside
-    // services while the promise API (`.execute()`, `.transaction()`) still
-    // works for migration/seed code.
-    const db = makeEffectKysely<Database>({
-      dialect: new PostgresDialect({ pool }),
-    });
-
-    return {
-      db,
-      cleanup: () =>
-        Effect.tryPromise({
-          try: () => db.destroy(),
-          catch: (cause) => operationFailed("destroy postgres kysely", cause),
-        }),
-      runMigrationSql: (sqlText: string) => {
-        // Raw DDL — Kysely can't run before tables exist
-        const exec = pool.query.bind(pool);
-        return Effect.tryPromise({
-          try: () => exec(sqlText),
-          catch: (cause) =>
-            operationFailed("run postgres migration sql", cause),
-        }).pipe(Effect.asVoid);
-      },
-    };
-  });
 }
 
 // ── Migration ───────────────────────────────────────────────────────
@@ -298,52 +256,24 @@ interface StandaloneServerHandle {
   readonly stop: CoreApp["close"];
 }
 
-interface StandaloneDatabase {
-  readonly handle: DbHandle;
-  readonly usePgLite: boolean;
-}
-
 function startServerEffect(
   configPath?: string,
 ): Effect.Effect<StandaloneServerHandle, StandaloneServerError> {
   return Effect.gen(function* () {
     const bootPlan = yield* loadStandaloneConfig({ configPath });
-    const database = yield* createStandaloneDatabase(bootPlan);
-    yield* logDatabaseSelection(database.usePgLite);
-    yield* migrateStandaloneDatabase(database.handle);
+    const database = yield* createPgLiteDb(bootPlan.pgliteDataDir);
+    yield* migrateStandaloneDatabase(database);
     yield* Effect.logWarning("Boot admin user configured").pipe(
       Effect.annotateLogs({ adminUserId: bootPlan.adminUserId }),
     );
     const coreConfig = makeCoreConfig({
       bootPlan,
-      handle: database.handle,
+      handle: database,
     });
     const app = createCoreApp(coreConfig);
-    yield* logStandaloneStarted(app, database.usePgLite);
+    yield* logStandaloneStarted(app);
     return { app, bootPlan, stop: () => app.close() };
   }).pipe(Effect.withSpan("startServerEffect"));
-}
-
-function createStandaloneDatabase(
-  bootPlan: StandaloneBootPlan,
-): Effect.Effect<StandaloneDatabase, StandaloneOperationFailed> {
-  return Effect.gen(function* () {
-    if (bootPlan.databaseUrl.length === 0) {
-      const handle = yield* createPgLiteDb(bootPlan.pgliteDataDir);
-      return { handle, usePgLite: true };
-    }
-    const handle = yield* createPostgresDb(bootPlan.databaseUrl);
-    return { handle, usePgLite: false };
-  }).pipe(Effect.withSpan("createStandaloneDatabase"));
-}
-
-function logDatabaseSelection(usePgLite: boolean): Effect.Effect<void> {
-  if (!usePgLite) {
-    return Effect.void;
-  }
-  return Effect.logInfo(
-    "Using embedded PGlite database (no external Postgres needed)",
-  );
 }
 
 function migrateStandaloneDatabase(handle: DbHandle) {
@@ -367,15 +297,12 @@ function makeCoreConfig(options: {
   };
 }
 
-function logStandaloneStarted(
-  app: CoreApp,
-  usePgLite: boolean,
-): Effect.Effect<void> {
+function logStandaloneStarted(app: CoreApp): Effect.Effect<void> {
   return Effect.logInfo("MoltZap server started (standalone mode)").pipe(
     Effect.annotateLogs({
       port: app.port,
       mode: "standalone",
-      db: usePgLite ? "pglite" : "postgres",
+      db: "pglite",
     }),
   );
 }

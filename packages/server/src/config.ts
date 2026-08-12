@@ -67,9 +67,7 @@ export interface CoreConfig {
 
 /** Describes standalone boot plan. */
 export interface StandaloneBootPlan {
-  /** DATABASE_URL or YAML `database.url`. Empty string → embedded PGlite. */
-  readonly databaseUrl: string;
-  /** YAML `database.data_dir` for PGlite (ignored when `databaseUrl` is set). */
+  /** YAML `database.data_dir` for the embedded PGlite store. */
   readonly pgliteDataDir?: string;
 
   readonly port: number;
@@ -131,7 +129,6 @@ const moltZapConfigShape = Schema.Struct({
   ),
   database: Schema.optional(
     Schema.Struct({
-      url: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
       data_dir: Schema.optional(Schema.String),
     }),
   ),
@@ -412,7 +409,6 @@ function parseCorsOriginsRaw(raw?: string): string[] {
 function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot> {
   return Config.all({
     CORS_ORIGINS: opt(Config.string("CORS_ORIGINS")),
-    DATABASE_URL: opt(Config.string("DATABASE_URL")),
     MOLTZAP_ADMIN_USER_ID: opt(Config.string("MOLTZAP_ADMIN_USER_ID")),
     MOLTZAP_CONFIG: opt(Config.string("MOLTZAP_CONFIG")),
     MOLTZAP_DEV_MODE: opt(Config.string("MOLTZAP_DEV_MODE")),
@@ -509,24 +505,6 @@ function resolveCorsOrigins(
   );
 }
 
-function resolveDatabaseUrl(
-  processEnv: ProcessEnvSnapshot,
-  yaml: YamlConfig,
-  devMode: boolean,
-  configPath: string,
-): Effect.Effect<string, ConfigLoadError> {
-  const url = processEnv.DATABASE_URL ?? yaml.database?.url ?? "";
-  if (devMode && url.includes(".supabase.co")) {
-    return Effect.fail(
-      makeInvalidEnvError(
-        configPath,
-        "MOLTZAP_DEV_MODE=true cannot be used with a Supabase-hosted database",
-      ),
-    );
-  }
-  return Effect.succeed(url);
-}
-
 function resolveAdminUserId(
   processEnv: ProcessEnvSnapshot,
   yaml: YamlConfig,
@@ -560,29 +538,16 @@ interface ResolvedFields {
   readonly devMode: boolean;
   readonly port: number;
   readonly corsOrigins: string[];
-  readonly databaseUrl: string;
   readonly adminUserId: UserId;
   readonly registrationSecret?: RegistrationSecret;
-}
-
-interface YamlDerived {
-  readonly pgliteDataDir?: string;
-}
-
-function projectYaml(yaml: YamlConfig): YamlDerived {
-  return {
-    pgliteDataDir: yaml.database?.data_dir,
-  };
 }
 
 function assembleBootPlan(
   inputs: BootPlanInputs,
   fields: ResolvedFields,
 ): StandaloneBootPlan {
-  const ymlDerived = projectYaml(inputs.yaml);
   return {
-    databaseUrl: fields.databaseUrl,
-    pgliteDataDir: ymlDerived.pgliteDataDir,
+    pgliteDataDir: inputs.yaml.database?.data_dir,
     port: fields.port,
     corsOrigins: fields.corsOrigins,
     devMode: fields.devMode,
@@ -638,12 +603,6 @@ function buildBootPlan(
       devMode,
       configPath,
     );
-    const databaseUrl = yield* resolveDatabaseUrl(
-      processEnv,
-      yaml,
-      devMode,
-      configPath,
-    );
     const adminUserId = yield* resolveAdminUserId(processEnv, yaml, configPath);
     const registration = yield* resolveRegistrationSecret(
       processEnv,
@@ -655,7 +614,6 @@ function buildBootPlan(
       devMode,
       port,
       corsOrigins,
-      databaseUrl,
       adminUserId,
       registrationSecret: registration,
     });

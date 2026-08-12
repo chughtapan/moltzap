@@ -12,8 +12,6 @@ const eff = effectIt.effect;
 const CONFIG_FILE = "moltzap.yaml";
 const TEMP_PREFIX = "moltzap-config-";
 
-const PG_URL = "postgres://localhost:5432/moltzap";
-const SUPABASE_URL = "postgres://u:p@x.supabase.co:5432/postgres";
 const APP_ORIGIN = "https://app.example.com";
 const WWW_ORIGIN = "https://www.example.com";
 const INTERPOLATED = "interpolated-value";
@@ -34,19 +32,14 @@ const REUSE_YAML = `registration:\n  secret: \${${REUSED_ENV_KEY}}\n`;
 // ConfigLoadError — these are the structural rejections the prior Ajv
 // schema enforced, now re-asserted via TypeBox Value.Check.
 
-const UNKNOWN_TOPLEVEL_YAML = `database:\n  url: ${PG_URL}\nbogus: true\n`;
-const RETIRED_SEED_YAML = `database:\n  url: ${PG_URL}\nseed:\n  agents:\n    - name: alice\n`;
+const UNKNOWN_TOPLEVEL_YAML = `server:\n  port: 3000\nbogus: true\n`;
+const RETIRED_SEED_YAML = `database:\n  data_dir: ./data\nseed:\n  agents:\n    - name: alice\n`;
 // Messages are stored plaintext; the retired `encryption` block must fail
 // loudly rather than be read as an absent setting.
 const RETIRED_ENCRYPTION_YAML = `encryption:\n  master_secret: a-real-secret\n`;
 // App principals are gone; the retired `apps[]` block must fail the same way.
 const RETIRED_APPS_YAML = `apps:\n  - manifest: ./app1.json\n`;
 const UNKNOWN_NESTED_YAML = `server:\n  port: 3000\n  extra: nope\n`;
-// Empty database.url must FAIL (minLength: 1) rather than be read as a
-// blank URL — main's Ajv rejected it; an empty string here is a typo, not
-// a request for the PGlite fallback (that path is "no database.url at all").
-const EMPTY_DB_URL_YAML = `database:\n  url: ""\n`;
-
 function envOnly(env: Record<string, string | undefined>) {
   return loadStandaloneConfig({
     processEnv: { MOLTZAP_ADMIN_USER_ID: ADMIN_USER_ID, ...env },
@@ -85,20 +78,9 @@ function withTempConfig<A, E>(
 function devDefaults() {
   return Effect.gen(function* () {
     const result = yield* envOnly({ MOLTZAP_DEV_MODE: "true" });
-    expect(result.databaseUrl).toBe("");
     expect(result.port).toBe(DEFAULT_PORT);
     expect(result.devMode).toBe(true);
     expect(result.corsOrigins).toEqual(["*"]);
-  });
-}
-
-function databaseUrlOverride() {
-  return Effect.gen(function* () {
-    const result = yield* envOnly({
-      MOLTZAP_DEV_MODE: "true",
-      DATABASE_URL: PG_URL,
-    });
-    expect(result.databaseUrl).toBe(PG_URL);
   });
 }
 
@@ -154,16 +136,6 @@ function corsRequiredInProd() {
     const exit = yield* Effect.exit(envOnly({}));
     const err = expectFailureValue(exit);
     expect(String(err)).toMatch(/CORS_ORIGINS/);
-  });
-}
-
-function supabaseRejected() {
-  return Effect.gen(function* () {
-    const exit = yield* Effect.exit(
-      envOnly({ MOLTZAP_DEV_MODE: "true", DATABASE_URL: SUPABASE_URL }),
-    );
-    const err = expectFailureValue(exit);
-    expect(String(err)).toMatch(/Supabase/);
   });
 }
 
@@ -285,7 +257,6 @@ function expectValidationRejection(body: string) {
 
 describe("loadStandaloneConfig env-only", () => {
   eff("PGlite default under dev mode", devDefaults);
-  eff("DATABASE_URL overrides the PGlite fallback", databaseUrlOverride);
   eff("PORT override respected", portOverride);
   eff("CORS_ORIGINS parsed as comma-separated list", corsParsed);
   eff("CORS_ORIGINS required outside dev mode", corsRequiredInProd);
@@ -297,7 +268,6 @@ describe("loadStandaloneConfig env-only", () => {
     "MOLTZAP_REGISTRATION_SECRET alone satisfies the production guard",
     registrationSecretFromEnvOnly,
   );
-  eff("Supabase rejected under dev mode", supabaseRejected);
 });
 
 describe("loadStandaloneConfig YAML", () => {
@@ -327,6 +297,4 @@ describe("loadStandaloneConfig validation parity", () => {
     expectValidationRejection(RETIRED_SEED_YAML));
   it("rejects unknown nested keys", () =>
     expectValidationRejection(UNKNOWN_NESTED_YAML));
-  it("rejects an empty database.url string", () =>
-    expectValidationRejection(EMPTY_DB_URL_YAML));
 });

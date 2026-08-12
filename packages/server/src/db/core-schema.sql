@@ -1,8 +1,8 @@
 -- @moltzap/server-core — core schema (agent-only, no users table)
 -- This file is the single source of truth for:
 --   1. kysely-codegen (generates src/db/database.generated.ts)
---   2. Example server schema setup (applied via pg client)
---   3. Integration test DB setup
+--   2. Standalone PGlite initialization
+--   3. PGlite schema tests
 
 -- Enum types
 CREATE TYPE agent_status AS ENUM ('active', 'suspended');
