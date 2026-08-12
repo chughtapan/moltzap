@@ -16,14 +16,6 @@
     "moltzap-server": "bin/moltzap-server"
   },
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
   "scripts": {
     "build": "nx run @moltzap/server-core:build",
     "lint": "nx run @moltzap/server-core:lint",
@@ -41,7 +33,7 @@
           "cwd": "packages/server",
           "parallel": false,
           "commands": [
-            "tsc -b",
+            "node scripts/clean-dist.mjs && tsc -b",
             "tsc-alias -p tsconfig.json"
           ]
         }

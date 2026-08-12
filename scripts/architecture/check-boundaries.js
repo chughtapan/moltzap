@@ -228,7 +228,17 @@ assertExportMap("packages/protocol", [
   "./socket/catalog",
   "./testing",
 ]);
-assertExportMap("packages/server", ["."]);
+assertExportMap("packages/server", []);
+const serverManifest = readJson(
+  path.join(repo, "packages/server/package.json"),
+);
+for (const retiredField of ["main", "types"]) {
+  if (Object.hasOwn(serverManifest, retiredField)) {
+    failures.push(
+      `packages/server/package.json: executable-only package still declares ${retiredField}`,
+    );
+  }
+}
 
 // ─── Retired Client process and test planes ───────────────────────────────
 

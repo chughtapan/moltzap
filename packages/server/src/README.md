@@ -9,5 +9,5 @@ handlers to protocol requirements, `socket/` and `http/` own live transports,
 `config/`, `config.ts`, and `standalone.ts` form the executable boot boundary.
 
 Protocol schemas and endpoint lifecycle contracts remain in
-`@moltzap/protocol`. The package root is intentionally empty; only the
-documented test-utils subpath is importable by other packages.
+`@moltzap/protocol`. This package is a transitional executable, not an
+importable library surface.
