@@ -545,11 +545,6 @@ const packageDefinitions = {
       ],
       facadeFiles: [
         {
-          file: "message/layer.ts",
-          reason:
-            "The message layer module is the composition facade for its Effect service tags and live implementations",
-        },
-        {
           file: "network/layer.ts",
           reason:
             "The network layer module is the composition facade for its Effect service tags and live implementations",

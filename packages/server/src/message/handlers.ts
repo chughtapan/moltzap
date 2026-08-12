@@ -8,7 +8,7 @@ import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { agentArm } from "../moltzap/principal-gate.js";
 import { Effect } from "effect";
 import { ConnectionTag, type AgentContext } from "#socket";
-import { MessageServiceTag } from "./layer.js";
+import { MessageServiceTag } from "./message.service.js";
 
 type MessagesSendParams = ParamsOf<typeof messagesSendDefinition>;
 

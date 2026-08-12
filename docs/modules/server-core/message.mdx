@@ -13,7 +13,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L93)
+### [`MessageService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L97)
 
 _Class_
 
@@ -147,7 +147,7 @@ sender holding several connections still sees its own message on the
 others. The router is content-blind: it applies no interpretation or policy
 to the message body.
 
-### [`messageServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/layer.ts#L18)
+### [`messageServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L416)
 
 _Variable_
 
@@ -169,7 +169,7 @@ export const messageServiceLive = Layer.effect(
 
 Provides the message service live runtime value.
 
-### [`MessageServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/layer.ts#L12)
+### [`MessageServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L410)
 
 _Class_
 
@@ -222,5 +222,4 @@ Provides the messages send runtime value.
 ## Files
 
 - `handlers.ts`
-- `layer.ts`
 - `message.service.ts`

@@ -8,7 +8,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageService`](./message.service.ts#L93)
+### [`MessageService`](./message.service.ts#L97)
 
 _Class_
 
@@ -142,7 +142,7 @@ sender holding several connections still sees its own message on the
 others. The router is content-blind: it applies no interpretation or policy
 to the message body.
 
-### [`messageServiceLive`](./layer.ts#L18)
+### [`messageServiceLive`](./message.service.ts#L416)
 
 _Variable_
 
@@ -164,7 +164,7 @@ export const messageServiceLive = Layer.effect(
 
 Provides the message service live runtime value.
 
-### [`MessageServiceTag`](./layer.ts#L12)
+### [`MessageServiceTag`](./message.service.ts#L410)
 
 _Class_
 
@@ -217,5 +217,4 @@ Provides the messages send runtime value.
 ## Files
 
 - `handlers.ts`
-- `layer.ts`
 - `message.service.ts`

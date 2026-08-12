@@ -25,8 +25,11 @@ import {
   ConversationServiceTag,
 } from "../conversation/layer.js";
 import type { ConversationService } from "../conversation/conversation.service.js";
-import { messageServiceLive, MessageServiceTag } from "../message/layer.js";
-import type { MessageService } from "../message/message.service.js";
+import {
+  type MessageService,
+  messageServiceLive,
+  MessageServiceTag,
+} from "../message/message.service.js";
 
 const coreRuntimeServicesLive = Layer.mergeAll(
   connectionManagerLive,

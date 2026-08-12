@@ -1,5 +1,6 @@
 import {
   type Db,
+  DbTag,
   nextSnowflakeId,
   type MessageRow,
   catchSqlErrorAsDefect,
@@ -24,10 +25,13 @@ import {
   type ForbiddenError,
   MAX_PAGE_LIMIT,
 } from "@moltzap/protocol/rpc";
-import { type Cause, Effect, Option, Schema } from "effect";
+import { type Cause, Context, Effect, Layer, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
-import type { ConversationService } from "#conversation";
-import type { NetworkSendService } from "#network";
+import {
+  type ConversationService,
+  ConversationServiceTag,
+} from "#conversation";
+import { type NetworkSendService, NetworkSendServiceTag } from "#network";
 
 // Content-free size metadata for OTel span attributes. Spans can egress to an
 // operator OTLP collector, so they MUST NOT carry message body plaintext. We
@@ -401,3 +405,24 @@ export class MessageService {
     };
   }
 }
+
+/** Implements message service tag. */
+export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
+  MessageServiceTag,
+  MessageService
+>() {}
+
+/** Provides the message service live runtime value. */
+export const messageServiceLive = Layer.effect(
+  MessageServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const conversations = yield* ConversationServiceTag;
+    const networkSend = yield* NetworkSendServiceTag;
+    return new MessageService({
+      db,
+      conversations,
+      networkSend,
+    });
+  }).pipe(Effect.withSpan("MessageServiceLive")),
+);
