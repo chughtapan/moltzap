@@ -4,7 +4,6 @@
  * drives, and the control-plane installation the host drives.
  */
 
-import { connect } from "node:net";
 import {
   ApiException,
   AppsV1Api,
@@ -18,20 +17,21 @@ import {
   type V1Job,
   type V1JobCondition,
 } from "@kubernetes/client-node";
-import { Duration, Effect, Schema } from "effect";
-import { clusterError, type ClusterError } from "../cluster.js";
+import { Cause, Duration, Effect, Schema } from "effect";
+import { connect } from "node:net";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
+import { ClusterError, clusterError } from "../cluster.js";
 import {
   CONTROLLER_NAME,
+  type OwnedRunControlManifests,
+  RUN_WORKER_NAME,
   runNamespaceManifest,
   runOwnerManifest,
-  RUN_WORKER_NAME,
   runWorkerManifests,
-  SYSTEM_NAMESPACE,
-  type OwnedRunControlManifests,
   type RunWorkerManifests,
   type RunWorkerOptions,
+  SYSTEM_NAMESPACE,
 } from "./objects.js";
 
 const BRIDGE_PROBE_TIMEOUT = Duration.seconds(2);
@@ -39,11 +39,196 @@ const BRIDGE_PROBE_TIMEOUT = Duration.seconds(2);
 /** Kubernetes status for an object the cluster does not have. */
 const ABSENT = 404;
 
+/** Environment variable overriding how long one call may go unanswered. */
+export const KUBERNETES_CALL_TIMEOUT_VARIABLE =
+  "MOLTZAP_KUBERNETES_CALL_TIMEOUT_MS";
+/** Default finite deadline for one Kubernetes response. */
+export const DEFAULT_KUBERNETES_CALL_TIMEOUT_MS = 30_000;
+
+/**
+ * Resolve the finite deadline shared by Kubernetes calls in one process.
+ *
+ * The module loads before a submission exists, so an unusable override falls
+ * back to the default instead of producing a submission failure with nowhere
+ * to report it.
+ *
+ * @param environment Process environment visible to the submitter or worker.
+ * @returns A positive deadline, defaulting to thirty seconds.
+ */
+export function kubernetesCallTimeout(
+  environment: Readonly<Record<string, string | undefined>>,
+): Duration.Duration {
+  const configured = Number(
+    environment[KUBERNETES_CALL_TIMEOUT_VARIABLE] ?? Number.NaN,
+  );
+  return Duration.millis(
+    Number.isSafeInteger(configured) && configured > 0
+      ? configured
+      : DEFAULT_KUBERNETES_CALL_TIMEOUT_MS,
+  );
+}
+
+/**
+ * One process-wide deadline covers the submitter, worker, and controller call
+ * families without adding configuration parameters to their capability APIs.
+ */
+// eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Module initialization captures the process environment before any Kubernetes call exists.
+const KUBERNETES_CALL_TIMEOUT = kubernetesCallTimeout(process.env);
+
 /** Field ownership and strict validation applied to every write. */
 const APPLIED = Object.freeze({
   fieldManager: "moltzap-simulator",
   fieldValidation: "Strict",
 } as const);
+
+/** Failure of one Kubernetes call, carrying the status but never the body. */
+export class KubernetesCallFailed extends Error {
+  override readonly name = "KubernetesCallFailed";
+
+  /** Whether the cluster answered that the object is not there. */
+  readonly absent: boolean;
+
+  constructor(operation: string, cause?: unknown) {
+    const status = cause instanceof ApiException ? cause.code : 0;
+    super(
+      callDetail(operation, status, cause instanceof Cause.TimeoutException),
+    );
+    this.absent = status === ABSENT;
+  }
+}
+
+/**
+ * Run one Kubernetes API call within a finite deadline.
+ *
+ * The Kubernetes client has no request deadline. An accepted connection can
+ * otherwise wait forever when a control plane or tunnel stops answering.
+ *
+ * @param operation Operator-facing description of the call.
+ * @param evaluate Client request already bound to its arguments.
+ * @param bound Maximum time the cluster has to answer.
+ * @returns The Kubernetes result.
+ * @failure KubernetesCallFailed when the call is refused or unanswered.
+ */
+export function kubernetesCall<Result>(
+  operation: string,
+  evaluate: () => PromiseLike<Result>,
+  bound: Duration.Duration = KUBERNETES_CALL_TIMEOUT,
+): Effect.Effect<Result, KubernetesCallFailed> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new KubernetesCallFailed(operation, cause),
+  }).pipe(
+    Effect.timeoutFail({
+      duration: bound,
+      onTimeout: () =>
+        new KubernetesCallFailed(operation, new Cause.TimeoutException()),
+    }),
+  );
+}
+
+/**
+ * Build the live in-cluster client without leaking generated API types.
+ * @param namespace Namespace that owns the run-scoped resources.
+ * @returns Narrow Kubernetes operations consumed by the cluster.
+ */
+export function makeInClusterKubernetesSocietyApi(
+  namespace: string,
+): KubernetesSocietyApi {
+  const config = new KubeConfig();
+  config.loadFromDefault();
+  const custom = config.makeApiClient(CustomObjectsApi);
+  const core = config.makeApiClient(CoreV1Api);
+  return Object.freeze({
+    ...workloadOperations(namespace, custom),
+    ...coreOperations(namespace, core),
+    ...sandboxOperations(namespace, custom),
+    bridgeAccepts,
+  });
+}
+
+/**
+ * Test whether an object has a positive current-generation condition.
+ * @param observation Narrow object status returned by the live decoder.
+ * @param type Kubernetes condition type to find.
+ * @returns Whether the current generation reports that condition as true.
+ */
+export function currentConditionIsTrue(
+  observation: ConditionedObservation,
+  type: string,
+): boolean {
+  const generation = observation.metadata.generation;
+  return (
+    observation.status?.conditions?.some(
+      (entry) =>
+        entry.type === type &&
+        entry.status === "True" &&
+        (generation === undefined || entry.observedGeneration === generation),
+    ) ?? false
+  );
+}
+
+/**
+ * Build the live Kubernetes access one run-lifecycle worker attempt uses.
+ * @returns Run-control operations backed by the worker Pod's service account.
+ */
+export function makeKubernetesRunControlApi(): RunControlApi {
+  const clients = runControlClients();
+  return Object.freeze({
+    ...runPreparationOperations(clients),
+    ...runObservationOperations(clients),
+  });
+}
+
+/**
+ * Build the live host-side access used to install the cluster's run worker.
+ * @param options Host-selected image, Temporal endpoint, queue, and profile.
+ * @returns Install operations against the profile's cluster.
+ */
+export function makeKubernetesRunWorkerInstallApi(
+  options: RunWorkerOptions,
+): RunWorkerInstallApi {
+  const clients = installClients(options.profile);
+  const applies = installedObjectApplies(clients, runWorkerManifests(options));
+  return Object.freeze({
+    install: (object: RunWorkerObject) =>
+      kubernetesCall(`apply run worker ${object}`, applies[object]).pipe(
+        Effect.asVoid,
+      ),
+    readWorkerAvailability: () =>
+      kubernetesCall("observe run worker", () =>
+        clients.apps.readNamespacedDeployment({
+          name: RUN_WORKER_NAME,
+          namespace: SYSTEM_NAMESPACE,
+        }),
+      ).pipe(Effect.map(workerAvailabilityOf)),
+    wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
+  });
+}
+
+/**
+ * Describe whether Kubernetes refused a call or never answered it.
+ *
+ * Status zero represents the absence of any Kubernetes response. Timeout is
+ * distinct from absence so cleanup never treats an unanswered delete as a
+ * confirmed missing object.
+ *
+ * @param operation Operator-facing description of the call.
+ * @param status Kubernetes response status, or zero when none arrived.
+ * @param unanswered Whether the finite deadline elapsed.
+ * @returns A body-free diagnostic suitable for the public error boundary.
+ */
+function callDetail(
+  operation: string,
+  status: number,
+  unanswered: boolean,
+): string {
+  if (unanswered) {
+    return `${operation} did not answer in time`;
+  }
+  return status === 0
+    ? `${operation} failed`
+    : `${operation} failed (Kubernetes ${String(status)})`;
+}
 
 const KUEUE_GROUP = "kueue.x-k8s.io";
 const KUEUE_VERSION = "v1beta2";
@@ -183,20 +368,18 @@ export interface KubernetesSocietyApi {
   ) => Effect.Effect<boolean>;
 }
 
-function request<A>(operation: string, evaluate: () => PromiseLike<A>) {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => clusterError(operation, cause),
-  });
+/**
+ * Keep the existing cluster capability error while retaining call detail.
+ * @param failure Internal typed call failure.
+ * @returns The public cluster-seam failure.
+ */
+function societyFailure(failure: KubernetesCallFailed): ClusterError {
+  return new ClusterError({ detail: failure.message });
 }
 
-function decode<A, I, R>(
-  operation: string,
-  schema: Schema.Schema<A, I, R>,
-  value: unknown,
-): Effect.Effect<A, ClusterError, R> {
-  return Schema.decodeUnknown(schema)(value).pipe(
-    Effect.mapError((cause) => clusterError(operation, cause)),
+function request<A>(operation: string, evaluate: () => PromiseLike<A>) {
+  return kubernetesCall(operation, evaluate).pipe(
+    Effect.mapError(societyFailure),
   );
 }
 
@@ -204,15 +387,19 @@ function ignoreAbsent(
   operation: string,
   evaluate: () => PromiseLike<unknown>,
 ): Effect.Effect<void, ClusterError> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) =>
-      cause instanceof ApiException && cause.code === ABSENT
-        ? undefined
-        : clusterError(operation, cause),
-  }).pipe(
-    Effect.catchAll((failure) =>
-      failure === undefined ? Effect.void : Effect.fail(failure),
+  return attemptUnlessAbsent(operation, evaluate).pipe(
+    Effect.mapError(societyFailure),
+  );
+}
+
+function attemptUnlessAbsent(
+  operation: string,
+  evaluate: () => PromiseLike<unknown>,
+): Effect.Effect<void, KubernetesCallFailed> {
+  return kubernetesCall(operation, evaluate).pipe(
+    Effect.catchIf(
+      (failure) => failure.absent,
+      () => Effect.void,
     ),
     Effect.asVoid,
   );
@@ -223,6 +410,16 @@ function decodeWorkload(value: unknown) {
     "decode aggregate capacity reservation",
     workloadObservation,
     value,
+  );
+}
+
+function decode<A, I, R>(
+  operation: string,
+  schema: Schema.Schema<A, I, R>,
+  value: unknown,
+): Effect.Effect<A, ClusterError, R> {
+  return Schema.decodeUnknown(schema)(value).pipe(
+    Effect.mapError((cause) => clusterError(operation, cause)),
   );
 }
 
@@ -385,50 +582,9 @@ function sandboxOperations(
   };
 }
 
-/**
- * Build the live in-cluster client without leaking generated API types.
- * @param namespace Namespace that owns the run-scoped resources.
- * @returns Narrow Kubernetes operations consumed by the cluster.
- */
-export function makeInClusterKubernetesSocietyApi(
-  namespace: string,
-): KubernetesSocietyApi {
-  const config = new KubeConfig();
-  config.loadFromDefault();
-  const custom = config.makeApiClient(CustomObjectsApi);
-  const core = config.makeApiClient(CoreV1Api);
-  return Object.freeze({
-    ...workloadOperations(namespace, custom),
-    ...coreOperations(namespace, core),
-    ...sandboxOperations(namespace, custom),
-    bridgeAccepts,
-  });
-}
-
 interface ConditionedObservation {
   readonly metadata: { readonly generation?: number };
   readonly status?: { readonly conditions?: readonly KubernetesCondition[] };
-}
-
-/**
- * Test whether an object has a positive current-generation condition.
- * @param observation Narrow object status returned by the live decoder.
- * @param type Kubernetes condition type to find.
- * @returns Whether the current generation reports that condition as true.
- */
-export function currentConditionIsTrue(
-  observation: ConditionedObservation,
-  type: string,
-): boolean {
-  const generation = observation.metadata.generation;
-  return (
-    observation.status?.conditions?.some(
-      (entry) =>
-        entry.type === type &&
-        entry.status === "True" &&
-        (generation === undefined || entry.observedGeneration === generation),
-    ) ?? false
-  );
 }
 
 /** Coarse controller Job status, total so its readers need no defaulting. */
@@ -484,24 +640,6 @@ function workerAvailabilityOf(deployment: {
 
 /** One installable member of the cluster's run-worker control plane. */
 export type RunWorkerObject = keyof RunWorkerManifests;
-
-/** Failure of one Kubernetes call, carrying the status but never the body. */
-export class KubernetesCallFailed extends Error {
-  override readonly name = "KubernetesCallFailed";
-
-  /** Whether the cluster answered that the object is not there. */
-  readonly absent: boolean;
-
-  constructor(operation: string, cause?: unknown) {
-    const refused = cause instanceof ApiException ? cause : undefined;
-    super(
-      refused === undefined
-        ? `${operation} failed`
-        : `${operation} failed (Kubernetes ${String(refused.code)})`,
-    );
-    this.absent = refused?.code === ABSENT;
-  }
-}
 
 /** Kubernetes access the Temporal activity needs for one run's lifetime. */
 export interface RunControlApi {
@@ -564,29 +702,6 @@ export interface RunWorkerInstallApi {
   readonly wait: (milliseconds: number) => Effect.Effect<void>;
 }
 
-function attempt<Result>(
-  operation: string,
-  evaluate: () => PromiseLike<Result>,
-): Effect.Effect<Result, KubernetesCallFailed> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => new KubernetesCallFailed(operation, cause),
-  });
-}
-
-function attemptUnlessAbsent(
-  operation: string,
-  evaluate: () => PromiseLike<unknown>,
-): Effect.Effect<void, KubernetesCallFailed> {
-  return attempt(operation, evaluate).pipe(
-    Effect.catchIf(
-      (failure) => failure.absent,
-      () => Effect.void,
-    ),
-    Effect.asVoid,
-  );
-}
-
 interface RunControlClients {
   readonly batch: BatchV1Api;
   readonly core: CoreV1Api;
@@ -618,13 +733,13 @@ function createRunRoot(
   input: RunSocietyWorkflowInput,
 ): Effect.Effect<string, KubernetesCallFailed> {
   return Effect.gen(function* () {
-    yield* attempt("create run namespace", () =>
+    yield* kubernetesCall("create run namespace", () =>
       clients.core.createNamespace({
         body: runNamespaceManifest(input),
         ...APPLIED,
       }),
     );
-    const root = yield* attempt("create run owner", () =>
+    const root = yield* kubernetesCall("create run owner", () =>
       clients.core.createNamespacedConfigMap({
         namespace: input.namespace,
         body: runOwnerManifest(input),
@@ -648,7 +763,7 @@ function readControllerLogs(
   limitBytes: number,
 ): Effect.Effect<string | undefined, KubernetesCallFailed> {
   return Effect.gen(function* () {
-    const pods = yield* attempt("observe controller pod", () =>
+    const pods = yield* kubernetesCall("observe controller pod", () =>
       clients.core.listNamespacedPod({
         namespace,
         labelSelector: `job-name=${CONTROLLER_NAME}`,
@@ -660,7 +775,7 @@ function readControllerLogs(
     if (podName === undefined) {
       return undefined;
     }
-    const output = yield* attempt("read controller log", () =>
+    const output = yield* kubernetesCall("read controller log", () =>
       clients.core.readNamespacedPodLog({
         namespace,
         name: podName,
@@ -693,14 +808,14 @@ function createExperimentAndQueue(
   manifests: OwnedRunControlManifests,
 ): Effect.Effect<void, KubernetesCallFailed> {
   return Effect.gen(function* () {
-    yield* attempt("create experiment module", () =>
+    yield* kubernetesCall("create experiment module", () =>
       clients.core.createNamespacedConfigMap({
         namespace,
         body: manifests.experiment,
         ...APPLIED,
       }),
     );
-    yield* attempt("create run queue", () =>
+    yield* kubernetesCall("create run queue", () =>
       clients.custom.createNamespacedCustomObject({
         group: KUEUE_GROUP,
         version: KUEUE_VERSION,
@@ -719,21 +834,21 @@ function createControllerAccess(
   manifests: OwnedRunControlManifests,
 ): Effect.Effect<void, KubernetesCallFailed> {
   return Effect.gen(function* () {
-    yield* attempt("create controller service account", () =>
+    yield* kubernetesCall("create controller service account", () =>
       clients.core.createNamespacedServiceAccount({
         namespace,
         body: manifests.serviceAccount,
         ...APPLIED,
       }),
     );
-    yield* attempt("create controller role", () =>
+    yield* kubernetesCall("create controller role", () =>
       clients.rbac.createNamespacedRole({
         namespace,
         body: manifests.role,
         ...APPLIED,
       }),
     );
-    yield* attempt("create controller role binding", () =>
+    yield* kubernetesCall("create controller role binding", () =>
       clients.rbac.createNamespacedRoleBinding({
         namespace,
         body: manifests.roleBinding,
@@ -760,7 +875,7 @@ function runPreparationOperations(
     createControllerAccess: (namespace, manifests) =>
       createControllerAccess(clients, namespace, manifests),
     createRouterService: (namespace, manifests) =>
-      attempt("create router service", () =>
+      kubernetesCall("create router service", () =>
         clients.core.createNamespacedService({
           namespace,
           body: manifests.routerService,
@@ -768,7 +883,7 @@ function runPreparationOperations(
         }),
       ).pipe(Effect.asVoid),
     startController: (namespace, manifests) =>
-      attempt("create controller job", () =>
+      kubernetesCall("create controller job", () =>
         clients.batch.createNamespacedJob({
           namespace,
           body: manifests.controllerJob,
@@ -789,7 +904,7 @@ function runObservationOperations(
 > {
   return {
     readControllerJob: (namespace) =>
-      attempt("observe controller job", () =>
+      kubernetesCall("observe controller job", () =>
         clients.batch.readNamespacedJob({
           namespace,
           name: CONTROLLER_NAME,
@@ -805,7 +920,7 @@ function runObservationOperations(
         }),
       ),
     runNamespaceExists: (namespace) =>
-      attempt("observe run namespace deletion", () =>
+      kubernetesCall("observe run namespace deletion", () =>
         clients.core.readNamespace({ name: namespace }),
       ).pipe(
         Effect.as(true),
@@ -815,18 +930,6 @@ function runObservationOperations(
         ),
       ),
   };
-}
-
-/**
- * Build the live Kubernetes access one run-lifecycle worker attempt uses.
- * @returns Run-control operations backed by the worker Pod's service account.
- */
-export function makeKubernetesRunControlApi(): RunControlApi {
-  const clients = runControlClients();
-  return Object.freeze({
-    ...runPreparationOperations(clients),
-    ...runObservationOperations(clients),
-  });
 }
 
 interface InstallClients {
@@ -902,30 +1005,4 @@ function installClients(profile: KubernetesExecutionProfile): InstallClients {
     core: config.makeApiClient(CoreV1Api),
     rbac: config.makeApiClient(RbacAuthorizationV1Api),
   };
-}
-
-/**
- * Build the live host-side access used to install the cluster's run worker.
- * @param options Host-selected image, Temporal endpoint, queue, and profile.
- * @returns Install operations against the profile's cluster.
- */
-export function makeKubernetesRunWorkerInstallApi(
-  options: RunWorkerOptions,
-): RunWorkerInstallApi {
-  const clients = installClients(options.profile);
-  const applies = installedObjectApplies(clients, runWorkerManifests(options));
-  return Object.freeze({
-    install: (object: RunWorkerObject) =>
-      attempt(`apply run worker ${object}`, applies[object]).pipe(
-        Effect.asVoid,
-      ),
-    readWorkerAvailability: () =>
-      attempt("observe run worker", () =>
-        clients.apps.readNamespacedDeployment({
-          name: RUN_WORKER_NAME,
-          namespace: SYSTEM_NAMESPACE,
-        }),
-      ).pipe(Effect.map(workerAvailabilityOf)),
-    wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
-  });
 }
