@@ -26,18 +26,7 @@
  */
 import { Effect, HashMap, HashSet, Option, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import {
-  connectionId as protocolConnectionId,
-  type ConnectionId,
-} from "@moltzap/protocol/socket";
-
-/**
- * Decode a raw connection-id string through the protocol brand constructor.
- * Used by tests that name connections with synthetic strings; production
- * socket accept uses `newConnectionId` from protocol.
- */
-export const connectionId: (value: string) => ConnectionId =
-  protocolConnectionId;
+import type { ConnectionId } from "@moltzap/protocol/socket";
 
 /**
  * Snapshot of the resolver's combined state. Held in a single {@link Ref}

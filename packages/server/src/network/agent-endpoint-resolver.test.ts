@@ -7,11 +7,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { Effect, HashSet } from "effect";
+import { connectionId } from "@moltzap/protocol/socket";
 import { agentId } from "@moltzap/protocol/testing";
-import {
-  AgentEndpointResolver,
-  connectionId,
-} from "./agent-endpoint-resolver.js";
+import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 
 // Test agent ids — UUIDs that pass the `agentId` brand predicate.
 const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");

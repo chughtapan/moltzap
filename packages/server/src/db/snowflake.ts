@@ -37,12 +37,3 @@ export function nextSnowflakeId(): bigint {
 
   return (BigInt(now) << BigInt(COUNTER_BITS)) | BigInt(counter);
 }
-
-/**
- * Executes the snowflake to timestamp operation.
- * @param id Value supplied to the operation.
- * @returns The snowflake to timestamp result.
- */
-export function snowflakeToTimestamp(id: bigint): Date {
-  return new Date(Number(id >> BigInt(COUNTER_BITS)));
-}

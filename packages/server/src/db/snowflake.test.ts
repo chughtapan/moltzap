@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { nextSnowflakeId, snowflakeToTimestamp } from "./snowflake.js";
+import { nextSnowflakeId } from "./snowflake.js";
 
 const UNIQUE_ID_SAMPLE_SIZE = 1000;
 const MONOTONIC_ID_SAMPLE_SIZE = 100;
+const COUNTER_BITS = 10n;
 
 describe("nextSnowflakeId", () => {
   it("generates unique IDs", () => {
@@ -31,11 +32,11 @@ describe("nextSnowflakeId", () => {
     }
   });
 
-  it("roundtrips timestamp extraction", () => {
+  it("encodes the timestamp in the high bits", () => {
     const before = Date.now();
     const id = nextSnowflakeId();
     const after = Date.now();
-    const extracted = snowflakeToTimestamp(id).getTime();
+    const extracted = Number(id >> COUNTER_BITS);
     expect(extracted).toBeGreaterThanOrEqual(before);
     expect(extracted).toBeLessThanOrEqual(after);
   });

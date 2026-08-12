@@ -8,7 +8,7 @@ Network-domain utilities.
 
 ## Public surface
 
-### [`AgentEndpointResolver`](./agent-endpoint-resolver.ts#L66)
+### [`AgentEndpointResolver`](./agent-endpoint-resolver.ts#L55)
 
 _Class_
 
@@ -201,18 +201,6 @@ export const connectAgent: ServerHandler<typeof agentConnect> = (params)
 Provides the connect agent runtime value.
 
 **Returns:** The connect agent result.
-
-### [`connectionId`](./agent-endpoint-resolver.ts#L39)
-
-_Variable_
-
-```ts
-export const connectionId: (value: string)
-```
-
-Decode a raw connection-id string through the protocol brand constructor.
-Used by tests that name connections with synthetic strings; production
-socket accept uses `newConnectionId` from protocol.
 
 ### [`NetworkSendService`](./network-send.ts#L26)
 
