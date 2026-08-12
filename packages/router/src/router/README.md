@@ -7,7 +7,7 @@ durable state.
 
 Start with:
 
-- `server.ts` is the composition root launched directly by the standalone
+- `../server.ts` is the composition root launched directly by the standalone
   binary.
 - `http.ts` exposes readiness plus authenticated send and poll routes.
 - `rpc.ts` owns the private operation group, authenticated-request proof,
@@ -17,12 +17,11 @@ Start with:
 - `feed.ts` owns volatile ordering, retention, and retry identity.
 - `poll-cursor.ts` authenticates caller- and process-bound continuations.
 - `poll-waiters.ts` owns the lifecycle of pending polls.
-- `client.ts` implements the public `Router` capability over HTTP.
+- `../router.ts` owns the public `Router` capability over HTTP and the private
+  process configuration consumed by the server.
 
 `contract.ts` owns the closed requests, results, operation values, client
 failures, routes, limits, and representations shared by those boundaries.
-`configuration.ts` remains a private implementation detail.
 
-The package-root `server.ts` is only the public `./server` export facade. It
-points at this folder's server composition without moving private
-mechanisms into the package root.
+The package root exports only the public capability and contract values;
+the `./server` subpath exposes only the production process surface.

@@ -13,7 +13,7 @@ import { createServer } from "node:http";
 import {
   loadRouterConfiguration,
   type RouterConfiguration,
-} from "./router/configuration.js";
+} from "./router.js";
 import { makeRouterFeed } from "./router/feed.js";
 import { makeRouterHttpApp } from "./router/http.js";
 import {

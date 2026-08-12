@@ -640,9 +640,9 @@ const architectureConfigDefinitions = [
         folderChildCountOverrides: [
           {
             folder: "router",
-            maxChildren: 10,
+            maxChildren: 9,
             reason:
-              "The Router implementation keeps contract, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, and process as the cohesive boundaries of one independently runnable service",
+              "The Router implementation keeps contract, RPC, HTTP, send, poll, feed, cursor, waiters, and process as the cohesive boundaries of one independently runnable service",
           },
         ],
         facadeFiles: [
