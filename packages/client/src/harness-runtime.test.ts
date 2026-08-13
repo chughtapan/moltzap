@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import { ConversationId } from "./contract.js";
 import {
   decodeHarnessExtension,
-  decodeHarnessReplyRoute,
   decodeHarnessTurnEvent,
   HARNESS_EVENTS_EXTENSION,
   harnessReplyRequestMeta,
@@ -94,34 +93,19 @@ const verifiesPinnedExtension = async () => {
   );
 };
 
-const keepsOpaqueReplyRouteClosed = async () => {
-  const metadata = {
-    ...harnessReplyRequestMeta(replyGrant),
-    "io.modelcontextprotocol/unrelated": true,
-  };
-  await expect(
-    Effect.runPromise(decodeHarnessReplyRoute(metadata)),
-  ).resolves.toEqual({ replyGrant });
-  await expect(
-    Effect.runPromise(
-      decodeHarnessReplyRoute({
-        [HARNESS_EVENTS_EXTENSION]: {
-          replyGrant,
-          conversationId,
-        },
-      }),
-    ),
-  ).rejects.toBeDefined();
+const keepsOpaqueReplyMetadataMinimal = (): void => {
+  expect(harnessReplyRequestMeta(replyGrant)).toEqual({
+    [HARNESS_EVENTS_EXTENSION]: { replyGrant },
+  });
 };
 
 // @agent-code-guard/regression-only: these examples pin the reduced private representation that backs the public Client.
 describe("Harness MCP semantic wire", () => {
   it("decodes and verifies exactly one semantic action", semanticEvent);
   it("decodes the daemon-pinned Registry signer", verifiesPinnedExtension);
-  it(
-    "routes reply only through opaque live authority",
-    keepsOpaqueReplyRouteClosed,
-  );
+  it("routes reply only through opaque live authority", () => {
+    keepsOpaqueReplyMetadataMinimal();
+  });
 });
 
 /* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults. */

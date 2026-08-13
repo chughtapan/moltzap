@@ -2,11 +2,10 @@
 
 import {
   AgentCard,
-  AgentName,
   Ed25519PublicKey,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
-import { Effect, JSONSchema, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { type Content, ConversationId, type JsonValue } from "./contract.js";
 
 /** Harness MCP extension carrying the runtime event contract. */
@@ -57,23 +56,6 @@ const harnessTurnEventSchema = Schema.Struct({
   replyGrant: Schema.String.pipe(Schema.minLength(1)),
 });
 
-/** START carries all public intent and its pre-minted identity. */
-const harnessStartInputSchema = Schema.Struct({
-  conversationId: ConversationId,
-  peers: Schema.NonEmptyArray(AgentName),
-  content: contentSchema,
-});
-
-/** Reply content is public while routing authority remains in request metadata. */
-const harnessReplyInputSchema = Schema.Struct({ content: contentSchema });
-
-const emptyResultSchema = Schema.Struct({});
-
-/** Private route nested under the harness extension key in request metadata. */
-const harnessReplyRouteSchema = Schema.Struct({
-  replyGrant: Schema.String.pipe(Schema.minLength(1)),
-});
-
 /** Deployment identity material advertised by the daemon, never the Client API. */
 const harnessExtensionSchema = Schema.Struct({
   registrySignerPublicKey: Ed25519PublicKey,
@@ -93,39 +75,8 @@ interface VerifiedHarnessTurnEvent {
   readonly replyGrant: string;
 }
 
-/** Decoded START arguments. */
-export type HarnessStartInput = Schema.Schema.Type<
-  typeof harnessStartInputSchema
->;
-
-/** Decoded reply arguments. */
-export type HarnessReplyInput = Schema.Schema.Type<
-  typeof harnessReplyInputSchema
->;
-
-/** Both mutating tools return no semantic result. */
-export type HarnessEmptyResult = Schema.Schema.Type<typeof emptyResultSchema>;
-
 const decodeTurnEvent = Schema.decodeUnknown(harnessTurnEventSchema);
-const decodeReplyRoute = Schema.decodeUnknown(harnessReplyRouteSchema);
 const decodeExtension = Schema.decodeUnknown(harnessExtensionSchema);
-
-/** JSON Schema advertised for START arguments. */
-export const harnessStartInputJsonSchema = JSONSchema.make(
-  harnessStartInputSchema,
-  { target: "jsonSchema2020-12" },
-);
-
-/** JSON Schema advertised for content-only reply arguments. */
-export const harnessReplyInputJsonSchema = JSONSchema.make(
-  harnessReplyInputSchema,
-  { target: "jsonSchema2020-12" },
-);
-
-/** JSON Schema advertised for the empty mutating-tool result. */
-export const harnessEmptyResultJsonSchema = JSONSchema.make(emptyResultSchema, {
-  target: "jsonSchema2020-12",
-});
 
 /**
  * Strictly decode one semantic turn event received from MCP.
@@ -150,18 +101,6 @@ const isUnknownRecord = (
   value: unknown,
 ): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-
-/**
- * Decode private reply authority while allowing unrelated MCP metadata.
- * @param requestMeta Untrusted request metadata.
- * @returns The strictly decoded private reply route.
- */
-export const decodeHarnessReplyRoute = (requestMeta: unknown) => {
-  const extensionValue: unknown = isUnknownRecord(requestMeta)
-    ? requestMeta[HARNESS_EVENTS_EXTENSION]
-    : undefined;
-  return decodeReplyRoute(extensionValue, exact);
-};
 
 /**
  * Decode the daemon-pinned Registry signer from its advertised extension.

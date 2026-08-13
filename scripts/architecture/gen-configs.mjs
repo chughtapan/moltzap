@@ -85,17 +85,6 @@ const sharedConfig = {
 
 const packageDefinitions = {
   client: {
-    beforeShared: {
-      folderChildCountOverrides: [
-        {
-          folder: ".",
-          maxChildren: 9,
-          maxChildrenIncludingTests: 12,
-          reason:
-            "The final Client root contains its public contract and focused MCP runtime boundary; endpoint history implementation lives under harness",
-        },
-      ],
-    },
     afterShared: {
       publicTypePackages: [
         ...publicTypePackagesWithoutProtocol,
