@@ -70,7 +70,6 @@ export function buildOpenClawConfig(
         accounts: [
           {
             id: SIMULATOR_PROFILE_NAME,
-            agentName: input.agentName,
           },
         ],
       },
