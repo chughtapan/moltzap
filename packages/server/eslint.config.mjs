@@ -1,24 +1,29 @@
 import { packageEslintConfig } from "../../eslint.shared.mjs";
 
-// Cursor-opacity guard: only `db/list-cursor.ts` may decode a cursor
-// token. Banning `atob` / base64url `Buffer.from` elsewhere stops
-// consumers from coupling to the encoding the server owns.
+// Cursor-opacity guard: only the DB-owned cursor codecs may decode a token.
+// Banning raw base64url decoding elsewhere keeps consumers independent of the
+// server-owned encoding.
 const cursorOpacityGuard = {
   files: ["src/**/*.ts"],
-  ignores: ["src/db/list-cursor.ts", "**/*.test.ts", "**/*.spec.ts"],
+  ignores: [
+    "src/db/list-cursor.ts",
+    "src/db/search-read-cursor.ts",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+  ],
   rules: {
     "no-restricted-syntax": [
       "error",
       {
         selector: "CallExpression[callee.name='atob']",
         message:
-          "Cursor tokens are opaque (spec #693 Invariant 2). Decode them only via db/list-cursor.ts → decodeListCursor.",
+          "Cursor tokens are opaque. Decode them only through a DB-owned cursor codec.",
       },
       {
         selector:
           "CallExpression[callee.object.name='Buffer'][callee.property.name='from'][arguments.1.value='base64url']",
         message:
-          "Cursor tokens are opaque (spec #693 Invariant 2). Decode them only via db/list-cursor.ts → decodeListCursor.",
+          "Cursor tokens are opaque. Decode them only through a DB-owned cursor codec.",
       },
     ],
   },

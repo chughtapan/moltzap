@@ -1,11 +1,23 @@
-# PR 974 forward-merge rehearsal
+# PR 974 final forward-merge record
 
-Status: **EXACT-SHA MECHANICAL HANDOFF — NON-NORMATIVE**
+Status: **RESOLVED CANDIDATE — NON-NORMATIVE**
 
-This records the read-only rehearsal for the final `main`-to-cutover merge. It
-does not merge the pull request, accept its review evidence, or replace the
-requirement to merge landed `main`. Repeat the rehearsal if either relevant
-head changes.
+This records the exact final `main`-to-cutover integration. PR #974 landed on
+`main`; the cutover integrated that commit and every earlier `main` commit in
+one merge. Routine forward merges are now frozen. Later v1 fixes move only by
+an explicit, reviewed port.
+
+## Integrated inputs
+
+- Cutover pre-merge head: `94e5183999cc4fba7319aa5804f1aa2b20f3d349`
+- Landed `main` head and PR #974 merge commit:
+  `102f110436bedbba828591c1b97fd4e322abcf76`
+- PR #974 source head: `7e67ed6e97c215dd6f169111b1e6805783fce88c`
+- Merge base: `18ba443d28451e41540c54d29480d9a23c2c5815`
+
+The exact pre-merge rehearsal reported 119 conflict records because the
+cutover had already deleted or reorganized v1 Client, Protocol, Server, docs,
+and test surfaces that the landed main line still changed.
 
 ## Rehearsed inputs
 
@@ -87,15 +99,26 @@ Using a separate cache prevents `generateModuleDocs` from treating
 `dist/socket` as a renderable source module. Existing fixtures already cover
 Unix `src`, Windows `src`, and permalink recovery.
 
-## Actual merge gate
+## Resolved integration policy
 
-The real merge occurs only after PR #974 lands and uses the landed `main` head.
-Then:
+- Intentional cutover deletions remain deleted: the v1 conformance workflow,
+  quickstart/testbed, CLI and daemon-profile process plane, retired protocol
+  docs, forwarding facades, Snowflake sequencing, generated database schema,
+  and obsolete documentation tests were not revived.
+- The compatible production changes from `main` were ported: Streamable HTTP
+  MCP support, Kubernetes call timeouts and worker-roll safety, hosted Phoenix
+  evaluation support, bounded evaluation diagnostics, database-owned message
+  order, message-body evidence, and the agent/conversation/message read plane.
+- The landed profile-slot and profile-selected daemon implementation was not
+  kept. The accepted four-layer outcome had already removed named profiles,
+  and the maintainer subsequently accepted the smaller Client boundary. Its
+  authority update lands after this mechanical merge rather than being
+  invented during conflict resolution.
+- Generated module documentation was regenerated from the resolved source,
+  and the unique worktree `dist/*.d.ts` normalization regression from the
+  retired TypeDoc test was ported to the root module-doc integration suite.
 
-1. repeat `merge-tree` against the exact heads;
-2. resolve every conflict explicitly and inspect all semantic auto-merges;
-3. regenerate and check the lockfile and documentation outputs;
-4. run the affected architecture, docs, package, and Nx targets;
-5. freeze the resolved semantic candidate; and
-6. run a fresh isolated blind review because decision-index conflict
-   resolution produces a new candidate.
+The merge candidate is complete only after its package, architecture,
+documentation, and decision-lineage gates pass. The resulting merge commit is
+the recorded final base; routine `main`-to-cutover merges remain frozen even
+when later v1 commits appear.

@@ -2,6 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import { FileSystem } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Exit } from "effect";
+import { sql } from "kysely";
 import { KyselyPGlite } from "kysely-pglite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +16,7 @@ import {
 import type { Database } from "./database.js";
 import {
   makeEffectKysely,
+  rawQuery,
   takeFirstOrFail,
   type EffectKysely,
 } from "./effect-kysely-toolkit.js";
@@ -62,6 +64,7 @@ const OWNER_USER_ID = userId("00000000-0000-4000-8000-00000000a9e0");
 const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
 const API_KEY_SECRET_HASH_LENGTH = 64;
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-0000000e5a91");
+const NEXT_MESSAGE_ID = messageId("00000000-0000-4000-8000-0000000e5a92");
 const MESSAGE_PARTS = [{ type: "text", text: "schema fixture" }];
 const REMOVED_SCHEMA_TABLES = [
   "app_sessions",
@@ -91,6 +94,12 @@ const REMOVED_MESSAGE_COLUMNS = [
   "dispatch_decision",
 ] as const;
 
+interface MessageSequenceColumn {
+  readonly dataType: string;
+  readonly identityGeneration: string | null;
+  readonly isIdentity: string;
+}
+
 describe("conversations schema constraints", () => {
   it(
     "stores a conversation keyed only by its creator",
@@ -115,6 +124,24 @@ describe("messages schema constraints", () => {
   it(
     "rejects a message insert that omits parts",
     rejectsMessageWithoutParts,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "assigns durable message order in the database",
+    assignsDurableMessageOrder,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "defines message order as an always-generated bigint identity",
+    definesDatabaseOwnedMessageOrder,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects an explicitly supplied message sequence",
+    rejectsExplicitMessageSequence,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 });
@@ -175,7 +202,6 @@ function roundTripsPlaintextParts() {
         id: MESSAGE_ID,
         conversation_id: CONV_ID,
         sender_id: AGENT_ID,
-        seq: "1",
         parts: JSON.stringify(MESSAGE_PARTS),
       });
 
@@ -197,9 +223,91 @@ function rejectsMessageWithoutParts() {
       yield* insertConversation(harness);
       const exit = yield* Effect.exit(
         harness.exec(
-          `INSERT INTO messages (id, conversation_id, sender_id, seq)
-           VALUES ('${MESSAGE_ID}', '${CONV_ID}', '${AGENT_ID}', 1)`,
+          `INSERT INTO messages (id, conversation_id, sender_id)
+           VALUES ('${MESSAGE_ID}', '${CONV_ID}', '${AGENT_ID}')`,
         ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+}
+
+function assignsDurableMessageOrder() {
+  return withCoreSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      yield* insertConversation(harness);
+      yield* harness.exec(`
+        INSERT INTO messages (id, conversation_id, sender_id, parts)
+        VALUES
+          ('${MESSAGE_ID}', '${CONV_ID}', '${AGENT_ID}', '${JSON.stringify(MESSAGE_PARTS)}'),
+          ('${NEXT_MESSAGE_ID}', '${CONV_ID}', '${AGENT_ID}', '${JSON.stringify(MESSAGE_PARTS)}')
+      `);
+
+      const rows = yield* harness.db
+        .selectFrom("messages")
+        .select(["id", "seq"])
+        .where("conversation_id", "=", CONV_ID)
+        .orderBy("seq", "asc");
+      expect(rows.map((row) => row.id)).toEqual([MESSAGE_ID, NEXT_MESSAGE_ID]);
+      const [first, second] = rows;
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
+      if (first === undefined || second === undefined) {
+        return;
+      }
+      expect(BigInt(second.seq)).toBeGreaterThan(BigInt(first.seq));
+    }),
+  );
+}
+
+function definesDatabaseOwnedMessageOrder() {
+  return withCoreSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      const columns = yield* rawQuery(
+        harness.db,
+        sql<MessageSequenceColumn>`
+          SELECT
+            data_type AS "dataType",
+            identity_generation AS "identityGeneration",
+            is_identity AS "isIdentity"
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'messages'
+            AND column_name = 'seq'
+        `,
+      );
+      expect(columns).toEqual([
+        {
+          dataType: "bigint",
+          identityGeneration: "ALWAYS",
+          isIdentity: "YES",
+        },
+      ]);
+    }),
+  );
+}
+
+function rejectsExplicitMessageSequence() {
+  return withCoreSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      yield* insertConversation(harness);
+      const exit = yield* Effect.exit(
+        harness.exec(`
+          INSERT INTO messages (
+            id,
+            conversation_id,
+            sender_id,
+            seq,
+            parts
+          )
+          VALUES (
+            '${MESSAGE_ID}',
+            '${CONV_ID}',
+            '${AGENT_ID}',
+            1,
+            '${JSON.stringify(MESSAGE_PARTS)}'
+          )
+        `),
       );
       expect(Exit.isFailure(exit)).toBe(true);
     }),

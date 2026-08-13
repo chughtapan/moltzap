@@ -53,6 +53,9 @@ planning database as continuing authority.
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
 | [Four-layer Harness uses endpoint-replicated history](20260811-four-layer-endpoint-replicated-harness.md) | 2026-08-11 | accepted | — |
+| [The profile slot is the unit of local identity](20260805-profile-slot-is-the-unit-of-local-identity.md) | 2026-08-05 | superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |
+| [HarnessClient is the production adapter contract](20260805-harness-client-is-the-production-adapter-contract.md) | 2026-08-05 | partially-superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |
+| [The daemon serves one loopback MCP path and retires the CLI](20260805-daemon-serves-one-loopback-mcp-path.md) | 2026-08-05 | partially-superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |
 | [Harness is one profile-slot daemon](20260801-harness-is-one-profile-slot-daemon.md) | 2026-08-01 | partially-superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |
 | [HarnessClient owns runtime context](20260801-harness-client-owns-runtime-context.md) | 2026-08-01 | partially-superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |
 | [Inbound notifications separate content from reply grants](20260801-inbound-notifications-separate-content-from-grants.md) | 2026-08-01 | partially-superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |

@@ -216,6 +216,10 @@ function assertBootstrap(fixture: Fixture): void {
   );
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),
+    MCP_URL,
+  );
+  assert.notInclude(
+    JSON.stringify(runtimeConfigurationProjection(runtime)),
     MCP_SECRET,
   );
   assert.notInclude(

@@ -8,8 +8,16 @@ Public barrel for identity and agent protocol descriptors.
 
 ## Public surface
 
-_No exports surfaced from this folder._
+### [`identityRpcMethods`](./index.ts#L52)
+
+_Variable_
+
+```ts
+export const identityRpcMethods = [agentsList, agentsSearch] as const
+```
+
+Identity RPC catalog accepted by agent clients.
 
 ## Files
 
-_No source files tracked under this folder by TypeDoc._
+- `index.ts`

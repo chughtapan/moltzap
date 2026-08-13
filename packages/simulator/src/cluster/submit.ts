@@ -1,15 +1,14 @@
+/* eslint-disable agent-code-guard/promise-type -- File loading and the Temporal SDK are Promise-native at this submission boundary. */
 /** @file Shared submission of one experiment to a Temporal-managed cluster. */
 
-/* eslint-disable agent-code-guard/promise-type -- File loading and the Temporal SDK are Promise-native at this submission boundary. */
-
-import { FileSystem } from "@effect/platform";
-import { NodeContext } from "@effect/platform-node";
-import { type Cause, Context, Data, Effect, Layer } from "effect";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import { Context, Data, Effect, Layer, type Cause } from "effect";
+import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
 import type { KubernetesExecutionProfile } from "./profile.js";
 import type { RunControllerResult } from "./reclaim.js";
-import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
 import {
   runTemporalSociety,
   type RunTemporalSocietyOptions,
@@ -46,6 +45,14 @@ export interface SubmitOperationsService {
 export class SubmitOperations extends Context.Tag(
   "@moltzap/simulator/SubmitOperations",
 )<SubmitOperations, SubmitOperationsService>() {}
+
+/**
+ * Upper bound on the diagnostic one submission publishes to its caller.
+ *
+ * The stdout line is a contract, and an unbounded field makes the whole line
+ * long rather than the one field long.
+ */
+export const SUBMITTED_DIAGNOSTIC_MAX_BYTES = 8 * 1_024;
 
 /** Successful submission reported to the operator. */
 export interface RunSubmission {
@@ -146,21 +153,21 @@ function readExperiment(
   path: string,
   operations: SubmitOperationsService,
 ): Effect.Effect<string, RunSubmissionError> {
-  return operations
-    .readTextFile(path)
-    .pipe(
-      Effect.mapError(() =>
-        failure("module", "the RunSpec entrypoint could not be read"),
-      ),
-    );
+  return operations.readTextFile(path).pipe(
+    // Which of a missing file, a directory, and a permission denial it was
+    // reaches the operator only here: the reported detail is deliberately the
+    // same sentence for all three.
+    Effect.tapErrorCause(Effect.logError),
+    Effect.mapError(() =>
+      failure("module", "the RunSpec entrypoint could not be read"),
+    ),
+  );
 }
 
-/**
- * Preserve actionable rollout-refusal guidance while sanitizing every failure
- * whose detail may include a credential-bearing connection string.
- * @param cause Promise rejection normalized by Effect.
- * @returns A public submission failure with safe operator-facing detail.
- */
+// A refused worker roll is the operator's own next action rather than a fault
+// in the run, so its text is reported instead of the generic detail. It names
+// only images, run ids, and an environment variable; every other failure stays
+// sanitized, because its detail can carry the connection the submitter used.
 function submissionFailure(cause: Cause.UnknownException): RunSubmissionError {
   return cause.error instanceof RunWorkerRollRefused
     ? failure("configuration", cause.error.message)
@@ -171,8 +178,6 @@ function executeTemporalRun(
   options: RunTemporalSocietyOptions,
   operations: SubmitOperationsService,
 ): Effect.Effect<RunControllerResult, RunSubmissionError> {
-  // The cause is logged rather than reported, because the detail is operator
-  // output and the connection it carries can hold a credential.
   return Effect.tryPromise(() => operations.runTemporalSociety(options)).pipe(
     Effect.tapErrorCause(Effect.logError),
     Effect.mapError(submissionFailure),
@@ -292,6 +297,8 @@ function prepareRun(
     path: experimentPath(args),
     controllerImage,
     executionProfile,
+    // Exactly "1", so that an operator who exported the variable to something
+    // else has not silently accepted losing a run.
     forceWorkerRoll: environment[FORCE_WORKER_ROLL_VARIABLE] === "1",
     ...runSizing(environment),
     supportImage: requiredImage(
@@ -319,6 +326,38 @@ function prepareRun(
       ...(workerTemporalAddress === undefined ? {} : { workerTemporalAddress }),
     },
   };
+}
+
+/**
+ * Hold a diagnostic to the published byte bound, keeping its tail.
+ *
+ * The tail because a controller writes the reason it stopped last. On the byte
+ * array because a UTF-16 slice cannot express a byte count, and the
+ * continuation-byte skip puts the cut on a code-point boundary rather than
+ * leaving a replacement character at the front.
+ *
+ * @param value Sanitized controller output collected by the host activity.
+ * @returns The same text, or its last whole code points within the bound.
+ */
+export function boundedDiagnostic(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.byteLength <= SUBMITTED_DIAGNOSTIC_MAX_BYTES) {
+    return value;
+  }
+  let start = bytes.byteLength - SUBMITTED_DIAGNOSTIC_MAX_BYTES;
+  while (start < bytes.byteLength && ((bytes[start] ?? 0) & 0xc0) === 0x80) {
+    start += 1;
+  }
+  return new TextDecoder().decode(bytes.subarray(start));
+}
+
+// The value crossed Temporal and a worker this process does not own, so the
+// bound is enforced here rather than trusted.
+function boundedResult(result: RunControllerResult): RunControllerResult {
+  if (result.exitCode === 0 || result.diagnostic === undefined) {
+    return result;
+  }
+  return { ...result, diagnostic: boundedDiagnostic(result.diagnostic) };
 }
 
 function executePreparedRun(
@@ -366,7 +405,7 @@ function executePreparedRun(
       },
       operations,
     );
-    return Object.freeze({ ...identity, result });
+    return Object.freeze({ ...identity, result: boundedResult(result) });
   });
 }
 

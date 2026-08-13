@@ -1,5 +1,6 @@
 /** @file Non-deterministic Temporal boundary: activities, worker, client, submission. */
 
+import { fileURLToPath } from "node:url";
 import { Context as ActivityContext } from "@temporalio/activity";
 import { Client, Connection, type WorkflowClient } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
@@ -12,13 +13,12 @@ import {
   Option,
   Runtime,
 } from "effect";
-import { fileURLToPath } from "node:url";
 import type {
   CleanupRunInput,
   RunControllerResult,
   RunLifecycleActivities,
-  runSocietyWorkflow,
   RunSocietyWorkflowInput,
+  runSocietyWorkflow,
 } from "./reclaim.js";
 import { isEntryModule } from "./entry.js";
 import {
@@ -27,32 +27,36 @@ import {
   type RunWorkerInstallRequest,
 } from "./install.js";
 import {
-  type KubernetesCallFailed,
   makeKubernetesRunWorkerInstallApi,
+  type KubernetesCallFailed,
   type RunWorkerInstallApi,
 } from "./kubernetes/calls.js";
 import { IN_CLUSTER_TEMPORAL_ADDRESS } from "./kubernetes/objects.js";
 import {
   decodeKubernetesExecutionProfile,
-  type KubernetesExecutionProfile,
   LOCAL_KUBERNETES_EXECUTION_PROFILE,
+  type KubernetesExecutionProfile,
 } from "./profile.js";
 import { makeKubernetesRunLifecycleOperations } from "./watch.js";
 
 const WORKFLOW_TYPE = "runSocietyWorkflow";
 const DEFAULT_TEMPORAL_NAMESPACE = "default";
 
-/** Coarse controller state observed by the host-side activity. */
+/**
+ * Coarse controller state observed by the host-side activity.
+ *
+ * `completed` is every controller that produced a decodable result, whether or
+ * not the run inside it succeeded — the activity returns both the same way.
+ */
 export type ControllerObservation =
   | { readonly _tag: "running" }
   | {
-      readonly _tag: "succeeded";
+      readonly _tag: "completed";
       readonly result: RunControllerResult;
     }
   | {
       readonly _tag: "failed";
       readonly detail: string;
-      readonly result?: RunControllerResult;
     };
 
 /** Process environment read by the in-cluster worker Deployment. */
@@ -75,7 +79,7 @@ export interface RunTemporalSocietyOptions {
   readonly temporalNamespace?: string;
   /** Temporal endpoint as the in-cluster worker reaches it, not as the host does. */
   readonly workerTemporalAddress?: string;
-  /** Whether the operator accepts interrupting open runs during a worker roll. */
+  /** Whether the operator accepted rolling the worker over its open runs. */
   readonly forceWorkerRoll?: boolean;
 }
 
@@ -166,12 +170,9 @@ function runControllerOnce(
       for (;;) {
         const observation = yield* operations.observeController(input);
         switch (observation._tag) {
-          case "succeeded":
+          case "completed":
             return observation.result;
           case "failed":
-            if (observation.result !== undefined) {
-              return observation.result;
-            }
             return yield* Effect.fail(
               new ControllerAttemptFailed(observation.detail),
             );
@@ -359,35 +360,45 @@ export async function executeRunSocietyWorkflow(
   );
 }
 
-/** Maximum workflow identifiers retained from one open-run query. */
+/** The most open runs one reading names before it stops counting. */
 const OPEN_RUN_SAMPLE = 20;
 
-/** Temporal visibility status for an unfinished workflow execution. */
-export const OPEN_RUN_STATUS = "Running";
+/** Visibility-query clause matching a run its task queue has not finished. */
+export const OPEN_RUN_FILTER = "ExecutionStatus = 'Running'";
 
-/** Narrow Temporal visibility surface needed by the worker-roll guard. */
+/**
+ * One operator-supplied value as a visibility-query string literal.
+ * @param value Value the query compares a field against.
+ * @returns The quoted literal, with any quote inside it doubled.
+ */
+function queryLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/**
+ * The exact listing surface reading a queue's unfinished work needs.
+ *
+ * Narrower than the client's own, so that what this reads is the whole of what
+ * it depends on and a test can supply it without standing up a Temporal server.
+ */
 export interface OpenRunLister {
   readonly list: (options: {
     readonly query: string;
   }) => AsyncIterable<{ readonly workflowId: string }>;
 }
 
-/**
- * List enough unfinished workflows to explain why a worker roll is refused.
- * The guard needs proof that work exists, not an exhaustive visibility scan.
- * @param client Temporal visibility reader bound to the configured namespace.
- * @param taskQueue Queue served by the installed run worker.
- * @returns A bounded sample of unfinished workflow identifiers.
- */
-// #ignore-sloppy-code-next-line[async-keyword]: Temporal visibility exposes an AsyncIterable at this SDK boundary.
+// Bounded, because the caller only has to know that some run is still open and
+// which ones to name; an unbounded listing walks every page of the visibility
+// store to answer a question the first page already answered.
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 async function listOpenRunIds(
   client: OpenRunLister,
   taskQueue: string,
-  // #ignore-sloppy-code-next-line[promise-type]: Temporal visibility exposes an AsyncIterable at this SDK boundary.
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<readonly string[]> {
   const workflowIds: string[] = [];
   for await (const execution of client.list({
-    query: `TaskQueue = '${taskQueue}' AND ExecutionStatus = '${OPEN_RUN_STATUS}'`,
+    query: `TaskQueue = ${queryLiteral(taskQueue)} AND ${OPEN_RUN_FILTER}`,
   })) {
     workflowIds.push(execution.workflowId);
     if (workflowIds.length >= OPEN_RUN_SAMPLE) {
@@ -398,11 +409,16 @@ async function listOpenRunIds(
 }
 
 /**
- * Read unfinished workflows without treating a visibility failure as an empty
- * queue, because only a confirmed empty queue permits an image-changing roll.
- * @param client Temporal visibility reader bound to the configured namespace.
- * @param taskQueue Queue served by the installed run worker.
- * @returns The unfinished run sample, or an unreadable marker on failure.
+ * Read which runs the task queue has not finished yet.
+ *
+ * A queue that cannot be listed reads as unreadable rather than as empty. The
+ * difference is the whole point: an empty answer clears a submission to replace
+ * the worker, so a failed query that returned one would authorize exactly the
+ * roll this reading exists to prevent.
+ *
+ * @param client Temporal client already connected to the run's namespace.
+ * @param taskQueue Queue the cluster's worker serves.
+ * @returns The open runs it named, or that it could not be asked.
  */
 export function readOpenRuns(
   client: OpenRunLister,
@@ -412,6 +428,8 @@ export function readOpenRuns(
     Effect.map(
       (workflowIds): OpenRunReading => ({ _tag: "open", workflowIds }),
     ),
+    // Logged rather than reported: the cause names the connection the submitter
+    // used, and operator-facing text is what the refusal already carries.
     Effect.tapErrorCause(Effect.logError),
     Effect.catchAll(() =>
       Effect.succeed<OpenRunReading>({ _tag: "unreadable" }),
@@ -450,9 +468,12 @@ function runWorkerInstallApi(
  * The submitting process is only a Temporal client. A worker embedded here would
  * end with the process, stranding the workflow's cleanup and leaving the run's
  * namespace behind, so the queue is served by a Deployment that outlives any one
- * submission and that this call installs before submitting. The Temporal
- * client connects first so an image-changing install can prove the worker's
- * queue has no unfinished runs.
+ * submission and that this call installs before submitting.
+ *
+ * The client connects first so that the install can be told what replacing the
+ * worker would cost. Installing first makes that question unanswerable: by the
+ * time anything could be asked, the Deployment is already rolling and the runs
+ * the answer was about are already failing.
  *
  * @param options Temporal endpoint plus caller-owned workflow and run inputs.
  * @returns The successful controller activity result.
@@ -463,6 +484,7 @@ export async function runTemporalSociety(
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<RunControllerResult> {
   const namespace = options.temporalNamespace ?? DEFAULT_TEMPORAL_NAMESPACE;
+  await runAtPromiseBoundary(Effect.logInfo("connecting Temporal"));
   const connection = await Connection.connect(
     options.temporalAddress === undefined
       ? undefined
@@ -476,6 +498,7 @@ export async function runTemporalSociety(
         installRequest(options, client.workflow),
       ),
     );
+    await runAtPromiseBoundary(Effect.logInfo("starting workflow"));
     return await executeRunSocietyWorkflow(options.input, {
       client: client.workflow,
       taskQueue: options.taskQueue,

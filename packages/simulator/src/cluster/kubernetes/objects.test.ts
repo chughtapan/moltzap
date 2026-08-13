@@ -1,10 +1,8 @@
-/** @file Kubernetes manifest invariants for simulator-managed resources. */
-
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
+import { image } from "../../agents/container.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
-import { image } from "../../agents/container.js";
 import {
   aggregateWorkloadManifest,
   bootstrapSecretManifest,
@@ -485,7 +483,10 @@ it("serves the run queue from a Deployment carrying the host's choices", () => {
   });
 });
 
-it("keeps a terminating worker alive long enough for a final heartbeat", () => {
+// A rolled worker is deleted while it may still be heartbeating a controller
+// activity. Delaying the signal is what lets that attempt beat once more, and
+// the grace period has to outlast the delay or the kill lands during it.
+it("holds the worker's Pod open before signalling it, and longer still after", () => {
   const { deployment } = runWorkerManifests(WORKER_OPTIONS);
   const pod = deployment.spec?.template.spec;
   assert(pod !== undefined);

@@ -46,11 +46,12 @@ import { ConversationServiceTag } from "#conversation";
 import {
   agentConversationCreate,
   conversationList,
+  conversationSearch,
 } from "#conversation/handlers";
 import { obtainConversationSendAccess } from "#conversation/requirements";
-import { agentsList } from "#identity/agents";
+import { agentsList, agentsSearch } from "#identity/agents";
 import { MessageServiceTag } from "#message";
-import { messagesList, messagesSend } from "#message/handlers";
+import { messagesList, messagesRead, messagesSend } from "#message/handlers";
 import { connectAgent } from "#network";
 import { ConnectionManagerTag, ConnectionTag } from "#socket";
 import { narrowByPolicy, peekLiveArm } from "./moltzap/principal-gate.js";
@@ -165,38 +166,40 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound> {
 }
 
 /**
- * Run the schema migration. Effect-native: reads the schema file via the
- * platform `FileSystem` service and bridges to `handle.runMigrationSql` at the
- * Kysely boundary (which still exposes a Promise API for raw DDL).
- * @param handle Value supplied to the operation.
- * @returns The auto migrate effect result.
- */
-/**
  * A database whose `agents` table exists but whose `messages` table lacks
- * the plaintext `parts` column predates the current schema generation (or
- * was partially migrated by hand). Booting against it would pass the
- * has-schema gate and then fail on every send at runtime, so the mismatch
- * is a boot error, not a skip: there is no in-place migration path —
- * recreate the database from the current schema. The check asserts the
- * REQUIRED current shape in the connection's own schema rather than probing
- * for retired artifacts, so unrelated tables in other schemas cannot
- * trip it.
+ * either plaintext parts or database-owned ordering predates the current
+ * schema generation (or was partially migrated by hand). Booting against it
+ * would pass the has-schema gate and then fail on every send at runtime, so
+ * the mismatch is a boot error, not a skip: there is no in-place migration
+ * path. The check asserts the required current shape in the connection's own
+ * schema rather than probing for retired artifacts, so unrelated tables in
+ * other schemas cannot trip it.
  * @param handle Value supplied to the operation.
  * @returns Failure when the schema predates the current generation.
  */
-function rejectRetiredSchema(
+function rejectIncompatibleSchema(
   handle: DbHandle,
 ): Effect.Effect<void, StandaloneOperationFailed> {
   return Effect.gen(function* () {
     const shape = yield* Effect.tryPromise({
       try: () =>
         sql<{ has_current_shape: boolean }>`
-          SELECT EXISTS (
-            SELECT FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND table_name = 'messages'
-              AND column_name = 'parts'
-          ) AS has_current_shape
+          SELECT
+            EXISTS (
+              SELECT FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'messages'
+                AND column_name = 'parts'
+            )
+            AND EXISTS (
+              SELECT FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'messages'
+                AND column_name = 'seq'
+                AND data_type = 'bigint'
+                AND is_identity = 'YES'
+                AND identity_generation = 'ALWAYS'
+            ) AS has_current_shape
         `.execute(handle.db),
       catch: (cause) => operationFailed("check schema generation", cause),
     });
@@ -205,7 +208,7 @@ function rejectRetiredSchema(
         operationFailed(
           "verify schema generation",
           new Error(
-            "database schema predates the app-principal/lease removal (messages.parts is missing) and has no in-place migration; recreate the database from db/core-schema.sql",
+            "database schema lacks the current messages.parts or database-owned messages.seq shape and has no in-place migration; recreate the database from db/core-schema.sql",
           ),
         ),
       );
@@ -213,6 +216,13 @@ function rejectRetiredSchema(
   });
 }
 
+/**
+ * Apply the current schema to an empty database or verify that an existing
+ * database already has the required generation. Raw DDL stays behind the
+ * handle because Kysely cannot query tables before they exist.
+ * @param handle Value supplied to the operation.
+ * @returns The auto-migrate effect result.
+ */
 function autoMigrateEffect(
   handle: DbHandle,
 ): Effect.Effect<
@@ -225,14 +235,16 @@ function autoMigrateEffect(
       try: () =>
         sql<{ has_schema: boolean }>`
           SELECT EXISTS (
-            SELECT FROM information_schema.tables WHERE table_name = 'agents'
+            SELECT FROM information_schema.tables
+            WHERE table_schema = current_schema()
+              AND table_name = 'agents'
           ) AS has_schema
         `.execute(handle.db),
       catch: (cause) => operationFailed("check database schema", cause),
     });
 
     if (result.rows[0]?.has_schema) {
-      yield* rejectRetiredSchema(handle);
+      yield* rejectIncompatibleSchema(handle);
       yield* Effect.logInfo(
         "Database schema already exists, skipping migration",
       );
@@ -463,9 +475,12 @@ const makeRequirementMiddlewareLayers = (connId: ConnectionId) =>
 const serverHandlers: ServerHandlers = {
   "agent/network/connect": connectAgent,
   "agent/identity/agents/list": agentsList,
+  "agent/identity/agents/search": agentsSearch,
   "agent/message/send": messagesSend,
   "agent/message/list": messagesList,
+  "agent/message/read": messagesRead,
   "agent/conversation/list": conversationList,
+  "agent/conversation/search": conversationSearch,
   "agent/conversation/create": agentConversationCreate,
 } as const;
 

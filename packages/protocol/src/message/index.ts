@@ -6,12 +6,15 @@
 export {
   messagesSend,
   messagesList,
+  messagesRead,
+  conversationCheckpoint,
   messageReceivedNotificationDefinition,
   decodeMessageParts,
   messagePartsSchema,
 } from "./messages.js";
 /** Re-exports the public API from `./messages.js`. */
 export type {
+  ConversationCheckpoint,
   Message,
   MessageParts,
   MessageReceivedNotification,

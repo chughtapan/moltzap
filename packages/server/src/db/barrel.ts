@@ -27,7 +27,16 @@ export {
 } from "./list-cursor.js";
 /** Re-exports the public API from `./list-cursor.js`. */
 export type { ListCursorPosition } from "./list-cursor.js";
-/** Re-exports the public API from `./snowflake.js`. */
-export { nextSnowflakeId } from "./snowflake.js";
+/** Re-exports the public API from `./search-read-cursor.js`. */
+export {
+  READ_PLANE_PAGE_SIZE,
+  decodeConversationCheckpoint,
+  decodeConversationReadCursor,
+  decodeSearchCursor,
+  encodeConversationCheckpoint,
+  encodeConversationReadCursor,
+  normalizeSearchQuery,
+  paginateSearchRows,
+} from "./search-read-cursor.js";
 /** Re-exports the public API from `kysely`. */
 export { sql } from "kysely";

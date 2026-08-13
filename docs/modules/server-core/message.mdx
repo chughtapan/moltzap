@@ -13,7 +13,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L97)
+### [`MessageService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L182)
 
 _Class_
 
@@ -79,23 +79,12 @@ export class MessageService {
     input: SendInsertInput,
   ): Effect.Effect<MessageRow, SqlError> {
     const messageIdValue = decodeMessageId(crypto.randomUUID());
-    const createdAtIso = new Date().toISOString();
-    return Effect.tryPromise({
-      try: () =>
-        this.db
-          .insertInto("messages")
-          .values({
-            id: messageIdValue,
-            conversation_id: input.conversationId,
-            sender_id: input.senderAgentId,
-            seq: nextSnowflakeId().toString(),
-            parts: JSON.stringify(input.parts),
-            created_at: new Date(createdAtIso),
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow(),
-      catch: (cause) =>
-        new SqlError({ cause, message: "insert messages failed" }),
+    return insertMessageInCheckpointOrder(this.db, {
+      id: messageIdValue,
+      conversationId: input.conversationId,
+      senderAgentId: input.senderAgentId,
+      parts: JSON.stringify(input.parts),
+      createdAt: new Date(),
     });
   }
 
@@ -138,6 +127,17 @@ export class MessageService {
         );
         yield* this.recordTrace(input, recipientList, delivered);
         yield* this.logMessageSent(input);
+        return input.carrier.message;
+      }.bind(this),
+    );
+  }
+
+  private broadcastCommittedMessage(
+    input: SendCommitInput,
+    recipientList: readonly AgentId[],
+  ): Effect.Effect<readonly AgentId[]> {
+    const audience = Array.from(
+      new Set([...recipientList, input.senderAgentId]),
 ```
 
 `agent/message/send` server entry point. The `send` method persists the
@@ -147,7 +147,7 @@ sender holding several connections still sees its own message on the
 others. The router is content-blind: it applies no interpretation or policy
 to the message body.
 
-### [`messageServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L416)
+### [`messageServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L598)
 
 _Variable_
 
@@ -169,7 +169,7 @@ export const messageServiceLive = Layer.effect(
 
 Provides the message service live runtime value.
 
-### [`MessageServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L410)
+### [`MessageServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/message.service.ts#L592)
 
 _Class_
 
@@ -182,7 +182,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/handlers.ts#L65)
+### [`messagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/handlers.ts#L81)
 
 _Variable_
 
@@ -200,7 +200,23 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/handlers.ts#L51)
+### [`messagesRead`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/handlers.ts#L94)
+
+_Variable_
+
+```ts
+export const messagesRead: ServerHandler<typeof messagesReadDefinition> =
+  Effect.fn("messagesRead")(function* (params) {
+    const ctx = yield* agentArm;
+    return yield* handleMessageRead(params, ctx);
+  })
+```
+
+Provides the checkpointed messages read runtime value.
+
+**Returns:** The messages read result.
+
+### [`messagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/message/handlers.ts#L67)
 
 _Variable_
 

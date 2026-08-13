@@ -16,6 +16,7 @@
     "resume": "nx run @moltzap/evals:resume",
     "calibrate": "nx run @moltzap/evals:calibrate",
     "publish": "nx run @moltzap/evals:publish",
+    "phoenix:terraform:check": "nx run @moltzap/evals:phoenix-terraform-check",
     "typecheck:tests": "nx run @moltzap/evals:typecheck:tests"
   },
   "dependencies": {

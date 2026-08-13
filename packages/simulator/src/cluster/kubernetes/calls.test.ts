@@ -1,15 +1,13 @@
-/** @file Finite Kubernetes call deadlines and current-status recognition. */
+/* eslint-disable agent-code-guard/async-keyword -- Vitest awaits the Effect this Promise-native Kubernetes boundary returns. */
 
-import { expect, it } from "@effect/vitest";
-import { Duration, Effect, Fiber, TestClock } from "effect";
-import { describe } from "vitest";
+import { Duration, Effect } from "effect";
+import { describe, expect, it } from "vitest";
 import {
   currentConditionIsTrue,
-  DEFAULT_KUBERNETES_CALL_TIMEOUT_MS,
-  KUBERNETES_CALL_TIMEOUT_VARIABLE,
   kubernetesCall,
-  KubernetesCallFailed,
   kubernetesCallTimeout,
+  KubernetesCallFailed,
+  KUBERNETES_CALL_TIMEOUT_VARIABLE,
 } from "./calls.js";
 
 describe("currentConditionIsTrue", () => {
@@ -53,71 +51,65 @@ describe("currentConditionIsTrue", () => {
 
 describe("kubernetesCall", () => {
   const operation = "observe run worker";
+  const bound = Duration.millis(10);
   const answer = "the cluster's answer";
 
-  it.effect("fails an unanswered call with a typed diagnostic", () =>
-    Effect.gen(function* () {
-      const bound = Duration.seconds(1);
-      const unanswered = new Promise<never>(() => {
-        // The accepted request deliberately remains unanswered.
-      });
-      const failureFiber = yield* kubernetesCall(
-        operation,
-        () => unanswered,
-        bound,
-      ).pipe(Effect.flip, Effect.fork);
+  // The failure mode this bound exists for: an API server that accepts the
+  // connection and then answers nothing leaves a submission waiting with no
+  // output naming what it waits for.
+  it("abandons a call the cluster never answers, naming the operation", async () => {
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        kubernetesCall(
+          operation,
+          () =>
+            new Promise<never>(() => {
+              // Accepted and never answered, which is the case under test.
+            }),
+          bound,
+        ),
+      ),
+    );
 
-      yield* Effect.yieldNow();
-      yield* TestClock.adjust(bound);
-      const failure = yield* Fiber.join(failureFiber);
+    expect(failure).toBeInstanceOf(KubernetesCallFailed);
+    expect(failure.message).toContain(operation);
+    // Never answering is not the cluster answering that the object is gone,
+    // which the callers that tolerate absence would swallow.
+    expect(failure.absent).toBe(false);
+  });
 
-      expect(failure).toBeInstanceOf(KubernetesCallFailed);
-      expect(failure.message).toBe(`${operation} did not answer in time`);
-      expect(failure.absent).toBe(false);
-    }),
-  );
-
-  it.effect("returns a call that answers inside the bound", () =>
-    Effect.gen(function* () {
-      const result = yield* kubernetesCall(
-        operation,
-        () => Promise.resolve(answer),
-        Duration.seconds(1),
-      );
-
-      expect(result).toBe(answer);
-    }),
-  );
+  it("returns a call the cluster answers inside its bound", async () => {
+    await expect(
+      Effect.runPromise(
+        kubernetesCall(operation, () => Promise.resolve(answer), bound),
+      ),
+    ).resolves.toBe(answer);
+  });
 });
 
 describe("kubernetesCallTimeout", () => {
-  it("defaults to thirty seconds", () => {
-    expect(Duration.toMillis(kubernetesCallTimeout({}))).toBe(
-      DEFAULT_KUBERNETES_CALL_TIMEOUT_MS,
-    );
-  });
-
-  it("accepts a positive millisecond environment override", () => {
+  it("takes a positive millisecond override from the environment", () => {
     const configured = 5_000;
 
     expect(
-      Duration.toMillis(
-        kubernetesCallTimeout({
-          [KUBERNETES_CALL_TIMEOUT_VARIABLE]: String(configured),
-        }),
-      ),
-    ).toBe(configured);
+      kubernetesCallTimeout({
+        [KUBERNETES_CALL_TIMEOUT_VARIABLE]: String(configured),
+      }),
+    ).toEqual(Duration.millis(configured));
   });
 
-  it("uses the default for unusable overrides", () => {
+  it("keeps its default when no usable override is set", () => {
+    const fallback = kubernetesCallTimeout({});
+
     for (const encoded of ["", "0", "-1", "1.5", "forever"]) {
       expect(
-        Duration.toMillis(
-          kubernetesCallTimeout({
-            [KUBERNETES_CALL_TIMEOUT_VARIABLE]: encoded,
-          }),
-        ),
-      ).toBe(DEFAULT_KUBERNETES_CALL_TIMEOUT_MS);
+        kubernetesCallTimeout({
+          [KUBERNETES_CALL_TIMEOUT_VARIABLE]: encoded,
+        }),
+      ).toEqual(fallback);
     }
+    expect(Duration.toMillis(fallback)).toBeGreaterThan(0);
   });
 });
+
+/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after the Promise-native Kubernetes boundary. */

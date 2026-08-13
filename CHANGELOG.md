@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: durable message order is database-owned
+
+`messages.seq` is now a PostgreSQL `BIGINT GENERATED ALWAYS AS IDENTITY`.
+Every production insert locks its conversation row in the same transaction
+before the database allocates that sequence. Same-conversation allocation
+therefore follows commit or rollback order across restarts and multiple server
+processes, so a checkpoint cannot advance past a lower sequence that may still
+commit later. Different conversations remain concurrent.
+
+This is a pre-launch storage break. A database created from an older
+`core-schema.sql` has no in-place migration path and is rejected at startup;
+recreate it from the current schema.
+
+### Added: streamable-HTTP MCP servers for container agents
+
+An MCP server on either container runtime may now be a remote
+`{ name, url }` endpoint alongside the stdio `{ name, command, args, env }`
+shape. OpenClaw renders it as its native `streamable-http` transport;
+NanoClaw passes it through its application config. Remote URLs may embed
+per-agent capability tokens, so sanitized configurations digest them by
+origin only and record the URL as redacted, and unparseable URLs are
+refused when the runtime is defined. OpenClaw definitions also now refuse
+workspace files that could never reach the model (outside the
+context-injection set with every tool denied), warn when such files are
+merely tool-reachable, and carry a drift canary that fails loudly if a
+packaged OpenClaw changes its injection set.
+
 ### Added: container societies on Kubernetes
 
 The simulator runs a society of container agents on Kubernetes through one

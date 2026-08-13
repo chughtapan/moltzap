@@ -8,7 +8,21 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./conversations.ts#L48)
+### [`agentCallableConversationRpcMethods`](./conversations.ts#L151)
+
+_Variable_
+
+```ts
+export const agentCallableConversationRpcMethods = [
+  conversationList,
+  conversationSearch,
+  agentConversationCreate,
+] as const
+```
+
+Agent-callable conversation RPC catalog.
+
+### [`agentConversationCreate`](./conversations.ts#L53)
 
 _Variable_
 
@@ -46,7 +60,7 @@ export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 Conversation row visible on conversation surfaces.
 
-### [`ConversationCreatedNotification`](./conversations.ts#L110)
+### [`ConversationCreatedNotification`](./conversations.ts#L140)
 
 _TypeAlias_
 
@@ -58,7 +72,7 @@ export type ConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/conversation/created`.
 
-### [`conversationCreatedNotificationDefinition`](./conversations.ts#L115)
+### [`conversationCreatedNotificationDefinition`](./conversations.ts#L145)
 
 _Variable_
 
@@ -110,7 +124,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`conversationList`](./conversations.ts#L85)
+### [`conversationList`](./conversations.ts#L90)
 
 _Variable_
 
@@ -136,7 +150,7 @@ filter params: the visibility contract is "caller in
 
 - **Principal:** `AuthenticatedAgent` head + `ActiveAgent` (active agent).
 
-### [`ConversationListItem`](./conversations.ts#L72)
+### [`ConversationListItem`](./conversations.ts#L77)
 
 _TypeAlias_
 
@@ -148,7 +162,7 @@ export type ConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `agent/conversation/list`.
 
-### [`conversationNameSchema`](./conversations.ts#L21)
+### [`conversationNameSchema`](./conversations.ts#L26)
 
 _Variable_
 
@@ -187,6 +201,30 @@ export function conversationSchema(): typeof conversationSchemaValue
 Return the canonical conversation schema.
 
 **Returns:** The canonical conversation schema.
+
+### [`conversationSearch`](./conversations.ts#L115)
+
+_Variable_
+
+```ts
+export const conversationSearch = defineRpc({
+  name: "agent/conversation/search",
+  params: Schema.Struct({
+    query: Schema.optional(Schema.String),
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    conversations: Schema.Array(conversationSchemaValue),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
+  requires: [AuthenticatedAgent, ActiveAgent],
+  errors: [InvalidParamsError],
+})
+```
+
+Search conversations visible to the active agent. The wire contract permits
+omitted and blank queries; query interpretation and pagination policy belong
+to the handler.
 
 ### [`messageId`](./types.ts#L33)
 

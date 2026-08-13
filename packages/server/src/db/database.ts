@@ -15,11 +15,6 @@ type GeneratedBranded<T extends string> = ColumnType<
   string | undefined,
   string
 >;
-type Int8 = ColumnType<
-  string,
-  bigint | number | string,
-  bigint | number | string
->;
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 interface Agents {
@@ -54,6 +49,9 @@ interface Messages {
   id: GeneratedBranded<MessageId>;
   is_deleted: Generated<boolean>;
 
+  /** The database identity is readable but never application-writable. */
+  seq: ColumnType<string, never, never>;
+
   /**
    * Serialized `MessageParts`. The write side is `string` so every insert
    * goes through an explicit `JSON.stringify`; the read side stays `unknown`
@@ -61,7 +59,6 @@ interface Messages {
    */
   parts: ColumnType<unknown, string, string>;
   sender_id: Branded<AgentId>;
-  seq: Int8;
 }
 
 /** Represents message row values. */

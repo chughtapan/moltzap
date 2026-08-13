@@ -157,6 +157,8 @@ const promptCommit = RouterMessageCommitted.make({
   messageId: promptMessage,
   senderId: peerId,
   routerSequence: routerSequence(0),
+  parts: peerPrompt.parts,
+  createdAtMillis: 0,
 });
 
 const responseCommit = RouterMessageCommitted.make({
@@ -164,6 +166,8 @@ const responseCommit = RouterMessageCommitted.make({
   messageId: responseMessage,
   senderId: targetId,
   routerSequence: routerSequence(1),
+  parts: targetResponse.parts,
+  createdAtMillis: 0,
 });
 
 function record(
@@ -377,6 +381,8 @@ describe("ledger evidence projection", () => {
           messageId: responseMessage,
           senderId: otherId,
           routerSequence: routerSequence(1),
+          parts: targetResponse.parts,
+          createdAtMillis: 0,
         });
         const error = yield* transcriptFromLedger(
           openClawLedger(wrongResponse, wrongCommit),

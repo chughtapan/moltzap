@@ -26,6 +26,13 @@ from one of those quarantined blind-review records invalidates the
 fresh run. Engineering-review evidence recorded in candidate ADRs or
 trajectories remains ordinary reviewable evidence.
 
+Keep blind-review answers, findings, per-question verdicts, and overall
+results inside their quarantined review records. Do not repeat or summarize
+that material in an ADR, trajectory, index, or other ordinary review path.
+A trajectory may retain the mechanical candidate event while marking the
+review output as deliberately omitted; non-blind engineering-review evidence
+remains ordinary reviewable evidence.
+
 ## Event-ledger rules
 
 Each retained row contains:

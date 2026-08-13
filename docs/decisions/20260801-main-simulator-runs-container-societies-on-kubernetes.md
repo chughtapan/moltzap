@@ -97,7 +97,8 @@ the simulator does not add a universal gateway union.
 
 The old `simulator.define(...).run(...)` host entry point is transitional. It
 is removed after `packages/evals` and the local/GKE acceptance runs use
-`RunSpec` and `Run.execute`. There is no supported Docker execution backend or
+`RunSpec` and `Run.execute`; that removal has since happened, and neither the
+entry point nor the Docker example remains in the tree. There is no supported Docker execution backend or
 compatibility facade after cutover. Docker may still build images and support a
 local Kubernetes cluster.
 
@@ -124,8 +125,8 @@ runs as the application entrypoint in that peer's Sandbox container, and
 `packages/evals` owns the peer-specific observation bridge and its exact
 gateway adapter. Peer social behavior still uses the production MoltZap
 client and router. The in-process Effect runtime remains transitional host
-code until cutover; no public `scriptedRuntime` constructor or generic
-scripted-agent protocol is introduced.
+code until cutover, and has since been removed with it; no public
+`scriptedRuntime` constructor or generic scripted-agent protocol is introduced.
 
 ### One execution is one experiment society
 
@@ -314,3 +315,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-06 | Corrected the stale subpath in the simulator overview from `/runtime` to `/agents`, the export the package actually publishes. |
 | 2026-08-06 | Corrected the illustrative snippet from `export default` to the named `runSpec` export the controller admits. |
 | 2026-08-06 | Scoped the `autoscaling` non-goal to a run's cohort. A profile's node pool may autoscale; it was selected because it is the simpler thing to operate. |
+| 2026-08-11 | Recorded that the transitional host entry point and in-process Effect runtime are gone. Both were described in the present tense after the cutover that removed them, leaving a reader unable to tell whether either still existed. The Decision Outcome and its removal condition are unchanged. |

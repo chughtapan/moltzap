@@ -8,7 +8,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageService`](./message.service.ts#L97)
+### [`MessageService`](./message.service.ts#L182)
 
 _Class_
 
@@ -74,23 +74,12 @@ export class MessageService {
     input: SendInsertInput,
   ): Effect.Effect<MessageRow, SqlError> {
     const messageIdValue = decodeMessageId(crypto.randomUUID());
-    const createdAtIso = new Date().toISOString();
-    return Effect.tryPromise({
-      try: () =>
-        this.db
-          .insertInto("messages")
-          .values({
-            id: messageIdValue,
-            conversation_id: input.conversationId,
-            sender_id: input.senderAgentId,
-            seq: nextSnowflakeId().toString(),
-            parts: JSON.stringify(input.parts),
-            created_at: new Date(createdAtIso),
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow(),
-      catch: (cause) =>
-        new SqlError({ cause, message: "insert messages failed" }),
+    return insertMessageInCheckpointOrder(this.db, {
+      id: messageIdValue,
+      conversationId: input.conversationId,
+      senderAgentId: input.senderAgentId,
+      parts: JSON.stringify(input.parts),
+      createdAt: new Date(),
     });
   }
 
@@ -133,6 +122,17 @@ export class MessageService {
         );
         yield* this.recordTrace(input, recipientList, delivered);
         yield* this.logMessageSent(input);
+        return input.carrier.message;
+      }.bind(this),
+    );
+  }
+
+  private broadcastCommittedMessage(
+    input: SendCommitInput,
+    recipientList: readonly AgentId[],
+  ): Effect.Effect<readonly AgentId[]> {
+    const audience = Array.from(
+      new Set([...recipientList, input.senderAgentId]),
 ```
 
 `agent/message/send` server entry point. The `send` method persists the
@@ -142,7 +142,7 @@ sender holding several connections still sees its own message on the
 others. The router is content-blind: it applies no interpretation or policy
 to the message body.
 
-### [`messageServiceLive`](./message.service.ts#L416)
+### [`messageServiceLive`](./message.service.ts#L598)
 
 _Variable_
 
@@ -164,7 +164,7 @@ export const messageServiceLive = Layer.effect(
 
 Provides the message service live runtime value.
 
-### [`MessageServiceTag`](./message.service.ts#L410)
+### [`MessageServiceTag`](./message.service.ts#L592)
 
 _Class_
 
@@ -177,7 +177,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L65)
+### [`messagesList`](./handlers.ts#L81)
 
 _Variable_
 
@@ -195,7 +195,23 @@ Provides the messages list runtime value.
 
 **Returns:** The messages list result.
 
-### [`messagesSend`](./handlers.ts#L51)
+### [`messagesRead`](./handlers.ts#L94)
+
+_Variable_
+
+```ts
+export const messagesRead: ServerHandler<typeof messagesReadDefinition> =
+  Effect.fn("messagesRead")(function* (params) {
+    const ctx = yield* agentArm;
+    return yield* handleMessageRead(params, ctx);
+  })
+```
+
+Provides the checkpointed messages read runtime value.
+
+**Returns:** The messages read result.
+
+### [`messagesSend`](./handlers.ts#L67)
 
 _Variable_
 

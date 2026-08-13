@@ -8,7 +8,7 @@ Code-first simulator API.
 
 ## Public surface
 
-### [`AgentConnection`](./network/router.ts#L80)
+### [`AgentConnection`](./network/router.ts#L84)
 
 _Interface_
 
@@ -353,7 +353,7 @@ export class ConversationSocket {
 
 A conversation address bound to exactly one controlled endpoint.
 
-### [`coreEvents`](./events/core.ts#L287)
+### [`coreEvents`](./events/core.ts#L284)
 
 _Variable_
 
@@ -733,6 +733,29 @@ export class IncompleteLedgerReceipt extends Schema.TaggedClass<IncompleteLedger
 
 Physical receipt retained when ledger completion could not be published.
 
+### [`isEntryModule`](./cluster/entry.ts#L31)
+
+_Function_
+
+```ts
+export function isEntryModule(moduleUrl: string, invoked?: string): boolean
+```
+
+Whether a module is the process entry point rather than an ordinary import.
+
+Both sides are canonicalized because they are not the same kind of path:
+Node resolves a module's real path before it becomes `import.meta.url`, while
+`process.argv[1]` is whatever the caller typed. Every executable in this
+package reaches its module through a symlink in the controller image, where
+`/opt/moltzap/dist` points at the installed package directory. Comparing the
+two without canonicalizing makes a directly invoked entry point look like an
+import, so the process exits successfully having done nothing.
+
+`realPath` returns undefined for a path that does not exist, so a missing or
+deleted `argv[1]` is a plain false rather than a thrown ENOENT.
+
+**Returns:** Whether both locations name the same real file.
+
 ### [`LedgerFailure`](./ledger/append.ts#L57)
 
 _TypeAlias_
@@ -835,7 +858,7 @@ export interface LinkDelivery {
 
 One committed message about to cross a directed link.
 
-### [`LinkDown`](./events/core.ts#L151)
+### [`LinkDown`](./events/core.ts#L148)
 
 _Class_
 
@@ -851,7 +874,7 @@ export class LinkDown extends Schema.TaggedClass<LinkDown>()(
 
 A directed participant link transitioned from available to unavailable.
 
-### [`LinkMessageDelayed`](./events/core.ts#L198)
+### [`LinkMessageDelayed`](./events/core.ts#L195)
 
 _Class_
 
@@ -870,7 +893,7 @@ export class LinkMessageDelayed extends Schema.TaggedClass<LinkMessageDelayed>()
 
 Active link policies deferred one delivery by a known total duration.
 
-### [`LinkMessageDropped`](./events/core.ts#L186)
+### [`LinkMessageDropped`](./events/core.ts#L183)
 
 _Class_
 
@@ -889,7 +912,7 @@ export class LinkMessageDropped extends Schema.TaggedClass<LinkMessageDropped>()
 
 An active link policy discarded one committed message before delivery.
 
-### [`LinkMessageHeld`](./events/core.ts#L210)
+### [`LinkMessageHeld`](./events/core.ts#L207)
 
 _Class_
 
@@ -929,7 +952,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyCleared`](./events/core.ts#L176)
+### [`LinkPolicyCleared`](./events/core.ts#L173)
 
 _Class_
 
@@ -946,7 +969,7 @@ export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
 
 A described policy stopped shaping one directed participant link.
 
-### [`LinkPolicySet`](./events/core.ts#L166)
+### [`LinkPolicySet`](./events/core.ts#L163)
 
 _Class_
 
@@ -963,7 +986,7 @@ export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
 
 A described policy became active on one directed participant link.
 
-### [`LinkUp`](./events/core.ts#L160)
+### [`LinkUp`](./events/core.ts#L157)
 
 _Class_
 
@@ -1086,7 +1109,7 @@ export class ParticipantHandle<Name extends string = string> {
 A router-issued network identity. The hidden symbol prevents structurally
 similar protocol data from being used as an identity handle.
 
-### [`ProgramFailed`](./events/core.ts#L227)
+### [`ProgramFailed`](./events/core.ts#L224)
 
 _Class_
 
@@ -1114,7 +1137,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L235)
+### [`ProgramInterrupted`](./events/core.ts#L232)
 
 _Class_
 
@@ -1129,7 +1152,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L221)
+### [`ProgramSucceeded`](./events/core.ts#L218)
 
 _Class_
 
@@ -1159,7 +1182,7 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`ReceivedMessage`](./network/router.ts#L35)
+### [`ReceivedMessage`](./network/router.ts#L39)
 
 _Interface_
 
@@ -1171,7 +1194,7 @@ export interface ReceivedMessage {
 
 A message delivered to one attached endpoint.
 
-### [`RouterMessageCommitted`](./events/core.ts#L143)
+### [`RouterMessageCommitted`](./events/core.ts#L140)
 
 _Class_
 
@@ -1184,8 +1207,7 @@ export class RouterMessageCommitted extends Schema.TaggedClass<RouterMessageComm
 ) {}
 ```
 
-The router durably committed one message. Payload content remains an
-endpoint concern so this evidence also works with content-blind routers.
+The router durably committed one message, plaintext parts included.
 
 ### [`RouterStarted`](./events/core.ts#L20)
 
@@ -1392,6 +1414,7 @@ Stable persisted identity for an event class.
 ## Files
 
 - `cluster.ts`
+- `entry.ts`
 - `definition.ts`
 - `catalog.ts`
 - `core.ts`

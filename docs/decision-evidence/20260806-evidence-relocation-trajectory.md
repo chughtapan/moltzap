@@ -1,9 +1,11 @@
 # Evidence relocation, 2026-08-05 through 2026-08-06
 
 The record this ledger supported,
-`20260806-evidence-lives-in-the-brain.md`, failed its blind review at
-candidate `86fd3f09` and was withdrawn. The events below are retained because
-they happened; no decision they describe is admitted.
+`20260806-evidence-lives-in-the-brain.md`, was reviewed at candidate
+`86fd3f09` and withdrawn. `[omitted from the ordinary trajectory: the prior
+blind-review findings and verdicts; the unedited record remains quarantined in
+its sibling *-cold-review.md file]`. The events below are retained because they
+happened; no decision they describe is admitted.
 
 This is a non-normative source-event ledger. It records located source events
 and repository effects; it does not supply missing rationale or infer intent.
@@ -73,10 +75,10 @@ repository changes as separate mechanical events.
   applied. The repository imported at 256 pages, then 964 after a code sync.
 
 - Agent event — S1; role `assistant`. Reported that searching the brain for
-  reviewer-verdict language returned three quarantined records, including
-  `20260805-agent-instructions-1dd2ef47-cold-review` with its blockers and
-  per-question verdicts, and that this is the same exposure that voided the
-  second blind review of `282c333c`.
+  reviewer-verdict language returned quarantined records. `[omitted from the
+  ordinary trajectory: prior review artifact identities, findings,
+  per-question verdicts, and results; the unedited records remain quarantined
+  in their sibling *-cold-review.md files]`.
 
 - Source event — S1; stored role `user`:
 

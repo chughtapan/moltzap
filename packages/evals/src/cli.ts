@@ -4,7 +4,7 @@
 import { Command as CliCommand, Options } from "@effect/cli";
 import { Command, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import type { CompletedLedgerReceipt } from "@moltzap/simulator";
+import { isEntryModule, type CompletedLedgerReceipt } from "@moltzap/simulator";
 import {
   LedgerStorageError,
   type CompletedLedgerArtifacts,
@@ -87,6 +87,7 @@ import {
   type EvaluationSweepCell,
 } from "./sweep.js";
 import {
+  submissionDiagnostic,
   submitEvaluationCell,
   type EvaluationSubmissionResult,
   type SimulatorProfile,
@@ -166,7 +167,8 @@ interface EvaluationExecutionImages {
   readonly nanoclawApplicationImage: Image;
 }
 
-interface AttemptContext {
+/** One cell's identity while its attempt is being produced. */
+export interface AttemptContext {
   readonly cell: EvaluationSweepCell;
   readonly definition: BundledEvaluationCase;
   readonly startedAt: DateTime.Utc;
@@ -487,35 +489,50 @@ function completeExecution(
   });
 }
 
-function ledgerAllocationFailed(context: AttemptContext) {
-  return DateTime.now.pipe(
-    Effect.map((completedAt) =>
-      LedgerAllocationFailedAttempt.make({
-        ...terminalFields(context, completedAt),
-        failure: LedgerStorageError.make({
-          operation: "allocate",
-          detail:
-            "the simulator controller could not allocate its durable ledger",
-        }),
-      }),
-    ),
-  );
-}
+/** Summary of a submission that never reached a gradeable run. */
+type InfrastructureSummary = Exclude<
+  EvaluationSubmissionResult["result"]["summary"],
+  { readonly _tag: "ProgramFinished" }
+>;
 
-function runInfrastructureFailed(
+// A run that never got a ledger and a run that lost its cluster are different
+// operator problems, and this text is all that says which happened when the
+// controller left no account of its own.
+const INFRASTRUCTURE_FAILED_DETAIL: Readonly<
+  Record<InfrastructureSummary["_tag"], string>
+> = {
+  LedgerAllocationFailed:
+    "the simulator controller could not allocate its durable ledger",
+  ClusterLost: "the simulator controller reported an infrastructure failure",
+};
+
+/**
+ * Record an infrastructure failure, with whatever account the run left.
+ * @param context Cell identity and the instant execution began.
+ * @param summary Terminal summary the controller printed for this cell.
+ * @param diagnostic The controller's own account, when it produced one.
+ * @returns The terminal attempt this cell commits.
+ */
+export function infrastructureFailed(
   context: AttemptContext,
-  receipt: EvaluationSubmissionResult["result"]["summary"] & {
-    readonly _tag: "ClusterLost";
-  },
+  summary: InfrastructureSummary,
+  diagnostic?: string,
 ) {
   return DateTime.now.pipe(
-    Effect.map((completedAt) =>
-      RunFailedAttempt.make({
-        ...terminalFields(context, completedAt),
-        receipt: receipt.receipt,
-        detail: "the simulator controller reported an infrastructure failure",
-      }),
-    ),
+    Effect.map((completedAt) => {
+      const detail = diagnostic ?? INFRASTRUCTURE_FAILED_DETAIL[summary._tag];
+      const fields = terminalFields(context, completedAt);
+      return summary._tag === "LedgerAllocationFailed"
+        ? LedgerAllocationFailedAttempt.make({
+            ...fields,
+            failure: LedgerStorageError.make({ operation: "allocate", detail }),
+          })
+        : RunFailedAttempt.make({
+            ...fields,
+            receipt: summary.receipt,
+            detail,
+          });
+    }),
   );
 }
 
@@ -576,18 +593,14 @@ function completeSubmission(
   submission: EvaluationSubmissionResult,
 ) {
   const summary = submission.result.summary;
-  if (summary._tag === "LedgerAllocationFailed") {
-    return ledgerAllocationFailed(context);
-  }
-  if (summary._tag === "ClusterLost") {
-    return runInfrastructureFailed(context, summary);
-  }
-  return readCompletedArtifacts(
-    environment,
-    context,
-    submission.namespace,
-    summary.receipt,
-  );
+  return summary._tag === "ProgramFinished"
+    ? readCompletedArtifacts(
+        environment,
+        context,
+        submission.namespace,
+        summary.receipt,
+      )
+    : infrastructureFailed(context, summary, submissionDiagnostic(submission));
 }
 
 function conditionModelId(
@@ -716,41 +729,55 @@ function requiredEnvironment(key: string) {
   );
 }
 
+/** Environment key naming one digest-pinned image an evaluation run needs. */
+export type EvaluationImageKey =
+  | "MOLTZAP_CONTROLLER_IMAGE"
+  | "MOLTZAP_SUPPORT_IMAGE"
+  | "MOLTZAP_NANOCLAW_IMAGE";
+
+/**
+ * Describe an evaluation image the environment omitted.
+ * @param key Environment key the run could not read.
+ * @returns The operator-facing requirement.
+ */
+export function missingImageDetail(key: EvaluationImageKey): string {
+  return `${key} is required for evaluation execution`;
+}
+
+/**
+ * Describe a rejected evaluation image reference.
+ * @param key Environment key whose value was not digest-pinned.
+ * @returns The operator-facing requirement.
+ */
+export function invalidImageDetail(key: EvaluationImageKey): string {
+  return `${key} must be a lowercase SHA-256 digest-pinned image`;
+}
+
 function distributedApplicationImage(
-  key:
-    | "MOLTZAP_CONTROLLER_IMAGE"
-    | "MOLTZAP_SUPPORT_IMAGE"
-    | "MOLTZAP_NANOCLAW_IMAGE",
+  key: EvaluationImageKey,
   value: string,
 ): Effect.Effect<Image, EvaluationSourceStateError> {
   return Schema.decodeUnknown(image)(value).pipe(
     Effect.mapError(() =>
-      EvaluationSourceStateError.make({
-        detail: `${key} must be a lowercase SHA-256 digest-pinned image`,
-      }),
+      EvaluationSourceStateError.make({ detail: invalidImageDetail(key) }),
     ),
+  );
+}
+
+function requiredImage(key: EvaluationImageKey) {
+  return Config.string(key).pipe(
+    Effect.mapError(() =>
+      EvaluationSourceStateError.make({ detail: missingImageDetail(key) }),
+    ),
+    Effect.flatMap((value: string) => distributedApplicationImage(key, value)),
   );
 }
 
 function executionImages() {
   return Effect.all({
-    controllerImage: requiredEnvironment("MOLTZAP_CONTROLLER_IMAGE").pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_CONTROLLER_IMAGE", value),
-      ),
-    ),
-    peerApplicationImage: requiredEnvironment("MOLTZAP_SUPPORT_IMAGE").pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_SUPPORT_IMAGE", value),
-      ),
-    ),
-    nanoclawApplicationImage: requiredEnvironment(
-      "MOLTZAP_NANOCLAW_IMAGE",
-    ).pipe(
-      Effect.flatMap((value) =>
-        distributedApplicationImage("MOLTZAP_NANOCLAW_IMAGE", value),
-      ),
-    ),
+    controllerImage: requiredImage("MOLTZAP_CONTROLLER_IMAGE"),
+    peerApplicationImage: requiredImage("MOLTZAP_SUPPORT_IMAGE"),
+    nanoclawApplicationImage: requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
   });
 }
 
@@ -961,5 +988,13 @@ const cli = CliCommand.run(evaluationCommand, {
   version: CLI_VERSION,
 });
 
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli owns argv decoding at the process boundary.
-cli(process.argv).pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
+// Guarded so this module can be imported: without it, reading any value here
+// runs the CLI against the importer's argv.
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
+if (isEntryModule(import.meta.url, process.argv[1])) {
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli owns argv decoding at the process boundary.
+  cli(process.argv).pipe(
+    Effect.provide(NodeContext.layer),
+    NodeRuntime.runMain,
+  );
+}

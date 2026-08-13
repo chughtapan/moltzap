@@ -30,7 +30,14 @@ export type CleanupRunInput = Readonly<
   Pick<RunSocietyWorkflowInput, "runId" | "namespace">
 >;
 
-/** Closed controller process result retained by the coarse workflow. */
+/**
+ * Closed controller process result retained by the coarse workflow.
+ *
+ * The failed branch carries the sanitized controller output the host activity
+ * already collected. A failure summary names what ended the run and nothing
+ * about why, so without this the operator's only copy of the reason is a Pod
+ * log in a namespace the workflow deletes on its way out.
+ */
 export type RunControllerResult =
   | {
       readonly exitCode: 0;
@@ -39,6 +46,7 @@ export type RunControllerResult =
   | {
       readonly exitCode: 1;
       readonly summary: ControllerFailedRunSummary;
+      readonly diagnostic?: string;
     };
 
 /* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Temporal activity implementations are Promise-native functions consumed directly by proxyActivities. */

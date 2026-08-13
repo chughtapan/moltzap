@@ -4,6 +4,7 @@
  * drives, and the control-plane installation the host drives.
  */
 
+import { connect } from "node:net";
 import {
   ApiException,
   AppsV1Api,
@@ -18,20 +19,19 @@ import {
   type V1JobCondition,
 } from "@kubernetes/client-node";
 import { Cause, Duration, Effect, Schema } from "effect";
-import { connect } from "node:net";
+import { ClusterError, clusterError } from "../cluster.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
-import { ClusterError, clusterError } from "../cluster.js";
 import {
   CONTROLLER_NAME,
-  type OwnedRunControlManifests,
-  RUN_WORKER_NAME,
   runNamespaceManifest,
   runOwnerManifest,
+  RUN_WORKER_NAME,
   runWorkerManifests,
+  SYSTEM_NAMESPACE,
+  type OwnedRunControlManifests,
   type RunWorkerManifests,
   type RunWorkerOptions,
-  SYSTEM_NAMESPACE,
 } from "./objects.js";
 
 const BRIDGE_PROBE_TIMEOUT = Duration.seconds(2);
@@ -42,18 +42,18 @@ const ABSENT = 404;
 /** Environment variable overriding how long one call may go unanswered. */
 export const KUBERNETES_CALL_TIMEOUT_VARIABLE =
   "MOLTZAP_KUBERNETES_CALL_TIMEOUT_MS";
-/** Default finite deadline for one Kubernetes response. */
-export const DEFAULT_KUBERNETES_CALL_TIMEOUT_MS = 30_000;
+const DEFAULT_KUBERNETES_CALL_TIMEOUT_MS = 30_000;
 
 /**
- * Resolve the finite deadline shared by Kubernetes calls in one process.
+ * How long one Kubernetes call may go unanswered before it is abandoned.
  *
- * The module loads before a submission exists, so an unusable override falls
- * back to the default instead of producing a submission failure with nowhere
- * to report it.
+ * A malformed override reads as no override rather than as a failure: this
+ * resolves while the module loads, where there is no submission to fail and no
+ * operator to tell, and a bound that silently became the default is a slower
+ * failure than a process that could not start at all.
  *
- * @param environment Process environment visible to the submitter or worker.
- * @returns A positive deadline, defaulting to thirty seconds.
+ * @param environment Process environment the submitter or worker was started with.
+ * @returns The configured bound, or the default when none is usable.
  */
 export function kubernetesCallTimeout(
   environment: Readonly<Record<string, string | undefined>>,
@@ -68,11 +68,10 @@ export function kubernetesCallTimeout(
   );
 }
 
-/**
- * One process-wide deadline covers the submitter, worker, and controller call
- * families without adding configuration parameters to their capability APIs.
- */
-// eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Module initialization captures the process environment before any Kubernetes call exists.
+// One bound covers every call this module makes, in the submitting process and
+// in the in-cluster worker alike, so it is read once here rather than threaded
+// through twenty call signatures that have nothing else to say about it.
+// eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Resolved while this module loads, before any call it bounds exists.
 const KUBERNETES_CALL_TIMEOUT = kubernetesCallTimeout(process.env);
 
 /** Field ownership and strict validation applied to every write. */
@@ -80,6 +79,23 @@ const APPLIED = Object.freeze({
   fieldManager: "moltzap-simulator",
   fieldValidation: "Strict",
 } as const);
+
+// A call the bound cut off is reported as never answered, not as failed: the
+// cluster refusing an object and the cluster never replying at all are
+// different operator problems, and only one of them is about the object. A
+// status of zero is no status, which no Kubernetes response carries.
+function callDetail(
+  operation: string,
+  status: number,
+  unanswered: boolean,
+): string {
+  if (unanswered) {
+    return `${operation} did not answer in time`;
+  }
+  return status === 0
+    ? `${operation} failed`
+    : `${operation} failed (Kubernetes ${String(status)})`;
+}
 
 /** Failure of one Kubernetes call, carrying the status but never the body. */
 export class KubernetesCallFailed extends Error {
@@ -98,16 +114,19 @@ export class KubernetesCallFailed extends Error {
 }
 
 /**
- * Run one Kubernetes API call within a finite deadline.
+ * Make one Kubernetes API call, bounded so that it always ends.
  *
- * The Kubernetes client has no request deadline. An accepted connection can
- * otherwise wait forever when a control plane or tunnel stops answering.
+ * The client's own request has no deadline, so an API server that accepts the
+ * connection and then answers nothing — a control plane being repaired, a
+ * tunnel that went away without resetting — leaves the caller waiting forever
+ * with no output naming what it is waiting for. A submission that fails after
+ * the bound is a submission the operator can act on.
  *
- * @param operation Operator-facing description of the call.
- * @param evaluate Client request already bound to its arguments.
- * @param bound Maximum time the cluster has to answer.
- * @returns The Kubernetes result.
- * @failure KubernetesCallFailed when the call is refused or unanswered.
+ * @param operation What this call was doing, as the operator's failure names it.
+ * @param evaluate The client call, already bound to its request.
+ * @param bound How long the cluster has to answer before the call is abandoned.
+ * @returns The call's result, or a failure naming the operation.
+ * @failure KubernetesCallFailed when the call is refused or never answered.
  */
 export function kubernetesCall<Result>(
   operation: string,
@@ -126,118 +145,17 @@ export function kubernetesCall<Result>(
   );
 }
 
-/**
- * Build the live in-cluster client without leaking generated API types.
- * @param namespace Namespace that owns the run-scoped resources.
- * @returns Narrow Kubernetes operations consumed by the cluster.
- */
-export function makeInClusterKubernetesSocietyApi(
-  namespace: string,
-): KubernetesSocietyApi {
-  const config = new KubeConfig();
-  config.loadFromDefault();
-  const custom = config.makeApiClient(CustomObjectsApi);
-  const core = config.makeApiClient(CoreV1Api);
-  return Object.freeze({
-    ...workloadOperations(namespace, custom),
-    ...coreOperations(namespace, core),
-    ...sandboxOperations(namespace, custom),
-    bridgeAccepts,
-  });
-}
-
-/**
- * Test whether an object has a positive current-generation condition.
- * @param observation Narrow object status returned by the live decoder.
- * @param type Kubernetes condition type to find.
- * @returns Whether the current generation reports that condition as true.
- */
-export function currentConditionIsTrue(
-  observation: ConditionedObservation,
-  type: string,
-): boolean {
-  const generation = observation.metadata.generation;
-  return (
-    observation.status?.conditions?.some(
-      (entry) =>
-        entry.type === type &&
-        entry.status === "True" &&
-        (generation === undefined || entry.observedGeneration === generation),
-    ) ?? false
-  );
-}
-
-/**
- * Build the live Kubernetes access one run-lifecycle worker attempt uses.
- * @returns Run-control operations backed by the worker Pod's service account.
- */
-export function makeKubernetesRunControlApi(): RunControlApi {
-  const clients = runControlClients();
-  return Object.freeze({
-    ...runPreparationOperations(clients),
-    ...runObservationOperations(clients),
-  });
-}
-
-/**
- * Build the live host-side access used to install the cluster's run worker.
- * @param options Host-selected image, Temporal endpoint, queue, and profile.
- * @returns Install operations against the profile's cluster.
- */
-export function makeKubernetesRunWorkerInstallApi(
-  options: RunWorkerOptions,
-): RunWorkerInstallApi {
-  const clients = installClients(options.profile);
-  const applies = installedObjectApplies(clients, runWorkerManifests(options));
-  const readWorker = () =>
-    kubernetesCall("observe run worker", () =>
-      clients.apps.readNamespacedDeployment({
-        name: RUN_WORKER_NAME,
-        namespace: SYSTEM_NAMESPACE,
-      }),
-    );
-  return Object.freeze({
-    install: (object: RunWorkerObject) =>
-      kubernetesCall(`apply run worker ${object}`, applies[object]).pipe(
-        Effect.asVoid,
-      ),
-    readInstalledWorkerImage: () =>
-      readWorker().pipe(
-        Effect.map(installedWorkerImage),
-        Effect.catchIf(
-          (failure) => failure.absent,
-          () => Effect.succeed(undefined),
-        ),
-      ),
-    readWorkerAvailability: () =>
-      readWorker().pipe(Effect.map(workerAvailabilityOf)),
-    wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
-  });
-}
-
-/**
- * Describe whether Kubernetes refused a call or never answered it.
- *
- * Status zero represents the absence of any Kubernetes response. Timeout is
- * distinct from absence so cleanup never treats an unanswered delete as a
- * confirmed missing object.
- *
- * @param operation Operator-facing description of the call.
- * @param status Kubernetes response status, or zero when none arrived.
- * @param unanswered Whether the finite deadline elapsed.
- * @returns A body-free diagnostic suitable for the public error boundary.
- */
-function callDetail(
+function attemptUnlessAbsent(
   operation: string,
-  status: number,
-  unanswered: boolean,
-): string {
-  if (unanswered) {
-    return `${operation} did not answer in time`;
-  }
-  return status === 0
-    ? `${operation} failed`
-    : `${operation} failed (Kubernetes ${String(status)})`;
+  evaluate: () => PromiseLike<unknown>,
+): Effect.Effect<void, KubernetesCallFailed> {
+  return kubernetesCall(operation, evaluate).pipe(
+    Effect.catchIf(
+      (failure) => failure.absent,
+      () => Effect.void,
+    ),
+    Effect.asVoid,
+  );
 }
 
 const KUEUE_GROUP = "kueue.x-k8s.io";
@@ -378,11 +296,7 @@ export interface KubernetesSocietyApi {
   ) => Effect.Effect<boolean>;
 }
 
-/**
- * Keep the existing cluster capability error while retaining call detail.
- * @param failure Internal typed call failure.
- * @returns The public cluster-seam failure.
- */
+// The same call failure, at the public error type of the cluster seam.
 function societyFailure(failure: KubernetesCallFailed): ClusterError {
   return new ClusterError({ detail: failure.message });
 }
@@ -390,6 +304,16 @@ function societyFailure(failure: KubernetesCallFailed): ClusterError {
 function request<A>(operation: string, evaluate: () => PromiseLike<A>) {
   return kubernetesCall(operation, evaluate).pipe(
     Effect.mapError(societyFailure),
+  );
+}
+
+function decode<A, I, R>(
+  operation: string,
+  schema: Schema.Schema<A, I, R>,
+  value: unknown,
+): Effect.Effect<A, ClusterError, R> {
+  return Schema.decodeUnknown(schema)(value).pipe(
+    Effect.mapError((cause) => clusterError(operation, cause)),
   );
 }
 
@@ -402,34 +326,11 @@ function ignoreAbsent(
   );
 }
 
-function attemptUnlessAbsent(
-  operation: string,
-  evaluate: () => PromiseLike<unknown>,
-): Effect.Effect<void, KubernetesCallFailed> {
-  return kubernetesCall(operation, evaluate).pipe(
-    Effect.catchIf(
-      (failure) => failure.absent,
-      () => Effect.void,
-    ),
-    Effect.asVoid,
-  );
-}
-
 function decodeWorkload(value: unknown) {
   return decode(
     "decode aggregate capacity reservation",
     workloadObservation,
     value,
-  );
-}
-
-function decode<A, I, R>(
-  operation: string,
-  schema: Schema.Schema<A, I, R>,
-  value: unknown,
-): Effect.Effect<A, ClusterError, R> {
-  return Schema.decodeUnknown(schema)(value).pipe(
-    Effect.mapError((cause) => clusterError(operation, cause)),
   );
 }
 
@@ -592,9 +493,50 @@ function sandboxOperations(
   };
 }
 
+/**
+ * Build the live in-cluster client without leaking generated API types.
+ * @param namespace Namespace that owns the run-scoped resources.
+ * @returns Narrow Kubernetes operations consumed by the cluster.
+ */
+export function makeInClusterKubernetesSocietyApi(
+  namespace: string,
+): KubernetesSocietyApi {
+  const config = new KubeConfig();
+  config.loadFromDefault();
+  const custom = config.makeApiClient(CustomObjectsApi);
+  const core = config.makeApiClient(CoreV1Api);
+  return Object.freeze({
+    ...workloadOperations(namespace, custom),
+    ...coreOperations(namespace, core),
+    ...sandboxOperations(namespace, custom),
+    bridgeAccepts,
+  });
+}
+
 interface ConditionedObservation {
   readonly metadata: { readonly generation?: number };
   readonly status?: { readonly conditions?: readonly KubernetesCondition[] };
+}
+
+/**
+ * Test whether an object has a positive current-generation condition.
+ * @param observation Narrow object status returned by the live decoder.
+ * @param type Kubernetes condition type to find.
+ * @returns Whether the current generation reports that condition as true.
+ */
+export function currentConditionIsTrue(
+  observation: ConditionedObservation,
+  type: string,
+): boolean {
+  const generation = observation.metadata.generation;
+  return (
+    observation.status?.conditions?.some(
+      (entry) =>
+        entry.type === type &&
+        entry.status === "True" &&
+        (generation === undefined || entry.observedGeneration === generation),
+    ) ?? false
+  );
 }
 
 /** Coarse controller Job status, total so its readers need no defaulting. */
@@ -648,15 +590,9 @@ function workerAvailabilityOf(deployment: {
   };
 }
 
-/**
- * Read the worker container image without mistaking an injected sidecar.
- * @param deployment Narrow Deployment shape returned by the Kubernetes client.
- * @param deployment.spec Optional workload specification.
- * @param deployment.spec.template Pod template owned by the Deployment.
- * @param deployment.spec.template.spec Optional Pod specification.
- * @param deployment.spec.template.spec.containers Named Pod containers.
- * @returns The worker container image, or nothing when it is unavailable.
- */
+// Only the worker's own container counts. An injected sidecar is not what a
+// submission would be replacing, so it cannot make an unchanged image look
+// like a roll.
 function installedWorkerImage(deployment: {
   readonly spec?: {
     readonly template: {
@@ -730,7 +666,12 @@ export interface RunWorkerInstallApi {
   readonly install: (
     object: RunWorkerObject,
   ) => Effect.Effect<void, KubernetesCallFailed>;
-  /** Installed worker image, or nothing when the Deployment is absent. */
+  /**
+   * The image the installed worker runs now, or nothing when none is installed.
+   *
+   * This is what makes a submission able to tell an apply that changes the Pod
+   * template from one that changes nothing, before it applies anything.
+   */
   readonly readInstalledWorkerImage: () => Effect.Effect<
     string | undefined,
     KubernetesCallFailed
@@ -973,6 +914,18 @@ function runObservationOperations(
   };
 }
 
+/**
+ * Build the live Kubernetes access one run-lifecycle worker attempt uses.
+ * @returns Run-control operations backed by the worker Pod's service account.
+ */
+export function makeKubernetesRunControlApi(): RunControlApi {
+  const clients = runControlClients();
+  return Object.freeze({
+    ...runPreparationOperations(clients),
+    ...runObservationOperations(clients),
+  });
+}
+
 interface InstallClients {
   readonly apps: AppsV1Api;
   readonly core: CoreV1Api;
@@ -1046,4 +999,42 @@ function installClients(profile: KubernetesExecutionProfile): InstallClients {
     core: config.makeApiClient(CoreV1Api),
     rbac: config.makeApiClient(RbacAuthorizationV1Api),
   };
+}
+
+/**
+ * Build the live host-side access used to install the cluster's run worker.
+ * @param options Host-selected image, Temporal endpoint, queue, and profile.
+ * @returns Install operations against the profile's cluster.
+ */
+export function makeKubernetesRunWorkerInstallApi(
+  options: RunWorkerOptions,
+): RunWorkerInstallApi {
+  const clients = installClients(options.profile);
+  const applies = installedObjectApplies(clients, runWorkerManifests(options));
+  const readWorker = () =>
+    kubernetesCall("observe run worker", () =>
+      clients.apps.readNamespacedDeployment({
+        name: RUN_WORKER_NAME,
+        namespace: SYSTEM_NAMESPACE,
+      }),
+    );
+  return Object.freeze({
+    install: (object: RunWorkerObject) =>
+      kubernetesCall(`apply run worker ${object}`, applies[object]).pipe(
+        Effect.asVoid,
+      ),
+    // A cluster with no worker yet reads as no image rather than as a failure:
+    // nothing is installed, so nothing can be interrupted by installing.
+    readInstalledWorkerImage: () =>
+      readWorker().pipe(
+        Effect.map(installedWorkerImage),
+        Effect.catchIf(
+          (failure) => failure.absent,
+          () => Effect.succeed(undefined),
+        ),
+      ),
+    readWorkerAvailability: () =>
+      readWorker().pipe(Effect.map(workerAvailabilityOf)),
+    wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
+  });
 }

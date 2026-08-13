@@ -131,9 +131,22 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
   --nanoclaw-model "$NANOCLAW_MODEL"
 ```
 
-For GKE, use the [GKE simulator profile](../simulator/gke/README.md), push the
-controller/support image to its registry, authenticate `gcloud` for artifact
-readback, and provide the selected cluster and retained bucket:
+For GKE, prefer the profile's own verb, which publishes the controller image,
+holds the supervised Temporal port-forward, and derives every cluster identity
+below from the cluster it just attached to:
+
+```bash
+OPENAI_API_KEY=... ANTHROPIC_API_KEY=... MOLTZAP_NANOCLAW_IMAGE=... \
+packages/simulator/gke/cluster.sh evals \
+  --report-id baseline-2026-08-06 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
+
+To drive it by hand instead, use the
+[GKE simulator profile](../simulator/gke/README.md), push the controller/support
+image to its registry, authenticate `gcloud` for artifact readback, and provide
+the selected cluster and retained bucket:
 
 ```bash
 OPENAI_API_KEY=... \
@@ -207,6 +220,12 @@ PHOENIX_HOST=http://localhost:6006 \
 Set `PHOENIX_API_KEY` when required. Repeated publication reconciles the stable
 case dataset, one experiment per condition, and every report attempt before
 returning the Phoenix experiment URLs.
+
+`phoenix/` provisions a hosted Phoenix for that endpoint: a Cloud Run service on
+Cloud SQL Postgres, authenticated from its first revision, whose lifecycle is
+independent of the GKE cluster. `PHOENIX_HOST` comes from its `service_url`
+output; `PHOENIX_API_KEY` is created in the application against a named account.
+See `phoenix/README.md`.
 
 This repository has static coverage for both profiles. It does not claim that
 a live local or GKE evaluation has completed successfully.

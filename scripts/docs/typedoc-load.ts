@@ -376,7 +376,7 @@ function extractReturnTypeName(node: RawReflection): string | null {
 }
 
 /**
- * Normalize a TypeDoc source path to a workspace source root.
+ * Normalize a TypeDoc source path to a workspace source or declaration root.
  * @param sourcePath TypeDoc's reported source path.
  * @param sourceUrl Optional source permalink emitted by TypeDoc.
  * @returns A workspace-relative source path when one can be recovered.
@@ -401,7 +401,7 @@ function normalizeSourcePath(sourcePath: string, sourceUrl?: string): string {
 }
 
 function findWorkspacePath(sourcePath: string): string | null {
-  const match = /(?:^|\/)((?:packages|v2)\/[^/]+\/src(?:\/.*)?$)/.exec(
+  const match = /(?:^|\/)((?:packages|v2)\/[^/]+\/(?:src|dist)(?:\/.*)?$)/.exec(
     sourcePath,
   );
   return match?.[1] ?? null;

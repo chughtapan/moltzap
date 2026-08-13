@@ -1,31 +1,29 @@
-/** @file Temporal activity, visibility, workflow, and client boundary tests. */
-
 /* eslint-disable agent-code-guard/async-keyword -- Temporal activity and client tests await the SDK's Promise-native boundary. */
 /* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only activity timelines pin one Temporal attempt and cleanup ordering. */
 
-import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type {
-  RunControllerResult,
-  RunLifecycleActivities,
-  RunSocietyWorkflowInput,
-} from "./reclaim.js";
-import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
+import { Effect, Schema } from "effect";
 import { CompletedLedgerReceipt } from "../run/execute.js";
+import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
 import {
   ledgerAllocationFailedSummary,
   programFinishedSummary,
 } from "./controller/summary.js";
 import { KubernetesCallFailed } from "./kubernetes/calls.js";
+import type {
+  RunControllerResult,
+  RunLifecycleActivities,
+  RunSocietyWorkflowInput,
+} from "./reclaim.js";
 import {
-  type ControllerObservation,
   executeRunSocietyWorkflow,
   LifecycleOperations,
-  type LifecycleOperationsService,
-  OPEN_RUN_STATUS,
-  type OpenRunLister,
+  OPEN_RUN_FILTER,
   readOpenRuns,
   runLifecycleActivities,
+  type ControllerObservation,
+  type LifecycleOperationsService,
+  type OpenRunLister,
   type RunSocietyWorkflowExecutionOptions,
 } from "./temporal.js";
 
@@ -125,7 +123,7 @@ describe("run lifecycle activities", () => {
   it("creates one controller attempt and waits for its successful Job", async () => {
     const current = state([
       { _tag: "running" },
-      { _tag: "succeeded", result: PROGRAM_RESULT },
+      { _tag: "completed", result: PROGRAM_RESULT },
     ]);
     const activities = fakeActivities(current);
 
@@ -149,13 +147,9 @@ describe("run lifecycle activities", () => {
   });
 
   it("returns a closed failed result from a nonzero controller Job", async () => {
-    const current = state([
-      {
-        _tag: "failed",
-        detail: "controller Job failed",
-        result: FAILED_RESULT,
-      },
-    ]);
+    // A controller that produced a decodable failure summary is completed, not
+    // failed: the activity returns its result rather than failing the attempt.
+    const current = state([{ _tag: "completed", result: FAILED_RESULT }]);
     const activities = fakeActivities(current);
 
     await expect(activities.runControllerOnce(INPUT)).resolves.toEqual(
@@ -218,7 +212,7 @@ describe("readOpenRuns", () => {
     }
   }
 
-  it("names unfinished runs from only the worker's task queue", async () => {
+  it("names the runs the queue has not finished, asking only about that queue", async () => {
     const queries: string[] = [];
     const client: OpenRunLister = {
       list: (options) => {
@@ -230,11 +224,31 @@ describe("readOpenRuns", () => {
     await expect(
       Effect.runPromise(readOpenRuns(client, taskQueue)),
     ).resolves.toEqual({ _tag: "open", workflowIds: openRunIds });
-    expect(queries[0]).toContain(taskQueue);
-    expect(queries[0]).toContain(OPEN_RUN_STATUS);
+    expect(queries[0]).toContain(`'${taskQueue}'`);
+    expect(queries[0]).toContain(OPEN_RUN_FILTER);
   });
 
-  it("distinguishes an unreadable visibility store from an empty queue", async () => {
+  // A queue name is operator-supplied, so a quote in it must not be able to end
+  // the query's own literal and change which runs are counted.
+  it("quotes a task queue name that carries a quote", async () => {
+    const injected = `${taskQueue}' OR '1'='1`;
+    const queries: string[] = [];
+    const client: OpenRunLister = {
+      list: (options) => {
+        queries.push(options.query);
+        return listed([]);
+      },
+    };
+
+    await Effect.runPromise(readOpenRuns(client, injected));
+
+    expect(queries[0]).toContain(`'${injected.replaceAll("'", "''")}'`);
+    expect(queries[0]).toContain(OPEN_RUN_FILTER);
+  });
+
+  // The distinction the roll guard depends on: a queue that cannot be listed
+  // must not read as a queue with nothing on it.
+  it("reports a listing it could not make as unreadable rather than as empty", async () => {
     const client: OpenRunLister = {
       list: () => {
         throw new Error("visibility store unavailable");

@@ -1,22 +1,22 @@
-/** @file Contract tests for generated evaluation cell submission. */
-
-import type { SimulatorDefinitionId } from "@moltzap/simulator";
+import { assert, effect, it } from "@effect/vitest";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { assert, effect, it } from "@effect/vitest";
-import { image } from "@moltzap/simulator/agents";
-import { Effect, Schema } from "effect";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect, Schema } from "effect";
+import type { SimulatorDefinitionId } from "@moltzap/simulator";
+import { image } from "@moltzap/simulator/agents";
 import {
   decodeEvaluationCaseId,
   decodeEvaluationConditionId,
   type EvaluationConditionName,
 } from "./model.js";
 import {
+  decodeSubmissionOutput,
   evaluationControllerModule,
-  type SimulatorProfile,
   simulatorProfileEntrypoint,
+  submissionDiagnostic,
+  type SimulatorProfile,
   type SubmitEvaluationCellInput,
 } from "./submission.js";
 
@@ -103,3 +103,48 @@ effect.each(["local", "gke"] as const)(
       assert.include(scripts, simulatorProfileEntrypoint(profile).join("/"));
     }).pipe(Effect.provide(NodeContext.layer)),
 );
+
+// Exactly what the simulator's submitter prints for a cluster-lost cell, so a
+// consumer that stops accepting the real line fails here first.
+function submitterLine(diagnostic?: string): string {
+  return JSON.stringify({
+    runId: "mz-0123456789abcdef0123456789abcdef",
+    namespace: "mz-0123456789abcdef0123456789abcdef",
+    result: {
+      exitCode: 1,
+      summary: {
+        _tag: "ClusterLost",
+        receipt: {
+          _tag: "IncompleteLedgerReceipt",
+          ledger: "eval-006-nanoclaw-1",
+        },
+      },
+      ...(diagnostic === undefined ? {} : { diagnostic }),
+    },
+  });
+}
+
+const CARRIED_DIAGNOSTIC = "controller Job failed\nreason";
+const OVERSIZED_DIAGNOSTIC_LENGTH = 32_768;
+
+effect.each([undefined, CARRIED_DIAGNOSTIC])(
+  "decodes a submitter result whose diagnostic is %s",
+  (diagnostic?: string) =>
+    Effect.gen(function* () {
+      const decoded = yield* decodeSubmissionOutput(submitterLine(diagnostic));
+
+      assert.strictEqual(submissionDiagnostic(decoded), diagnostic);
+    }),
+);
+
+// The rest of that line is the run's only receipt. Refusing an over-long
+// diagnostic would discard it, turning a cell that failed with evidence into a
+// cell with no attempt at all.
+it("keeps the receipt when a submitter diagnostic is over-long", () =>
+  Effect.gen(function* () {
+    const oversized = "x".repeat(OVERSIZED_DIAGNOSTIC_LENGTH);
+    const decoded = yield* decodeSubmissionOutput(submitterLine(oversized));
+
+    assert.isTrue("receipt" in decoded.result.summary);
+    assert.strictEqual(submissionDiagnostic(decoded), oversized);
+  }));

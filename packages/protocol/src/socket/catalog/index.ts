@@ -10,11 +10,13 @@ import {
   agentConversationCreate,
   conversationCreatedNotificationDefinition,
   conversationList,
+  conversationSearch,
 } from "#conversation";
-import { agentsList } from "#identity";
+import { agentsList, agentsSearch } from "#identity";
 import {
   messageReceivedNotificationDefinition,
   messagesList,
+  messagesRead,
   messagesSend,
 } from "#message";
 import { agentConnect } from "#network";
@@ -24,11 +26,14 @@ import { agentConnect } from "#network";
  */
 export const agentCallableMethods = [
   agentsList,
+  agentsSearch,
   agentConnect,
   conversationList,
+  conversationSearch,
   agentConversationCreate,
   messagesSend,
   messagesList,
+  messagesRead,
 ] as const;
 
 /**
@@ -39,11 +44,14 @@ export const agentCallableMethods = [
  */
 export const serverInboundMethods = [
   agentsList,
+  agentsSearch,
   agentConnect,
   conversationList,
+  conversationSearch,
   agentConversationCreate,
   messagesSend,
   messagesList,
+  messagesRead,
 ] as const;
 
 /**

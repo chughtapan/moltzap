@@ -28,7 +28,11 @@ import {
 import { prepareRun } from "./scaffold.js";
 
 const OBSERVATION_INTERVAL_MS = 1_000;
-const DIAGNOSTIC_LIMIT = 4_096;
+const FAILED_JOB_DETAIL = "controller Job failed";
+/** Characters of sanitized controller output one failure retains. */
+const RETAINED_DIAGNOSTIC_CHARACTERS = 4_096;
+/** Bytes of controller log fetched, ahead of redaction and that bound. */
+const FETCHED_LOG_BYTES = RETAINED_DIAGNOSTIC_CHARACTERS * 2;
 const CONTROLLER_LOG_TAIL_LINES = 200;
 const SENSITIVE_LOG_LINE =
   /(authorization|bearer|token|secret|password|api[-_ ]?key|agent[-_ ]?key)/iu;
@@ -70,7 +74,7 @@ export function sanitizeControllerDiagnostic(value: string): string {
     )
     .join("\n")
     .trim();
-  return normalized.slice(-DIAGNOSTIC_LIMIT);
+  return normalized.slice(-RETAINED_DIAGNOSTIC_CHARACTERS);
 }
 
 function conditionDetail(job: JobObservation): string | undefined {
@@ -81,7 +85,7 @@ function conditionDetail(job: JobObservation): string | undefined {
     return undefined;
   }
   const detail = [failed.reason, failed.message].filter(Boolean).join(": ");
-  return detail.length === 0 ? undefined : sanitizeControllerDiagnostic(detail);
+  return detail.length === 0 ? undefined : detail;
 }
 
 function jobConditionIsTrue(job: JobObservation, type: string): boolean {
@@ -104,7 +108,7 @@ function controllerSummary(logs: string) {
   return decodeControllerRunSummary(logs);
 }
 
-function succeededControllerObservation(logs: string): ControllerObservation {
+function completedControllerObservation(logs: string): ControllerObservation {
   const summary = controllerSummary(logs);
   if (summary === undefined || summary._tag !== "ProgramFinished") {
     return {
@@ -113,12 +117,19 @@ function succeededControllerObservation(logs: string): ControllerObservation {
     };
   }
   return {
-    _tag: "succeeded",
+    _tag: "completed",
     result: { exitCode: 0, summary },
   };
 }
 
-function failedControllerResult(logs: string): RunControllerResult | undefined {
+type FailedControllerResult = Extract<
+  RunControllerResult,
+  { readonly exitCode: 1 }
+>;
+
+function failedControllerResult(
+  logs: string,
+): FailedControllerResult | undefined {
   const summary = controllerSummary(logs);
   if (summary === undefined || summary._tag === "ProgramFinished") {
     return undefined;
@@ -126,30 +137,35 @@ function failedControllerResult(logs: string): RunControllerResult | undefined {
   return { exitCode: 1, summary };
 }
 
-function sanitizedControllerLogs(logs: string): string {
+function controllerLogs(logs: string): string {
+  return logs
+    .split("\n")
+    .filter((line) => !line.startsWith(CONTROLLER_SUMMARY_PREFIX))
+    .join("\n");
+}
+
+// Sanitized once, over the whole composition rather than each part: bounding
+// the pieces separately lets their concatenation exceed the bound, and the
+// caller then trims the front — which is where the Job condition's reason is.
+function failureDetail(job: JobObservation, logs: string): string {
   return sanitizeControllerDiagnostic(
-    logs
-      .split("\n")
-      .filter((line) => !line.startsWith(CONTROLLER_SUMMARY_PREFIX))
+    [FAILED_JOB_DETAIL, conditionDetail(job), controllerLogs(logs)]
+      .filter((part): part is string => part !== undefined && part.length > 0)
       .join("\n"),
   );
 }
 
+// The activity returns a failed run rather than failing, so the reason the Job
+// gave has to ride the result or it is gone with the namespace.
 function failedControllerObservation(
   job: JobObservation,
   logs: string,
 ): ControllerObservation {
   const result = failedControllerResult(logs);
-  const detail = [
-    "controller Job failed",
-    conditionDetail(job),
-    sanitizedControllerLogs(logs),
-  ]
-    .filter((part): part is string => part !== undefined && part.length > 0)
-    .join("\n");
+  const detail = failureDetail(job, logs);
   return result === undefined
     ? { _tag: "failed", detail }
-    : { _tag: "failed", detail, result };
+    : { _tag: "completed", result: { ...result, diagnostic: detail } };
 }
 
 /**
@@ -164,7 +180,7 @@ export function controllerObservation(
 ): ControllerObservation {
   const resolvedLogs = logs ?? "";
   if (jobSucceeded(job)) {
-    return succeededControllerObservation(resolvedLogs);
+    return completedControllerObservation(resolvedLogs);
   }
   if (!jobFailed(job)) {
     return { _tag: "running" };
@@ -181,11 +197,7 @@ function terminalControllerLogs(
   namespace: string,
 ): Effect.Effect<string | undefined> {
   return api
-    .readControllerLogs(
-      namespace,
-      CONTROLLER_LOG_TAIL_LINES,
-      DIAGNOSTIC_LIMIT * 2,
-    )
+    .readControllerLogs(namespace, CONTROLLER_LOG_TAIL_LINES, FETCHED_LOG_BYTES)
     .pipe(
       Effect.catchAll((failure) =>
         Effect.logWarning(

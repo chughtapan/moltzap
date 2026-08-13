@@ -1,10 +1,9 @@
+// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent, ledger, and router identities the run gives them.
 /**
  * @file Every Kubernetes object the simulator builds: the run's aggregate
  * admission and sandbox resources, the run-scoped control objects created
  * before the controller starts, and the cluster's long-lived run worker.
  */
-
-// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent, ledger, and router identities the run gives them.
 
 import type {
   V1ClusterRole,
@@ -21,20 +20,20 @@ import type {
   V1ServiceAccount,
   V1Volume,
 } from "@kubernetes/client-node";
+import { ClusterError } from "../cluster.js";
 import type {
   CredentialName,
   Image,
   Resources,
 } from "../../agents/container.js";
-import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import type { KubernetesManifest } from "./calls.js";
-import { ClusterError } from "../cluster.js";
 import {
   encodeKubernetesExecutionProfile,
+  LOCAL_KUBERNETES_EXECUTION_PROFILE,
   type KubernetesExecutionProfile,
   type KubernetesPodPlacement,
-  LOCAL_KUBERNETES_EXECUTION_PROFILE,
 } from "../profile.js";
+import type { RunSocietyWorkflowInput } from "../reclaim.js";
 
 const MAX_KUEUE_POD_SETS = 8;
 const BOOTSTRAP_INPUT_PATH = "/var/run/moltzap/secret";
@@ -393,11 +392,20 @@ export const IN_CLUSTER_TEMPORAL_ADDRESS = `temporal.${SYSTEM_NAMESPACE}.svc.clu
 
 const RUN_WORKER_ENTRYPOINT = "/opt/moltzap/dist/cluster/temporal.js";
 /**
- * The worker beats every ten seconds, so this delay permits one final heartbeat
- * before Kubernetes signals its process.
+ * Delay held before the worker Pod is signalled, in seconds.
+ *
+ * The worker's controller activity beats every 10 seconds against a 60-second
+ * heartbeat deadline. Holding SIGTERM for longer than one beat lets an attempt
+ * that is mid-interval signal once more before the process is asked to stop, so
+ * a roll cannot fail an attempt that was still alive when the Pod was deleted.
  */
 export const RUN_WORKER_PRESTOP_SECONDS = 15;
-/** The grace period outlasts pre-stop so the SDK can shut down afterward. */
+/**
+ * Time the worker Pod has to stop before it is killed, in seconds.
+ *
+ * The rest of the heartbeat deadline, so the SDK's own shutdown has room after
+ * the pre-stop delay returns rather than being killed at the default 30.
+ */
 export const RUN_WORKER_TERMINATION_GRACE_SECONDS = 60;
 const CONTROLLER_PORT = 3_000;
 const CONTROLLER_ENTRYPOINT = "/opt/moltzap/dist/cluster/controller/main.js";
@@ -1012,6 +1020,9 @@ function runWorkerContainer(options: RunWorkerOptions): V1Container {
     ],
     terminationMessagePolicy: "FallbackToLogsOnError",
     resources: { requests: { cpu: "100m", memory: "256Mi" } },
+    // A shell sleep rather than the Kubernetes `sleep` handler, which needs a
+    // 1.29 control plane; the worker's own image is Debian-based, so `sleep` is
+    // there on every cluster this installs into.
     lifecycle: {
       preStop: {
         exec: {

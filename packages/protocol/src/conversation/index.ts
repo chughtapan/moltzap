@@ -24,6 +24,7 @@ export type { ConversationSendAccessValue } from "./requirements/index.js";
 export {
   agentConversationCreate,
   conversationList,
+  conversationSearch,
   conversationCreatedNotificationDefinition,
   conversationNameSchema,
 } from "./conversations.js";

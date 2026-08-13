@@ -27,6 +27,7 @@ import {
   RouterProvider,
   routerSequence,
   type EndpointTransport,
+  type MessageParts,
 } from "../router.js";
 import { routerProviderLayer } from "../driver.js";
 import {
@@ -56,12 +57,16 @@ const PROBE_KEY = redactedAgentKey(agentKeyString(42));
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000003");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000004");
 
+const MESSAGE_PARTS: MessageParts = [{ type: "text", text: "committed" }];
+
 const committedMessages = [
   {
     conversationId: CONVERSATION_ID,
     messageId: MESSAGE_ID,
     senderId: ALICE_ID,
     routerSequence: routerSequence(7),
+    parts: MESSAGE_PARTS,
+    createdAtMillis: 1_700_000_000_000,
   },
 ];
 

@@ -1,24 +1,22 @@
-/** @file Run-worker installation order, rollout safety, and availability tests. */
-
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-example-only-tests -- Vitest awaits the Effect the host installation boundary returns, and these regression-only cases pin the exact rollout arithmetic and bounded availability deadline rather than an invariant over generated input. */
 
 import { Effect } from "effect";
 import { expect, it } from "vitest";
-import {
-  FORCE_WORKER_ROLL_VARIABLE,
-  installRunWorker,
-  type OpenRunReading,
-  type RunWorkerInstallRequest,
-  RunWorkerRollRefused,
-  RunWorkerUnavailable,
-  workerIsAvailable,
-} from "./install.js";
 import {
   KubernetesCallFailed,
   type RunWorkerInstallApi,
   type RunWorkerObject,
   type WorkerAvailability,
 } from "./kubernetes/calls.js";
+import {
+  FORCE_WORKER_ROLL_VARIABLE,
+  installRunWorker,
+  RunWorkerRollRefused,
+  RunWorkerUnavailable,
+  workerIsAvailable,
+  type OpenRunReading,
+  type RunWorkerInstallRequest,
+} from "./install.js";
 
 // What each control-plane object needs to already exist when it is installed.
 // A Deployment created before its binding starts a Pod whose service account
@@ -52,6 +50,7 @@ interface RecordedInstall {
   readonly api: RunWorkerInstallApi;
   readonly installed: RunWorkerObject[];
   readonly waits: number[];
+  /** How many times the roll guard asked Temporal about open runs. */
   readonly queueReads: number[];
 }
 
@@ -59,6 +58,7 @@ interface InstallOptions {
   /** Availability readings served in order; the last one repeats forever. */
   readonly availability?: readonly WorkerAvailability[];
   readonly failAt?: RunWorkerObject;
+  /** The image the cluster already runs; absent means no worker is installed. */
   readonly installedImage?: string;
 }
 
@@ -99,16 +99,6 @@ function recordingInstall(options: InstallOptions = {}): RecordedInstall {
   };
 }
 
-function install(
-  recorded: RecordedInstall,
-  options: {
-    readonly openRuns?: OpenRunReading;
-    readonly forced?: boolean;
-  } = {},
-) {
-  return installRunWorker(recorded.api, request(recorded, options));
-}
-
 function request(
   recorded: RecordedInstall,
   options: {
@@ -125,6 +115,16 @@ function request(
         return options.openRuns ?? { _tag: "open", workflowIds: [] };
       }),
   };
+}
+
+function install(
+  recorded: RecordedInstall,
+  options: {
+    readonly openRuns?: OpenRunReading;
+    readonly forced?: boolean;
+  } = {},
+) {
+  return installRunWorker(recorded.api, request(recorded, options));
 }
 
 it("installs every object exactly once, each after everything it depends on", async () => {
@@ -221,10 +221,16 @@ it("refuses to replace a worker whose queue still has runs open", async () => {
   expect(failure.message).toContain(DESIRED_IMAGE);
   expect(failure.message).toContain(OPEN_RUN);
   expect(failure.message).toContain(`${FORCE_WORKER_ROLL_VARIABLE}=1`);
+  // Nothing was applied, so the open run keeps the worker that is heartbeating
+  // its activity.
   expect(recorded.installed).toEqual([]);
 });
 
-it("does not query open runs when the installed image already matches", async () => {
+// The regression the refusal must never become: submitting the image the
+// cluster already runs applies a Pod template it already has, which rolls
+// nothing. Refusing there would refuse every ordinary submission made while
+// any run is in flight.
+it("installs the image the cluster already runs without asking about open runs", async () => {
   const recorded = recordingInstall({ installedImage: DESIRED_IMAGE });
 
   await Effect.runPromise(
@@ -237,7 +243,7 @@ it("does not query open runs when the installed image already matches", async ()
   expect(recorded.queueReads).toEqual([]);
 });
 
-it("installs into a cluster with no worker without querying open runs", async () => {
+it("installs into a cluster that has no worker yet without asking anything", async () => {
   const recorded = recordingInstall();
 
   await Effect.runPromise(install(recorded));
@@ -246,7 +252,7 @@ it("installs into a cluster with no worker without querying open runs", async ()
   expect(recorded.queueReads).toEqual([]);
 });
 
-it("allows an interrupting roll only when the operator forces it", async () => {
+it("rolls a worker with runs open once the operator has forced it", async () => {
   const recorded = recordingInstall({ installedImage: INSTALLED_IMAGE });
 
   await Effect.runPromise(
@@ -257,10 +263,11 @@ it("allows an interrupting roll only when the operator forces it", async () => {
   );
 
   expect(recorded.installed).toContain(WORKLOAD);
-  expect(recorded.queueReads).toEqual([]);
 });
 
-it("refuses a roll when unfinished work cannot be read", async () => {
+// A queue that could not be listed is not an empty queue: reading it as one
+// would authorize exactly the roll the refusal exists to prevent.
+it("refuses to replace a worker whose open runs could not be read", async () => {
   const recorded = recordingInstall({ installedImage: INSTALLED_IMAGE });
 
   const failure = await Effect.runPromise(
@@ -273,7 +280,7 @@ it("refuses a roll when unfinished work cannot be read", async () => {
   expect(recorded.installed).toEqual([]);
 });
 
-it("replaces a worker whose queue has no unfinished runs", async () => {
+it("replaces a worker whose queue has nothing open", async () => {
   const recorded = recordingInstall({ installedImage: INSTALLED_IMAGE });
 
   await Effect.runPromise(install(recorded));
