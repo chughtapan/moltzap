@@ -9,13 +9,14 @@ import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { PGlite } from "@electric-sql/pglite";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import { ConversationId } from "@moltzap/client";
+import { agentId, messageId } from "@moltzap/protocol/testing";
 import {
   CommittedRouterMessage,
   routerSequence,
   type MessageParts,
 } from "../../network.js";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { assert, describe } from "vitest";
 import {
   messageDatabasePathForVolume,
@@ -28,8 +29,13 @@ const it = effectIt.scoped;
 const PGLITE_TEST_TIMEOUT_MS = 60_000;
 const MESSAGE_1 = messageId("00000000-0000-4000-8000-000000000201");
 const MESSAGE_2 = messageId("00000000-0000-4000-8000-000000000202");
-const CONVERSATION_1 = conversationId("00000000-0000-4000-8000-000000000401");
-const CONVERSATION_2 = conversationId("00000000-0000-4000-8000-000000000402");
+const decodeConversationId = Schema.decodeUnknownSync(ConversationId);
+const CONVERSATION_1 = decodeConversationId(
+  "00000000-0000-4000-8000-000000000401",
+);
+const CONVERSATION_2 = decodeConversationId(
+  "00000000-0000-4000-8000-000000000402",
+);
 const SENDER_1 = agentId("00000000-0000-4000-8000-000000000501");
 const SENDER_2 = agentId("00000000-0000-4000-8000-000000000502");
 const BODY_1: MessageParts = [{ type: "text", text: "first body" }];

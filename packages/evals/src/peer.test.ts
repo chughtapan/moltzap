@@ -1,5 +1,5 @@
 import { assert, beforeEach, it } from "@effect/vitest";
-import { AgentName } from "@moltzap/client";
+import { AgentName, ConversationId } from "@moltzap/client";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   agentsList,
@@ -11,7 +11,7 @@ import {
   type Message,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import { agentId, messageId } from "@moltzap/protocol/testing";
 import { Array as Arr, Deferred, Effect, Fiber, Schema, Stream } from "effect";
 import { CodePeerMessageReceived, CodePeerMessageSent } from "./events.js";
 import { decodeEvaluationCaseId } from "./model.js";
@@ -55,7 +55,10 @@ interface FakeClientState {
   readonly sendCompletions: Array<Deferred.Deferred<undefined>>;
 }
 
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000821");
+const decodeConversationId = Schema.decodeUnknownSync(ConversationId);
+const CONVERSATION_ID = decodeConversationId(
+  "00000000-0000-4000-8000-000000000821",
+);
 
 const clientState: FakeClientState = {
   agents: [],
@@ -156,7 +159,7 @@ const SOURCE_ID = agentId("00000000-0000-4000-8000-000000000802");
 const QUESTION_ID = agentId("00000000-0000-4000-8000-000000000803");
 const OTHER_ID = agentId("00000000-0000-4000-8000-000000000804");
 const OBSERVER_ID = agentId("00000000-0000-4000-8000-000000000805");
-const OTHER_CONVERSATION_ID = conversationId(
+const OTHER_CONVERSATION_ID = decodeConversationId(
   "00000000-0000-4000-8000-000000000822",
 );
 const CREATED_AT = "2026-07-29T00:00:00.000Z";

@@ -1,8 +1,17 @@
 import { assert, effect as test } from "@effect/vitest";
+import { ConversationId } from "@moltzap/client";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
-import { Chunk, Duration, Effect, Mailbox, Stream, TestClock } from "effect";
+import { agentId, messageId } from "@moltzap/protocol/testing";
+import {
+  Chunk,
+  Duration,
+  Effect,
+  Mailbox,
+  Schema,
+  Stream,
+  TestClock,
+} from "effect";
 import type { EventOf } from "../events/catalog.js";
 import {
   type linkEvents,
@@ -26,7 +35,9 @@ type LinkEventWriter = LedgerWriter<typeof linkEvents>;
 const aliceId = agentId("00000000-0000-4000-8000-000000000001");
 const bobId = agentId("00000000-0000-4000-8000-000000000002");
 const carolId = agentId("00000000-0000-4000-8000-000000000003");
-const CONVERSATION = conversationId("00000000-0000-4000-8000-000000000200");
+const CONVERSATION = Schema.decodeUnknownSync(ConversationId)(
+  "00000000-0000-4000-8000-000000000200",
+);
 const SHAPE_LINK_OPERATION: NetworkOperation = "shape-link";
 const DISABLE_LINK_OPERATION: NetworkOperation = "disable-link";
 const ENABLE_LINK_OPERATION: NetworkOperation = "enable-link";

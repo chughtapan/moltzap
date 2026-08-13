@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
-import { AgentName as agentName } from "@moltzap/client";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import { AgentName as agentName, ConversationId } from "@moltzap/client";
+import { agentId, messageId } from "@moltzap/protocol/testing";
 import { ProgramSucceeded, RouterMessageCommitted } from "@moltzap/simulator";
 import {
   NanoClawGatewayInput,
@@ -28,6 +28,7 @@ import {
 import { decodeEvaluationCaseId, decodeEvaluationEvidenceId } from "./model.js";
 
 const makeAgentName = Schema.decodeSync(agentName);
+const decodeConversationId = Schema.decodeUnknownSync(ConversationId);
 const decodeOpenClawGatewayResponse = Schema.decodeSync(
   Schema.Union(OpenClawGatewaySucceeded, OpenClawGatewayTimedOut),
 );
@@ -36,7 +37,9 @@ const CASE_ID = decodeEvaluationCaseId("EVAL-005");
 const OTHER_CASE_ID = decodeEvaluationCaseId("EVAL-006");
 const ALICE_ID = agentId("00000000-0000-4000-8000-000000000001");
 const BOB_ID = agentId("00000000-0000-4000-8000-000000000002");
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000004");
+const CONVERSATION_ID = decodeConversationId(
+  "00000000-0000-4000-8000-000000000004",
+);
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000005");
 const ALICE_NAME = makeAgentName("alice");
 const BOB_NAME = makeAgentName("bob");

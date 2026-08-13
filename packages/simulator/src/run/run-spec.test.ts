@@ -1,10 +1,10 @@
 /* eslint-disable max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- lifecycle regressions keep their ordered gates, invocation count, evidence, and cleanup assertions together. */
 
 import { assert, effect as test } from "@effect/vitest";
+import { ConversationId } from "@moltzap/client";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {
   agentId as protocolAgentId,
-  conversationId,
   messageId,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
@@ -72,6 +72,7 @@ class Observation extends Schema.TaggedClass<Observation>()(
 const customerEvents = EventCatalog.make(Observation);
 const DIGEST = Schema.decodeSync(ledgerDigest)("a".repeat(64));
 const REF = Schema.decodeSync(ledgerRef)("run-spec-test-ledger");
+const decodeConversationId = Schema.decodeUnknownSync(ConversationId);
 const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
   "http://127.0.0.1:43100",
 );
@@ -172,7 +173,7 @@ function attachFakeEndpoint<const Name extends string>(
       received: Stream.never,
       openConversation: () =>
         Effect.succeed({
-          conversationId: conversationId(
+          conversationId: decodeConversationId(
             "00000000-0000-4000-8000-000000000102",
           ),
         }),

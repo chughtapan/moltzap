@@ -1,12 +1,12 @@
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, agent-code-guard/no-hardcoded-assertion-literals -- regression-only resource tests keep each acquisition and release timeline visible in one Effect program. */
 
 import { it as effectIt } from "@effect/vitest";
+import { ConversationId } from "@moltzap/client";
 import { AgentName as agentNameSchema } from "@moltzap/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
   agentKeyString,
-  conversationId,
   messageId,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
@@ -30,7 +30,9 @@ import {
 const it = effectIt.scoped;
 const STARTUP_TIMEOUT = Duration.seconds(10);
 const ROUTER_URL = serverBaseUrl("http://127.0.0.1:43100");
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
+const CONVERSATION_ID = Schema.decodeUnknownSync(ConversationId)(
+  "00000000-0000-4000-8000-000000000102",
+);
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
 const MESSAGE_PARTS: MessageParts = [{ type: "text", text: "committed" }];
 const CREATED_AT_MILLIS = 1_700_000_000_000;

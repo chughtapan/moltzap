@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
-import { AgentName as agentName } from "@moltzap/client";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import { AgentName as agentName, ConversationId } from "@moltzap/client";
+import { agentId, messageId } from "@moltzap/protocol/testing";
 import type { EventOf } from "@moltzap/simulator";
 import { createHash } from "node:crypto";
 import {
@@ -59,7 +59,9 @@ import {
 const test = it.effect;
 const TARGET_ID = agentId("00000000-0000-4000-8000-000000000901");
 const PEER_ID = agentId("00000000-0000-4000-8000-000000000902");
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000904");
+const CONVERSATION_ID = Schema.decodeUnknownSync(ConversationId)(
+  "00000000-0000-4000-8000-000000000904",
+);
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000905");
 const PEER_NAME = Schema.decodeSync(agentName)(PEER_AGENT_NAME);
 const PRINCIPAL_OPERATION: EvaluationProgramFailed["operation"] = "principal";

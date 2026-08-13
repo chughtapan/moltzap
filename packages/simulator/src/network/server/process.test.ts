@@ -1,12 +1,12 @@
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, sonarjs/assertions-in-tests, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Lifecycle regressions keep each ownership timeline and its assertions together. */
 
 import { it as effectIt } from "@effect/vitest";
+import { ConversationId } from "@moltzap/client";
 import { AgentName } from "@moltzap/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
   agentKeyString,
-  conversationId,
   messageId,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
@@ -55,7 +55,9 @@ const ALICE_ID = agentId("00000000-0000-4000-8000-000000000001");
 const PROBE_ID = agentId("00000000-0000-4000-8000-000000000002");
 const ALICE_KEY = redactedAgentKey(agentKeyString(41));
 const PROBE_KEY = redactedAgentKey(agentKeyString(42));
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000003");
+const CONVERSATION_ID = Schema.decodeUnknownSync(ConversationId)(
+  "00000000-0000-4000-8000-000000000003",
+);
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000004");
 
 const MESSAGE_PARTS: MessageParts = [{ type: "text", text: "committed" }];

@@ -1,8 +1,9 @@
 /* eslint-disable agent-code-guard/no-example-only-tests -- These pin the endpoint contract's fixed shapes: who a conversation opens with, which content the transport refuses, how one operation reads whether its cause was thrown or described, and what a stopped router leaves behind. None is an invariant over generated input. */
 
 import { assert, it } from "@effect/vitest";
-import { Effect, Stream } from "effect";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import { ConversationId } from "@moltzap/client";
+import { agentId, messageId } from "@moltzap/protocol/testing";
+import { Effect, Schema, Stream } from "effect";
 import {
   Endpoint,
   NetworkError,
@@ -23,7 +24,9 @@ const SEND_OPERATION = "send" satisfies NetworkOperation;
 const BOUNDARY_DETAIL = "the boundary refused the request";
 const id = (suffix: string) =>
   agentId(`00000000-0000-4000-8000-${suffix.padStart(12, "0")}`);
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
+const CONVERSATION_ID = Schema.decodeUnknownSync(ConversationId)(
+  "00000000-0000-4000-8000-000000000102",
+);
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
 const MESSAGE_PARTS: MessageParts = [{ type: "text", text: "committed" }];
 const CREATED_AT_MILLIS = 1_700_000_000_000;

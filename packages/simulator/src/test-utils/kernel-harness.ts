@@ -1,11 +1,10 @@
 /* eslint-disable jsdoc/require-jsdoc, agent-code-guard/no-exported-brand-constructor, agent-code-guard/require-span-on-exported-effect -- Test fixtures exported only to the package's own regressions; each is named for the exact value it builds and has no consumer outside this package's own test files. */
 
-import type { ConversationId } from "@moltzap/client";
+import { ConversationId } from "@moltzap/client";
 import { assert } from "@effect/vitest";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {
-  conversationId,
   agentId as protocolAgentId,
   messageId,
   redactedAgentKey,
@@ -50,6 +49,8 @@ import type { AgentRuntimeLike } from "../agents/agent.js";
 import { defineFakeRuntime, makeFakeCluster } from "../cluster/fake.js";
 import { Cluster } from "../cluster/cluster.js";
 import { makeAgentRosterBinding, type AgentRoster } from "../agents/roster.js";
+
+const decodeConversationId = Schema.decodeUnknownSync(ConversationId);
 
 export class Observation extends Schema.TaggedClass<Observation>()(
   "acme.kernel-observation/v1",
@@ -287,7 +288,7 @@ function hubAttachment<const Name extends string>(
       received: Mailbox.toStream(mailbox),
       openConversation: () =>
         Effect.succeed({
-          conversationId: conversationId(
+          conversationId: decodeConversationId(
             "00000000-0000-4000-8000-000000000102",
           ),
         }),

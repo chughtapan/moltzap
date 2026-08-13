@@ -1,9 +1,9 @@
 import { assert, effect as test } from "@effect/vitest";
+import { ConversationId } from "@moltzap/client";
 import type { MessageId } from "@moltzap/protocol/conversation";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {
   agentId,
-  conversationId,
   messageId,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
@@ -50,7 +50,9 @@ const KEY = redactedAgentKey(
 const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
   "http://127.0.0.1:43100",
 );
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000004");
+const CONVERSATION_ID = Schema.decodeUnknownSync(ConversationId)(
+  "00000000-0000-4000-8000-000000000004",
+);
 const RECEIVED_ID = messageId("00000000-0000-4000-8000-000000000005");
 const SECOND_RECEIVED_ID = messageId("00000000-0000-4000-8000-000000000007");
 const SENT_ID = messageId("00000000-0000-4000-8000-000000000006");
