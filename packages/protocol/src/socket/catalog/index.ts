@@ -14,20 +14,7 @@ import { agentConnect } from "#network";
 /**
  * Client-to-server descriptors an agent principal may originate.
  */
-export const agentCallableMethods = [
-  agentsList,
-  agentConnect,
-  agentConversationCreate,
-  messagesSend,
-] as const;
-
-/**
- * Full server inbound descriptor union.
- *
- * This is derived from the authored agent callable catalog, with the
- * unauthenticated connect descriptor included once.
- */
-export const serverInboundMethods = [
+const agentCallableMethods = [
   agentsList,
   agentConnect,
   agentConversationCreate,
@@ -37,16 +24,12 @@ export const serverInboundMethods = [
 /**
  * Every server-to-client notification descriptor.
  */
-export const notificationDefinitions = [
+const notificationDefinitions = [
   messageReceivedNotificationDefinition,
 ] as const;
 
 /** Any client-to-server descriptor the server handles. */
-export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
-
-/** Any descriptor an agent client may call. */
-export type AnyAgentCallableRpcDefinition =
-  (typeof agentCallableMethods)[number];
+type AnyServerRpcDefinition = (typeof agentCallableMethods)[number];
 
 /** Any server-to-client notification descriptor. */
 export type AnyNotificationDefinition =
@@ -60,7 +43,7 @@ const makeRpcGroup = <const R extends Rpc.Any>(
  * Effect RPC group for all client-to-server calls accepted by the server.
  */
 export const serverInboundGroup = makeRpcGroup(
-  serverInboundMethods.map((definition) => definition.serverRpc),
+  agentCallableMethods.map((definition) => definition.serverRpc),
 );
 
 /**
@@ -77,16 +60,6 @@ export type ServerHandler<D extends AnyServerRpcDefinition> =
 /** Effect RPC group for all agent-callable methods. */
 export const agentCallableGroup = makeRpcGroup(
   agentCallableMethods.map((definition) => definition.clientRpc),
-);
-
-/**
- * Server-to-client reverse notification group. The server fires each notification
- * as a fire-and-forget `void`-result RPC on a target connection's reverse
- * channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
- * each payload into the `SubscriberRegistry`.
- */
-export const notificationRpcGroup = makeRpcGroup(
-  notificationDefinitions.map((definition) => definition.notificationRpc),
 );
 
 /**

@@ -8,7 +8,7 @@ Conversation-owned requirement middleware tags.
 
 ## Public surface
 
-### [`ConversationSendAccess`](./conversation-send-access.ts#L15)
+### [`ConversationSendAccess`](./index.ts#L19)
 
 _Class_
 
@@ -21,7 +21,7 @@ export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAc
 
 Implements conversation send access.
 
-### [`ConversationSendAccessValue`](./conversation-send-access.ts#L10)
+### [`ConversationSendAccessValue`](./index.ts#L14)
 
 _Interface_
 
@@ -36,4 +36,4 @@ membership. The server obtain performs the read that feeds send guards.
 
 ## Files
 
-- `conversation-send-access.ts`
+- `index.ts`

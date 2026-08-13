@@ -8,7 +8,7 @@ Conversation-domain requirement helpers.
 
 ## Public surface
 
-### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L17)
+### [`authorizeConversationCreateCapacityOnly`](./index.ts#L27)
 
 _Function_
 
@@ -23,15 +23,13 @@ export const authorizeConversationCreateCapacityOnly = (
 ```
 
 Capacity authorization for conversation creation. The capacity check runs
-BEFORE the existence lookup so an oversized participants list is rejected
-without reaching the database — the lookup's `IN` clause is bounded by the
-group limit, not by whatever the caller sent on the wire. The creator
-joins the conversation it opens, so it counts toward the limit alongside
-the named targets; duplicates collapse before either check.
+before the existence lookup so the database query remains bounded by the
+group limit. The creator counts toward the limit and duplicate targets
+collapse before either check.
 
-**Returns:** The authorize conversation create capacity only result.
+**Returns:** Completion after capacity and owner validation.
 
-### [`obtainConversationSendAccess`](./send-access.ts#L22)
+### [`obtainConversationSendAccess`](./index.ts#L52)
 
 _Function_
 
@@ -46,14 +44,12 @@ export const obtainConversationSendAccess = (input: {
 >
 ```
 
-`ConversationSendAccess` obtain: prove the caller participates in the
-conversation, then prove the conversation row still exists. A
-`conversationId` that survives the participant check but vanishes from the
-read is a true race (deletion) — surfaced as a defect, not a user error.
+Proves that the caller participates in a still-present conversation.
+Participant rejection precedes the row read so an unknown conversation is
+a typed authorization failure, while deletion between checks is a defect.
 
-**Returns:** The obtain conversation send access result.
+**Returns:** The proven conversation send access value.
 
 ## Files
 
-- `create-authorization.ts`
-- `send-access.ts`
+- `index.ts`

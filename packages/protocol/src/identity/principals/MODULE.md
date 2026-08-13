@@ -8,7 +8,7 @@ Principal middleware requirement tags.
 
 ## Public surface
 
-### [`AuthenticatedAgent`](./authenticated-agent.ts#L12)
+### [`AuthenticatedAgent`](./index.ts#L16)
 
 _Class_
 
@@ -23,7 +23,7 @@ Principal requirement: the connection is an authenticated agent. The sole
 principal gate — every gated method heads its `requires` with this tag,
 rejecting the unauthenticated pre-connect arm.
 
-### [`PrincipalRequirement`](./authenticated-agent.ts#L18)
+### [`PrincipalRequirement`](./index.ts#L22)
 
 _TypeAlias_
 
@@ -35,4 +35,4 @@ The principal-requirement tag that heads a gated RPC descriptor.
 
 ## Files
 
-- `authenticated-agent.ts`
+- `index.ts`
