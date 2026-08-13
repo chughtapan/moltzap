@@ -1,7 +1,6 @@
 /** @file Container-backed OpenClaw runtime. */
 
 import type { AgentName } from "@moltzap/identity";
-import { httpBaseUrl } from "@moltzap/protocol/network";
 import {
   Duration,
   Effect,
@@ -38,7 +37,6 @@ import {
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
-  serializeMoltZapProfileConfig,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
   workspaceConfiguration,
@@ -71,8 +69,6 @@ const OPENCLAW_GATEWAY_PORT = 18_789;
 const OPENCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
 const APPLICATION_STATE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/state`;
 const APPLICATION_CONFIG_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw.json`;
-const OPENCLAW_PROFILE_HOME = `${OPENCLAW_BOOTSTRAP_DIR}/moltzap`;
-const OPENCLAW_PROFILE_PATH = `${OPENCLAW_PROFILE_HOME}/config.json`;
 const OPENCLAW_WORKSPACE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/workspace`;
 const OPENCLAW_CHANNEL_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw-channel`;
 const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
@@ -296,8 +292,6 @@ function makeOpenClawApplication<Name extends string>(
       HOME: APPLICATION_STATE_DIR,
       OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
       OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
-      MOLTZAP_CONFIG_HOME: OPENCLAW_PROFILE_HOME,
-      MOLTZAP_SERVER_URL: httpBaseUrl(input.connection.routerUrl),
       OPENCLAW_DISABLE_BONJOUR: "1",
     }),
     ...(settings.modelId === undefined
@@ -376,17 +370,11 @@ function bootstrapFiles<Name extends string>(
     },
     OPENCLAW_WORKSPACE_DIR,
   );
-  const profile = serializeMoltZapProfileConfig({
-    agentName: input.agentName,
-    agentId: input.connection.agent.id,
-    apiKey: input.connection.key,
-  });
   return Object.freeze([
     bootstrapFile(
       APPLICATION_CONFIG_PATH,
       JSON.stringify(nativeConfig, null, 2),
     ),
-    bootstrapFile(OPENCLAW_PROFILE_PATH, profile),
     bootstrapFile(
       `${APPLICATION_STATE_DIR}/devices/paired.json`,
       pairing.pairedDevices,

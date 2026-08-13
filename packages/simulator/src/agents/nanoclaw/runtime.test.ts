@@ -38,7 +38,6 @@ const APPLICATION_IMAGE = image.make(
 );
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const RUNTIME_CONFIG_PATH = `${BOOTSTRAP_ROOT}nanoclaw/runtime.json`;
-const PROFILE_PATH = `${BOOTSTRAP_ROOT}moltzap/config.json`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
 const ENTRYPOINT = "/opt/moltzap/nanoclaw/entrypoint.mjs";
 const GATEWAY_PORT = 18_790;
@@ -79,18 +78,6 @@ const renderedRuntimeConfig = Schema.parseJson(
   }),
 );
 
-const renderedMoltZapProfile = Schema.parseJson(
-  Schema.Struct({
-    profiles: Schema.Struct({
-      "simulator-agent": Schema.Struct({
-        agentId: Schema.String,
-        apiKey: Schema.String,
-        agentName: Schema.String,
-      }),
-    }),
-  }),
-);
-
 type NanoClawContainerRuntime = ContainerRuntime<
   NanoClawGateway,
   RuntimeAcquisitionError
@@ -105,7 +92,6 @@ interface Fixture {
   readonly capability: NanoClawContainerRuntime;
   readonly application: NanoClawApplication;
   readonly runtimeConfig: typeof renderedRuntimeConfig.Type;
-  readonly profile: typeof renderedMoltZapProfile.Type;
 }
 
 /**
@@ -143,10 +129,7 @@ function makeFixture() {
     const runtimeConfig = Schema.decodeUnknownSync(renderedRuntimeConfig)(
       requireFile(application.files, RUNTIME_CONFIG_PATH),
     );
-    const profile = Schema.decodeUnknownSync(renderedMoltZapProfile)(
-      requireFile(application.files, PROFILE_PATH),
-    );
-    return { runtime, capability, application, runtimeConfig, profile };
+    return { runtime, capability, application, runtimeConfig };
   });
 }
 
@@ -167,7 +150,6 @@ function assertApplicationContainer(fixture: Fixture): void {
   });
   assert.deepStrictEqual(application.entrypoint, ["node", ENTRYPOINT]);
   assert.strictEqual(application.port, GATEWAY_PORT);
-  assert.strictEqual(application.environment.MOLTZAP_SERVER_URL, ROUTER_URL);
   assert.strictEqual(
     application.environment.MOLTZAP_NANOCLAW_CONFIG,
     RUNTIME_CONFIG_PATH,
@@ -175,11 +157,12 @@ function assertApplicationContainer(fixture: Fixture): void {
   assert.strictEqual(application.environment.MOLTZAP_NANOCLAW_STATE, STATE_DIR);
   assert.deepStrictEqual(application.credentials, ["ANTHROPIC_API_KEY"]);
   assert.notInclude(projection, AGENT_KEY_TEXT);
+  assert.notInclude(projection, ROUTER_URL);
   assert.notInclude(projection, MCP_SECRET);
 }
 
 function assertBootstrap(fixture: Fixture): void {
-  const { application, profile, runtime, runtimeConfig } = fixture;
+  const { application, runtime, runtimeConfig } = fixture;
   assert.strictEqual(runtimeConfig.agentName, AGENT_NAME);
   assert.strictEqual(runtimeConfig.gateway.host, GATEWAY_BIND_HOST);
   assert.strictEqual(runtimeConfig.gateway.port, GATEWAY_PORT);
@@ -195,11 +178,6 @@ function assertBootstrap(fixture: Fixture): void {
     },
     { name: "calendar", url: MCP_URL },
   ]);
-  assert.strictEqual(profile.profiles["simulator-agent"].agentId, AGENT_ID);
-  assert.strictEqual(
-    profile.profiles["simulator-agent"].apiKey,
-    AGENT_KEY_TEXT,
-  );
   assert.strictEqual(
     requireFile(application.files, WORKSPACE_PATH),
     WORKSPACE_CONTENT,
@@ -207,6 +185,7 @@ function assertBootstrap(fixture: Fixture): void {
   assert.isTrue(
     application.files.every((file) => file.path.startsWith(BOOTSTRAP_ROOT)),
   );
+  assert.notInclude(JSON.stringify(application.files), AGENT_KEY_TEXT);
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),
     AGENT_KEY_TEXT,

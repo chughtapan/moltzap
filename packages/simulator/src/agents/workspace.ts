@@ -1,44 +1,9 @@
 /** @file Definition-time bootstrap material shared by container runtimes. */
 
-import type { AgentName } from "@moltzap/identity";
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
-import { Redacted, Schema } from "effect";
+import { Schema } from "effect";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import type { File } from "./container.js";
-
-const PROFILE_CONFIG_INDENT_SPACES = 2;
-
-/** Profile selector shared by isolated runtime containers. */
-export const SIMULATOR_PROFILE_NAME = "simulator-agent";
-
-/**
- * Serialize the per-agent MoltZap profile mounted into a runtime container.
- * @param profile Runtime identity and redacted credentials.
- * @param profile.agentName Router-visible agent name.
- * @param profile.agentId Registered agent identity.
- * @param profile.apiKey Registered agent credential.
- * @returns The JSON profile configuration.
- */
-export function serializeMoltZapProfileConfig(profile: {
-  readonly agentName: AgentName;
-  readonly agentId: AgentId;
-  readonly apiKey: AgentKey;
-}): string {
-  return JSON.stringify(
-    {
-      profiles: {
-        [SIMULATOR_PROFILE_NAME]: {
-          agentId: profile.agentId,
-          apiKey: Redacted.value(profile.apiKey),
-          agentName: profile.agentName,
-        },
-      },
-    },
-    null,
-    PROFILE_CONFIG_INDENT_SPACES,
-  );
-}
 
 /**
  * A workspace path proven to land inside its runtime's workspace root, held in
@@ -247,8 +212,8 @@ export function workspaceFilePath(
 }
 
 /**
- * One bootstrap file. Mode 0o600 because these carry the agent's router
- * credential and every provider secret the runtime was configured with.
+ * One bootstrap file. Mode 0o600 because these may carry private runtime
+ * configuration, gateway credentials, or tool environment values.
  * @param path Absolute in-container path the file is materialized at.
  * @param content Exact file content.
  * @returns The frozen file the run-scoped Secret materializes.

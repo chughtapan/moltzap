@@ -1,7 +1,6 @@
 /** @file Container-native NanoClaw runtime descriptor. */
 
 import type { AgentName } from "@moltzap/identity";
-import { httpBaseUrl } from "@moltzap/protocol/network";
 import { Duration, Effect, Schema, type Scope } from "effect";
 import {
   type AgentRuntimeInput,
@@ -28,8 +27,6 @@ import {
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
-  serializeMoltZapProfileConfig,
-  SIMULATOR_PROFILE_NAME,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
   workspaceConfiguration,
@@ -48,8 +45,6 @@ const DEFAULT_NANOCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
 const NANOCLAW_GATEWAY_PORT = 18_790;
 const NANOCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
 const NANOCLAW_CONFIG_PATH = `${NANOCLAW_BOOTSTRAP_DIR}/nanoclaw/runtime.json`;
-const NANOCLAW_PROFILE_HOME = `${NANOCLAW_BOOTSTRAP_DIR}/moltzap`;
-const NANOCLAW_PROFILE_PATH = `${NANOCLAW_PROFILE_HOME}/config.json`;
 const NANOCLAW_WORKSPACE_DIR = `${NANOCLAW_BOOTSTRAP_DIR}/workspace`;
 const NANOCLAW_STATE_DIR = "/var/lib/moltzap/nanoclaw";
 const NANOCLAW_ENTRYPOINT = "/opt/moltzap/nanoclaw/entrypoint.mjs";
@@ -224,9 +219,6 @@ function makeNanoClawApplication<Name extends string>(
   return Object.freeze({
     entrypoint: Object.freeze(["node", NANOCLAW_ENTRYPOINT] as const),
     environment: Object.freeze({
-      MOLTZAP_PROFILE: SIMULATOR_PROFILE_NAME,
-      MOLTZAP_CONFIG_HOME: NANOCLAW_PROFILE_HOME,
-      MOLTZAP_SERVER_URL: httpBaseUrl(input.connection.routerUrl),
       MOLTZAP_NANOCLAW_CONFIG: NANOCLAW_CONFIG_PATH,
       MOLTZAP_NANOCLAW_STATE: NANOCLAW_STATE_DIR,
     }),
@@ -247,17 +239,11 @@ function bootstrapFiles<Name extends string>(
   settings: NanoClawRuntimeSettings,
   input: AgentRuntimeInput<Name>,
 ): readonly File[] {
-  const profile = serializeMoltZapProfileConfig({
-    agentName: input.agentName,
-    agentId: input.connection.agent.id,
-    apiKey: input.connection.key,
-  });
   return Object.freeze([
     bootstrapFile(
       NANOCLAW_CONFIG_PATH,
       runtimeConfig(settings, input.agentName),
     ),
-    bootstrapFile(NANOCLAW_PROFILE_PATH, profile),
     ...settings.workspaceFiles.map((file) =>
       bootstrapFile(
         workspaceFilePath(NANOCLAW_WORKSPACE_DIR, file.relativePath),

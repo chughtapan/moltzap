@@ -7,14 +7,11 @@ import type {
   ToolsConfig,
 } from "openclaw/plugin-sdk/config-types";
 import { Redacted } from "effect";
-import {
-  isHttpMcpServer,
-  type McpServer,
-  SIMULATOR_PROFILE_NAME,
-} from "../workspace.js";
+import { isHttpMcpServer, type McpServer } from "../workspace.js";
 
 const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap";
+const OPENCLAW_ACCOUNT_ID = "simulator-agent";
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 
 /** Native OpenClaw tool exposure and execution configuration. */
@@ -69,7 +66,7 @@ export function buildOpenClawConfig(
       [OPENCLAW_CHANNEL_ID]: {
         accounts: [
           {
-            id: SIMULATOR_PROFILE_NAME,
+            id: OPENCLAW_ACCOUNT_ID,
           },
         ],
       },

@@ -35,7 +35,6 @@ const ROUTER_URL = serverBaseUrl("http://router.society.svc:3000");
 const GATEWAY_HOST = "alice.society.svc";
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const OPENCLAW_CONFIG_PATH = `${BOOTSTRAP_ROOT}openclaw.json`;
-const PROFILE_PATH = `${BOOTSTRAP_ROOT}moltzap/config.json`;
 const CHANNEL_PATH = `${BOOTSTRAP_ROOT}openclaw-channel`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
 const GATEWAY_PORT = 18_789;
@@ -76,18 +75,6 @@ const renderedOpenClawConfig = Schema.parseJson(
   }),
 );
 
-const renderedMoltZapProfile = Schema.parseJson(
-  Schema.Struct({
-    profiles: Schema.Struct({
-      "simulator-agent": Schema.Struct({
-        agentId: Schema.String,
-        apiKey: Schema.String,
-        agentName: Schema.String,
-      }),
-    }),
-  }),
-);
-
 type OpenClawContainerRuntime = ContainerRuntime<
   OpenClawGateway,
   RuntimeAcquisitionError
@@ -102,7 +89,6 @@ interface StockFixture {
   readonly capability: OpenClawContainerRuntime;
   readonly application: OpenClawApplication;
   readonly config: typeof renderedOpenClawConfig.Type;
-  readonly profile: typeof renderedMoltZapProfile.Type;
 }
 
 function requireFile(files: readonly File[], path: string): string {
@@ -129,10 +115,7 @@ function makeStockFixture() {
     const config = Schema.decodeUnknownSync(renderedOpenClawConfig)(
       requireFile(application.files, OPENCLAW_CONFIG_PATH),
     );
-    const profile = Schema.decodeUnknownSync(renderedMoltZapProfile)(
-      requireFile(application.files, PROFILE_PATH),
-    );
-    return { runtime, capability, application, config, profile };
+    return { runtime, capability, application, config };
   });
 }
 
@@ -182,9 +165,9 @@ function assertApplicationContainer(fixture: StockFixture): void {
     application.environment.OPENCLAW_STATE_DIR,
     APPLICATION_STATE_DIR,
   );
-  assert.strictEqual(application.environment.MOLTZAP_SERVER_URL, ROUTER_URL);
   assert.deepStrictEqual(application.credentials, ["OPENAI_API_KEY"]);
   assert.notInclude(containerProjection, AGENT_KEY_TEXT);
+  assert.notInclude(containerProjection, ROUTER_URL);
   assert.notInclude(containerProjection, config.gateway.auth.token);
   assert.strictEqual(config.gateway.bind, "lan");
   assert.strictEqual(
@@ -195,13 +178,7 @@ function assertApplicationContainer(fixture: StockFixture): void {
 }
 
 function assertBootstrapMaterial(fixture: StockFixture): void {
-  const { application, profile, runtime } = fixture;
-  assert.strictEqual(profile.profiles["simulator-agent"].agentId, AGENT_ID);
-  assert.strictEqual(
-    profile.profiles["simulator-agent"].apiKey,
-    AGENT_KEY_TEXT,
-  );
-  assert.strictEqual(profile.profiles["simulator-agent"].agentName, AGENT_NAME);
+  const { application, runtime } = fixture;
   assert.strictEqual(
     requireFile(application.files, WORKSPACE_PATH),
     WORKSPACE_CONTENT,
@@ -219,6 +196,7 @@ function assertBootstrapMaterial(fixture: StockFixture): void {
   assert.isTrue(
     application.files.every((file) => file.path.startsWith(BOOTSTRAP_ROOT)),
   );
+  assert.notInclude(JSON.stringify(application.files), AGENT_KEY_TEXT);
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),
     AGENT_KEY_TEXT,
