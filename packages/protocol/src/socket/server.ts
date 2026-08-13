@@ -56,11 +56,10 @@ export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
 export const connectionId = Schema.decodeSync(connectionIdSchema);
 
 /** Mints a connection identifier at socket acceptance. */
-export const newConnectionId = (): ConnectionId =>
-  connectionId(crypto.randomUUID());
+const newConnectionId = (): ConnectionId => connectionId(crypto.randomUUID());
 
 /** Represents server socket write values. */
-export type ServerSocketWrite = (
+type ServerSocketWrite = (
   raw: string,
 ) => Effect.Effect<void, Socket.SocketError>;
 
@@ -152,7 +151,7 @@ const makeSocketRpcLayer = <
   );
 
 /** Represents reverse call error conditions. */
-export type ReverseCallError = NotConnectedError | RpcTimeoutError;
+type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
 type ReverseRpcs = RpcGroup.Rpcs<typeof reverseRpcGroup>;
 type ReverseTag = ReverseRpcs["_tag"];

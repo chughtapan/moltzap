@@ -8,7 +8,7 @@ export interface CloseInfo {
 }
 
 /** Represents close kind values. */
-export type CloseKind = Data.TaggedEnum<{
+type CloseKind = Data.TaggedEnum<{
   clean: {
     readonly code: number;
     readonly reason: string;
@@ -31,7 +31,7 @@ export const DEFAULT_GRACEFUL_CLOSE: CloseInfo = {
   reason: "normal",
 };
 /** Default value for abnormal close. */
-export const DEFAULT_ABNORMAL_CLOSE: CloseInfo = {
+const DEFAULT_ABNORMAL_CLOSE: CloseInfo = {
   code: 1006,
   reason: "abnormal",
 };
@@ -47,9 +47,7 @@ function absurd(x: never): never {
  * @param cause Failure cause to inspect.
  * @returns The classify close cause result.
  */
-export function classifyCloseCause(
-  cause: Cause.Cause<Socket.SocketError>,
-): CloseKind {
+function classifyCloseCause(cause: Cause.Cause<Socket.SocketError>): CloseKind {
   for (const failure of Cause.failures(cause)) {
     const kind = classifySocketFailure(failure);
     if (kind !== null) {

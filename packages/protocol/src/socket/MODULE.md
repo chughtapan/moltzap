@@ -4,11 +4,7 @@ _`packages/protocol/src/socket`_
 
 ## Purpose
 
-Socket lifecycle surface for protocol-owned clients and server.
-
-Owns the concrete MoltZap agent client, app client, server socket lifecycle,
-connection identifiers, close-info extraction, and socket-local lifecycle
-helpers used by testing and server wiring.
+Public socket client and server compatibility surface.
 
 ## Public surface
 
@@ -25,20 +21,6 @@ export interface AgentClientOptions {
 ```
 
 Configures an agent client.
-
-### [`classifyCloseCause`](./close-info.ts#L50)
-
-_Function_
-
-```ts
-export function classifyCloseCause(
-  cause: Cause.Cause<Socket.SocketError>,
-): CloseKind
-```
-
-Executes the classify close cause operation.
-
-**Returns:** The classify close cause result.
 
 ### [`ClientConnectError`](./lifecycle.ts#L108)
 
@@ -130,29 +112,6 @@ export interface CloseInfo {
 
 Describes close info.
 
-### [`CloseKind`](./close-info.ts#L11)
-
-_TypeAlias_
-
-```ts
-export type CloseKind = Data.TaggedEnum<{
-  clean: {
-    readonly code: number;
-    readonly reason: string;
-  };
-  endOfStream: Record<never, never>;
-  handshakeFailure: {
-    readonly underlying: "Open" | "OpenTimeout";
-  };
-  transportFailure: {
-    readonly underlying: "Read" | "Write";
-  };
-  unknown: Record<never, never>;
-}>;
-```
-
-Represents close kind values.
-
 ### [`connectionId`](./server.ts#L56)
 
 _Variable_
@@ -200,16 +159,6 @@ export type ConnectResult = ResultOf<typeof agentConnect>;
 
 Represents the result of connect.
 
-### [`DEFAULT_ABNORMAL_CLOSE`](./close-info.ts#L34)
-
-_Variable_
-
-```ts
-export const DEFAULT_ABNORMAL_CLOSE: CloseInfo =
-```
-
-Default value for abnormal close.
-
 ### [`DEFAULT_GRACEFUL_CLOSE`](./close-info.ts#L29)
 
 _Variable_
@@ -220,7 +169,7 @@ export const DEFAULT_GRACEFUL_CLOSE: CloseInfo =
 
 Default value for graceful close.
 
-### [`extractCloseInfo`](./close-info.ts#L99)
+### [`extractCloseInfo`](./close-info.ts#L97)
 
 _Function_
 
@@ -273,7 +222,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 
 Provides the concrete agent client over the shared socket lifecycle.
 
-### [`MoltZapServer`](./server.ts#L263)
+### [`MoltZapServer`](./server.ts#L262)
 
 _Class_
 
@@ -401,7 +350,7 @@ export class MoltZapServer<
 
 Implements molt zap server.
 
-### [`MoltZapServerOptions`](./server.ts#L83)
+### [`MoltZapServerOptions`](./server.ts#L82)
 
 _Interface_
 
@@ -431,7 +380,7 @@ export interface MoltZapServerOptions<
 
 Configures molt zap server.
 
-### [`MoltZapServerSession`](./server.ts#L68)
+### [`MoltZapServerSession`](./server.ts#L67)
 
 _Interface_
 
@@ -446,34 +395,6 @@ export interface MoltZapServerSession {
 ```
 
 Describes molt zap server session.
-
-### [`newConnectionId`](./server.ts#L59)
-
-_Function_
-
-```ts
-export const newConnectionId = (): ConnectionId
-```
-
-Mints a connection identifier at socket acceptance.
-
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L440)
-
-_Function_
-
-```ts
-export const openProtocolAgentClientSocket = (
-  options: ClientSocketSessionOptions,
-): Effect.Effect<
-  ClientConnection<AgentClientDispatch>,
-  NotConnectedError,
-  Socket.WebSocketConstructor
->
-```
-
-Provides the open protocol agent client socket runtime value.
-
-**Returns:** The open protocol agent client socket result.
 
 ### [`ProtocolClientLifecycle`](./lifecycle.ts#L545)
 
@@ -621,17 +542,7 @@ stateDiagram-v2
   Stopping --> Stopped: OwnerDone completes terminal close
 ```
 
-### [`ReverseCallError`](./server.ts#L155)
-
-_TypeAlias_
-
-```ts
-export type ReverseCallError = NotConnectedError | RpcTimeoutError;
-```
-
-Represents reverse call error conditions.
-
-### [`ReverseClient`](./server.ts#L173)
+### [`ReverseClient`](./server.ts#L172)
 
 _Interface_
 
@@ -654,16 +565,6 @@ export interface ReverseClient {
 
 Describes reverse client.
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L66)
-
-_Variable_
-
-```ts
-export const RPC_TIMEOUT_MS = 30_000
-```
-
-Provides the rpc timeout ms runtime value.
-
 ### [`RpcCallOptions`](./lifecycle.ts#L80)
 
 _Interface_
@@ -675,18 +576,6 @@ export interface RpcCallOptions {
 ```
 
 Configures rpc call.
-
-### [`ServerSocketWrite`](./server.ts#L63)
-
-_TypeAlias_
-
-```ts
-export type ServerSocketWrite = (
-  raw: string,
-) => Effect.Effect<void, Socket.SocketError>;
-```
-
-Represents server socket write values.
 
 ## Files
 

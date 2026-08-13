@@ -63,7 +63,7 @@ import {
 import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
 
 /** Provides the rpc timeout ms runtime value. */
-export const RPC_TIMEOUT_MS = 30_000;
+const RPC_TIMEOUT_MS = 30_000;
 
 const WEB_SOCKET_OPEN_TIMEOUT_SECONDS = 10;
 const NORMAL_CLOSE_CODE = 1000;
@@ -437,7 +437,7 @@ const openClientSocketSession = <Rpcs extends ProtocolRpc>(
  * @param options Options that control the operation.
  * @returns The open protocol agent client socket result.
  */
-export const openProtocolAgentClientSocket = (
+const openProtocolAgentClientSocket = (
   options: ClientSocketSessionOptions,
 ): Effect.Effect<
   ClientConnection<AgentClientDispatch>,
