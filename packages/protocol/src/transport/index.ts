@@ -46,10 +46,10 @@ export type {
 } from "./notification-subscribers.js";
 
 /** The `Rpc` member of `Rpcs` whose tag is `K`. */
-export type RpcForTag<
-  Rpcs extends Rpc.Any,
-  K extends Rpcs["_tag"],
-> = Extract<Rpcs, { readonly _tag: K }>;
+export type RpcForTag<Rpcs extends Rpc.Any, K extends Rpcs["_tag"]> = Extract<
+  Rpcs,
+  { readonly _tag: K }
+>;
 
 /** The payload type one tag accepts. */
 export type PayloadForTag<
@@ -77,11 +77,7 @@ export type TypedDispatchMap<Rpcs extends Rpc.Any, E> = {
 };
 
 /** Dispatches one call while retaining the selected tag's exact types. */
-export function dispatchCall<
-  Rpcs extends Rpc.Any,
-  E,
-  K extends Rpcs["_tag"],
->(
+export function dispatchCall<Rpcs extends Rpc.Any, E, K extends Rpcs["_tag"]>(
   map: TypedDispatchMap<Rpcs, E>,
   tag: K,
   payload: PayloadForTag<Rpcs, K>,
@@ -93,10 +89,7 @@ export function dispatchCall<
  * Binds a non-flat client to a tag-keyed call and folds the engine's closed
  * socket error into the caller's transport error channel.
  */
-export function makeTypedTransportCall<
-  Rpcs extends Rpc.Any,
-  TransportError,
->(
+export function makeTypedTransportCall<Rpcs extends Rpc.Any, TransportError>(
   client: TypedDispatchMap<Rpcs, RpcClientError>,
   onTransportError: () => TransportError,
 ): <Tag extends Rpcs["_tag"]>(
@@ -115,7 +108,6 @@ export function makeTypedTransportCall<
 /** Re-exports the public API from `./pagination.js`. */
 export {
   DEFAULT_PAGE_LIMIT,
-  MAX_PAGE_LIMIT,
   listLimitSchema,
   listCursorSchema,
 } from "./pagination.js";
@@ -143,7 +135,6 @@ export { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
 export {
   UnauthorizedError,
   ForbiddenError,
-  NotFoundError,
   ConflictError,
   InvalidParamsError,
   // Connect-handler wire error.
@@ -152,8 +143,6 @@ export {
   // Shared optional `message`/`data` fields every wire tagged-error carries.
   errorPayloadFields,
 } from "./wire-errors.js";
-/** Re-exports the public API from `./wire-errors.js`. */
-export type { RpcErrorPayload } from "./wire-errors.js";
 
 /** Re-exports the public API from `./mux.js`. */
 export {

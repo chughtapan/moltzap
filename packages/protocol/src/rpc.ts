@@ -7,30 +7,12 @@
  */
 
 /** Re-exports the public API from `#transport`. */
-export type {
-  NotificationDelivery,
-  NotificationParamsOf,
-  ParamsOf,
-  ResultOf,
-  RpcDefinitionAny,
-} from "#transport";
-/** Re-exports the public API from `#transport`. */
-export { isNotificationDeliveryFor } from "#transport";
+export type { NotificationParamsOf, ParamsOf, ResultOf } from "#transport";
 
 /** Re-exports the public API from `#transport`. */
-export type { PayloadForTag, SuccessForTag } from "#transport";
-
-/** Re-exports the public API from `#transport`. */
-export {
-  DEFAULT_PAGE_LIMIT,
-  MAX_PAGE_LIMIT,
-  listCursorSchema,
-} from "#transport";
+export { DEFAULT_PAGE_LIMIT } from "#transport";
 /** Re-exports the public API from `#transport`. */
 export type { ListCursor } from "#transport";
-
-/** Re-exports the public API from `#transport`. */
-export { NotConnectedError, RpcTimeoutError } from "#transport";
 
 /** Re-exports the public API from `#transport`. */
 export {

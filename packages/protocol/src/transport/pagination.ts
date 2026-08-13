@@ -3,7 +3,7 @@ import { Schema, type Brand } from "effect";
 /** Default value for page limit. */
 export const DEFAULT_PAGE_LIMIT = 50;
 /** Provides the max page limit runtime value. */
-export const MAX_PAGE_LIMIT = 200;
+const MAX_PAGE_LIMIT = 200;
 
 /** Validates and decodes list limit values. */
 export const listLimitSchema = Schema.optional(

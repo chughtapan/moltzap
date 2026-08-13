@@ -20,15 +20,6 @@ export const errorPayloadFields = {
   data: Schema.optional(Schema.Unknown),
 } as const;
 
-/**
- * The supplemental-payload type a tagged-error instance accepts at construction:
- * an optional overriding message and optional `data`.
- */
-export interface RpcErrorPayload {
-  readonly message?: string;
-  readonly data?: unknown;
-}
-
 /** Not authenticated — `agent/network/connect` has not run on this socket. */
 export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
   "Unauthorized",
@@ -44,14 +35,6 @@ export class ForbiddenError extends Schema.TaggedError<ForbiddenError>()(
   errorPayloadFields,
 ) {
   static readonly message = "Forbidden";
-}
-
-/** Resource not found (cross-cutting; domain-specific NotFound errors live with their domain). */
-export class NotFoundError extends Schema.TaggedError<NotFoundError>()(
-  "NotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Not found";
 }
 
 /** Conflict on a resource (cross-cutting; e.g., duplicate registration). */
