@@ -49,7 +49,7 @@ export class AgentHandle<
 
 A participant whose autonomous runtime is owned by the run scope.
 
-### [`AgentProcessExited`](./events/core.ts#L85)
+### [`AgentProcessExited`](./events/core.ts#L87)
 
 _Class_
 
@@ -67,7 +67,7 @@ export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()
 
 A roster runtime process terminated with an operating-system exit code.
 
-### [`AgentProcessSignaled`](./events/core.ts#L96)
+### [`AgentProcessSignaled`](./events/core.ts#L98)
 
 _Class_
 
@@ -85,7 +85,7 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
 
 A roster runtime process terminated because it received a signal.
 
-### [`AgentRuntimeCompleted`](./events/core.ts#L64)
+### [`AgentRuntimeCompleted`](./events/core.ts#L66)
 
 _Class_
 
@@ -102,7 +102,7 @@ export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeComple
 
 An autonomous runtime completed normally.
 
-### [`AgentRuntimeFailed`](./events/core.ts#L74)
+### [`AgentRuntimeFailed`](./events/core.ts#L76)
 
 _Class_
 
@@ -120,7 +120,7 @@ export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()
 
 An autonomous runtime completed with a recorded failure.
 
-### [`AgentRuntimeReady`](./events/core.ts#L44)
+### [`AgentRuntimeReady`](./events/core.ts#L46)
 
 _Class_
 
@@ -137,7 +137,7 @@ export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
 
 A roster runtime has acquired its identity and completed readiness.
 
-### [`AgentRuntimeStartFailed`](./events/core.ts#L54)
+### [`AgentRuntimeStartFailed`](./events/core.ts#L56)
 
 _Class_
 
@@ -242,7 +242,7 @@ export class ConversationAddress {
 A participant-independent network address. Binding an endpoint produces a
 conversation socket; the address itself never implies a sender.
 
-### [`ConversationOpened`](./events/core.ts#L107)
+### [`ConversationOpened`](./events/core.ts#L109)
 
 _Class_
 
@@ -353,7 +353,7 @@ export class ConversationSocket {
 
 A conversation address bound to exactly one controlled endpoint.
 
-### [`coreEvents`](./events/core.ts#L284)
+### [`coreEvents`](./events/core.ts#L286)
 
 _Variable_
 
@@ -510,7 +510,7 @@ export class Endpoint<Name extends string = string> {
 
 A run-scoped participant controlled directly by the experiment program.
 
-### [`EndpointMessageReceived`](./events/core.ts#L128)
+### [`EndpointMessageReceived`](./events/core.ts#L130)
 
 _Class_
 
@@ -529,7 +529,7 @@ export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageR
 
 A controlled endpoint received a message through the data plane.
 
-### [`EndpointMessageSent`](./events/core.ts#L117)
+### [`EndpointMessageSent`](./events/core.ts#L119)
 
 _Class_
 
@@ -858,7 +858,7 @@ export interface LinkDelivery {
 
 One committed message about to cross a directed link.
 
-### [`LinkDown`](./events/core.ts#L148)
+### [`LinkDown`](./events/core.ts#L150)
 
 _Class_
 
@@ -874,7 +874,7 @@ export class LinkDown extends Schema.TaggedClass<LinkDown>()(
 
 A directed participant link transitioned from available to unavailable.
 
-### [`LinkMessageDelayed`](./events/core.ts#L195)
+### [`LinkMessageDelayed`](./events/core.ts#L197)
 
 _Class_
 
@@ -893,7 +893,7 @@ export class LinkMessageDelayed extends Schema.TaggedClass<LinkMessageDelayed>()
 
 Active link policies deferred one delivery by a known total duration.
 
-### [`LinkMessageDropped`](./events/core.ts#L183)
+### [`LinkMessageDropped`](./events/core.ts#L185)
 
 _Class_
 
@@ -912,7 +912,7 @@ export class LinkMessageDropped extends Schema.TaggedClass<LinkMessageDropped>()
 
 An active link policy discarded one committed message before delivery.
 
-### [`LinkMessageHeld`](./events/core.ts#L207)
+### [`LinkMessageHeld`](./events/core.ts#L209)
 
 _Class_
 
@@ -952,7 +952,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyCleared`](./events/core.ts#L173)
+### [`LinkPolicyCleared`](./events/core.ts#L175)
 
 _Class_
 
@@ -969,7 +969,7 @@ export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
 
 A described policy stopped shaping one directed participant link.
 
-### [`LinkPolicySet`](./events/core.ts#L163)
+### [`LinkPolicySet`](./events/core.ts#L165)
 
 _Class_
 
@@ -986,7 +986,7 @@ export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
 
 A described policy became active on one directed participant link.
 
-### [`LinkUp`](./events/core.ts#L157)
+### [`LinkUp`](./events/core.ts#L159)
 
 _Class_
 
@@ -1024,7 +1024,7 @@ export type LinkVerdict = Data.TaggedEnum<{
 
 Closed per-delivery decision returned by a link policy.
 
-### [`MessageParts`](./../../protocol/dist/message/messages.d.ts#L48)
+### [`MessageParts`](./../../protocol/dist/message/messages.d.ts#L47)
 
 _TypeAlias_
 
@@ -1109,7 +1109,7 @@ export class ParticipantHandle<Name extends string = string> {
 A router-issued network identity. The hidden symbol prevents structurally
 similar protocol data from being used as an identity handle.
 
-### [`ProgramFailed`](./events/core.ts#L224)
+### [`ProgramFailed`](./events/core.ts#L226)
 
 _Class_
 
@@ -1137,7 +1137,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L232)
+### [`ProgramInterrupted`](./events/core.ts#L234)
 
 _Class_
 
@@ -1152,7 +1152,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L218)
+### [`ProgramSucceeded`](./events/core.ts#L220)
 
 _Class_
 
@@ -1194,7 +1194,7 @@ export interface ReceivedMessage {
 
 A message delivered to one attached endpoint.
 
-### [`RouterMessageCommitted`](./events/core.ts#L140)
+### [`RouterMessageCommitted`](./events/core.ts#L142)
 
 _Class_
 
@@ -1209,7 +1209,7 @@ export class RouterMessageCommitted extends Schema.TaggedClass<RouterMessageComm
 
 The router durably committed one message, plaintext parts included.
 
-### [`RouterStarted`](./events/core.ts#L20)
+### [`RouterStarted`](./events/core.ts#L22)
 
 _Class_
 
@@ -1224,7 +1224,7 @@ export class RouterStarted extends Schema.TaggedClass<RouterStarted>()(
 
 The run-scoped router is accepting participant connections.
 
-### [`RouterStartFailed`](./events/core.ts#L28)
+### [`RouterStartFailed`](./events/core.ts#L30)
 
 _Class_
 
@@ -1239,7 +1239,7 @@ export class RouterStartFailed extends Schema.TaggedClass<RouterStartFailed>()(
 
 Router acquisition failed before the data plane became available.
 
-### [`RouterStopFailed`](./events/core.ts#L36)
+### [`RouterStopFailed`](./events/core.ts#L38)
 
 _Class_
 
@@ -1330,7 +1330,7 @@ export const RunSpec: Readonly<{ define: typeof defineRunSpec }> =
 
 Discoverable constructor for immutable experiment definitions.
 
-### [`RunStarted`](./events/core.ts#L12)
+### [`RunStarted`](./events/core.ts#L14)
 
 _Class_
 

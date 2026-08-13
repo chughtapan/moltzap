@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L195)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L198)
 
 _Function_
 
@@ -37,7 +37,7 @@ sequenceDiagram
 
 **Returns:** A fresh OpenClaw channel plugin.
 
-### [`default`](./openclaw-entry.ts#L692)
+### [`default`](./openclaw-entry.ts#L703)
 
 _Variable_
 
@@ -45,7 +45,7 @@ _Variable_
 const plugin =
 ```
 
-### [`makeMoltZapChannelConfigJsonSchema`](./openclaw-entry.ts#L173)
+### [`makeMoltZapChannelConfigJsonSchema`](./openclaw-entry.ts#L176)
 
 _Function_
 
@@ -57,7 +57,7 @@ Builds the JSON Schema embedded into the OpenClaw manifest.
 
 **Returns:** The generated OpenClaw channel configuration schema.
 
-### [`MoltZapAccount`](./openclaw-entry.ts#L45)
+### [`MoltZapAccount`](./openclaw-entry.ts#L46)
 
 _TypeAlias_
 
@@ -67,7 +67,7 @@ export type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
 
 One OpenClaw account bound to the process-local MCP endpoint.
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L221)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L224)
 
 _Variable_
 
@@ -78,7 +78,7 @@ export const moltzapChannelPlugin: MoltzapChannelPlugin =
 
 Shared plugin instance used by OpenClaw's extension loader.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L216)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L219)
 
 _TypeAlias_
 
@@ -90,7 +90,7 @@ export type MoltzapChannelPlugin = ReturnType<
 
 The inferred OpenClaw plugin contract.
 
-### [`MoltzapChannelPluginDeps`](./openclaw-entry.ts#L113)
+### [`MoltzapChannelPluginDeps`](./openclaw-entry.ts#L116)
 
 _Interface_
 
@@ -105,7 +105,7 @@ export interface MoltzapChannelPluginDeps {
 
 Test injection point for a structural HarnessClient.
 
-### [`OpenClawConfig`](./openclaw-entry.ts#L52)
+### [`OpenClawConfig`](./openclaw-entry.ts#L53)
 
 _Interface_
 
@@ -121,7 +121,7 @@ export interface OpenClawConfig {
 
 OpenClaw configuration read by the channel plugin.
 
-### [`OpenClawReplyDispatcher`](./openclaw-entry.ts#L61)
+### [`OpenClawReplyDispatcher`](./openclaw-entry.ts#L62)
 
 _TypeAlias_
 
@@ -135,7 +135,7 @@ export type OpenClawReplyDispatcher = (params: {
 
 The OpenClaw callback that receives one projected inbound turn.
 
-### [`OpenClawStartAccountContext`](./openclaw-entry.ts#L68)
+### [`OpenClawStartAccountContext`](./openclaw-entry.ts#L69)
 
 _Interface_
 
@@ -146,7 +146,9 @@ export interface OpenClawStartAccountContext {
   readonly account: MoltZapAccount;
   readonly abortSignal: AbortSignal;
   readonly log?: OpenClawLogger;
-  readonly setStatus: (next: Readonly<Record<string, OpenClawLogValue>>) => void;
+  readonly setStatus: (
+    next: Readonly<Record<string, OpenClawLogValue>>,
+  ) => void;
   readonly channelRuntime?: {
     readonly reply?: {
       readonly dispatchReplyWithBufferedBlockDispatcher?: OpenClawReplyDispatcher;
@@ -157,7 +159,7 @@ export interface OpenClawStartAccountContext {
 
 What OpenClaw supplies when starting one configured account.
 
-### [`OpenClawStopAccountContext`](./openclaw-entry.ts#L83)
+### [`OpenClawStopAccountContext`](./openclaw-entry.ts#L86)
 
 _Interface_
 
