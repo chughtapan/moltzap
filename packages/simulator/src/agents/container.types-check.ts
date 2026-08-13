@@ -1,9 +1,11 @@
 /**
  * Type canary: a private container realization preserves its runtime's exact
- * principal gateway and acquisition-error types through render and attach, and
- * a runtime built by `defineContainerRuntime` always has one to read.
+ * principal gateway and acquisition-error types through render and attach,
+ * accepts only the runtime-owned agent name while rendering, and a runtime
+ * built by `defineContainerRuntime` always has one to read.
  */
 
+import type { AgentName } from "@moltzap/identity";
 import type { Effect } from "effect";
 import type { OpenClawGateway } from "./openclaw/gateway.js";
 import { openClawRuntime } from "./openclaw/runtime.js";
@@ -23,12 +25,20 @@ type Equal<Left, Right> = [Left] extends [Right]
 const runtime = openClawRuntime();
 
 /** Stock OpenClaw preserves its exact private container realization type. */
-export const openClawContainerRuntimeCanary = containerRuntimeFor(runtime);
+export const openClawContainerRuntimeCanary: ContainerRuntime<
+  OpenClawGateway,
+  RuntimeAcquisitionError,
+  { readonly agentName: AgentName }
+> = containerRuntimeFor(runtime);
 
 /** Reading back the realization of a defined container runtime has no absent case. */
 export const containerRuntimeIsAlwaysPresent: Equal<
   typeof openClawContainerRuntimeCanary,
-  ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError>
+  ContainerRuntime<
+    OpenClawGateway,
+    RuntimeAcquisitionError,
+    { readonly agentName: AgentName }
+  >
 > = true;
 
 type OpenClawApplication = Application<

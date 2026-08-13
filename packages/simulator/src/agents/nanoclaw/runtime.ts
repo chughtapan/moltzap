@@ -3,7 +3,6 @@
 import type { AgentName } from "@moltzap/identity";
 import { Duration, Effect, Schema, type Scope } from "effect";
 import {
-  type AgentRuntimeInput,
   type RuntimeAcquisitionError,
   RuntimeFailed,
   type RuntimeTermination,
@@ -102,7 +101,8 @@ export function nanoclawRuntime(
 ): ContainerAgentRuntime<
   NanoClawGateway,
   RuntimeAcquisitionError,
-  typeof NanoClawRuntimeConfiguration
+  typeof NanoClawRuntimeConfiguration,
+  NanoClawRenderInput
 > {
   const settings = snapshotOptions(options);
   const capability = nanoclawCapability(settings, (endpoint, within) =>
@@ -127,6 +127,10 @@ interface NanoClawRuntimeSettings {
   readonly applicationImage: Image;
   readonly autoRegisterConversations: boolean;
   readonly mcpServers?: readonly McpServer[];
+}
+
+interface NanoClawRenderInput {
+  readonly agentName: AgentName;
 }
 
 type NanoClawGatewayAcquirer = (
@@ -163,13 +167,16 @@ function snapshotOptions(
 function nanoclawCapability(
   settings: NanoClawRuntimeSettings,
   acquireGateway: NanoClawGatewayAcquirer,
-): ContainerRuntime<NanoClawGateway, RuntimeAcquisitionError> {
+): ContainerRuntime<
+  NanoClawGateway,
+  RuntimeAcquisitionError,
+  NanoClawRenderInput
+> {
   const renderer: NanoClawRenderer = { settings, acquireGateway };
   return Object.freeze({
     image: settings.applicationImage,
     resources: APPLICATION_RESOURCES,
-    render: <Name extends string>(input: AgentRuntimeInput<Name>) =>
-      renderNanoClaw(renderer, input),
+    render: (input: NanoClawRenderInput) => renderNanoClaw(renderer, input),
   });
 }
 
@@ -188,9 +195,9 @@ function runtimeConfiguration(
   });
 }
 
-function renderNanoClaw<Name extends string>(
+function renderNanoClaw(
   renderer: NanoClawRenderer,
-  input: AgentRuntimeInput<Name>,
+  input: NanoClawRenderInput,
 ): Effect.Effect<
   Application<NanoClawGateway, RuntimeAcquisitionError>,
   RuntimeAcquisitionError
@@ -206,9 +213,9 @@ function renderNanoClaw<Name extends string>(
   });
 }
 
-function makeNanoClawApplication<Name extends string>(
+function makeNanoClawApplication(
   renderer: NanoClawRenderer,
-  input: AgentRuntimeInput<Name>,
+  input: NanoClawRenderInput,
 ): Application<NanoClawGateway, RuntimeAcquisitionError> {
   const { settings } = renderer;
   const bridge = {
@@ -235,9 +242,9 @@ function makeNanoClawApplication<Name extends string>(
   });
 }
 
-function bootstrapFiles<Name extends string>(
+function bootstrapFiles(
   settings: NanoClawRuntimeSettings,
-  input: AgentRuntimeInput<Name>,
+  input: NanoClawRenderInput,
 ): readonly File[] {
   return Object.freeze([
     bootstrapFile(

@@ -1,8 +1,10 @@
 /**
  * Type canary: NanoClaw's private container realization preserves its exact
- * native gateway and acquisition-error types through render and attach.
+ * native gateway and acquisition-error types through render and attach while
+ * accepting only the runtime-owned agent name during rendering.
  */
 
+import type { AgentName } from "@moltzap/identity";
 import type { Effect } from "effect";
 import {
   containerRuntimeFor,
@@ -29,7 +31,8 @@ const runtime = nanoclawRuntime({
 /** Configured NanoClaw preserves its exact private container realization. */
 export const nanoclawContainerRuntimeCanary: ContainerRuntime<
   NanoClawGateway,
-  RuntimeAcquisitionError
+  RuntimeAcquisitionError,
+  { readonly agentName: AgentName }
 > = containerRuntimeFor(runtime);
 
 type NanoClawApplication = Application<

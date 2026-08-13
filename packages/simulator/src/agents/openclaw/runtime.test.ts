@@ -2,17 +2,13 @@ import { assert, it as effectIt } from "@effect/vitest";
 import { AgentName } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { describe } from "vitest";
-import { makeAgentHandle, type AgentConnection } from "../../network.js";
 import {
   containerRuntimeFor,
   type Application,
   type ContainerRuntime,
   type File,
 } from "../container.js";
-import {
-  runtimeConfigurationProjection,
-  type RuntimeAcquisitionError,
-} from "../agent.js";
+import type { RuntimeAcquisitionError } from "../agent.js";
 import {
   GatewayOperations,
   OpenClawGatewayRequest,
@@ -21,17 +17,9 @@ import {
   type OpenClawGatewayClientFactory,
 } from "./gateway.js";
 import { openClawRuntime } from "./runtime.js";
-import { serverBaseUrl } from "@moltzap/protocol/network";
-import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 
 const test = effectIt.effect;
 const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
-const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
-const AGENT_KEY_TEXT =
-  "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";
-const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
-// eslint-disable-next-line sonarjs/no-clear-text-protocols -- the private in-cluster router contract is intentionally HTTP.
-const ROUTER_URL = serverBaseUrl("http://router.society.svc:3000");
 const GATEWAY_HOST = "alice.society.svc";
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const OPENCLAW_CONFIG_PATH = `${BOOTSTRAP_ROOT}openclaw.json`;
@@ -43,12 +31,6 @@ const PAIRED_DEVICES_PATH = `${APPLICATION_STATE_DIR}/devices/paired.json`;
 const WORKSPACE_CONTENT = "Alice";
 const BRIDGE_RUN_ID = "openclaw-bridge-run";
 const BRIDGE_IDEMPOTENCY_KEY = "openclaw-bridge-key";
-
-const connection: AgentConnection<"alice"> = {
-  agent: makeAgentHandle("alice", AGENT_ID),
-  key: AGENT_KEY,
-  routerUrl: ROUTER_URL,
-};
 
 /**
  * OpenClaw sees no stop the cluster cannot, so it must never report one: its
@@ -77,7 +59,8 @@ const renderedOpenClawConfig = Schema.parseJson(
 
 type OpenClawContainerRuntime = ContainerRuntime<
   OpenClawGateway,
-  RuntimeAcquisitionError
+  RuntimeAcquisitionError,
+  { readonly agentName: AgentName }
 >;
 type OpenClawApplication = Application<
   OpenClawGateway,
@@ -85,7 +68,6 @@ type OpenClawApplication = Application<
 >;
 
 interface StockFixture {
-  readonly runtime: ReturnType<typeof openClawRuntime>;
   readonly capability: OpenClawContainerRuntime;
   readonly application: OpenClawApplication;
   readonly config: typeof renderedOpenClawConfig.Type;
@@ -108,14 +90,11 @@ function makeStockFixture() {
       ],
     });
     const capability = containerRuntimeFor(runtime);
-    const application = yield* capability.render({
-      agentName: AGENT_NAME,
-      connection,
-    });
+    const application = yield* capability.render({ agentName: AGENT_NAME });
     const config = Schema.decodeUnknownSync(renderedOpenClawConfig)(
       requireFile(application.files, OPENCLAW_CONFIG_PATH),
     );
-    return { runtime, capability, application, config };
+    return { capability, application, config };
   });
 }
 
@@ -126,7 +105,6 @@ function assertCredentialFreeReservation(
     image: capability.image,
     resources: capability.resources,
   }).toLowerCase();
-  assert.notInclude(reservation, AGENT_KEY_TEXT.toLowerCase());
   assert.notInclude(reservation, "credential");
   assert.notInclude(reservation, "bootstrap");
   assert.match(capability.image, /@sha256:[\da-f]{64}$/u);
@@ -166,8 +144,6 @@ function assertApplicationContainer(fixture: StockFixture): void {
     APPLICATION_STATE_DIR,
   );
   assert.deepStrictEqual(application.credentials, ["OPENAI_API_KEY"]);
-  assert.notInclude(containerProjection, AGENT_KEY_TEXT);
-  assert.notInclude(containerProjection, ROUTER_URL);
   assert.notInclude(containerProjection, config.gateway.auth.token);
   assert.strictEqual(config.gateway.bind, "lan");
   assert.strictEqual(
@@ -178,7 +154,7 @@ function assertApplicationContainer(fixture: StockFixture): void {
 }
 
 function assertBootstrapMaterial(fixture: StockFixture): void {
-  const { application, runtime } = fixture;
+  const { application } = fixture;
   assert.strictEqual(
     requireFile(application.files, WORKSPACE_PATH),
     WORKSPACE_CONTENT,
@@ -195,11 +171,6 @@ function assertBootstrapMaterial(fixture: StockFixture): void {
   ]);
   assert.isTrue(
     application.files.every((file) => file.path.startsWith(BOOTSTRAP_ROOT)),
-  );
-  assert.notInclude(JSON.stringify(application.files), AGENT_KEY_TEXT);
-  assert.notInclude(
-    JSON.stringify(runtimeConfigurationProjection(runtime)),
-    AGENT_KEY_TEXT,
   );
 }
 

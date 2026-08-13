@@ -2,13 +2,10 @@
 
 import { assert, it as effectIt } from "@effect/vitest";
 import { AgentName } from "@moltzap/identity";
-import { serverBaseUrl } from "@moltzap/protocol/network";
-import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Deferred, Effect, Schema, type Scope } from "effect";
 import { createServer, type Socket as NetSocket } from "node:net";
 import { describe } from "vitest";
 import type { NanoClawGateway } from "./gateway.js";
-import { type AgentConnection, makeAgentHandle } from "../../network.js";
 import {
   type RuntimeAcquisitionError,
   runtimeConfigurationProjection,
@@ -27,12 +24,6 @@ import { nanoclawRuntime } from "./runtime.js";
 const test = effectIt.effect;
 const liveTest = effectIt.scopedLive;
 const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
-const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
-const AGENT_KEY_TEXT =
-  "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";
-const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
-// eslint-disable-next-line sonarjs/no-clear-text-protocols -- the private in-cluster router contract is intentionally HTTP.
-const ROUTER_URL = serverBaseUrl("http://router.society.svc:3000");
 const APPLICATION_IMAGE = image.make(
   "example.invalid/nanoclaw-application@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 );
@@ -48,12 +39,6 @@ const MODEL_ID = "claude-sonnet-4-5";
 const WORKSPACE_CONTENT = "Alice";
 const MCP_SECRET = "secret-mcp-value";
 const MCP_URL = "https://calendar.test/mcp/opaque-token";
-
-const connection: AgentConnection<"alice"> = {
-  agent: makeAgentHandle("alice", AGENT_ID),
-  key: AGENT_KEY,
-  routerUrl: ROUTER_URL,
-};
 
 const renderedRuntimeConfig = Schema.parseJson(
   Schema.Struct({
@@ -80,7 +65,8 @@ const renderedRuntimeConfig = Schema.parseJson(
 
 type NanoClawContainerRuntime = ContainerRuntime<
   NanoClawGateway,
-  RuntimeAcquisitionError
+  RuntimeAcquisitionError,
+  { readonly agentName: AgentName }
 >;
 type NanoClawApplication = Application<
   NanoClawGateway,
@@ -122,10 +108,7 @@ function makeFixture() {
       ],
     });
     const capability = containerRuntimeFor(runtime);
-    const application = yield* capability.render({
-      agentName: AGENT_NAME,
-      connection,
-    });
+    const application = yield* capability.render({ agentName: AGENT_NAME });
     const runtimeConfig = Schema.decodeUnknownSync(renderedRuntimeConfig)(
       requireFile(application.files, RUNTIME_CONFIG_PATH),
     );
@@ -156,8 +139,6 @@ function assertApplicationContainer(fixture: Fixture): void {
   );
   assert.strictEqual(application.environment.MOLTZAP_NANOCLAW_STATE, STATE_DIR);
   assert.deepStrictEqual(application.credentials, ["ANTHROPIC_API_KEY"]);
-  assert.notInclude(projection, AGENT_KEY_TEXT);
-  assert.notInclude(projection, ROUTER_URL);
   assert.notInclude(projection, MCP_SECRET);
 }
 
@@ -184,11 +165,6 @@ function assertBootstrap(fixture: Fixture): void {
   );
   assert.isTrue(
     application.files.every((file) => file.path.startsWith(BOOTSTRAP_ROOT)),
-  );
-  assert.notInclude(JSON.stringify(application.files), AGENT_KEY_TEXT);
-  assert.notInclude(
-    JSON.stringify(runtimeConfigurationProjection(runtime)),
-    AGENT_KEY_TEXT,
   );
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),

@@ -12,7 +12,6 @@ import {
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import {
   AgentRuntimeDefinitionError,
-  type AgentRuntimeInput,
   deepFreeze,
   type RuntimeAcquisitionError,
   type RuntimeTermination,
@@ -138,7 +137,8 @@ export function openClawRuntime(
 ): ContainerAgentRuntime<
   OpenClawGateway,
   RuntimeAcquisitionError,
-  typeof OpenClawRuntimeConfiguration
+  typeof OpenClawRuntimeConfiguration,
+  OpenClawRenderInput
 > {
   const settings = snapshotOptions(options);
   const capability = openClawCapability(settings, acquireOpenClawGateway);
@@ -166,6 +166,10 @@ interface OpenClawRuntimeSettings {
   readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
+}
+
+interface OpenClawRenderInput {
+  readonly agentName: AgentName;
 }
 
 function snapshotOptions(
@@ -261,10 +265,10 @@ interface OpenClawGatewayPairing {
   readonly pairedDevices: string;
 }
 
-function makeOpenClawApplication<Name extends string>(
+function makeOpenClawApplication(
   settings: OpenClawRuntimeSettings,
   acquireGateway: OpenClawGatewayAcquirer,
-  input: AgentRuntimeInput<Name>,
+  input: OpenClawRenderInput,
 ): Application<OpenClawGateway, RuntimeAcquisitionError> {
   const gatewayToken = Redacted.make(
     randomBytes(OPENCLAW_GATEWAY_TOKEN_BYTES).toString("hex"),
@@ -349,9 +353,9 @@ function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
   });
 }
 
-function bootstrapFiles<Name extends string>(
+function bootstrapFiles(
   settings: OpenClawRuntimeSettings,
-  input: AgentRuntimeInput<Name>,
+  input: OpenClawRenderInput,
   gatewayToken: Redacted.Redacted,
   pairing: OpenClawGatewayPairing,
 ): readonly File[] {
@@ -456,10 +460,10 @@ function attachOpenClaw(
   });
 }
 
-function renderOpenClaw<Name extends string>(
+function renderOpenClaw(
   settings: OpenClawRuntimeSettings,
   acquireGateway: OpenClawGatewayAcquirer,
-  input: AgentRuntimeInput<Name>,
+  input: OpenClawRenderInput,
 ): Effect.Effect<
   Application<OpenClawGateway, RuntimeAcquisitionError>,
   RuntimeAcquisitionError
@@ -478,11 +482,15 @@ function renderOpenClaw<Name extends string>(
 function openClawCapability(
   settings: OpenClawRuntimeSettings,
   acquireGateway: OpenClawGatewayAcquirer,
-): ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError> {
+): ContainerRuntime<
+  OpenClawGateway,
+  RuntimeAcquisitionError,
+  OpenClawRenderInput
+> {
   return Object.freeze({
     image: STOCK_OPENCLAW_IMAGE,
     resources: APPLICATION_RESOURCES,
-    render: <Name extends string>(input: AgentRuntimeInput<Name>) =>
+    render: (input: OpenClawRenderInput) =>
       renderOpenClaw(settings, acquireGateway, input),
   });
 }
