@@ -34,10 +34,6 @@
     {
       "subpath": "./test-support",
       "reason": "Channel test support exposed for integration tests"
-    },
-    {
-      "subpath": "./testing",
-      "reason": "Conformance + driver surface for cross-package integration testing"
     }
   ]
 }

@@ -22,10 +22,6 @@ const publicTypePackage = {
     reason:
       "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design",
   },
-  protocol: {
-    package: "@moltzap/protocol",
-    reason: "Intra-monorepo protocol; foundational shared contract",
-  },
   client: {
     package: "@moltzap/client",
     reason: "Intra-monorepo client SDK; channels depend on its public surface",
@@ -54,10 +50,6 @@ const publicTypePackages = Object.entries(publicTypePackage)
   )
   .map(([, definition]) => definition);
 
-const publicTypePackagesWithoutProtocol = publicTypePackages.filter(
-  (definition) => definition !== publicTypePackage.protocol,
-);
-
 const allowedTestPublicSubpaths = [
   {
     subpath: "./test-utils",
@@ -71,11 +63,6 @@ const allowedTestPublicSubpaths = [
     subpath: "./test-support",
     reason: "Channel test support exposed for integration tests",
   },
-  {
-    subpath: "./testing",
-    reason:
-      "Conformance + driver surface for cross-package integration testing",
-  },
 ];
 
 const sharedConfig = {
@@ -86,10 +73,7 @@ const sharedConfig = {
 const packageDefinitions = {
   client: {
     afterShared: {
-      publicTypePackages: [
-        ...publicTypePackagesWithoutProtocol,
-        publicTypePackage.identity,
-      ],
+      publicTypePackages: [...publicTypePackages, publicTypePackage.identity],
     },
   },
   evals: {
@@ -150,11 +134,6 @@ const packageDefinitions = {
             "Per-condition experiment identity and reconciliation shared by dataset versioning and report publication",
         },
         {
-          file: "src/peer.ts",
-          reason:
-            "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary",
-        },
-        {
           file: "src/sweep.ts",
           reason:
             "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher",
@@ -170,7 +149,6 @@ const packageDefinitions = {
           reason:
             "The reduced Client surface supplies conversation identity and agent names to evaluation boundaries",
         },
-        publicTypePackage.protocol,
         publicTypePackage.simulator,
       ],
       allowedTestPublicSubpaths: [],
@@ -196,101 +174,7 @@ const packageDefinitions = {
       packageRuntime: "node",
     },
     afterShared: {
-      publicTypePackages: publicTypePackagesWithoutProtocol,
-    },
-  },
-  protocol: {
-    config: {
-      minExportedSiblingModules: 10,
-      maxSubpathExports: 11,
-      maxPublicExports: 43,
-      maxPublicReexports: 13,
-      minPublicFacadeModules: 14,
-      folderChildCountOverrides: [
-        {
-          folder: "transport",
-          maxChildren: 12,
-          reason:
-            "Transport is a flat wire-contract toolkit whose descriptor, dispatch, mux, decoding, pagination, and wire-error modules form one cohesive lowest layer",
-        },
-      ],
-      facadeFiles: [
-        {
-          file: "socket/lifecycle.ts",
-          reason:
-            "Stable lifecycle contract shared by the agent and app socket clients while socket/index.ts curates the published socket surface",
-        },
-        {
-          file: "socket/server.ts",
-          reason:
-            "Stable server socket contract that composes transport and requirement layers behind MoltZapServer",
-        },
-        {
-          file: "identity/agents/types.ts",
-          reason:
-            "The agent-card schema and not-found error form the identity descriptor boundary consumed by the agent-list RPC while identity/agents/index.ts curates the published surface",
-        },
-        {
-          file: "transport/definition.ts",
-          reason:
-            "Descriptor definitions are the stable transport boundary used by every higher protocol domain",
-        },
-      ],
-      publicTypePackages: [
-        publicTypePackage.effect,
-        publicTypePackage.platform,
-        publicTypePackage.platformNode,
-        {
-          package: "@effect/rpc",
-          reason:
-            "RPC definitions are the protocol's public contract; Rpc/RpcGroup types cross the boundary by design",
-        },
-      ],
-      allowedTestPublicSubpaths: [
-        {
-          subpath: "./testing",
-          reason:
-            "Conformance + driver surface for cross-package integration testing; consumed by moltzap-arena",
-        },
-      ],
-      layers: [
-        {
-          name: "socket",
-          folders: ["socket"],
-          reason:
-            "Composition layer: the clients, the server, and the catalog that derives its RPC groups from every domain below it",
-        },
-        {
-          name: "message",
-          folders: ["message"],
-          reason:
-            "Message domain: payloads, send and list descriptors, dispatch admission; addresses conversations, so it sits above them",
-        },
-        {
-          name: "conversation",
-          folders: ["conversation"],
-          reason:
-            "Conversation domain: addressing, participant membership, and the identifiers the message domain references",
-        },
-        {
-          name: "network",
-          folders: ["network"],
-          reason:
-            "Network domain: connect descriptors, protocol version, and the server address",
-        },
-        {
-          name: "identity",
-          folders: ["identity"],
-          reason:
-            "Identity domain: agents, apps, users, and the principal requirements every domain above composes",
-        },
-        {
-          name: "transport",
-          folders: ["transport"],
-          reason:
-            "Wire layer: descriptor primitives, strict decode, mux routing, tagged errors; no domain semantics",
-        },
-      ],
+      publicTypePackages,
     },
   },
   simulator: {
@@ -310,11 +194,6 @@ const packageDefinitions = {
         },
       ],
       facadeFiles: [
-        {
-          file: "network.ts",
-          reason:
-            "Published network contract for participants, conversations, endpoints, links, and router implementations",
-        },
         {
           file: "ledger.ts",
           reason:
@@ -360,19 +239,9 @@ const packageDefinitions = {
           reason: "Completed-ledger validation and offline opening boundary",
         },
         {
-          file: "run/link-fabric.ts",
-          reason:
-            "Link-fabric boundary coupling the platform link driver, receiver registration, and the policy interpreter",
-        },
-        {
           file: "run/outcomes.ts",
           reason:
-            "Causal outcome conversion shared by runtime, router, and program lifecycle modules",
-        },
-        {
-          file: "run/router.ts",
-          reason:
-            "Router lifecycle boundary coupling scoped acquisition and shutdown with durable causal outcomes",
+            "Causal outcome conversion shared by runtime and program lifecycle modules",
         },
         {
           file: "run/execute.ts",
@@ -415,35 +284,6 @@ const packageDefinitions = {
             "Public authoring surface composing catalogs, roster, cluster layer, and the customer Effect into one runnable spec",
         },
         {
-          file: "network/endpoint.ts",
-          reason:
-            "Controlled endpoint and network service boundary over router transports and conversation receive cursors",
-        },
-        {
-          file: "network/link.ts",
-          reason:
-            "Link driver port and experiment-facing scoped link controller services",
-        },
-        {
-          file: "network/participant.ts",
-          reason:
-            "Nominal participant and agent handles shared by network, runtime, and kernel capabilities",
-        },
-        {
-          file: "network/conversation.ts",
-          reason: "Conversation addressing and endpoint-bound socket contract",
-        },
-        {
-          file: "network/router.ts",
-          reason:
-            "Router port, framed message model, connection contract, and typed network failures",
-        },
-        {
-          file: "network/server/process.ts",
-          reason:
-            "Scoped MoltZap server ownership for image, storage, process, observation, and identity resources",
-        },
-        {
           file: "agents/agent.ts",
           reason:
             "Autonomous participant lifecycle contract implemented by every runtime family",
@@ -452,11 +292,6 @@ const packageDefinitions = {
           file: "agents/roster.ts",
           reason:
             "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements",
-        },
-        {
-          file: "network/server/packages.ts",
-          reason:
-            "Runtime package discovery and install-policy boundary shared by shipped runtime families",
         },
       ],
       layers: [
@@ -477,14 +312,13 @@ const packageDefinitions = {
           folders: [
             "events",
             "ledger",
-            "network",
             "agents",
             "cluster",
             "cluster/kubernetes",
             "cluster/profiles",
           ],
           reason:
-            "Peer event, ledger, network, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it",
+            "Event, ledger, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it",
         },
       ],
     },
@@ -492,43 +326,10 @@ const packageDefinitions = {
       publicTypePackages: [
         publicTypePackage.effect,
         publicTypePackage.platform,
-        {
-          ...publicTypePackage.rpc,
-          reason:
-            "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client",
-        },
         publicTypePackage.openclaw,
-        {
-          ...publicTypePackage.client,
-          reason:
-            "Client-owned conversation identities cross simulator boundaries",
-        },
         publicTypePackage.identity,
-        publicTypePackage.protocol,
       ],
       allowedTestPublicSubpaths: [],
-    },
-  },
-  server: {
-    beforeShared: {
-      packageRuntime: "node",
-    },
-    afterShared: {
-      minExportedSiblingModules: 7,
-      folderChildCountOverrides: [
-        {
-          folder: ".",
-          maxChildren: 13,
-          reason:
-            "The source root is the package assembly boundary and intentionally groups its domain folders with the binary and configuration entrypoints",
-        },
-        {
-          folder: "db",
-          maxChildren: 10,
-          reason:
-            "The database boundary keeps schema, client, and migration adapters together while each concern remains named and cohesive",
-        },
-      ],
     },
   },
 };

@@ -2,8 +2,6 @@
   "$schema": "https://typedoc.org/schema.json",
   "entryPointStrategy": "packages",
   "entryPoints": [
-    "packages/protocol",
-    "packages/server",
     "packages/client",
     "packages/simulator",
     "packages/nanoclaw-channel",

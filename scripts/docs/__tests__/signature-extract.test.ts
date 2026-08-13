@@ -62,7 +62,7 @@ describe("extractSignatureText", () => {
   it("keeps the full body of a class declaration", () => {
     const source = [
       "export class AgentExists extends Context.Tag(",
-      '  "@moltzap/protocol/AgentExists",',
+      '  "@moltzap/client/AgentExists",',
       ")<AgentExists, AgentExistsValue>() {}",
       "",
     ].join("\n");
@@ -70,7 +70,7 @@ describe("extractSignatureText", () => {
     expect(sig).toBe(
       [
         "export class AgentExists extends Context.Tag(",
-        '  "@moltzap/protocol/AgentExists",',
+        '  "@moltzap/client/AgentExists",',
         ")<AgentExists, AgentExistsValue>() {}",
       ].join("\n"),
     );
@@ -323,7 +323,7 @@ describe("extractSignatureText", () => {
   });
 
   it("keeps the first public overload when declarations share a kind", () => {
-    const fileName = "packages/server/src/example.ts";
+    const fileName = "packages/client/src/example.ts";
     const source = [
       "export function send(value: string): string;",
       "export function send(value: number): number;",

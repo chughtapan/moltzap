@@ -33,13 +33,8 @@ const forbiddenSimulatorPaths = [
   "nanoclaw-assets",
   "scripts/copy-nanoclaw-assets.mjs",
   "scripts/build-controller-image.mjs",
-  "scripts/build-server-image.mjs",
   "local/controller-image/Dockerfile",
-  "server-image/Dockerfile",
-  "server-image/moltzap.yaml",
   "src/layer.ts",
-  "src/network/server.ts",
-  "src/network/server-image.ts",
   "src/agents/cache.ts",
   "src/agents/effect.ts",
   "src/agents/nanoclaw/install.ts",
@@ -125,33 +120,19 @@ async function verifyRepositoryCutover() {
 }
 
 async function verifyControllerImageAssembly() {
-  const [dockerfile, evalPackageSource, channelPackageSource] =
-    await Promise.all([
-      readFile(controllerImageDockerfile, "utf8"),
-      readFile(
-        join(workspaceRoot, "packages", "evals", "package.json"),
-        "utf8",
-      ),
-      readFile(
-        join(workspaceRoot, "packages", "openclaw-channel", "package.json"),
-        "utf8",
-      ),
-    ]);
-  const evalPackage = JSON.parse(evalPackageSource);
+  const [dockerfile, channelPackageSource] = await Promise.all([
+    readFile(controllerImageDockerfile, "utf8"),
+    readFile(
+      join(workspaceRoot, "packages", "openclaw-channel", "package.json"),
+      "utf8",
+    ),
+  ]);
   const channelPackage = JSON.parse(channelPackageSource);
 
   requireCondition(
-    evalPackage.files?.includes("dist"),
-    "the packed evaluation package must include its compiled entrypoints",
-  );
-  requireCondition(
     JSON.stringify(controllerPackageDependencies) ===
-      JSON.stringify([
-        "@moltzap/evals",
-        "@moltzap/server-core",
-        "@moltzap/simulator",
-      ]),
-    "the controller image must directly install evals, simulator, and the retiring server binary",
+      JSON.stringify(["@moltzap/simulator"]),
+    "the controller image must directly install simulator",
   );
   requireCondition(
     channelPackage.peerDependenciesMeta?.openclaw?.optional === true,
@@ -166,7 +147,6 @@ async function verifyControllerImageAssembly() {
   for (const expected of [
     "/opt/moltzap/application-overlay",
     "/opt/moltzap/dist",
-    "node_modules/@moltzap/evals/dist/peer-application.js",
     'await import("./node_modules/@moltzap/openclaw-channel/dist/openclaw-entry.js")',
   ]) {
     requireCondition(
@@ -207,8 +187,6 @@ async function verifyPackedFiles(extractedPackage) {
   const required = [
     "dist/index.js",
     "dist/index.d.ts",
-    "dist/network.js",
-    "dist/network.d.ts",
     "dist/ledger.js",
     "dist/ledger.d.ts",
     "dist/agents.js",
@@ -239,16 +217,12 @@ async function verifyPackedFiles(extractedPackage) {
   );
   requireCondition(
     JSON.stringify(Object.keys(manifest.exports)) ===
-      JSON.stringify([".", "./network", "./ledger", "./agents"]),
-    "packed simulator exports must be root, network, ledger, and agents",
+      JSON.stringify([".", "./ledger", "./agents"]),
+    "packed simulator exports must be root, ledger, and agents",
   );
   requireCondition(
     manifest.dependencies?.["@moltzap/openclaw-channel"] === undefined,
     "packed simulator must not depend on the OpenClaw adapter",
-  );
-  requireCondition(
-    manifest.dependencies?.["@moltzap/server-core"] === undefined,
-    "packed simulator must not depend on the retiring server package",
   );
 }
 
@@ -267,7 +241,6 @@ async function verifyConsumerImports(extractedPackage) {
     checkPath,
     [
       'import * as simulator from "@moltzap/simulator";',
-      'import * as network from "@moltzap/simulator/network";',
       'import * as ledger from "@moltzap/simulator/ledger";',
       'import * as agents from "@moltzap/simulator/agents";',
       'for (const name of ["Run", "RunSpec"]) {',
@@ -282,7 +255,6 @@ async function verifyConsumerImports(extractedPackage) {
       'for (const name of ["defineRuntime", "effectRuntime"]) {',
       "  if (name in agents) throw new Error(`obsolete agents export ${name}`);",
       "}",
-      'if (!("RouterProvider" in network)) throw new Error("missing network RouterProvider");',
       'if (!("LedgerStorage" in ledger)) throw new Error("missing ledger LedgerStorage");',
       "",
     ].join("\n"),

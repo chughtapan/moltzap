@@ -5,10 +5,8 @@
  * Shared `packages/*` rules cover wildcard exports and barrel discipline.
  * Identity and Router additionally enforce their final package names, public
  * entrypoints, binaries, project references, and dependency direction. Client
- * also pins each retired CLI, Unix-RPC artifact, and server-backed v1 test
- * lane while its final public interface remains gated. The remaining packages
- * stay visible while their cutover lanes retire protocol and server and narrow
- * the adapter, simulator, and eval dependencies.
+ * also pins each retired CLI and Unix-RPC artifact while its final public
+ * interface remains gated.
  *
  * The relocated-package table is a hand transcription of the current package
  * contract. It is written down rather than derived so drift fails whichever
@@ -182,16 +180,6 @@ function checkSourceFile(file) {
   }
 }
 
-function assertExportMap(pkgPath, expected) {
-  const pkg = readJson(path.join(repo, pkgPath, "package.json"));
-  failOnSetDrift(
-    `${pkgPath}/package.json`,
-    "exports changed",
-    Object.keys(pkg.exports ?? {}),
-    expected,
-  );
-}
-
 const sourceFiles = walk(packagesRoot);
 if (sourceFiles.length === 0) {
   failures.push(
@@ -199,28 +187,6 @@ if (sourceFiles.length === 0) {
   );
 }
 for (const file of sourceFiles) checkSourceFile(file);
-
-assertExportMap("packages/protocol", [
-  "./conversation",
-  "./identity",
-  "./message",
-  "./network",
-  "./rpc",
-  "./socket",
-  "./socket/catalog",
-  "./testing",
-]);
-assertExportMap("packages/server", []);
-const serverManifest = readJson(
-  path.join(repo, "packages/server/package.json"),
-);
-for (const retiredField of ["main", "types"]) {
-  if (Object.hasOwn(serverManifest, retiredField)) {
-    failures.push(
-      `packages/server/package.json: executable-only package still declares ${retiredField}`,
-    );
-  }
-}
 
 // ─── Retired Client process and test planes ───────────────────────────────
 
@@ -274,11 +240,7 @@ const retiredClientDependencies = [
   "@effect/printer-ansi",
   "@effect/typeclass",
 ];
-const retiredClientTestFragments = [
-  "server-core",
-  "testPgHost",
-  "vitest.integration",
-];
+const retiredClientTestFragments = ["testPgHost", "vitest.integration"];
 
 const clientSources = walk(path.join(clientRoot, "src"));
 if (clientSources.length === 0) {
@@ -328,7 +290,6 @@ for (const referenceFile of clientReferenceFiles) {
 }
 
 const clientManifest = readJson(path.join(clientRoot, "package.json"));
-const clientTsconfig = readJson(path.join(clientRoot, "tsconfig.json"));
 if (Object.hasOwn(clientManifest.bin ?? {}, "moltzap")) {
   failures.push(
     "packages/client/package.json: retired moltzap executable is present",
@@ -345,23 +306,6 @@ for (const dependency of retiredClientDependencies) {
       `packages/client/package.json: retired CLI dependency ${dependency} is present`,
     );
   }
-}
-if (
-  Object.hasOwn(clientManifest.dependencies ?? {}, "@moltzap/server-core") ||
-  Object.hasOwn(clientManifest.devDependencies ?? {}, "@moltzap/server-core")
-) {
-  failures.push(
-    "packages/client/package.json: retired server-core test dependency is present",
-  );
-}
-if (
-  (clientTsconfig.references ?? []).some(
-    (reference) => reference.path === "../server",
-  )
-) {
-  failures.push(
-    "packages/client/tsconfig.json: retired server project reference is present",
-  );
 }
 if (Object.hasOwn(clientManifest.devDependencies ?? {}, "tsx")) {
   failures.push(

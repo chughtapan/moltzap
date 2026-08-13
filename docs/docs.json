@@ -41,8 +41,6 @@
             "group": "Development",
             "pages": [
               "development/evals",
-              "development/eval-add-evaluation",
-              "development/eval-grading-reference",
               "development/contributing"
             ]
           }

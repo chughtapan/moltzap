@@ -37,19 +37,10 @@
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
-    "packages/protocol": {
-      "entry": [
-        "src/**/*.test.ts",
-        "src/**/*.types-check.ts",
-        "vitest*.config.mjs"
-      ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
-    },
     "packages/evals": {
       "entry": [
         "src/cli.ts",
         "src/execution.ts",
-        "src/peer-application.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts"
       ],
@@ -67,13 +58,6 @@
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"]
-    },
-    "packages/server": {
-      "entry": [
-        "src/**/*.test.ts",
-        "vitest*.config.mjs"
-      ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/identity": {
       "entry": [

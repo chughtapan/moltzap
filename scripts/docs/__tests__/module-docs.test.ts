@@ -19,11 +19,7 @@ import {
   REQUIRED_PACKAGE_SUBPATHS,
   type ModuleRenderResult,
 } from "../modules.js";
-import {
-  folderOf,
-  loadTypeDoc,
-  type TypeDocCache,
-} from "../typedoc-load.js";
+import { folderOf, loadTypeDoc, type TypeDocCache } from "../typedoc-load.js";
 
 const GITHUB_SOURCE = "https://github.com/chughtapan/moltzap/blob";
 
@@ -294,19 +290,19 @@ describe("module documentation", () => {
       JSON.stringify({
         children: [
           {
-            name: "@moltzap/protocol",
+            name: "@moltzap/identity",
             children: [
               {
                 id: 101,
-                name: "socket",
+                name: "registry",
                 kind: ReflectionKind.Module,
                 children: [
                   {
                     id: 102,
-                    name: "MoltZapAgentClient",
+                    name: "Registry",
                     kind: ReflectionKind.Class,
                     sources: source(
-                      "/workspace/moltzap-worktree/packages/protocol/dist/socket/agent-client.d.ts",
+                      "/workspace/moltzap-worktree/packages/identity/dist/registry.d.ts",
                       1,
                     ),
                   },
@@ -320,16 +316,16 @@ describe("module documentation", () => {
 
     const cache = await Effect.runPromise(
       loadTypeDoc(cachePath, {
-        packageSubpaths: ["@moltzap/protocol/socket"],
+        packageSubpaths: ["@moltzap/identity/registry"],
       }).pipe(Effect.provide(NodeContext.layer)),
     );
     const [declaration] = cache.all;
 
     expect(declaration?.sources[0]?.fileName).toBe(
-      "packages/protocol/dist/socket/agent-client.d.ts",
+      "packages/identity/dist/registry.d.ts",
     );
     expect(declaration === undefined ? "" : folderOf(declaration)).toBe(
-      "packages/protocol/dist/socket",
+      "packages/identity/dist",
     );
   });
 

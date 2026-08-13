@@ -163,10 +163,9 @@ export const generateModuleDocs = (
 /**
  * Delete docs/modules MDX files whose slug is not produced by this
  * pass, and delete `MODULE.md` siblings whose folder is no longer in
- * the rendered set. A stale flat-layout `docs/modules/protocol/foo.mdx`
- * left behind by a previous generator shape stays referenced from no
- * `_nav.json` entry and confuses `docs:check:drift`; pruning closes
- * the loop.
+ * the rendered set. Stale pages from a previous generator shape stay
+ * referenced from no `_nav.json` entry and confuse `docs:check:drift`;
+ * pruning closes the loop.
  * @param rendered Rendered module documentation.
  * @param config Documentation generation configuration.
  * @param path Path to process.
@@ -999,11 +998,7 @@ function packageSlugFor(parts: readonly string[]): string {
   if (parts.length < 2 || parts[0] !== "packages") {
     return "unknown";
   }
-  const pkg = parts[1];
-  if (pkg === "server") {
-    return "server-core";
-  }
-  return pkg ?? "unknown";
+  return parts[1] ?? "unknown";
 }
 
 function pathFromPackageSrc(parts: readonly string[]): string {

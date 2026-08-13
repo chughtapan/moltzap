@@ -26,7 +26,6 @@ const retiredDependencies = [
   "@effect/printer",
   "@effect/printer-ansi",
   "@effect/typeclass",
-  "@moltzap/server-core",
 ];
 
 function requireCondition(condition, detail) {

@@ -29,22 +29,16 @@ const PACK_TIMEOUT_MS = 5 * 60 * 1_000;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const workspacePackages = {
   "@moltzap/client": join(workspaceRoot, "packages", "client"),
-  "@moltzap/evals": join(workspaceRoot, "packages", "evals"),
   "@moltzap/openclaw-channel": join(
     workspaceRoot,
     "packages",
     "openclaw-channel",
   ),
-  "@moltzap/protocol": join(workspaceRoot, "packages", "protocol"),
-  "@moltzap/server-core": join(workspaceRoot, "packages", "server"),
+  "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
   "@moltzap/simulator": simulatorRoot,
 };
 /** Workspace tarballs installed directly into the controller image. */
-export const controllerPackageDependencies = [
-  "@moltzap/evals",
-  "@moltzap/server-core",
-  "@moltzap/simulator",
-];
+export const controllerPackageDependencies = ["@moltzap/simulator"];
 
 function report(message) {
   process.stderr.write(`[moltzap controller image] ${message}\n`);

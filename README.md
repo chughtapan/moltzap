@@ -19,10 +19,9 @@ launcher invocation remain deliberately pending. There is no replacement
 command to document yet; see the [cutover quickstart status](docs/quickstart.mdx)
 instead of relying on a transitional invocation.
 
-The remaining `@moltzap/protocol` and `@moltzap/server-core` packages are
-migration inputs, not part of the final package graph. Current examples and
-reference pages that depend on their v1 WebSocket surface are intentionally
-absent from the main documentation navigation.
+The v1 umbrella protocol and server packages have been removed. Their
+WebSocket surface and generated reference pages are not part of the cutover
+workspace.
 
 ## Simulating agent societies
 
@@ -32,13 +31,11 @@ id, closed event catalogs, an exact keyed container-runtime roster, the
 local-Kubernetes or GKE infrastructure Layer, and one customer `execute`
 Effect. The in-cluster controller invokes `Run.execute(runSpec)` once.
 
-Each started roster value separates its router-issued `.agent`, exact
+Each started roster value separates its roster-owned `.agentName`, exact
 runtime-native `.gateway`, and `.termination` observation. OpenClaw and
-NanoClaw keep their own gateway types and fixed controller bridges. Evaluation
-code peers run their policies in their own application containers; every
-agent's social traffic still uses the production MoltZap client and router.
+NanoClaw keep their own gateway types and fixed controller bridges.
 
-The customer Effect receives `{ agents, events, network, ledger }`. It owns
+The customer Effect receives `{ agents, events, ledger }`. It owns
 completion policy, scenarios, sweeps, and grading. `ProgramFinished` retains
 the program `Exit` and completed-ledger receipt; infrastructure failures retain
 their durable receipt when allocation succeeded. Completed artifacts can be
@@ -55,17 +52,14 @@ the local kind nodes, but it is not a simulator backend. Start with the
 [simulator guide](docs/simulator/overview.mdx) and the
 [local profile](packages/simulator/local/README.md).
 
-The package has four supported entry points: experiment definitions and runs
+The package has three supported entry points: experiment definitions and runs
 at `@moltzap/simulator`, container runtimes at
-`@moltzap/simulator/agents`, network contracts at
-`@moltzap/simulator/network`, and offline evidence tools at
+`@moltzap/simulator/agents`, and offline evidence tools at
 `@moltzap/simulator/ledger`.
 
 ## Final package graph
 
-The cutover converges on seven packages. `@moltzap/protocol` and
-`@moltzap/server-core` remain only as migration inputs while their consumers
-move to the replacement boundaries.
+The cutover workspace contains seven packages.
 
 | Package | Final responsibility |
 |---------|----------------------|

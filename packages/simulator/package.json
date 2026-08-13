@@ -164,7 +164,6 @@
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
     "@effect/sql": "^0.52.0",
-    "@electric-sql/pglite": "0.4.4",
     "@kubernetes/client-node": "1.4.0",
     "@moltzap/identity": "workspace:*",
     "@temporalio/activity": "1.21.1",

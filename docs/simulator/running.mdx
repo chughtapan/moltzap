@@ -14,7 +14,6 @@ through the same Temporal, Kubernetes, Kueue, Agent Sandbox, controller, and
 |---|---|
 | `@moltzap/simulator` | `RunSpec`, `Run.execute`, event catalogs, customer services, and run outcomes |
 | `@moltzap/simulator/agents` | Container runtime descriptors and exact OpenClaw and NanoClaw gateway contracts |
-| `@moltzap/simulator/network` | Router, transport, link, endpoint, and nominal capability contracts |
 | `@moltzap/simulator/ledger` | Completed-ledger types, validation, and artifact inspection |
 
 The experiment module owns its agents, customer events, customer Effect, and
@@ -29,13 +28,8 @@ import { RunSpec } from "@moltzap/simulator";
 import {
   openClawRuntime,
 } from "@moltzap/simulator/agents";
-import { Duration, Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
-
-class ExperimentTimedOut extends Schema.TaggedError<ExperimentTimedOut>()(
-  "ExperimentTimedOut",
-  {},
-) {}
 
 const alice = openClawRuntime({
   tools: {
@@ -54,19 +48,7 @@ export const runSpec = RunSpec.define({
   events: [],
   agents: { alice },
   cluster: controllerServicesFromEnvironment(),
-  execute: ({ agents, network }) =>
-    Effect.gen(function* () {
-      const diagnostic = yield* network.endpoint("diagnostic");
-      const conversation = yield* diagnostic.open(
-        agents.alice.agent,
-      );
-      yield* conversation.send("hello");
-    }).pipe(
-      Effect.timeoutFail({
-        duration: Duration.minutes(5),
-        onTimeout: () => ExperimentTimedOut.make({}),
-      }),
-    ),
+  execute: ({ agents }) => Effect.succeed(agents.alice.agentName),
 });
 ```
 
