@@ -1,73 +1,42 @@
 import { assert, effect as test } from "@effect/vitest";
-import { serverBaseUrlSchema } from "@moltzap/protocol/network";
-import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, Schema } from "effect";
-import type { runtimeEvents } from "../events/core.js";
-import type { LedgerWriter } from "../ledger/append.js";
-import { makeAgentHandle } from "../network/participant.js";
-import type { Router } from "../network/router.js";
-import { defineFakeRuntime, makeFakeCluster } from "../cluster/fake.js";
-import { ClusterError } from "../cluster/cluster.js";
 import { RuntimeExited } from "../agents/agent.js";
 import { makeAgentRosterBuilder } from "../agents/roster.js";
+import { ClusterError } from "../cluster/cluster.js";
+import { defineFakeRuntime, makeFakeCluster } from "../cluster/fake.js";
+import type { runtimeEvents } from "../events/core.js";
+import type { LedgerWriter } from "../ledger/append.js";
 import { acquireRoster } from "./acquire.js";
 
-const routerUrl = Schema.decodeUnknownSync(serverBaseUrlSchema)(
-  "http://127.0.0.1:43100",
-);
-const key = redactedAgentKey(
-  "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000",
-);
-const aliceId = agentId("00000000-0000-4000-8000-000000000001");
-const bobId = agentId("00000000-0000-4000-8000-000000000002");
-const runtimeConfiguration = Schema.Struct({});
 const configuration = {
-  schema: runtimeConfiguration,
+  schema: Schema.Struct({}),
   value: {},
 };
-
 const alphaGateway = Object.freeze({ runtime: "alpha" });
 const betaGateway = Object.freeze({ runtime: "beta" });
 const alphaTermination = Effect.never;
 const betaTermination = Effect.never;
 
-const alphaRuntime = defineFakeRuntime({
-  name: "alpha",
-  configuration,
-  acquire: () =>
-    Effect.succeed({
-      gateway: alphaGateway,
-      termination: alphaTermination,
-    }),
-});
-const betaRuntime = defineFakeRuntime({
-  name: "beta",
-  configuration,
-  acquire: () =>
-    Effect.succeed({
-      gateway: betaGateway,
-      termination: betaTermination,
-    }),
-});
-const roster = makeAgentRosterBuilder("acme.runtime-gateway-test/v1")({
-  alice: alphaRuntime,
-  bob: betaRuntime,
-});
-
-function testRouter(): Router {
-  return {
-    address: routerUrl,
-    stopped: Effect.never,
-    attachAgent: (name) =>
+const roster = makeAgentRosterBuilder("acme.runtime-lifecycle-test/v1")({
+  alice: defineFakeRuntime({
+    name: "alpha",
+    configuration,
+    acquire: () =>
       Effect.succeed({
-        agent: makeAgentHandle(name, name === "alice" ? aliceId : bobId),
-        key,
-        routerUrl,
-        awaitReady: () => Effect.void,
+        gateway: alphaGateway,
+        termination: alphaTermination,
       }),
-    attachEndpoint: () => Effect.dieMessage("unused test endpoint"),
-  };
-}
+  }),
+  bob: defineFakeRuntime({
+    name: "beta",
+    configuration,
+    acquire: () =>
+      Effect.succeed({
+        gateway: betaGateway,
+        termination: betaTermination,
+      }),
+  }),
+});
 
 function testWriter(): LedgerWriter<typeof runtimeEvents> {
   let logicalSequence = 0;
@@ -77,8 +46,8 @@ function testWriter(): LedgerWriter<typeof runtimeEvents> {
         const currentSequence = logicalSequence;
         logicalSequence += 1;
         return {
-          runId: "runtime-gateway-test",
-          eventId: `runtime-gateway-event-${String(currentSequence)}`,
+          runId: "runtime-lifecycle-test",
+          eventId: `runtime-lifecycle-event-${String(currentSequence)}`,
           logicalSequence: currentSequence,
           elapsedNanos: 0n,
           observedAt: 0,
@@ -89,22 +58,20 @@ function testWriter(): LedgerWriter<typeof runtimeEvents> {
   };
 }
 
-// @agent-code-guard/regression-only: exact gateway identity and lifecycle capabilities must survive heterogeneous roster acquisition
-test("installs each runtime gateway beside its router identity", () =>
+test("installs each runtime gateway under its roster-owned name", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const session = yield* makeFakeCluster().prepare(roster);
       const agents = yield* acquireRoster({
-        router: testRouter(),
         roster,
         session,
         writer: testWriter(),
       });
 
-      assert.strictEqual(agents.alice.agent.id, aliceId);
+      assert.strictEqual(agents.alice.agentName, "alice");
       assert.strictEqual(agents.alice.gateway, alphaGateway);
       assert.strictEqual(agents.alice.termination, alphaTermination);
-      assert.strictEqual(agents.bob.agent.id, bobId);
+      assert.strictEqual(agents.bob.agentName, "bob");
       assert.strictEqual(agents.bob.gateway, betaGateway);
       assert.strictEqual(agents.bob.termination, betaTermination);
       assert.isTrue(Object.isFrozen(agents));
@@ -113,7 +80,7 @@ test("installs each runtime gateway beside its router identity", () =>
     }),
   ));
 
-test("rejects an already-terminated runtime before the fake cohort gate", () =>
+test("rejects an already-terminated runtime before the cohort gate", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const terminated = defineFakeRuntime({
@@ -130,7 +97,6 @@ test("rejects an already-terminated runtime before the fake cohort gate", () =>
       )({ alice: terminated });
       const session = yield* makeFakeCluster().prepare(terminatedRoster);
       const failure = yield* acquireRoster({
-        router: testRouter(),
         roster: terminatedRoster,
         session,
         writer: testWriter(),

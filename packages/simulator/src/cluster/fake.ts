@@ -1,5 +1,5 @@
 /** @file Private in-memory cluster used by run tests. */
-// safer-arch-ignore no-cross-domain-sibling-import: The in-memory cluster mirrors the real seam, so it names the same agent and network types.
+// safer-arch-ignore no-cross-domain-sibling-import: The in-memory cluster mirrors the real seam, so it names the same agent and lifecycle types.
 
 import { Effect, type Schema, type Scope } from "effect";
 import {
@@ -17,8 +17,8 @@ import type {
 } from "../agents/roster.js";
 import type { ClusterError, Slot, ClusterService, Society } from "./cluster.js";
 
-type FakeRuntimeAcquirer<Gateway, AcquisitionError> = <Name extends string>(
-  input: AgentRuntimeInput<Name>,
+type FakeRuntimeAcquirer<Gateway, AcquisitionError> = (
+  input: AgentRuntimeInput,
 ) => Effect.Effect<RunningAgent<Gateway>, AcquisitionError, Scope.Scope>;
 
 /** Registered, like every other runtime brand, so module copies agree. */
@@ -81,17 +81,16 @@ export function defineFakeRuntime<
 /**
  * Acquire one test runtime through the acquirer branded onto it.
  * @param runtime Runtime value produced by defineFakeRuntime.
- * @param input Run-scoped agent identity and router connection.
+ * @param input Run-scoped roster identity.
  * @returns The runtime-specific gateway and termination observation.
  */
 function acquireFakeRuntime<
   Gateway,
   AcquisitionError,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
-  Name extends string,
 >(
   runtime: AgentRuntime<Gateway, AcquisitionError, ConfigurationSchema>,
-  input: AgentRuntimeInput<Name>,
+  input: AgentRuntimeInput,
 ): Effect.Effect<RunningAgent<Gateway>, AcquisitionError, Scope.Scope> {
   const carrier: FakeRuntimeCarrier<Gateway, AcquisitionError> = runtime;
   const acquire = carrier[fakeRuntimeTypeId];
@@ -122,7 +121,6 @@ function makeFakeSociety<
       // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The roster maps this exact key to the same runtime gateway and acquisition-error parameters used by acquireFakeRuntime.
       acquireFakeRuntime(input.runtime, {
         agentName: input.agentName,
-        connection: input.connection,
       }).pipe(
         Effect.tap(() => options.onAcquire?.(input.name) ?? Effect.void),
       ) as Effect.Effect<

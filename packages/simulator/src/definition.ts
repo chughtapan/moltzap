@@ -9,8 +9,6 @@ import {
 } from "./run/events.js";
 import type { LedgerStorage } from "./ledger/storage.js";
 import { runSociety } from "./run/execute.js";
-import { Network, type NetworkService } from "./network/endpoint.js";
-import type { RouterProvider } from "./network/router.js";
 import type { Cluster } from "./cluster/cluster.js";
 import {
   makeAgentRosterBinding,
@@ -73,7 +71,7 @@ type DefinitionEventServices<
 >;
 
 /** Opaque service set supplied by a local-Kubernetes or GKE Layer. */
-export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
+export type ClusterServices = LedgerStorage | Cluster;
 
 interface RunExecutionContext<
   Id extends SimulatorDefinitionId,
@@ -82,7 +80,6 @@ interface RunExecutionContext<
 > {
   readonly agents: StartedAgents<Definitions>;
   readonly events: CustomerEvents<CustomerEventCatalog<CustomerCatalogs>>;
-  readonly network: NetworkService;
   readonly ledger: ReadableRunLedger<
     DefinitionEventServices<Id, CustomerCatalogs>["catalog"]
   >;
@@ -241,10 +238,9 @@ function defineRunSpec<
   const program = Effect.gen(function* () {
     const agents = yield* roster.startedAgents;
     const events = yield* eventServices.events;
-    const network = yield* Network;
     const ledger = yield* eventServices.ledger;
     const context: RunExecutionContext<Id, CustomerCatalogs, Definitions> =
-      Object.freeze({ agents, events, network, ledger });
+      Object.freeze({ agents, events, ledger });
     return yield* Effect.suspend(() => execute(context));
   });
   const spec: RunSpec<

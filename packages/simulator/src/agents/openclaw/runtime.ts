@@ -13,6 +13,7 @@ import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import {
   AgentRuntimeDefinitionError,
   deepFreeze,
+  type AgentRuntimeInput,
   type RuntimeAcquisitionError,
   type RuntimeTermination,
 } from "../agent.js";
@@ -137,8 +138,7 @@ export function openClawRuntime(
 ): ContainerAgentRuntime<
   OpenClawGateway,
   RuntimeAcquisitionError,
-  typeof OpenClawRuntimeConfiguration,
-  OpenClawRenderInput
+  typeof OpenClawRuntimeConfiguration
 > {
   const settings = snapshotOptions(options);
   const capability = openClawCapability(settings, acquireOpenClawGateway);
@@ -166,10 +166,6 @@ interface OpenClawRuntimeSettings {
   readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
-}
-
-interface OpenClawRenderInput {
-  readonly agentName: AgentName;
 }
 
 function snapshotOptions(
@@ -268,7 +264,7 @@ interface OpenClawGatewayPairing {
 function makeOpenClawApplication(
   settings: OpenClawRuntimeSettings,
   acquireGateway: OpenClawGatewayAcquirer,
-  input: OpenClawRenderInput,
+  input: AgentRuntimeInput,
 ): Application<OpenClawGateway, RuntimeAcquisitionError> {
   const gatewayToken = Redacted.make(
     randomBytes(OPENCLAW_GATEWAY_TOKEN_BYTES).toString("hex"),
@@ -355,7 +351,7 @@ function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
 
 function bootstrapFiles(
   settings: OpenClawRuntimeSettings,
-  input: OpenClawRenderInput,
+  input: AgentRuntimeInput,
   gatewayToken: Redacted.Redacted,
   pairing: OpenClawGatewayPairing,
 ): readonly File[] {
@@ -463,7 +459,7 @@ function attachOpenClaw(
 function renderOpenClaw(
   settings: OpenClawRuntimeSettings,
   acquireGateway: OpenClawGatewayAcquirer,
-  input: OpenClawRenderInput,
+  input: AgentRuntimeInput,
 ): Effect.Effect<
   Application<OpenClawGateway, RuntimeAcquisitionError>,
   RuntimeAcquisitionError
@@ -482,15 +478,11 @@ function renderOpenClaw(
 function openClawCapability(
   settings: OpenClawRuntimeSettings,
   acquireGateway: OpenClawGatewayAcquirer,
-): ContainerRuntime<
-  OpenClawGateway,
-  RuntimeAcquisitionError,
-  OpenClawRenderInput
-> {
+): ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError> {
   return Object.freeze({
     image: STOCK_OPENCLAW_IMAGE,
     resources: APPLICATION_RESOURCES,
-    render: (input: OpenClawRenderInput) =>
+    render: (input: AgentRuntimeInput) =>
       renderOpenClaw(settings, acquireGateway, input),
   });
 }

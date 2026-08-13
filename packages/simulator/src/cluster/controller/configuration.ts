@@ -1,10 +1,5 @@
 /** @file Closed environment contract for the in-cluster run controller. */
-// safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger, network, and cluster values the controller needs.
-
-import {
-  type ServerBaseUrl,
-  serverBaseUrlSchema,
-} from "@moltzap/protocol/network";
+// safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger and cluster values the controller needs.
 import { isAbsolute } from "node:path";
 import { Data, Either, Schema } from "effect";
 import type { Image } from "../../agents/container.js";
@@ -19,7 +14,6 @@ const MAX_STARTUP_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/u;
 const OWNER_UID = /^[A-Za-z0-9](?:[-A-Za-z0-9._]*[A-Za-z0-9])?$/u;
 const DIGEST_PINNED_IMAGE = /^.+@sha256:[0-9a-f]{64}$/u;
-const decodeServerBaseUrl = Schema.decodeEither(serverBaseUrlSchema);
 const placementSchema = Schema.Struct({
   nodeSelector: Schema.Record({
     key: Schema.NonEmptyString,
@@ -66,7 +60,6 @@ export interface ControllerConfiguration {
   readonly experimentModule: string;
   readonly ledgerDirectory: string;
   readonly ledgerExportDirectory?: string;
-  readonly routerUrl: ServerBaseUrl;
   readonly startupTimeoutMs: number;
   /** Agents an experiment sized by its run builds its roster from. */
   readonly cohortSize: number;
@@ -147,18 +140,6 @@ function experimentModulePath(environment: ControllerEnvironment): string {
     throw invalid(`${key} must be an absolute .mjs path`);
   }
   return value;
-}
-
-function routerUrl(environment: ControllerEnvironment): ServerBaseUrl {
-  const key = "MOLTZAP_ROUTER_URL";
-  const value = required(environment, key);
-  const decoded = decodeServerBaseUrl(value);
-  return Either.match(decoded, {
-    onLeft: () => {
-      throw invalid(`${key} must be a MoltZap server origin`);
-    },
-    onRight: (url) => url,
-  });
 }
 
 function startupTimeoutMs(environment: ControllerEnvironment): number {
@@ -272,7 +253,6 @@ export function controllerConfigurationFromEnvironment(
       environment,
       "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
     ),
-    routerUrl: routerUrl(environment),
     startupTimeoutMs: startupTimeoutMs(environment),
     cohortSize: cohortSize(environment),
   });

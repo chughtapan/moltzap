@@ -5,7 +5,6 @@
  * built by `defineContainerRuntime` always has one to read.
  */
 
-import type { AgentName } from "@moltzap/identity";
 import type { Effect } from "effect";
 import type { OpenClawGateway } from "./openclaw/gateway.js";
 import { openClawRuntime } from "./openclaw/runtime.js";
@@ -27,18 +26,13 @@ const runtime = openClawRuntime();
 /** Stock OpenClaw preserves its exact private container realization type. */
 export const openClawContainerRuntimeCanary: ContainerRuntime<
   OpenClawGateway,
-  RuntimeAcquisitionError,
-  { readonly agentName: AgentName }
+  RuntimeAcquisitionError
 > = containerRuntimeFor(runtime);
 
 /** Reading back the realization of a defined container runtime has no absent case. */
 export const containerRuntimeIsAlwaysPresent: Equal<
   typeof openClawContainerRuntimeCanary,
-  ContainerRuntime<
-    OpenClawGateway,
-    RuntimeAcquisitionError,
-    { readonly agentName: AgentName }
-  >
+  ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError>
 > = true;
 
 type OpenClawApplication = Application<

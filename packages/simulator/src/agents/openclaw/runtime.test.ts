@@ -59,8 +59,7 @@ const renderedOpenClawConfig = Schema.parseJson(
 
 type OpenClawContainerRuntime = ContainerRuntime<
   OpenClawGateway,
-  RuntimeAcquisitionError,
-  { readonly agentName: AgentName }
+  RuntimeAcquisitionError
 >;
 type OpenClawApplication = Application<
   OpenClawGateway,

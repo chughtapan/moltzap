@@ -1,8 +1,7 @@
 /** @file Mixed-roster acquisition and runtime-termination observation. */
-// safer-arch-ignore no-cross-domain-sibling-import: Roster acquisition supervises agents against the cluster while writing router evidence to the ledger.
+// safer-arch-ignore no-cross-domain-sibling-import: Roster acquisition supervises agents against the cluster while writing runtime evidence to the ledger.
 
 import type { AgentName } from "@moltzap/identity";
-import type { AgentId } from "@moltzap/protocol/identity";
 import { Cause, Deferred, Effect, Exit, Ref, type Scope } from "effect";
 import {
   AgentRuntimeReady,
@@ -10,7 +9,6 @@ import {
   type runtimeEvents,
 } from "../events/core.js";
 import type { LedgerFailure, LedgerWriter } from "../ledger/append.js";
-import type { Router } from "../network/router.js";
 import { type Society, ClusterError } from "../cluster/cluster.js";
 import type {
   AgentRoster,
@@ -37,16 +35,14 @@ interface DispatchFence {
 interface AcquiredAgent<Name extends string = string, Gateway = unknown> {
   readonly name: Name;
   readonly agentName: AgentName;
-  readonly agentId: AgentId;
   readonly runtimeName: string;
-  readonly started: StartedAgent<Name, Gateway>;
+  readonly started: StartedAgent<Gateway>;
 }
 
 interface AcquireAgentInput<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
   Name extends Extract<keyof Definitions, string>,
 > {
-  readonly router: Router;
   readonly name: Name;
   readonly agentName: AgentName;
   readonly runtime: Definitions[Name];
@@ -59,7 +55,6 @@ interface AcquireRosterInput<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > {
-  readonly router: Router;
   readonly roster: AgentRoster<Id, Definitions>;
   readonly session: Society<Definitions>;
   readonly writer: RuntimeEventWriter;
@@ -71,29 +66,23 @@ function attemptAgent<
 >(
   input: Pick<
     AcquireAgentInput<Definitions, Name>,
-    "router" | "name" | "agentName" | "runtime" | "session"
+    "name" | "agentName" | "runtime" | "session"
   >,
 ) {
   return Effect.gen(function* () {
-    const connection = yield* input.router.attachAgent(
-      input.name,
-      input.agentName,
-    );
     const running = yield* input.session.acquireAgent({
       name: input.name,
       runtime: input.runtime,
       agentName: input.agentName,
-      connection,
     });
     const started = Object.freeze({
-      agent: connection.agent,
+      agentName: input.agentName,
       gateway: running.gateway,
       termination: running.termination,
     });
     return {
       name: input.name,
       agentName: input.agentName,
-      agentId: connection.agent.id,
       runtimeName: input.runtime.name,
       started,
     } satisfies AcquiredAgent<Name, RuntimeGatewayOf<Definitions[Name]>>;
@@ -180,7 +169,6 @@ function recordReady(acquired: AcquiredAgent, writer: RuntimeEventWriter) {
   return writer.write({
     event: AgentRuntimeReady.make({
       agentName: acquired.agentName,
-      agentId: acquired.agentId,
       runtime: acquired.runtimeName,
     }),
   });
@@ -290,7 +278,6 @@ export function acquireRoster<
         input.roster.validatedDefinitions,
         (entry) =>
           acquireAgent<Definitions, Name>({
-            router: input.router,
             name: entry.name,
             agentName: entry.agentName,
             runtime: entry.runtime,

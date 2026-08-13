@@ -1,10 +1,9 @@
 /** @file Private Layer assembled inside one run controller process. */
-// safer-arch-ignore no-cross-domain-sibling-import: Assembles the controller's Layer from ledger, network, and cluster implementations.
+// safer-arch-ignore no-cross-domain-sibling-import: Assembles the controller's Layer from ledger and cluster implementations.
 
-import { NodeContext, NodeHttpClient } from "@effect/platform-node";
+import { NodeContext } from "@effect/platform-node";
 import { Duration, Layer } from "effect";
 import { filesystemLedgerStorageLayer } from "../../ledger/filesystem.js";
-import { serverProcessRouterProviderLayer } from "../../network/server/process.js";
 import {
   makeInClusterKubernetesSocietyApi,
   type KubernetesSocietyApi,
@@ -34,13 +33,9 @@ function makeControllerServices(
   const societyApi =
     api ?? makeInClusterKubernetesSocietyApi(configuration.namespace);
   const startupTimeout = Duration.millis(configuration.startupTimeoutMs);
-  const host = Layer.merge(NodeContext.layer, NodeHttpClient.layerUndici);
+  const host = NodeContext.layer;
   const run = Layer.mergeAll(
     filesystemLedgerStorageLayer(configuration.ledgerDirectory),
-    serverProcessRouterProviderLayer({
-      advertisedServerUrl: configuration.routerUrl,
-      startupTimeout,
-    }),
     kubernetesClusterLayer({
       api: societyApi,
       namespace: configuration.namespace,
@@ -60,7 +55,7 @@ function makeControllerServices(
  *
  * This is deliberately a private deep import rather than a package export: the
  * experiment chooses its roster and Effect while the controller image owns all
- * Kubernetes and router mechanics.
+ * Kubernetes and ledger mechanics.
  * @param environment Process environment or a deterministic test substitute.
  * @returns One controller-owned cluster Layer.
  */

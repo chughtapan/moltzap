@@ -1,9 +1,8 @@
 /** @file Nominal keyed runtime rosters and their exact Effect service. */
-// safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs a network participant handle with the runtime that answers for it.
+// safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs an identity-owned name with the runtime that answers for it.
 
 import { Context, Schema } from "effect";
 import { AgentName as agentName } from "@moltzap/identity";
-import type { AgentHandle } from "../network/participant.js";
 import type { AgentRuntime, AgentRuntimeLike, RunningAgent } from "./agent.js";
 
 const agentRosterTypeId: unique symbol = Symbol(
@@ -45,10 +44,9 @@ export type AgentRosterAcquisitionError<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = RuntimeAcquisitionErrorOf<Definitions[keyof Definitions]>;
 
-/** A ready autonomous runtime paired with its router-issued identity. */
-export interface StartedAgent<Name extends string, Gateway>
-  extends RunningAgent<Gateway> {
-  readonly agent: AgentHandle<Name>;
+/** A ready autonomous runtime paired with its roster-owned identity. */
+export interface StartedAgent<Gateway> extends RunningAgent<Gateway> {
+  readonly agentName: typeof agentName.Type;
 }
 
 /** Exact keyed agents installed only after every runtime is ready. */
@@ -56,7 +54,6 @@ export type StartedAgents<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = Readonly<{
   [Name in Extract<keyof Definitions, string>]: StartedAgent<
-    Name,
     RuntimeGatewayOf<Definitions[Name]>
   >;
 }>;

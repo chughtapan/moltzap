@@ -19,21 +19,18 @@ type PreparationStage = Extract<
   | "createRunRoot"
   | "createExperimentAndQueue"
   | "createControllerAccess"
-  | "createRouterService"
   | "startController"
 >;
 
 // The run root issues the UID every other object is owned by, and the
-// controller acts through the run-scoped RBAC and dials the router Service the
-// moment it starts, so it goes last. Nothing constrains the stages between
-// them relative to each other.
+// controller acts through the run-scoped RBAC the moment it starts, so it goes
+// last. Nothing constrains the stages between them relative to each other.
 const ROOT: PreparationStage = "createRunRoot";
 const START: PreparationStage = "startController";
 const BEFORE_START: readonly PreparationStage[] = [
   "createRunRoot",
   "createExperimentAndQueue",
   "createControllerAccess",
-  "createRouterService",
 ];
 const DIGEST = "a".repeat(64);
 const OWNER_UID = "owner-uid-the-cluster-issued";
@@ -87,7 +84,6 @@ function recordingRunControl(failAt?: PreparationStage): RecordedRunControl {
         }),
       createExperimentAndQueue: owned("createExperimentAndQueue"),
       createControllerAccess: owned("createControllerAccess"),
-      createRouterService: owned("createRouterService"),
       startController: owned(START),
       readControllerJob: () =>
         Effect.fail(
@@ -114,7 +110,7 @@ it("creates the run root before anything it owns and the controller last", async
   expect(new Set(namespaces)).toEqual(new Set([INPUT.namespace]));
 });
 
-it("never starts a controller whose access or endpoint failed to appear", async () => {
+it("never starts a controller whose prerequisites failed to appear", async () => {
   for (const stage of BEFORE_START) {
     const { api, calls } = recordingRunControl(stage);
 
@@ -138,7 +134,6 @@ it("owns every created object by the run root the cluster just issued", async ()
   const owners = manifests.flatMap((supplied) => [
     supplied.experiment.metadata?.ownerReferences,
     supplied.role.metadata?.ownerReferences,
-    supplied.routerService.metadata?.ownerReferences,
     supplied.controllerJob.metadata?.ownerReferences,
   ]);
   expect(owners).not.toHaveLength(0);

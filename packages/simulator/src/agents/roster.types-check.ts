@@ -1,8 +1,9 @@
 /**
  * A definition-bound keyed roster preserves its literal definition id, exact
- * handle names, gateways, and attachment errors without erasure.
+ * agent identity, gateways, and acquisition errors without erasure.
  */
 
+import type { AgentName } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { defineRuntime } from "./agent.js";
 import {
@@ -66,8 +67,8 @@ type DefinitionIdIsExact = Expect<
   Equal<typeof roster.definitionId, "acme.society/v1">
 >;
 type AgentKeysAreExact = Expect<Equal<keyof Agents, "alice" | "bob">>;
-type AliceNameIsExact = Expect<
-  Equal<Agents["alice"]["agent"]["name"], "alice">
+type AliceHasRosterIdentity = Expect<
+  Equal<Agents["alice"]["agentName"], AgentName>
 >;
 type AliceGatewayIsExact = Expect<
   Equal<Agents["alice"]["gateway"], AlphaGateway>
@@ -93,7 +94,7 @@ type ServiceSuccessIsExact = Expect<
 export type RosterCanaries = [
   DefinitionIdIsExact,
   AgentKeysAreExact,
-  AliceNameIsExact,
+  AliceHasRosterIdentity,
   AliceGatewayIsExact,
   BobGatewayIsExact,
   AcquisitionErrorsAreCombined,

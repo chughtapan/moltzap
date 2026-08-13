@@ -19,7 +19,6 @@ import {
   ledgerRef,
 } from "../../ledger/schema.js";
 import { LedgerStorage, LedgerStorageError } from "../../ledger/storage.js";
-import { RouterProvider } from "../../network/router.js";
 import { ClusterError, Cluster } from "../cluster.js";
 import { defineRuntime } from "../../agents/agent.js";
 import {
@@ -78,7 +77,6 @@ const VALID_ENVIRONMENT: ControllerEnvironment = Object.freeze({
   MOLTZAP_SUPPORT_IMAGE: `registry.example/moltzap@sha256:${IMAGE_DIGEST}`,
   MOLTZAP_EXPERIMENT_MODULE: "/var/run/moltzap/experiment/main.mjs",
   MOLTZAP_LEDGER_DIRECTORY: "/var/lib/moltzap/ledger",
-  MOLTZAP_ROUTER_URL: "https://router.mz-run-1.svc:3000",
 });
 const ACTIVE_LEDGER_DIRECTORY = "/var/lib/moltzap/ledger";
 const EXPORT_DIRECTORY = `/var/lib/moltzap-artifacts/${EXPECTED_NAMESPACE}/ledger`;
@@ -109,7 +107,6 @@ const runSpec = RunSpec.define({
   agents: { alice: runtime },
   cluster: Layer.mergeAll(
     Layer.effect(LedgerStorage, Effect.never),
-    Layer.effect(RouterProvider, Effect.never),
     Layer.effect(Cluster, Effect.never),
   ),
   execute: () => Effect.succeed("completed"),

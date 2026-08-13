@@ -18,13 +18,7 @@
   ],
   "references": [
     {
-      "path": "../client"
-    },
-    {
       "path": "../identity"
-    },
-    {
-      "path": "../protocol"
     }
   ]
 }

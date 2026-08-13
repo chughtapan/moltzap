@@ -1,15 +1,8 @@
 /** @file Allocation, execution, and ordered finalization of one run. */
-// safer-arch-ignore no-cross-domain-sibling-import: The run kernel is the composition root that wires ledger, network, agents, and cluster into one customer program.
+// safer-arch-ignore no-cross-domain-sibling-import: The run kernel wires ledger, agents, and cluster into one customer program.
 
-import { Cause, Data, Effect, Exit, Layer, Option, Ref, Schema } from "effect";
-import {
-  endpointEvents,
-  linkEvents,
-  routerEvents,
-  runEvents,
-  RunStarted,
-  runtimeEvents,
-} from "../events/core.js";
+import { Cause, Data, Effect, Exit, Layer, Schema } from "effect";
+import { runEvents, RunStarted, runtimeEvents } from "../events/core.js";
 import type { EventClass } from "../events/catalog.js";
 import {
   makeRunLedger,
@@ -19,15 +12,6 @@ import {
 } from "../ledger/append.js";
 import { LedgerCompletion, ledgerRef } from "../ledger/schema.js";
 import type { LedgerStorageError } from "../ledger/storage.js";
-import {
-  LinkController,
-  type LinkControllerService,
-  LinkDriver,
-  type LinkDriverService,
-} from "../network/link.js";
-import { Network, type NetworkService } from "../network/endpoint.js";
-import type { Router } from "../network/router.js";
-import type { NetworkError } from "../network/failure.js";
 import {
   Cluster,
   type Society,
@@ -43,11 +27,7 @@ import {
   type AgentRuntimeLike,
 } from "../agents/agent.js";
 import { programEvent } from "./outcomes.js";
-import { makeNetworkService } from "./endpoints.js";
-import { makeLinkFabric } from "./link-fabric.js";
-import { makeLinkController } from "./links.js";
 import { acquireRoster } from "./acquire.js";
-import { acquireRouter, recordStoppedRouter } from "./router.js";
 import type { makeDefinitionEventServices } from "./events.js";
 
 type CatalogSchema = Schema.Schema.AnyNoContext;
@@ -111,11 +91,7 @@ export type SimulatorRunOutcome<
 /** Represents simulator run failure conditions. */
 export type SimulatorRunFailure<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-> =
-  | AgentRosterAcquisitionError<Definitions>
-  | ClusterError
-  | LedgerFailure
-  | NetworkError;
+> = AgentRosterAcquisitionError<Definitions> | ClusterError | LedgerFailure;
 
 interface RunInput<
   Id extends string,
@@ -151,15 +127,7 @@ interface ProgramLayerInput<
   readonly active: ActiveRunLedger<
     DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["catalog"]
   >;
-  readonly services: ProgramNetworkServices;
   readonly agents: StartedAgents<Definitions>;
-}
-
-/** Run-scoped network-facing services installed for the customer program. */
-interface ProgramNetworkServices {
-  readonly driver: LinkDriverService;
-  readonly links: LinkControllerService;
-  readonly network: NetworkService;
 }
 
 function makeProgramLayer<
@@ -174,9 +142,6 @@ function makeProgramLayer<
   );
   return Layer.mergeAll(
     input.eventServices.layer(input.active.ledger, customerWriter),
-    Layer.succeed(Network, input.services.network),
-    Layer.succeed(LinkController, input.services.links),
-    Layer.succeed(LinkDriver, input.services.driver),
     Layer.succeed(input.roster.startedAgents, input.agents),
   );
 }
@@ -203,11 +168,7 @@ interface KernelContext<
     DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["catalog"]
   >;
   readonly runWriter: LedgerWriter<typeof runEvents>;
-  readonly routerWriter: LedgerWriter<typeof routerEvents>;
   readonly runtimeWriter: LedgerWriter<typeof runtimeEvents>;
-  readonly endpointWriter: LedgerWriter<typeof endpointEvents>;
-  readonly linkWriter: LedgerWriter<typeof linkEvents>;
-  readonly router: Ref.Ref<Option.Option<Router>>;
 }
 
 interface SocietyExecutionInput<
@@ -228,7 +189,6 @@ interface SocietyExecutionInput<
     E,
     R
   >;
-  readonly router: Router;
   readonly session: Society<Definitions>;
 }
 
@@ -270,18 +230,11 @@ function makeContext<
     DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["catalog"]
   >,
 ) {
-  return Effect.gen(function* () {
-    const router = yield* Ref.make(Option.none<Router>());
-    return {
-      input,
-      active,
-      runWriter: active.writerFor("kernel.run", runEvents),
-      routerWriter: active.writerFor("kernel.router", routerEvents),
-      runtimeWriter: active.writerFor("kernel.runtime", runtimeEvents),
-      endpointWriter: active.writerFor("kernel.endpoint", endpointEvents),
-      linkWriter: active.writerFor("kernel.link", linkEvents),
-      router,
-    };
+  return Effect.succeed({
+    input,
+    active,
+    runWriter: active.writerFor("kernel.run", runEvents),
+    runtimeWriter: active.writerFor("kernel.runtime", runtimeEvents),
   });
 }
 
@@ -304,31 +257,17 @@ function executeSociety<
     R
   >,
 ) {
-  const { context, router, session } = input;
+  const { context, session } = input;
   return Effect.gen(function* () {
-    // The fabric shapes what this process can observe: the customer's own
-    // controlled endpoints. A roster agent runs in its own container, so its
-    // agent-to-agent traffic never crosses this stream and the fabric does not
-    // register it. Link control over a containerized agent therefore fails
-    // rather than silently passing traffic it claims to police.
-    const fabric = yield* makeLinkFabric(context.linkWriter);
     const agents = yield* acquireRoster({
-      router,
       roster: context.input.roster,
       session,
       writer: context.runtimeWriter,
     });
-    const network = yield* makeNetworkService(
-      router,
-      context.endpointWriter,
-      fabric.interceptor,
-    );
-    const links = yield* makeLinkController(context.linkWriter);
     const layer = makeProgramLayer({
       eventServices: context.input.eventServices,
       roster: context.input.roster,
       active: context.active,
-      services: { driver: fabric.driver, links, network },
       agents,
     });
     const exit = yield* context.input.program.pipe(
@@ -364,28 +303,13 @@ function executeProgram<
     yield* context.runWriter.write({
       event: RunStarted.make({ definitionId: context.input.definitionId }),
     });
-    const router = yield* acquireRouter(context.routerWriter, context.router);
     const platform = yield* Cluster;
     const session = yield* platform.prepare(context.input.roster);
     return yield* Effect.raceFirst(
-      executeSociety({ context, router, session }),
+      executeSociety({ context, session }),
       session.failure,
     );
   });
-}
-
-function recordRouterStop(
-  routerRef: Ref.Ref<Option.Option<Router>>,
-  writer: LedgerWriter<typeof routerEvents>,
-) {
-  return Ref.get(routerRef).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () => Effect.void,
-        onSome: (router) => recordStoppedRouter(router, writer),
-      }),
-    ),
-  );
 }
 
 function appendFailure<Failure>(
@@ -456,9 +380,6 @@ function finalizeRun<
   execution: Exit.Exit<Exit.Exit<A, E>, SimulatorRunFailure<Definitions>>,
 ) {
   return Effect.gen(function* () {
-    const routerStop = yield* Effect.exit(
-      recordRouterStop(context.router, context.routerWriter),
-    );
     const completion = yield* Effect.exit(context.active.complete());
     const receipt = Exit.isSuccess(completion)
       ? CompletedLedgerReceipt.make({
@@ -470,16 +391,7 @@ function finalizeRun<
         });
     if (Exit.isFailure(execution)) {
       return new ClusterLost<Definitions>({
-        cause: appendFailure(
-          appendFailure(execution.cause, routerStop),
-          completion,
-        ),
-        receipt,
-      });
-    }
-    if (Exit.isFailure(routerStop)) {
-      return new ClusterLost<Definitions>({
-        cause: appendFailure(routerStop.cause, completion),
+        cause: appendFailure(execution.cause, completion),
         receipt,
       });
     }
@@ -563,7 +475,7 @@ function executeRun<
 
 /**
  * Execute one definition against one mixed roster. Nested scopes stop
- * endpoints, runtimes, and the router before publishing ledger completion.
+ * runtimes before publishing ledger completion.
  * @param input Input value to process.
  * @returns The run society result.
  */

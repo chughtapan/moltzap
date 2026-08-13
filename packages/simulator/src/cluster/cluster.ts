@@ -1,9 +1,8 @@
 /** @file Private cluster acquisition and lifecycle boundary. */
-// safer-arch-ignore no-cross-domain-sibling-import: The cluster seam names the roster it prepares and the router connection it hands each agent.
+// safer-arch-ignore no-cross-domain-sibling-import: The cluster seam names the roster it prepares and the runtime it starts for each roster entry.
 
 import type { AgentName } from "@moltzap/identity";
 import { Context, Data, type Effect, type Scope } from "effect";
-import type { AgentConnection } from "../network/router.js";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
@@ -42,7 +41,6 @@ export interface Slot<
   readonly name: Name;
   readonly agentName: AgentName;
   readonly runtime: Definitions[Name];
-  readonly connection: AgentConnection<Name>;
 }
 
 /** Run-scoped cluster capabilities for one complete society roster. */

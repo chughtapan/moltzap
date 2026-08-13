@@ -1,4 +1,4 @@
-// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent, ledger, and router identities the run gives them.
+// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent and ledger identities the run gives them.
 /**
  * @file Every Kubernetes object the simulator builds: the run's aggregate
  * admission and sandbox resources, the run-scoped control objects created
@@ -16,7 +16,6 @@ import type {
   V1OwnerReference,
   V1Role,
   V1RoleBinding,
-  V1Service,
   V1ServiceAccount,
   V1Volume,
 } from "@kubernetes/client-node";
@@ -381,8 +380,6 @@ export const LOCAL_QUEUE_NAME = "society";
 export const CLUSTER_QUEUE_NAME = "moltzap";
 /** Shared ServiceAccount, RBAC, and Job name for the controller. */
 export const CONTROLLER_NAME = "controller";
-/** Service name exposing the controller-owned router process. */
-export const ROUTER_SERVICE_NAME = "router";
 /** Namespace holding the cluster's long-lived simulator control plane. */
 export const SYSTEM_NAMESPACE = "moltzap-system";
 /** ServiceAccount, RBAC, and Deployment name for the run-lifecycle worker. */
@@ -407,7 +404,6 @@ export const RUN_WORKER_PRESTOP_SECONDS = 15;
  * the pre-stop delay returns rather than being killed at the default 30.
  */
 export const RUN_WORKER_TERMINATION_GRACE_SECONDS = 60;
-const CONTROLLER_PORT = 3_000;
 const CONTROLLER_ENTRYPOINT = "/opt/moltzap/dist/cluster/controller/main.js";
 const EXPERIMENT_DIRECTORY = "/opt/moltzap/experiment";
 const EXPERIMENT_PATH = `${EXPERIMENT_DIRECTORY}/main.mjs`;
@@ -426,7 +422,6 @@ export interface OwnedRunControlManifests {
   readonly serviceAccount: V1ServiceAccount;
   readonly role: V1Role;
   readonly roleBinding: V1RoleBinding;
-  readonly routerService: V1Service;
   readonly controllerJob: V1Job;
 }
 
@@ -533,10 +528,6 @@ function controllerEnvironment(
           },
         ]
       : []),
-    {
-      name: "MOLTZAP_ROUTER_URL",
-      value: `ws://${ROUTER_SERVICE_NAME}.${input.namespace}.svc.cluster.local:${String(CONTROLLER_PORT)}`,
-    },
   ];
 }
 
@@ -664,32 +655,6 @@ function controllerRoleBinding(
   };
 }
 
-function routerService(
-  input: RunSocietyWorkflowInput,
-  owner: V1OwnerReference,
-): V1Service {
-  return {
-    apiVersion: "v1",
-    kind: "Service",
-    metadata: {
-      name: ROUTER_SERVICE_NAME,
-      namespace: input.namespace,
-      ownerReferences: [owner],
-    },
-    spec: {
-      selector: controllerLabels(),
-      ports: [
-        {
-          name: "router",
-          port: CONTROLLER_PORT,
-          protocol: "TCP",
-          targetPort: CONTROLLER_PORT,
-        },
-      ],
-    },
-  };
-}
-
 function controllerContainer(
   input: RunSocietyWorkflowInput,
   owner: V1OwnerReference,
@@ -700,13 +665,6 @@ function controllerContainer(
     image: input.controllerImage,
     command: ["node", CONTROLLER_ENTRYPOINT],
     env: controllerEnvironment(input, owner.uid, profile),
-    ports: [
-      {
-        name: "router",
-        containerPort: CONTROLLER_PORT,
-        protocol: "TCP",
-      },
-    ],
     terminationMessagePolicy: "FallbackToLogsOnError",
     volumeMounts: [
       {
@@ -850,7 +808,6 @@ export function ownedRunControlManifests(
     serviceAccount: controllerServiceAccount(input, owner),
     role: controllerRole(input, owner),
     roleBinding: controllerRoleBinding(input, owner),
-    routerService: routerService(input, owner),
     controllerJob: controllerJob(input, owner, profile),
   };
 }

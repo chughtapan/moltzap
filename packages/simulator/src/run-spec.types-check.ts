@@ -14,13 +14,13 @@ import {
   Schema,
   type Stream,
 } from "effect";
+import type { AgentName } from "@moltzap/identity";
 import { EventCatalog } from "./events/catalog.js";
 import { coreEvents } from "./events/core.js";
 import type { LedgerFailure } from "./ledger/append.js";
 import type { LedgerRef } from "./ledger/schema.js";
 import { openLedger } from "./ledger/read.js";
 import { LedgerStorage, type LedgerStorageError } from "./ledger/storage.js";
-import { RouterProvider } from "./network/router.js";
 import { Run, RunSpec } from "./definition.js";
 import type { ProgramFinished, SimulatorRunFailure } from "./run/execute.js";
 import { type ClusterError, Cluster } from "./cluster/cluster.js";
@@ -99,7 +99,6 @@ const unavailableCluster = Effect.gen(function* () {
 
 const cluster = Layer.mergeAll(
   Layer.effect(LedgerStorage, unavailableCluster),
-  Layer.effect(RouterProvider, unavailableCluster),
   Layer.effect(Cluster, unavailableCluster),
   Layer.effect(ClusterExtra, unavailableCluster),
 );
@@ -148,9 +147,7 @@ type ExecutionRequirements = Effect.Effect.Context<
 >;
 
 type AgentKeysAreExact = Expect<Equal<keyof Agents, "alice" | "bob">>;
-type AliceNameIsExact = Expect<
-  Equal<Agents["alice"]["agent"]["name"], "alice">
->;
+type AliceNameIsExact = Expect<Equal<Agents["alice"]["agentName"], AgentName>>;
 type AliceGatewayIsExact = Expect<
   Equal<Agents["alice"]["gateway"], AlphaGateway>
 >;

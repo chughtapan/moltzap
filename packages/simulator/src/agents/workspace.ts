@@ -8,8 +8,7 @@ import type { File } from "./container.js";
 /**
  * A workspace path proven to land inside its runtime's workspace root, held in
  * the normalized form the bootstrap file is written under. Decoding happens
- * where a runtime is defined, so a path can no longer escape at render time,
- * after the router has already issued the agent its credentials.
+ * where a runtime is defined, so a path cannot escape later at render time.
  */
 const workspaceRelativePath = Schema.transform(
   Schema.String,

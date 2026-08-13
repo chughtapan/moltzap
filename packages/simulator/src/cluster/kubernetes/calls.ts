@@ -627,10 +627,6 @@ export interface RunControlApi {
     namespace: string,
     manifests: OwnedRunControlManifests,
   ) => Effect.Effect<void, KubernetesCallFailed>;
-  readonly createRouterService: (
-    namespace: string,
-    manifests: OwnedRunControlManifests,
-  ) => Effect.Effect<void, KubernetesCallFailed>;
   readonly startController: (
     namespace: string,
     manifests: OwnedRunControlManifests,
@@ -847,7 +843,6 @@ function runPreparationOperations(
   | "createRunRoot"
   | "createExperimentAndQueue"
   | "createControllerAccess"
-  | "createRouterService"
   | "startController"
 > {
   return {
@@ -856,14 +851,6 @@ function runPreparationOperations(
       createExperimentAndQueue(clients, namespace, manifests),
     createControllerAccess: (namespace, manifests) =>
       createControllerAccess(clients, namespace, manifests),
-    createRouterService: (namespace, manifests) =>
-      kubernetesCall("create router service", () =>
-        clients.core.createNamespacedService({
-          namespace,
-          body: manifests.routerService,
-          ...APPLIED,
-        }),
-      ).pipe(Effect.asVoid),
     startController: (namespace, manifests) =>
       kubernetesCall("create controller job", () =>
         clients.batch.createNamespacedJob({

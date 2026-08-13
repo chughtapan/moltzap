@@ -22,15 +22,11 @@ function loadPackageExports(): Record<string, unknown> {
 
 // @agent-code-guard/regression-only: exact package surfaces are finite dependency and privilege boundaries
 describe("@moltzap/simulator package map", () => {
-  it("publishes exactly the customer, network, ledger, and agents surfaces", () => {
+  it("publishes exactly the customer, ledger, and agents surfaces", () => {
     expect(loadPackageExports()).toEqual({
       ".": {
         types: "./dist/index.d.ts",
         import: "./dist/index.js",
-      },
-      "./network": {
-        types: "./dist/network.d.ts",
-        import: "./dist/network.js",
       },
       "./ledger": {
         types: "./dist/ledger.d.ts",
@@ -49,13 +45,6 @@ describe("@moltzap/simulator root export", () => {
     expect(Object.keys(customerApi)).not.toEqual(
       expect.arrayContaining([
         "AgentRoster",
-        "LinkDriver",
-        "RouterProvider",
-        "RouterStopped",
-        "makeAgentHandle",
-        "makeParticipantHandle",
-        "makeRouterStopReport",
-        "networkError",
         "effectRuntime",
         "nanoclawRuntime",
         "openClawRuntime",
@@ -65,7 +54,7 @@ describe("@moltzap/simulator root export", () => {
       Object.keys(customerApi).filter(
         (name) =>
           /platform|kubernetes|k8s|kueue|temporal|sandbox|fake/iu.test(name) ||
-          (name.endsWith("Controller") && name !== "LinkController"),
+          name.endsWith("Controller"),
       ),
     ).toEqual([]);
   });

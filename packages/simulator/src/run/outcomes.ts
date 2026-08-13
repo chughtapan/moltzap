@@ -2,7 +2,6 @@
 // safer-arch-ignore no-cross-domain-sibling-import: Converts Effect and runtime outcomes into ledger events, so it names both domains.
 
 import type { AgentName } from "@moltzap/identity";
-import type { AgentId } from "@moltzap/protocol/identity";
 import { Cause, Exit } from "effect";
 import {
   AgentProcessExited,
@@ -18,7 +17,6 @@ import type { RuntimeTermination } from "../agents/agent.js";
 /** Describes runtime evidence input. */
 export interface RuntimeEvidenceInput {
   readonly agentName: AgentName;
-  readonly agentId: AgentId;
   readonly runtimeName: string;
 }
 
@@ -44,7 +42,6 @@ export function runtimeEvent(
 ) {
   const common = {
     agentName: acquired.agentName,
-    agentId: acquired.agentId,
     runtime: acquired.runtimeName,
   };
   switch (termination._tag) {

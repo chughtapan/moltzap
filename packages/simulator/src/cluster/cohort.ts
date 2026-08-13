@@ -1,5 +1,5 @@
 /** @file Private Kubernetes realization of one complete simulator society. */
-// safer-arch-ignore no-cross-domain-sibling-import: Bringing a roster up is inherently cross-domain: it renders agents, reserves cluster capacity, and hands each one its router connection.
+// safer-arch-ignore no-cross-domain-sibling-import: Bringing a roster up is inherently cross-domain: it renders agents and reserves cluster capacity.
 
 import { posix } from "node:path";
 import {
@@ -735,7 +735,7 @@ function acquireKubernetesAgent<
       );
     }
     const resourceName = state.resourceNames[input.name];
-    const application = yield* container.render(input);
+    const application = yield* container.render({ agentName: input.agentName });
     yield* installRenderedApplication(
       application,
       container,

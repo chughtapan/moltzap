@@ -1,8 +1,6 @@
 /* eslint-disable max-lines-per-function, max-nested-callbacks, sonarjs/max-lines-per-function -- lifecycle regressions keep their ordering, readiness, and cleanup evidence together */
 
 import { assert, describe, it as test } from "vitest";
-import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
-import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {
   Cause,
   Deferred,
@@ -14,8 +12,6 @@ import {
   Schema,
   type Scope,
 } from "effect";
-import { makeAgentHandle } from "../network/participant.js";
-import type { AgentConnection } from "../network/router.js";
 import {
   defineContainerRuntime,
   image,
@@ -50,9 +46,6 @@ const SUPPORT_IMAGE = image.make(
 );
 const APPLICATION_IMAGE = image.make(
   "registry.example/runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-);
-const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
-  "https://router.run.svc.cluster.local:3000",
 );
 const runtimeConfiguration = Schema.Struct({ kind: Schema.Literal("fake") });
 
@@ -497,22 +490,6 @@ function plainRuntime() {
   });
 }
 
-function connection<const Name extends string>(
-  name: Name,
-  suffix: number,
-): AgentConnection<Name> {
-  return {
-    agent: makeAgentHandle(
-      name,
-      agentId(`00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`),
-    ),
-    key: redactedAgentKey(
-      `moltzap_agent_${String(suffix).padStart(16, "0")}_${String(suffix).padStart(48, "0")}`,
-    ),
-    routerUrl: ROUTER_URL,
-  };
-}
-
 interface PlatformOptions {
   readonly startupTimeout?: Duration.Duration;
   readonly livenessInterval?: Duration.Duration;
@@ -546,7 +523,6 @@ function acquireFirst<
     name: entry.name,
     agentName: entry.agentName,
     runtime: entry.runtime,
-    connection: connection(entry.name, 1),
   });
 }
 
@@ -556,12 +532,11 @@ function acquireAll<
 >(session: Society<Definitions>, roster: AgentRoster<Id, Definitions>) {
   return Effect.forEach(
     roster.validatedDefinitions,
-    (entry, index) =>
+    (entry) =>
       session.acquireAgent({
         name: entry.name,
         agentName: entry.agentName,
         runtime: entry.runtime,
-        connection: connection(entry.name, index + 1),
       }),
     { concurrency: 2, discard: true },
   );

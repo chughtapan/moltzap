@@ -4,7 +4,6 @@
  * accepting only the runtime-owned agent name during rendering.
  */
 
-import type { AgentName } from "@moltzap/identity";
 import type { Effect } from "effect";
 import {
   containerRuntimeFor,
@@ -31,8 +30,7 @@ const runtime = nanoclawRuntime({
 /** Configured NanoClaw preserves its exact private container realization. */
 export const nanoclawContainerRuntimeCanary: ContainerRuntime<
   NanoClawGateway,
-  RuntimeAcquisitionError,
-  { readonly agentName: AgentName }
+  RuntimeAcquisitionError
 > = containerRuntimeFor(runtime);
 
 type NanoClawApplication = Application<

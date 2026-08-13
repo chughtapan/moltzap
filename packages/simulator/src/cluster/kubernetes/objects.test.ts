@@ -12,7 +12,6 @@ import {
   IN_CLUSTER_TEMPORAL_ADDRESS,
   LOCAL_QUEUE_NAME,
   ownedRunControlManifests,
-  ROUTER_SERVICE_NAME,
   RUN_OWNER_NAME,
   RUN_WORKER_NAME,
   RUN_WORKER_PRESTOP_SECONDS,
@@ -317,15 +316,11 @@ it("launches one controller attempt with the closed environment contract", () =>
         value: "/opt/moltzap/experiment/main.mjs",
       },
       { name: "MOLTZAP_LEDGER_DIRECTORY", value: "/var/lib/moltzap/ledger" },
-      {
-        name: "MOLTZAP_ROUTER_URL",
-        value: `ws://${ROUTER_SERVICE_NAME}.${INPUT.namespace}.svc.cluster.local:3000`,
-      },
     ],
   });
 });
 
-it("mounts the experiment and durable local ledger beside the router Service", () => {
+it("mounts the experiment and durable local ledger for the controller", () => {
   const manifests = ownedRunControlManifests(INPUT, "owner-uid");
   const pod = manifests.controllerJob.spec?.template.spec;
   expect(pod).toMatchObject({
@@ -359,10 +354,6 @@ it("mounts the experiment and durable local ledger beside the router Service", (
       volumeMounts: [{ name: "ledger", mountPath: "/var/lib/moltzap/ledger" }],
     }),
   ]);
-  expect(manifests.routerService).toMatchObject({
-    metadata: { name: ROUTER_SERVICE_NAME },
-    spec: { ports: [{ port: 3_000, targetPort: 3_000 }] },
-  });
 });
 
 // eslint-disable-next-line complexity -- This regression assertion pins the two-volume GKE projection across optional Kubernetes manifest fields.

@@ -1,6 +1,5 @@
 /** @file Private container realization owned by one exact agent runtime. */
 
-import type { AgentName } from "@moltzap/identity";
 import { Cause, Effect, Inspectable, Schema, type Scope } from "effect";
 import {
   defineRuntime,
@@ -146,24 +145,16 @@ export interface Application<Gateway, AcquisitionError> {
   ) => Effect.Effect<Gateway, AcquisitionError, Scope.Scope>;
 }
 
-interface ContainerRenderInput {
-  readonly agentName: AgentName;
-}
-
 /**
  * The container realization of one runtime. Image and resources belong here
  * rather than to a rendered application because the cluster reserves capacity
  * for the complete roster before any agent identity exists.
  */
-export interface ContainerRuntime<
-  Gateway,
-  AcquisitionError,
-  Input extends ContainerRenderInput = AgentRuntimeInput<string>,
-> {
+export interface ContainerRuntime<Gateway, AcquisitionError> {
   readonly image: Image;
   readonly resources: Resources;
   readonly render: (
-    input: Input,
+    input: AgentRuntimeInput,
   ) => Effect.Effect<Application<Gateway, AcquisitionError>, AcquisitionError>;
 }
 
@@ -177,12 +168,10 @@ export interface ContainerAgentRuntime<
   AcquisitionError = never,
   ConfigurationSchema extends
     Schema.Schema.AnyNoContext = Schema.Schema.AnyNoContext,
-  Input extends ContainerRenderInput = AgentRuntimeInput<string>,
 > extends AgentRuntime<Gateway, AcquisitionError, ConfigurationSchema> {
   readonly [containerRuntimeTypeId]: ContainerRuntime<
     Gateway,
-    AcquisitionError,
-    Input
+    AcquisitionError
   >;
 }
 
@@ -204,15 +193,13 @@ export function containerRuntimeFor<
   Gateway,
   AcquisitionError,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
-  Input extends ContainerRenderInput,
 >(
   runtime: ContainerAgentRuntime<
     Gateway,
     AcquisitionError,
-    ConfigurationSchema,
-    Input
+    ConfigurationSchema
   >,
-): ContainerRuntime<Gateway, AcquisitionError, Input>;
+): ContainerRuntime<Gateway, AcquisitionError>;
 export function containerRuntimeFor<
   Gateway,
   AcquisitionError,
@@ -241,20 +228,14 @@ export function defineContainerRuntime<
   Gateway,
   AcquisitionError,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
-  Input extends ContainerRenderInput = AgentRuntimeInput<string>,
 >(
   definition: AgentRuntimeDefinition<
     Gateway,
     AcquisitionError,
     ConfigurationSchema
   > &
-    ContainerRuntime<Gateway, AcquisitionError, Input>,
-): ContainerAgentRuntime<
-  Gateway,
-  AcquisitionError,
-  ConfigurationSchema,
-  Input
-> {
+    ContainerRuntime<Gateway, AcquisitionError>,
+): ContainerAgentRuntime<Gateway, AcquisitionError, ConfigurationSchema> {
   const runtime = defineRuntime<Gateway, AcquisitionError, ConfigurationSchema>(
     {
       name: definition.name,
@@ -273,12 +254,7 @@ export function defineContainerRuntime<
           render: definition.render,
         }),
       }),
-    ) as ContainerAgentRuntime<
-      Gateway,
-      AcquisitionError,
-      ConfigurationSchema,
-      Input
-    >;
+    ) as ContainerAgentRuntime<Gateway, AcquisitionError, ConfigurationSchema>;
   return branded;
 }
 

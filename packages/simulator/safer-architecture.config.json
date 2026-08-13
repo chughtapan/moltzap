@@ -14,10 +14,6 @@
   ],
   "facadeFiles": [
     {
-      "file": "network.ts",
-      "reason": "Published network contract for participants, conversations, endpoints, links, and router implementations"
-    },
-    {
       "file": "ledger.ts",
       "reason": "Published ledger contract for records, storage, live runs, and offline inspection"
     },
@@ -54,16 +50,8 @@
       "reason": "Completed-ledger validation and offline opening boundary"
     },
     {
-      "file": "run/link-fabric.ts",
-      "reason": "Link-fabric boundary coupling the platform link driver, receiver registration, and the policy interpreter"
-    },
-    {
       "file": "run/outcomes.ts",
-      "reason": "Causal outcome conversion shared by runtime, router, and program lifecycle modules"
-    },
-    {
-      "file": "run/router.ts",
-      "reason": "Router lifecycle boundary coupling scoped acquisition and shutdown with durable causal outcomes"
+      "reason": "Causal outcome conversion shared by runtime and program lifecycle modules"
     },
     {
       "file": "run/execute.ts",
@@ -98,40 +86,12 @@
       "reason": "Public authoring surface composing catalogs, roster, cluster layer, and the customer Effect into one runnable spec"
     },
     {
-      "file": "network/endpoint.ts",
-      "reason": "Controlled endpoint and network service boundary over router transports and conversation receive cursors"
-    },
-    {
-      "file": "network/link.ts",
-      "reason": "Link driver port and experiment-facing scoped link controller services"
-    },
-    {
-      "file": "network/participant.ts",
-      "reason": "Nominal participant and agent handles shared by network, runtime, and kernel capabilities"
-    },
-    {
-      "file": "network/conversation.ts",
-      "reason": "Conversation addressing and endpoint-bound socket contract"
-    },
-    {
-      "file": "network/router.ts",
-      "reason": "Router port, framed message model, connection contract, and typed network failures"
-    },
-    {
-      "file": "network/server/process.ts",
-      "reason": "Scoped MoltZap server ownership for image, storage, process, observation, and identity resources"
-    },
-    {
       "file": "agents/agent.ts",
       "reason": "Autonomous participant lifecycle contract implemented by every runtime family"
     },
     {
       "file": "agents/roster.ts",
       "reason": "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements"
-    },
-    {
-      "file": "network/server/packages.ts",
-      "reason": "Runtime package discovery and install-policy boundary shared by shipped runtime families"
     }
   ],
   "layers": [
@@ -154,13 +114,12 @@
       "folders": [
         "events",
         "ledger",
-        "network",
         "agents",
         "cluster",
         "cluster/kubernetes",
         "cluster/profiles"
       ],
-      "reason": "Peer event, ledger, network, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it"
+      "reason": "Event, ledger, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it"
     }
   ],
   "publicTypePackages": [
@@ -173,24 +132,12 @@
       "reason": "Effect platform abstractions used at boundaries"
     },
     {
-      "package": "@effect/rpc",
-      "reason": "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client"
-    },
-    {
       "package": "openclaw",
       "reason": "OpenClaw runtime options intentionally accept the runtime's native tools and sandbox policies"
     },
     {
-      "package": "@moltzap/client",
-      "reason": "Client-owned conversation identities cross simulator boundaries"
-    },
-    {
       "package": "@moltzap/identity",
       "reason": "Identity-owned AgentName and VerifiedAgentCard are deliberately part of the semantic Client contract"
-    },
-    {
-      "package": "@moltzap/protocol",
-      "reason": "Intra-monorepo protocol; foundational shared contract"
     }
   ],
   "allowedTestPublicSubpaths": []

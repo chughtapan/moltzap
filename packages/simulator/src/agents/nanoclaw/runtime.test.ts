@@ -65,8 +65,7 @@ const renderedRuntimeConfig = Schema.parseJson(
 
 type NanoClawContainerRuntime = ContainerRuntime<
   NanoClawGateway,
-  RuntimeAcquisitionError,
-  { readonly agentName: AgentName }
+  RuntimeAcquisitionError
 >;
 type NanoClawApplication = Application<
   NanoClawGateway,
@@ -218,8 +217,8 @@ function rejectedEndpointTest() {
 }
 
 function rejectedWorkspacePathTest(): void {
-  // Escapes are refused where the runtime is defined, which is before any
-  // router credential exists to be written into a bootstrap file.
+  // Escapes are refused where the runtime is defined, before any bootstrap
+  // file can be rendered.
   for (const relativePath of ["", "../escape.md", "/etc/passwd", "a\\b.md"]) {
     assert.throws(() =>
       nanoclawRuntime({

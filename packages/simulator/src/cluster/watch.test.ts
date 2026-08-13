@@ -172,7 +172,6 @@ function observing(observed: JobObservation, logs?: string) {
       Effect.fail(new KubernetesCallFailed("observing creates nothing")),
     createExperimentAndQueue: () => Effect.void,
     createControllerAccess: () => Effect.void,
-    createRouterService: () => Effect.void,
     startController: () => Effect.void,
     readControllerJob: () => Effect.succeed(observed),
     readControllerLogs: (namespace, tailLines, limitBytes) =>

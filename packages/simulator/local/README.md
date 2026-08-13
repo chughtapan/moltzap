@@ -111,7 +111,7 @@ completed on a live cluster.
 
 The local profile submitter starts one Temporal workflow. Its controller
 activity creates the run namespace and `LocalQueue`, mounts the experiment
-module, exposes the controller's production router Service, and sets the closed
+module, grants the controller its run-scoped access, and sets the closed
 `MOLTZAP_*` environment accepted by
 `controllerServicesFromEnvironment`. Ledger directories use a
 run-specific child beneath the mounted artifact root; no Kubernetes or

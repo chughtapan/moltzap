@@ -1,5 +1,5 @@
 /** @file Scoped autonomous-agent runtime contract. */
-// safer-arch-ignore no-cross-domain-sibling-import: A runtime contract is defined by what it receives: the ledger's JSON configuration shape and the network's connection and inbound-link types.
+// safer-arch-ignore no-cross-domain-sibling-import: A runtime contract is defined by the ledger's JSON configuration shape and the roster-owned name it receives.
 
 import type { AgentName } from "@moltzap/identity";
 import { type Effect, Either, Schema } from "effect";
@@ -7,7 +7,6 @@ import {
   jsonValue,
   type JsonValue as JsonValueType,
 } from "../ledger/schema.js";
-import type { AgentConnection } from "../network/router.js";
 
 const agentRuntimeTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentRuntime",
@@ -84,10 +83,9 @@ export interface RunningAgent<Gateway> {
   readonly termination: Effect.Effect<RuntimeTermination>;
 }
 
-/** Router attachment presented to a runtime's private container realization. */
-export interface AgentRuntimeInput<Name extends string> {
+/** Roster identity presented to a runtime's private realization. */
+export interface AgentRuntimeInput {
   readonly agentName: AgentName;
-  readonly connection: AgentConnection<Name>;
 }
 
 /** Runtime-native schema and sanitized configuration captured at definition. */

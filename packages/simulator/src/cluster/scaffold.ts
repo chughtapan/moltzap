@@ -1,4 +1,4 @@
-/** @file Stand up one run: its root, its access, its endpoint, its controller. */
+/** @file Stand up one run: its root, access, and controller. */
 // safer-arch-ignore no-trivial-sink-file: Standing a run up is its own step of a run's life; folding it into the module that watches the controller would put two behaviors behind one name.
 
 import { Effect } from "effect";
@@ -16,11 +16,9 @@ import type { RunSocietyWorkflowInput } from "./reclaim.js";
  * Two orderings are the contract, and only those two. The run root's UID owns
  * every object created after it, so nothing can be built until it exists. The
  * controller Job is created last because it immediately acts through the
- * run-scoped RBAC and dials the router Service by name: started any earlier, it
- * races objects it depends on. What sits between them — the experiment and its
- * queue, the controller's identity and permissions, the router endpoint — names
- * nothing in the others, so the three are created together and the run reaches
- * its controller in three round trips instead of six.
+ * run-scoped RBAC: started any earlier, it races objects it depends on. The
+ * experiment and queue are independent of the controller's access, so those
+ * two stages are created together.
  *
  * @param api Kubernetes access held by the worker running this activity.
  * @param input Serializable run identity, images, and experiment module.
@@ -40,9 +38,8 @@ export function prepareRun(
       [
         api.createExperimentAndQueue(input.namespace, manifests),
         api.createControllerAccess(input.namespace, manifests),
-        api.createRouterService(input.namespace, manifests),
       ],
-      { concurrency: 3, discard: true },
+      { concurrency: 2, discard: true },
     );
     yield* api.startController(input.namespace, manifests);
   }).pipe(Effect.withSpan("prepareRun"));
