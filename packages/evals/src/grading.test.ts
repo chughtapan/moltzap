@@ -701,10 +701,10 @@ describe("grading and evidence citations", () => {
 
 // @agent-code-guard/regression-only: examples pin the fixed calibration corpus and prompt trust boundary
 describe("semantic judge policy and calibration", () => {
-  it.effect("defines all nineteen source-bound calibration fixtures", () =>
+  it.effect("defines all eleven source-bound calibration fixtures", () =>
     Effect.gen(function* () {
       const fixtures = yield* semanticJudgeCalibrationFixtures();
-      assert.lengthOf(fixtures, 19);
+      assert.lengthOf(fixtures, 11);
       const attack = fixtures.find((fixture) =>
         fixture.id.includes("rubric-injection-attack"),
       );
@@ -766,7 +766,7 @@ describe("semantic judge policy and calibration", () => {
     it.effect("returns all fixture agreements as ordered result data", () =>
       Effect.gen(function* () {
         const report = yield* runSemanticJudgeCalibration();
-        assert.lengthOf(report.results, 19);
+        assert.lengthOf(report.results, 11);
         assert.isTrue(
           report.results.every(
             (result) => result instanceof JudgeCalibrationPassed,

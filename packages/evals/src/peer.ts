@@ -923,21 +923,6 @@ export function selectedResponsePeerRuntime(
 }
 
 /**
- * Build an autonomous context peer whose response is not selected for grading.
- * @param caseId Evaluation case identity copied into endpoint testimony.
- * @param targetName Roster name the peer accepts messages from.
- * @param messages Ordered peer messages, each followed by one target response.
- * @returns An image-independent definition of the peer interaction.
- */
-export function contextPeerRuntime(
-  caseId: EvaluationCaseId,
-  targetName: string,
-  messages: NonEmptyReadonlyArray<string>,
-) {
-  return selectedResponsePeerRuntime(caseId, targetName, messages);
-}
-
-/**
  * Build the identity-awareness peer that creates the social workspace.
  * @param caseId Evaluation case identity copied into endpoint testimony.
  * @param targetName Roster name the peer contacts.

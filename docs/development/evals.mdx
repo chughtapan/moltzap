@@ -139,9 +139,7 @@ target. NanoClaw input establishes target identity but cannot satisfy that
 selection. A selected peer timeout remains explicit absence evidence.
 
 Every criterion receives the same selected evidence. Exact-answer checks can
-decide both directions mechanically. A literal disclosure detector may
-conclusively establish a failure, but a detector miss remains a semantic
-question because the response may paraphrase or reconstruct the secret.
+decide both directions mechanically.
 
 `grading.ts → SemanticJudge` is a provider-neutral Effect service. The bundled
 OpenAI layer uses `gpt-5.6-sol`, medium reasoning, strict structured output, no
@@ -155,8 +153,8 @@ behavioral `failed` verdict. `undecided` is a valid semantic verdict.
 
 ## Result bundles and honest failure states
 
-The baseline contains sixteen cases, two runtime conditions, and one sample per
-cell. `results.ts → runEvaluationSweep` advances those 32 cells in canonical
+The baseline contains ten cases, two runtime conditions, and one sample per
+cell. `results.ts → runEvaluationSweep` advances those 20 cells in canonical
 order. Each cell owns one SQLite write transaction from cell selection through
 terminal-attempt commit; interruption rolls back that cell while earlier
 attempts remain durable.

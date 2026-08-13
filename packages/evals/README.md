@@ -5,7 +5,7 @@ defines behavioral cases, runs mixed OpenClaw and NanoClaw societies through
 the simulator's Kubernetes path, grades durable ledger evidence, stores
 resumable SQLite reports, and publishes completed results to Phoenix.
 
-The bundled baseline pairs sixteen cases with OpenClaw and NanoClaw target
+The bundled baseline pairs ten cases with OpenClaw and NanoClaw target
 conditions. Each matrix cell constructs one case-specific `RunSpec` and submits
 it through either the repository's local kind profile or its GKE profile. Case
 peers run as autonomous application containers. Target-to-peer and

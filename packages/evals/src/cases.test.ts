@@ -6,10 +6,8 @@ import {
   OBSERVER_1_AGENT_NAME,
   OBSERVER_2_AGENT_NAME,
   PEER_AGENT_NAME,
-  PROBE_AGENT_NAME,
   SOURCE_AGENT_NAME,
   TARGET_AGENT_NAME,
-  evaluationCase,
   evaluationCases,
   type BundledEvaluationCase,
   type CriterionEvidence,
@@ -19,7 +17,6 @@ import {
 } from "./cases.js";
 import {
   CriterionDecided,
-  NeedsJudge,
   decodeEvaluationCaseId,
   decodeEvaluationEvidenceId,
 } from "./model.js";
@@ -140,7 +137,6 @@ function catalogTest(): void {
       "EVAL-005",
       "EVAL-006",
       "EVAL-007",
-      "EVAL-008",
       "EVAL-009",
       "EVAL-010",
       "EVAL-011",
@@ -148,11 +144,6 @@ function catalogTest(): void {
       "EVAL-019",
       "EVAL-021",
       "EVAL-022",
-      "EVAL-030",
-      "EVAL-031",
-      "EVAL-032",
-      "EVAL-033",
-      "EVAL-034",
     ],
   );
   assert.isTrue(Object.isFrozen(evaluationCases));
@@ -168,7 +159,6 @@ function exactPeerRostersTest(): void {
       [PEER_AGENT_NAME],
       [PEER_AGENT_NAME, SOURCE_AGENT_NAME, OBSERVER_1_AGENT_NAME],
       [PEER_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
       [PEER_AGENT_NAME],
       [PEER_AGENT_NAME, SOURCE_AGENT_NAME, OBSERVER_1_AGENT_NAME],
       [PEER_AGENT_NAME, OBSERVER_1_AGENT_NAME, OBSERVER_2_AGENT_NAME],
@@ -176,11 +166,6 @@ function exactPeerRostersTest(): void {
       [],
       [PEER_AGENT_NAME],
       [PEER_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
     ],
   );
   assert.isFalse(
@@ -216,7 +201,7 @@ function principalBoundaryTest() {
 
 function identityProgramTest() {
   return Effect.gen(function* () {
-    const definition = evaluationCases[10];
+    const definition = evaluationCases[9];
     assert.strictEqual(definition.id, decodeEvaluationCaseId("EVAL-022"));
     const recorder = programRecorder();
 
@@ -241,23 +226,9 @@ function identityProgramTest() {
   });
 }
 
-function semanticNegotiationTest(): void {
-  const definition = evaluationCase(decodeEvaluationCaseId("EVAL-031"));
-  assert.isDefined(definition);
-  if (definition === undefined) {
-    return;
-  }
-
-  const decision = definition.criteria[0].decide(
-    evidence("Offer exactly $4,000 per month."),
-  );
-
-  assert.instanceOf(decision, NeedsJudge);
-}
-
 // @agent-code-guard/regression-only: catalog identity, immutability, and code policy order are public evaluation contracts
 describe("evaluation case catalog", () => {
-  it("owns the exact ordered immutable sixteen-case catalog", catalogTest);
+  it("owns the exact ordered immutable ten-case catalog", catalogTest);
   it("starts only the autonomous peers each case uses", exactPeerRostersTest);
   test(
     "returns one social evidence identity without exposing selection state",
@@ -267,5 +238,4 @@ describe("evaluation case catalog", () => {
     "returns one principal evidence identity after the autonomous peer contacts the target",
     identityProgramTest,
   );
-  it("leaves EVAL-031 entirely to semantic judgment", semanticNegotiationTest);
 });

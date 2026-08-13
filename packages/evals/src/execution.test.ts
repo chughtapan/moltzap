@@ -93,7 +93,7 @@ const bundledOpenClawPolicyConfiguration = Schema.Struct({
 
 type EvaluationEvent = EventOf<typeof evaluationEvents>;
 type SocialPeerRuntimes = (typeof evaluationCases)[0]["peers"];
-type PrincipalPeerRuntimes = (typeof evaluationCases)[8]["peers"];
+type PrincipalPeerRuntimes = (typeof evaluationCases)[7]["peers"];
 
 interface RecordedEvent {
   readonly eventId: string;
@@ -297,7 +297,7 @@ function socialSelectionTest() {
 
 function principalSelectionTest() {
   return Effect.gen(function* () {
-    const definition = evaluationCases[8];
+    const definition = evaluationCases[7];
     const recorder = yield* eventRecorder();
     const acquired = yield* instrumentation(
       definition,
@@ -349,7 +349,7 @@ function assertUnsupportedPrincipalOutput(
 
 function nanoclawPrincipalOutputUnsupportedTest() {
   return Effect.gen(function* () {
-    const definition = evaluationCases[8];
+    const definition = evaluationCases[7];
     const recorder = yield* eventRecorder();
     const submitted = yield* Ref.make<readonly NanoClawGatewayInput[]>([]);
     const acquired = yield* nanoclawInstrumentation(
@@ -424,7 +424,7 @@ function assertUncorrelatedNanoClawEvidence(
 
 function nanoclawIdentityOutputUnsupportedTest() {
   return Effect.gen(function* () {
-    const definition = evaluationCases[10];
+    const definition = evaluationCases[9];
     const recorder = yield* eventRecorder();
     const submitted = yield* Ref.make<readonly NanoClawGatewayInput[]>([]);
     const outputRecorded = yield* Deferred.make<undefined>();
