@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { agentName } from "@moltzap/protocol/identity";
+import { AgentName as agentName } from "@moltzap/client";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { ProgramSucceeded, RouterMessageCommitted } from "@moltzap/simulator";
 import {

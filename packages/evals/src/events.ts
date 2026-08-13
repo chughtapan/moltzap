@@ -1,7 +1,11 @@
 /** @file Evaluation events and typed simulator evidence projections. */
 
-import { conversationId, messageId } from "@moltzap/protocol/conversation";
-import { type AgentId, agentId, agentName } from "@moltzap/protocol/identity";
+import {
+  AgentName as agentName,
+  ConversationId as conversationId,
+} from "@moltzap/client";
+import { messageId } from "@moltzap/protocol/conversation";
+import { type AgentId, agentId } from "@moltzap/protocol/identity";
 import { messagePartsSchema } from "@moltzap/protocol/message";
 import { EventCatalog, RouterMessageCommitted } from "@moltzap/simulator";
 import {

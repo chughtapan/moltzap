@@ -1,6 +1,6 @@
 /** @file Participant-independent conversation addressing. */
 
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/client";
 import { type Message, messagePartsSchema } from "@moltzap/protocol/message";
 import { Effect, Option, Schema, Stream } from "effect";
 import type { ParticipantHandle } from "./participant.js";
@@ -55,7 +55,7 @@ export class ConversationAddress {
 
 /**
  * Construct an address from one router-issued conversation identity.
- * @param conversationId Router-issued conversation identity.
+ * @param conversationId Stable conversation identity.
  * @param participants Nonempty addressed participant set.
  * @returns Nominal conversation address.
  * @internal

@@ -170,6 +170,7 @@
     "@effect/sql": "^0.52.0",
     "@electric-sql/pglite": "0.4.4",
     "@kubernetes/client-node": "1.4.0",
+    "@moltzap/client": "workspace:*",
     "@moltzap/identity": "workspace:*",
     "@moltzap/protocol": "workspace:^",
     "@temporalio/activity": "1.21.1",

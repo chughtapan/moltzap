@@ -1,8 +1,8 @@
 /** @file Controlled network endpoints and their run-scoped Effect service. */
 
-import { Context, Effect, type Stream } from "effect";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/client";
 import type { AgentId } from "@moltzap/protocol/identity";
+import { Context, Effect, type Stream } from "effect";
 import {
   type ConversationAddress,
   type ConversationSocket,

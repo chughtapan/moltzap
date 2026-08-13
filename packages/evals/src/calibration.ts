@@ -1,7 +1,10 @@
 /** @file The fixed calibration corpus that keeps every live judge layer honest. */
 
-import { conversationId } from "@moltzap/protocol/conversation";
-import { agentId, agentName } from "@moltzap/protocol/identity";
+import {
+  AgentName as agentName,
+  ConversationId as conversationId,
+} from "@moltzap/client";
+import { agentId } from "@moltzap/protocol/identity";
 import { Effect, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import {

@@ -1,13 +1,10 @@
 /** @file Autonomous Effect policies for bundled mixed-agent evaluations. */
 
-import {
-  agentConversationCreate,
-  type ConversationId,
-} from "@moltzap/protocol/conversation";
+import { AgentName as agentName, type ConversationId } from "@moltzap/client";
+import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   agentId,
   agentKey,
-  agentName,
   agentsList,
   type AgentCard,
   type AgentId,

@@ -141,6 +141,9 @@ importers:
       '@effect/sql-sqlite-node':
         specifier: ^0.53.0
         version: 0.53.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -442,6 +445,9 @@ importers:
       '@kubernetes/client-node':
         specifier: 1.4.0
         version: 1.4.0
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
       '@moltzap/identity':
         specifier: workspace:*
         version: link:../identity

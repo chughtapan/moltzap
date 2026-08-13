@@ -181,6 +181,10 @@
       "reason": "OpenClaw runtime options intentionally accept the runtime's native tools and sandbox policies"
     },
     {
+      "package": "@moltzap/client",
+      "reason": "Client-owned conversation identities cross simulator boundaries"
+    },
+    {
       "package": "@moltzap/identity",
       "reason": "Identity-owned AgentName and VerifiedAgentCard are deliberately part of the semantic Client contract"
     },

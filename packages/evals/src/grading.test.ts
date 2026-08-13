@@ -1,8 +1,12 @@
 /* eslint-disable complexity, max-lines-per-function, max-nested-callbacks, sonarjs/max-lines-per-function -- Regression groups keep each end-to-end evidence invariant visible beside its fixture. */
 
 import { assert, describe, it, layer } from "@effect/vitest";
-import { conversationId, messageId } from "@moltzap/protocol/conversation";
-import { agentId, agentName } from "@moltzap/protocol/identity";
+import {
+  AgentName as agentName,
+  ConversationId as conversationId,
+} from "@moltzap/client";
+import { messageId } from "@moltzap/protocol/conversation";
+import { agentId } from "@moltzap/protocol/identity";
 import { RouterMessageCommitted } from "@moltzap/simulator";
 import {
   NanoClawGatewayInput,

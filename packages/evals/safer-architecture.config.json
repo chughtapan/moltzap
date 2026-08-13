@@ -63,6 +63,10 @@
       "reason": "Effect platform abstractions used at boundaries"
     },
     {
+      "package": "@moltzap/client",
+      "reason": "The reduced Client surface supplies conversation identity and agent names to evaluation boundaries"
+    },
+    {
       "package": "@moltzap/protocol",
       "reason": "Intra-monorepo protocol; foundational shared contract"
     },

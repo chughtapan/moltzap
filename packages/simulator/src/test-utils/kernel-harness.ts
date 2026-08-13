@@ -1,7 +1,7 @@
 /* eslint-disable jsdoc/require-jsdoc, agent-code-guard/no-exported-brand-constructor, agent-code-guard/require-span-on-exported-effect -- Test fixtures exported only to the package's own regressions; each is named for the exact value it builds and has no consumer outside this package's own test files. */
 
+import type { ConversationId } from "@moltzap/client";
 import { assert } from "@effect/vitest";
-import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {

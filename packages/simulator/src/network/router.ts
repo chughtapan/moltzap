@@ -3,9 +3,9 @@
 import type { AgentName } from "@moltzap/identity";
 import {
   type ConversationId,
-  conversationId,
-  messageId,
-} from "@moltzap/protocol/conversation";
+  ConversationId as conversationId,
+} from "@moltzap/client";
+import { messageId } from "@moltzap/protocol/conversation";
 import {
   type AgentId,
   agentId,

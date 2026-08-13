@@ -1,8 +1,8 @@
 import { assert, it } from "@effect/vitest";
-import { createHash } from "node:crypto";
-import { agentName } from "@moltzap/protocol/identity";
+import { AgentName as agentName } from "@moltzap/client";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import type { EventOf } from "@moltzap/simulator";
+import { createHash } from "node:crypto";
 import {
   NanoClawGatewayOutput,
   type NanoClawGateway,

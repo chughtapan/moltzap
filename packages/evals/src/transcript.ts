@@ -1,8 +1,11 @@
 /** @file Normalized evaluation transcripts and their evidence-ID invariants. */
 
 import type { MessageParts } from "@moltzap/simulator";
-import { conversationId } from "@moltzap/protocol/conversation";
-import { type AgentId, agentId, agentName } from "@moltzap/protocol/identity";
+import {
+  AgentName as agentName,
+  ConversationId as conversationId,
+} from "@moltzap/client";
+import { type AgentId, agentId } from "@moltzap/protocol/identity";
 import { messagePartsSchema } from "@moltzap/protocol/message";
 import { OpenClawGatewayTimedOut } from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";

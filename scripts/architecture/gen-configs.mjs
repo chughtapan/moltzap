@@ -189,6 +189,11 @@ const packageDefinitions = {
       publicTypePackages: [
         publicTypePackage.effect,
         publicTypePackage.platform,
+        {
+          ...publicTypePackage.client,
+          reason:
+            "The reduced Client surface supplies conversation identity and agent names to evaluation boundaries",
+        },
         publicTypePackage.protocol,
         publicTypePackage.simulator,
       ],
@@ -517,6 +522,11 @@ const packageDefinitions = {
             "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client",
         },
         publicTypePackage.openclaw,
+        {
+          ...publicTypePackage.client,
+          reason:
+            "Client-owned conversation identities cross simulator boundaries",
+        },
         publicTypePackage.identity,
         publicTypePackage.protocol,
       ],

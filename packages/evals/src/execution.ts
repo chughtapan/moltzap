@@ -1,6 +1,6 @@
 /** @file Concrete mixed-agent conditions and code-defined case execution. */
 
-import { agentName } from "@moltzap/protocol/identity";
+import { AgentName as agentName } from "@moltzap/client";
 import {
   CompletedLedgerReceipt,
   EventCatalog,

@@ -1,5 +1,5 @@
 import { assert, it as effectIt } from "@effect/vitest";
-import { agentName } from "@moltzap/protocol/identity";
+import { AgentName as agentName } from "@moltzap/client";
 import { agentId } from "@moltzap/protocol/testing";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
 import { image } from "@moltzap/simulator/agents";
@@ -11,10 +11,7 @@ import {
 } from "@moltzap/simulator/ledger";
 import { DateTime, Effect, Schema } from "effect";
 import { describe } from "vitest";
-import {
-  CodeAssessment,
-  GradeReport,
-} from "./assessment.js";
+import { CodeAssessment, GradeReport } from "./assessment.js";
 import { JudgeUnavailable } from "./judge.js";
 import {
   EvaluationTarget,

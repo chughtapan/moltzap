@@ -1,5 +1,6 @@
+import { ConversationId as conversationId } from "@moltzap/client";
 import { AgentName as agentName } from "@moltzap/identity";
-import { conversationId, messageId } from "@moltzap/protocol/conversation";
+import { messageId } from "@moltzap/protocol/conversation";
 import { agentId } from "@moltzap/protocol/identity";
 import { messagePartsSchema } from "@moltzap/protocol/message";
 import { serverBaseUrlSchema } from "@moltzap/protocol/network";
