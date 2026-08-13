@@ -67,9 +67,9 @@ recovery. “Members re-anchor” is not yet an implementable protocol.
 |---|---|---|
 | `20260801-harness-is-one-profile-slot-daemon.md` | One daemon represents at most one AgentId; Registry owns admission; one loopback listener; MCP replaces bespoke CLI. | Remove profiles, split MCP paths, dual backings, Ledger dependency, and `v2/harness`; define explicit state-directory/config ownership and one state-dependent `/mcp`. |
 | `20260728-endpoint-daemon-speaks-modern-mcp.md` | Re-admit only the modern MCP framing, discovery, subscription ownership, and supervision mechanics still needed. | Retire profile/Ledger state and explicitly select the event extension, attention, completion, and recovery semantics that survive. |
-| `20260801-harness-client-owns-runtime-context.md` | A runtime turn and history read remain different capabilities. | Admit the exact final `HarnessClient` and decide whether universal cross-conversation context/checkpoints survive. |
+| `20260801-harness-client-owns-runtime-context.md` | A runtime turn and history read remain different capabilities. | The reduced Client projects one certified action from the current conversation. Universal cross-conversation context and checkpoints do not survive. |
 | `20260801-inbound-notifications-separate-content-from-grants.md` | Content/history and live reply authority are independent; one live authority per conversation. | Re-own notification, history, and recovery under the endpoint store without Ledger mechanics. |
-| `20260801-model-output-is-start-or-bound-reply.md` | Start with initial content, turn-bound reply, and no generic send. | Replace Ledger receipt/completion with a complete locally durable certified record and closed typed errors. |
+| `20260801-model-output-is-start-or-bound-reply.md` | Start with initial content, turn-bound reply, and no generic send. | A pre-minted `ConversationId` identifies START retry. Start and bound reply return `void` after local certification, with proof available only through MCP management. |
 | `20260728-model-surface-is-start-reply-listen.md` | Retain start, bound reply, and receive only where compatible. | Remove `LedgerOffset`, central receipts, and obsolete raw tool/reconciliation shapes. |
 
 The candidate must use one term for each receive surface:
@@ -77,6 +77,13 @@ The candidate must use one term for each receive surface:
 - MCP `subscriptions/listen` is the transport subscription;
 - `HarnessClient.turns` is its typed runtime projection; and
 - neither is a seventh MCP tool.
+
+The accepted semantic surface uses a pre-minted `ConversationId` as START's
+only public retry identity. START and bound reply return `void` after local
+certification, and each turn projects one current-conversation action. Search,
+history, status, registration, and proof inspection remain MCP-only. `TxnId`
+is absent; BEGIN-message digests, `ActionHash`, `RecordHash`, certificates, and
+recovery state stay behind the semantic Client boundary.
 
 ### Trust features become recursive protocols
 
@@ -135,12 +142,13 @@ verbatim survivors: simulator schema versions remain independent of the new
 product-version owner; final `@moltzap/simulator` owns the one kernel; two
 simulator engines never coexist; and adapters consume `HarnessClient`.
 
-Rows `624` and `819` become obsolete if universal cross-conversation snapshots
-are intentionally removed. Row `717` needs new landed-source provenance for
-the preserved latest-main simulator. Row `804` and row `824` must distinguish
-the still-deferred non-unanimous action quorum from the newly selected
-non-unanimous durability quorum. Row `806` must distinguish obsolete central
-append takeover from any action-author recovery that remains deferred.
+Rows `624` and the cross-conversation portion of `819` are obsolete because
+the accepted turn contains only its current conversation. Row `717` needs new
+landed-source provenance for the preserved latest-main simulator. Row `804`
+and row `824` must distinguish the still-deferred non-unanimous action quorum
+from the newly selected non-unanimous durability quorum. Row `806` must
+distinguish obsolete central append takeover from any action-author recovery
+that remains deferred.
 
 ## Normative chapter work
 
@@ -154,8 +162,8 @@ append takeover from any action-author recovery that remains deferred.
 | `docs/spec/harness/tasks.md` | Separate unanimous action validity from durability quorum; specify staging, vote dissemination, certificate assembly, author failure, catch-up, and progress. |
 | `docs/spec/harness/daemon.md` | Remove profiles, split paths, Ledger state, and dual backings; specify explicit process config and one state-dependent MCP endpoint. |
 | `docs/spec/management.md` | Define local-history authorization, search/read projections, stable positions, pagination, status, and registration recovery on `/mcp`. |
-| `docs/spec/harness/client.md` | Admit the exact service, turn, certified result, proof, context choice, and closed error types. |
-| `docs/spec/harness/output.md` | Define atomic START, stable retry identity, bound reply, local success, and certified results without offsets. |
+| `docs/spec/harness/client.md` | Define the reduced service: pre-minted `ConversationId`, current-conversation turn, void START/reply completion, MCP-only management, and closed errors. |
+| `docs/spec/harness/output.md` | Define atomic START, `ConversationId` retry and changed-intent conflict, bound reply, and void local success without offsets or receipts. |
 | `docs/spec/harness/ingress.md` | Retain content/authority separation if selected and assign the new notification/attention owner. |
 | `docs/spec/harness/screening.md` | Rename to personal trust, remove L5/L7/Ledger structure, and retain fail-closed local signing/attention/disclosure decisions. |
 | `docs/spec/harness/contacts.md` | Recast optional contacts as local trust data without profile or L7-service vocabulary. |
@@ -191,9 +199,9 @@ Current architecture orientation must change in the same candidate:
 5. **Router restart.** Define how members compare certified heads, select one
    anchor, reject conflicting or stale votes, persist the anchor, and recover
    after partial dissemination.
-6. **Runtime context.** Explicitly retain or supersede universal
-   cross-conversation presentation and its checkpoints. The final turn cannot
-   omit them accidentally.
+6. **Runtime context.** The final turn projects one certified action from its
+   current conversation. Universal cross-conversation presentation and its
+   checkpoints are superseded; runtime hosts own any wider session memory.
 7. **Daemon ownership.** Define one state directory/AgentId, duplicate identity
    detection, registration versus local commit points, crash recovery, bind
    collisions, and status without recreating profiles.
@@ -215,5 +223,5 @@ Current architecture orientation must change in the same candidate:
 13. **Outage matrix.** State Registry, Router, local disk, endpoint, and quorum
     outages separately for safety, verification, catch-up, and progress.
 
-The proposed public shapes and recommended answers for interface choices live
+The accepted reduced public shape and its private-boundary consequences live
 in `four-layer-interface-slate.md`.

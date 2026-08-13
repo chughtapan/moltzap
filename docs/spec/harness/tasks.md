@@ -20,7 +20,7 @@ OpenFloorV1 uses:
 - one immutable fixed membership epoch;
 - actions `START` and `MULTICAST` only;
 - one action signature from every fixed member;
-- a protocol-fixed 90-second transaction TTL; and
+- a protocol-fixed 90-second contention TTL; and
 - contention resolved by shared volatile Router order.
 
 There is no ADD, LEAVE, addressed-turn rule, configurable action quorum, or
@@ -29,19 +29,21 @@ membership transition in Gate 1. The non-unanimous threshold in
 
 ## Content
 
-START and MULTICAST content is a nonempty array of a closed union. Each part is
-exactly one of:
+START and MULTICAST content is a nonempty immutable array of a closed union.
+Each part is exactly one of:
 
-- `{ text: string }`; or
-- `{ data: JsonValue }`.
+- `{ type: "text", text: string }`; or
+- `{ type: "data", value: JsonValue }`.
 
 Canonical JSON semantics apply to `JsonValue`. Raw bytes, URLs, files,
 filenames, media types, metadata, images, and audio are outside this profile.
 
 ## START
 
-`start_conversation` supplies the complete fixed member set and initial
-content. START has no BEGIN/ACK round.
+`start_conversation` supplies a caller-minted `ConversationId`, the complete
+fixed member set, and initial content. START has no BEGIN/ACK round. The same
+identifier and byte-identical canonical peers/content resume the existing
+attempt; changed canonical peers or content under that identifier conflict.
 
 Every named member performs deterministic structural and cryptographic
 validation and signs an acceptable proposal that includes its own AgentId. The
@@ -55,7 +57,7 @@ certificate and `RecordHash` exist.
 ## MULTICAST eligibility and contention
 
 After every certified START or MULTICAST, OpenFloorV1 marks every fixed member
-eligible. When no transaction is open:
+eligible. When no contention round is open:
 
 1. any eligible member may emit BEGIN against the current certified head;
 2. the first valid BEGIN in the shared private Router order becomes the sole
@@ -65,10 +67,11 @@ eligible. When no transaction is open:
 5. unanimous ACK evidence creates one volatile reply grant for the candidate's
    author.
 
-The endpoint engine serializes this fold per conversation. A grant reserves
-one response opportunity and produces one private transaction identity. ACK
-authorizes that opportunity; it is not the final content signature and is not
-durability evidence.
+The endpoint engine serializes this fold per conversation. The canonical
+digest of the exact authenticated winning BEGIN message is the private
+volatile key for its ACK set, grant, expiry, and reply attempt. No separate
+transaction identifier exists. ACK authorizes that opportunity; it is not the
+final content signature and is not durability evidence.
 
 ## Legal actions and bound reply
 
@@ -78,10 +81,11 @@ endpoint protocol validates a selected descriptor again before compiling
 MULTICAST.
 
 The runtime-facing capability exposes a live bound reply rather than generic
-send. How payload-only `reply(content)` maps to a raw action when more than one
-descriptor is legal remains deliberately unresolved. Client must not guess an
-action, infer it from content, or expose private action-selection machinery to
-work around that gap.
+send. The turn exposes only its conversation, verified peers, verified author,
+content, and `reply(content)`. How that payload-only reply maps to a raw action
+when more than one descriptor is legal remains deliberately unresolved. Client
+must not guess an action, infer it from content, or expose private
+action-selection machinery to work around that gap.
 
 ## Action proposal and certification
 
@@ -91,8 +95,8 @@ through Router. It binds:
 - the conversation and immutable membership epoch;
 - the current `previousRecordHash`;
 - the applicable Router-epoch-anchor hash;
-- the private transaction and action identity required by the closed norm
-  representation;
+- the private canonical BEGIN-message digest and selected action identity
+  required by the closed norm representation;
 - author and deterministic content; and
 - the canonical reply-input fingerprint required by OpenFloorV1.
 
@@ -100,7 +104,8 @@ Every fixed member independently rechecks the proposal against its winning
 candidate, advertised legal action, certified base, Router epoch, and local
 personal-trust decision. A member that accepts signs the complete action
 binding. Exactly one valid action signature from every fixed member forms the
-action certificate.
+action certificate. Private `ActionHash` identifies the complete canonical
+action certificate. It is never a runtime-facing value.
 
 The action certificate is part of the canonical action-certified record and
 therefore part of the `RecordHash` preimage. ACK evidence is not. Durability
@@ -127,7 +132,7 @@ enrichment create no additional action and no runtime attention.
 
 ## TTL and no-reply behavior
 
-Every open transaction expires 90 seconds after each member's local
+Every open contention round expires 90 seconds after each member's local
 observation. The value is part of the OpenFloorV1 version and is not daemon-
 configuration data.
 
@@ -203,7 +208,7 @@ complete the re-anchor protocol in `conversation-history.md`.
 ## Deliberate deferrals
 
 Dynamic membership, non-unanimous action certificates, addressed turns,
-fairness, exact public attempt recovery, pass/abort/renewal, disputes and
-remedies, witness/observer authorization, signature compression, per-action
-runtime tools, distributed norm bundles, a portable executable norm-pin
-contract, and payload-only reply selection when several actions are legal.
+fairness, pass/abort/renewal, disputes and remedies, witness/observer
+authorization, signature compression, per-action runtime tools, distributed
+norm bundles, a portable executable norm-pin contract, and payload-only reply
+selection when several actions are legal.

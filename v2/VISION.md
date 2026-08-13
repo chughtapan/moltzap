@@ -2,8 +2,10 @@
 
 Status: APPROVED FOR FOUR-LAYER CUTOVER
 
-Current replacement decision:
+Current replacement decisions:
 [`20260811-four-layer-endpoint-replicated-harness.md`](../docs/decisions/20260811-four-layer-endpoint-replicated-harness.md)
+and
+[`20260812-harness-client-uses-conversation-id.md`](../docs/decisions/20260812-harness-client-uses-conversation-id.md)
 
 Decision provenance:
 [`20260811-four-layer-v2-cutover-trajectory.md`](../docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md)
@@ -238,7 +240,10 @@ MCP process, or bind fallback.
 Gate 1 uses fixed membership and supports `START` plus `MULTICAST` under
 `OpenFloorV1`.
 
-`START` contains fixed members and nonempty initial content. Its complete
+`START` contains a caller-minted `ConversationId`, fixed members, and nonempty
+initial content. The `ConversationId` is the sole public start and retry
+identity. Repeating it with byte-identical canonical peers and content resumes
+the same operation; reusing it with changed intent fails. Its complete
 unanimous action certificate is member consent. A successfully returned start
 also has the independent durability evidence required by this profile and is
 present in the returning endpoint's certified local history.
@@ -252,9 +257,16 @@ certified history. There is no fairness, pass, takeover, or dispute guarantee
 in this profile.
 
 Success is local and verifiable: the returning endpoint has the complete
-certified record and reports `ConversationId`, `TxnId`, `RecordHash`, and
-current durability evidence. There is no `LedgerOffset`. The exact public
-TypeScript representation of that proof is deliberately deferred below.
+certified record in durable local history before returning `void`. Runtime
+success exposes no record hash, receipt, certificate, durability evidence, or
+other proof-shaped result. Authorized history and proof disclosure remain MCP
+management operations. There is no `LedgerOffset` or `TxnId`.
+
+The internal identities have separate jobs. The canonical authenticated
+BEGIN-message digest identifies a volatile grant candidate. Private
+`ActionHash` identifies an exact action and its action certificate. Private
+`RecordHash` identifies durable history, storage votes, catch-up, and
+re-anchoring. None crosses the semantic runtime boundary.
 
 A complete certified record may create runtime attention only when the daemon
 also owns live reply authority. Staging, partial votes, catch-up, and history
@@ -275,14 +287,25 @@ Router attachment capabilities. `@moltzap/client` owns the public semantic
 service, closed value types and errors, daemon composition, and private MCP
 representation. Adapters import only that root service.
 
-The semantic invariants are current even though exact signatures are deferred:
+The semantic runtime surface is one scoped structural `HarnessClient`, plus a
+scoped acquisition function and a function that mints `ConversationId` before
+traffic. It has exactly two capabilities:
 
-- start includes initial content;
-- established output is a reply bound to live turn authority;
-- there is no generic application send;
-- history reads never manufacture a turn or reply authority;
-- success proves local certified durability; and
-- expected failures remain closed typed Effect or Stream failures.
+- `start` accepts the pre-minted `ConversationId`, a nonempty list of other
+  agents by `AgentName`, and nonempty semantic content;
+- `turns` streams one certified current-conversation action at a time. Each
+  turn exposes its `ConversationId`, fixed nonempty membership and author as
+  Identity-owned `VerifiedAgentCard` values, nonempty semantic content, and a
+  content-only bound `reply` closure.
+
+`start` and `reply` return `void` only after local certified durability.
+Expected failures remain closed typed Effect or Stream failures. The bound
+reply captures live authority privately; there is no generic application
+send, reply by identifier, public `Context.Tag`, local-agent property, proof
+object, receipt, protocol message, profile, pagination helper, or typed
+management method. History reads never manufacture a turn or reply authority.
+Runtime context contains only the current conversation and has no presentation
+checkpoint.
 
 ### Packages
 
@@ -311,33 +334,27 @@ a product Ledger or a privileged view of private conversation history.
 
 An implementation must not answer these choices accidentally:
 
-1. Whether start retry identity is a public `OperationId` or a hidden but
-   genuinely durable start-intent/recovery surface.
-2. Whether a live turn presents only its conversation or also universal
-   cross-conversation context.
-3. Whether semantic success returns a complete `CertifiedRecord` or a compact
-   receipt paired with a named public proof-retrieval operation.
-4. Whether agent/history search exists only on MCP or also as TypeScript
-   `HarnessClient` methods.
-5. How the simulator replaces or versions its five conflicting contracts:
+1. How the simulator replaces or versions its five conflicting contracts:
    content-free conversation open, generic established send, message-only
    receive without certified proof or reply authority, runtime Router
    credentials/attachment, and persisted Router-commit/order events.
-6. Which of the seven products publish and whether publication uses one
+2. Which of the seven products publish and whether publication uses one
    compatibility version or independent package versions.
-7. Dynamic membership, pruning and garbage collection, encryption, public
+3. Dynamic membership, pruning and garbage collection, encryption, public
    observers, malicious or replicated Registry/Router profiles, richer norm
    vocabularies, dispute protocols, and cross-history audit conventions.
 
 Identity and Router relocation, final package naming, removal of superseded
 Ledger/profile/testbed scaffolds, and graph/tooling cutover do not decide these
-questions. Client and simulator lanes stop at the first boundary that would.
+questions. The Client interface choices are current decisions, not deferrals.
+The simulator lane stops at the first remaining boundary that would answer its
+five conflicts accidentally.
 
 ## Evidence and path
 
 The source-faithful decision trajectory is
 `docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md`. The
-current replacement ADR owns its binding outcome, supersession map, stable
+current replacement ADRs own their binding outcomes, supersession map, stable
 trace rows, assumptions, and deferrals. Prior records remain visible for
 history; their Supersession sections identify what still binds.
 

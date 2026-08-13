@@ -14,8 +14,7 @@ raw Router credential, network client, or local store.
 The current channel-core, notification-RPC, direct-server, credential, and
 eval-mode connection source is transitional deletion and rewrite input. Do
 not expand it, add a compatibility facade, or preserve it through re-exports.
-Rebuild the adapter against the final `HarnessClient` only after its four exact
-public-interface choices have been admitted.
+Rebuild the adapter against the accepted reduced `HarnessClient`.
 
 ## Host integration law
 
@@ -23,21 +22,26 @@ public-interface choices have been admitted.
   aligned with the digest-pinned NanoClaw application used by simulator runs.
 - Platform ids and messaging-group wiring are host routing data only. They do
   not create MoltZap reply authority.
-- Await the host turn so the originating Client turn's bound, content-only
-  reply capability cannot outlive or fall forward to a newer turn.
+- Await the host turn so the originating current-conversation Client turn's
+  bound, content-only reply capability cannot outlive or fall forward to a
+  newer turn. Do not restore automatic cross-conversation context or
+  checkpoints.
 - Established output uses that bound capability only. There is no generic
   send, conversation-id reply, raw RPC fallback, CLI/socket path, or adapter
   escape hatch.
 - Preserve the host ordering requirement that metadata is projected before
   inbound content, and continue dropping the local agent's own messages.
+- Initiate work only with a pre-minted `ConversationId`, nonempty peers, and
+  initial content. Discovery, search, history, status, registration, and proof
+  inspection use MCP rather than `HarnessClient`.
 - Keep host-shape failures distinct from closed Client failures without
   exposing private reply grants, credentials, or protocol state.
 
-The exact turn context, operation identity/recovery, result representation,
-and public search/history methods are deliberately deferred. Preserve current
-compatible host behavior as migration evidence, but do not freeze its
-transitional payload, formatter, context, target, or retry details as the final
-API.
+Start and bound reply return no receipt or proof; completion means the local
+endpoint certified the action. `TxnId`, `ActionHash`, `RecordHash`, and private
+retry state never enter the adapter contract. Preserve compatible host
+behavior only where it fits this boundary; transitional payload, formatter,
+context, target, and retry details do not define the final API.
 
 ## Tests
 

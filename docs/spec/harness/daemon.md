@@ -1,6 +1,6 @@
 # Endpoint daemon and local MCP boundary
 
-Status: **Gate 1 normative topology; Client representations gated**
+Status: **Gate 1 normative topology and Client projection**
 
 ## Purpose and ownership
 
@@ -35,7 +35,7 @@ Two simultaneously configured state directories must not claim the same local
 identity; duplicate ownership fails closed before active operation.
 
 The exact configuration DTO, environment-key spelling, file layout, and
-registration recovery state machine remain private/blocked Client work. No
+registration recovery state machine remain private daemon work. No
 implementation may recreate profiles to avoid deciding them.
 
 ## Owned durable and volatile state
@@ -47,7 +47,8 @@ The daemon durably owns:
   [`../conversation-history.md`](../conversation-history.md);
 - staged records, partial votes, certified histories, and Router-epoch proofs;
   and
-- only the operation/recovery state admitted by the final Client contract.
+- canonical START intents and their local completion state, keyed solely by
+  caller-supplied `ConversationId`.
 
 Router PollCursor, live protocol folds, grants, subscriptions, stream events,
 and reply closures are volatile. A daemon restart recovers certified history
@@ -106,9 +107,13 @@ same `/mcp` URL serves both states. Registry owns registration authority;
 [`output.md`](./output.md) owns model output; and [`ingress.md`](./ingress.md)
 owns receive behavior.
 
-Exact tool request/result Schemas and Client error projections remain blocked
-where those owners mark a deliberate deferral. Topology and catalog names do
-not authorize improvised representations.
+Tool request/result Schemas remain closed, Client-owned MCP representations.
+`start_conversation` carries the caller-supplied `ConversationId`, peer names,
+and content and reports success only after local certified durability.
+`reply` carries the private authority from its live event plus content and
+reports success under the same durability rule. Neither returns a receipt,
+proof, action hash, record hash, or protocol message. Management reads may
+return proof-bearing history without adding a public `HarnessClient` method.
 
 ## Subscription and raw delivery
 
@@ -121,9 +126,11 @@ acknowledgment is not application acknowledgment. Disconnect, failed write, or
 ambiguous write can lose a turn and never causes replay or reply-grant
 reconstruction. Durable history remains locally readable.
 
-Every complete runtime item is emitted as one complete SSE frame. The exact
-Client turn context is deliberately deferred, but no item is emitted from a
-partial vote, staged record, catch-up, history read, or Router re-anchor.
+Every complete runtime item is emitted as one complete SSE frame and projects
+to exactly one current-conversation `HarnessTurn`: `conversationId`, nonempty
+verified peers, verified author, content, and content-only bound reply. No item
+is emitted from a partial vote, staged record, catch-up, history read, or
+Router re-anchor.
 
 ## Supervision
 
@@ -162,12 +169,12 @@ invalid proof to preserve availability.
   read-forward or permanent fencing.
 - Shutdown releases MCP, protocol/network, and storage scopes without accepting
   new work after quiescence.
-- Client-dependent implementation remains blocked wherever management, turn,
-  operation identity, result, or error representations are unresolved.
+- The typed Client projection exposes only `start` and `turns`; registration,
+  status, search, history, and proof inspection remain MCP-only.
 
 ## Deliberate deferrals
 
 Exact process-configuration representation and environment keys; state-file
-layout; registration recovery/status contract; Client operation identity,
-context, result, and search methods; daemon-wide concurrency and queue limits;
-subscription replay; and cross-process reply recovery.
+layout; registration recovery/status contract; search, history, and proof wire
+projections; daemon-wide concurrency and queue limits; subscription replay;
+and cross-process reply recovery.

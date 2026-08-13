@@ -14,55 +14,59 @@ private reply grants, or protocol folds to runtimes.
 ## Current cutover boundary
 
 The source currently under this package is transitional v1 deletion and
-rewrite input. It is not the final Client interface and must not be expanded,
-wrapped, or preserved through a compatibility facade. In particular, do not
-add new work to the existing service object, channel-core abstraction,
-profile acquisition, protocol/server proxy, bespoke
-CLI, Unix socket, or generic-send paths. Do not reintroduce a standalone
-notification catalog.
+rewrite input. Replace it behind the accepted Client boundary; do not expand,
+wrap, or preserve it through a compatibility facade. In particular, do not add
+new work to the existing service object, channel-core abstraction, profile
+acquisition, protocol/server proxy, bespoke CLI, Unix socket, or generic-send
+paths. Do not reintroduce a standalone notification catalog.
 
-Safe work before the final interface gate is limited to:
+Current work includes:
 
 - relocating the admitted Identity and Router capabilities;
 - implementing endpoint-history semantics behind private Client boundaries;
 - deleting obsolete Transcript and testbed scaffolding; and
-- removing retired v1 machinery whose replacement does not depend on a
-  deferred public choice.
-
-Do not rewrite adapters, freeze Client-dependent simulator behavior, or expose
-new Client signatures until the four choices below have an admitted owner.
+- removing retired v1 machinery whose final owner is usable; and
+- implementing the accepted public shell and rewriting its consumers without
+  retaining transitional surface area.
 
 ## Stable Client law
 
-Every admissible final `HarnessClient` shape has these invariants:
+The final `HarnessClient` has these invariants:
 
-- one scoped client represents one registered local `AgentId` and owns one
-  active inbound subscription;
-- conversation start atomically includes nonempty initial content;
+- one acquired client represents one configured endpoint and owns one active
+  inbound subscription;
+- the caller mints a `ConversationId` before START; it is the only public
+  start/retry identity;
+- conversation start names a nonempty peer set and atomically includes
+  nonempty initial content;
+- retrying the same `ConversationId` with byte-identical canonical intent
+  resumes the first result, while changed peers or content conflict;
 - inbound turns derive from complete certified records and carry separate live
   reply authority;
+- each turn projects exactly one certified action from its current
+  conversation, including its conversation, verified peers, verified author,
+  content, and bound reply;
 - an established-conversation reply is a content-only capability bound to the
   turn that created it;
 - history, catch-up, a conversation identifier, or a later turn cannot create
   or replace reply authority;
-- success means that the returning endpoint durably stores a complete
-  certified record; and
+- start and bound reply return `void` only after the returning endpoint durably
+  stores the complete certified record;
 - no public method, MCP tool, adapter escape hatch, CLI command, or simulator
   input provides generic established-conversation send.
 
-The exact public interface remains deliberately blocked on four decisions:
+The public root exposes the semantic `HarnessClient`, `ConversationId`
+creation, endpoint acquisition, closed content and verified identity values,
+and closed operation errors. It exposes no local `agentId`, generic send,
+unbound reply, protocol `Message`, transaction or action selector, receipt,
+proof, history/search/status/registration method, raw MCP value, or protocol
+state. `TxnId` does not exist. The authenticated BEGIN-message digest is the
+private volatile grant key; `ActionHash`, `RecordHash`, certificates, and
+recovery state remain private to Client and its local-authorized MCP
+management representation.
 
-1. explicit operation identity versus a named Client-owned durable recovery
-   operation;
-2. current-conversation-only turns versus bounded, filtered
-   cross-conversation context and checkpoints;
-3. complete certified-record results versus compact receipts with a named
-   public proof-retrieval operation; and
-4. MCP-only search/history versus matching typed `HarnessClient` methods.
-
-Do not infer any of these answers from the transitional implementation. Keep
-compatible type canaries only as migration evidence; never turn them into a
-compatibility shim or claim that they define the final surface.
+Keep type canaries on this accepted surface. Transitional implementation types
+are migration evidence only and never become a compatibility shim.
 
 ## Daemon boundary
 
@@ -82,6 +86,5 @@ or protocol machinery.
 - Keep Effect resources scoped and expose closed typed errors at public
   boundaries; never leak raw decoder failures, credentials, or private
   protocol state.
-- Tests for new behavior pin the stable laws above, not deleted v1 shapes or a
-  guessed deferred interface.
+- Tests for new behavior pin the stable laws above, not deleted v1 shapes.
 - Run package tasks through Nx from the workspace root.

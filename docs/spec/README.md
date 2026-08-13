@@ -33,8 +33,8 @@ authority set is reconciled.
 ## Implementation readiness
 
 An implementation slice starts only when every semantic and representation
-choice it consumes is ready. A ready lower layer does not authorize a caller to
-invent a missing Client or simulator contract.
+choice it consumes is ready. The reduced Client boundary is ready; a caller
+still cannot invent one of the five unresolved simulator contracts.
 
 | Slice | Normative owners | State |
 |---|---|---|
@@ -42,14 +42,15 @@ invent a missing Client or simulator contract.
 | Relocate Router to `packages/router` and rename it `@moltzap/router` | `router.md`, `router-representation.md`, `layer-interfaces.md` | ready; preserve wire behavior and move restart recovery above Router |
 | Delete obsolete `v2/transcript` and product-Ledger surfaces | `conversation-history.md`, `control-plane.md`, `layer-interfaces.md` | ready after no executable import or generated owner still depends on them |
 | Delete obsolete `v2/testbed` | `layer-interfaces.md` | ready; simulator owns the surviving system-driver and fault-test responsibilities |
-| Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | semantic protocol ready; public Client binding remains gated below |
-| Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | topology and tool catalog ready; unresolved Client and management representations remain gated |
-| `HarnessClient` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `management.md` | blocked on exact operation identity/recovery, turn context, operation result, and search/history method choices |
+| Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; private BEGIN digest, `ActionHash`, and `RecordHash` have distinct protocol roles |
+| Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready for Client projection; exact management query/page schemas remain owner-local work |
+| `HarnessClient` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `management.md` | ready; caller-minted `ConversationId`, current-action turns, `void` completion, and MCP-only management |
 | Simulator and eval migration | `layer-interfaces.md` | non-conflicting facades and `RunLedger` retained; five authority-bearing conflicts are blocked on explicit resolution |
 
 Client and simulator work must not use compatibility shims or semantic
-reinterpretation to cross a blocked row. Identity/Router relocation and removal
-of obsolete Transcript/testbed scaffolds do not depend on those choices.
+reinterpretation. The Client boundary above is accepted; the five simulator
+conflicts remain blocked. Identity/Router relocation and removal of obsolete
+Transcript/testbed scaffolds do not depend on those conflicts.
 
 ## Package set
 
@@ -77,11 +78,11 @@ public-boundary retention, relocation law, and deletion gates.
 | `conversation-history.md` | Endpoint-owned certified histories, action/durability separation, thresholds, local success, any-member completion, catch-up, and Router re-anchor |
 | `control-plane.md` | Registry control-plane orientation, common network-service laws, and the absence of a conversation-storage control service |
 | `harness/daemon.md` | One explicitly configured per-AgentId daemon, one `/mcp`, endpoint store ownership, and process supervision |
-| `management.md` | State-dependent MCP catalog, local search/history ownership, and management deferrals |
+| `management.md` | State-dependent MCP catalog and MCP-only registration, status, search, history, and proof inspection |
 | `harness/tasks.md` | `OpenFloorV1` unanimous action validity and its separation from durability completion |
-| `harness/output.md` | Atomic START, bound reply, no generic send, and the unresolved public result/retry surface |
-| `harness/ingress.md` | Certified-content/reply-authority separation and transient receive behavior |
-| `harness/client.md` | Stable runtime capability invariants plus the four deliberately deferred exact interface choices |
+| `harness/output.md` | Caller-identified atomic START, content-only bound reply, `void` local-durability completion, and no generic send |
+| `harness/ingress.md` | One-current-action turns, certified-content/reply-authority separation, and transient receive behavior |
+| `harness/client.md` | Exact reduced public runtime capability and management-absence boundary |
 | `harness/screening.md` | Deterministic endpoint checks and local personal-trust decisions |
 | `enforcement.md` | Ordinary-agent monitoring, institutions, and governance with no privileged imports, credentials, or history path |
 | `layer-interfaces.md` | Exact seven-package DAG, type ownership, retained simulator surface, migration gates, and cross-layer laws |
@@ -90,23 +91,23 @@ public-boundary retention, relocation law, and deletion gates.
 trust. `harness/channels.md` records the absence of a second channel or network
 boundary.
 
-## Deliberate interface deferrals
+## Reduced Client boundary
 
-The following choices are not inferable from a recommendation, transitional
-implementation, or non-normative handoff:
+The caller pre-mints `ConversationId`, the sole public START and retry
+identity. Identical canonical peers/content resume; changed intent conflicts.
+`HarnessClient` exposes only `start` and `turns`. Start and content-only bound
+reply return `void` after local certified durability. Each turn represents one
+current-conversation certified action and exposes only its conversation,
+verified peers, verified author, content, and bound reply. Registration,
+status, search, history, and proof inspection remain MCP-only. Protocol hashes,
+proofs, receipts, messages, and local identity remain outside the public
+Client.
 
-1. whether `HarnessClient` exposes or hides a stable start-operation identity
-   and what recovery operation accompanies it;
-2. whether a turn contains only its current conversation fact or universal
-   cross-conversation context with durable checkpoints;
-3. whether start/reply return a complete certified record or a compact receipt
-   paired with a named proof-retrieval operation; and
-4. whether agent/conversation search and history remain MCP-only or also become
-   public `HarnessClient` methods.
-
-Until all four are admitted together, the final Client surface, adapters, and
-Client-dependent simulator work remain blocked. Existing compatible behavior
-may remain in the source baseline, but it is not authority for the final API.
+The canonical authenticated BEGIN-message digest is the private volatile grant
+key. Private `ActionHash` identifies the action certificate, while private
+`RecordHash` identifies durable history, votes, catch-up, and re-anchor. There
+is no additional transaction identifier. Cross-process reply recovery remains
+absent and deferred.
 
 The simulator additionally retains its non-conflicting public facades while
 five contracts remain unresolved: open-without-initial-content, generic send,

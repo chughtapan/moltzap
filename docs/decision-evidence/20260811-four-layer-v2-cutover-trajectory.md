@@ -2,10 +2,10 @@
 
 This is a non-normative, source-faithful event ledger. It records the public
 exchange that initiated the four-layer cutover, the execution plan adopted as
-a goal, and the later Registry-recovery deferral. It does not admit an ADR,
-make the proposed interface binding, or reconstruct rationale that the source
-does not state. Current contracts remain in the authority sources identified
-by `AGENTS.md` until a replacement candidate lands and passes its review gate.
+a goal, the later Registry-recovery deferral, and the accepted reduced
+`HarnessClient` boundary. It does not admit an ADR, make an interface binding,
+or reconstruct rationale that the source does not state. Current contracts
+remain in the authority sources identified by `AGENTS.md`.
 
 ## Source record and compaction method
 
@@ -760,3 +760,134 @@ normative authority.
   timestamp `2026-08-12T01:25:49Z`, added non-normative authority,
   interface, package, and forward-merge handoffs. Those handoffs prepare the
   future candidate and do not change current architecture authority.
+
+<a id="reduced-harnessclient-boundary"></a>
+
+## Reduced HarnessClient boundary
+
+These events use the same source session and source-record conventions stated
+above. Stored public-message events provide a `turn_id` but no parent-message
+or parent-turn locator; parent locators are therefore recorded as absent.
+
+- Source system: Codex CLI rollout JSONL, originator `codex-tui`.
+- Source session: `019fd899-779c-7e70-a8e4-338727b13e6c`.
+- Native locator: `msg_019ff821-75f6-70c3-b36b-54f732ad8242`.
+- Enclosing turn: `b2c03a4e-8bc9-45d6-861b-058c240c29bb`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-08-12T22:39:30.295Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> why are we still keeping txn id now that records are private? I think we should try to simplify the whole client side even more
+
+- Source system: Codex CLI rollout JSONL, originator `codex-tui`.
+- Source session: `019fd899-779c-7e70-a8e4-338727b13e6c`.
+- Native locator: `msg_019ff822-0a13-7130-9814-109109a0ab1b`.
+- Enclosing turn: `b2c03a4e-8bc9-45d6-861b-058c240c29bb`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-08-12T22:40:08.211Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> I think there might be even more redundancy there
+
+- Source system: Codex CLI rollout JSONL, originator `codex-tui`.
+- Source session: `019fd899-779c-7e70-a8e4-338727b13e6c`.
+- Native locator: `msg_019ff827-7b2a-7441-9f35-8b538e86add8`.
+- Enclosing turn: `b2c03a4e-8bc9-45d6-861b-058c240c29bb`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-08-12T22:46:04.842Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> if you go and take an altitude pass through the entire client interface there migth be a lot MORE simplification possible
+
+- Source system: Codex CLI rollout JSONL, originator `codex-tui`.
+- Source session: `019fd899-779c-7e70-a8e4-338727b13e6c`.
+- Native locator:
+  `msg_0fe7c1dd2e31cd97016a7cff8a2f50819397e84c52bd26d36c`.
+- Enclosing turn: `b2c03a4e-8bc9-45d6-861b-058c240c29bb`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-08-12T23:19:55.017Z`.
+- Stored actor role: `assistant`.
+- Stored phase: `final_answer`.
+
+Literal excerpt, with the marked implementation detail and workflow receipt
+omitted:
+
+> You’re right. The previous interface still exposed internal proof machinery.
+>
+> The proper runtime interface is this small:
+>
+> [omitted: the TypeScript declarations for `Content`, `StartInput`,
+> `HarnessTurn`, `HarnessClient`, `createConversationId`, and
+> `acquireHarnessClient`; their exact fields and results are retained in the
+> accepted ADR]
+>
+> The identifier model becomes:
+>
+> - `ConversationId`: the only runtime-visible identifier. It handles grouping and START retry, eliminating a separate `OperationId`.
+> - `ActionHash`: private correlation for an in-flight proposal and its signatures.
+> - `RecordHash`: private history, durability, catch-up, and re-anchor identity.
+> - `TxnId`: removed entirely. The bound reply closure holds the live grant, expiry, and retry state.
+>
+> Start and reply return `void`. Successful completion means the endpoint durably certified the action. Records and proofs remain in the endpoint’s private history and cross the boundary only through an explicit owner-authorized management read or disclosure task.
+>
+> [omitted: the accepted consequences, internal consolidation direction, and workflow receipt]
+>
+> Do you accept this exact reduced boundary?
+
+Operational assistant commentary about the active merge occurred after this
+prompt. No user message intervened before the acceptance below.
+
+- Source system: Codex CLI rollout JSONL, originator `codex-tui`.
+- Source session: `019fd899-779c-7e70-a8e4-338727b13e6c`.
+- Native locator: `msg_019ff852-c742-7480-b464-fdae2792c6ad`.
+- Enclosing turn: `25f8f21e-b480-4486-bfde-ce81873dcbe5`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-08-12T23:33:22.370Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> accept the reduced boundary
+
+- Source system: Codex CLI rollout JSONL, originator `codex-tui`.
+- Source session: `019fd899-779c-7e70-a8e4-338727b13e6c`.
+- Native locator:
+  `msg_0fe7c1dd2e31cd97016a7d02e421c88193872db22071210f0c`.
+- Enclosing turn: `25f8f21e-b480-4486-bfde-ce81873dcbe5`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-08-12T23:34:00.782Z`.
+- Stored actor role: `assistant`.
+
+Literal excerpt:
+
+> Accepted. I’ll make that exact reduced boundary durable after the merge resolves: pre-minted `ConversationId` is the sole public start/retry identity; `TxnId` disappears; `ActionHash` and `RecordHash` stay private; `start` and bound `reply` return only after local certification and otherwise expose no receipt; one turn carries one current-conversation certified action; proof/history/search remain explicit MCP management tasks. I’ll reconcile the governing vision, ADR lineage, specs, and traceability before implementing it.
+
+- Source system: Codex CLI rollout JSONL, originator `codex-tui`.
+- Source session: `019fd899-779c-7e70-a8e4-338727b13e6c`.
+- Native locator: `msg_019ff861-97cc-70e1-8158-4c670e77b30d`.
+- Enclosing turn: `019ff861-9657-7ba2-8bca-dfda508fbae6`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-08-12T23:49:33.260Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> don't repeat reviews.
+
+- Source system: Codex CLI rollout JSONL, originator `codex-tui`.
+- Source session: `019fd899-779c-7e70-a8e4-338727b13e6c`.
+- Native locator: `msg_019ff861-be31-7b40-b774-86ef3048c32a`.
+- Enclosing turn: `019ff861-bca6-7eb1-af1a-3e28c9a602f7`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-08-12T23:49:43.089Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> we accept the changes.

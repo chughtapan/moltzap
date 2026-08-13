@@ -1,6 +1,6 @@
 # Harness inbound notifications and reply-grant admission
 
-Status: **Gate 1 normative boundary; exact Client context shape deferred**
+Status: **Gate 1 normative Client receive boundary**
 
 ## Purpose and ownership
 
@@ -31,15 +31,17 @@ not be discarded as a duplicate. A grant whose referenced record is not yet
 certified locally remains unusable until verification and local persistence
 finish.
 
-ConversationId and `RecordHash` identify context. Neither authorizes a reply.
-The bound reply closure captures the private transaction, legal-action,
-expiry, and retry authority needed by the endpoint protocol; those values do
-not cross the runtime-facing boundary.
+`ConversationId` identifies the conversation at the runtime boundary but does
+not authorize a reply. The bound reply closure captures the canonical
+authenticated BEGIN-message digest, live grant, legal-action selection,
+expiry, and retry state needed by the endpoint protocol. `ActionHash`,
+`RecordHash`, and those volatile values do not cross the runtime-facing
+boundary.
 
 ## Same-conversation exclusion
 
 At most one live reply authority exists for one ConversationId. OpenFloorV1
-grant serialization, private transaction identity, and expiry enforce that
+grant serialization, the private BEGIN-message digest, and expiry enforce that
 law. Distinct conversations may progress independently.
 
 This contract adds no daemon-wide concurrency cap, mailbox size, queue policy,
@@ -59,24 +61,23 @@ ambiguous stream write may lose a reply opportunity. Durable history remains
 available through endpoint-owned history operations, but reading it never
 fabricates reply authority.
 
-The retained backing-specific watermark and single-frame mechanics may
-continue to prevent duplicate raw delivery while the exact public Client
-context/checkpoint contract is unresolved. Those mechanics do not define what
-the runtime has durably observed and are not automatically the final Client
-representation.
+Private backing-specific watermarks and single-frame mechanics may prevent
+duplicate raw delivery. They are not public checkpoints, do not define what a
+runtime has durably observed, and never enlarge the `HarnessTurn` shape.
 
 ## Context boundary
 
-Context includes only complete certified records whose membership and proof
-chain the endpoint has verified. Staged records, partial durability evidence,
-certificate enrichment, catch-up bookkeeping, and Router re-anchor messages
-are never runtime content.
+Each `HarnessTurn` represents exactly one current-conversation action from a
+complete certified record whose membership and proof chain the endpoint has
+verified. It exposes only `conversationId`, the nonempty verified peer cards,
+the verified author card, content, and the content-only bound reply described
+in [`client.md`](./client.md).
 
-The exact `HarnessClient` turn shape, current-versus-cross-conversation
-snapshot, checkpoint identity, replay suppression, and restart behavior are
-deliberately gated in [`client.md`](./client.md). Compatible existing adapter
-behavior remains in place until that contract is admitted; implementations
-must not invent a final public context API in the interim.
+The turn contains no cross-conversation snapshot, transcript, checkpoint,
+protocol message, proof, receipt, hash, local identity, or partial evidence.
+Staged records, durability-vote enrichment, catch-up bookkeeping, and Router
+re-anchor messages are never runtime content. A runtime host may maintain its
+own broader session memory from turns it has observed.
 
 ## Acceptance criteria
 
@@ -89,14 +90,13 @@ must not invent a final public context API in the interim.
   conversations remain independent.
 - Subscription acknowledgment, ownership, disconnect, and at-most-once
   behavior match the retained MCP contract.
-- The final Client context/checkpoint representation remains blocked until its
-  deliberate interface gate is resolved.
+- Every runtime item has the exact current-conversation `HarnessTurn` shape and
+  carries no history snapshot, checkpoint, proof, or protocol hash.
 
 ## Explicitly deferred
 
-The exact public Client context and checkpoint types, a shared raw MCP event
-wire, delivery acknowledgment and replay, resumable subscriptions,
-daemon-wide concurrency limits, bounded snapshots, queue limits, byte budgets,
+A shared raw MCP event wire, delivery acknowledgment and replay, resumable
+subscriptions, daemon-wide concurrency limits, queue limits, byte budgets,
 and overload policy.
 
 ## Decisions

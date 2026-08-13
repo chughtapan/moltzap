@@ -52,7 +52,8 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
-| [Four-layer Harness uses endpoint-replicated history](20260811-four-layer-endpoint-replicated-harness.md) | 2026-08-11 | accepted | — |
+| [HarnessClient uses ConversationId and bound reply](20260812-harness-client-uses-conversation-id.md) | 2026-08-12 | accepted | — |
+| [Four-layer Harness uses endpoint-replicated history](20260811-four-layer-endpoint-replicated-harness.md) | 2026-08-11 | partially-superseded | [HarnessClient boundary](20260812-harness-client-uses-conversation-id.md) |
 | [The profile slot is the unit of local identity](20260805-profile-slot-is-the-unit-of-local-identity.md) | 2026-08-05 | superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |
 | [HarnessClient is the production adapter contract](20260805-harness-client-is-the-production-adapter-contract.md) | 2026-08-05 | partially-superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |
 | [The daemon serves one loopback MCP path and retires the CLI](20260805-daemon-serves-one-loopback-mcp-path.md) | 2026-08-05 | partially-superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |

@@ -30,12 +30,15 @@ The following terms name different facts:
 - An **action certificate** proves that the task/norm layer authorized the
   exact record body. Gate 1 `OpenFloorV1` requires one valid action signature
   from every fixed member.
+- `ActionHash` is the private domain-separated hash identifying the complete
+  canonical action certificate and its exact record-body binding.
 - An **action-certified record** is the record body, the immutable membership
   verification descriptor, the applicable Router-epoch-anchor hash, and the
   complete action certificate.
 - `RecordHash` is the domain-separated hash of the complete canonical
   action-certified record, including the action-certificate bytes. It is the
-  stable position in one conversation history.
+  stable private position in one conversation history and the identity used by
+  durability, catch-up, and re-anchor.
 - A **durability vote** is one member's signed storage attestation over one
   `RecordHash`.
 - **Durability evidence** is a verified threshold set of durability votes for
@@ -45,10 +48,11 @@ The following terms name different facts:
 - A **history** is one endpoint's durable hash-linked sequence of certified
   records for one authorized conversation.
 
-Durability evidence is assembled only after `RecordHash` exists. It is never
-part of the `RecordHash` preimage. Different valid threshold signer sets are
-equivalent evidence for the same record and do not create different history
-positions.
+`ActionHash` exists only after action certification. `RecordHash` is then
+derived for durable history before durability votes are collected. Durability
+evidence is never part of the `RecordHash` preimage. Different valid threshold
+signer sets are equivalent evidence for the same record and do not create
+different history positions. Neither hash is exposed by `HarnessClient`.
 
 ## Action validity is not storage durability
 
@@ -105,9 +109,10 @@ action-certified record. For `n < 4`, the replicated-storage guarantee assumes
 zero Byzantine members; unanimity alone cannot prove storage by a Byzantine
 signer.
 
-Success is local. A start or reply succeeds at an endpoint only after that
-endpoint has durably stored the complete certified record. Success does not
-claim that every fixed member already has the complete durability signer map.
+Success is local. A start or reply succeeds at an endpoint and returns `void`
+only after that endpoint has durably stored the complete certified record.
+Success does not claim that every fixed member already has the complete
+durability signer map, and the public Client returns no receipt or proof.
 
 ## Vote dissemination and completion
 
@@ -230,21 +235,30 @@ and a separately live reply grant. A staged record, partial vote set,
 certificate enrichment, catch-up, history read, or Router re-anchor creates no
 reply authority and invokes no runtime.
 
-Reading history never reconstructs a lost reply grant. `ConversationId` and
-`RecordHash` identify facts; neither is authority to reply.
+Reading history never reconstructs a lost reply grant. `ConversationId`
+identifies the conversation at the public runtime boundary. Private
+`RecordHash` identifies its durable position for endpoint protocol and MCP
+history operations. Neither is authority to reply.
 
 ## Retry and idempotency boundary
 
-Once an action-certified record exists, `RecordHash` is the retry and merge
-identity for durability collection, completed-evidence recovery, and history
-catch-up. Changed record bytes necessarily produce a different hash and cannot
-reuse prior votes.
+The caller supplies `ConversationId` before START. It is the sole public START
+and retry identity. The endpoint durably binds it to the canonical resolved
+peer set and initial content before protocol work. Repeating byte-identical
+canonical intent resumes or observes the first locally completed result;
+changed peers or content under that identifier fail with a typed conflict.
 
-The exact public start-operation identity, interruption contract, and
-cross-process reply-recovery surface of `HarnessClient` are deliberately
-deferred in [`harness/client.md`](./harness/client.md). This chapter does not
-select a public `OperationId`, hide one inside a client, or infer reply
-authority from history.
+For MULTICAST, the canonical authenticated winning BEGIN-message digest is the
+private volatile grant and reply-attempt key. `ActionHash` identifies the
+complete action certificate. `RecordHash` identifies durability collection,
+completed-evidence recovery, local history, catch-up, and Router re-anchor.
+Changed bytes necessarily produce a different private hash and cannot reuse
+prior evidence. There is no additional transaction or public operation
+identifier.
+
+Cross-process reply recovery is absent. A restart may recover certified
+history, staged records, and partial evidence, but it never reconstructs a live
+reply closure from `ConversationId`, `ActionHash`, or `RecordHash`.
 
 ## Fault, safety, and progress matrix
 
@@ -266,6 +280,10 @@ liveness.
 
 - `START` produces one genesis record with initial content; no empty
   conversation is committed first.
+- The caller-minted `ConversationId` resumes only byte-identical canonical
+  START intent; changed peers or content conflict.
+- The authenticated BEGIN-message digest, `ActionHash`, and `RecordHash` have
+  the distinct private roles stated above and never enter `HarnessClient`.
 - `RecordHash` commits to the complete action certificate and excludes later
   durability evidence.
 - Action-certificate and durability-vote tests prove that neither can be used
@@ -287,6 +305,6 @@ liveness.
 ## Explicitly deferred
 
 Dynamic membership, non-unanimous action certificates, public observer roles,
-cross-process reply resumption, a public start-operation recovery shape,
-history pruning and compaction, alternate catch-up transports, end-to-end
-encryption and key distribution, and non-member audit/disclosure protocols.
+cross-process reply resumption, history pruning and compaction, alternate
+catch-up transports, end-to-end encryption and key distribution, and
+non-member audit/disclosure protocols.

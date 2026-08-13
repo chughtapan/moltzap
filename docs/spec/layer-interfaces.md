@@ -65,9 +65,10 @@ owned by a deleted package moves to root tooling before that package is
 removed.
 
 Identity/Router relocation and deletion of obsolete Transcript/testbed
-scaffolds are not blocked by the unresolved Client and simulator contracts
-below. Client, adapter, simulator, or eval behavior changes that consume those
-contracts remain blocked.
+scaffolds are not blocked by the simulator contracts below. Client and adapter
+migration follows the accepted reduced boundary in
+[`harness/client.md`](./harness/client.md); simulator or eval behavior that
+depends on one of the five unresolved simulator contracts remains blocked.
 
 ## Public boundaries retained through cutover
 
@@ -76,8 +77,8 @@ contracts remain blocked.
 - Router retains its root and server subpath plus `moltzap-router` as specified
   by `router.md`.
 - Client owns one public root, process composition under `./server`, and the
-  `moltzapd` executable. Its exact root service signatures remain deliberately
-  gated by [`harness/client.md`](./harness/client.md).
+  `moltzapd` executable. Its root exposes the exact reduced `HarnessClient`
+  boundary in [`harness/client.md`](./harness/client.md).
 - Simulator retains `.`, `./network`, `./ledger`, and `./agents` plus
   `Run.execute(RunSpec)` and every non-conflicting current declaration.
 - Adapter and eval entry points retain current compatible host/build behavior
@@ -130,20 +131,23 @@ vote, public sequence, or delivery-status wrapper.
 
 Client owns:
 
-- `ConversationId`, `TxnId`, `RecordHash`, fixed-membership descriptors, and
-  Router-epoch-anchor values;
+- public `ConversationId` plus private `ActionHash`, `RecordHash`,
+  fixed-membership descriptors, and Router-epoch-anchor values;
 - record bodies, action certificates, durability votes/evidence, certified
   records, and local histories;
 - endpoint stores, catch-up, re-anchor, protocol folds, and partial evidence;
 - task/norm and personal-trust composition;
 - one explicitly configured per-AgentId daemon and one loopback `/mcp`;
 - the adapter-facing capability named `HarnessClient`; and
-- closed Client and MCP representations once their deliberate interface gates
-  are resolved.
+- closed Client and MCP representations.
 
 `LedgerOffset` has no final owner and does not survive. Conversation order is
 the `previousRecordHash`/`RecordHash` chain. Protocol folds, vote collectors,
-reply grants, and reply tokens remain private.
+the canonical authenticated BEGIN-message digest, reply grants, and reply
+tokens remain private. The BEGIN digest is the volatile grant key,
+`ActionHash` identifies the action certificate, and `RecordHash` identifies
+durable history, votes, catch-up, and re-anchor. No additional transaction
+identifier exists.
 
 ### Simulator and evals
 
@@ -186,19 +190,27 @@ verification, version checks, limits, or typed error channels.
 Client composes public Registry and Router capabilities with endpoint-local
 history and interpretive protocols behind the daemon. It does not compose a
 Ledger client or Transcript service. A runtime receives neither network client,
-private transaction machinery, signing key, nor store handle.
+private protocol machinery, signing key, nor store handle.
 
 The stable Client invariants are:
 
 - START atomically includes initial content;
+- the caller-minted `ConversationId` is the sole public START/retry identity,
+  with identical canonical intent resuming and changed peers/content
+  conflicting;
 - established output is a live turn-bound reply, never generic send;
+- start and bound reply return `void` only after local certified durability;
+- one turn contains only one current-conversation certified action, verified
+  peers, verified author, content, and its content-only bound reply;
 - complete action validity and durability evidence remain distinct;
 - a history fact cannot recreate reply authority; and
 - fixed-member catch-up and Router re-anchor follow
   [`conversation-history.md`](./conversation-history.md).
 
-Exact operation identity/recovery, turn context, operation result, and public
-search/history methods remain blocked in [`harness/client.md`](./harness/client.md).
+The public Client exposes no local identity, receipt, proof, hash, protocol
+message, registration, status, search, or history method. Those management
+operations remain MCP-only. Its three operation-specific error channels are
+closed typed unions.
 
 ## Cross-layer laws
 
@@ -253,8 +265,12 @@ search/history methods remain blocked in [`harness/client.md`](./harness/client.
    continuing the same conversation.
 4. Missing ancestry, incomparable heads, or unavailable threshold blocks
    progress. No layer guesses or lowers a threshold.
-5. `RecordHash` is the retry identity after an action-certified record exists.
-   The public operation identity before that point remains a Client deferral.
+5. Caller-supplied `ConversationId` is the sole public START/retry identity.
+   The authenticated BEGIN-message digest, `ActionHash`, and `RecordHash` are
+   private identities for grant, action-certificate, and durable-record stages
+   respectively.
+6. Daemon restart resumes an identical START intent but never reconstructs a
+   lost live reply closure.
 
 ### Personal trust and recursive social features
 
@@ -308,8 +324,8 @@ v2 testbed scaffold may proceed.
   idempotency, retry, cursor, restart, refusal, overload, and availability
   result.
 - MCP protocol errors are reserved for malformed MCP requests. Tool-domain and
-  Client errors remain owner-specific and cannot be invented before the Client
-  interface gate closes.
+  Client errors remain owner-specific closed typed unions and do not expose
+  internal causes or protocol authority.
 - Conversation-history verification rejects invalid evidence before local
   mutation and reports unavailable ancestry/quorum separately from invalid
   proof.
@@ -327,8 +343,9 @@ v2 testbed scaffold may proceed.
 - Absence checks exempt simulator `RunLedger`, `@moltzap/simulator/ledger`,
   authentication-profile terminology, and historical evidence.
 - Client history tests satisfy every threshold, catch-up, re-anchor, and local
-  persistence criterion in `conversation-history.md` after the Client gate
-  closes.
+  persistence criterion in `conversation-history.md`.
+- Client type canaries pin the reduced start, turn, bound-reply, `void` result,
+  and management-absence boundary.
 - Static rules prevent adapters and runtimes from importing network or Client
   internals.
 - Simulator compatibility evidence covers all four facades and preserves every
@@ -339,7 +356,6 @@ v2 testbed scaffold may proceed.
 
 ## Deliberate deferrals
 
-The four exact `HarnessClient` choices and five simulator conflicts above,
-final publication/version policy, and any compatibility treatment for external
-consumers remain unresolved. None authorizes an eighth package or compatibility
-facade.
+The five simulator conflicts above, final publication/version policy, and any
+compatibility treatment for external consumers remain unresolved. None
+authorizes an eighth package or compatibility facade.

@@ -77,6 +77,15 @@ not a product conversation store.
 - **Consumer-only adapters.** OpenClaw and NanoClaw use the public
   `HarnessClient` capability or its MCP transport. They do not import Identity,
   Router, Client internals, or one another.
+- **Reduced Client boundary.** Applications mint a `ConversationId` before
+  START and use it as the only public start/retry identity. An identical start
+  intent resumes; changed peers or content conflict. `HarnessClient.start` and
+  a turn-bound, content-only `reply` return only after local certification and
+  expose no result value. Each turn projects one certified action from its
+  current conversation. Search, history, status, registration, and proof
+  inspection stay on MCP. `TxnId` does not exist; BEGIN-message digests,
+  `ActionHash`, `RecordHash`, certificates, and recovery state stay behind the
+  Client boundary.
 - **One simulator.** Preserve every non-conflicting latest-`main` simulator
   facade and behavior while replacing production-stack dependencies. The
   explicitly deferred authority conflicts are not implemented through inert
@@ -89,18 +98,11 @@ not a product conversation store.
   dependencies, architecture checks, release configuration, Knip, aliases,
   generated docs, and CI must express the same seven-package graph.
 
-## Deliberate implementation gates
+## Remaining implementation gates
 
-The constitution permits independent Identity and Router relocation and the
-mechanical seven-package graph work. Client or simulator work that would answer
-one of these questions waits for its named normative decision:
+The Client boundary above is selected. Simulator work that reaches one of
+these remaining questions waits for its named normative decision:
 
-- public start-operation recovery identity;
-- whether a live turn presents only its conversation or universal context;
-- whether success returns the complete certified record or a compact receipt
-  plus a public retrieval operation;
-- whether TypeScript `HarnessClient` includes history/search or leaves those
-  operations on MCP;
 - the five simulator conflicts involving content-free open, generic send,
   message-only receive, runtime Router authority, and persisted Router-commit
   semantics; and

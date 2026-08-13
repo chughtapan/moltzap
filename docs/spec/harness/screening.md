@@ -23,7 +23,7 @@ communication contract and `OpenFloorV1`, including:
 - fixed membership and Router-epoch binding;
 - certified predecessor and `RecordHash` chain;
 - BEGIN precedence and local eligibility;
-- live private transaction, legal action, and payload schema;
+- live private BEGIN-message grant key, legal action, and payload schema;
 - action-certificate and durability-evidence separation; and
 - idempotency and single-use reply state.
 

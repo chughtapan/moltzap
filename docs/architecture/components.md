@@ -67,11 +67,21 @@ injected `HarnessClient` or reach it through MCP. Endpoint repositories,
 protocol folds, partial votes, certificate assemblers, raw Router messages,
 private Effect RPC groups, Layers, and daemon storage codecs remain private.
 
-The exact Client success representation and four related interface choices are
-deliberately deferred in `v2/VISION.md`. The stable semantic boundary is
-already narrow: start has initial content, output is bound reply, history does
-not manufacture reply authority, generic send is absent, and success proves a
-locally durable certified record.
+The semantic Client boundary is deliberately small. The caller pre-mints a
+`ConversationId` and supplies it with nonempty peers and initial content to
+START. The same identifier and byte-identical canonical intent resume the
+first result; changed intent conflicts. START and a turn-bound, content-only
+reply return `void` only after the local endpoint certifies and stores the
+action.
+
+Each turn projects one certified action from its current conversation: the
+conversation identifier, verified peers, verified author, content, and bound
+reply. It carries no universal context, checkpoint, receipt, or proof. Search,
+history, status, registration, and proof inspection remain MCP management
+operations. `TxnId` does not exist, while authenticated BEGIN-message digests,
+`ActionHash`, `RecordHash`, certificates, and recovery state stay behind the
+semantic Client boundary. History never manufactures reply authority and
+generic send remains absent.
 
 ## Retired components
 

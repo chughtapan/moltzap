@@ -3,9 +3,8 @@
 Status: **PACKAGE INVENTORY — NON-NORMATIVE**
 
 This handoff maps the current repository into the approved seven-package
-cutover. It does not authorize code movement before the four-layer authority
-gate passes. Exact exports, dependency edges, release policy, and the final
-client contract become binding only in the replacement ADR and specifications.
+cutover. Current ADRs and specifications authorize code movement. Release
+policy remains a separate decision; this handoff does not create authority.
 
 ## Target product graph
 
@@ -65,7 +64,7 @@ every edge above normative.
 |---|---|---|---|
 | `packages/identity` | Implemented `v2/identity` | Move the complete package, including migrations, tests, configs, and Registry binary. Rename package imports and service-tag strings. | Preserve the admitted Identity root and Registry server/process capabilities. Final export subpaths and publication status must be frozen. |
 | `packages/router` | Implemented `v2/router` | Move the complete package and rename `@moltzap/v2-*` imports and tags. | Preserve Router value types, closed client errors, server composition, and `moltzap-router`. |
-| `packages/client` | Transitional production client plus empty `v2/harness` scaffold | Replace wholesale behind the final public shell. Implement endpoint history, proofs, catch-up, re-anchor, trust/tasks, daemon, and MCP here. | Exactly `.` and `./server`, plus `moltzapd`. Root exposes `HarnessClient`, public values, and closed typed errors. No compatibility subpaths. |
+| `packages/client` | Transitional production client plus empty `v2/harness` scaffold | Replace wholesale behind the reduced public shell. Implement endpoint history, proofs, catch-up, re-anchor, trust/tasks, daemon, and MCP here. | Exactly `.` and `./server`, plus `moltzapd`. Root exposes `ConversationId` creation, endpoint acquisition, `HarnessClient`, content and verified identity values, and closed typed errors. No compatibility subpaths, proof results, or management methods. |
 | `packages/openclaw-channel` | Existing production adapter | Retain host integration; rewrite against injected or MCP-backed `HarnessClient`. Remove profile, protocol, and client-internal dependencies. | Retain the OpenClaw host loader/plugin entry point where compatible. No profile compatibility promise. |
 | `packages/nanoclaw-channel` | Existing production adapter | Retain host integration; rewrite against `HarnessClient`. Remove `fromProfile`, profile environment, protocol, channel-base, and authentication imports. | Retain the NanoClaw host adapter entry point where compatible. |
 | `packages/simulator` | Latest production simulator | Keep the package and rewire production-stack acquisition, types, and internals. Its direct Router dependency owns local/GKE Router process composition after testbed deletion; root tooling owns only image/artifact assembly. | Preserve `.`, `./network`, `./ledger`, `./agents`, `Run.execute(RunSpec)`, clusters, Temporal, fault layers, and simulation `RunLedger`, subject to the semantic conflicts below. |
@@ -134,21 +133,21 @@ meaning:
   credential layer, and simulator event tags ending in `/v1` remain persisted
   event-schema versions rather than product-v1 compatibility.
 
-Retaining those endpoint evidence shapes requires a public non-privileged
-simulator projection from final client values to their existing `conversationId`,
-`messageId`, and `senderId` correlation fields. The proposed final client
-surface currently exposes transaction/record identity and content but not
-`MessageId` or sender on every result. The authority candidate must either
-assign that projection through Client's public verified record values or
-explicitly reopen the evidence shape. Simulator and evals may not recover the
-fields by importing endpoint or Router internals.
+The reduced Client exposes `conversationId`, verified author and peers, and
+content on each current-conversation turn. START and bound reply return `void`;
+they expose no `MessageId`, `TxnId`, `ActionHash`, `RecordHash`, certificate,
+or proof result. Simulator evidence that still requires unavailable
+correlation fields must be resolved inside the simulator compatibility
+decision or through authorized simulator instrumentation. Simulator and evals
+may not widen `HarnessClient` or recover fields by importing endpoint or Router
+internals.
 
 Five authority-bearing contracts cannot preserve both their current behavior
 and the final communication law:
 
 1. `Endpoint.open`, `EndpointTransport.openConversation`, and
-   `OpenedConversation` open or represent a conversation without initial
-   content or the final START proof, while final START atomically includes
+   `OpenedConversation` open or represent a conversation without a pre-minted
+   `ConversationId` and initial content, while final START atomically includes
    both.
 2. `ConversationSocket.send`, `EndpointTransport.send`, and the endpoint-bound
    socket returned through raw Router attachment permit arbitrary
@@ -156,8 +155,9 @@ and the final communication law:
    turn-bound reply only.
 3. Those operations return the old `Message`. `ReceivedMessage`,
    `EndpointTransport.received`, `ConversationSocket.receive`, and
-   `Endpoint.messages` expose a message-only receive model without record
-   identity, certified durability evidence, or bound reply authority.
+   `Endpoint.messages` expose a message-only receive model without the current
+   conversation, verified participants, content, and bound reply authority.
+   The accepted public turn intentionally carries no certified-record proof.
 4. `AgentConnection.key` is a redacted v1 bearer/API credential rather than an
    agent signing key. Together with `AgentConnection.routerUrl`,
    `Router.attachAgent`, `Router.attachEndpoint`, and
@@ -286,8 +286,9 @@ one compatibility version or independently versioned releases.
 
 ## Safe implementation order
 
-1. Pass and accept the four-layer authority gate, including the exact DAG,
-   client interface, simulator compatibility meaning, and release policy.
+1. Use the accepted four-layer DAG and reduced Client interface; resolve the
+   remaining simulator compatibility and release-policy decisions at their
+   named gates.
 2. Move generic documentation tooling out of protocol and freeze simulator
    and eval compatibility evidence.
 3. Move and rename Identity, then pass its complete existing target floor.

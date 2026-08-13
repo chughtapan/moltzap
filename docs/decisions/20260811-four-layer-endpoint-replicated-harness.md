@@ -1,12 +1,27 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-11
 decision-makers: Tapan Chugh
+superseded-by: 20260812-harness-client-uses-conversation-id.md
 ---
 
 # Four-layer Harness uses endpoint-replicated history
 
 Decision provenance: [four-layer reduction and recursive trust](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#four-layers-and-recursive-trust-features), [direct planning selections](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#planning-ui-questions-and-selections), [v1 retirement and the adopted cutover goal](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#v1-retirement-and-the-adopted-cutover-goal), and [readability ratchet and testbed removal](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#readability-ratchet-and-testbed-removal).
+
+## Supersession
+
+The four-layer model, endpoint-replicated certified history, durability
+threshold, catch-up, Router re-anchor, recursive social features, daemon
+topology, seven-package graph, and cutover outcome remain current.
+
+`20260812-harness-client-uses-conversation-id.md` replaces only this record's
+four Client-interface deferrals and the earlier statement that semantic
+success reports `TxnId`, `RecordHash`, or durability evidence. The current
+runtime contract uses a pre-minted `ConversationId`, current-conversation
+turns, and `void` completion after local certification; proof, search, and
+history are MCP management concerns. The newer record and `docs/spec/harness/`
+own that interface.
 
 ## Context and Problem Statement
 
@@ -188,7 +203,9 @@ The workspace pins `eslint-plugin-agent-code-guard` `0.0.21` and enables
 
 ## Explicit deferrals and implementation boundary
 
-This decision does not select the following public-interface details:
+The following four public-interface deferrals record this decision's original
+boundary and are historical under the Supersession section above. The
+replacement ADR selects them. At admission, this decision did not select:
 
 1. whether `HarnessClient` exposes an explicit operation identity or a durable
    resumable start-intent/recovery operation;
@@ -255,8 +272,8 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-314 | Retained — Router send retry identity and byte-equality laws remain current. | `docs/spec/router.md` — Send | `L2`, `L3` |
 | G1-DEC-400 | Retired — the Ledger HTTP service and operations do not exist. | `docs/spec/layer-interfaces.md` — Process boundaries | `ARCH`, `WIRE` |
 | G1-DEC-401 | Replaced — one certified record is independently replicated at endpoints. | `docs/spec/conversation-history.md` — Purpose and owner | `L3` |
-| G1-DEC-402 | Replaced — success means the returning endpoint durably holds the complete certified result. | `docs/spec/harness/output.md` — Success | `L3`, `MCP` |
-| G1-DEC-403 | Replaced — `RecordHash` ancestry and stable retry identity replace offsets and central append. | `docs/spec/conversation-history.md` — Canonical order and Retry and idempotency boundary | `L3` |
+| G1-DEC-402 | Replaced — success means the returning endpoint durably holds the complete certified result and the semantic call returns `void`. | `docs/spec/harness/output.md` — Success | `L3`, `MCP` |
+| G1-DEC-403 | Replaced — private `RecordHash` ancestry replaces offsets and central append; public START retry uses `ConversationId`. | `docs/spec/conversation-history.md` — Canonical order and Retry and idempotency boundary; `docs/spec/harness/output.md` — Conversation start | `L3`, `MCP` |
 | G1-DEC-404 | Retained — a complete certified record is independently verifiable without a live Registry. | `docs/spec/conversation-history.md` — Fixed profile and vocabulary | `L3` |
 | G1-DEC-405 | Retained — physical compression may not alter logical records, hashes, or signature preimages. | `docs/spec/conversation-history.md` — Canonical order and local persistence | `L3` |
 | G1-DEC-406 | Re-owned — endpoints mechanically verify complete action, anchor, membership, and storage evidence. | `docs/spec/conversation-history.md` — Action validity is not storage durability and Fixed-member catch-up | `L3`, `PROTO` |
@@ -266,12 +283,12 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-410 | Retained — one honest unanimous signer can prevent invalid action certification. | `docs/spec/layer-interfaces.md` — Trust and safety | `PROTO` |
 | G1-DEC-411 | Replaced — any member may assemble and disseminate durability evidence. | `docs/spec/conversation-history.md` — Vote dissemination and completion | `L3` |
 | G1-DEC-412 | Resolved — author failure does not prevent any-member evidence completion once votes exist. | `docs/spec/conversation-history.md` — Vote dissemination and completion | `L3` |
-| G1-DEC-413 | Re-owned — identical record/vote retries are idempotent; the exact client recovery surface is deferred. | `docs/spec/conversation-history.md` — Retry and idempotency boundary; this ADR — Explicit deferrals | `L3`, `DEFER` |
+| G1-DEC-413 | Re-owned — identical private record/vote retries are idempotent; semantic START recovery uses `ConversationId` plus canonical intent equality. | `docs/spec/conversation-history.md` — Retry and idempotency boundary; `docs/spec/harness/output.md` — Conversation start | `L3`, `MCP` |
 | G1-DEC-414 | Replaced — members keep local replicas; acknowledgment does not prove immediate all-member readability. | `docs/spec/conversation-history.md` — Threshold and guarantee and Fixed-member catch-up | `L3` |
 | G1-DEC-415 | Replaced — fixed members automatically perform verified peer catch-up. | `docs/spec/conversation-history.md` — Fixed-member catch-up | `L3` |
 | G1-DEC-500 | Retained — START and MULTICAST use immutable membership epoch 0. | `docs/spec/harness/tasks.md` — Fixed profile | `PROTO` |
-| G1-DEC-501 | Retained — START resolves a nonempty set of other immutable agents and rejects invalid membership. | `docs/spec/harness/output.md` — Conversation start | `PROTO`, `ID` |
-| G1-DEC-502 | Retained — START atomically includes fixed membership and initial nonempty content. | `docs/spec/harness/output.md` — Conversation start | `PROTO` |
+| G1-DEC-501 | Retained — START takes a pre-minted `ConversationId`, resolves a nonempty set of other immutable agents, and rejects invalid membership. | `docs/spec/harness/output.md` — Conversation start | `PROTO`, `ID`, `MCP` |
+| G1-DEC-502 | Retained — START atomically includes its `ConversationId`, fixed membership, and initial nonempty content. | `docs/spec/harness/output.md` — Conversation start | `PROTO`, `MCP` |
 | G1-DEC-503 | Retained — content remains the closed nonempty text/data union. | `docs/spec/harness/tasks.md` — Content | `PROTO`, `WIRE` |
 | G1-DEC-504 | Retained — every member signs a valid START that contains itself. | `docs/spec/harness/tasks.md` — START | `PROTO` |
 | G1-DEC-505 | Retained — unanimous START is consent; no separate invitation round is added. | `docs/spec/harness/tasks.md` — START | `PROTO` |
@@ -283,7 +300,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-511 | Retained — expiry abandons the volatile fold without changing certified history. | `docs/spec/harness/tasks.md` — TTL | `PROTO` |
 | G1-DEC-512 | Retained — no pass, abort, renewal, takeover, or dispute lifecycle is added. | `docs/spec/harness/tasks.md` — Explicit deferrals | `PROTO`, `DEFER` |
 | G1-DEC-513 | Re-owned — progress requires Router, required action signers, and the storage threshold, not a Ledger. | `docs/spec/harness/tasks.md` — Conditional liveness; `docs/spec/conversation-history.md` — Fault, safety, and progress matrix | `PROTO`, `L3` |
-| G1-DEC-514 | Replaced — endpoint catch-up and quorum re-anchor recover feed gaps and Router restarts; exact client retry representation is deferred. | `docs/spec/conversation-history.md` — Fixed-member catch-up and Router restart and re-anchoring; this ADR — Explicit deferrals | `PROTO`, `L3`, `DEFER` |
+| G1-DEC-514 | Replaced — endpoint catch-up and quorum re-anchor recover feed gaps and Router restarts; their hashes and evidence stay private to Client and management. | `docs/spec/conversation-history.md` — Fixed-member catch-up and Router restart and re-anchoring | `PROTO`, `L3` |
 | G1-DEC-515 | Replaced — only certified records enter history, while staged records and partial votes may be durable recovery state. | `docs/spec/conversation-history.md` — Canonical order and local persistence | `L3` |
 | G1-DEC-516 | Re-owned — members disseminate mergeable votes and evidence; hints never define truth. | `docs/spec/conversation-history.md` — Vote dissemination and completion | `PROTO`, `L3` |
 | G1-DEC-517 | Retained — future norms state fault, quorum, availability, timing, retry, safety, and liveness separately. | `docs/spec/harness/tasks.md` — Conditional liveness | `DEFER` |
@@ -299,38 +316,38 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-607 | Retained — the rejected MCP/session/replay transports remain absent. | `docs/spec/harness/daemon.md` — MCP transport | `MCP`, `DEFER` |
 | G1-DEC-608 | Retained — receive capability discovery remains versioned. | `docs/spec/harness/daemon.md` — Receive extension | `MCP` |
 | G1-DEC-609 | Retained — model output is START or bound reply, never generic send. | `docs/spec/harness/output.md` — Purpose and boundary | `MCP` |
-| G1-DEC-610 | Deferred — the exact public operation-identity/recovery surface is unselected. | `docs/spec/harness/output.md` — Explicitly deferred | `MCP`, `DEFER` |
+| G1-DEC-610 | Resolved — caller-minted `ConversationId` is the sole public START and recovery identity. | `docs/spec/harness/output.md` — Conversation start | `MCP`, `L3` |
 | G1-DEC-611 | Re-owned — reply remains bound to live authority; exact protocol representation belongs to the output spec. | `docs/spec/harness/output.md` — Bound reply | `MCP`, `PROTO` |
 | G1-DEC-612 | Retained — task actions use stable closed descriptors. | `docs/spec/harness/tasks.md` — Legal actions | `MCP`, `PROTO` |
 | G1-DEC-613 | Retained — receive uses the declared MCP listen capability and filter. | `docs/spec/harness/daemon.md` — Receive extension | `MCP` |
 | G1-DEC-614 | Retained — subscription acknowledgement precedes turn notification. | `docs/spec/harness/daemon.md` — Receive extension | `MCP` |
 | G1-DEC-615 | Retained — one listener owns turn delivery and races fail closed. | `docs/spec/harness/daemon.md` — Receive extension | `MCP` |
 | G1-DEC-616 | Retained — close, cancellation, and keepalive behavior remains transport-only. | `docs/spec/harness/daemon.md` — MCP transport | `MCP` |
-| G1-DEC-617 | Re-owned — only a complete certified record plus live reply authority invokes the runtime. | `docs/spec/harness/ingress.md` — Attention and authority | `MCP`, `PROTO`, `L3` |
-| G1-DEC-618 | Deferred — exact current- versus cross-conversation turn context is unselected. | `docs/spec/harness/client.md` — Explicitly deferred | `MCP`, `DEFER` |
+| G1-DEC-617 | Re-owned — only a complete certified record plus live reply authority invokes one semantic current-conversation turn. | `docs/spec/harness/ingress.md` — Attention and authority | `MCP`, `PROTO`, `L3` |
+| G1-DEC-618 | Resolved — one turn exposes exactly one current-conversation certified action. | `docs/spec/harness/client.md` — Turn | `MCP` |
 | G1-DEC-619 | Re-owned — at-most-once attention state, if retained, belongs to the endpoint store. | `docs/spec/harness/ingress.md` — Delivery law | `MCP`, `L3` |
 | G1-DEC-620 | Retained — an ambiguous post-commit delivery write may lose the turn and does not create replay. | `docs/spec/harness/ingress.md` — Delivery law | `MCP` |
 | G1-DEC-621 | Retained — no stream consumes no attention; one consumed head is not offered again. | `docs/spec/harness/ingress.md` — Delivery law | `MCP`, `PROTO` |
-| G1-DEC-622 | Replaced — endpoint history, staged evidence, and certified completion replace offsets and Ledger receipts; context checkpoints remain deferred. | `docs/spec/harness/daemon.md` — Endpoint state; `docs/spec/harness/client.md` — Explicitly deferred | `MCP`, `L3`, `DEFER` |
+| G1-DEC-622 | Replaced — endpoint history, staged evidence, and certified completion replace offsets, Ledger receipts, and presentation checkpoints. | `docs/spec/harness/daemon.md` — Endpoint state; `docs/spec/harness/client.md` — Turn | `MCP`, `L3` |
 | G1-DEC-623 | Retained — grants and turns serialize per conversation without a daemon-wide protocol cap. | `docs/spec/harness/ingress.md` — Same-conversation exclusion | `MCP` |
-| G1-DEC-624 | Deferred — cross-conversation presentation and its bounds are unselected. | `docs/spec/harness/client.md` — Explicitly deferred | `MCP`, `DEFER` |
+| G1-DEC-624 | Resolved — Client performs no universal cross-conversation presentation. | `docs/spec/harness/client.md` — Turn | `MCP` |
 | G1-DEC-625 | Retained — host queue/steer policy cannot bypass one bound reply. | `docs/spec/harness/client.md` — Bound reply | `MCP`, `INT` |
 | G1-DEC-626 | Re-owned — failures remain closed and typed; their exact final public set belongs to the output spec. | `docs/spec/harness/output.md` — Errors | `MCP` |
-| G1-DEC-627 | Replaced — local certified success replaces Ledger acknowledgement and offsets; returned representation is deferred. | `docs/spec/harness/output.md` — Success; this ADR — Explicit deferrals | `MCP`, `L3`, `DEFER` |
+| G1-DEC-627 | Replaced — local certified success replaces Ledger acknowledgement and offsets; the semantic result is `void`. | `docs/spec/harness/output.md` — Success | `MCP`, `L3` |
 | G1-DEC-628 | Retained — the base MCP surface has no asynchronous task handle. | `docs/spec/harness/daemon.md` — MCP tools | `MCP`, `DEFER` |
 | G1-DEC-629 | Re-owned — OpenClaw supervision persists without profiles and consumes Client only. | `docs/spec/harness/daemon.md` — Supervision; `docs/spec/layer-interfaces.md` — Adapters | `INT` |
 | G1-DEC-630 | Re-owned — NanoClaw retains one persistent agent daemon without profile state and consumes Client only. | `docs/spec/harness/daemon.md` — Supervision; `docs/spec/layer-interfaces.md` — Adapters | `INT` |
 | G1-DEC-631 | Retained — runtime bridges cannot bypass bound reply authority. | `docs/spec/harness/client.md` — Bound reply | `INT` |
-| G1-DEC-632 | Re-owned — identical completed replies cannot duplicate records; exact public recovery/result surface is deferred. | `docs/spec/harness/output.md` — Retry; this ADR — Explicit deferrals | `MCP`, `L3`, `DEFER` |
-| G1-DEC-633 | Deferred — START retry safety remains required, but its public operation-identity/recovery representation is unselected. | `docs/spec/harness/output.md` — Explicitly deferred | `MCP`, `L3`, `DEFER` |
-| G1-DEC-634 | Deferred — attention checkpoint mechanics depend on the unresolved context choice. | `docs/spec/harness/client.md` — Explicitly deferred | `MCP`, `DEFER` |
+| G1-DEC-632 | Re-owned — identical completed replies cannot duplicate records; the bound closure retains recovery state privately and returns `void`. | `docs/spec/harness/output.md` — Retry | `MCP`, `L3` |
+| G1-DEC-633 | Resolved — START retry uses the caller-minted `ConversationId` and canonical-intent equality. | `docs/spec/harness/output.md` — Conversation start and Retry | `MCP`, `L3` |
+| G1-DEC-634 | Resolved — the current-conversation-only turn has no presentation checkpoint. | `docs/spec/harness/client.md` — Turn | `MCP` |
 | G1-DEC-635 | Replaced — one explicitly configured state directory and one `/mcp` replace the profile slot and split paths. | `docs/spec/harness/daemon.md` — Process and paths | `MCP`, `ARCH` |
-| G1-DEC-636 | Replaced — one final Client implementation replaces dual-track compatibility; its exact public methods remain deferred. | `docs/spec/harness/client.md` — Purpose and explicit deferrals | `MCP`, `INT`, `ARCH`, `DEFER` |
-| G1-DEC-637 | Re-owned — management search/history remain local-authorized operations; TypeScript method exposure is deferred. | `docs/spec/management.md` — Search and history; this ADR — Explicit deferrals | `MCP`, `DEFER` |
-| G1-DEC-638 | Deferred — universal cross-conversation context and checkpoints are unselected. | `docs/spec/harness/client.md` — Explicitly deferred | `MCP`, `DEFER` |
+| G1-DEC-636 | Replaced — one final structural `HarnessClient` exposes START and one turn stream with bound reply. | `docs/spec/harness/client.md` — Purpose and surface | `MCP`, `INT`, `ARCH` |
+| G1-DEC-637 | Re-owned — management search and history remain local-authorized MCP operations and are absent from `HarnessClient`. | `docs/spec/management.md` — Search and history; `docs/spec/harness/client.md` — Boundary | `MCP` |
+| G1-DEC-638 | Resolved — universal cross-conversation context and presentation checkpoints are absent. | `docs/spec/harness/client.md` — Turn | `MCP` |
 | G1-DEC-639 | Retained — content/history and live reply authority remain independent. | `docs/spec/harness/ingress.md` — Content and reply authority | `MCP`, `PROTO` |
 | G1-DEC-640 | Retained — at most one live reply authority exists per conversation. | `docs/spec/harness/ingress.md` — Same-conversation exclusion | `MCP`, `PROTO` |
-| G1-DEC-641 | Re-owned — the surface remains START plus bound reply and no generic send; operation and result representation are deferred. | `docs/spec/harness/output.md` — Purpose and explicit deferrals | `MCP`, `L3`, `PROTO`, `DEFER` |
+| G1-DEC-641 | Re-owned — START and content-only bound reply return `void` after local certification; generic send is absent. | `docs/spec/harness/output.md` — Purpose and success | `MCP`, `L3`, `PROTO` |
 | G1-DEC-642 | Replaced — final code lives in `packages/client`; adapters consume its `HarnessClient`. | `docs/spec/layer-interfaces.md` — Package graph; `docs/spec/harness/client.md` — Purpose | `ARCH`, `INT` |
 | G1-DEC-700 | Replaced — the final workspace has exactly the seven packages named here. | `docs/spec/layer-interfaces.md` — Package graph | `ARCH` |
 | G1-DEC-701 | Replaced — the exact dependency table in this ADR is current. | `docs/spec/layer-interfaces.md` — Package graph | `ARCH` |
@@ -366,7 +383,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-808 | Retained deferral — local auth, hostile-host defense, dynamic ports, attachment, and universal supervision remain absent. | `docs/spec/harness/daemon.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-809 | Retained deferral — MCP replay, cursors, alternate push, async handles, and dynamic tools remain absent. | `docs/spec/harness/ingress.md`; `docs/spec/harness/output.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-810 | Re-owned deferral — evidence dissemination is required, but a transactional outbox mechanism is unselected. | `docs/spec/conversation-history.md` — Vote dissemination and completion | `L3`, `DEFER` |
-| G1-DEC-811 | Retained deferral — later resource profiles remain absent; cross-conversation bounds follow the interface deferral. | `docs/spec/router.md` — Explicitly deferred; `docs/spec/harness/client.md` — Deliberate interface gates | `DEFER` |
+| G1-DEC-811 | Retained deferral — later resource profiles remain absent; Client runtime context is current-conversation-only. | `docs/spec/router.md` — Explicitly deferred; `docs/spec/harness/client.md` — Turn | `DEFER`, `MCP` |
 | G1-DEC-812 | Retained deferral — binary/media action content remains absent. | `docs/spec/harness/tasks.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-813 | Retained deferral — end-to-end encryption and key distribution remain optional future protocols. | `docs/spec/router.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-814 | Partially resolved — branch cutover and v1 retirement are current; publication, versioning, and deployment policy remain deferred. | This ADR — Daemon, package graph, and cutover; `docs/architecture/first-implementation.md` | `ARCH`, `DEFER` |
@@ -374,7 +391,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-816 | Re-owned — Router still provides no persistent replay; endpoint catch-up and quorum re-anchor are now required. | `docs/spec/router.md` — Explicitly deferred; `docs/spec/conversation-history.md` — Fixed-member catch-up and Router restart and re-anchoring | `L2`, `L3`, `DEFER` |
 | G1-DEC-817 | Re-owned deferral — privileged observer reads and central replication retire; pruning, physical compression, and non-member disclosure remain constrained as above. | `docs/spec/conversation-history.md` — Canonical order and local persistence and Explicitly deferred; this ADR — Explicit deferrals | `L3`, `DEFER` |
 | G1-DEC-818 | Retained deferral — remote daemon administration remains absent. | `docs/spec/management.md` — Explicitly deferred | `DEFER` |
-| G1-DEC-819 | Deferred — cross-conversation context, concurrency, and bounds follow the unselected client-context contract. | `docs/spec/harness/client.md` — Explicitly deferred | `DEFER` |
+| G1-DEC-819 | Partially resolved — runtime context is current-conversation-only and has no checkpoint; same-conversation serialization remains current. | `docs/spec/harness/client.md` — Turn; `docs/spec/harness/ingress.md` — Same-conversation exclusion | `MCP` |
 | G1-DEC-820 | Reframed deferral — screening, testimony, institutions, and contacts may be ordinary task/trust protocols only. | `docs/spec/harness/screening.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-821 | Retained deferral — later action vocabularies, norm bundles, and dynamic action tools remain absent. | `docs/spec/harness/tasks.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-822 | Resolved — no privileged monitor runtime/layer will ship; monitoring is an ordinary agent task. | `docs/spec/enforcement.md` — Recursive agents | `ARCH` |
@@ -396,9 +413,10 @@ endpoint's task, norm, and trust decisions, not from a privileged credential
 or history-read channel.
 
 The cutover intentionally breaks obsolete v1/profile/Ledger/testbed surfaces
-instead of maintaining shims. Interface, simulator, release, retention, and
-disk-loss choices named as deferrals remain blockers for the code that would
-embody them; they are not permission to guess.
+instead of maintaining shims. Simulator, release, retention, and disk-loss
+choices named as deferrals remain blockers for the code that would embody
+them; they are not permission to guess. The Client interface is fixed by the
+superseding record above.
 
 ## Record changelog
 

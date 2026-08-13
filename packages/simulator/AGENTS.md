@@ -40,6 +40,12 @@ create runtime `simulator -> evals`, `simulator -> openclaw-channel`, or
   runtime Registry admission material, endpoint signing keys, raw Router
   credentials, Router attachment capabilities, endpoint stores, or protocol
   internals.
+- The injected Client accepts a pre-minted `ConversationId` for START, emits
+  one current-conversation certified-action projection per turn, and returns
+  `void` from START and bound reply after local certification. Search, history,
+  status, registration, and proof inspection stay on MCP. Simulator evidence
+  may observe public effects but cannot obtain `TxnId`, `ActionHash`,
+  `RecordHash`, certificates, or private recovery state from `HarnessClient`.
 - Social traffic uses the same Identity, Router, and Client implementation as
   production. Code agents receive no shortcut around endpoint certification,
   durability, catch-up, personal trust, or bound reply authority.
@@ -74,10 +80,12 @@ Do not change, preserve through a semantic shim, or reinterpret these
 authority-bearing contracts until a separately admitted decision selects their
 replacement and any persisted-evidence migration:
 
-1. conversation open without initial content and a certified START result;
+1. conversation open without a pre-minted `ConversationId` and nonempty
+   initial content;
 2. generic established-conversation send;
-3. message-only receive/results without certified record evidence and bound
-   reply authority;
+3. message-only receive/results without the current conversation, verified
+   participants, content, and bound reply authority; the public turn does not
+   expose certified-record proof;
 4. bearer credentials or raw Router attachment exposed to runtimes; and
 5. persisted events that claim a durable Router commit or Router-local order.
 

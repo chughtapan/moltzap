@@ -1,16 +1,14 @@
 # Four-layer public interface slate
 
-Status: **MAINTAINER DISCUSSION — NON-NORMATIVE**
+Status: **ACCEPTED INTERFACE ORIENTATION — NON-NORMATIVE**
 
-This slate narrows the public interface proposed by the approved
-four-layer cutover plan. It is an input to the replacement ADR and normative
-specification, not authority for implementation. Existing ADRs and
-`docs/spec/` remain binding until that candidate passes blind review and is
-accepted.
+This slate explains the accepted reduced public interface. It does not replace
+the current ADR or normative specification, which remain the implementation
+authority.
 
 ## Design target
 
-The public surface should make the short stack visible:
+The public surface makes the short stack visible:
 
 - identity resolves immutable agents;
 - communication produces one certified, hash-linked history per fixed-member
@@ -29,7 +27,7 @@ conversation and remains subject to the disclosing agent's personal trust.
 
 ## Vocabulary
 
-Use five different names for five different facts:
+Use distinct names for distinct facts:
 
 - A **record body** is one canonical START or MULTICAST action and its link to
   the preceding record.
@@ -42,6 +40,12 @@ Use five different names for five different facts:
   records for a conversation.
 - A **turn** is a live runtime presentation carrying reply authority. Reading
   history never creates a turn or reply authority.
+
+The canonical authenticated BEGIN-message digest is the private volatile key
+for one pre-content reply opportunity. `ActionHash` privately identifies the
+unanimously certified action. `RecordHash` privately identifies the durable
+history record used for ancestry, catch-up, and Router re-anchor. None is a
+semantic Client result or runtime authority, and `TxnId` does not exist.
 
 `RecordHash` is the stable history position. It hashes the canonical complete
 action-certified record, including the action-certificate bytes. Durability
@@ -56,142 +60,89 @@ the signed anchor chain required for offline verification. Genesis uses a
 closed initial Router-instance binding; later Router instances require a
 member-signed re-anchor proof.
 
-## Recommended TypeScript surface
+## Accepted TypeScript surface
 
-`@moltzap/client` should expose one small Effect service from its root. Process
+`@moltzap/client` exposes one small semantic interface from its root. Process
 composition remains at `@moltzap/client/server`; MCP codecs, repositories,
-Router envelopes, protocol folds, Layers, and reply tokens remain private.
+Router envelopes, protocol folds, Layers, hashes, certificates, and reply
+tokens remain private.
 
 ```ts
-type ContentPartV1 =
-  | { readonly text: string }
-  | { readonly data: JsonValue }
+type ContentPart =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "data"; readonly value: JsonValue }
 
-type Content = readonly [ContentPartV1, ...ContentPartV1[]]
+type Content = readonly [ContentPart, ...ContentPart[]]
 
-interface StartConversationInput {
-  readonly operationId: OperationId
-  readonly otherAgentNames: readonly [AgentName, ...AgentName[]]
+interface StartInput {
+  readonly conversationId: ConversationId
+  readonly peers: readonly [AgentName, ...AgentName[]]
   readonly content: Content
-}
-
-type ConversationRecordBody =
-  | {
-      readonly kind: "start"
-      readonly conversationId: ConversationId
-      readonly txnId: TxnId
-      readonly previousRecordHash: null
-      readonly authorId: AgentId
-      readonly memberIds: readonly [AgentId, ...AgentId[]]
-      readonly content: Content
-    }
-  | {
-      readonly kind: "multicast"
-      readonly conversationId: ConversationId
-      readonly txnId: TxnId
-      readonly previousRecordHash: RecordHash
-      readonly authorId: AgentId
-      readonly content: Content
-    }
-
-interface ActionCertifiedRecord {
-  readonly body: ConversationRecordBody
-  readonly membership: FixedMembershipEpoch
-  readonly routerEpochAnchorHash: RouterEpochAnchorHash
-  readonly actionCertificate: ActionCertificateV1
-}
-
-interface CertifiedRecord {
-  readonly record: ActionCertifiedRecord
-  readonly recordHash: RecordHash
-  readonly routerEpochProof: RouterEpochProof
-  readonly durabilityEvidence: DurabilityEvidenceV1
 }
 
 interface HarnessTurn {
   readonly conversationId: ConversationId
-  readonly txnId: TxnId
+  readonly peers: readonly [VerifiedAgentCard, ...VerifiedAgentCard[]]
+  readonly author: VerifiedAgentCard
   readonly content: Content
-  readonly record: CertifiedRecord
   readonly reply: (
     content: Content,
-  ) => Effect.Effect<CertifiedRecord, ReplyError>
+  ) => Effect.Effect<void, ReplyError>
 }
 
-interface HarnessClientService {
-  readonly agentId: AgentId
-  readonly startConversation: (
-    input: StartConversationInput,
-  ) => Effect.Effect<CertifiedRecord, StartConversationError>
+interface HarnessClient {
+  readonly start: (
+    input: StartInput,
+  ) => Effect.Effect<void, StartError>
   readonly turns: Stream.Stream<HarnessTurn, ListenError>
 }
 ```
 
-`FixedMembershipEpoch`, `RouterEpochAnchorHash`, `RouterEpochProof`,
-`ActionCertificateV1`, and `DurabilityEvidenceV1` are nominal verified values
-backed by closed, versioned, canonical representations. Constructors remain
-private to strict decoders and protocol verification. A later task protocol
-introduces another explicit closed version or union member; it does not put an
-untyped extension bag inside `CertifiedRecord`.
+The root also provides
+`createConversationId(): Effect<ConversationId, ConversationIdGenerationError>`
+and
+`acquireHarnessClient(endpoint: URL): Effect<HarnessClient, ConnectError, Scope>`.
+Closed error members belong to the normative Client contract. The public shape
+fixes the capability boundary:
 
-This shape makes the important distinctions explicit:
-
-- START is one atomic genesis record containing initial content. There is no
-  committed empty conversation followed by a separate send.
-- The application supplies a stable `OperationId`. An identical retry returns
-  the same `RecordHash` with currently known valid durability evidence; reuse
-  with changed members or content is an `IdempotencyConflict`.
-- START and reply return the complete locally durable proof, not a central
-  receipt or offset.
-- Every action-certified record carries the fixed epoch verification
-  descriptor and binds the hash of its applicable initial binding or re-anchor.
-  `CertifiedRecord.routerEpochProof` supplies and verifies that anchor chain
-  offline. The descriptor is canonically ordered by unique AgentId and is
-  immutable, not a mutable presentation roster.
-- `ActionCertificateV1` proves the norm-authorized action. It is part of the
-  `RecordHash` preimage and is not evidence of storage.
-- `DurabilityEvidenceV1` is a canonically encoded signer map over that
-  `RecordHash`. It records signed storage attestations at the required
-  threshold and is not evidence that the action was legal. Different threshold
-  signer sets can be equivalent valid evidence for the same record; members
-  merge verified votes rather than requiring byte-identical certificate
-  subsets. Record/retry identity is the `RecordHash`, not one snapshot of that
-  growing signer map.
-- The turn's bound closure captures opaque, live reply authority. A history
-  value cannot recreate it, and `ConversationId` is never used as authority.
+- START is one atomic genesis action containing fixed peers and initial
+  content. There is no committed empty conversation followed by a separate
+  send.
+- The application mints `ConversationId` before START. It is the only public
+  start/retry identity. The same identifier with byte-identical canonical
+  intent resumes the first result; reuse with changed peers or content is an
+  idempotency conflict.
+- START and bound reply return `void` only after the local endpoint has the
+  complete certified record in durable history. Neither returns a receipt,
+  hash, certificate, or proof.
+- One turn projects one certified action from the current conversation. It
+  carries verified participants and content, not the internal record or a
+  universal history snapshot.
+- The turn's bound closure captures opaque live reply authority. A history
+  value cannot recreate it, and `ConversationId` cannot authorize an
+  established reply.
 - The cutover profile has one legal reply action, so the runtime supplies only
   content. Later task protocols can add semantics without leaking a general
   action selector into this base interface.
-
-The public input above is the conservative recommendation. Client re-exports
-the branded `OperationId`, its strict parser, and an Effectful secure generator
-so applications import no lower package. A narrower input can hide the value
-only if Client adds a durable start-intent handle and a recovery operation that
-unambiguously resumes that invocation after interruption or process restart.
-Generating an inaccessible ID and then returning an ambiguous error is not an
-acceptable alternative.
+- The root exposes no local `agentId`, `OperationId`, `TxnId`, `ActionHash`,
+  `RecordHash`, certified-record result, generic send, unbound reply, search,
+  history, status, registration, or proof-retrieval method.
 
 ## Turn context
 
-The recommended base turn contains only the certified head that created the
-current reply opportunity. It does not automatically splice content from
-other conversations into every model invocation.
+The base turn contains only the certified action that created the current
+reply opportunity. It never automatically splices content from other
+conversations into a model invocation.
 
-That choice would deliberately supersede the current universal
-cross-conversation presentation/checkpoint contract. It removes a policy-heavy
-cache from the communication interface and keeps disclosure and attention in
-personal trust.
+This supersedes universal cross-conversation presentation and checkpoints. It
+removes a policy-heavy cache from the communication interface and keeps
+disclosure and attention in personal trust.
+
 Runtime hosts may retain their own session memory. A local agent can inspect
 its own histories through MCP. Automatic catch-up among fixed members is part
 of communication and requires no disclosure task. A non-member request, an
 audit, or a request to compare histories outside that replication entitlement
 is a task and the responding agent decides what to disclose.
-
-If automatic cross-conversation context is retained instead, the replacement
-spec must define its selection, trust filtering, size bounds, stable
-`RecordHash` checkpoints, crash window, and why it belongs in every client
-rather than in a runtime policy. It must not return accidentally through this
-interface merely because the production transitional client currently has it.
 
 ## One daemon MCP surface
 
@@ -215,12 +166,17 @@ Receive uses MCP `subscriptions/listen`; it is not a seventh tool.
 `HarnessClient.turns` is the typed Effect projection of that subscription.
 
 The daemon tools have closed versioned wire Schemas. The TypeScript client
-strictly decodes, verifies, and converts those representations into nominal
-public values; serializing an Effect service value or trusting a decoded
-certificate-shaped object is not a wire contract. `start_conversation` and
-`reply` return the wire representation of one `CertifiedRecord`.
+strictly decodes and projects runtime values; serializing an Effect service or
+trusting a decoded certificate-shaped object is not a wire contract.
+`start_conversation` and `reply` complete only after local certification and
+project no receipt or proof through `HarnessClient`.
 `search_conversations` and `read_conversation` inspect only the local
 endpoint's authorized replica.
+
+Search, history, status, registration, and proof inspection remain MCP-only
+management capabilities. An authorized MCP history representation may carry
+private record identifiers and evidence without adding them to the semantic
+Client or a runtime turn.
 
 History reads move forward from a known `RecordHash` within one authorized
 conversation snapshot. The owning specification must define genesis and end
@@ -241,29 +197,28 @@ closed typed error must be settled there without exposing admission material.
 
 ## Failure contract
 
-The closed errors should say what the caller can do, not expose internal
+The closed errors say what the caller can do without exposing internal
 services.
 
 For conversation start:
 
 - invalid or duplicate members, unknown agent, refusal, and
-  `IdempotencyConflict` are definite non-commit outcomes;
+  changed-intent conflict are definite outcomes;
 - all named agents are resolved and validated before protocol traffic or local
   record staging, which is why an unknown agent is a definite non-commit;
-- retryable unavailability and local-persistence failures retain the journaled
-  or supplied `OperationId`, so the exact call can be retried safely; and
-- success means this endpoint has the complete certified record in its local
-  durable history.
+- retryable unavailability and local-persistence failures retain the supplied
+  `ConversationId`, so the byte-identical call can be resumed safely; and
+- success returns `void` and means this endpoint has the complete certified
+  record in its local durable history.
 
 For bound reply:
 
 - expired, already consumed, no-longer-legal, refused, and changed-content
   retry are distinct outcomes;
-- a completed identical retry recovers the same `RecordHash` before expiry or
-  consumption is reported, even if its durability signer map has since gained
-  votes; changed content conflicts; an uncommitted expired authority reports
-  expiry; and
-- successful return has the same local durability meaning as START.
+- the private closure may resume a completed identical call before expiry or
+  consumption is reported; changed content conflicts and an uncommitted
+  expired authority reports expiry; and
+- successful `void` return has the same local durability meaning as START.
 
 The closure is the narrow runtime authority. It may identically retry and
 recover completion while its private authority remains live. Losing the client
@@ -278,15 +233,16 @@ Protocol violations and incompatible daemon responses remain distinct from
 ordinary service unavailability. Unknown `Error` is not part of either public
 error channel.
 
-## History and recovery laws the authority candidate must close
+## History and recovery laws
 
-The public shape is only sound if the replacement protocol specifies these
-laws in the same authority candidate:
+The private protocol and store preserve these laws:
 
 1. Honest members durably stage the exact canonical
    `ActionCertifiedRecord` before signing its `RecordHash`, and never vote for
-   conflicting successors of one certified head. The durability evidence is
-   assembled afterward and therefore is not part of the staged hash preimage.
+   conflicting successors of one certified head. `ActionHash` identifies the
+   unanimous action certificate; `RecordHash` identifies the durable history
+   record. Durability evidence is assembled afterward and therefore is not
+   part of either stable identity.
 2. For fewer than four members, valid durability evidence requires every
    member's vote. Otherwise `f = floor((n - 1) / 3)` and `n - f` votes meet the
    threshold. A withholding member can therefore halt small-conversation
@@ -296,14 +252,14 @@ laws in the same authority candidate:
    durability evidence after the author fails. Duplicate votes are harmless;
    conflicting votes are proof of a member violation and never silently
    replace staged evidence.
-4. Success is local: the returning endpoint has the complete certified record.
-   Durability signatures prove `n - f` attestations, not that a Byzantine
-   signer actually stored bytes. For `n >= 4`, assuming at most `f` Byzantine
-   members and honest-stage-before-sign, completed evidence guarantees at least
-   `n - 2f` honest staged replicas. The small-conversation profile tolerates
-   zero Byzantine members for its replicated-storage guarantee; unanimous
-   signatures alone cannot prove a Byzantine member stored anything. Omitted
-   members catch up from peers.
+4. Success is local: before returning `void`, the endpoint has the complete
+   certified record. Durability signatures prove `n - f` attestations, not
+   that a Byzantine signer actually stored bytes. For `n >= 4`, assuming at
+   most `f` Byzantine members and honest-stage-before-sign, completed evidence
+   guarantees at least `n - 2f` honest staged replicas. The small-conversation
+   profile tolerates zero Byzantine members for its replicated-storage
+   guarantee; unanimous signatures alone cannot prove a Byzantine member
+   stored anything. Omitted members catch up from peers.
 5. `previousRecordHash` defines canonical order, stale-head detection,
    history paging anchors, and catch-up. A local cursor adds no authority.
 6. After Router restart, members compare verified ancestry rather than hash
@@ -322,8 +278,9 @@ laws in the same authority candidate:
    votes. It neither weakens unanimous action validity, rewrites history, nor
    permanently fences the conversation.
 7. Attention is created only from a complete certified record and a live
-   reply grant. Partial votes, a staged record, catch-up, or a history read do
-   not invoke the runtime.
+   reply grant. One turn projects that one current-conversation action. Partial
+   votes, a staged record, catch-up, or a history read do not invoke the
+   runtime.
 8. The endpoint store atomically promotes staged action-certified records and
    partial votes into certified history, recovers either state after restart,
    retains enough honest replicas for the stated durability guarantee, and
@@ -334,19 +291,12 @@ laws in the same authority candidate:
    invalid or duplicate data, and states the honest-member availability needed
    for progress.
 
-## Maintainer calls to freeze
+## Accepted boundary
 
-The replacement authority needs explicit answers to four interface choices:
-
-1. Keep the recommended explicit `OperationId`, or add a genuinely resumable
-   durable client-owned start-intent/recovery surface that can hide it without
-   ambiguous retry.
-2. Keep the recommended current-conversation-only turn, or retain and fully
-   specify universal cross-conversation presentation.
-3. Return the recommended complete `CertifiedRecord`, or return a compact
-   receipt and name the public operation that retrieves the proof.
-4. Keep search/history on MCP only for the narrow adapter port, or add them to
-   `HarnessClientService` as public TypeScript methods.
-
-The recommended set is: explicit operation identity, current conversation
-only, complete proof, and MCP-only search/history.
+- `ConversationId` is pre-minted and is the sole public START/retry identity.
+- The turn contains one certified action from its current conversation only.
+- START and bound reply return `void` after local certification.
+- Search, history, status, registration, and proof inspection are MCP-only.
+- `TxnId` is absent. BEGIN-message digest, `ActionHash`, `RecordHash`, proof,
+  and recovery state are private to Client and its authorized management
+  representation.

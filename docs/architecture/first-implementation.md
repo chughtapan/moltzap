@@ -103,9 +103,8 @@ Acceptance:
 
 ## Lane 4: build Client communication
 
-Establish the final `@moltzap/client` public shell only after its deferred
-surface choices are admitted. Then replace the transitional package behind
-that shell with cohesive endpoint modules for:
+Establish the accepted reduced `@moltzap/client` public shell, then replace the
+transitional package behind that shell with cohesive endpoint modules for:
 
 1. canonical record and certificate values;
 2. local staged/certified history and atomic promotion;
@@ -117,10 +116,20 @@ that shell with cohesive endpoint modules for:
 8. one state-directory daemon and one state-dependent `/mcp` endpoint; and
 9. the final semantic `HarnessClient` capability.
 
+The public shell mints `ConversationId` values and acquires a client for one
+endpoint. `HarnessClient.start` accepts a pre-minted conversation identifier,
+nonempty peers, and initial content. The same identifier with byte-identical
+canonical intent resumes the first result; changed intent conflicts. START and
+a turn-bound, content-only reply return `void` only after local certification.
+The turns stream projects one certified action from its current conversation,
+with verified peers and author, content, and its bound reply.
+
 Keep raw Router envelopes, partial folds, repositories, storage codecs,
-private RPC, Layers, and MCP representation private. History reads and catch-up
-do not create live reply authority. Start and reply return only after the local
-endpoint has the certified durable result required by the current interface.
+private RPC, Layers, and MCP representation private. `TxnId` is absent;
+authenticated BEGIN-message digests, `ActionHash`, `RecordHash`, certificates,
+and recovery state stay behind the semantic boundary. Search, history, status,
+registration, and proof inspection remain MCP management operations. History
+reads and catch-up do not create live reply authority.
 
 The protocol test floor includes quorum arithmetic, honest intersection,
 conflicting successors, Byzantine votes, author failure, partial
@@ -130,7 +139,8 @@ action validity from durability.
 
 The MCP floor covers both catalogs, registration persistence, explicit
 configuration, start, bound reply, listen, history reads, typed failures, and
-restart. Type canaries pin the admitted public service and proof contracts.
+restart. Type canaries pin the reduced public service, current-conversation
+turn, void completion, and absence of proof and management methods.
 
 ## Lane 5: rewrite runtime adapters
 
@@ -141,7 +151,9 @@ client internals, and cross-adapter imports.
 
 Adapter tests use the Client public contract and real daemon boundary. A host
 consumer that requires a private endpoint value reports a Client interface gap
-rather than importing around it.
+rather than importing around it. Hosts keep any wider session memory outside
+Client; adapters do not restore universal cross-conversation context or
+checkpoints.
 
 ## Lane 6: rewire simulator and evals
 

@@ -1,17 +1,14 @@
 # Four-layer v2 cutover plan
 
-Status: **APPROVED EXECUTION PLAN — NON-NORMATIVE UNTIL AUTHORITY GATE PASSES**
+Status: **APPROVED EXECUTION PLAN — NON-NORMATIVE**
 
 Date: 2026-08-11
 
 Branch: `cutover/four-layer-v2`
 
-This is the durable execution plan for replacing the eight-layer Gate 1
-design and retiring v1. Normative behavior continues to live in
-`AGENTS.md`, `v2/VISION.md`, current ADR outcomes, and `docs/spec/`.
-No v2 implementation step governed by a changed decision may begin until
-the replacement authority, lineage, specifications, and blind-review
-evidence described below have landed on this branch.
+This is the durable execution plan for replacing the eight-layer Gate 1 design
+and retiring v1. Normative behavior lives in `AGENTS.md`, `v2/VISION.md`,
+current ADR outcomes, and `docs/spec/`.
 
 Preparation artifacts for that gate are:
 
@@ -20,7 +17,7 @@ Preparation artifacts for that gate are:
 - [`four-layer-authority-handoff.md`](./four-layer-authority-handoff.md), the
   current-decision and specification supersession inventory;
 - [`four-layer-interface-slate.md`](./four-layer-interface-slate.md), the
-  narrower public-interface proposal for maintainer discussion; and
+  accepted reduced public-interface orientation; and
 - [`seven-package-cutover-handoff.md`](./seven-package-cutover-handoff.md),
   the package, tooling, compatibility, and migration inventory; and
 - [`pr-974-forward-merge-rehearsal.md`](./pr-974-forward-merge-rehearsal.md),
@@ -90,9 +87,11 @@ remains simulation evidence and is not a product Ledger.
 - Any member may assemble and disseminate equivalent valid durability
   evidence from the mergeable signed votes. Finalization is not tied to the
   action author remaining available.
-- Successful start and reply operations return the locally durable,
-  certified proof: `ConversationId`, `TxnId`, `RecordHash`, and the
-  current durability evidence. `LedgerOffset` does not exist.
+- The caller pre-mints `ConversationId` as START's sole public retry identity.
+  Successful start and bound reply operations return `void` only after local
+  certification. `TxnId` and `LedgerOffset` do not exist; `ActionHash`,
+  `RecordHash`, certificates, and durability evidence stay behind the semantic
+  Client boundary.
 - Ordinary missing-history catch-up is automatic communication behavior.
   Cross-agent disclosure, audits, and reconciliation of private histories
   are explicit tasks governed by personal trust.
@@ -112,7 +111,7 @@ remains simulation evidence and is not a product Ledger.
   task and conversation interfaces. They do not gain privileged imports or
   hidden network paths.
 
-## Proposed public interface
+## Accepted public interface
 
 `@moltzap/client` is the only application-facing communication package.
 Its root exports the semantic `HarnessClient` service, its public value
@@ -120,48 +119,57 @@ types, and closed typed errors. Process composition lives at
 `@moltzap/client/server`. Raw MCP schemas, storage repositories, Router
 wire representations, Layers, and implementation helpers remain private.
 
-The sketch below records the approved plan's minimum semantic shape. The
-interface slate refines its proof structure, operation identity, context, and
-closed errors for maintainer selection; this execution plan does not make
-either TypeScript sketch normative.
-
-The semantic surface has three operations:
+The sketch records the accepted minimum semantic shape. The normative Client
+specification owns exact closed errors and acquisition representation; this
+execution plan does not make the TypeScript sketch normative.
 
 ```ts
+type ContentPart =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "data"; readonly value: JsonValue }
+
+type Content = readonly [ContentPart, ...ContentPart[]]
+
+interface StartInput {
+  readonly conversationId: ConversationId
+  readonly peers: readonly [AgentName, ...AgentName[]]
+  readonly content: Content
+}
+
 interface HarnessClient {
-  readonly agentId: AgentId
-  readonly startConversation: (
-    otherAgentNames: ReadonlyArray<AgentName>,
-    initialContent: Content,
-  ) => Effect.Effect<CommittedTurn, StartConversationError>
+  readonly start: (
+    input: StartInput,
+  ) => Effect.Effect<void, StartError>
   readonly turns: Stream.Stream<HarnessTurn, ListenError>
 }
 
 interface HarnessTurn {
   readonly conversationId: ConversationId
-  readonly txnId: TxnId
-  readonly recordHash: RecordHash
+  readonly peers: readonly [VerifiedAgentCard, ...VerifiedAgentCard[]]
+  readonly author: VerifiedAgentCard
   readonly content: Content
   readonly reply: (
     content: Content,
-  ) => Effect.Effect<CommittedTurn, ReplyError>
-}
-
-interface CommittedTurn {
-  readonly conversationId: ConversationId
-  readonly txnId: TxnId
-  readonly recordHash: RecordHash
-  readonly durabilityEvidence: DurabilityEvidence
+  ) => Effect.Effect<void, ReplyError>
 }
 ```
 
-The normative specification may refine field names and closed error
-variants before implementation and is intended to preserve these semantics:
+The root also provides `createConversationId()` and
+`acquireHarnessClient(endpoint)`. The normative specification owns their exact
+acquisition representation and preserves these semantics:
 
-- conversation start includes initial content;
+- conversation start takes a pre-minted `ConversationId`, nonempty peers, and
+  initial content;
+- byte-identical intent under the same identifier resumes, while changed
+  intent conflicts;
 - established-conversation output is a reply bound to a live turn;
+- one turn contains one certified action from the current conversation;
 - there is no generic send method;
-- callers receive certified local persistence evidence;
+- start and reply return `void` after local certification and expose no
+  receipt or proof;
+- search, history, status, registration, and proof inspection remain MCP-only;
+- `TxnId` is absent and private hashes, certificates, and recovery state do
+  not enter the semantic interface;
 - expected failures stay typed through Effect and Stream channels; and
 - adapters depend only on this public service shape.
 
@@ -333,8 +341,8 @@ that is scheduled for deletion.
 - MCP tests cover the unregistered and registered catalogs, registration
   persistence, restart, start, bound reply, listen, history reads, and
   typed failures; and
-- type canaries pin the final `HarnessClient`, proof, and adapter
-  contracts.
+- type canaries pin the final resultless `HarnessClient`, private-proof
+  boundary, and adapter contracts.
 
 ### Simulator and repository gate
 
