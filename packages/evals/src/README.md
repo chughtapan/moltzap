@@ -1,37 +1,19 @@
 # Evaluation application boundary
 
-This directory is a private application above `@moltzap/simulator`.
-`cli.ts` is its executable entry point. Customer society and scenario
-languages compose the simulator package directly instead of depending on an
-evaluation-library facade.
+This directory is a private application above the public `@moltzap/client` and
+`@moltzap/simulator` surfaces. `cli.ts` is its executable entry point.
 
-The source graph has four layers:
+The retained evaluation path has four parts:
 
-1. `model.ts`, `events.ts`, `principal.ts`, and `peer.ts` define branded
-   vocabulary, the complete evidence universe, runtime-native principal
-   adapters, and autonomous peer application containers whose Effect policy
-   remains evaluation-owned.
-2. `cases.ts` owns the ordered code-defined policies, exact peer rosters, and
-   criteria. `execution.ts` interprets one case against one concrete target
-   runtime and the production router.
-3. `transcript.ts` validates ledger evidence, `assessment.ts` runs
-   deterministic criteria and delegates unresolved questions to the
-   provider-neutral judge in `judge.ts`, `judge-openai.ts` supplies the
-   production judge layer, and `calibration.ts` holds the fixed corpus that
-   keeps a live judge honest. Callers import each capability from its owning
-   module.
-4. `sweep.ts` and `results.ts` own report state, Effect SQL persistence, and
-   resume. The `phoenix-*` modules adapt a completed report to the Phoenix
-   protocol behind the `phoenix.ts` publication boundary, with every SDK
-   Promise entering Effect through `phoenix-client.ts` alone. `cli.ts`
-   supplies the platform and concrete service layers once.
+1. `model.ts`, `events.ts`, and `principal.ts` define evaluation vocabulary,
+   native principal-gateway evidence, and the OpenClaw and NanoClaw adapters.
+2. `cases.ts` owns the ordered native-gateway case policy and criteria;
+   `execution.ts` runs it against one concrete target runtime.
+3. `transcript.ts`, `assessment.ts`, `judge.ts`, and `calibration.ts` validate
+   gateway evidence and grade the selected target output.
+4. `sweep.ts`, `results.ts`, and the `phoenix-*` modules own resumable reports
+   and publication. `cli.ts` supplies platform and service layers once.
 
-Enabled attempts use the core `Run.execute` Kubernetes path. Gateway evidence
-describes principal interaction with the target runtime. Social evidence
-describes traffic committed through the router. Each peer policy runs in its
-own application container, and its exact evaluation-owned observation bridge
-reports what the peer observed; the bridge never provides a shortcut for
-social traffic.
-
-Tests stay beside their owner. Add a failure type only for a state that the
-owning API cannot exclude by construction.
+The package does not provide raw protocol peers or infer network evidence.
+Future social cases should be built only when their required behavior has a
+public Client or Simulator owner.

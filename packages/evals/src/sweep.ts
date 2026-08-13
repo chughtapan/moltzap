@@ -4,26 +4,26 @@ import { CompletedLedgerReceipt, LedgerReceipt } from "@moltzap/simulator";
 import { image } from "@moltzap/simulator/agents";
 import {
   jsonValue,
-  LedgerStorageError,
   type JsonValue,
+  LedgerStorageError,
 } from "@moltzap/simulator/ledger";
 import { Data, DateTime, Effect, Encoding, Schema } from "effect";
 import {
-  conditionId,
-  criterionId,
-  evaluationCaseId,
-  evaluationSlice,
-  judgePolicyId,
-  type ConditionId,
-  type EvaluationCaseId,
-} from "./model.js";
-import {
   CodeAssessment,
+  type CriterionAssessment,
   GradeReport,
   validateAssessmentEvidence,
-  type CriterionAssessment,
 } from "./assessment.js";
 import { judgeError } from "./judge.js";
+import {
+  conditionId,
+  type ConditionId,
+  criterionId,
+  evaluationCaseId,
+  type EvaluationCaseId,
+  evaluationSlice,
+  judgePolicyId,
+} from "./model.js";
 import { EvaluationTranscript } from "./transcript.js";
 
 const REPORT_FORMAT_VERSION = 3;
@@ -118,7 +118,6 @@ export class LocalEvaluationInfrastructure extends Schema.TaggedClass<LocalEvalu
   {
     profile: Schema.Literal("local"),
     controllerImage: image,
-    peerApplicationImage: image,
     nanoclawApplicationImage: image,
     temporalAddress: Schema.NonEmptyString,
     artifactDirectory: Schema.NonEmptyString,
@@ -131,7 +130,6 @@ export class GkeEvaluationInfrastructure extends Schema.TaggedClass<GkeEvaluatio
   {
     profile: Schema.Literal("gke"),
     controllerImage: image,
-    peerApplicationImage: image,
     nanoclawApplicationImage: image,
     temporalAddress: Schema.NonEmptyString,
     kubeContext: Schema.NonEmptyString,

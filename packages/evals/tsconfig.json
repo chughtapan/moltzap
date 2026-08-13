@@ -18,9 +18,6 @@
       "path": "../client"
     },
     {
-      "path": "../protocol"
-    },
-    {
       "path": "../simulator"
     }
   ]

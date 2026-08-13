@@ -1,13 +1,7 @@
 /** @file Evaluation events and typed simulator evidence projections. */
 
-import {
-  AgentName as agentName,
-  ConversationId as conversationId,
-} from "@moltzap/client";
-import { messageId } from "@moltzap/protocol/conversation";
-import { type AgentId, agentId } from "@moltzap/protocol/identity";
-import { messagePartsSchema } from "@moltzap/protocol/message";
-import { EventCatalog, RouterMessageCommitted } from "@moltzap/simulator";
+import { AgentName as agentName } from "@moltzap/client";
+import { EventCatalog } from "@moltzap/simulator";
 import {
   NanoClawGatewayInput,
   NanoClawGatewayOutput,
@@ -22,22 +16,17 @@ import {
   type EvaluationEvidenceId,
 } from "./model.js";
 
-const messageParts = messagePartsSchema();
 const openClawGatewayResponse = Schema.Union(
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
 );
 
-/**
- * The evaluation adapter durably recorded its intent immediately before
- * submitting an instruction to OpenClaw's native principal gateway.
- */
+/** The adapter recorded an instruction before submitting it to OpenClaw. */
 export class OpenClawPrincipalInstructionAttempted extends Schema.TaggedClass<OpenClawPrincipalInstructionAttempted>()(
   "moltzap.openclaw-principal-instruction-attempted/v1",
   {
     caseId: evaluationCaseId,
-    agentName: agentName,
-    agentId: agentId,
+    agentName,
     request: OpenClawGatewayRequest,
   },
 ) {}
@@ -47,76 +36,29 @@ export class OpenClawPrincipalFinalOutput extends Schema.TaggedClass<OpenClawPri
   "moltzap.openclaw-principal-final-output/v1",
   {
     caseId: evaluationCaseId,
-    agentName: agentName,
-    agentId: agentId,
+    agentName,
     idempotencyKey: Schema.NonEmptyString,
     output: openClawGatewayResponse,
   },
 ) {}
 
-/** The evaluation adapter sent one input frame to NanoClaw's principal socket. */
+/** The adapter sent one input frame to NanoClaw's principal socket. */
 export class NanoClawPrincipalInputSent extends Schema.TaggedClass<NanoClawPrincipalInputSent>()(
   "moltzap.nanoclaw-principal-input-sent/v1",
   {
     caseId: evaluationCaseId,
-    agentName: agentName,
-    agentId: agentId,
+    agentName,
     input: NanoClawGatewayInput,
   },
 ) {}
 
-/** The evaluation adapter received one output frame from NanoClaw. */
+/** The adapter received one output frame from NanoClaw. */
 export class NanoClawPrincipalOutputReceived extends Schema.TaggedClass<NanoClawPrincipalOutputReceived>()(
   "moltzap.nanoclaw-principal-output-received/v1",
   {
     caseId: evaluationCaseId,
-    agentName: agentName,
-    agentId: agentId,
+    agentName,
     output: NanoClawGatewayOutput,
-  },
-) {}
-
-/**
- * A code peer testifies to content it sent through its production protocol
- * client. The router commit independently corroborates durable transmission.
- */
-export class CodePeerMessageSent extends Schema.TaggedClass<CodePeerMessageSent>()(
-  "moltzap.code-peer-message-sent/v1",
-  {
-    caseId: evaluationCaseId,
-    agentName: agentName,
-    agentId: agentId,
-    conversationId: conversationId,
-    messageId: messageId,
-    parts: messageParts,
-  },
-) {}
-
-/**
- * A code peer testifies to content delivered through its production protocol
- * client. The sender remains independently corroborated by the router.
- */
-export class CodePeerMessageReceived extends Schema.TaggedClass<CodePeerMessageReceived>()(
-  "moltzap.code-peer-message-received/v1",
-  {
-    caseId: evaluationCaseId,
-    agentName: agentName,
-    agentId: agentId,
-    conversationId: conversationId,
-    messageId: messageId,
-    senderId: agentId,
-    parts: messageParts,
-  },
-) {}
-
-/** A bounded peer policy produced no complete exchange before its deadline. */
-export class PeerExchangeNotObserved extends Schema.TaggedClass<PeerExchangeNotObserved>()(
-  "moltzap.peer-exchange-not-observed/v1",
-  {
-    caseId: evaluationCaseId,
-    agentName: agentName,
-    agentId: agentId,
-    timeoutMillis: Schema.Int.pipe(Schema.positive()),
   },
 ) {}
 
@@ -135,9 +77,6 @@ export const evaluationEvents = EventCatalog.make(
   OpenClawPrincipalFinalOutput,
   NanoClawPrincipalInputSent,
   NanoClawPrincipalOutputReceived,
-  CodePeerMessageSent,
-  CodePeerMessageReceived,
-  PeerExchangeNotObserved,
   EvaluationEvidenceSelected,
 );
 
@@ -149,12 +88,6 @@ const gatewayObservation = Schema.Union(
 );
 type GatewayObservation = typeof gatewayObservation.Type;
 
-const socialObservation = Schema.Union(
-  CodePeerMessageSent,
-  CodePeerMessageReceived,
-);
-type SocialObservation = typeof socialObservation.Type;
-
 /** One ordered principal-gateway observation and its ledger identity. */
 export class GatewayEvidence extends Schema.Class<GatewayEvidence>(
   "GatewayEvidence",
@@ -164,46 +97,19 @@ export class GatewayEvidence extends Schema.Class<GatewayEvidence>(
   observation: gatewayObservation,
 }) {}
 
-/**
- * Endpoint testimony paired with the content-blind router commit that proves
- * the same sender and message became durable.
- */
-export class SocialEvidence extends Schema.Class<SocialEvidence>(
-  "SocialEvidence",
-)({
-  eventId: evaluationEvidenceId,
-  logicalSequence: Schema.NonNegativeInt,
-  observation: socialObservation,
-  routerCommitEventId: evaluationEvidenceId,
-  routerCommit: RouterMessageCommitted,
-}) {}
-
-/** One bounded peer observation that completed without an exchange. */
-export class PeerTimeoutEvidence extends Schema.Class<PeerTimeoutEvidence>(
-  "PeerTimeoutEvidence",
-)({
-  eventId: evaluationEvidenceId,
-  logicalSequence: Schema.NonNegativeInt,
-  observation: PeerExchangeNotObserved,
-}) {}
-
-/** Ordered gateway, social, and bounded-absence evidence for one run ledger. */
+/** Ordered gateway evidence for one run ledger. */
 export class EvaluationEvidence extends Schema.Class<EvaluationEvidence>(
   "EvaluationEvidence",
 )({
   caseId: evaluationCaseId,
   gateway: Schema.Array(GatewayEvidence),
-  social: Schema.Array(SocialEvidence),
-  peerTimeouts: Schema.Array(PeerTimeoutEvidence),
   selectedEventIds: Schema.Array(evaluationEvidenceId),
 }) {}
 
-/** A ledger could not produce internally corroborated evaluation evidence. */
+/** A ledger could not produce internally consistent evaluation evidence. */
 export class EvaluationEvidenceProjectionError extends Schema.TaggedError<EvaluationEvidenceProjectionError>()(
   "EvaluationEvidenceProjectionError",
-  {
-    detail: Schema.NonEmptyString,
-  },
+  { detail: Schema.NonEmptyString },
 ) {}
 
 /** Ledger envelope fields consumed at the evaluation projection boundary. */
@@ -222,14 +128,6 @@ interface EvidenceRecord {
   readonly eventId: EvaluationEvidenceId;
   readonly logicalSequence: number;
   readonly event: unknown;
-}
-
-interface RouterCommitRecord extends EvidenceRecord {
-  readonly event: RouterMessageCommitted;
-}
-
-interface SocialObservationRecord extends EvidenceRecord {
-  readonly event: SocialObservation;
 }
 
 function projectionError(detail: string): EvaluationEvidenceProjectionError {
@@ -262,25 +160,11 @@ function isGatewayObservation(event: unknown): event is GatewayObservation {
   );
 }
 
-function isSocialObservation(event: unknown): event is SocialObservation {
-  return (
-    event instanceof CodePeerMessageSent ||
-    event instanceof CodePeerMessageReceived
-  );
-}
-
 function isCustomerEvent(
   event: unknown,
-): event is
-  | GatewayObservation
-  | SocialObservation
-  | PeerExchangeNotObserved
-  | EvaluationEvidenceSelected {
+): event is GatewayObservation | EvaluationEvidenceSelected {
   return (
-    isGatewayObservation(event) ||
-    isSocialObservation(event) ||
-    event instanceof PeerExchangeNotObserved ||
-    event instanceof EvaluationEvidenceSelected
+    isGatewayObservation(event) || event instanceof EvaluationEvidenceSelected
   );
 }
 
@@ -290,143 +174,32 @@ function evidenceCaseId(
   typeof evaluationCaseId.Type,
   EvaluationEvidenceProjectionError
 > {
-  const caseIds = new Set(
-    records
-      .filter(
-        (
-          record,
-        ): record is EvidenceRecord & {
-          readonly event:
-            | GatewayObservation
-            | SocialObservation
-            | PeerExchangeNotObserved
-            | EvaluationEvidenceSelected;
-        } => isCustomerEvent(record.event),
-      )
-      .map((record) => record.event.caseId),
-  );
+  const caseIds = new Set<typeof evaluationCaseId.Type>();
+  for (const record of records) {
+    if (isCustomerEvent(record.event)) {
+      caseIds.add(record.event.caseId);
+    }
+  }
   const [caseId] = caseIds;
   if (caseId === undefined) {
     return Effect.fail(
       projectionError("ledger contains no customer evaluation evidence"),
     );
   }
-  if (caseIds.size !== 1) {
-    return Effect.fail(
-      projectionError("ledger contains customer evidence for multiple cases"),
-    );
-  }
-  return Effect.succeed(caseId);
-}
-
-function messageKey(event: SocialObservation | RouterMessageCommitted): string {
-  return JSON.stringify([event.conversationId, event.messageId]);
-}
-
-function routerCommits(
-  records: readonly EvidenceRecord[],
-): Map<string, RouterCommitRecord[]> {
-  const commits = new Map<string, RouterCommitRecord[]>();
-  for (const record of records) {
-    if (!(record.event instanceof RouterMessageCommitted)) {
-      continue;
-    }
-    const committed: RouterCommitRecord = {
-      ...record,
-      event: record.event,
-    };
-    const key = messageKey(committed.event);
-    const matching = commits.get(key);
-    if (matching === undefined) {
-      commits.set(key, [committed]);
-    } else {
-      matching.push(committed);
-    }
-  }
-  return commits;
+  return caseIds.size === 1
+    ? Effect.succeed(caseId)
+    : Effect.fail(
+        projectionError("ledger contains customer evidence for multiple cases"),
+      );
 }
 
 function gatewayEvidence(
   records: readonly EvidenceRecord[],
 ): readonly GatewayEvidence[] {
-  const evidence: GatewayEvidence[] = [];
-  for (const record of records) {
-    if (!isGatewayObservation(record.event)) {
-      continue;
-    }
-    evidence.push(
-      GatewayEvidence.make({
-        eventId: record.eventId,
-        logicalSequence: record.logicalSequence,
-        observation: record.event,
-      }),
-    );
-  }
-  return evidence;
-}
-
-function socialObservationSender(observation: SocialObservation): AgentId {
-  return observation instanceof CodePeerMessageSent
-    ? observation.agentId
-    : observation.senderId;
-}
-
-function corroborateSocialObservation(
-  record: SocialObservationRecord,
-  commits: Map<string, RouterCommitRecord[]>,
-): Effect.Effect<SocialEvidence, EvaluationEvidenceProjectionError> {
-  const matching = commits.get(messageKey(record.event)) ?? [];
-  const [commit] = matching;
-  if (matching.length !== 1 || commit === undefined) {
-    return Effect.fail(
-      projectionError(
-        `social observation ${record.eventId} requires exactly one router commit`,
-      ),
-    );
-  }
-  if (commit.event.senderId !== socialObservationSender(record.event)) {
-    return Effect.fail(
-      projectionError(
-        `social observation ${record.eventId} disagrees with router sender ${commit.event.senderId}`,
-      ),
-    );
-  }
-  return Effect.succeed(
-    SocialEvidence.make({
-      eventId: record.eventId,
-      logicalSequence: record.logicalSequence,
-      observation: record.event,
-      routerCommitEventId: commit.eventId,
-      routerCommit: commit.event,
-    }),
-  );
-}
-
-function socialEvidence(
-  records: readonly EvidenceRecord[],
-): Effect.Effect<readonly SocialEvidence[], EvaluationEvidenceProjectionError> {
-  const commits = routerCommits(records);
-  const observations: SocialObservationRecord[] = [];
-  for (const record of records) {
-    if (!isSocialObservation(record.event)) {
-      continue;
-    }
-    observations.push({ ...record, event: record.event });
-  }
-  return Effect.forEach(
-    observations,
-    (record) => corroborateSocialObservation(record, commits),
-    { concurrency: 1 },
-  );
-}
-
-function peerTimeoutEvidence(
-  records: readonly EvidenceRecord[],
-): readonly PeerTimeoutEvidence[] {
   return records.flatMap((record) =>
-    record.event instanceof PeerExchangeNotObserved
+    isGatewayObservation(record.event)
       ? [
-          PeerTimeoutEvidence.make({
+          GatewayEvidence.make({
             eventId: record.eventId,
             logicalSequence: record.logicalSequence,
             observation: record.event,
@@ -436,55 +209,14 @@ function peerTimeoutEvidence(
   );
 }
 
-interface SelectionValidation {
-  readonly position: number;
-  readonly selectable: ReadonlySet<EvaluationEvidenceId>;
-  readonly positions: ReadonlyMap<EvaluationEvidenceId, number>;
-  readonly selected: ReadonlySet<EvaluationEvidenceId>;
-}
-
-function validateSelection(
-  record: EvidenceRecord & { readonly event: EvaluationEvidenceSelected },
-  validation: SelectionValidation,
-): Effect.Effect<EvaluationEvidenceId, EvaluationEvidenceProjectionError> {
-  const target = record.event.selectedEventId;
-  const targetPosition = validation.positions.get(target);
-  if (!validation.selectable.has(target) || targetPosition === undefined) {
-    return Effect.fail(
-      projectionError(
-        `selection ${record.eventId} references absent evidence ${target}`,
-      ),
-    );
-  }
-  if (targetPosition >= validation.position) {
-    return Effect.fail(
-      projectionError(
-        `selection ${record.eventId} references evidence ${target} before it was observed`,
-      ),
-    );
-  }
-  if (validation.selected.has(target)) {
-    return Effect.fail(
-      projectionError(`evidence ${target} was selected more than once`),
-    );
-  }
-  return Effect.succeed(target);
-}
-
 function selectedEvidenceIds(
   records: readonly EvidenceRecord[],
   gateway: readonly GatewayEvidence[],
-  social: readonly SocialEvidence[],
-  peerTimeouts: readonly PeerTimeoutEvidence[],
 ): Effect.Effect<
   readonly EvaluationEvidenceId[],
   EvaluationEvidenceProjectionError
 > {
-  const selectable = new Set<EvaluationEvidenceId>([
-    ...gateway.map((evidence) => evidence.eventId),
-    ...social.map((evidence) => evidence.eventId),
-    ...peerTimeouts.map((evidence) => evidence.eventId),
-  ]);
+  const selectable = new Set(gateway.map((evidence) => evidence.eventId));
   const positions = new Map(
     records.map((record, position) => [record.eventId, position]),
   );
@@ -495,10 +227,27 @@ function selectedEvidenceIds(
       if (!(record.event instanceof EvaluationEvidenceSelected)) {
         continue;
       }
-      const target = yield* validateSelection(
-        { ...record, event: record.event },
-        { position, selectable, positions, selected },
-      );
+      const target = record.event.selectedEventId;
+      const targetPosition = positions.get(target);
+      if (!selectable.has(target) || targetPosition === undefined) {
+        return yield* Effect.fail(
+          projectionError(
+            `selection ${record.eventId} references absent evidence ${target}`,
+          ),
+        );
+      }
+      if (targetPosition >= position) {
+        return yield* Effect.fail(
+          projectionError(
+            `selection ${record.eventId} references evidence ${target} before it was observed`,
+          ),
+        );
+      }
+      if (selected.has(target)) {
+        return yield* Effect.fail(
+          projectionError(`evidence ${target} was selected more than once`),
+        );
+      }
       selected.add(target);
       ordered.push(target);
     }
@@ -506,10 +255,7 @@ function selectedEvidenceIds(
   });
 }
 
-/**
- * Project exact gateway testimony and router-corroborated social testimony in
- * ledger order.
- */
+/** Project exact native-gateway testimony in ledger order. */
 export const projectEvaluationEvidence = Effect.fn(
   "evals.projectEvaluationEvidence",
 )(function* <Failure>(ledger: EvaluationEvidenceLedger<Failure>) {
@@ -519,20 +265,11 @@ export const projectEvaluationEvidence = Effect.fn(
   );
   const records = Chunk.toReadonlyArray(collected);
   const caseId = yield* evidenceCaseId(records);
-  const social = yield* socialEvidence(records);
   const gateway = gatewayEvidence(records);
-  const peerTimeouts = peerTimeoutEvidence(records);
-  const selectedEventIds = yield* selectedEvidenceIds(
-    records,
-    gateway,
-    social,
-    peerTimeouts,
-  );
+  const selected = yield* selectedEvidenceIds(records, gateway);
   return EvaluationEvidence.make({
     caseId,
     gateway,
-    social,
-    peerTimeouts,
-    selectedEventIds,
+    selectedEventIds: selected,
   });
 });

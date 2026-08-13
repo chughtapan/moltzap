@@ -1,27 +1,27 @@
 import { assert, effect, it } from "@effect/vitest";
-import { DateTime, Effect, Schema } from "effect";
 import { IncompleteLedgerReceipt } from "@moltzap/simulator";
 import { ledgerRef } from "@moltzap/simulator/ledger";
+import { DateTime, Effect, Schema } from "effect";
 import { evaluationCase } from "./cases.js";
 import {
+  type AttemptContext,
+  type EvaluationImageKey,
   infrastructureFailed,
   invalidImageDetail,
   missingImageDetail,
-  type AttemptContext,
-  type EvaluationImageKey,
 } from "./cli.js";
 import {
-  decodeEvaluationCaseId,
-  decodeCriterionId,
   decodeConditionId,
+  decodeCriterionId,
+  decodeEvaluationCaseId,
 } from "./model.js";
 import {
+  decodeEvaluationAttemptId,
   EvaluationCasePlan,
   EvaluationConditionPlan,
-  decodeEvaluationAttemptId,
 } from "./sweep.js";
 
-const CASE_ID = decodeEvaluationCaseId("EVAL-006");
+const CASE_ID = decodeEvaluationCaseId("EVAL-019");
 const DIAGNOSTIC =
   "controller Job failed\nBackoffLimitExceeded: Job has reached the backoff limit";
 
@@ -36,7 +36,7 @@ function attemptContext(): AttemptContext {
     definition,
     startedAt: DateTime.unsafeMake(0),
     cell: {
-      attemptId: decodeEvaluationAttemptId("eval-006-nanoclaw-1"),
+      attemptId: decodeEvaluationAttemptId("eval-019-nanoclaw-1"),
       casePlan: EvaluationCasePlan.make({
         id: CASE_ID,
         definitionId: definition.definitionId,
@@ -57,14 +57,10 @@ function attemptContext(): AttemptContext {
 }
 
 const RECEIPT = IncompleteLedgerReceipt.make({
-  ledger: Schema.decodeSync(ledgerRef)("eval-006-nanoclaw-1"),
+  ledger: Schema.decodeSync(ledgerRef)("eval-019-nanoclaw-1"),
 });
 
-effect.each([
-  "MOLTZAP_CONTROLLER_IMAGE",
-  "MOLTZAP_SUPPORT_IMAGE",
-  "MOLTZAP_NANOCLAW_IMAGE",
-] as const)(
+effect.each(["MOLTZAP_CONTROLLER_IMAGE", "MOLTZAP_NANOCLAW_IMAGE"] as const)(
   "names %s in both configuration failures",
   (key: EvaluationImageKey) =>
     Effect.sync(() => {

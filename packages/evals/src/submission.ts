@@ -1,12 +1,12 @@
 /** @file Repository-local Kubernetes submission for one generated evaluation cell. */
 
+import type { Image } from "@moltzap/simulator/agents";
 import { Command, FileSystem, Path } from "@effect/platform";
 import {
   CompletedLedgerReceipt,
   LedgerReceipt,
   type SimulatorDefinitionId,
 } from "@moltzap/simulator";
-import type { Image } from "@moltzap/simulator/agents";
 import { Effect, Either, Schema } from "effect";
 import type {
   EvaluationCaseId,
@@ -105,10 +105,8 @@ export interface SubmitEvaluationCellInput {
   readonly definitionId: SimulatorDefinitionId;
   readonly attemptId: string;
   readonly condition: SubmissionCondition;
-  readonly peerApplicationImage: Image;
   readonly nanoclawApplicationImage: Image;
   readonly runtimeStartupTimeoutMillis: number;
-  readonly peerObservationTimeoutMillis: number;
   readonly caseTimeoutMillis: number;
 }
 
@@ -122,7 +120,6 @@ function conditionExpression(input: SubmitEvaluationCellInput): string {
     `modelId: ${literal(input.condition.modelId)}`,
   ];
   const execution = [
-    `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
     `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
   ];
   // Total over the conditions that exist, so the generated module never has to
@@ -157,7 +154,6 @@ export function evaluationControllerModule(
     "  definition,",
     "  condition,",
     `  attemptId: ${literal(input.attemptId)},`,
-    `  peerApplicationImage: ${literal(input.peerApplicationImage)},`,
     "  cluster: controllerServicesFromEnvironment(),",
     "});",
     "",
