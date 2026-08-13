@@ -1,14 +1,10 @@
 {
-  "minExportedSiblingModules": 6,
-  "maxSubpathExports": 4,
-  "maxPublicExports": 29,
-  "minPublicFacadeModules": 9,
   "folderChildCountOverrides": [
     {
       "folder": ".",
-      "maxChildren": 22,
-      "maxChildrenIncludingTests": 26,
-      "reason": "The client SDK keeps its peer public surfaces and their focused implementation modules flat at the source root; AGENTS.md documents the package structure"
+      "maxChildren": 9,
+      "maxChildrenIncludingTests": 12,
+      "reason": "The final Client root contains its public contract and focused MCP runtime boundary; endpoint history implementation lives under harness"
     },
     {
       "folder": "harness/conversation-history",
@@ -20,18 +16,6 @@
     {
       "file": "harness/conversation-history/state-machine.ts",
       "reason": "Private atomic state and certification boundary shared by staging, evidence collection, and catch-up"
-    },
-    {
-      "file": "channel-core.ts",
-      "reason": "Named public boundary for channel-adapter dispatch, admission, and enrichment"
-    },
-    {
-      "file": "service.ts",
-      "reason": "Named public boundary for the managed MoltZap client service"
-    },
-    {
-      "file": "profile.ts",
-      "reason": "Read-only transitional profile input used by service configuration until daemon acquisition is admitted"
     }
   ],
   "publicTypePackages": [
@@ -58,6 +42,10 @@
     {
       "package": "@moltzap/client",
       "reason": "Intra-monorepo client SDK; channels depend on its public surface"
+    },
+    {
+      "package": "@moltzap/identity",
+      "reason": "Identity-owned AgentName and VerifiedAgentCard are deliberately part of the semantic Client contract"
     }
   ],
   "allowedTestPublicSubpaths": [

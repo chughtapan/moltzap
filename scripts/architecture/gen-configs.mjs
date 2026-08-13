@@ -82,20 +82,13 @@ const sharedConfig = {
 const packageDefinitions = {
   client: {
     beforeShared: {
-      minExportedSiblingModules: 6,
-      maxSubpathExports: 4,
-      maxPublicExports: 29,
-      // channel-base names the adapter primitives, and BoundedMap is one of
-      // them; the rule counts local re-exports, so owning that module in-package
-      // rather than importing it raises the count without widening the contract.
-      minPublicFacadeModules: 9,
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 22,
-          maxChildrenIncludingTests: 26,
+          maxChildren: 9,
+          maxChildrenIncludingTests: 12,
           reason:
-            "The client SDK keeps its peer public surfaces and their focused implementation modules flat at the source root; AGENTS.md documents the package structure",
+            "The final Client root contains its public contract and focused MCP runtime boundary; endpoint history implementation lives under harness",
         },
         {
           folder: "harness/conversation-history",
@@ -110,22 +103,9 @@ const packageDefinitions = {
           reason:
             "Private atomic state and certification boundary shared by staging, evidence collection, and catch-up",
         },
-        {
-          file: "channel-core.ts",
-          reason:
-            "Named public boundary for channel-adapter dispatch, admission, and enrichment",
-        },
-        {
-          file: "service.ts",
-          reason:
-            "Named public boundary for the managed MoltZap client service",
-        },
-        {
-          file: "profile.ts",
-          reason:
-            "Read-only transitional profile input used by service configuration until daemon acquisition is admitted",
-        },
       ],
+    },
+    afterShared: {
       publicTypePackages: [...publicTypePackages, publicTypePackage.identity],
     },
   },

@@ -1,4 +1,4 @@
-/** @file Verifies the public registration request and its typed failure path. */
+/** @file Verifies the transitional server registration request. */
 
 import {
   HttpRouter,
@@ -11,7 +11,7 @@ import { it as effectIt } from "@effect/vitest";
 import { agentKeyString } from "@moltzap/protocol/testing";
 import { Effect, Exit, Ref } from "effect";
 import { describe, expect } from "vitest";
-import { registerAgent } from "./auth.js";
+import { registerAgent } from "./registration.js";
 
 const it = effectIt.scoped;
 
@@ -59,7 +59,7 @@ const forbiddenResponse = (): StubResponse => ({
 });
 
 const localBaseUrl = (port: number): string =>
-  `${LOCAL_HTTP_SCHEME}://${LOCALHOST}:${port}`;
+  `${LOCAL_HTTP_SCHEME}://${LOCALHOST}:${String(port)}`;
 
 const requestBody = (request: HttpServerRequest.HttpServerRequest) =>
   request.json.pipe(Effect.catchAll(() => Effect.succeed(undefined)));

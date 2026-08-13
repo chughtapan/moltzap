@@ -1,4 +1,4 @@
-/** @file HTTP client for the public agent-registration endpoint. */
+/** @file HTTP registration used only by the transitional server process. */
 
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
@@ -10,16 +10,11 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { register } from "@moltzap/protocol/identity";
 import { Data, Effect, Either, Schema } from "effect";
 
-/**
- * HTTP response from the agent registration endpoints
- * (`/api/v1/auth/register`).
- */
-export type RegisterResponse = ResultOf<typeof register>;
+type RegisterResponse = ResultOf<typeof register>;
 
-/** Options for {@link registerAgent}. */
-export interface RegisterAgentOptions {
-  description?: string;
-  inviteCode?: string;
+interface RegisterAgentOptions {
+  readonly description?: string;
+  readonly inviteCode?: string;
 }
 
 const PUBLIC_PATH = "/api/v1/auth/register";
@@ -29,8 +24,7 @@ const decodeRegisterBody = Schema.decodeUnknown(register.paramsSchema);
 const encodeRegisterBody = Schema.encode(register.paramsSchema);
 const decodeRegisterResult = Schema.decodeUnknown(register.resultSchema);
 
-/** Reports register agent failures. */
-export class RegisterAgentError extends Data.TaggedError("RegisterAgentError")<{
+class RegisterAgentError extends Data.TaggedError("RegisterAgentError")<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}
@@ -41,23 +35,18 @@ const registerAgentError = (
 ): RegisterAgentError => new RegisterAgentError({ message, cause });
 
 /**
- * Register a new agent via HTTP. Thin wrapper around the agent-registration
- * endpoints — the WebSocket dance is `MoltZapAgentClient`'s job; this just
- * returns the credentials the caller feeds it as `agentKey` at construction.
- *
- * Uses the public `/api/v1/auth/register` endpoint. Server boot policy owns
- * the registered agent immediately and returns the credential once.
- * @param baseUrl HTTP origin that hosts the public registration endpoint.
- * @param name Display name requested for the new agent.
- * @param opts Optional description and deployment invite code.
+ * Registers one process-local Router identity through the legacy HTTP server.
+ * @param baseUrl HTTP origin hosting the registration endpoint.
+ * @param name Agent name requested by the Simulator controller.
+ * @param options Registration description and deployment invite code.
  * @returns The server-issued identity and credential.
  */
 export const registerAgent = (
   baseUrl: string,
   name: string,
-  opts: RegisterAgentOptions = {},
+  options: RegisterAgentOptions = {},
 ): Effect.Effect<RegisterResponse, RegisterAgentError> =>
-  registerAgentRequest(baseUrl, name, opts).pipe(
+  registerAgentRequest(baseUrl, name, options).pipe(
     Effect.provide(NodeHttpClient.layer),
     Effect.either,
     Effect.flatMap(
@@ -77,11 +66,11 @@ export const registerAgent = (
 function registerAgentRequest(
   baseUrl: string,
   name: string,
-  opts: RegisterAgentOptions,
+  options: RegisterAgentOptions,
 ): Effect.Effect<RegisterResponse, RegisterAgentError, HttpClient.HttpClient> {
   return Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
-    const body = yield* registerAgentBody(name, opts);
+    const body = yield* registerAgentBody(name, options);
     const request = registerHttpRequest(baseUrl, PUBLIC_PATH, body);
     const response = yield* client
       .execute(request)
@@ -98,14 +87,16 @@ function registerAgentRequest(
 
 function registerAgentBody(
   name: string,
-  opts: RegisterAgentOptions,
+  options: RegisterAgentOptions,
 ): Effect.Effect<unknown, RegisterAgentError> {
   return decodeRegisterBody({
     name,
-    ...(opts?.description !== undefined
-      ? { description: opts.description }
-      : {}),
-    ...(opts?.inviteCode !== undefined ? { inviteCode: opts.inviteCode } : {}),
+    ...(options.description === undefined
+      ? {}
+      : { description: options.description }),
+    ...(options.inviteCode === undefined
+      ? {}
+      : { inviteCode: options.inviteCode }),
   }).pipe(
     Effect.flatMap(encodeRegisterBody),
     Effect.mapError((cause) =>

@@ -2,7 +2,6 @@
  * @file Exercises loopback MCP server lifecycle, request validation, active
  * subscription shutdown, and scope-driven cleanup.
  */
-import type { AgentId } from "@moltzap/protocol/identity";
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -18,8 +17,17 @@ import {
   SERVER_INFO_META_KEY,
   SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
-import { agentId } from "@moltzap/protocol/testing";
-import { Cause, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
+import { AgentName, Ed25519PublicKey } from "@moltzap/identity";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Schema,
+  Scope,
+} from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These loopback contract tests require raw Host headers and connection-refusal assertions that the Effect client does not expose.
 import {
   type IncomingMessage,
@@ -29,8 +37,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-server.js";
 import { makeHarnessMcpSubscriptionHandler } from "./harness-mcp-subscription.js";
-import { makeHarnessMcpHttpHandlers } from "./harness-mcp-wire.js";
-import { HARNESS_EVENTS_EXTENSION } from "./harness/index.js";
+import { makeHarnessMcpHttpHandler } from "./harness-mcp-wire.js";
+import {
+  HARNESS_EVENTS_EXTENSION,
+  harnessReplyRequestMeta,
+} from "./harness-runtime.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- The official MCP SDK and Node loopback server expose Promise-native lifecycle APIs at this interoperability boundary. */
 
@@ -52,11 +63,15 @@ const SERVER_IMPLEMENTATION = {
   name: "harness-boundary-test",
   version: "1.0.0",
 } satisfies Implementation;
+const REGISTRY_SIGNER_PUBLIC_KEY = Schema.decodeUnknownSync(Ed25519PublicKey)({
+  crv: "Ed25519",
+  kty: "OKP",
+  x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+});
 
 const openServerScopes = new Set<Scope.CloseableScope>();
 const openHandlers = new Set<McpHttpHandler>();
 const openClients = new Set<Client>();
-const noOp = (): undefined => undefined;
 
 const makeHandler = (name: string, onCreate?: () => void): McpHttpHandler => {
   const handler = createMcpHandler(() => {
@@ -72,19 +87,13 @@ const releaseServerScope = async (scope: Scope.CloseableScope) => {
   await Effect.runPromise(Scope.close(scope, Exit.void));
 };
 
-const acquireServerWithHandlers = async (
-  registration: McpHttpHandler,
-  harness: McpHttpHandler,
-  port = 0,
-) => {
-  openHandlers.add(registration);
-  openHandlers.add(harness);
+const acquireServerWithHandler = async (handler: McpHttpHandler, port = 0) => {
+  openHandlers.add(handler);
   const scope = Effect.runSync(Scope.make());
   const server = await Effect.runPromise(
     acquireHarnessMcpHttpServer({
+      handler,
       port,
-      registrationHandler: registration,
-      harnessHandler: harness,
     }).pipe(Scope.extend(scope)),
   );
   openServerScopes.add(scope);
@@ -100,20 +109,12 @@ const acquireServerWithHandlers = async (
   };
 };
 
-const makeServerWithHandlers = async (
-  registration: McpHttpHandler,
-  harness: McpHttpHandler,
-) => (await acquireServerWithHandlers(registration, harness)).baseUrl;
+const makeServerWithHandler = async (handler: McpHttpHandler) =>
+  (await acquireServerWithHandler(handler)).baseUrl;
 
-const makeServer = async (
-  onRegistrationCreate?: () => void,
-  onHarnessCreate?: () => void,
-) => {
-  const registrationCreate = onRegistrationCreate ?? noOp;
-  const harnessCreate = onHarnessCreate ?? noOp;
-  const registration = makeHandler("registration-test", registrationCreate);
-  const harness = makeHandler("harness-test", harnessCreate);
-  return await makeServerWithHandlers(registration, harness);
+const makeServer = async (onCreate?: () => void) => {
+  const create = onCreate ?? (() => undefined);
+  return await makeServerWithHandler(makeHandler("harness-test", create));
 };
 
 const connectModernClient = async (url: URL) => {
@@ -170,41 +171,41 @@ afterEach(async () => {
 });
 
 const servesModernDiscovery = async () => {
-  let registrationCreates = 0;
-  let harnessCreates = 0;
-  const baseUrl = await makeServer(
-    () => {
-      registrationCreates += 1;
-    },
-    () => {
-      harnessCreates += 1;
-    },
-  );
-
-  const registrationClient = await connectModernClient(
-    new URL(REGISTER_MCP_PATH, baseUrl),
-  );
+  let handlerCreates = 0;
+  const baseUrl = await makeServer(() => {
+    handlerCreates += 1;
+  });
   const harnessClient = await connectModernClient(
     new URL(HARNESS_MCP_PATH, baseUrl),
   );
 
-  expect(registrationClient.getProtocolEra()).toBe(MODERN_PROTOCOL_ERA);
-  expect(registrationClient.getDiscoverResult()).toBeDefined();
   expect(harnessClient.getProtocolEra()).toBe(MODERN_PROTOCOL_ERA);
   expect(harnessClient.getDiscoverResult()).toBeDefined();
-  expect(registrationCreates).toBeGreaterThan(0);
-  expect(harnessCreates).toBeGreaterThan(0);
+  expect(handlerCreates).toBeGreaterThan(0);
+};
+
+const rejectsRetiredRegistrationRoute = async () => {
+  const baseUrl = await makeServer();
+
+  for (const method of [POST_METHOD, "GET"]) {
+    const response = await requestLoopback(
+      new URL(REGISTER_MCP_PATH, baseUrl),
+      method,
+    );
+    expect(response.status).toBe(NOT_FOUND_STATUS);
+  }
 };
 
 const rejectsUnsupportedMethods = async () => {
   const baseUrl = await makeServer();
 
-  for (const path of [REGISTER_MCP_PATH, HARNESS_MCP_PATH]) {
-    for (const method of ["GET", "DELETE", "PUT"]) {
-      const response = await requestLoopback(new URL(path, baseUrl), method);
-      expect(response.status).toBe(METHOD_NOT_ALLOWED_STATUS);
-      expect(response.allow).toBe(POST_METHOD);
-    }
+  for (const method of ["GET", "DELETE", "PUT"]) {
+    const response = await requestLoopback(
+      new URL(HARNESS_MCP_PATH, baseUrl),
+      method,
+    );
+    expect(response.status).toBe(METHOD_NOT_ALLOWED_STATUS);
+    expect(response.allow).toBe(POST_METHOD);
   }
 };
 
@@ -231,7 +232,7 @@ const appliesLocalhostGuards = async () => {
     { origin: "https://example.com" },
   );
   const localhostOrigin = await requestLoopback(
-    new URL(REGISTER_MCP_PATH, baseUrl),
+    new URL(HARNESS_MCP_PATH, baseUrl),
     "GET",
     { origin: "http://localhost:4312" },
   );
@@ -242,8 +243,7 @@ const appliesLocalhostGuards = async () => {
 };
 
 const closesListenerWhenScopeReleases = async () => {
-  const running = await acquireServerWithHandlers(
-    makeHandler("registration-scope-test"),
+  const running = await acquireServerWithHandler(
     makeHandler("harness-scope-test"),
   );
   const harnessUrl = new URL(HARNESS_MCP_PATH, running.baseUrl);
@@ -261,8 +261,7 @@ const closesListenerWhenScopeReleases = async () => {
 };
 
 const closesListenerWhenAcquisitionIsInterrupted = async () => {
-  const seed = await acquireServerWithHandlers(
-    makeHandler("registration-cancel-port-seed"),
+  const seed = await acquireServerWithHandler(
     makeHandler("harness-cancel-port-seed"),
   );
   const address = seed.server.address();
@@ -275,16 +274,14 @@ const closesListenerWhenAcquisitionIsInterrupted = async () => {
   const acquisition = Effect.runFork(
     Effect.scoped(
       acquireHarnessMcpHttpServer({
+        handler: makeHandler("harness-cancel-test"),
         port,
-        registrationHandler: makeHandler("registration-cancel-test"),
-        harnessHandler: makeHandler("harness-cancel-test"),
       }).pipe(Effect.zipRight(Effect.never)),
     ),
   );
   await Effect.runPromise(Fiber.interrupt(acquisition));
 
-  const rebound = await acquireServerWithHandlers(
-    makeHandler("registration-cancel-rebind"),
+  const rebound = await acquireServerWithHandler(
     makeHandler("harness-cancel-rebind"),
     port,
   );
@@ -292,8 +289,7 @@ const closesListenerWhenAcquisitionIsInterrupted = async () => {
 };
 
 const closesHandlersWhenListenerBindFails = async () => {
-  const occupied = await acquireServerWithHandlers(
-    makeHandler("registration-occupied-port"),
+  const occupied = await acquireServerWithHandler(
     makeHandler("harness-occupied-port"),
   );
   const address = occupied.server.address();
@@ -301,16 +297,13 @@ const closesHandlersWhenListenerBindFails = async () => {
     throw new Error("expected a TCP test server address");
   }
 
-  const registration = makeHandler("registration-bind-failure");
-  const harness = makeHandler("harness-bind-failure");
-  const registrationClose = vi.spyOn(registration, "close");
-  const harnessClose = vi.spyOn(harness, "close");
+  const handler = makeHandler("harness-bind-failure");
+  const handlerClose = vi.spyOn(handler, "close");
   const acquisition = await Effect.runPromiseExit(
     Effect.scoped(
       acquireHarnessMcpHttpServer({
+        handler,
         port: address.port,
-        registrationHandler: registration,
-        harnessHandler: harness,
       }),
     ),
   );
@@ -321,13 +314,11 @@ const closesHandlersWhenListenerBindFails = async () => {
       code: "EADDRINUSE",
     });
   }
-  expect(registrationClose).toHaveBeenCalledOnce();
-  expect(harnessClose).toHaveBeenCalledOnce();
+  expect(handlerClose).toHaveBeenCalledOnce();
 };
 
 const closesActiveSubscriptionWhenScopeReleases = async () => {
-  const running = await acquireServerWithHandlers(
-    makeHandler("registration-subscription-test"),
+  const running = await acquireServerWithHandler(
     makeHandler("harness-subscription-test"),
   );
   const client = await connectModernClient(
@@ -341,17 +332,13 @@ const closesActiveSubscriptionWhenScopeReleases = async () => {
   expect(running.server.listening).toBe(false);
 };
 
-const makeStatusHandler = (ownAgentId: AgentId, conversations: number) => () =>
-  Effect.succeed({ agentId: ownAgentId, connected: true, conversations });
-
-const makeSubscriptionHarnessHandlers = () => {
-  const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440041");
-  return makeHarnessMcpHttpHandlers({
+const makeSubscriptionHarnessHandler = () =>
+  makeHarnessMcpHttpHandler({
     implementation: SERVER_IMPLEMENTATION,
+    registrySignerPublicKey: REGISTRY_SIGNER_PUBLIC_KEY,
     reply: () => Effect.void,
-    status: makeStatusHandler(ownAgentId, 0),
+    start: () => Effect.void,
   });
-};
 
 const makeListenPayload = (listenId: string): string =>
   JSON.stringify({
@@ -434,12 +421,9 @@ const parseDataFrames = (responseBody: string): readonly unknown[] =>
     });
 
 const closesAfterSlowReaderObservesTerminalCompletion = async () => {
-  const handlers = makeSubscriptionHarnessHandlers();
-  const activeClose = vi.spyOn(handlers.active, "close");
-  const running = await acquireServerWithHandlers(
-    handlers.registration,
-    handlers.active,
-  );
+  const handler = makeSubscriptionHarnessHandler();
+  const handlerClose = vi.spyOn(handler, "close");
+  const running = await acquireServerWithHandler(handler);
   const listenId = "slow-reader";
   const subscription = await openPausedSubscription(
     running.baseUrl,
@@ -448,7 +432,7 @@ const closesAfterSlowReaderObservesTerminalCompletion = async () => {
 
   const released = releaseServerScope(running.scope);
   await vi.waitFor(() => {
-    expect(activeClose).toHaveBeenCalledOnce();
+    expect(handlerClose).toHaveBeenCalledOnce();
   });
   subscription.response.resume();
   await subscription.ended;
@@ -477,10 +461,7 @@ const closesDespiteBackpressuredReader = async () => {
       implementation: SERVER_IMPLEMENTATION,
     },
   );
-  const running = await acquireServerWithHandlers(
-    makeHandler("registration-backpressure-test"),
-    active,
-  );
+  const running = await acquireServerWithHandler(active);
   const subscription = await openPausedSubscription(
     running.baseUrl,
     makeListenPayload("backpressured-reader"),
@@ -507,65 +488,80 @@ const closesDespiteBackpressuredReader = async () => {
   expect(running.server.listening).toBe(false);
 };
 
-const exposesStatusAndReplyTools = async () => {
-  const ownAgentId = agentId("550e8400-e29b-41d4-a716-446655440040");
-  const handlers = makeHarnessMcpHttpHandlers({
-    implementation: SERVER_IMPLEMENTATION,
-    reply: () => Effect.void,
-    status: makeStatusHandler(ownAgentId, 3),
+const expectSemanticToolCatalog = async (client: Client) => {
+  expect(client.getDiscoverResult()?.capabilities.extensions).toEqual({
+    [HARNESS_EVENTS_EXTENSION]: {
+      registrySignerPublicKey: REGISTRY_SIGNER_PUBLIC_KEY,
+    },
   });
-  const baseUrl = await makeServerWithHandlers(
-    handlers.registration,
-    handlers.active,
+  const tools = (await client.listTools()).tools;
+  expect(tools.map((tool) => tool.name)).toEqual(
+    expect.arrayContaining(["start_conversation", "reply"]),
   );
-  const registrationClient = await connectModernClient(
-    new URL(REGISTER_MCP_PATH, baseUrl),
-  );
+  expect(
+    tools.find((tool) => tool.name === "start_conversation"),
+  ).toMatchObject({
+    inputSchema: {
+      type: "object",
+      properties: {
+        conversationId: { $ref: "#/$defs/ConversationId" },
+        peers: { type: "array", minItems: 1 },
+        content: { type: "array", minItems: 1 },
+      },
+      additionalProperties: false,
+    },
+  });
+};
+
+const exposesStartAndReplyTools = async () => {
+  const starts: unknown[] = [];
+  const replies: unknown[] = [];
+  const replyGrant = "opaque-test-grant";
+  const handler = makeHarnessMcpHttpHandler({
+    implementation: SERVER_IMPLEMENTATION,
+    registrySignerPublicKey: REGISTRY_SIGNER_PUBLIC_KEY,
+    reply: (grant, content) =>
+      Effect.sync(() => replies.push({ grant, content })).pipe(Effect.asVoid),
+    start: (input) => Effect.sync(() => starts.push(input)).pipe(Effect.asVoid),
+  });
+  const baseUrl = await makeServerWithHandler(handler);
   const harnessClient = await connectModernClient(
     new URL(HARNESS_MCP_PATH, baseUrl),
   );
+  await expectSemanticToolCatalog(harnessClient);
 
-  expect((await registrationClient.listTools()).tools).toEqual([]);
-  expect(harnessClient.getDiscoverResult()?.capabilities.extensions).toEqual({
-    [HARNESS_EVENTS_EXTENSION]: {},
-  });
-  const tools = (await harnessClient.listTools()).tools;
-  expect(tools.map((tool) => tool.name)).toEqual(["status", "reply"]);
-  expect(tools.find((tool) => tool.name === "status")).toMatchObject({
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        agentId: { type: "string" },
-        connected: { type: "boolean" },
-        conversations: { type: "integer", minimum: 0 },
-      },
-      required: ["connected", "conversations"],
-      additionalProperties: false,
+  const startResult = await harnessClient.callTool({
+    name: "start_conversation",
+    arguments: {
+      conversationId: "00000000-0000-4000-8000-000000000001",
+      peers: [Schema.decodeUnknownSync(AgentName)("semantic-peer")],
+      content: [{ type: "text", text: "hello" }],
     },
   });
-
-  const result = await harnessClient.callTool({
-    name: "status",
-    arguments: {},
+  const replyResult = await harnessClient.callTool({
+    name: "reply",
+    arguments: { content: [{ type: "text", text: "reply" }] },
+    _meta: harnessReplyRequestMeta(replyGrant),
   });
-  const expected = { agentId: ownAgentId, connected: true, conversations: 3 };
-  expect(result.structuredContent).toEqual(expected);
-  expect(result.content).toEqual([
-    { type: "text", text: JSON.stringify(expected) },
+  expect(startResult.structuredContent).toEqual({});
+  expect(replyResult.structuredContent).toEqual({});
+  expect(starts).toHaveLength(1);
+  expect(replies).toEqual([
+    {
+      grant: replyGrant,
+      content: [{ type: "text", text: "reply" }],
+    },
   ]);
 };
 
-// @agent-code-guard/regression-only: this finite matrix pins the two HTTP routes and the official SDK's interoperability and guard behavior.
+// @agent-code-guard/regression-only: this finite matrix pins the single HTTP route and the official SDK's interoperability and guard behavior.
 describe("scoped Harness MCP HTTP server", () => {
-  it("serves modern discovery on both MCP paths", servesModernDiscovery);
-  it("allows only POST on known MCP paths", rejectsUnsupportedMethods);
+  it("serves modern discovery on the MCP path", servesModernDiscovery);
+  it("does not expose the retired registration route", () =>
+    rejectsRetiredRegistrationRoute());
+  it("allows only POST on the MCP path", rejectsUnsupportedMethods);
   it(
-    "returns not found for paths outside the two MCP surfaces",
+    "returns not found for paths outside the MCP surface",
     rejectsUnknownPaths,
   );
   it(
@@ -585,8 +581,8 @@ describe("scoped Harness MCP HTTP server", () => {
   it("bounds shutdown when an MCP reader stops draining its response", () =>
     closesDespiteBackpressuredReader());
   it(
-    "serves status and reply through the active catalog",
-    exposesStatusAndReplyTools,
+    "serves start and reply through the active catalog",
+    exposesStartAndReplyTools,
   );
 });
 

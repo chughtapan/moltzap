@@ -57,7 +57,7 @@ export class ConflictingSignerEvidenceError<Evidence> extends Data.TaggedError(
 }> {}
 
 /** Closed meanings for one successful evidence merge. */
-export type EvidenceDisposition =
+type EvidenceDisposition =
   | "duplicate"
   | "collecting"
   | "completed"
@@ -115,18 +115,12 @@ export const makeEvidenceProgress = <Subject, Evidence>(
   );
 
 /**
- * Merges one verified item without retaining mutable caller collections.
- *
- * @param input Current progress, verified item, and trusted equalities.
- * @returns Updated progress or one closed binding/member failure.
- */
-/**
  * Tests whether collected distinct-member evidence meets its requirement.
  *
  * @param progress Fixed-member evidence collected for one subject.
  * @returns Whether the configured requirement is complete.
  */
-export const isEvidenceComplete = <Subject, Evidence>(
+const isEvidenceComplete = <Subject, Evidence>(
   progress: EvidenceProgress<Subject, Evidence>,
 ): boolean => progress.evidenceBySigner.length >= progress.requiredSigners;
 
@@ -136,7 +130,7 @@ export const isEvidenceComplete = <Subject, Evidence>(
  * @param progress Fixed-member evidence collected for one subject.
  * @returns Complete evidence, or null while collection continues.
  */
-export const completeEvidence = <Subject, Evidence>(
+const completeEvidence = <Subject, Evidence>(
   progress: EvidenceProgress<Subject, Evidence>,
 ): CompleteEvidence<Subject, Evidence> | null =>
   isEvidenceComplete(progress) ? snapshotProgress(progress) : null;

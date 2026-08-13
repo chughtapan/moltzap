@@ -43,6 +43,9 @@ export class ConversationIdGenerationError extends Data.TaggedError(
   "ConversationIdGenerationError",
 ) {}
 
+/** Acquiring the endpoint connection or its sole subscription failed. */
+export class ConnectError extends Data.TaggedError("ConnectError") {}
+
 type StartFailure =
   | "intent-conflict"
   | "not-registered"

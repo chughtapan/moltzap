@@ -23,10 +23,6 @@ function fromRoot(...segments: string[]): string {
 
 /** Source aliases, ordered with specific subpaths before package roots. */
 export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
-  alias(
-    "@moltzap/client/test-utils",
-    "packages/client/src/test-utils/index.ts",
-  ),
   alias("@moltzap/client", "packages/client/src/index.ts"),
   alias("#transport", "packages/protocol/src/transport/index.ts"),
   alias("#identity", "packages/protocol/src/identity/index.ts"),

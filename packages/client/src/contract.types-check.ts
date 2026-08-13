@@ -5,9 +5,11 @@
  * returning through structural widening.
  */
 
-import type { Effect, Stream } from "effect";
+import type { Effect, Scope, Stream } from "effect";
 import type {
+  acquireHarnessClient,
   AgentName,
+  ConnectError,
   Content,
   ConversationId,
   ConversationIdGenerationError,
@@ -50,10 +52,21 @@ type IdCreationIsEffect = Expect<
     Effect.Effect<ConversationId, ConversationIdGenerationError>
   >
 >;
+type AcquisitionIsScoped = Expect<
+  Equal<Parameters<typeof acquireHarnessClient>, [endpoint: URL]>
+>;
+type AcquisitionResultIsExact = Expect<
+  Equal<
+    ReturnType<typeof acquireHarnessClient>,
+    Effect.Effect<HarnessClient, ConnectError, Scope.Scope>
+  >
+>;
 /** Compile-time witnesses for the accepted public Client boundary. */
 export type HarnessClientCanaries = [
   StartIsExact,
   TurnIsExact,
   ClientIsExact,
   IdCreationIsEffect,
+  AcquisitionIsScoped,
+  AcquisitionResultIsExact,
 ];

@@ -28,7 +28,7 @@ import {
   HARNESS_EVENTS_EXTENSION,
   HARNESS_TURN_READY_FILTER,
   HARNESS_TURN_READY_NOTIFICATION,
-} from "./harness/index.js";
+} from "./harness-runtime.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- These contract tests exercise the official Promise-native MCP client, handler, and retained response stream. */
 

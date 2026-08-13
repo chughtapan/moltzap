@@ -18,7 +18,7 @@ import {
   HARNESS_EVENTS_EXTENSION,
   HARNESS_TURN_READY_FILTER,
   HARNESS_TURN_READY_NOTIFICATION,
-} from "./harness/index.js";
+} from "./harness-runtime.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP handler and retained POST response stream expose Promise-native lifecycle contracts. */
 

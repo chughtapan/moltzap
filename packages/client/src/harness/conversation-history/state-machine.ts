@@ -24,19 +24,19 @@ export type CertifiedHistoryHead<Key> =
   | Readonly<{ readonly _tag: "certified"; readonly recordHash: Key }>;
 
 /** One verified value eligible to become the next certified position. */
-export interface HistoryCandidate<Key, Value> {
+interface HistoryCandidate<Key, Value> {
   readonly key: Key;
   readonly value: Value;
 }
 
 /** A candidate and its verified evidence before local certification. */
-export interface PendingHistoryPosition<Key, Value, Evidence> {
+interface PendingHistoryPosition<Key, Value, Evidence> {
   readonly candidate: HistoryCandidate<Key, Value>;
   readonly evidence: EvidenceProgress<Key, Evidence>;
 }
 
 /** The endpoint's current certified value and complete evidence. */
-export interface CertifiedHistoryPosition<Key, Value, Evidence> {
+interface CertifiedHistoryPosition<Key, Value, Evidence> {
   readonly candidate: HistoryCandidate<Key, Value>;
   readonly evidence: CompleteEvidence<Key, Evidence>;
 }
@@ -64,7 +64,7 @@ export class ConflictingPendingHistoryCandidateError<
 }> {}
 
 /** Evidence names no current or pending candidate. */
-export class HistoryEvidenceWithoutCandidateError extends Data.TaggedError(
+class HistoryEvidenceWithoutCandidateError extends Data.TaggedError(
   "HistoryEvidenceWithoutCandidateError",
 )<{
   readonly receivedKey: unknown;
@@ -246,22 +246,6 @@ export const mergeHistoryEvidence = <Key, Value, Evidence>(
     }),
   );
 };
-
-/**
- * Projects a history state into the compact catch-up head.
- *
- * @param state Durable endpoint-local conversation-history state.
- * @returns Empty or the current certified record identity.
- */
-export const certifiedHistoryHead = <Key, Value, Evidence>(
-  state: ConversationHistoryState<Key, Value, Evidence>,
-): CertifiedHistoryHead<Key> =>
-  state.current === null
-    ? Object.freeze({ _tag: "empty" as const })
-    : Object.freeze({
-        _tag: "certified" as const,
-        recordHash: state.current.candidate.key,
-      });
 
 function mergePendingEvidence<Key, Value, Evidence>(
   input: HistoryEvidenceInput<Key, Value, Evidence>,

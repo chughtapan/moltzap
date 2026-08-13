@@ -18,7 +18,7 @@
     "packages/client": {
       "entry": [
         "src/**/*.test.ts",
-        "src/**/__tests__/**/*.ts",
+        "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]

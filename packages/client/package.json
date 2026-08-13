@@ -17,22 +17,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./test-utils": {
-      "types": "./dist/test-utils/index.d.ts",
-      "import": "./dist/test-utils/index.js"
-    },
-    "./channel-base": {
-      "types": "./dist/channel-base/index.d.ts",
-      "import": "./dist/channel-base/index.js"
-    },
-    "./auth": {
-      "types": "./dist/auth.d.ts",
-      "import": "./dist/auth.js"
-    },
-    "./pagination": {
-      "types": "./dist/pagination.d.ts",
-      "import": "./dist/pagination.js"
     }
   },
   "scripts": {
@@ -78,18 +62,13 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "^0.97.0",
-    "@effect/platform-node": "^0.108.0",
-    "@effect/rpc": "^0.76.0",
     "@modelcontextprotocol/client": "2.0.0-beta.5",
     "@modelcontextprotocol/node": "2.0.0-beta.5",
     "@modelcontextprotocol/server": "2.0.0-beta.5",
     "@moltzap/identity": "workspace:*",
-    "@moltzap/protocol": "workspace:*",
     "effect": "^3.22.0"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.30.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
     "fast-check": "^3.23.1",

@@ -9,7 +9,6 @@ import type {
 } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
-import { registerAgent } from "@moltzap/client/auth";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
 import {
@@ -50,6 +49,7 @@ import {
   type MessageDatabasePath,
   readCommittedRouterMessages,
 } from "./messages.js";
+import { registerAgent } from "./registration.js";
 import {
   routerProviderLayer,
   RouterOperations,
