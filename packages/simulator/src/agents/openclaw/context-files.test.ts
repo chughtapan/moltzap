@@ -55,7 +55,9 @@ describe("context filename drift canary", () => {
     const stems = new Set<string>(
       fs
         .readdirSync(distDirectory)
-        .filter((name) => name.endsWith(".js"))
+        // OpenClaw emits this loader only into bootstrap/workspace chunks. A
+        // focused scan keeps the installed-package canary cheap under load.
+        .filter((name) => /^(?:bootstrap|workspace)-.*\.js$/u.test(name))
         .map((name) => fs.readFileSync(path.join(distDirectory, name), "utf8"))
         .filter((source) => source.includes("loadWorkspaceBootstrapFiles"))
         .flatMap(filenameStems),
