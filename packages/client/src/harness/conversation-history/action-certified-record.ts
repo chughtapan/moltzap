@@ -5,8 +5,7 @@
 import type { AgentId } from "@moltzap/identity";
 import { Data, Either } from "effect";
 
-import type { CompleteActionCertificate } from "./action-certificate-progress.js";
-import { readonlyMapSnapshot } from "./immutable-collections.js";
+import type { CompleteEvidence, SignerEvidence } from "./evidence.js";
 
 /** Fixed membership verification material with its canonical member order. */
 interface FixedMembershipDescriptor<MembershipDescriptor> {
@@ -49,7 +48,7 @@ export interface ActionCertifiedRecord<
   readonly actionBodyHash: ActionBodyHash;
   readonly fixedMembership: FixedMembershipDescriptor<MembershipDescriptor>;
   readonly routerAnchorHash: RouterAnchorHash;
-  readonly actionCertificate: CompleteActionCertificate<
+  readonly actionCertificate: CompleteEvidence<
     ActionBodyHash,
     SignatureEvidence
   >;
@@ -66,7 +65,7 @@ interface ActionCertifiedRecordInput<
   readonly actionBodyHash: ActionBodyHash;
   readonly fixedMembership: FixedMembershipDescriptor<MembershipDescriptor>;
   readonly routerAnchorHash: RouterAnchorHash;
-  readonly actionCertificate: CompleteActionCertificate<
+  readonly actionCertificate: CompleteEvidence<
     ActionBodyHash,
     SignatureEvidence
   >;
@@ -140,13 +139,13 @@ function validateRecordBindings<
   if (
     !input.sameActionBodyHash(
       input.actionBodyHash,
-      input.actionCertificate.actionBodyHash,
+      input.actionCertificate.subject,
     )
   ) {
     return Either.left(
       new ActionCertifiedBodyMismatchError({
         expectedActionBodyHash: input.actionBodyHash,
-        certificateActionBodyHash: input.actionCertificate.actionBodyHash,
+        certificateActionBodyHash: input.actionCertificate.subject,
       }),
     );
   }
@@ -157,7 +156,7 @@ function validateRecordBindings<
   }
   const signerFailure = findSignerFailure(
     members,
-    input.actionCertificate.signatureEvidenceBySigner,
+    input.actionCertificate.evidenceBySigner,
   );
   return signerFailure === null
     ? Either.right(Object.freeze(members))
@@ -195,10 +194,12 @@ function snapshotRecord<
     }),
     routerAnchorHash: input.routerAnchorHash,
     actionCertificate: Object.freeze({
-      actionBodyHash: input.actionCertificate.actionBodyHash,
-      signatureEvidenceBySigner: canonicalEvidenceSnapshot(
+      subject: input.actionCertificate.subject,
+      memberAgentIds: Object.freeze([...members]),
+      requiredSigners: members.length,
+      evidenceBySigner: canonicalEvidenceSnapshot(
         members,
-        input.actionCertificate.signatureEvidenceBySigner,
+        input.actionCertificate.evidenceBySigner,
       ),
     }),
   });
@@ -217,15 +218,19 @@ function firstDuplicate(members: readonly AgentId[]): AgentId | null {
 
 function findSignerFailure<SignatureEvidence>(
   members: readonly AgentId[],
-  evidenceBySigner: ReadonlyMap<AgentId, SignatureEvidence>,
+  evidenceBySigner: ReadonlyArray<SignerEvidence<SignatureEvidence>>,
 ): ActionCertificateSignerSetMismatchError | null {
   const memberSet = new Set(members);
+  const signerAgentIds = evidenceBySigner.map((item) => item.signerAgentId);
   const missingSignerAgentIds = members.filter(
-    (memberAgentId) => !evidenceBySigner.has(memberAgentId),
+    (memberAgentId) => !signerAgentIds.includes(memberAgentId),
   );
-  const extraSignerAgentIds = [...evidenceBySigner.keys()].filter(
-    (signerAgentId) => !memberSet.has(signerAgentId),
-  );
+  const seen = new Set<AgentId>();
+  const extraSignerAgentIds = signerAgentIds.filter((signerAgentId) => {
+    const extra = !memberSet.has(signerAgentId) || seen.has(signerAgentId);
+    seen.add(signerAgentId);
+    return extra;
+  });
   if (missingSignerAgentIds.length === 0 && extraSignerAgentIds.length === 0) {
     return null;
   }
@@ -237,14 +242,13 @@ function findSignerFailure<SignatureEvidence>(
 
 function canonicalEvidenceSnapshot<SignatureEvidence>(
   members: readonly AgentId[],
-  evidenceBySigner: ReadonlyMap<AgentId, SignatureEvidence>,
-): ReadonlyMap<AgentId, SignatureEvidence> {
-  return readonlyMapSnapshot(
-    members.map((memberAgentId) => [
-      memberAgentId,
-      /* Safe because exact signer-set validation precedes snapshot assembly. */ evidenceBySigner.get(
-        memberAgentId,
-      ) as SignatureEvidence,
-    ]),
+  evidenceBySigner: ReadonlyArray<SignerEvidence<SignatureEvidence>>,
+): ReadonlyArray<SignerEvidence<SignatureEvidence>> {
+  return Object.freeze(
+    members.flatMap((memberAgentId) =>
+      evidenceBySigner
+        .filter((item) => item.signerAgentId === memberAgentId)
+        .map((item) => Object.freeze({ ...item })),
+    ),
   );
 }

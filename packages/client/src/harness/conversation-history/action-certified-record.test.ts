@@ -8,7 +8,7 @@ import { Either, Encoding, Schema } from "effect";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import type { CompleteActionCertificate } from "./action-certificate-progress.js";
+import type { CompleteEvidence } from "./evidence.js";
 import {
   type ActionCertifiedRecord,
   planActionCertifiedRecord,
@@ -46,22 +46,19 @@ const evidenceFor = (signerAgentId: AgentIdValue): OpaqueSignatureEvidence => ({
 const certificateFor = (
   signerAgentIds: readonly AgentIdValue[],
   actionBodyHash = ACTION_BODY_HASH,
-): CompleteActionCertificate<
-  OpaqueActionBodyHash,
-  OpaqueSignatureEvidence
-> => ({
-  actionBodyHash,
-  signatureEvidenceBySigner: new Map(
-    signerAgentIds.map((signerAgentId) => [
-      signerAgentId,
-      evidenceFor(signerAgentId),
-    ]),
-  ),
+): CompleteEvidence<OpaqueActionBodyHash, OpaqueSignatureEvidence> => ({
+  subject: actionBodyHash,
+  memberAgentIds: Object.freeze([...MEMBERS]),
+  requiredSigners: MEMBERS.length,
+  evidenceBySigner: signerAgentIds.map((signerAgentId) => ({
+    signerAgentId,
+    evidence: evidenceFor(signerAgentId),
+  })),
 });
 
 const transition = (
   memberAgentIds: readonly AgentIdValue[],
-  actionCertificate: CompleteActionCertificate<
+  actionCertificate: CompleteEvidence<
     OpaqueActionBodyHash,
     OpaqueSignatureEvidence
   >,
@@ -103,6 +100,9 @@ const failedTransition = (result: ReturnType<typeof transition>) =>
       throw new Error("Expected action-certified record planning to fail");
     },
   });
+
+const certificateSignerIds = (record: PlannedRecord): AgentIdValue[] =>
+  record.actionCertificate.evidenceBySigner.map((item) => item.signerAgentId);
 
 describe("planActionCertifiedRecord closed bindings", () => {
   it("rejects another body before duplicate or signer-set inspection", () => {
@@ -157,9 +157,7 @@ describe("planActionCertifiedRecord canonical snapshot", () => {
         );
 
         expect(record.fixedMembership.memberAgentIds).toEqual(MEMBERS);
-        expect([
-          ...record.actionCertificate.signatureEvidenceBySigner.keys(),
-        ]).toEqual(MEMBERS);
+        expect(certificateSignerIds(record)).toEqual(MEMBERS);
         expect(record.recordBody).toBe(RECORD_BODY);
         expect(record.routerAnchorHash).toBe(ROUTER_ANCHOR_HASH);
       }),
@@ -170,43 +168,42 @@ describe("planActionCertifiedRecord canonical snapshot", () => {
 describe("planActionCertifiedRecord mutation boundary", () => {
   it("detaches frozen collection envelopes from mutable inputs", () => {
     const memberAgentIds = [...MEMBERS];
-    const signatureEvidenceBySigner = new Map(
-      MEMBERS.map((memberAgentId) => [
-        memberAgentId,
-        evidenceFor(memberAgentId),
-      ]),
-    );
+    const evidenceBySigner = MEMBERS.map((signerAgentId) => ({
+      signerAgentId,
+      evidence: evidenceFor(signerAgentId),
+    }));
     const certificate = {
-      actionBodyHash: ACTION_BODY_HASH,
-      signatureEvidenceBySigner,
+      subject: ACTION_BODY_HASH,
+      memberAgentIds: [...MEMBERS],
+      requiredSigners: MEMBERS.length,
+      evidenceBySigner,
     };
     const record = successfulTransition(
       transition(memberAgentIds, certificate),
     );
 
     memberAgentIds.reverse();
-    signatureEvidenceBySigner.clear();
+    evidenceBySigner.length = 0;
 
     expect(record.fixedMembership.memberAgentIds).toEqual(MEMBERS);
     expect([
-      ...record.actionCertificate.signatureEvidenceBySigner.keys(),
+      ...record.actionCertificate.evidenceBySigner.map(
+        (item) => item.signerAgentId,
+      ),
     ]).toEqual(MEMBERS);
     expect(Object.isFrozen(record)).toBe(true);
     expect(Object.isFrozen(record.fixedMembership)).toBe(true);
     expect(Object.isFrozen(record.fixedMembership.memberAgentIds)).toBe(true);
     expect(Object.isFrozen(record.actionCertificate)).toBe(true);
-    expect(
-      Object.isFrozen(record.actionCertificate.signatureEvidenceBySigner),
-    ).toBe(true);
+    expect(Object.isFrozen(record.actionCertificate.evidenceBySigner)).toBe(
+      true,
+    );
     expect(
       Reflect.set(record.fixedMembership.memberAgentIds, "0", OUTSIDER),
     ).toBe(false);
     for (const mutator of ["set", "delete", "clear"]) {
       expect(
-        Reflect.get(
-          record.actionCertificate.signatureEvidenceBySigner,
-          mutator,
-        ),
+        Reflect.get(record.actionCertificate.evidenceBySigner, mutator),
       ).toBeUndefined();
     }
   });

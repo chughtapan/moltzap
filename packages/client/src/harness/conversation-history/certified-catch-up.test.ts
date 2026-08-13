@@ -7,7 +7,7 @@ import { Either } from "effect";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import type { CertifiedHistoryHead } from "./certified-head-advance.js";
+import type { CertifiedHistoryHead } from "./state-machine.js";
 import {
   type CertifiedCatchUpPlan,
   type CertifiedCatchUpSuffix,

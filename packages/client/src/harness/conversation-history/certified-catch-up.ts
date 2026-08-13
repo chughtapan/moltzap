@@ -5,7 +5,7 @@
 
 import { Data, Either } from "effect";
 
-import type { CertifiedHistoryHead } from "./certified-head-advance.js";
+import type { CertifiedHistoryHead } from "./state-machine.js";
 
 /** One already-fully-verified complete certified record received for catch-up. */
 export interface CompleteCertifiedRecordEnvelope<RecordHash, Record> {

@@ -30,6 +30,11 @@ const publicTypePackage = {
     package: "@moltzap/client",
     reason: "Intra-monorepo client SDK; channels depend on its public surface",
   },
+  identity: {
+    package: "@moltzap/identity",
+    reason:
+      "Identity-owned AgentName and VerifiedAgentCard are deliberately part of the semantic Client contract",
+  },
   openclaw: {
     package: "openclaw",
     reason:
@@ -43,7 +48,10 @@ const publicTypePackage = {
 };
 
 const publicTypePackages = Object.entries(publicTypePackage)
-  .filter(([name]) => name !== "openclaw" && name !== "simulator")
+  .filter(
+    ([name]) =>
+      name !== "identity" && name !== "openclaw" && name !== "simulator",
+  )
   .map(([, definition]) => definition);
 
 const allowedTestPublicSubpaths = [
@@ -91,16 +99,16 @@ const packageDefinitions = {
         },
         {
           folder: "harness/conversation-history",
-          maxChildren: 13,
+          maxChildren: 7,
           reason:
-            "Conversation history keeps each representation-neutral invariant in a focused peer module so its fail-closed law remains independently testable",
+            "Conversation history uses one evidence primitive and one atomic state machine alongside focused record, catch-up, reconciliation, and quorum laws",
         },
       ],
       facadeFiles: [
         {
-          file: "harness/conversation-history/certified-head-advance.ts",
+          file: "harness/conversation-history/state-machine.ts",
           reason:
-            "Private certified-history type and promotion boundary shared by staging, catch-up, and durability planners",
+            "Private atomic state and certification boundary shared by staging, evidence collection, and catch-up",
         },
         {
           file: "channel-core.ts",
@@ -118,6 +126,7 @@ const packageDefinitions = {
             "Read-only transitional profile input used by service configuration until daemon acquisition is admitted",
         },
       ],
+      publicTypePackages: [...publicTypePackages, publicTypePackage.identity],
     },
   },
   evals: {

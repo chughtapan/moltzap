@@ -73,7 +73,6 @@ import {
   newMessagesForConversation,
 } from "./service-helpers.js";
 
-const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
 const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
 const AGENT_LOOKUP_PAGE_SIZE = 100;
@@ -112,13 +111,6 @@ export interface ConversationMeta {
   participants: string[];
 }
 
-/** Bounds the cross-conversation summary projected into a runtime prompt. */
-export interface ContextOptions {
-  type: "cross-conversation";
-  maxConversations?: number;
-  maxMessagesPerConv?: number;
-}
-
 /** Structured summary of recent activity in one other conversation. */
 export interface CrossConversationEntry {
   conversationId: string;
@@ -137,37 +129,6 @@ export interface CrossConversationEntry {
  */
 export function sanitizeForSystemReminder(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-/**
- * Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
- * that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
- * share this formatter so sanitization and line shape stay in one place.
- * @param entries Structured updates to include in presentation order.
- * @param opts Formatting controls for the enclosing reminder.
- * @param opts.header Trusted explanatory text placed before the updates.
- * @returns One escaped reminder block, or `null` when no update is present.
- */
-function formatCrossConversationBlock(
-  entries: CrossConversationEntry[],
-  opts: { header: string },
-): string | null {
-  if (entries.length === 0) {
-    return null;
-  }
-  const lines = entries.map((e) => {
-    const safeSender = sanitizeForSystemReminder(e.senderName);
-    const safeText = sanitizeForSystemReminder(
-      e.text.slice(0, CROSS_CONTEXT_TEXT_LIMIT),
-    );
-    return `@${safeSender} (${e.minutesAgo}m ago): (${e.count} new) "${safeText}"`;
-  });
-  return [
-    "<system-reminder>",
-    opts.header,
-    ...lines,
-    "</system-reminder>",
-  ].join("\n");
 }
 
 type ServiceOptions = MoltzapServiceConfig;
@@ -245,7 +206,6 @@ function fanout<T>(
  */
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
-  private connectedValue = false;
   private shutdownCompletion: Deferred.Deferred<undefined> | null = null;
 
   /**
@@ -303,20 +263,12 @@ export class MoltZapService {
     this.ownAgentIdValue = opts.agentId;
   }
 
-  static fromConfig(config: MoltzapServiceConfig): MoltZapService {
-    return new MoltZapService(config);
-  }
-
   static make(
     profileName: string,
   ): Effect.Effect<MoltZapService, ServiceConfigError> {
     return loadServiceConfig(profileName).pipe(
-      Effect.map((config) => MoltZapService.fromConfig(config)),
+      Effect.map((config) => new MoltZapService(config)),
     );
-  }
-
-  get connected(): boolean {
-    return this.connectedValue;
   }
 
   get ownAgentId(): AgentId | undefined {
@@ -346,7 +298,6 @@ export class MoltZapService {
           // kept explicit so a future disconnect-handler chain can plumb
           // code/reason through.
           onDisconnect: () => {
-            this.connectedValue = false;
             fanout(this.handlers.disconnect, undefined);
           },
         });
@@ -381,7 +332,6 @@ export class MoltZapService {
         yield* Effect.forkIn(fanoutEffect, serviceScope);
 
         const helloOk = yield* client.connect();
-        this.connectedValue = true;
         return helloOk;
       }.bind(this),
     );
@@ -412,21 +362,6 @@ export class MoltZapService {
     return Option.getOrUndefined(
       HashMap.get(snapshot(this.conversationsRef), convId),
     );
-  }
-
-  getConversations(): ConversationMeta[] {
-    return [...HashMap.values(snapshot(this.conversationsRef))];
-  }
-
-  // --- Messages ---
-
-  getHistory(convId: string, limit?: number): Message[] {
-    const msgs = getOr(
-      snapshot(this.messagesRef),
-      convId,
-      (): readonly Message[] => [],
-    );
-    return limit ? msgs.slice(-limit) : [...msgs];
   }
 
   // --- Agent Names ---
@@ -559,29 +494,6 @@ export class MoltZapService {
   }
 
   // --- Cross-Conversation Context ---
-
-  /**
-   * Generate a system reminder with updates from other conversations.
-   * Each conversation has its own view of what's "new" — markers are tracked
-   * per viewing conversation and advanced after notification.
-   * @param currentConvId Conversation whose prompt receives the reminder.
-   * @param opts Optional caps for conversations and messages per summary.
-   * @returns An escaped reminder, or `null` when there are no unseen updates.
-   */
-  getContext(currentConvId: string, opts?: ContextOptions): string | null {
-    const contextOptions = opts ?? {};
-    const { entries, commit } = this.peekContextEntries(
-      currentConvId,
-      contextOptions,
-    );
-    if (entries.length === 0) {
-      return null;
-    }
-    commit();
-    return formatCrossConversationBlock(entries, {
-      header: `Recent updates (you are in conv:${currentConvId}):`,
-    });
-  }
 
   /**
    * Return recent activity in other conversations without advancing any state.
@@ -734,7 +646,6 @@ export class MoltZapService {
     }
     const shutdownCompletion = Effect.runSync(Deferred.make<undefined>());
     this.shutdownCompletion = shutdownCompletion;
-    this.connectedValue = false;
     const scopeToClose = this.serviceScope;
     const clientToClose = this.client;
     this.serviceScope = null;

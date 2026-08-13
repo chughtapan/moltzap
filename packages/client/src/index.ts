@@ -1,17 +1,17 @@
-/**
- * @file Public barrel for the MoltZap client package.
- */
+/** @file Public barrel for the final endpoint runtime capability. */
 export {
-  type ContextOptions,
-  type ConversationMeta,
-  MoltZapService,
-  type ServiceRpcError,
-} from "./service.js";
-/** Re-exports the adapter-facing daemon client capability. */
-export {
-  acquireHarnessClient,
-  HarnessClient,
-  type HarnessClientOptions,
-  type HarnessClientService,
+  type Content,
+  type ContentPart,
+  ConversationId,
+  ConversationIdGenerationError,
+  createConversationId,
+  type HarnessClient,
   type HarnessTurn,
-} from "./harness-client.js";
+  type JsonValue,
+  ListenError,
+  ReplyError,
+  StartError,
+  type StartInput,
+} from "./contract.js";
+/** Identity-owned values used by the Client contract. */
+export { AgentName, type VerifiedAgentCard } from "@moltzap/identity";
