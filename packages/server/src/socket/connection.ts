@@ -20,7 +20,7 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
  * union makes the active-agent check exhaustive — adding a state forces every
  * consumer switch to handle it.
  */
-export type AgentStatus = "active" | "suspended";
+type AgentStatus = "active" | "suspended";
 
 /**
  * The principal context stored on an authenticated socket connection. Every
@@ -92,8 +92,8 @@ class AgentConnection extends Data.TaggedClass("AgentConnection")<
   private readonly brandValue!: never;
 }
 
-/** Re-exports the public API from `current module`. */
-export type { UnauthenticatedConnection, AgentConnection };
+/** Agent-authenticated connection arm consumed by server handlers. */
+export type { AgentConnection };
 
 /** The two-arm connection state — the connections map's only entry shape. */
 export type Connection = UnauthenticatedConnection | AgentConnection;
@@ -104,7 +104,7 @@ export type Connection = UnauthenticatedConnection | AgentConnection;
  * `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
  * `authed` structurally — no `as AgentConnection` cast.
  */
-export type TransitionOutcome =
+type TransitionOutcome =
   | { readonly kind: "not-connected" }
   | {
       readonly kind: "already-connected";

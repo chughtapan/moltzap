@@ -20,7 +20,7 @@ class AgentConnection extends Data.TaggedClass("AgentConnection")<
 }
 ```
 
-Re-exports the public API from `current module`.
+Agent-authenticated connection arm consumed by server handlers.
 
 ### [`AgentContext`](./connection.ts#L29)
 
@@ -54,19 +54,6 @@ SQL enum constrains stored values to AgentStatus, but the DB driver
 types it as `string`, so any other value is an impossible-state defect.
 
 **Returns:** The agent context from result.
-
-### [`AgentStatus`](./connection.ts#L23)
-
-_TypeAlias_
-
-```ts
-export type AgentStatus = "active" | "suspended";
-```
-
-Closed agent lifecycle states. Mirrors
-`core-schema.sql → CREATE TYPE agent_status AS ENUM (...)`. The closed
-union makes the active-agent check exhaustive — adding a state forces every
-consumer switch to handle it.
 
 ### [`Connection`](./connection.ts#L99)
 
@@ -245,62 +232,6 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 
 Implements connection tag.
 
-### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L73)
-
-_TypeAlias_
-
-```ts
-export type PrincipalBoundaryCanaries = [
-  UnauthenticatedHasNoAuth,
-  ForgedAgentRejected,
-];
-```
-
-Compile-time assertions for the principal boundaries.
-
-### [`principalCanaryRefs`](./principal.types-check.ts#L81)
-
-_Variable_
-
-```ts
-export const principalCanaryRefs: readonly unknown[] = [
-  agentIdValue,
-  principalTag,
-  narrowOutcome,
-] as const
-```
-
-Provides the principal canary refs runtime value.
-
-### [`TransitionOutcome`](./connection.ts#L107)
-
-_TypeAlias_
-
-```ts
-export type TransitionOutcome =
-  | { readonly kind: "not-connected" }
-```
-
-Outcome of `ConnectionManager.authenticate`'s atomic transition. The success
-arm carries the minted connection so the Connect handler's
-`Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
-`authed` structurally — no `as AgentConnection` cast.
-
-### [`UnauthenticatedConnection`](./connection.ts#L83)
-
-_Interface_
-
-```ts
-class UnauthenticatedConnection extends Data.TaggedClass(
-  "UnauthenticatedConnection",
-)<ConnectionBase> {
-  private readonly brand!: never;
-}
-```
-
-Re-exports the public API from `current module`.
-
 ## Files
 
 - `connection.ts`
-- `principal.types-check.ts`
