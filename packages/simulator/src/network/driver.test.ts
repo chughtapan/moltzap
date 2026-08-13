@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, agent-code-guard/no-hardcoded-assertion-literals -- regression-only resource tests keep each acquisition and release timeline visible in one Effect program. */
 
 import { it as effectIt } from "@effect/vitest";
-import { agentName as agentNameSchema } from "@moltzap/protocol/identity";
+import { AgentName as agentNameSchema } from "@moltzap/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,

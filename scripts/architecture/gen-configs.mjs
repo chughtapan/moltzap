@@ -507,6 +507,7 @@ const packageDefinitions = {
             "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client",
         },
         publicTypePackage.openclaw,
+        publicTypePackage.identity,
         publicTypePackage.protocol,
       ],
       allowedTestPublicSubpaths: [],

@@ -1,6 +1,6 @@
 /** @file Scoped principal access to one OpenClaw gateway process. */
 
-import type { AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
 import {
   GatewayClient,
   startGatewayClientWhenEventLoopReady,

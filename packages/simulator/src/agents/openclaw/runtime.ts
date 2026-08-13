@@ -1,6 +1,6 @@
 /** @file Container-backed OpenClaw runtime. */
 
-import type { AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
 import { httpBaseUrl } from "@moltzap/protocol/network";
 import {
   Duration,

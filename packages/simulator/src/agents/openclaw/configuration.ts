@@ -1,6 +1,6 @@
 /** @file Native OpenClaw configuration rendered into an application container. */
 
-import type { AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type {
   AgentDefaultsConfig,

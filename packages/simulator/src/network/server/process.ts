@@ -9,8 +9,9 @@ import type {
 } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
+import type { AgentName } from "@moltzap/identity";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
-import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,

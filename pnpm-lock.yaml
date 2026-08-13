@@ -442,6 +442,9 @@ importers:
       '@kubernetes/client-node':
         specifier: 1.4.0
         version: 1.4.0
+      '@moltzap/identity':
+        specifier: workspace:*
+        version: link:../identity
       '@moltzap/protocol':
         specifier: workspace:^
         version: link:../protocol

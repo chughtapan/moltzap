@@ -1,6 +1,6 @@
 /** @file Container-native NanoClaw runtime descriptor. */
 
-import type { AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
 import { httpBaseUrl } from "@moltzap/protocol/network";
 import { Duration, Effect, Schema, type Scope } from "effect";
 import {

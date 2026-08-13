@@ -1,7 +1,8 @@
 /** @file Mixed-roster acquisition and runtime-termination observation. */
 // safer-arch-ignore no-cross-domain-sibling-import: Roster acquisition supervises agents against the cluster while writing router evidence to the ledger.
 
-import type { AgentId, AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
+import type { AgentId } from "@moltzap/protocol/identity";
 import { Cause, Deferred, Effect, Exit, Ref, type Scope } from "effect";
 import {
   AgentRuntimeReady,

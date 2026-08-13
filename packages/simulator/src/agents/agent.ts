@@ -1,7 +1,7 @@
 /** @file Scoped autonomous-agent runtime contract. */
 // safer-arch-ignore no-cross-domain-sibling-import: A runtime contract is defined by what it receives: the ledger's JSON configuration shape and the network's connection and inbound-link types.
 
-import type { AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
 import { type Effect, Either, Schema, type Scope } from "effect";
 import {
   jsonValue,

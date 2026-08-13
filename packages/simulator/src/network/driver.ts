@@ -1,6 +1,7 @@
 /** @file MoltZap implementation of the simulator router service. */
 
-import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import type { ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   RouterProvider,

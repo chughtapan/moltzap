@@ -1,6 +1,7 @@
 /** @file Definition-time bootstrap material shared by container runtimes. */
 
-import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import { Redacted, Schema } from "effect";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";

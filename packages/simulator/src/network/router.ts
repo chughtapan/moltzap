@@ -1,5 +1,6 @@
 /** @file Router acquisition, attachment, and evidence ports. */
 
+import type { AgentName } from "@moltzap/identity";
 import {
   type ConversationId,
   conversationId,
@@ -9,7 +10,6 @@ import {
   type AgentId,
   agentId,
   type AgentKey,
-  type AgentName,
 } from "@moltzap/protocol/identity";
 import {
   messagePartsSchema,

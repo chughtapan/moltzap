@@ -1,6 +1,6 @@
 /** @file Single-ingress endpoint observation and ordered delivery. */
 
-import { agentName } from "@moltzap/protocol/identity";
+import { AgentName as agentName } from "@moltzap/identity";
 import {
   Cache,
   Cause,

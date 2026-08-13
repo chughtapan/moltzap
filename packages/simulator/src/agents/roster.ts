@@ -2,7 +2,7 @@
 // safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs a network participant handle with the runtime that answers for it.
 
 import { Context, Schema } from "effect";
-import { agentName } from "@moltzap/protocol/identity";
+import { AgentName as agentName } from "@moltzap/identity";
 import type { AgentHandle } from "../network/participant.js";
 import type { AgentRuntime, AgentRuntimeLike, RunningAgent } from "./agent.js";
 
