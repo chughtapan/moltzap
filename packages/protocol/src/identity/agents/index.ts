@@ -2,6 +2,8 @@
  * @file Agent identity descriptors, schemas, and credentials.
  */
 export { type AgentId, agentId } from "./ids.js";
+/** Re-exports the legacy wire-compatible agent name schema. */
+export { type AgentName, agentName } from "./name.js";
 /** Re-exports the public API from `./credentials.js`. */
 export { type AgentKey, agentKey } from "./credentials.js";
 /** Re-exports the public API from `./registration.js`. */

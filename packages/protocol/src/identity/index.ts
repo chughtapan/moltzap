@@ -6,6 +6,8 @@
 import {
   type AgentId,
   agentId,
+  type AgentName,
+  agentName,
   type AgentKey,
   agentKey,
   register,
@@ -17,6 +19,8 @@ import {
 export {
   type AgentId,
   agentId,
+  type AgentName,
+  agentName,
   type AgentKey,
   agentKey,
   register,
