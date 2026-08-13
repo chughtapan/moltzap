@@ -7,7 +7,6 @@ transport between that client and one configured local daemon.
 - `contract.ts` owns the complete public semantic contract.
 - Root runtime modules own scoped MCP acquisition and private semantic wire
   translation.
-- `harness/conversation-history/` owns endpoint-local certified history.
 
 The package has no service object, channel abstraction, named profiles,
 pagination helpers, bespoke CLI, local RPC, Unix socket, or shared adapter test

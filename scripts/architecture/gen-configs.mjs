@@ -94,19 +94,6 @@ const packageDefinitions = {
           reason:
             "The final Client root contains its public contract and focused MCP runtime boundary; endpoint history implementation lives under harness",
         },
-        {
-          folder: "harness/conversation-history",
-          maxChildren: 7,
-          reason:
-            "Conversation history uses one evidence primitive and one atomic state machine alongside focused record, catch-up, reconciliation, and quorum laws",
-        },
-      ],
-      facadeFiles: [
-        {
-          file: "harness/conversation-history/state-machine.ts",
-          reason:
-            "Private atomic state and certification boundary shared by staging, evidence collection, and catch-up",
-        },
       ],
     },
     afterShared: {
