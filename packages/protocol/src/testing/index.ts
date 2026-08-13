@@ -5,16 +5,15 @@
  */
 import { FastCheck, Schema } from "effect";
 import {
+  conversationId as conversationIdSchema,
+  messageId as messageIdSchema,
+} from "#conversation";
+import {
   agentId as agentIdSchema,
-  agentName as agentNameSchema,
   type AgentKey,
   agentKey,
   userId as userIdSchema,
 } from "#identity";
-import {
-  conversationId as conversationIdSchema,
-  messageId as messageIdSchema,
-} from "#conversation";
 
 // safer-arch-ignore no-public-test-helper-leak: The explicitly exported ./testing subpath is the supported cross-package fixture API.
 
@@ -62,15 +61,6 @@ export const agentId = (
 ): Schema.Schema.Type<typeof agentIdSchema> =>
   Schema.decodeUnknownSync(agentIdSchema)(value);
 /**
- * Validates and decodes agent name values.
- * @param value Value to process.
- * @returns The agent name result.
- */
-export const agentName = (
-  value: string,
-): Schema.Schema.Type<typeof agentNameSchema> =>
-  Schema.decodeUnknownSync(agentNameSchema)(value);
-/**
  * Validates and decodes conversation id values.
  * @param value Value to process.
  * @returns The conversation id result.
@@ -108,8 +98,8 @@ export const redactedAgentKey = (value: string): AgentKey =>
   Schema.decodeUnknownSync(agentKey)(value);
 /**
  * Provides the agent key string runtime value.
- * @param seed Value supplied to the operation.
- * @returns The agent key string result.
+ * @param seed Deterministic FastCheck seed for a valid legacy key.
+ * @returns A reproducible full agent-key string.
  */
 export const agentKeyString = (seed: number): string => {
   const [value] = FastCheck.sample(agentKeyStringArbitrary, {

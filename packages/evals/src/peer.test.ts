@@ -1,4 +1,5 @@
 import { assert, beforeEach, it } from "@effect/vitest";
+import { AgentName } from "@moltzap/client";
 import { agentConversationCreate } from "@moltzap/protocol/conversation";
 import {
   agentsList,
@@ -10,12 +11,7 @@ import {
   type Message,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
-import {
-  agentId,
-  agentName,
-  conversationId,
-  messageId,
-} from "@moltzap/protocol/testing";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { Array as Arr, Deferred, Effect, Fiber, Schema, Stream } from "effect";
 import { CodePeerMessageReceived, CodePeerMessageSent } from "./events.js";
 import { decodeEvaluationCaseId } from "./model.js";
@@ -35,6 +31,8 @@ import {
 } from "./peer.js";
 
 // @agent-code-guard/regression-only: these deterministic protocol fakes pin peer ordering and bridge projection against previously observed regressions.
+
+const agentName = Schema.decodeSync(AgentName);
 
 interface ClientCall {
   readonly definition: string;

@@ -1,4 +1,5 @@
 import { assert, it as effectIt } from "@effect/vitest";
+import { AgentName } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { describe } from "vitest";
 import { makeAgentHandle, type AgentConnection } from "../../network.js";
@@ -21,14 +22,10 @@ import {
 } from "./gateway.js";
 import { openClawRuntime } from "./runtime.js";
 import { serverBaseUrl } from "@moltzap/protocol/network";
-import {
-  agentId,
-  agentName,
-  redactedAgentKey,
-} from "@moltzap/protocol/testing";
+import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 
 const test = effectIt.effect;
-const AGENT_NAME = agentName("alice");
+const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
 const AGENT_KEY_TEXT =
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";

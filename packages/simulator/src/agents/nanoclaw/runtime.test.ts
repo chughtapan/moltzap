@@ -1,12 +1,9 @@
 /** @file Verifies the rendered NanoClaw container and bridge contract. */
 
 import { assert, it as effectIt } from "@effect/vitest";
+import { AgentName } from "@moltzap/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
-import {
-  agentId,
-  agentName,
-  redactedAgentKey,
-} from "@moltzap/protocol/testing";
+import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Deferred, Effect, Schema, type Scope } from "effect";
 import { createServer, type Socket as NetSocket } from "node:net";
 import { describe } from "vitest";
@@ -29,7 +26,7 @@ import { nanoclawRuntime } from "./runtime.js";
 
 const test = effectIt.effect;
 const liveTest = effectIt.scopedLive;
-const AGENT_NAME = agentName("alice");
+const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
 const AGENT_KEY_TEXT =
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";

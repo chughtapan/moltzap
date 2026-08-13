@@ -1,11 +1,11 @@
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/no-nested-functions, sonarjs/assertions-in-tests, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Lifecycle regressions keep each ownership timeline and its assertions together. */
 
 import { it as effectIt } from "@effect/vitest";
+import { AgentName } from "@moltzap/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
   agentKeyString,
-  agentName,
   conversationId,
   messageId,
   redactedAgentKey,
@@ -18,6 +18,7 @@ import {
   Layer,
   Logger,
   Redacted,
+  Schema,
   Scope,
   Stream,
 } from "effect";
@@ -48,8 +49,8 @@ const DATABASE_PATH = messageDatabasePathForVolume(RUN_DIRECTORY);
 const CONFIGURATION_PATH = `${RUN_DIRECTORY}/moltzap.yaml`;
 const BINARY = "/installed/server-core/bin/moltzap-server";
 const PROCESS_HANDLE = "owned-server-process";
-const ALICE = agentName("alice");
-const PROBE = agentName("probe");
+const ALICE = Schema.decodeUnknownSync(AgentName)("alice");
+const PROBE = Schema.decodeUnknownSync(AgentName)("probe");
 const ALICE_ID = agentId("00000000-0000-4000-8000-000000000001");
 const PROBE_ID = agentId("00000000-0000-4000-8000-000000000002");
 const ALICE_KEY = redactedAgentKey(agentKeyString(41));

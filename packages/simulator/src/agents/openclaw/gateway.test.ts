@@ -3,8 +3,8 @@ import {
   ExitCode as processExitCode,
   type ExitCode,
 } from "@effect/platform/CommandExecutor";
-import { agentName } from "@moltzap/protocol/testing";
-import { Deferred, Duration, Effect, Fiber, Redacted } from "effect";
+import { AgentName } from "@moltzap/identity";
+import { Deferred, Duration, Effect, Fiber, Redacted, Schema } from "effect";
 import { describe } from "vitest";
 import {
   acquireOpenClawGateway,
@@ -37,7 +37,7 @@ const RUN_ID = "run-1";
 const RESPONSE_TEXT = "done";
 const INSTRUCTION = "Contact Bob over MoltZap.";
 const IDEMPOTENCY_KEY = "instruction-1";
-const AGENT_NAME = agentName("alice");
+const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
 const PROVIDER_TIMEOUT_PHASE = "provider";
 const GATEWAY_TEXT_MAX_LENGTH = 32 * 1_024;
 

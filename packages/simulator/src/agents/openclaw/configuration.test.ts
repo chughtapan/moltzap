@@ -1,8 +1,8 @@
 /** @file Pins native OpenClaw MCP transport configuration rendering. */
 
 import { assert, describe, it } from "@effect/vitest";
-import { agentName } from "@moltzap/protocol/testing";
-import { Redacted } from "effect";
+import { AgentName } from "@moltzap/identity";
+import { Redacted, Schema } from "effect";
 
 import { buildOpenClawConfig } from "./configuration.js";
 
@@ -13,7 +13,7 @@ function mcpSection(
 ) {
   const config = buildOpenClawConfig(
     {
-      agentName: agentName("alice"),
+      agentName: Schema.decodeUnknownSync(AgentName)("alice"),
       gatewayToken: Redacted.make("token"),
       mcpServers,
     },
