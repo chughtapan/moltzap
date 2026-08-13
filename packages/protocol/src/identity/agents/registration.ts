@@ -15,9 +15,9 @@ const inviteCodeValue: Schema.Schema<InviteCodeValue, string> =
   );
 
 /** Represents invite code values. */
-export type InviteCode = Redacted.Redacted<InviteCodeValue>;
+type InviteCode = Redacted.Redacted<InviteCodeValue>;
 /** Validates and decodes invite code values. */
-export const inviteCode: Schema.Schema<InviteCode, string> =
+const inviteCode: Schema.Schema<InviteCode, string> =
   Schema.Redacted(inviteCodeValue);
 
 /** Defines the `agent/identity/register` RPC contract. */

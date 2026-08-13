@@ -6,14 +6,9 @@
 import {
   type AgentId,
   agentId,
-  type AgentName,
-  agentName,
   type AgentKey,
   agentKey,
-  type InviteCode,
-  inviteCode,
   register,
-  agentCardSchema,
   agentsList,
   AgentNotFoundError,
 } from "./agents/index.js";
@@ -22,14 +17,9 @@ import {
 export {
   type AgentId,
   agentId,
-  type AgentName,
-  agentName,
   type AgentKey,
   agentKey,
-  type InviteCode,
-  inviteCode,
   register,
-  agentCardSchema,
   agentsList,
   AgentNotFoundError,
 };
