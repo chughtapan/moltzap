@@ -2,12 +2,15 @@ import { it as effectIt } from "@effect/vitest";
 import type { RpcSerialization } from "@effect/rpc";
 import { describe, expect } from "vitest";
 import { Effect, Schema } from "effect";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import {
+  type ConversationId,
+  conversationId as conversationIdSchema,
+} from "@moltzap/protocol/conversation";
 import {
   connectionIdSchema,
   type ReverseClient,
 } from "@moltzap/protocol/socket";
-import { agentId, conversationId, userId } from "@moltzap/protocol/testing";
+import { agentId, userId } from "@moltzap/protocol/testing";
 import {
   agentContextFrom,
   type AgentContext,
@@ -22,8 +25,11 @@ const OTHER_CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
 );
 const AGENT_ID = agentId("00000000-0000-4000-8000-00000000a718");
 const OWNER_ID = userId("00000000-0000-4000-8000-00000000b718");
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000d718");
-const CURRENT_CONVERSATION_ID = conversationId(
+const decodeConversationId = Schema.decodeSync(conversationIdSchema);
+const CONVERSATION_ID = decodeConversationId(
+  "00000000-0000-4000-8000-00000000d718",
+);
+const CURRENT_CONVERSATION_ID = decodeConversationId(
   "00000000-0000-4000-8000-00000000d719",
 );
 

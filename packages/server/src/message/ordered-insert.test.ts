@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-invalid-void-type, @typescript-eslint/parameter-properties, @typescript-eslint/require-await, agent-code-guard/async-keyword, agent-code-guard/max-non-trivial-classes-per-file, agent-code-guard/no-promise-all-in-effect, agent-code-guard/prefer-effect-platform, agent-code-guard/promise-type, agent-code-guard/then-chain -- Kysely's Driver contract is Promise-native; this controlled test driver mirrors that boundary to make transaction scheduling observable. */
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   PostgresAdapter,
   PostgresIntrospector,
@@ -10,13 +10,19 @@ import {
   type Driver,
   type QueryResult,
 } from "kysely";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import { agentId, messageId } from "@moltzap/protocol/testing";
+import {
+  type ConversationId,
+  conversationId as conversationIdSchema,
+} from "@moltzap/protocol/conversation";
 import { type Database, type MessageRow, makeEffectKysely } from "#db";
 import { insertMessageInCheckpointOrder } from "./message.service.js";
 
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000c001");
-const OTHER_CONVERSATION_ID = conversationId(
+const decodeConversationId = Schema.decodeSync(conversationIdSchema);
+const CONVERSATION_ID = decodeConversationId(
+  "00000000-0000-4000-8000-00000000c001",
+);
+const OTHER_CONVERSATION_ID = decodeConversationId(
   "00000000-0000-4000-8000-00000000c002",
 );
 const SENDER_ID = agentId("00000000-0000-4000-8000-00000000a001");
@@ -108,7 +114,9 @@ class OrderingDriver implements Driver {
     query: CompiledQuery,
   ): Promise<QueryResult<R>> {
     if (query.sql.startsWith("select")) {
-      const lockedConversationId = conversationId(String(query.parameters[0]));
+      const lockedConversationId = decodeConversationId(
+        String(query.parameters[0]),
+      );
       connection.conversationId = lockedConversationId;
       if (query.sql.includes("for update")) {
         await this.acquireLock(connection, lockedConversationId);

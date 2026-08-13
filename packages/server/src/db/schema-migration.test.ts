@@ -1,18 +1,14 @@
 import { it as effectIt } from "@effect/vitest";
 import { FileSystem } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Schema } from "effect";
+import { conversationId as conversationIdSchema } from "@moltzap/protocol/conversation";
 import { sql } from "kysely";
 import { KyselyPGlite } from "kysely-pglite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  userId,
-} from "@moltzap/protocol/testing";
+import { agentId, messageId, userId } from "@moltzap/protocol/testing";
 import type { Database } from "./database.js";
 import {
   makeEffectKysely,
@@ -61,7 +57,9 @@ function makePgliteHarness(): Effect.Effect<PgliteHarness, unknown> {
 
 const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
 const OWNER_USER_ID = userId("00000000-0000-4000-8000-00000000a9e0");
-const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
+const CONV_ID = Schema.decodeSync(conversationIdSchema)(
+  "00000000-0000-4000-8000-0000000c01f5",
+);
 const API_KEY_SECRET_HASH_LENGTH = 64;
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-0000000e5a91");
 const NEXT_MESSAGE_ID = messageId("00000000-0000-4000-8000-0000000e5a92");

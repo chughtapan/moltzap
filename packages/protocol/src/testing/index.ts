@@ -4,10 +4,7 @@
  * `@moltzap/protocol/testing` — test fixture constructors.
  */
 import { FastCheck, Schema } from "effect";
-import {
-  conversationId as conversationIdSchema,
-  messageId as messageIdSchema,
-} from "#conversation";
+import { messageId as messageIdSchema } from "#conversation";
 import {
   agentId as agentIdSchema,
   type AgentKey,
@@ -60,15 +57,6 @@ export const agentId = (
   value: string,
 ): Schema.Schema.Type<typeof agentIdSchema> =>
   Schema.decodeUnknownSync(agentIdSchema)(value);
-/**
- * Validates and decodes conversation id values.
- * @param value Value to process.
- * @returns The conversation id result.
- */
-export const conversationId = (
-  value: string,
-): Schema.Schema.Type<typeof conversationIdSchema> =>
-  Schema.decodeUnknownSync(conversationIdSchema)(value);
 /**
  * Validates and decodes message id values.
  * @param value Value to process.

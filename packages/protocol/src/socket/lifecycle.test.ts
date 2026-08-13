@@ -15,9 +15,11 @@ import {
   Exit,
   Fiber,
   Option,
+  Schema,
   Scope,
   Stream,
 } from "effect";
+import { conversationId as conversationIdSchema } from "#conversation";
 import { agentConnect, PROTOCOL_VERSION } from "#network";
 import { messageReceivedNotificationDefinition } from "#message";
 import type { agentCallableGroup } from "#socket/catalog";
@@ -30,7 +32,7 @@ import {
   type TypedDispatchMap,
   NotConnectedError,
 } from "#transport";
-import { agentId, conversationId, messageId, redactedAgentKey } from "#testing";
+import { agentId, messageId, redactedAgentKey } from "#testing";
 
 type TestRpc = Extract<
   RpcGroup.Rpcs<typeof agentCallableGroup>,
@@ -238,7 +240,9 @@ function receivedNotification(): NotificationParamsOf<
   return {
     message: {
       id: messageId("00000000-0000-0000-0000-000000000002"),
-      conversationId: conversationId("00000000-0000-0000-0000-000000000003"),
+      conversationId: Schema.decodeSync(conversationIdSchema)(
+        "00000000-0000-0000-0000-000000000003",
+      ),
       senderId: agentId("00000000-0000-0000-0000-000000000004"),
       parts: [{ type: "text", text: "ready before pull" }],
       createdAt: "2026-07-27T00:00:00.000Z",

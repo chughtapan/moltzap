@@ -10,7 +10,7 @@ Public barrel for protocol testing utilities.
 
 ## Public surface
 
-### [`agentId`](./index.ts#L59)
+### [`agentId`](./index.ts#L56)
 
 _Function_
 
@@ -24,7 +24,7 @@ Validates and decodes agent id values.
 
 **Returns:** The agent id result.
 
-### [`agentKeyString`](./index.ts#L104)
+### [`agentKeyString`](./index.ts#L92)
 
 _Function_
 
@@ -36,21 +36,7 @@ Provides the agent key string runtime value.
 
 **Returns:** A reproducible full agent-key string.
 
-### [`conversationId`](./index.ts#L68)
-
-_Function_
-
-```ts
-export const conversationId = (
-  value: string,
-): Schema.Schema.Type<typeof conversationIdSchema>
-```
-
-Validates and decodes conversation id values.
-
-**Returns:** The conversation id result.
-
-### [`messageId`](./index.ts#L77)
+### [`messageId`](./index.ts#L65)
 
 _Function_
 
@@ -64,7 +50,7 @@ Validates and decodes message id values.
 
 **Returns:** The message id result.
 
-### [`redactedAgentKey`](./index.ts#L97)
+### [`redactedAgentKey`](./index.ts#L85)
 
 _Function_
 
@@ -76,7 +62,7 @@ Validates and decodes redacted agent key values.
 
 **Returns:** The redacted agent key result.
 
-### [`userId`](./index.ts#L50)
+### [`userId`](./index.ts#L47)
 
 _Function_
 
