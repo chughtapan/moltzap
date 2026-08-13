@@ -55,7 +55,7 @@ interface Messages {
   /**
    * Serialized `MessageParts`. The write side is `string` so every insert
    * goes through an explicit `JSON.stringify`; the read side stays `unknown`
-   * so every read goes through the strict `decodeMessageParts` boundary.
+   * so stored serialization is never mistaken for decoded protocol content.
    */
   parts: ColumnType<unknown, string, string>;
   sender_id: Branded<AgentId>;

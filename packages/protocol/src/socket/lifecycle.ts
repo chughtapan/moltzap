@@ -35,7 +35,6 @@ import {
   type AnyNotificationDefinition,
 } from "#socket/catalog";
 import { messageReceivedNotificationDefinition } from "#message";
-import { conversationCreatedNotificationDefinition } from "#conversation";
 import {
   DEFAULT_GRACEFUL_CLOSE,
   extractCloseInfo,
@@ -222,8 +221,7 @@ type NotificationHandlersFor<D extends AnyNotificationDefinition> = {
   >;
 };
 type ConversationNotificationDefinition =
-  | typeof messageReceivedNotificationDefinition
-  | typeof conversationCreatedNotificationDefinition;
+  typeof messageReceivedNotificationDefinition;
 
 type ConversationNotificationHandlers =
   NotificationHandlersFor<ConversationNotificationDefinition>;
@@ -354,10 +352,6 @@ const buildConversationNotificationHandlers = (
   [messageReceivedNotificationDefinition.name]: notificationHandler(
     registry,
     messageReceivedNotificationDefinition,
-  ),
-  [conversationCreatedNotificationDefinition.name]: notificationHandler(
-    registry,
-    conversationCreatedNotificationDefinition,
   ),
 });
 

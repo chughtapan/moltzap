@@ -1,23 +1,16 @@
 import {
-  READ_PLANE_PAGE_SIZE,
   type Db,
   DbTag,
   type MessageRow,
   catchSqlErrorAsDefect,
-  decodeConversationCheckpoint,
-  decodeConversationReadCursor,
-  encodeConversationCheckpoint,
-  encodeConversationReadCursor,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
 } from "#db";
 import {
-  type ConversationCheckpoint,
   type Message,
   type MessageParts,
   type Part,
-  decodeMessageParts,
   messageReceivedNotificationDefinition,
 } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
@@ -27,13 +20,6 @@ import {
   type MessageId,
 } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import {
-  DEFAULT_PAGE_LIMIT,
-  type ForbiddenError,
-  InvalidParamsError,
-  type ListCursor,
-  MAX_PAGE_LIMIT,
-} from "@moltzap/protocol/rpc";
 import { type Cause, Context, Effect, Layer, Option, Schema } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
 import {
@@ -62,12 +48,6 @@ function textPartsMetadata(parts: readonly Part[]): {
 }
 
 const decodeMessageId = Schema.decodeUnknownSync(MessageIdSchema);
-
-// PostgreSQL adapters may materialize BIGINT as either a decimal string or a
-// safe integer. Opaque read positions use one canonical decimal representation.
-function storedSequenceString(value: unknown): string {
-  return typeof value === "string" ? value : String(value);
-}
 
 interface SendInsertResult {
   readonly message: Message;
@@ -140,24 +120,6 @@ interface SendCommitInput {
   readonly carrier: SendInsertResult;
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
-}
-
-interface ReadMessagesInput {
-  readonly conversationId: ConversationId;
-  readonly requesterAgentId: AgentId;
-  readonly checkpoint?: ConversationCheckpoint;
-  readonly cursor?: ListCursor;
-}
-
-interface ReadMessagesResult {
-  readonly messages: Message[];
-  readonly checkpoint: ConversationCheckpoint;
-  readonly nextCursor?: ListCursor;
-}
-
-interface ReadWindow {
-  readonly afterSeq: string;
-  readonly throughSeq: string;
 }
 
 /** Existence projection of the conversation a send targets. */
@@ -254,8 +216,7 @@ export class MessageService {
    *
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
-   * were reached, `recordTrace` observes the misses, and reconnecting clients
-   * recover recent durable history within the requested `messages/list` limit.
+   * were reached, and `recordTrace` observes the misses.
    * @param carrier Value supplied to the operation.
    * @param conversationId Value supplied to the operation.
    * @param senderAgentId Value supplied to the operation.
@@ -366,182 +327,6 @@ export class MessageService {
           input.conversationId,
           input.senderAgentId,
         );
-      }.bind(this),
-    );
-  }
-
-  list(
-    conversationId: ConversationId,
-    requesterAgentId: AgentId,
-    options: {
-      limit?: number;
-    } = {},
-  ): Effect.Effect<{ messages: Message[] }, ForbiddenError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: MessageService) {
-          yield* this.conversations.assertConversationParticipant(
-            conversationId,
-            requesterAgentId,
-          );
-          const limit = Math.min(
-            options.limit ?? DEFAULT_PAGE_LIMIT,
-            MAX_PAGE_LIMIT,
-          );
-          const rows = yield* this.visibleMessageRows({
-            conversationId,
-            limit,
-          });
-          const messages = yield* this.messageRowsToMessages(rows);
-          messages.reverse();
-          return { messages };
-        }.bind(this),
-      ),
-    );
-  }
-
-  read(
-    input: ReadMessagesInput,
-  ): Effect.Effect<ReadMessagesResult, ForbiddenError | InvalidParamsError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(
-        function* (this: MessageService) {
-          // Participation is checked before parsing either opaque token. An
-          // inaccessible conversation therefore reveals nothing about token
-          // validity or the conversation's stored position.
-          yield* this.conversations.assertConversationParticipant(
-            input.conversationId,
-            input.requesterAgentId,
-          );
-          const window = yield* this.resolveReadWindow(input);
-          const rows = yield* this.readMessageRows({
-            conversationId: input.conversationId,
-            ...window,
-          });
-          const hasMore = rows.length > READ_PLANE_PAGE_SIZE;
-          const pageRows = hasMore ? rows.slice(0, READ_PLANE_PAGE_SIZE) : rows;
-          const messages = yield* this.messageRowsToMessages(pageRows);
-          const checkpoint = encodeConversationCheckpoint({
-            conversationId: input.conversationId,
-            throughSeq: window.throughSeq,
-          });
-          const last = pageRows.at(-1);
-          const nextCursor =
-            hasMore && last !== undefined
-              ? encodeConversationReadCursor({
-                  conversationId: input.conversationId,
-                  throughSeq: window.throughSeq,
-                  afterSeq: storedSequenceString(last.seq),
-                })
-              : undefined;
-          return {
-            messages,
-            checkpoint,
-            ...(nextCursor === undefined ? {} : { nextCursor }),
-          };
-        }.bind(this),
-      ),
-    );
-  }
-
-  private resolveReadWindow(
-    input: ReadMessagesInput,
-  ): Effect.Effect<ReadWindow, InvalidParamsError | SqlError> {
-    return Effect.gen(
-      function* (this: MessageService) {
-        if (input.checkpoint !== undefined && input.cursor !== undefined) {
-          return yield* new InvalidParamsError({
-            message: "checkpoint and cursor cannot be used together",
-          });
-        }
-        if (input.cursor !== undefined) {
-          return yield* decodeConversationReadCursor(
-            input.cursor,
-            input.conversationId,
-          );
-        }
-        const priorThroughSeq =
-          input.checkpoint === undefined
-            ? "0"
-            : (yield* decodeConversationCheckpoint(
-                input.checkpoint,
-                input.conversationId,
-              )).throughSeq;
-        const currentMaxSeq = yield* this.currentMaxVisibleSeq(
-          input.conversationId,
-        );
-        return {
-          afterSeq: priorThroughSeq,
-          throughSeq:
-            BigInt(priorThroughSeq) >= BigInt(currentMaxSeq)
-              ? priorThroughSeq
-              : currentMaxSeq,
-        };
-      }.bind(this),
-    );
-  }
-
-  private currentMaxVisibleSeq(
-    conversationId: ConversationId,
-  ): Effect.Effect<string, SqlError> {
-    return this.db
-      .selectFrom("messages")
-      .select((eb) => eb.fn.max<string>("seq").as("maxSeq"))
-      .where("conversation_id", "=", conversationId)
-      .where("is_deleted", "=", false)
-      .pipe(Effect.map((rows) => storedSequenceString(rows[0]?.maxSeq ?? 0)));
-  }
-
-  private readMessageRows(args: {
-    readonly conversationId: ConversationId;
-    readonly afterSeq: string;
-    readonly throughSeq: string;
-  }): Effect.Effect<readonly MessageRow[], SqlError> {
-    return this.db
-      .selectFrom("messages")
-      .selectAll()
-      .where("conversation_id", "=", args.conversationId)
-      .where("is_deleted", "=", false)
-      .where("seq", ">", args.afterSeq)
-      .where("seq", "<=", args.throughSeq)
-      .orderBy("seq", "asc")
-      .limit(READ_PLANE_PAGE_SIZE + 1);
-  }
-
-  private visibleMessageRows(args: {
-    readonly conversationId: ConversationId;
-    readonly limit: number;
-  }): Effect.Effect<readonly MessageRow[], SqlError> {
-    const { conversationId, limit } = args;
-    return Effect.gen(
-      function* (this: MessageService) {
-        // Participation is the whole read gate (asserted in `list` before
-        // this query runs): every participant sees every non-deleted message
-        // in the conversation — the router broadcasts to all participants.
-        return yield* this.db
-          .selectFrom("messages")
-          .selectAll()
-          .where("conversation_id", "=", conversationId)
-          .where("is_deleted", "=", false)
-          .orderBy("seq", "desc")
-          .limit(limit);
-      }.bind(this),
-    );
-  }
-
-  private messageRowsToMessages(
-    rows: readonly MessageRow[],
-  ): Effect.Effect<Message[]> {
-    return Effect.gen(
-      function* (this: MessageService) {
-        const messages: Message[] = [];
-        for (const row of rows) {
-          // The `parts` column is stored plaintext; the strict decode is the
-          // read boundary that keeps a hand-edited row out of the wire result.
-          const parts = yield* decodeMessageParts(row.parts);
-          messages.push(this.mapMessage(row, parts));
-        }
-        return messages;
       }.bind(this),
     );
   }

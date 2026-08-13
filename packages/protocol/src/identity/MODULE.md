@@ -8,12 +8,12 @@ Public barrel for identity and agent protocol descriptors.
 
 ## Public surface
 
-### [`identityRpcMethods`](./index.ts#L52)
+### [`identityRpcMethods`](./index.ts#L50)
 
 _Variable_
 
 ```ts
-export const identityRpcMethods = [agentsList, agentsSearch] as const
+export const identityRpcMethods = [agentsList] as const
 ```
 
 Identity RPC catalog accepted by agent clients.

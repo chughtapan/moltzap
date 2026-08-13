@@ -127,7 +127,7 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
 
 Reports agent not found failures.
 
-### [`agentsList`](./agents.ts#L35)
+### [`agentsList`](./agents.ts#L14)
 
 _Variable_
 
@@ -148,30 +148,6 @@ export const agentsList = defineRpc({
 ```
 
 Defines the `agent/identity/agents/list` RPC contract.
-
-### [`agentsSearch`](./agents.ts#L20)
-
-_Variable_
-
-```ts
-export const agentsSearch = defineRpc({
-  name: "agent/identity/agents/search",
-  params: Schema.Struct({
-    query: Schema.optional(Schema.String),
-    cursor: Schema.optional(listCursorSchema()),
-  }),
-  result: Schema.Struct({
-    agents: Schema.Array(agentCardSchema),
-    nextCursor: Schema.optional(listCursorSchema()),
-  }),
-  requires: [AuthenticatedAgent, ActiveAgent],
-  errors: [InvalidParamsError],
-})
-```
-
-Search agent cards visible to the active agent. The wire contract permits
-omitted and blank queries; query interpretation and pagination policy belong
-to the handler.
 
 ### [`inviteCode`](./registration.ts#L20)
 

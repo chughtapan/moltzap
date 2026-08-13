@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./handlers.ts#L131)
+### [`agentConversationCreate`](./handlers.ts#L38)
 
 _Variable_
 
@@ -24,39 +24,7 @@ Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationList`](./handlers.ts#L109)
-
-_Variable_
-
-```ts
-export const conversationList: ServerHandler<
-  typeof conversationListDefinition
-> = Effect.fn("conversationList")(function* (params) {
-  return yield* conversationListBody(params, yield* agentArm);
-})
-```
-
-Provides the conversation list runtime value.
-
-**Returns:** The conversation list result.
-
-### [`conversationSearch`](./handlers.ts#L120)
-
-_Variable_
-
-```ts
-export const conversationSearch: ServerHandler<
-  typeof conversationSearchDefinition
-> = Effect.fn("conversationSearch")(function* (params) {
-  return yield* conversationSearchBody(params, yield* agentArm);
-})
-```
-
-Search the active agent's conversations by exact identifier or member.
-
-**Returns:** One stable identifier-ordered page.
-
-### [`ConversationService`](./conversation.service.ts#L345)
+### [`ConversationService`](./conversation.service.ts#L54)
 
 _Class_
 
@@ -185,7 +153,7 @@ export class ConversationService {
 
 Implements conversation service.
 
-### [`conversationServiceLive`](./conversation.service.ts#L564)
+### [`conversationServiceLive`](./conversation.service.ts#L257)
 
 _Variable_
 
@@ -202,7 +170,7 @@ export const conversationServiceLive = Layer.effect(
 
 Constructs the conversation service from its storage and connection ports.
 
-### [`ConversationServiceTag`](./conversation.service.ts#L559)
+### [`ConversationServiceTag`](./conversation.service.ts#L252)
 
 _Class_
 

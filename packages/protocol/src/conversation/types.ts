@@ -37,14 +37,6 @@ export const messageId: Schema.Schema<MessageId, string> = formatString(
   Schema.annotations({ description: "Branded MessageId" }),
 );
 
-/** The referenced conversation does not exist (or is not visible to the caller). */
-export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(
-  "ConversationNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Conversation not found";
-}
-
 /** The caller is not a participant in the conversation it is acting on. */
 export class NotAParticipantError extends Schema.TaggedError<NotAParticipantError>()(
   "NotAParticipant",

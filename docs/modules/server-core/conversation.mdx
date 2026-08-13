@@ -13,7 +13,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L131)
+### [`agentConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L38)
 
 _Variable_
 
@@ -29,39 +29,7 @@ Provides the agent conversation create runtime value.
 
 **Returns:** The agent conversation create result.
 
-### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L109)
-
-_Variable_
-
-```ts
-export const conversationList: ServerHandler<
-  typeof conversationListDefinition
-> = Effect.fn("conversationList")(function* (params) {
-  return yield* conversationListBody(params, yield* agentArm);
-})
-```
-
-Provides the conversation list runtime value.
-
-**Returns:** The conversation list result.
-
-### [`conversationSearch`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L120)
-
-_Variable_
-
-```ts
-export const conversationSearch: ServerHandler<
-  typeof conversationSearchDefinition
-> = Effect.fn("conversationSearch")(function* (params) {
-  return yield* conversationSearchBody(params, yield* agentArm);
-})
-```
-
-Search the active agent's conversations by exact identifier or member.
-
-**Returns:** One stable identifier-ordered page.
-
-### [`ConversationService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L345)
+### [`ConversationService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L54)
 
 _Class_
 
@@ -190,7 +158,7 @@ export class ConversationService {
 
 Implements conversation service.
 
-### [`conversationServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L564)
+### [`conversationServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L257)
 
 _Variable_
 
@@ -207,7 +175,7 @@ export const conversationServiceLive = Layer.effect(
 
 Constructs the conversation service from its storage and connection ports.
 
-### [`ConversationServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L559)
+### [`ConversationServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L252)
 
 _Class_
 

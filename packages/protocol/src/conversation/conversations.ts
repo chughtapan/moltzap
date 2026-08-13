@@ -6,19 +6,8 @@ import { Schema } from "effect";
 import { agentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AuthenticatedAgent } from "#identity/principals";
-import {
-  defineNotification,
-  defineRpc,
-  InvalidParamsError,
-  listCursorSchema,
-  listLimitSchema,
-} from "#transport";
-import {
-  ConversationFullError,
-  conversationId,
-  conversationSchema,
-  ConversationNotFoundError,
-} from "./types.js";
+import { defineRpc } from "#transport";
+import { ConversationFullError, conversationSchema } from "./types.js";
 
 const conversationSchemaValue = conversationSchema();
 
@@ -48,7 +37,6 @@ const MAX_CREATE_PARTICIPANTS = 256;
  *   membership fits capacity.
  * @error AgentNotFoundError when a listed participant agent does not exist
  * @error ConversationFullError when the membership exceeds capacity
- * @relatedNotification agent/conversation/created
  */
 export const agentConversationCreate = defineRpc({
   name: "agent/conversation/create",
@@ -64,92 +52,7 @@ export const agentConversationCreate = defineRpc({
   errors: [AgentNotFoundError, ConversationFullError],
 });
 
-// ═══════════════════════════════════════════════════════════════════
-// agent/conversation/list
-// ═══════════════════════════════════════════════════════════════════
-
-const conversationListItemSchema = Schema.Struct({
-  conversation: conversationSchemaValue,
-  participants: Schema.Array(agentId),
-});
-
-/** Conversation list item returned by `agent/conversation/list`. */
-export type ConversationListItem = Schema.Schema.Type<
-  typeof conversationListItemSchema
->;
-
-/**
- * Self-only listing of every conversation the caller participates in. No
- * filter params: the visibility contract is "caller in
- * `conversation_participants`", and any further narrowing is the endpoint's.
- *
- * - **Principal:** `AuthenticatedAgent` head + `ActiveAgent` (active agent).
- * @error InvalidParamsError when the `cursor` does not decode
- * @error ConversationNotFoundError when a listed conversation's row vanished mid-projection
- */
-export const conversationList = defineRpc({
-  name: "agent/conversation/list",
-  params: Schema.Struct({
-    limit: listLimitSchema,
-    cursor: Schema.optional(Schema.String),
-  }),
-  result: Schema.Struct({
-    items: Schema.Array(conversationListItemSchema),
-    nextCursor: Schema.optional(Schema.String),
-  }),
-  requires: [AuthenticatedAgent, ActiveAgent],
-  errors: [InvalidParamsError, ConversationNotFoundError],
-});
-
-// ═══════════════════════════════════════════════════════════════
-// agent/conversation/search
-// ══════════════════════════════════════════════════════════════
-
-/**
- * Search conversations visible to the active agent. The wire contract permits
- * omitted and blank queries; query interpretation and pagination policy belong
- * to the handler.
- *
- * @error InvalidParamsError when the query or cursor is invalid
- */
-export const conversationSearch = defineRpc({
-  name: "agent/conversation/search",
-  params: Schema.Struct({
-    query: Schema.optional(Schema.String),
-    cursor: Schema.optional(listCursorSchema()),
-  }),
-  result: Schema.Struct({
-    conversations: Schema.Array(conversationSchemaValue),
-    nextCursor: Schema.optional(listCursorSchema()),
-  }),
-  requires: [AuthenticatedAgent, ActiveAgent],
-  errors: [InvalidParamsError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// agent/conversation/* notifications
-// ═══════════════════════════════════════════════════════════════════
-
-const conversationCreatedNotificationSchema = Schema.Struct({
-  conversationId: conversationId,
-  name: Schema.optional(Schema.String),
-  participants: Schema.Array(agentId),
-});
-
-/** Notification payload for `agent/conversation/created`. */
-export type ConversationCreatedNotification = Schema.Schema.Type<
-  typeof conversationCreatedNotificationSchema
->;
-
-/** Pushed when a conversation is created. */
-export const conversationCreatedNotificationDefinition = defineNotification({
-  name: "agent/conversation/created",
-  params: conversationCreatedNotificationSchema,
-});
-
 /** Agent-callable conversation RPC catalog. */
 export const agentCallableConversationRpcMethods = [
-  conversationList,
-  conversationSearch,
   agentConversationCreate,
 ] as const;

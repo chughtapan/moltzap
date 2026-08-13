@@ -8,7 +8,7 @@ Message-domain service barrel.
 
 ## Public surface
 
-### [`MessageService`](./message.service.ts#L182)
+### [`MessageService`](./message.service.ts#L144)
 
 _Class_
 
@@ -88,8 +88,7 @@ export class MessageService {
    *
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
-   * were reached, `recordTrace` observes the misses, and reconnecting clients
-   * recover recent durable history within the requested `messages/list` limit.
+   * were reached, and `recordTrace` observes the misses.
    * @param carrier Value supplied to the operation.
    * @param conversationId Value supplied to the operation.
    * @param senderAgentId Value supplied to the operation.
@@ -133,16 +132,17 @@ export class MessageService {
   ): Effect.Effect<readonly AgentId[]> {
     const audience = Array.from(
       new Set([...recipientList, input.senderAgentId]),
+    );
 ```
 
 `agent/message/send` server entry point. The `send` method persists the
 message durably, then broadcasts it to every conversation participant, the
-sender included; only the connection that issued the send is left out, so a
+  * sender included; only the connection that issued the send is left out, so a
 sender holding several connections still sees its own message on the
 others. The router is content-blind: it applies no interpretation or policy
 to the message body.
 
-### [`messageServiceLive`](./message.service.ts#L598)
+### [`messageServiceLive`](./message.service.ts#L383)
 
 _Variable_
 
@@ -164,7 +164,7 @@ export const messageServiceLive = Layer.effect(
 
 Provides the message service live runtime value.
 
-### [`MessageServiceTag`](./message.service.ts#L592)
+### [`MessageServiceTag`](./message.service.ts#L377)
 
 _Class_
 
@@ -177,41 +177,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 
 Implements message service tag.
 
-### [`messagesList`](./handlers.ts#L81)
-
-_Variable_
-
-```ts
-export const messagesList: ServerHandler<typeof messagesListDefinition> =
-  Effect.fn("messagesList")(function* (params) {
-    // Conversation participation is the whole read gate, asserted by
-    // `MessageService.list` before any row is projected.
-    const ctx = yield* agentArm;
-    return yield* handleMessageList(params, ctx);
-  })
-```
-
-Provides the messages list runtime value.
-
-**Returns:** The messages list result.
-
-### [`messagesRead`](./handlers.ts#L94)
-
-_Variable_
-
-```ts
-export const messagesRead: ServerHandler<typeof messagesReadDefinition> =
-  Effect.fn("messagesRead")(function* (params) {
-    const ctx = yield* agentArm;
-    return yield* handleMessageRead(params, ctx);
-  })
-```
-
-Provides the checkpointed messages read runtime value.
-
-**Returns:** The messages read result.
-
-### [`messagesSend`](./handlers.ts#L67)
+### [`messagesSend`](./handlers.ts#L38)
 
 _Variable_
 

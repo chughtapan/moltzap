@@ -43,15 +43,11 @@ import {
 import { sql, makeEffectKysely, type Database, type Db, DbTag } from "#db";
 import { makeCoreHttpApp } from "#http";
 import { ConversationServiceTag } from "#conversation";
-import {
-  agentConversationCreate,
-  conversationList,
-  conversationSearch,
-} from "#conversation/handlers";
+import { agentConversationCreate } from "#conversation/handlers";
 import { obtainConversationSendAccess } from "#conversation/requirements";
-import { agentsList, agentsSearch } from "#identity/agents";
+import { agentsList } from "#identity/agents";
 import { MessageServiceTag } from "#message";
-import { messagesList, messagesRead, messagesSend } from "#message/handlers";
+import { messagesSend } from "#message/handlers";
 import { connectAgent } from "#network";
 import { ConnectionManagerTag, ConnectionTag } from "#socket";
 import { narrowByPolicy, peekLiveArm } from "./moltzap/principal-gate.js";
@@ -475,12 +471,7 @@ const makeRequirementMiddlewareLayers = (connId: ConnectionId) =>
 const serverHandlers: ServerHandlers = {
   "agent/network/connect": connectAgent,
   "agent/identity/agents/list": agentsList,
-  "agent/identity/agents/search": agentsSearch,
   "agent/message/send": messagesSend,
-  "agent/message/list": messagesList,
-  "agent/message/read": messagesRead,
-  "agent/conversation/list": conversationList,
-  "agent/conversation/search": conversationSearch,
   "agent/conversation/create": agentConversationCreate,
 } as const;
 

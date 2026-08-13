@@ -12,7 +12,7 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentClientOptions`](./lifecycle.ts#L1350)
+### [`AgentClientOptions`](./lifecycle.ts#L1344)
 
 _Interface_
 
@@ -40,7 +40,7 @@ Executes the classify close cause operation.
 
 **Returns:** The classify close cause result.
 
-### [`ClientConnectError`](./lifecycle.ts#L109)
+### [`ClientConnectError`](./lifecycle.ts#L108)
 
 _TypeAlias_
 
@@ -50,7 +50,7 @@ export type ClientConnectError<Rpcs extends ProtocolRpc> =
 
 Represents client connect error conditions.
 
-### [`ClientDefinitionError`](./lifecycle.ts#L96)
+### [`ClientDefinitionError`](./lifecycle.ts#L95)
 
 _TypeAlias_
 
@@ -60,7 +60,7 @@ export type ClientDefinitionError<D extends ClientRpcDefinition> =
 
 Represents client definition error conditions.
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L90)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L89)
 
 _TypeAlias_
 
@@ -70,7 +70,7 @@ export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 
 Represents client definition payload values.
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L93)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L92)
 
 _TypeAlias_
 
@@ -80,7 +80,7 @@ export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 
 Represents client definition success values.
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L188)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L187)
 
 _Interface_
 
@@ -105,7 +105,7 @@ export interface ClientLifecycleOptions<
 
 Configures client lifecycle.
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L86)
+### [`ClientRpcDefinition`](./lifecycle.ts#L85)
 
 _Interface_
 
@@ -190,7 +190,7 @@ export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
 
 Validates and decodes connection id values.
 
-### [`ConnectResult`](./lifecycle.ts#L102)
+### [`ConnectResult`](./lifecycle.ts#L101)
 
 _TypeAlias_
 
@@ -234,7 +234,7 @@ Executes the extract close info operation.
 
 **Returns:** The extract close info result.
 
-### [`MoltZapAgentClient`](./lifecycle.ts#L1357)
+### [`MoltZapAgentClient`](./lifecycle.ts#L1351)
 
 _Class_
 
@@ -457,7 +457,7 @@ export const newConnectionId = (): ConnectionId
 
 Mints a connection identifier at socket acceptance.
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L446)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L440)
 
 _Function_
 
@@ -475,7 +475,7 @@ Provides the open protocol agent client socket runtime value.
 
 **Returns:** The open protocol agent client socket result.
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L551)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L545)
 
 _Class_
 
@@ -654,7 +654,7 @@ export interface ReverseClient {
 
 Describes reverse client.
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L67)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L66)
 
 _Variable_
 
@@ -664,7 +664,7 @@ export const RPC_TIMEOUT_MS = 30_000
 
 Provides the rpc timeout ms runtime value.
 
-### [`RpcCallOptions`](./lifecycle.ts#L81)
+### [`RpcCallOptions`](./lifecycle.ts#L80)
 
 _Interface_
 

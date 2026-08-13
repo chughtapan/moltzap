@@ -7,7 +7,6 @@ export {
   ConversationFullError,
   type ConversationId,
   conversationId,
-  ConversationNotFoundError,
   type MessageId,
   messageId,
   NotAParticipantError,
@@ -23,13 +22,5 @@ export type { ConversationSendAccessValue } from "./requirements/index.js";
 /** Re-exports the public API from `./conversations.js`. */
 export {
   agentConversationCreate,
-  conversationList,
-  conversationSearch,
-  conversationCreatedNotificationDefinition,
   conversationNameSchema,
-} from "./conversations.js";
-/** Re-exports the public API from `./conversations.js`. */
-export type {
-  ConversationCreatedNotification,
-  ConversationListItem,
 } from "./conversations.js";

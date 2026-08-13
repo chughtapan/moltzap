@@ -5,12 +5,7 @@ import { packageEslintConfig } from "../../eslint.shared.mjs";
 // server-owned encoding.
 const cursorOpacityGuard = {
   files: ["src/**/*.ts"],
-  ignores: [
-    "src/db/list-cursor.ts",
-    "src/db/search-read-cursor.ts",
-    "**/*.test.ts",
-    "**/*.spec.ts",
-  ],
+  ignores: ["src/db/list-cursor.ts", "**/*.test.ts", "**/*.spec.ts"],
   rules: {
     "no-restricted-syntax": [
       "error",

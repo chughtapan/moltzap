@@ -1,15 +1,9 @@
-// safer-arch-ignore no-cross-domain-sibling-import: Conversation mutations publish through the network notification port; direct leaf imports keep the runtime dependency graph acyclic.
 // safer-arch-ignore folder-explicit-api-required: ConversationService is the deliberate concrete service boundary paired with the public conversation index.
 import {
   type Db,
   DbTag,
-  READ_PLANE_PAGE_SIZE,
   sql,
   catchSqlErrorAsDefect,
-  decodeSearchCursor,
-  normalizeSearchQuery,
-  paginateSearchRows,
-  rawQuery,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
@@ -17,23 +11,16 @@ import {
 import {
   type Conversation,
   type ConversationId,
-  conversationId as conversationIdSchema,
   ConversationFullError,
 } from "@moltzap/protocol/conversation";
 import {
   type AgentId,
   type UserId,
-  agentId as agentIdSchema,
   AgentNotFoundError,
 } from "@moltzap/protocol/identity";
 import type { SqlError } from "@effect/sql/SqlError";
-import { Context, Effect, Layer, Option, Schema } from "effect";
-import {
-  InvalidParamsError,
-  DEFAULT_PAGE_LIMIT,
-  ForbiddenError,
-  type ListCursor,
-} from "@moltzap/protocol/rpc";
+import { Context, Effect, Layer, Option } from "effect";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import { type ConnectionManager, ConnectionManagerTag } from "#socket";
 
 const MAX_GROUP_PARTICIPANTS = 256;
@@ -53,18 +40,6 @@ interface CreateConversationOptions {
   readonly creatorAgentId: AgentId;
 }
 
-interface ListConversationsInput {
-  readonly agentId: AgentId;
-  readonly limit: number;
-  readonly cursor?: string;
-}
-
-interface SearchConversationsInput {
-  readonly agentId: AgentId;
-  readonly query?: string;
-  readonly cursor?: string;
-}
-
 function mapConversation(row: ConversationColumns): Conversation {
   return {
     id: row.id,
@@ -73,272 +48,6 @@ function mapConversation(row: ConversationColumns): Conversation {
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
-}
-
-/** A conversation and its membership, as the list surface returns them. */
-interface ConversationListEntry {
-  readonly conversation: Conversation;
-  readonly participants: readonly AgentId[];
-}
-
-/** One page of the caller's conversations, most recently updated first. */
-interface ConversationPage {
-  readonly items: readonly ConversationListEntry[];
-  readonly cursor?: string;
-}
-
-interface ConversationSearchPage {
-  readonly conversations: readonly Conversation[];
-  readonly nextCursor?: ListCursor;
-}
-
-function conversationSearchTokenFilter(normalizedQuery: string) {
-  if (normalizedQuery === "") {
-    return sql``;
-  }
-  const searchId = Schema.decodeOption(agentIdSchema)(normalizedQuery);
-  if (Option.isSome(searchId)) {
-    return sql`
-      AND (
-        conversation.id = ${searchId.value}::uuid
-        OR EXISTS (
-          SELECT 1
-          FROM conversation_participants matching_membership
-          WHERE matching_membership.conversation_id = conversation.id
-            AND matching_membership.agent_id = ${searchId.value}::uuid
-        )
-      )
-    `;
-  }
-  return sql`
-    AND EXISTS (
-      SELECT 1
-      FROM conversation_participants matching_membership
-      JOIN agents matching_agent
-        ON matching_agent.id = matching_membership.agent_id
-      WHERE matching_membership.conversation_id = conversation.id
-        AND matching_agent.name = ${normalizedQuery}
-    )
-  `;
-}
-
-function conversationSearchCursorFilter(lastId?: ConversationId) {
-  return lastId === undefined
-    ? sql``
-    : sql`AND conversation.id > ${lastId}::uuid`;
-}
-
-function queryConversationSearchRows(
-  db: Db,
-  input: {
-    readonly agentId: AgentId;
-    readonly normalizedQuery: string;
-    readonly lastId?: ConversationId;
-  },
-): Effect.Effect<readonly ConversationColumns[], SqlError> {
-  return rawQuery(
-    db,
-    sql<ConversationColumns>`
-      SELECT
-        conversation.id,
-        conversation.name,
-        conversation.created_by_id,
-        conversation.created_at,
-        conversation.updated_at
-      FROM conversation_participants caller_membership
-      JOIN conversations conversation
-        ON conversation.id = caller_membership.conversation_id
-      WHERE caller_membership.agent_id = ${input.agentId}
-        ${conversationSearchTokenFilter(input.normalizedQuery)}
-        ${conversationSearchCursorFilter(input.lastId)}
-      ORDER BY conversation.id ASC
-      LIMIT ${READ_PLANE_PAGE_SIZE + 1}
-    `,
-  );
-}
-
-function searchConversations(
-  db: Db,
-  input: SearchConversationsInput,
-): Effect.Effect<ConversationSearchPage, InvalidParamsError> {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const normalizedQuery = normalizeSearchQuery(input.query);
-      const binding = {
-        kind: "conversations" as const,
-        query: normalizedQuery,
-        agentId: input.agentId,
-      };
-      const cursorPosition =
-        input.cursor === undefined
-          ? undefined
-          : yield* decodeSearchCursor(input.cursor, binding);
-      const lastId =
-        cursorPosition === undefined
-          ? undefined
-          : Schema.decodeSync(conversationIdSchema)(cursorPosition.lastId);
-      const rows = yield* queryConversationSearchRows(db, {
-        agentId: input.agentId,
-        normalizedQuery,
-        ...(lastId === undefined ? {} : { lastId }),
-      });
-      const { page, nextCursor } = paginateSearchRows(
-        rows,
-        binding,
-        (row) => row.id,
-      );
-      return {
-        conversations: page.map(mapConversation),
-        ...(nextCursor === undefined ? {} : { nextCursor }),
-      };
-    }),
-  ).pipe(Effect.withSpan("searchConversations"));
-}
-
-// Two queries regardless of page size: one for the page, one for the
-// membership of every conversation on it.
-function listConversations(
-  db: Db,
-  input: ListConversationsInput,
-): Effect.Effect<ConversationPage, InvalidParamsError> {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const cursorParam = yield* parseListCursor(input.cursor);
-      const rows = yield* queryConversationListRows(db, {
-        agentId: input.agentId,
-        limit: input.limit,
-        cursorParam,
-      });
-      const hasMore = rows.length > input.limit;
-      const resultRows = hasMore ? rows.slice(0, input.limit) : rows;
-      const participantsByConversation = yield* queryParticipantsFor(
-        db,
-        resultRows.map((row) => row.id),
-      );
-      return {
-        items: resultRows.map((row) => ({
-          conversation: mapConversation(row),
-          participants: participantsByConversation.get(row.id) ?? [],
-        })),
-        cursor: nextConversationListCursor(hasMore, resultRows),
-      };
-    }),
-  ).pipe(Effect.withSpan("listConversations"));
-}
-
-function queryParticipantsFor(
-  db: Db,
-  conversationIds: readonly ConversationId[],
-): Effect.Effect<ReadonlyMap<ConversationId, AgentId[]>, SqlError> {
-  if (conversationIds.length === 0) {
-    return Effect.succeed(new Map());
-  }
-  return Effect.gen(function* () {
-    const rows = yield* db
-      .selectFrom("conversation_participants")
-      .select(["conversation_id", "agent_id"])
-      .where("conversation_id", "in", [...conversationIds]);
-    const byConversation = new Map<ConversationId, AgentId[]>();
-    for (const row of rows) {
-      const agents = byConversation.get(row.conversation_id) ?? [];
-      agents.push(row.agent_id);
-      byConversation.set(row.conversation_id, agents);
-    }
-    return byConversation;
-  });
-}
-
-// The cursor carries both halves of the sort key. Paging on a different
-// expression than the one that orders the page lets a row move across the
-// boundary between requests and vanish from every later page.
-interface ConversationListCursor {
-  readonly updatedAt: string;
-  readonly id: string;
-}
-
-const CURSOR_SEPARATOR = "|";
-
-function isIsoTimestamp(value: string): boolean {
-  const parsed = Date.parse(value);
-  return !Number.isNaN(parsed) && new Date(parsed).toISOString() === value;
-}
-
-function malformedCursor(): InvalidParamsError {
-  return new InvalidParamsError({
-    message:
-      "Cursor must be an ISO-8601 timestamp and a conversation id joined by '|'",
-  });
-}
-
-const CURSOR_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function parseListCursor(
-  cursor?: string,
-): Effect.Effect<ConversationListCursor | null, InvalidParamsError> {
-  if (cursor == null) {
-    return Effect.succeed(null);
-  }
-  const [updatedAt, id, ...rest] = cursor.split(CURSOR_SEPARATOR);
-  if (updatedAt === undefined || id === undefined || rest.length > 0) {
-    return Effect.fail(malformedCursor());
-  }
-  if (!isIsoTimestamp(updatedAt)) {
-    return Effect.fail(malformedCursor());
-  }
-  // The id half is cast `::uuid` in the keyset filter; an unvalidated value
-  // reaches Postgres as a cast error and surfaces as a defect instead of the
-  // declared InvalidParamsError.
-  if (!CURSOR_ID_RE.test(id)) {
-    return Effect.fail(malformedCursor());
-  }
-  return Effect.succeed({ updatedAt, id });
-}
-
-interface ListRowsInput {
-  readonly agentId: AgentId;
-  readonly limit: number;
-  readonly cursorParam: ConversationListCursor | null;
-}
-
-// Sort key and cursor key are the same stored pair, so the page boundary lands
-// exactly where the previous page stopped and `idx_conversations_listing`
-// serves the ordering. `c.id` breaks ties between rows sharing a timestamp.
-function queryConversationListRows(
-  db: Db,
-  input: ListRowsInput,
-): Effect.Effect<readonly ConversationColumns[], SqlError> {
-  return rawQuery(
-    db,
-    sql<ConversationColumns>`
-      SELECT c.id, c.name, c.created_by_id, c.created_at, c.updated_at
-      FROM conversation_participants cp
-      JOIN conversations c ON c.id = cp.conversation_id
-      WHERE cp.agent_id = ${input.agentId}
-        ${cursorListFilter(input.cursorParam)}
-      ORDER BY c.updated_at DESC, c.id DESC
-      LIMIT ${input.limit + 1}
-    `,
-  );
-}
-
-function cursorListFilter(cursorParam: ConversationListCursor | null) {
-  if (cursorParam === null) {
-    return sql``;
-  }
-  return sql`AND (c.updated_at, c.id)
-      < (${cursorParam.updatedAt}::timestamptz, ${cursorParam.id}::uuid)`;
-}
-
-function nextConversationListCursor(
-  hasMore: boolean,
-  rows: readonly ConversationColumns[],
-): string | undefined {
-  const last = rows[rows.length - 1];
-  if (!hasMore || last === undefined) {
-    return undefined;
-  }
-  return `${last.updated_at.toISOString()}${CURSOR_SEPARATOR}${last.id}`;
 }
 
 /** Implements conversation service. */
@@ -480,22 +189,6 @@ export class ConversationService {
         participantCount,
       }),
     );
-  }
-
-  list(
-    agentId: AgentId,
-    limit = DEFAULT_PAGE_LIMIT,
-    cursor?: string,
-  ): Effect.Effect<ConversationPage, InvalidParamsError> {
-    return listConversations(this.db, { agentId, limit, cursor });
-  }
-
-  search(
-    agentId: AgentId,
-    query?: string,
-    cursor?: string,
-  ): Effect.Effect<ConversationSearchPage, InvalidParamsError> {
-    return searchConversations(this.db, { agentId, query, cursor });
   }
 
   getParticipantAgentIds(

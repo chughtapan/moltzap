@@ -17,7 +17,7 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L1350)
+### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L1344)
 
 _Interface_
 
@@ -45,7 +45,7 @@ Executes the classify close cause operation.
 
 **Returns:** The classify close cause result.
 
-### [`ClientConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L109)
+### [`ClientConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L108)
 
 _TypeAlias_
 
@@ -55,7 +55,7 @@ export type ClientConnectError<Rpcs extends ProtocolRpc> =
 
 Represents client connect error conditions.
 
-### [`ClientDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L96)
+### [`ClientDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L95)
 
 _TypeAlias_
 
@@ -65,7 +65,7 @@ export type ClientDefinitionError<D extends ClientRpcDefinition> =
 
 Represents client definition error conditions.
 
-### [`ClientDefinitionPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L90)
+### [`ClientDefinitionPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L89)
 
 _TypeAlias_
 
@@ -75,7 +75,7 @@ export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 
 Represents client definition payload values.
 
-### [`ClientDefinitionSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L93)
+### [`ClientDefinitionSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L92)
 
 _TypeAlias_
 
@@ -85,7 +85,7 @@ export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 
 Represents client definition success values.
 
-### [`ClientLifecycleOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L188)
+### [`ClientLifecycleOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L187)
 
 _Interface_
 
@@ -110,7 +110,7 @@ export interface ClientLifecycleOptions<
 
 Configures client lifecycle.
 
-### [`ClientRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L86)
+### [`ClientRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L85)
 
 _Interface_
 
@@ -195,7 +195,7 @@ export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
 
 Validates and decodes connection id values.
 
-### [`ConnectResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L102)
+### [`ConnectResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L101)
 
 _TypeAlias_
 
@@ -239,7 +239,7 @@ Executes the extract close info operation.
 
 **Returns:** The extract close info result.
 
-### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L1357)
+### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L1351)
 
 _Class_
 
@@ -462,7 +462,7 @@ export const newConnectionId = (): ConnectionId
 
 Mints a connection identifier at socket acceptance.
 
-### [`openProtocolAgentClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L446)
+### [`openProtocolAgentClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L440)
 
 _Function_
 
@@ -480,7 +480,7 @@ Provides the open protocol agent client socket runtime value.
 
 **Returns:** The open protocol agent client socket result.
 
-### [`ProtocolClientLifecycle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L551)
+### [`ProtocolClientLifecycle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L545)
 
 _Class_
 
@@ -659,7 +659,7 @@ export interface ReverseClient {
 
 Describes reverse client.
 
-### [`RPC_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L67)
+### [`RPC_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L66)
 
 _Variable_
 
@@ -669,7 +669,7 @@ export const RPC_TIMEOUT_MS = 30_000
 
 Provides the rpc timeout ms runtime value.
 
-### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L81)
+### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L80)
 
 _Interface_
 

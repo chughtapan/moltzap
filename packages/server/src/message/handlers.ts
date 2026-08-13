@@ -1,9 +1,5 @@
 // safer-arch-ignore no-cross-domain-sibling-import: Protocol handler bodies read their already-gated principal through the MoltZap adapter boundary.
-import type {
-  messagesList as messagesListDefinition,
-  messagesRead as messagesReadDefinition,
-  messagesSend as messagesSendDefinition,
-} from "@moltzap/protocol/message";
+import type { messagesSend as messagesSendDefinition } from "@moltzap/protocol/message";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { agentArm } from "../moltzap/principal-gate.js";
@@ -28,31 +24,6 @@ const handleMessageSend = Effect.fn("messages.send")(function* (
   return { message };
 });
 
-const handleMessageList = Effect.fn("messages.list")(function* (
-  params: ParamsOf<typeof messagesListDefinition>,
-  ctx: AgentContext,
-) {
-  const messageService = yield* MessageServiceTag;
-  return yield* messageService.list(params.conversationId, ctx.agentId, {
-    limit: params.limit,
-  });
-});
-
-const handleMessageRead = Effect.fn("messages.read")(function* (
-  params: ParamsOf<typeof messagesReadDefinition>,
-  ctx: AgentContext,
-) {
-  const messageService = yield* MessageServiceTag;
-  return yield* messageService.read({
-    conversationId: params.conversationId,
-    requesterAgentId: ctx.agentId,
-    ...(params.checkpoint === undefined
-      ? {}
-      : { checkpoint: params.checkpoint }),
-    ...(params.cursor === undefined ? {} : { cursor: params.cursor }),
-  });
-});
-
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 //
 // Requirement middleware gates each frame before these bodies run. The bodies
@@ -71,28 +42,4 @@ export const messagesSend: ServerHandler<typeof messagesSendDefinition> =
     // `ConnectionTag`.
     const ctx = yield* agentArm;
     return yield* handleMessageSend(params, ctx);
-  });
-
-/**
- * Provides the messages list runtime value.
- * @param params Request payload to process.
- * @returns The messages list result.
- */
-export const messagesList: ServerHandler<typeof messagesListDefinition> =
-  Effect.fn("messagesList")(function* (params) {
-    // Conversation participation is the whole read gate, asserted by
-    // `MessageService.list` before any row is projected.
-    const ctx = yield* agentArm;
-    return yield* handleMessageList(params, ctx);
-  });
-
-/**
- * Provides the checkpointed messages read runtime value.
- * @param params Request payload to process.
- * @returns The messages read result.
- */
-export const messagesRead: ServerHandler<typeof messagesReadDefinition> =
-  Effect.fn("messagesRead")(function* (params) {
-    const ctx = yield* agentArm;
-    return yield* handleMessageRead(params, ctx);
   });
