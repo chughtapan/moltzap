@@ -8,7 +8,7 @@ Conversation-domain requirement helpers.
 
 ## Public surface
 
-### [`authorizeConversationCreateCapacityOnly`](./index.ts#L27)
+### [`authorizeConversationCreateCapacityOnly`](./index.ts#L24)
 
 _Function_
 
@@ -29,7 +29,7 @@ collapse before either check.
 
 **Returns:** Completion after capacity and owner validation.
 
-### [`obtainConversationSendAccess`](./index.ts#L52)
+### [`obtainConversationSendAccess`](./index.ts#L49)
 
 _Function_
 
