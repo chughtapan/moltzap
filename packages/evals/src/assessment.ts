@@ -94,7 +94,7 @@ const verdictPrecedence = {
  * @param assessments Criterion assessments for one case.
  * @returns The report-level verdict.
  */
-export function verdictOf(
+function verdictOf(
   assessments: NonEmptyReadonlyArray<CriterionAssessment>,
 ): CriterionVerdict {
   return assessments.reduce<CriterionVerdict>(

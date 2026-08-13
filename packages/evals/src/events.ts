@@ -113,7 +113,7 @@ export class EvaluationEvidenceProjectionError extends Schema.TaggedError<Evalua
 ) {}
 
 /** Ledger envelope fields consumed at the evaluation projection boundary. */
-export interface EvaluationEvidenceLedgerRecord {
+interface EvaluationEvidenceLedgerRecord {
   readonly eventId: string;
   readonly logicalSequence: number;
   readonly event: unknown;

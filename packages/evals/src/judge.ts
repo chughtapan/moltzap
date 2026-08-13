@@ -1,6 +1,6 @@
 /** @file Provider-neutral semantic judge contract and structured-output validation. */
 
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 import {
   criterionId,
   criterionVerdict,
@@ -183,25 +183,4 @@ export function validateJudgeResult(
     }
   }
   return Effect.succeed(result);
-}
-
-/** Test or provider handler accepted by the semantic judge service. */
-export type SemanticJudgeHandler = (
-  bundle: JudgeBundle,
-) => Effect.Effect<JudgeResult, JudgeError>;
-
-/**
- * Build a parameterized fake layer for grading and calibration tests.
- * @param handler Test-owned structured judge implementation.
- * @returns A judge layer that also enforces the production validator.
- */
-export function makeSemanticJudgeTestLayer(
-  handler: SemanticJudgeHandler,
-): Layer.Layer<SemanticJudge> {
-  return Layer.succeed(SemanticJudge, {
-    assess: (bundle) =>
-      handler(bundle).pipe(
-        Effect.flatMap((result) => validateJudgeResult(bundle, result)),
-      ),
-  });
 }

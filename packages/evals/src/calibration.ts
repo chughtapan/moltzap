@@ -213,7 +213,7 @@ const calibrationDefinitions = [
 ] as const satisfies readonly CalibrationDefinition[];
 
 /** Build the fixed corpus against the current code-valued case catalog. */
-export const semanticJudgeCalibrationFixtures = Effect.fn(
+const semanticJudgeCalibrationFixtures = Effect.fn(
   "evals.semanticJudgeCalibrationFixtures",
 )(function* () {
   const [firstDefinition, ...remainingDefinitions] = calibrationDefinitions;
@@ -230,7 +230,7 @@ export const semanticJudgeCalibrationFixtures = Effect.fn(
 });
 
 /** The semantic judge agreed with one fixed calibration fixture. */
-export class JudgeCalibrationPassed extends Schema.TaggedClass<JudgeCalibrationPassed>()(
+class JudgeCalibrationPassed extends Schema.TaggedClass<JudgeCalibrationPassed>()(
   "JudgeCalibrationPassed",
   { fixtureId: calibrationFixtureId, result: JudgeResult },
 ) {}
