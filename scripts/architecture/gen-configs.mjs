@@ -54,6 +54,10 @@ const publicTypePackages = Object.entries(publicTypePackage)
   )
   .map(([, definition]) => definition);
 
+const publicTypePackagesWithoutProtocol = publicTypePackages.filter(
+  (definition) => definition !== publicTypePackage.protocol,
+);
+
 const allowedTestPublicSubpaths = [
   {
     subpath: "./test-utils",
@@ -106,7 +110,10 @@ const packageDefinitions = {
       ],
     },
     afterShared: {
-      publicTypePackages: [...publicTypePackages, publicTypePackage.identity],
+      publicTypePackages: [
+        ...publicTypePackagesWithoutProtocol,
+        publicTypePackage.identity,
+      ],
     },
   },
   evals: {
@@ -206,6 +213,9 @@ const packageDefinitions = {
   "openclaw-channel": {
     beforeShared: {
       packageRuntime: "node",
+    },
+    afterShared: {
+      publicTypePackages: publicTypePackagesWithoutProtocol,
     },
   },
   protocol: {
