@@ -41,7 +41,6 @@ export interface StandaloneBootPlan {
   readonly port: number;
   readonly corsOrigins: string[];
 
-  readonly devMode: boolean;
   /** Boot-time admin owner id from `MOLTZAP_ADMIN_USER_ID` or YAML `admin_user_id`. */
   readonly adminUserId: UserId;
 
@@ -482,7 +481,6 @@ function resolveAdminUserId(
 }
 
 interface ResolvedFields {
-  readonly devMode: boolean;
   readonly port: number;
   readonly corsOrigins: string[];
   readonly adminUserId: UserId;
@@ -497,7 +495,6 @@ function assembleBootPlan(
     pgliteDataDir: inputs.yaml.database?.data_dir,
     port: fields.port,
     corsOrigins: fields.corsOrigins,
-    devMode: fields.devMode,
     adminUserId: fields.adminUserId,
     registrationSecret: fields.registrationSecret,
   };
@@ -557,7 +554,6 @@ function buildBootPlan(
       configPath,
     );
     return assembleBootPlan(inputs, {
-      devMode,
       port,
       corsOrigins,
       adminUserId,

@@ -79,7 +79,6 @@ function devDefaults() {
   return Effect.gen(function* () {
     const result = yield* envOnly({ MOLTZAP_DEV_MODE: "true" });
     expect(result.port).toBe(DEFAULT_PORT);
-    expect(result.devMode).toBe(true);
     expect(result.corsOrigins).toEqual(["*"]);
   });
 }
@@ -101,7 +100,6 @@ function corsParsed() {
       MOLTZAP_REGISTRATION_SECRET: INTERPOLATED,
     });
     expect(result.corsOrigins).toEqual([APP_ORIGIN, WWW_ORIGIN]);
-    expect(result.devMode).toBe(false);
   });
 }
 
