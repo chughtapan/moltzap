@@ -51,8 +51,3 @@ export const agentConversationCreate = defineRpc({
   requires: [AuthenticatedAgent, ActiveAgent],
   errors: [AgentNotFoundError, ConversationFullError],
 });
-
-/** Agent-callable conversation RPC catalog. */
-export const agentCallableConversationRpcMethods = [
-  agentConversationCreate,
-] as const;

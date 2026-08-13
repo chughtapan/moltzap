@@ -8,16 +8,6 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L103)
-
-_Variable_
-
-```ts
-export const agentCallableMessageRpcMethods = [messagesSend] as const
-```
-
-Agent-callable message RPC catalog.
-
 ### [`Message`](./messages.ts#L80)
 
 _TypeAlias_
@@ -53,7 +43,7 @@ directly so persisted bodies cannot drift from the wire contract.
 
 **Returns:** The nonempty schema shared by all message boundaries.
 
-### [`MessageReceivedNotification`](./messages.ts#L110)
+### [`MessageReceivedNotification`](./messages.ts#L107)
 
 _TypeAlias_
 
@@ -65,7 +55,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`messageReceivedNotificationDefinition`](./messages.ts#L118)
+### [`messageReceivedNotificationDefinition`](./messages.ts#L115)
 
 _Variable_
 

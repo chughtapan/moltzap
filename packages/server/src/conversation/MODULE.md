@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`agentConversationCreate`](./handlers.ts#L38)
+### [`agentConversationCreate`](./handlers.ts#L36)
 
 _Variable_
 

@@ -13,7 +13,6 @@ export type { Database, Db, MessageRow } from "./database.js";
 export {
   catchSqlErrorAsDefect,
   makeEffectKysely,
-  rawQuery,
   takeFirstOption,
   takeFirstOrFail,
   transaction,

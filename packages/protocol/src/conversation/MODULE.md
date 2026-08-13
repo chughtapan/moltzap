@@ -8,18 +8,6 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](./conversations.ts#L56)
-
-_Variable_
-
-```ts
-export const agentCallableConversationRpcMethods = [
-  agentConversationCreate,
-] as const
-```
-
-Agent-callable conversation RPC catalog.
-
 ### [`agentConversationCreate`](./conversations.ts#L41)
 
 _Variable_

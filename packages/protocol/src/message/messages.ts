@@ -99,9 +99,6 @@ export const messagesSend = defineRpc({
   errors: [],
 });
 
-/** Agent-callable message RPC catalog. */
-export const agentCallableMessageRpcMethods = [messagesSend] as const;
-
 const messageReceivedNotificationSchema = Schema.Struct({
   message: messageSchema,
 });
