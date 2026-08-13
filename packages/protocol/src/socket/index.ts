@@ -1,54 +1,13 @@
-/**
- * @file Socket lifecycle surface for protocol-owned clients and server.
- *
- * Owns the concrete MoltZap agent client, app client, server socket lifecycle,
- * connection identifiers, close-info extraction, and socket-local lifecycle
- * helpers used by testing and server wiring.
- */
-// safer-arch-ignore no-large-public-surface: Socket is the stable compatibility facade for clients, server lifecycle, and close semantics.
+/** @file Public socket client and server compatibility surface. */
 
 /** Re-exports the public API from `./lifecycle.js`. */
-export {
-  MoltZapAgentClient,
-  RPC_TIMEOUT_MS,
-  openProtocolAgentClientSocket,
-  ProtocolClientLifecycle,
-} from "./lifecycle.js";
-/** Re-exports the public API from `./lifecycle.js`. */
-export type {
-  AgentClientOptions,
-  ClientConnectError,
-  ClientDefinitionError,
-  ClientDefinitionPayload,
-  ClientDefinitionSuccess,
-  ClientRpcDefinition,
-  ConnectResult,
-  RpcCallOptions,
-} from "./lifecycle.js";
+export { MoltZapAgentClient } from "./lifecycle.js";
 
 /** Re-exports the public API from `./server.js`. */
-export {
-  connectionId,
-  connectionIdSchema,
-  MoltZapServer,
-  newConnectionId,
-} from "./server.js";
+export { connectionId, connectionIdSchema, MoltZapServer } from "./server.js";
 /** Re-exports the public API from `./server.js`. */
 export type {
   ConnectionId,
-  MoltZapServerOptions,
   MoltZapServerSession,
-  ReverseCallError,
   ReverseClient,
-  ServerSocketWrite,
 } from "./server.js";
-
-/** Re-exports the public API from `./close-info.js`. */
-export {
-  classifyCloseCause,
-  DEFAULT_ABNORMAL_CLOSE,
-  DEFAULT_GRACEFUL_CLOSE,
-  extractCloseInfo,
-} from "./close-info.js";
-/** Re-exports the public API from `./close-info.js`. */
-export type { CloseInfo, CloseKind } from "./close-info.js";
