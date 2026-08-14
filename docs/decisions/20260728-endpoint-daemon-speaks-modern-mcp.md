@@ -15,8 +15,9 @@ The pinned MCP core and official SDK boundary, modern Streamable HTTP framing,
 one loopback listener, discovery, local subscription ownership, local trust,
 acknowledgment ordering, transient notification delivery, and daemon-specific
 supervision remain current where they do not depend on profiles or Ledger.
-`HarnessClient` continues to own runtime context projection and checkpoints;
-content observations and live reply grants remain distinct.
+`HarnessClient` continues to own current-conversation runtime context
+projection; it does not maintain presentation checkpoints. Content
+observations and live reply grants remain distinct.
 
 `20260811-four-layer-endpoint-replicated-harness.md` retires profile and Ledger
 state, Ledger receipt reconciliation, split local paths, and the old package
@@ -25,9 +26,10 @@ endpoint-owned certified history. The exact event extension, attention,
 completion, reply-recovery, and post-process subscription semantics remain
 with the current interface ADRs or deliberately deferred follow-up work; the
 replacement does not invent them. The current framing and daemon contract
-lives in the replacement record, `docs/spec/harness/daemon.md`,
-`docs/spec/management.md`, `docs/spec/harness/ingress.md`, and
-`docs/spec/harness/client.md`.
+lives in the replacement record,
+`20260812-harness-client-uses-conversation-id.md`,
+`docs/spec/harness/daemon.md`, `docs/spec/management.md`,
+`docs/spec/harness/ingress.md`, and `docs/spec/harness/client.md`.
 
 ## Context and Problem Statement
 
@@ -98,4 +100,5 @@ Point corrections that leave the historical Decision Outcome intact.
 
 | Date | Change |
 |---|---|
+| 2026-08-14 | Corrected the visible retained scope to match the accepted reduced `HarnessClient`: current-conversation projection remains, while presentation checkpoints do not. The historical Decision Outcome is untouched. |
 | 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

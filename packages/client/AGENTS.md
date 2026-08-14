@@ -11,23 +11,19 @@ their owning boundaries; Client must not re-export their wire internals or
 expose Registry/Router clients, credentials, signing authority, store handles,
 private reply grants, or protocol folds to runtimes.
 
-## Current cutover boundary
+## Current package boundary
 
-The source currently under this package is transitional v1 deletion and
-rewrite input. Replace it behind the accepted Client boundary; do not expand,
-wrap, or preserve it through a compatibility facade. In particular, do not add
-new work to the existing service object, channel-core abstraction, profile
-acquisition, protocol/server proxy, bespoke CLI, Unix socket, or generic-send
-paths. Do not reintroduce a standalone notification catalog.
+The source under this package is the accepted cutover implementation. Maintain
+it behind the final Client boundary; do not expand, wrap, or preserve retired
+machinery through a compatibility facade. In particular, do not add a service
+object, channel-core abstraction, profile acquisition, protocol/server proxy,
+bespoke CLI, Unix socket, generic-send path, or standalone notification
+catalog.
 
-Current work includes:
-
-- relocating the admitted Identity and Router capabilities;
-- implementing endpoint-history semantics behind private Client boundaries;
-- deleting obsolete Transcript and testbed scaffolding; and
-- removing retired v1 machinery whose final owner is usable; and
-- implementing the accepted public shell and rewriting its consumers without
-  retaining transitional surface area.
+Further work may harden or validate the implementation without widening its
+public surface or relocating its admitted Identity and Router dependencies.
+Publication and version policy remain separate release decisions; they do not
+change this package boundary.
 
 ## Stable Client law
 
@@ -65,8 +61,8 @@ private volatile grant key; `ActionHash`, `RecordHash`, certificates, and
 recovery state remain private to Client and its local-authorized MCP
 management representation.
 
-Keep type canaries on this accepted surface. Transitional implementation types
-are migration evidence only and never become a compatibility shim.
+Keep type canaries on this accepted surface. Private implementation types
+never become a compatibility shim.
 
 ## Daemon boundary
 
