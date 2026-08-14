@@ -33,7 +33,9 @@ const APPLICATION_IMAGE = Schema.decodeSync(image)(
   `registry.example/moltzap-evals@sha256:${"a".repeat(64)}`,
 );
 
-const EXPECTED_TOPOLOGY = {
+const EXPECTED_TOPOLOGY: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = {
   "EVAL-005": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2" },
   "EVAL-006": {
     [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
@@ -78,7 +80,7 @@ const EXPECTED_TOPOLOGY = {
     [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
     [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
   },
-} as const;
+};
 
 const CROSS_CONVERSATION_CASES = new Set([
   "EVAL-008",
