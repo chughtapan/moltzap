@@ -285,7 +285,7 @@ All six answers were independently discoverable and consistent across status, li
 
 | Field | Value |
 |---|---|
-| Superseded by review run | `none` |
-| Superseded candidate commit | `none` |
-| Superseded candidate content digest | `none` |
-| Reason a rerun was required | `none` |
+| Superseded by review run | `aba6dc1a-codex-fresh-20260814T070758Z` |
+| Superseded candidate commit | `aba6dc1ad1ac4f47e75ad03c38020ca25af37c9d` |
+| Superseded candidate content digest | Git tree SHA-1 `87c17d1f50f2b362f0b220434d5dee37b0359be2` |
+| Reason a rerun was required | CI found a strict test-type error after this review. The type-only fixture repair changed the candidate revision, so a different fresh reviewer audited the replacement candidate. |
