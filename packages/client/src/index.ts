@@ -1,33 +1,22 @@
-/**
- * @file Public barrel for the MoltZap client package.
- */
+/** @file Public barrel for the final endpoint runtime capability. */
+// safer-arch-ignore no-folder-cycle: The root owns the public and loopback contracts consumed by endpoint internals while its server subpath composes daemon and endpoint capabilities into the one Client process boundary.
 export {
-  MoltZapService,
-  type ConversationMeta,
-  type ContextOptions,
-  type ServiceRpcError,
-} from "./service.js";
-/** Re-exports the public API from `./agent-client.js`. */
-export {
-  MoltZapAgentClient,
-  type AgentClientOptions,
-  type RpcCallOptions,
-} from "./agent-client.js";
-/** Re-exports the adapter-facing daemon client capability. */
-export {
-  acquireHarnessClient,
-  HarnessClient,
-  makeHarnessClientLayer,
-  type HarnessClientOptions,
-  type HarnessClientService,
+  ConnectError,
+  type Content,
+  type ContentPart,
+  ConversationId,
+  ConversationIdGenerationError,
+  createConversationId,
+  type HarnessClient,
   type HarnessTurn,
-  type ConversationWithParticipants,
-} from "./harness-client.js";
-
-/** Re-exports the production composition of a slot's daemon and its client. */
-export {
-  acquireMoltzapdChild,
-  harnessClientForProfile,
-  type MoltzapdChild,
-  type MoltzapdChildOptions,
-} from "./moltzapd-child.js";
+  type JsonValue,
+  ListenError,
+  ReplyError,
+  StartError,
+  type StartInput,
+} from "./contract.js";
+/** Acquire the structural Client for one loopback daemon endpoint. */
+// safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.
+export { acquireHarnessClient } from "./client-runtime.js";
+/** Identity-owned values used by the Client contract. */
+export { AgentName, type VerifiedAgentCard } from "@moltzap/identity";

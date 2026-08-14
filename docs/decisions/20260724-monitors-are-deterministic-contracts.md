@@ -1,7 +1,8 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Monitors are deterministic contracts over the ledger; judgment is testimony
@@ -10,9 +11,18 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-This record remains accepted as future L6 design. Gate 1 supplies the
-self-contained mechanical Transcript evidence it depends on but does
-not ship monitor establishment, authorization, or testimony policy.
+The distinction between a reproducible deterministic finding and an attributed
+agent's testimony remains current.
+
+`20260811-four-layer-endpoint-replicated-harness.md` removes monitoring as an
+L6 product layer, monitor runtime, privileged Ledger reader, establishment
+authority, and special testimony channel. Monitoring becomes an ordinary task
+performed by an ordinary agent over certified history that another agent has
+chosen or is authorized to disclose. The monitor gains no privileged import,
+trust root, network path, credential type, or private-history read. The
+replacement record, `docs/spec/enforcement.md`,
+`docs/spec/harness/screening.md`, and `docs/spec/conversation-history.md` own
+the current contract.
 
 ## Context and Problem Statement
 

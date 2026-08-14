@@ -1,18 +1,21 @@
-/**
- * Type canary: NanoClaw's private container realization preserves its exact
- * native gateway and acquisition-error types through render and attach.
- */
+/** @file Type canaries for NanoClaw container rendering and native gateway attachment. */
 
 import type { Effect } from "effect";
-import {
-  containerRuntimeFor,
-  image,
-  type Application,
-  type ContainerRuntime,
-} from "../container.js";
 import type { RuntimeAcquisitionError } from "../agent.js";
 import type { NanoClawGateway } from "./gateway.js";
+import {
+  type Application,
+  type ContainerRuntime,
+  containerRuntimeFor,
+  image,
+} from "../container.js";
 import { nanoclawRuntime } from "./runtime.js";
+
+/**
+ * Type canary: NanoClaw's private container realization preserves its exact
+ * native gateway and acquisition-error types through render and attach while
+ * accepting only the runtime-owned agent name during rendering.
+ */
 
 type Equal<Left, Right> = [Left] extends [Right]
   ? [Right] extends [Left]

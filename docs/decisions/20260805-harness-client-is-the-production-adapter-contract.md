@@ -1,12 +1,25 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-05
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # HarnessClient is the production adapter contract
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260805-production-harness-cutover-trajectory.md#harness-client-is-the-production-adapter-contract).
+
+## Supersession
+
+`HarnessClient` remains the sole adapter-facing capability, adapters still
+receive no network or storage internals, and replies remain bound to the live
+turn that granted them. The
+`20260811-four-layer-endpoint-replicated-harness.md` outcome replaces
+profile-based acquisition, the universal cross-conversation projection, and
+the checkpoint contract. It deliberately defers the exact start recovery,
+turn context, success result, and history/search surface to the current
+Client-interface decision. The replacement record and `docs/spec/harness/`
+carry the current contract.
 
 ## Context and Problem Statement
 

@@ -1,16 +1,18 @@
-// Stub matching the subset of nanoclaw's src/channels/channel-registry.ts
-// that moltzap.ts touches; resolves against the real module inside a
-// nanoclaw checkout. The in-repo registry records registrations so unit
-// tests can drive the factory the same way the nanoclaw daemon does.
+/**
+ * @file In-memory mirror of NanoClaw's channel registry for isolated adapter
+ * tests. The same module path binds to the host registry when the adapter is
+ * installed in NanoClaw.
+ */
+
 import type { ChannelRegistration } from "./adapter.js";
 
 // safer-arch-ignore no-trivial-sink-file: This host-substitution seam mirrors Nanoclaw's registry contract so the channel source binds to the real runtime registry when installed and to this smoke-test stub in isolation.
 const registrations = new Map<string, ChannelRegistration>();
 
 /**
- * Registers channel adapter.
- * @param name Name of the operation.
- * @param registration Value supplied to the operation.
+ * Records an adapter factory under its host-facing channel name.
+ * @param name Channel name NanoClaw uses for registration.
+ * @param registration Factory and defaults exposed to NanoClaw.
  */
 export function registerChannelAdapter(
   name: string,
@@ -20,10 +22,10 @@ export function registerChannelAdapter(
 }
 
 /**
- * Test hook; the real nanoclaw registry has richer accessors.
- * @param name Name of the operation.
+ * Looks up an adapter registration recorded by an isolated test.
+ * @param name Host-facing channel name to look up.
  * @internal
- * @returns The get registered channel adapter result.
+ * @returns The matching registration, or `undefined` when none was recorded.
  */
 export function getRegisteredChannelAdapter(
   name: string,

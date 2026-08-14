@@ -1,12 +1,29 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Gate 1 uses OpenFloorV1 with fixed membership and unanimity
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-open-floor-v1).
+
+## Supersession
+
+OpenFloorV1 remains the accepted fixed-membership action protocol: START and
+MULTICAST action validity require every fixed member's signature, BEGIN/ACK
+contention and the 90-second volatile-attempt TTL remain task semantics, and no
+non-unanimous action-certificate rule is introduced. A durability threshold is
+not an action-validity threshold.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces the committed
+Ledger head, author-only append, central receipt, and Ledger availability
+dependency with certified endpoint heads, endpoint durability votes,
+any-member evidence assembly, and member catch-up. The current action protocol
+remains here and in `docs/spec/harness/tasks.md`; the replacement record and
+`docs/spec/conversation-history.md` own how a unanimous action becomes durable
+history.
 
 ## Context and Problem Statement
 

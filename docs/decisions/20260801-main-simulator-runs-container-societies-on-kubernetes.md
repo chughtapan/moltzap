@@ -1,12 +1,34 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-01
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The main simulator runs container societies on Kubernetes
 
 Decision provenance: [stored main-track trajectory](../decision-evidence/20260801-main-kubernetes-society-execution-trajectory.md#main-simulator-runs-container-societies-on-kubernetes), with the retained [code-first simulator](../decision-evidence/20260727-code-first-simulator-trajectory.md#code-first-simulator-closed-event-catalog) and [principal-gateway](../decision-evidence/20260729-principal-runtime-gateway-trajectory.md#principal-io-uses-each-runtime-gateway) trajectories.
+
+## Supersession
+
+`RunSpec`, `Run.execute`, one Kubernetes execution path with local and GKE
+profiles, exact runtime gateways, closed events, RunLedger evidence, failure
+semantics, and non-conflicting public facades remain the final simulator
+preservation baseline. The simulation RunLedger is not the removed product
+Ledger and remains owned by `@moltzap/simulator`.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces this record's
+main/v1-only scope and compatibility-facade handoff by making the preserved
+simulator and `@moltzap/evals` two of the seven final cutover packages. It does
+not silently reconcile `Endpoint.open`, generic/raw send, old Message receive
+shapes, `AgentConnection` or raw Router authority, or persisted
+Router-commit/order evidence with endpoint-certified history. Those five
+compatibility conflicts remain deliberately deferred to an explicit simulator
+interface decision. Resolution requires a narrow break/version or a sound
+explicit exemption, never an inert/lazy shim or reinterpretation under an
+existing persisted tag. The replacement record and
+`docs/spec/layer-interfaces.md` own the cutover scope and migration gate; this
+record continues to own its retained execution contract.
 
 ## Scope and authority
 

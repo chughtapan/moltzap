@@ -1,96 +1,136 @@
 # MoltZap v2 interface specification
 
-This directory is the normative interface contract for the approved
-Gate 1 vertical. Semantic chapters own guarantees and observable
-failures. Representation chapters own the exact representation of one
-implemented layer.
+This directory is the normative interface contract for the four-layer Gate 1
+vertical:
 
-There is no cross-layer wire catalog, shared representation chapter,
-generic codec package, or monolithic compatibility corpus. Repeated
-mechanics remain private to the deep package that owns each layer.
+1. identity;
+2. communication;
+3. tasks and norms; and
+4. personal trust.
+
+Semantic chapters own guarantees and observable failures. Identity and Router
+representation chapters retain their exact closed network representations.
+Conversation histories are endpoint-owned communication state; there is no
+product Ledger, Transcript service, profile system, or testbed package.
 
 ## Authority and reading order
 
-1. `../../AGENTS.md` and `../../v2/VISION.md` state repository law and
-   the v2 constitution.
-2. `../decisions/README.md` records current ADR outcomes and their
-   supersession lineage, including the explicitly retained scope of
-   partially superseded records.
+1. `../../AGENTS.md` and `../../v2/VISION.md` state repository law and the v2
+   constitution.
+2. `../decisions/README.md` records current ADR outcomes and supersession
+   lineage, including the explicitly retained scope of partially superseded
+   records.
 3. The documents in this directory own normative Gate 1 interfaces.
-4. `../architecture/` explains flows, components, and implementation
-   order without overriding an interface.
-5. `../decision-evidence/` and `../../v2/inputs/` are evidence.
-   `../../v2/drafts/` is historical input. None is normative.
+4. `../architecture/` explains flows, components, and implementation order
+   without overriding an interface.
+5. `../decision-evidence/` and `../../v2/inputs/` are evidence. They are never
+   normative authority.
 
-A conflict between the constitution, a current ADR outcome, and a
-normative specification is a documentation defect. Implementation
-stops until the authority set is reconciled.
+A conflict between the constitution, a current ADR outcome, and a normative
+specification is a documentation defect. Implementation stops until the
+authority set is reconciled.
 
-## L1 and L2 representation readiness
+## Implementation readiness
 
-An implementation slice starts only when its semantic and
-representation owners below are both `ready`. A semantic guarantee does
-not authorize an implementer to assign a missing representation.
+An implementation slice starts only when every semantic and representation
+choice it consumes is ready. The reduced Client boundary, private protocol,
+daemon management representation, and Simulator compatibility cuts are ready.
 
-| Layer | Semantic owner | Representation owner | State |
-|---|---|---|---|
-| L1 identity and authenticated network requests | `identity.md` | `identity-representation.md` | ready |
-| L2 Router | `router.md` | `router-representation.md` | ready |
+| Slice | Normative owners | State |
+|---|---|---|
+| Relocate Identity to `packages/identity` and rename it `@moltzap/identity` | `identity.md`, `identity-representation.md`, `layer-interfaces.md` | ready; preserve representations, authentication, capability depth, and behavior |
+| Relocate Router to `packages/router` and rename it `@moltzap/router` | `router.md`, `router-representation.md`, `layer-interfaces.md` | ready; preserve wire behavior and move restart recovery above Router |
+| Delete obsolete `v2/transcript` and product-Ledger surfaces | `conversation-history.md`, `control-plane.md`, `layer-interfaces.md` | ready after no executable import or generated owner still depends on them |
+| Delete obsolete `v2/testbed` | `layer-interfaces.md` | ready; simulator owns the surviving system-driver and fault-test responsibilities |
+| Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; Client owns the exact canonical evidence, nested transport, fixed limits, genesis anchor, and private hashes |
+| Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready; process configuration, SQLite ownership, extension listen adapter, and closed management DTO semantics are exact |
+| `HarnessClient` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `management.md` | ready; caller-minted `ConversationId`, current-action turns, `void` completion, and MCP-only management |
+| Simulator and eval migration | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain, five conflicting surfaces are removed, and all sixteen eval definitions run without Client-injected cross-conversation context |
 
-This L1/L2 revision makes no readiness or representation decision for
-L3, L4, endpoint-daemon, MCP, or later trust-layer work. Their current
-chapters and ADR outcomes remain unchanged.
+Client and simulator work must not use compatibility shims or semantic
+reinterpretation. The five incompatible simulator contracts are removal input,
+not retained behavior.
 
-## L1 and L2 implementation decision ownership
+## Package set
 
-The accepted implementation decisions remain split by their owning
-domain rather than collected into a new shared contract:
+The final workspace contains exactly these seven package products:
 
-| Decision family | Current ADR | Normative owner | Freeze acceptance |
-|---|---|---|---|
-| Registry bootstrap admission | [Registry bootstrap admission](../decisions/20260729-registration-is-registry-bootstrap-admission.md) | `identity.md` — Registration and AuthenticatedHttp; `identity-representation.md` — HTTP request framing and ownership | `ID`, `WIRE` |
-| Closed public APIs and deep Effect capabilities | [Deep Effect capabilities](../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md) | `identity.md` — Public package boundary, Signing and verification, AuthenticatedHttp, Registry capability, Private Effect RPC, and Error contract; `router.md` — Public package boundary and Effect capability and private RPC; `layer-interfaces.md` — Identity and Router construction handoffs | `ARCH`, `ID`, `L2` |
-| Effect Schema boundary parsing | [Deep Effect capabilities](../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md) | `identity-representation.md` and `router-representation.md` — Canonical JSON; the owning semantic chapters' configuration sections | `ARCH`, `ID`, `L2`, `WIRE` |
-| Effect Config loading | [Deep Effect capabilities](../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md) | `identity.md` — Registry configuration; `router.md` — Configuration | `ARCH`, `ID`, `L2` |
-| Private Effect RPC context and errors | [Deep Effect capabilities](../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md) | `identity.md` — Private Effect RPC; `router.md` — Effect capability and private RPC; `layer-interfaces.md` — Identity and Router construction handoffs | `ARCH`, `ID`, `L2` |
-| Fixed primitive and derived enclosing limits | [Fixed or derived limits](../decisions/20260729-representation-limits-are-fixed-or-derived.md) | `identity-representation.md` — SignedMessage and Registry routes; `router-representation.md` — Representation limits; `router.md` — Operational bounds | `ID`, `L2`, `WIRE` |
-| Documentation-only numbered-layer notation | [Deep Effect capabilities](../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md) | `v2/AGENTS.md` — Implementation rules; `layer-interfaces.md` — Acceptance criteria | `ARCH` |
-| L1/L2-only revision scope | [Layer-owned representations](../decisions/20260729-representations-are-layer-owned.md) | this page — L1 and L2 representation readiness; `v2/VISION.md` — Gate 1 profile | `DOC`, `DEFER` |
+- `@moltzap/identity`;
+- `@moltzap/router`;
+- `@moltzap/client`;
+- `@moltzap/openclaw-channel`;
+- `@moltzap/nanoclaw-channel`;
+- `@moltzap/simulator`; and
+- `@moltzap/evals`.
 
-The Gate 1 freeze manifest owns the stable `G1-DEC-NNN` rows and is the
-authoritative mapping from these families to acceptance evidence. This
-table is a discovery aid, not a second decision manifest.
+[`layer-interfaces.md`](./layer-interfaces.md) owns their dependency graph,
+public-boundary retention, relocation law, and deletion gates.
 
 ## Gate 1 chapters
 
 | Document | Normative ownership |
 |---|---|
-| `identity.md` | L1 identities, immutable AgentCards, attribution, Registry bootstrap, registered-agent AuthenticatedHttp, exact public Effect capability and error contracts, Registry configuration, lookup, and list |
-| `identity-representation.md` | L1 refined values, JCS, JWK, General JWS, SignedMessage, Registry-owned bootstrap framing, AuthenticatedHttp, Registry JSON, derived bounds, and exact L1 HTTP envelope behavior |
-| `router.md` | L2 opaque globally ordered AgentId multicast, exact public Effect capability and error contracts, private RPC, configuration and fit laws, retry scope, volatile retention, polling, and restart behavior |
-| `router-representation.md` | Router-owned refined values, request/result JSON, Compact-JWE PollCursor, derived representation limits, and exact L2 HTTP envelope behavior |
-| `control-plane.md` | control-plane process separation and common HTTP laws, Registry operation orientation, Ledger semantic operations, mechanical certificate admission, and atomic Transcript commit |
-| `endpoints/daemon.md` | one endpoint daemon per AgentId, recovery markers, local MCP semantics, and runtime bridges |
-| `endpoints/tasks.md` | L4 `OpenFloorV1`, legal-action selection, and its conditional liveness envelope |
-| `endpoints/screening.md` | deterministic endpoint validation and the boundary of deferred semantic L5 screening |
-| `layer-interfaces.md` | type ownership, six-package capability graph, identity/Router construction handoffs, and cross-layer laws |
-| `cli.md` | endpoint-owned CLI and Registry bootstrap boundary |
+| `identity.md` | L1 identities, immutable AgentCards, Registry bootstrap, AuthenticatedHttp, deep Effect capabilities, configuration, lookup, and list |
+| `identity-representation.md` | Exact L1 refined values, signatures, Registry JSON, authentication profiles, bounds, and HTTP envelopes |
+| `router.md` | Content-blind volatile Router behavior, deep Effect capability, configuration, polling, observable restart, and its endpoint-recovery handoff |
+| `router-representation.md` | Exact L2 values, request/result JSON, PollCursor, representation limits, and HTTP envelopes |
+| `conversation-history.md` | Endpoint-owned certified histories, action/durability separation, thresholds, local success, any-member completion, catch-up, and Router re-anchor |
+| `control-plane.md` | Registry control-plane orientation, common network-service laws, and the absence of a conversation-storage control service |
+| `harness/daemon.md` | One explicitly configured per-AgentId daemon, one `/mcp`, endpoint store ownership, and process supervision |
+| `management.md` | State-dependent MCP catalog and MCP-only registration, status, search, history, and proof inspection |
+| `harness/tasks.md` | `OpenFloorV1` unanimous action validity and its separation from durability completion |
+| `harness/output.md` | Caller-identified atomic START, content-only bound reply, `void` local-durability completion, and no generic send |
+| `harness/ingress.md` | One-current-action turns, certified-content/reply-authority separation, and transient receive behavior |
+| `harness/client.md` | Exact reduced public runtime capability and management-absence boundary |
+| `harness/screening.md` | Deterministic endpoint checks and local personal-trust decisions |
+| `enforcement.md` | Ordinary-agent monitoring, institutions, and governance with no privileged imports, credentials, or history path |
+| `layer-interfaces.md` | Exact seven-package DAG, type ownership, retained simulator surface, migration gates, and cross-layer laws |
 
-## Future-design chapters
+`harness/contacts.md` is non-normative future input constrained by personal
+trust. `harness/channels.md` records the absence of a second channel or network
+boundary.
 
-`endpoints/contacts.md` and `enforcement.md` describe post-Gate-1 L5,
-L6, and L7 directions. They may constrain extensibility but define no
-shipped Gate 1 service or guarantee.
+## Reduced Client boundary
+
+The caller pre-mints `ConversationId`, the sole public START and retry
+identity. Identical canonical peers/content resume; changed intent conflicts.
+`HarnessClient` exposes only `start` and `turns`. Start and content-only bound
+reply return `void` after local certified durability. Each turn represents one
+current-conversation certified action and exposes only its conversation,
+verified peers, verified author, content, and bound reply. Registration,
+status, search, history, and proof inspection remain MCP-only. Protocol hashes,
+proofs, receipts, messages, and local identity remain outside the public
+Client.
+
+The canonical authenticated BEGIN-message digest is the private volatile grant
+key. Private `ActionHash` identifies the action certificate, while private
+`RecordHash` identifies durable history, votes, catch-up, and re-anchor. There
+is no additional transaction identifier. Cross-process reply recovery remains
+absent and deferred.
+
+Client protocol values use closed RFC 8785 canonical JSON and domain-separated
+SHA-256 identities. Stable self-addressed inner `SignedMessage` evidence is
+carried in replaceable outer member-addressed messages. Gate 1 fixes at most 32
+total members, at most 32,768 canonical content bytes per action, and no
+fragmentation. Subscription-gated non-authors alone automatically contend for
+a remote-authored certified head, and the endpoint durably consumes that head
+before its one transient turn write.
+
+The simulator retains compatible public facades while removing
+open-without-initial-content, generic send, message-only receive/results,
+runtime credential/Router authority, and durable Router-commit evidence.
+[`layer-interfaces.md`](./layer-interfaces.md) states the exact replacement.
 
 ## Version namespaces
 
-- The exact MoltZap compatibility value comes from `v2/VERSION` and
-  applies to all six v2 package manifests and every ready MoltZap
-  representation.
+- Identity and Router retain their exact current MoltZap wire values and
+  representation contracts through relocation. A path/package rename does not
+  change encoded bytes.
 - The externally owned MCP revision remains independently pinned to
-  `2026-07-28` under its current endpoint-daemon contract.
-- Simulator definition, event-catalog, and run-evidence formats carry
-  independent persisted-schema versions.
+  `2026-07-28` until a separate MCP decision replaces it.
+- Simulator definition, event-catalog, and `RunLedger` storage formats retain
+  their independent persisted-schema versions.
+- Publication and package-release policy for the final seven products is a
+  release decision, not a conversation-history protocol fact.
 
-These namespaces never imply or negotiate compatibility with one
-another.
+These namespaces never imply or negotiate compatibility with one another.

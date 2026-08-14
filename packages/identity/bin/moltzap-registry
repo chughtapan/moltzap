@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+import { NodeRuntime } from "@effect/platform-node";
+import { ConfigProvider, Effect, Layer } from "effect";
+import { layer } from "../dist/registry/server.js";
+
+Layer.launch(layer).pipe(
+  Effect.withConfigProvider(ConfigProvider.fromEnv()),
+  NodeRuntime.runMain,
+);

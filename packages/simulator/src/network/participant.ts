@@ -1,6 +1,6 @@
-/** @file Nominal network participant identity handles. */
+/** @file Nominal simulator network participant identity handles. */
 
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentId } from "@moltzap/identity";
 
 const participantHandleTypeId: unique symbol = Symbol(
   "@moltzap/simulator/ParticipantHandle",
@@ -16,8 +16,8 @@ const agentHandleConstruction: unique symbol = Symbol(
 );
 
 /**
- * A router-issued network identity. The hidden symbol prevents structurally
- * similar protocol data from being used as an identity handle.
+ * A network participant identity. The hidden symbol prevents structurally
+ * similar identity data from being used as a simulator handle.
  */
 export class ParticipantHandle<Name extends string = string> {
   readonly [participantHandleTypeId] = participantHandleTypeId;
@@ -39,9 +39,9 @@ export class ParticipantHandle<Name extends string = string> {
 }
 
 /**
- * Construct a participant handle at a router boundary.
+ * Construct a participant handle at the simulator network boundary.
  * @param name Validated participant name.
- * @param id Router-issued identity.
+ * @param id Identity-issued agent identifier.
  * @returns Nominal participant identity.
  */
 export function makeParticipantHandle<const Name extends string>(
@@ -54,7 +54,7 @@ export function makeParticipantHandle<const Name extends string>(
 }
 
 /** A participant whose autonomous runtime is owned by the run scope. */
-// eslint-disable-next-line agent-code-guard/max-non-trivial-classes-per-file -- agent and controlled-participant identities share the same router-issued handle contract
+// eslint-disable-next-line agent-code-guard/max-non-trivial-classes-per-file -- agent and controlled-participant identities share one simulator handle contract
 export class AgentHandle<
   Name extends string = string,
 > extends ParticipantHandle<Name> {
@@ -73,9 +73,9 @@ export class AgentHandle<
 }
 
 /**
- * Construct an agent handle at a router boundary.
+ * Construct an agent handle at the simulator network boundary.
  * @param name Validated roster name.
- * @param id Router-issued identity.
+ * @param id Identity-issued agent identifier.
  * @returns Nominal autonomous-agent identity.
  */
 export function makeAgentHandle<const Name extends string>(

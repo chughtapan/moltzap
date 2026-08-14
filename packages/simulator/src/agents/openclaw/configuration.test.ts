@@ -1,6 +1,9 @@
-import { Redacted } from "effect";
+/** @file Pins native OpenClaw MCP transport configuration rendering. */
+
 import { assert, describe, it } from "@effect/vitest";
-import { agentName } from "@moltzap/protocol/testing";
+import { AgentName } from "@moltzap/identity";
+import { Redacted, Schema } from "effect";
+
 import { buildOpenClawConfig } from "./configuration.js";
 
 const CALENDAR_URL = "https://calendar.test/mcp/opaque-token";
@@ -10,7 +13,7 @@ function mcpSection(
 ) {
   const config = buildOpenClawConfig(
     {
-      agentName: agentName("alice"),
+      agentName: Schema.decodeUnknownSync(AgentName)("alice"),
       gatewayToken: Redacted.make("token"),
       mcpServers,
     },
@@ -41,7 +44,7 @@ describe("buildOpenClawConfig MCP servers", () => {
     );
   });
 
-  it("renders a url definition as a streamable-http transport", () => {
+  it("renders a URL definition as a streamable-http transport", () => {
     assert.deepStrictEqual(
       mcpSection([{ name: "calendar", url: CALENDAR_URL }]),
       {
@@ -50,7 +53,7 @@ describe("buildOpenClawConfig MCP servers", () => {
     );
   });
 
-  it("omits the mcp section without servers", () => {
+  it("omits the MCP section without servers", () => {
     assert.isUndefined(mcpSection(undefined));
   });
 });

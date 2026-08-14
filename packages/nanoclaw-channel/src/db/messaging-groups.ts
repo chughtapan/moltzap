@@ -1,25 +1,27 @@
-// Stub matching the subset of nanoclaw's src/db/messaging-groups.ts that
-// moltzap.ts touches; resolves against the real sqlite-backed module inside
-// a nanoclaw checkout. The in-repo store is an in-memory map so unit tests
-// can observe eval-mode wiring creation.
+/**
+ * @file In-memory mirror of NanoClaw's messaging-group store for isolated
+ * adapter tests. The same module path binds to NanoClaw's SQLite-backed store
+ * when the adapter is installed in the host application.
+ */
+
 import type { MessagingGroup, MessagingGroupAgent } from "../types.js";
 
 const groups = new Map<string, MessagingGroup>();
 const wirings = new Map<string, MessagingGroupAgent>();
 
 /**
- * Creates messaging group.
- * @param group Value supplied to the operation.
+ * Records a messaging group by its persistent identifier.
+ * @param group Host routing row to record.
  */
 export function createMessagingGroup(group: MessagingGroup): void {
   groups.set(group.id, group);
 }
 
 /**
- * Returns messaging group by platform.
- * @param channelType Value supplied to the operation.
- * @param platformId Value supplied to the operation.
- * @returns The get messaging group by platform result.
+ * Finds the messaging group attached to one channel and platform address.
+ * @param channelType Channel implementation that owns the address.
+ * @param platformId Platform address assigned to the group.
+ * @returns The matching group, or `undefined` when the address is unknown.
  */
 export function getMessagingGroupByPlatform(
   channelType: string,
@@ -37,18 +39,18 @@ export function getMessagingGroupByPlatform(
 }
 
 /**
- * Creates messaging group agent.
- * @param mga Value supplied to the operation.
+ * Records the routing relationship between a messaging group and an agent.
+ * @param mga Host routing row to record.
  */
 export function createMessagingGroupAgent(mga: MessagingGroupAgent): void {
   wirings.set(mga.id, mga);
 }
 
 /**
- * Returns messaging group agent by pair.
- * @param messagingGroupId Value supplied to the operation.
- * @param agentGroupId Value supplied to the operation.
- * @returns The get messaging group agent by pair result.
+ * Finds the routing relationship for one messaging-group and agent-group pair.
+ * @param messagingGroupId Messaging group side of the relationship.
+ * @param agentGroupId Agent group side of the relationship.
+ * @returns The matching wiring, or `undefined` when the pair is not connected.
  */
 export function getMessagingGroupAgentByPair(
   messagingGroupId: string,

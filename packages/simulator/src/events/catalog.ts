@@ -1,3 +1,5 @@
+/** @file Closed schema-backed event catalogs with validated stable versioned tags. */
+
 import { Schema } from "effect";
 
 /** Stable persisted identity for an event class. */

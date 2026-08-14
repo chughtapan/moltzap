@@ -1,6 +1,7 @@
 /** @file Evidence-producing scoped control for directed network links. */
 
 import { Cause, Duration, Effect, Either, Exit, Ref } from "effect";
+import type { LedgerWriter } from "../ledger/append.js";
 import {
   LinkDown,
   type linkEvents,
@@ -8,17 +9,17 @@ import {
   LinkPolicySet,
   LinkUp,
 } from "../events/core.js";
-import type { LedgerWriter } from "../ledger/append.js";
 import {
-  LinkDriver,
-  linkPolicy,
   type LinkControllerService,
+  LinkDriver,
   type LinkDriverService,
+  linkPolicy,
   type LinkPolicy,
   type LinkPolicyLease,
-} from "../network/link.js";
-import type { ParticipantHandle } from "../network/participant.js";
-import { networkError, type NetworkError } from "../network/failure.js";
+  networkError,
+  type NetworkError,
+  type ParticipantHandle,
+} from "../network/index.js";
 
 interface DirectedLink {
   readonly key: string;
@@ -43,6 +44,29 @@ type Restore = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ) => Effect.Effect<A, E, R>;
 
+/**
+ * Creates one run-scoped directed-link controller.
+ * @param writer Producer-bound writer for link lifecycle events.
+ * @returns The scoped link-control service.
+ */
+export function makeLinkController(
+  writer: LinkEventWriter,
+): Effect.Effect<LinkControllerService> {
+  return Effect.gen(function* () {
+    const runtime: LinkControllerRuntime = {
+      active: yield* Ref.make<ReadonlyMap<string, ActiveLink>>(new Map()),
+      transition: yield* Effect.makeSemaphore(1),
+      writer,
+    };
+    return Object.freeze({
+      disable: disable(runtime),
+      delay: delay(runtime),
+      hold: hold(runtime),
+      shape: shape(runtime),
+    });
+  }).pipe(Effect.withSpan("makeLinkController"));
+}
+
 function keyOf(from: ParticipantHandle, to: ParticipantHandle): string {
   return `${from.id}->${to.id}`;
 }
@@ -50,10 +74,7 @@ function keyOf(from: ParticipantHandle, to: ParticipantHandle): string {
 function recordDown(runtime: LinkControllerRuntime, link: DirectedLink) {
   return runtime.writer
     .write({
-      event: LinkDown.make({
-        from: link.from.id,
-        to: link.to.id,
-      }),
+      event: LinkDown.make({ from: link.from.id, to: link.to.id }),
     })
     .pipe(Effect.asVoid);
 }
@@ -61,12 +82,24 @@ function recordDown(runtime: LinkControllerRuntime, link: DirectedLink) {
 function recordUp(runtime: LinkControllerRuntime, link: DirectedLink) {
   return runtime.writer
     .write({
-      event: LinkUp.make({
-        from: link.from.id,
-        to: link.to.id,
-      }),
+      event: LinkUp.make({ from: link.from.id, to: link.to.id }),
     })
     .pipe(Effect.asVoid);
+}
+
+function holdFirstLease(runtime: LinkControllerRuntime, link: ActiveLink) {
+  return holdLease(runtime, link, addActive(runtime, link));
+}
+
+function holdOverlappingLease(
+  runtime: LinkControllerRuntime,
+  link: ActiveLink,
+) {
+  return holdLease(
+    runtime,
+    link,
+    Ref.update(link.leases, (leases) => leases + 1),
+  );
 }
 
 function addActive(
@@ -140,26 +173,9 @@ function holdLease(
   link: ActiveLink,
   acquire: Effect.Effect<void>,
 ) {
-  // The returned acquisition keeps Scope in LinkController.disable's
-  // requirements; the customer program owns that enclosing scope.
-  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- this helper returns the scoped acquisition to its caller
+  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- the caller owns the fault scope
   return Effect.acquireRelease(acquire, () =>
     releaseLease(runtime, link).pipe(Effect.orDie),
-  );
-}
-
-function holdFirstLease(runtime: LinkControllerRuntime, link: ActiveLink) {
-  return holdLease(runtime, link, addActive(runtime, link));
-}
-
-function holdOverlappingLease(
-  runtime: LinkControllerRuntime,
-  link: ActiveLink,
-) {
-  return holdLease(
-    runtime,
-    link,
-    Ref.update(link.leases, (leases) => leases + 1),
   );
 }
 
@@ -170,7 +186,9 @@ function acquireFirst(
   restore: Restore,
 ) {
   return Effect.gen(function* () {
-    yield* restore(driver.disable(link.from.id, link.to.id));
+    // The driver can commit before interruption becomes observable. Keep this
+    // call masked so either evidence is compensated or a finalizer owns it.
+    yield* driver.disable(link.from.id, link.to.id);
     const observed = yield* Effect.exit(restore(recordDown(runtime, link)));
     if (Exit.isFailure(observed)) {
       const failure = Cause.failureOrCause(observed.cause);
@@ -196,8 +214,7 @@ function acquireLease(
   return runtime.transition.withPermits(1)(
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
-        const active = yield* Ref.get(runtime.active);
-        const existing = active.get(link.key);
+        const existing = (yield* Ref.get(runtime.active)).get(link.key);
         if (existing !== undefined) {
           yield* holdOverlappingLease(runtime, existing);
           return;
@@ -222,6 +239,21 @@ function recordPolicySet(
       }),
     })
     .pipe(Effect.asVoid);
+}
+
+function releasePolicy(
+  runtime: LinkControllerRuntime,
+  link: DirectedLink,
+  lease: LinkPolicyLease,
+  description: string,
+): Effect.Effect<void, NetworkError> {
+  return lease.clear.pipe(
+    Effect.zipRight(
+      recordPolicyCleared(runtime, link, description).pipe(
+        Effect.catchAll(() => Effect.void),
+      ),
+    ),
+  );
 }
 
 function recordPolicyCleared(
@@ -258,21 +290,6 @@ function rollbackPolicyLedgerFailure(lease: LinkPolicyLease) {
   });
 }
 
-function releasePolicy(
-  runtime: LinkControllerRuntime,
-  link: DirectedLink,
-  lease: LinkPolicyLease,
-  description: string,
-): Effect.Effect<void, NetworkError> {
-  return lease.clear.pipe(
-    Effect.zipRight(
-      recordPolicyCleared(runtime, link, description).pipe(
-        Effect.catchAll(() => Effect.void),
-      ),
-    ),
-  );
-}
-
 interface PolicyInstallation {
   readonly driver: LinkDriverService;
   readonly policy: LinkPolicy;
@@ -287,8 +304,13 @@ function acquirePolicy(
   const { driver, policy, description } = installation;
   return Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
-      const lease = yield* restore(
-        driver.apply(link.from.id, link.to.id, policy, description),
+      // Acquiring the lease stays masked until an interruptible evidence write
+      // is compensated or scoped release owns the exact committed lease.
+      const lease = yield* driver.apply(
+        link.from.id,
+        link.to.id,
+        policy,
+        description,
       );
       const observed = yield* Effect.exit(
         restore(recordPolicySet(runtime, link, description)),
@@ -300,9 +322,7 @@ function acquirePolicy(
           onRight: (cause) => rollbackPolicy(lease, cause),
         });
       }
-      // The returned acquisition keeps Scope in the policy verbs'
-      // requirements; the customer program owns that enclosing scope.
-      // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- this helper returns the scoped acquisition to its caller
+      // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- the caller owns the policy scope
       yield* Effect.acquireRelease(Effect.void, () =>
         releasePolicy(runtime, link, lease, description).pipe(Effect.orDie),
       );
@@ -370,27 +390,4 @@ function disable(
       };
       yield* acquireLease(runtime, link, driver);
     });
-}
-
-/**
- * Creates link controller.
- * @param writer Value supplied to the operation.
- * @returns The created link controller.
- */
-export function makeLinkController(
-  writer: LinkEventWriter,
-): Effect.Effect<LinkControllerService> {
-  return Effect.gen(function* () {
-    const runtime: LinkControllerRuntime = {
-      active: yield* Ref.make<ReadonlyMap<string, ActiveLink>>(new Map()),
-      transition: yield* Effect.makeSemaphore(1),
-      writer,
-    };
-    return Object.freeze({
-      disable: disable(runtime),
-      delay: delay(runtime),
-      hold: hold(runtime),
-      shape: shape(runtime),
-    });
-  }).pipe(Effect.withSpan("makeLinkController"));
 }

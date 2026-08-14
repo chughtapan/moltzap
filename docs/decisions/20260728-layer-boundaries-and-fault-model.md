@@ -1,12 +1,30 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Gate 1 fixes the layer boundaries and fault model
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-layer-boundaries-and-fault-model), including the [Registry trust selection](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#registry-trust-assumption).
+
+## Supersession
+
+The independent Registry and Router boundaries, content-blind Router,
+endpoint-owned interpretation, potentially Byzantine endpoints, correct
+non-equivocating Registry and Router assumptions, and separate safety and
+liveness claims remain current. Identity and Router do not interpret tasks,
+norms, institutions, or governance.
+
+`20260811-four-layer-endpoint-replicated-harness.md` removes the sibling Ledger
+process, the correct-durable-Ledger trust assumption, the eight-layer numbering,
+and the L5–L8/L7 trust domains. It assigns durable conversation history to
+fixed-member endpoint replicas and states their quorum, disk, availability,
+and catch-up assumptions directly. The replacement record, `v2/VISION.md`,
+`docs/spec/layer-interfaces.md`, and `docs/spec/conversation-history.md` own the
+current boundary and fault model; the retained exact identity and Router
+contracts remain in their named specification chapters.
 
 ## Context and Problem Statement
 

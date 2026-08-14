@@ -1,39 +1,36 @@
 /** @file Normalized evaluation transcripts and their evidence-ID invariants. */
 
-import { conversationId } from "@moltzap/protocol/conversation";
-import { type AgentId, agentId, agentName } from "@moltzap/protocol/identity";
-import {
-  type MessageParts,
-  messagePartsSchema,
-} from "@moltzap/protocol/message";
+import { AgentName as agentName, ConversationId } from "@moltzap/client";
 import { OpenClawGatewayTimedOut } from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";
-import { TARGET_AGENT_NAME, type EvaluationCaseMetadata } from "./cases.js";
+import { type EvaluationCaseMetadata, TARGET_AGENT_NAME } from "./cases.js";
 import {
-  CodePeerMessageReceived,
-  CodePeerMessageSent,
   type EvaluationEvidence,
-  EvaluationEvidenceProjectionError,
   type EvaluationEvidenceLedger,
+  EvaluationEvidenceProjectionError,
   type GatewayEvidence,
   NanoClawPrincipalInputSent,
   NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
-  type PeerTimeoutEvidence,
-  type SocialEvidence,
   projectEvaluationEvidence,
+  semanticContent,
+  SocialActionNotObserved,
+  SocialActionObserved,
+  type SocialEvidence,
 } from "./events.js";
 import {
   type CriterionId,
   type EvaluationCaseId,
-  type EvaluationEvidenceId,
   evaluationCaseId,
+  type EvaluationEvidenceId,
   evaluationEvidenceId,
-  positiveInteger,
 } from "./model.js";
 
-const transcriptParts = messagePartsSchema();
+const transcriptParts = Schema.NonEmptyArray(
+  Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }),
+);
+type TranscriptParts = typeof transcriptParts.Type;
 const maximumPartLength = 32_768;
 const maximumParts = 10;
 const transcriptTruncationMarker = "\n[transcript truncated]";
@@ -41,10 +38,7 @@ const transcriptTruncationMarker = "\n[transcript truncated]";
 /** Principal identity established by every native gateway observation. */
 export class EvaluationTarget extends Schema.Class<EvaluationTarget>(
   "EvaluationTarget",
-)({
-  name: agentName,
-  id: agentId,
-}) {}
+)({ name: agentName }) {}
 
 /** One normalized native principal-gateway input or output. */
 export class GatewayTranscriptItem extends Schema.TaggedClass<GatewayTranscriptItem>()(
@@ -54,41 +48,37 @@ export class GatewayTranscriptItem extends Schema.TaggedClass<GatewayTranscriptI
     source: Schema.Literal("gateway"),
     direction: Schema.Literal("input", "output"),
     actorName: agentName,
-    actorId: agentId,
     parts: transcriptParts,
   },
 ) {}
 
-/** One normalized social observation with its router corroboration. */
+/** One semantic action observed through a peer's public HarnessClient. */
 export class SocialTranscriptItem extends Schema.TaggedClass<SocialTranscriptItem>()(
   "SocialTranscriptItem",
   {
     evidenceId: evaluationEvidenceId,
     source: Schema.Literal("social"),
     direction: Schema.Literal("input", "output"),
-    actorName: Schema.optional(agentName),
-    actorId: agentId,
+    actorName: agentName,
     endpointName: agentName,
-    endpointId: agentId,
-    conversationId,
-    routerCommitEvidenceId: evaluationEvidenceId,
-    parts: transcriptParts,
+    conversationId: ConversationId,
+    parts: semanticContent,
   },
 ) {}
 
-/** A required autonomous peer exchange was absent at the policy deadline. */
+/** Bounded evidence that a required social response never arrived. */
 export class PeerTimeoutTranscriptItem extends Schema.TaggedClass<PeerTimeoutTranscriptItem>()(
   "PeerTimeoutTranscriptItem",
   {
     evidenceId: evaluationEvidenceId,
     source: Schema.Literal("peer-timeout"),
+    direction: Schema.Literal("input"),
+    actorName: agentName,
     endpointName: agentName,
-    endpointId: agentId,
-    timeoutMillis: positiveInteger,
+    parts: transcriptParts,
   },
 ) {}
 
-/** Closed transcript item universe supplied to deterministic and semantic graders. */
 const transcriptItem = Schema.Union(
   GatewayTranscriptItem,
   SocialTranscriptItem,
@@ -108,10 +98,7 @@ export class EvaluationTranscript extends Schema.Class<EvaluationTranscript>(
 /** Invalid, incomplete, or definition-mismatched evidence is never scored. */
 export class GradingRefused extends Schema.TaggedError<GradingRefused>()(
   "GradingRefused",
-  {
-    caseId: evaluationCaseId,
-    detail: Schema.NonEmptyString,
-  },
+  { caseId: evaluationCaseId, detail: Schema.NonEmptyString },
 ) {}
 
 /** One reason a transcript, selection, or citation is unusable as evidence. */
@@ -122,9 +109,8 @@ export interface TranscriptIssue {
 
 /**
  * Build the refusal that keeps unusable evidence out of every report.
- * @param caseId The case whose evidence cannot be scored.
- * @param detail Why the evidence is unusable.
- * @returns A refusal that ends the case without producing any verdict.
+ * @param caseId
+ * @param detail
  */
 export function refusal(
   caseId: EvaluationCaseId,
@@ -144,28 +130,18 @@ function duplicate<Value>(values: readonly Value[]): Value | undefined {
   return undefined;
 }
 
-function nonemptyText(value: string, fallback: string): string {
-  const normalized = value.trim();
-  return normalized.length > 0 ? value : fallback;
-}
-
 /**
  * Normalize untrusted observed text into bounded transcript parts.
- * @param value Observed text; anything beyond the bound is dropped.
- * @param fallback Stands in when the text is blank or entirely whitespace.
- * @returns Between one and `maximumParts` parts, overlong text ending in the
- * truncation marker.
+ * @param value
+ * @param fallback
  */
-export function textParts(value: string, fallback: string): MessageParts {
-  const normalized = nonemptyText(value, fallback);
+export function textParts(value: string, fallback: string): TranscriptParts {
+  const normalized = value.trim().length > 0 ? value : fallback;
   const maximumLength = maximumPartLength * maximumParts;
   const text =
     normalized.length <= maximumLength
       ? normalized
-      : `${normalized.slice(
-          0,
-          maximumLength - transcriptTruncationMarker.length,
-        )}${transcriptTruncationMarker}`;
+      : `${normalized.slice(0, maximumLength - transcriptTruncationMarker.length)}${transcriptTruncationMarker}`;
   const parts: Array<{ readonly type: "text"; readonly text: string }> = [];
   for (
     let offset = 0;
@@ -184,23 +160,24 @@ export function textParts(value: string, fallback: string): MessageParts {
 }
 
 function openClawOutputText(observation: OpenClawPrincipalFinalOutput): string {
-  const payloads = observation.output.result?.payloads ?? [];
-  const fragments = payloads.flatMap((payload) => {
-    if (payload.isReasoning === true) {
-      return [];
-    }
-    const values: string[] = [];
-    if (payload.text !== undefined) {
-      values.push(payload.text);
-    }
-    if (payload.mediaUrl !== undefined) {
-      values.push(`[media: ${payload.mediaUrl}]`);
-    }
-    for (const mediaUrl of payload.mediaUrls ?? []) {
-      values.push(`[media: ${mediaUrl}]`);
-    }
-    return values;
-  });
+  const fragments = (observation.output.result?.payloads ?? []).flatMap(
+    (payload) => {
+      if (payload.isReasoning === true) {
+        return [];
+      }
+      const values: string[] = [];
+      if (payload.text !== undefined) {
+        values.push(payload.text);
+      }
+      if (payload.mediaUrl !== undefined) {
+        values.push(`[media: ${payload.mediaUrl}]`);
+      }
+      for (const mediaUrl of payload.mediaUrls ?? []) {
+        values.push(`[media: ${mediaUrl}]`);
+      }
+      return values;
+    },
+  );
   if (fragments.length > 0) {
     return fragments.join("\n");
   }
@@ -211,7 +188,7 @@ function openClawOutputText(observation: OpenClawPrincipalFinalOutput): string {
 
 function gatewayParts(
   observation: GatewayEvidence["observation"],
-): MessageParts {
+): TranscriptParts {
   if (observation instanceof OpenClawPrincipalInstructionAttempted) {
     return textParts(
       observation.request.message,
@@ -247,22 +224,14 @@ function isGatewayOutput(
   );
 }
 
-function isSelectableGatewayOutput(
-  observation: GatewayEvidence["observation"],
-): observation is OpenClawPrincipalFinalOutput {
-  return observation instanceof OpenClawPrincipalFinalOutput;
-}
-
 function targetFromGateway(
   evidence: EvaluationEvidence,
 ): Effect.Effect<EvaluationTarget, GradingRefused> {
-  const identities = new Map<string, EvaluationTarget>();
-  for (const item of evidence.gateway) {
-    const { agentId: id, agentName: name } = item.observation;
-    identities.set(`${name}\u0000${id}`, EvaluationTarget.make({ name, id }));
-  }
-  const [target] = identities.values();
-  if (identities.size !== 1 || target === undefined) {
+  const names = new Set(
+    evidence.gateway.map((item) => item.observation.agentName),
+  );
+  const [name] = names;
+  if (names.size !== 1 || name === undefined) {
     return Effect.fail(
       refusal(
         evidence.caseId,
@@ -270,116 +239,54 @@ function targetFromGateway(
       ),
     );
   }
-  if (target.name !== TARGET_AGENT_NAME) {
+  if (name !== TARGET_AGENT_NAME) {
     return Effect.fail(
       refusal(
         evidence.caseId,
-        `native gateway evidence identifies ${target.name}, not ${TARGET_AGENT_NAME}`,
+        `native gateway evidence identifies ${name}, not ${TARGET_AGENT_NAME}`,
       ),
     );
   }
-  return Effect.succeed(target);
+  return Effect.succeed(EvaluationTarget.make({ name }));
 }
 
 function gatewayItem(item: GatewayEvidence): GatewayTranscriptItem {
-  const observation = item.observation;
   return GatewayTranscriptItem.make({
     evidenceId: item.eventId,
     source: "gateway",
-    direction: isGatewayOutput(observation) ? "output" : "input",
-    actorName: observation.agentName,
-    actorId: observation.agentId,
-    parts: gatewayParts(observation),
+    direction: isGatewayOutput(item.observation) ? "output" : "input",
+    actorName: item.observation.agentName,
+    parts: gatewayParts(item.observation),
   });
-}
-
-function socialSender(item: SocialEvidence): AgentId {
-  return item.observation instanceof CodePeerMessageSent
-    ? item.observation.agentId
-    : item.observation.senderId;
-}
-
-function socialSenderName(
-  item: SocialEvidence,
-  target: EvaluationTarget,
-): SocialTranscriptItem["actorName"] {
-  if (item.observation instanceof CodePeerMessageSent) {
-    return item.observation.agentName;
-  }
-  return item.observation.senderId === target.id ? target.name : undefined;
 }
 
 function socialItem(
   item: SocialEvidence,
   target: EvaluationTarget,
-): SocialTranscriptItem {
+): SocialTranscriptItem | PeerTimeoutTranscriptItem {
   const observation = item.observation;
-  const senderId = socialSender(item);
-  const senderName = socialSenderName(item, target);
-  return SocialTranscriptItem.make({
-    evidenceId: item.eventId,
-    source: "social",
-    direction: senderId === target.id ? "output" : "input",
-    actorId: senderId,
-    ...(senderName === undefined ? {} : { actorName: senderName }),
-    endpointName: observation.agentName,
-    endpointId: observation.agentId,
-    conversationId: observation.conversationId,
-    routerCommitEvidenceId: item.routerCommitEventId,
-    parts: observation.parts,
-  });
-}
-
-function peerTimeoutItem(item: PeerTimeoutEvidence): PeerTimeoutTranscriptItem {
+  if (observation instanceof SocialActionObserved) {
+    return SocialTranscriptItem.make({
+      evidenceId: item.eventId,
+      source: "social",
+      direction: observation.direction,
+      actorName: observation.authorName,
+      endpointName: observation.endpointName,
+      conversationId: observation.conversationId,
+      parts: observation.content,
+    });
+  }
   return PeerTimeoutTranscriptItem.make({
     evidenceId: item.eventId,
     source: "peer-timeout",
-    endpointName: item.observation.agentName,
-    endpointId: item.observation.agentId,
-    timeoutMillis: item.observation.timeoutMillis,
+    direction: "input",
+    actorName: target.name,
+    endpointName: observation.endpointName,
+    parts: textParts(
+      `No social action arrived within ${String(observation.timeoutMillis)}ms.`,
+      "[No social action observed]",
+    ),
   });
-}
-
-function selectedSocialIssue(
-  item: SocialEvidence,
-  target: EvaluationTarget,
-): TranscriptIssue | undefined {
-  if (!(item.observation instanceof CodePeerMessageReceived)) {
-    return {
-      detail:
-        "selected social evidence must be a code peer's observation of target output",
-      evidenceId: item.eventId,
-    };
-  }
-  if (
-    item.observation.senderId !== target.id ||
-    item.routerCommit.senderId !== target.id
-  ) {
-    return {
-      detail:
-        "selected social evidence sender and router commit must both identify the target",
-      evidenceId: item.eventId,
-    };
-  }
-  return undefined;
-}
-
-function selectedGatewayIssue(
-  item: GatewayEvidence,
-  target: EvaluationTarget,
-): TranscriptIssue | undefined {
-  if (
-    !isSelectableGatewayOutput(item.observation) ||
-    item.observation.agentId !== target.id ||
-    item.observation.agentName !== target.name
-  ) {
-    return {
-      detail:
-        "selected gateway evidence must be correlated terminal output from the target",
-      evidenceId: item.eventId,
-    };
-  }
-  return undefined;
 }
 
 function selectedEvidenceIssue(
@@ -397,37 +304,42 @@ function selectedEvidenceIssue(
     };
   }
   for (const selectedId of evidence.selectedEventIds) {
-    const issue = selectedEvidenceItemIssue(evidence, target, selectedId);
-    if (issue !== undefined) {
-      return issue;
+    const gatewaySelection = evidence.gateway.find(
+      (item) => item.eventId === selectedId,
+    );
+    if (gatewaySelection !== undefined) {
+      if (
+        !(
+          gatewaySelection.observation instanceof OpenClawPrincipalFinalOutput
+        ) ||
+        gatewaySelection.observation.agentName !== target.name
+      ) {
+        return {
+          detail: `selected evidence ${selectedId} is not correlated terminal output from the target`,
+          evidenceId: selectedId,
+        };
+      }
+      continue;
+    }
+    const socialSelection = evidence.social.find(
+      (item) => item.eventId === selectedId,
+    );
+    if (socialSelection?.observation instanceof SocialActionNotObserved) {
+      continue;
+    }
+    if (
+      socialSelection === undefined ||
+      !(socialSelection.observation instanceof SocialActionObserved) ||
+      socialSelection.observation.direction !== "input" ||
+      socialSelection.observation.authorName !== target.name
+    ) {
+      return {
+        detail: `selected evidence ${selectedId} is neither target output nor a bounded peer timeout`,
+        evidenceId: selectedId,
+      };
     }
   }
   return undefined;
-}
-
-function selectedEvidenceItemIssue(
-  evidence: EvaluationEvidence,
-  target: EvaluationTarget,
-  selectedId: EvaluationEvidenceId,
-): TranscriptIssue | undefined {
-  const gateway = evidence.gateway.find((item) => item.eventId === selectedId);
-  if (gateway !== undefined) {
-    return selectedGatewayIssue(gateway, target);
-  }
-  const social = evidence.social.find((item) => item.eventId === selectedId);
-  if (social !== undefined) {
-    return selectedSocialIssue(social, target);
-  }
-  const timeout = evidence.peerTimeouts.find(
-    (item) => item.eventId === selectedId,
-  );
-  if (timeout !== undefined) {
-    return undefined;
-  }
-  return {
-    detail: `selected evidence ${selectedId} is absent`,
-    evidenceId: selectedId,
-  };
 }
 
 function transcriptFromEvidence(
@@ -444,11 +356,9 @@ function transcriptFromEvidence(
       );
     }
     const target = yield* targetFromGateway(evidence);
-    const selectionIssue = selectedEvidenceIssue(evidence, target);
-    if (selectionIssue !== undefined) {
-      return yield* Effect.fail(
-        refusal(evidence.caseId, selectionIssue.detail),
-      );
+    const issue = selectedEvidenceIssue(evidence, target);
+    if (issue !== undefined) {
+      return yield* Effect.fail(refusal(evidence.caseId, issue.detail));
     }
     const items = [
       ...evidence.gateway.map((item) => ({
@@ -458,10 +368,6 @@ function transcriptFromEvidence(
       ...evidence.social.map((item) => ({
         logicalSequence: item.logicalSequence,
         value: socialItem(item, target),
-      })),
-      ...evidence.peerTimeouts.map((item) => ({
-        logicalSequence: item.logicalSequence,
-        value: peerTimeoutItem(item),
       })),
     ].sort((left, right) => left.logicalSequence - right.logicalSequence);
     const [firstItem, ...remainingItems] = items;
@@ -480,10 +386,7 @@ function transcriptFromEvidence(
   });
 }
 
-/**
- * Project a completed ledger, establish its native target, and normalize the
- * selected principal output without inventing message correlation.
- */
+/** Project a completed ledger and normalize its selected principal output. */
 export const transcriptFromLedger = Effect.fn("evals.transcriptFromLedger")(
   function* <Failure>(
     ledger: EvaluationEvidenceLedger<Failure>,
@@ -500,40 +403,9 @@ export const transcriptFromLedger = Effect.fn("evals.transcriptFromLedger")(
   },
 );
 
-function selectedTranscriptItemIssue(
-  transcript: EvaluationTranscript,
-  selectedId: EvaluationEvidenceId,
-): TranscriptIssue | undefined {
-  const selected = transcript.items.find(
-    (item) => item.evidenceId === selectedId,
-  );
-  if (selected === undefined) {
-    return {
-      detail: `selected evidence ${selectedId} is absent from the transcript`,
-      evidenceId: selectedId,
-    };
-  }
-  // A peer timeout records an absence of output, so it carries no direction or actor.
-  if (selected instanceof PeerTimeoutTranscriptItem) {
-    return undefined;
-  }
-  if (
-    selected.direction !== "output" ||
-    selected.actorId !== transcript.target.id
-  ) {
-    return {
-      detail: `selected evidence ${selectedId} is not target output`,
-      evidenceId: selectedId,
-    };
-  }
-  return undefined;
-}
-
 /**
  * Report the first structural defect in a transcript.
- * @param transcript Normalized evidence and the observations the case selected.
- * @returns The defect that disqualifies the transcript, or undefined when every
- * selected observation resolves to target output.
+ * @param transcript
  */
 export function transcriptIssue(
   transcript: EvaluationTranscript,
@@ -555,9 +427,25 @@ export function transcriptIssue(
     };
   }
   for (const selectedId of transcript.selectedEvidenceIds) {
-    const issue = selectedTranscriptItemIssue(transcript, selectedId);
-    if (issue !== undefined) {
-      return issue;
+    const selected = transcript.items.find(
+      (item) => item.evidenceId === selectedId,
+    );
+    if (
+      selected === undefined ||
+      (selected instanceof GatewayTranscriptItem &&
+        (selected.direction !== "output" ||
+          selected.actorName !== transcript.target.name)) ||
+      (selected instanceof SocialTranscriptItem &&
+        (selected.direction !== "input" ||
+          selected.actorName !== transcript.target.name)) ||
+      (!(selected instanceof GatewayTranscriptItem) &&
+        !(selected instanceof SocialTranscriptItem) &&
+        !(selected instanceof PeerTimeoutTranscriptItem))
+    ) {
+      return {
+        detail: `selected evidence ${selectedId} is not target output`,
+        evidenceId: selectedId,
+      };
     }
   }
   return undefined;
@@ -576,11 +464,9 @@ export const validateEvaluationTranscript = Effect.fn(
 
 /**
  * Report why one criterion's citations fail to bind to transcript evidence.
- * @param transcript Normalized evidence and the observations the case selected.
- * @param criterion Named in the reported detail; nothing else reads it.
- * @param citations Evidence IDs the decision offers as proof.
- * @returns The binding failure, or undefined when the citations are unique, all
- * present in the transcript, and include at least one selected observation.
+ * @param transcript
+ * @param criterion
+ * @param citations
  */
 export function citationIssue(
   transcript: EvaluationTranscript,
@@ -607,10 +493,7 @@ export function citationIssue(
     }
   }
   const selected = new Set(transcript.selectedEvidenceIds);
-  if (!citations.some((citation) => selected.has(citation))) {
-    return {
-      detail: `criterion ${criterion} does not cite selected target output`,
-    };
-  }
-  return undefined;
+  return citations.some((citation) => selected.has(citation))
+    ? undefined
+    : { detail: `criterion ${criterion} does not cite selected target output` };
 }

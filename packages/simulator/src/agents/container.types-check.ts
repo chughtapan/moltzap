@@ -1,18 +1,21 @@
-/**
- * Type canary: a private container realization preserves its runtime's exact
- * principal gateway and acquisition-error types through render and attach, and
- * a runtime built by `defineContainerRuntime` always has one to read.
- */
+/** @file Type canaries for exact container gateway and acquisition-error preservation. */
 
 import type { Effect } from "effect";
-import type { OpenClawGateway } from "./openclaw/gateway.js";
-import { openClawRuntime } from "./openclaw/runtime.js";
 import type { RuntimeAcquisitionError } from "./agent.js";
+import type { OpenClawGateway } from "./openclaw/gateway.js";
 import {
-  containerRuntimeFor,
   type Application,
   type ContainerRuntime,
+  containerRuntimeFor,
 } from "./container.js";
+import { openClawRuntime } from "./openclaw/runtime.js";
+
+/**
+ * Type canary: a private container realization preserves its runtime's exact
+ * principal gateway and acquisition-error types through render and attach,
+ * accepts only the runtime-owned agent name while rendering, and a runtime
+ * built by `defineContainerRuntime` always has one to read.
+ */
 
 type Equal<Left, Right> = [Left] extends [Right]
   ? [Right] extends [Left]
@@ -23,7 +26,10 @@ type Equal<Left, Right> = [Left] extends [Right]
 const runtime = openClawRuntime();
 
 /** Stock OpenClaw preserves its exact private container realization type. */
-export const openClawContainerRuntimeCanary = containerRuntimeFor(runtime);
+export const openClawContainerRuntimeCanary: ContainerRuntime<
+  OpenClawGateway,
+  RuntimeAcquisitionError
+> = containerRuntimeFor(runtime);
 
 /** Reading back the realization of a defined container runtime has no absent case. */
 export const containerRuntimeIsAlwaysPresent: Equal<

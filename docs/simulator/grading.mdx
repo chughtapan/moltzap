@@ -20,7 +20,6 @@ use the same definition id and complete catalog that produced the run:
 import {
   EventCatalog,
   ProgramSucceeded,
-  RouterMessageCommitted,
   coreEvents,
 } from "@moltzap/simulator";
 import type {
@@ -44,18 +43,12 @@ const gradeLedger = (
   ledger: CompletedRunLedger<typeof deliveryCatalog>,
 ) =>
   Effect.gen(function* () {
-    const collected = yield* Effect.all({
-      succeeded: Stream.runCollect(
-        ledger.events(ProgramSucceeded),
-      ),
-      committed: Stream.runCollect(
-        ledger.events(RouterMessageCommitted),
-      ),
-    });
+    const succeeded = yield* Stream.runCollect(
+      ledger.events(ProgramSucceeded),
+    );
 
     return {
-      programSucceeded: !Chunk.isEmpty(collected.succeeded),
-      committedMessageCount: Chunk.size(collected.committed),
+      programSucceeded: !Chunk.isEmpty(succeeded),
     };
   });
 
@@ -147,73 +140,18 @@ const requireProgramSuccess = (
 Diagnostic analysis may intentionally inspect a failed or interrupted
 program, but infrastructure invalidity must not become a low behavioral score.
 
-## Grade the strongest available evidence
+## Grade declared evidence
 
-Core event classes make different claims:
+Core event classes record run and runtime lifecycle facts. `AgentRuntimeReady`
+means a roster runtime completed its readiness contract. Runtime terminal
+events record autonomous completion, failure, exit, or signal while observed;
+teardown-induced process exit is excluded. Program events record the customer
+Effect boundary.
 
-| Event | Guarantee |
-|---|---|
-| `AgentRuntimeReady` | A roster runtime acquired its identity and completed its readiness contract |
-| `ConversationOpened` | A participant allocated a conversation address for a nonempty participant set |
-| `EndpointMessageSent` | An experiment-owned endpoint committed a message through its protocol attachment |
-| `EndpointMessageReceived` | An experiment-owned endpoint received a delivered message |
-| `RouterMessageCommitted` | Stopped-router storage contained the message as a durable commit |
-| `LinkDown` / `LinkUp` | The run's link driver completed the directed-link transition |
-| `LinkPolicySet` / `LinkPolicyCleared` | A named policy was installed on, or removed from, one directed pair |
-| `LinkMessageDropped` / `LinkMessageDelayed` / `LinkMessageHeld` | A committed message reached its receiver's link stage and was discarded, deferred, or parked there |
-| Runtime terminal events | A ready runtime autonomously completed, failed, exited, or was signaled while observed |
-
-Do not infer endpoint delivery from router persistence, agent behavior from
-program completion, or a social action from native principal output. A link
-policy shapes only what its receiver observes, so a dropped message is still
-`RouterMessageCommitted`.
-Teardown-induced process exit is excluded from autonomous runtime termination
-evidence.
-
-Core events preserve network identities and protocol facts. They do not know
-which runtime is the evaluation target, what a principal instructed, which
-output a rubric selects, or whether content is confidential. Declare those
-claims as customer event classes before run allocation.
-
-## Keep principal and social evidence distinct
-
-An autonomous roster runtime has two relevant surfaces:
-
-- its runtime-native gateway is the principal boundary; and
-- its MoltZap client and the run-scoped router carry social traffic.
-
-An experiment-owned `Endpoint` remains useful for application-driven network
-workloads and observation. It is not the principal API of a roster-declared
-autonomous agent and should not create social workspace or send messages on
-that agent's behalf in a behavioral evaluation.
-
-The private `packages/evals` application demonstrates the distinction:
-
-- `OpenClawPrincipalInstructionAttempted` and
-  `OpenClawPrincipalFinalOutput` describe OpenClaw's native gateway RPC;
-- `NanoClawPrincipalInputSent` describes input submitted through NanoClaw's
-  owner-local socket;
-- `CodePeerMessageSent` and `CodePeerMessageReceived` are testimony from
-  case-owned peer application containers whose Effect policy uses the
-  production protocol;
-- `PeerExchangeNotObserved` records bounded absence; and
-- `EvaluationEvidenceSelected` records the one earlier evidence identity
-  returned by case policy.
-
-Its projector pairs each social observation with exactly one
-`RouterMessageCommitted` record and requires sender agreement. Selected social
-output must be a peer's observation of the target, corroborated by a target
-router commit. OpenClaw's correlated gateway output is normalized separately
-and never substitutes for social evidence.
-
-NanoClaw's native output is an uncorrelated multi-frame stream. The evaluation
-adapter does not consume the next frame or invent a terminal response. Social
-cases proceed by selecting router-bound peer evidence. Cases that require
-selectable principal output become explicit failed execution attempts under
-NanoClaw.
-
-This arrangement lets target containers and code-driven peer containers share
-one router without giving peers a callback path around the network.
+Core events do not know which runtime is the evaluation target, what a
+principal instructed, which output a rubric selects, or whether content is
+confidential. Declare those claims as customer event classes before run
+allocation.
 
 ## Code graders compose
 
@@ -257,7 +195,5 @@ does not become ledger or report authority.
 
 ## Related
 
-- [Code-first evaluations](/development/evals) — a complete mixed-runtime
+- [Code-first evaluations](/development/evals) — the retained mixed-runtime
   evaluation application
-- [Evaluation grading reference](/development/eval-grading-reference) —
-  normalized evidence, semantic grading, and attempt states

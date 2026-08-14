@@ -2,7 +2,10 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **DRAFT — HUMAN REVIEW REQUIRED**
+Status: **HISTORICAL REVIEW SLATE — SUPERSEDED BY THE FOUR-LAYER CUTOVER**
+
+This review input is preserved for provenance. It is not a current interface,
+package, or implementation handoff.
 
 Implementation handoff:
 [`l1-l2-implementation-ask.md`](./l1-l2-implementation-ask.md)
@@ -27,6 +30,16 @@ frozen, and the repository blind-review gate passes.
 The slate is intentionally explicit. An omitted public name is not
 implementation discretion. A proposed change returns here before it
 enters source.
+
+The 2026-08-01 Harness authority resolves the later-layer placeholder
+that this L1/L2 review deliberately left open. The current contract uses
+the `harness` package, `moltzapd`, and `HarnessClient` as governed by
+`docs/spec/harness/` and
+[`harness-implementation-slate.md`](./harness-implementation-slate.md).
+The production and clean-slate clients target the same minimal semantic
+consumer shape. Their exact branch-owned Effect contracts must be admitted
+before the compile-time canary; raw MCP representations and implementations
+remain separate. Nothing below can revive the old placeholder spelling.
 
 ## Registration is Registry bootstrap admission
 
@@ -103,8 +116,9 @@ decisions at the end of this slate.
 
 | Entrypoint | Permitted public surface |
 |---|---|
-| `@moltzap/v2-identity` | L1 values and signed artifacts; verified trust-state types; `AuthenticatedHttp`; `AgentSigningAuthority`; `Registry`; shared HTTP errors; Registry client errors |
-| `@moltzap/v2-identity/server` | `RegistryServer` |
+| `@moltzap/v2-identity` | L1 values and signed artifacts; verified trust-state types; `AuthenticatedHttp`; `AgentSigningAuthority`; shared HTTP errors |
+| `@moltzap/v2-identity/registry` | `OperationId`; Registry requests and results; `Registry`; Registry client errors |
+| `@moltzap/v2-identity/registry/server` | `layer`; `StartupError` |
 | `@moltzap/v2-router` | L2 values, requests, results; `Router`; Router client errors |
 | `@moltzap/v2-router/server` | `RouterServer` |
 
@@ -117,7 +131,7 @@ There is no `RegistryClient` or `RouterClient` export. The deep
 `Registry` and `Router` capabilities own production client
 construction.
 
-## Identity root exports
+## Identity package exports
 
 The following are same-named Effect Schema values and TypeScript
 types:
@@ -125,21 +139,28 @@ types:
 - `AgentId`
 - `PrincipalId`
 - `AgentName`
-- `OperationId`
 - `MessageId`
 - `AgentCardDigest`
 - `Ed25519PublicKey`
 - `AgentCard`
 - `SignedMessage`
+
+The Registry subpath exports these same-named Effect Schema values and
+TypeScript types:
+
+- `OperationId`
 - `RegistryRegisterRequest`
 - `RegistryLookupRequest`
 - `RegistryListRequest`
 
-The following are type-only verified values or capability results:
+The identity root exports these type-only verified values:
 
 - `VerifiedAgentCard`
 - `VerifiedSignedMessage`
 - `VerifiedAgentRequest`
+
+The Registry subpath exports these type-only capability results:
+
 - `RegistryRegisterResult`
 - `RegistryLookupResult`
 - `RegistryListResult`
@@ -149,10 +170,11 @@ Other identity-root exports are:
 - `MOLTZAP_VERSION`
 - `AuthenticatedHttp`
 - `AgentSigningAuthority`
-- `Registry`
 - the shared HTTP error classes below;
-- the Registry client error classes below; and
 - the proposed signed-artifact error classes below.
+
+The Registry subpath also exports `Registry` and the Registry client error
+classes below.
 
 The byte-length operations below are nested members of the exported
 `SignedMessage` deep module. They are not additional root exports.
@@ -237,7 +259,7 @@ Other router-root exports are:
 - `RouterInvalidResponseError`
 
 Router poll results deliberately contain parsed, bounded, untrusted
-`SignedMessage` values. The endpoint verifies every returned message
+`SignedMessage` values. The Harness backing verifies every returned message
 before accepting the returned PollCursor.
 
 ## Refined value vocabulary
@@ -534,6 +556,8 @@ layer owns the complete lookup deadline.
 The server subpath modules expose constant discard layers:
 
 ```ts
+import * as RegistryServer from "@moltzap/v2-identity/registry/server"
+
 RegistryServer.layer: Layer.Layer<never, RegistryServer.StartupError>
 RouterServer.layer: Layer.Layer<never, RouterServer.StartupError>
 ```
@@ -582,14 +606,14 @@ pass-through function, configuration class, or `Live` alias is added.
 
 The proposed startup-error surface is:
 
-- `RegistryServer.StartupError`, tagged
+- `StartupError` from `@moltzap/v2-identity/registry/server`, tagged
   `RegistryServerStartupError`, with the closed phases
   `configuration`, `storage`, and `listener`; and
 - `RouterServer.StartupError`, tagged `RouterServerStartupError`, with
   the closed phases `configuration` and `listener`.
 
-Each nested startup error is a `Data.TaggedError` with exactly `_tag`
-and `phase` as its declared fields. `phase` is the only public detail
+Each startup error is a `Data.TaggedError` with exactly `_tag` and `phase`
+as its declared fields. `phase` is the only public detail
 because it changes the operator's remedy:
 
 - Registry `configuration` covers Effect Config validation,
@@ -601,12 +625,12 @@ because it changes the operator's remedy:
   Registry signer loading, and resource fit; and
 - Router `listener` covers listener acquisition and serving startup.
 
-The public server layers preserve these errors in their Effect `E`
-channel. ES-module namespace exports provide the nested names without
-TypeScript `namespace` declarations. SQL, migrator, configuration
-parser, and Node listener errors, secret paths, driver messages, and
-raw causes remain private; server code maps them after recording
-redacted diagnostics.
+The public server layers preserve these errors in their Effect `E` channel.
+The Registry module exports its startup error directly; the Router facade uses
+an ES-module namespace export without a TypeScript `namespace` declaration.
+SQL, migrator, configuration parser, and Node listener errors, secret paths,
+driver messages, and raw causes remain private; server code maps them after
+recording redacted diagnostics.
 
 ## AuthenticatedHttp surface
 
@@ -1217,8 +1241,10 @@ Forbidden generic or mechanism exports:
 - `/rpc`, JSON-RPC, or NDJSON production surfaces; and
 - `RegistryClient` or `RouterClient`.
 
-`HarnessEndpoin` is the exact human-selected future spelling. L1 and
-L2 do not introduce it. `HarnessEndpoint` remains unauthorized.
+The earlier `HarnessEndpoin` placeholder and any normalized
+`HarnessEndpoint` spelling are retired. The current later-layer
+subsystem and package name is `Harness`; L1 and L2 still do not
+introduce or own it.
 
 ## Explicit deferrals
 

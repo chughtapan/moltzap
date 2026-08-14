@@ -1,12 +1,32 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # V2 owns one simulator as the system driver
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-simulator-is-the-system-driver).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-simulator-is-the-system-driver) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harnessclient-owns-runtime-context).
+
+## Supersession
+
+One simulator continues to own system composition, the runtime roster, closed
+EventCatalog, simulation-evidence `RunLedger`, source gate, and focused fake
+Layers. Product conversation history and simulator RunLedger remain distinct.
+Runtime subjects receive `HarnessClient` and do not construct Router,
+Registry, daemon, or transport from a public profile reference.
+
+`20260811-four-layer-endpoint-replicated-harness.md` removes the separate v2
+simulator and testbed products and assigns the one preserved latest-main
+simulator to `@moltzap/simulator`, with direct dependencies on identity,
+Router, and client for process composition. Non-conflicting latest-main APIs
+remain the preservation baseline; conflicting open/send/raw-message,
+runtime-authority, and persisted Router-evidence semantics are deliberately
+left for an explicit compatibility decision. Resolution requires a narrow
+break/version or a sound explicit exemption, never an inert/lazy shim or
+reinterpretation under an existing persisted tag. The replacement record and
+`docs/spec/layer-interfaces.md` own the current handoff and migration gate.
 
 ## Context and Problem Statement
 
@@ -51,3 +71,11 @@ Simulator provenance is an implementation gate, not a best-effort
 note. The kernel can run against fakes before production services exist
 and later drive mixed scripted, Effect, OpenClaw, and NanoClaw
 acceptance without changing ownership.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

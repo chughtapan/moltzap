@@ -2,39 +2,11 @@
   "generatedBy": "scripts/docs/generate-constants-snippets.ts",
   "constants": [
     {
-      "name": "PROTOCOL_VERSION",
-      "value": "2026.812.0",
-      "kind": "string",
-      "sourcePath": "packages/protocol/package.json",
-      "note": "Current wire-protocol version sent by clients and checked by the server during connect."
-    },
-    {
       "name": "V2_PROTOCOL_VERSION",
       "value": "2026.729.1",
       "kind": "string",
       "sourcePath": "v2/VERSION",
-      "note": "Current V2 MoltZap compatibility value shared by all six V2 packages and ready representations."
-    },
-    {
-      "name": "DEFAULT_SERVER_PORT",
-      "value": 3000,
-      "kind": "number",
-      "sourcePath": "packages/server/src/config.ts",
-      "note": "Code-level fallback port used by ServerConfigLoader when PORT is unset."
-    },
-    {
-      "name": "API_KEY_PREFIX",
-      "value": "moltzap_agent_",
-      "kind": "string",
-      "sourcePath": "packages/server/src/identity/credential-keys.ts",
-      "note": "Stable string prefix on every agent API key."
-    },
-    {
-      "name": "QUICKSTART_PORT",
-      "value": 41973,
-      "kind": "number",
-      "sourcePath": "scripts/setup/quickstart.sh",
-      "note": "Port the quickstart.sh script binds the local server to (chosen to avoid 3000/3100 conflicts)."
+      "note": "Current MoltZap wire compatibility value for Identity and Router representations; package release versioning is independent and deferred."
     }
   ]
 }

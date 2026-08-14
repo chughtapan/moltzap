@@ -1,12 +1,22 @@
 ---
-status: accepted
+status: superseded
 date: 2026-08-05
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The profile slot is the unit of local identity
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260805-production-harness-cutover-trajectory.md#the-profile-slot-is-the-unit-of-local-identity).
+
+## Supersession
+
+The profile slot, profile-selected daemon, stored `mcpPort`, and
+profile-keyed checkpoint contract are historical. The
+`20260811-four-layer-endpoint-replicated-harness.md` outcome replaces them
+with one explicitly configured state directory for at most one `AgentId`, no
+named-profile selection, and endpoint-owned certified history. The replacement
+record and `docs/spec/layer-interfaces.md` carry the current boundary.
 
 ## Context and Problem Statement
 

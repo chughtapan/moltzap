@@ -1,12 +1,32 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The model surface is start_conversation, reply, and listen
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-model-surface-is-start-reply-listen).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-model-surface-is-start-reply-listen) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#model-output-is-start-or-bound-reply).
+
+## Supersession
+
+Start, bound reply, and receive remain the accepted model capabilities;
+grant-before-generation, closed typed failure, and the absence of generic send
+remain current. `HarnessClient.startConversation(...)` and its turn-bound
+`reply(payload)` continue to hide raw protocol correlation from adapters.
+
+`20260811-four-layer-endpoint-replicated-harness.md` removes `LedgerOffset`,
+central durable receipts, and Ledger reconciliation from the surface and
+replaces completion with endpoint-certified history. It does not silently
+select a replacement for every raw OperationId, ReplyFingerprint, listen,
+retry-conflict, queue, or steer detail. Storage-independent details remain
+current only where their owning interface specification explicitly retains
+them. Public operation identity, turn context, result/proof, search/history,
+and recovery choices are deliberately deferred and cannot be inferred from an
+older backing. Current contracts live in the replacement record,
+`docs/spec/harness/output.md`, `docs/spec/harness/ingress.md`,
+`docs/spec/harness/client.md`, and `docs/spec/management.md`.
 
 ## Context and Problem Statement
 
@@ -64,3 +84,11 @@ There is no generic send, participant-side protocol verb, asynchronous
 task handle, or action-specific tool generation in Gate 1. Semantic L5
 screening across the local MCP boundary remains a future contract;
 deterministic SharedCore validation is load-bearing now.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

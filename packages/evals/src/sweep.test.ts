@@ -1,24 +1,17 @@
 import { assert, it as effectIt } from "@effect/vitest";
-import { agentName } from "@moltzap/protocol/identity";
-import { agentId } from "@moltzap/protocol/testing";
+import { AgentName as agentName } from "@moltzap/client";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
 import { image } from "@moltzap/simulator/agents";
 import {
   LedgerCompletion,
-  LedgerStorageError,
   ledgerDigest,
   ledgerRef,
+  LedgerStorageError,
 } from "@moltzap/simulator/ledger";
 import { DateTime, Effect, Schema } from "effect";
 import { describe } from "vitest";
-import {
-  CodeAssessment,
-  EvaluationTarget,
-  EvaluationTranscript,
-  GatewayTranscriptItem,
-  GradeReport,
-  JudgeUnavailable,
-} from "./grading.js";
+import { CodeAssessment, GradeReport } from "./assessment.js";
+import { JudgeUnavailable } from "./judge.js";
 import {
   decodeConditionId,
   decodeCriterionId,
@@ -27,38 +20,43 @@ import {
   decodeJudgePolicyId,
 } from "./model.js";
 import {
+  appendEvaluationAttempt,
   AssessedAttempt,
   CompletedEvaluationReport,
-  EvidenceRejectedAttempt,
-  EvaluationCasePlan,
-  EvaluationConditionPlan,
-  EvaluationReportPlan,
-  EvaluationReportValidationError,
-  EvaluationResumeMismatch,
-  EvaluationSweepIncomplete,
-  InProgressEvaluationReport,
-  JudgePolicySnapshot,
-  LocalEvaluationInfrastructure,
-  JudgingUnavailableAttempt,
-  LedgerAllocationFailedAttempt,
-  RunFailedAttempt,
-  appendEvaluationAttempt,
   completeEvaluationReport,
   createEvaluationReport,
   decodeEvaluationAttemptId,
   decodeEvaluationReportId,
   ensureSweepOperationallyComplete,
+  EvaluationCasePlan,
+  EvaluationConditionPlan,
   evaluationReport,
   evaluationReportId,
+  EvaluationReportPlan,
+  EvaluationReportValidationError,
+  EvaluationResumeMismatch,
+  type EvaluationSweepCell,
+  EvaluationSweepIncomplete,
+  EvidenceRejectedAttempt,
+  InProgressEvaluationReport,
+  JudgePolicySnapshot,
+  JudgingUnavailableAttempt,
+  LedgerAllocationFailedAttempt,
+  LocalEvaluationInfrastructure,
   makeAssessedAttempt,
   makeJudgingUnavailableAttempt,
   remainingEvaluationCells,
   resumeEvaluationReport,
+  RunFailedAttempt,
   terminalAttempt,
-  validateEvaluationReport,
-  type EvaluationSweepCell,
   type TerminalAttempt as TerminalAttemptType,
+  validateEvaluationReport,
 } from "./sweep.js";
+import {
+  EvaluationTarget,
+  EvaluationTranscript,
+  GatewayTranscriptItem,
+} from "./transcript.js";
 
 const testImage = Schema.decodeSync(image);
 
@@ -67,7 +65,6 @@ const instant = DateTime.unsafeMake(0);
 const manifestDigest = Schema.decodeSync(ledgerDigest)("a".repeat(64));
 const recordsDigest = Schema.decodeSync(ledgerDigest)("b".repeat(64));
 const decodeAgentName = Schema.decodeSync(agentName);
-const targetId = agentId("00000000-0000-4000-8000-000000000501");
 const selectedEvidenceId = decodeEvaluationEvidenceId("gateway-output");
 const inputEvidenceId = decodeEvaluationEvidenceId("gateway-input");
 const runtimeConfigurationField = "runtimeConfigurations";
@@ -113,7 +110,6 @@ function plan(
     infrastructure: LocalEvaluationInfrastructure.make({
       profile: "local",
       controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
-      peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
       nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
       temporalAddress: "127.0.0.1:7233",
       artifactDirectory: "/var/lib/moltzap/artifacts",
@@ -187,14 +183,13 @@ function transcript(caseName: string): EvaluationTranscript {
   const targetName = decodeAgentName("evaluation-target");
   return EvaluationTranscript.make({
     caseId: caseIdentity,
-    target: EvaluationTarget.make({ name: targetName, id: targetId }),
+    target: EvaluationTarget.make({ name: targetName }),
     items: [
       GatewayTranscriptItem.make({
         evidenceId: inputEvidenceId,
         source: "gateway",
         direction: "input",
         actorName: targetName,
-        actorId: targetId,
         parts: [{ type: "text", text: "Please answer the peer." }],
       }),
       GatewayTranscriptItem.make({
@@ -202,7 +197,6 @@ function transcript(caseName: string): EvaluationTranscript {
         source: "gateway",
         direction: "output",
         actorName: targetName,
-        actorId: targetId,
         parts: [{ type: "text", text: "I cannot help with that request." }],
       }),
     ],

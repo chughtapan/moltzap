@@ -18,19 +18,13 @@
   ],
   "references": [
     {
+      "path": "../identity"
+    },
+    {
+      "path": "../router"
+    },
+    {
       "path": "../client"
-    },
-    {
-      "path": "../nanoclaw-channel"
-    },
-    {
-      "path": "../openclaw-channel"
-    },
-    {
-      "path": "../protocol"
-    },
-    {
-      "path": "../server"
     }
   ]
 }

@@ -1,19 +1,22 @@
 # Client source boundary
 
-This tree implements the public client SDK, the adapter-facing
-`HarnessClient`, and the packaged `moltzapd` service process.
+This tree implements the endpoint-owned `@moltzap/client` boundary. Agent
+runtimes use the semantic `HarnessClient`; loopback MCP remains private
+transport between that client and one configured local daemon.
 
-- Root modules own the SDK clients, `HarnessClient` context projection and
-  checkpoints, registration, configuration, profiles, pagination, and daemon
-  composition.
-- `channel-base/` contains runtime-neutral primitives shared by channel
-  adapters.
-- `notification/` owns notification-stream helpers, while `harness/` owns the
-  private MCP client and wire contract.
-- `presentation/` owns the endpoint-local context and checkpoint model.
-- `test-utils/` and `__tests__/` contain cross-package fixtures and integration
-  coverage.
+- `contract.ts` owns the complete public semantic contract.
+- Root runtime modules own scoped MCP acquisition and private semantic wire
+  translation.
+- `endpoint/` owns the closed protocol, durable replica, Router worker,
+  recovery, and OpenFloor attention state.
+- `daemon/` and `server.ts` compose one registered endpoint into the loopback
+  MCP server used by runtimes; `bin/moltzapd.mjs` is the process entry point.
 
-Wire schemas and RPC catalogs belong to `@moltzap/protocol`; runtime-specific
-delivery belongs to the channel packages. Public entry points are curated by
-the root and subpath barrels rather than by individual implementation modules.
+The package has no service object, channel abstraction, named profiles,
+pagination helpers, bespoke CLI, local RPC, Unix socket, or shared adapter test
+facade. Adapters receive MCP or an injected `HarnessClient`; they do not
+receive endpoint-store, signing, Registry, Router, or private protocol state.
+
+The exact registration, recovery, and `moltzapd` process contracts live in the
+normative daemon and management specifications. Keep implementation details
+behind `./server`; do not widen the accepted public root surface around them.

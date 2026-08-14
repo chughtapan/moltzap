@@ -1,112 +1,68 @@
+/** @file Regression coverage for in-process link-policy interpretation. */
+
 import { assert, effect as test } from "@effect/vitest";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { Message } from "@moltzap/protocol/message";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
-import { Chunk, Duration, Effect, Mailbox, Stream, TestClock } from "effect";
-import type { EventOf } from "../events/catalog.js";
 import {
-  type linkEvents,
-  LinkMessageDelayed,
-  LinkMessageDropped,
-  LinkMessageHeld,
-} from "../events/core.js";
-import type { LedgerWriter } from "../ledger/append.js";
+  AgentCardDigest,
+  AgentId,
+  type AgentId as AgentIdValue,
+  MessageId,
+  type SignedMessage,
+} from "@moltzap/identity";
+import {
+  Chunk,
+  Deferred,
+  Duration,
+  Effect,
+  Encoding,
+  Exit,
+  Fiber,
+  Schema,
+  Scope,
+  TestClock,
+} from "effect";
 import {
   linkPolicy,
-  type InboundLinkStage,
+  linkVerdict,
+  NetworkError,
   type NetworkOperation,
-} from "../network.js";
-import {
-  makeLinkFabric,
-  type InboundLinkInterceptor,
-  type LinkFabric,
-} from "./link-fabric.js";
+} from "../network/index.js";
+import { makeLinkFabric } from "./link-fabric.js";
 
-type LinkEventWriter = LedgerWriter<typeof linkEvents>;
-const aliceId = agentId("00000000-0000-4000-8000-000000000001");
-const bobId = agentId("00000000-0000-4000-8000-000000000002");
-const carolId = agentId("00000000-0000-4000-8000-000000000003");
-const CONVERSATION = conversationId("00000000-0000-4000-8000-000000000200");
+const identifierPayload = (seed: number, bytes = 16): string =>
+  Encoding.encodeBase64Url(new Uint8Array(bytes).fill(seed));
+
+const agentId = (seed: number): AgentIdValue =>
+  Schema.decodeUnknownSync(AgentId)(`agt_${identifierPayload(seed)}`);
+
+const aliceId = agentId(1);
+const bobId = agentId(2);
+const carolId = agentId(3);
+const digest = Schema.decodeUnknownSync(AgentCardDigest)(
+  `acd_${identifierPayload(9, 32)}`,
+);
 const SHAPE_LINK_OPERATION: NetworkOperation = "shape-link";
 const DISABLE_LINK_OPERATION: NetworkOperation = "disable-link";
+const RECEIVE_OPERATION: NetworkOperation = "receive";
 const ENABLE_LINK_OPERATION: NetworkOperation = "enable-link";
-const DROP_REASON = "partition";
-const FIRST_REASON = "first";
-const SECOND_REASON = "second";
-const DELAY = Duration.millis(100);
-const LONGER_DELAY = Duration.millis(200);
-const DELAY_MILLIS = 100;
-const SUMMED_DELAY_MILLIS = 300;
 
-function message(senderId: AgentId, suffix: number): Message {
-  return {
-    id: messageId(
-      `00000000-0000-4000-8000-${String(300 + suffix).padStart(12, "0")}`,
+function message(senderAgentId: AgentIdValue, suffix: number): SignedMessage {
+  return Object.freeze({
+    senderAgentId,
+    agentCardDigest: digest,
+    recipientAgentIds: Object.freeze([bobId]),
+    messageId: Schema.decodeUnknownSync(MessageId)(
+      `msg_${identifierPayload(20 + suffix)}`,
     ),
-    conversationId: CONVERSATION,
-    senderId,
-    parts: [{ type: "text", text: `message ${String(suffix)}` }],
-    createdAt: "2026-07-28T00:00:00.000Z",
-  };
-}
-
-function eventWriter(
-  events: Array<EventOf<typeof linkEvents>>,
-): LinkEventWriter {
-  return {
-    write: ({ event }) =>
-      Effect.sync(() => {
-        events.push(event);
-        return {
-          runId: "fabric-test",
-          eventId: `event-${String(events.length)}`,
-          logicalSequence: events.length - 1,
-          elapsedNanos: 0n,
-          observedAt: 0,
-          producer: "kernel.link",
-          event,
-        };
-      }),
-  };
-}
-
-interface Harness {
-  readonly events: Array<EventOf<typeof linkEvents>>;
-  readonly fabric: LinkFabric;
-  readonly mailbox: Mailbox.Mailbox<{ readonly message: Message }>;
-  readonly delivered: string[];
-}
-
-function makeHarness() {
-  return Effect.gen(function* () {
-    const events: Array<EventOf<typeof linkEvents>> = [];
-    const delivered: string[] = [];
-    const fabric = yield* makeLinkFabric(eventWriter(events));
-    const interceptor: InboundLinkInterceptor = fabric.interceptor;
-    const stage: InboundLinkStage = yield* interceptor.attach(bobId);
-    const mailbox = yield* Mailbox.make<{ readonly message: Message }>();
-    yield* stage(Mailbox.toStream(mailbox)).pipe(
-      Stream.runForEach((item) =>
-        Effect.sync(() => {
-          delivered.push(item.message.id);
-        }),
-      ),
-      Effect.forkScoped,
-    );
-    return { events, fabric, mailbox, delivered } satisfies Harness;
+    body: Uint8Array.of(suffix),
   });
 }
 
-function send(harness: Harness, item: Message) {
-  return harness.mailbox.offer({ message: item });
-}
-
-function awaitUntil(predicate: () => boolean): Effect.Effect<void> {
-  return Effect.suspend(() =>
-    predicate()
-      ? Effect.void
-      : Effect.yieldNow().pipe(Effect.zipRight(awaitUntil(predicate))),
-  );
+function makeAttachedFabric() {
+  return Effect.gen(function* () {
+    const fabric = yield* makeLinkFabric();
+    yield* fabric.interceptor.attach(bobId);
+    return fabric;
+  });
 }
 
 function awaitSleepers(count: number): Effect.Effect<void> {
@@ -121,276 +77,436 @@ function awaitSleepers(count: number): Effect.Effect<void> {
   );
 }
 
-function droppedEvents(harness: Harness): LinkMessageDropped[] {
-  return harness.events.filter((event) => event instanceof LinkMessageDropped);
+function expectInterrupted(exit: Exit.Exit<unknown, unknown>): void {
+  assert.isTrue(Exit.isInterrupted(exit));
 }
 
-function delayedEvents(harness: Harness): LinkMessageDelayed[] {
-  return harness.events.filter((event) => event instanceof LinkMessageDelayed);
+function close(scope: Scope.CloseableScope) {
+  return Scope.close(scope, Exit.void);
 }
 
-function heldEvents(harness: Harness): LinkMessageHeld[] {
-  return harness.events.filter((event) => event instanceof LinkMessageHeld);
-}
-
-// @agent-code-guard/regression-only: deterministic latches, TestClock control, and array writers expose exact per-pair verdict, ordering, and evidence semantics
-test("drop-all drops only the shaped pair and records evidence", () =>
+// @agent-code-guard/regression-only: deterministic scopes and TestClock expose exact policy, ordering, and release semantics
+test("drop policy affects only its directed pair and clear restores delivery", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      const lease = yield* harness.fabric.driver.apply(
+      const fabric = yield* makeAttachedFabric();
+      const lease = yield* fabric.driver.apply(
         aliceId,
         bobId,
-        linkPolicy.dropAll(DROP_REASON),
-        "drop alice to bob",
+        linkPolicy.dropAll("partition"),
+        "partition",
       );
-      const droppedMessage = message(aliceId, 1);
+      const dropped = message(aliceId, 1);
       const passing = message(carolId, 2);
-      yield* send(harness, droppedMessage);
-      yield* send(harness, passing);
-      yield* awaitUntil(() => droppedEvents(harness).length === 1);
-      yield* awaitUntil(() => harness.delivered.length === 1);
-
-      const evidence = droppedEvents(harness)[0];
-      assert.strictEqual(evidence?.from, aliceId);
-      assert.strictEqual(evidence?.to, bobId);
-      assert.strictEqual(evidence?.messageId, droppedMessage.id);
-      assert.strictEqual(evidence?.reason, DROP_REASON);
-      assert.deepStrictEqual(harness.delivered, [passing.id]);
+      const routed = yield* fabric.route(bobId, [
+        { message: dropped },
+        { message: passing },
+      ]);
+      assert.deepStrictEqual(
+        routed.map((item) => item.message.messageId),
+        [passing.messageId],
+      );
 
       yield* lease.clear;
-      const revived = message(aliceId, 3);
-      yield* send(harness, revived);
-      yield* awaitUntil(() => harness.delivered.length === 2);
-      assert.deepStrictEqual(harness.delivered, [passing.id, revived.id]);
-    }),
-  ));
-
-test("delays deliveries by the intended total under the ambient clock", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      yield* harness.fabric.driver.apply(
-        aliceId,
-        bobId,
-        linkPolicy.delay(DELAY),
-        "delay",
+      const restored = message(aliceId, 3);
+      const delivered = yield* fabric.route(bobId, [{ message: restored }]);
+      assert.deepStrictEqual(
+        delivered.map((item) => item.message.messageId),
+        [restored.messageId],
       );
-      const delayed = message(aliceId, 1);
-      yield* send(harness, delayed);
-      yield* awaitUntil(() => delayedEvents(harness).length === 1);
-      yield* awaitSleepers(1);
-
-      assert.deepStrictEqual(harness.delivered, []);
-      assert.strictEqual(delayedEvents(harness)[0]?.delayMillis, DELAY_MILLIS);
-
-      yield* TestClock.adjust(DELAY);
-      yield* awaitUntil(() => harness.delivered.length === 1);
-      assert.deepStrictEqual(harness.delivered, [delayed.id]);
     }),
   ));
 
-test("holds park deliveries and release preserves per-sender order", () =>
+test("delay keeps sender FIFO without blocking another sender", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      const lease = yield* harness.fabric.driver.apply(
+      const fabric = yield* makeAttachedFabric();
+      yield* fabric.driver.apply(
         aliceId,
         bobId,
-        linkPolicy.hold,
-        "hold",
+        linkPolicy.delay(Duration.millis(100)),
+        "delay alice",
       );
       const first = message(aliceId, 1);
       const second = message(aliceId, 2);
-      yield* send(harness, first);
-      yield* send(harness, second);
-      yield* awaitUntil(() => heldEvents(harness).length === 1);
+      const passing = message(carolId, 3);
+      const immediate = yield* fabric.route(bobId, [
+        { message: first },
+        { message: second },
+        { message: passing },
+      ]);
+      yield* awaitSleepers(1);
+      assert.deepStrictEqual(
+        immediate.map((item) => item.message.messageId),
+        [passing.messageId],
+      );
 
-      assert.deepStrictEqual(harness.delivered, []);
-      assert.strictEqual(heldEvents(harness)[0]?.messageId, first.id);
-
-      yield* lease.clear;
-      yield* awaitUntil(() => harness.delivered.length === 2);
-      assert.deepStrictEqual(harness.delivered, [first.id, second.id]);
-      assert.lengthOf(heldEvents(harness), 1);
+      yield* TestClock.adjust(Duration.millis(100));
+      yield* awaitSleepers(1);
+      const firstReady = yield* fabric.drain(bobId);
+      assert.deepStrictEqual(
+        firstReady.map((item) => item.message.messageId),
+        [first.messageId],
+      );
+      yield* TestClock.adjust(Duration.millis(100));
+      yield* Effect.yieldNow();
+      const secondReady = yield* fabric.drain(bobId);
+      assert.deepStrictEqual(
+        secondReady.map((item) => item.message.messageId),
+        [second.messageId],
+      );
     }),
   ));
 
-test("released holds re-evaluate against the then-active chain", () =>
+test("released holds re-evaluate the active chain", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      const lease = yield* harness.fabric.driver.apply(
+      const fabric = yield* makeAttachedFabric();
+      const held = yield* Deferred.make<undefined>();
+      const hold = yield* fabric.driver.apply(
         aliceId,
         bobId,
-        linkPolicy.hold,
+        () =>
+          Deferred.succeed(held, undefined).pipe(Effect.as(linkVerdict.hold())),
         "hold",
       );
-      const parked = message(aliceId, 1);
-      yield* send(harness, parked);
-      yield* awaitUntil(() => heldEvents(harness).length === 1);
-
-      yield* harness.fabric.driver.disable(aliceId, bobId);
-      yield* lease.clear;
-      yield* awaitUntil(() => droppedEvents(harness).length === 1);
-
-      assert.strictEqual(droppedEvents(harness)[0]?.messageId, parked.id);
-      assert.deepStrictEqual(harness.delivered, []);
-    }),
-  ));
-
-test("a drop dominates delays wherever it sits in the chain", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      yield* harness.fabric.driver.apply(
-        aliceId,
-        bobId,
-        linkPolicy.delay(DELAY),
-        "delay",
+      const pending = message(aliceId, 1);
+      assert.deepStrictEqual(
+        yield* fabric.route(bobId, [{ message: pending }]),
+        [],
       );
-      yield* harness.fabric.driver.apply(
+      yield* Deferred.await(held);
+      const dropped = yield* Deferred.make<undefined>();
+      const drop = yield* fabric.driver.apply(
         aliceId,
         bobId,
-        linkPolicy.dropAll(DROP_REASON),
+        () =>
+          Deferred.succeed(dropped, undefined).pipe(
+            Effect.as(linkVerdict.drop({ reason: "drop after hold" })),
+          ),
         "drop",
       );
-      yield* send(harness, message(aliceId, 1));
-      yield* awaitUntil(() => droppedEvents(harness).length === 1);
+      yield* hold.clear;
+      yield* Deferred.await(dropped);
+      assert.deepStrictEqual(yield* fabric.drain(bobId), []);
 
-      assert.lengthOf(delayedEvents(harness), 0);
-      assert.deepStrictEqual(harness.delivered, []);
+      yield* drop.clear;
+      const restored = message(aliceId, 2);
+      const delivered = yield* fabric.route(bobId, [{ message: restored }]);
+      assert.deepStrictEqual(
+        delivered.map((item) => item.message.messageId),
+        [restored.messageId],
+      );
     }),
   ));
 
-test("stacked delays record one summed total", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      yield* harness.fabric.driver.apply(
-        aliceId,
-        bobId,
-        linkPolicy.delay(DELAY),
-        "short delay",
-      );
-      yield* harness.fabric.driver.apply(
-        aliceId,
-        bobId,
-        linkPolicy.delay(LONGER_DELAY),
-        "long delay",
-      );
-      const delayed = message(aliceId, 1);
-      yield* send(harness, delayed);
-      yield* awaitUntil(() => delayedEvents(harness).length === 1);
-      yield* awaitSleepers(1);
-
-      assert.strictEqual(
-        delayedEvents(harness)[0]?.delayMillis,
-        SUMMED_DELAY_MILLIS,
-      );
-
-      yield* TestClock.adjust(Duration.millis(SUMMED_DELAY_MILLIS));
-      yield* awaitUntil(() => harness.delivered.length === 1);
-      assert.deepStrictEqual(harness.delivered, [delayed.id]);
-    }),
-  ));
-
-test("the first installed drop supplies the recorded reason", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      yield* harness.fabric.driver.apply(
-        aliceId,
-        bobId,
-        linkPolicy.dropAll(FIRST_REASON),
-        "first drop",
-      );
-      yield* harness.fabric.driver.apply(
-        aliceId,
-        bobId,
-        linkPolicy.dropAll(SECOND_REASON),
-        "second drop",
-      );
-      yield* send(harness, message(aliceId, 1));
-      yield* awaitUntil(() => droppedEvents(harness).length === 1);
-
-      assert.strictEqual(droppedEvents(harness)[0]?.reason, FIRST_REASON);
-    }),
-  ));
-
-test("an active delay keeps per-sender FIFO without blocking other senders", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      yield* harness.fabric.driver.apply(
-        aliceId,
-        bobId,
-        linkPolicy.delay(DELAY),
-        "delay",
-      );
-      const firstDelayed = message(aliceId, 1);
-      const secondDelayed = message(aliceId, 2);
-      const undelayed = message(carolId, 3);
-      yield* send(harness, firstDelayed);
-      yield* send(harness, secondDelayed);
-      yield* send(harness, undelayed);
-      yield* awaitUntil(() => harness.delivered.length === 1);
-
-      assert.deepStrictEqual(harness.delivered, [undelayed.id]);
-
-      yield* awaitSleepers(1);
-      yield* TestClock.adjust(DELAY);
-      yield* awaitUntil(() => harness.delivered.length === 2);
-      yield* awaitSleepers(1);
-      yield* TestClock.adjust(DELAY);
-      yield* awaitUntil(() => harness.delivered.length === 3);
-
-      assert.deepStrictEqual(harness.delivered, [
-        undelayed.id,
-        firstDelayed.id,
-        secondDelayed.id,
-      ]);
-      assert.lengthOf(delayedEvents(harness), 2);
-    }),
-  ));
-
-test("shaping an unregistered receiver fails fast", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      const applyFailure = yield* harness.fabric.driver
-        .apply(aliceId, carolId, linkPolicy.hold, "hold")
-        .pipe(Effect.flip);
-      const disableFailure = yield* harness.fabric.driver
-        .disable(aliceId, carolId)
-        .pipe(Effect.flip);
-
-      assert.strictEqual(applyFailure.operation, SHAPE_LINK_OPERATION);
-      assert.strictEqual(disableFailure.operation, DISABLE_LINK_OPERATION);
-    }),
-  ));
+test("shaping an unattached receiver fails fast", () =>
+  Effect.gen(function* () {
+    const fabric = yield* makeLinkFabric();
+    const failure = yield* Effect.flip(
+      fabric.driver.apply(aliceId, bobId, linkPolicy.passthrough, "unattached"),
+    );
+    assert.strictEqual(failure.operation, SHAPE_LINK_OPERATION);
+    assert.include(failure.detail, bobId);
+  }));
 
 test("disable installs a clearable drop and enable restores delivery", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      yield* harness.fabric.driver.disable(aliceId, bobId);
-      const blocked = message(aliceId, 1);
-      yield* send(harness, blocked);
-      yield* awaitUntil(() => droppedEvents(harness).length === 1);
+      const fabric = yield* makeAttachedFabric();
+      const inspected = yield* Deferred.make<undefined>();
+      const inspection = yield* fabric.driver.apply(
+        aliceId,
+        bobId,
+        () =>
+          Deferred.succeed(inspected, undefined).pipe(
+            Effect.as(linkVerdict.deliver()),
+          ),
+        "delivery inspection",
+      );
+      yield* fabric.driver.disable(aliceId, bobId);
+      assert.deepStrictEqual(
+        yield* fabric.route(bobId, [{ message: message(aliceId, 1) }]),
+        [],
+      );
+      yield* Deferred.await(inspected);
 
-      assert.strictEqual(droppedEvents(harness)[0]?.messageId, blocked.id);
-      assert.deepStrictEqual(harness.delivered, []);
+      const duplicate = yield* Effect.flip(
+        fabric.driver.disable(aliceId, bobId),
+      );
+      assert.strictEqual(duplicate.operation, DISABLE_LINK_OPERATION);
 
-      yield* harness.fabric.driver.enable(aliceId, bobId);
+      yield* fabric.driver.enable(aliceId, bobId);
       const restored = message(aliceId, 2);
-      yield* send(harness, restored);
-      yield* awaitUntil(() => harness.delivered.length === 1);
-      assert.deepStrictEqual(harness.delivered, [restored.id]);
+      const delivered = yield* fabric.route(bobId, [{ message: restored }]);
+      assert.deepStrictEqual(
+        delivered.map((item) => item.message.messageId),
+        [restored.messageId],
+      );
+      yield* inspection.clear;
+    }),
+  ));
 
-      const repeated = yield* harness.fabric.driver
+test("interrupted policy cleanup cannot leave a hidden permanent fault", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeAttachedFabric();
+      const lease = yield* fabric.driver.apply(
+        aliceId,
+        bobId,
+        linkPolicy.dropAll("temporary fault"),
+        "temporary fault",
+      );
+      const clearing = yield* Effect.fork(lease.clear);
+      yield* Effect.yieldNow();
+      yield* Fiber.interrupt(clearing);
+
+      const restored = message(aliceId, 12);
+      const delivered = yield* fabric.route(bobId, [{ message: restored }]);
+      assert.deepStrictEqual(
+        delivered.map((item) => item.message.messageId),
+        [restored.messageId],
+      );
+    }),
+  ));
+
+test("interrupted receiver scope release leaves no reserved attachment", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeLinkFabric();
+      const attached = yield* Deferred.make<undefined>();
+      const receiver = yield* Effect.scoped(
+        fabric.interceptor.attach(bobId).pipe(
+          Effect.tap(() => Deferred.succeed(attached, undefined)),
+          Effect.zipRight(Effect.never),
+        ),
+      ).pipe(Effect.fork);
+      yield* Deferred.await(attached);
+      yield* Fiber.interrupt(receiver);
+
+      yield* Effect.scoped(fabric.interceptor.attach(bobId));
+    }),
+  ));
+
+test("interruption while waiting for the serializer leaves driver state unchanged", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const serialization = yield* Effect.makeSemaphore(1);
+      const fabric = yield* makeLinkFabric(serialization);
+      yield* fabric.interceptor.attach(bobId);
+      yield* serialization.take(1);
+      const attempting = yield* Deferred.make<undefined>();
+      const waiting = yield* Deferred.succeed(attempting, undefined).pipe(
+        Effect.zipRight(fabric.driver.disable(aliceId, bobId)),
+        Effect.fork,
+      );
+      yield* Deferred.await(attempting);
+      const interrupted = yield* Fiber.interrupt(waiting);
+      yield* serialization.release(1);
+
+      expectInterrupted(interrupted);
+      assert.isFalse(yield* fabric.needsInterception(bobId));
+      yield* fabric.driver.disable(aliceId, bobId);
+      yield* fabric.driver.enable(aliceId, bobId);
+    }),
+  ));
+
+test("post-commit driver interruption preserves the committed state", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeLinkFabric();
+      yield* fabric.interceptor.attach(bobId);
+      const committed = yield* Deferred.make<undefined>();
+      const release = yield* Deferred.make<undefined>();
+      const disabling = yield* fabric.driver
+        .disable(aliceId, bobId)
+        .pipe(
+          Effect.ensuring(
+            Deferred.succeed(committed, undefined).pipe(
+              Effect.zipRight(Deferred.await(release)),
+            ),
+          ),
+          Effect.fork,
+        );
+
+      yield* Deferred.await(committed);
+      yield* Fiber.interruptFork(disabling);
+      yield* Deferred.succeed(release, undefined);
+      expectInterrupted(yield* Fiber.await(disabling));
+      assert.isTrue(yield* fabric.needsInterception(bobId));
+
+      yield* fabric.driver.enable(aliceId, bobId);
+      assert.isFalse(yield* fabric.needsInterception(bobId));
+    }),
+  ));
+
+test("an attached route is ready before publication and preserves inactive bytes", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeLinkFabric();
+      yield* fabric.interceptor.attach(bobId);
+      const first = message(aliceId, 1);
+      const second = message(aliceId, 2);
+
+      const routed = yield* fabric.route(bobId, [
+        { message: first },
+        { message: second },
+      ]);
+
+      assert.strictEqual(routed[0]?.message, first);
+      assert.strictEqual(routed[1]?.message, second);
+      assert.deepStrictEqual(
+        routed.map((item) => item.message.body),
+        [first.body, second.body],
+      );
+    }),
+  ));
+
+test("closing a route blocked at acceptance fails and permits reattachment", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeLinkFabric();
+      const receiverScope = yield* Scope.make();
+      yield* fabric.interceptor.attach(bobId).pipe(Scope.extend(receiverScope));
+      const evaluating = yield* Deferred.make<undefined>();
+      const lease = yield* fabric.driver.apply(
+        aliceId,
+        bobId,
+        () =>
+          Deferred.succeed(evaluating, undefined).pipe(
+            Effect.zipRight(Effect.never),
+          ),
+        "blocked evaluation",
+      );
+      const routing = yield* fabric
+        .route(bobId, [{ message: message(aliceId, 8) }])
+        .pipe(Effect.fork);
+      yield* Deferred.await(evaluating);
+
+      yield* close(receiverScope);
+      const failure = yield* Effect.flip(Fiber.join(routing));
+      assert.instanceOf(failure, NetworkError);
+      assert.strictEqual(failure.operation, RECEIVE_OPERATION);
+      assert.include(failure.detail, "stopped accepting deliveries");
+
+      const reattachedScope = yield* Scope.make();
+      yield* fabric.interceptor
+        .attach(bobId)
+        .pipe(Scope.extend(reattachedScope));
+      yield* lease.clear;
+      const restored = message(aliceId, 9);
+      const routed = yield* fabric.route(bobId, [{ message: restored }]);
+      assert.strictEqual(routed[0]?.message, restored);
+      yield* close(reattachedScope);
+    }),
+  ));
+
+test("a defecting policy closes its worker route and releases every caller", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeLinkFabric();
+      const failedScope = yield* Scope.make();
+      yield* fabric.interceptor.attach(bobId).pipe(Scope.extend(failedScope));
+      const evaluating = yield* Deferred.make<undefined>();
+      const lease = yield* fabric.driver.apply(
+        aliceId,
+        bobId,
+        () =>
+          Deferred.succeed(evaluating, undefined).pipe(
+            Effect.zipRight(Effect.dieMessage("policy exploded")),
+          ),
+        "defecting policy",
+      );
+      const pending = yield* fabric
+        .route(bobId, [{ message: message(aliceId, 10) }])
+        .pipe(Effect.fork);
+      yield* Deferred.await(evaluating);
+
+      const pendingFailure = yield* Effect.flip(Fiber.join(pending));
+      assert.instanceOf(pendingFailure, NetworkError);
+      assert.strictEqual(pendingFailure.operation, RECEIVE_OPERATION);
+      assert.include(pendingFailure.detail, "route worker failed");
+      assert.include(pendingFailure.detail, "policy exploded");
+
+      const newFailure = yield* Effect.flip(
+        fabric.route(bobId, [{ message: message(carolId, 11) }]),
+      );
+      assert.instanceOf(newFailure, NetworkError);
+      assert.strictEqual(newFailure.operation, RECEIVE_OPERATION);
+      assert.include(newFailure.detail, "is not attached");
+
+      yield* lease.clear;
+      const replacementScope = yield* Scope.make();
+      yield* fabric.interceptor
+        .attach(bobId)
+        .pipe(Scope.extend(replacementScope));
+      yield* close(failedScope);
+      const restored = message(aliceId, 12);
+      const routed = yield* fabric.route(bobId, [{ message: restored }]);
+      assert.strictEqual(routed[0]?.message, restored);
+      yield* close(replacementScope);
+    }),
+  ));
+
+test("interrupted apply cleanup leaves no retained policy", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeLinkFabric();
+      yield* fabric.interceptor.attach(bobId);
+      const lease = yield* fabric.driver.apply(
+        aliceId,
+        bobId,
+        linkPolicy.dropAll("temporary"),
+        "temporary",
+      );
+      const committed = yield* Deferred.make<undefined>();
+      const release = yield* Deferred.make<undefined>();
+      const clearing = yield* lease.clear.pipe(
+        Effect.ensuring(
+          Deferred.succeed(committed, undefined).pipe(
+            Effect.zipRight(Deferred.await(release)),
+          ),
+        ),
+        Effect.fork,
+      );
+      yield* Deferred.await(committed);
+      yield* Fiber.interruptFork(clearing);
+      yield* Deferred.succeed(release, undefined);
+      expectInterrupted(yield* Fiber.await(clearing));
+
+      assert.isFalse(yield* fabric.needsInterception(bobId));
+      const restored = yield* fabric.route(bobId, [
+        { message: message(aliceId, 9) },
+      ]);
+      assert.lengthOf(restored, 1);
+    }),
+  ));
+
+test("interrupted enable preserves its committed post-state", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fabric = yield* makeLinkFabric();
+      yield* fabric.interceptor.attach(bobId);
+      yield* fabric.driver.disable(aliceId, bobId);
+      const committed = yield* Deferred.make<undefined>();
+      const release = yield* Deferred.make<undefined>();
+      const enabling = yield* fabric.driver
         .enable(aliceId, bobId)
-        .pipe(Effect.flip);
-      assert.strictEqual(repeated.operation, ENABLE_LINK_OPERATION);
+        .pipe(
+          Effect.ensuring(
+            Deferred.succeed(committed, undefined).pipe(
+              Effect.zipRight(Deferred.await(release)),
+            ),
+          ),
+          Effect.fork,
+        );
+
+      yield* Deferred.await(committed);
+      yield* Fiber.interruptFork(enabling);
+      yield* Deferred.succeed(release, undefined);
+      expectInterrupted(yield* Fiber.await(enabling));
+      assert.isFalse(yield* fabric.needsInterception(bobId));
+      const failure = yield* Effect.flip(fabric.driver.enable(aliceId, bobId));
+      assert.strictEqual(failure.operation, ENABLE_LINK_OPERATION);
     }),
   ));

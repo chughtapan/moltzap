@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
-superseded-by: 20260728-layer-boundaries-and-fault-model.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The eight-layer stack: communication layers under trust layers
@@ -11,10 +11,17 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-The eight-layer, two-region model and guarantee/configuration direction
-remain accepted. The Gate 1 profile narrows L2 to ordered multicast,
-moves reliability and action protocols to L3 endpoints, and separates
-L1 Registry from future L7 institution services.
+The rule that lower layers do not interpret higher-layer concepts, guarantees
+flow upward, and configuration flows downward remains current.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces the eight-layer,
+two-region stack and its L5–L8 monitor, institution, credential, and governance
+layers with four layers: identity, communication, tasks and norms, and personal
+trust. Monitoring, institutions, credentials, and governance may be built as
+ordinary agents and recursively composed tasks, but gain no privileged trust
+root, import, network path, or private-history read. The current stack contract
+lives in the replacement record, `v2/VISION.md`,
+`docs/spec/layer-interfaces.md`, and `docs/spec/enforcement.md`.
 
 ## Context and Problem Statement
 
@@ -79,3 +86,11 @@ doc citing old layer numbers re-resolves (old L3, guardrails, is
 new L5; old L5, enforcement, splits into L6/L7); the #765 charter
 is referred to by name — the collective-semantics charter — never
 by layer number, immunizing it against renumbering.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

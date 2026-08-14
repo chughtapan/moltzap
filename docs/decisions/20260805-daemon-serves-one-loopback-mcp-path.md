@@ -1,12 +1,24 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-05
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The daemon serves one loopback MCP path and retires the CLI
 
 Decision provenance: [production harness trajectory](../decision-evidence/20260805-production-harness-cutover-trajectory.md#the-daemon-serves-one-loopback-mcp-path) and the retained [Gate 1 daemon trust decision](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#the-endpoint-daemon-exposes-modern-mcp-over-loopback-http).
+
+## Supersession
+
+One loopback Streamable HTTP `/mcp` boundary, retirement of the bespoke CLI
+and Unix socket, and the local trust boundary remain current. The
+`20260811-four-layer-endpoint-replicated-harness.md` outcome replaces named
+profile selection and does not retain this record's concrete registration
+catalog or unrecoverable-registration behavior. Registration and recovery
+remain explicit cutover decisions rather than compatibility behavior. The
+replacement record and `docs/spec/layer-interfaces.md` carry the current
+boundary.
 
 ## Context and Problem Statement
 

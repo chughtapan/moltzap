@@ -1,32 +1,32 @@
 /** @file Executable boundary for exactly one mounted simulator RunSpec. */
 
-import { pathToFileURL } from "node:url";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Cause, Context, Data, Effect, Layer } from "effect";
+import { pathToFileURL } from "node:url";
 import { isRunSpec, Run, type RunSpec } from "../../definition.js";
-import { isEntryModule } from "../entry.js";
 import {
   ClusterLost,
   CompletedLedgerReceipt,
   ProgramFinished,
 } from "../../index.js";
-import { LedgerStorageError } from "../../ledger.js";
+import { LedgerStorageError } from "../../ledger/index.js";
+import { isEntryModule } from "../entry.js";
 import {
   controllerConfigurationFromEnvironment,
   type ControllerEnvironment,
 } from "./configuration.js";
 import {
+  type ControllerLedgerExportOptions,
   exportCompletedLedger,
   filesystemLedgerExportOperations,
-  type ControllerLedgerExportOptions,
 } from "./ledger-export.js";
 import {
-  encodeControllerRunSummary,
-  ledgerAllocationFailedSummary,
-  programFinishedSummary,
   clusterLostSummary,
   type ControllerFailedRunSummary,
   type ControllerRunSummary,
+  encodeControllerRunSummary,
+  ledgerAllocationFailedSummary,
+  programFinishedSummary,
 } from "./summary.js";
 
 /** Stable stage labels used by sanitized controller failures. */
@@ -66,12 +66,91 @@ export class ControllerOperations extends Context.Tag(
   "@moltzap/simulator/ControllerOperations",
 )<ControllerOperations, ControllerOperationsService>() {}
 
-function failure(
-  stage: ControllerStage,
-  detail: string,
-  summary?: ControllerFailedRunSummary,
-): ControllerError {
-  return new ControllerError({ stage, detail, summary });
+/**
+ * Load and invoke one exact mounted RunSpec with no replay or fallback path.
+ * @param environment Optional injected environment used by deterministic tests.
+ * @returns The completed Run.execute value or a sanitized controller failure.
+ */
+export function runController(
+  environment?: ControllerEnvironment,
+): Effect.Effect<ControllerRunSummary, ControllerError, ControllerOperations> {
+  const resolvedEnvironment = environment ?? processControllerEnvironment();
+  return Effect.gen(function* () {
+    const operations = yield* ControllerOperations;
+    const configuration = yield* readConfiguration(resolvedEnvironment);
+    const runSpec = yield* loadExperiment(
+      configuration.experimentModule,
+      operations.importModule,
+    );
+    const outcome = yield* operations.executeRunSpec(runSpec).pipe(
+      Effect.sandbox,
+      Effect.mapError((cause) => {
+        const summary = allocationFailureSummary(cause);
+        return summary === undefined
+          ? executionFailure()
+          : executionFailureWithSummary(summary);
+      }),
+    );
+    const retained = yield* retainCompletedLedger(
+      configuration,
+      outcome,
+      operations.exportCompletedLedger,
+    );
+    return yield* acceptRunOutcome(retained);
+  }).pipe(Effect.withSpan("runController"));
+}
+
+function acceptRunOutcome(
+  outcome: unknown,
+): Effect.Effect<ControllerRunSummary, ControllerError> {
+  if (outcome instanceof ProgramFinished) {
+    return Effect.succeed(programFinishedSummary(outcome.receipt));
+  }
+  if (outcome instanceof ClusterLost) {
+    return Effect.fail(
+      executionFailureWithSummary(clusterLostSummary(outcome.receipt)),
+    );
+  }
+  return Effect.fail(executionFailure());
+}
+
+function retainCompletedLedger(
+  configuration: ReturnType<typeof controllerConfigurationFromEnvironment>,
+  outcome: unknown,
+  exporter: CompletedLedgerExporter,
+): Effect.Effect<unknown, ControllerError> {
+  const receipt = completedReceipt(outcome);
+  if (
+    receipt === undefined ||
+    configuration.ledgerExportDirectory === undefined
+  ) {
+    return Effect.succeed(outcome);
+  }
+  return exporter({
+    ledgerDirectory: configuration.ledgerDirectory,
+    exportDirectory: configuration.ledgerExportDirectory,
+    receipt,
+  }).pipe(
+    Effect.mapError(() =>
+      executionFailureWithSummary(clusterLostSummary(receipt)),
+    ),
+    Effect.as(outcome),
+  );
+}
+
+function completedReceipt(
+  outcome: unknown,
+): CompletedLedgerReceipt | undefined {
+  if (outcome instanceof ProgramFinished) {
+    return outcome.receipt;
+  }
+  if (
+    outcome instanceof ClusterLost &&
+    outcome.receipt instanceof CompletedLedgerReceipt
+  ) {
+    return outcome.receipt;
+  }
+  return undefined;
 }
 
 function executionFailure(): ControllerError {
@@ -100,10 +179,6 @@ function allocationFailureSummary(
     failures[0].operation === "allocate"
     ? ledgerAllocationFailedSummary()
     : undefined;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function decodeExperimentModule(
@@ -135,6 +210,10 @@ function decodeExperimentModule(
     );
   }
   return Effect.succeed(value.runSpec);
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function defaultImporter(specifier: string): PromiseLike<unknown> {
@@ -190,93 +269,6 @@ function readConfiguration(
   });
 }
 
-function acceptRunOutcome(
-  outcome: unknown,
-): Effect.Effect<ControllerRunSummary, ControllerError> {
-  if (outcome instanceof ProgramFinished) {
-    return Effect.succeed(programFinishedSummary(outcome.receipt));
-  }
-  if (outcome instanceof ClusterLost) {
-    return Effect.fail(
-      executionFailureWithSummary(clusterLostSummary(outcome.receipt)),
-    );
-  }
-  return Effect.fail(executionFailure());
-}
-
-function completedReceipt(
-  outcome: unknown,
-): CompletedLedgerReceipt | undefined {
-  if (outcome instanceof ProgramFinished) {
-    return outcome.receipt;
-  }
-  if (
-    outcome instanceof ClusterLost &&
-    outcome.receipt instanceof CompletedLedgerReceipt
-  ) {
-    return outcome.receipt;
-  }
-  return undefined;
-}
-
-function retainCompletedLedger(
-  configuration: ReturnType<typeof controllerConfigurationFromEnvironment>,
-  outcome: unknown,
-  exporter: CompletedLedgerExporter,
-): Effect.Effect<unknown, ControllerError> {
-  const receipt = completedReceipt(outcome);
-  if (
-    receipt === undefined ||
-    configuration.ledgerExportDirectory === undefined
-  ) {
-    return Effect.succeed(outcome);
-  }
-  return exporter({
-    ledgerDirectory: configuration.ledgerDirectory,
-    exportDirectory: configuration.ledgerExportDirectory,
-    receipt,
-  }).pipe(
-    Effect.mapError(() =>
-      executionFailureWithSummary(clusterLostSummary(receipt)),
-    ),
-    Effect.as(outcome),
-  );
-}
-
-/**
- * Load and invoke one exact mounted RunSpec with no replay or fallback path.
- * @param environment Optional injected environment used by deterministic tests.
- * @returns The completed Run.execute value or a sanitized controller failure.
- */
-export function runController(
-  environment?: ControllerEnvironment,
-): Effect.Effect<ControllerRunSummary, ControllerError, ControllerOperations> {
-  const resolvedEnvironment = environment ?? processControllerEnvironment();
-  return Effect.gen(function* () {
-    const operations = yield* ControllerOperations;
-    const configuration = yield* readConfiguration(resolvedEnvironment);
-    const runSpec = yield* loadExperiment(
-      configuration.experimentModule,
-      operations.importModule,
-    );
-    const outcome = yield* operations.executeRunSpec(runSpec).pipe(
-      Effect.sandbox,
-      Effect.mapError((cause) => {
-        const summary = allocationFailureSummary(cause);
-        return summary === undefined
-          ? executionFailure()
-          : executionFailureWithSummary(summary);
-      }),
-    );
-    const retained = yield* retainCompletedLedger(
-      configuration,
-      outcome,
-      operations.exportCompletedLedger,
-    );
-    return yield* acceptRunOutcome(retained);
-  }).pipe(Effect.withSpan("runController"));
-}
-
 function processControllerEnvironment(): ControllerEnvironment {
   // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The executable controller captures its environment once before entering the typed decoder.
   return process.env;
@@ -288,10 +280,21 @@ function isDirectInvocation(): boolean {
   return isEntryModule(import.meta.url, invoked);
 }
 
-function resultHandoffFailure(): ControllerError {
-  return failure(
-    CONTROLLER_STAGE.execution,
-    "the controller result could not be handed off",
+function reportControllerFailure(
+  controllerFailure: ControllerError,
+): Effect.Effect<never, ControllerError> {
+  const summary = controllerFailure.summary;
+  const writeSummary =
+    summary === undefined
+      ? Effect.void
+      : writeControllerSummary(summary).pipe(
+          Effect.catchAll((summaryFailure) =>
+            writeControllerDiagnostic(summaryFailure.message),
+          ),
+        );
+  return writeSummary.pipe(
+    Effect.zipRight(writeControllerDiagnostic(controllerFailure.message)),
+    Effect.zipRight(Effect.fail(controllerFailure)),
   );
 }
 
@@ -314,22 +317,19 @@ function writeControllerDiagnostic(message: string): Effect.Effect<void> {
   });
 }
 
-function reportControllerFailure(
-  controllerFailure: ControllerError,
-): Effect.Effect<never, ControllerError> {
-  const summary = controllerFailure.summary;
-  const writeSummary =
-    summary === undefined
-      ? Effect.void
-      : writeControllerSummary(summary).pipe(
-          Effect.catchAll((summaryFailure) =>
-            writeControllerDiagnostic(summaryFailure.message),
-          ),
-        );
-  return writeSummary.pipe(
-    Effect.zipRight(writeControllerDiagnostic(controllerFailure.message)),
-    Effect.zipRight(Effect.fail(controllerFailure)),
+function resultHandoffFailure(): ControllerError {
+  return failure(
+    CONTROLLER_STAGE.execution,
+    "the controller result could not be handed off",
   );
+}
+
+function failure(
+  stage: ControllerStage,
+  detail: string,
+  summary?: ControllerFailedRunSummary,
+): ControllerError {
+  return new ControllerError({ stage, detail, summary });
 }
 
 if (isDirectInvocation()) {

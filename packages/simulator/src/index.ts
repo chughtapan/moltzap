@@ -1,13 +1,13 @@
 /** @file Code-first simulator API. */
-// safer-arch-ignore no-folder-cycle: The package root is the explicit public composition facade over mutually typed event, ledger, network, and runtime capabilities.
+// safer-arch-ignore no-folder-cycle: The package root is the explicit public composition facade over mutually typed event, ledger, and runtime capabilities.
 // safer-arch-ignore no-package-mesh: The simulator is a capability-composition package whose named facades expose the intentional cross-domain contracts used by one run kernel.
 
 /** Re-exports the public API from `./definition.js`. */
 export {
+  type ClusterServices,
   Run,
   RunSpec,
   SimulatorDefinitionError,
-  type ClusterServices,
   type SimulatorDefinitionId,
 } from "./definition.js";
 
@@ -19,23 +19,16 @@ export {
   AgentRuntimeFailed,
   AgentRuntimeReady,
   AgentRuntimeStartFailed,
-  ConversationOpened,
   coreEvents,
-  EndpointMessageReceived,
-  EndpointMessageSent,
   LinkDown,
-  LinkMessageDelayed,
-  LinkMessageDropped,
-  LinkMessageHeld,
   LinkPolicyCleared,
   LinkPolicySet,
   LinkUp,
   ProgramFailed,
   ProgramInterrupted,
   ProgramSucceeded,
-  RouterMessageCommitted,
-  RouterStartFailed,
   RouterStarted,
+  RouterStartFailed,
   RouterStopFailed,
   RunStarted,
 } from "./events/core.js";
@@ -48,48 +41,46 @@ export {
 
 /** Re-exports the public API from `./events/catalog.js`. */
 export {
+  type EncodedEventOf,
   EventCatalog,
   EventCatalogDefinitionError,
-  type EncodedEventOf,
   type EventCatalogDefinitionFailure,
   type EventClass,
   type EventClassOf,
   type EventOf,
   type VersionedEventTag,
 } from "./events/catalog.js";
-/** Re-exports the public API from `./ledger/append.js`. */
-export type { LedgerFailure } from "./ledger/append.js";
+/** Re-exports the public ledger failure contract from its owning domain. */
+export type { LedgerFailure } from "./ledger/index.js";
 
-/** Re-exports the public API from `./network.js`. */
+/** Re-exports the compatible experiment-facing network API. */
 export {
+  type AgentConnection,
   AgentHandle,
   ConversationAddress,
+  type ConversationParticipants,
   ConversationSocket,
   Endpoint,
   LinkController,
-  linkPolicy,
-  linkVerdict,
-  Network,
-  NetworkError,
-  ParticipantHandle,
-  type AgentConnection,
-  type ConversationParticipants,
   type LinkControllerService,
   type LinkDelivery,
+  linkPolicy,
   type LinkPolicy,
+  linkVerdict,
   type LinkVerdict,
-  type MessageParts,
+  Network,
+  NetworkError,
   type NetworkService,
-  type ReceivedMessage,
-} from "./network.js";
+  ParticipantHandle,
+} from "./network/index.js";
 
 /** Re-exports the public API from `./run/execute.js`. */
 export {
+  ClusterLost,
   CompletedLedgerReceipt,
   IncompleteLedgerReceipt,
   LedgerReceipt,
   ProgramFinished,
-  ClusterLost,
   type SimulatorRunFailure,
   type SimulatorRunOutcome,
 } from "./run/execute.js";

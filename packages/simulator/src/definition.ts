@@ -1,23 +1,23 @@
 /** @file Definition-bound assembly of catalogs, services, rosters, and runs. */
 
 import { Effect, type Layer, Schema } from "effect";
+import type { AgentRuntimeLike } from "./agents/agent.js";
+import type { AgentRoster, StartedAgents } from "./agents/index.js";
+import type { Cluster } from "./cluster/cluster.js";
+import type { LedgerStorage } from "./ledger/index.js";
+import { makeAgentRosterBinding } from "./agents/roster.js";
 import { EventCatalog } from "./events/catalog.js";
 import {
-  makeDefinitionEventServices,
+  Network,
+  type NetworkService,
+  type RouterProvider,
+} from "./network/index.js";
+import {
   type CustomerEvents,
+  makeDefinitionEventServices,
   type ReadableRunLedger,
 } from "./run/events.js";
-import type { LedgerStorage } from "./ledger/storage.js";
 import { runSociety } from "./run/execute.js";
-import { Network, type NetworkService } from "./network/endpoint.js";
-import type { RouterProvider } from "./network/router.js";
-import type { Cluster } from "./cluster/cluster.js";
-import {
-  makeAgentRosterBinding,
-  type AgentRoster,
-  type StartedAgents,
-} from "./agents/roster.js";
-import type { AgentRuntimeLike } from "./agents/agent.js";
 
 /** Stable code identity persisted in every ledger manifest. */
 export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
@@ -34,18 +34,6 @@ export class SimulatorDefinitionError extends Schema.TaggedError<SimulatorDefini
 ) {
   override get message(): string {
     return `Simulator definition "${this.definitionId}" is invalid: ${this.detail}`;
-  }
-}
-
-function validateDefinitionId(
-  definitionId: string,
-): asserts definitionId is SimulatorDefinitionId {
-  if (!DEFINITION_ID.test(definitionId)) {
-    throw SimulatorDefinitionError.make({
-      definitionId,
-      detail:
-        "the id must be namespaced and versioned, for example acme.society/v1",
-    });
   }
 }
 
@@ -86,6 +74,15 @@ interface RunExecutionContext<
   readonly ledger: ReadableRunLedger<
     DefinitionEventServices<Id, CustomerCatalogs>["catalog"]
   >;
+}
+
+/**
+ * Whether a value carries the brand RunSpec.define installs.
+ * @param value Candidate produced elsewhere, typically a module export.
+ * @returns Whether this simulator can execute the value as a RunSpec.
+ */
+export function isRunSpec(value: unknown): value is RunSpec {
+  return hasRunSpecBrand(value);
 }
 
 function provideCluster<
@@ -192,31 +189,8 @@ export interface RunSpec<
   ) => Effect.Effect<A, E, R>;
 }
 
-function snapshotReadonlyArray<const Values extends readonly unknown[]>(
-  values: Values,
-): Values;
-function snapshotReadonlyArray(values: readonly unknown[]): readonly unknown[] {
-  return Object.freeze([...values]);
-}
-
-// An opaque ClusterLayer is not assignable to the projection of its own type
-// parameters, so the widening lives in this overload pair rather than in an
-// annotation. Passing the layer unwidened infers the constrained
-// Layer<never, unknown, unknown> instead, which drops the layer's exact
-// outputs from the run's type and leaves extra outputs unsatisfied.
-function concreteLayer<
-  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
->(
-  cluster: ClusterLayer,
-): Layer.Layer<
-  Layer.Layer.Success<ClusterLayer>,
-  Layer.Layer.Error<ClusterLayer>,
-  Layer.Layer.Context<ClusterLayer>
->;
-function concreteLayer(
-  cluster: Layer.Layer<never, unknown, unknown>,
-): Layer.Layer<never, unknown, unknown> {
-  return cluster;
+function hasRunSpecBrand(value: unknown): boolean {
+  return typeof value === "object" && value !== null && runSpecTypeId in value;
 }
 
 function defineRunSpec<
@@ -270,13 +244,43 @@ function defineRunSpec<
   return Object.freeze(spec);
 }
 
-/**
- * Whether a value carries the brand RunSpec.define installs.
- * @param value Candidate produced elsewhere, typically a module export.
- * @returns Whether this simulator can execute the value as a RunSpec.
- */
-export function isRunSpec(value: unknown): value is RunSpec {
-  return typeof value === "object" && value !== null && runSpecTypeId in value;
+function validateDefinitionId(
+  definitionId: string,
+): asserts definitionId is SimulatorDefinitionId {
+  if (!DEFINITION_ID.test(definitionId)) {
+    throw SimulatorDefinitionError.make({
+      definitionId,
+      detail:
+        "the id must be namespaced and versioned, for example acme.society/v1",
+    });
+  }
+}
+
+function snapshotReadonlyArray<const Values extends readonly unknown[]>(
+  values: Values,
+): Values;
+function snapshotReadonlyArray(values: readonly unknown[]): readonly unknown[] {
+  return Object.freeze([...values]);
+}
+
+// An opaque ClusterLayer is not assignable to the projection of its own type
+// parameters, so the widening lives in this overload pair rather than in an
+// annotation. Passing the layer unwidened infers the constrained
+// Layer<never, unknown, unknown> instead, which drops the layer's exact
+// outputs from the run's type and leaves extra outputs unsatisfied.
+function concreteLayer<
+  ClusterLayer extends Layer.Layer<never, unknown, unknown>,
+>(
+  cluster: ClusterLayer,
+): Layer.Layer<
+  Layer.Layer.Success<ClusterLayer>,
+  Layer.Layer.Error<ClusterLayer>,
+  Layer.Layer.Context<ClusterLayer>
+>;
+function concreteLayer(
+  cluster: Layer.Layer<never, unknown, unknown>,
+): Layer.Layer<never, unknown, unknown> {
+  return cluster;
 }
 
 function executeRunSpec<

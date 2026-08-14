@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-20
 decision-makers: Tapan Chugh
-superseded-by: 20260728-layer-boundaries-and-fault-model.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The network is a router
@@ -11,11 +11,16 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-The endpoint-interpretation boundary and rejection of network-side app
-machinery remain accepted. The 2026-07-28 layer and Transcript
-decisions narrow Router to L2 ordered multicast: it does not record
-committed actions, while the independent Ledger owns mechanical
-Transcript storage.
+The endpoint-interpretation boundary, content-blind Router, and rejection of
+network-side app principals, manifests, hooks, task owners, and trust policy
+remain current.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces the historical
+claim that the data plane records conversation history and removes the
+independent Ledger qualifier. Router remains volatile ordered multicast;
+fixed-member endpoints own certified conversation history, task meaning, and
+personal-trust decisions. The replacement record, `docs/spec/router.md`, and
+`docs/spec/conversation-history.md` contain the current ownership boundary.
 
 ## Context and Problem Statement
 
@@ -45,3 +50,11 @@ and network-side task owners do not exist in v2; tasks are endpoint
 conventions with no network representation; guardrails are
 endpoint-only; whether the router keeps any reachability role at all
 remains an open register question in `v2/VISION.md`.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
