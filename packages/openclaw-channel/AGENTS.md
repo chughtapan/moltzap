@@ -12,10 +12,11 @@ or another adapter. It receives an injected or MCP-backed `HarnessClient`; it
 does not acquire a daemon, profile, Registry admission material, signing key,
 raw Router credential, network client, or local store.
 
-The current channel-core, notification-RPC, profile/account, CLI/socket, and
-direct-server source is transitional deletion and rewrite input. Do not expand
-it, add a compatibility facade, or preserve it through re-exports. Rebuild the
-adapter against the accepted reduced `HarnessClient`.
+The source under this package is the final cutover adapter against the reduced
+`HarnessClient`. Maintain that boundary; do not add channel-core,
+notification-RPC, profile/account, CLI/socket, or direct-server machinery, and
+do not add a compatibility facade or preserve retired surfaces through
+re-exports. Publication and version policy remain separate release decisions.
 
 ## Host integration law
 
