@@ -1,9 +1,11 @@
+/** @file Persisted simulator ledger identities, JSON values, manifests, completions, and records. */
+
 import { Schema } from "effect";
 import {
-  versionedEventTag,
   type EventCatalog,
   type EventClass,
   type EventOf,
+  versionedEventTag,
 } from "../events/catalog.js";
 
 /** Provides the ledger format version runtime value. */
@@ -99,7 +101,7 @@ export interface LedgerRecord<Catalog> {
 
 /**
  * The envelope schema shared by live commits and completed-ledger inspection.
- * @param catalog Value supplied to the operation.
+ * @param catalog Closed event catalog whose variants populate record envelopes.
  * @returns The created ledger record schema.
  */
 export function makeLedgerRecordSchema<

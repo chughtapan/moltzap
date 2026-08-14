@@ -1,81 +1,53 @@
 # @moltzap/openclaw-channel
 
-OpenClaw gateway channel plugin: bridges MoltZap messages into the
-OpenClaw agent framework. The plugin contract is Promise-based;
-internals use Effect and pay `Effect.runPromise` only at the plugin
-surface.
+OpenClaw gateway channel plugin. The host contract is Promise-based; internal
+work may use Effect and crosses through `Effect.runPromise` only at the plugin
+surface. The channel id remains `"moltzap"`.
 
-## Structure
+## Cutover boundary
 
-- `src/openclaw-entry.ts` — the plugin: gateway `startAccount` acquires the
-  account's `HarnessClient` from its profile slot, drains that client's turns,
-  and projects each one into OpenClaw's `DispatchContext` and deliver callback.
-  The plugin holds no network client of its own; `moltzapd` speaks the
-  protocols behind its loopback MCP boundary.
-- `src/context-log.ts` — `writeOpenClawContextLog`.
-- `src/openclaw-target.ts` — target validation and normalization.
-- `src/harness-turn-delivery.ts` — bound Harness reply delivery.
-- `src/openclaw-gateway-lifecycle.ts` — serialized account handoff from one
-  scoped client/daemon generation to the next.
-- `src/*.test.ts` — unit tests. `src/__tests__/` — integration
-  tests, `spawn-server.ts`, echo-server fixture.
+This adapter consumes public `@moltzap/client` capabilities only. It must not
+import Identity, Router, protocol, server, Client internals, simulator, evals,
+or another adapter. It receives an injected or MCP-backed `HarnessClient`; it
+does not acquire a daemon, profile, Registry admission material, signing key,
+raw Router credential, network client, or local store.
 
-## Concepts
+The current channel-core, notification-RPC, profile/account, CLI/socket, and
+direct-server source is transitional deletion and rewrite input. Do not expand
+it, add a compatibility facade, or preserve it through re-exports. Rebuild the
+adapter against the accepted reduced `HarnessClient`.
 
-- **Account** — OpenClaw channel identity; its `id` is the MoltZap
-  profile name from `~/.moltzap/config.json`; OpenClaw stores no
-  MoltZap API keys.
-- **Target** — `agent:<name>` or `conv:<conversationId>`.
-  `isMoltZapTarget` is the accepting predicate.
-- **Context log** — per-message JSONL dump of the enriched inbound
-  payload; directory named by `MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR`.
+## Host integration law
 
-## Code
+- Project one current-conversation Client turn into OpenClaw's dispatch
+  context without fabricating authority from a conversation id or history
+  record. Do not restore automatic cross-conversation context or checkpoints.
+- Keep the originating turn's bound, content-only reply capability with the
+  corresponding OpenClaw delivery. A delayed delivery cannot fall forward to
+  a newer turn.
+- Established output uses that bound capability only. There is no generic
+  send, raw RPC fallback, target-based reply, CLI/socket path, or adapter
+  escape hatch.
+- OpenClaw target and directory behavior may initiate work through a
+  pre-minted `ConversationId`, nonempty peers, and initial content. Discovery,
+  search, history, status, registration, and proof inspection use MCP rather
+  than `HarnessClient`. None can authorize an established reply.
+- Keep host failures and Client failures typed at the boundary. A delivery
+  failure follows the Promise-based OpenClaw contract without exposing Client
+  internals.
+- Never use `unknown` types; define explicit host-facing interfaces.
 
-- Channel ID is always `"moltzap"`.
-- Replies dispatch via `dispatchReplyWithBufferedBlockDispatcher`
-  (`channelRuntime.reply`); OpenClaw calls `deliver` directly, never
-  `routeReply()` (`OriginatingChannel === Surface` always holds for
-  MoltZap→MoltZap), so the deliver callback MUST send the reply via
-  the originating `HarnessTurn.reply(text)` authority. Core-backed ingress
-  binds that closure to its private conversation route.
-- Each final `deliver` call invokes the bound reply. A send failure returns
-  `false` per `OpenClawDeliver: PromiseLike<boolean>` so the host may retry.
-- A caller may inject an already-acquired `HarnessClientService` for an
-  account. The gateway owns only the sequential turn-drain fiber: stop and
-  abort interrupt that fiber but never close the client scope. Production
-  profile-to-MCP acquisition is scoped by this package. Each account has one
-  gateway generation; stop and restart await the prior production scope's
-  daemon/client release before a replacement acquisition begins.
-- Harness-backed outbound supports only agent targets, which call
-  `startConversation([agentName], initialContent)`. Existing-conversation
-  targets fail without falling back to the legacy generic send path.
-- Target resolution: `messaging.targetResolver` validates both target formats
-  with no server round-trip; agent and conversation search stay on the daemon's
-  MCP management surface and are not OpenClaw directory methods.
-  `outbound.resolveTarget` requires a non-empty target and
-  rejects `:`-containing targets in no known format. A colon-free string is
-  normalized to `agent:<name>`; existing conversations require an explicit
-  `conv:<conversationId>` target.
-- Inbound routing consumes the already-projected `HarnessTurn` stream. The
-  daemon owns network notifications plus sender and conversation lookup; the
-  OpenClaw adapter owns only presentation and bound reply dispatch.
-- Account startup acquires one client and drains it. Termination of the turn
-  stream is the disconnect signal; the plugin drives no reconnect and no
-  `agent/message/list` catch-up. Do not claim delivery across a disconnected
-  window until both behaviors have a full-agent fault test.
-- Single agent per slot: the OpenClaw account id names the profile slot, the
-  slot carries the loopback port its daemon binds, and one slot is exactly one
-  AgentId.
-- Never use `unknown` types — use explicit typed interfaces.
+Start and bound reply return no receipt or proof; completion means the local
+endpoint certified the action. `TxnId`, `ActionHash`, `RecordHash`, and private
+retry state never enter the adapter contract. Preserve compatible host
+behavior only where it fits this boundary; transitional payload, formatter,
+target, and retry details do not define the final API.
 
 ## Tests
 
-- `pnpm test` — vitest unit tests. `pnpm test:integration` needs
-  Docker (testcontainers Postgres) and a built `@moltzap/server`;
-  it spawns the server via `src/__tests__/spawn-server.ts`. Test
-  helpers: `@moltzap/client/test-utils` (`stripWsPath`,
-  `registerStandaloneAgentPair`).
-- Never mock dispatch or delivery in integration/e2e — use a real
-  MoltZap server (testcontainers) and verify the actual round-trip.
-  Unit tests may mock the channelRuntime to verify contract shape.
+- Unit tests may fake the public Client capability to verify OpenClaw contract
+  projection and reply binding.
+- Integration tests exercise the final Client boundary; they must not restore
+  dependencies on deleted protocol/server packages, profiles, raw Router
+  credentials, or compatibility shims.
+- Run package tasks through Nx from the workspace root.

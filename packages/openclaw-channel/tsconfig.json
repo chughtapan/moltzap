@@ -14,15 +14,11 @@
   "exclude": [
     "src/**/*.test.ts",
     "src/__tests__",
-    "src/test-utils",
     "dist"
   ],
   "references": [
     {
       "path": "../client"
-    },
-    {
-      "path": "../protocol"
     }
   ]
 }

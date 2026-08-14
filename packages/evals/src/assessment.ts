@@ -1,37 +1,36 @@
 /** @file Criterion assessment provenance and one-semantic-call case grading. */
 
-import { Array as Arr, Effect, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
+import { Array as Arr, Effect, Schema } from "effect";
 import type {
   CriterionDefinition,
   CriterionEvidence,
   EvaluationCaseMetadata,
 } from "./cases.js";
 import {
+  evidenceNotice,
   JudgeBundle,
   JudgeCriterion,
+  judgeError,
   type JudgeResult,
   SemanticJudge,
-  evidenceNotice,
-  judgeError,
   validateJudgeResult,
 } from "./judge.js";
 import {
   CriterionDecided,
-  type CriterionVerdict,
-  type EvaluationCaseId,
-  type JudgePolicyId,
-  NeedsJudge,
   criterionId,
+  type CriterionVerdict,
   criterionVerdict,
+  type EvaluationCaseId,
   evaluationCaseId,
   evaluationEvidenceId,
+  type JudgePolicyId,
+  NeedsJudge,
 } from "./model.js";
 import {
+  citationIssue,
   type EvaluationTranscript,
   type GradingRefused,
-  PeerTimeoutTranscriptItem,
-  citationIssue,
   refusal,
   validateEvaluationTranscript,
 } from "./transcript.js";
@@ -95,7 +94,7 @@ const verdictPrecedence = {
  * @param assessments Criterion assessments for one case.
  * @returns The report-level verdict.
  */
-export function verdictOf(
+function verdictOf(
   assessments: NonEmptyReadonlyArray<CriterionAssessment>,
 ): CriterionVerdict {
   return assessments.reduce<CriterionVerdict>(
@@ -149,8 +148,7 @@ function selectedEvidence(
             {
               evidenceId,
               source: item.source,
-              parts:
-                item instanceof PeerTimeoutTranscriptItem ? [] : item.parts,
+              parts: item.parts,
             },
           ];
     });

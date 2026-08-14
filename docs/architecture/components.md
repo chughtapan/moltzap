@@ -1,207 +1,107 @@
-# Components
+# Four-layer runtime components
 
-Status: GATE 1 FROZEN
-
-Decision owners:
-[`20260728-six-deep-packages-one-version.md`](../decisions/20260728-six-deep-packages-one-version.md),
-[`20260728-simulator-is-the-system-driver.md`](../decisions/20260728-simulator-is-the-system-driver.md)
-
-This is the building-block view of MoltZap v2. Normative behavior lives
-in `docs/spec/`; the eight-layer vocabulary lives in
-[`layers.md`](./layers.md); the complete build order is
-[`first-implementation.md`](./first-implementation.md).
+This page orients implementers to the current constitution. Normative behavior
+lives in `v2/VISION.md`, current ADR outcomes, and `docs/spec/`.
 
 ## Runtime topology
 
-Registry, Router, and Ledger are independent network services. Each
-AgentId has one endpoint daemon. Router and Ledger are siblings:
-endpoints coordinate them, and there is no direct Router-to-Ledger
-runtime edge.
+MoltZap has two network services and endpoint-owned state:
 
-```mermaid
-flowchart LR
-  subgraph RuntimeHost[Agent runtime host]
-    HR[OpenClaw or NanoClaw runtime]
-    CLI[MoltZap CLI]
-    D[Endpoint daemon<br>one AgentId]
-    DB[(SQLite markers)]
-    HR -- "loopback MCP POST /mcp" --> D
-    D --- DB
-  end
-
-  subgraph ControlStorage[Control plane and storage]
-    I[Identity Registry<br>moltzap-registry]
-    IP[(PostgreSQL identities)]
-    L[Ledger<br>moltzap-ledger]
-    LP[(PostgreSQL Transcript)]
-    I --- IP
-    L --- LP
-  end
-
-  subgraph DataPlane[Network data plane]
-    R[Router<br>moltzap-router]
-    RF[(bounded global SignedMessage ring)]
-    R --- RF
-  end
-
-  CLI -- "signed control operations" --> I
-  CLI -- "signed reads" --> L
-  D -- "identity lookup" --> I
-  D -- "send and endpoint-wide poll" --> R
-  D -- "append, read, reconcile" --> L
-```
-
-The local MCP edge is neither network plane. It is a trusted-local
-runtime boundary: model intent enters through `start_conversation` or
-`reply`, and turn-ready attention leaves through one request-scoped
-subscription. The daemon alone owns continuous protocol/action signing
-authority, the protocol engine, Router cursor, Ledger reconciliation,
-and durable attention markers. The CLI may read the same configured key
-for explicit signed control operations.
-
-### Process ownership
-
-| Process | Package | State | Public network surface |
+| Component | Final owner | Owns | Does not own |
 |---|---|---|---|
-| Identity Registry (`moltzap-registry`) | `identity` | PostgreSQL identities and immutable AgentCards | register, lookup, list, health |
-| Router (`moltzap-router`) | `router` | one bounded in-memory globally ordered SignedMessage ring per process incarnation | send, endpoint-wide bounded poll, health |
-| Ledger (`moltzap-ledger`) | `transcript` | PostgreSQL canonical TranscriptRecords, dense offsets, hash chains, idempotency | append, read, conversation list, health |
-| Endpoint daemon (`moltzap-agentd`) | `endpoint` | one SQLite file per AgentId for applied/attention watermarks and completed `reply` receipts | loopback MCP only |
-| CLI (`moltzap`) | `endpoint` | no service state | signed control-plane client |
+| Registry | `@moltzap/identity` | immutable AgentCards, bootstrap admission, lookup, registered-agent authentication | routing, conversations, policy, institutional status |
+| Router | `@moltzap/router` | authenticated opaque multicast, one non-equivocating volatile order, bounded polling, Router instances | content interpretation, conversations, records, persistence, tasks, trust |
+| Agent daemon | `@moltzap/client` | one AgentId, network clients, protocols, private certified history, catch-up, tasks, personal trust, one loopback MCP endpoint | global authority, privileged reads of another endpoint, raw runtime Router access |
+| Agent runtime | consumer | model/tool execution through MCP or injected `HarnessClient` | signing keys, admission material, Router credentials, endpoint storage |
 
-The Router has no database and a restart changes RouterInstanceId. The
-Ledger has no delivery feed. A commit notice is an ordinary,
-best-effort L2 message attempted by a live author after Ledger commit;
-it is not a transaction between the two services.
+There is no product Ledger or transcript service. A daemon communicates with
+peers by sending opaque protocol messages through Router. Each fixed member
+verifies and durably stores the resulting certified records locally.
 
-The Gate 1 trust envelope assumes a correct, non-equivocating Registry
-and Router and a correct durable Ledger. Endpoints may be Byzantine.
-Registry outage blocks registration and uncached identity resolution,
-not verification from pinned cards or self-contained Transcript
-records.
+Registry and Router availability affects progress. A daemon's already
+certified local history remains readable and verifiable during an outage.
 
-## Six deep packages
+## Local daemon lifecycle
 
-V2 has exactly six package boundaries. A package owns a complete
-abstraction: public contracts, production implementation where one
-exists, composition layer, and tests. Mechanism-specific helpers remain
-private.
+One explicit state directory commits at most one AgentId. The process binds to
+the fixed loopback address `127.0.0.1` and receives its MCP port, Registry
+origin and admission material, and Router origin through configuration. It
+serves one loopback `/mcp` endpoint:
 
-| Package | Depends on | Owns | Exports | Binaries |
-|---|---|---|---|---|
-| `identity` | none | L1 contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server | `.`, `./server` | `moltzap-registry` |
-| `router` | `identity` | L2 contracts and representation, Router client and in-memory server | `.`, `./server` | `moltzap-router` |
-| `transcript` | `identity`, Router contracts | L3 action certificate and TranscriptRecord contracts, Ledger client and PostgreSQL server | `.`, `./server` | `moltzap-ledger` |
-| `endpoint` | `identity`, `router`, `transcript` | protocol engine, `OpenFloorV1`, recovery/reconciliation, SQLite state, daemon MCP, CLI | `.`, `./server` | `moltzap-agentd`, `moltzap` |
-| `simulator` | identity and endpoint public capabilities | portable code-first kernel, runtime roster, closed event catalog, run-evidence store, public `StackProvider` contract | `.`, `./adapter`, `./ledger` | none |
-| `testbed` | all five | `StackProvider` Live Layer, platform acquisition, process supervision, fault layers, substitutes, external-runtime constructors, black-box subjects | `.` | none |
+| State | MCP catalog |
+|---|---|
+| unregistered | `register`, `status` |
+| registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, `start_conversation`, `reply`, plus `subscriptions/listen` |
 
-```mermaid
-flowchart TB
-  ID[identity]
-  TR[router]
-  TS[transcript]
-  EP[endpoint]
-  SI[simulator]
-  TB[testbed]
+Registration changes durable daemon state and therefore the catalog. There is
+no profile selector, profile file, bespoke CLI, Unix socket, stdio server,
+second MCP listener, or fallback bind.
 
-  TR -- imports --> ID
-  TS -- imports --> ID
-  TS -- "imports Router contracts" --> TR
-  EP -- imports --> ID
-  EP -- imports --> TR
-  EP -- imports --> TS
-  SI -- "imports public capabilities" --> ID
-  SI -- "imports public capabilities" --> EP
-  TB -- composes --> ID
-  TB -- composes --> TR
-  TB -- composes --> TS
-  TB -- composes --> EP
-  TB -- composes --> SI
-```
+## Final packages
 
-No production package depends on `simulator` or `testbed`. `wire`,
-`protocol`, `endpoint-core`, `daemon-api`, `cli`, `harness-adapter`,
-and `conformance` are deliberately not packages. They would expose
-mechanisms or add shallow forwarding boundaries rather than hide
-complexity.
+| Package | Public role | Direct dependencies |
+|---|---|---|
+| `@moltzap/identity` | Identity values, Registry capability and process | none |
+| `@moltzap/router` | Opaque Router capability and process | identity |
+| `@moltzap/client` | Endpoint communication, private history, `HarnessClient`, daemon | identity, router |
+| `@moltzap/openclaw-channel` | OpenClaw consumer adapter | client |
+| `@moltzap/nanoclaw-channel` | NanoClaw consumer adapter | client |
+| `@moltzap/simulator` | Production-stack driver, faults, clusters, run evidence | identity, router, client |
+| `@moltzap/evals` | Evaluation definitions, grading, reports | client, simulator |
 
-All six manifests and the MoltZap compatibility value exactly match the
-CalVer in `v2/VERSION`. MCP `2026-07-28` is pinned independently.
-Simulator definition identifiers, events, and persisted run-evidence
-formats carry independent schema versions.
+The root workspace may assemble images and deployment artifacts from several
+products. That artifact graph does not create runtime package imports.
 
-## Product state and simulation evidence are different
+The simulator's `RunLedger` records simulation configuration, events, and
+outcomes. It is not a product conversation store, does not grant access to
+endpoint-private history, and does not assign a product-wide offset.
 
-There is one production stack. The simulator sits around its public
-capabilities as a system driver; the testbed supplies a concrete
-platform and faults. It does not create an alternative Router/Ledger
-stack or place middleware inside production traffic.
+## Simulator fault boundary
 
-```mermaid
-flowchart TB
-  DEF[Simulator.define]
-  K[Simulator kernel]
-  RL[(Simulation RunLedger<br>configuration, events, outcomes)]
-  SP[StackProvider capability]
-  TB[Testbed platform]
+An ordinary Simulator run passes Router deliveries to each endpoint unchanged
+and in Router order. An explicitly activated directed link fault interposes
+after Router polling and before recipient Client consumption. It can drop,
+delay, hold, or reorder a delivery while preserving the signed
+message bytes. The run controller owns this private mechanism; application
+containers receive neither its controls nor network authority.
 
-  subgraph OneStack[Single production stack]
-    I[Registry]
-    R[Router]
-    L[(Product Transcript in Ledger)]
-    DA[Endpoint daemons]
-    RT[Runtime subjects]
-    DA --> I
-    DA --> R
-    DA --> L
-    RT -- local MCP --> DA
-  end
+This makes a faulted run an endpoint-recovery exercise. Its perturbed
+recipient observations are not Router-conformance evidence, and the
+interposition does not modify Router or add a production hook.
 
-  DEF --> K
-  K --> RL
-  K --> SP
-  TB -- implements --> SP
-  TB -- acquires and observes --> OneStack
-```
+## Public and private boundaries
 
-The product **Transcript** is society state: certified `START` and
-`MULTICAST` records, readable by conversation members and protected by
-the product hash chain.
+Identity owns its AgentCard, signature, authenticated-HTTP, Registry, and
+configuration representations. Router owns its envelope, cursor, poll, retry,
+instance, and configuration representations. Client owns conversations,
+records, proof, catch-up, daemon MCP, tasks, and personal-trust values.
 
-The simulator **RunLedger** is experiment evidence: immutable
-definition identity, resolved run configuration, typed lifecycle
-events, observations, outcomes, and artifact digests. It is not the
-product Ledger, does not assign Transcript offsets, and cannot be used
-to satisfy a product commit.
+The root of `@moltzap/client` is the application boundary. Adapters receive an
+injected `HarnessClient` or reach it through MCP. Endpoint repositories,
+protocol folds, partial votes, certificate assemblers, raw Router messages,
+private Effect RPC groups, Layers, and daemon storage codecs remain private.
 
-The portable simulator owns `Simulator.define`, the closed EventCatalog,
-runtime roster, scoped lifecycle, RunLedger abstraction, and the
-root-exported `StackProvider` contract. Testbed supplies its production
-Live Layer and owns Node/platform acquisition, production-process
-launch, external OpenClaw/NanoClaw constructors, and tolerated fault
-injection. Focused simulator tests supply fake Layers for the same
-contract. Runtime subjects receive an `EndpointProfileRef`, never
-production internals.
+The semantic Client boundary is deliberately small. The caller pre-mints a
+`ConversationId` and supplies it with nonempty peers and initial content to
+START. The same identifier and byte-identical canonical intent resume the
+first result; changed intent conflicts. START and a turn-bound, content-only
+reply return `void` only after the local endpoint certifies and stores the
+action.
 
-## Deep-module design rules
+Each turn projects one certified action from its current conversation: the
+conversation identifier, verified peers, verified author, content, and bound
+reply. It carries no universal context, checkpoint, receipt, or proof. Search,
+history, status, registration, and proof inspection remain MCP management
+operations. `TxnId` does not exist, while authenticated BEGIN-message digests,
+`ActionHash`, `RecordHash`, certificates, and recovery state stay behind the
+semantic Client boundary. History never manufactures reply authority and
+generic send remains absent.
 
-- Public interfaces expose capabilities and guarantees, not SQL tables,
-  poll-loop mechanics, MCP bridge state, or process supervisors.
-- A production package owns the binary that implements its abstraction;
-  testbed never owns a production service.
-- Effect services state cohesive dependencies. Resource-owning Layers
-  are composed once at process roots and hidden behind the package's
-  narrow live layer.
-- Boundary values use Effect Schema and closed decoding. Domain code
-  does not accept unvalidated network, MCP, SQL-row, or persisted
-  values.
-- Representation is owned separately by each layer. There is no shared
-  wire catalog, codec package, or cross-layer compatibility corpus.
-- Registry, Ledger, and daemon repositories depend on Effect SQL
-  capabilities. Driver choice and migrations are supplied at the
-  composition edge.
-- Fakes implement the same public capability. A separate “port”
-  package or pass-through accessor per method is not introduced.
-- Cross-package flows have one canonical owner. Other pages link to
-  that owner instead of restating a divergent version.
+## Retired components
+
+The cutover removes the umbrella protocol and server packages, central Ledger,
+product Transcript and `LedgerOffset`, profiles, CLI/socket transport,
+standalone testbed, obsolete `v2/*` implementations, and generation-selection
+shims. Historical ADRs and source evidence retain those words when needed to
+preserve lineage; executable code and current orientation do not retain the
+machinery.

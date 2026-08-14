@@ -2,11 +2,11 @@
 
 import { Cause, Effect, Inspectable, Schema, type Scope } from "effect";
 import {
-  defineRuntime,
-  RuntimeAcquisitionError,
   type AgentRuntime,
   type AgentRuntimeDefinition,
   type AgentRuntimeInput,
+  defineRuntime,
+  RuntimeAcquisitionError,
   type RuntimeTermination,
 } from "./agent.js";
 
@@ -153,8 +153,8 @@ export interface Application<Gateway, AcquisitionError> {
 export interface ContainerRuntime<Gateway, AcquisitionError> {
   readonly image: Image;
   readonly resources: Resources;
-  readonly render: <Name extends string>(
-    input: AgentRuntimeInput<Name>,
+  readonly render: (
+    input: AgentRuntimeInput,
   ) => Effect.Effect<Application<Gateway, AcquisitionError>, AcquisitionError>;
 }
 
@@ -183,12 +183,6 @@ interface ContainerRuntimeCarrier<Gateway, AcquisitionError> {
   >;
 }
 
-/**
- * Read the container realization branded onto one runtime value.
- * @param runtime Runtime whose container realization is requested.
- * @returns The realization, absent only for a runtime that never declared one.
- * @internal
- */
 export function containerRuntimeFor<
   Gateway,
   AcquisitionError,
@@ -207,6 +201,12 @@ export function containerRuntimeFor<
 >(
   runtime: AgentRuntime<Gateway, AcquisitionError, ConfigurationSchema>,
 ): ContainerRuntime<Gateway, AcquisitionError> | undefined;
+/**
+ * Read the container realization branded onto one runtime value.
+ * @param runtime Runtime whose container realization is requested.
+ * @returns The realization, absent only for a runtime that never declared one.
+ * @internal
+ */
 export function containerRuntimeFor<
   Gateway,
   AcquisitionError,

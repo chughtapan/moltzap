@@ -1,5 +1,7 @@
-import { FileSystem, Path } from "@effect/platform";
+/** @file NanoClaw socket framing, transport, failure, and output-bound regressions. */
+
 import type * as Socket from "@effect/platform/Socket";
+import { FileSystem, Path } from "@effect/platform";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import { assert, it as effectIt } from "@effect/vitest";
 import { Chunk, Deferred, Duration, Effect, Fiber, Stream } from "effect";

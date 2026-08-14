@@ -116,6 +116,20 @@ const TAG_CLASS_FACTORIES = [
 
 const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   ...guard.configs.strict.rules,
+  "agent-code-guard/no-vacuous-jsdoc": "error",
+  "agent-code-guard/prefer-stepdown-function-order": "error",
+  "agent-code-guard/require-stable-file-shell": "error",
+  // The architecture linter owns complete folder-cycle detection. Keep this
+  // file-level check bounded so a public adapter does not re-walk the entire
+  // package and external dependency graph for every source file.
+  "import-x/no-cycle": [
+    "error",
+    {
+      allowUnsafeDynamicCyclicDependency: false,
+      ignoreExternal: true,
+      maxDepth: 3,
+    },
+  ],
   "@typescript-eslint/naming-convention": [
     "error",
     {

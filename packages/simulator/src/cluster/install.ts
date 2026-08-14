@@ -93,6 +93,43 @@ export function workerIsAvailable(availability: WorkerAvailability): boolean {
   );
 }
 
+/**
+ * Install the cluster's run-lifecycle worker and wait until it can poll.
+ *
+ * Every submission installs it, because the worker runs the image the submitter
+ * selected and a cluster prepared before that image existed has no worker at
+ * all. The one submission that must not is the one whose image differs from the
+ * installed one while that worker still owns runs: rolling the Deployment
+ * deletes the only Pod heartbeating those activities, which fails them and
+ * takes their namespaces with them.
+ *
+ * @param api Host-side access to the profile's cluster.
+ * @param request The submission's image, its open-run reading, and any override.
+ * @returns Nothing once one worker replica is available on the task queue.
+ * @failure KubernetesCallFailed when a control-plane object could not be written.
+ * @failure RunWorkerRollRefused when installing would interrupt an open run.
+ * @failure RunWorkerUnavailable when no replica becomes available in time.
+ */
+export function installRunWorker(
+  api: RunWorkerInstallApi,
+  request: RunWorkerInstallRequest,
+): Effect.Effect<
+  void,
+  KubernetesCallFailed | RunWorkerRollRefused | RunWorkerUnavailable
+> {
+  return guardWorkerRoll(api, request).pipe(
+    Effect.zipRight(Effect.logInfo("applying run-worker manifests")),
+    Effect.zipRight(
+      Effect.forEach(INSTALL_ORDER, (object) => api.install(object), {
+        concurrency: 1,
+        discard: true,
+      }),
+    ),
+    Effect.zipRight(awaitAvailableWorker(api)),
+    Effect.withSpan("installRunWorker"),
+  );
+}
+
 // A worker that never becomes available is the one failure mode that would
 // otherwise be silent: the workflow starts, nothing polls its task queue, and
 // the submitter waits forever. Waiting here turns that into a failed submission.
@@ -170,41 +207,4 @@ function guardWorkerRoll(
       yield* Effect.fail(new RunWorkerRollRefused(detail));
     }
   });
-}
-
-/**
- * Install the cluster's run-lifecycle worker and wait until it can poll.
- *
- * Every submission installs it, because the worker runs the image the submitter
- * selected and a cluster prepared before that image existed has no worker at
- * all. The one submission that must not is the one whose image differs from the
- * installed one while that worker still owns runs: rolling the Deployment
- * deletes the only Pod heartbeating those activities, which fails them and
- * takes their namespaces with them.
- *
- * @param api Host-side access to the profile's cluster.
- * @param request The submission's image, its open-run reading, and any override.
- * @returns Nothing once one worker replica is available on the task queue.
- * @failure KubernetesCallFailed when a control-plane object could not be written.
- * @failure RunWorkerRollRefused when installing would interrupt an open run.
- * @failure RunWorkerUnavailable when no replica becomes available in time.
- */
-export function installRunWorker(
-  api: RunWorkerInstallApi,
-  request: RunWorkerInstallRequest,
-): Effect.Effect<
-  void,
-  KubernetesCallFailed | RunWorkerRollRefused | RunWorkerUnavailable
-> {
-  return guardWorkerRoll(api, request).pipe(
-    Effect.zipRight(Effect.logInfo("applying run-worker manifests")),
-    Effect.zipRight(
-      Effect.forEach(INSTALL_ORDER, (object) => api.install(object), {
-        concurrency: 1,
-        discard: true,
-      }),
-    ),
-    Effect.zipRight(awaitAvailableWorker(api)),
-    Effect.withSpan("installRunWorker"),
-  );
 }

@@ -4,18 +4,21 @@ Code-first experiments over containerized agent societies. Kubernetes is the
 single execution backend; the repository provides local kind and GKE profiles
 for the same run path.
 
-The package owns typed definitions and events, the run, the production
-MoltZap router, exact runtime-native gateways, durable ledgers, Kueue cohort
-admission, Agent Sandbox applications, and coarse Temporal lifecycle control.
-Experiment code owns completion policy, scenarios, sweeps, and grading.
+The package owns typed definitions and lifecycle events, exact runtime-native
+gateways, run evidence, Kueue cohort admission, Agent Sandbox applications, and
+coarse Temporal lifecycle control. Experiment code owns completion policy,
+scenarios, sweeps, and grading.
+
+The source layout and its compatibility-preserving validation plan are recorded
+in [`docs/architecture/simulator-domain-barrels.md`](../../docs/architecture/simulator-domain-barrels.md).
 
 ## Entry points
 
 | Import | Purpose |
 |---|---|
 | `@moltzap/simulator` | Define a `RunSpec`, execute it, and consume customer run services |
+| `@moltzap/simulator/network` | Use retained participant, endpoint, Router-fixture, and directed-link fault contracts |
 | `@moltzap/simulator/agents` | Use container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
-| `@moltzap/simulator/network` | Network, endpoint, router, transport, and link contracts |
 | `@moltzap/simulator/ledger` | Completed-ledger schemas, validation, and offline readback |
 
 ## Experiment module
@@ -41,12 +44,7 @@ export const runSpec = RunSpec.define({
   events: [],
   agents: { alice },
   cluster: controllerServicesFromEnvironment(),
-  execute: ({ agents, network }) =>
-    Effect.gen(function* () {
-      const diagnostic = yield* network.endpoint("diagnostic");
-      const conversation = yield* diagnostic.open(agents.alice.agent);
-      yield* conversation.send("hello");
-    }),
+  execute: ({ agents }) => Effect.succeed(agents.alice.agent.id),
 });
 ```
 
@@ -55,14 +53,12 @@ controller image. It keeps Kubernetes, Kueue, Sandbox, Temporal, and
 cloud-provider values outside the public experiment contract. The controller
 loads the module late and invokes `Run.execute(runSpec)` once.
 
-Each started agent exposes three distinct capabilities:
+Each started agent exposes three lifecycle-facing values:
 
-- `.agent` is the router-issued social identity;
+- `.agent` is the Registry-issued nominal handle with the roster key and final
+  `AgentId`;
 - `.gateway` is that runtime's exact principal interface; and
 - `.termination` observes autonomous runtime completion.
-
-Diagnostic endpoints do not impersonate roster principals. Every autonomous
-agent sends social traffic through its own MoltZap connection.
 
 NanoClaw requires an explicit digest-pinned application image implementing its
 fixed one-container bootstrap and gateway contract. The simulator never
@@ -73,7 +69,7 @@ substitutes a mutable or placeholder image.
 Build the shared controller/support image and create the pinned local profile:
 
 ```bash
-pnpm nx run @moltzap/simulator:local-controller-image
+pnpm nx run workspace:simulator-controller-image
 pnpm nx run @moltzap/simulator:local-cluster-create -- \
   --image CONTROLLER_IMAGE_AT_SHA256
 ```

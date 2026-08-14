@@ -18,34 +18,35 @@ import {
   type PhoenixRun,
 } from "./phoenix-client.js";
 import { datasetExampleId, ensureDataset } from "./phoenix-dataset.js";
-import {
-  phoenixAttemptEvaluations,
-  upsertEvaluation,
-} from "./phoenix-evaluation.js";
 import { ensureExperiment } from "./phoenix-experiment.js";
 import {
+  encodingError,
+  phoenixAttemptEvaluations,
   type PhoenixPublicationError,
   type PublicationContext,
-  encodingError,
+  upsertEvaluation,
 } from "./phoenix-publication.js";
 import { ensureRun, fetchRuns } from "./phoenix-run.js";
 import {
   type CompletedEvaluationReport,
   digestEvaluationReport,
-  evaluationReportDigest,
   type EvaluationConditionPlan,
+  evaluationReportDigest,
   type EvaluationReportValidationError,
   type TerminalAttempt,
   validateCompletedEvaluationReport,
 } from "./sweep.js";
 
 /** Re-exports the public API from `./phoenix-publication.js`. */
-export { PhoenixPublicationConflict } from "./phoenix-publication.js";
+export {
+  phoenixAttemptEvaluations,
+  PhoenixPublicationConflict,
+} from "./phoenix-publication.js";
 /** Re-exports the public API from `./phoenix-dataset.js`. */
 export {
-  type PhoenixDatasetCatalog,
   findPhoenixDataset,
   phoenixCatalogExamples,
+  type PhoenixDatasetCatalog,
   reconcilePhoenixDatasetCatalog,
 } from "./phoenix-dataset.js";
 /** Re-exports the public API from `./phoenix-experiment.js`. */
@@ -54,8 +55,6 @@ export {
   phoenixExperimentProvenance,
   phoenixPublishedDatasetVersion,
 } from "./phoenix-experiment.js";
-/** Re-exports the public API from `./phoenix-evaluation.js`. */
-export { phoenixAttemptEvaluations } from "./phoenix-evaluation.js";
 
 /** Published experiment location for one runtime condition. */
 class PhoenixExperimentPublication extends Schema.Class<PhoenixExperimentPublication>(
@@ -96,42 +95,44 @@ interface ConditionPublicationContext {
   readonly remoteRuns: readonly PhoenixRun[];
 }
 
-function publishAttemptEvaluations(
-  context: ConditionPublicationContext,
-  runId: string,
-  attempt: TerminalAttempt,
-): Effect.Effect<void, PhoenixRequestFailed> {
-  const { client } = context.publication;
-  const evaluations = phoenixAttemptEvaluations(
-    attempt,
-    context.publication.digest,
-    context.condition,
-  );
-  return Effect.forEach(
-    evaluations,
-    (evaluation) => upsertEvaluation(client, runId, attempt, evaluation),
-    { concurrency: 1, discard: true },
-  );
-}
-
-function publishAttempt(
-  context: ConditionPublicationContext,
-  attempt: TerminalAttempt,
-): Effect.Effect<void, PhoenixPublicationError> {
-  return Effect.gen(function* () {
-    const { client, dataset } = context.publication;
-    const exampleId = yield* datasetExampleId(dataset, attempt.caseId);
-    const runId = yield* ensureRun(
-      {
-        client,
-        experimentId: context.experimentId,
-        runs: context.remoteRuns,
-      },
-      attempt,
-      exampleId,
+/**
+ * Build the Phoenix projection service around an injected SDK client.
+ * @param client Configured Phoenix SDK client.
+ * @param baseUrl Phoenix browser origin used for receipt links.
+ * @returns A publisher that keeps the local report authoritative.
+ */
+export function makePhoenixPublisher(
+  client: PhoenixClient,
+  baseUrl: string,
+): PhoenixPublisherService {
+  const publish = Effect.fn("evals.publishPhoenixReport")(function* (
+    report: CompletedEvaluationReport,
+  ) {
+    const validated = yield* validateCompletedEvaluationReport(report);
+    const digest = yield* digestEvaluationReport(validated);
+    const dataset = yield* ensureDataset(client, validated.plan, digest);
+    const publication: PublicationContext = {
+      client,
+      dataset,
+      report: validated,
+      digest,
+    };
+    const [firstCondition, ...remainingConditions] = validated.plan.conditions;
+    const first = yield* publishCondition(publication, baseUrl, firstCondition);
+    const remaining = yield* Effect.forEach(
+      remainingConditions,
+      (condition) => publishCondition(publication, baseUrl, condition),
+      { concurrency: 1 },
     );
-    yield* publishAttemptEvaluations(context, runId, attempt);
+    return PhoenixPublication.make({
+      datasetId: dataset.id,
+      reportDigest: digest,
+      experiments: [first, ...remaining],
+    });
   });
+  return {
+    publish,
+  };
 }
 
 function publishCondition(
@@ -176,44 +177,42 @@ function publishCondition(
   });
 }
 
-/**
- * Build the Phoenix projection service around an injected SDK client.
- * @param client Configured Phoenix SDK client.
- * @param baseUrl Phoenix browser origin used for receipt links.
- * @returns A publisher that keeps the local report authoritative.
- */
-export function makePhoenixPublisher(
-  client: PhoenixClient,
-  baseUrl: string,
-): PhoenixPublisherService {
-  const publish = Effect.fn("evals.publishPhoenixReport")(function* (
-    report: CompletedEvaluationReport,
-  ) {
-    const validated = yield* validateCompletedEvaluationReport(report);
-    const digest = yield* digestEvaluationReport(validated);
-    const dataset = yield* ensureDataset(client, validated.plan, digest);
-    const publication: PublicationContext = {
-      client,
-      dataset,
-      report: validated,
-      digest,
-    };
-    const [firstCondition, ...remainingConditions] = validated.plan.conditions;
-    const first = yield* publishCondition(publication, baseUrl, firstCondition);
-    const remaining = yield* Effect.forEach(
-      remainingConditions,
-      (condition) => publishCondition(publication, baseUrl, condition),
-      { concurrency: 1 },
+function publishAttempt(
+  context: ConditionPublicationContext,
+  attempt: TerminalAttempt,
+): Effect.Effect<void, PhoenixPublicationError> {
+  return Effect.gen(function* () {
+    const { client, dataset } = context.publication;
+    const exampleId = yield* datasetExampleId(dataset, attempt.caseId);
+    const runId = yield* ensureRun(
+      {
+        client,
+        experimentId: context.experimentId,
+        runs: context.remoteRuns,
+      },
+      attempt,
+      exampleId,
     );
-    return PhoenixPublication.make({
-      datasetId: dataset.id,
-      reportDigest: digest,
-      experiments: [first, ...remaining],
-    });
+    yield* publishAttemptEvaluations(context, runId, attempt);
   });
-  return {
-    publish,
-  };
+}
+
+function publishAttemptEvaluations(
+  context: ConditionPublicationContext,
+  runId: string,
+  attempt: TerminalAttempt,
+): Effect.Effect<void, PhoenixRequestFailed> {
+  const { client } = context.publication;
+  const evaluations = phoenixAttemptEvaluations(
+    attempt,
+    context.publication.digest,
+    context.condition,
+  );
+  return Effect.forEach(
+    evaluations,
+    (evaluation) => upsertEvaluation(client, runId, attempt, evaluation),
+    { concurrency: 1, discard: true },
+  );
 }
 
 const phoenixHost = Config.string("PHOENIX_HOST");

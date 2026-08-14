@@ -2,16 +2,23 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["eslint.shared.mjs", "vitest.workspace-aliases.ts"],
-      "project": ["*.mjs", "*.ts"],
-      "ignoreDependencies": ["@mermaid-js/mermaid-cli", "typedoc"]
+      "entry": [
+        "eslint.shared.mjs",
+        "vitest.workspace-aliases.ts",
+        "scripts/docs/adr/check-shape.ts",
+        "scripts/docs/check-mermaid.ts",
+        "scripts/docs/generate-constants-snippets.ts",
+        "scripts/docs/generate-modules.ts",
+        "scripts/docs/vitest.config.ts",
+        "scripts/docs/__tests__/*.test.ts"
+      ],
+      "project": ["*.mjs", "*.ts", "scripts/docs/**/*.ts"],
+      "ignoreDependencies": ["@mermaid-js/mermaid-cli", "puppeteer"]
     },
     "packages/client": {
       "entry": [
         "src/**/*.test.ts",
-        "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
-        "src/**/__tests__/**/*.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
@@ -19,7 +26,6 @@
     "packages/nanoclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
-        "src/**/__tests__/**/*.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
@@ -27,26 +33,14 @@
     "packages/openclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
-        "src/**/__tests__/**/*.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
-    },
-    "packages/protocol": {
-      "entry": [
-        "src/**/*.test.ts",
-        "src/**/*.types-check.ts",
-        "src/testing/conformance/**/*.ts",
-        "scripts/check-mermaid.ts",
-        "vitest*.config.mjs"
-      ],
-      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/evals": {
       "entry": [
         "src/cli.ts",
         "src/execution.ts",
-        "src/peer-application.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts"
       ],
@@ -65,18 +59,8 @@
       ],
       "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"]
     },
-    "packages/server": {
+    "packages/identity": {
       "entry": [
-        "src/**/*.test.ts",
-        "src/**/*.types-check.ts",
-        "src/**/__tests__/**/*.ts",
-        "vitest*.config.mjs"
-      ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
-    },
-    "v2/identity": {
-      "entry": [
-        "src/registry/process.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
@@ -87,36 +71,13 @@
         "@electric-sql/pglite-socket"
       ]
     },
-    "v2/router": {
+    "packages/router": {
       "entry": [
-        "src/router/process.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
       "project": ["src/**/*.ts", "*.mjs"]
-    },
-    "v2/transcript": {
-      "ignoreDependencies": ["@moltzap/v2-identity", "@moltzap/v2-router"]
-    },
-    "v2/endpoint": {
-      "ignoreDependencies": [
-        "@moltzap/v2-identity",
-        "@moltzap/v2-transcript",
-        "@moltzap/v2-router"
-      ]
-    },
-    "v2/simulator": {
-      "ignoreDependencies": ["@moltzap/v2-endpoint", "@moltzap/v2-identity"]
-    },
-    "v2/testbed": {
-      "ignoreDependencies": [
-        "@moltzap/v2-endpoint",
-        "@moltzap/v2-identity",
-        "@moltzap/v2-simulator",
-        "@moltzap/v2-transcript",
-        "@moltzap/v2-router"
-      ]
     }
   }
 }

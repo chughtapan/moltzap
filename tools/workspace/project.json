@@ -23,29 +23,37 @@
     },
     "docs:generate": {
       "cache": true,
-      "dependsOn": [
-        {
-          "target": "build",
-          "projects": "@moltzap/client"
-        }
-      ],
       "inputs": [
         "docsGeneration"
       ],
       "outputs": [
+        "{workspaceRoot}/README.md",
         "{workspaceRoot}/docs",
-        "{workspaceRoot}/packages/**/src/**/MODULE.md",
-        "{workspaceRoot}/v2/identity/src/**/MODULE.md",
-        "{workspaceRoot}/v2/router/src/**/MODULE.md"
+        "{workspaceRoot}/packages/**/src/**/MODULE.md"
       ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
         "parallel": false,
         "commands": [
-          "pnpm --filter @moltzap/protocol docs:generate",
-          "pnpm --filter @moltzap/client exec tsx scripts/generate-ws-connect-snippet.ts",
+          "pnpm exec typedoc",
+          "pnpm exec tsx scripts/docs/generate-modules.ts",
           "pnpm exec tsx scripts/docs/generate-constants-snippets.ts"
+        ]
+      }
+    },
+    "docs:check:mermaid": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "pnpm exec puppeteer browsers install chrome-headless-shell",
+          "pnpm exec tsx scripts/docs/check-mermaid.ts"
         ]
       }
     },
@@ -71,15 +79,80 @@
         "command": "pnpm exec tsx scripts/docs/check-doc-imports-resolve.ts"
       }
     },
+    "simulator-controller-image": {
+      "cache": false,
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/simulator/build-controller-image.mjs"
+      }
+    },
+    "simulator-local-fault-qualification": {
+      "cache": false,
+      "dependsOn": [
+        "simulator-local-fault-qualification-check",
+        {
+          "projects": [
+            "@moltzap/simulator"
+          ],
+          "target": "build"
+        }
+      ],
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{workspaceRoot}/scripts/test/simulator-fault-end-to-end.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-program.mjs",
+        "{workspaceRoot}/scripts/test/simulator-local-fault-qualification.mjs",
+        "{workspaceRoot}/scripts/simulator/build-controller-image.mjs",
+        "{workspaceRoot}/scripts/simulator/controller-image/Dockerfile",
+        "{workspaceRoot}/packages/simulator/local/**/*",
+        "{workspaceRoot}/packages/simulator/scripts/local-create-cluster.mjs"
+      ],
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/test/simulator-local-fault-qualification.mjs"
+      }
+    },
+    "simulator-local-fault-qualification-check": {
+      "cache": true,
+      "dependsOn": [
+        {
+          "projects": [
+            "@moltzap/simulator"
+          ],
+          "target": "build"
+        }
+      ],
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{workspaceRoot}/scripts/simulator/build-controller-image.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-end-to-end.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-program.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-program.test.mjs",
+        "{workspaceRoot}/scripts/test/simulator-local-fault-qualification.mjs",
+        "{workspaceRoot}/scripts/test/simulator-local-fault-qualification.test.mjs",
+        "{workspaceRoot}/scripts/test/simulator-workspace-loader.mjs"
+      ],
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "node --test scripts/test/simulator-fault-program.test.mjs scripts/test/simulator-local-fault-qualification.test.mjs",
+          "node --check scripts/test/simulator-fault-end-to-end.mjs",
+          "node --check scripts/test/simulator-fault-program.mjs",
+          "node --check scripts/test/simulator-local-fault-qualification.mjs",
+          "node --check scripts/test/simulator-workspace-loader.mjs",
+          "node --check scripts/simulator/build-controller-image.mjs"
+        ]
+      }
+    },
     "arch:config:generate": {
       "cache": true,
       "inputs": [
         "{workspaceRoot}/scripts/architecture/gen-configs.mjs"
       ],
       "outputs": [
-        "{workspaceRoot}/packages/*/safer-architecture.config.json",
-        "{workspaceRoot}/v2/identity/safer-architecture.config.json",
-        "{workspaceRoot}/v2/router/safer-architecture.config.json"
+        "{workspaceRoot}/packages/*/safer-architecture.config.json"
       ],
       "executor": "nx:run-commands",
       "options": {
@@ -95,7 +168,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "test -z \"$(git ls-files --others --exclude-standard -- 'v2/identity/safer-architecture.config.json' 'v2/router/safer-architecture.config.json')\" && git diff --exit-code -- 'packages/*/safer-architecture.config.json' 'v2/identity/safer-architecture.config.json' 'v2/router/safer-architecture.config.json'"
+        "command": "test -z \"$(git ls-files --others --exclude-standard -- 'packages/*/safer-architecture.config.json')\" && git diff --exit-code -- 'packages/*/safer-architecture.config.json'"
       }
     },
     "lint:architecture-boundaries": {
@@ -117,7 +190,11 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "tsc --noEmit -p tsconfig.eslint.json"
+        "parallel": false,
+        "commands": [
+          "tsc --noEmit -p tsconfig.eslint.json",
+          "tsc --noEmit -p scripts/docs/tsconfig.json"
+        ]
       }
     },
     "lint:effect": {
@@ -205,6 +282,7 @@
         "lint:architecture-boundaries",
         "arch:config:check",
         "lint:root",
+        "lint:effect",
         "lint:oxlint",
         "lint:sloppy-code-guard",
         "lint:script-reachability",
@@ -245,6 +323,47 @@
       "options": {
         "cwd": ".",
         "command": "pnpm exec tsx scripts/repo/check-agent-files.ts"
+      }
+    },
+    "test": {
+      "cache": true,
+      "inputs": [
+        "{workspaceRoot}/scripts/docs/**/*.ts",
+        "{workspaceRoot}/scripts/docs/mermaid-puppeteer.json",
+        "{workspaceRoot}/scripts/docs/tsconfig.json",
+        "{workspaceRoot}/tsconfig.base.json"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "pnpm exec vitest run --config scripts/docs/vitest.config.ts"
+      }
+    },
+    "test:integration": {
+      "cache": false,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "dependsOn": [
+        {
+          "projects": [
+            "@moltzap/identity",
+            "@moltzap/router",
+            "@moltzap/client",
+            "@moltzap/openclaw-channel",
+            "@moltzap/nanoclaw-channel"
+          ],
+          "target": "build"
+        }
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "pnpm exec tsc -p scripts/test/tsconfig.adapter-daemon.json",
+          "pnpm exec vitest run --config scripts/test/adapter-daemon-vitest.config.ts"
+        ]
       }
     }
   }

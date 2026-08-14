@@ -1,10 +1,8 @@
-// Stub types matching the subset of nanoclaw's src/types.ts that the
-// bundled channel touches. When moltzap.ts is copied into a real nanoclaw
-// checkout, these imports resolve against nanoclaw's own src/types.ts
-// (same signatures).
-//
-// Keep this mirrored surface aligned with the digest-pinned NanoClaw
-// application image used by simulator runs.
+/**
+ * @file Minimal NanoClaw persistence types used to compile the MoltZap adapter
+ * outside its host application. The module path and field shapes mirror the
+ * digest-pinned NanoClaw image used by simulator runs.
+ */
 
 type EngageMode = "pattern" | "mention" | "mention-sticky";
 type SenderScope = "all" | "known";
@@ -12,7 +10,7 @@ type IgnoredMessagePolicy = "drop" | "accumulate";
 type UnknownSenderPolicy = "strict" | "request_approval" | "public";
 
 /* eslint-disable @typescript-eslint/naming-convention -- These quoted fields mirror Nanoclaw's SQLite row contract exactly at the external boundary. */
-/** Describes messaging group. */
+/** NanoClaw routing row for one platform conversation. */
 export interface MessagingGroup {
   id: string;
   channel_type: string;
@@ -27,7 +25,7 @@ export interface MessagingGroup {
   created_at: string;
 }
 
-/** Describes messaging group agent. */
+/** NanoClaw routing row connecting a platform conversation to an agent. */
 export interface MessagingGroupAgent {
   id: string;
   messaging_group_id: string;

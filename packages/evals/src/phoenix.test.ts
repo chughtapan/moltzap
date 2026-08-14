@@ -1,16 +1,16 @@
-import { assert, describe, it } from "@effect/vitest";
 import {
   createClient,
   type PhoenixClient,
   type Types,
 } from "@arizeai/phoenix-client";
+import { assert, describe, it } from "@effect/vitest";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
 import { image } from "@moltzap/simulator/agents";
 import {
   LedgerCompletion,
-  LedgerStorageError,
   ledgerDigest,
   ledgerRef,
+  LedgerStorageError,
 } from "@moltzap/simulator/ledger";
 import { DateTime, Effect, Option, Ref, Schema } from "effect";
 import {
@@ -20,16 +20,16 @@ import {
   decodeJudgePolicyId,
 } from "./model.js";
 import {
-  PhoenixPublicationConflict,
   findPhoenixDataset,
   makePhoenixPublisher,
-  phoenixCatalogExamples,
   phoenixAttemptEvaluations,
-  phoenixExperimentProvenance,
-  phoenixPublishedDatasetVersion,
-  reconcilePhoenixDatasetCatalog,
+  phoenixCatalogExamples,
   type PhoenixDatasetCatalog,
   type PhoenixExperimentDatasetReference,
+  phoenixExperimentProvenance,
+  PhoenixPublicationConflict,
+  phoenixPublishedDatasetVersion,
+  reconcilePhoenixDatasetCatalog,
 } from "./phoenix.js";
 import {
   appendEvaluationAttempt,
@@ -38,14 +38,14 @@ import {
   decodeEvaluationAttemptId,
   decodeEvaluationReportDigest,
   decodeEvaluationReportId,
-  type EvaluationReportDigest,
   EvaluationCasePlan,
   EvaluationConditionPlan,
+  type EvaluationReportDigest,
   EvaluationReportPlan,
   EvidenceRejectedAttempt,
   JudgePolicySnapshot,
-  LocalEvaluationInfrastructure,
   LedgerAllocationFailedAttempt,
+  LocalEvaluationInfrastructure,
 } from "./sweep.js";
 
 const testImage = Schema.decodeSync(image);
@@ -129,7 +129,6 @@ function plan(definitionId = "moltzap.test.phoenix/v1"): EvaluationReportPlan {
     infrastructure: LocalEvaluationInfrastructure.make({
       profile: "local",
       controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
-      peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
       nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
       temporalAddress: "127.0.0.1:7233",
       artifactDirectory: "/var/lib/moltzap/artifacts",

@@ -1,25 +1,20 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/prefer-effect-platform, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Hostile fixtures are built with Node's own filesystem so the suite exercises the exact syscalls the materializer must survive, and each fixture stays next to its containment assertion. */
-import {
-  chmod,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
-import { execFile as execFileCallback } from "node:child_process";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+/** @file Bootstrap materialization containment, symlink, mode, and CLI regressions. */
+
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect } from "effect";
+import { execFile as execFileCallback } from "node:child_process";
+import * as NodeFs from "node:fs/promises"; // eslint-disable-line agent-code-guard/prefer-effect-platform -- Hostile fixtures use Node's own filesystem so tests exercise the syscalls the materializer must contain.
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { materializeBootstrap } from "./bootstrap.js";
 
+/* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function -- Hostile fixtures are built with Node's own filesystem so the suite exercises the exact syscalls the materializer must survive, and each fixture stays next to its containment assertion. */
+
+const { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } =
+  NodeFs;
 const roots: string[] = [];
 const execFile = promisify(execFileCallback);
 
@@ -62,6 +57,14 @@ async function writeManifest(fixture: Fixture, value: unknown): Promise<void> {
   await writeFile(fixture.manifest, JSON.stringify(value), "utf8");
 }
 
+function materialize(fixture: Fixture): Promise<void> {
+  return Effect.runPromise(
+    materializeBootstrap(options(fixture)).pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ),
+  );
+}
+
 function options(fixture: Fixture) {
   return {
     manifest: fixture.manifest,
@@ -69,14 +72,6 @@ function options(fixture: Fixture) {
     output: fixture.output,
     overlay: fixture.overlay,
   } as const;
-}
-
-function materialize(fixture: Fixture): Promise<void> {
-  return Effect.runPromise(
-    materializeBootstrap(options(fixture)).pipe(
-      Effect.provide(NodeFileSystem.layer),
-    ),
-  );
 }
 
 afterEach(async () => {
@@ -324,4 +319,4 @@ describe("materializeBootstrap", () => {
   });
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/prefer-effect-platform, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Restore strict defaults after the filesystem regression suite. */
+/* eslint-enable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function -- Restore strict defaults after the filesystem regression suite. */

@@ -1,18 +1,19 @@
-/* eslint-disable agent-code-guard/promise-type -- File loading and the Temporal SDK are Promise-native at this submission boundary. */
 /** @file Shared submission of one experiment to a Temporal-managed cluster. */
 
-import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Context, Data, Effect, Layer, type Cause } from "effect";
-import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
+import { type Cause, Context, Data, Effect, Layer } from "effect";
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import type { KubernetesExecutionProfile } from "./profile.js";
 import type { RunControllerResult } from "./reclaim.js";
+import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
 import {
   runTemporalSociety,
   type RunTemporalSocietyOptions,
 } from "./temporal.js";
+
+/* eslint-disable agent-code-guard/promise-type -- File loading and the Temporal SDK are Promise-native at this submission boundary. */
 
 /** Temporal queue used by the repository-owned local profile. */
 export const DEFAULT_LOCAL_TASK_QUEUE = "moltzap-simulator";
@@ -83,11 +84,125 @@ export const liveSubmitOperations: Layer.Layer<SubmitOperations> =
     runTemporalSociety,
   });
 
-function failure(
-  stage: RunSubmissionError["stage"],
-  detail: string,
-): RunSubmissionError {
-  return new RunSubmissionError({ stage, detail });
+/**
+ * Submit through the shared Kubernetes path with one private host profile.
+ * @param args One repository-local `.mjs` RunSpec path.
+ * @param environment Image and Temporal connection configuration.
+ * @param executionProfile Host-owned Kubernetes cluster selection.
+ * @returns The coarse workflow result and ephemeral run identity.
+ */
+export function runKubernetesSociety(
+  args: readonly string[],
+  environment: RunEnvironment,
+  executionProfile: KubernetesExecutionProfile,
+): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
+  return Effect.try({
+    try: () => prepareRun(args, environment, executionProfile),
+    catch: (cause) =>
+      cause instanceof RunSubmissionError
+        ? cause
+        : failure("configuration", "the run configuration was invalid"),
+  }).pipe(
+    Effect.flatMap((prepared) =>
+      Effect.flatMap(SubmitOperations, (operations) =>
+        executePreparedRun(prepared, operations),
+      ),
+    ),
+    Effect.withSpan("runKubernetesSociety"),
+  );
+}
+
+/**
+ * Hold a diagnostic to the published byte bound, keeping its tail.
+ *
+ * The tail because a controller writes the reason it stopped last. On the byte
+ * array because a UTF-16 slice cannot express a byte count, and the
+ * continuation-byte skip puts the cut on a code-point boundary rather than
+ * leaving a replacement character at the front.
+ *
+ * @param value Sanitized controller output collected by the host activity.
+ * @returns The same text, or its last whole code points within the bound.
+ */
+export function boundedDiagnostic(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.byteLength <= SUBMITTED_DIAGNOSTIC_MAX_BYTES) {
+    return value;
+  }
+  let start = bytes.byteLength - SUBMITTED_DIAGNOSTIC_MAX_BYTES;
+  while (start < bytes.byteLength && ((bytes[start] ?? 0) & 0xc0) === 0x80) {
+    start += 1;
+  }
+  return new TextDecoder().decode(bytes.subarray(start));
+}
+
+interface PreparedRun {
+  readonly path: string;
+  readonly controllerImage: string;
+  readonly supportImage: string;
+  readonly runtimeCredentials?: Readonly<
+    Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
+  >;
+  readonly executionProfile: KubernetesExecutionProfile;
+  readonly startupTimeoutMs?: number;
+  readonly cohortSize?: number;
+  readonly forceWorkerRoll: boolean;
+  readonly connection: {
+    readonly taskQueue: string;
+    readonly temporalAddress: string;
+    readonly temporalNamespace: string;
+    readonly workerTemporalAddress?: string;
+  };
+}
+
+function prepareRun(
+  args: readonly string[],
+  environment: RunEnvironment,
+  executionProfile: KubernetesExecutionProfile,
+): PreparedRun {
+  const controllerImage = requiredImage(
+    environment,
+    "MOLTZAP_CONTROLLER_IMAGE",
+  );
+  // The worker runs inside the cluster and reaches Temporal over a different
+  // endpoint than the operator does. Only a cluster whose Temporal is not the
+  // one the local profile installs needs to say so.
+  const workerTemporalAddress = optionalOverride(
+    environment,
+    "MOLTZAP_TEMPORAL_CLUSTER_ADDRESS",
+  );
+  return {
+    path: experimentPath(args),
+    controllerImage,
+    executionProfile,
+    // Exactly "1", so that an operator who exported the variable to something
+    // else has not silently accepted losing a run.
+    forceWorkerRoll: environment[FORCE_WORKER_ROLL_VARIABLE] === "1",
+    ...runSizing(environment),
+    supportImage: requiredImage(
+      environment,
+      "MOLTZAP_SUPPORT_IMAGE",
+      controllerImage,
+    ),
+    runtimeCredentials: runtimeCredentials(environment),
+    connection: {
+      taskQueue: optionalNonEmpty(
+        environment,
+        "MOLTZAP_TEMPORAL_TASK_QUEUE",
+        DEFAULT_LOCAL_TASK_QUEUE,
+      ),
+      temporalAddress: optionalNonEmpty(
+        environment,
+        "MOLTZAP_TEMPORAL_ADDRESS",
+        DEFAULT_TEMPORAL_ADDRESS,
+      ),
+      temporalNamespace: optionalNonEmpty(
+        environment,
+        "MOLTZAP_TEMPORAL_NAMESPACE",
+        DEFAULT_TEMPORAL_NAMESPACE,
+      ),
+      ...(workerTemporalAddress === undefined ? {} : { workerTemporalAddress }),
+    },
+  };
 }
 
 function requiredImage(
@@ -115,14 +230,6 @@ function optionalNonEmpty(
     throw failure("configuration", `${key} must not be empty`);
   }
   return value;
-}
-
-function optionalOverride(
-  environment: RunEnvironment,
-  key: string,
-): string | undefined {
-  const value = environment[key];
-  return value === undefined || value.length === 0 ? undefined : value;
 }
 
 function experimentPath(args: readonly string[]): string {
@@ -184,53 +291,6 @@ function executeTemporalRun(
   );
 }
 
-/**
- * Submit through the shared Kubernetes path with one private host profile.
- * @param args One repository-local `.mjs` RunSpec path.
- * @param environment Image and Temporal connection configuration.
- * @param executionProfile Host-owned Kubernetes cluster selection.
- * @returns The coarse workflow result and ephemeral run identity.
- */
-export function runKubernetesSociety(
-  args: readonly string[],
-  environment: RunEnvironment,
-  executionProfile: KubernetesExecutionProfile,
-): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
-  return Effect.try({
-    try: () => prepareRun(args, environment, executionProfile),
-    catch: (cause) =>
-      cause instanceof RunSubmissionError
-        ? cause
-        : failure("configuration", "the run configuration was invalid"),
-  }).pipe(
-    Effect.flatMap((prepared) =>
-      Effect.flatMap(SubmitOperations, (operations) =>
-        executePreparedRun(prepared, operations),
-      ),
-    ),
-    Effect.withSpan("runKubernetesSociety"),
-  );
-}
-
-interface PreparedRun {
-  readonly path: string;
-  readonly controllerImage: string;
-  readonly supportImage: string;
-  readonly runtimeCredentials?: Readonly<
-    Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
-  >;
-  readonly executionProfile: KubernetesExecutionProfile;
-  readonly startupTimeoutMs?: number;
-  readonly cohortSize?: number;
-  readonly forceWorkerRoll: boolean;
-  readonly connection: {
-    readonly taskQueue: string;
-    readonly temporalAddress: string;
-    readonly temporalNamespace: string;
-    readonly workerTemporalAddress?: string;
-  };
-}
-
 function runtimeCredentials(
   environment: RunEnvironment,
 ): PreparedRun["runtimeCredentials"] {
@@ -243,6 +303,21 @@ function runtimeCredentials(
   return Object.keys(credentials).length === 0
     ? undefined
     : Object.freeze(credentials);
+}
+
+function runSizing(environment: RunEnvironment): {
+  readonly startupTimeoutMs?: number;
+  readonly cohortSize?: number;
+} {
+  const startupTimeoutMs = countOverride(
+    environment,
+    "MOLTZAP_STARTUP_TIMEOUT_MS",
+  );
+  const cohortSize = countOverride(environment, "MOLTZAP_COHORT_SIZE");
+  return {
+    ...(startupTimeoutMs === undefined ? {} : { startupTimeoutMs }),
+    ...(cohortSize === undefined ? {} : { cohortSize }),
+  };
 }
 
 // Only what could never be a count. The bound each one carries belongs to the
@@ -262,93 +337,12 @@ function countOverride(
   return value;
 }
 
-function runSizing(environment: RunEnvironment): {
-  readonly startupTimeoutMs?: number;
-  readonly cohortSize?: number;
-} {
-  const startupTimeoutMs = countOverride(
-    environment,
-    "MOLTZAP_STARTUP_TIMEOUT_MS",
-  );
-  const cohortSize = countOverride(environment, "MOLTZAP_COHORT_SIZE");
-  return {
-    ...(startupTimeoutMs === undefined ? {} : { startupTimeoutMs }),
-    ...(cohortSize === undefined ? {} : { cohortSize }),
-  };
-}
-
-function prepareRun(
-  args: readonly string[],
+function optionalOverride(
   environment: RunEnvironment,
-  executionProfile: KubernetesExecutionProfile,
-): PreparedRun {
-  const controllerImage = requiredImage(
-    environment,
-    "MOLTZAP_CONTROLLER_IMAGE",
-  );
-  // The worker runs inside the cluster and reaches Temporal over a different
-  // endpoint than the operator does. Only a cluster whose Temporal is not the
-  // one the local profile installs needs to say so.
-  const workerTemporalAddress = optionalOverride(
-    environment,
-    "MOLTZAP_TEMPORAL_CLUSTER_ADDRESS",
-  );
-  return {
-    path: experimentPath(args),
-    controllerImage,
-    executionProfile,
-    // Exactly "1", so that an operator who exported the variable to something
-    // else has not silently accepted losing a run.
-    forceWorkerRoll: environment[FORCE_WORKER_ROLL_VARIABLE] === "1",
-    ...runSizing(environment),
-    supportImage: requiredImage(
-      environment,
-      "MOLTZAP_SUPPORT_IMAGE",
-      controllerImage,
-    ),
-    runtimeCredentials: runtimeCredentials(environment),
-    connection: {
-      taskQueue: optionalNonEmpty(
-        environment,
-        "MOLTZAP_TEMPORAL_TASK_QUEUE",
-        DEFAULT_LOCAL_TASK_QUEUE,
-      ),
-      temporalAddress: optionalNonEmpty(
-        environment,
-        "MOLTZAP_TEMPORAL_ADDRESS",
-        DEFAULT_TEMPORAL_ADDRESS,
-      ),
-      temporalNamespace: optionalNonEmpty(
-        environment,
-        "MOLTZAP_TEMPORAL_NAMESPACE",
-        DEFAULT_TEMPORAL_NAMESPACE,
-      ),
-      ...(workerTemporalAddress === undefined ? {} : { workerTemporalAddress }),
-    },
-  };
-}
-
-/**
- * Hold a diagnostic to the published byte bound, keeping its tail.
- *
- * The tail because a controller writes the reason it stopped last. On the byte
- * array because a UTF-16 slice cannot express a byte count, and the
- * continuation-byte skip puts the cut on a code-point boundary rather than
- * leaving a replacement character at the front.
- *
- * @param value Sanitized controller output collected by the host activity.
- * @returns The same text, or its last whole code points within the bound.
- */
-export function boundedDiagnostic(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  if (bytes.byteLength <= SUBMITTED_DIAGNOSTIC_MAX_BYTES) {
-    return value;
-  }
-  let start = bytes.byteLength - SUBMITTED_DIAGNOSTIC_MAX_BYTES;
-  while (start < bytes.byteLength && ((bytes[start] ?? 0) & 0xc0) === 0x80) {
-    start += 1;
-  }
-  return new TextDecoder().decode(bytes.subarray(start));
+  key: string,
+): string | undefined {
+  const value = environment[key];
+  return value === undefined || value.length === 0 ? undefined : value;
 }
 
 // The value crossed Temporal and a worker this process does not own, so the
@@ -407,6 +401,13 @@ function executePreparedRun(
     );
     return Object.freeze({ ...identity, result: boundedResult(result) });
   });
+}
+
+function failure(
+  stage: RunSubmissionError["stage"],
+  detail: string,
+): RunSubmissionError {
+  return new RunSubmissionError({ stage, detail });
 }
 
 /* eslint-enable agent-code-guard/promise-type -- Restore Effect-first contracts after the submission boundary. */

@@ -1,12 +1,12 @@
 /** @file Repository-local Kubernetes submission for one generated evaluation cell. */
 
+import type { Image } from "@moltzap/simulator/agents";
 import { Command, FileSystem, Path } from "@effect/platform";
 import {
   CompletedLedgerReceipt,
   LedgerReceipt,
   type SimulatorDefinitionId,
 } from "@moltzap/simulator";
-import type { Image } from "@moltzap/simulator/agents";
 import { Effect, Either, Schema } from "effect";
 import type {
   EvaluationCaseId,
@@ -105,7 +105,6 @@ export interface SubmitEvaluationCellInput {
   readonly definitionId: SimulatorDefinitionId;
   readonly attemptId: string;
   readonly condition: SubmissionCondition;
-  readonly peerApplicationImage: Image;
   readonly nanoclawApplicationImage: Image;
   readonly runtimeStartupTimeoutMillis: number;
   readonly peerObservationTimeoutMillis: number;
@@ -149,7 +148,7 @@ export function evaluationControllerModule(
     'import { Duration } from "effect";',
     'import { evaluationCase } from "/opt/moltzap/node_modules/@moltzap/evals/dist/cases.js";',
     'import { evaluationCellRunSpec, nanoclawEvaluationCondition, openClawEvaluationCondition } from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js";',
-    'import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
+    'import { controllerServicesFromEnvironment, supportImageFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
     `const definition = evaluationCase(${literal(input.caseId)});`,
     `if (definition === undefined || definition.definitionId !== ${literal(input.definitionId)}) throw new Error("evaluation case definition is unavailable");`,
     `const condition = ${condition};`,
@@ -157,7 +156,7 @@ export function evaluationControllerModule(
     "  definition,",
     "  condition,",
     `  attemptId: ${literal(input.attemptId)},`,
-    `  peerApplicationImage: ${literal(input.peerApplicationImage)},`,
+    "  peerApplicationImage: supportImageFromEnvironment(),",
     "  cluster: controllerServicesFromEnvironment(),",
     "});",
     "",

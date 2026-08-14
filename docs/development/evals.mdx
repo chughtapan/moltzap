@@ -1,47 +1,86 @@
 ---
 title: "Code-first evaluations"
-description: "Run, grade, resume, and publish behavioral evaluations over native principal gateways and simulator ledgers."
+description: "Run, grade, resume, and publish behavioral evaluations over public HarnessClient interactions, native principal gateways, and simulator ledgers."
 ---
 
 `packages/evals` is a private executable application that demonstrates one
-evaluation product built on `@moltzap/simulator`. Cases, peer behavior, runtime
-conditions, criteria, and sweeps are ordinary TypeScript and Effect values.
+evaluation product built on `@moltzap/simulator`. Cases, runtime conditions,
+criteria, and sweeps are ordinary TypeScript and Effect values.
 Customers compose the simulator package directly and can build a
 domain-specific authoring language around the parameters they need.
 
 Every matrix cell is one `RunSpec` submitted through the core simulator's
-local-Kubernetes or GKE profile. Each target and each autonomous code peer is a
-separate Agent Sandbox application container. The controller invokes the case
-Effect only after the complete roster and every runtime-specific bridge are
-ready.
+local-Kubernetes or GKE profile. Its target runs in an Agent Sandbox
+application container. The controller invokes the case Effect after the target
+and its runtime-specific bridge are ready. Cases may also add autonomous social
+peers whose behavior is fixed by the case catalog.
 
-## One attempt, two interaction boundaries
+## Social boundary
 
-A successful case path keeps principal control separate from social traffic:
+`peer.ts` and `peer-application.ts` implement case-owned peers entirely through
+the public `@moltzap/client` `HarnessClient` contract:
 
-1. The case contributes an exact keyed record of autonomous peer definitions.
-2. The condition adds one OpenClaw or NanoClaw target, and execution
-   materializes the peer definitions with the configured digest-pinned
-   application image.
-3. Case policy instructs the target through its runtime-native principal
-   gateway.
-4. The target and code peers create and use MoltZap conversations
-   autonomously. Every inter-agent message goes through the production client
-   and router.
-5. Peer gateways expose the ordered observations produced by their autonomous
-   policies. They cannot send commands or bypass the network.
-6. The case program returns the one ledger evidence identity that its policy
-   selects for grading.
-7. Execution records that selection, completes the ledger, reopens it through
-   the same simulator definition, and projects grading evidence.
-8. Code criteria settle mechanical questions. One semantic-judge call resolves
+- `start` creates a new direct or group conversation;
+- `turns` yields certified remote actions as semantic `HarnessTurn` values; and
+- `HarnessTurn.reply` supplies the only continuation path, bound to the live
+  turn that granted it.
+
+Reactive peers wait for a target-authored turn and reply through that turn.
+Opening peers start a conversation and wait for the target's response. Idle
+group members neither subscribe nor compete for attention. None of these roles
+constructs Router messages, folds protocol records, injects conversation
+context, or imports private Client or Simulator machinery.
+
+## One attempt
+
+A completed case path is deliberately narrow:
+
+1. The condition adds one OpenClaw or NanoClaw target and the case's exact peer
+   roster.
+2. Case policy instructs the target through its runtime-native principal
+   gateway and coordinates any required peer exchanges through public Clients.
+3. Peer exchanges emit semantic social observations, or bounded timeout
+   observations when a required turn never arrives.
+4. The case program returns the earlier gateway, social, or timeout evidence
+   identity that its policy selects for grading.
+5. Execution records that selection, completes the ledger, reopens it through
+   the same simulator definition, and projects normalized evidence.
+6. Code criteria settle mechanical questions. One semantic-judge call resolves
    every remaining criterion.
-9. Effect SQL commits the terminal attempt in a report-local SQLite bundle.
-10. An explicit publish command materializes a completed report in Phoenix.
+7. Effect SQL commits the terminal attempt in a report-local SQLite bundle.
+8. An explicit publish command materializes a completed report in Phoenix.
 
-The simulator does not interpret privacy, helpfulness, injection resistance,
-group behavior, or conversation awareness. Those meanings belong to case
-policy and grading code.
+## Bundled catalog
+
+The ordered catalog contains these 16 cases:
+
+| ID | Name | Scenario |
+|---|---|---|
+| `EVAL-005` | Cold outreach response quality | Direct social response |
+| `EVAL-006` | Group conversation behavior | Fixed group with a peer contribution |
+| `EVAL-007` | Conciseness under complexity | Direct technical response |
+| `EVAL-008` | Cross-conversation information leak | Confidential source and separate probe |
+| `EVAL-009` | Prompt injection resistance | Quoted untrusted instruction in a direct conversation |
+| `EVAL-010` | Group turn-taking discipline | Fixed group with an explicitly addressed target |
+| `EVAL-011` | Group context awareness | Four-participant group |
+| `EVAL-018` | Agent DM greeting response | Direct greeting |
+| `EVAL-019` | Agent conversation awareness | Principal asks about current conversations |
+| `EVAL-021` | Multi-turn context retention | Same-conversation code-word recall |
+| `EVAL-022` | Peer identity awareness | Social contact followed by a principal question |
+| `EVAL-030` | Cross-conversation awareness | Factual source and separate probe |
+| `EVAL-031` | Negotiation information isolation | Confidential seller and separate buyer |
+| `EVAL-032` | Privacy without secret leakage | Password source and separate probe |
+| `EVAL-033` | Multi-turn confidential negotiation | Multi-turn seller and separate buyer |
+| `EVAL-034` | Cross-conversation multi-fact awareness | Multi-fact source and separate probe |
+
+`EVAL-008` and `EVAL-030` through `EVAL-034` are the six
+cross-conversation cases. They execute the source conversation before the
+separate probe or buyer conversation. The controller never transfers source
+content into the probe context. Whether the target recalls, isolates, or leaks
+that content is observed behavior and can fail the rubric. If a target does not
+complete a required social exchange, the case selects bounded timeout evidence
+rather than inventing a response when the peer observation deadline settles
+first. The whole-case deadline can still terminate the attempt operationally.
 
 ## Principal input is runtime-native
 
@@ -54,8 +93,8 @@ concrete runtime gateway. There is no simulator-wide gateway union:
 | NanoClaw | Its owner-local socket | Input frame submitted |
 
 Gateway evidence states what the adapter submitted or received at that native
-boundary. It does not claim that an agent followed an instruction or sent a
-social message. NanoClaw's output is an uncorrelated multi-frame stream: the
+boundary. It does not claim that an agent followed an instruction. NanoClaw's
+output is an uncorrelated multi-frame stream: the
 adapter never treats the next frame as the response or terminal output for an
 instruction.
 
@@ -66,84 +105,60 @@ NanoClaw does not receive a synthetic correlation key. Adding another runtime
 condition therefore adds an adapter for that exact gateway type rather than
 another member of a shared command or response protocol.
 
-## Autonomous peers use the production network
+Case programs receive four capabilities:
 
-`cases.ts → EvaluationCaseDefinition` carries the exact keyed `peers` record
-needed by that case. A direct exchange starts one peer; a group case starts its
-question, source, and observer peers; a principal-only case starts none.
-Unused peers are not acquired.
-
-Each `peer.ts → EvaluationPeerDefinition` owns a closed application plan and a
-factory that binds it to the configured digest-pinned peer image. The plan is
-mounted into that peer's Sandbox and interpreted by
-`peer-application.ts → runEvaluationPeerApplication`. Its production MoltZap
-client resolves agents, opens conversations, receives messages, and sends
-messages through the router.
-
-The peer-specific controller bridge exposes only the observation Effect on
-`EvaluationPeerGateway`. It cannot command the peer or bypass the production
-network. Arbitrary closures, gateway objects, and shared state do not cross the
-container boundary.
-
-Case programs receive five capabilities:
-
-- `peers`, preserving the case's exact keys;
 - `instruct`, which uses the target's native gateway and returns
   `Some(evidenceId)` only when that gateway correlates selectable output with
   the instruction;
-- `selectPrincipalOutput`, which unwraps that native output or fails the run
-  explicitly when correlation is unsupported;
-- `observeContext`, which records a peer exchange without selecting it; and
-- `selectPeerOutput`, which records an exchange and returns its final
-  observation identity.
+- `selectPrincipalOutput`, which selects that output or fails the run explicitly
+  when correlation is unsupported;
+- `observePeer`, which records a case-owned peer exchange or its bounded
+  absence without selecting it; and
+- `selectSocialOutput`, which selects the final target-authored social action
+  observed by one peer, or selects the peer timeout if no turn arrives.
 
-A peer deadline produces typed `PeerExchangeNotObserved` evidence. Selection
-policy may return that evidence, allowing a criterion to report bounded
-non-action honestly rather than manufacturing a response.
-
-Social cases ignore the optional principal output and select router-bound peer
-evidence. EVAL-019 and EVAL-022 require selectable principal output. They run
-through OpenClaw's correlated RPC, but finish as explicit `RunFailedAttempt`
-states under NanoClaw because its native socket cannot make that claim.
+Most bundled cases select social evidence and therefore do not require a
+correlated principal response. `EVAL-019` and `EVAL-022` do require selectable
+principal output. They run through OpenClaw's correlated RPC, but finish as
+explicit `RunFailedAttempt` values under NanoClaw because its native socket
+cannot make that claim.
 
 ## Typed ledger evidence
 
 `events.ts → evaluationEvents` declares the complete customer event universe
-before a run is allocated. It contains native gateway observations, code-peer
-send and receive testimony, bounded peer timeouts, and the final evidence
-selection.
+before a run is allocated. It contains:
 
-`events.ts → projectEvaluationEvidence` pairs each code-peer social
-observation with exactly one `RouterMessageCommitted` record for the same
-conversation and message. The router sender must agree with the
-endpoint testimony. Native gateway observations remain distinct because
-principal I/O is not social traffic.
+- native OpenClaw and NanoClaw gateway observations;
+- `SocialActionObserved`, retaining endpoint, conversation, author, direction,
+  and exact semantic content from a public Client turn or reply;
+- `SocialActionNotObserved`, retaining the peer and the bounded deadline that
+  expired; and
+- the final evidence selection.
 
 The current bundled case interpreter emits exactly one
 `EvaluationEvidenceSelected` event after its program returns. The projector
-also verifies that a selection names earlier evidence and is not duplicated.
+also verifies that a selection names earlier gateway, social, or timeout
+evidence and is not duplicated.
 
 ## Grading
 
-`grading.ts → transcriptFromLedger` produces an `EvaluationTranscript` with:
+`transcript.ts → transcriptFromLedger` produces an `EvaluationTranscript` with:
 
 - one native-gateway-established target identity;
-- ledger-ordered `GatewayTranscriptItem`, `SocialTranscriptItem`, and
-  `PeerTimeoutTranscriptItem` values; and
-- the evidence identity selected by case policy.
+- ledger-ordered gateway, social, and peer-timeout items; and
+- the evidence identities selected by case policy.
 
-Selected social evidence must be a code peer's observation of output from the
-target, corroborated by a router commit whose sender is also the target.
-Selected gateway evidence must be correlated native output from that same
-target. NanoClaw input establishes target identity but cannot satisfy that
-selection. A selected peer timeout remains explicit absence evidence.
+Selected gateway evidence must be correlated OpenClaw terminal output from the
+same target. Selected social evidence must be a target-authored input observed
+by the named peer; a bounded peer timeout is also selectable. NanoClaw input
+establishes target identity, and its output frames remain visible as unselected
+gateway testimony, but they cannot satisfy a principal-output selection.
 
-Every criterion receives the same selected evidence. Exact-answer checks can
-decide both directions mechanically. A literal disclosure detector may
-conclusively establish a failure, but a detector miss remains a semantic
-question because the response may paraphrase or reconstruct the secret.
+Every criterion receives the same ordered selected evidence. Exact-answer,
+literal-disclosure, and peer-timeout checks can decide conclusive outcomes
+mechanically; remaining semantic questions go to the judge.
 
-`grading.ts → SemanticJudge` is a provider-neutral Effect service. The bundled
+`judge.ts → SemanticJudge` is a provider-neutral Effect service. The bundled
 OpenAI layer uses `gpt-5.6-sol`, medium reasoning, strict structured output, no
 tools, a two-minute timeout, and two retries for transient provider failures.
 The rubric and criteria remain trusted policy; the entire transcript is
@@ -155,11 +170,11 @@ behavioral `failed` verdict. `undecided` is a valid semantic verdict.
 
 ## Result bundles and honest failure states
 
-The baseline contains sixteen cases, two runtime conditions, and one sample per
-cell. `results.ts → runEvaluationSweep` advances those 32 cells in canonical
-order. Each cell owns one SQLite write transaction from cell selection through
-terminal-attempt commit; interruption rolls back that cell while earlier
-attempts remain durable.
+The default plan contains 16 cases, two runtime conditions, and one sample per
+cell: 32 cells in canonical catalog and condition order. `results.ts →
+runEvaluationSweep` advances that matrix deterministically. Each cell owns one
+SQLite write transaction from cell selection through terminal-attempt commit;
+interruption rolls back that cell while earlier attempts remain durable.
 
 The SQLite bundle under `.moltzap/evals/results/` stores:
 
@@ -174,14 +189,17 @@ component, including the selected profile, images, Temporal address, and ledger
 artifact location, before executing only the missing suffix. The report cannot
 skip, reorder, or silently move a matrix cell.
 
-Live failures remain results. OpenClaw or NanoClaw may fail to start, terminate,
-omit required social behavior, time out, produce evidence that grading
-rejects, lack native output correlation required by a case, or fail semantic
-assessment. The sweep persists the corresponding typed state and continues
-through the matrix. In particular, the two NanoClaw principal-output cases are
-expected operational failures rather than forced passes. Behavioral `failed`
-and `undecided` verdicts do not make the command fail; operational attempt
-states produce a nonzero exit only after the terminal matrix has been saved.
+Live failures remain results. OpenClaw or NanoClaw may fail to start,
+terminate, time out, produce evidence that grading rejects, lack native output
+correlation, or fail semantic assessment. The sweep persists the corresponding
+typed state and continues through the matrix. NanoClaw's `EVAL-019` and
+`EVAL-022` attempts are expected operational failures until its gateway can
+correlate terminal output; arbitrary output frames are never promoted into a
+pass. Social cases, including all six cross-conversation cases, execute on both
+conditions but may produce peer-timeout evidence, reach the whole-case timeout,
+or receive behaviorally `failed` and `undecided` verdicts. Those verdicts do not
+make the command fail; operational attempt states produce a nonzero exit only
+after the terminal matrix has been saved.
 
 ## Commands
 
@@ -207,7 +225,6 @@ Start or resume a live report:
 ```bash
 OPENAI_API_KEY=... \
 MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
-MOLTZAP_SUPPORT_IMAGE=PEER_APPLICATION_IMAGE_AT_SHA256 \
 MOLTZAP_NANOCLAW_IMAGE=NANOCLAW_APPLICATION_IMAGE_AT_SHA256 \
 MOLTZAP_LOCAL_ARTIFACTS="$PWD/.moltzap/local-artifacts" \
 MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
@@ -219,7 +236,6 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
 
 OPENAI_API_KEY=... \
 MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
-MOLTZAP_SUPPORT_IMAGE=PEER_APPLICATION_IMAGE_AT_SHA256 \
 MOLTZAP_NANOCLAW_IMAGE=NANOCLAW_APPLICATION_IMAGE_AT_SHA256 \
 MOLTZAP_LOCAL_ARTIFACTS="$PWD/.moltzap/local-artifacts" \
 MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
@@ -231,8 +247,8 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
 ```
 
 The source worktree must be clean. Both model IDs are required and become part
-of the immutable native runtime configuration. The controller/support, peer,
-and NanoClaw application images must be immutable digest references. Their
+of the immutable native runtime configuration. The controller and NanoClaw
+application images must be immutable digest references. Their
 presence is an execution prerequisite, not evidence that the NanoClaw image or
 a live cluster has passed qualification.
 
@@ -258,9 +274,5 @@ experiments. Set `PHOENIX_API_KEY` when the Phoenix deployment requires one.
 
 ## Related
 
-- [How to add an evaluation](/development/eval-add-evaluation) — add a case,
-  peer policy, criterion, and calibration fixture
-- [Evaluation grading reference](/development/eval-grading-reference) —
-  evidence, assessments, and failure states
 - [Grading typed ledgers](/simulator/grading) — the simulator evidence
   boundary

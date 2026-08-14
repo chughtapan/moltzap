@@ -1,3 +1,5 @@
+/** @file Runtime-definition validation and immutable configuration projection regressions. */
+
 import { assert, it } from "@effect/vitest";
 import { Schema } from "effect";
 import {
