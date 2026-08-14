@@ -58,8 +58,9 @@ artifact tooling may assemble images without creating runtime imports.
 
 Freeze complete simulator export and behavior evidence before changing its
 internals. Preserve the root, `./network`, `./ledger`, and `./agents` facade
-censuses plus packed downstream compile and runtime import probes. Conflicting
-contracts remain named deferrals instead of being pinned as retained behavior.
+censuses plus packed downstream compile and runtime import probes. Treat the
+five accepted removals in Lane 6 as the expected breaking delta and preserve
+the remaining facade contracts.
 
 ## Lane 2: move Identity
 
@@ -157,25 +158,88 @@ checkpoints.
 
 ## Lane 6: rewire simulator and evals
 
+### Simulator provenance
+
+The immutable porting baseline is
+`102f110436bedbba828591c1b97fd4e322abcf76`, the merge of production
+Simulator PR #974 into `main`. It is fully tracked and its CI, test, and
+conformance checks passed. The later `main` commit `78e376341eb4b37aafbc5a3c446bb10826564085`
+changes release numbers only and is not the behavioral Simulator baseline.
+
+At the baseline SHA, the four facade barrels contain 196 unique named
+declarations counting intentional cross-facade duplication: 70 at `.`, 41 at
+`./network`, 40 at `./ledger`, and 45 at `./agents`. The five admitted removal
+families delete exactly these 15 facade names:
+
+- root: `ConversationOpened`, `EndpointMessageReceived`,
+  `EndpointMessageSent`, `LinkMessageDelayed`, `LinkMessageDropped`,
+  `LinkMessageHeld`, `MessageParts`, `ReceivedMessage`, and
+  `RouterMessageCommitted`;
+- `./network`: `CommittedRouterMessage`, `MessageParts`,
+  `OpenedConversation`, `ReceivedMessage`, `RouterSequence`, and
+  `routerSequence`; and
+- `./ledger` and `./agents`: none.
+
+The resulting checked-in census is 181 declarations: 61, 35, 40, and 45.
+`packages/simulator/api-census.json` records the exact deletion set and final
+type/value spaces. `scripts/test/simulator-packages.mjs` reads the baseline
+facade barrels from that immutable Git object and proves that the packed
+package differs by exactly those names before running its isolated type and
+runtime probes.
+
+#### Simulator provenance gate
+
+No different source SHA, additional deletion, replacement alias, or public
+namespace drift is a compatible port. A new baseline requires a current
+decision and replacement evidence rather than editing the expected census.
+
 Preserve every non-conflicting latest-`main` simulator facade and meaning,
 including `Run.execute(RunSpec)`, clusters, Temporal integration, fault layers,
 and simulation `RunLedger`. Replace production-stack acquisition with final
 Identity, Router, and Client capabilities.
 
-Do not implement the five authority conflicts until their replacement and
-persisted-evidence semantics are admitted: content-free open, generic send,
-message-only receive, runtime Router authority, and Router-commit/order events.
-When admitted, version or migrate persisted event meaning explicitly rather
-than reusing a tag for a different fact.
+Apply the five admitted removals directly, without compatibility shims:
+
+1. replace content-free `open` with `createConversationId` followed by
+   `HarnessClient.start` carrying nonempty initial content;
+2. remove generic established-conversation `send`; output uses only the bound
+   reply from the originating turn;
+3. replace message-only receive and proof-shaped operation results with public
+   semantic `HarnessTurn` input and resultless completion facts;
+4. remove runtime keys, Router attachment, Registry/Router origins, and store
+   handles; and
+5. delete persisted Router-commit/order events. `RunLedger` records only
+   simulation lifecycle and public semantic effects.
+
+One run provisions one Registry and one Router. Each agent Sandbox Pod owns a
+restartable `moltzapd` sidecar, private key/admission mounts, and a per-agent
+persistent volume. Registration completes before application startup. The
+application receives only
+`MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`; it never receives the daemon's
+network origins, signing material, or state path.
+
+Place retained directed link faults at a private recipient-delivery
+interposition after Router polling and before Client consumption. With no
+active fault, pass the exact messages through in Router order. An explicit
+fault scope may drop, delay, hold, or reorder one sender-to-recipient
+delivery. The controller evaluates policy; application containers receive no
+control endpoint or credential, and production Router and Client expose no
+fault hook. Classify those observations as endpoint fault-tolerance evidence,
+not Router conformance.
 
 Rewire evals through Client and simulator while preserving grading, reports,
 CLI modes, and deployment artifacts. Move image assembly that would otherwise
 create hidden simulator-to-adapter or simulator-to-evals runtime edges into
-root tooling.
+root tooling. Execute all sixteen case definitions through the daemon-backed
+Client. Do not inject automatic cross-conversation context; the six cases that
+require it may fail until their host provides native memory.
 
 Acceptance includes all four packed simulator facades, unit/integration/local
 and cluster suites, Temporal and fault tests, GKE packaging where available,
-and eval-facing behavior.
+and eval-facing behavior. Facade checks preserve every compatible declaration
+and encode the five removals above as the only accepted breaking delta. Fault
+checks separately prove inactive byte/order transparency, every activated
+post-Router perturbation, and runtime isolation from fault controls.
 
 ## Lane 7: remove the retired stack
 

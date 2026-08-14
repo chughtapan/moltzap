@@ -47,13 +47,13 @@ export interface PrincipalInstruction {
  * gateway has one.
  */
 export interface PrincipalDriver<Gateway, Failure> {
-  readonly observe: (
-    target: StartedAgent<Gateway>,
+  readonly observe: <Name extends string>(
+    target: StartedAgent<Name, Gateway>,
     caseId: EvaluationCaseId,
     emit: EmitEvaluationEvent,
   ) => Effect.Effect<never, Failure | LedgerFailure>;
-  readonly drive: (
-    target: StartedAgent<Gateway>,
+  readonly drive: <Name extends string>(
+    target: StartedAgent<Name, Gateway>,
     instruction: PrincipalInstruction,
     emit: EmitEvaluationEvent,
   ) => Effect.Effect<
@@ -80,9 +80,9 @@ interface OpenClawDriverState {
   readonly nextInstruction: Ref.Ref<number>;
 }
 
-function driveOpenClaw(
+function driveOpenClaw<Name extends string>(
   state: OpenClawDriverState,
-  target: StartedAgent<OpenClawGateway>,
+  target: StartedAgent<Name, OpenClawGateway>,
   instruction: PrincipalInstruction,
   emit: EmitEvaluationEvent,
 ): Effect.Effect<
@@ -106,7 +106,7 @@ function driveOpenClaw(
     yield* emit(
       OpenClawPrincipalInstructionAttempted.make({
         caseId: instruction.caseId,
-        agentName: decodeAgentName(target.agentName),
+        agentName: decodeAgentName(target.agent.name),
         request,
       }),
     );
@@ -114,7 +114,7 @@ function driveOpenClaw(
     const output = yield* emit(
       OpenClawPrincipalFinalOutput.make({
         caseId: instruction.caseId,
-        agentName: decodeAgentName(target.agentName),
+        agentName: decodeAgentName(target.agent.name),
         idempotencyKey,
         output: response,
       }),
@@ -130,8 +130,8 @@ export const openClawPrincipalDriver = Object.freeze({
       Effect.map((nextInstruction) =>
         Object.freeze({
           observe: () => Effect.never,
-          drive: (
-            target: StartedAgent<OpenClawGateway>,
+          drive: <Name extends string>(
+            target: StartedAgent<Name, OpenClawGateway>,
             instruction: PrincipalInstruction,
             emit: EmitEvaluationEvent,
           ) =>
@@ -149,8 +149,8 @@ export const openClawPrincipalDriver = Object.freeze({
   OpenClawGatewayRequestError
 >;
 
-function driveNanoClaw(
-  target: StartedAgent<NanoClawGateway>,
+function driveNanoClaw<Name extends string>(
+  target: StartedAgent<Name, NanoClawGateway>,
   instruction: PrincipalInstruction,
   emit: EmitEvaluationEvent,
 ): Effect.Effect<
@@ -165,7 +165,7 @@ function driveNanoClaw(
     yield* emit(
       NanoClawPrincipalInputSent.make({
         caseId: instruction.caseId,
-        agentName: decodeAgentName(target.agentName),
+        agentName: decodeAgentName(target.agent.name),
         input,
       }),
     );
@@ -173,8 +173,8 @@ function driveNanoClaw(
   }).pipe(Effect.withSpan("evals.principal.nanoclaw"));
 }
 
-function observeNanoClaw(
-  target: StartedAgent<NanoClawGateway>,
+function observeNanoClaw<Name extends string>(
+  target: StartedAgent<Name, NanoClawGateway>,
   caseId: EvaluationCaseId,
   emit: EmitEvaluationEvent,
 ): Effect.Effect<never, NanoClawGatewayError | LedgerFailure> {
@@ -183,7 +183,7 @@ function observeNanoClaw(
       emit(
         NanoClawPrincipalOutputReceived.make({
           caseId,
-          agentName: decodeAgentName(target.agentName),
+          agentName: decodeAgentName(target.agent.name),
           output,
         }),
       ),

@@ -40,49 +40,92 @@ registers a second AgentId into the same state directory.
 
 ## Registration and status
 
-`register` presents the Registry bootstrap operation from `identity.md`. The
-Registry remains the authority for admission, proof of possession, immutable
-AgentCard construction, operation idempotency, and verification. The daemon
-persists one returned identity and signing authority only in its own configured
-state directory.
+`register` has exactly this closed request:
 
-Registration recovery beyond the already admitted Identity operation remains
-deliberately unresolved. In particular, this chapter does not invent a new
-cross-process recovery identifier, status union, or retry after an uncertain
-local commit. A recovery call that changes admission inputs must not be treated
-as an identical call, but the final typed error and complete recovery protocol
-require their own admitted contract.
+```ts
+{
+  readonly operationId: OperationId
+  readonly principalId: PrincipalId
+  readonly agentName: AgentName
+}
+```
 
-`status` is observational. It reports only the daemon's local lifecycle and
-non-secret identity/connectivity facts admitted by its closed result schema. It
-never returns signing keys, admission material, private content, durability
-votes, reply grants, or a privileged social-policy result.
+The daemon supplies the public key from
+`MOLTZAPD_AGENT_PRIVATE_KEY_FILE`, the bootstrap admission credential from
+`MOLTZAPD_ADMISSION_CREDENTIAL_FILE`, and the corresponding
+`AgentSigningAuthority`. None is accepted from the tool caller. Registry
+remains the authority for admission, proof of possession, immutable AgentCard
+construction, and `OperationId` idempotency.
 
-The exact status fields and registration-recovery states remain MCP management
-representation work. They do not block the reduced `HarnessClient`,
-Identity/Router relocation, or the one-URL topology.
+The tool returns the exact Identity-owned `RegistryRegisterResult`: either
+`registered` with the complete verified AgentCard, `name_taken`,
+`key_already_registered`, or `idempotency_conflict`. A `registered` result is
+returned only after the daemon atomically commits the resulting local identity
+binding.
+
+The closed MCP request plus the daemon's unchanged configured public key form
+the canonical inner `RegistryRegisterRequest`. A byte-identical retry uses the
+same `OperationId`, `principalId`, and `agentName`; Registry authentication may
+use fresh nonce, timing, and signature fields as Identity requires. If Registry
+committed `registered` but the daemon did not commit the local binding,
+Registry's existing idempotency contract returns the exact original result and
+card, which the daemon then commits atomically. If the local commit had already
+completed before an ambiguous response or crash, startup observes that binding
+and exposes the active catalog. A changed inner request remains an
+`idempotency_conflict`. No second recovery identifier or intermediate
+lifecycle state is introduced.
+
+`status` has an empty closed request and exactly this closed result union:
+
+```ts
+{ readonly kind: "unregistered" }
+| { readonly kind: "active"; readonly agentCard: VerifiedAgentCard }
+```
+
+It never returns connectivity state, signing keys, admission material, private
+content, evidence, reply grants, or social-policy results.
 
 ## Agent discovery
 
-`search_agents` presents Registry-owned lookup/list behavior without changing
-AgentCard or authentication semantics. It returns verified identity-owned
-values, never a Client-invented same-shaped identity DTO.
+`search_agents` is exactly the direct selector over the existing Identity
+schemas:
 
-Exact query normalization, empty-query browsing, ranking, pagination cursor,
-page-size default, and result projection remain deliberately deferred where
-the current Registry contract does not already decide them. The tool must not
-claim a stable ordering or fuzzy-match policy that no owner admitted.
+```ts
+type SearchAgentsRequest = RegistryLookupRequest | RegistryListRequest
+type SearchAgentsResult = RegistryLookupResult | RegistryListResult
+```
+
+A request that selects one `AgentId` or `AgentName` invokes Registry lookup; a
+request containing only the optional `afterAgentId` invokes Registry list. The
+corresponding Registry result is returned without a Client-owned identity
+projection. Thus lookup returns `found` with one complete verified AgentCard
+or `not_found`; list returns `page` with Registry-ordered complete verified
+AgentCards and `hasMore`. Registry owns list page size and ordering. There is
+no query string, normalization, ranking, fuzzy match, or Client pagination
+cursor.
 
 ## Conversation discovery
 
-`search_conversations` searches only conversations represented in this
-endpoint's authorized local history. It does not query a central index or
-other endpoints' private stores.
+`search_conversations` enumerates only conversations represented in this
+endpoint's authorized local certified history. It does not query a central
+index or another endpoint. Its exact closed DTOs are:
 
-The exact query, ordering, pagination, summary projection, and error schema
-remain deliberately deferred. No implementation may introduce a conversation
-summary DTO, timestamps, total count, or full-text index merely to fill that
-gap.
+```ts
+type SearchConversationsRequest = {
+  readonly afterConversationId?: ConversationId
+}
+
+type SearchConversationsResult = {
+  readonly kind: "page"
+  readonly conversationIds: readonly ConversationId[]
+  readonly hasMore: boolean
+}
+```
+
+The result contains at most 50 identifiers in canonical `ConversationId`
+order. `afterConversationId`, when present, is an exclusive lower bound in
+that same order. There is no query text, summary object, timestamp, ranking,
+total count, full-text index, or open metadata.
 
 Both search operations are MCP-only. Neither appears as a public
 `HarnessClient` method or turn field.
@@ -105,11 +148,41 @@ certificates, durability evidence, and Router-epoch proofs may appear only in
 the closed MCP history/proof representation and endpoint internals; they do
 not cross the adapter-facing `HarnessClient` boundary.
 
-Forward reads use a known `RecordHash` anchor or the closed genesis anchor and
-return a bounded contiguous page plus an opaque continuation or end marker.
-Unknown, unauthorized, pruned, or non-ancestral anchors fail distinctly. Gate
-1 permits no pruning, so a pruned-anchor result is reserved for a later
-retention version and is not produced now.
+The exact closed request union is:
+
+```ts
+type ReadConversationRequest =
+  | {
+      readonly conversationId: ConversationId
+      readonly afterRecordHash?: RecordHash
+    }
+  | { readonly continuation: string }
+```
+
+A request without `afterRecordHash` begins at genesis. A supplied
+`afterRecordHash` is an exclusive anchor and must name a certified record in
+that conversation's ancestry. A continuation is opaque and resumes only the
+local snapshot that issued it; it cannot be combined with other fields.
+It is the canonical unpadded-base64url encoding of exactly 32 random bytes,
+has no prefix or internal client-visible fields, and remains valid only in the
+daemon process that issued it. Restart or explicit snapshot release makes it
+an `invalid-continuation`; there is no continuation recovery.
+
+The exact closed result is:
+
+```ts
+type ReadConversationResult = {
+  readonly kind: "page"
+  readonly records: readonly CertifiedRecord[]
+  readonly continuation: string | null
+}
+```
+
+Each page contains at most 50 contiguous complete certified records. A
+non-null continuation denotes more records in the frozen snapshot; `null`
+denotes its end. Unknown conversations or anchors, non-ancestral anchors, and
+invalid continuations fail closed and return no partial page. Gate 1 retains
+complete history indefinitely and therefore has no pruned-anchor result.
 
 Concurrent certification after a snapshot begins does not reorder or splice
 the page. Continuing a page stays within that snapshot; a new read observes a
@@ -120,9 +193,9 @@ recover a reply grant and never invoke the runtime. Fixed-member automatic
 catch-up may add verified records before a new snapshot is taken, but reading
 history is not itself a disclosure task.
 
-The exact MCP wire shape for anchors, pages, certified records, and errors is
-a closed management representation. The semantics above do not authorize an
-open extension bag, a same-shaped public Client DTO, or a second proof API.
+The DTOs above and the Client-owned encoded `CertifiedRecord` are the sole MCP
+history representation. They authorize no open extension bag, same-shaped
+public Client DTO, or second proof API.
 
 ## Model operations
 
@@ -138,18 +211,46 @@ No tool performs an arbitrary established-conversation write. There is no
 `send`, `send_message`, peer-history, audit, monitor, institution,
 institutional-credential, or governance tool.
 
+## Closed failure representation
+
+Official MCP schema rejection remains invalid params. An accepted management
+call that cannot complete uses the official MCP internal-error code with exact
+data `{reason}` and no additional fields. The permitted reasons are closed by
+operation:
+
+| Operation | Reasons |
+|---|---|
+| `register` | `upstream`, `persistence`, `representation` |
+| `status` | `persistence`, `representation` |
+| `search_agents` | `upstream`, `representation` |
+| `search_conversations` | `persistence` |
+| `read_conversation` | `not-found`, `invalid-continuation`, `persistence`, `representation` |
+
+Registry domain outcomes such as `name_taken` and `idempotency_conflict` are
+successful closed `register` results, not MCP failures. `not-found` covers an
+unknown conversation, unknown or non-ancestral record anchor, or a snapshot
+whose authorized history is unavailable. `invalid-continuation` covers
+malformed, expired, wrong-operation, or wrong-snapshot continuation authority.
+`upstream` coalesces only closed Registry transport or service failures. No
+row, path, secret, SQL cause, private protocol evidence, peer blame, or partial
+page appears in error data.
+
 ## Acceptance criteria
 
 - One URL exposes the exact pre-registration and active catalogs above.
 - Tool-list transition requires no daemon restart or second listener.
 - Registration preserves Registry authority and never creates a profile
   catalog or second identity in one state directory.
+- Register accepts only `operationId`, `principalId`, and `agentName`; status
+  returns only `unregistered` or `active` with the verified AgentCard.
 - Search and history inspect only owner-authorized Registry or local endpoint
   data and introduce no same-shaped domain aliases.
+- Agent search projects the exact Registry lookup/list request and result;
+  conversation search returns only canonical pages of at most 50 identifiers.
 - Search, history, proof inspection, status, and registration are absent from
   the public `HarnessClient`.
-- History pages are contiguous certified-record snapshots anchored by
-  `RecordHash`; page cursors add no authority.
+- History pages contain at most 50 contiguous certified records, freeze their
+  observed head, and use opaque continuations that add no authority.
 - History, catch-up, and Router re-anchor never fabricate a runtime turn or
   reply grant.
 - Generic MCP clients require no MoltZap CLI, Unix socket, profile selection,
@@ -157,7 +258,6 @@ institutional-credential, or governance tool.
 
 ## Deliberate deferrals
 
-Exact registration-recovery status and errors; status fields; search query,
-ordering, ranking, empty-query, pagination, and projection schemas; exact
-history/proof request and result wire representations; page-size defaults;
-total counts; full-text search; and remote administration.
+Remote administration and any later-version query text, summaries, ranking,
+totals, full-text search, retention/pruning, or alternate page sizes. None is a
+Gate 1 open extension point.

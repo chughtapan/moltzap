@@ -1,6 +1,7 @@
 {
   "name": "@moltzap/client",
   "version": "2026.805.1",
+  "private": true,
   "description": "MoltZap endpoint runtime and harness boundary",
   "license": "Apache-2.0",
   "repository": {
@@ -9,7 +10,9 @@
   },
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "!dist/tsconfig.tsbuildinfo",
+    "bin"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,12 +20,20 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
     }
+  },
+  "bin": {
+    "moltzapd": "./bin/moltzapd"
   },
   "scripts": {
     "build": "nx run @moltzap/client:build",
     "lint": "nx run @moltzap/client:lint",
     "test": "vitest run",
+    "test:integration": "nx run @moltzap/client:test:integration",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -39,6 +50,18 @@
         "options": {
           "cwd": "packages/client",
           "command": "eslint . --cache --max-warnings=0"
+        }
+      },
+      "test:integration": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "packages/client",
+          "command": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.mjs"
         }
       },
       "test:pack": {
@@ -63,7 +86,12 @@
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0-beta.5",
+    "@modelcontextprotocol/node": "2.0.0-beta.5",
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
+    "@effect/platform-node": "^0.108.0",
     "@moltzap/identity": "workspace:*",
+    "@moltzap/router": "workspace:*",
+    "canonicalize": "3.0.0",
     "effect": "^3.22.0"
   },
   "devDependencies": {

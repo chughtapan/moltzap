@@ -12,8 +12,8 @@ import {
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import {
   AgentRuntimeDefinitionError,
-  deepFreeze,
   type AgentRuntimeInput,
+  deepFreeze,
   type RuntimeAcquisitionError,
   type RuntimeTermination,
 } from "../agent.js";
@@ -314,8 +314,10 @@ function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
   );
   const deviceIdentity = Object.freeze({
     deviceId: createHash("sha256").update(publicKeyRaw).digest("hex"),
-    privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }),
-    publicKeyPem: publicKey.export({ type: "spki", format: "pem" }),
+    privateKeyPem: privateKey
+      .export({ type: "pkcs8", format: "pem" })
+      .toString(),
+    publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
   });
   const now = Date.now();
   const operatorWrite = "operator.write";

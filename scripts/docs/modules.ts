@@ -44,6 +44,10 @@ const CUTOVER_SOURCE_BRANCH = "cutover/four-layer-v2";
 const REQUIRED_MODULE_FOLDERS = [
   "packages/identity/src",
   "packages/router/src",
+  "packages/simulator/src",
+  "packages/simulator/src/agents",
+  "packages/simulator/src/ledger",
+  "packages/simulator/src/network",
 ] as const;
 
 /** Retired source roots included in orphan MODULE discovery. */
@@ -53,6 +57,7 @@ const RETIRED_MODULE_FOLDERS = ["v2/identity/src", "v2/router/src"] as const;
 const REQUIRED_PACKAGE_NAMES = [
   "@moltzap/identity",
   "@moltzap/router",
+  "@moltzap/simulator",
 ] as const;
 
 /** Package subpaths admitted to generated final module documentation. */
@@ -60,7 +65,22 @@ export const REQUIRED_PACKAGE_SUBPATHS = [
   "@moltzap/identity/registry",
   "@moltzap/identity/registry/server",
   "@moltzap/router/server",
+  "@moltzap/simulator/agents",
+  "@moltzap/simulator/ledger",
+  "@moltzap/simulator/network",
 ] as const;
+
+const DOMAIN_MODULE_ENTRYPOINTS = new Map<string, string>([
+  ["packages/simulator/src/agents", "@moltzap/simulator/agents"],
+  ["packages/simulator/src/ledger", "@moltzap/simulator/ledger"],
+  ["packages/simulator/src/network", "@moltzap/simulator/network"],
+]);
+
+const ROOT_PACKAGE_SUBPATHS = new Set([
+  "@moltzap/identity/registry",
+  "@moltzap/identity/registry/server",
+  "@moltzap/router/server",
+]);
 
 interface LinkContext {
   readonly mode: "module-md" | "mdx";
@@ -359,10 +379,13 @@ function renderFolder(
     const packageName = packageRoot
       ? yield* readPackageName(folder, config, fs, path)
       : null;
+    const domainEntrypoint = DOMAIN_MODULE_ENTRYPOINTS.get(folder);
     const exports = (
-      packageName !== null
-        ? (cache.byPackageEntrypoint.get(packageName) ?? [])
-        : (cache.byFolder.get(folder) ?? [])
+      domainEntrypoint !== undefined
+        ? (cache.byPackageEntrypoint.get(domainEntrypoint) ?? [])
+        : packageName !== null
+          ? (cache.byPackageEntrypoint.get(packageName) ?? [])
+          : (cache.byFolder.get(folder) ?? [])
     ).filter(isBehavioral);
     const enriched = yield* enrichWithSignatures(exports, fs, path, config);
     const subpaths =
@@ -470,8 +493,10 @@ function packageSubpathsForPackage(
     exports: readonly TypeDocExport[];
   }>
 > {
-  return REQUIRED_PACKAGE_SUBPATHS.filter((importPath) =>
-    importPath.startsWith(`${packageName}/`),
+  return REQUIRED_PACKAGE_SUBPATHS.filter(
+    (importPath) =>
+      importPath.startsWith(`${packageName}/`) &&
+      ROOT_PACKAGE_SUBPATHS.has(importPath),
   ).map((importPath) => ({
     importPath,
     exports: cache.byPackageEntrypoint.get(importPath) ?? [],
@@ -1025,9 +1050,7 @@ function sourcePermalink(fileName: string, line: number): string {
 }
 
 function isCutoverSourceFile(fileName: string): boolean {
-  return REQUIRED_MODULE_FOLDERS.some((folder) =>
-    fileName.startsWith(`${folder}/`),
-  );
+  return fileName.startsWith("packages/");
 }
 
 function isBehavioral(ex: TypeDocExport): boolean {

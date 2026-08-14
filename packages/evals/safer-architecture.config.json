@@ -21,6 +21,10 @@
       "reason": "Mixed-roster execution and runtime-native condition adapters form the application execution boundary"
     },
     {
+      "file": "src/peer.ts",
+      "reason": "Autonomous peer plans, public-Client behavior, and the controller observation gateway form the evaluation peer boundary"
+    },
+    {
       "file": "src/transcript.ts",
       "reason": "Normalized transcript vocabulary and evidence-ID invariants every grading stage binds to"
     },

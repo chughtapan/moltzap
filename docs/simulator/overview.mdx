@@ -8,20 +8,22 @@ One run owns one customer Effect, one durable ledger, and one exact keyed
 roster. Kubernetes is the execution backend. The
 repository provides local kind and GKE profiles for the same path.
 
-Each roster entry becomes one Agent Sandbox application container. Kueue admits
-capacity for the complete roster, the controller waits for every application
-and runtime-specific bridge to become ready, and only then does it invoke the
+Each roster entry becomes one Agent Sandbox Pod with a restartable endpoint
+daemon and one application container. Kueue admits capacity for the complete
+roster, the controller waits for every registered application and
+runtime-specific bridge to become ready, and only then does it invoke the
 customer Effect. Temporal coordinates the coarse run lifecycle and cleanup.
-Those platform objects stay private: experiment code receives agents, events,
-and the readable ledger.
+Those platform objects stay private: experiment code receives agents, network
+controls, events, and the readable ledger.
 
-## One package, three public entry points
+## One package, four public entry points
 
 The package keeps capability boundaries inside one install:
 
 | Import | Owner |
 |---|---|
 | `@moltzap/simulator` | `RunSpec`, `Run.execute`, event catalogs, customer services, and run outcomes |
+| `@moltzap/simulator/network` | Participant and endpoint capabilities, Router fixtures, and directed-link fault controls |
 | `@moltzap/simulator/agents` | Container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
 | `@moltzap/simulator/ledger` | Ledger schemas, completed-artifact validation, and offline inspection |
 
@@ -79,15 +81,16 @@ export const runSpec = RunSpec.define({
     bob: runtime("You are Bob."),
   },
   cluster: controllerServicesFromEnvironment(),
-  execute: ({ agents, events, ledger }) =>
+  execute: ({ agents, events, network, ledger }) =>
     Effect.gen(function* () {
       yield* events.emit(
         ConsensusReached.make({
           proposal: "initial-proposal",
-          supporters: [agents.alice.agentName],
+          supporters: [agents.alice.agent.id],
         }),
       );
 
+      yield* Effect.logDebug("network ready", network);
       yield* Effect.logDebug("ledger allocated", ledger.ref);
     }),
 });
@@ -111,7 +114,7 @@ Every started roster value exposes three separate capabilities:
 
 | Field | Meaning |
 |---|---|
-| `agentName` | Roster-owned identity of the autonomous participant |
+| `agent` | Registry-issued nominal handle containing the roster key and final `AgentId` |
 | `gateway` | That runtime's exact owner-local principal API |
 | `termination` | Observation of autonomous completion, failure, exit, or signal |
 
@@ -128,12 +131,13 @@ language, mailbox, response protocol, correlation model, or gateway union.
 
 ## The customer Effect owns experiment policy
 
-`execute` receives three run-scoped capabilities:
+`execute` receives four run-scoped capabilities:
 
 | Capability | Purpose |
 |---|---|
 | `agents` | Exact roster keys, identities, native gateways, and termination observations |
 | `events` | Emit only the definition's declared customer event classes |
+| `network` | Retained controlled-endpoint observation and directed-link fault capabilities |
 | `ledger` | Read all core and customer evidence committed so far |
 
 The readable ledger's `records` stream catches up over committed history and

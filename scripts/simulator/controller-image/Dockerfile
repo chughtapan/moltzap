@@ -28,6 +28,10 @@ RUN npm install --omit=dev --no-audit --no-fund \
   && ln -s /srv/moltzap/node_modules /node_modules
 
 COPY --from=overlay --chown=node:node /application-overlay /opt/moltzap/application-overlay
+COPY --chown=node:node register-daemon.mjs /opt/moltzap/register-daemon.mjs
+COPY --chown=node:node simulator-fault-program.mjs /opt/moltzap/qualification/simulator-fault-program.mjs
+RUN node --input-type=module --eval \
+  'await import("/opt/moltzap/qualification/simulator-fault-program.mjs")'
 
 USER node
 ENTRYPOINT ["node", "/opt/moltzap/dist/cluster/controller/main.js"]

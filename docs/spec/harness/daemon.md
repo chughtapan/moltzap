@@ -16,13 +16,35 @@ network plane.
 
 ## Explicit process configuration
 
-The operator starts one daemon with explicit configuration for:
+The operator starts one daemon with exactly these process inputs:
 
-- one state-directory path;
-- one loopback MCP bind host and stable nonzero port;
-- Registry origin and deployment-pinned Registry verification key;
-- Router origin; and
-- the local admission/signing material required by the Identity contract.
+| Environment key | Meaning |
+|---|---|
+| `MOLTZAPD_STATE_DIRECTORY` | the endpoint's one persistent state directory |
+| `MOLTZAPD_MCP_PORT` | the stable nonzero port bound only on `127.0.0.1` |
+| `MOLTZAPD_REGISTRY_ORIGIN` | the Registry network origin |
+| `MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY` | the deployment-pinned Registry signer public JWK |
+| `MOLTZAPD_ROUTER_ORIGIN` | the Router network origin |
+| `MOLTZAPD_AGENT_PRIVATE_KEY_FILE` | the local agent's private signing-key file |
+| `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` | the Registry bootstrap-admission credential file |
+
+All seven inputs are required. The Registry signer value is the exact compact
+canonical JWK JSON text owned by Identity:
+
+```text
+{"crv":"Ed25519","kty":"OKP","x":"<43 canonical base64url characters>"}
+```
+
+No alternate member order, additional member, or surrounding whitespace is
+accepted. `MOLTZAPD_AGENT_PRIVATE_KEY_FILE` names a file whose complete UTF-8
+contents are one unencrypted Ed25519 PKCS#8 PEM. The daemon passes that text to
+`AgentSigningAuthority.fromPkcs8` without trimming or rewriting it.
+`MOLTZAPD_ADMISSION_CREDENTIAL_FILE` names a file whose complete UTF-8
+contents are the 8-to-512-character token68 credential owned by Registry
+admission. The daemon does not trim it: leading or trailing whitespace, a BOM,
+and a terminal LF or CRLF are invalid file contents. Both loaded secrets remain
+redacted. The daemon supplies these Identity-owned values to registration;
+they never become tool inputs or runtime-visible configuration.
 
 There is no named profile, profile catalog, profile environment selector,
 profile acquisition API, port scan, port-zero allocation, wildcard listener,
@@ -31,29 +53,28 @@ collision fallback, or dynamic daemon discovery.
 The state directory is the unit of local persistence, not identity authority.
 Before registration it contains no committed AgentId. After local identity
 commit it represents exactly that AgentId and is never reused for another.
-Two simultaneously configured state directories must not claim the same local
-identity; duplicate ownership fails closed before active operation.
-
-The exact configuration DTO, environment-key spelling, file layout, and
-registration recovery state machine remain private daemon work. No
-implementation may recreate profiles to avoid deciding them.
+One SQLite database in WAL mode at
+`<state-directory>/moltzapd.sqlite3` is the complete endpoint store. SQLite
+serialization prevents two live daemon processes from concurrently owning the
+same state directory. Gate 1 makes no global lease or duplicate-key detection
+claim for copied directories or duplicated private-key files.
 
 ## Owned durable and volatile state
 
-The daemon durably owns:
+The SQLite store durably owns:
 
-- its one locally committed identity and signing authority;
-- the endpoint stores described by
-  [`../conversation-history.md`](../conversation-history.md);
-- staged records, partial votes, certified histories, and Router-epoch proofs;
-  and
-- canonical START intents and their local completion state, keyed solely by
-  caller-supplied `ConversationId`.
+- its one locally committed identity binding;
+- canonical START intents keyed solely by caller-supplied `ConversationId`;
+- fixed memberships, pinned complete AgentCards, and Router anchors;
+- staged records and partial action, durability, catch-up, and re-anchor
+  evidence;
+- complete certified history and each conversation's certified head; and
+- private consumed-attention pairs `(ConversationId, RecordHash)`.
 
-Router PollCursor, live protocol folds, grants, subscriptions, stream events,
-and reply closures are volatile. A daemon restart recovers certified history
-and staged protocol evidence from the endpoint store, but never reconstructs a
-lost live reply grant.
+Router PollCursor, live protocol folds, grants, subscriptions, stream frames,
+and reply closures are volatile. A daemon restart recovers certified history,
+staged protocol evidence, and consumed-attention pairs from SQLite, but never
+reconstructs a lost live reply grant.
 
 ## Registry and Router composition
 
@@ -82,9 +103,17 @@ The retained MCP core revision is `2026-07-28`. One `POST /mcp` accepts one
 modern MCP request. A response is ordinary JSON or request-scoped SSE for an
 accepted `subscriptions/listen`. Other methods return 405.
 
-The retained protocol-version headers, request metadata, `Mcp-Method`,
-`Mcp-Name`, complete results, zero-TTL discovery, server information, and
-Origin validation remain exact. The daemon does not implement protocol
+The official pinned MCP SDK remains the standard discovery, tool, and HTTP
+implementation, including the retained protocol-version headers, request
+metadata, `Mcp-Method`, `Mcp-Name`, complete results, zero-TTL discovery,
+server information, and Origin validation. Client owns one narrow request
+handler in front of that delegate. It recognizes only modern
+`subscriptions/listen` with `{"xyz.moltzap/turnReady":true}`, provides the
+sole-listener acknowledgment and
+`notifications/xyz.moltzap/turn_ready`, and delegates every other request
+unchanged. It is an extension adapter, not a fork or second MCP stack.
+
+The daemon does not implement protocol
 sessions, `Mcp-Session-Id`, legacy HTTP+SSE, GET streams, protocol ping,
 subscription replay, `Last-Event-ID`, stdio, FastMCP compatibility, bespoke
 CLI, Unix RPC, or a second listener.
@@ -107,7 +136,17 @@ same `/mcp` URL serves both states. Registry owns registration authority;
 [`output.md`](./output.md) owns model output; and [`ingress.md`](./ingress.md)
 owns receive behavior.
 
-Tool request/result Schemas remain closed, Client-owned MCP representations.
+Registration has no daemon-specific recovery identifier. If Registry commits
+a registration but the daemon has not committed its local identity binding,
+repeating the byte-identical closed registration request with the same
+`OperationId` and configured public key makes Registry return its original
+result; the daemon then atomically commits that binding. If the local commit
+already completed before an ambiguous response or crash, startup observes the
+binding and exposes the active catalog. Neither case introduces an
+intermediate lifecycle state or registers a second identity.
+
+Tool request/result Schemas are the closed Client-owned MCP representations in
+[`../management.md`](../management.md) and [`output.md`](./output.md).
 `start_conversation` carries the caller-supplied `ConversationId`, peer names,
 and content and reports success only after local certified durability.
 `reply` carries the private authority from its live event plus content and
@@ -117,14 +156,26 @@ return proof-bearing history without adding a public `HarnessClient` method.
 
 ## Subscription and raw delivery
 
-One active reply-capable subscription owns the daemon. The first stream item
-acknowledges establishment; later items use the same subscription metadata.
-A racing listener receives the closed `subscription_in_use` outcome.
+The `xyz.moltzap/events-v1` capability advertises the configured pinned
+Registry signer public JWK. One active reply-capable subscription owns the
+daemon. The first stream item acknowledges establishment; later items use the
+same subscription metadata. A racing listener receives the closed
+`subscription_in_use` outcome.
 
-Delivery of live runtime authority is transient and at most once. Stream
-acknowledgment is not application acknowledgment. Disconnect, failed write, or
-ambiguous write can lose a turn and never causes replay or reply-grant
-reconstruction. Durable history remains locally readable.
+Delivery of live runtime authority is transient and at most once. Immediately
+before writing a complete turn frame, the daemon atomically commits that
+turn's `(ConversationId, RecordHash)` consumed-attention pair. A successful,
+failed, or ambiguous write leaves the pair consumed across restart, so the
+endpoint never offers or bids for that head again. Stream acknowledgment is
+not application acknowledgment, and no delivery acknowledgment, replay,
+resume cursor, or reply-grant reconstruction exists. Durable history remains
+locally readable.
+
+The daemon automatically contends only for a locally certified head authored
+by another fixed member while it owns the active subscription and the pair is
+not consumed. The action author never automatically contends on its own
+action. Without a listener the endpoint emits no BEGIN and persists no
+consumption marker.
 
 Every complete runtime item is emitted as one complete SSE frame and projects
 to exactly one current-conversation `HarnessTurn`: `conversationId`, nonempty
@@ -157,6 +208,8 @@ invalid proof to preserve availability.
 
 - One daemon/state directory owns at most one AgentId, one loopback listener,
   and one endpoint store family.
+- The daemon reads exactly the seven `MOLTZAPD_*` inputs above and uses
+  `<state-directory>/moltzapd.sqlite3` in WAL mode.
 - No profile name, profile catalog, split MCP path, product Ledger client, or
   Transcript service exists.
 - Pre-registration and active discovery use one URL and the exact catalogs
@@ -165,6 +218,10 @@ invalid proof to preserve availability.
   representations after package relocation.
 - Restart recovers durable endpoint state but never reconstructs reply
   authority or subscription delivery.
+- Restart preserves consumed-attention pairs, including a pair committed
+  before a failed or ambiguous SSE write.
+- Only a subscribed non-author bids for an unconsumed remotely authored head;
+  no listener and an action's own author produce no automatic BEGIN.
 - Feed-gap and Router-restart tests use catch-up/re-anchor rather than central
   read-forward or permanent fencing.
 - Shutdown releases MCP, protocol/network, and storage scopes without accepting
@@ -174,7 +231,6 @@ invalid proof to preserve availability.
 
 ## Deliberate deferrals
 
-Exact process-configuration representation and environment keys; state-file
-layout; registration recovery/status contract; search, history, and proof wire
-projections; daemon-wide concurrency and queue limits; subscription replay;
-and cross-process reply recovery.
+Daemon-wide protocol concurrency and queue limits; delivery acknowledgment and
+subscription replay; cross-process reply recovery; remote administration; and
+global duplicate-key or copied-directory ownership detection.

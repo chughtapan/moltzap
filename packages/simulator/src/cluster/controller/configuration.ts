@@ -1,9 +1,11 @@
 /** @file Closed environment contract for the in-cluster run controller. */
-// safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger and cluster values the controller needs.
-import { isAbsolute } from "node:path";
+
 import { Data, Either, Schema } from "effect";
-import type { Image } from "../../agents/container.js";
+import { isAbsolute } from "node:path";
+import type { Image } from "../../agents/index.js";
 import type { KubernetesPodPlacement } from "../profile.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger and cluster values the controller needs.
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
 const DEFAULT_COHORT_SIZE = 2;
@@ -74,16 +76,33 @@ export class ControllerConfigurationError extends Data.TaggedError(
   }
 }
 
-function invalid(detail: string): ControllerConfigurationError {
-  return new ControllerConfigurationError({ detail });
-}
-
-function required(environment: ControllerEnvironment, key: string): string {
-  const value = environment[key];
-  if (value === undefined || value.length === 0) {
-    throw invalid(`${key} is required`);
-  }
-  return value;
+/**
+ * Decode the one closed environment contract used by a controller Job.
+ * @param environment Process environment or a deterministic test substitute.
+ * @returns Safe, typed controller configuration.
+ */
+export function controllerConfigurationFromEnvironment(
+  environment: ControllerEnvironment,
+): ControllerConfiguration {
+  return Object.freeze({
+    namespace: kubernetesName(environment, "MOLTZAP_RUN_NAMESPACE"),
+    queueName: kubernetesName(environment, "MOLTZAP_RUN_QUEUE"),
+    owner: Object.freeze({
+      name: kubernetesName(environment, "MOLTZAP_RUN_OWNER_NAME"),
+      uid: ownerUid(environment),
+    }),
+    supportImage: supportImage(environment),
+    runtimeCredentials: runtimeCredentials(environment),
+    rosterPlacement: rosterPlacement(environment),
+    experimentModule: experimentModulePath(environment),
+    ledgerDirectory: absolutePath(environment, "MOLTZAP_LEDGER_DIRECTORY"),
+    ledgerExportDirectory: optionalAbsolutePath(
+      environment,
+      "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
+    ),
+    startupTimeoutMs: startupTimeoutMs(environment),
+    cohortSize: cohortSize(environment),
+  });
 }
 
 function kubernetesName(
@@ -114,14 +133,6 @@ function supportImage(environment: ControllerEnvironment): Image {
   }
   // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The preceding closed pattern proves the template-literal image contract.
   return value as Image;
-}
-
-function absolutePath(environment: ControllerEnvironment, key: string): string {
-  const value = required(environment, key);
-  if (!isAbsolute(value)) {
-    throw invalid(`${key} must be an absolute path`);
-  }
-  return value;
 }
 
 function optionalAbsolutePath(
@@ -229,31 +240,22 @@ function runtimeCredentials(
   });
 }
 
-/**
- * Decode the one closed environment contract used by a controller Job.
- * @param environment Process environment or a deterministic test substitute.
- * @returns Safe, typed controller configuration.
- */
-export function controllerConfigurationFromEnvironment(
-  environment: ControllerEnvironment,
-): ControllerConfiguration {
-  return Object.freeze({
-    namespace: kubernetesName(environment, "MOLTZAP_RUN_NAMESPACE"),
-    queueName: kubernetesName(environment, "MOLTZAP_RUN_QUEUE"),
-    owner: Object.freeze({
-      name: kubernetesName(environment, "MOLTZAP_RUN_OWNER_NAME"),
-      uid: ownerUid(environment),
-    }),
-    supportImage: supportImage(environment),
-    runtimeCredentials: runtimeCredentials(environment),
-    rosterPlacement: rosterPlacement(environment),
-    experimentModule: experimentModulePath(environment),
-    ledgerDirectory: absolutePath(environment, "MOLTZAP_LEDGER_DIRECTORY"),
-    ledgerExportDirectory: optionalAbsolutePath(
-      environment,
-      "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
-    ),
-    startupTimeoutMs: startupTimeoutMs(environment),
-    cohortSize: cohortSize(environment),
-  });
+function absolutePath(environment: ControllerEnvironment, key: string): string {
+  const value = required(environment, key);
+  if (!isAbsolute(value)) {
+    throw invalid(`${key} must be an absolute path`);
+  }
+  return value;
+}
+
+function required(environment: ControllerEnvironment, key: string): string {
+  const value = environment[key];
+  if (value === undefined || value.length === 0) {
+    throw invalid(`${key} is required`);
+  }
+  return value;
+}
+
+function invalid(detail: string): ControllerConfigurationError {
+  return new ControllerConfigurationError({ detail });
 }

@@ -8,7 +8,44 @@ Code-first simulator API.
 
 ## Public surface
 
-### [`AgentProcessExited`](./events/core.ts#L52)
+### [`AgentConnection`](./network/router.ts#L50)
+
+_Interface_
+
+```ts
+export interface AgentConnection<Name extends string = string> {
+  readonly agent: AgentHandle<Name>;
+}
+```
+
+Runtime identity issued for one scope-owned autonomous agent.
+
+### [`AgentHandle`](./network/participant.ts#L58)
+
+_Class_
+
+```ts
+export class AgentHandle<
+  Name extends string = string,
+> extends ParticipantHandle<Name> {
+  readonly [agentHandleTypeId] = agentHandleTypeId;
+
+  private constructor(name: Name, id: AgentId) {
+    super(name, id);
+  }
+
+  static [agentHandleConstruction]<const Name extends string>(
+    name: Name,
+    id: AgentId,
+  ): AgentHandle<Name> {
+    return new AgentHandle(name, id);
+  }
+}
+```
+
+A participant whose autonomous runtime is owned by the run scope.
+
+### [`AgentProcessExited`](./events/core.ts#L81)
 
 _Class_
 
@@ -17,6 +54,7 @@ export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()
   "moltzap.agent-process-exited/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     code: Schema.NonNegativeInt,
   },
@@ -25,7 +63,7 @@ export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()
 
 A roster runtime process terminated with an operating-system exit code.
 
-### [`AgentProcessSignaled`](./events/core.ts#L62)
+### [`AgentProcessSignaled`](./events/core.ts#L92)
 
 _Class_
 
@@ -34,6 +72,7 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
   "moltzap.agent-process-signaled/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     signal: Schema.NonEmptyString,
   },
@@ -42,7 +81,7 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
 
 A roster runtime process terminated because it received a signal.
 
-### [`AgentRuntimeCompleted`](./events/core.ts#L33)
+### [`AgentRuntimeCompleted`](./events/core.ts#L60)
 
 _Class_
 
@@ -51,6 +90,7 @@ export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeComple
   "moltzap.agent-runtime-completed/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
   },
 ) {}
@@ -58,7 +98,7 @@ export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeComple
 
 An autonomous runtime completed normally.
 
-### [`AgentRuntimeFailed`](./events/core.ts#L42)
+### [`AgentRuntimeFailed`](./events/core.ts#L70)
 
 _Class_
 
@@ -67,6 +107,7 @@ export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()
   "moltzap.agent-runtime-failed/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     cause: Schema.NonEmptyString,
   },
@@ -75,7 +116,7 @@ export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()
 
 An autonomous runtime completed with a recorded failure.
 
-### [`AgentRuntimeReady`](./events/core.ts#L14)
+### [`AgentRuntimeReady`](./events/core.ts#L40)
 
 _Class_
 
@@ -84,6 +125,7 @@ export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
   "moltzap.agent-runtime-ready/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
   },
 ) {}
@@ -91,7 +133,7 @@ export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
 
 A roster runtime completed acquisition and readiness.
 
-### [`AgentRuntimeStartFailed`](./events/core.ts#L23)
+### [`AgentRuntimeStartFailed`](./events/core.ts#L50)
 
 _Class_
 
@@ -108,7 +150,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`ClusterError`](./cluster/cluster.ts#L14)
+### [`ClusterError`](./cluster/cluster.ts#L17)
 
 _Class_
 
@@ -124,7 +166,7 @@ export class ClusterError extends Data.TaggedError("ClusterError")<{
 
 Cluster loss that ends a run without exposing its backend.
 
-### [`ClusterLost`](./run/execute.ts#L77)
+### [`ClusterLost`](./run/execute.ts#L106)
 
 _Class_
 
@@ -139,17 +181,17 @@ export class ClusterLost<
 
 Post-allocation cluster error plus all durable evidence retained.
 
-### [`ClusterServices`](./definition.ts#L74)
+### [`ClusterServices`](./definition.ts#L64)
 
 _TypeAlias_
 
 ```ts
-export type ClusterServices = LedgerStorage | Cluster;
+export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
 ```
 
 Opaque service set supplied by a local-Kubernetes or GKE Layer.
 
-### [`CompletedLedgerReceipt`](./run/execute.ts#L44)
+### [`CompletedLedgerReceipt`](./run/execute.ts#L73)
 
 _Class_
 
@@ -165,12 +207,127 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`coreEvents`](./events/core.ts#L112)
+### [`ConversationAddress`](./network/conversation.ts#L28)
+
+_Class_
+
+```ts
+export class ConversationAddress {
+  readonly [conversationAddressTypeId] = conversationAddressTypeId;
+
+  readonly conversationId: ConversationId;
+  readonly participants: ConversationParticipants;
+
+  constructor(
+    conversationId: ConversationId,
+    participants: ConversationParticipants,
+  ) {
+    if (participants.length === 0) {
+      // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- This synchronous public constructor rejects invalid JavaScript input before creating a nominal address.
+      throw new TypeError("conversation participants must not be empty");
+    }
+    const [first, ...rest] = participants;
+    if (
+      new Set(participants.map(({ id }) => id)).size !== participants.length
+    ) {
+      // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- This synchronous public constructor rejects invalid JavaScript input before creating a nominal address.
+      throw new TypeError(
+        "conversation participants must be unique by AgentId",
+      );
+    }
+    this.conversationId = conversationId;
+    this.participants = Object.freeze([first, ...rest]);
+    Object.freeze(this);
+  }
+}
+```
+
+A participant-independent network address. Binding an endpoint produces a
+conversation socket; the address itself never implies a sender.
+
+### [`ConversationParticipants`](./network/conversation.ts#L19)
+
+_TypeAlias_
+
+```ts
+export type ConversationParticipants = readonly [
+  ParticipantHandle,
+  ...(readonly ParticipantHandle[]),
+];
+```
+
+Every conversation has at least one participant of any network role.
+
+### [`ConversationSocket`](./network/conversation.ts#L72)
+
+_Class_
+
+```ts
+export class ConversationSocket {
+  readonly [conversationSocketTypeId] = conversationSocketTypeId;
+
+  /** Ordered semantic turns for this endpoint and conversation. */
+  readonly messages: Stream.Stream<HarnessTurn, NetworkError>;
+
+  readonly endpoint: ParticipantHandle;
+  readonly address: ConversationAddress;
+
+  private constructor(
+    endpoint: ParticipantHandle,
+    address: ConversationAddress,
+    messages: Stream.Stream<HarnessTurn, NetworkError>,
+  ) {
+    this.endpoint = endpoint;
+    this.address = address;
+    this.messages = messages;
+  }
+
+  static [conversationSocketConstruction](
+    endpoint: ParticipantHandle,
+    address: ConversationAddress,
+    messages: Stream.Stream<HarnessTurn, NetworkError>,
+  ): ConversationSocket {
+    return new ConversationSocket(endpoint, address, messages);
+  }
+
+  /**
+   * Receive the next ordered turn. Selection policy belongs in the consuming
+   * Effect, so the socket never skips an earlier turn.
+   * @returns The next turn, or a typed receive failure when the stream ends.
+   */
+  receive(): Effect.Effect<HarnessTurn, NetworkError> {
+    return this.messages.pipe(
+      Stream.runHead,
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.fail(
+              networkError(
+                "receive",
+                `conversation ${this.address.conversationId} ended before another turn arrived`,
+              ),
+            ),
+          onSome: Effect.succeed,
+        }),
+      ),
+    );
+  }
+}
+```
+
+A conversation address bound to exactly one controlled endpoint.
+
+### [`coreEvents`](./events/core.ts#L193)
 
 _Variable_
 
 ```ts
-export const coreEvents = EventCatalog.merge(runEvents, runtimeEvents)
+export const coreEvents = EventCatalog.merge(
+  runEvents,
+  routerEvents,
+  runtimeEvents,
+  linkEvents,
+)
 ```
 
 The exact event classes readable from every simulator run ledger.
@@ -190,7 +347,7 @@ export interface CustomerEvents<Catalog extends AnyEventCatalog> {
 
 Definition-bound emission of customer-owned event classes only.
 
-### [`EncodedEventOf`](./events/catalog.ts#L43)
+### [`EncodedEventOf`](./events/catalog.ts#L45)
 
 _TypeAlias_
 
@@ -202,7 +359,84 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
 
 The closed encoded union persisted for a catalog.
 
-### [`EventCatalog`](./events/catalog.ts#L130)
+### [`Endpoint`](./network/endpoint.ts#L30)
+
+_Class_
+
+```ts
+export class Endpoint<Name extends string = string> {
+  readonly [endpointTypeId] = endpointTypeId;
+
+  readonly participant: ParticipantHandle<Name>;
+  private readonly inbox: EndpointInbox;
+  private readonly transport: EndpointTransport;
+
+  private constructor(
+    participant: ParticipantHandle<Name>,
+    transport: EndpointTransport,
+    inbox: EndpointInbox,
+  ) {
+    this.participant = participant;
+    this.transport = transport;
+    this.inbox = inbox;
+  }
+
+  static [endpointConstruction]<const Name extends string>(
+    attachment: AttachedEndpoint<Name>,
+    inbox: EndpointInbox,
+  ): Endpoint<Name> {
+    return new Endpoint(attachment.participant, attachment.transport, inbox);
+  }
+
+  /**
+   * Start one conversation through this endpoint's semantic daemon client.
+   * @param input Caller-minted conversation identity, peers, and initial content.
+   * @returns Completion after the daemon accepts the semantic START.
+   */
+  start(input: StartInput): Effect.Effect<void, NetworkError> {
+    return this.transport.start(input);
+  }
+
+  /**
+   * Observe semantic turns delivered after this stream is subscribed.
+   * @returns A live fan-out stream of turns for this endpoint.
+   */
+  messages(): Stream.Stream<HarnessTurn, NetworkError> {
+    return this.inbox.messages;
+  }
+
+  /**
+   * Bind this endpoint as the receiver for an existing address.
+   * @param address Conversation whose participant set includes this endpoint.
+   * @returns The endpoint-bound socket or a typed address mismatch.
+   */
+  socket(
+    address: ConversationAddress,
+  ): Effect.Effect<ConversationSocket, NetworkError> {
+    const isParticipant = address.participants.some(
+      (participant) => participant.id === this.participant.id,
+    );
+    return isParticipant
+      ? this.inbox
+          .conversation(address.conversationId)
+          .pipe(
+            Effect.map((messages) =>
+              makeConversationSocket(this.participant, address, messages),
+            ),
+          )
+      : Effect.fail(
+          networkError(
+            "socket",
+            `participant ${this.participant.name} is not addressed by the conversation`,
+          ),
+        );
+  }
+}
+```
+
+A run-scoped participant controlled directly by the experiment program.
+
+### [`EventCatalog`](./events/catalog.ts#L132)
 
 _Class_
 
@@ -297,7 +531,7 @@ The exact immutable event universe for one definition.
 The private type identifier makes catalog arguments nominal: a structural
 object cannot claim a schema, constructor list, and tag list that disagree.
 
-### [`EventCatalogDefinitionError`](./events/catalog.ts#L59)
+### [`EventCatalogDefinitionError`](./events/catalog.ts#L61)
 
 _Class_
 
@@ -317,7 +551,7 @@ export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalog
 
 Invalid catalogs fail during definition construction, before a run starts.
 
-### [`EventCatalogDefinitionFailure`](./events/catalog.ts#L48)
+### [`EventCatalogDefinitionFailure`](./events/catalog.ts#L50)
 
 _TypeAlias_
 
@@ -327,7 +561,7 @@ export type EventCatalogDefinitionFailure = "duplicate-tag" | "invalid-tag";
 
 Represents event catalog definition failure conditions.
 
-### [`EventClass`](./events/catalog.ts#L10)
+### [`EventClass`](./events/catalog.ts#L12)
 
 _TypeAlias_
 
@@ -340,7 +574,7 @@ export type EventClass = Schema.Schema.AnyNoContext & {
 A schema-backed event constructor. The catalog retains both the schema and
 constructor faces so persisted values decode back into their exact class.
 
-### [`EventClassOf`](./events/catalog.ts#L40)
+### [`EventClassOf`](./events/catalog.ts#L42)
 
 _TypeAlias_
 
@@ -363,7 +597,7 @@ export interface EventMetadata {
 
 Causality metadata accepted from a customer event producer.
 
-### [`EventOf`](./events/catalog.ts#L37)
+### [`EventOf`](./events/catalog.ts#L39)
 
 _TypeAlias_
 
@@ -373,7 +607,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](./run/execute.ts#L53)
+### [`IncompleteLedgerReceipt`](./run/execute.ts#L82)
 
 _Class_
 
@@ -388,7 +622,7 @@ export class IncompleteLedgerReceipt extends Schema.TaggedClass<IncompleteLedger
 
 Physical receipt retained when ledger completion could not be published.
 
-### [`isEntryModule`](./cluster/entry.ts#L31)
+### [`isEntryModule`](./cluster/entry.ts#L27)
 
 _Function_
 
@@ -411,7 +645,7 @@ deleted `argv[1]` is a plain false rather than a thrown ENOENT.
 
 **Returns:** Whether both locations name the same real file.
 
-### [`LedgerFailure`](./ledger/append.ts#L57)
+### [`LedgerFailure`](./ledger/append.ts#L59)
 
 _TypeAlias_
 
@@ -424,7 +658,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt`](./run/execute.ts#L68)
+### [`LedgerReceipt (type)`](./run/execute.ts#L97)
 
 _TypeAlias_
 
@@ -434,7 +668,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt`](./run/execute.ts#L62)
+### [`LedgerReceipt (value)`](./run/execute.ts#L91)
 
 _Variable_
 
@@ -447,7 +681,258 @@ export const LedgerReceipt = Schema.Union(
 
 Schema for the complete physical ledger-receipt universe.
 
-### [`ProgramFailed`](./events/core.ts#L78)
+### [`LinkController`](./network/link.ts#L155)
+
+_Class_
+
+```ts
+export class LinkController extends Context.Tag(
+  "@moltzap/simulator/LinkController",
+)<LinkController, LinkControllerService>() {}
+```
+
+Experiment-facing directed-link control installed by the run kernel.
+
+### [`LinkControllerService`](./network/link.ts#L125)
+
+_Interface_
+
+```ts
+export interface LinkControllerService {
+  /**
+   * Keep one directed link disabled for the lifetime of the current Scope.
+   * Overlapping acquisitions share a single physical down/up transition.
+   */
+  readonly disable: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
+  /** Delay every delivery on one directed link for the current Scope. */
+  readonly delay: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+    duration: Duration.DurationInput,
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
+  /** Park every delivery on one directed link for the current Scope. */
+  readonly hold: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
+  /** Install one custom policy on a directed link for the current Scope. */
+  readonly shape: (
+    from: ParticipantHandle,
+    to: ParticipantHandle,
+    policy: LinkPolicy,
+    description: string,
+  ) => Effect.Effect<void, NetworkError, LinkDriver | Scope.Scope>;
+}
+```
+
+Run-scoped, evidence-producing directed-link control.
+
+### [`LinkDelivery`](./network/link.ts#L16)
+
+_Interface_
+
+```ts
+export interface LinkDelivery {
+  /** Message sender identity. */
+  readonly from: AgentId;
+  /** Receiving participant identity. */
+  readonly to: AgentId;
+  /** Identity-owned opaque signed message carried by the delivery. */
+  readonly message: SignedMessage;
+}
+```
+
+One opaque signed message about to cross a directed link.
+
+### [`LinkDown`](./events/core.ts#L103)
+
+_Class_
+
+```ts
+export class LinkDown extends Schema.TaggedClass<LinkDown>()(
+  "moltzap.link-down/v1",
+  {
+    from: agentId,
+    to: agentId,
+  },
+) {}
+```
+
+A directed participant link transitioned from available to unavailable.
+
+### [`linkPolicy`](./network/link.ts#L44)
+
+_Variable_
+
+```ts
+export const linkPolicy:
+```
+
+Canonical link policies for the common traffic shapes.
+
+### [`LinkPolicy`](./network/link.ts#L41)
+
+_TypeAlias_
+
+```ts
+export type LinkPolicy = (delivery: LinkDelivery) => Effect.Effect<LinkVerdict>;
+```
+
+Decides one delivery on a directed link. A policy reads only its input and
+the ambient Clock; the link interpreter, never the policy, spends time and
+records evidence.
+
+### [`LinkPolicyCleared`](./events/core.ts#L128)
+
+_Class_
+
+```ts
+export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
+  "moltzap.link-policy-cleared/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+```
+
+A described policy stopped shaping one directed participant link.
+
+### [`LinkPolicySet`](./events/core.ts#L118)
+
+_Class_
+
+```ts
+export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
+  "moltzap.link-policy-set/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+```
+
+A described policy became active on one directed participant link.
+
+### [`LinkUp`](./events/core.ts#L112)
+
+_Class_
+
+```ts
+export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
+  from: agentId,
+  to: agentId,
+}) {}
+```
+
+A directed participant link transitioned from unavailable to available.
+
+### [`linkVerdict`](./network/link.ts#L34)
+
+_Variable_
+
+```ts
+export const linkVerdict = Data.taggedEnum<LinkVerdict>()
+```
+
+Constructors and matchers for the closed verdict union.
+
+### [`LinkVerdict`](./network/link.ts#L26)
+
+_TypeAlias_
+
+```ts
+export type LinkVerdict = Data.TaggedEnum<{
+  deliver: Record<never, never>;
+  drop: { readonly reason?: string };
+  delay: { readonly duration: Duration.Duration };
+  hold: Record<never, never>;
+}>;
+```
+
+Closed per-delivery decision returned by a link policy.
+
+### [`Network`](./network/endpoint.ts#L122)
+
+_Class_
+
+```ts
+export class Network extends Context.Tag("@moltzap/simulator/Network")<
+  Network,
+  NetworkService
+>() {}
+```
+
+Network operations available to the customer program.
+
+### [`NetworkError`](./network/failure.ts#L20)
+
+_Class_
+
+```ts
+export class NetworkError extends Schema.TaggedError<NetworkError>()(
+  "NetworkError",
+  {
+    operation: networkOperation,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Network ${this.operation} failed: ${this.detail}`;
+  }
+}
+```
+
+An operational failure at a simulator network boundary.
+
+### [`NetworkService`](./network/endpoint.ts#L115)
+
+_Interface_
+
+```ts
+export interface NetworkService {
+  endpoint<const Name extends string>(
+    name: Name,
+  ): Effect.Effect<Endpoint<Name>, NetworkError>;
+}
+```
+
+Controlled endpoint operations installed for one run scope.
+
+### [`ParticipantHandle`](./network/participant.ts#L22)
+
+_Class_
+
+```ts
+export class ParticipantHandle<Name extends string = string> {
+  readonly [participantHandleTypeId] = participantHandleTypeId;
+
+  readonly name: Name;
+  readonly id: AgentId;
+
+  protected constructor(name: Name, id: AgentId) {
+    this.name = name;
+    this.id = id;
+  }
+
+  static [participantHandleConstruction]<const Name extends string>(
+    name: Name,
+    id: AgentId,
+  ): ParticipantHandle<Name> {
+    return new ParticipantHandle(name, id);
+  }
+}
+```
+
+A network participant identity. The hidden symbol prevents structurally
+similar identity data from being used as a simulator handle.
+
+### [`ProgramFailed`](./events/core.ts#L144)
 
 _Class_
 
@@ -462,7 +947,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](./run/execute.ts#L71)
+### [`ProgramFinished`](./run/execute.ts#L100)
 
 _Class_
 
@@ -475,7 +960,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L86)
+### [`ProgramInterrupted`](./events/core.ts#L152)
 
 _Class_
 
@@ -490,7 +975,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L72)
+### [`ProgramSucceeded`](./events/core.ts#L138)
 
 _Class_
 
@@ -520,7 +1005,52 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`Run`](./definition.ts#L306)
+### [`RouterStarted`](./events/core.ts#L16)
+
+_Class_
+
+```ts
+export class RouterStarted extends Schema.TaggedClass<RouterStarted>()(
+  "moltzap.router-started/v1",
+  {
+    routerUrl: Schema.URL,
+  },
+) {}
+```
+
+The run-scoped Router is accepting participant connections.
+
+### [`RouterStartFailed`](./events/core.ts#L24)
+
+_Class_
+
+```ts
+export class RouterStartFailed extends Schema.TaggedClass<RouterStartFailed>()(
+  "moltzap.router-start-failed/v1",
+  {
+    cause: Schema.NonEmptyString,
+  },
+) {}
+```
+
+Router acquisition failed before the data plane became available.
+
+### [`RouterStopFailed`](./events/core.ts#L32)
+
+_Class_
+
+```ts
+export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
+  "moltzap.router-stop-failed/v1",
+  {
+    cause: Schema.NonEmptyString,
+  },
+) {}
+```
+
+Router release or stopped-Router evidence collection failed.
+
+### [`Run`](./definition.ts#L314)
 
 _Variable_
 
@@ -532,7 +1062,7 @@ export const Run: Readonly<{ execute: typeof executeRunSpec }> = Object.freeze({
 
 Discoverable execution entry point for one experiment society.
 
-### [`RunSpec`](./definition.ts#L147)
+### [`RunSpec (type)`](./definition.ts#L147)
 
 _Interface_
 
@@ -585,7 +1115,7 @@ export interface RunSpec<
 
 Immutable code-first definition of one experiment society.
 
-### [`RunSpec`](./definition.ts#L301)
+### [`RunSpec (value)`](./definition.ts#L309)
 
 _Variable_
 
@@ -596,7 +1126,7 @@ export const RunSpec: Readonly<{ define: typeof defineRunSpec }> =
 
 Discoverable constructor for immutable experiment definitions.
 
-### [`RunStarted`](./events/core.ts#L6)
+### [`RunStarted`](./events/core.ts#L8)
 
 _Class_
 
@@ -611,7 +1141,7 @@ export class RunStarted extends Schema.TaggedClass<RunStarted>()(
 
 The run ledger is allocated and run-scoped acquisition has begun.
 
-### [`SimulatorDefinitionError`](./definition.ts#L26)
+### [`SimulatorDefinitionError`](./definition.ts#L28)
 
 _Class_
 
@@ -631,7 +1161,7 @@ export class SimulatorDefinitionError extends Schema.TaggedError<SimulatorDefini
 
 Reports simulator definition failures.
 
-### [`SimulatorDefinitionId`](./definition.ts#L21)
+### [`SimulatorDefinitionId`](./definition.ts#L23)
 
 _TypeAlias_
 
@@ -641,19 +1171,23 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 Stable code identity persisted in every ledger manifest.
 
-### [`SimulatorRunFailure`](./run/execute.ts#L92)
+### [`SimulatorRunFailure`](./run/execute.ts#L121)
 
 _TypeAlias_
 
 ```ts
 export type SimulatorRunFailure<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-> = AgentRosterAcquisitionError<Definitions> | ClusterError | LedgerFailure;
+> =
+  | AgentRosterAcquisitionError<Definitions>
+  | ClusterError
+  | LedgerFailure
+  | NetworkError;
 ```
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOutcome`](./run/execute.ts#L85)
+### [`SimulatorRunOutcome`](./run/execute.ts#L114)
 
 _TypeAlias_
 
@@ -667,7 +1201,7 @@ export type SimulatorRunOutcome<
 
 Closed result of every run whose ledger allocation succeeded.
 
-### [`VersionedEventTag`](./events/catalog.ts#L4)
+### [`VersionedEventTag`](./events/catalog.ts#L6)
 
 _TypeAlias_
 
@@ -679,11 +1213,62 @@ Stable persisted identity for an event class.
 
 ## Files
 
-- `cluster.ts`
-- `entry.ts`
+- `agents/agent.ts`
+- `agents/container.ts`
+- `agents/index.ts`
+- `agents/nanoclaw/gateway.ts`
+- `agents/nanoclaw/runtime.ts`
+- `agents/openclaw/configuration.ts`
+- `agents/openclaw/gateway.ts`
+- `agents/openclaw/runtime.ts`
+- `agents/roster.ts`
+- `agents/workspace.ts`
+- `cluster/bootstrap.ts`
+- `cluster/cluster.ts`
+- `cluster/cohort.ts`
+- `cluster/controlled-endpoint.ts`
+- `cluster/controller/configuration.ts`
+- `cluster/controller/ledger-export.ts`
+- `cluster/controller/main.ts`
+- `cluster/controller/services.ts`
+- `cluster/controller/summary.ts`
+- `cluster/entry.ts`
+- `cluster/fake.ts`
+- `cluster/install.ts`
+- `cluster/kubernetes/calls.ts`
+- `cluster/kubernetes/network-objects.ts`
+- `cluster/kubernetes/objects.ts`
+- `cluster/profile.ts`
+- `cluster/profiles/gke.ts`
+- `cluster/profiles/local.ts`
+- `cluster/reclaim.ts`
+- `cluster/scaffold.ts`
+- `cluster/society-network.ts`
+- `cluster/submit.ts`
+- `cluster/temporal.ts`
+- `cluster/watch.ts`
 - `definition.ts`
-- `catalog.ts`
-- `core.ts`
-- `append.ts`
-- `events.ts`
-- `execute.ts`
+- `events/catalog.ts`
+- `events/core.ts`
+- `index.ts`
+- `ledger/append.ts`
+- `ledger/filesystem.ts`
+- `ledger/index.ts`
+- `ledger/read.ts`
+- `ledger/schema.ts`
+- `ledger/storage.ts`
+- `network/conversation.ts`
+- `network/endpoint.ts`
+- `network/failure.ts`
+- `network/index.ts`
+- `network/link.ts`
+- `network/participant.ts`
+- `network/router.ts`
+- `run/acquire.ts`
+- `run/endpoints.ts`
+- `run/events.ts`
+- `run/execute.ts`
+- `run/link-fabric.ts`
+- `run/links.ts`
+- `run/outcomes.ts`
+- `run/router-fault-proxy.ts`

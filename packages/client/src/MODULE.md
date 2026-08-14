@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessClient`](./client-runtime.ts#L300)
+### [`acquireHarnessClient`](./client-runtime.ts#L307)
 
 _Function_
 
@@ -69,6 +69,7 @@ _TypeAlias_
 ```ts
 export type ContentPart =
   | Readonly<{ type: "text"; text: string }>
+  | Readonly<{ type: "data"; value: JsonValue }>;
 ```
 
 One semantic part of a conversation action.
@@ -166,6 +167,7 @@ export type JsonValue =
   | number
   | string
   | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
 ```
 
 A value accepted by the closed semantic content boundary.

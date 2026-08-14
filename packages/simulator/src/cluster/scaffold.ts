@@ -1,14 +1,15 @@
 /** @file Stand up one run: its root, access, and controller. */
-// safer-arch-ignore no-trivial-sink-file: Standing a run up is its own step of a run's life; folding it into the module that watches the controller would put two behaviors behind one name.
 
 import { Effect } from "effect";
 import type {
   KubernetesCallFailed,
   RunControlApi,
 } from "./kubernetes/calls.js";
-import { ownedRunControlManifests } from "./kubernetes/objects.js";
 import type { KubernetesExecutionProfile } from "./profile.js";
 import type { RunSocietyWorkflowInput } from "./reclaim.js";
+import { ownedRunControlManifests } from "./kubernetes/objects.js";
+
+// safer-arch-ignore no-trivial-sink-file: Standing a run up is its own step of a run's life; folding it into the module that watches the controller would put two behaviors behind one name.
 
 /**
  * Create everything one run needs before its controller starts.
@@ -38,8 +39,9 @@ export function prepareRun(
       [
         api.createExperimentAndQueue(input.namespace, manifests),
         api.createControllerAccess(input.namespace, manifests),
+        api.createControllerService(input.namespace, manifests),
       ],
-      { concurrency: 2, discard: true },
+      { concurrency: 3, discard: true },
     );
     yield* api.startController(input.namespace, manifests);
   }).pipe(Effect.withSpan("prepareRun"));

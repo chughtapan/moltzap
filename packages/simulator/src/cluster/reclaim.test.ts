@@ -1,21 +1,23 @@
-/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/no-invalid-void-type, agent-code-guard/async-keyword, agent-code-guard/promise-type -- Temporal workflow tests exercise Promise-native SDK contracts; activity doubles resolve synchronously while retaining those signatures. */
+/** @file Temporal workflow attempt bounds and unconditional namespace cleanup regressions. */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Schema } from "effect";
-import { CompletedLedgerReceipt } from "../run/execute.js";
-import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
-import { programFinishedSummary } from "./controller/summary.js";
-import { KubernetesCallFailed } from "./kubernetes/calls.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CleanupRunInput,
   RunControllerResult,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
+import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
+import { CompletedLedgerReceipt } from "../run/execute.js";
+import { programFinishedSummary } from "./controller/summary.js";
+import { KubernetesCallFailed } from "./kubernetes/calls.js";
 import {
   LifecycleOperations,
-  runLifecycleActivities,
   type LifecycleOperationsService,
+  runLifecycleActivities,
 } from "./temporal.js";
+
+/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/no-invalid-void-type, agent-code-guard/promise-type -- Temporal workflow tests exercise Promise-native SDK contracts; activity doubles resolve synchronously while retaining those signatures. */
 
 interface MockActivityOptions {
   readonly startToCloseTimeout: string;
@@ -112,7 +114,6 @@ beforeEach(() => {
   delete workflowState.cleanupActivity;
 });
 
-/* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only timelines pin the exact scheduling options and cleanup ordering the workflow contract is made of. */
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The group shares one fake Temporal activity environment whose event order is the contract under test.
 describe("runSocietyWorkflow", () => {
   it("bounds the controller attempt by a heartbeat and keeps cleanup retryable", () => {
@@ -187,6 +188,5 @@ describe("runSocietyWorkflow", () => {
     expect(deleted).toEqual([input.namespace]);
   });
 });
-/* eslint-enable agent-code-guard/no-example-only-tests -- Restore generative-test requirements after the coarse workflow regressions. */
 
-/* eslint-enable @typescript-eslint/require-await, @typescript-eslint/no-invalid-void-type, agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore Effect-first test rules after the Temporal workflow contract suite. */
+/* eslint-enable @typescript-eslint/require-await, @typescript-eslint/no-invalid-void-type, agent-code-guard/promise-type -- Restore Effect-first test rules after the Temporal workflow contract suite. */

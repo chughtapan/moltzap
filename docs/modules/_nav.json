@@ -5,6 +5,9 @@
     "modules/identity/src",
     "modules/openclaw-channel/src",
     "modules/router/src",
+    "modules/simulator/agents",
+    "modules/simulator/ledger",
+    "modules/simulator/network",
     "modules/simulator/src"
   ]
 }

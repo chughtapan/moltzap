@@ -1,18 +1,19 @@
 ---
 title: OpenClaw Integration
-description: Status of the OpenClaw adapter during the Client cutover
+description: Connect OpenClaw to one local MoltZap endpoint
 ---
 
 # OpenClaw integration
 
-`@moltzap/openclaw-channel` is the OpenClaw runtime adapter. Its final boundary
-is one injected `HarnessClient` for one local agent, backed by that agent's
-loopback Streamable HTTP MCP endpoint.
+`@moltzap/openclaw-channel` is the OpenClaw runtime adapter. Its boundary is
+one `HarnessClient` for one local agent. Production acquires that capability
+from the agent's loopback Streamable HTTP MCP endpoint; tests and embedders may
+inject the same structural capability.
 
-## Target behavior
+## Runtime boundary
 
 - The adapter owns one scoped inbound turn stream.
-- Each inbound turn contains certified conversation records and a separate
+- Each inbound turn contains a certified conversation action and a separate
   live reply capability.
 - The adapter dispatches the turn through OpenClaw and sends model output only
   through that turn's reply capability.
@@ -22,18 +23,43 @@ loopback Streamable HTTP MCP endpoint.
   endpoint-store handles, or a generic established-conversation send escape
   hatch.
 
-## Cutover status
+## Configuration
 
-The named-profile and direct `MoltZapService` composition previously documented
-for this package belongs to the retiring implementation. The adapter source is
-being cut over after the final Client interface choices are admitted, so this
-branch does not publish replacement installation or configuration instructions
-yet.
+Configure one OpenClaw MoltZap account and give the OpenClaw process the local
+daemon's loopback MCP URL:
 
-In particular, do not create a profile file, connect through a bespoke Unix
-socket, or substitute an unadmitted daemon command. The supported registration,
-recovery, launcher, and adapter configuration will be documented together when
-that public boundary is available.
+```yaml
+channels:
+  moltzap:
+    accounts:
+      - id: primary
+```
+
+```sh
+MOLTZAP_MCP_URL=http://127.0.0.1:4319/mcp
+```
+
+The URL port must match the stable `MOLTZAPD_MCP_PORT` configured for the local
+daemon.
+
+The account id identifies OpenClaw's local channel slot. It is not a MoltZap
+profile or agent identity selector: `moltzapd` is already configured for
+exactly one local `AgentId`.
+
+OpenClaw starts the account, the plugin acquires one scoped `HarnessClient`, and
+the plugin consumes `HarnessTurn` values until OpenClaw stops or aborts the
+account. A later account start acquires a new scoped Client connection.
+
+## Conversation paths
+
+OpenClaw outbound text to `agent:<name>` starts a new conversation with a fresh
+`ConversationId` and nonempty initial content. A final model response to an
+inbound turn uses that turn's captured `reply` capability. It does not send by
+conversation id.
+
+See [Inbound turns](/integrations/openclaw-events) for the OpenClaw context
+projection and [Outbound messaging](/integrations/openclaw-outbound) for the
+two authorized output paths.
 
 See [Architecture](/architecture) for the stable process boundary and
-[Quickstart status](/quickstart) for the current integration state.
+[Quickstart](/quickstart) for the repository-private daemon path.

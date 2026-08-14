@@ -14,10 +14,13 @@ or receive an injected semantic `HarnessClient`. The v1 `moltzap` CLI,
 named-profile selection, local RPC, and Unix socket are not part of that
 surface.
 
-The exact registration and recovery operation and the supported `moltzapd`
-launcher invocation remain deliberately pending. There is no replacement
-command to document yet; see the [cutover quickstart status](docs/quickstart.mdx)
-instead of relying on a transitional invocation.
+The registration, recovery, and `moltzapd` process contracts are exact in the
+normative [daemon](docs/spec/harness/daemon.md) and
+[management](docs/spec/management.md) specifications. The packaged `moltzapd`
+executable and its real Registry/Router acceptance path are implemented. The
+cutover remains repository-private rather than publishing a replacement CLI;
+see the [cutover quickstart](docs/quickstart.mdx) for the executable developer
+path.
 
 The v1 umbrella protocol and server packages have been removed. Their
 WebSocket surface and generated reference pages are not part of the cutover
@@ -31,11 +34,11 @@ id, closed event catalogs, an exact keyed container-runtime roster, the
 local-Kubernetes or GKE infrastructure Layer, and one customer `execute`
 Effect. The in-cluster controller invokes `Run.execute(runSpec)` once.
 
-Each started roster value separates its roster-owned `.agentName`, exact
-runtime-native `.gateway`, and `.termination` observation. OpenClaw and
+Each started roster value separates its Registry-issued `.agent` handle,
+exact runtime-native `.gateway`, and `.termination` observation. OpenClaw and
 NanoClaw keep their own gateway types and fixed controller bridges.
 
-The customer Effect receives `{ agents, events, ledger }`. It owns
+The customer Effect receives `{ agents, events, network, ledger }`. It owns
 completion policy, scenarios, sweeps, and grading. `ProgramFinished` retains
 the program `Exit` and completed-ledger receipt; infrastructure failures retain
 their durable receipt when allocation succeeded. Completed artifacts can be
@@ -52,8 +55,9 @@ the local kind nodes, but it is not a simulator backend. Start with the
 [simulator guide](docs/simulator/overview.mdx) and the
 [local profile](packages/simulator/local/README.md).
 
-The package has three supported entry points: experiment definitions and runs
-at `@moltzap/simulator`, container runtimes at
+The package has four supported entry points: experiment definitions and runs
+at `@moltzap/simulator`, compatible network and fault controls at
+`@moltzap/simulator/network`, container runtimes at
 `@moltzap/simulator/agents`, and offline evidence tools at
 `@moltzap/simulator/ledger`.
 
@@ -75,9 +79,14 @@ The cutover workspace contains seven packages.
 
 ```bash
 pnpm install && pnpm build   # setup
-pnpm test                     # all tests
+pnpm test                     # package unit suites
 pnpm typecheck                # tsc across all packages
 ```
+
+Real-daemon integration, package-consumer, and live-cluster qualifications
+are separate Nx targets because they acquire processes, install tarballs, or
+require external infrastructure. CI names each required non-unit gate
+explicitly.
 
 ### Fresh `git worktree add` checkout
 

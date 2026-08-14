@@ -33,8 +33,8 @@ authority set is reconciled.
 ## Implementation readiness
 
 An implementation slice starts only when every semantic and representation
-choice it consumes is ready. The reduced Client boundary is ready; a caller
-still cannot invent one of the five unresolved simulator contracts.
+choice it consumes is ready. The reduced Client boundary, private protocol,
+daemon management representation, and Simulator compatibility cuts are ready.
 
 | Slice | Normative owners | State |
 |---|---|---|
@@ -42,15 +42,14 @@ still cannot invent one of the five unresolved simulator contracts.
 | Relocate Router to `packages/router` and rename it `@moltzap/router` | `router.md`, `router-representation.md`, `layer-interfaces.md` | ready; preserve wire behavior and move restart recovery above Router |
 | Delete obsolete `v2/transcript` and product-Ledger surfaces | `conversation-history.md`, `control-plane.md`, `layer-interfaces.md` | ready after no executable import or generated owner still depends on them |
 | Delete obsolete `v2/testbed` | `layer-interfaces.md` | ready; simulator owns the surviving system-driver and fault-test responsibilities |
-| Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; private BEGIN digest, `ActionHash`, and `RecordHash` have distinct protocol roles |
-| Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready for Client projection; exact management query/page schemas remain owner-local work |
+| Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; Client owns the exact canonical evidence, nested transport, fixed limits, genesis anchor, and private hashes |
+| Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready; process configuration, SQLite ownership, extension listen adapter, and closed management DTO semantics are exact |
 | `HarnessClient` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `management.md` | ready; caller-minted `ConversationId`, current-action turns, `void` completion, and MCP-only management |
-| Simulator and eval migration | `layer-interfaces.md` | non-conflicting facades and `RunLedger` retained; five authority-bearing conflicts are blocked on explicit resolution |
+| Simulator and eval migration | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain, five conflicting surfaces are removed, and all sixteen eval definitions run without Client-injected cross-conversation context |
 
 Client and simulator work must not use compatibility shims or semantic
-reinterpretation. The Client boundary above is accepted; the five simulator
-conflicts remain blocked. Identity/Router relocation and removal of obsolete
-Transcript/testbed scaffolds do not depend on those conflicts.
+reinterpretation. The five incompatible simulator contracts are removal input,
+not retained behavior.
 
 ## Package set
 
@@ -109,11 +108,18 @@ key. Private `ActionHash` identifies the action certificate, while private
 is no additional transaction identifier. Cross-process reply recovery remains
 absent and deferred.
 
-The simulator additionally retains its non-conflicting public facades while
-five contracts remain unresolved: open-without-initial-content, generic send,
-message-only receive/results, runtime credential/Router authority, and durable
-Router-commit evidence. [`layer-interfaces.md`](./layer-interfaces.md) states
-the exact gate.
+Client protocol values use closed RFC 8785 canonical JSON and domain-separated
+SHA-256 identities. Stable self-addressed inner `SignedMessage` evidence is
+carried in replaceable outer member-addressed messages. Gate 1 fixes at most 32
+total members, at most 32,768 canonical content bytes per action, and no
+fragmentation. Subscription-gated non-authors alone automatically contend for
+a remote-authored certified head, and the endpoint durably consumes that head
+before its one transient turn write.
+
+The simulator retains compatible public facades while removing
+open-without-initial-content, generic send, message-only receive/results,
+runtime credential/Router authority, and durable Router-commit evidence.
+[`layer-interfaces.md`](./layer-interfaces.md) states the exact replacement.
 
 ## Version namespaces
 

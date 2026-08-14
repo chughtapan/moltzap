@@ -1,4 +1,5 @@
 /** @file Public barrel for the final endpoint runtime capability. */
+// safer-arch-ignore no-folder-cycle: The root owns the public and loopback contracts consumed by endpoint internals while its server subpath composes daemon and endpoint capabilities into the one Client process boundary.
 export {
   ConnectError,
   type Content,

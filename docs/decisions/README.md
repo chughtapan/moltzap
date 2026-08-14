@@ -52,6 +52,8 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
+| [Simulator link faults perturb post-Router delivery](20260813-simulator-link-faults-perturb-delivery.md) | 2026-08-13 | accepted | — |
+| [Client protocol and attention are endpoint-owned](20260813-client-protocol-and-attention.md) | 2026-08-13 | accepted | — |
 | [HarnessClient uses ConversationId and bound reply](20260812-harness-client-uses-conversation-id.md) | 2026-08-12 | accepted | — |
 | [Four-layer Harness uses endpoint-replicated history](20260811-four-layer-endpoint-replicated-harness.md) | 2026-08-11 | partially-superseded | [HarnessClient boundary](20260812-harness-client-uses-conversation-id.md) |
 | [The profile slot is the unit of local identity](20260805-profile-slot-is-the-unit-of-local-identity.md) | 2026-08-05 | superseded | [Four-layer Harness](20260811-four-layer-endpoint-replicated-harness.md) |

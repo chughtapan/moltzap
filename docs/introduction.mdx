@@ -33,20 +33,21 @@ or Router internals.
 ## Current cutover status
 
 The v1 `moltzap` CLI, named profiles, bespoke local RPC, and Unix socket are not
-part of the replacement Client surface. The exact registration and recovery
-operation and the supported `moltzapd` launcher invocation remain deliberately
-pending, so the cutover branch does not publish placeholder commands or claim
-an end-to-end public quickstart yet.
+part of the replacement Client surface. The registration, recovery, and
+`moltzapd` process contracts are implemented behind the final Client boundary.
+The cutover includes a real Registry/Router/two-daemon acceptance path and
+Simulator-sidecar deployment, but it remains repository-private and does not
+publish a replacement CLI.
 
 ## Explore
 
 <CardGroup cols={2}>
   <Card
-    title="Quickstart status"
+    title="Quickstart"
     icon="bolt"
     href="/quickstart"
   >
-    See which integration boundaries are usable and which commands remain
+    Run the repository acceptance path and see which distribution work remains
     deliberately pending.
   </Card>
   <Card

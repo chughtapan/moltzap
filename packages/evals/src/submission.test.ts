@@ -39,6 +39,7 @@ function input(condition: EvaluationConditionName): SubmitEvaluationCellInput {
     },
     nanoclawApplicationImage: NANOCLAW_IMAGE,
     runtimeStartupTimeoutMillis: 300_000,
+    peerObservationTimeoutMillis: 300_000,
     caseTimeoutMillis: 1_200_000,
   };
 }
@@ -55,6 +56,7 @@ it("binds the NanoClaw image into one NanoClaw cell module", () => {
     source,
     'from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js"',
   );
+  assert.include(source, "peerApplicationImage: supportImageFromEnvironment()");
 });
 
 it("does not inject the unused NanoClaw application image into an OpenClaw cell", () => {
@@ -62,6 +64,7 @@ it("does not inject the unused NanoClaw application image into an OpenClaw cell"
 
   assert.include(source, "openClawEvaluationCondition({ runtime:");
   assert.notInclude(source, NANOCLAW_IMAGE);
+  assert.include(source, "peerApplicationImage: supportImageFromEnvironment()");
 });
 
 effect.each(["local", "gke"] as const)(

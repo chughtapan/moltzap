@@ -1,17 +1,17 @@
-/* eslint-disable agent-code-guard/async-keyword -- Vitest awaits the Effect the activity boundary under test returns. */
+/** @file Run-root ownership and controller-start ordering regressions. */
 
 import { Effect } from "effect";
 import { expect, it } from "vitest";
+import type { RunSocietyWorkflowInput } from "./reclaim.js";
 import {
   KubernetesCallFailed,
   type RunControlApi,
 } from "./kubernetes/calls.js";
 import {
-  RUN_OWNER_NAME,
   type OwnedRunControlManifests,
+  RUN_OWNER_NAME,
 } from "./kubernetes/objects.js";
 import { LOCAL_KUBERNETES_EXECUTION_PROFILE } from "./profile.js";
-import type { RunSocietyWorkflowInput } from "./reclaim.js";
 import { prepareRun } from "./scaffold.js";
 
 type PreparationStage = Extract<
@@ -19,6 +19,7 @@ type PreparationStage = Extract<
   | "createRunRoot"
   | "createExperimentAndQueue"
   | "createControllerAccess"
+  | "createControllerService"
   | "startController"
 >;
 
@@ -31,6 +32,7 @@ const BEFORE_START: readonly PreparationStage[] = [
   "createRunRoot",
   "createExperimentAndQueue",
   "createControllerAccess",
+  "createControllerService",
 ];
 const DIGEST = "a".repeat(64);
 const OWNER_UID = "owner-uid-the-cluster-issued";
@@ -84,6 +86,7 @@ function recordingRunControl(failAt?: PreparationStage): RecordedRunControl {
         }),
       createExperimentAndQueue: owned("createExperimentAndQueue"),
       createControllerAccess: owned("createControllerAccess"),
+      createControllerService: owned("createControllerService"),
       startController: owned(START),
       readControllerJob: () =>
         Effect.fail(
@@ -134,6 +137,7 @@ it("owns every created object by the run root the cluster just issued", async ()
   const owners = manifests.flatMap((supplied) => [
     supplied.experiment.metadata?.ownerReferences,
     supplied.role.metadata?.ownerReferences,
+    supplied.controllerService.metadata?.ownerReferences,
     supplied.controllerJob.metadata?.ownerReferences,
   ]);
   expect(owners).not.toHaveLength(0);
@@ -143,5 +147,3 @@ it("owns every created object by the run root the cluster just issued", async ()
     ]);
   }
 });
-
-/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after the activity preparation contract. */

@@ -1,12 +1,10 @@
-name: Publish to npm
+name: Publish to npm (deferred)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       packages:
-        description: "Space-separated package directories to force publish, e.g. 'client simulator'"
+        description: "Space-separated publishable package directories to force, e.g. 'simulator openclaw-channel'"
         required: false
         default: ""
 
@@ -16,10 +14,9 @@ permissions:
 
 jobs:
   publish:
-    # Skip if this push is a version commit from a previous run
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      !startsWith(github.event.head_commit.message, 'chore(release):')
+    # Publication stays disabled until the package closure, version policy,
+    # and installable public artifact set have one accepted decision.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -55,7 +52,7 @@ jobs:
           # Find the last release commit, or use empty tree if none (bootstrap)
           BASE=$(git log --grep="^chore(release):" --format="%H" -1 2>/dev/null || true)
           if [ -z "$BASE" ]; then
-            echo "No previous release commit found — bootstrapping (all packages)"
+            echo "No previous release commit found — bootstrapping (all publishable packages)"
             BASE=$(git hash-object -t tree /dev/null)
           fi
 
@@ -69,7 +66,7 @@ jobs:
 
           CHANGED=""
           REQUESTED_PACKAGES=" ${REQUESTED_PACKAGES} "
-          for pkg in client simulator openclaw-channel; do
+          for pkg in simulator openclaw-channel; do
             PROJECT_NAME=$(node -p "require('./packages/$pkg/package.json').name")
             if [[ "$REQUESTED_PACKAGES" == *" $pkg "* ]]; then
               SHOULD_RELEASE=1
@@ -141,7 +138,10 @@ jobs:
         run: pnpm build
 
       - name: Verify simulator package consumers
-        run: node scripts/test/simulator-packages.mjs
+        run: pnpm nx run @moltzap/simulator:test:pack
+
+      - name: Verify OpenClaw package consumers
+        run: pnpm nx run @moltzap/openclaw-channel:test:pack
 
       - name: Publish packages
         run: |
@@ -153,7 +153,7 @@ jobs:
           # Publish any package whose local version is not yet on npm. This
           # covers both newly bumped versions and versions from prior runs
           # where the bump committed but the publish failed.
-          for pkg in client simulator openclaw-channel; do
+          for pkg in simulator openclaw-channel; do
             PKG_JSON="./packages/$pkg/package.json"
             VER=$(node -p "require('$PKG_JSON').version")
             NAME=$(node -p "require('$PKG_JSON').name")

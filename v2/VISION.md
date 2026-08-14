@@ -2,13 +2,18 @@
 
 Status: APPROVED FOR FOUR-LAYER CUTOVER
 
-Current replacement decisions:
-[`20260811-four-layer-endpoint-replicated-harness.md`](../docs/decisions/20260811-four-layer-endpoint-replicated-harness.md)
+Current cutover decisions:
+[`20260811-four-layer-endpoint-replicated-harness.md`](../docs/decisions/20260811-four-layer-endpoint-replicated-harness.md),
+[`20260812-harness-client-uses-conversation-id.md`](../docs/decisions/20260812-harness-client-uses-conversation-id.md),
+[`20260813-client-protocol-and-attention.md`](../docs/decisions/20260813-client-protocol-and-attention.md),
 and
-[`20260812-harness-client-uses-conversation-id.md`](../docs/decisions/20260812-harness-client-uses-conversation-id.md)
+[`20260813-simulator-link-faults-perturb-delivery.md`](../docs/decisions/20260813-simulator-link-faults-perturb-delivery.md).
 
 Decision provenance:
-[`20260811-four-layer-v2-cutover-trajectory.md`](../docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md)
+[`20260811-four-layer-v2-cutover-trajectory.md`](../docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md),
+[`20260813-client-protocol-and-attention-trajectory.md`](../docs/decision-evidence/20260813-client-protocol-and-attention-trajectory.md),
+and
+[`20260813-simulator-link-fault-ordering-trajectory.md`](../docs/decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md).
 
 ## Problem
 
@@ -93,7 +98,9 @@ release cutover are separately admitted.
 2. **The network stays opaque.** Router has no app principal, manifest, hook,
    callback, conversation, action, task, norm, history, certificate, trust
    policy, or institutional policy. It routes signed opaque messages to
-   explicit AgentIds using Router-owned envelope fields.
+   explicit AgentIds using Router-owned envelope fields. Simulator fault
+   injection operates only after Router ordering and does not add a Router
+   hook or weaken the production service contract.
 
 3. **Identity means identity only.** Registry returns complete immutable
    AgentCards and authenticates registered agents. An AgentCard binds AgentId,
@@ -203,6 +210,10 @@ release cutover are separately admitted.
   finalization. Certified local history remains readable and verifiable.
 - Router replication, Byzantine sequencing, malicious-Registry recovery,
   dynamic conversation membership, and encrypted history are not claimed.
+- An unfaulted Simulator run preserves each recipient's Router delivery order.
+  An explicitly activated directed link-fault scope may drop, delay, hold, or
+  reorder post-Router delivery to one recipient. That observation tests
+  endpoint fault tolerance and is not Router-conformance evidence.
 
 ### Processes and persistence
 
@@ -229,16 +240,21 @@ to own their exact routes, closed bodies, bounds, authentication, and typed
 failures except where the replacement decision explicitly changes a stale
 Ledger or local-profile qualifier.
 
-Each daemon is configured explicitly with its state directory, MCP bind
-address and port, Registry origin and admission material, and Router origin.
-One state directory commits at most one AgentId. There is no named profile,
-profile file, profile selector, bespoke CLI, Unix socket, stdio server, second
-MCP process, or bind fallback.
+Each daemon binds only to the fixed loopback address `127.0.0.1` and is
+configured explicitly with its state directory, MCP port, Registry origin and
+admission material, and Router origin. One state directory commits at most one
+AgentId. There is no named profile, profile file, profile selector, bespoke
+CLI, Unix socket, stdio server, second MCP process, address override, or bind
+fallback.
 
 ### Conversations and records
 
 Gate 1 uses fixed membership and supports `START` plus `MULTICAST` under
-`OpenFloorV1`.
+`OpenFloorV1`. A conversation has at most 32 total members, and one action's
+canonical content is at most 32,768 bytes. Client protocol values use its
+closed RFC 8785 representation and domain-separated hashes. Stable
+self-addressed inner `SignedMessage` evidence is carried in replaceable outer
+member-addressed `SignedMessage` values. Gate 1 does not fragment evidence.
 
 `START` contains a caller-minted `ConversationId`, fixed members, and nonempty
 initial content. The `ConversationId` is the sole public start and retry
@@ -246,7 +262,10 @@ identity. Repeating it with byte-identical canonical peers and content resumes
 the same operation; reusing it with changed intent fails. Its complete
 unanimous action certificate is member consent. A successfully returned start
 also has the independent durability evidence required by this profile and is
-present in the returning endpoint's certified local history.
+present in the returning endpoint's certified local history. Its genesis
+anchor binds the current `RouterInstanceId` learned by an omitted-cursor poll,
+the conversation, and its canonical membership; the unanimous START
+signatures attest that anchor without a separate anchor vote.
 
 For `MULTICAST`, every fixed member is eligible to propose through the retained
 OpenFloor contention rule. The first valid proposal in shared Router order
@@ -268,9 +287,15 @@ BEGIN-message digest identifies a volatile grant candidate. Private
 `RecordHash` identifies durable history, storage votes, catch-up, and
 re-anchoring. None crosses the semantic runtime boundary.
 
-A complete certified record may create runtime attention only when the daemon
-also owns live reply authority. Staging, partial votes, catch-up, and history
-reads do not create a live turn or reconstruct reply authority.
+A complete remote-authored certified record becomes automatically eligible
+for runtime attention only at an endpoint with the sole active subscription,
+live reply authority, and no durable consumed marker for that head. The action
+author does not contend on its own action. Before one turn frame is written,
+the endpoint durably consumes `(ConversationId, RecordHash)`; an ambiguous
+write may lose the turn but cannot make that endpoint offer or bid the head
+again. No listener creates no bid or consumption. Staging, partial votes,
+catch-up, and history reads do not create a live turn or reconstruct reply
+authority.
 
 ### Local runtime surface
 
@@ -280,6 +305,14 @@ registration it exposes `register` and `status`. After registration it exposes
 `start_conversation`, and `reply`; receive uses MCP
 `subscriptions/listen`. Registration commits the daemon's one AgentId and
 changes the catalog on the same endpoint.
+
+The exact Client-owned MCP representation retains
+`xyz.moltzap/events-v1`, `xyz.moltzap/turnReady`, and
+`notifications/xyz.moltzap/turn_ready`. One event carries the current action,
+complete encoded cards, and one volatile opaque 256-bit reply grant. The
+official MCP SDK handles standard discovery, tools, and HTTP behavior; a
+narrow Client adapter recognizes only the extension listen method before the
+official server delegate and passes every other request through unchanged.
 
 Agent runtimes use MCP or an injected semantic `HarnessClient`. They never
 receive Registry admission material, signing keys, raw Router credentials, or
@@ -330,33 +363,43 @@ are deleted as their final owners become usable.
 The simulation `RunLedger` remains run evidence. Its name does not reintroduce
 a product Ledger or a privileged view of private conversation history.
 
+Simulator's retained link-fault controls act at a private run-scoped boundary
+after Router ordering and before recipient Client consumption. With no active
+fault they preserve message bytes and order. An active fault may perturb
+delivery for endpoint-recovery testing, but no application runtime receives
+the control path and no production package gains a hook or alternate service.
+
 ## Deliberate deferrals
 
 An implementation must not answer these choices accidentally:
 
-1. How the simulator replaces or versions its five conflicting contracts:
-   content-free conversation open, generic established send, message-only
-   receive without certified proof or reply authority, runtime Router
-   credentials/attachment, and persisted Router-commit/order events.
-2. Which of the seven products publish and whether publication uses one
+1. Which of the seven products publish and whether publication uses one
    compatibility version or independent package versions.
-3. Dynamic membership, pruning and garbage collection, encryption, public
+2. Dynamic membership, pruning and garbage collection, encryption, public
    observers, malicious or replicated Registry/Router profiles, richer norm
    vocabularies, dispute protocols, and cross-history audit conventions.
+3. Fragmentation or a larger resource profile, plural-action payload mapping,
+   cross-process reply recovery, remote administration, and host-native
+   cross-conversation memory.
 
 Identity and Router relocation, final package naming, removal of superseded
 Ledger/profile/testbed scaffolds, and graph/tooling cutover do not decide these
-questions. The Client interface choices are current decisions, not deferrals.
-The simulator lane stops at the first remaining boundary that would answer its
-five conflicts accidentally.
+questions. The Client protocol and Simulator compatibility cuts are current
+decisions, not deferrals. Simulator removes content-free open, generic send,
+message-only receive, runtime Router authority, and persisted Router-order
+claims; it does not preserve them through inert fields or semantic shims. The
+post-Router link-fault boundary is likewise selected rather than deferred.
 
 ## Evidence and path
 
-The source-faithful decision trajectory is
-`docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md`. The
-current replacement ADRs own their binding outcomes, supersession map, stable
-trace rows, assumptions, and deferrals. Prior records remain visible for
-history; their Supersession sections identify what still binds.
+The source-faithful decision trajectories are
+`docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md`,
+`docs/decision-evidence/20260813-client-protocol-and-attention-trajectory.md`,
+and
+`docs/decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md`.
+The current replacement ADRs own their binding outcomes, supersession map,
+stable trace rows, assumptions, and deferrals. Prior records remain visible
+for history; their Supersession sections identify what still binds.
 
 Execution proceeds in dependency order:
 
@@ -368,8 +411,10 @@ Execution proceeds in dependency order:
 4. build endpoint-owned certified history and the daemon behind the admitted
    Client interface;
 5. rewrite OpenClaw and NanoClaw against Client;
-6. rewire simulator and evals, preserving all non-conflicting public behavior
-   and applying separately admitted resolutions to conflicting contracts;
+6. rewire simulator and evals through the daemon-backed Client, preserving
+   non-conflicting behavior, deleting the five incompatible contracts, and
+   placing explicitly activated link faults at the private post-Router
+   delivery boundary;
 7. delete every displaced implementation and compatibility surface; and
 8. pass full Nx, protocol, fault, recovery, MCP, adapter, simulator,
    packaging, documentation, provenance, and absence gates before release

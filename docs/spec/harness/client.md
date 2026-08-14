@@ -188,5 +188,7 @@ exporting it; it does not use an open extension bag or catch-all public cause.
 ## Deliberate deferrals
 
 Cross-process reply recovery, delivery acknowledgment and replay, daemon-wide
-queue and concurrency limits, plural-action payload mapping, and the five
-simulator conflicts in [`../layer-interfaces.md`](../layer-interfaces.md).
+queue and concurrency limits, and plural-action payload mapping. The five
+Simulator incompatibilities are current removals owned by
+[`../layer-interfaces.md`](../layer-interfaces.md#simulator-cutover), not
+Client deferrals.

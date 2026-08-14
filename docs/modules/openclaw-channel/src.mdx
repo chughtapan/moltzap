@@ -15,7 +15,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L198)
+### [`createMoltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L198)
 
 _Function_
 
@@ -42,7 +42,7 @@ sequenceDiagram
 
 **Returns:** A fresh OpenClaw channel plugin.
 
-### [`default`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L703)
+### [`default`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L703)
 
 _Variable_
 
@@ -50,7 +50,7 @@ _Variable_
 const plugin =
 ```
 
-### [`makeMoltZapChannelConfigJsonSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L176)
+### [`makeMoltZapChannelConfigJsonSchema`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L176)
 
 _Function_
 
@@ -62,7 +62,7 @@ Builds the JSON Schema embedded into the OpenClaw manifest.
 
 **Returns:** The generated OpenClaw channel configuration schema.
 
-### [`MoltZapAccount`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L46)
+### [`MoltZapAccount`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L46)
 
 _TypeAlias_
 
@@ -72,7 +72,7 @@ export type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
 
 One OpenClaw account bound to the process-local MCP endpoint.
 
-### [`moltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L224)
+### [`moltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L224)
 
 _Variable_
 
@@ -83,7 +83,7 @@ export const moltzapChannelPlugin: MoltzapChannelPlugin =
 
 Shared plugin instance used by OpenClaw's extension loader.
 
-### [`MoltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L219)
+### [`MoltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L219)
 
 _TypeAlias_
 
@@ -95,7 +95,7 @@ export type MoltzapChannelPlugin = ReturnType<
 
 The inferred OpenClaw plugin contract.
 
-### [`MoltzapChannelPluginDeps`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L116)
+### [`MoltzapChannelPluginDeps`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L116)
 
 _Interface_
 
@@ -110,7 +110,7 @@ export interface MoltzapChannelPluginDeps {
 
 Test injection point for a structural HarnessClient.
 
-### [`OpenClawConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L53)
+### [`OpenClawConfig`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L53)
 
 _Interface_
 
@@ -126,7 +126,7 @@ export interface OpenClawConfig {
 
 OpenClaw configuration read by the channel plugin.
 
-### [`OpenClawReplyDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L62)
+### [`OpenClawReplyDispatcher`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L62)
 
 _TypeAlias_
 
@@ -140,7 +140,7 @@ export type OpenClawReplyDispatcher = (params: {
 
 The OpenClaw callback that receives one projected inbound turn.
 
-### [`OpenClawStartAccountContext`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L69)
+### [`OpenClawStartAccountContext`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L69)
 
 _Interface_
 
@@ -164,7 +164,7 @@ export interface OpenClawStartAccountContext {
 
 What OpenClaw supplies when starting one configured account.
 
-### [`OpenClawStopAccountContext`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L86)
+### [`OpenClawStopAccountContext`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/openclaw-entry.ts#L86)
 
 _Interface_
 

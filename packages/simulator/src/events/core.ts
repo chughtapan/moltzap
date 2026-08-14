@@ -1,4 +1,6 @@
-import { AgentName as agentName } from "@moltzap/identity";
+/** @file Closed simulator lifecycle event declarations and their subcatalogs. */
+
+import { AgentId as agentId, AgentName as agentName } from "@moltzap/identity";
 import { Schema } from "effect";
 import { EventCatalog } from "./catalog.js";
 
@@ -10,11 +12,36 @@ export class RunStarted extends Schema.TaggedClass<RunStarted>()(
   },
 ) {}
 
+/** The run-scoped Router is accepting participant connections. */
+export class RouterStarted extends Schema.TaggedClass<RouterStarted>()(
+  "moltzap.router-started/v1",
+  {
+    routerUrl: Schema.URL,
+  },
+) {}
+
+/** Router acquisition failed before the data plane became available. */
+export class RouterStartFailed extends Schema.TaggedClass<RouterStartFailed>()(
+  "moltzap.router-start-failed/v1",
+  {
+    cause: Schema.NonEmptyString,
+  },
+) {}
+
+/** Router release or stopped-Router evidence collection failed. */
+export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
+  "moltzap.router-stop-failed/v1",
+  {
+    cause: Schema.NonEmptyString,
+  },
+) {}
+
 /** A roster runtime completed acquisition and readiness. */
 export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
   "moltzap.agent-runtime-ready/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
   },
 ) {}
@@ -34,6 +61,7 @@ export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeComple
   "moltzap.agent-runtime-completed/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
   },
 ) {}
@@ -43,6 +71,7 @@ export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()
   "moltzap.agent-runtime-failed/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     cause: Schema.NonEmptyString,
   },
@@ -53,6 +82,7 @@ export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()
   "moltzap.agent-process-exited/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     code: Schema.NonNegativeInt,
   },
@@ -63,8 +93,44 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
   "moltzap.agent-process-signaled/v1",
   {
     agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     signal: Schema.NonEmptyString,
+  },
+) {}
+
+/** A directed participant link transitioned from available to unavailable. */
+export class LinkDown extends Schema.TaggedClass<LinkDown>()(
+  "moltzap.link-down/v1",
+  {
+    from: agentId,
+    to: agentId,
+  },
+) {}
+
+/** A directed participant link transitioned from unavailable to available. */
+export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
+  from: agentId,
+  to: agentId,
+}) {}
+
+/** A described policy became active on one directed participant link. */
+export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
+  "moltzap.link-policy-set/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
+  },
+) {}
+
+/** A described policy stopped shaping one directed participant link. */
+export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
+  "moltzap.link-policy-cleared/v1",
+  {
+    from: agentId,
+    to: agentId,
+    policy: Schema.NonEmptyString,
   },
 ) {}
 
@@ -98,6 +164,13 @@ export const runEvents = EventCatalog.make(
   ProgramInterrupted,
 );
 
+/** Router lifecycle events emitted by the run-scoped Router integration. */
+export const routerEvents = EventCatalog.make(
+  RouterStarted,
+  RouterStartFailed,
+  RouterStopFailed,
+);
+
 /** Runtime lifecycle events emitted by the roster supervisor. */
 export const runtimeEvents = EventCatalog.make(
   AgentRuntimeReady,
@@ -108,5 +181,18 @@ export const runtimeEvents = EventCatalog.make(
   AgentProcessSignaled,
 );
 
+/** Directed-link state events emitted by link control. */
+export const linkEvents = EventCatalog.make(
+  LinkDown,
+  LinkUp,
+  LinkPolicySet,
+  LinkPolicyCleared,
+);
+
 /** The exact event classes readable from every simulator run ledger. */
-export const coreEvents = EventCatalog.merge(runEvents, runtimeEvents);
+export const coreEvents = EventCatalog.merge(
+  runEvents,
+  routerEvents,
+  runtimeEvents,
+  linkEvents,
+);

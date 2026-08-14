@@ -107,6 +107,7 @@ export interface SubmitEvaluationCellInput {
   readonly condition: SubmissionCondition;
   readonly nanoclawApplicationImage: Image;
   readonly runtimeStartupTimeoutMillis: number;
+  readonly peerObservationTimeoutMillis: number;
   readonly caseTimeoutMillis: number;
 }
 
@@ -120,6 +121,7 @@ function conditionExpression(input: SubmitEvaluationCellInput): string {
     `modelId: ${literal(input.condition.modelId)}`,
   ];
   const execution = [
+    `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
     `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
   ];
   // Total over the conditions that exist, so the generated module never has to
@@ -146,7 +148,7 @@ export function evaluationControllerModule(
     'import { Duration } from "effect";',
     'import { evaluationCase } from "/opt/moltzap/node_modules/@moltzap/evals/dist/cases.js";',
     'import { evaluationCellRunSpec, nanoclawEvaluationCondition, openClawEvaluationCondition } from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js";',
-    'import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
+    'import { controllerServicesFromEnvironment, supportImageFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
     `const definition = evaluationCase(${literal(input.caseId)});`,
     `if (definition === undefined || definition.definitionId !== ${literal(input.definitionId)}) throw new Error("evaluation case definition is unavailable");`,
     `const condition = ${condition};`,
@@ -154,6 +156,7 @@ export function evaluationControllerModule(
     "  definition,",
     "  condition,",
     `  attemptId: ${literal(input.attemptId)},`,
+    "  peerApplicationImage: supportImageFromEnvironment(),",
     "  cluster: controllerServicesFromEnvironment(),",
     "});",
     "",

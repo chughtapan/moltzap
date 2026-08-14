@@ -72,6 +72,104 @@ const sharedConfig = {
 
 const packageDefinitions = {
   client: {
+    beforeShared: {
+      maxFolderCycles: 1,
+      folderReadmeFileNames: ["README.md", "../README.md"],
+      folderChildCountOverrides: [
+        {
+          folder: "endpoint",
+          maxChildren: 13,
+          reason:
+            "The endpoint protocol keeps one focused module per state-machine phase behind declared engine, representation, Router-worker, store, and attention facades",
+        },
+      ],
+      facadeFiles: [
+        {
+          file: "server.ts",
+          reason:
+            "Published process-composition boundary for the single configured endpoint daemon",
+        },
+        {
+          file: "harness-mcp-wire.ts",
+          reason:
+            "Private MCP operation facade shared by the daemon runtime and management catalog",
+        },
+        {
+          file: "management-runtime.ts",
+          reason:
+            "Exact private management schema boundary shared by daemon operations and its MCP catalog",
+        },
+        {
+          file: "daemon/runtime.ts",
+          reason:
+            "Sole daemon composition boundary joining endpoint capabilities to the loopback MCP server",
+        },
+        {
+          file: "daemon/registration.ts",
+          reason:
+            "Crash-recoverable identity-registration boundary shared by daemon startup and management",
+        },
+        {
+          file: "endpoint/engine.ts",
+          reason:
+            "Private endpoint-engine facade composing protocol phases behind the daemon-owned EndpointEngine capability",
+        },
+        {
+          file: "endpoint/engine-durability.ts",
+          reason:
+            "Durable action-fold transition boundary shared by engine protocol phases",
+        },
+        {
+          file: "endpoint/engine-start.ts",
+          reason:
+            "START construction and resolution boundary shared by the endpoint engine phases",
+        },
+        {
+          file: "endpoint/engine-types.ts",
+          reason:
+            "Closed endpoint-engine port and error vocabulary shared by every protocol phase",
+        },
+        {
+          file: "endpoint/openfloor.ts",
+          reason:
+            "Attention-state boundary that projects certified records into one live turn authority",
+        },
+        {
+          file: "endpoint/representation-codec.ts",
+          reason:
+            "Canonical encoding, signing, and hashing boundary beneath the complete representation facade",
+        },
+        {
+          file: "endpoint/representation.ts",
+          reason:
+            "Complete private protocol-representation facade consumed by endpoint and daemon modules",
+        },
+        {
+          file: "endpoint/router-worker.ts",
+          reason:
+            "Private Router transport, verification, retry, and recovery facade for the endpoint engine",
+        },
+        {
+          file: "endpoint/store.ts",
+          reason:
+            "Private typed facade for the daemon-owned endpoint replica and its recovery state",
+        },
+      ],
+      layers: [
+        {
+          name: "daemon",
+          folders: ["daemon"],
+          reason:
+            "Process composition may depend on endpoint capabilities while endpoint protocol code never depends on daemon lifecycle",
+        },
+        {
+          name: "endpoint",
+          folders: ["endpoint"],
+          reason:
+            "Endpoint protocol, durability, recovery, Router work, and attention form the daemon's private semantic core",
+        },
+      ],
+    },
     afterShared: {
       publicTypePackages: [...publicTypePackages, publicTypePackage.identity],
     },
@@ -102,6 +200,11 @@ const packageDefinitions = {
           file: "src/execution.ts",
           reason:
             "Mixed-roster execution and runtime-native condition adapters form the application execution boundary",
+        },
+        {
+          file: "src/peer.ts",
+          reason:
+            "Autonomous peer plans, public-Client behavior, and the controller observation gateway form the evaluation peer boundary",
         },
         {
           file: "src/transcript.ts",
@@ -195,14 +298,14 @@ const packageDefinitions = {
       ],
       facadeFiles: [
         {
-          file: "ledger.ts",
+          file: "network/conversation.ts",
           reason:
-            "Published ledger contract for records, storage, live runs, and offline inspection",
+            "Domain-internal conversation boundary shared by endpoint composition and the published Network barrel",
         },
         {
-          file: "agents.ts",
+          file: "network/router.ts",
           reason:
-            "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations",
+            "Domain-internal Router fixture boundary shared by cluster composition and the published Network barrel",
         },
         {
           file: "events/catalog.ts",
@@ -220,9 +323,9 @@ const packageDefinitions = {
             "Definition-bound Effect services for readable ledgers and customer-owned event emission",
         },
         {
-          file: "ledger/schema.ts",
+          file: "run/link-fabric.ts",
           reason:
-            "Durable record, manifest, completion, digest, and ledger-reference model",
+            "Run-private post-Router delivery-interception port shared by endpoint attachment, fault control, and the transport proxy",
         },
         {
           file: "ledger/storage.ts",
@@ -233,10 +336,6 @@ const packageDefinitions = {
           file: "ledger/append.ts",
           reason:
             "Live-ledger boundary for ordered append, failure latching, completion, and typed event streams",
-        },
-        {
-          file: "ledger/read.ts",
-          reason: "Completed-ledger validation and offline opening boundary",
         },
         {
           file: "run/outcomes.ts",
@@ -293,6 +392,11 @@ const packageDefinitions = {
           reason:
             "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements",
         },
+        {
+          file: "agents/container.ts",
+          reason:
+            "Private container-runtime selection port used only by the Kubernetes society composition root",
+        },
       ],
       layers: [
         {
@@ -308,17 +412,34 @@ const packageDefinitions = {
             "The run kernel orchestrates capability contracts without becoming a dependency of them",
         },
         {
-          name: "capabilities",
-          folders: [
-            "events",
-            "ledger",
-            "agents",
-            "cluster",
-            "cluster/kubernetes",
-            "cluster/profiles",
-          ],
+          name: "cluster",
+          folders: ["cluster"],
           reason:
-            "Event, ledger, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it",
+            "Cluster implementations consume agent, ledger, and network contracts while keeping platform mechanisms below the run kernel",
+        },
+        {
+          name: "agents",
+          folders: ["agents"],
+          reason:
+            "Agent runtimes consume ledger configuration values and Network participant handles without owning either domain",
+        },
+        {
+          name: "ledger",
+          folders: ["ledger"],
+          reason:
+            "Ledger persistence consumes the closed event catalog while remaining independent of agents, network, and platforms",
+        },
+        {
+          name: "network",
+          folders: ["network"],
+          reason:
+            "Network contracts depend only on lower package owners and remain independent of Simulator orchestration and evidence",
+        },
+        {
+          name: "events",
+          folders: ["events"],
+          reason:
+            "The closed event vocabulary is the deepest Simulator-owned contract used by ledger and orchestration",
         },
       ],
     },
@@ -327,7 +448,16 @@ const packageDefinitions = {
         publicTypePackage.effect,
         publicTypePackage.platform,
         publicTypePackage.openclaw,
-        publicTypePackage.identity,
+        {
+          package: "@moltzap/identity",
+          reason:
+            "Simulator participant, Router-fixture, and fault contracts deliberately expose Identity-owned AgentId, AgentName, and SignedMessage values",
+        },
+        {
+          package: "@moltzap/client",
+          reason:
+            "Simulator controlled-endpoint contracts deliberately expose Client-owned ConversationId, HarnessTurn, and StartInput values",
+        },
       ],
       allowedTestPublicSubpaths: [],
     },

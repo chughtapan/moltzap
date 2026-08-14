@@ -1,20 +1,22 @@
+/** @file OpenClaw container rendering, bootstrap isolation, and gateway attachment regressions. */
+
 import { assert, it as effectIt } from "@effect/vitest";
 import { AgentName } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { describe } from "vitest";
-import {
-  containerRuntimeFor,
-  type Application,
-  type ContainerRuntime,
-  type File,
-} from "../container.js";
 import type { RuntimeAcquisitionError } from "../agent.js";
 import {
+  type Application,
+  type ContainerRuntime,
+  containerRuntimeFor,
+  type File,
+} from "../container.js";
+import {
   GatewayOperations,
-  OpenClawGatewayRequest,
-  OpenClawGatewaySucceeded,
   type OpenClawGateway,
   type OpenClawGatewayClientFactory,
+  OpenClawGatewayRequest,
+  OpenClawGatewaySucceeded,
 } from "./gateway.js";
 import { openClawRuntime } from "./runtime.js";
 
@@ -72,12 +74,13 @@ interface StockFixture {
   readonly config: typeof renderedOpenClawConfig.Type;
 }
 
-function requireFile(files: readonly File[], path: string): string {
-  const file = files.find((candidate) => candidate.path === path);
-  if (file === undefined) {
-    throw new Error(`missing rendered file ${path}`);
-  }
-  return file.content;
+function stockCapabilityTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeStockFixture();
+    assertCredentialFreeReservation(fixture.capability);
+    assertApplicationContainer(fixture);
+    assertBootstrapMaterial(fixture);
+  });
 }
 
 function makeStockFixture() {
@@ -173,13 +176,12 @@ function assertBootstrapMaterial(fixture: StockFixture): void {
   );
 }
 
-function stockCapabilityTest() {
-  return Effect.gen(function* () {
-    const fixture = yield* makeStockFixture();
-    assertCredentialFreeReservation(fixture.capability);
-    assertApplicationContainer(fixture);
-    assertBootstrapMaterial(fixture);
-  });
+function requireFile(files: readonly File[], path: string): string {
+  const file = files.find((candidate) => candidate.path === path);
+  if (file === undefined) {
+    throw new Error(`missing rendered file ${path}`);
+  }
+  return file.content;
 }
 
 interface ObservedClient {

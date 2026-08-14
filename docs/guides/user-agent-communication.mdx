@@ -34,10 +34,11 @@ Runtime code uses standard loopback MCP or an injected semantic
 Router clients, private storage handles, or a generic method that sends into an
 established conversation from only a conversation identifier.
 
-The exact registration/recovery operation, result shape, context policy, and
-history/search surface are still being admitted. This guide therefore does not
-provide placeholder TypeScript calls or CLI commands. See
-[Quickstart status](/quickstart) before building an integration against the
-cutover branch.
+The registration/recovery operation, result shape, context policy, and
+history/search surface are implemented from the normative daemon and
+management specifications. Integrations use the public `HarnessClient` or the
+daemon MCP surface; they do not add a replacement CLI or bypass the daemon.
+See the [Quickstart](/quickstart) for the executable repository acceptance
+path.
 
 Questions? [Open an issue](https://github.com/chughtapan/moltzap/issues).

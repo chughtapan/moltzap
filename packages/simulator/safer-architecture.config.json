@@ -14,12 +14,12 @@
   ],
   "facadeFiles": [
     {
-      "file": "ledger.ts",
-      "reason": "Published ledger contract for records, storage, live runs, and offline inspection"
+      "file": "network/conversation.ts",
+      "reason": "Domain-internal conversation boundary shared by endpoint composition and the published Network barrel"
     },
     {
-      "file": "agents.ts",
-      "reason": "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations"
+      "file": "network/router.ts",
+      "reason": "Domain-internal Router fixture boundary shared by cluster composition and the published Network barrel"
     },
     {
       "file": "events/catalog.ts",
@@ -34,8 +34,8 @@
       "reason": "Definition-bound Effect services for readable ledgers and customer-owned event emission"
     },
     {
-      "file": "ledger/schema.ts",
-      "reason": "Durable record, manifest, completion, digest, and ledger-reference model"
+      "file": "run/link-fabric.ts",
+      "reason": "Run-private post-Router delivery-interception port shared by endpoint attachment, fault control, and the transport proxy"
     },
     {
       "file": "ledger/storage.ts",
@@ -44,10 +44,6 @@
     {
       "file": "ledger/append.ts",
       "reason": "Live-ledger boundary for ordered append, failure latching, completion, and typed event streams"
-    },
-    {
-      "file": "ledger/read.ts",
-      "reason": "Completed-ledger validation and offline opening boundary"
     },
     {
       "file": "run/outcomes.ts",
@@ -92,6 +88,10 @@
     {
       "file": "agents/roster.ts",
       "reason": "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements"
+    },
+    {
+      "file": "agents/container.ts",
+      "reason": "Private container-runtime selection port used only by the Kubernetes society composition root"
     }
   ],
   "layers": [
@@ -110,16 +110,39 @@
       "reason": "The run kernel orchestrates capability contracts without becoming a dependency of them"
     },
     {
-      "name": "capabilities",
+      "name": "cluster",
       "folders": [
-        "events",
-        "ledger",
-        "agents",
-        "cluster",
-        "cluster/kubernetes",
-        "cluster/profiles"
+        "cluster"
       ],
-      "reason": "Event, ledger, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it"
+      "reason": "Cluster implementations consume agent, ledger, and network contracts while keeping platform mechanisms below the run kernel"
+    },
+    {
+      "name": "agents",
+      "folders": [
+        "agents"
+      ],
+      "reason": "Agent runtimes consume ledger configuration values and Network participant handles without owning either domain"
+    },
+    {
+      "name": "ledger",
+      "folders": [
+        "ledger"
+      ],
+      "reason": "Ledger persistence consumes the closed event catalog while remaining independent of agents, network, and platforms"
+    },
+    {
+      "name": "network",
+      "folders": [
+        "network"
+      ],
+      "reason": "Network contracts depend only on lower package owners and remain independent of Simulator orchestration and evidence"
+    },
+    {
+      "name": "events",
+      "folders": [
+        "events"
+      ],
+      "reason": "The closed event vocabulary is the deepest Simulator-owned contract used by ledger and orchestration"
     }
   ],
   "publicTypePackages": [
@@ -137,7 +160,11 @@
     },
     {
       "package": "@moltzap/identity",
-      "reason": "Identity-owned AgentName and VerifiedAgentCard are deliberately part of the semantic Client contract"
+      "reason": "Simulator participant, Router-fixture, and fault contracts deliberately expose Identity-owned AgentId, AgentName, and SignedMessage values"
+    },
+    {
+      "package": "@moltzap/client",
+      "reason": "Simulator controlled-endpoint contracts deliberately expose Client-owned ConversationId, HarnessTurn, and StartInput values"
     }
   ],
   "allowedTestPublicSubpaths": []

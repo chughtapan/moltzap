@@ -54,9 +54,9 @@ In particular, controller-image assembly must not create a hidden
 `simulator -> evals` edge, and copying NanoClaw source files must not create a
 hidden `simulator -> nanoclaw-channel` edge.
 
-The replacement authority must freeze this edge table. The approved execution
-plan names the packages and their responsibilities but does not by itself make
-every edge above normative.
+The current replacement authority freezes this edge table. This handoff
+orients the move; the normative package graph lives in
+[`../spec/layer-interfaces.md`](../spec/layer-interfaces.md).
 
 ## Migration matrix
 
@@ -67,7 +67,7 @@ every edge above normative.
 | `packages/client` | Transitional production client plus empty `v2/harness` scaffold | Replace wholesale behind the reduced public shell. Implement endpoint history, proofs, catch-up, re-anchor, trust/tasks, daemon, and MCP here. | Exactly `.` and `./server`, plus `moltzapd`. Root exposes `ConversationId` creation, endpoint acquisition, `HarnessClient`, content and verified identity values, and closed typed errors. No compatibility subpaths, proof results, or management methods. |
 | `packages/openclaw-channel` | Existing production adapter | Retain host integration; rewrite against injected or MCP-backed `HarnessClient`. Remove profile, protocol, and client-internal dependencies. | Retain the OpenClaw host loader/plugin entry point where compatible. No profile compatibility promise. |
 | `packages/nanoclaw-channel` | Existing production adapter | Retain host integration; rewrite against `HarnessClient`. Remove `fromProfile`, profile environment, protocol, channel-base, and authentication imports. | Retain the NanoClaw host adapter entry point where compatible. |
-| `packages/simulator` | Latest production simulator | Keep the package and rewire production-stack acquisition, types, and internals. Its direct Router dependency owns local/GKE Router process composition after testbed deletion; root tooling owns only image/artifact assembly. | Preserve `.`, `./network`, `./ledger`, `./agents`, `Run.execute(RunSpec)`, clusters, Temporal, fault layers, and simulation `RunLedger`, subject to the semantic conflicts below. |
+| `packages/simulator` | Latest production simulator | Keep the package and rewire production-stack acquisition, types, and internals. Its direct Router dependency owns local/GKE Router process composition after testbed deletion; root tooling owns only image/artifact assembly. | Preserve `.`, `./network`, `./ledger`, `./agents`, `Run.execute(RunSpec)`, clusters, Temporal, fault layers, and lifecycle-only simulation `RunLedger`, except for the five admitted removals below. |
 | `packages/evals` | Existing private eval application | Keep evaluation/report behavior; replace protocol/raw-client use with client and simulator values. | Preserve Nx targets, CLI modes, artifacts/reports, and container-consumed deep entry points until their final ownership is made explicit. |
 
 Delete without aliases or shims:
@@ -113,77 +113,75 @@ The root TypeScript references currently omit evals. The final reference graph
 must include all seven products and equal the manifest and architecture-check
 graphs.
 
-## Simulator compatibility decision
+## Simulator cutover decision
 
-The package currently exports exactly four facades with 195 named declarations
-counting intentional cross-facade duplicates: 69 at the root, 41 from
-`./network`, 40 from `./ledger`, and 45 from `./agents`.
+At the pinned latest-`main` merge, the package exported exactly four facades
+with 196 named declarations counting intentional cross-facade duplicates: 70
+at the root, 41 from `./network`, 40 from `./ledger`, and 45 from `./agents`.
+The admitted removals yield a final census of 181 declarations: 61 at the
+root, 35 from `./network`, 40 from `./ledger`, and 45 from `./agents`.
 
-Some simulator evidence can keep its source shape with a precise final-stack
-meaning:
+Compatible Simulator structure remains:
 
 - `RouterProvider` and `Router` remain simulator-owned run-fixture
   abstractions even if acquisition now composes Registry, Router, and endpoint
   daemons.
-- `EndpointMessageSent`, `EndpointMessageReceived`, and `ConversationOpened`
-  remain simulation projections emitted after certified protocol effects.
 - The complete `./ledger` facade remains simulation evidence and is unrelated
   to the retired product Ledger.
 - `CredentialName` remains a container secret reference, not an institutional
   credential layer, and simulator event tags ending in `/v1` remain persisted
   event-schema versions rather than product-v1 compatibility.
 
-The reduced Client exposes `conversationId`, verified author and peers, and
-content on each current-conversation turn. START and bound reply return `void`;
-they expose no `MessageId`, `TxnId`, `ActionHash`, `RecordHash`, certificate,
-or proof result. Simulator evidence that still requires unavailable
-correlation fields must be resolved inside the simulator compatibility
-decision or through authorized simulator instrumentation. Simulator and evals
-may not widen `HarnessClient` or recover fields by importing endpoint or Router
-internals.
+The reduced Client exposes `conversationId`, verified author and peers,
+content, and a bound reply on each current-conversation turn. START and bound
+reply return `void`; neither exposes `MessageId`, `TxnId`, `ActionHash`,
+`RecordHash`, a certificate, or a proof. Simulator and evals do not widen that
+surface or import endpoint/Router internals to reconstruct hidden correlation.
 
-Five authority-bearing contracts cannot preserve both their current behavior
-and the final communication law:
+The five incompatible families are removed, not adapted behind unchanged
+syntax:
 
-1. `Endpoint.open`, `EndpointTransport.openConversation`, and
-   `OpenedConversation` open or represent a conversation without a pre-minted
-   `ConversationId` and initial content, while final START atomically includes
-   both.
-2. `ConversationSocket.send`, `EndpointTransport.send`, and the endpoint-bound
-   socket returned through raw Router attachment permit arbitrary
-   established-conversation sends, while final output is START or a live
-   turn-bound reply only.
-3. Those operations return the old `Message`. `ReceivedMessage`,
-   `EndpointTransport.received`, `ConversationSocket.receive`, and
-   `Endpoint.messages` expose a message-only receive model without the current
-   conversation, verified participants, content, and bound reply authority.
-   The accepted public turn intentionally carries no certified-record proof.
-4. `AgentConnection.key` is a redacted v1 bearer/API credential rather than an
-   agent signing key. Together with `AgentConnection.routerUrl`,
-   `Router.attachAgent`, `Router.attachEndpoint`, and
-   `AgentRuntimeInput.connection`, it still gives runtimes credential/bootstrap
-   authority and raw Router access, while final runtimes receive only MCP or an
-   injected `HarnessClient`.
-5. `CommittedRouterMessage`, `RouterMessageCommitted`, `RouterSequence`, and
-   `RouterStopped.committedMessages` currently encode a durable Router commit
-   and actual Router-local order under persisted `/v1` event schemas. The final
-   volatile Router neither commits conversation history nor interprets
-   `ConversationId`. Reusing the same tags for “simulator observation after an
-   endpoint certificate” would be a persisted semantic break, not a harmless
-   reinterpretation. The authority candidate must version/rename the evidence,
-   retain the old meaning only in an explicitly legacy simulator fixture, or
-   admit the semantic break and its migration.
+1. Delete `Endpoint.open`, `EndpointTransport.openConversation`, and
+   `OpenedConversation`. Creation mints a `ConversationId` and calls
+   `HarnessClient.start` with nonempty initial content.
+2. Delete `ConversationSocket.send`, `EndpointTransport.send`, and generic
+   endpoint-bound socket output. Established output exists only through the
+   bound reply on the originating turn.
+3. Replace `Message`, `ReceivedMessage`, `EndpointTransport.received`,
+   `ConversationSocket.receive`, `Endpoint.messages`, and proof-shaped
+   operation results with public semantic `HarnessTurn` input and resultless
+   completion facts. Simulator evidence records only lifecycle and public
+   semantic effects.
+4. Remove `AgentConnection.key`, `AgentConnection.routerUrl`,
+   `Router.attachAgent`, `Router.attachEndpoint`, and raw
+   `AgentRuntimeInput.connection`. Application runtimes receive only an
+   injected `HarnessClient` or loopback `MOLTZAP_MCP_URL`.
+5. Delete `CommittedRouterMessage`, `RouterMessageCommitted`,
+   `RouterSequence`, and `RouterStopped.committedMessages`. They are not
+   renamed or reinterpreted; the final Router has no durable commit/order
+   event.
 
-A lazy first-send mapping, cached reply closure, or inert credential field can
-preserve syntax but not behavior and would act as a compatibility shim. The
-authority candidate must therefore resolve a real requirements conflict:
-either explicitly exempt these simulator-driver capabilities from the final
-runtime law with sound semantics, or admit a narrow major simulator break for
-them while preserving every non-conflicting facade contract. Blanket “exact
-API and behavior” is not implementable together with no generic send and no
-runtime Router authority.
+Retained directed link faults interpose privately after Router polling and
+before recipient Client consumption. With no active fault, the interposition
+preserves exact message bytes and recipient Router order. An explicit scope
+may drop, delay, hold, or reorder a selected sender-to-recipient
+delivery. The run controller owns policy evaluation; application containers
+receive no fault controls or credentials, and Router and Client expose no
+production hook. The perturbed recipient observation is endpoint
+fault-tolerance evidence, never Router-conformance evidence.
 
-Before simulator changes, freeze compatibility evidence for all four emitted
+One run owns one Registry and one Router. Every agent Sandbox Pod has a
+restartable `moltzapd` sidecar, per-agent persistent volume, and private
+key/admission mounts. Registration completes before application startup. The
+application sees only
+`MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`, never network origins, signing
+material, or endpoint-store paths.
+
+All sixteen evaluation definitions execute through the daemon-backed Client.
+Client and Simulator inject no automatic cross-conversation context, so the
+six cases that require it may fail until the host supplies native memory.
+
+Before simulator changes, freeze baseline evidence for all four emitted
 facades, not only a few hand-selected exports:
 
 - root;
@@ -196,32 +194,36 @@ Use the existing packed-tarball probe as the driver:
 1. Keep the exact four-key manifest export-map assertion.
 2. Use the TypeScript compiler API over the extracted `dist/index.d.ts`,
    `network.d.ts`, `ledger.d.ts`, and `agents.d.ts` to compare a checked-in,
-   sorted `{ name, typeSpace, valueSpace }` census. This catches additions,
-   removals, and namespace drift without pinning comments, formatting, source
-   order, or printer output. Because the facades re-export aliases, follow each
-   symbol through `checker.getAliasedSymbol` before inspecting its Type and
-   Value flags.
+   sorted `{ name, typeSpace, valueSpace }` census. The expected delta is the
+   five removals above; every other addition, removal, or namespace drift is a
+   regression. Because the facades re-export aliases, follow each symbol
+   through `checker.getAliasedSymbol` before inspecting its Type and Value
+   flags.
 3. Compile one downstream `*.types-check.ts` consumer against the packed
    package exports in an isolated temporary consumer whose module resolution
    cannot fall back to workspace source. Pin package-owned fields and method
-   signatures across all four facades, including `Run.execute` inference,
-   network operations, ledger artifacts, and runtime options/gateway errors.
+   retained signatures across all four facades, including `Run.execute`
+   inference, network operations, ledger artifacts, and runtime options/gateway
+   errors.
    Do not compare whole inherited Effect Schema class types.
 4. Dynamically import all four packed facades and compare complete sorted
    runtime keys. Runtime keys cover emitted JavaScript; the compiler census
    covers type-only exports.
 
-Also pin cross-owner assignability for the current leaked `AgentId`,
-`AgentName`, `ConversationId`, `MessageId`, `Message`, `MessageParts`, and
-`ServerBaseUrl` values that gain final owners. They appear inside public
-signatures even when they are not direct facade exports, so the symbol census
-cannot detect drift. `AgentKey` is expected to expose the runtime-authority
-conflict rather than being forced through a fake compatible type.
+Also pin cross-owner assignability for retained `AgentId`, `AgentName`,
+`ConversationId`, and `ServerBaseUrl` values that gain final owners. They may
+appear inside public signatures even when they are not direct facade exports,
+so the symbol census cannot detect drift. `Message`, `MessageParts`,
+`MessageId`, and `AgentKey` are not forced through fake-compatible types to
+avoid the admitted removals.
 
 Preserve behavior with the existing unit, integration, local, GKE, Temporal,
-cluster, fault, packaging, and eval-facing suites, except for any
-authority-bearing contracts the maintainer explicitly reopens. Type canaries
-pin what is retained; they do not create negative imports for deleted APIs.
+cluster, fault, packaging, and eval-facing suites for retained contracts. Add
+daemon-sidecar, secret-isolation, persistence, loopback-only runtime, and all-
+sixteen-eval coverage. Fault coverage separately proves inactive byte/order
+transparency, every activated post-Router perturbation, and runtime isolation
+from fault controls. Type canaries pin what remains; architecture and export
+checks, rather than negative type canaries, prove retired APIs are absent.
 
 ## Workspace and architecture changes
 
@@ -270,8 +272,9 @@ instructions retire.
   with their implementations and rename only paths/package identities first.
 - Replace v1 server/protocol conformance with Registry, Router, endpoint/MCP,
   proof, recovery, adapter, and fault conformance.
-- Preserve simulator and eval suites in meaning, then add full-facade simulator
-  compatibility checks.
+- Preserve simulator and eval suites for retained contracts, then add
+  four-facade checks for the exact admitted removals and daemon-backed
+  replacements.
 - Update CI project floors, changed-path triggers, artifact paths, package
   packing, install probes, and conformance scripts to the exact graph.
 - Replace the old publish-package list and release-order comments. Publish
@@ -286,9 +289,8 @@ one compatibility version or independently versioned releases.
 
 ## Safe implementation order
 
-1. Use the accepted four-layer DAG and reduced Client interface; resolve the
-   remaining simulator compatibility and release-policy decisions at their
-   named gates.
+1. Use the accepted four-layer DAG, reduced Client interface, and admitted
+   Simulator removals; publication/release policy remains the named gate.
 2. Move generic documentation tooling out of protocol and freeze simulator
    and eval compatibility evidence.
 3. Move and rename Identity, then pass its complete existing target floor.
@@ -297,8 +299,9 @@ one compatibility version or independently versioned releases.
    certificates, catch-up, re-anchor, MCP, and daemon behind it.
 6. Rewrite both adapters against Client only.
 7. Rewire simulator internals and move image orchestration to root tooling;
-   prove every retained facade and behavior contract, plus the explicitly
-   admitted resolution of the authority-bearing conflicts.
+   prove every retained facade and behavior contract plus the five admitted
+   removals, daemon-backed replacements, and private post-Router fault
+   boundary.
 8. Rewire evals while preserving reports, CLI modes, and image entry points.
 9. Delete v1 packages, profiles, CLI/socket machinery, central Ledger, and all
    obsolete implementation scaffolds.

@@ -136,7 +136,7 @@ MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform -chdir=packages/simulator/gke/terraform
 MOLTZAP_TEMPORAL_ADDRESS=TEMPORAL_HOST:7233 \
 MOLTZAP_CONTROLLER_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
 MOLTZAP_SUPPORT_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
-pnpm nx run @moltzap/simulator:gke-run -- packages/simulator/local/end-to-end.mjs
+pnpm nx run @moltzap/simulator:gke-run -- local/end-to-end.mjs
 ```
 
 The GKE entry validates `profile.json`, requires every dynamic identity above,
@@ -211,11 +211,13 @@ repository, as
 [the execution trajectory](../../../docs/decision-evidence/20260801-main-kubernetes-society-execution-trajectory.md)
 records.
 
-The ADR's GKE gate is therefore still open on its evaluation half. Do not claim
-it until one OpenClaw and one NanoClaw evaluation complete through
-`./cluster.sh evals`, their ledgers are readable in the artifact bucket,
-run-owned Kubernetes residue is zero, and that evidence is retained where a
-reader can find it.
+The ADR requires the small smoke and at least one OpenClaw evaluation. This
+profile deliberately applies the stronger qualification of one OpenClaw and
+one NanoClaw evaluation. The current `./cluster.sh evals` command runs the full
+catalog under both conditions rather than selecting one condition, so its
+successful qualification exceeds that minimum. Do not claim it until the
+resulting ledgers are readable in the artifact bucket, run-owned Kubernetes
+residue is zero, and that evidence is retained where a reader can find it.
 
 Static validation does not contact Google Cloud or a Kubernetes cluster:
 

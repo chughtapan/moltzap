@@ -49,6 +49,11 @@ create runtime `simulator -> evals`, `simulator -> openclaw-channel`, or
 - Social traffic uses the same Identity, Router, and Client implementation as
   production. Code agents receive no shortcut around endpoint certification,
   durability, catch-up, personal trust, or bound reply authority.
+- With no active directed link fault, the Simulator preserves each
+  recipient's Router order and exact message bytes. An explicitly activated
+  fault may drop, delay, hold, or reorder post-Router delivery to test
+  endpoint recovery. Evidence from that path is fault-tolerance evidence, not
+  Router-conformance evidence.
 - Keep infrastructure types out of public definitions, event models, and
   customer Effects. Concrete cluster integration stays private and composes at
   the application edge.
@@ -65,51 +70,78 @@ create runtime `simulator -> evals`, `simulator -> openclaw-channel`, or
   logic, append endpoint history, create per-agent workflows, or replay a
   customer Effect.
 - Preserve `Run.execute(RunSpec)` as the one execution path. Do not add a
-  compatibility engine, generation selector, simulator-wide gateway proxy,
-  command language, actor mailbox, synthetic identity scheme, or serialization
-  framework.
+  compatibility engine, generation selector, runtime-facing or
+  general-purpose gateway proxy, command language, actor mailbox, synthetic
+  identity scheme, or serialization framework.
 
 Legacy `@moltzap/protocol`, `@moltzap/server-core`, adapter imports, socket
-types, and direct Router fixtures are removal inputs. New code must not deepen
-those edges. Extract retained meaning behind final public capabilities, then
-delete the legacy dependency rather than hiding it behind an alias.
+types, and runtime-facing direct Router fixtures are removal inputs. New code
+must not deepen those edges. Simulator's private run-scoped infrastructure may
+provision the public Router process and capability required by the final graph;
+runtime subjects still receive only Client. Extract retained meaning behind
+final public capabilities, then delete the legacy dependency rather than
+hiding it behind an alias.
 
-## Five blocked contracts
+## Fault boundary
 
-Do not change, preserve through a semantic shim, or reinterpret these
-authority-bearing contracts until a separately admitted decision selects their
-replacement and any persisted-evidence migration:
+Directed link faults interpose privately after Router has accepted and ordered
+a message and before the recipient Client consumes it. The run controller owns
+policy evaluation; private run-scoped infrastructure applies the result. The
+interposition must not modify or forge a `SignedMessage`, change Router state,
+or add a callback to Registry, Router, Client, or `moltzapd`.
 
-1. conversation open without a pre-minted `ConversationId` and nonempty
-   initial content;
-2. generic established-conversation send;
-3. message-only receive/results without the current conversation, verified
-   participants, content, and bound reply authority; the public turn does not
-   expose certified-record proof;
-4. bearer credentials or raw Router attachment exposed to runtimes; and
-5. persisted events that claim a durable Router commit or Router-local order.
+When no fault is active, the path is a transparent pass-through. Application
+containers receive no fault-control endpoint, credential, environment value,
+mount, raw network capability, or store access. Fault activation and lifecycle
+may be Simulator evidence, but `RunLedger` never records a private Router
+position or authoritative Router order.
+
+## Five admitted removals
+
+The current four-layer decision removes these incompatible contracts. Delete
+them directly; do not preserve them through a semantic shim or reinterpret an
+old name or persisted event:
+
+1. Delete content-free conversation open. Creation uses
+   `createConversationId` followed by `HarnessClient.start` with nonempty
+   initial content.
+2. Delete generic established-conversation send. Output uses only the bound
+   reply from the originating turn.
+3. Replace message-only receive and proof-shaped operation results with the
+   public semantic `HarnessTurn` and `void` completion facts.
+4. Remove bearer credentials, signing material, raw Router attachment,
+   Registry/Router origins, and endpoint-store handles from runtime inputs. A
+   runtime receives only its loopback MCP URL or an injected `HarnessClient`.
+5. Delete persisted events that claim durable Router commit or Router-local
+   order. `RunLedger` records only simulation lifecycle and public semantic
+   effects.
 
 An inert credential field, lazy first-send translation, cached reply closure,
 hidden raw Router path, or new meaning under an existing event tag is not
-compatibility. Work that reaches one of these boundaries stops and points to
-`v2/VISION.md → Deliberate deferrals` and
-`docs/spec/layer-interfaces.md → Simulator compatibility gate`.
+compatibility. The normative cutover contract is
+`docs/spec/layer-interfaces.md → Simulator cutover`; the five removals are
+current decisions rather than deliberate deferrals.
 
 ## Structure during migration
 
 - `src/events/` owns exact simulation evidence and event catalogs.
-- `src/ledger/` owns simulation `RunLedger` records, storage, and reads.
+- `src/ledger/` owns simulation `RunLedger` records, storage, reads, and the
+  `./ledger` public barrel at `src/ledger/index.ts`.
 - `src/run/` owns definition-bound execution sequencing.
 - `src/cluster/` owns private acquisition, fakes, Kubernetes, Kueue, Sandbox,
   and Temporal mechanisms.
-- `src/agents/` owns portable runtime definitions and typed principal gateways.
-- `src/network/` is transitional where it exposes the five blocked contracts.
-  Do not add public authority there; move compatible production-stack
+- `src/agents/` owns portable runtime definitions, typed principal gateways,
+  and the `./agents` public barrel at `src/agents/index.ts`.
+- `src/network/` owns the compatible experiment-facing contracts and the
+  `./network` public barrel at `src/network/index.ts`. It is transitional where
+  it still exposes any of the five admitted removals. Do not add public
+  authority there; delete those contracts and move compatible production-stack
   composition behind Identity, Router, and Client as the cutover proceeds.
 
-Only `src/index.ts`, `src/agents.ts`, `src/network.ts`, and `src/ledger.ts` are
-current published facades. Publication/version policy is separately deferred;
-do not add or remove a facade merely to answer it.
+Only `src/index.ts`, `src/agents/index.ts`, `src/network/index.ts`, and
+`src/ledger/index.ts` own the current published facades. Publication/version
+policy is separately deferred; do not add or remove a facade merely to answer
+it.
 
 ## Tests
 
@@ -124,5 +156,5 @@ pnpm nx run @moltzap/simulator:test
 
 Preserve unit, integration, local/GKE, Temporal, cluster, fault, packaging, and
 eval-facing behavior for compatible contracts. Type canaries pin what remains;
-they do not create negative imports for deleted APIs or force a blocked
+they do not create negative imports for deleted APIs or force a removed
 contract through a fake compatible type.

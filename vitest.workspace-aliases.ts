@@ -24,7 +24,7 @@ function fromRoot(...segments: string[]): string {
 /** Source aliases, ordered with specific subpaths before package roots. */
 export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   alias("@moltzap/client", "packages/client/src/index.ts"),
-  alias("@moltzap/simulator/ledger", "packages/simulator/src/ledger.ts"),
+  alias("@moltzap/simulator/ledger", "packages/simulator/src/ledger/index.ts"),
   alias("@moltzap/simulator", "packages/simulator/src/index.ts"),
   alias(
     "@moltzap/nanoclaw-channel",

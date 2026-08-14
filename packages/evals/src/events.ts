@@ -1,6 +1,10 @@
 /** @file Evaluation events and typed simulator evidence projections. */
 
-import { AgentName as agentName } from "@moltzap/client";
+import {
+  AgentName as agentName,
+  ConversationId as conversationId,
+  type JsonValue,
+} from "@moltzap/client";
 import { EventCatalog } from "@moltzap/simulator";
 import {
   NanoClawGatewayInput,
@@ -19,6 +23,23 @@ import {
 const openClawGatewayResponse = Schema.Union(
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
+);
+const jsonValueSchema: Schema.Schema<JsonValue> = Schema.suspend(() =>
+  Schema.Union(
+    Schema.Null,
+    Schema.Boolean,
+    Schema.JsonNumber,
+    Schema.String,
+    Schema.Array(jsonValueSchema),
+    Schema.Record({ key: Schema.String, value: jsonValueSchema }),
+  ),
+);
+/** Exact semantic Content retained as Simulator evidence. */
+export const semanticContent = Schema.NonEmptyArray(
+  Schema.Union(
+    Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }),
+    Schema.Struct({ type: Schema.Literal("data"), value: jsonValueSchema }),
+  ),
 );
 
 /** The adapter recorded an instruction before submitting it to OpenClaw. */
@@ -62,6 +83,29 @@ export class NanoClawPrincipalOutputReceived extends Schema.TaggedClass<NanoClaw
   },
 ) {}
 
+/** A peer observed one certified action through its public HarnessClient. */
+export class SocialActionObserved extends Schema.TaggedClass<SocialActionObserved>()(
+  "moltzap.social-action-observed/v1",
+  {
+    caseId: evaluationCaseId,
+    endpointName: agentName,
+    conversationId,
+    authorName: agentName,
+    direction: Schema.Literal("input", "output"),
+    content: semanticContent,
+  },
+) {}
+
+/** A required public Harness turn was absent at the case deadline. */
+export class SocialActionNotObserved extends Schema.TaggedClass<SocialActionNotObserved>()(
+  "moltzap.social-action-not-observed/v1",
+  {
+    caseId: evaluationCaseId,
+    endpointName: agentName,
+    timeoutMillis: Schema.Int.pipe(Schema.positive()),
+  },
+) {}
+
 /** A case selected one earlier observation for grading. */
 export class EvaluationEvidenceSelected extends Schema.TaggedClass<EvaluationEvidenceSelected>()(
   "moltzap.evaluation-evidence-selected/v1",
@@ -77,6 +121,8 @@ export const evaluationEvents = EventCatalog.make(
   OpenClawPrincipalFinalOutput,
   NanoClawPrincipalInputSent,
   NanoClawPrincipalOutputReceived,
+  SocialActionObserved,
+  SocialActionNotObserved,
   EvaluationEvidenceSelected,
 );
 
@@ -87,6 +133,11 @@ const gatewayObservation = Schema.Union(
   NanoClawPrincipalOutputReceived,
 );
 type GatewayObservation = typeof gatewayObservation.Type;
+const socialObservation = Schema.Union(
+  SocialActionObserved,
+  SocialActionNotObserved,
+);
+type SocialObservation = typeof socialObservation.Type;
 
 /** One ordered principal-gateway observation and its ledger identity. */
 export class GatewayEvidence extends Schema.Class<GatewayEvidence>(
@@ -97,12 +148,22 @@ export class GatewayEvidence extends Schema.Class<GatewayEvidence>(
   observation: gatewayObservation,
 }) {}
 
+/** One ordered public semantic action observation or bounded absence. */
+export class SocialEvidence extends Schema.Class<SocialEvidence>(
+  "SocialEvidence",
+)({
+  eventId: evaluationEvidenceId,
+  logicalSequence: Schema.NonNegativeInt,
+  observation: socialObservation,
+}) {}
+
 /** Ordered gateway evidence for one run ledger. */
 export class EvaluationEvidence extends Schema.Class<EvaluationEvidence>(
   "EvaluationEvidence",
 )({
   caseId: evaluationCaseId,
   gateway: Schema.Array(GatewayEvidence),
+  social: Schema.Array(SocialEvidence),
   selectedEventIds: Schema.Array(evaluationEvidenceId),
 }) {}
 
@@ -160,11 +221,23 @@ function isGatewayObservation(event: unknown): event is GatewayObservation {
   );
 }
 
+function isSocialObservation(event: unknown): event is SocialObservation {
+  return (
+    event instanceof SocialActionObserved ||
+    event instanceof SocialActionNotObserved
+  );
+}
+
 function isCustomerEvent(
   event: unknown,
-): event is GatewayObservation | EvaluationEvidenceSelected {
+): event is
+  | GatewayObservation
+  | SocialObservation
+  | EvaluationEvidenceSelected {
   return (
-    isGatewayObservation(event) || event instanceof EvaluationEvidenceSelected
+    isGatewayObservation(event) ||
+    isSocialObservation(event) ||
+    event instanceof EvaluationEvidenceSelected
   );
 }
 
@@ -209,14 +282,34 @@ function gatewayEvidence(
   );
 }
 
+function socialEvidence(
+  records: readonly EvidenceRecord[],
+): readonly SocialEvidence[] {
+  return records.flatMap((record) =>
+    isSocialObservation(record.event)
+      ? [
+          SocialEvidence.make({
+            eventId: record.eventId,
+            logicalSequence: record.logicalSequence,
+            observation: record.event,
+          }),
+        ]
+      : [],
+  );
+}
+
 function selectedEvidenceIds(
   records: readonly EvidenceRecord[],
   gateway: readonly GatewayEvidence[],
+  social: readonly SocialEvidence[],
 ): Effect.Effect<
   readonly EvaluationEvidenceId[],
   EvaluationEvidenceProjectionError
 > {
-  const selectable = new Set(gateway.map((evidence) => evidence.eventId));
+  const selectable = new Set([
+    ...gateway.map((evidence) => evidence.eventId),
+    ...social.map((evidence) => evidence.eventId),
+  ]);
   const positions = new Map(
     records.map((record, position) => [record.eventId, position]),
   );
@@ -266,10 +359,12 @@ export const projectEvaluationEvidence = Effect.fn(
   const records = Chunk.toReadonlyArray(collected);
   const caseId = yield* evidenceCaseId(records);
   const gateway = gatewayEvidence(records);
-  const selected = yield* selectedEvidenceIds(records, gateway);
+  const social = socialEvidence(records);
+  const selected = yield* selectedEvidenceIds(records, gateway, social);
   return EvaluationEvidence.make({
     caseId,
     gateway,
+    social,
     selectedEventIds: selected,
   });
 });

@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+import { NodeRuntime } from "@effect/platform-node";
+import { ConfigProvider, Effect, Layer } from "effect";
+import { MoltZapDaemon } from "../dist/server.js";
+
+Layer.launch(MoltZapDaemon.layer).pipe(
+  Effect.withConfigProvider(ConfigProvider.fromEnv()),
+  NodeRuntime.runMain,
+);

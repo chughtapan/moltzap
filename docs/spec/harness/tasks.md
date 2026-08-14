@@ -17,7 +17,8 @@ pre-empt a future general collective-action vocabulary.
 
 OpenFloorV1 uses:
 
-- one immutable fixed membership epoch;
+- one immutable fixed membership epoch with at most 32 total members,
+  including the sender as an explicit recipient;
 - actions `START` and `MULTICAST` only;
 - one action signature from every fixed member;
 - a protocol-fixed 90-second contention TTL; and
@@ -38,6 +39,12 @@ Each part is exactly one of:
 Canonical JSON semantics apply to `JsonValue`. Raw bytes, URLs, files,
 filenames, media types, metadata, images, and audio are outside this profile.
 
+The RFC 8785 canonical JSON encoding of the complete `Content` value is at
+most 32,768 bytes for one START or MULTICAST. Client rejects oversized content
+before protocol traffic and never fragments it. Derived-size conformance tests
+must also prove that every maximum complete protocol artifact fits Identity's
+existing 128-recipient and 262,144-body limits.
+
 ## START
 
 `start_conversation` supplies a caller-minted `ConversationId`, the complete
@@ -54,18 +61,35 @@ first content action. There is no committed empty conversation followed by a
 separate send. Durability voting begins only after the unanimous action
 certificate and `RecordHash` exist.
 
-## MULTICAST eligibility and contention
+## Contention and automatic activation
 
 After every certified START or MULTICAST, OpenFloorV1 marks every fixed member
-eligible. When no contention round is open:
+protocol-eligible. The built-in daemon's automatic initiation policy is
+narrower. At one endpoint it emits BEGIN only when the certified head is
+durably stored locally, was authored by another fixed member, the endpoint
+owns the sole active reply-capable subscription, and the private
+`(ConversationId, RecordHash)` pair is not durably consumed.
 
-1. any eligible member may emit BEGIN against the current certified head;
+The action author never automatically contends on its own START or MULTICAST.
+Every subscribed non-author satisfying those conditions may emit one BEGIN.
+With no listener the endpoint emits no BEGIN and persists no consumption.
+Catch-up, history reads, staged evidence, certificate enrichment, and Router
+re-anchor never initiate contention.
+
+When no contention round is open:
+
+1. any automatically active non-author may emit BEGIN against the current
+   certified head;
 2. the first valid BEGIN in the shared private Router order becomes the sole
    candidate;
-3. later contenders wait;
+3. later contenders remain unconsumed and wait;
 4. every fixed member may ACK that exact candidate after local validation; and
-5. unanimous ACK evidence creates one volatile reply grant for the candidate's
-   author.
+5. unanimous ACK evidence creates one volatile 90-second reply grant for the
+   candidate's author.
+
+An unconsumed loser may contend again after the round expires if the activation
+conditions still hold. A consumed head is never offered or bid again by that
+endpoint.
 
 The endpoint engine serializes this fold per conversation. The canonical
 digest of the exact authenticated winning BEGIN message is the private
@@ -87,7 +111,7 @@ when more than one descriptor is legal remains deliberately unresolved. Client
 must not guess an action, infer it from content, or expose private
 action-selection machinery to work around that gap.
 
-## Action proposal and certification
+## Grant and action certification
 
 After reply selection, the author sends the exact proposed MULTICAST binding
 through Router. It binds:
@@ -140,8 +164,16 @@ Expiry:
 
 - abandons only volatile contention and grant state;
 - creates no action-certified or certified record;
-- permits fresh contention against the same certified head; and
+- permits fresh contention against the same certified head only for an
+  unconsumed subscribed non-author; and
 - rejects a late reply.
+
+Immediately before the daemon writes the complete turn SSE frame, it durably
+and atomically stores the endpoint-private `(ConversationId, RecordHash)`
+consumed marker. The marker remains after a successful, failed, partial, or
+ambiguous write and after restart. It prevents another offer or BEGIN for that
+head at that endpoint; it is not cleared by TTL expiry. No listener means no
+write attempt and no consumed marker.
 
 There is no explicit pass, abort, renewal, adapter completion signal, or
 dispute operation. A runtime turn that produces no reply releases solely
@@ -192,6 +224,8 @@ complete the re-anchor protocol in `conversation-history.md`.
   BEGIN/ACK.
 - Simultaneous BEGINs select the earliest valid Router position for all honest
   members.
+- A member never automatically contends on its own action, and an endpoint
+  without the sole active listener neither bids nor consumes the head.
 - Missing, extra, invalid, or content-mismatched action signatures cannot form
   an action certificate.
 - Durability votes cannot authorize an action, and action signatures cannot
@@ -200,7 +234,9 @@ complete the re-anchor protocol in `conversation-history.md`.
   requiring Router or a storage service to understand policy.
 - After certification, a non-author member can assemble and disseminate the
   complete durability evidence.
-- TTL expiry creates no record and allows fresh contention.
+- TTL expiry creates no record and allows fresh contention only while the head
+  remains unconsumed.
+- A consumed head is not offered or bid again after stream failure or restart.
 - Late, duplicate, and second-use replies are rejected without generic send.
 - Withholding tests distinguish unanimous action-liveness failure from
   post-certification durability-threshold behavior.

@@ -1,3 +1,5 @@
+/** @file Core event-universe, tag-validation, and process-termination regressions. */
+
 import { assert, effect as test } from "@effect/vitest";
 import { Effect, Either, Schema } from "effect";
 import { EventCatalog, EventCatalogDefinitionError } from "./catalog.js";
@@ -5,6 +7,8 @@ import {
   AgentProcessExited,
   AgentProcessSignaled,
   coreEvents,
+  linkEvents,
+  routerEvents,
   runEvents,
   runtimeEvents,
 } from "./core.js";
@@ -37,7 +41,9 @@ test("declares one exact versioned lifecycle event universe", () =>
   Effect.sync(() => {
     assert.deepStrictEqual(coreEvents.tags, [
       ...runEvents.tags,
+      ...routerEvents.tags,
       ...runtimeEvents.tags,
+      ...linkEvents.tags,
     ]);
     assert.isTrue(coreEvents.tags.every((tag) => /\/v\d+$/u.test(tag)));
   }));
@@ -64,12 +70,14 @@ test("represents process exit and signal as distinct lifecycle facts", () =>
     const exited = yield* coreEvents.decode({
       _tag: "moltzap.agent-process-exited/v1",
       agentName: "alice",
+      agentId: "agt_AAAAAAAAAAAAAAAAAAAAAA",
       runtime: "openclaw",
       code: 0,
     });
     const signaled = yield* coreEvents.decode({
       _tag: "moltzap.agent-process-signaled/v1",
       agentName: "alice",
+      agentId: "agt_AAAAAAAAAAAAAAAAAAAAAA",
       runtime: "openclaw",
       signal: "SIGTERM",
     });
@@ -77,6 +85,7 @@ test("represents process exit and signal as distinct lifecycle facts", () =>
       .decode({
         _tag: "moltzap.agent-process-exited/v1",
         agentName: "alice",
+        agentId: "agt_AAAAAAAAAAAAAAAAAAAAAA",
         runtime: "openclaw",
         code: 0,
         signal: "SIGTERM",

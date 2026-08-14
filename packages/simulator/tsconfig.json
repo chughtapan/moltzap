@@ -19,6 +19,12 @@
   "references": [
     {
       "path": "../identity"
+    },
+    {
+      "path": "../router"
+    },
+    {
+      "path": "../client"
     }
   ]
 }

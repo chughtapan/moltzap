@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   normalizeContainerdReference,
+  parseArguments,
+  renderKindConfiguration,
   retryImageDiscovery,
   selectLocalImageTag,
 } from "../scripts/local-create-cluster.mjs";
@@ -34,7 +37,7 @@ test("local profile pins every downloaded or executed artifact", async () => {
   assert.match(kind, /__MOLTZAP_ARTIFACTS__/);
   assert.match(kind, new RegExp(profile.kind.nodeImage.replaceAll(".", "\\.")));
   assert.match(kind, /containerPort: 30733/);
-  assert.match(kind, /hostPort: 7233/);
+  assert.match(kind, /hostPort: __MOLTZAP_TEMPORAL_HOST_PORT__/);
   assert.match(kind, /containerPath: \/var\/lib\/moltzap-artifacts/);
   assert.equal(kind.match(/role: worker/g)?.length, 2);
   assert.equal(kind.match(/__MOLTZAP_ARTIFACTS__/g)?.length, 3);
@@ -46,6 +49,46 @@ test("local profile pins every downloaded or executed artifact", async () => {
   );
   assert.match(temporal, /type: NodePort/);
   assert.match(temporal, /nodePort: 30733/);
+});
+
+test("local clusters can select a non-conflicting Temporal host port", () => {
+  assert.equal(
+    parseArguments(["--temporal-port", "17233"], {
+      clusterName: "moltzap-simulator",
+    }).temporalPort,
+    17_233,
+  );
+  assert.throws(
+    () =>
+      parseArguments(["--temporal-port", "70000"], {
+        clusterName: "moltzap-simulator",
+      }),
+    /--temporal-port must be an integer from 1024 to 65535/,
+  );
+});
+
+test("rendered kind configuration resolves every profile token", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "moltzap-kind-render-test-"));
+  try {
+    const destination = join(temporary, "kind.yaml");
+    const profile = JSON.parse(await read("profile.json"));
+    await renderKindConfiguration(
+      "/tmp/moltzap-artifacts",
+      17_233,
+      destination,
+      profile,
+    );
+    const rendered = await readFile(destination, "utf8");
+
+    assert.doesNotMatch(rendered, /__MOLTZAP_[A-Z_]+__/);
+    assert.match(rendered, /hostPort: 17233/);
+    assert.equal(
+      rendered.match(/hostPath: "\/tmp\/moltzap-artifacts"/g)?.length,
+      3,
+    );
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });
 
 test("queue profile reserves every resource requested by an application", async () => {
@@ -79,7 +122,14 @@ test("the end-to-end run sizes its roster from the run rather than the file", as
 test("local cluster makes the pinned controller image discoverable", async () => {
   const setup = await read("../scripts/local-create-cluster.mjs");
   assert.match(setup, /makePinnedImageDiscoverable/);
-  assert.match(setup, /template\.replaceAll\(ARTIFACT_TOKEN/);
+  assert.match(
+    setup,
+    /\.replaceAll\(ARTIFACT_TOKEN,\s*JSON\.stringify\(artifacts\)\)/,
+  );
+  assert.match(
+    setup,
+    /\.replaceAll\(TEMPORAL_HOST_PORT_TOKEN,\s*String\(temporalHostPort\)\)/,
+  );
   assert.match(setup, /"docker-image",\n\s+imageSource,/);
   assert.match(
     setup,

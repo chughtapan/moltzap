@@ -54,6 +54,336 @@ evidence is never part of the `RecordHash` preimage. Different valid threshold
 signer sets are equivalent evidence for the same record and do not create
 different history positions. Neither hash is exposed by `HarnessClient`.
 
+## Closed Client representation
+
+Client protocol values are closed Effect Schemas encoded as RFC 8785 JCS
+UTF-8. Every object rejects excess properties and carries the repository
+`moltzapVersion` and one literal `kind`. Identity-owned `AgentCard` and
+`SignedMessage` fields use their exact encoded JWS representations, not a
+Client projection. `AgentId` arrays and signer arrays are strictly increasing
+by their decoded 16-byte values. A byte decoder must re-encode and require
+byte equality, so whitespace, duplicate keys, alternate number spellings, and
+semantically equivalent noncanonical JSON are invalid.
+
+A private hash is SHA-256 over the UTF-8 domain label
+`moltzap/client/v1/<artifact>\0` followed immediately by the canonical value
+bytes. The closed artifacts and canonical unpadded-base64url prefixes are:
+
+| Artifact | Prefix |
+|---|---|
+| membership | `mbr_` |
+| anchor | `anc_` |
+| action certificate | `ach_` |
+| action-certified record | `rch_` |
+| BEGIN | `bgn_` |
+| content | `cnt_` |
+| reply input | `rpf_` |
+
+Each hash text is its prefix followed by the canonical unpadded-base64url
+encoding of exactly 32 digest bytes.
+
+`ContentHash` is the `content` hash of the complete canonical `Content`.
+`ReplyFingerprint` is the `reply` hash of
+`{moltzapVersion,kind:"reply_input",content}`. `MembershipHash`, `AnchorHash`,
+`ActionHash`, and `RecordHash` are respectively the `membership`, `anchor`,
+`action`, and `record` hashes of the complete values named below. `BeginDigest`
+is the `begin` hash of the exact canonical encoded outer Identity
+`SignedMessage` that won Router order. No hash uses TypeScript object identity,
+an in-memory view, or a noncanonical JSON spelling.
+
+### Exact closed values
+
+The following TypeScript-like declarations are the exact field and literal
+contract. `Version` is the current repository `MOLTZAP_VERSION`, `Card` is an
+encoded complete Identity `AgentCard`, and `Message` is an encoded complete
+Identity `SignedMessage`. `Content`, branded identifiers, and hashes retain
+their owning strict Schemas.
+
+```ts
+type Membership = {
+  moltzapVersion: Version
+  kind: "membership"
+  conversationId: ConversationId
+  membershipEpoch: 0
+  members: readonly [Card, Card, ...Card[]]
+}
+
+type GenesisAnchor = {
+  moltzapVersion: Version
+  kind: "genesis_anchor"
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  routerInstanceId: RouterInstanceId
+}
+
+type ReanchorBody = {
+  moltzapVersion: Version
+  kind: "reanchor_body"
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  previousAnchorHash: AnchorHash
+  selectedRecordHash: RecordHash
+  routerInstanceId: RouterInstanceId
+}
+
+type StartAction = {
+  moltzapVersion: Version
+  kind: "start_action"
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  anchorHash: AnchorHash
+  previousRecordHash: null
+  beginDigest: null
+  actionId: "START"
+  authorAgentId: AgentId
+  content: Content
+  replyFingerprint: null
+}
+
+type MulticastAction = {
+  moltzapVersion: Version
+  kind: "multicast_action"
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  anchorHash: AnchorHash
+  previousRecordHash: RecordHash
+  beginDigest: BeginDigest
+  actionId: "MULTICAST"
+  authorAgentId: AgentId
+  content: Content
+  replyFingerprint: ReplyFingerprint
+}
+
+type ActionBinding = {
+  moltzapVersion: Version
+  kind: "action_binding"
+  actionKind: "START" | "MULTICAST"
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  anchorHash: AnchorHash
+  previousRecordHash: RecordHash | null
+  beginDigest: BeginDigest | null
+  actionId: "START" | "MULTICAST"
+  authorAgentId: AgentId
+  contentHash: ContentHash
+  replyFingerprint: ReplyFingerprint | null
+}
+
+type StartProposal = {
+  moltzapVersion: Version
+  kind: "start_proposal"
+  membership: Membership
+  genesisAnchor: GenesisAnchor
+  action: StartAction
+}
+
+type Begin = {
+  moltzapVersion: Version
+  kind: "begin"
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  anchorHash: AnchorHash
+  previousRecordHash: RecordHash
+  actionId: "MULTICAST"
+  contenderAgentId: AgentId
+}
+
+type AckStatement = {
+  moltzapVersion: Version
+  kind: "ack"
+  signerAgentId: AgentId
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  previousRecordHash: RecordHash
+  beginDigest: BeginDigest
+}
+
+type MulticastProposal = {
+  moltzapVersion: Version
+  kind: "multicast_proposal"
+  action: MulticastAction
+}
+
+type ActionSignatureStatement = {
+  moltzapVersion: Version
+  kind: "action_signature"
+  signerAgentId: AgentId
+  action: ActionBinding
+}
+
+type ActionCertificate = {
+  moltzapVersion: Version
+  kind: "action_certificate"
+  action: ActionBinding
+  signatures: readonly [Message, ...Message[]]
+}
+
+type ActionCertifiedRecord = {
+  moltzapVersion: Version
+  kind: "action_certified_record"
+  membership: Membership
+  anchorHash: AnchorHash
+  action: StartAction | MulticastAction
+  actionHash: ActionHash
+  actionCertificate: ActionCertificate
+}
+
+type DurabilityVoteStatement = {
+  moltzapVersion: Version
+  kind: "durability_vote"
+  signerAgentId: AgentId
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  recordHash: RecordHash
+}
+
+type CertifiedRecord = {
+  moltzapVersion: Version
+  kind: "certified_record"
+  recordHash: RecordHash
+  actionCertifiedRecord: ActionCertifiedRecord
+  routerAnchor: GenesisAnchor | CompletedReanchor
+  durabilityVotes: readonly [Message, ...Message[]]
+}
+
+type CatchUpRequest = {
+  moltzapVersion: Version
+  kind: "catch_up_request"
+  conversationId: ConversationId
+  membershipHash: MembershipHash
+  requesterAgentId: AgentId
+  knownRecordHash: RecordHash | null
+  knownAnchorHash: AnchorHash | null
+}
+
+type CatchUpAttestation = {
+  moltzapVersion: Version
+  kind: "catch_up_attestation"
+  signerAgentId: AgentId
+  request: CatchUpRequest
+  itemKind: "certified_record" | "completed_reanchor" | "incomplete"
+  itemHash: RecordHash | AnchorHash | null
+  hasMore: boolean
+}
+
+type CatchUpPage = {
+  moltzapVersion: Version
+  kind: "catch_up_page"
+  request: CatchUpRequest
+  item: CertifiedRecord | CompletedReanchor
+  hasMore: boolean
+  attestation: Message
+}
+
+type CatchUpIncomplete = {
+  moltzapVersion: Version
+  kind: "catch_up_incomplete"
+  request: CatchUpRequest
+  attestation: Message
+}
+
+type ReanchorVoteStatement = {
+  moltzapVersion: Version
+  kind: "reanchor_vote"
+  signerAgentId: AgentId
+  anchorHash: AnchorHash
+  reanchor: ReanchorBody
+}
+
+type CompletedReanchor = {
+  moltzapVersion: Version
+  kind: "completed_reanchor"
+  anchorHash: AnchorHash
+  reanchor: ReanchorBody
+  votes: readonly [Message, ...Message[]]
+}
+```
+
+`Membership.members` contains exactly every fixed member, has cardinality
+2–32, contains no duplicate `AgentId`, and is sorted by decoded `AgentId`.
+Every card is complete, Registry-verified, and matches its array position.
+`MembershipHash` is checked everywhere it appears. `ActionBinding` is the
+exact projection of its action with canonical `ContentHash`; the START null
+fields and MULTICAST non-null fields above cannot be interchanged. The stable
+OpenFloor action identity is the already-current action literal `MULTICAST`.
+
+`ActionHash` must equal the hash of `actionCertificate`; `RecordHash` must
+equal the hash of `actionCertifiedRecord`; and the certified record's embedded
+anchor proof must hash to `actionCertifiedRecord.anchorHash`. The action body,
+binding, certificate, membership, and anchor fields must agree exactly. These
+cross-field checks are part of strict decoding rather than optional semantic
+validation.
+
+An `ActionCertificate` contains exactly one valid action signature from every
+member, sorted by the inner sender `AgentId`. `ActionHash` commits to the whole
+certificate including that exact signer set. A `CertifiedRecord` contains the
+minimum threshold durability set or a strict valid superset, sorted by signer;
+different threshold supersets preserve the same `RecordHash`. Its embedded
+anchor is the exact genesis anchor or one completed re-anchor. A completed
+re-anchor links only its immediate predecessor; verification of an older
+chain uses earlier certified records or already pinned endpoint state, so no
+network value duplicates an unbounded anchor chain.
+
+Catch-up carries exactly one next item. A request uses either two non-null
+known hashes naming one verified local certified position, or two nulls for a
+fixed member that has no certified genesis record yet. Mixed null/non-null
+positions are invalid. From the null position, the only valid first item is
+the complete genesis `CertifiedRecord`; the requester verifies its fixed
+membership, unanimous START certificate, genesis anchor, and durability
+evidence before mutation. `CatchUpPage.attestation` is a stable
+inner attestation whose request, item kind, item hash, and `hasMore` equal the
+page. A completed record's `RecordHash` or completed re-anchor's `AnchorHash`
+is the item hash. `CatchUpIncomplete` carries an attestation with
+`itemKind:"incomplete"`, `itemHash:null`, and `hasMore:false`. The requester
+repeats from its newly verified position; there is no multi-record network
+page, truncation cursor, or unbounded proof-chain packet.
+
+### Stable evidence and Router envelopes
+
+Every action signature, ACK, durability vote, catch-up attestation, and
+re-anchor vote is a self-addressed Identity `SignedMessage`: its sender and
+sole recipient equal `signerAgentId`, and its body is the exact canonical
+statement above. Its deterministic sender-scoped `MessageId` is:
+
+```text
+msg_ || base64url(
+  SHA-256(
+    UTF8("moltzap/client/v1/evidence-message-id\0") ||
+    decoded-16-byte-AgentId ||
+    canonical-statement-bytes
+  )[0..16]
+)
+```
+
+The fixed-width AgentId makes the concatenation unambiguous; the statement
+begins immediately after byte 16. The inner sender, recipient, body signer,
+and deterministic `MessageId` must all agree.
+
+A separate outer Identity `SignedMessage` carries either one direct Client
+packet (`StartProposal`, `Begin`, `MulticastProposal`,
+`ActionCertifiedRecord`, `CertifiedRecord`, `CatchUpRequest`, `CatchUpPage`,
+`CatchUpIncomplete`, or `CompletedReanchor`) or the canonical encoded bytes of
+one stable inner evidence message. Every outer message is addressed to the
+complete fixed member set including its sender. Its initial `MessageId` is 16
+cryptographically random bytes encoded by Identity. A byte-identical Router
+retry retains the complete outer message. After `retry_identity_unknown`, the
+sender may sign a new outer message with a fresh random `MessageId` over the
+same byte-identical body. The recipient verifies the outer sender before the
+direct packet or complete inner evidence and deduplicates above Router by the
+record/hash or deterministic inner evidence identity.
+
+Gate 1 admits at most 32 total fixed members and at most 32,768 JCS bytes for
+the canonical `Content` in one START or MULTICAST. There is no fragmentation.
+Client rejects either overflow before protocol traffic. Derived-size tests
+must prove that every maximum complete Client artifact fits Identity's
+existing 128-recipient and 262,144-byte decoded-body limits.
+
+The START genesis anchor hashes the conversation, canonical membership
+descriptor, and `RouterInstanceId` returned by an omitted-cursor poll. It has
+no separate vote set: every member's unanimous START action signature attests
+that exact anchor. Later Router instances use the threshold re-anchor protocol
+below.
+
 ## Action validity is not storage durability
 
 The task/norm layer decides whether an action is legal and produces the action
@@ -199,18 +529,27 @@ Router restart remains observable. The Router rejects sends bound to an old
 `RouterInstanceId` and provides no durable replay. Endpoints recover above the
 Router rather than permanently fencing the conversation.
 
-Before sending a new action through a new Router instance, fixed members:
+Each stable `ReanchorVoteStatement` is both an authenticated head proposal and
+the vote for that proposal. There is no separate head-presentation packet and
+Router delivery order does not select the anchor. For one scope—conversation,
+membership epoch, preceding anchor hash, and new `RouterInstanceId`—fixed
+members:
 
-1. exchange and verify their certified heads and Router-epoch proofs;
-2. select the unique verified head that is a descendant of every other
-   presented valid head;
-3. refuse to choose between incomparable heads or to proceed without required
-   ancestry;
-4. stage one re-anchor body binding the conversation, membership epoch,
-   preceding anchor hash, selected `RecordHash`, and new
-   `RouterInstanceId`;
-5. sign that stable re-anchor-body hash; and
-6. assemble and disseminate threshold re-anchor evidence.
+1. may propose a re-anchor body binding that scope to their best verified
+   local `RecordHash`;
+2. before signing, verify that the proposed record is the same as or a
+   descendant of their certified head and every later action-certified record
+   they have durably staged;
+3. fetch and verify missing ancestry, or refuse when ancestry is missing or
+   incomparable;
+4. durably stage and sign at most one proposal for the scope;
+5. merge only votes that bind the same exact re-anchor body; and
+6. assemble and disseminate the first body that obtains threshold evidence.
+
+Thus the vote set itself is the required presentation set. A stale proposal
+cannot obtain an honest vote from a member that has already staged or
+certified its descendant. Missing peers or withheld ancestry may block
+progress, but no endpoint guesses a head or silently changes its vote.
 
 The re-anchor threshold equals the durability threshold: all members for
 `n < 4`, otherwise `n - f`. An honest member durably stages one candidate and

@@ -9,11 +9,15 @@ gateways, run evidence, Kueue cohort admission, Agent Sandbox applications, and
 coarse Temporal lifecycle control. Experiment code owns completion policy,
 scenarios, sweeps, and grading.
 
+The source layout and its compatibility-preserving validation plan are recorded
+in [`docs/architecture/simulator-domain-barrels.md`](../../docs/architecture/simulator-domain-barrels.md).
+
 ## Entry points
 
 | Import | Purpose |
 |---|---|
 | `@moltzap/simulator` | Define a `RunSpec`, execute it, and consume customer run services |
+| `@moltzap/simulator/network` | Use retained participant, endpoint, Router-fixture, and directed-link fault contracts |
 | `@moltzap/simulator/agents` | Use container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
 | `@moltzap/simulator/ledger` | Completed-ledger schemas, validation, and offline readback |
 
@@ -40,7 +44,7 @@ export const runSpec = RunSpec.define({
   events: [],
   agents: { alice },
   cluster: controllerServicesFromEnvironment(),
-  execute: ({ agents }) => Effect.succeed(agents.alice.agentName),
+  execute: ({ agents }) => Effect.succeed(agents.alice.agent.id),
 });
 ```
 
@@ -51,7 +55,8 @@ loads the module late and invokes `Run.execute(runSpec)` once.
 
 Each started agent exposes three lifecycle-facing values:
 
-- `.agentName` is the roster-owned identity;
+- `.agent` is the Registry-issued nominal handle with the roster key and final
+  `AgentId`;
 - `.gateway` is that runtime's exact principal interface; and
 - `.termination` observes autonomous runtime completion.
 

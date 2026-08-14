@@ -1,4 +1,3 @@
-// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent and ledger identities the run gives them.
 /**
  * @file Every Kubernetes object the simulator builds: the run's aggregate
  * admission and sandbox resources, the run-scoped control objects created
@@ -16,28 +15,41 @@ import type {
   V1OwnerReference,
   V1Role,
   V1RoleBinding,
+  V1Service,
   V1ServiceAccount,
   V1Volume,
 } from "@kubernetes/client-node";
-import { ClusterError } from "../cluster.js";
-import type {
-  CredentialName,
-  Image,
-  Resources,
-} from "../../agents/container.js";
+import type { CredentialName, Image, Resources } from "../../agents/index.js";
+import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import type { KubernetesManifest } from "./calls.js";
+import { ClusterError } from "../cluster.js";
 import {
   encodeKubernetesExecutionProfile,
-  LOCAL_KUBERNETES_EXECUTION_PROFILE,
   type KubernetesExecutionProfile,
   type KubernetesPodPlacement,
+  LOCAL_KUBERNETES_EXECUTION_PROFILE,
 } from "../profile.js";
-import type { RunSocietyWorkflowInput } from "../reclaim.js";
+import {
+  ADMISSION_CREDENTIAL_SECRET_KEY,
+  AGENT_PRIVATE_KEY_SECRET_KEY,
+  type AgentDaemonAuthority,
+  DAEMON_MCP_PORT,
+  type SocietyNetworkConfiguration,
+} from "../society-network.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent and ledger identities the run gives them.
+/* eslint-disable max-lines -- The package's private Kubernetes manifest catalog is intentionally centralized for whole-object review. */
 
 const MAX_KUEUE_POD_SETS = 8;
 const BOOTSTRAP_INPUT_PATH = "/var/run/moltzap/secret";
 const BOOTSTRAP_OUTPUT_PATH = "/var/run/moltzap/bootstrap";
-const RUNTIME_STATE_PATH = "/var/lib/moltzap";
+const DAEMON_SECRET_PATH = "/var/run/moltzap/daemon";
+const ENDPOINT_STATE_PATH = "/var/lib/moltzap/endpoint";
+const MCP_URL = `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`;
+const REGISTRAR_ENTRYPOINT = "/opt/moltzap/register-daemon.mjs";
+
+/** Root ConfigMap name shared with controller-created owner references. */
+export const RUN_OWNER_NAME = "run";
 
 /** Run root created by the Temporal activity before the controller starts. */
 export interface KubernetesRunOwner {
@@ -83,6 +95,7 @@ interface AggregateWorkloadInput {
   readonly queueName: string;
   readonly labels: Readonly<Record<string, string>>;
   readonly owner: KubernetesRunOwner;
+  readonly supportImage: Image;
   readonly slots: ReservedCapacity;
   readonly placement?: KubernetesPodPlacement;
 }
@@ -102,85 +115,15 @@ interface SandboxManifestInput {
   readonly owner: KubernetesRunOwner;
   readonly bootstrapSecretName: string;
   readonly supportImage: Image;
+  readonly network: SocietyNetworkConfiguration;
+  readonly daemon: Pick<AgentDaemonAuthority, "operationId" | "principalId">;
+  readonly endpointStateClaimName: string;
+  readonly agentName: string;
   readonly application: SandboxApplication;
   readonly credentialSecretKeys: Readonly<
     Record<CredentialName, string | undefined>
   >;
   readonly placement?: KubernetesPodPlacement;
-}
-
-function ownerReference(owner: KubernetesRunOwner) {
-  return {
-    apiVersion: "v1",
-    kind: "ConfigMap",
-    name: owner.name,
-    uid: owner.uid,
-    controller: true,
-    blockOwnerDeletion: true,
-  } as const;
-}
-
-function capacityKey(slot: RuntimeCapacitySlot): string {
-  return JSON.stringify(
-    Object.entries(slot.requests).sort(([left], [right]) =>
-      left.localeCompare(right),
-    ),
-  );
-}
-
-function groupCapacity(
-  slots: readonly RuntimeCapacitySlot[],
-): readonly CapacityGroup[] {
-  const groups = new Map<string, CapacityGroup>();
-  for (const slot of slots) {
-    const key = capacityKey(slot);
-    const present = groups.get(key);
-    if (present === undefined) {
-      groups.set(key, {
-        count: 1,
-        image: slot.image,
-        requests: slot.requests,
-      });
-    } else {
-      present.count += 1;
-    }
-  }
-  return [...groups.values()];
-}
-
-function podPlacement(placement?: KubernetesPodPlacement) {
-  return placement === undefined
-    ? {}
-    : {
-        nodeSelector: { ...placement.nodeSelector },
-        tolerations: placement.tolerations.map((toleration) => ({
-          ...toleration,
-        })),
-      };
-}
-
-function workloadPodSets(
-  groups: readonly CapacityGroup[],
-  placement?: KubernetesPodPlacement,
-) {
-  return groups.map((group, index) => ({
-    name: `runtime-${String(index + 1)}`,
-    count: group.count,
-    template: {
-      spec: {
-        ...podPlacement(placement),
-        automountServiceAccountToken: false,
-        restartPolicy: "Never",
-        containers: [
-          {
-            name: "application",
-            image: group.image,
-            resources: { requests: group.requests },
-          },
-        ],
-      },
-    },
-  }));
 }
 
 /**
@@ -209,7 +152,7 @@ export function aggregateWorkloadManifest(
     spec: {
       active: true,
       queueName: input.queueName,
-      podSets: workloadPodSets(groups, input.placement),
+      podSets: workloadPodSets(groups, input.supportImage, input.placement),
     },
   };
 }
@@ -242,14 +185,242 @@ export function bootstrapSecretManifest(
   };
 }
 
-function resourceRequests(
-  resources: Resources,
-): Readonly<Record<string, string>> {
+/**
+ * Build one direct Agent Sandbox for a single roster application.
+ * @param input Run ownership, bootstrap identity, and rendered application.
+ * @returns Strict Agent Sandbox custom-resource manifest.
+ */
+export function sandboxManifest(
+  input: SandboxManifestInput,
+): KubernetesManifest {
   return {
-    cpu: `${String(resources.cpuMillis)}m`,
-    memory: String(resources.memoryBytes),
-    "ephemeral-storage": String(resources.ephemeralStorageBytes),
+    apiVersion: "agents.x-k8s.io/v1beta1",
+    kind: "Sandbox",
+    metadata: {
+      name: input.name,
+      namespace: input.namespace,
+      labels: input.labels,
+      ownerReferences: [ownerReference(input.owner)],
+    },
+    spec: {
+      service: true,
+      podTemplate: {
+        metadata: { labels: input.labels },
+        spec: sandboxPodSpec(input),
+      },
+    },
   };
+}
+
+/**
+ * Build the Namespace that contains every Kubernetes object for one run.
+ * @param input Workflow input carrying the caller-selected namespace and run ID.
+ * @returns A Namespace manifest owned by the surrounding cluster authority.
+ */
+export function runNamespaceManifest(
+  input: RunSocietyWorkflowInput,
+): V1Namespace {
+  return {
+    apiVersion: "v1",
+    kind: "Namespace",
+    metadata: {
+      name: input.namespace,
+      annotations: runAnnotations(input.runId),
+      labels: { "app.kubernetes.io/managed-by": "moltzap-simulator" },
+    },
+  };
+}
+
+/**
+ * Build the root object whose UID owns the run's namespaced control objects.
+ * @param input Workflow input carrying the target namespace and run ID.
+ * @returns An immutable ConfigMap used only as the run ownership root.
+ */
+export function runOwnerManifest(input: RunSocietyWorkflowInput): V1ConfigMap {
+  return {
+    apiVersion: "v1",
+    kind: "ConfigMap",
+    immutable: true,
+    metadata: {
+      name: RUN_OWNER_NAME,
+      namespace: input.namespace,
+      annotations: runAnnotations(input.runId),
+    },
+  };
+}
+
+/**
+ * Build every owned object needed before the in-cluster controller starts.
+ * @param input Serializable workflow input projected into Kubernetes manifests.
+ * @param ownerUid UID returned by the run root ConfigMap creation.
+ * @param profile Private storage and placement projection selected by the host.
+ * @returns The complete set of namespaced control objects created before the Job.
+ */
+export function ownedRunControlManifests(
+  input: RunSocietyWorkflowInput,
+  ownerUid: string,
+  profile: KubernetesExecutionProfile = LOCAL_KUBERNETES_EXECUTION_PROFILE,
+): OwnedRunControlManifests {
+  const owner = runOwnerReference(ownerUid);
+  return {
+    experiment: experimentManifest(input, owner),
+    localQueue: localQueueManifest(input, owner),
+    serviceAccount: controllerServiceAccount(input, owner),
+    role: controllerRole(input, owner),
+    roleBinding: controllerRoleBinding(input, owner),
+    controllerService: controllerService(input, owner),
+    controllerJob: controllerJob(input, owner, profile),
+  };
+}
+
+/**
+ * Build the cluster-resident worker that serves the run-lifecycle task queue.
+ *
+ * The worker is a Deployment rather than a process inside whichever host
+ * submitted the run: the workflow's cleanup only runs where a worker is
+ * polling, so a queue served by the submitter leaves every abandoned run's
+ * namespace behind.
+ *
+ * @param options Host-selected image, Temporal endpoint, queue, and profile.
+ * @returns The namespace, identity, permissions, and workload to install.
+ */
+export function runWorkerManifests(
+  options: RunWorkerOptions,
+): RunWorkerManifests {
+  return {
+    namespace: runWorkerNamespace(),
+    serviceAccount: runWorkerServiceAccount(),
+    clusterRole: runWorkerClusterRole(),
+    clusterRoleBinding: runWorkerClusterRoleBinding(),
+    deployment: runWorkerDeployment(options),
+  };
+}
+
+function ownerReference(owner: KubernetesRunOwner) {
+  return {
+    apiVersion: "v1",
+    kind: "ConfigMap",
+    name: owner.name,
+    uid: owner.uid,
+    controller: true,
+    blockOwnerDeletion: true,
+  } as const;
+}
+
+function groupCapacity(
+  slots: readonly RuntimeCapacitySlot[],
+): readonly CapacityGroup[] {
+  const groups = new Map<string, CapacityGroup>();
+  for (const slot of slots) {
+    const key = capacityKey(slot);
+    const present = groups.get(key);
+    if (present === undefined) {
+      groups.set(key, {
+        count: 1,
+        image: slot.image,
+        requests: slot.requests,
+      });
+    } else {
+      present.count += 1;
+    }
+  }
+  return [...groups.values()];
+}
+
+function capacityKey(slot: RuntimeCapacitySlot): string {
+  return JSON.stringify(
+    Object.entries(slot.requests).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
+  );
+}
+
+function sandboxPodSpec(input: SandboxManifestInput) {
+  return {
+    ...podPlacement(input.placement),
+    automountServiceAccountToken: false,
+    enableServiceLinks: false,
+    restartPolicy: "Never",
+    securityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+    initContainers: [
+      bootstrapContainer(input),
+      daemonContainer(input),
+      registrarContainer(input),
+    ],
+    containers: [applicationContainer(input)],
+    volumes: [
+      {
+        name: "bootstrap-input",
+        secret: { secretName: input.bootstrapSecretName },
+      },
+      { name: "bootstrap-output", emptyDir: {} },
+      {
+        name: "daemon-secret",
+        secret: {
+          secretName: input.bootstrapSecretName,
+          items: [
+            {
+              key: AGENT_PRIVATE_KEY_SECRET_KEY,
+              path: AGENT_PRIVATE_KEY_SECRET_KEY,
+              mode: 0o440,
+            },
+            {
+              key: ADMISSION_CREDENTIAL_SECRET_KEY,
+              path: ADMISSION_CREDENTIAL_SECRET_KEY,
+              mode: 0o440,
+            },
+          ],
+        },
+      },
+      {
+        name: "endpoint-state",
+        persistentVolumeClaim: { claimName: input.endpointStateClaimName },
+      },
+    ],
+  };
+}
+
+function podPlacement(placement?: KubernetesPodPlacement) {
+  return placement === undefined
+    ? {}
+    : {
+        nodeSelector: { ...placement.nodeSelector },
+        tolerations: placement.tolerations.map((toleration) => ({
+          ...toleration,
+        })),
+      };
+}
+
+function workloadPodSets(
+  groups: readonly CapacityGroup[],
+  supportImage: Image,
+  placement?: KubernetesPodPlacement,
+) {
+  return groups.map((group, index) => ({
+    name: `runtime-${String(index + 1)}`,
+    count: group.count,
+    template: {
+      spec: {
+        ...podPlacement(placement),
+        automountServiceAccountToken: false,
+        restartPolicy: "Never",
+        containers: [
+          {
+            name: "application",
+            image: group.image,
+            resources: { requests: group.requests },
+          },
+          {
+            name: "moltzapd",
+            image: supportImage,
+            resources: {
+              requests: { cpu: "100m", memory: "256Mi" },
+            },
+          },
+        ],
+      },
+    },
+  }));
 }
 
 function bootstrapContainer(input: SandboxManifestInput) {
@@ -303,7 +474,10 @@ function applicationContainer(input: SandboxManifestInput) {
     command: [command],
     args,
     env: [
-      ...Object.entries(input.application.environment)
+      ...Object.entries({
+        ...input.application.environment,
+        MOLTZAP_MCP_URL: MCP_URL,
+      })
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([name, value]) => ({ name, value })),
       ...credentials,
@@ -318,60 +492,82 @@ function applicationContainer(input: SandboxManifestInput) {
     resources: { requests: resourceRequests(input.application.resources) },
     volumeMounts: [
       { name: "bootstrap-output", mountPath: BOOTSTRAP_OUTPUT_PATH },
-      { name: "runtime-state", mountPath: RUNTIME_STATE_PATH },
     ],
   };
 }
 
-function sandboxPodSpec(input: SandboxManifestInput) {
+function resourceRequests(
+  resources: Resources,
+): Readonly<Record<string, string>> {
   return {
-    ...podPlacement(input.placement),
-    automountServiceAccountToken: false,
-    enableServiceLinks: false,
-    restartPolicy: "Never",
-    securityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
-    initContainers: [bootstrapContainer(input)],
-    containers: [applicationContainer(input)],
-    volumes: [
+    cpu: `${String(resources.cpuMillis)}m`,
+    memory: String(resources.memoryBytes),
+    "ephemeral-storage": String(resources.ephemeralStorageBytes),
+  };
+}
+
+function daemonContainer(input: SandboxManifestInput) {
+  return {
+    name: "moltzapd",
+    image: input.supportImage,
+    command: ["/srv/moltzap/node_modules/.bin/moltzapd"],
+    restartPolicy: "Always",
+    env: [
+      { name: "MOLTZAPD_STATE_DIRECTORY", value: ENDPOINT_STATE_PATH },
+      { name: "MOLTZAPD_MCP_PORT", value: String(DAEMON_MCP_PORT) },
+      { name: "MOLTZAPD_REGISTRY_ORIGIN", value: input.network.registryOrigin },
       {
-        name: "bootstrap-input",
-        secret: { secretName: input.bootstrapSecretName },
+        name: "MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY",
+        value: input.network.registrySignerPublicKeyJson,
       },
-      { name: "bootstrap-output", emptyDir: {} },
-      { name: "runtime-state", emptyDir: {} },
+      { name: "MOLTZAPD_ROUTER_ORIGIN", value: input.network.routerOrigin },
+      {
+        name: "MOLTZAPD_AGENT_PRIVATE_KEY_FILE",
+        value: `${DAEMON_SECRET_PATH}/${AGENT_PRIVATE_KEY_SECRET_KEY}`,
+      },
+      {
+        name: "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+        value: `${DAEMON_SECRET_PATH}/${ADMISSION_CREDENTIAL_SECRET_KEY}`,
+      },
+    ],
+    resources: { requests: { cpu: "100m", memory: "256Mi" } },
+    startupProbe: {
+      tcpSocket: { port: DAEMON_MCP_PORT, host: "127.0.0.1" },
+      failureThreshold: 120,
+      periodSeconds: 1,
+      timeoutSeconds: 1,
+    },
+    volumeMounts: [
+      { name: "endpoint-state", mountPath: ENDPOINT_STATE_PATH },
+      {
+        name: "daemon-secret",
+        mountPath: DAEMON_SECRET_PATH,
+        readOnly: true,
+      },
     ],
   };
 }
 
-/**
- * Build one direct Agent Sandbox for a single roster application.
- * @param input Run ownership, bootstrap identity, and rendered application.
- * @returns Strict Agent Sandbox custom-resource manifest.
- */
-export function sandboxManifest(
-  input: SandboxManifestInput,
-): KubernetesManifest {
+function registrarContainer(input: SandboxManifestInput) {
   return {
-    apiVersion: "agents.x-k8s.io/v1beta1",
-    kind: "Sandbox",
-    metadata: {
-      name: input.name,
-      namespace: input.namespace,
-      labels: input.labels,
-      ownerReferences: [ownerReference(input.owner)],
-    },
-    spec: {
-      service: true,
-      podTemplate: {
-        metadata: { labels: input.labels },
-        spec: sandboxPodSpec(input),
+    name: "register-daemon",
+    image: input.supportImage,
+    command: ["node", REGISTRAR_ENTRYPOINT],
+    env: [
+      { name: "MOLTZAP_MCP_URL", value: MCP_URL },
+      {
+        name: "MOLTZAP_REGISTRATION_OPERATION_ID",
+        value: input.daemon.operationId,
       },
-    },
+      {
+        name: "MOLTZAP_REGISTRATION_PRINCIPAL_ID",
+        value: input.daemon.principalId,
+      },
+      { name: "MOLTZAP_REGISTRATION_AGENT_NAME", value: input.agentName },
+    ],
   };
 }
 
-/** Root ConfigMap name shared with controller-created owner references. */
-export const RUN_OWNER_NAME = "run";
 /** ConfigMap containing the mounted experiment module. */
 export const EXPERIMENT_CONFIG_NAME = "experiment";
 /** Run-local queue consumed by the aggregate Kueue Workload. */
@@ -380,6 +576,8 @@ export const LOCAL_QUEUE_NAME = "society";
 export const CLUSTER_QUEUE_NAME = "moltzap";
 /** Shared ServiceAccount, RBAC, and Job name for the controller. */
 export const CONTROLLER_NAME = "controller";
+/** Run-private post-Router fault proxy port exposed only inside the namespace. */
+export const ROUTER_FAULT_PROXY_PORT = 43_120;
 /** Namespace holding the cluster's long-lived simulator control plane. */
 export const SYSTEM_NAMESPACE = "moltzap-system";
 /** ServiceAccount, RBAC, and Deployment name for the run-lifecycle worker. */
@@ -422,11 +620,114 @@ export interface OwnedRunControlManifests {
   readonly serviceAccount: V1ServiceAccount;
   readonly role: V1Role;
   readonly roleBinding: V1RoleBinding;
+  readonly controllerService: V1Service;
   readonly controllerJob: V1Job;
 }
 
 function runAnnotations(runId: string): Readonly<Record<string, string>> {
   return { "moltzap.dev/run-id": runId };
+}
+
+function controllerJob(
+  input: RunSocietyWorkflowInput,
+  owner: V1OwnerReference,
+  profile: KubernetesExecutionProfile,
+): V1Job {
+  return {
+    apiVersion: "batch/v1",
+    kind: "Job",
+    metadata: {
+      name: CONTROLLER_NAME,
+      namespace: input.namespace,
+      ownerReferences: [owner],
+    },
+    spec: {
+      backoffLimit: 0,
+      template: {
+        metadata: {
+          labels: controllerLabels(),
+          ...(profile.kind === "gke"
+            ? { annotations: { [GKE_GCS_FUSE_ANNOTATION]: "true" } }
+            : {}),
+        },
+        spec: {
+          automountServiceAccountToken: true,
+          enableServiceLinks: false,
+          restartPolicy: "Never",
+          serviceAccountName: CONTROLLER_NAME,
+          initContainers: [ledgerPermissionsContainer(input)],
+          containers: [controllerContainer(input, owner, profile)],
+          volumes: controllerVolumes(input, profile),
+        },
+      },
+    },
+  };
+}
+
+function controllerService(
+  input: RunSocietyWorkflowInput,
+  owner: V1OwnerReference,
+): V1Service {
+  return {
+    apiVersion: "v1",
+    kind: "Service",
+    metadata: {
+      name: CONTROLLER_NAME,
+      namespace: input.namespace,
+      ownerReferences: [owner],
+    },
+    spec: {
+      selector: controllerLabels(),
+      ports: [
+        {
+          name: "router-fault-proxy",
+          port: ROUTER_FAULT_PROXY_PORT,
+          targetPort: ROUTER_FAULT_PROXY_PORT,
+          protocol: "TCP",
+        },
+      ],
+    },
+  };
+}
+
+function controllerContainer(
+  input: RunSocietyWorkflowInput,
+  owner: V1OwnerReference,
+  profile: KubernetesExecutionProfile,
+): V1Container {
+  return {
+    name: CONTROLLER_NAME,
+    image: input.controllerImage,
+    command: ["node", CONTROLLER_ENTRYPOINT],
+    ports: [
+      {
+        name: "router-fault-proxy",
+        containerPort: ROUTER_FAULT_PROXY_PORT,
+        protocol: "TCP",
+      },
+    ],
+    env: controllerEnvironment(input, owner.uid, profile),
+    terminationMessagePolicy: "FallbackToLogsOnError",
+    volumeMounts: [
+      {
+        name: "experiment",
+        mountPath: EXPERIMENT_DIRECTORY,
+        readOnly: true,
+      },
+      {
+        name: "ledger",
+        mountPath: LOCAL_LEDGER_DIRECTORY,
+      },
+      ...(profile.kind === "gke"
+        ? [
+            {
+              name: "artifacts",
+              mountPath: GKE_ARTIFACT_MOUNT_PATH,
+            },
+          ]
+        : []),
+    ],
+  };
 }
 
 function controllerLabels(): Readonly<Record<string, string>> {
@@ -444,43 +745,6 @@ function runOwnerReference(uid: string): V1OwnerReference {
     uid,
     controller: true,
     blockOwnerDeletion: true,
-  };
-}
-
-/**
- * Build the Namespace that contains every Kubernetes object for one run.
- * @param input Workflow input carrying the caller-selected namespace and run ID.
- * @returns A Namespace manifest owned by the surrounding cluster authority.
- */
-export function runNamespaceManifest(
-  input: RunSocietyWorkflowInput,
-): V1Namespace {
-  return {
-    apiVersion: "v1",
-    kind: "Namespace",
-    metadata: {
-      name: input.namespace,
-      annotations: runAnnotations(input.runId),
-      labels: { "app.kubernetes.io/managed-by": "moltzap-simulator" },
-    },
-  };
-}
-
-/**
- * Build the root object whose UID owns the run's namespaced control objects.
- * @param input Workflow input carrying the target namespace and run ID.
- * @returns An immutable ConfigMap used only as the run ownership root.
- */
-export function runOwnerManifest(input: RunSocietyWorkflowInput): V1ConfigMap {
-  return {
-    apiVersion: "v1",
-    kind: "ConfigMap",
-    immutable: true,
-    metadata: {
-      name: RUN_OWNER_NAME,
-      namespace: input.namespace,
-      annotations: runAnnotations(input.runId),
-    },
   };
 }
 
@@ -579,6 +843,7 @@ function controllerServiceAccount(
   };
 }
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The controller's closed RBAC grant stays in one manifest so reviewers can audit the exact authority set.
 function controllerRole(
   input: RunSocietyWorkflowInput,
   owner: V1OwnerReference,
@@ -604,7 +869,12 @@ function controllerRole(
       },
       {
         apiGroups: [""],
-        resources: ["secrets"],
+        resources: ["secrets", "persistentvolumeclaims", "services"],
+        verbs: ["create", "delete"],
+      },
+      {
+        apiGroups: ["apps"],
+        resources: ["deployments"],
         verbs: ["create", "delete"],
       },
       {
@@ -651,39 +921,6 @@ function controllerRoleBinding(
         name: CONTROLLER_NAME,
         namespace: input.namespace,
       },
-    ],
-  };
-}
-
-function controllerContainer(
-  input: RunSocietyWorkflowInput,
-  owner: V1OwnerReference,
-  profile: KubernetesExecutionProfile,
-): V1Container {
-  return {
-    name: CONTROLLER_NAME,
-    image: input.controllerImage,
-    command: ["node", CONTROLLER_ENTRYPOINT],
-    env: controllerEnvironment(input, owner.uid, profile),
-    terminationMessagePolicy: "FallbackToLogsOnError",
-    volumeMounts: [
-      {
-        name: "experiment",
-        mountPath: EXPERIMENT_DIRECTORY,
-        readOnly: true,
-      },
-      {
-        name: "ledger",
-        mountPath: LOCAL_LEDGER_DIRECTORY,
-      },
-      ...(profile.kind === "gke"
-        ? [
-            {
-              name: "artifacts",
-              mountPath: GKE_ARTIFACT_MOUNT_PATH,
-            },
-          ]
-        : []),
     ],
   };
 }
@@ -753,65 +990,6 @@ function ledgerPermissionsContainer(
   };
 }
 
-function controllerJob(
-  input: RunSocietyWorkflowInput,
-  owner: V1OwnerReference,
-  profile: KubernetesExecutionProfile,
-): V1Job {
-  return {
-    apiVersion: "batch/v1",
-    kind: "Job",
-    metadata: {
-      name: CONTROLLER_NAME,
-      namespace: input.namespace,
-      ownerReferences: [owner],
-    },
-    spec: {
-      backoffLimit: 0,
-      template: {
-        metadata: {
-          labels: controllerLabels(),
-          ...(profile.kind === "gke"
-            ? { annotations: { [GKE_GCS_FUSE_ANNOTATION]: "true" } }
-            : {}),
-        },
-        spec: {
-          automountServiceAccountToken: true,
-          enableServiceLinks: false,
-          restartPolicy: "Never",
-          serviceAccountName: CONTROLLER_NAME,
-          initContainers: [ledgerPermissionsContainer(input)],
-          containers: [controllerContainer(input, owner, profile)],
-          volumes: controllerVolumes(input, profile),
-        },
-      },
-    },
-  };
-}
-
-/**
- * Build every owned object needed before the in-cluster controller starts.
- * @param input Serializable workflow input projected into Kubernetes manifests.
- * @param ownerUid UID returned by the run root ConfigMap creation.
- * @param profile Private storage and placement projection selected by the host.
- * @returns The complete set of namespaced control objects created before the Job.
- */
-export function ownedRunControlManifests(
-  input: RunSocietyWorkflowInput,
-  ownerUid: string,
-  profile: KubernetesExecutionProfile = LOCAL_KUBERNETES_EXECUTION_PROFILE,
-): OwnedRunControlManifests {
-  const owner = runOwnerReference(ownerUid);
-  return {
-    experiment: experimentManifest(input, owner),
-    localQueue: localQueueManifest(input, owner),
-    serviceAccount: controllerServiceAccount(input, owner),
-    role: controllerRole(input, owner),
-    roleBinding: controllerRoleBinding(input, owner),
-    controllerJob: controllerJob(input, owner, profile),
-  };
-}
-
 /** Cluster-wide identity and workload serving the run-lifecycle task queue. */
 export interface RunWorkerManifests {
   readonly namespace: V1Namespace;
@@ -828,13 +1006,6 @@ export interface RunWorkerOptions {
   readonly temporalAddress: string;
   readonly temporalNamespace: string;
   readonly profile: KubernetesExecutionProfile;
-}
-
-function runWorkerLabels(): Readonly<Record<string, string>> {
-  return {
-    "app.kubernetes.io/name": "moltzap-simulator-run-worker",
-    "app.kubernetes.io/managed-by": "moltzap-simulator",
-  };
 }
 
 function runWorkerNamespace(): V1Namespace {
@@ -861,6 +1032,19 @@ function runWorkerServiceAccount(): V1ServiceAccount {
 }
 
 type PolicyRules = NonNullable<V1ClusterRole["rules"]>;
+
+function runWorkerClusterRole(): V1ClusterRole {
+  return {
+    apiVersion: "rbac.authorization.k8s.io/v1",
+    kind: "ClusterRole",
+    metadata: { name: RUN_WORKER_NAME, labels: runWorkerLabels() },
+    rules: [
+      ...reclamationRules(),
+      ...runPreparationRules(),
+      ...delegatedControllerRules(),
+    ],
+  };
+}
 
 // Deleting a namespace is the permission that lets the worker reclaim a run
 // whose submitter is gone, which is the reason the worker exists. It cannot be
@@ -889,7 +1073,7 @@ function runPreparationRules(): PolicyRules {
     },
     {
       apiGroups: [""],
-      resources: ["serviceaccounts", "services"],
+      resources: ["serviceaccounts"],
       verbs: ["create"],
     },
     { apiGroups: [""], resources: ["pods"], verbs: ["get", "list"] },
@@ -913,7 +1097,16 @@ function runPreparationRules(): PolicyRules {
 // bound on what the worker must be granted.
 function delegatedControllerRules(): PolicyRules {
   return [
-    { apiGroups: [""], resources: ["secrets"], verbs: ["create", "delete"] },
+    {
+      apiGroups: [""],
+      resources: ["secrets", "persistentvolumeclaims", "services"],
+      verbs: ["create", "delete"],
+    },
+    {
+      apiGroups: ["apps"],
+      resources: ["deployments"],
+      verbs: ["create", "delete"],
+    },
     {
       apiGroups: ["kueue.x-k8s.io"],
       resources: ["workloads"],
@@ -925,19 +1118,6 @@ function delegatedControllerRules(): PolicyRules {
       verbs: ["create", "get", "delete"],
     },
   ];
-}
-
-function runWorkerClusterRole(): V1ClusterRole {
-  return {
-    apiVersion: "rbac.authorization.k8s.io/v1",
-    kind: "ClusterRole",
-    metadata: { name: RUN_WORKER_NAME, labels: runWorkerLabels() },
-    rules: [
-      ...reclamationRules(),
-      ...runPreparationRules(),
-      ...delegatedControllerRules(),
-    ],
-  };
 }
 
 function runWorkerClusterRoleBinding(): V1ClusterRoleBinding {
@@ -958,6 +1138,32 @@ function runWorkerClusterRoleBinding(): V1ClusterRoleBinding {
         namespace: SYSTEM_NAMESPACE,
       },
     ],
+  };
+}
+
+function runWorkerDeployment(options: RunWorkerOptions): V1Deployment {
+  return {
+    apiVersion: "apps/v1",
+    kind: "Deployment",
+    metadata: {
+      name: RUN_WORKER_NAME,
+      namespace: SYSTEM_NAMESPACE,
+      labels: runWorkerLabels(),
+    },
+    spec: {
+      replicas: 1,
+      selector: { matchLabels: runWorkerLabels() },
+      template: {
+        metadata: { labels: runWorkerLabels() },
+        spec: {
+          automountServiceAccountToken: true,
+          enableServiceLinks: false,
+          serviceAccountName: RUN_WORKER_NAME,
+          terminationGracePeriodSeconds: RUN_WORKER_TERMINATION_GRACE_SECONDS,
+          containers: [runWorkerContainer(options)],
+        },
+      },
+    },
   };
 }
 
@@ -1000,51 +1206,11 @@ function runWorkerContainer(options: RunWorkerOptions): V1Container {
   };
 }
 
-function runWorkerDeployment(options: RunWorkerOptions): V1Deployment {
+function runWorkerLabels(): Readonly<Record<string, string>> {
   return {
-    apiVersion: "apps/v1",
-    kind: "Deployment",
-    metadata: {
-      name: RUN_WORKER_NAME,
-      namespace: SYSTEM_NAMESPACE,
-      labels: runWorkerLabels(),
-    },
-    spec: {
-      replicas: 1,
-      selector: { matchLabels: runWorkerLabels() },
-      template: {
-        metadata: { labels: runWorkerLabels() },
-        spec: {
-          automountServiceAccountToken: true,
-          enableServiceLinks: false,
-          serviceAccountName: RUN_WORKER_NAME,
-          terminationGracePeriodSeconds: RUN_WORKER_TERMINATION_GRACE_SECONDS,
-          containers: [runWorkerContainer(options)],
-        },
-      },
-    },
+    "app.kubernetes.io/name": "moltzap-simulator-run-worker",
+    "app.kubernetes.io/managed-by": "moltzap-simulator",
   };
 }
 
-/**
- * Build the cluster-resident worker that serves the run-lifecycle task queue.
- *
- * The worker is a Deployment rather than a process inside whichever host
- * submitted the run: the workflow's cleanup only runs where a worker is
- * polling, so a queue served by the submitter leaves every abandoned run's
- * namespace behind.
- *
- * @param options Host-selected image, Temporal endpoint, queue, and profile.
- * @returns The namespace, identity, permissions, and workload to install.
- */
-export function runWorkerManifests(
-  options: RunWorkerOptions,
-): RunWorkerManifests {
-  return {
-    namespace: runWorkerNamespace(),
-    serviceAccount: runWorkerServiceAccount(),
-    clusterRole: runWorkerClusterRole(),
-    clusterRoleBinding: runWorkerClusterRoleBinding(),
-    deployment: runWorkerDeployment(options),
-  };
-}
+/* eslint-enable max-lines -- Restore the workspace file-size limit outside the manifest catalog. */

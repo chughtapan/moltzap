@@ -13,7 +13,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/client-runtime.ts#L300)
+### [`acquireHarnessClient`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/client-runtime.ts#L307)
 
 _Function_
 
@@ -27,7 +27,7 @@ Acquire one real MCP-backed client and its sole inbound subscription.
 
 **Returns:** A client whose resources remain live for the caller's scope.
 
-### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/dist/identifiers.d.ts#L31)
+### [`AgentName`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/dist/identifiers.d.ts#L31)
 
 _TypeAlias_
 
@@ -37,7 +37,7 @@ export type AgentName = typeof AgentName.Type;
 
 Validated nominal value decoded by AgentName.
 
-### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/dist/identifiers.d.ts#L29)
+### [`AgentName`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/dist/identifiers.d.ts#L29)
 
 _Variable_
 
@@ -47,7 +47,7 @@ export declare const AgentName: Schema.brand<Schema.filter<Schema.filter<Schema.
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L47)
+### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L47)
 
 _Class_
 
@@ -57,7 +57,7 @@ export class ConnectError extends Data.TaggedError("ConnectError") {}
 
 Acquiring the endpoint connection or its sole subscription failed.
 
-### [`Content`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L25)
+### [`Content`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L25)
 
 _TypeAlias_
 
@@ -67,18 +67,19 @@ export type Content = readonly [ContentPart, ...ContentPart[]];
 
 Nonempty semantic content for one conversation action.
 
-### [`ContentPart`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L20)
+### [`ContentPart`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L20)
 
 _TypeAlias_
 
 ```ts
 export type ContentPart =
   | Readonly<{ type: "text"; text: string }>
+  | Readonly<{ type: "data"; value: JsonValue }>;
 ```
 
 One semantic part of a conversation action.
 
-### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L37)
+### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L37)
 
 _TypeAlias_
 
@@ -88,7 +89,7 @@ export type ConversationId = typeof ConversationId.Type;
 
 Validated conversation identity.
 
-### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L28)
+### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L28)
 
 _Variable_
 
@@ -104,7 +105,7 @@ export const ConversationId = Schema.UUID.pipe(
 
 Caller-retained identity for one conversation and its START retries.
 
-### [`ConversationIdGenerationError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L42)
+### [`ConversationIdGenerationError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L42)
 
 _Class_
 
@@ -116,7 +117,7 @@ export class ConversationIdGenerationError extends Data.TaggedError(
 
 Creating a conversation identity failed.
 
-### [`createConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L111)
+### [`createConversationId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L111)
 
 _Function_
 
@@ -131,7 +132,7 @@ Mint a ConversationId before any START network work begins.
 
 **Returns:** The newly minted caller-retained identity.
 
-### [`HarnessClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L99)
+### [`HarnessClient`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L99)
 
 _Interface_
 
@@ -144,7 +145,7 @@ export interface HarnessClient {
 
 Structural runtime capability owned by one scoped endpoint connection.
 
-### [`HarnessTurn`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L90)
+### [`HarnessTurn`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L90)
 
 _Interface_
 
@@ -160,7 +161,7 @@ export interface HarnessTurn {
 
 One certified current-conversation action with live reply authority.
 
-### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L10)
+### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L10)
 
 _TypeAlias_
 
@@ -171,11 +172,12 @@ export type JsonValue =
   | number
   | string
   | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
 ```
 
 A value accepted by the closed semantic content boundary.
 
-### [`ListenError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L66)
+### [`ListenError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L66)
 
 _Class_
 
@@ -187,7 +189,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 Closed failure from the endpoint's sole inbound stream.
 
-### [`ReplyError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L78)
+### [`ReplyError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L78)
 
 _Class_
 
@@ -199,7 +201,7 @@ export class ReplyError extends Data.TaggedError("ReplyError")<{
 
 Closed failure from one turn-bound reply.
 
-### [`StartError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L59)
+### [`StartError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L59)
 
 _Class_
 
@@ -211,7 +213,7 @@ export class StartError extends Data.TaggedError("StartError")<{
 
 Closed failure from one START operation.
 
-### [`StartInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L83)
+### [`StartInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L83)
 
 _Interface_
 
@@ -225,7 +227,7 @@ export interface StartInput {
 
 Complete semantic input for a new conversation.
 
-### [`VerifiedAgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/dist/agent-card.d.ts#L22)
+### [`VerifiedAgentCard`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/dist/agent-card.d.ts#L22)
 
 _TypeAlias_
 

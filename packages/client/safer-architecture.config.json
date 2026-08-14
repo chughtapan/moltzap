@@ -1,4 +1,90 @@
 {
+  "maxFolderCycles": 1,
+  "folderReadmeFileNames": [
+    "README.md",
+    "../README.md"
+  ],
+  "folderChildCountOverrides": [
+    {
+      "folder": "endpoint",
+      "maxChildren": 13,
+      "reason": "The endpoint protocol keeps one focused module per state-machine phase behind declared engine, representation, Router-worker, store, and attention facades"
+    }
+  ],
+  "facadeFiles": [
+    {
+      "file": "server.ts",
+      "reason": "Published process-composition boundary for the single configured endpoint daemon"
+    },
+    {
+      "file": "harness-mcp-wire.ts",
+      "reason": "Private MCP operation facade shared by the daemon runtime and management catalog"
+    },
+    {
+      "file": "management-runtime.ts",
+      "reason": "Exact private management schema boundary shared by daemon operations and its MCP catalog"
+    },
+    {
+      "file": "daemon/runtime.ts",
+      "reason": "Sole daemon composition boundary joining endpoint capabilities to the loopback MCP server"
+    },
+    {
+      "file": "daemon/registration.ts",
+      "reason": "Crash-recoverable identity-registration boundary shared by daemon startup and management"
+    },
+    {
+      "file": "endpoint/engine.ts",
+      "reason": "Private endpoint-engine facade composing protocol phases behind the daemon-owned EndpointEngine capability"
+    },
+    {
+      "file": "endpoint/engine-durability.ts",
+      "reason": "Durable action-fold transition boundary shared by engine protocol phases"
+    },
+    {
+      "file": "endpoint/engine-start.ts",
+      "reason": "START construction and resolution boundary shared by the endpoint engine phases"
+    },
+    {
+      "file": "endpoint/engine-types.ts",
+      "reason": "Closed endpoint-engine port and error vocabulary shared by every protocol phase"
+    },
+    {
+      "file": "endpoint/openfloor.ts",
+      "reason": "Attention-state boundary that projects certified records into one live turn authority"
+    },
+    {
+      "file": "endpoint/representation-codec.ts",
+      "reason": "Canonical encoding, signing, and hashing boundary beneath the complete representation facade"
+    },
+    {
+      "file": "endpoint/representation.ts",
+      "reason": "Complete private protocol-representation facade consumed by endpoint and daemon modules"
+    },
+    {
+      "file": "endpoint/router-worker.ts",
+      "reason": "Private Router transport, verification, retry, and recovery facade for the endpoint engine"
+    },
+    {
+      "file": "endpoint/store.ts",
+      "reason": "Private typed facade for the daemon-owned endpoint replica and its recovery state"
+    }
+  ],
+  "layers": [
+    {
+      "name": "daemon",
+      "folders": [
+        "daemon"
+      ],
+      "reason": "Process composition may depend on endpoint capabilities while endpoint protocol code never depends on daemon lifecycle"
+    },
+    {
+      "name": "endpoint",
+      "folders": [
+        "endpoint"
+      ],
+      "reason": "Endpoint protocol, durability, recovery, Router work, and attention form the daemon's private semantic core"
+    }
+  ],
   "publicTypePackages": [
     {
       "package": "effect",

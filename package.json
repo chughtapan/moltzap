@@ -17,7 +17,7 @@
     "build": "nx run-many -t build",
     "test": "nx run-many -t test",
     "test:integration": "nx run-many -t test:integration",
-    "lint": "node scripts/architecture/check-boundaries.js && pnpm arch:config:check && pnpm arch:check && pnpm lint:root && nx run-many -t lint && oxlint . --deny-warnings",
+    "lint": "pnpm nx run workspace:lint",
     "arch:check": "NODE_OPTIONS=--max-old-space-size=8192 nx run-many -t arch:check",
     "arch:config:generate": "node scripts/architecture/gen-configs.mjs",
     "arch:config:check": "pnpm arch:config:generate && test -z \"$(git ls-files --others --exclude-standard -- 'packages/*/safer-architecture.config.json')\" && git diff --exit-code -- 'packages/*/safer-architecture.config.json'",
@@ -38,7 +38,7 @@
     "docs:test": "pnpm nx run workspace:test",
     "test:compute-next-version": "bash scripts/release/compute-next-version.test.sh",
     "check:agent-setup": "bash scripts/repo/check-agent-setup.sh",
-    "test:pack:simulator": "pnpm nx build @moltzap/simulator && node scripts/test/simulator-packages.mjs",
+    "test:pack:simulator": "pnpm nx run @moltzap/simulator:test:pack",
     "prepare": "husky && node scripts/setup/restore-tsgo-exec-bit.mjs",
     "effect:source": "./scripts/setup/prepare-effect.sh",
     "test:affected": "nx affected -t test"

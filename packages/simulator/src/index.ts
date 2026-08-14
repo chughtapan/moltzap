@@ -4,11 +4,10 @@
 
 /** Re-exports the public API from `./definition.js`. */
 export {
-  isRunSpec,
+  type ClusterServices,
   Run,
   RunSpec,
   SimulatorDefinitionError,
-  type ClusterServices,
   type SimulatorDefinitionId,
 } from "./definition.js";
 
@@ -21,9 +20,16 @@ export {
   AgentRuntimeReady,
   AgentRuntimeStartFailed,
   coreEvents,
+  LinkDown,
+  LinkPolicyCleared,
+  LinkPolicySet,
+  LinkUp,
   ProgramFailed,
   ProgramInterrupted,
   ProgramSucceeded,
+  RouterStarted,
+  RouterStartFailed,
+  RouterStopFailed,
   RunStarted,
 } from "./events/core.js";
 /** Re-exports the public API from `./run/events.js`. */
@@ -35,25 +41,46 @@ export {
 
 /** Re-exports the public API from `./events/catalog.js`. */
 export {
+  type EncodedEventOf,
   EventCatalog,
   EventCatalogDefinitionError,
-  type EncodedEventOf,
   type EventCatalogDefinitionFailure,
   type EventClass,
   type EventClassOf,
   type EventOf,
   type VersionedEventTag,
 } from "./events/catalog.js";
-/** Re-exports the public API from `./ledger/append.js`. */
-export type { LedgerFailure } from "./ledger/append.js";
+/** Re-exports the public ledger failure contract from its owning domain. */
+export type { LedgerFailure } from "./ledger/index.js";
+
+/** Re-exports the compatible experiment-facing network API. */
+export {
+  type AgentConnection,
+  AgentHandle,
+  ConversationAddress,
+  type ConversationParticipants,
+  ConversationSocket,
+  Endpoint,
+  LinkController,
+  type LinkControllerService,
+  type LinkDelivery,
+  linkPolicy,
+  type LinkPolicy,
+  linkVerdict,
+  type LinkVerdict,
+  Network,
+  NetworkError,
+  type NetworkService,
+  ParticipantHandle,
+} from "./network/index.js";
 
 /** Re-exports the public API from `./run/execute.js`. */
 export {
+  ClusterLost,
   CompletedLedgerReceipt,
   IncompleteLedgerReceipt,
   LedgerReceipt,
   ProgramFinished,
-  ClusterLost,
   type SimulatorRunFailure,
   type SimulatorRunOutcome,
 } from "./run/execute.js";

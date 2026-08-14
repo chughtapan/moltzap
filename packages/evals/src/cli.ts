@@ -92,6 +92,7 @@ import {
 
 const CLI_VERSION = "0.0.0";
 const RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
+const PEER_OBSERVATION_TIMEOUT = Duration.minutes(5);
 const CASE_TIMEOUT = Duration.minutes(20);
 const JUDGE_POLICY: JudgePolicyId = decodeJudgePolicyId(
   "openai-gpt-5.6-sol/v1",
@@ -246,6 +247,7 @@ function evaluationConditions(
   nanoclawApplicationImage: Image,
 ): readonly [EvaluationCondition, EvaluationCondition] {
   const execution = {
+    peerObservationTimeout: PEER_OBSERVATION_TIMEOUT,
     caseTimeout: CASE_TIMEOUT,
   } as const;
   return [
@@ -625,6 +627,7 @@ function submissionInput(
     },
     nanoclawApplicationImage: environment.nanoclawApplicationImage,
     runtimeStartupTimeoutMillis: Duration.toMillis(RUNTIME_STARTUP_TIMEOUT),
+    peerObservationTimeoutMillis: Duration.toMillis(PEER_OBSERVATION_TIMEOUT),
     caseTimeoutMillis: Duration.toMillis(CASE_TIMEOUT),
   } as const;
 }

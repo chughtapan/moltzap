@@ -1,21 +1,35 @@
 /** @file Private in-memory cluster used by run tests. */
-// safer-arch-ignore no-cross-domain-sibling-import: The in-memory cluster mirrors the real seam, so it names the same agent and lifecycle types.
 
+import type { AgentId, AgentName } from "@moltzap/identity";
 import { Effect, type Schema, type Scope } from "effect";
-import {
-  defineRuntime,
-  type AgentRuntime,
-  type AgentRuntimeDefinition,
-  type AgentRuntimeInput,
-  type AgentRuntimeLike,
-  type RunningAgent,
-} from "../agents/agent.js";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
+  AgentRuntime,
+  AgentRuntimeInput,
+  RunningAgent,
   RuntimeGatewayOf,
-} from "../agents/roster.js";
-import type { ClusterError, Slot, ClusterService, Society } from "./cluster.js";
+  StartedAgent,
+} from "../agents/index.js";
+import type {
+  ClusterError,
+  ClusterService,
+  RouterFaultProxyPlatform,
+  Slot,
+  Society,
+} from "./cluster.js";
+import {
+  type AgentRuntimeDefinition,
+  type AgentRuntimeLike,
+  defineRuntime,
+} from "../agents/agent.js";
+import {
+  type AttachedEndpoint,
+  makeAgentHandle,
+  type NetworkError,
+} from "../network/index.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: The in-memory cluster mirrors the real seam, so it names the same agent and lifecycle types.
 
 type FakeRuntimeAcquirer<Gateway, AcquisitionError> = (
   input: AgentRuntimeInput,
@@ -78,60 +92,25 @@ export function defineFakeRuntime<
   return branded;
 }
 
-/**
- * Acquire one test runtime through the acquirer branded onto it.
- * @param runtime Runtime value produced by defineFakeRuntime.
- * @param input Run-scoped roster identity.
- * @returns The runtime-specific gateway and termination observation.
- */
-function acquireFakeRuntime<
-  Gateway,
-  AcquisitionError,
-  ConfigurationSchema extends Schema.Schema.AnyNoContext,
->(
-  runtime: AgentRuntime<Gateway, AcquisitionError, ConfigurationSchema>,
-  input: AgentRuntimeInput,
-): Effect.Effect<RunningAgent<Gateway>, AcquisitionError, Scope.Scope> {
-  const carrier: FakeRuntimeCarrier<Gateway, AcquisitionError> = runtime;
-  const acquire = carrier[fakeRuntimeTypeId];
-  if (acquire === undefined) {
-    return Effect.dieMessage(
-      `runtime "${runtime.name}" has no private fake realization`,
-    );
-  }
-  return acquire(input);
-}
-
 /** Lifecycle controls for one private fake society session. */
 export interface FakeClusterOptions {
+  /** Identity fixture supplied explicitly by the test that owns the roster. */
+  readonly agentIdFor?: (agentName: AgentName) => AgentId;
+  readonly acquireEndpoint?: <const Name extends string>(input: {
+    readonly name: Name;
+    readonly routerOrigin: URL;
+  }) => Effect.Effect<AttachedEndpoint<Name>, NetworkError, Scope.Scope>;
   readonly cohortReady?: Effect.Effect<void, ClusterError>;
   readonly failure?: Effect.Effect<never, ClusterError>;
   readonly onAcquire?: (name: string) => Effect.Effect<void>;
   readonly onPrepare?: (names: readonly string[]) => Effect.Effect<void>;
   readonly onRelease?: Effect.Effect<void>;
+  readonly routerFaultProxy?: RouterFaultProxyPlatform;
 }
 
-function makeFakeSociety<
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(options: FakeClusterOptions): Society<Definitions> {
-  return Object.freeze({
-    acquireAgent: <Name extends Extract<keyof Definitions, string>>(
-      input: Slot<Definitions, Name>,
-    ) =>
-      // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The roster maps this exact key to the same runtime gateway and acquisition-error parameters used by acquireFakeRuntime.
-      acquireFakeRuntime(input.runtime, {
-        agentName: input.agentName,
-      }).pipe(
-        Effect.tap(() => options.onAcquire?.(input.name) ?? Effect.void),
-      ) as Effect.Effect<
-        RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
-        AgentRosterAcquisitionError<Definitions>,
-        Scope.Scope
-      >,
-    cohortReady: options.cohortReady ?? Effect.void,
-    failure: options.failure ?? Effect.never,
-  });
-}
+const defaultRouterFaultProxy: RouterFaultProxyPlatform = Object.freeze({
+  listener: Object.freeze({ bindHost: "127.0.0.1", port: 0 }),
+});
 
 /**
  * Build one private cluster whose only runtimes come from defineFakeRuntime.
@@ -157,4 +136,73 @@ export function makeFakeCluster(
       );
     },
   });
+}
+
+function makeFakeSociety<
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+>(options: FakeClusterOptions): Society<Definitions> {
+  return Object.freeze({
+    routerFaultProxy: options.routerFaultProxy ?? defaultRouterFaultProxy,
+    acquireAgent: <Name extends Extract<keyof Definitions, string>>(
+      input: Slot<Definitions, Name>,
+    ) =>
+      // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The roster maps this exact key to the same runtime gateway and acquisition-error parameters used by acquireFakeRuntime.
+      acquireFakeRuntime(input.runtime, {
+        agentName: input.agentName,
+      }).pipe(
+        Effect.tap(() => options.onAcquire?.(input.name) ?? Effect.void),
+        Effect.flatMap((running) => {
+          const agentId = options.agentIdFor?.(input.agentName);
+          return agentId === undefined
+            ? Effect.dieMessage(
+                `fake cluster requires an explicit AgentId for "${input.agentName}"`,
+              )
+            : Effect.succeed({
+                ...running,
+                agent: makeAgentHandle(input.name, agentId),
+              });
+        }),
+      ) as Effect.Effect<
+        StartedAgent<Name, RuntimeGatewayOf<Definitions[Name]>>,
+        AgentRosterAcquisitionError<Definitions>,
+        Scope.Scope
+      >,
+    acquireEndpoint: <const Name extends string>(input: {
+      readonly name: Name;
+      readonly routerOrigin: URL;
+    }) => {
+      const acquire = options.acquireEndpoint;
+      return acquire === undefined
+        ? Effect.dieMessage(
+            `fake cluster has no controlled endpoint acquirer for "${input.name}"`,
+          )
+        : acquire(input);
+    },
+    cohortReady: options.cohortReady ?? Effect.void,
+    failure: options.failure ?? Effect.never,
+  });
+}
+
+/**
+ * Acquire one test runtime through the acquirer branded onto it.
+ * @param runtime Runtime value produced by defineFakeRuntime.
+ * @param input Run-scoped roster identity.
+ * @returns The runtime-specific gateway and termination observation.
+ */
+function acquireFakeRuntime<
+  Gateway,
+  AcquisitionError,
+  ConfigurationSchema extends Schema.Schema.AnyNoContext,
+>(
+  runtime: AgentRuntime<Gateway, AcquisitionError, ConfigurationSchema>,
+  input: AgentRuntimeInput,
+): Effect.Effect<RunningAgent<Gateway>, AcquisitionError, Scope.Scope> {
+  const carrier: FakeRuntimeCarrier<Gateway, AcquisitionError> = runtime;
+  const acquire = carrier[fakeRuntimeTypeId];
+  if (acquire === undefined) {
+    return Effect.dieMessage(
+      `runtime "${runtime.name}" has no private fake realization`,
+    );
+  }
+  return acquire(input);
 }

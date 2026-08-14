@@ -64,11 +64,10 @@ product-Ledger process survives those deletions. Generic documentation tooling
 owned by a deleted package moves to root tooling before that package is
 removed.
 
-Identity/Router relocation and deletion of obsolete Transcript/testbed
-scaffolds are not blocked by the simulator contracts below. Client and adapter
-migration follows the accepted reduced boundary in
-[`harness/client.md`](./harness/client.md); simulator or eval behavior that
-depends on one of the five unresolved simulator contracts remains blocked.
+Client and adapter migration follows the accepted reduced boundary in
+[`harness/client.md`](./harness/client.md). The five formerly conflicting
+Simulator contracts are removed under [Simulator cutover](#simulator-cutover);
+they no longer block Client, Simulator, or eval migration.
 
 ## Public boundaries retained through cutover
 
@@ -80,9 +79,10 @@ depends on one of the five unresolved simulator contracts remains blocked.
   `moltzapd` executable. Its root exposes the exact reduced `HarnessClient`
   boundary in [`harness/client.md`](./harness/client.md).
 - Simulator retains `.`, `./network`, `./ledger`, and `./agents` plus
-  `Run.execute(RunSpec)` and every non-conflicting current declaration.
-- Adapter and eval entry points retain current compatible host/build behavior
-  unless a resolved Client contract requires an admitted change.
+  `Run.execute(RunSpec)` and every declaration compatible with the final
+  HarnessClient/daemon semantics below.
+- Adapter and eval entry points retain compatible host/build behavior while
+  using the real daemon-backed Client.
 
 The final publication list and versioning policy are release choices. They do
 not change this dependency graph or authorize extra packages.
@@ -95,9 +95,10 @@ SignedMessage, Registry, and authenticated-request representations.
 PollCursor, and Router HTTP representations.
 
 There is no shared wire package or cross-layer representation catalog. Client
-defines its closed local MCP and conversation-proof representations without
-re-exporting Identity or Router wire internals. A package decodes data crossing
-its boundary with its own strict Effect Schemas.
+defines one closed, repository-versioned RFC 8785 canonical-JSON protocol and
+its closed local MCP representation without re-exporting Identity or Router
+wire internals. A package decodes data crossing its boundary with its own
+strict Effect Schemas.
 
 ### Identity
 
@@ -140,6 +141,13 @@ Client owns:
 - one explicitly configured per-AgentId daemon and one loopback `/mcp`;
 - the adapter-facing capability named `HarnessClient`; and
 - closed Client and MCP representations.
+
+Action signatures, ACKs, durability votes, catch-up attestations, and
+re-anchor votes are stable self-addressed Identity `SignedMessage` values.
+Their Router envelope is a separate all-member `SignedMessage`, so
+`retry_identity_unknown` may replace the outer MessageId without changing the
+inner evidence. Gate 1 admits at most 32 total fixed members and 32,768
+canonical content bytes per action, with no fragmentation.
 
 `LedgerOffset` has no final owner and does not survive. Conversation order is
 the `previousRecordHash`/`RecordHash` chain. Protocol folds, vote collectors,
@@ -207,6 +215,18 @@ The stable Client invariants are:
 - fixed-member catch-up and Router re-anchor follow
   [`conversation-history.md`](./conversation-history.md).
 
+START's genesis anchor binds its conversation, canonical membership, and the
+`RouterInstanceId` obtained from an omitted-cursor poll. Unanimous START
+signatures attest that anchor; there is no separate genesis vote.
+
+The daemon automatically contends only for an unconsumed, locally certified,
+remotely authored head while it owns the active reply-capable subscription.
+An action author never automatically contends on its own action. Immediately
+before emitting a complete turn frame, the daemon durably commits the private
+`(ConversationId, RecordHash)` consumed marker; successful, failed, and
+ambiguous writes leave it consumed across restart. No listener means no BEGIN
+and no marker.
+
 The public Client exposes no local identity, receipt, proof, hash, protocol
 message, registration, status, search, or history method. Those management
 operations remain MCP-only. Its three operation-specific error channels are
@@ -240,18 +260,28 @@ closed typed unions.
 4. Router never receives conversation membership or exposes private order.
 5. PollCursor and Router retry state are volatile and instance-bound; Router
    provides no durable replay.
+6. Client evidence uses stable self-addressed inner SignedMessages and
+   replaceable all-member outer SignedMessages; outer retry never changes the
+   signed inner statement.
+7. An unfaulted Simulator run preserves each recipient's Router delivery
+   order. An explicitly activated Simulator link fault acts after Router
+   ordering, so its perturbed recipient observation is endpoint-fault evidence
+   rather than Router-conformance evidence.
 
 ### Conversation certification and durability
 
-1. Endpoints decide action validity and produce the complete action
+1. A fixed membership has at most 32 total members, and each START or
+   MULTICAST has at most 32,768 canonical content bytes; Client fragments
+   neither.
+2. Endpoints decide action validity and produce the complete action
    certificate.
-2. `RecordHash` commits to the action-certified record and excludes later
+3. `RecordHash` commits to the action-certified record and excludes later
    durability evidence.
-3. Honest members durably stage before voting.
-4. Every member votes for `n < 4`; otherwise `n - f` votes complete durability,
+4. Honest members durably stage before voting.
+5. Every member votes for `n < 4`; otherwise `n - f` votes complete durability,
    where `f = floor((n - 1) / 3)`.
-5. Any member may assemble and disseminate completed evidence.
-6. A returning endpoint succeeds only with the complete certified record
+6. Any member may assemble and disseminate completed evidence.
+7. A returning endpoint succeeds only with the complete certified record
    durably stored locally.
 
 ### Recovery
@@ -271,6 +301,9 @@ closed typed unions.
    respectively.
 6. Daemon restart resumes an identical START intent but never reconstructs a
    lost live reply closure.
+7. A consumed-attention pair survives restart and can never create another
+   BEGIN or turn at that endpoint, even when the original frame write was
+   ambiguous.
 
 ### Personal trust and recursive social features
 
@@ -283,38 +316,60 @@ closed typed unions.
 4. Identity and operational authentication remain independent from any social
    claim.
 
-## Simulator preservation and blocked conflicts
+## Simulator cutover
 
-The current simulator remains the preservation baseline. Keep all
-non-conflicting facade declarations, `Run.execute(RunSpec)`, cluster and
-Temporal execution, fault layers, event catalog, and simulation `RunLedger`.
-Do not rename or reinterpret persisted event tags merely to resemble the new
-protocol.
+Simulator retains its compatible facades, `Run.execute(RunSpec)`, cluster and
+Temporal execution, fault layers, and simulation `RunLedger`. The five
+incompatible contracts are removed rather than preserved through shims:
 
-Five contracts conflict with the final communication law and remain deliberate
-deferrals:
+1. Delete `Endpoint.open`, `EndpointTransport.openConversation`, and
+   `OpenedConversation`; creation uses `createConversationId` followed by
+   `HarnessClient.start` with nonempty initial content.
+2. Delete `ConversationSocket.send` and `EndpointTransport.send`; established
+   output exists only through the originating turn's bound reply.
+3. Replace `Message`, `ReceivedMessage`, message-only receive streams, and
+   proof-shaped operation results with public semantic `HarnessTurn` input and
+   `void` completion facts.
+4. Remove `AgentConnection.key`, raw Router attachment, Registry/Router origins,
+   endpoint-store handles, and signing material from runtime inputs. A runtime
+   receives only its loopback `MOLTZAP_MCP_URL` or an injected
+   `HarnessClient`.
+5. Delete `CommittedRouterMessage`, `RouterMessageCommitted`, `RouterSequence`,
+   and `RouterStopped.committedMessages`. `RunLedger` records simulation
+   lifecycle and public semantic effects, never durable Router commit/order.
 
-1. `Endpoint.open`, `EndpointTransport.openConversation`, and
-   `OpenedConversation` allow a conversation without atomic initial content and
-   a START proof.
-2. `ConversationSocket.send` and `EndpointTransport.send` provide generic
-   established-conversation send without live bound reply authority.
-3. `Message`, `ReceivedMessage`, receive streams, and current operation results
-   expose message-only data without certified record identity, durability
-   evidence, or bound reply authority.
-4. `AgentConnection.key`, raw Router attachment, and runtime connection inputs
-   give runtimes bootstrap credentials or Router authority instead of only MCP
-   or `HarnessClient`.
-5. `CommittedRouterMessage`, `RouterMessageCommitted`, `RouterSequence`, and
-   `RouterStopped.committedMessages` encode durable Router commit/order under
-   persisted schemas even though the final Router is volatile.
+### Simulator fault boundary
 
-Until each conflict has an explicit outcome, simulator migration must preserve
-the existing behavior in the source baseline and must not map it lazily,
-silently reinterpret it, add an inert field, or version it implicitly. Client-
-and simulator-dependent cutover work is blocked. Identity/Router relocation,
-the non-conflicting simulator compatibility census, and deletion of the empty
-v2 testbed scaffold may proceed.
+With no active directed link-fault scope, Simulator delivers the exact
+`SignedMessage` bytes from each Router poll in that recipient's Router order.
+This inactive path is the only Simulator path that may contribute
+Router-conformance evidence.
+
+An explicitly activated scope may select post-Router delivery by sender and
+recipient and drop, delay, hold, or reorder it before the recipient
+Client consumes it. Reordering permits a later Router delivery to pass an
+earlier held delivery. The fault layer does not alter message bytes, forge a
+message, change Router state or order, or create a Router callback.
+
+Interception and policy evaluation are private, run-scoped Simulator
+infrastructure. They are not a product service, public Router or Client
+extension, compatibility gateway, or MCP operation. The application container
+receives only its loopback Client boundary and receives no fault-control
+endpoint, credential, configuration, network authority, signing material, or
+endpoint-store access. `RunLedger` may retain closed link-fault lifecycle
+events and public semantic effects but no durable Router commit, position, or
+authoritative order.
+
+One simulation run owns one Registry and one Router. Every agent Sandbox Pod
+owns a restartable `moltzapd` sidecar, a per-agent persistent volume, and
+private signing/admission mounts; registration completes before the
+application starts. The application sees only
+`MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
+
+All sixteen evaluation case definitions execute through the daemon-backed
+Client. Client and Simulator do not restore automatic cross-conversation
+context; the six cases that need it may fail until a host-native memory
+integration is separately implemented.
 
 ## Error boundaries
 
@@ -348,14 +403,24 @@ v2 testbed scaffold may proceed.
   and management-absence boundary.
 - Static rules prevent adapters and runtimes from importing network or Client
   internals.
-- Simulator compatibility evidence covers all four facades and preserves every
-  non-conflicting declaration without forcing a choice for the five blocked
-  contracts.
+- Simulator compatibility evidence covers all four facades, preserves every
+  compatible declaration, and proves removal of the five incompatible
+  contracts above.
+- Simulator runs one Registry and Router per run, one persistent daemon sidecar
+  per agent, and exposes only loopback MCP to application runtimes.
+- Simulator fault tests prove transparent byte/order preservation with no
+  active fault, each admitted post-Router perturbation under an explicit
+  directed scope, and the absence of any runtime-facing fault control. A
+  faulted recipient observation is never classified as Router conformance.
+- All sixteen eval definitions run without Client- or Simulator-injected
+  cross-conversation context.
 - No runtime bridge can call generic send, fabricate a reply grant from
   history, or bypass personal-trust and task/norm checks.
 
 ## Deliberate deferrals
 
-The five simulator conflicts above, final publication/version policy, and any
-compatibility treatment for external consumers remain unresolved. None
-authorizes an eighth package or compatibility facade.
+Final publication/version policy, host-native cross-conversation memory, and
+any compatibility treatment for external consumers remain unresolved. None
+authorizes an eighth package, compatibility facade, or restoration of a
+removed Simulator contract. The post-Router Simulator link-fault boundary is a
+current decision, not a deferral.

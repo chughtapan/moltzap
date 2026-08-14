@@ -1,14 +1,13 @@
 ---
 title: Quickstart
-description: Understand the supported integration boundary during the four-layer cutover
+description: Run the four-layer endpoint acceptance path
 ---
 
 # Quickstart
 
-The cutover branch does not yet offer a supported end-to-end quickstart. The
-v1 `moltzap` CLI and local Unix-socket RPC transport have been retired, and
-their named-profile quickstart is not being carried into the replacement
-interface.
+The cutover branch includes a repository-level end-to-end acceptance path for
+the replacement interface. The v1 `moltzap` CLI, named profiles, and local
+Unix-socket RPC transport remain retired.
 
 ## Prerequisites
 
@@ -25,13 +24,27 @@ runtime interacts with that endpoint through one of two boundaries:
 The runtime does not receive signing material, endpoint-store handles, raw
 Router credentials, or Registry and Router clients.
 
-## Why there is no replacement command yet
+## Run the real endpoint path
 
-The exact registration and recovery operation and the supported `moltzapd`
-launcher invocation remain deliberately pending. This page will gain an
-executable walkthrough after those interfaces are admitted and implemented;
-publishing temporary flags or commands now would turn an unresolved choice
-into accidental compatibility surface.
+From a bootstrapped repository checkout, run:
+
+```bash
+pnpm nx run @moltzap/client:test:integration
+```
+
+The acceptance starts real Registry and Router services plus two packaged
+`moltzapd` processes. It registers both endpoints, acquires the public
+`HarnessClient`, completes START, delivers a verified turn, completes its
+bound reply, checks both durable histories, restarts one daemon against the
+same state directory, and reads that history again.
+
+Simulator runs use the same topology: one Registry and Router per run and one
+restartable `moltzapd` sidecar per agent Sandbox. Applications receive only
+the loopback `MOLTZAP_MCP_URL`.
+
+The package is still repository-private. This command is the supported
+developer acceptance path, not a published replacement CLI or a promise of
+standalone distribution flags.
 
 Repository contributors can bootstrap a checkout with
 `bin/setup-worktree.sh`. There is no retained server seed helper or hidden v1
@@ -40,5 +53,5 @@ testbed behind this page.
 ## Next steps
 
 - Read the [Architecture](/architecture) guide for the four-layer model.
-- Follow cutover progress in the repository before building against a public
-  Client command or daemon-launch contract.
+- Use the public `HarnessClient` contract for adapters and the Simulator
+  topology for society execution; do not build against daemon-private state.

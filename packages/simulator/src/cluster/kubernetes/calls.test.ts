@@ -1,14 +1,17 @@
-/* eslint-disable agent-code-guard/async-keyword -- Vitest awaits the Effect this Promise-native Kubernetes boundary returns. */
+/** @file Kubernetes condition freshness, call deadlines, and context-selection regressions. */
 
 import { Duration, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   currentConditionIsTrue,
-  kubernetesCall,
-  kubernetesCallTimeout,
-  KubernetesCallFailed,
   KUBERNETES_CALL_TIMEOUT_VARIABLE,
+  kubernetesCall,
+  KubernetesCallFailed,
+  kubernetesCallTimeout,
+  selectConfiguredKubeContext,
 } from "./calls.js";
+
+const LOCAL_KUBE_CONTEXT = "kind-moltzap-isolated";
 
 describe("currentConditionIsTrue", () => {
   it("accepts only a positive condition for the current object generation", () => {
@@ -112,4 +115,52 @@ describe("kubernetesCallTimeout", () => {
   });
 });
 
-/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after the Promise-native Kubernetes boundary. */
+describe("selectConfiguredKubeContext", () => {
+  it("selects the exact context carried by a local profile", () => {
+    let selected: string | undefined;
+    selectConfiguredKubeContext(
+      {
+        getContextObject: (name) =>
+          name === LOCAL_KUBE_CONTEXT ? { name } : null,
+        setCurrentContext: (name) => {
+          selected = name;
+        },
+      },
+      { kind: "local", kubeContext: LOCAL_KUBE_CONTEXT },
+    );
+
+    expect(selected).toBe(LOCAL_KUBE_CONTEXT);
+  });
+
+  it("rejects a context absent from the loaded kubeconfig", () => {
+    expect(() => {
+      selectConfiguredKubeContext(
+        {
+          getContextObject: () => null,
+          setCurrentContext: () => {
+            throw new Error("an absent context must not be selected");
+          },
+        },
+        { kind: "local", kubeContext: LOCAL_KUBE_CONTEXT },
+      );
+    }).toThrow(KubernetesCallFailed);
+  });
+
+  it("retains ambient kubeconfig selection for the compatible local default", () => {
+    let consulted = false;
+    selectConfiguredKubeContext(
+      {
+        getContextObject: () => {
+          consulted = true;
+          return null;
+        },
+        setCurrentContext: () => {
+          consulted = true;
+        },
+      },
+      { kind: "local" },
+    );
+
+    expect(consulted).toBe(false);
+  });
+});

@@ -38,9 +38,12 @@ replacement table says `replaced`, `retained with qualification`, or
 `deferred`. Unlisted rows remain governed by their later current ADR lineage.
 
 The current contract lives in `v2/VISION.md`, the replacement ADR's trace
-table, and the normative `docs/spec/` chapters it names. Publication, the exact
-Client surface, and the five conflicting simulator contracts remain explicit
-deferrals rather than answers inherited from this historical inventory.
+table, and the normative `docs/spec/` chapters it names. Publication remains
+deferred. The exact Client surface is current in
+`20260812-harness-client-uses-conversation-id.md`; the closed Client protocol,
+daemon contract, and five Simulator cuts are current in
+`20260813-client-protocol-and-attention.md`. None is inherited from this
+historical inventory.
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
@@ -432,3 +435,4 @@ the outcome is a supersession, not a row here.
 |---|---|
 | 2026-08-05 | Normative owners repointed for four trace rows. G1-DEC-006 and G1-DEC-010 → `decisions` skill — Blind review gate; G1-DEC-009 → `decisions` skill — `references/provenance.md`; G1-DEC-101 → `v2/VISION.md` — The constitution. The sections moved out of `AGENTS.md` under `20260805-agent-instructions-progressive-disclosure.md`; the frozen decisions themselves are unchanged. |
 | 2026-08-11 | Recorded the four-layer replacement, its current trace-table ownership, and the historical status of affected inventory rows. The original freeze outcome and row text remain preserved; the visible Supersession section owns current applicability. |
+| 2026-08-13 | Repointed the Supersession summary from resolved Client and Simulator deferrals to their current 2026-08-12 and 2026-08-13 records. Publication remains deferred, and the historical freeze outcome is unchanged. |

@@ -17,7 +17,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { expect, it } from "vitest";
 import { SYSTEM_NAMESPACE } from "./kubernetes/objects.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime, @typescript-eslint/no-invalid-void-type -- This suite drives a real cluster and a real child process through their native Promise and process APIs. */
+/* eslint-disable agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime, @typescript-eslint/no-invalid-void-type -- This suite drives a real cluster and a real child process through their native Promise and process APIs. */
 
 const RUN_NAMESPACE_PREFIX = "mz-";
 const EXPERIMENT = resolve("local/end-to-end.mjs");
@@ -138,4 +138,4 @@ it("reclaims a run whose submitter is killed mid-flight", async () => {
   ).toBe(SYSTEM_NAMESPACE);
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime, @typescript-eslint/no-invalid-void-type -- Restore Effect-first test rules after the live-cluster reclamation proof. */
+/* eslint-enable agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime, @typescript-eslint/no-invalid-void-type -- Restore Effect-first test rules after the live-cluster reclamation proof. */

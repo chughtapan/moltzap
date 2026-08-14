@@ -183,9 +183,9 @@ One daemon exposes one state-dependent loopback `/mcp` endpoint:
 
 There are no profiles, profile files, profile-selection flags, bespoke
 CLI, Unix socket, stdio server, second MCP process, or bind fallback. A
-daemon process receives explicit configuration for its state directory,
-MCP bind address and port, Registry origin and admission material, and
-Router origin. Runtime adapters receive an MCP URL or an injected
+daemon process binds to the fixed loopback address `127.0.0.1` and receives
+explicit configuration for its state directory, MCP port, Registry origin and
+admission material, and Router origin. Runtime adapters receive an MCP URL or an injected
 `HarnessClient`.
 
 ## Final package set
@@ -212,22 +212,40 @@ scaffolds are deleted once their consumers move.
 `@moltzap/simulator` keeps its latest-`main` non-conflicting public API and
 behavior, including `Run.execute(RunSpec)`, its root exports, `./network`,
 `./ledger`, `./agents`, cluster acquisition, Temporal integration, fault
-layers, and simulation `RunLedger`. The authority decisions below govern the
-conflicting symbols and persisted evidence semantics. Apart from those
-explicitly admitted resolutions, the cutover substitutes internal production
-dependencies only. `@moltzap/evals` keeps its public evaluation surface unless
-a direct dependency replacement requires a type-preserving internal change.
+layers, and simulation `RunLedger`. The admitted cutover deletes the five
+incompatible contract families rather than preserving them through semantic
+shims:
 
-The package inventory found one requirements conflict that the authority gate
-must resolve rather than hide: current simulator `open`/generic `send` and
-runtime `AgentConnection` capabilities expose semantics and Router authority
-the final client explicitly removes. Existing persisted Router-commit/order
-events also conflict with a volatile content-blind Router and cannot silently
-change meaning under the same schema tag. Some endpoint/run evidence can be
-source-compatibly re-owned by the simulator, but these authority-bearing
-contracts cannot preserve both old behavior and the new protocol law. The
-maintainer must explicitly exempt them with sound simulator semantics or admit
-the narrow simulator break and evidence migration before implementation.
+1. conversation creation uses `createConversationId` and
+   `HarnessClient.start` with nonempty initial content, replacing content-free
+   `open`;
+2. established output uses only the originating turn's bound reply, replacing
+   generic `send`;
+3. receive and operation evidence contains public semantic turn and completion
+   facts, replacing message-only and private proof-shaped values;
+4. an application runtime receives only loopback `MOLTZAP_MCP_URL`, replacing
+   keys, Router attachment, network origins, and endpoint-store access; and
+5. Router commit/order events are deleted. `RunLedger` records only simulation
+   lifecycle and public semantic effects.
+
+One simulation run owns one Registry and one Router. Each agent Sandbox Pod
+owns a restartable `moltzapd` sidecar, private key/admission mounts, and
+per-agent persistent state; registration completes before the application
+starts. All sixteen eval definitions execute against that daemon-backed
+Client. The six cross-conversation cases may fail because Client and Simulator
+do not restore automatic cross-conversation context.
+
+Every compatible Simulator contract remains preserved. The five deletions
+above are the admitted breaking delta, not an unresolved compatibility gate.
+`@moltzap/evals` otherwise keeps its public evaluation surface.
+
+Retained directed link faults use a private post-Router recipient-delivery
+interposition. The inactive path passes exact messages in Router order. An
+explicit scope may drop, delay, hold, or reorder a selected
+sender-to-recipient delivery before Client consumption. The controller owns
+policy evaluation; application containers receive no fault-control authority,
+and Router and Client gain no production hook. A faulted run tests endpoint
+recovery and cannot serve as Router-conformance evidence.
 
 ## Delivery sequence
 
@@ -288,8 +306,10 @@ though the branch spans the whole cutover.
    certificates, automatic catch-up, Router epoch re-anchoring, one MCP
    endpoint, and final `HarnessClient` surface.
 3. Rewrite OpenClaw and NanoClaw adapters against `HarnessClient` only.
-4. Rewire simulator internals while preserving its exact public API and
-   behavior. Keep its `RunLedger`.
+4. Rewire simulator internals while preserving compatible public behavior,
+   apply the five admitted removals above, provision one daemon sidecar per
+   agent, place explicit link faults at the private post-Router delivery
+   boundary, and keep `RunLedger` lifecycle-only.
 5. Rewire eval internals while preserving its public evaluation surface.
 6. Delete all displaced v1 packages, central Ledger code, profiles,
    transcript/testbed scaffolds, old daemons, compatibility aliases, and
@@ -348,10 +368,18 @@ that is scheduled for deletion.
 
 - existing simulator unit, integration, local, GKE, Temporal, cluster, fault,
   packaging, and eval-facing tests pass unchanged in meaning for retained
-  contracts and encode the explicitly admitted behavior/evidence migration for
-  reopened contracts;
+  contracts and encode the five admitted removals;
 - compile-time and package-export canaries prove every non-conflicting
-  simulator public contract is unchanged and pin the admitted replacements;
+  simulator public contract is unchanged while replacement behavior uses only
+  public `HarnessClient` semantics;
+- one Registry and Router serve each run, each agent owns a persistent daemon
+  sidecar, and application containers receive only loopback MCP;
+- inactive Simulator delivery preserves exact message bytes and Router order;
+  explicit directed fault scopes cover drop, delay, hold, and reorder
+  without exposing controls to application containers or claiming Router
+  conformance;
+- all sixteen eval definitions execute without Client- or Simulator-injected
+  cross-conversation context;
 - an architecture check proves the exact seven-package set and dependency
   graph;
 - repository searches and checks prove old public symbols, profiles,
@@ -371,8 +399,8 @@ that is scheduled for deletion.
   required services to become available.
 - Membership is fixed for the first profile.
 - No retired v1 product-stack compatibility surface or shim survives the
-  final cutover. Independently versioned simulator evidence schemas are not a
-  product-v1 compatibility layer.
+  final cutover. Simulator evidence contains lifecycle and public semantic
+  effects, never durable Router commit/order.
 - npm continues publishing from `main` until the cutover replaces `main`.
 - Routine forward merges stop after the single post-#974 merge. Relevant
   fixes are ported deliberately after that point.

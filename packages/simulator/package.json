@@ -26,13 +26,17 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./network": {
+      "types": "./dist/network/index.d.ts",
+      "import": "./dist/network/index.js"
+    },
     "./ledger": {
-      "types": "./dist/ledger.d.ts",
-      "import": "./dist/ledger.js"
+      "types": "./dist/ledger/index.d.ts",
+      "import": "./dist/ledger/index.js"
     },
     "./agents": {
-      "types": "./dist/agents.d.ts",
-      "import": "./dist/agents.js"
+      "types": "./dist/agents/index.d.ts",
+      "import": "./dist/agents/index.js"
     }
   },
   "scripts": {
@@ -64,7 +68,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "eslint . --cache --max-warnings=0"
+          "command": "eslint . --cache --concurrency 4 --max-warnings=0"
         }
       },
       "test": {
@@ -151,6 +155,17 @@
           "command": "tsc -p tsconfig.test.json"
         }
       },
+      "test:pack": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test/simulator-packages.mjs"
+        }
+      },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
@@ -165,17 +180,22 @@
     "@effect/platform-node": "^0.108.0",
     "@effect/sql": "^0.52.0",
     "@kubernetes/client-node": "1.4.0",
+    "@moltzap/client": "workspace:*",
     "@moltzap/identity": "workspace:*",
+    "@moltzap/router": "workspace:*",
+    "@openclaw/gateway-protocol": "2026.7.2-beta.7",
     "@temporalio/activity": "1.21.1",
     "@temporalio/client": "1.21.1",
     "@temporalio/worker": "1.21.1",
     "@temporalio/workflow": "1.21.1",
+    "@types/node": "24.13.3",
+    "@types/ws": "8.18.1",
+    "canonicalize": "3.0.0",
     "effect": "^3.22.0",
     "openclaw": "2026.6.33"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
-    "@types/node": "^25.5.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
     "typescript": "npm:@typescript/typescript6@^6.0.2",

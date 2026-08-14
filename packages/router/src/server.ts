@@ -10,10 +10,7 @@ import { Registry } from "@moltzap/identity/registry";
 import { Data, Duration, Effect, Layer } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- NodeHttpServer.make requires Node's server factory at this adapter boundary.
 import { createServer } from "node:http";
-import {
-  loadRouterConfiguration,
-  type RouterConfiguration,
-} from "./router.js";
+import { loadRouterConfiguration, type RouterConfiguration } from "./router.js";
 import { makeRouterFeed } from "./router/feed.js";
 import { makeRouterHttpApp } from "./router/http.js";
 import {
@@ -82,8 +79,7 @@ export namespace RouterServer {
       const feed = yield* makeRouterFeed({
         routerInstanceId,
         retainedMessageCapacity: configuration.retainedMessageCapacity,
-        retainedMessageByteCapacity:
-          configuration.retainedMessageByteCapacity,
+        retainedMessageByteCapacity: configuration.retainedMessageByteCapacity,
       });
       const pollWaiters = yield* makePollWaiters(
         configuration.heldPollCapacity,

@@ -216,14 +216,13 @@ replacement ADR selects them. At admission, this decision did not select:
 4. whether search and history remain MCP-only or are also TypeScript methods on
    `HarnessClient`.
 
-It also does not resolve five simulator contracts whose old semantics conflict
-with the new communication law: empty conversation opening, generic send,
-message-only receive without record proof or reply authority, bearer/raw-
-Router runtime authority, and persisted events that describe a durable Router
-commit/order. Every other simulator contract remains current where compatible.
-These five contracts require a separately admitted narrow break/version or a
-sound explicit exemption; an inert field, lazy-send translation, or semantic
-reinterpretation under an existing persisted tag is not compatibility.
+The five simulator contracts whose old semantics conflict with the new
+communication law are resolved by
+`20260813-client-protocol-and-attention.md`. Empty conversation opening,
+generic send, message-only receive, runtime Router authority, and persisted
+Router-commit/order events are removed rather than shimmed or reinterpreted.
+Simulator runtimes use the final daemon-backed Client boundary while the
+simulation `RunLedger` retains only lifecycle and public semantic effects.
 
 Publication membership, package-version coordination, and release ordering
 remain unselected. Exact pruning, garbage collection, retention after
@@ -263,7 +262,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-111 | Retained — Router opacity preserves optional end-to-end encryption. | `docs/spec/router.md` — Purpose and boundary | `L2`, `DEFER` |
 | G1-DEC-112 | Re-owned — layer labels remain documentation notation across the final packages. | `v2/AGENTS.md` — Implementation rules | `ARCH` |
 | G1-DEC-209 | Re-owned — Registry admission remains out of band; one `/mcp` daemon replaces profile and split-path presentation. | `docs/spec/identity.md` — Registration; `docs/spec/harness/daemon.md` — Registration state | `ID`, `MCP` |
-| G1-DEC-223 | Retained for Registry and Router; the obsolete Ledger-version qualifier is retired. | `docs/spec/identity-representation.md`; `docs/spec/router-representation.md` | `WIRE` |
+| G1-DEC-223 | Retained for Registry and Router; Client separately owns its closed L3 and MCP representations. | `docs/spec/identity-representation.md`; `docs/spec/router-representation.md`; `docs/spec/conversation-history.md` — Closed Client representation; `docs/spec/harness/ingress.md` — Raw MCP representation | `WIRE` |
 | G1-DEC-309 | Replaced — feed gaps recover through endpoint history catch-up and quorum re-anchor. | `docs/spec/router.md` — Recovery; `docs/spec/conversation-history.md` — Fixed-member catch-up and Router restart and re-anchoring | `L2`, `L3` |
 | G1-DEC-310 | Retained — Router restart and cursor failures remain closed and non-disclosing. | `docs/spec/router.md` — Send and cursor rejection | `L2`, `PROTO` |
 | G1-DEC-311 | Replaced — stable quorum re-anchor evidence binds a conversation to a Router instance. | `docs/spec/conversation-history.md` — Router restart and re-anchoring | `L2`, `L3` |
@@ -286,14 +285,14 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-413 | Re-owned — identical private record/vote retries are idempotent; semantic START recovery uses `ConversationId` plus canonical intent equality. | `docs/spec/conversation-history.md` — Retry and idempotency boundary; `docs/spec/harness/output.md` — Conversation start | `L3`, `MCP` |
 | G1-DEC-414 | Replaced — members keep local replicas; acknowledgment does not prove immediate all-member readability. | `docs/spec/conversation-history.md` — Threshold and guarantee and Fixed-member catch-up | `L3` |
 | G1-DEC-415 | Replaced — fixed members automatically perform verified peer catch-up. | `docs/spec/conversation-history.md` — Fixed-member catch-up | `L3` |
-| G1-DEC-500 | Retained — START and MULTICAST use immutable membership epoch 0. | `docs/spec/harness/tasks.md` — Fixed profile | `PROTO` |
+| G1-DEC-500 | Retained and bounded — START and MULTICAST use immutable membership epoch 0 with at most 32 total members. | `docs/spec/harness/tasks.md` — Fixed profile | `PROTO`, `WIRE` |
 | G1-DEC-501 | Retained — START takes a pre-minted `ConversationId`, resolves a nonempty set of other immutable agents, and rejects invalid membership. | `docs/spec/harness/output.md` — Conversation start | `PROTO`, `ID`, `MCP` |
 | G1-DEC-502 | Retained — START atomically includes its `ConversationId`, fixed membership, and initial nonempty content. | `docs/spec/harness/output.md` — Conversation start | `PROTO`, `MCP` |
-| G1-DEC-503 | Retained — content remains the closed nonempty text/data union. | `docs/spec/harness/tasks.md` — Content | `PROTO`, `WIRE` |
+| G1-DEC-503 | Retained and bounded — content remains the closed nonempty text/data union and its canonical encoding is at most 32,768 bytes. | `docs/spec/harness/tasks.md` — Content | `PROTO`, `WIRE` |
 | G1-DEC-504 | Retained — every member signs a valid START that contains itself. | `docs/spec/harness/tasks.md` — START | `PROTO` |
 | G1-DEC-505 | Retained — unanimous START is consent; no separate invitation round is added. | `docs/spec/harness/tasks.md` — START | `PROTO` |
 | G1-DEC-506 | Retained — OpenFloorV1 remains the sole built-in norm. | `docs/spec/harness/tasks.md` — Fixed profile | `PROTO` |
-| G1-DEC-507 | Retained — the first valid BEGIN in shared Router order wins contention. | `docs/spec/harness/tasks.md` — Contention | `PROTO` |
+| G1-DEC-507 | Retained and activated — subscribed non-authors may contend for a locally certified remote-authored head; the author does not self-contend and the first valid BEGIN in Router order wins. | `docs/spec/harness/tasks.md` — Contention and automatic activation | `PROTO`, `MCP` |
 | G1-DEC-508 | Retained — unanimous ACK/grant and unanimous action certification remain separate from storage quorum. | `docs/spec/harness/tasks.md` — Grant and certification | `PROTO`, `L3` |
 | G1-DEC-509 | Retained — withholding may halt protocol progress. | `docs/spec/harness/tasks.md` — Conditional liveness | `PROTO` |
 | G1-DEC-510 | Retained — live transaction TTL remains protocol-fixed. | `docs/spec/harness/tasks.md` — TTL | `PROTO` |
@@ -314,20 +313,20 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-605 | Re-owned — one state-dependent POST-only `/mcp` replaces split active/registration paths. | `docs/spec/harness/daemon.md` — MCP transport | `MCP` |
 | G1-DEC-606 | Retained — discovery, tools, and listen use the admitted MCP framing. | `docs/spec/harness/daemon.md` — MCP transport | `MCP` |
 | G1-DEC-607 | Retained — the rejected MCP/session/replay transports remain absent. | `docs/spec/harness/daemon.md` — MCP transport | `MCP`, `DEFER` |
-| G1-DEC-608 | Retained — receive capability discovery remains versioned. | `docs/spec/harness/daemon.md` — Receive extension | `MCP` |
+| G1-DEC-608 | Resolved — receive discovery uses the exact `xyz.moltzap/events-v1` extension and pinned Registry signer payload. | `docs/spec/harness/ingress.md` — Raw MCP representation | `MCP`, `WIRE` |
 | G1-DEC-609 | Retained — model output is START or bound reply, never generic send. | `docs/spec/harness/output.md` — Purpose and boundary | `MCP` |
 | G1-DEC-610 | Resolved — caller-minted `ConversationId` is the sole public START and recovery identity. | `docs/spec/harness/output.md` — Conversation start | `MCP`, `L3` |
-| G1-DEC-611 | Re-owned — reply remains bound to live authority; exact protocol representation belongs to the output spec. | `docs/spec/harness/output.md` — Bound reply | `MCP`, `PROTO` |
+| G1-DEC-611 | Resolved — reply remains content-only and carries its one-use opaque grant only in the exact extension metadata. | `docs/spec/harness/output.md` — Raw MCP representation | `MCP`, `PROTO`, `WIRE` |
 | G1-DEC-612 | Retained — task actions use stable closed descriptors. | `docs/spec/harness/tasks.md` — Legal actions | `MCP`, `PROTO` |
-| G1-DEC-613 | Retained — receive uses the declared MCP listen capability and filter. | `docs/spec/harness/daemon.md` — Receive extension | `MCP` |
+| G1-DEC-613 | Resolved — receive uses `subscriptions/listen` with the exact `xyz.moltzap/turnReady` filter. | `docs/spec/harness/ingress.md` — Raw MCP representation | `MCP`, `WIRE` |
 | G1-DEC-614 | Retained — subscription acknowledgement precedes turn notification. | `docs/spec/harness/daemon.md` — Receive extension | `MCP` |
 | G1-DEC-615 | Retained — one listener owns turn delivery and races fail closed. | `docs/spec/harness/daemon.md` — Receive extension | `MCP` |
 | G1-DEC-616 | Retained — close, cancellation, and keepalive behavior remains transport-only. | `docs/spec/harness/daemon.md` — MCP transport | `MCP` |
-| G1-DEC-617 | Re-owned — only a complete certified record plus live reply authority invokes one semantic current-conversation turn. | `docs/spec/harness/ingress.md` — Attention and authority | `MCP`, `PROTO`, `L3` |
+| G1-DEC-617 | Re-owned and activated — only a subscribed endpoint's complete remote-authored certified record plus live reply authority invokes one semantic current-conversation turn. | `docs/spec/harness/ingress.md` — Attention activation | `MCP`, `PROTO`, `L3` |
 | G1-DEC-618 | Resolved — one turn exposes exactly one current-conversation certified action. | `docs/spec/harness/client.md` — Turn | `MCP` |
-| G1-DEC-619 | Re-owned — at-most-once attention state, if retained, belongs to the endpoint store. | `docs/spec/harness/ingress.md` — Delivery law | `MCP`, `L3` |
+| G1-DEC-619 | Resolved — the endpoint durably stores `(ConversationId, RecordHash)` consumption immediately before the one complete SSE write. | `docs/spec/harness/ingress.md` — Delivery law | `MCP`, `L3` |
 | G1-DEC-620 | Retained — an ambiguous post-commit delivery write may lose the turn and does not create replay. | `docs/spec/harness/ingress.md` — Delivery law | `MCP` |
-| G1-DEC-621 | Retained — no stream consumes no attention; one consumed head is not offered again. | `docs/spec/harness/ingress.md` — Delivery law | `MCP`, `PROTO` |
+| G1-DEC-621 | Retained and made exact — no listener creates no bid or consumption; a durably consumed head is never offered or bid again by that endpoint. | `docs/spec/harness/ingress.md` — Delivery law | `MCP`, `PROTO`, `L3` |
 | G1-DEC-622 | Replaced — endpoint history, staged evidence, and certified completion replace offsets, Ledger receipts, and presentation checkpoints. | `docs/spec/harness/daemon.md` — Endpoint state; `docs/spec/harness/client.md` — Turn | `MCP`, `L3` |
 | G1-DEC-623 | Retained — grants and turns serialize per conversation without a daemon-wide protocol cap. | `docs/spec/harness/ingress.md` — Same-conversation exclusion | `MCP` |
 | G1-DEC-624 | Resolved — Client performs no universal cross-conversation presentation. | `docs/spec/harness/client.md` — Turn | `MCP` |
@@ -343,7 +342,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-634 | Resolved — the current-conversation-only turn has no presentation checkpoint. | `docs/spec/harness/client.md` — Turn | `MCP` |
 | G1-DEC-635 | Replaced — one explicitly configured state directory and one `/mcp` replace the profile slot and split paths. | `docs/spec/harness/daemon.md` — Process and paths | `MCP`, `ARCH` |
 | G1-DEC-636 | Replaced — one final structural `HarnessClient` exposes START and one turn stream with bound reply. | `docs/spec/harness/client.md` — Purpose and surface | `MCP`, `INT`, `ARCH` |
-| G1-DEC-637 | Re-owned — management search and history remain local-authorized MCP operations and are absent from `HarnessClient`. | `docs/spec/management.md` — Search and history; `docs/spec/harness/client.md` — Boundary | `MCP` |
+| G1-DEC-637 | Resolved — closed registration/status, Registry projection, local conversation paging, and certified-history snapshot representations remain MCP-only and absent from `HarnessClient`. | `docs/spec/management.md` — Registration and status, Agent discovery, Conversation discovery, and Conversation history | `MCP`, `WIRE` |
 | G1-DEC-638 | Resolved — universal cross-conversation context and presentation checkpoints are absent. | `docs/spec/harness/client.md` — Turn | `MCP` |
 | G1-DEC-639 | Retained — content/history and live reply authority remain independent. | `docs/spec/harness/ingress.md` — Content and reply authority | `MCP`, `PROTO` |
 | G1-DEC-640 | Retained — at most one live reply authority exists per conversation. | `docs/spec/harness/ingress.md` — Same-conversation exclusion | `MCP`, `PROTO` |
@@ -353,7 +352,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-701 | Replaced — the exact dependency table in this ADR is current. | `docs/spec/layer-interfaces.md` — Package graph | `ARCH` |
 | G1-DEC-702 | Re-owned — Identity, Router, and Client own production contracts and runnable process composition. | `docs/spec/layer-interfaces.md` — Package ownership | `ARCH` |
 | G1-DEC-703 | Replaced — `moltzap-ledger` is removed; Registry, Router, and `moltzapd` remain. | `docs/spec/layer-interfaces.md` — Public binaries | `ARCH` |
-| G1-DEC-704 | Re-owned — export maps follow the seven final package owners; exact simulator-conflicting surfaces remain deferred. | `docs/spec/layer-interfaces.md` — Public exports; this ADR — Explicit deferrals | `ARCH`, `SIM`, `DEFER` |
+| G1-DEC-704 | Resolved — export maps follow the seven final package owners and the five conflicting Simulator surfaces are removed in favor of Client/daemon semantics. | `docs/spec/layer-interfaces.md` — Simulator cutover | `ARCH`, `SIM` |
 | G1-DEC-705 | Retained — no cross-layer protocol/server/accessor package is introduced. | `docs/spec/layer-interfaces.md` — Package graph | `ARCH` |
 | G1-DEC-706 | Replaced — all executable products live under `packages/*` and follow the final DAG. | `docs/spec/layer-interfaces.md` — Package graph and isolation | `ARCH` |
 | G1-DEC-707 | Retained — packages expose cohesive domain capabilities and hide mechanisms. | `docs/architecture/components.md` — Deep-module rules | `ARCH` |
@@ -363,11 +362,11 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-711 | Re-owned — Registry concurrency evidence remains; central Ledger Testcontainers evidence retires. | `docs/spec/identity.md` — Registry persistence | `ID`, `L3` |
 | G1-DEC-712 | Re-owned — Router remains volatile and Client owns endpoint state; pruning and disk-loss behavior are deferred. | `docs/spec/router.md` — Process model; `docs/spec/harness/daemon.md` — Endpoint state | `ARCH`, `L2`, `L3`, `DEFER` |
 | G1-DEC-713 | Re-owned — the one final Simulator owns the kernel, EventCatalog, and simulation RunLedger. | `docs/spec/layer-interfaces.md` — Simulator | `SIM` |
-| G1-DEC-714 | Re-owned — all compatible latest-main Simulator contracts remain; five authority conflicts are deferred. | `docs/architecture/first-implementation.md` — Simulator port; this ADR — Explicit deferrals | `SIM`, `DEFER` |
-| G1-DEC-715 | Replaced — Simulator owns compatible stack fixtures and RunLedger remains separate; no testbed package exists. | `docs/spec/layer-interfaces.md` — Simulator | `SIM`, `ARCH` |
-| G1-DEC-716 | Re-owned — obsolete testbed and v1 protocol surfaces are deleted without removing compatible simulator facilities. | `docs/architecture/first-implementation.md` — Removal boundary | `SIM`, `ARCH` |
-| G1-DEC-717 | Retained — simulator migration uses a tracked landed-green source SHA. | `docs/architecture/first-implementation.md` — Simulator provenance | `SIM` |
-| G1-DEC-718 | Resolved — one final simulator remains; no compatibility facade or second engine survives. | `docs/architecture/first-implementation.md` — Cutover | `SIM` |
+| G1-DEC-714 | Resolved — compatible Simulator contracts remain, including explicit post-Router directed link faults, while the five conflicting contracts are removals rather than compatibility shims. | `docs/spec/layer-interfaces.md` — Simulator cutover and Simulator fault boundary | `SIM`, `ARCH` |
+| G1-DEC-715 | Replaced — Simulator owns compatible stack fixtures and private run-scoped fault interposition; RunLedger remains separate and no testbed package exists. | `docs/spec/layer-interfaces.md` — Simulator and evals; Simulator fault boundary | `SIM`, `ARCH` |
+| G1-DEC-716 | Re-owned — obsolete testbed and v1 protocol surfaces are deleted without removing compatible Simulator facilities; the selected fault path remains private to Simulator. | `docs/architecture/first-implementation.md` — Lane 6: rewire simulator and evals; Lane 7: remove the retired stack | `SIM`, `ARCH` |
+| G1-DEC-717 | Retained — simulator migration uses the tracked landed-green source SHA `102f110436bedbba828591c1b97fd4e322abcf76` and proves the exact 196-to-181 declaration delta. | `docs/architecture/first-implementation.md` — Simulator provenance | `SIM` |
+| G1-DEC-718 | Resolved — one final Simulator remains; its test-only fault interposition is neither a compatibility facade nor a second engine. | `docs/spec/layer-interfaces.md` — Simulator fault boundary; `docs/architecture/first-implementation.md` — Lane 6: rewire simulator and evals | `SIM` |
 | G1-DEC-719 | Replaced — no standalone testbed exists; Simulator owns process composition and root tooling owns artifact assembly. | `docs/spec/layer-interfaces.md` — Simulator; `docs/architecture/first-implementation.md` — Build ownership | `ARCH`, `SIM` |
 | G1-DEC-720 | Retained — adapters and evals consume final public Client/Simulator capabilities, never internals. | `docs/architecture/first-implementation.md` — Boundaries | `INT`, `ARCH` |
 | G1-DEC-721 | Re-owned — Identity and Router composition remains current and Client owns endpoint composition. | `docs/spec/layer-interfaces.md` — Construction handoffs | `ARCH`, `ID`, `L2` |
@@ -383,7 +382,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-808 | Retained deferral — local auth, hostile-host defense, dynamic ports, attachment, and universal supervision remain absent. | `docs/spec/harness/daemon.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-809 | Retained deferral — MCP replay, cursors, alternate push, async handles, and dynamic tools remain absent. | `docs/spec/harness/ingress.md`; `docs/spec/harness/output.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-810 | Re-owned deferral — evidence dissemination is required, but a transactional outbox mechanism is unselected. | `docs/spec/conversation-history.md` — Vote dissemination and completion | `L3`, `DEFER` |
-| G1-DEC-811 | Retained deferral — later resource profiles remain absent; Client runtime context is current-conversation-only. | `docs/spec/router.md` — Explicitly deferred; `docs/spec/harness/client.md` — Turn | `DEFER`, `MCP` |
+| G1-DEC-811 | Partially resolved — Gate 1 fixes 32 members, 32,768 canonical content bytes, and no fragmentation; later resource profiles remain deferred and runtime context remains current-conversation-only. | `docs/spec/conversation-history.md` — Closed Client representation; `docs/spec/router.md` — Explicitly deferred; `docs/spec/harness/client.md` — Turn | `WIRE`, `DEFER`, `MCP` |
 | G1-DEC-812 | Retained deferral — binary/media action content remains absent. | `docs/spec/harness/tasks.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-813 | Retained deferral — end-to-end encryption and key distribution remain optional future protocols. | `docs/spec/router.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-814 | Partially resolved — branch cutover and v1 retirement are current; publication, versioning, and deployment policy remain deferred. | This ADR — Daemon, package graph, and cutover; `docs/architecture/first-implementation.md` | `ARCH`, `DEFER` |
@@ -426,3 +425,5 @@ the outcome is a supersession, not a row here.
 | Date | Change |
 |---|---|
 | 2026-08-11 | Corrected the `G1-DEC-811` normative-owner locator after blind review found a nonexistent Vision heading. Deferred resource profiles remain owned by `docs/spec/router.md`, and cross-conversation bounds remain owned by `docs/spec/harness/client.md`; the Decision Outcome is unchanged. |
+| 2026-08-13 | Repointed representation, attention, management, resource-bound, and Simulator trace rows after `20260813-client-protocol-and-attention.md` resolved the retained implementation deferrals. The four-layer Decision Outcome is unchanged. |
+| 2026-08-13 | Clarified the Simulator trace rows after `20260813-simulator-link-faults-perturb-delivery.md` selected private post-Router delivery perturbation for explicit fault scopes. Router's production contract and this record's four-layer Decision Outcome are unchanged. |

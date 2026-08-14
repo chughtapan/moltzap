@@ -1,6 +1,6 @@
 /** @file Normalized evaluation transcripts and their evidence-ID invariants. */
 
-import { AgentName as agentName } from "@moltzap/client";
+import { AgentName as agentName, ConversationId } from "@moltzap/client";
 import { OpenClawGatewayTimedOut } from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";
 import { type EvaluationCaseMetadata, TARGET_AGENT_NAME } from "./cases.js";
@@ -14,6 +14,10 @@ import {
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
   projectEvaluationEvidence,
+  semanticContent,
+  SocialActionNotObserved,
+  SocialActionObserved,
+  type SocialEvidence,
 } from "./events.js";
 import {
   type CriterionId,
@@ -48,13 +52,46 @@ export class GatewayTranscriptItem extends Schema.TaggedClass<GatewayTranscriptI
   },
 ) {}
 
+/** One semantic action observed through a peer's public HarnessClient. */
+export class SocialTranscriptItem extends Schema.TaggedClass<SocialTranscriptItem>()(
+  "SocialTranscriptItem",
+  {
+    evidenceId: evaluationEvidenceId,
+    source: Schema.Literal("social"),
+    direction: Schema.Literal("input", "output"),
+    actorName: agentName,
+    endpointName: agentName,
+    conversationId: ConversationId,
+    parts: semanticContent,
+  },
+) {}
+
+/** Bounded evidence that a required social response never arrived. */
+export class PeerTimeoutTranscriptItem extends Schema.TaggedClass<PeerTimeoutTranscriptItem>()(
+  "PeerTimeoutTranscriptItem",
+  {
+    evidenceId: evaluationEvidenceId,
+    source: Schema.Literal("peer-timeout"),
+    direction: Schema.Literal("input"),
+    actorName: agentName,
+    endpointName: agentName,
+    parts: transcriptParts,
+  },
+) {}
+
+const transcriptItem = Schema.Union(
+  GatewayTranscriptItem,
+  SocialTranscriptItem,
+  PeerTimeoutTranscriptItem,
+);
+
 /** Ordered normalized evidence and the exact observations selected by the case. */
 export class EvaluationTranscript extends Schema.Class<EvaluationTranscript>(
   "EvaluationTranscript",
 )({
   caseId: evaluationCaseId,
   target: EvaluationTarget,
-  items: Schema.NonEmptyArray(GatewayTranscriptItem),
+  items: Schema.NonEmptyArray(transcriptItem),
   selectedEvidenceIds: Schema.NonEmptyArray(evaluationEvidenceId),
 }) {}
 
@@ -223,6 +260,35 @@ function gatewayItem(item: GatewayEvidence): GatewayTranscriptItem {
   });
 }
 
+function socialItem(
+  item: SocialEvidence,
+  target: EvaluationTarget,
+): SocialTranscriptItem | PeerTimeoutTranscriptItem {
+  const observation = item.observation;
+  if (observation instanceof SocialActionObserved) {
+    return SocialTranscriptItem.make({
+      evidenceId: item.eventId,
+      source: "social",
+      direction: observation.direction,
+      actorName: observation.authorName,
+      endpointName: observation.endpointName,
+      conversationId: observation.conversationId,
+      parts: observation.content,
+    });
+  }
+  return PeerTimeoutTranscriptItem.make({
+    evidenceId: item.eventId,
+    source: "peer-timeout",
+    direction: "input",
+    actorName: target.name,
+    endpointName: observation.endpointName,
+    parts: textParts(
+      `No social action arrived within ${String(observation.timeoutMillis)}ms.`,
+      "[No social action observed]",
+    ),
+  });
+}
+
 function selectedEvidenceIssue(
   evidence: EvaluationEvidence,
   target: EvaluationTarget,
@@ -238,16 +304,37 @@ function selectedEvidenceIssue(
     };
   }
   for (const selectedId of evidence.selectedEventIds) {
-    const selected = evidence.gateway.find(
+    const gatewaySelection = evidence.gateway.find(
       (item) => item.eventId === selectedId,
     );
+    if (gatewaySelection !== undefined) {
+      if (
+        !(
+          gatewaySelection.observation instanceof OpenClawPrincipalFinalOutput
+        ) ||
+        gatewaySelection.observation.agentName !== target.name
+      ) {
+        return {
+          detail: `selected evidence ${selectedId} is not correlated terminal output from the target`,
+          evidenceId: selectedId,
+        };
+      }
+      continue;
+    }
+    const socialSelection = evidence.social.find(
+      (item) => item.eventId === selectedId,
+    );
+    if (socialSelection?.observation instanceof SocialActionNotObserved) {
+      continue;
+    }
     if (
-      selected === undefined ||
-      !(selected.observation instanceof OpenClawPrincipalFinalOutput) ||
-      selected.observation.agentName !== target.name
+      socialSelection === undefined ||
+      !(socialSelection.observation instanceof SocialActionObserved) ||
+      socialSelection.observation.direction !== "input" ||
+      socialSelection.observation.authorName !== target.name
     ) {
       return {
-        detail: `selected evidence ${selectedId} is not correlated terminal output from the target`,
+        detail: `selected evidence ${selectedId} is neither target output nor a bounded peer timeout`,
         evidenceId: selectedId,
       };
     }
@@ -273,12 +360,16 @@ function transcriptFromEvidence(
     if (issue !== undefined) {
       return yield* Effect.fail(refusal(evidence.caseId, issue.detail));
     }
-    const items = evidence.gateway
-      .map((item) => ({
+    const items = [
+      ...evidence.gateway.map((item) => ({
         logicalSequence: item.logicalSequence,
         value: gatewayItem(item),
-      }))
-      .sort((left, right) => left.logicalSequence - right.logicalSequence);
+      })),
+      ...evidence.social.map((item) => ({
+        logicalSequence: item.logicalSequence,
+        value: socialItem(item, target),
+      })),
+    ].sort((left, right) => left.logicalSequence - right.logicalSequence);
     const [firstItem, ...remainingItems] = items;
     const [firstSelection, ...remainingSelections] = evidence.selectedEventIds;
     if (firstItem === undefined || firstSelection === undefined) {
@@ -341,8 +432,15 @@ export function transcriptIssue(
     );
     if (
       selected === undefined ||
-      selected.direction !== "output" ||
-      selected.actorName !== transcript.target.name
+      (selected instanceof GatewayTranscriptItem &&
+        (selected.direction !== "output" ||
+          selected.actorName !== transcript.target.name)) ||
+      (selected instanceof SocialTranscriptItem &&
+        (selected.direction !== "input" ||
+          selected.actorName !== transcript.target.name)) ||
+      (!(selected instanceof GatewayTranscriptItem) &&
+        !(selected instanceof SocialTranscriptItem) &&
+        !(selected instanceof PeerTimeoutTranscriptItem))
     ) {
       return {
         detail: `selected evidence ${selectedId} is not target output`,

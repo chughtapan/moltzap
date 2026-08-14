@@ -31,6 +31,7 @@ import {
   HARNESS_TURN_READY_FILTER,
   HARNESS_TURN_READY_NOTIFICATION,
   harnessReplyRequestMeta,
+  type ReplyGrant,
   verifyHarnessTurnEvent,
 } from "./harness-runtime.js";
 
@@ -132,7 +133,7 @@ const callStart = (
 
 const callReply = (
   client: Client,
-  replyGrant: string,
+  replyGrant: ReplyGrant,
   content: Content,
 ): Effect.Effect<void, ReplyError> =>
   Effect.tryPromise({
@@ -185,7 +186,13 @@ const observeSubscription = (
   }).pipe(
     Effect.matchEffect({
       onFailure: (error) => Queue.offer(queue, Take.fail(error)),
-      onSuccess: () => Queue.offer(queue, Take.end),
+      onSuccess: (closure) =>
+        Queue.offer(
+          queue,
+          closure === "local"
+            ? Take.end
+            : Take.fail(new ListenError({ reason: "connection" })),
+        ),
     }),
     Effect.asVoid,
   );

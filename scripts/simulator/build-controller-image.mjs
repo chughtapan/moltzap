@@ -23,22 +23,47 @@ const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = dirname(dirname(scriptRoot));
 const simulatorRoot = join(workspaceRoot, "packages", "simulator");
 const dockerfile = join(scriptRoot, "controller-image", "Dockerfile");
+const registrar = join(scriptRoot, "controller-image", "register-daemon.mjs");
+const qualificationProgram = join(
+  workspaceRoot,
+  "scripts",
+  "test",
+  "simulator-fault-program.mjs",
+);
 const DEFAULT_REPOSITORY = "moltzap-simulator-controller";
 const BUILD_TIMEOUT_MS = 30 * 60 * 1_000;
 const PACK_TIMEOUT_MS = 5 * 60 * 1_000;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const workspacePackages = {
   "@moltzap/client": join(workspaceRoot, "packages", "client"),
+  "@moltzap/evals": join(workspaceRoot, "packages", "evals"),
   "@moltzap/openclaw-channel": join(
     workspaceRoot,
     "packages",
     "openclaw-channel",
   ),
   "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
+  "@moltzap/router": join(workspaceRoot, "packages", "router"),
   "@moltzap/simulator": simulatorRoot,
 };
+/** Workspace packages packed into the root-owned controller image context. */
+export const controllerWorkspacePackageNames = Object.freeze(
+  Object.keys(workspacePackages),
+);
 /** Workspace tarballs installed directly into the controller image. */
-export const controllerPackageDependencies = ["@moltzap/simulator"];
+export const controllerPackageDependencies = [
+  "@moltzap/client",
+  "@moltzap/evals",
+  "@moltzap/identity",
+  "@moltzap/router",
+  "@moltzap/simulator",
+];
+/** Non-workspace helpers installed in the production-stack image. */
+export const controllerExternalDependencies = {
+  "@electric-sql/pglite": "0.4.4",
+  "@electric-sql/pglite-socket": "0.1.4",
+  "@modelcontextprotocol/client": "2.0.0-beta.5",
+};
 
 function report(message) {
   process.stderr.write(`[moltzap controller image] ${message}\n`);
@@ -75,17 +100,23 @@ async function pack(packageDirectory, destination) {
   return basename(path);
 }
 
-function packageManifest(name, dependencies, archives) {
+function packageManifest(
+  name,
+  dependencies,
+  archives,
+  externalDependencies = {},
+) {
   return {
     name,
     version: "0.0.0-local",
     private: true,
-    dependencies: Object.fromEntries(
-      dependencies.map((dependency) => [
+    dependencies: Object.fromEntries([
+      ...dependencies.map((dependency) => [
         dependency,
         `file:./tarballs/${archives[dependency]}`,
       ]),
-    ),
+      ...Object.entries(externalDependencies),
+    ]),
     overrides: Object.fromEntries(
       Object.entries(archives)
         .filter(([packageName]) => !dependencies.includes(packageName))
@@ -110,6 +141,8 @@ async function stage() {
   const archives = Object.fromEntries(packed);
   await Promise.all([
     copyFile(dockerfile, join(root, "Dockerfile")),
+    copyFile(registrar, join(root, "register-daemon.mjs")),
+    copyFile(qualificationProgram, join(root, "simulator-fault-program.mjs")),
     writeFile(
       join(root, "controller-package.json"),
       `${JSON.stringify(
@@ -117,6 +150,7 @@ async function stage() {
           "moltzap-controller-image",
           controllerPackageDependencies,
           archives,
+          controllerExternalDependencies,
         ),
         null,
         2,
@@ -144,6 +178,8 @@ async function fingerprint(root) {
     "Dockerfile",
     "controller-package.json",
     "overlay-package.json",
+    "register-daemon.mjs",
+    "simulator-fault-program.mjs",
     ...(await readdir(join(root, "tarballs"))).map(
       (name) => `tarballs/${name}`,
     ),
@@ -173,7 +209,7 @@ async function main() {
       "nx",
       "run-many",
       "--target=build",
-      `--projects=${Object.keys(workspacePackages).join(",")}`,
+      `--projects=${controllerWorkspacePackageNames.join(",")}`,
     ],
     {
       cwd: workspaceRoot,
@@ -220,6 +256,8 @@ async function main() {
         controllerEntrypoint: "/opt/moltzap/dist/cluster/controller/main.js",
         supportBootstrap: "/opt/moltzap/dist/cluster/bootstrap.js",
         applicationOverlay: "/opt/moltzap/application-overlay",
+        qualificationProgram:
+          "/opt/moltzap/qualification/simulator-fault-program.mjs",
       })}\n`,
     );
   } finally {

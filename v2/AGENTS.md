@@ -70,10 +70,11 @@ not a product conversation store.
   HTTP processes. Each endpoint daemon owns local storage and speaks those
   protocols. Its one loopback MCP endpoint is a local runtime boundary, not a
   network plane.
-- **Explicit daemon configuration.** A daemon receives its state directory,
-  MCP bind address and port, Registry origin and admission material, and Router
-  origin explicitly. It has no profile selector, profile file, bespoke CLI,
-  Unix socket, stdio server, second MCP process, or bind fallback.
+- **Explicit daemon configuration.** A daemon binds only to the fixed loopback
+  address `127.0.0.1` and receives its state directory, MCP port, Registry
+  origin and admission material, and Router origin explicitly. It has no
+  profile selector, profile file, bespoke CLI, Unix socket, stdio server,
+  second MCP process, address override, or bind fallback.
 - **Consumer-only adapters.** OpenClaw and NanoClaw use the public
   `HarnessClient` capability or its MCP transport. They do not import Identity,
   Router, Client internals, or one another.
@@ -86,10 +87,20 @@ not a product conversation store.
   inspection stay on MCP. `TxnId` does not exist; BEGIN-message digests,
   `ActionHash`, `RecordHash`, certificates, and recovery state stay behind the
   Client boundary.
-- **One simulator.** Preserve every non-conflicting latest-`main` simulator
-  facade and behavior while replacing production-stack dependencies. The
-  explicitly deferred authority conflicts are not implemented through inert
-  fields, lazy compatibility behavior, or hidden raw Router access.
+- **Closed Client protocol.** Client uses its admitted canonical evidence,
+  32-member and 32,768-byte content limits, nested `SignedMessage` transport,
+  genesis Router anchor, subscription-gated non-author contention, and
+  durable consumed-head marker. These remain private behind Client and MCP.
+- **One simulator.** Preserve every compatible latest-`main` simulator facade
+  and behavior while replacing production-stack dependencies. Remove
+  content-free open, generic send, message-only receive, runtime Router
+  authority, and persisted Router-order claims; do not preserve them through
+  inert fields, lazy compatibility behavior, or hidden raw Router access. With
+  no active link fault, delivery preserves Router message bytes and recipient
+  order. An explicitly activated directed fault may drop, delay, hold, or
+  reorder post-Router delivery for endpoint-recovery testing. Its mechanism is
+  private Simulator infrastructure, never a Router or product hook or a
+  runtime-facing control surface.
 - **Delete displaced code.** Once a final owner is usable, remove the old
   protocol, server, profile, CLI/socket, central-Ledger, `v2/*` implementation,
   and testbed code in the same migration lane. Do not polish code whose only
@@ -98,18 +109,12 @@ not a product conversation store.
   dependencies, architecture checks, release configuration, Knip, aliases,
   generated docs, and CI must express the same seven-package graph.
 
-## Remaining implementation gates
+## Remaining implementation gate
 
-The Client boundary above is selected. Simulator work that reaches one of
-these remaining questions waits for its named normative decision:
-
-- the five simulator conflicts involving content-free open, generic send,
-  message-only receive, runtime Router authority, and persisted Router-commit
-  semantics; and
-- package publication and version policy.
-
-Do not infer an answer from an execution handoff or preserve conflicting
-behavior behind a compatibility shim.
+Package publication and version policy remain unselected. The Client protocol
+and Simulator compatibility and link-fault decisions are admitted
+implementation inputs, not remaining questions. Do not infer a release policy
+from their cutover or preserve removed behavior behind a compatibility shim.
 
 ## Verification
 

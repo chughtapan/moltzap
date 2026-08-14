@@ -1,3 +1,5 @@
+/** @file Cluster failure tagging and operator-visible diagnostic regressions. */
+
 import { describe, expect, it } from "vitest";
 import { ClusterError, clusterError } from "./cluster.js";
 

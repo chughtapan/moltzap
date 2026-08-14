@@ -1,10 +1,6 @@
-/**
- * A RunSpec preserves exact heterogeneous gateways and contains customer
- * completion inside ProgramFinished. Its cluster Layer supplies the
- * kernel and cluster, removes customer-used extra outputs, and leaves only
- * the Layer input plus customer-owned requirements outside.
- */
+/** @file Type canaries for exact RunSpec gateways, requirements, layers, and outcomes. */
 
+import type { AgentId } from "@moltzap/identity";
 import {
   Context,
   Data,
@@ -14,17 +10,26 @@ import {
   Schema,
   type Stream,
 } from "effect";
-import type { AgentName } from "@moltzap/identity";
-import { EventCatalog } from "./events/catalog.js";
-import { coreEvents } from "./events/core.js";
 import type { LedgerFailure } from "./ledger/append.js";
 import type { LedgerRef } from "./ledger/schema.js";
+import type { NetworkService } from "./network/endpoint.js";
+import type { AgentHandle } from "./network/participant.js";
+import type { ProgramFinished, SimulatorRunFailure } from "./run/execute.js";
+import { defineRuntime } from "./agents/agent.js";
+import { Cluster, type ClusterError } from "./cluster/cluster.js";
+import { Run, RunSpec } from "./definition.js";
+import { EventCatalog } from "./events/catalog.js";
+import { coreEvents } from "./events/core.js";
 import { openLedger } from "./ledger/read.js";
 import { LedgerStorage, type LedgerStorageError } from "./ledger/storage.js";
-import { Run, RunSpec } from "./definition.js";
-import type { ProgramFinished, SimulatorRunFailure } from "./run/execute.js";
-import { type ClusterError, Cluster } from "./cluster/cluster.js";
-import { defineRuntime } from "./agents/agent.js";
+import { RouterProvider } from "./network/router.js";
+
+/**
+ * A RunSpec preserves exact heterogeneous gateways and contains customer
+ * completion inside ProgramFinished. Its cluster Layer supplies the
+ * kernel and cluster, removes customer-used extra outputs, and leaves only
+ * the Layer input plus customer-owned requirements outside.
+ */
 
 interface AlphaGateway {
   readonly runtime: "alpha";
@@ -99,6 +104,7 @@ const unavailableCluster = Effect.gen(function* () {
 
 const cluster = Layer.mergeAll(
   Layer.effect(LedgerStorage, unavailableCluster),
+  Layer.effect(RouterProvider, unavailableCluster),
   Layer.effect(Cluster, unavailableCluster),
   Layer.effect(ClusterExtra, unavailableCluster),
 );
@@ -147,7 +153,12 @@ type ExecutionRequirements = Effect.Effect.Context<
 >;
 
 type AgentKeysAreExact = Expect<Equal<keyof Agents, "alice" | "bob">>;
-type AliceNameIsExact = Expect<Equal<Agents["alice"]["agentName"], AgentName>>;
+type AliceNameIsExact = Expect<
+  Equal<Agents["alice"]["agent"], AgentHandle<"alice">>
+>;
+type AliceIdUsesIdentityOwner = Expect<
+  Equal<Agents["alice"]["agent"]["id"], AgentId>
+>;
 type AliceGatewayIsExact = Expect<
   Equal<Agents["alice"]["gateway"], AlphaGateway>
 >;
@@ -171,6 +182,9 @@ type ExternalRequirementsAreExact = Expect<
 >;
 type LiveRecordsRetainClusterError = Expect<
   Equal<Stream.Stream.Error<ExecuteContext["ledger"]["records"]>, LedgerFailure>
+>;
+type NetworkContextIsExact = Expect<
+  Equal<ExecuteContext["network"], NetworkService>
 >;
 
 /**
@@ -214,12 +228,14 @@ type ClusterErrorUsesPublicShape = Expect<
 export type RunSpecCanaries = [
   AgentKeysAreExact,
   AliceNameIsExact,
+  AliceIdUsesIdentityOwner,
   AliceGatewayIsExact,
   BobGatewayIsExact,
   CustomerExitIsRetained,
   OuterErrorsAreClusterOnly,
   ExternalRequirementsAreExact,
   LiveRecordsRetainClusterError,
+  NetworkContextIsExact,
   CompletedRecordsCannotFail,
   ProgramFinishedExitIsExact,
   ClusterErrorUsesPublicShape,

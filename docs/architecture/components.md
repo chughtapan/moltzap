@@ -23,9 +23,10 @@ certified local history remains readable and verifiable during an outage.
 
 ## Local daemon lifecycle
 
-One explicit state directory commits at most one AgentId. The process receives
-its MCP bind address and port, Registry origin and admission material, and
-Router origin through configuration. It serves one loopback `/mcp` endpoint:
+One explicit state directory commits at most one AgentId. The process binds to
+the fixed loopback address `127.0.0.1` and receives its MCP port, Registry
+origin and admission material, and Router origin through configuration. It
+serves one loopback `/mcp` endpoint:
 
 | State | MCP catalog |
 |---|---|
@@ -54,6 +55,19 @@ products. That artifact graph does not create runtime package imports.
 The simulator's `RunLedger` records simulation configuration, events, and
 outcomes. It is not a product conversation store, does not grant access to
 endpoint-private history, and does not assign a product-wide offset.
+
+## Simulator fault boundary
+
+An ordinary Simulator run passes Router deliveries to each endpoint unchanged
+and in Router order. An explicitly activated directed link fault interposes
+after Router polling and before recipient Client consumption. It can drop,
+delay, hold, or reorder a delivery while preserving the signed
+message bytes. The run controller owns this private mechanism; application
+containers receive neither its controls nor network authority.
+
+This makes a faulted run an endpoint-recovery exercise. Its perturbed
+recipient observations are not Router-conformance evidence, and the
+interposition does not modify Router or add a production hook.
 
 ## Public and private boundaries
 

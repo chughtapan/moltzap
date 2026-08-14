@@ -1,12 +1,11 @@
 /** @file Private runtime-bootstrap materializer used by the Sandbox initializer. */
 
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- `FileSystem.stat` resolves the final symbolic link and `@effect/platform` exposes no `lstat`, so link-rejecting checks need Node directly; entry detection runs at module load, before a runtime exists to provide `FileSystem`.
-import { existsSync, promises as nodeFsPromises, realpathSync } from "node:fs";
-import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem, NodeRuntime } from "@effect/platform-node";
 import { Data, Effect } from "effect";
+import { existsSync, promises as nodeFsPromises, realpathSync } from "node:fs"; // eslint-disable-line agent-code-guard/prefer-effect-platform -- `FileSystem.stat` resolves the final symbolic link and `@effect/platform` exposes no `lstat`, so link-rejecting checks need Node directly; entry detection runs at module load, before a runtime exists to provide `FileSystem`.
+import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const BOOTSTRAP_API_VERSION = "moltzap.bootstrap/v1";
 const ROOT_KEYS = new Set(["apiVersion", "files"]);
@@ -64,18 +63,41 @@ export class BootstrapError extends Data.TaggedError("BootstrapError")<{
   }
 }
 
+/**
+ * Copy the application overlay and then materialize its run-scoped files.
+ *
+ * Every manifest entry is decoded and resolved before the output directory
+ * exists, so a refused bootstrap leaves the application with nothing to read.
+ * @param options Trusted mount and output paths owned by the initializer.
+ * @returns Completion after every file has its declared mode.
+ * @failure BootstrapError when an input is refused or a copy cannot be trusted.
+ */
+export function materializeBootstrap(
+  options: BootstrapMaterializationOptions,
+): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const manifest = yield* readManifest(options.manifest);
+    const files = yield* resolveManifestSources(options, manifest);
+
+    yield* ensureOutputDirectory(options.output);
+    yield* fileSystem
+      .copy(options.overlay, options.output, { overwrite: true })
+      .pipe(
+        Effect.mapError(() =>
+          bootstrapError("bootstrap overlay cannot be copied"),
+        ),
+      );
+    yield* Effect.forEach(files, (file) => placeFile(options.output, file), {
+      concurrency: 1,
+    });
+  }).pipe(Effect.withSpan("materializeBootstrap"));
+}
+
 /** An absent path, which several callers answer with creation rather than failure. */
 class PathMissing extends Data.TaggedError("PathMissing")<{
   readonly path: string;
 }> {}
-
-function bootstrapError(detail: string): BootstrapError {
-  return new BootstrapError({ detail });
-}
-
-function reject(detail: string): Effect.Effect<never, BootstrapError> {
-  return Effect.fail(bootstrapError(detail));
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -83,10 +105,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isUnknownArray(value: unknown): value is readonly unknown[] {
   return Array.isArray(value);
-}
-
-function containsAny(value: string, characters: readonly string[]): boolean {
-  return characters.some((character) => value.includes(character));
 }
 
 function rejectUnknownKeys(
@@ -100,16 +118,6 @@ function rejectUnknownKeys(
     : reject(`${label} has unknown key ${unknown}`);
 }
 
-function isPlainFileName(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0) {
-    return false;
-  }
-  if (value === "." || value === "..") {
-    return false;
-  }
-  return !containsAny(value, NAME_REJECTED_CHARACTERS);
-}
-
 function sourceName(
   value: unknown,
   label: string,
@@ -119,21 +127,14 @@ function sourceName(
     : reject(`${label} must be one plain file name`);
 }
 
-function isNormalizedRelativePath(value: unknown): value is string {
+function isPlainFileName(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0) {
     return false;
   }
-  if (containsAny(value, PATH_REJECTED_CHARACTERS)) {
+  if (value === "." || value === "..") {
     return false;
   }
-  if (posix.isAbsolute(value)) {
-    return false;
-  }
-  return posix.normalize(value) === value;
-}
-
-function isContainedSegment(segment: string): boolean {
-  return segment.length > 0 && segment !== "." && segment !== "..";
+  return !containsAny(value, NAME_REJECTED_CHARACTERS);
 }
 
 function targetPath(
@@ -149,11 +150,25 @@ function targetPath(
   return Effect.succeed(value);
 }
 
-function isPermissionBits(value: unknown): value is number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+function isNormalizedRelativePath(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) {
     return false;
   }
-  return value >= 0 && value <= MAX_FILE_MODE;
+  if (containsAny(value, PATH_REJECTED_CHARACTERS)) {
+    return false;
+  }
+  if (posix.isAbsolute(value)) {
+    return false;
+  }
+  return posix.normalize(value) === value;
+}
+
+function containsAny(value: string, characters: readonly string[]): boolean {
+  return characters.some((character) => value.includes(character));
+}
+
+function isContainedSegment(segment: string): boolean {
+  return segment.length > 0 && segment !== "." && segment !== "..";
 }
 
 function fileMode(
@@ -163,6 +178,13 @@ function fileMode(
   return isPermissionBits(value)
     ? Effect.succeed(value)
     : reject(`${label} must contain only Unix permission bits`);
+}
+
+function isPermissionBits(value: unknown): value is number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    return false;
+  }
+  return value >= 0 && value <= MAX_FILE_MODE;
 }
 
 function decodeFile(
@@ -221,27 +243,6 @@ function hasErrorCode(error: unknown, code: string): boolean {
     error !== null &&
     "code" in error &&
     error.code === code
-  );
-}
-
-function pathKind(path: string): Effect.Effect<PathKind, BootstrapError> {
-  return Effect.tryPromise({
-    try: () => nodeFsPromises.lstat(path),
-    catch: (cause) =>
-      hasErrorCode(cause, "ENOENT")
-        ? new PathMissing({ path })
-        : bootstrapError(`bootstrap could not inspect ${path}`),
-  }).pipe(
-    Effect.map((entry): PathKind => {
-      if (entry.isSymbolicLink()) {
-        return "symlink";
-      }
-      if (entry.isDirectory()) {
-        return "directory";
-      }
-      return entry.isFile() ? "file" : "other";
-    }),
-    Effect.catchTag("PathMissing", () => Effect.succeed<PathKind>("missing")),
   );
 }
 
@@ -357,6 +358,27 @@ function ensureRegularDestination(
   );
 }
 
+function pathKind(path: string): Effect.Effect<PathKind, BootstrapError> {
+  return Effect.tryPromise({
+    try: () => nodeFsPromises.lstat(path),
+    catch: (cause) =>
+      hasErrorCode(cause, "ENOENT")
+        ? new PathMissing({ path })
+        : bootstrapError(`bootstrap could not inspect ${path}`),
+  }).pipe(
+    Effect.map((entry): PathKind => {
+      if (entry.isSymbolicLink()) {
+        return "symlink";
+      }
+      if (entry.isDirectory()) {
+        return "directory";
+      }
+      return entry.isFile() ? "file" : "other";
+    }),
+    Effect.catchTag("PathMissing", () => Effect.succeed<PathKind>("missing")),
+  );
+}
+
 function ensureTargetParent(
   output: string,
   relativePath: string,
@@ -455,37 +477,6 @@ function placeFile(
   });
 }
 
-/**
- * Copy the application overlay and then materialize its run-scoped files.
- *
- * Every manifest entry is decoded and resolved before the output directory
- * exists, so a refused bootstrap leaves the application with nothing to read.
- * @param options Trusted mount and output paths owned by the initializer.
- * @returns Completion after every file has its declared mode.
- * @failure BootstrapError when an input is refused or a copy cannot be trusted.
- */
-export function materializeBootstrap(
-  options: BootstrapMaterializationOptions,
-): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const manifest = yield* readManifest(options.manifest);
-    const files = yield* resolveManifestSources(options, manifest);
-
-    yield* ensureOutputDirectory(options.output);
-    yield* fileSystem
-      .copy(options.overlay, options.output, { overwrite: true })
-      .pipe(
-        Effect.mapError(() =>
-          bootstrapError("bootstrap overlay cannot be copied"),
-        ),
-      );
-    yield* Effect.forEach(files, (file) => placeFile(options.output, file), {
-      concurrency: 1,
-    });
-  }).pipe(Effect.withSpan("materializeBootstrap"));
-}
-
 function isBootstrapFlag(flag: string): flag is BootstrapFlag {
   return CLI_FLAGS.some((known) => known === flag);
 }
@@ -498,6 +489,20 @@ function requiredFlag(
   return value === undefined
     ? reject(`missing bootstrap CLI flag ${flag}`)
     : Effect.succeed(value);
+}
+
+function reject(detail: string): Effect.Effect<never, BootstrapError> {
+  return Effect.fail(bootstrapError(detail));
+}
+
+function bootstrapError(detail: string): BootstrapError {
+  return new BootstrapError({ detail });
+}
+
+function runCli(
+  args: readonly string[],
+): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
+  return parseArguments(args).pipe(Effect.flatMap(materializeBootstrap));
 }
 
 function parseArguments(
@@ -528,16 +533,6 @@ function parseArguments(
   });
 }
 
-function runCli(
-  args: readonly string[],
-): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
-  return parseArguments(args).pipe(Effect.flatMap(materializeBootstrap));
-}
-
-function realPath(path: string): string | undefined {
-  return existsSync(path) ? realpathSync(path) : undefined;
-}
-
 /**
  * Whether this module is the process entry point rather than an import.
  *
@@ -563,6 +558,10 @@ function isDirectInvocation(invoked?: string): boolean {
   return (
     entry !== undefined && entry === realPath(fileURLToPath(import.meta.url))
   );
+}
+
+function realPath(path: string): string | undefined {
+  return existsSync(path) ? realpathSync(path) : undefined;
 }
 
 /**

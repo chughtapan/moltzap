@@ -1,18 +1,18 @@
 /** @file GKE entry point for the shared Temporal-managed Kubernetes run. */
 
-import { resolve } from "node:path";
 import { NodeRuntime } from "@effect/platform-node";
 import { Effect, Either, Schema } from "effect";
-import { isEntryModule } from "../entry.js";
-import { ledgerArtifactFiles } from "../../ledger/storage.js";
+import { resolve } from "node:path";
 import type { KubernetesExecutionProfile } from "../profile.js";
+import { ledgerArtifactFiles } from "../../ledger/index.js";
+import { isEntryModule } from "../entry.js";
 import {
   liveSubmitOperations,
-  RunSubmissionError,
-  runKubernetesSociety,
-  SubmitOperations,
   type RunEnvironment,
+  runKubernetesSociety,
   type RunSubmission,
+  RunSubmissionError,
+  SubmitOperations,
 } from "../submit.js";
 
 const PROFILE_PATH = resolve("gke/profile.json");
@@ -93,39 +93,6 @@ const decodeRuntimeProfile = Schema.decodeEither(
   Schema.parseJson(runtimeProfileSchema),
 );
 
-function configurationFailure(detail: string): RunSubmissionError {
-  return new RunSubmissionError({ stage: "configuration", detail });
-}
-
-function required(environment: RunEnvironment, key: string): string {
-  const value = environment[key];
-  if (value === undefined || value.length === 0) {
-    throw configurationFailure(`${key} is required by the GKE profile`);
-  }
-  return value;
-}
-
-function checkedRuntimeProfile(source: string) {
-  return Either.match(decodeRuntimeProfile(source), {
-    onLeft: () => {
-      throw configurationFailure(
-        "gke/profile.json does not match the supported execution profile",
-      );
-    },
-    onRight: (value) => value,
-  });
-}
-
-function checkedArtifactBucket(environment: RunEnvironment): string {
-  const artifactBucket = required(environment, "MOLTZAP_GKE_ARTIFACT_BUCKET");
-  if (!BUCKET_NAME.test(artifactBucket)) {
-    throw configurationFailure(
-      "MOLTZAP_GKE_ARTIFACT_BUCKET must be a valid Cloud Storage bucket name",
-    );
-  }
-  return artifactBucket;
-}
-
 /**
  * Validate the checked-in profile and bind its dynamic cloud identities.
  * @param source Complete checked-in GKE profile JSON.
@@ -195,6 +162,39 @@ export function runGkeSociety(
     ),
     Effect.withSpan("runGkeSociety"),
   );
+}
+
+function checkedRuntimeProfile(source: string) {
+  return Either.match(decodeRuntimeProfile(source), {
+    onLeft: () => {
+      throw configurationFailure(
+        "gke/profile.json does not match the supported execution profile",
+      );
+    },
+    onRight: (value) => value,
+  });
+}
+
+function checkedArtifactBucket(environment: RunEnvironment): string {
+  const artifactBucket = required(environment, "MOLTZAP_GKE_ARTIFACT_BUCKET");
+  if (!BUCKET_NAME.test(artifactBucket)) {
+    throw configurationFailure(
+      "MOLTZAP_GKE_ARTIFACT_BUCKET must be a valid Cloud Storage bucket name",
+    );
+  }
+  return artifactBucket;
+}
+
+function required(environment: RunEnvironment, key: string): string {
+  const value = environment[key];
+  if (value === undefined || value.length === 0) {
+    throw configurationFailure(`${key} is required by the GKE profile`);
+  }
+  return value;
+}
+
+function configurationFailure(detail: string): RunSubmissionError {
+  return new RunSubmissionError({ stage: "configuration", detail });
 }
 
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.

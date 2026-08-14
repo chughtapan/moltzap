@@ -1,54 +1,21 @@
 /** @file Private Layer assembled inside one run controller process. */
-// safer-arch-ignore no-cross-domain-sibling-import: Assembles the controller's Layer from ledger and cluster implementations.
 
-import { NodeContext } from "@effect/platform-node";
+import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import { Duration, Layer } from "effect";
 import { filesystemLedgerStorageLayer } from "../../ledger/filesystem.js";
-import {
-  makeInClusterKubernetesSocietyApi,
-  type KubernetesSocietyApi,
-} from "../kubernetes/calls.js";
 import { kubernetesClusterLayer } from "../cohort.js";
 import {
-  controllerConfigurationFromEnvironment,
+  type KubernetesSocietyApi,
+  makeInClusterKubernetesSocietyApi,
+} from "../kubernetes/calls.js";
+import { ROUTER_FAULT_PROXY_PORT } from "../kubernetes/objects.js";
+import {
   type ControllerConfiguration,
+  controllerConfigurationFromEnvironment,
   type ControllerEnvironment,
 } from "./configuration.js";
 
-function processControllerEnvironment(): ControllerEnvironment {
-  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- This private deep import is the experiment module's executable configuration boundary.
-  return process.env;
-}
-
-/**
- * Compose the complete private cluster for one in-cluster execution.
- * @param configuration Validated controller and run resource configuration.
- * @param api Narrow in-cluster operations, replaceable only by unit tests.
- * @returns One Layer suitable for the mounted experiment's RunSpec.
- */
-function makeControllerServices(
-  configuration: ControllerConfiguration,
-  api?: KubernetesSocietyApi,
-) {
-  const societyApi =
-    api ?? makeInClusterKubernetesSocietyApi(configuration.namespace);
-  const startupTimeout = Duration.millis(configuration.startupTimeoutMs);
-  const host = NodeContext.layer;
-  const run = Layer.mergeAll(
-    filesystemLedgerStorageLayer(configuration.ledgerDirectory),
-    kubernetesClusterLayer({
-      api: societyApi,
-      namespace: configuration.namespace,
-      queueName: configuration.queueName,
-      owner: configuration.owner,
-      supportImage: configuration.supportImage,
-      runtimeCredentials: configuration.runtimeCredentials,
-      rosterPlacement: configuration.rosterPlacement,
-      startupTimeout,
-    }),
-  );
-  return run.pipe(Layer.provideMerge(host));
-}
+// safer-arch-ignore no-cross-domain-sibling-import: Assembles the controller's Layer from ledger and cluster implementations.
 
 /**
  * Build the Layer at module-evaluation time for a mounted experiment RunSpec.
@@ -82,4 +49,61 @@ export function cohortSizeFromEnvironment(
 ): number {
   const resolvedEnvironment = environment ?? processControllerEnvironment();
   return controllerConfigurationFromEnvironment(resolvedEnvironment).cohortSize;
+}
+
+/**
+ * Read the digest-pinned production-stack image selected for this run.
+ * @param environment Process environment or a deterministic test substitute.
+ * @returns The same validated support image used by Kubernetes composition.
+ */
+export function supportImageFromEnvironment(
+  environment?: ControllerEnvironment,
+) {
+  const resolvedEnvironment = environment ?? processControllerEnvironment();
+  return controllerConfigurationFromEnvironment(resolvedEnvironment)
+    .supportImage;
+}
+
+function processControllerEnvironment(): ControllerEnvironment {
+  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- This private deep import is the experiment module's executable configuration boundary.
+  return process.env;
+}
+
+/**
+ * Compose the complete private cluster for one in-cluster execution.
+ * @param configuration Validated controller and run resource configuration.
+ * @param api Narrow in-cluster operations, replaceable only by unit tests.
+ * @returns One Layer suitable for the mounted experiment's RunSpec.
+ */
+function makeControllerServices(
+  configuration: ControllerConfiguration,
+  api?: KubernetesSocietyApi,
+) {
+  const societyApi =
+    api ?? makeInClusterKubernetesSocietyApi(configuration.namespace);
+  const startupTimeout = Duration.millis(configuration.startupTimeoutMs);
+  const host = Layer.merge(NodeContext.layer, NodeHttpClient.layer);
+  const run = Layer.mergeAll(
+    filesystemLedgerStorageLayer(configuration.ledgerDirectory),
+    kubernetesClusterLayer({
+      api: societyApi,
+      namespace: configuration.namespace,
+      queueName: configuration.queueName,
+      owner: configuration.owner,
+      supportImage: configuration.supportImage,
+      runtimeCredentials: configuration.runtimeCredentials,
+      rosterPlacement: configuration.rosterPlacement,
+      startupTimeout,
+      routerFaultProxy: {
+        listener: {
+          bindHost: "0.0.0.0",
+          port: ROUTER_FAULT_PROXY_PORT,
+          advertisedOrigin: new URL(
+            `http://controller.${configuration.namespace}.svc.cluster.local:${String(ROUTER_FAULT_PROXY_PORT)}`,
+          ),
+        },
+      },
+    }),
+  );
+  return run.pipe(Layer.provideMerge(host));
 }

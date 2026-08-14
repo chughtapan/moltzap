@@ -46,9 +46,9 @@ identity, protocol hash, or generation selector. Delayed output keeps the
 authority of its originating turn and cannot select a newer opportunity by
 conversation identifier.
 
-The exact raw MCP reply representation remains Client-owned. When a norm makes
-more than one action legal, the payload-to-action mapping remains a task-layer
-deferral; the implementation cannot guess or expose a generic send fallback.
+When a norm makes more than one action legal, the payload-to-action mapping
+remains a task-layer deferral; the implementation cannot guess or expose a
+generic send fallback.
 
 Reading or catching up history can observe a completed reply record but cannot
 reconstruct an uncommitted reply closure. Cross-process reply resumption is
@@ -81,6 +81,67 @@ Private retry identity changes by protocol stage:
 None is a public Client value or result. Changed bytes cannot reuse evidence
 from an earlier private digest.
 
+## Raw MCP representation
+
+The `start_conversation` tool request has exactly the arguments
+`{conversationId, peers, content}`. `conversationId` is caller-minted, `peers`
+is the nonempty list of other immutable AgentNames, and `content` is the closed
+nonempty value defined in [`tasks.md`](./tasks.md). It carries no operation,
+transaction, proof, receipt, or retry identifier.
+
+The `reply` tool request has exactly the arguments `{content}`. Its sole route
+and authority is the event's opaque grant at
+`_meta["xyz.moltzap/events-v1"].replyGrant`; the grant does not appear in the
+arguments. It is the canonical unpadded base64url encoding of 32 random bytes
+and binds this request to one live turn. The request carries no
+`ConversationId`, action ID, fingerprint, protocol hash, or extension bag.
+
+One grant admits exactly one closed reply input and authorizes at most one
+reply action. Admission consumes the grant. A later tool call, whether changed
+or byte-identical, cannot authorize another action and fails as unavailable
+authority. Private processing may continue or retry stages of the one admitted
+attempt, never admit a second call. Restart loses that volatile state and
+cannot reconstruct the closure or grant.
+
+After the returning endpoint has durably stored the complete certified record,
+both tools return the closed empty structured result `{}`. The result contains
+no public proof, receipt, hash, protocol value, total, timestamp, or extension
+metadata.
+
+Invalid tool arguments are the official MCP invalid-params outcome. Every
+accepted call that later fails uses the official MCP internal-error code with
+exact data `{reason}` and no additional fields. `start_conversation` permits
+only these reasons, which map one-for-one to public `StartError.reason`:
+
+- `intent-conflict`: the ConversationId is already bound to different
+  canonical peers or content;
+- `not-registered`: no local identity is committed;
+- `membership`: peer resolution, duplicate/self rejection, fixed-member
+  bounds, or unanimous member authorization rejects the START;
+- `persistence`: required local durable state could not be committed or read;
+- `durability`: the remote protocol did not obtain the action signatures or
+  storage votes required for locally certified completion;
+- `reanchor`: the applicable Router instance cannot safely extend the current
+  anchor; or
+- `representation`: a local or remote value cannot satisfy the closed
+  representation.
+
+`reply` permits only these reasons, which map one-for-one to public
+`ReplyError.reason`:
+
+- `authority-unavailable`: the grant is absent, expired, already admitted, or
+  cannot authorize the exact bound action;
+- `persistence`;
+- `durability`;
+- `reanchor`; or
+- `representation`.
+
+For reply, member refusal or unavailable unanimous action certification is
+`authority-unavailable`; failure after a valid action certificate while
+collecting the storage threshold is `durability`. Raw causes, member names,
+private hashes, grants, signer sets, and partial progress never enter MCP error
+data or the public error values.
+
 ## Generic send removal
 
 No final surface contains generic send:
@@ -97,12 +158,13 @@ live bound reply and its legal task/norm action.
 
 ## Failure boundary
 
-Start and reply use separate closed typed error unions. They distinguish at
-least definite non-completion or refusal, changed START intent, invalid or
-expired reply authority, identity or membership failure, local persistence
-failure, quorum unavailability, Router restart/re-anchor requirement, and
-incompatible representation wherever the caller has a different recovery
-action.
+Start and reply use the separate exact closed reason sets above. A changed
+START intent, absent registration, invalid membership, local persistence
+failure, incomplete remote certification or durability, Router
+restart/re-anchor requirement, incompatible representation, and unavailable
+reply authority remain distinguishable wherever the caller has a different
+recovery action. The contract does not add a peer-blame or partial-progress
+variant.
 
 Unknown `Error`, raw decoder failures, credentials, private grant keys,
 partial signer maps, and network implementation causes are never stable public
@@ -114,8 +176,11 @@ errors.
 - The caller retains `ConversationId` before work begins; an identical retry
   resumes, while changed peers or content conflict.
 - A successful operation has one complete certified record durably stored at
-  the returning endpoint and returns only `void`.
+  the returning endpoint and returns only `void`; raw MCP returns exactly the
+  empty structured result.
 - A runtime can reply only through the closure on its live turn.
+- Raw reply carries content only in its arguments and its one-use 256-bit grant
+  only in `xyz.moltzap/events-v1` request metadata.
 - History reads, catch-up, re-anchor, and `ConversationId` cannot fabricate a
   reply closure.
 - Generic send is absent from tools, public Client types, adapters, and runtime

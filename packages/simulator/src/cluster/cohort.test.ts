@@ -1,6 +1,6 @@
-/* eslint-disable max-lines-per-function, max-nested-callbacks, sonarjs/max-lines-per-function -- lifecycle regressions keep their ordering, readiness, and cleanup evidence together */
+/** @file Kubernetes society capacity, readiness, isolation, observation, and cleanup regressions. */
 
-import { assert, describe, it as test } from "vitest";
+import { AgentId } from "@moltzap/identity";
 import {
   Cause,
   Deferred,
@@ -10,25 +10,9 @@ import {
   Fiber,
   Option,
   Schema,
-  type Scope,
+  Scope,
 } from "effect";
-import {
-  defineContainerRuntime,
-  image,
-  type ApplicationEndpoint,
-  type CredentialName,
-  type File,
-} from "../agents/container.js";
-import { AgentRoster } from "../agents/roster.js";
-import {
-  defineRuntime,
-  RuntimeExited,
-  RuntimeFailed,
-  RuntimeSignaled,
-  type AgentRuntimeLike,
-  type RuntimeTermination,
-} from "../agents/agent.js";
-import { ClusterError, type ClusterService, type Society } from "./cluster.js";
+import { assert, describe, it as test } from "vitest";
 import type {
   KubernetesManifest,
   KubernetesSocietyApi,
@@ -37,9 +21,31 @@ import type {
   WorkloadObservation,
 } from "./kubernetes/calls.js";
 import {
-  makeKubernetesCluster,
+  type AgentRuntimeLike,
+  defineRuntime,
+  RuntimeExited,
+  RuntimeFailed,
+  RuntimeSignaled,
+  type RuntimeTermination,
+} from "../agents/agent.js";
+import {
+  type ApplicationEndpoint,
+  type CredentialName,
+  defineContainerRuntime,
+  type File,
+  image,
+} from "../agents/container.js";
+import { AgentRoster } from "../agents/roster.js";
+import { RouterStopped } from "../network/router.js";
+import { ClusterError, type ClusterService, type Society } from "./cluster.js";
+import {
   type KubernetesClusterOptions,
+  type KubernetesPlatform,
+  makeKubernetesPlatform,
+  type SocietyAgentIdResolver,
 } from "./cohort.js";
+
+/* eslint-disable max-lines, max-lines-per-function, max-nested-callbacks, sonarjs/max-lines-per-function -- This frozen regression suite keeps lifecycle ordering, readiness, and cleanup evidence together. */
 
 const SUPPORT_IMAGE = image.make(
   "registry.example/simulator@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -92,6 +98,17 @@ const INJECTED_READ_FAILURES = 3;
 /** A readiness probe the poll budget can never reach. */
 const UNREACHABLE_PROBE = Number.MAX_SAFE_INTEGER;
 const NO_CLUSTER_FAILURE = "<no cluster error observed>";
+const ISSUED_AGENT_ID = Schema.decodeUnknownSync(AgentId)(
+  "agt_AAAAAAAAAAAAAAAAAAAAAA",
+);
+const ADVERTISED_PROXY_ORIGIN = new URL(
+  `http://controller.${NAMESPACE}.svc.cluster.local:43120`,
+);
+type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
+const KUBERNETES_PROXY_ORIGIN_IS_REQUIRED: Equal<
+  KubernetesClusterOptions["routerFaultProxy"]["listener"]["advertisedOrigin"],
+  URL
+> = true;
 
 const NOT_ADMITTED = "was not admitted within";
 const EMPTY_RESERVATION = "requires at least one runtime";
@@ -112,6 +129,40 @@ const sandboxManifestShape = Schema.Struct({
   spec: Schema.Struct({
     podTemplate: Schema.Struct({
       spec: Schema.Struct({ containers: Schema.Array(Schema.Unknown) }),
+    }),
+  }),
+});
+const routedSandboxManifestShape = Schema.Struct({
+  spec: Schema.Struct({
+    podTemplate: Schema.Struct({
+      spec: Schema.Struct({
+        initContainers: Schema.Array(
+          Schema.Struct({
+            name: Schema.String,
+            env: Schema.optional(
+              Schema.Array(
+                Schema.Struct({
+                  name: Schema.String,
+                  value: Schema.optional(Schema.String),
+                }),
+              ),
+            ),
+          }),
+        ),
+        containers: Schema.Array(
+          Schema.Struct({
+            name: Schema.String,
+            env: Schema.optional(
+              Schema.Array(
+                Schema.Struct({
+                  name: Schema.String,
+                  value: Schema.optional(Schema.String),
+                }),
+              ),
+            ),
+          }),
+        ),
+      }),
     }),
   }),
 });
@@ -137,6 +188,22 @@ interface FakeKubernetesState {
   readonly workloadObserved: Deferred.Deferred<undefined>;
 }
 
+function workload(state: FakeKubernetesState): WorkloadObservation {
+  return {
+    metadata: {
+      name: WORKLOAD_NAME,
+      generation: OBSERVED_GENERATION,
+      deletionTimestamp: state.workloadDeleting
+        ? DELETION_TIMESTAMP
+        : undefined,
+    },
+    status: {
+      admission: state.admitted ? { clusterQueue: QUEUE_NAME } : undefined,
+      conditions: workloadConditions(state),
+    },
+  };
+}
+
 function workloadConditions(state: FakeKubernetesState) {
   return [
     ...(state.admitted
@@ -158,22 +225,6 @@ function workloadConditions(state: FakeKubernetesState) {
         ]
       : []),
   ];
-}
-
-function workload(state: FakeKubernetesState): WorkloadObservation {
-  return {
-    metadata: {
-      name: WORKLOAD_NAME,
-      generation: OBSERVED_GENERATION,
-      deletionTimestamp: state.workloadDeleting
-        ? DELETION_TIMESTAMP
-        : undefined,
-    },
-    status: {
-      admission: state.admitted ? { clusterQueue: QUEUE_NAME } : undefined,
-      conditions: workloadConditions(state),
-    },
-  };
 }
 
 function sandbox(state: FakeKubernetesState, name: string): SandboxObservation {
@@ -199,44 +250,6 @@ function sandbox(state: FakeKubernetesState, name: string): SandboxObservation {
             },
           ],
     },
-  };
-}
-
-function terminatedApplication(state: FakeKubernetesState) {
-  return state.terminationSignal === undefined
-    ? { exitCode: OBSERVED_EXIT_CODE, reason: TERMINATED_REASON }
-    : {
-        exitCode: 0,
-        signal: state.terminationSignal,
-        reason: TERMINATED_REASON,
-      };
-}
-
-function applicationPod(
-  state: FakeKubernetesState,
-  name: string,
-): PodObservation {
-  return {
-    metadata: { name },
-    status: {
-      phase: state.finished ? "Failed" : "Running",
-      containerStatuses: [
-        {
-          name: APPLICATION_CONTAINER,
-          restartCount: 0,
-          state: state.finished
-            ? { terminated: terminatedApplication(state) }
-            : {},
-        },
-      ],
-    },
-  };
-}
-
-function deletingPod(pod: PodObservation): PodObservation {
-  return {
-    ...pod,
-    metadata: { ...pod.metadata, deletionTimestamp: DELETION_TIMESTAMP },
   };
 }
 
@@ -269,6 +282,44 @@ function pods(
   return state.podsFor === undefined
     ? [applicationPod(state, `${name}-pod`)]
     : state.podsFor(name);
+}
+
+function applicationPod(
+  state: FakeKubernetesState,
+  name: string,
+): PodObservation {
+  return {
+    metadata: { name },
+    status: {
+      phase: state.finished ? "Failed" : "Running",
+      containerStatuses: [
+        {
+          name: APPLICATION_CONTAINER,
+          restartCount: 0,
+          state: state.finished
+            ? { terminated: terminatedApplication(state) }
+            : {},
+        },
+      ],
+    },
+  };
+}
+
+function terminatedApplication(state: FakeKubernetesState) {
+  return state.terminationSignal === undefined
+    ? { exitCode: OBSERVED_EXIT_CODE, reason: TERMINATED_REASON }
+    : {
+        exitCode: 0,
+        signal: state.terminationSignal,
+        reason: TERMINATED_REASON,
+      };
+}
+
+function deletingPod(pod: PodObservation): PodObservation {
+  return {
+    ...pod,
+    metadata: { ...pod.metadata, deletionTimestamp: DELETION_TIMESTAMP },
+  };
 }
 
 function record(
@@ -308,6 +359,62 @@ function bridgeAcceptsOperation(state: FakeKubernetesState) {
   });
 }
 
+interface PlatformOptions {
+  readonly startupTimeout?: Duration.Duration;
+  readonly livenessInterval?: Duration.Duration;
+  readonly runtimeCredentials?: KubernetesClusterOptions["runtimeCredentials"];
+  readonly resolveAgentId?: SocietyAgentIdResolver;
+  readonly routerFaultProxy?: KubernetesClusterOptions["routerFaultProxy"];
+}
+
+function makePlatform(
+  state: FakeKubernetesState,
+  options: PlatformOptions = {},
+): ClusterService {
+  const platform = makeRawPlatform(state, options);
+  return Object.freeze({
+    prepare: <
+      Id extends string,
+      Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+    >(
+      roster: AgentRoster<Id, Definitions>,
+    ) =>
+      platform.routerProvider.acquire.pipe(
+        Effect.catchTag("NetworkError", (cause) =>
+          Effect.fail(new ClusterError({ detail: cause.message })),
+        ),
+        Effect.zipRight(platform.cluster.prepare(roster)),
+      ),
+  });
+}
+
+function makeRawPlatform(
+  state: FakeKubernetesState,
+  options: PlatformOptions = {},
+): KubernetesPlatform {
+  return makeKubernetesPlatform(
+    {
+      api: fakeApi(state),
+      namespace: NAMESPACE,
+      queueName: QUEUE_NAME,
+      owner: { name: "run-root", uid: "root-uid" },
+      supportImage: SUPPORT_IMAGE,
+      runtimeCredentials: options.runtimeCredentials,
+      startupTimeout: options.startupTimeout ?? GENEROUS_TIMEOUT,
+      routerFaultProxy: options.routerFaultProxy ?? {
+        listener: {
+          bindHost: "127.0.0.1",
+          port: 0,
+          advertisedOrigin: ADVERTISED_PROXY_ORIGIN,
+        },
+      },
+      readinessInterval: POLL_INTERVAL,
+      livenessInterval: options.livenessInterval ?? POLL_INTERVAL,
+    },
+    options.resolveAgentId ?? (() => Effect.succeed(ISSUED_AGENT_ID)),
+  );
+}
+
 function fakeApi(state: FakeKubernetesState): KubernetesSocietyApi {
   return {
     createWorkload: (manifest) => record(state, WORKLOAD_CREATED, manifest),
@@ -319,12 +426,49 @@ function fakeApi(state: FakeKubernetesState): KubernetesSocietyApi {
     createSecret: (manifest) =>
       record(state, `${SECRET_CREATED}${manifestName(manifest)}`, manifest),
     deleteSecret: (name) => record(state, `delete:secret:${name}`),
+    createPersistentVolumeClaim: (manifest) =>
+      record(
+        state,
+        `create:persistent-volume-claim:${manifest.metadata?.name ?? "unknown"}`,
+        {
+          apiVersion: manifest.apiVersion,
+          kind: manifest.kind,
+          metadata: manifest.metadata,
+          spec: manifest.spec,
+          status: manifest.status,
+        },
+      ),
+    deletePersistentVolumeClaim: (name) =>
+      record(state, `delete:persistent-volume-claim:${name}`),
+    createService: (manifest) =>
+      record(state, `create:service:${manifest.metadata?.name ?? "unknown"}`, {
+        apiVersion: manifest.apiVersion,
+        kind: manifest.kind,
+        metadata: manifest.metadata,
+        spec: manifest.spec,
+        status: manifest.status,
+      }),
+    deleteService: (name) => record(state, `delete:service:${name}`),
+    createDeployment: (manifest) =>
+      record(
+        state,
+        `create:deployment:${manifest.metadata?.name ?? "unknown"}`,
+        {
+          apiVersion: manifest.apiVersion,
+          kind: manifest.kind,
+          metadata: manifest.metadata,
+          spec: manifest.spec,
+          status: manifest.status,
+        },
+      ),
+    deleteDeployment: (name) => record(state, `delete:deployment:${name}`),
     createSandbox: (manifest) =>
       record(state, `${SANDBOX_CREATED}${manifestName(manifest)}`, manifest),
     readSandbox: (name) => readSandboxOperation(state, name),
     deleteSandbox: (name) => record(state, `${SANDBOX_DELETED}${name}`),
     listPods: (selector) => Effect.sync(() => pods(state, selector)),
     bridgeAccepts: () => bridgeAcceptsOperation(state),
+    serviceAccepts: () => Effect.succeed(true),
   };
 }
 
@@ -490,29 +634,6 @@ function plainRuntime() {
   });
 }
 
-interface PlatformOptions {
-  readonly startupTimeout?: Duration.Duration;
-  readonly livenessInterval?: Duration.Duration;
-  readonly runtimeCredentials?: KubernetesClusterOptions["runtimeCredentials"];
-}
-
-function makePlatform(
-  state: FakeKubernetesState,
-  options: PlatformOptions = {},
-): ClusterService {
-  return makeKubernetesCluster({
-    api: fakeApi(state),
-    namespace: NAMESPACE,
-    queueName: QUEUE_NAME,
-    owner: { name: "run-root", uid: "root-uid" },
-    supportImage: SUPPORT_IMAGE,
-    runtimeCredentials: options.runtimeCredentials,
-    startupTimeout: options.startupTimeout ?? GENEROUS_TIMEOUT,
-    readinessInterval: POLL_INTERVAL,
-    livenessInterval: options.livenessInterval ?? POLL_INTERVAL,
-  });
-}
-
 function acquireFirst<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
@@ -580,15 +701,6 @@ function runWithin<A, E>(
   );
 }
 
-function detailOf(candidates: Iterable<unknown>): string | undefined {
-  for (const candidate of candidates) {
-    if (candidate instanceof ClusterError) {
-      return candidate.detail;
-    }
-  }
-  return undefined;
-}
-
 /**
  * Read the cluster error the cluster raised in its error channel.
  * @param exit Exit of a scoped platform attempt.
@@ -599,12 +711,35 @@ function failureDetail(exit: Exit.Exit<unknown, unknown>): string {
   return detailOf(candidates) ?? NO_CLUSTER_FAILURE;
 }
 
-function created(state: FakeKubernetesState, prefix: string): string[] {
-  return state.events.filter((event) => event.startsWith(prefix));
+function detailOf(candidates: Iterable<unknown>): string | undefined {
+  for (const candidate of candidates) {
+    if (candidate instanceof ClusterError) {
+      return candidate.detail;
+    }
+  }
+  return undefined;
 }
 
 function encodedSecretValue(value: string): string {
   return Buffer.from(value, "utf8").toString("base64");
+}
+
+function agentSecretManifests(
+  state: FakeKubernetesState,
+): KubernetesManifest[] {
+  return manifestsOfKind(state, SECRET_KIND).filter((manifest) =>
+    manifestName(manifest).endsWith("-bootstrap"),
+  );
+}
+
+function createdAgentSecrets(state: FakeKubernetesState): string[] {
+  return created(state, SECRET_CREATED).filter((event) =>
+    event.endsWith("-bootstrap"),
+  );
+}
+
+function created(state: FakeKubernetesState, prefix: string): string[] {
+  return state.events.filter((event) => event.startsWith(prefix));
 }
 
 function manifestsOfKind(
@@ -613,6 +748,155 @@ function manifestsOfKind(
 ): KubernetesManifest[] {
   return state.manifests.filter((manifest) => manifest.kind === kind);
 }
+
+test("requires the run Router fixture before reserving society capacity", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const state = makeState(yield* Deferred.make<undefined>());
+      state.admitted = true;
+      const platform = makeRawPlatform(state);
+      const roster = AgentRoster.make("acme.router-required/v1", {
+        alice: fakeRuntime(),
+      });
+
+      const exit = yield* Effect.scoped(platform.cluster.prepare(roster)).pipe(
+        Effect.exit,
+      );
+
+      assert.include(failureDetail(exit), "Router must be acquired");
+      assert.deepStrictEqual(state.events, []);
+    }),
+  ));
+
+test("shares one ready network, resolves the issued identity, and reports stop after release", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const state = makeState(yield* Deferred.make<undefined>());
+      state.admitted = true;
+      let resolvedAfterRegistrarReadiness = false;
+      const platform = makeRawPlatform(state, {
+        resolveAgentId: () =>
+          Effect.sync(() => {
+            resolvedAfterRegistrarReadiness =
+              state.bridgeProbes > 0 &&
+              created(state, SANDBOX_CREATED).length === 1;
+            return ISSUED_AGENT_ID;
+          }),
+      });
+      const roster = AgentRoster.make("acme.router-lifecycle/v1", {
+        alice: fakeRuntime(),
+      });
+      const scope = yield* Scope.make();
+      const router = yield* platform.routerProvider.acquire.pipe(
+        Scope.extend(scope),
+      );
+      const session = yield* platform.cluster
+        .prepare(roster)
+        .pipe(Scope.extend(scope));
+      const running = yield* acquireFirst(session, roster).pipe(
+        Scope.extend(scope),
+      );
+      yield* session.cohortReady;
+      const stopped = yield* Effect.fork(
+        router.stopped.pipe(Effect.map(() => [...state.events])),
+      );
+
+      assert.strictEqual(
+        router.address.href,
+        `http://router.${NAMESPACE}.svc.cluster.local:4318/`,
+      );
+      assert.strictEqual(running.agent.name, "alice");
+      assert.strictEqual(running.agent.id, ISSUED_AGENT_ID);
+      assert.isTrue(resolvedAfterRegistrarReadiness);
+      assert.lengthOf(
+        state.events.filter(
+          (event) => event === "create:secret:society-network",
+        ),
+        1,
+      );
+      assert.isTrue(Option.isNone(yield* Fiber.poll(stopped)));
+
+      yield* Scope.close(scope, Exit.void);
+      const eventsAtStop = yield* Fiber.join(stopped);
+
+      assert.include(eventsAtStop, "delete:deployment:router");
+      assert.include(eventsAtStop, "delete:deployment:registry");
+      assert.include(eventsAtStop, "delete:service:router");
+      assert.include(eventsAtStop, "delete:service:registry");
+      assert.include(
+        eventsAtStop,
+        "delete:persistent-volume-claim:registry-state",
+      );
+      assert.strictEqual(eventsAtStop.at(-1), "delete:secret:society-network");
+      assert.isTrue((yield* router.stopped) instanceof RouterStopped);
+    }),
+  ));
+
+test("keeps the actual Router origin private while Sandboxes receive only the advertised proxy", () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        assert.isTrue(KUBERNETES_PROXY_ORIGIN_IS_REQUIRED);
+        const state = makeState(yield* Deferred.make<undefined>());
+        state.admitted = true;
+        const platform = makeRawPlatform(state, {
+          routerFaultProxy: {
+            listener: {
+              bindHost: "0.0.0.0",
+              port: Number(ADVERTISED_PROXY_ORIGIN.port),
+              advertisedOrigin: ADVERTISED_PROXY_ORIGIN,
+            },
+          },
+        });
+        const roster = AgentRoster.make("acme.proxy-routing/v1", {
+          alice: fakeRuntime(),
+        });
+        const router = yield* platform.routerProvider.acquire;
+        const session = yield* platform.cluster.prepare(roster);
+        yield* acquireFirst(session, roster);
+
+        const sandboxes = manifestsOfKind(state, SANDBOX_KIND);
+        assert.lengthOf(sandboxes, 1);
+        const [sandbox] = sandboxes;
+        assert.isDefined(sandbox);
+        const decoded = Schema.decodeUnknownSync(routedSandboxManifestShape)(
+          sandbox,
+        );
+        const daemon = decoded.spec.podTemplate.spec.initContainers.find(
+          (container) => container.name === "moltzapd",
+        );
+        const application = decoded.spec.podTemplate.spec.containers.find(
+          (container) => container.name === APPLICATION_CONTAINER,
+        );
+        const daemonRouterOrigin = daemon?.env?.find(
+          (entry) => entry.name === "MOLTZAPD_ROUTER_ORIGIN",
+        )?.value;
+        const applicationEnvironment =
+          application?.env?.map(({ name }) => name) ?? [];
+
+        assert.strictEqual(
+          router.address.origin,
+          `http://router.${NAMESPACE}.svc.cluster.local:4318`,
+        );
+        assert.notStrictEqual(
+          router.address.origin,
+          ADVERTISED_PROXY_ORIGIN.origin,
+        );
+        assert.strictEqual(
+          session.routerFaultProxy.listener.advertisedOrigin?.origin,
+          ADVERTISED_PROXY_ORIGIN.origin,
+        );
+        assert.strictEqual(daemonRouterOrigin, ADVERTISED_PROXY_ORIGIN.origin);
+        assert.include(applicationEnvironment, "MOLTZAP_MCP_URL");
+        assert.notInclude(applicationEnvironment, "MOLTZAPD_ROUTER_ORIGIN");
+        assert.notInclude(
+          JSON.stringify(application),
+          ADVERTISED_PROXY_ORIGIN.origin,
+        );
+        assert.notInclude(JSON.stringify(application), router.address.origin);
+      }),
+    ),
+  ));
 
 test("reserves the complete roster before creating any Sandbox and releases every resource", () =>
   Effect.runPromise(
@@ -631,7 +915,13 @@ test("reserves the complete roster before creating any Sandbox and releases ever
         Effect.gen(function* () {
           const preparing = yield* Effect.fork(platform.prepare(roster));
           yield* Deferred.await(workloadObserved);
-          assert.deepStrictEqual(state.events, [WORKLOAD_CREATED]);
+          assert.strictEqual(state.events.at(-1), WORKLOAD_CREATED);
+          assert.lengthOf(
+            state.events.filter(
+              (event) => event === "create:secret:society-network",
+            ),
+            1,
+          );
           state.admitted = true;
           const session = yield* Fiber.join(preparing);
           yield* acquireAll(session, roster);
@@ -642,15 +932,16 @@ test("reserves the complete roster before creating any Sandbox and releases ever
       const firstSandbox = state.events.findIndex((event) =>
         event.startsWith(SANDBOX_CREATED),
       );
-      const firstSecret = state.events.findIndex((event) =>
-        event.startsWith(SECRET_CREATED),
+      const firstSecret = state.events.findIndex(
+        (event) =>
+          event.startsWith(SECRET_CREATED) && event.endsWith("-bootstrap"),
       );
-      assert.strictEqual(state.events[0], WORKLOAD_CREATED);
+      assert.isAtLeast(state.events.indexOf(WORKLOAD_CREATED), 0);
       assert.isAbove(firstSecret, 0);
       assert.isAbove(firstSandbox, firstSecret);
       assert.lengthOf(created(state, SANDBOX_CREATED), 2);
       assert.lengthOf(created(state, SANDBOX_DELETED), 2);
-      assert.strictEqual(state.events.at(-1), WORKLOAD_DELETED);
+      assert.include(state.events, WORKLOAD_DELETED);
 
       const sandboxManifests = manifestsOfKind(state, SANDBOX_KIND);
       assert.lengthOf(sandboxManifests, 2);
@@ -659,6 +950,9 @@ test("reserves the complete roster before creating any Sandbox and releases ever
         const decoded =
           Schema.decodeUnknownSync(sandboxManifestShape)(manifest);
         assert.lengthOf(decoded.spec.podTemplate.spec.containers, 1);
+        const rendered = JSON.stringify(manifest);
+        assert.notInclude(rendered, 'agent-private-key.pem":"');
+        assert.notInclude(rendered, 'admission-credential":"');
       }
     }),
   ));
@@ -710,7 +1004,7 @@ describe("readiness", () => {
         assert.include(failureDetail(exit), NOT_READY);
         assert.isAbove(state.bridgeProbes, 1);
         assert.lengthOf(created(state, SANDBOX_DELETED), 1);
-        assert.strictEqual(state.events.at(-1), WORKLOAD_DELETED);
+        assert.include(state.events, WORKLOAD_DELETED);
       }),
     ));
 
@@ -734,7 +1028,7 @@ describe("readiness", () => {
         assert.isTrue(Exit.isSuccess(exit), failureDetail(exit));
         assert.strictEqual(attachments, 1);
         assert.isAtLeast(state.bridgeProbes, READY_AFTER_PROBES);
-        assert.lengthOf(created(state, SECRET_CREATED), 1);
+        assert.lengthOf(createdAgentSecrets(state), 1);
         assert.lengthOf(created(state, SANDBOX_CREATED), 1);
       }),
     ));
@@ -784,11 +1078,7 @@ describe("aggregate capacity admission", () => {
 
           assert.include(failureDetail(exit), refused.detail, refused.reason);
           assert.lengthOf(created(state, SANDBOX_CREATED), 0, refused.reason);
-          assert.strictEqual(
-            state.events.at(-1),
-            WORKLOAD_DELETED,
-            refused.reason,
-          );
+          assert.include(state.events, WORKLOAD_DELETED, refused.reason);
         }
       }),
     ));
@@ -935,7 +1225,7 @@ describe("bootstrap data", () => {
           );
 
           assert.include(failureDetail(exit), refused.detail, refused.reason);
-          assert.lengthOf(created(state, SECRET_CREATED), 0, refused.reason);
+          assert.lengthOf(createdAgentSecrets(state), 0, refused.reason);
         }
       }),
     ));
@@ -959,7 +1249,7 @@ describe("credential injection", () => {
         );
 
         assert.isTrue(Exit.isSuccess(exit), failureDetail(exit));
-        const secrets = manifestsOfKind(state, SECRET_KIND);
+        const secrets = agentSecretManifests(state);
         assert.lengthOf(secrets, 1);
         const [secret] = secrets;
         assert.isDefined(secret);
@@ -1000,7 +1290,7 @@ describe("credential injection", () => {
         );
 
         assert.isTrue(Exit.isSuccess(exit), failureDetail(exit));
-        const [secret] = manifestsOfKind(state, SECRET_KIND);
+        const [secret] = agentSecretManifests(state);
         assert.isDefined(secret);
         const decoded = Schema.decodeUnknownSync(secretManifestShape)(secret);
         assert.notProperty(decoded.data, UNREQUESTED_SECRET_KEY);
@@ -1162,4 +1452,4 @@ describe("observation cadence", () => {
     ));
 });
 
-/* eslint-enable max-lines-per-function, max-nested-callbacks, sonarjs/max-lines-per-function -- restore project limits after ordered lifecycle regressions */
+/* eslint-enable max-lines, max-lines-per-function, max-nested-callbacks, sonarjs/max-lines-per-function -- Restore project limits after ordered lifecycle regressions. */

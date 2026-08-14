@@ -1,20 +1,21 @@
 /** @file Concrete mixed-agent conditions and code-defined case execution. */
 
+import { AgentName } from "@moltzap/client";
+
 import {
   type ClusterServices,
   CompletedLedgerReceipt,
   coreEvents,
   EventCatalog,
-  isRunSpec,
   LedgerReceipt,
   ProgramFailed,
   ProgramInterrupted,
   ProgramSucceeded,
   RunSpec,
-  SimulatorDefinitionError,
 } from "@moltzap/simulator";
 import {
   type AgentRuntime,
+  type Image,
   nanoclawRuntime,
   type NanoClawRuntimeOptions,
   openClawRuntime,
@@ -31,16 +32,31 @@ import {
   type LedgerStorageError,
   openLedgerArtifacts,
 } from "@moltzap/simulator/ledger";
-import { Duration, Effect, type Layer, Option, Schema, Stream } from "effect";
+import {
+  Array as Arr,
+  Duration,
+  Effect,
+  type Layer,
+  Option,
+  Record as Rec,
+  Schema,
+  Stream,
+} from "effect";
 import {
   type EvaluationCaseDefinition,
   type EvaluationCaseMetadata,
+  type EvaluationCasePeerDefinitions,
   type EvaluationCaseProgramContext,
   TARGET_AGENT_NAME,
 } from "./cases.js";
-import { evaluationEvents, EvaluationEvidenceSelected } from "./events.js";
+import {
+  evaluationEvents,
+  EvaluationEvidenceSelected,
+  SocialActionNotObserved,
+} from "./events.js";
 import {
   decodeEvaluationConditionId,
+  decodeEvaluationEvidenceId,
   type EvaluationCaseId,
   type EvaluationConditionId,
   type EvaluationEvidenceId,
@@ -52,6 +68,14 @@ import {
   type PrincipalDriver,
   type PrincipalDriverFactory,
 } from "./principal.js";
+import type {
+  EvaluationPeerDefinition,
+  EvaluationPeerGateway,
+  EvaluationPeerObservation,
+  PeerExchange,
+} from "./peer.js";
+
+const decodeAgentName = Schema.decodeSync(AgentName);
 
 /** Controller-owned services required by every evaluation cell RunSpec. */
 type EvaluationInfrastructure = Layer.Layer<
@@ -83,6 +107,7 @@ export function openEvaluationLedger(
 
 /** Customer-owned deadlines for observable behavior and complete case work. */
 interface EvaluationExecutionPolicy {
+  readonly peerObservationTimeout: Duration.Duration;
   readonly caseTimeout: Duration.Duration;
 }
 
@@ -95,7 +120,13 @@ interface EvaluationExecutionInput {
 export class EvaluationProgramFailed extends Schema.TaggedError<EvaluationProgramFailed>()(
   "EvaluationProgramFailed",
   {
-    operation: Schema.Literal("principal", "evidence", "runtime", "timeout"),
+    operation: Schema.Literal(
+      "principal",
+      "peer",
+      "evidence",
+      "runtime",
+      "timeout",
+    ),
     detail: Schema.NonEmptyString,
   },
 ) {}
@@ -203,7 +234,10 @@ Object.freeze(BUNDLED_OPENCLAW_TOOLS);
 export interface EvaluationCaseInstrumentation<Gateway, DriverFailure> {
   readonly definition: EvaluationCaseDefinition;
   readonly policy: EvaluationExecutionPolicy;
-  readonly target: StartedAgent<Gateway>;
+  readonly target: StartedAgent<string, Gateway>;
+  readonly peers: Readonly<
+    Record<string, StartedAgent<string, EvaluationPeerGateway>>
+  >;
   readonly driver: PrincipalDriver<Gateway, DriverFailure>;
   readonly emit: EmitEvaluationEvent;
 }
@@ -238,8 +272,124 @@ function emitSelection(
   );
 }
 
+function evidenceId(
+  record: Effect.Effect.Success<ReturnType<EmitEvaluationEvent>>,
+): EvaluationEvidenceId {
+  return decodeEvaluationEvidenceId(record.eventId);
+}
+
+function emitSocialObservation(
+  emit: EmitEvaluationEvent,
+  observation: EvaluationPeerObservation | SocialActionNotObserved,
+): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
+  return emit(observation).pipe(
+    Effect.map(evidenceId),
+    Effect.mapError((cause) => programFailure("evidence", cause)),
+  );
+}
+
+function emitUnselectedExchange(
+  emit: EmitEvaluationEvent,
+  exchange: PeerExchange,
+): Effect.Effect<void, EvaluationProgramFailed> {
+  return Effect.forEach(
+    exchange.observations,
+    (observation) => emitSocialObservation(emit, observation),
+    { concurrency: 1, discard: true },
+  );
+}
+
+function emitSelectedExchange(
+  emit: EmitEvaluationEvent,
+  exchange: PeerExchange,
+): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
+  return Effect.gen(function* () {
+    yield* Effect.forEach(
+      Arr.dropRight(exchange.observations, 1),
+      (observation) => emitSocialObservation(emit, observation),
+      { concurrency: 1, discard: true },
+    );
+    return yield* emitSocialObservation(
+      emit,
+      Arr.lastNonEmpty(exchange.observations),
+    );
+  });
+}
+
+function peerTimeout(policy: EvaluationExecutionPolicy): Duration.Duration {
+  return policy.peerObservationTimeout;
+}
+
+function peerExchange<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+  peerName: string,
+): Effect.Effect<Option.Option<PeerExchange>, EvaluationProgramFailed> {
+  const peer = instrumentation.peers[peerName];
+  return peer === undefined
+    ? Effect.fail(
+        programFailure("peer", `peer ${peerName} is not in the roster`),
+      )
+    : peer.gateway.exchange.pipe(
+        Effect.timeoutOption(peerTimeout(instrumentation.policy)),
+        Effect.mapError((cause) => programFailure("peer", cause)),
+      );
+}
+
+function emitPeerTimeout<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+  peerName: string,
+): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
+  return emitSocialObservation(
+    instrumentation.emit,
+    SocialActionNotObserved.make({
+      caseId: instrumentation.definition.id,
+      endpointName: decodeAgentName(peerName),
+      timeoutMillis: Duration.toMillis(peerTimeout(instrumentation.policy)),
+    }),
+  );
+}
+
+function observePeer<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+  peerName: string,
+): Effect.Effect<void, EvaluationProgramFailed> {
+  return peerExchange(instrumentation, peerName).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          emitPeerTimeout(instrumentation, peerName).pipe(
+            Effect.flatMap((evidenceId) =>
+              emitSelection(
+                instrumentation.emit,
+                instrumentation.definition.id,
+                evidenceId,
+              ),
+            ),
+          ),
+        onSome: (exchange) =>
+          emitUnselectedExchange(instrumentation.emit, exchange),
+      }),
+    ),
+  );
+}
+
+function selectSocialOutput<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+  peerName: string,
+): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
+  return peerExchange(instrumentation, peerName).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => emitPeerTimeout(instrumentation, peerName),
+        onSome: (exchange) =>
+          emitSelectedExchange(instrumentation.emit, exchange),
+      }),
+    ),
+  );
+}
+
 function runtimeStopped(
-  target: StartedAgent<unknown>,
+  target: StartedAgent<string, unknown>,
 ): Effect.Effect<never, EvaluationProgramFailed> {
   return target.termination.pipe(
     Effect.flatMap((termination) =>
@@ -302,6 +452,8 @@ function caseContext<Gateway, DriverFailure>(
   return {
     instruct: (message) => principalInstruction(instrumentation, message),
     selectPrincipalOutput,
+    observePeer: (agent) => observePeer(instrumentation, agent),
+    selectSocialOutput: (agent) => selectSocialOutput(instrumentation, agent),
   };
 }
 
@@ -348,23 +500,51 @@ export function runEvaluationCase<Gateway, DriverFailure>(
 interface ExecuteConditionInput<
   Gateway,
   DriverFailure,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
   RuntimeFailure,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 > {
   readonly runtime: AgentRuntime<Gateway, RuntimeFailure, ConfigurationSchema>;
   readonly principal: PrincipalDriverFactory<Gateway, DriverFailure>;
   readonly policy: EvaluationExecutionPolicy;
-  readonly definition: EvaluationCaseDefinition;
+  readonly definition: EvaluationCaseDefinition<PeerDefinitions>;
   readonly execution: EvaluationExecutionInput;
+  readonly peerApplicationImage: Image;
   readonly infrastructure: EvaluationInfrastructure;
+}
+
+type MaterializedPeerRuntimes<
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
+> = Readonly<{
+  [Name in keyof PeerDefinitions]: ReturnType<PeerDefinitions[Name]["runtime"]>;
+}>;
+
+function materializePeerRuntimes<
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
+>(
+  definitions: PeerDefinitions,
+  peerApplicationImage: Image,
+): MaterializedPeerRuntimes<PeerDefinitions> {
+  // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- Record.map preserves every exact immutable roster key while materializing each peer definition.
+  return Rec.map(definitions, (definition: EvaluationPeerDefinition) =>
+    definition.runtime(peerApplicationImage),
+  ) as MaterializedPeerRuntimes<PeerDefinitions>;
 }
 
 function makeConditionRuntimes<
   Gateway,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
   RuntimeFailure,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
->(runtime: AgentRuntime<Gateway, RuntimeFailure, ConfigurationSchema>) {
-  return Object.freeze({ [TARGET_AGENT_NAME]: runtime });
+>(
+  runtime: AgentRuntime<Gateway, RuntimeFailure, ConfigurationSchema>,
+  definition: EvaluationCaseDefinition<PeerDefinitions>,
+  peerApplicationImage: Image,
+) {
+  return Object.freeze({
+    ...materializePeerRuntimes(definition.peers, peerApplicationImage),
+    [TARGET_AGENT_NAME]: runtime,
+  });
 }
 
 type EvaluationCompletedLedger = CompletedRunLedger<typeof evaluationCatalog>;
@@ -469,31 +649,41 @@ export function projectEvaluationControllerResult(
 function evaluationRunSpec<
   Gateway,
   DriverFailure,
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
   RuntimeFailure,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 >(
   input: ExecuteConditionInput<
     Gateway,
     DriverFailure,
+    PeerDefinitions,
     RuntimeFailure,
     ConfigurationSchema
   >,
 ) {
-  const { definition, infrastructure, principal, execution, policy, runtime } =
-    input;
+  const {
+    definition,
+    infrastructure,
+    peerApplicationImage,
+    principal,
+    execution,
+    policy,
+    runtime,
+  } = input;
   return RunSpec.define({
     id: definition.definitionId,
     events: [evaluationEvents],
-    agents: makeConditionRuntimes(runtime),
+    agents: makeConditionRuntimes(runtime, definition, peerApplicationImage),
     cluster: infrastructure,
     execute: ({ agents, events }) => {
-      const { [TARGET_AGENT_NAME]: target } = agents;
+      const { [TARGET_AGENT_NAME]: target, ...peers } = agents;
       return Effect.gen(function* () {
         const driver = yield* principal.make(execution.attemptId);
         yield* runEvaluationCase({
           definition,
           policy,
           target,
+          peers,
           driver,
           emit: events.emit,
         });
@@ -502,12 +692,34 @@ function evaluationRunSpec<
   });
 }
 
+type EvaluationCellRunSpec =
+  RunSpec extends RunSpec<
+    infer Id,
+    infer CustomerCatalogs,
+    infer Definitions,
+    infer Success,
+    infer Failure,
+    infer Requirements,
+    infer _ClusterLayer
+  >
+    ? RunSpec<
+        Id,
+        CustomerCatalogs,
+        Definitions,
+        Success,
+        Failure,
+        Requirements,
+        EvaluationInfrastructure
+      >
+    : never;
+
 /** Inputs that bind one report cell to a controller-owned infrastructure Layer. */
 interface EvaluationCellRunSpecInput {
   readonly definition: EvaluationCaseDefinition;
   readonly condition: EvaluationCondition;
   readonly attemptId: string;
-  readonly infrastructure: EvaluationInfrastructure;
+  readonly peerApplicationImage: Image;
+  readonly cluster: EvaluationInfrastructure;
 }
 
 /**
@@ -517,25 +729,24 @@ interface EvaluationCellRunSpecInput {
  */
 export function evaluationCellRunSpec(
   input: EvaluationCellRunSpecInput,
-): RunSpec {
-  return input.condition.withDefinition({
-    execute: (condition): RunSpec => {
-      const specification = evaluationRunSpec({
-        runtime: condition.runtime,
-        principal: condition.principal,
-        policy: condition.execution,
-        definition: input.definition,
-        execution: { attemptId: input.attemptId },
-        infrastructure: input.infrastructure,
-      });
-      if (!isRunSpec(specification)) {
-        throw SimulatorDefinitionError.make({
-          definitionId: input.definition.definitionId,
-          detail: "RunSpec.define returned an invalid evaluation cell",
-        });
-      }
-      return specification;
-    },
+): EvaluationCellRunSpec {
+  return input.definition.withDefinition({
+    execute: (definition) =>
+      input.condition.withDefinition({
+        execute: (condition): EvaluationCellRunSpec => {
+          const spec = evaluationRunSpec({
+            runtime: condition.runtime,
+            principal: condition.principal,
+            policy: condition.execution,
+            definition,
+            execution: { attemptId: input.attemptId },
+            peerApplicationImage: input.peerApplicationImage,
+            infrastructure: input.cluster,
+          });
+          // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The two rank-2 binders erase only condition and peer type parameters; the RunSpec object and its exact infrastructure error channel are unchanged.
+          return spec as unknown as EvaluationCellRunSpec; // #ignore-sloppy-code[as-unknown-as]: The rank-2 case and condition binders erase only their type parameters while returning the same immutable RunSpec object.
+        },
+      }),
   });
 }
 

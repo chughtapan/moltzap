@@ -6,6 +6,7 @@ import {
   readdir,
   realpath,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -90,8 +91,16 @@ async function verifyPackedManifest(extractedPackage) {
     "packed client manifest has the wrong package name",
   );
   requireCondition(
+    manifest.private === true,
+    "packed client must remain private until publication is admitted",
+  );
+  requireCondition(
     manifest.bin?.moltzap === undefined,
     "packed client still exposes the retired moltzap executable",
+  );
+  requireCondition(
+    manifest.bin?.moltzapd === "./bin/moltzapd",
+    "packed client does not expose the moltzapd executable",
   );
   for (const dependency of retiredDependencies) {
     requireCondition(
@@ -104,15 +113,12 @@ async function verifyPackedManifest(extractedPackage) {
     manifest.devDependencies?.tsx === undefined,
     "packed client still carries the retired CLI generator runtime",
   );
-  requireCondition(
-    manifest.scripts?.["test:integration"] === undefined,
-    "packed client still exposes the retired server-backed integration target",
-  );
-
   const exportEntries = Object.entries(manifest.exports ?? {});
   requireCondition(
-    exportEntries.length > 0,
-    "packed client exposes no entrypoints",
+    exportEntries.length === 2 &&
+      exportEntries.some(([subpath]) => subpath === ".") &&
+      exportEntries.some(([subpath]) => subpath === "./server"),
+    "packed client must expose exactly the root and ./server entrypoints",
   );
   const targets = [manifest.main, manifest.types];
   for (const [, value] of exportEntries) {
@@ -129,6 +135,16 @@ async function verifyPackedManifest(extractedPackage) {
       });
     });
   }
+  const daemonPath = join(extractedPackage, manifest.bin.moltzapd);
+  const daemon = await readFile(daemonPath, "utf8");
+  requireCondition(
+    daemon.startsWith("#!/usr/bin/env node\n"),
+    "packed moltzapd executable has no Node shebang",
+  );
+  requireCondition(
+    ((await stat(daemonPath)).mode & 0o111) !== 0,
+    "packed moltzapd executable is not executable",
+  );
   return exportEntries.map(([subpath]) =>
     subpath === "." ? manifest.name : `${manifest.name}/${subpath.slice(2)}`,
   );
@@ -149,7 +165,10 @@ async function verifyConsumerImports(extractedPackage, publicSpecifiers) {
     checkPath,
     publicSpecifiers
       .map((specifier) => `await import(${JSON.stringify(specifier)});`)
-      .join("\n") + "\n",
+      .join("\n") +
+      `\nconst server = await import("@moltzap/client/server");\n` +
+      `if (Object.keys(server).join(",") !== "MoltZapDaemon") throw new Error("unexpected Client server exports");\n` +
+      `if (Object.keys(server.MoltZapDaemon).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapDaemon namespace");\n`,
   );
   await exec(process.execPath, [checkPath], { cwd: consumerRoot });
 }

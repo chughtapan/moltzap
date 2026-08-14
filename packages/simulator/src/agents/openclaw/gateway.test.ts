@@ -1,23 +1,25 @@
-import { assert, it as effectIt } from "@effect/vitest";
+/** @file OpenClaw handshake, request, timeout, termination, and response-bound regressions. */
+
 import {
-  ExitCode as processExitCode,
   type ExitCode,
+  ExitCode as processExitCode,
 } from "@effect/platform/CommandExecutor";
+import { assert, it as effectIt } from "@effect/vitest";
 import { AgentName } from "@moltzap/identity";
 import { Deferred, Duration, Effect, Fiber, Redacted, Schema } from "effect";
 import { describe } from "vitest";
 import {
   acquireOpenClawGateway,
   GatewayOperations,
+  type OpenClawGatewayClient,
+  type OpenClawGatewayClientFactory,
   OpenClawGatewayRequest,
   OpenClawGatewayRequestError,
+  type OpenClawGatewayResponse,
+  type OpenClawGatewaySession,
   OpenClawGatewayStoppedBeforeHello,
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
-  type OpenClawGatewayClient,
-  type OpenClawGatewayClientFactory,
-  type OpenClawGatewayResponse,
-  type OpenClawGatewaySession,
 } from "./gateway.js";
 
 const test = effectIt.effect;
@@ -160,24 +162,6 @@ function runRoundTrip(fixture: RoundTripFixture) {
   );
 }
 
-function requireClientOptions(
-  fixture: RoundTripFixture,
-): Parameters<OpenClawGatewayClientFactory>[0] {
-  if (fixture.clientOptions === undefined) {
-    throw new Error("gateway client was not constructed");
-  }
-  return fixture.clientOptions;
-}
-
-function requireRequestOptions(
-  observation: ClientObservation,
-): NonNullable<ClientObservation["options"]> {
-  if (observation.options === undefined) {
-    throw new Error("gateway request options were not supplied");
-  }
-  return observation.options;
-}
-
 function assertRoundTrip(
   fixture: RoundTripFixture,
   request: ClientObservation,
@@ -210,6 +194,24 @@ function assertRoundTrip(
     Object.keys(response).sort((left, right) => left.localeCompare(right)),
     ["result", "runId", "status", "summary"],
   );
+}
+
+function requireClientOptions(
+  fixture: RoundTripFixture,
+): Parameters<OpenClawGatewayClientFactory>[0] {
+  if (fixture.clientOptions === undefined) {
+    throw new Error("gateway client was not constructed");
+  }
+  return fixture.clientOptions;
+}
+
+function requireRequestOptions(
+  observation: ClientObservation,
+): NonNullable<ClientObservation["options"]> {
+  if (observation.options === undefined) {
+    throw new Error("gateway request options were not supplied");
+  }
+  return observation.options;
 }
 
 function gatewayRoundTripTest() {

@@ -28,6 +28,8 @@ const temporalPath = join(localRoot, "temporal.yaml");
 const toolsRoot = join(localRoot, ".tools");
 const DEFAULT_ARTIFACTS = join(localRoot, "artifacts");
 const ARTIFACT_TOKEN = "__MOLTZAP_ARTIFACTS__";
+const TEMPORAL_HOST_PORT_TOKEN = "__MOLTZAP_TEMPORAL_HOST_PORT__";
+const DEFAULT_TEMPORAL_HOST_PORT = 7_233;
 const SHA256 = /^[0-9a-f]{64}$/;
 const PINNED_IMAGE = /^.+@sha256:[0-9a-f]{64}$/;
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/;
@@ -182,11 +184,12 @@ function run(command, args) {
   });
 }
 
-function parseArguments(args, defaults) {
+export function parseArguments(args, defaults) {
   const options = {
     artifacts: DEFAULT_ARTIFACTS,
     cluster: defaults.clusterName,
     image: undefined,
+    temporalPort: DEFAULT_TEMPORAL_HOST_PORT,
   };
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index];
@@ -200,6 +203,8 @@ function parseArguments(args, defaults) {
       options.cluster = value;
     } else if (flag === "--image") {
       options.image = value;
+    } else if (flag === "--temporal-port") {
+      options.temporalPort = Number(value);
     } else {
       throw new TypeError(`unknown local cluster option ${flag}`);
     }
@@ -209,6 +214,15 @@ function parseArguments(args, defaults) {
   }
   if (options.image !== undefined && !PINNED_IMAGE.test(options.image)) {
     throw new TypeError("--image must be a SHA-256 digest-pinned image");
+  }
+  if (
+    !Number.isInteger(options.temporalPort) ||
+    options.temporalPort < 1_024 ||
+    options.temporalPort > 65_535
+  ) {
+    throw new TypeError(
+      "--temporal-port must be an integer from 1024 to 65535",
+    );
   }
   return options;
 }
@@ -361,18 +375,30 @@ async function makePinnedImageDiscoverable(kind, cluster, source, image) {
   }
 }
 
-async function renderKindConfiguration(artifacts, destination, profile) {
+export async function renderKindConfiguration(
+  artifacts,
+  temporalHostPort,
+  destination,
+  profile,
+) {
   const template = await readFile(kindTemplatePath, "utf8");
   if (
     !template.includes(ARTIFACT_TOKEN) ||
+    !template.includes(TEMPORAL_HOST_PORT_TOKEN) ||
     !template.includes(profile.kind.nodeImage)
   ) {
     throw new Error("kind configuration does not match the pinned profile");
   }
-  await writeFile(
-    destination,
-    template.replaceAll(ARTIFACT_TOKEN, JSON.stringify(artifacts)),
-  );
+  const rendered = template
+    .replaceAll(ARTIFACT_TOKEN, JSON.stringify(artifacts))
+    .replaceAll(TEMPORAL_HOST_PORT_TOKEN, String(temporalHostPort));
+  if (
+    rendered.includes(ARTIFACT_TOKEN) ||
+    rendered.includes(TEMPORAL_HOST_PORT_TOKEN)
+  ) {
+    throw new Error("rendered kind configuration contains an unresolved token");
+  }
+  await writeFile(destination, rendered);
 }
 
 async function assertNewCluster(kind, name) {
@@ -492,7 +518,12 @@ async function main() {
   const renderedKind = join(temporary, "kind.yaml");
   const context = `kind-${options.cluster}`;
   try {
-    await renderKindConfiguration(artifacts, renderedKind, profile);
+    await renderKindConfiguration(
+      artifacts,
+      options.temporalPort,
+      renderedKind,
+      profile,
+    );
     report(`creating kind cluster ${options.cluster}`);
     await run(kind, [
       "create",
@@ -536,7 +567,7 @@ async function main() {
       artifactNodePath: profile.artifactNodePath,
       clusterQueue: profile.clusterQueue,
       localQueue: profile.localQueue,
-      temporalAddress: "127.0.0.1:7233",
+      temporalAddress: `127.0.0.1:${String(options.temporalPort)}`,
     })}\n`,
   );
 }

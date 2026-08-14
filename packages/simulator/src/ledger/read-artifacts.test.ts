@@ -1,14 +1,16 @@
-import { createHash } from "node:crypto";
+/** @file Storage-independent validation of retrieved completed-ledger artifacts. */
+
 import { assert, effect as test } from "@effect/vitest";
 import { DateTime, Effect, Schema, Stream } from "effect";
+import { createHash } from "node:crypto";
 import { EventCatalog } from "../events/catalog.js";
+import { openLedgerArtifacts } from "./read.js";
 import {
   LedgerCompletion,
   ledgerDigest,
   LedgerManifest,
   ledgerRef,
 } from "./schema.js";
-import { openLedgerArtifacts } from "./read.js";
 
 const DEFINITION_ID = "acme.artifact-reader/v1";
 const REF = Schema.decodeSync(ledgerRef)("artifact-reader-test");

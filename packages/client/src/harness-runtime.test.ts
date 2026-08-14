@@ -6,9 +6,14 @@ import { describe, expect, it } from "vitest";
 import { ConversationId } from "./contract.js";
 import {
   decodeHarnessExtension,
+  decodeHarnessReplyRequest,
+  decodeHarnessReplyRequestMeta,
+  decodeHarnessStartRequest,
   decodeHarnessTurnEvent,
   HARNESS_EVENTS_EXTENSION,
   harnessReplyRequestMeta,
+  makeReplyGrant,
+  ReplyGrant,
   verifyHarnessTurnEvent,
 } from "./harness-runtime.js";
 
@@ -49,7 +54,9 @@ const makeFixture = Effect.gen(function* () {
 const conversationId = Schema.decodeUnknownSync(ConversationId)(
   "00000000-0000-4000-8000-000000000001",
 );
-const replyGrant = "opaque-live-grant";
+const replyGrant = Schema.decodeUnknownSync(ReplyGrant)(
+  "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+);
 
 const semanticEvent = async () => {
   const fixture = await Effect.runPromise(makeFixture);
@@ -99,6 +106,51 @@ const keepsOpaqueReplyMetadataMinimal = (): void => {
   });
 };
 
+const validatesOperationRequests = async () => {
+  const start = await Effect.runPromise(
+    decodeHarnessStartRequest({
+      conversationId,
+      peers: ["remote-agent"],
+      content: [{ type: "text", text: "begin" }],
+    }),
+  );
+  const reply = await Effect.runPromise(
+    decodeHarnessReplyRequest({
+      content: [{ type: "data", value: { accepted: true } }],
+    }),
+  );
+  const metadataGrant = await Effect.runPromise(
+    decodeHarnessReplyRequestMeta(harnessReplyRequestMeta(replyGrant)),
+  );
+
+  expect(start.conversationId).toBe(conversationId);
+  expect(start.peers).toEqual(["remote-agent"]);
+  expect(reply.content).toEqual([{ type: "data", value: { accepted: true } }]);
+  expect(metadataGrant).toBe(replyGrant);
+
+  await expect(
+    Effect.runPromise(
+      decodeHarnessStartRequest({ ...start, operationId: "forbidden" }),
+    ),
+  ).rejects.toBeDefined();
+  await expect(
+    Effect.runPromise(
+      decodeHarnessReplyRequestMeta({
+        [HARNESS_EVENTS_EXTENSION]: { replyGrant: "short" },
+      }),
+    ),
+  ).rejects.toBeDefined();
+};
+
+const mintsCanonicalReplyAuthority = async () => {
+  const first = await Effect.runPromise(makeReplyGrant());
+  const second = await Effect.runPromise(makeReplyGrant());
+
+  expect(first).toHaveLength(43);
+  expect(second).toHaveLength(43);
+  expect(second).not.toBe(first);
+};
+
 // @agent-code-guard/regression-only: these examples pin the reduced private representation that backs the public Client.
 describe("Harness MCP semantic wire", () => {
   it("decodes and verifies exactly one semantic action", semanticEvent);
@@ -106,6 +158,8 @@ describe("Harness MCP semantic wire", () => {
   it("routes reply only through opaque live authority", () => {
     keepsOpaqueReplyMetadataMinimal();
   });
+  it("pins exact START and reply requests", validatesOperationRequests);
+  it("mints canonical volatile reply authority", mintsCanonicalReplyAuthority);
 });
 
 /* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults. */
