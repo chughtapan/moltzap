@@ -1,5 +1,8 @@
 /** @file Two-endpoint START, retry identity, staging, and durability tests. */
 
+import type { RegistryLookupResult } from "@moltzap/identity/registry";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   AgentCard,
   AgentId,
@@ -9,32 +12,34 @@ import {
   Ed25519PublicKey,
   MOLTZAP_VERSION,
   PrincipalId,
-  SignedMessage as SignedMessageSchema,
   type SignedMessage,
+  SignedMessage as SignedMessageSchema,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
-import type { RegistryLookupResult } from "@moltzap/identity/registry";
 import { PollCursor, RouterInstanceId } from "@moltzap/router";
 import canonicalize from "canonicalize";
 import { Deferred, Effect, Encoding, Fiber, Redacted, Schema } from "effect";
 import {
   createHash,
   generateKeyPairSync,
-  sign as signBytes,
   type KeyObject,
+  sign as signBytes,
 } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { RouterWorkerIngress } from "./router-worker.js";
 import { ConversationId, type StartInput } from "../contract.js";
+import { recoverEngineState } from "./engine-recovery.js";
 import {
-  ActionCertifiedRecord,
+  type EndpointEngine,
+  type EndpointEngineInput,
+  EngineStartError,
+  makeEndpointEngine,
+} from "./engine.js";
+import {
   type ActionCertificate,
+  ActionCertifiedRecord,
   BeginDigest,
   CertifiedRecord,
-  type MulticastAction,
-  type RecordHash,
   decodeCanonical,
   decodeOuterBody,
   encodeCanonical,
@@ -42,25 +47,15 @@ import {
   hashActionCertificate,
   hashActionCertifiedRecord,
   makeActionBinding,
+  type MulticastAction,
+  type RecordHash,
   signEvidenceMessage,
+  type VerifiedMembership,
   verifyCertifiedRecord,
 } from "./representation.js";
-import {
-  makeEndpointEngine,
-  type EndpointEngine,
-  type EndpointEngineInput,
-  EngineStartError,
-} from "./engine.js";
-import { recoverEngineState } from "./engine-recovery.js";
-import type { RouterWorkerIngress } from "./router-worker.js";
-import { openEndpointStore, type EndpointStore } from "./store.js";
+import { type EndpointStore, openEndpointStore } from "./store.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- The scripted two-endpoint trace keeps its ordering assertions next to the network steps. */
-
-interface IdentityFixture {
-  readonly card: VerifiedAgentCard;
-  readonly authority: AgentSigningAuthorityValue;
-}
+/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- The scripted two-endpoint trace keeps its ordering assertions next to the network steps. */
 
 interface Harness {
   readonly engines: readonly [EndpointEngine, EndpointEngine];
@@ -69,7 +64,14 @@ interface Harness {
   readonly sent: SignedMessage[];
   readonly persistenceEvents: readonly string[];
   readonly awaitFirstOutbound: Effect.Effect<void>;
-  readonly deliverAll: () => Effect.Effect<void, never>;
+  readonly deliverAll: () => Effect.Effect<void>;
+}
+
+interface StagedMulticast {
+  readonly action: MulticastAction;
+  readonly record: typeof ActionCertifiedRecord.Type;
+  readonly recordHash: RecordHash;
+  readonly votes: readonly SignedMessage[];
 }
 
 const identifier = (prefix: string, byte: number): string =>
@@ -144,6 +146,7 @@ const issueCard = (input: {
   }).pipe(Effect.orDie);
 
 const makeHarness = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
   const registryKeys = generateKeyPairSync("ed25519");
   const registrySignerPublicKey = yield* Schema.decodeUnknown(Ed25519PublicKey)(
     registryKeys.publicKey.export({ format: "jwk" }),
@@ -167,15 +170,19 @@ const makeHarness = Effect.gen(function* () {
   const cards = [firstCard, secondCard] as const;
   const authorities = [firstAuthority, secondAuthority] as const;
   const firstStore = yield* openEndpointStore(
-    mkdtempSync(join(tmpdir(), "moltzap-engine-a-")),
+    yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "moltzap-engine-a-",
+    }),
   );
   const secondStore = yield* openEndpointStore(
-    mkdtempSync(join(tmpdir(), "moltzap-engine-b-")),
+    yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "moltzap-engine-b-",
+    }),
   );
   const stores = [firstStore, secondStore] as const;
   const sent: SignedMessage[] = [];
   const persistenceEvents: string[] = [];
-  const firstOutbound = yield* Deferred.make<void>();
+  const firstOutbound = yield* Deferred.make<undefined>();
   const observeStore = (
     store: EndpointStore,
     index: number,
@@ -235,7 +242,7 @@ const makeHarness = Effect.gen(function* () {
   const first = yield* makeEndpointEngine(inputs[0]);
   const second = yield* makeEndpointEngine(inputs[1]);
   const engines = [first, second] as const;
-  const deliverAll = (): Effect.Effect<void, never> =>
+  const deliverAll = (): Effect.Effect<void> =>
     Effect.gen(function* () {
       while (sent.length > 0) {
         const batch = sent.splice(0);
@@ -249,11 +256,15 @@ const makeHarness = Effect.gen(function* () {
           const payload = yield* decodeOuterBody(message.body).pipe(
             Effect.orDie,
           );
-          const ingress = {
-            message,
+          const verifiedMessage = yield* SignedMessageSchema.verify({
+            signedMessage: message,
+            agentCard: senderCard,
+          }).pipe(Effect.orDie);
+          const ingress: RouterWorkerIngress<typeof payload> = {
+            message: verifiedMessage,
             senderCard,
             payload,
-          } as RouterWorkerIngress<typeof payload>;
+          };
           yield* first.acceptRouterIngress(ingress).pipe(Effect.orDie);
           yield* second.acceptRouterIngress(ingress).pipe(Effect.orDie);
         }
@@ -270,7 +281,7 @@ const makeHarness = Effect.gen(function* () {
     awaitFirstOutbound: Deferred.await(firstOutbound),
     deliverAll,
   } satisfies Harness;
-});
+}).pipe(Effect.provide(NodeFileSystem.layer));
 
 const startInput = (text: string): StartInput => ({
   conversationId,
@@ -319,199 +330,257 @@ const signDurabilityEvidence = (
     signingAuthority: input.signingAuthority,
   });
 
+const requireElement = <Element>(
+  values: readonly Element[],
+  index: number,
+  message: string,
+): Effect.Effect<Element> =>
+  Effect.gen(function* () {
+    const value = values[index];
+    if (value === undefined) {
+      return yield* Effect.die(message);
+    }
+    return value;
+  });
+
+const establishStart = (harness: Harness) =>
+  Effect.gen(function* () {
+    const startFiber = yield* Effect.fork(
+      harness.engines[0].start(startInput("foundation")),
+    );
+    yield* harness.awaitFirstOutbound;
+    yield* harness.deliverAll();
+    yield* Fiber.join(startFiber);
+
+    const startRecovery = yield* harness.stores[0].recover();
+    const storedStart = yield* requireElement(
+      startRecovery.certifiedRecords,
+      0,
+      "missing START record",
+    );
+    const certifiedStart = yield* decodeCanonical(
+      CertifiedRecord,
+      storedStart.canonicalCertifiedRecord,
+    ).pipe(Effect.orDie);
+    const membership = yield* verifyCertifiedRecord({
+      record: certifiedStart,
+      registrySignerPublicKey: harness.inputs[0].registrySignerPublicKey,
+    }).pipe(Effect.orDie);
+    return { certifiedStart, membership };
+  });
+
+const stageMulticast = (
+  harness: Harness,
+  certifiedStart: typeof CertifiedRecord.Type,
+  membership: VerifiedMembership,
+) =>
+  Effect.gen(function* () {
+    const content = [{ type: "text" as const, text: "reply" }] as const;
+    const action: MulticastAction = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "multicast_action",
+      conversationId,
+      membershipHash: membership.hash,
+      anchorHash: certifiedStart.actionCertifiedRecord.anchorHash,
+      previousRecordHash: certifiedStart.recordHash,
+      beginDigest,
+      actionId: "MULTICAST",
+      authorAgentId: harness.inputs[0].localAgentCard.agentId,
+      content,
+      replyFingerprint: yield* fingerprintReply(content).pipe(Effect.orDie),
+    };
+    const actionEvidence = yield* Effect.forEach(
+      harness.inputs,
+      (input) => signActionEvidence(input, action).pipe(Effect.orDie),
+      { concurrency: 1 },
+    );
+    const encodedSignatures = yield* Effect.forEach(
+      actionEvidence,
+      (message) => Schema.encode(SignedMessageSchema)(message),
+      { concurrency: 1 },
+    );
+    const firstSignature = yield* requireElement(
+      encodedSignatures,
+      0,
+      "missing action signature",
+    );
+    const certificate: ActionCertificate = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_certificate",
+      action: yield* makeActionBinding(action).pipe(Effect.orDie),
+      signatures: [firstSignature, ...encodedSignatures.slice(1)],
+    };
+    const record: typeof ActionCertifiedRecord.Type = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_certified_record" as const,
+      membership: membership.membership,
+      anchorHash: action.anchorHash,
+      action,
+      actionHash: yield* hashActionCertificate(certificate).pipe(Effect.orDie),
+      actionCertificate: certificate,
+    };
+    const recordHash = yield* hashActionCertifiedRecord(record).pipe(
+      Effect.orDie,
+    );
+    yield* harness.stores[0].stageRecord({
+      conversationId,
+      recordHash,
+      previousRecordHash: certifiedStart.recordHash,
+      membershipHash: membership.hash,
+      anchorHash: action.anchorHash,
+      canonicalRecord: yield* encodeCanonical(
+        ActionCertifiedRecord,
+        record,
+      ).pipe(Effect.orDie),
+    });
+    yield* Effect.forEach(
+      actionEvidence,
+      (message) =>
+        encodeCanonical(SignedMessageSchema, message).pipe(
+          Effect.orDie,
+          Effect.flatMap((canonicalEvidence) =>
+            harness.stores[0].mergeEvidence({
+              conversationId,
+              kind: "action",
+              subjectId: beginDigest,
+              evidenceKey: message.senderAgentId,
+              canonicalEvidence,
+            }),
+          ),
+        ),
+      { concurrency: 1, discard: true },
+    );
+    const votes = yield* Effect.forEach(
+      harness.inputs,
+      (input) =>
+        signDurabilityEvidence(input, membership.hash, recordHash).pipe(
+          Effect.orDie,
+        ),
+      { concurrency: 1 },
+    );
+    const firstVote = yield* requireElement(
+      votes,
+      0,
+      "missing durability vote",
+    );
+    yield* encodeCanonical(SignedMessageSchema, firstVote).pipe(
+      Effect.orDie,
+      Effect.flatMap((canonicalEvidence) =>
+        harness.stores[0].mergeEvidence({
+          conversationId,
+          kind: "durability",
+          subjectId: recordHash,
+          evidenceKey: firstVote.senderAgentId,
+          canonicalEvidence,
+        }),
+      ),
+    );
+    return { action, record, recordHash, votes } satisfies StagedMulticast;
+  });
+
+const inspectStagedMulticast = (
+  harness: Harness,
+  certifiedStart: typeof CertifiedRecord.Type,
+) =>
+  Effect.gen(function* () {
+    const staged = yield* recoverEngineState(
+      harness.inputs[0],
+      yield* harness.stores[0].recover(),
+    ).pipe(Effect.orDie);
+    const recoveredFold = staged.multicastFolds.get(beginDigest);
+    expect(recoveredFold?.actionSignatures.size).toBe(2);
+    expect(recoveredFold?.durabilityVotes.size).toBe(1);
+    expect(staged.conversations.get(conversationId)?.head?.recordHash).toBe(
+      certifiedStart.recordHash,
+    );
+  });
+
+const promoteMulticast = (
+  harness: Harness,
+  certifiedStart: typeof CertifiedRecord.Type,
+  staged: StagedMulticast,
+) =>
+  Effect.gen(function* () {
+    const secondVote = yield* requireElement(
+      staged.votes,
+      1,
+      "missing second durability vote",
+    );
+    yield* encodeCanonical(SignedMessageSchema, secondVote).pipe(
+      Effect.orDie,
+      Effect.flatMap((canonicalEvidence) =>
+        harness.stores[0].mergeEvidence({
+          conversationId,
+          kind: "durability",
+          subjectId: staged.recordHash,
+          evidenceKey: secondVote.senderAgentId,
+          canonicalEvidence,
+        }),
+      ),
+    );
+    const encodedVotes = yield* Effect.forEach(
+      staged.votes,
+      (message) => Schema.encode(SignedMessageSchema)(message),
+      { concurrency: 1 },
+    );
+    const firstEncodedVote = yield* requireElement(
+      encodedVotes,
+      0,
+      "missing encoded durability vote",
+    );
+    const certified: typeof CertifiedRecord.Type = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "certified_record" as const,
+      recordHash: staged.recordHash,
+      actionCertifiedRecord: staged.record,
+      routerAnchor: certifiedStart.routerAnchor,
+      durabilityVotes: [firstEncodedVote, ...encodedVotes.slice(1)],
+    };
+    yield* harness.stores[0].promoteRecord({
+      conversationId,
+      recordHash: staged.recordHash,
+      previousRecordHash: certifiedStart.recordHash,
+      membershipHash: staged.action.membershipHash,
+      anchorHash: staged.action.anchorHash,
+      canonicalRecord: yield* encodeCanonical(
+        ActionCertifiedRecord,
+        staged.record,
+      ).pipe(Effect.orDie),
+      canonicalCertifiedRecord: yield* encodeCanonical(
+        CertifiedRecord,
+        certified,
+      ).pipe(Effect.orDie),
+    });
+    return yield* recoverEngineState(
+      harness.inputs[0],
+      yield* harness.stores[0].recover(),
+    ).pipe(Effect.orDie);
+  });
+
 const reconstructsStagedMulticastAndLatestHead = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeHarness;
-        const startFiber = yield* Effect.fork(
-          harness.engines[0].start(startInput("foundation")),
+        const { certifiedStart, membership } = yield* establishStart(harness);
+        const staged = yield* stageMulticast(
+          harness,
+          certifiedStart,
+          membership,
         );
-        yield* harness.awaitFirstOutbound;
-        yield* harness.deliverAll();
-        yield* Fiber.join(startFiber);
-
-        const startRecovery = yield* harness.stores[0].recover();
-        const storedStart = startRecovery.certifiedRecords[0];
-        if (storedStart === undefined) {
-          return yield* Effect.die("missing START record");
-        }
-        const certifiedStart = yield* decodeCanonical(
-          CertifiedRecord,
-          storedStart.canonicalCertifiedRecord,
-        ).pipe(Effect.orDie);
-        const membership = yield* verifyCertifiedRecord({
-          record: certifiedStart,
-          registrySignerPublicKey: harness.inputs[0].registrySignerPublicKey,
-        }).pipe(Effect.orDie);
-        const content = [{ type: "text" as const, text: "reply" }] as const;
-        const action: MulticastAction = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "multicast_action",
-          conversationId,
-          membershipHash: membership.hash,
-          anchorHash: certifiedStart.actionCertifiedRecord.anchorHash,
-          previousRecordHash: certifiedStart.recordHash,
-          beginDigest,
-          actionId: "MULTICAST",
-          authorAgentId: harness.inputs[0].localAgentCard.agentId,
-          content,
-          replyFingerprint: yield* fingerprintReply(content).pipe(Effect.orDie),
-        };
-        const actionEvidence = yield* Effect.forEach(
-          harness.inputs,
-          (input) => signActionEvidence(input, action).pipe(Effect.orDie),
-          { concurrency: 1 },
+        yield* inspectStagedMulticast(harness, certifiedStart);
+        const completed = yield* promoteMulticast(
+          harness,
+          certifiedStart,
+          staged,
         );
-        const encodedSignatures = yield* Effect.forEach(
-          actionEvidence,
-          (message) => Schema.encode(SignedMessageSchema)(message),
-          { concurrency: 1 },
-        );
-        const firstSignature = encodedSignatures[0];
-        if (firstSignature === undefined) {
-          return yield* Effect.die("missing action signature");
-        }
-        const certificate: ActionCertificate = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "action_certificate",
-          action: yield* makeActionBinding(action).pipe(Effect.orDie),
-          signatures: [firstSignature, ...encodedSignatures.slice(1)],
-        };
-        const record: typeof ActionCertifiedRecord.Type = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "action_certified_record" as const,
-          membership: membership.membership,
-          anchorHash: action.anchorHash,
-          action,
-          actionHash: yield* hashActionCertificate(certificate).pipe(
-            Effect.orDie,
-          ),
-          actionCertificate: certificate,
-        };
-        const recordHash = yield* hashActionCertifiedRecord(record).pipe(
-          Effect.orDie,
-        );
-        yield* harness.stores[0].stageRecord({
-          conversationId,
-          recordHash,
-          previousRecordHash: certifiedStart.recordHash,
-          membershipHash: membership.hash,
-          anchorHash: action.anchorHash,
-          canonicalRecord: yield* encodeCanonical(
-            ActionCertifiedRecord,
-            record,
-          ).pipe(Effect.orDie),
-        });
-        yield* Effect.forEach(
-          actionEvidence,
-          (message) =>
-            encodeCanonical(SignedMessageSchema, message).pipe(
-              Effect.orDie,
-              Effect.flatMap((canonicalEvidence) =>
-                harness.stores[0].mergeEvidence({
-                  conversationId,
-                  kind: "action",
-                  subjectId: beginDigest,
-                  evidenceKey: message.senderAgentId,
-                  canonicalEvidence,
-                }),
-              ),
-            ),
-          { concurrency: 1, discard: true },
-        );
-        const votes = yield* Effect.forEach(
-          harness.inputs,
-          (input) =>
-            signDurabilityEvidence(input, membership.hash, recordHash).pipe(
-              Effect.orDie,
-            ),
-          { concurrency: 1 },
-        );
-        const firstVote = votes[0];
-        if (firstVote === undefined) {
-          return yield* Effect.die("missing durability vote");
-        }
-        yield* encodeCanonical(SignedMessageSchema, firstVote).pipe(
-          Effect.orDie,
-          Effect.flatMap((canonicalEvidence) =>
-            harness.stores[0].mergeEvidence({
-              conversationId,
-              kind: "durability",
-              subjectId: recordHash,
-              evidenceKey: firstVote.senderAgentId,
-              canonicalEvidence,
-            }),
-          ),
-        );
-
-        const staged = yield* recoverEngineState(
-          harness.inputs[0],
-          yield* harness.stores[0].recover(),
-        ).pipe(Effect.orDie);
-        const recoveredFold = staged.multicastFolds.get(beginDigest);
-        expect(recoveredFold?.actionSignatures.size).toBe(2);
-        expect(recoveredFold?.durabilityVotes.size).toBe(1);
-        expect(staged.conversations.get(conversationId)?.head?.recordHash).toBe(
-          certifiedStart.recordHash,
-        );
-
-        const secondVote = votes[1];
-        if (secondVote === undefined) {
-          return yield* Effect.die("missing second durability vote");
-        }
-        yield* encodeCanonical(SignedMessageSchema, secondVote).pipe(
-          Effect.orDie,
-          Effect.flatMap((canonicalEvidence) =>
-            harness.stores[0].mergeEvidence({
-              conversationId,
-              kind: "durability",
-              subjectId: recordHash,
-              evidenceKey: secondVote.senderAgentId,
-              canonicalEvidence,
-            }),
-          ),
-        );
-        const encodedVotes = yield* Effect.forEach(
-          votes,
-          (message) => Schema.encode(SignedMessageSchema)(message),
-          { concurrency: 1 },
-        );
-        const firstEncodedVote = encodedVotes[0];
-        if (firstEncodedVote === undefined) {
-          return yield* Effect.die("missing encoded durability vote");
-        }
-        const certified: typeof CertifiedRecord.Type = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "certified_record" as const,
-          recordHash,
-          actionCertifiedRecord: record,
-          routerAnchor: certifiedStart.routerAnchor,
-          durabilityVotes: [firstEncodedVote, ...encodedVotes.slice(1)],
-        };
-        yield* harness.stores[0].promoteRecord({
-          conversationId,
-          recordHash,
-          previousRecordHash: certifiedStart.recordHash,
-          membershipHash: membership.hash,
-          anchorHash: action.anchorHash,
-          canonicalRecord: yield* encodeCanonical(
-            ActionCertifiedRecord,
-            record,
-          ).pipe(Effect.orDie),
-          canonicalCertifiedRecord: yield* encodeCanonical(
-            CertifiedRecord,
-            certified,
-          ).pipe(Effect.orDie),
-        });
-        const completed = yield* recoverEngineState(
-          harness.inputs[0],
-          yield* harness.stores[0].recover(),
-        ).pipe(Effect.orDie);
         expect(completed.conversations.get(conversationId)?.head).toMatchObject(
           {
-            recordHash,
-            action: { kind: "multicast_action", content },
+            recordHash: staged.recordHash,
+            action: {
+              kind: "multicast_action",
+              content: staged.action.content,
+            },
           },
         );
       }),
@@ -572,4 +641,4 @@ describe("endpoint START engine", () => {
   );
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */
+/* eslint-enable agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */
