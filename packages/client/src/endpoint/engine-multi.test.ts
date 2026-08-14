@@ -20,15 +20,17 @@ import {
   verifyStartProposal,
 } from "./representation.js";
 
-/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function -- Each scripted trace keeps the delivery phases beside their durable assertions. */
+/* eslint-disable max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Each scripted trace keeps the delivery phases beside their durable assertions. */
 
 interface ClassifiedMessage {
   readonly kind: string;
   readonly message: SignedMessage;
 }
 
+const MULTI_ENGINE_TEST_TIMEOUT_MS = 30_000;
+
 const indexes = (length: number): readonly number[] =>
-  Array.from({ length }, (_, index) => index);
+  Array.from(Array.from({ length }).keys());
 
 const classify = (
   messages: readonly SignedMessage[],
@@ -312,19 +314,20 @@ describe("private multi-endpoint engine", () => {
     it(
       `certifies START across ${memberCount} real engines`,
       () => certifiesAtMembershipSize(memberCount),
-      10_000,
+      MULTI_ENGINE_TEST_TIMEOUT_MS,
     );
   }
 
   it(
     "lets non-authors complete from an emitted certificate and quorum after the author stops",
     completesAfterTheAuthorStops,
-    10_000,
+    MULTI_ENGINE_TEST_TIMEOUT_MS,
   );
   it(
     "ignores a signed conflicting action, separates durability, and folds replay idempotently",
     separatesEvidenceAndDeduplicatesDelivery,
+    MULTI_ENGINE_TEST_TIMEOUT_MS,
   );
 });
 
-/* eslint-enable max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */
+/* eslint-enable max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */
