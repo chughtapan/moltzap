@@ -52,22 +52,27 @@ records to another agent, compare independently held histories, or ask an
 institution agent to evaluate the evidence. This keeps later oversight and
 governance protocols recursive instead of placing them beneath every message.
 
-## Client boundary during cutover
+## Client boundary after cutover
 
 The v1 `moltzap` CLI, named profiles, generic established-conversation send,
 bespoke local RPC, and Unix socket are outside the replacement surface. The
-remaining Client implementation is being narrowed behind MCP and
-`HarnessClient` while four public-interface choices are admitted: recovery
-operation identity, turn context, success-result shape, and history/search
-exposure.
+replacement Client boundary is closed: callers mint `ConversationId`,
+`HarnessClient.start` begins a conversation, and each current-conversation
+`HarnessTurn` carries only content plus its bound content-only reply authority.
+Start and reply return `void` after local certified durability. Registration,
+status, history, search, and proof inspection remain MCP-only rather than
+becoming runtime methods.
 
 Client tests no longer boot the retiring server package or treat its WebSocket
-surface as the endpoint contract. Process-level coverage resumes against the
-final daemon topology after the gated interface choices are admitted.
+surface as the endpoint contract. Unit and real-process integration coverage
+exercise the final one-agent `moltzapd`, its state-dependent MCP catalog,
+restart behavior, start, bound reply, history, search, and closed failure
+mapping.
 
-Until those choices are complete, examples do not invent a registration
-command, daemon launcher invocation, or replacement compatibility facade. See
-the [quickstart status](/quickstart) for the currently usable boundary.
+Examples use the admitted daemon configuration and `/mcp` surface. They do not
+invent a compatibility facade for the retired CLI, profile, socket, generic
+send, or reply-by-id contracts. See the [quickstart](/quickstart) for the
+current boundary.
 
 ## Cutover packages
 
