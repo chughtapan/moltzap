@@ -6,20 +6,22 @@ import {
 } from "@moltzap/identity";
 import { Deferred, Effect, Queue, Schema } from "effect";
 import type { ConversationId } from "../contract.js";
-import type { EngineRuntime } from "./engine-types.js";
+import type { EngineConversation, EngineRuntime } from "./engine-types.js";
+import type { EndpointRecovery } from "./store.js";
 import {
   ActionCertifiedRecord,
   AnchorHash,
-  CatchUpRequest,
-  type CatchUpRequest as CatchUpRequestValue,
   type CatchUpIncomplete,
   type CatchUpPage,
+  CatchUpRequest,
+  type CatchUpRequest as CatchUpRequestValue,
   CertifiedRecord,
   type CertifiedRecord as CertifiedRecordValue,
-  ClientRepresentationError,
   CompletedReanchor,
   type CompletedReanchor as CompletedReanchorValue,
   decodeCanonical,
+  type DecodedOuterBody,
+  type DirectPacket,
   encodeCanonical,
   memberCard,
   Membership,
@@ -35,18 +37,16 @@ import {
   verifyMembership,
   verifyOuterMessage,
 } from "./representation.js";
-import type { DecodedOuterBody, DirectPacket } from "./representation.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
-  RouterWorkerRecoveryError,
   type RouterWorkerRecovery,
+  RouterWorkerRecoveryError,
 } from "./router-worker.js";
-import type { EndpointRecovery, StoredAnchor } from "./store.js";
 
-const accepted = "accepted" as const;
-const ignored = "ignored" as const;
+const accepted: RouterIngressDisposition = "accepted";
+const ignored: RouterIngressDisposition = "ignored";
 const persistenceFailure = (): RouterWorkerPersistenceError =>
   new RouterWorkerPersistenceError();
 const recoveryFailure = (): RouterWorkerRecoveryError =>
@@ -69,7 +69,11 @@ export interface EngineRecoveryState {
 
 const states = new WeakMap<EngineRuntime, EngineRecoveryState>();
 
-/** Install one Router recovery generation before sending protocol traffic. */
+/**
+ * Install one Router recovery generation before sending protocol traffic.
+ * @param runtime Endpoint runtime that owns the recovery generation.
+ * @param state Recovery state to install.
+ */
 export const installEngineRecoveryState = (
   runtime: EngineRuntime,
   state: EngineRecoveryState,
@@ -77,20 +81,34 @@ export const installEngineRecoveryState = (
   states.set(runtime, state);
 };
 
-/** Read the active Router recovery generation. */
+/**
+ * Read the active Router recovery generation.
+ * @param runtime Endpoint runtime whose recovery state is requested.
+ * @returns The installed recovery state, when one is active.
+ */
 export const engineRecoveryState = (
   runtime: EngineRuntime,
 ): EngineRecoveryState | undefined => states.get(runtime);
 
-/** Remove a state only when it is still the installed generation. */
+/**
+ * Remove a state only when it is still the installed generation.
+ * @param runtime Endpoint runtime that owns the recovery state.
+ * @param state Recovery state to remove if it is still installed.
+ */
 export const removeEngineRecoveryState = (
   runtime: EngineRuntime,
   state: EngineRecoveryState,
 ): void => {
-  if (states.get(runtime) === state) states.delete(runtime);
+  if (states.get(runtime) === state) {
+    states.delete(runtime);
+  }
 };
 
-/** Resolve recovery only after every conversation and queued send are durable. */
+/**
+ * Resolve recovery only after every conversation and queued send are durable.
+ * @param state Recovery state whose completion conditions are checked.
+ * @returns An effect that resolves the completion when recovery is idle.
+ */
 export const completeEngineRecoveryIfIdle = (
   state: EngineRecoveryState,
 ): Effect.Effect<void> =>
@@ -155,7 +173,12 @@ const decodePosition = (
   }).pipe(Effect.mapError(recoveryFailure));
 };
 
-/** Send the exact durable head, using null/null before certified genesis. */
+/**
+ * Send the exact durable head, using null/null before certified genesis.
+ * @param runtime Endpoint runtime that sends the catch-up request.
+ * @param conversationId Conversation whose durable head is requested.
+ * @returns An effect that queues the signed catch-up request.
+ */
 export const requestCertifiedHistory = (
   runtime: EngineRuntime,
   conversationId: ConversationId,
@@ -184,7 +207,7 @@ export const requestCertifiedHistory = (
     yield* queueSignedPacket(runtime, membership, request, true).pipe(
       Effect.mapError(recoveryFailure),
     );
-  });
+  }).pipe(Effect.withSpan("requestCertifiedHistory"));
 
 const recordsFor = (recovery: EndpointRecovery, id: ConversationId) =>
   recovery.certifiedRecords.filter((item) => item.conversationId === id);
@@ -192,6 +215,11 @@ const anchorsFor = (recovery: EndpointRecovery, id: ConversationId) =>
   recovery.anchors.filter((item) => item.conversationId === id);
 
 type CatchUpItem = CertifiedRecordValue | CompletedReanchorValue;
+
+interface CatchUpSuccessor {
+  readonly item: CatchUpItem;
+  readonly hasMore: boolean;
+}
 
 const successorRows = (
   recovery: EndpointRecovery,
@@ -232,15 +260,16 @@ const decodeSuccessor = (
   membership: VerifiedMembership,
   recovery: EndpointRecovery,
   request: CatchUpRequestValue,
-): Effect.Effect<
-  Readonly<{ item: CatchUpItem; hasMore: boolean }> | undefined,
-  RouterWorkerPersistenceError
-> =>
+): Effect.Effect<CatchUpSuccessor | undefined, RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
     const rows = successorRows(recovery, request);
-    if (rows.length > 1) return yield* persistenceFailure();
+    if (rows.length > 1) {
+      return yield* persistenceFailure();
+    }
     const row = rows[0];
-    if (row === undefined) return undefined;
+    if (row === undefined) {
+      return undefined;
+    }
     const item =
       "canonicalCertifiedRecord" in row
         ? yield* decodeCanonical(
@@ -264,7 +293,9 @@ const decodeSuccessor = (
             Effect.mapError(persistenceFailure),
           );
     const later = successorRows(recovery, nextRequest(request, item));
-    if (later.length > 1) return yield* persistenceFailure();
+    if (later.length > 1) {
+      return yield* persistenceFailure();
+    }
     return { item, hasMore: later.length === 1 };
   });
 
@@ -294,35 +325,37 @@ const encodeAttestation = (
     Effect.mapError(persistenceFailure),
   );
 
-const respond = (
+const sendIncomplete = (
   runtime: EngineRuntime,
   membership: VerifiedMembership,
   request: CatchUpRequestValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
-    const recovery = yield* runtime.input.store
-      .recover()
-      .pipe(Effect.mapError(persistenceFailure));
-    const next = yield* decodeSuccessor(runtime, membership, recovery, request);
-    if (next === undefined) {
-      const attestation = yield* encodeAttestation(runtime, request, {
-        kind: "incomplete",
-        hash: null,
-        hasMore: false,
-      });
-      yield* queueSignedPacket(
-        runtime,
-        membership,
-        {
-          moltzapVersion: request.moltzapVersion,
-          kind: "catch_up_incomplete",
-          request,
-          attestation,
-        },
-        false,
-      );
-      return;
-    }
+    const attestation = yield* encodeAttestation(runtime, request, {
+      kind: "incomplete",
+      hash: null,
+      hasMore: false,
+    });
+    yield* queueSignedPacket(
+      runtime,
+      membership,
+      {
+        moltzapVersion: request.moltzapVersion,
+        kind: "catch_up_incomplete",
+        request,
+        attestation,
+      },
+      false,
+    );
+  });
+
+const sendPage = (
+  runtime: EngineRuntime,
+  membership: VerifiedMembership,
+  request: CatchUpRequestValue,
+  next: CatchUpSuccessor,
+): Effect.Effect<void, RouterWorkerPersistenceError> =>
+  Effect.gen(function* () {
     const hash =
       next.item.kind === "certified_record"
         ? next.item.recordHash
@@ -347,20 +380,50 @@ const respond = (
     );
   });
 
+const respond = (
+  runtime: EngineRuntime,
+  membership: VerifiedMembership,
+  request: CatchUpRequestValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> =>
+  Effect.gen(function* () {
+    const recovery = yield* runtime.input.store
+      .recover()
+      .pipe(Effect.mapError(persistenceFailure));
+    const next = yield* decodeSuccessor(runtime, membership, recovery, request);
+    if (next === undefined) {
+      yield* sendIncomplete(runtime, membership, request);
+      return;
+    }
+    yield* sendPage(runtime, membership, request, next);
+  });
+
+const requestIsEligible = (
+  runtime: EngineRuntime,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  request: CatchUpRequestValue,
+  membership?: VerifiedMembership,
+): membership is VerifiedMembership => {
+  if (membership === undefined) {
+    return false;
+  }
+  const senderAgentId = ingress.message.senderAgentId;
+  return (
+    senderAgentId !== runtime.input.localAgentCard.agentId &&
+    senderAgentId === request.requesterAgentId &&
+    request.membershipHash === membership.hash &&
+    memberCard(membership, request.requesterAgentId) !== undefined
+  );
+};
+
 const acceptRequest = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   request: CatchUpRequestValue,
 ) => {
   const membership = membershipFor(runtime, request.conversationId);
-  if (
-    membership === undefined ||
-    ingress.message.senderAgentId === runtime.input.localAgentCard.agentId ||
-    ingress.message.senderAgentId !== request.requesterAgentId ||
-    request.membershipHash !== membership.hash ||
-    memberCard(membership, request.requesterAgentId) === undefined
-  )
+  if (!requestIsEligible(runtime, ingress, request, membership)) {
     return Effect.succeed(ignored);
+  }
   return verifyOuterMessage({ message: ingress.message, membership }).pipe(
     Effect.flatMap(() => respond(runtime, membership, request)),
     Effect.as(accepted),
@@ -368,23 +431,74 @@ const acceptRequest = (
   );
 };
 
+const sameRequestPosition = (
+  left: CatchUpRequestValue,
+  right: CatchUpRequestValue,
+) =>
+  left.knownRecordHash === right.knownRecordHash &&
+  left.knownAnchorHash === right.knownAnchorHash;
+
 const sameRequest = (left: CatchUpRequestValue, right: CatchUpRequestValue) =>
   left.conversationId === right.conversationId &&
   left.membershipHash === right.membershipHash &&
   left.requesterAgentId === right.requesterAgentId &&
-  left.knownRecordHash === right.knownRecordHash &&
-  left.knownAnchorHash === right.knownAnchorHash;
+  sameRequestPosition(left, right);
 
-const extendsRequest = (page: CatchUpPage) =>
-  page.item.kind === "completed_reanchor"
-    ? page.request.knownRecordHash !== null &&
+const extendsRequest = (page: CatchUpPage): boolean => {
+  if (page.item.kind === "completed_reanchor") {
+    if (page.request.knownRecordHash === null) {
+      return false;
+    }
+    return (
       page.item.reanchor.previousAnchorHash === page.request.knownAnchorHash &&
       page.item.reanchor.selectedRecordHash === page.request.knownRecordHash
-    : page.item.actionCertifiedRecord.action.previousRecordHash ===
-        page.request.knownRecordHash &&
-      (page.request.knownAnchorHash === null ||
-        page.item.actionCertifiedRecord.anchorHash ===
-          page.request.knownAnchorHash);
+    );
+  }
+  if (
+    page.item.actionCertifiedRecord.action.previousRecordHash !==
+    page.request.knownRecordHash
+  ) {
+    return false;
+  }
+  return (
+    page.request.knownAnchorHash === null ||
+    page.item.actionCertifiedRecord.anchorHash === page.request.knownAnchorHash
+  );
+};
+
+interface CatchUpContext {
+  readonly state: EngineRecoveryState;
+  readonly membership: VerifiedMembership;
+}
+
+const catchUpContext = (
+  runtime: EngineRuntime,
+  request: CatchUpRequestValue,
+  senderAgentId: SignedMessageValue["senderAgentId"],
+): CatchUpContext | undefined => {
+  const state = states.get(runtime);
+  if (state === undefined) {
+    return undefined;
+  }
+  const membership = state.memberships.get(request.conversationId);
+  if (membership === undefined) {
+    return undefined;
+  }
+  const pending = state.pendingRequests.get(request.conversationId);
+  if (pending === undefined) {
+    return undefined;
+  }
+  if (!sameRequest(pending, request)) {
+    return undefined;
+  }
+  if (senderAgentId === runtime.input.localAgentCard.agentId) {
+    return undefined;
+  }
+  if (memberCard(membership, senderAgentId) === undefined) {
+    return undefined;
+  }
+  return { state, membership };
+};
 
 const applyCompletedAnchor = (
   runtime: EngineRuntime,
@@ -411,8 +525,47 @@ const applyCompletedAnchor = (
     const conversation = runtime.conversations.get(
       completed.reanchor.conversationId,
     );
-    if (conversation !== undefined) conversation.currentAnchor = completed;
+    if (conversation !== undefined) {
+      conversation.currentAnchor = completed;
+    }
   }).pipe(Effect.mapError(persistenceFailure));
+
+const restoreConversation = (
+  runtime: EngineRuntime,
+  membership: VerifiedMembership,
+  record: CertifiedRecordValue,
+) =>
+  Effect.gen(function* () {
+    const action = record.actionCertifiedRecord.action;
+    const recovery = yield* runtime.input.store.recover();
+    const intent = recovery.startIntents.find(
+      (item) => item.conversationId === action.conversationId,
+    );
+    if (
+      action.kind !== "start_action" ||
+      record.routerAnchor.kind !== "genesis_anchor" ||
+      intent === undefined
+    ) {
+      return yield* persistenceFailure();
+    }
+    return {
+      foldKind: "start",
+      conversationId: action.conversationId,
+      canonicalIntent: intent.canonicalIntent,
+      membership,
+      genesisAnchor: record.routerAnchor,
+      currentAnchor: record.routerAnchor,
+      action,
+      actionSignatures: new Map(),
+      durabilityVotes: new Map(),
+      actionSignatureQueued: false,
+      durabilityVoteQueued: false,
+      certifiedBroadcastQueued: true,
+      actionCertifiedRecord: record.actionCertifiedRecord,
+      recordHash: record.recordHash,
+      certifiedRecord: record,
+    } satisfies EngineConversation;
+  });
 
 const installCaughtUpHead = (
   runtime: EngineRuntime,
@@ -423,33 +576,7 @@ const installCaughtUpHead = (
     const action = record.actionCertifiedRecord.action;
     let conversation = runtime.conversations.get(action.conversationId);
     if (conversation === undefined) {
-      const recovery = yield* runtime.input.store.recover();
-      const intent = recovery.startIntents.find(
-        (item) => item.conversationId === action.conversationId,
-      );
-      if (
-        action.kind !== "start_action" ||
-        record.routerAnchor.kind !== "genesis_anchor" ||
-        intent === undefined
-      )
-        return yield* persistenceFailure();
-      conversation = {
-        foldKind: "start",
-        conversationId: action.conversationId,
-        canonicalIntent: intent.canonicalIntent,
-        membership,
-        genesisAnchor: record.routerAnchor,
-        currentAnchor: record.routerAnchor,
-        action,
-        actionSignatures: new Map(),
-        durabilityVotes: new Map(),
-        actionSignatureQueued: false,
-        durabilityVoteQueued: false,
-        certifiedBroadcastQueued: true,
-        actionCertifiedRecord: record.actionCertifiedRecord,
-        recordHash: record.recordHash,
-        certifiedRecord: record,
-      };
+      conversation = yield* restoreConversation(runtime, membership, record);
       runtime.conversations.set(action.conversationId, conversation);
     }
     conversation.head = {
@@ -463,8 +590,9 @@ const installCaughtUpHead = (
       conversation.certifiedRecord = record;
       runtime.recordFolds.set(record.recordHash, conversation);
       const completion = runtime.completions.get(action.conversationId);
-      if (completion !== undefined)
+      if (completion !== undefined) {
         yield* Deferred.succeed(completion, undefined);
+      }
     }
   }).pipe(Effect.mapError(persistenceFailure));
 
@@ -518,7 +646,7 @@ const attestationMatchesOuter = (
     Effect.map(
       (message) => message.senderAgentId === ingress.message.senderAgentId,
     ),
-    Effect.mapError(() => new ClientRepresentationError()),
+    Effect.catchAll(() => Effect.succeed(false)),
   );
 
 const acceptPage = (
@@ -526,29 +654,31 @@ const acceptPage = (
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   page: CatchUpPage,
 ) => {
-  const state = states.get(runtime);
-  const membership = state?.memberships.get(page.request.conversationId);
-  const pending = state?.pendingRequests.get(page.request.conversationId);
-  if (
-    state === undefined ||
-    membership === undefined ||
-    pending === undefined ||
-    !sameRequest(pending, page.request) ||
-    !extendsRequest(page) ||
-    ingress.message.senderAgentId === runtime.input.localAgentCard.agentId ||
-    memberCard(membership, ingress.message.senderAgentId) === undefined
-  )
+  const context = catchUpContext(
+    runtime,
+    page.request,
+    ingress.message.senderAgentId,
+  );
+  if (context === undefined) {
     return Effect.succeed(ignored);
+  }
+  if (!extendsRequest(page)) {
+    return Effect.succeed(ignored);
+  }
   return Effect.gen(function* () {
-    yield* verifyOuterMessage({ message: ingress.message, membership });
-    if (!(yield* attestationMatchesOuter(ingress, page.attestation)))
+    yield* verifyOuterMessage({
+      message: ingress.message,
+      membership: context.membership,
+    });
+    if (!(yield* attestationMatchesOuter(ingress, page.attestation))) {
       return ignored;
+    }
     yield* verifyCatchUpPage({
       page,
-      membership,
+      membership: context.membership,
       registrySignerPublicKey: runtime.input.registrySignerPublicKey,
     });
-    yield* applyPage(runtime, membership, page);
+    yield* applyPage(runtime, context.membership, page);
     yield* requestCertifiedHistory(runtime, page.request.conversationId).pipe(
       Effect.mapError(persistenceFailure),
     );
@@ -563,32 +693,40 @@ const acceptIncomplete = (
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   packet: CatchUpIncomplete,
 ) => {
-  const state = states.get(runtime);
-  const membership = state?.memberships.get(packet.request.conversationId);
-  const pending = state?.pendingRequests.get(packet.request.conversationId);
-  if (
-    state === undefined ||
-    membership === undefined ||
-    pending === undefined ||
-    !sameRequest(pending, packet.request) ||
-    ingress.message.senderAgentId === runtime.input.localAgentCard.agentId ||
-    memberCard(membership, ingress.message.senderAgentId) === undefined
-  )
+  const context = catchUpContext(
+    runtime,
+    packet.request,
+    ingress.message.senderAgentId,
+  );
+  if (context === undefined) {
     return Effect.succeed(ignored);
+  }
   return Effect.gen(function* () {
-    yield* verifyOuterMessage({ message: ingress.message, membership });
-    if (!(yield* attestationMatchesOuter(ingress, packet.attestation)))
+    yield* verifyOuterMessage({
+      message: ingress.message,
+      membership: context.membership,
+    });
+    if (!(yield* attestationMatchesOuter(ingress, packet.attestation))) {
       return ignored;
-    yield* verifyCatchUpIncomplete({ incomplete: packet, membership });
+    }
+    yield* verifyCatchUpIncomplete({
+      incomplete: packet,
+      membership: context.membership,
+    });
     const responders =
-      state.incompleteResponders.get(packet.request.conversationId) ??
+      context.state.incompleteResponders.get(packet.request.conversationId) ??
       new Set<string>();
     responders.add(ingress.message.senderAgentId);
-    state.incompleteResponders.set(packet.request.conversationId, responders);
-    if (responders.size < membership.members.length - 1) return accepted;
-    state.pendingRequests.delete(packet.request.conversationId);
-    state.incompleteResponders.delete(packet.request.conversationId);
-    yield* state
+    context.state.incompleteResponders.set(
+      packet.request.conversationId,
+      responders,
+    );
+    if (responders.size < context.membership.members.length - 1) {
+      return accepted;
+    }
+    context.state.pendingRequests.delete(packet.request.conversationId);
+    context.state.incompleteResponders.delete(packet.request.conversationId);
+    yield* context.state
       .onPositionReady(packet.request.conversationId)
       .pipe(Effect.mapError(persistenceFailure));
     return accepted;
@@ -597,7 +735,13 @@ const acceptIncomplete = (
   );
 };
 
-/** Accept or answer one catch-up packet without runtime attention. */
+/**
+ * Accept or answer one catch-up packet without runtime attention.
+ * @param runtime Endpoint runtime that owns the packet state.
+ * @param ingress Authenticated Router ingress carrying the packet.
+ * @param packet Decoded catch-up protocol packet.
+ * @returns The packet disposition or a persistence failure.
+ */
 export const acceptCatchUpPacket = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -610,10 +754,19 @@ export const acceptCatchUpPacket = (
       return acceptPage(runtime, ingress, packet);
     case "catch_up_incomplete":
       return acceptIncomplete(runtime, ingress, packet);
+    default: {
+      const exhaustive: never = packet;
+      return exhaustive;
+    }
   }
 };
 
-/** Decode every durable membership needed by one recovery generation. */
+/**
+ * Decode every durable membership needed by one recovery generation.
+ * @param runtime Endpoint runtime with the Registry verification key.
+ * @param recovery Durable recovery snapshot containing memberships.
+ * @returns Verified memberships keyed by conversation identifier.
+ */
 export const recoverMemberships = (
   runtime: EngineRuntime,
   recovery: EndpointRecovery,

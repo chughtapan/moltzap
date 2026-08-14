@@ -23,7 +23,7 @@ import { request as requestHttps } from "node:https"; // eslint-disable-line age
 import type { LinkFabric, RoutedLinkDelivery } from "./link-fabric.js";
 import { networkError, type NetworkError } from "../network/index.js";
 
-/* eslint-disable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-invalid-void-type, agent-code-guard/acquire-release-requires-scope, agent-code-guard/bare-catch, agent-code-guard/effect-promise, agent-code-guard/either-discriminant, agent-code-guard/no-raw-throw-new-error, agent-code-guard/prefer-stepdown-function-order, agent-code-guard/promise-type, agent-code-guard/tag-discriminant -- This run-private raw transport adapter contains Node's Promise/callback lifecycle and defensive parse fallbacks; its exported Effect remains scoped and typed. */
+/* eslint-disable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-invalid-void-type, agent-code-guard/acquire-release-requires-scope, agent-code-guard/either-discriminant, agent-code-guard/no-raw-throw-new-error, agent-code-guard/prefer-stepdown-function-order, agent-code-guard/promise-type, agent-code-guard/tag-discriminant -- This run-private raw transport adapter contains Node's Promise/callback lifecycle and defensive parse fallbacks; its exported Effect remains scoped and typed. */
 
 const POLL_PATH = "/v1/messages:poll";
 const MAXIMUM_REQUEST_BYTES = 1_048_576;
@@ -87,7 +87,9 @@ function callerAgentId(body: Buffer): AgentIdValue | undefined {
     );
     return decoded._tag === "Right" ? decoded.right.callerAgentId : undefined;
   } catch (cause) {
-    void cause;
+    Effect.runSync(
+      Effect.logDebug("Router proxy ignored malformed poll request", cause),
+    );
     return undefined;
   }
 }
@@ -192,7 +194,9 @@ function decodePollResult(body: Buffer): PollResult | undefined {
     const encoded = Schema.encodeSync(RouterPollResult)(decoded.right);
     return canonicalize(encoded) === text ? decoded.right : undefined;
   } catch (cause) {
-    void cause;
+    Effect.runSync(
+      Effect.logDebug("Router proxy ignored malformed poll response", cause),
+    );
     return undefined;
   }
 }
@@ -650,4 +654,4 @@ export function makeRouterFaultProxy(
 /** Acquire the scoped endpoint-facing proxy for one policy fabric. */
 export const acquireRouterFaultProxy = makeRouterFaultProxy;
 
-/* eslint-enable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-invalid-void-type, agent-code-guard/acquire-release-requires-scope, agent-code-guard/bare-catch, agent-code-guard/effect-promise, agent-code-guard/either-discriminant, agent-code-guard/no-raw-throw-new-error, agent-code-guard/prefer-stepdown-function-order, agent-code-guard/promise-type, agent-code-guard/tag-discriminant -- restore project limits after the raw transport adapter. */
+/* eslint-enable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-invalid-void-type, agent-code-guard/acquire-release-requires-scope, agent-code-guard/either-discriminant, agent-code-guard/no-raw-throw-new-error, agent-code-guard/prefer-stepdown-function-order, agent-code-guard/promise-type, agent-code-guard/tag-discriminant -- restore project limits after the raw transport adapter. */
