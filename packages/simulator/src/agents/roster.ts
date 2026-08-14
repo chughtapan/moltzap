@@ -1,10 +1,11 @@
 /** @file Nominal keyed runtime rosters and their exact Effect service. */
-// safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs a network participant handle with the runtime that answers for it.
 
+import { AgentName as agentName } from "@moltzap/identity";
 import { Context, Schema } from "effect";
-import { agentName } from "@moltzap/protocol/identity";
-import type { AgentHandle } from "../network/participant.js";
+import type { AgentHandle } from "../network/index.js";
 import type { AgentRuntime, AgentRuntimeLike, RunningAgent } from "./agent.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs an identity-owned name with the runtime that answers for it.
 
 const agentRosterTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentRoster",
@@ -45,7 +46,7 @@ export type AgentRosterAcquisitionError<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = RuntimeAcquisitionErrorOf<Definitions[keyof Definitions]>;
 
-/** A ready autonomous runtime paired with its router-issued identity. */
+/** A ready autonomous runtime paired with its Registry-issued identity. */
 export interface StartedAgent<Name extends string, Gateway>
   extends RunningAgent<Gateway> {
   readonly agent: AgentHandle<Name>;
@@ -150,10 +151,21 @@ type AgentRosterBuilder<Id extends string> = <
 ) => AgentRoster<Id, Definitions>;
 
 /**
+ * Bind the roster constructor to one simulator definition.
+ * @param definitionId Definition identity retained by every constructed roster.
+ * @returns The created agent roster builder.
+ */
+export function makeAgentRosterBuilder<const Id extends string>(
+  definitionId: Id,
+): AgentRosterBuilder<Id> {
+  return makeAgentRosterBinding(definitionId).agents;
+}
+
+/**
  * Construct the roster factory and ownership check for one definition value.
  * The shared token stays inside this closure so equal definition ids cannot
  * make independently constructed definitions interchangeable.
- * @param definitionId Value supplied to the operation.
+ * @param definitionId Definition identity shared by the bound ownership token.
  * @returns The created agent roster binding.
  */
 export function makeAgentRosterBinding<const Id extends string>(
@@ -174,15 +186,4 @@ export function makeAgentRosterBinding<const Id extends string>(
   ): boolean => rosterDefinitionTokens.get(roster) === definitionToken;
 
   return Object.freeze({ agents, owns });
-}
-
-/**
- * Bind the roster constructor to one simulator definition.
- * @param definitionId Value supplied to the operation.
- * @returns The created agent roster builder.
- */
-export function makeAgentRosterBuilder<const Id extends string>(
-  definitionId: Id,
-): AgentRosterBuilder<Id> {
-  return makeAgentRosterBinding(definitionId).agents;
 }

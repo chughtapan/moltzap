@@ -17,8 +17,8 @@ set -euo pipefail
 module_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/terraform" && pwd)"
 
 if ! command -v terraform >/dev/null 2>&1; then
-  echo "phoenix-terraform-check: skipped, terraform is not installed" >&2
-  exit 0
+  echo "phoenix-terraform-check: terraform is required" >&2
+  exit 1
 fi
 
 terraform -chdir="$module_root" fmt -check -recursive

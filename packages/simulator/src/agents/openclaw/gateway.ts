@@ -1,10 +1,6 @@
 /** @file Scoped principal access to one OpenClaw gateway process. */
 
-import type { AgentName } from "@moltzap/protocol/identity";
-import {
-  GatewayClient,
-  startGatewayClientWhenEventLoopReady,
-} from "openclaw/plugin-sdk/gateway-runtime";
+import type { AgentName } from "@moltzap/identity";
 import {
   Context,
   Deferred,
@@ -15,6 +11,10 @@ import {
   Schema,
   type Scope,
 } from "effect";
+import {
+  GatewayClient,
+  startGatewayClientWhenEventLoopReady,
+} from "openclaw/plugin-sdk/gateway-runtime";
 
 const OPENCLAW_GATEWAY_CLIENT_STOP_TIMEOUT_MS = 1_000;
 const OPENCLAW_GATEWAY_PAYLOAD_MAX_COUNT = 16;
@@ -161,21 +161,6 @@ export interface OpenClawGateway {
   ) => Effect.Effect<OpenClawGatewayResponse, OpenClawGatewayRequestError>;
 }
 
-interface OpenClawAgentRequestParameters {
-  readonly message: string;
-  readonly idempotencyKey: string;
-  readonly deliver: false;
-  readonly agentId: AgentName;
-  readonly sessionKey?: string;
-  readonly thinking?: string;
-  readonly timeout?: number;
-  readonly label?: string;
-  readonly extraSystemPrompt?: string;
-}
-
-type GatewayClientOptions = ConstructorParameters<typeof GatewayClient>[0];
-type GatewayClientRequestOptions = Parameters<GatewayClient["request"]>[2];
-
 /**
  * Narrow client contract used by lifecycle tests.
  * @internal
@@ -187,7 +172,7 @@ export interface OpenClawGatewayClient {
   readonly request: (
     method: string,
     params?: unknown,
-    options?: GatewayClientRequestOptions,
+    options?: Parameters<GatewayClient["request"]>[2],
   ) => ReturnType<GatewayClient["request"]>;
 }
 
@@ -196,7 +181,7 @@ export interface OpenClawGatewayClient {
  * @internal
  */
 export type OpenClawGatewayClientFactory = (
-  options: GatewayClientOptions,
+  options: ConstructorParameters<typeof GatewayClient>[0],
 ) => OpenClawGatewayClient;
 
 /**
@@ -208,8 +193,85 @@ export class GatewayOperations extends Context.Tag(
   "@moltzap/simulator/GatewayOperations",
 )<GatewayOperations, OpenClawGatewayClientFactory>() {}
 
-const makeNativeGatewayClient: OpenClawGatewayClientFactory = (options) =>
-  new GatewayClient(options);
+/**
+ * Connect a persistent OpenClaw client, await its protocol hello, and retain
+ * it in the process Scope.
+ *
+ * The container attach contract fixes this Effect's requirements to Scope, so
+ * the client factory is an optional environment override rather than a
+ * required service: a run that installs nothing gets the native client.
+ * @param session Running OpenClaw process and private gateway credentials.
+ * @param within Runtime-owned startup deadline.
+ * @returns The runtime-native principal gateway.
+ * @internal
+ */
+export function acquireOpenClawGateway(
+  session: OpenClawGatewaySession,
+  within: Duration.Duration,
+): Effect.Effect<OpenClawGateway, Error, Scope.Scope> {
+  return Effect.gen(function* () {
+    const makeClient = yield* Effect.serviceOption(GatewayOperations).pipe(
+      Effect.map(Option.getOrElse(nativeGatewayClientFactory)),
+    );
+    const hello = yield* Deferred.make<undefined>();
+    // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The returned Effect requires Scope, so its caller owns this finalizer.
+    const client = yield* Effect.acquireRelease(
+      Effect.try({
+        try: () => {
+          const environment = gatewayClientEnvironment(session.gatewayUrl);
+          return makeClient({
+            url: session.gatewayUrl,
+            token: Redacted.value(session.gatewayToken),
+            clientName: "gateway-client",
+            clientDisplayName: "MoltZap simulator",
+            mode: "backend",
+            role: "operator",
+            scopes: ["operator.write"],
+            deviceIdentity: session.deviceIdentity,
+            ...(environment === undefined ? {} : { env: environment }),
+            onHelloOk: () => {
+              Effect.runSync(Deferred.succeed(hello, undefined));
+            },
+          });
+        },
+        catch: (cause) =>
+          gatewayConnectionFailure(
+            `could not construct the OpenClaw gateway client: ${String(cause)}`,
+          ),
+      }),
+      closeGatewayClient,
+    );
+    const ready = startGatewayClient(client, within).pipe(
+      Effect.zipRight(Deferred.await(hello)),
+      Effect.raceFirst(session.stopped),
+      Effect.timeoutFail({
+        duration: within,
+        onTimeout: () =>
+          gatewayConnectionFailure(
+            `OpenClaw principal gateway did not expose a hello response within ${Duration.format(within)}`,
+          ),
+      }),
+    );
+    yield* ready;
+    return makeOpenClawGateway(client, session.agentName);
+  }).pipe(Effect.withSpan("OpenClawGateway.acquire"));
+}
+
+function nativeGatewayClientFactory(): OpenClawGatewayClientFactory {
+  return (options) => new GatewayClient(options);
+}
+
+interface OpenClawAgentRequestParameters {
+  readonly message: string;
+  readonly idempotencyKey: string;
+  readonly deliver: false;
+  readonly agentId: AgentName;
+  readonly sessionKey?: string;
+  readonly thinking?: string;
+  readonly timeout?: number;
+  readonly label?: string;
+  readonly extraSystemPrompt?: string;
+}
 
 function gatewayConnectionFailure(detail: string): Error {
   return new Error(detail);
@@ -325,68 +387,4 @@ function makeOpenClawGateway(
         Effect.withSpan("OpenClawGateway.agent"),
       ),
   });
-}
-
-/**
- * Connect a persistent OpenClaw client, await its protocol hello, and retain
- * it in the process Scope.
- *
- * The container attach contract fixes this Effect's requirements to Scope, so
- * the client factory is an optional environment override rather than a
- * required service: a run that installs nothing gets the native client.
- * @param session Running OpenClaw process and private gateway credentials.
- * @param within Runtime-owned startup deadline.
- * @returns The runtime-native principal gateway.
- * @internal
- */
-export function acquireOpenClawGateway(
-  session: OpenClawGatewaySession,
-  within: Duration.Duration,
-): Effect.Effect<OpenClawGateway, Error, Scope.Scope> {
-  return Effect.gen(function* () {
-    const makeClient = yield* Effect.serviceOption(GatewayOperations).pipe(
-      Effect.map(Option.getOrElse(() => makeNativeGatewayClient)),
-    );
-    const hello = yield* Deferred.make<undefined>();
-    // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The returned Effect requires Scope, so its caller owns this finalizer.
-    const client = yield* Effect.acquireRelease(
-      Effect.try({
-        try: () => {
-          const environment = gatewayClientEnvironment(session.gatewayUrl);
-          return makeClient({
-            url: session.gatewayUrl,
-            token: Redacted.value(session.gatewayToken),
-            clientName: "gateway-client",
-            clientDisplayName: "MoltZap simulator",
-            mode: "backend",
-            role: "operator",
-            scopes: ["operator.write"],
-            deviceIdentity: session.deviceIdentity,
-            ...(environment === undefined ? {} : { env: environment }),
-            onHelloOk: () => {
-              Effect.runSync(Deferred.succeed(hello, undefined));
-            },
-          });
-        },
-        catch: (cause) =>
-          gatewayConnectionFailure(
-            `could not construct the OpenClaw gateway client: ${String(cause)}`,
-          ),
-      }),
-      closeGatewayClient,
-    );
-    const ready = startGatewayClient(client, within).pipe(
-      Effect.zipRight(Deferred.await(hello)),
-      Effect.raceFirst(session.stopped),
-      Effect.timeoutFail({
-        duration: within,
-        onTimeout: () =>
-          gatewayConnectionFailure(
-            `OpenClaw principal gateway did not expose a hello response within ${Duration.format(within)}`,
-          ),
-      }),
-    );
-    yield* ready;
-    return makeOpenClawGateway(client, session.agentName);
-  }).pipe(Effect.withSpan("OpenClawGateway.acquire"));
 }

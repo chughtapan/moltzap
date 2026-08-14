@@ -1,30 +1,27 @@
 import { assert, effect, it } from "@effect/vitest";
-import { FileSystem } from "@effect/platform";
-import { NodeContext } from "@effect/platform-node";
-import { fileURLToPath } from "node:url";
-import { DateTime, Effect, Schema } from "effect";
 import { IncompleteLedgerReceipt } from "@moltzap/simulator";
 import { ledgerRef } from "@moltzap/simulator/ledger";
+import { DateTime, Effect, Schema } from "effect";
 import { evaluationCase } from "./cases.js";
 import {
+  type AttemptContext,
+  type EvaluationImageKey,
   infrastructureFailed,
   invalidImageDetail,
   missingImageDetail,
-  type AttemptContext,
-  type EvaluationImageKey,
 } from "./cli.js";
 import {
-  decodeEvaluationCaseId,
-  decodeCriterionId,
   decodeConditionId,
+  decodeCriterionId,
+  decodeEvaluationCaseId,
 } from "./model.js";
 import {
+  decodeEvaluationAttemptId,
   EvaluationCasePlan,
   EvaluationConditionPlan,
-  decodeEvaluationAttemptId,
 } from "./sweep.js";
 
-const CASE_ID = decodeEvaluationCaseId("EVAL-006");
+const CASE_ID = decodeEvaluationCaseId("EVAL-019");
 const DIAGNOSTIC =
   "controller Job failed\nBackoffLimitExceeded: Job has reached the backoff limit";
 
@@ -39,7 +36,7 @@ function attemptContext(): AttemptContext {
     definition,
     startedAt: DateTime.unsafeMake(0),
     cell: {
-      attemptId: decodeEvaluationAttemptId("eval-006-nanoclaw-1"),
+      attemptId: decodeEvaluationAttemptId("eval-019-nanoclaw-1"),
       casePlan: EvaluationCasePlan.make({
         id: CASE_ID,
         definitionId: definition.definitionId,
@@ -60,37 +57,16 @@ function attemptContext(): AttemptContext {
 }
 
 const RECEIPT = IncompleteLedgerReceipt.make({
-  ledger: Schema.decodeSync(ledgerRef)("eval-006-nanoclaw-1"),
+  ledger: Schema.decodeSync(ledgerRef)("eval-019-nanoclaw-1"),
 });
 
-// An operator whose environment is missing an image has no other way to learn
-// that the reference is produced rather than looked up, and the NanoClaw image
-// has no producer anywhere else in the repository.
-effect.each([
-  ["MOLTZAP_CONTROLLER_IMAGE", "build-controller-image.mjs"],
-  ["MOLTZAP_SUPPORT_IMAGE", "build-controller-image.mjs"],
-  ["MOLTZAP_NANOCLAW_IMAGE", "build-nanoclaw-image.mjs"],
-] as const)(
-  "names the producer of %s in both of its configuration failures",
-  ([key, script]: readonly [EvaluationImageKey, string]) =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const producer = `packages/simulator/scripts/${script}`;
-
-      for (const detail of [missingImageDetail(key), invalidImageDetail(key)]) {
-        assert.include(detail, key);
-        assert.include(detail, producer);
-        assert.include(detail, "pinnedImage");
-      }
-
-      // A named script that does not exist is worse than no remedy at all.
-      assert.isTrue(
-        yield* fileSystem.exists(
-          fileURLToPath(new URL(`../../../${producer}`, import.meta.url)),
-        ),
-        `${producer} does not exist`,
-      );
-    }).pipe(Effect.provide(NodeContext.layer)),
+effect.each(["MOLTZAP_CONTROLLER_IMAGE", "MOLTZAP_NANOCLAW_IMAGE"] as const)(
+  "names %s in both configuration failures",
+  (key: EvaluationImageKey) =>
+    Effect.sync(() => {
+      assert.include(missingImageDetail(key), key);
+      assert.include(invalidImageDetail(key), key);
+    }),
 );
 
 const CLUSTER_LOST = { _tag: "ClusterLost", receipt: RECEIPT } as const;

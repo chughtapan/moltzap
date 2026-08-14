@@ -1,52 +1,48 @@
 #!/usr/bin/env node
 /** @file Effect CLI for evaluation execution, resume, calibration, and publication. */
 
+import type { NonEmptyReadonlyArray } from "effect/Array";
 import { Command as CliCommand, Options } from "@effect/cli";
 import { Command, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { isEntryModule, type CompletedLedgerReceipt } from "@moltzap/simulator";
-import {
-  LedgerStorageError,
-  type CompletedLedgerArtifacts,
-} from "@moltzap/simulator/ledger";
+import { type CompletedLedgerReceipt, isEntryModule } from "@moltzap/simulator";
 import { image, type Image } from "@moltzap/simulator/agents";
+import {
+  type CompletedLedgerArtifacts,
+  LedgerStorageError,
+} from "@moltzap/simulator/ledger";
 import { Config, DateTime, Duration, Effect, Option, Schema } from "effect";
-import type { NonEmptyReadonlyArray } from "effect/Array";
 import {
-  evaluationCase,
-  evaluationCases,
-  type BundledEvaluationCase,
-  type EvaluationCaseMetadata,
-} from "./cases.js";
-import {
-  EvaluationExecutionFailed,
-  nanoclawEvaluationCondition,
-  openEvaluationLedger,
-  openClawEvaluationCondition,
-  projectEvaluationControllerResult,
-  type EvaluationCondition,
-  type EvaluationExecutionResult,
-} from "./execution.js";
-import {
+  type ArtifactBucket,
   evaluationArtifactBucket,
   evaluationArtifactLocation,
-  localArtifactRoot,
-  readEvaluationLedgerArtifacts,
-  type ArtifactBucket,
   type EvaluationArtifactStorage,
+  localArtifactRoot,
   type LocalArtifactRoot,
+  readEvaluationLedgerArtifacts,
 } from "./artifacts.js";
+import { GradeCompleted, gradeTranscript } from "./assessment.js";
+import { runSemanticJudgeCalibration } from "./calibration.js";
 import {
-  GradeCompleted,
-  GradingRefused,
+  type BundledEvaluationCase,
+  evaluationCase,
+  type EvaluationCaseMetadata,
+  evaluationCases,
+} from "./cases.js";
+import {
+  type EvaluationCondition,
+  EvaluationExecutionFailed,
+  type EvaluationExecutionResult,
+  nanoclawEvaluationCondition,
+  openClawEvaluationCondition,
+  openEvaluationLedger,
+  projectEvaluationControllerResult,
+} from "./execution.js";
+import {
   OPENAI_SEMANTIC_JUDGE_MODEL,
   OPENAI_SEMANTIC_JUDGE_TIMEOUT_MILLIS,
   SemanticJudgeOpenAi,
-  gradeTranscript,
-  runSemanticJudgeCalibration,
-  transcriptFromLedger,
-  type EvaluationTranscript,
-} from "./grading.js";
+} from "./judge-openai.js";
 import {
   decodeJudgePolicyId,
   type EvaluationConditionId,
@@ -63,31 +59,36 @@ import {
   runEvaluationSweep,
 } from "./results.js";
 import {
+  type EvaluationSubmissionResult,
+  type SimulatorProfile,
+  submissionDiagnostic,
+  submitEvaluationCell,
+} from "./submission.js";
+import {
   CompletedEvaluationReport,
+  decodeEvaluationReportId,
+  ensureSweepOperationallyComplete,
   EvaluationCasePlan,
   EvaluationConditionPlan,
+  type EvaluationInfrastructure,
+  evaluationReportId,
+  type EvaluationReportId,
   EvaluationReportPlan,
-  GkeEvaluationInfrastructure,
+  type EvaluationSweepCell,
   EvidenceRejectedAttempt,
+  GkeEvaluationInfrastructure,
   JudgePolicySnapshot,
   LedgerAllocationFailedAttempt,
   LocalEvaluationInfrastructure,
-  RunFailedAttempt,
-  decodeEvaluationReportId,
-  ensureSweepOperationallyComplete,
-  evaluationReportId,
   makeAssessedAttempt,
   makeJudgingUnavailableAttempt,
-  type EvaluationInfrastructure,
-  type EvaluationReportId,
-  type EvaluationSweepCell,
+  RunFailedAttempt,
 } from "./sweep.js";
 import {
-  submissionDiagnostic,
-  submitEvaluationCell,
-  type EvaluationSubmissionResult,
-  type SimulatorProfile,
-} from "./submission.js";
+  type EvaluationTranscript,
+  GradingRefused,
+  transcriptFromLedger,
+} from "./transcript.js";
 
 const CLI_VERSION = "0.0.0";
 const RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
@@ -129,7 +130,6 @@ interface RuntimeOptions {
 
 interface CommonExecutionEnvironment {
   readonly workspaceRoot: string;
-  readonly peerApplicationImage: Image;
   readonly nanoclawApplicationImage: Image;
   readonly controllerImage: Image;
   readonly temporalAddress: string;
@@ -159,7 +159,6 @@ type EvaluationExecutionEnvironment =
 
 interface EvaluationExecutionImages {
   readonly controllerImage: Image;
-  readonly peerApplicationImage: Image;
   readonly nanoclawApplicationImage: Image;
 }
 
@@ -315,7 +314,6 @@ function planInfrastructure(
 ): EvaluationInfrastructure {
   const shared = {
     controllerImage: environment.controllerImage,
-    peerApplicationImage: environment.peerApplicationImage,
     nanoclawApplicationImage: environment.nanoclawApplicationImage,
     temporalAddress: environment.temporalAddress,
   };
@@ -627,7 +625,6 @@ function submissionInput(
       id: condition.id,
       modelId: conditionModelId(environment.models, condition.id),
     },
-    peerApplicationImage: environment.peerApplicationImage,
     nanoclawApplicationImage: environment.nanoclawApplicationImage,
     runtimeStartupTimeoutMillis: Duration.toMillis(RUNTIME_STARTUP_TIMEOUT),
     peerObservationTimeoutMillis: Duration.toMillis(PEER_OBSERVATION_TIMEOUT),
@@ -725,37 +722,27 @@ function requiredEnvironment(key: string) {
   );
 }
 
-const CONTROLLER_IMAGE_PRODUCER =
-  "packages/simulator/scripts/build-controller-image.mjs";
-
-// Nothing else in the repository produces these references, so a missing one is
-// an operator who has not run the producer yet rather than one who forgot to
-// export a value they already had. Naming the producer is the whole remedy.
-const imageProducer = {
-  MOLTZAP_CONTROLLER_IMAGE: CONTROLLER_IMAGE_PRODUCER,
-  MOLTZAP_SUPPORT_IMAGE: CONTROLLER_IMAGE_PRODUCER,
-  MOLTZAP_NANOCLAW_IMAGE: "packages/simulator/scripts/build-nanoclaw-image.mjs",
-} as const;
-
 /** Environment key naming one digest-pinned image an evaluation run needs. */
-export type EvaluationImageKey = keyof typeof imageProducer;
+export type EvaluationImageKey =
+  | "MOLTZAP_CONTROLLER_IMAGE"
+  | "MOLTZAP_NANOCLAW_IMAGE";
 
 /**
- * Say which producer builds an evaluation image the environment omitted.
+ * Describe an evaluation image the environment omitted.
  * @param key Environment key the run could not read.
- * @returns The operator-facing requirement, naming the producing script.
+ * @returns The operator-facing requirement.
  */
 export function missingImageDetail(key: EvaluationImageKey): string {
-  return `${key} is required for evaluation execution; build it with ${imageProducer[key]} and pass the printed pinnedImage`;
+  return `${key} is required for evaluation execution`;
 }
 
 /**
- * Say which producer prints the pinned form of a rejected evaluation image.
+ * Describe a rejected evaluation image reference.
  * @param key Environment key whose value was not digest-pinned.
- * @returns The operator-facing requirement, naming the producing script.
+ * @returns The operator-facing requirement.
  */
 export function invalidImageDetail(key: EvaluationImageKey): string {
-  return `${key} must be a lowercase SHA-256 digest-pinned image; ${imageProducer[key]} prints one as pinnedImage`;
+  return `${key} must be a lowercase SHA-256 digest-pinned image`;
 }
 
 function distributedApplicationImage(
@@ -781,7 +768,6 @@ function requiredImage(key: EvaluationImageKey) {
 function executionImages() {
   return Effect.all({
     controllerImage: requiredImage("MOLTZAP_CONTROLLER_IMAGE"),
-    peerApplicationImage: requiredImage("MOLTZAP_SUPPORT_IMAGE"),
     nanoclawApplicationImage: requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
   });
 }

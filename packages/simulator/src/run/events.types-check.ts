@@ -33,8 +33,8 @@ export const definitionEventServices = makeDefinitionEventServices(
 
 /**
  * Executes the definition event services canary operation.
- * @param ledger Value supplied to the operation.
- * @param events Value supplied to the operation.
+ * @param ledger Definition-bound reader for core and customer evidence.
+ * @param events Definition-bound emitter restricted to customer event classes.
  */
 export function definitionEventServicesCanary(
   ledger: typeof definitionEventServices.ledger.Service,

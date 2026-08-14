@@ -1,29 +1,28 @@
-/* eslint-disable agent-code-guard/async-keyword -- Temporal activity and client tests await the SDK's Promise-native boundary. */
-/* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only activity timelines pin one Temporal attempt and cleanup ordering. */
+/** @file Temporal lifecycle activities, open-run discovery, and workflow-client regressions. */
 
-import { describe, expect, it, vi } from "vitest";
 import { Effect, Schema } from "effect";
-import { CompletedLedgerReceipt } from "../run/execute.js";
-import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
-import {
-  ledgerAllocationFailedSummary,
-  programFinishedSummary,
-} from "./controller/summary.js";
-import { KubernetesCallFailed } from "./kubernetes/calls.js";
+import { describe, expect, it, vi } from "vitest";
 import type {
   RunControllerResult,
   RunLifecycleActivities,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
+import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
+import { CompletedLedgerReceipt } from "../run/execute.js";
 import {
+  ledgerAllocationFailedSummary,
+  programFinishedSummary,
+} from "./controller/summary.js";
+import { KubernetesCallFailed } from "./kubernetes/calls.js";
+import {
+  type ControllerObservation,
   executeRunSocietyWorkflow,
   LifecycleOperations,
+  type LifecycleOperationsService,
   OPEN_RUN_FILTER,
+  type OpenRunLister,
   readOpenRuns,
   runLifecycleActivities,
-  type ControllerObservation,
-  type LifecycleOperationsService,
-  type OpenRunLister,
   type RunSocietyWorkflowExecutionOptions,
 } from "./temporal.js";
 
@@ -65,6 +64,14 @@ interface FakeState {
   readonly namespacePresence: boolean[];
 }
 
+function fakeActivities(current: FakeState): RunLifecycleActivities {
+  return Effect.runSync(
+    runLifecycleActivities.pipe(
+      Effect.provideService(LifecycleOperations, fakeOperations(current)),
+    ),
+  );
+}
+
 function fakeOperations(state: FakeState): LifecycleOperationsService {
   return {
     bindHeartbeat: () => () => {
@@ -98,14 +105,6 @@ function fakeOperations(state: FakeState): LifecycleOperationsService {
         state.events.push("wait");
       }),
   };
-}
-
-function fakeActivities(current: FakeState): RunLifecycleActivities {
-  return Effect.runSync(
-    runLifecycleActivities.pipe(
-      Effect.provideService(LifecycleOperations, fakeOperations(current)),
-    ),
-  );
 }
 
 function state(
@@ -283,6 +282,3 @@ describe("executeRunSocietyWorkflow", () => {
     });
   });
 });
-
-/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after Temporal activity and client assertions. */
-/* eslint-enable agent-code-guard/no-example-only-tests -- Restore generative-test requirements after the Temporal lifecycle regressions. */

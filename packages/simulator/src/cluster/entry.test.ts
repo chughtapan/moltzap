@@ -1,11 +1,11 @@
-/* eslint-disable agent-code-guard/no-example-only-tests -- Entry detection is a fixed set of path shapes, not an input domain; each case pins one way a real invocation reaches a module. */
+/** @file Entry-module detection across canonical, symlinked, absent, and invalid paths. */
 
-import { assert, effect as test } from "@effect/vitest";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
+import { assert, effect as test } from "@effect/vitest";
+import { Effect } from "effect";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Effect } from "effect";
 import { isEntryModule } from "./entry.js";
 
 test("treats a module reached through a symlinked path as the entry point", () =>
@@ -78,5 +78,3 @@ test("reports no entry point for a module loaded over a non-file scheme", () =>
       assert.isFalse(isEntryModule("https://example.test/main.js", invoked));
     }),
   ).pipe(Effect.provide(NodeContext.layer)));
-
-/* eslint-enable agent-code-guard/no-example-only-tests -- Restore the project default after the entry-shape regressions. */

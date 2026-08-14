@@ -14,10 +14,10 @@
   ],
   "references": [
     {
-      "path": "../protocol"
+      "path": "../identity"
     },
     {
-      "path": "../server"
+      "path": "../router"
     }
   ]
 }

@@ -1,19 +1,21 @@
+/** @file GKE profile decoding, required operator inputs, and shared submission regressions. */
+
 import { assert, effect as test } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
-import { CompletedLedgerReceipt } from "../../run/execute.js";
+import type { RunTemporalSocietyOptions } from "../temporal.js";
 import {
   LedgerCompletion,
   ledgerDigest,
   ledgerRef,
 } from "../../ledger/schema.js";
+import { CompletedLedgerReceipt } from "../../run/execute.js";
 import { programFinishedSummary } from "../controller/summary.js";
 import {
-  SubmitOperations,
   type RunEnvironment,
   type RunSubmission,
+  SubmitOperations,
   type SubmitOperationsService,
 } from "../submit.js";
-import type { RunTemporalSocietyOptions } from "../temporal.js";
 import { gkeExecutionProfileFromConfiguration, runGkeSociety } from "./gke.js";
 
 const PLACEMENT = {

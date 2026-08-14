@@ -1,26 +1,28 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP handler and retained POST response stream expose Promise-native lifecycle contracts. */
+/**
+ * @file Adds the one Client-owned turn subscription to the official MCP
+ * handler while leaving every standard MCP request with the SDK delegate.
+ */
+
 import {
-  CLIENT_CAPABILITIES_META_KEY,
-  MissingRequiredClientCapabilityError,
-  SERVER_INFO_META_KEY,
-  SUBSCRIPTION_ID_META_KEY,
   classifyInboundRequest,
-  isJsonContentType,
+  CLIENT_CAPABILITIES_META_KEY,
   type Implementation,
+  isJsonContentType,
   type McpHandlerRequestOptions,
   type McpHttpHandler,
+  MissingRequiredClientCapabilityError,
   type RequestId,
+  SERVER_INFO_META_KEY,
+  SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
 import {
   HARNESS_EVENTS_EXTENSION,
   HARNESS_TURN_READY_FILTER,
   HARNESS_TURN_READY_NOTIFICATION,
-} from "./harness/index.js";
+} from "./harness-runtime.js";
 
-// The SDK remains authoritative for the MCP server. Its public event publisher
-// has a closed event union, so this adapter owns only MoltZap's exact
-// turn-ready listen filter and notification. Every other request is delegated
-// unchanged.
+/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP fetch boundary and retained POST stream are Promise-native. */
+
 const SUBSCRIPTIONS_LISTEN_METHOD = "subscriptions/listen";
 const SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION =
   "notifications/subscriptions/acknowledged";
@@ -38,13 +40,16 @@ type JsonObject = Readonly<Record<string, unknown>>;
 interface HarnessMcpSubscriptionOptions {
   readonly delegate: McpHttpHandler;
   readonly implementation: Implementation;
+  readonly onActiveChange?: (active: boolean) => void;
   readonly onerror?: (error: Error) => void;
 }
 
-/** An official MCP handler augmented with one caller-typed event publisher. */
+/** Official MCP handler augmented by the sole daemon attention sink. */
 export interface HarnessMcpSubscriptionHandler<Payload extends object>
   extends McpHttpHandler {
-  /** Publishes one complete custom notification to the retained POST response. */
+  /** Whether one accepted reply-capable listener currently owns the daemon. */
+  readonly hasActiveSubscription: () => boolean;
+  /** Write one complete event frame to the current listener, if it still exists. */
   readonly publish: (payload: Payload) => boolean;
 }
 
@@ -71,31 +76,25 @@ interface JsonRpcErrorOptions {
 const isJsonObject = (value: unknown): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const jsonRpcError = ({
-  status,
-  id,
-  code,
-  message,
-  data,
-}: JsonRpcErrorOptions): Response =>
+const jsonRpcError = (options: JsonRpcErrorOptions): Response =>
   Response.json(
     {
       jsonrpc: JSON_RPC_VERSION,
       error: {
-        code,
-        message,
-        ...(data === undefined ? {} : { data }),
+        code: options.code,
+        message: options.message,
+        ...(options.data === undefined ? {} : { data: options.data }),
       },
-      id,
+      id: options.id,
     },
-    { status },
+    { status: options.status },
   );
 
-// #ignore-sloppy-code-next-line[async-keyword]: The official handler consumes a Promise-returning Fetch boundary.
+// #ignore-sloppy-code-next-line[async-keyword]: The Fetch Request.json boundary is Promise-native.
 const readRequestBody = async (
   request: Request,
   options?: McpHandlerRequestOptions,
-  // #ignore-sloppy-code-next-line[promise-type]: The official handler consumes a Promise-returning Fetch boundary.
+  // #ignore-sloppy-code-next-line[promise-type]: The Fetch Request.json boundary is Promise-native.
 ): Promise<unknown> => {
   if (options?.parsedBody !== undefined) {
     return options.parsedBody;
@@ -115,10 +114,9 @@ const modernListenMessage = (request: Request, body: unknown) => {
     mcpNameHeader: request.headers.get("mcp-name") ?? undefined,
     body,
   });
-  if (outcome.kind !== "modern" || outcome.messageKind !== "request") {
-    return undefined;
-  }
   if (
+    outcome.kind !== "modern" ||
+    outcome.messageKind !== "request" ||
     outcome.classification.revision !== MODERN_PROTOCOL_VERSION ||
     outcome.message.method !== SUBSCRIPTIONS_LISTEN_METHOD
   ) {
@@ -128,15 +126,16 @@ const modernListenMessage = (request: Request, body: unknown) => {
 };
 
 const requiredCapabilityDeclared = (params: JsonObject): boolean => {
-  const meta = params._meta;
-  if (!isJsonObject(meta)) {
+  const metadata = params._meta;
+  if (!isJsonObject(metadata)) {
     return false;
   }
-  const capabilities = meta[CLIENT_CAPABILITIES_META_KEY];
-  if (!isJsonObject(capabilities) || !isJsonObject(capabilities.extensions)) {
-    return false;
-  }
-  return Object.hasOwn(capabilities.extensions, HARNESS_EVENTS_EXTENSION);
+  const capabilities = metadata[CLIENT_CAPABILITIES_META_KEY];
+  return (
+    isJsonObject(capabilities) &&
+    isJsonObject(capabilities.extensions) &&
+    Object.hasOwn(capabilities.extensions, HARNESS_EVENTS_EXTENSION)
+  );
 };
 
 const customListenRequest = (
@@ -173,19 +172,21 @@ const shouldInspect = (request: Request): boolean =>
 class HarnessMcpSubscriptionState<Payload extends object> {
   private readonly delegate: McpHttpHandler;
   private readonly implementation: Implementation;
+  private readonly onActiveChange?: (active: boolean) => void;
   private readonly onerror?: (error: Error) => void;
   private readonly encoder = new TextEncoder();
   private active?: ActiveSubscription;
   private closed = false;
-  private closePromise?: Promise<void>; // #ignore-sloppy-code[promise-type]: McpHttpHandler.close is Promise-native.
+  private closePromise?: Promise<void>; // #ignore-sloppy-code[promise-type]: This retains the Promise-native MCP handler close result.
 
   constructor(options: HarnessMcpSubscriptionOptions) {
     this.delegate = options.delegate;
     this.implementation = options.implementation;
+    this.onActiveChange = options.onActiveChange;
     this.onerror = options.onerror;
   }
 
-  // #ignore-sloppy-code-next-line[async-keyword]: McpHttpHandler.fetch is Promise-native.
+  // #ignore-sloppy-code-next-line[async-keyword]: The official MCP fetch interface is Promise-native.
   readonly fetch: McpHttpHandler["fetch"] = async (request, options) => {
     if (this.closed || !shouldInspect(request)) {
       return options === undefined
@@ -197,13 +198,16 @@ class HarnessMcpSubscriptionState<Payload extends object> {
         ? await readRequestBody(request)
         : await readRequestBody(request, options);
     const listenRequest = customListenRequest(request, body);
-    if (this.closed || listenRequest === undefined) {
-      return options === undefined
-        ? await this.delegate.fetch(request)
-        : await this.delegate.fetch(request, options);
+    if (!this.closed && listenRequest !== undefined) {
+      return this.serve(request, listenRequest);
     }
-    return this.serve(request, listenRequest);
+    return options === undefined
+      ? await this.delegate.fetch(request)
+      : await this.delegate.fetch(request, options);
   };
+
+  readonly hasActiveSubscription = (): boolean =>
+    this.active !== undefined && !this.active.closed;
 
   readonly publish = (payload: Payload): boolean => {
     const subscription = this.active;
@@ -224,7 +228,7 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     return published;
   };
 
-  // #ignore-sloppy-code-next-line[promise-type]: McpHttpHandler.close is Promise-native.
+  // #ignore-sloppy-code-next-line[promise-type]: The official MCP close interface requires a Promise.
   readonly close = (): Promise<void> => {
     if (this.closePromise !== undefined) {
       return this.closePromise;
@@ -241,73 +245,10 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     return {
       fetch: this.fetch,
       close: this.close,
+      hasActiveSubscription: this.hasActiveSubscription,
       publish: this.publish,
       notify: this.delegate.notify,
       bus: this.delegate.bus,
-    };
-  }
-
-  private reportError(error: unknown): void {
-    if (this.onerror === undefined) {
-      return;
-    }
-    try {
-      this.onerror(error instanceof Error ? error : new Error(String(error)));
-    } catch (reportingError) {
-      console.error(
-        "Harness MCP subscription error reporter failed",
-        reportingError,
-      );
-    }
-  }
-
-  private enqueueMessage(
-    subscription: ActiveSubscription,
-    message: JsonObject,
-  ): boolean {
-    if (subscription.closed || subscription.controller === undefined) {
-      return false;
-    }
-    try {
-      const frame = `data: ${JSON.stringify(message)}\n\n`;
-      subscription.controller.enqueue(this.encoder.encode(frame));
-      return true;
-    } catch (error) {
-      this.reportError(error);
-      return false;
-    }
-  }
-
-  private teardown(subscription: ActiveSubscription, graceful: boolean): void {
-    if (subscription.closed) {
-      return;
-    }
-    if (graceful) {
-      this.enqueueMessage(subscription, this.completeMessage(subscription.id));
-    }
-    subscription.closed = true;
-    subscription.abortCleanup?.();
-    if (this.active === subscription) {
-      this.active = undefined;
-    }
-    try {
-      subscription.controller?.close();
-    } catch (error) {
-      this.reportError(error);
-    }
-  }
-
-  private completeMessage(id: RequestId): JsonObject {
-    return {
-      jsonrpc: JSON_RPC_VERSION,
-      id,
-      result: {
-        resultType: "complete",
-        _meta: {
-          [SUBSCRIPTION_ID_META_KEY]: id,
-          [SERVER_INFO_META_KEY]: this.implementation,
-        },
-      },
     };
   }
 
@@ -367,8 +308,8 @@ class HarnessMcpSubscriptionState<Payload extends object> {
           status: CONFLICT_STATUS,
           id: listenRequest.id,
           code: SUBSCRIPTION_IN_USE,
-          message: "Turn-ready subscription already in use",
-          data: { kind: "subscription_in_use" },
+          message: "Subscription already active",
+          data: { reason: "subscription-in-use" },
         });
   }
 
@@ -411,6 +352,66 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     };
     if (!this.enqueueMessage(subscription, this.ackMessage(subscription.id))) {
       this.teardown(subscription, false);
+      return;
+    }
+    this.notifyActiveChange(true);
+  }
+
+  private teardown(subscription: ActiveSubscription, graceful: boolean): void {
+    if (subscription.closed) {
+      return;
+    }
+    if (graceful) {
+      this.enqueueMessage(subscription, this.completeMessage(subscription.id));
+    }
+    subscription.closed = true;
+    subscription.abortCleanup?.();
+    if (this.active === subscription) {
+      this.active = undefined;
+      this.notifyActiveChange(false);
+    }
+    try {
+      subscription.controller?.close();
+    } catch (error) {
+      this.reportError(error);
+    }
+  }
+
+  private enqueueMessage(
+    subscription: ActiveSubscription,
+    message: JsonObject,
+  ): boolean {
+    if (subscription.closed || subscription.controller === undefined) {
+      return false;
+    }
+    try {
+      subscription.controller.enqueue(
+        this.encoder.encode(`data: ${JSON.stringify(message)}\n\n`),
+      );
+      return true;
+    } catch (error) {
+      this.reportError(error);
+      return false;
+    }
+  }
+
+  private notifyActiveChange(active: boolean): void {
+    try {
+      this.onActiveChange?.(active);
+    } catch (error) {
+      this.reportError(error);
+    }
+  }
+
+  private reportError(error: unknown): void {
+    if (this.onerror === undefined) {
+      return;
+    }
+    try {
+      this.onerror(error instanceof Error ? error : new Error(String(error)));
+    } catch (reportingError) {
+      // Error reporting is observational and cannot own stream lifecycle.
+      console.error("Harness MCP error reporter failed", reportingError);
     }
   }
 
@@ -424,14 +425,26 @@ class HarnessMcpSubscriptionState<Payload extends object> {
       },
     };
   }
+
+  private completeMessage(id: RequestId): JsonObject {
+    return {
+      jsonrpc: JSON_RPC_VERSION,
+      id,
+      result: {
+        resultType: "complete",
+        _meta: {
+          [SUBSCRIPTION_ID_META_KEY]: id,
+          [SERVER_INFO_META_KEY]: this.implementation,
+        },
+      },
+    };
+  }
 }
 
 /**
- * Adds the MoltZap turn-ready subscription extension to an official MCP HTTP
- * handler. Every non-extension request remains owned by the SDK delegate.
- *
- * @param options Official handler, server identity, and optional error sink.
- * @returns The official handler surface plus a typed custom publisher.
+ * Compose the one custom listen route in front of the official MCP handler.
+ * @param options Official delegate, server identity, and lifecycle callbacks.
+ * @returns The delegated MCP surface plus the private turn publisher.
  */
 export const makeHarnessMcpSubscriptionHandler = <Payload extends object>(
   options: HarnessMcpSubscriptionOptions,

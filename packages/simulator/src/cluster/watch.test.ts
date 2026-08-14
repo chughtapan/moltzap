@@ -1,25 +1,25 @@
-/* eslint-disable agent-code-guard/async-keyword -- Vitest awaits the Effect the activity boundary under test returns. */
+/** @file Controller Job state, result-marker, and bounded redacted diagnostic regressions. */
 
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import type { RunSocietyWorkflowInput } from "./reclaim.js";
+import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
 import {
   CompletedLedgerReceipt,
   IncompleteLedgerReceipt,
 } from "../run/execute.js";
-import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
 import {
-  encodeControllerRunSummary,
-  programFinishedSummary,
   clusterLostSummary,
   type ControllerRunSummary,
+  encodeControllerRunSummary,
+  programFinishedSummary,
 } from "./controller/summary.js";
 import {
-  KubernetesCallFailed,
   type JobCondition,
   type JobObservation,
+  KubernetesCallFailed,
   type RunControlApi,
 } from "./kubernetes/calls.js";
-import type { RunSocietyWorkflowInput } from "./reclaim.js";
 import {
   controllerObservation,
   observeController,
@@ -64,8 +64,6 @@ function encodedSummary(summary: ControllerRunSummary): string {
   expect(encoded).toBeDefined();
   return encoded ?? "";
 }
-
-/* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only cases pin bounded projection of third-party Kubernetes Job status and logs. */
 
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The regression-only group is one closed Job-status and controller-summary decision table.
 describe("controller Job diagnostics", () => {
@@ -163,8 +161,6 @@ describe("controller Job diagnostics", () => {
   });
 });
 
-/* eslint-enable agent-code-guard/no-example-only-tests -- Restore generative-test requirements after the Kubernetes projection regressions. */
-
 function observing(observed: JobObservation, logs?: string) {
   const reads: string[] = [];
   const api: RunControlApi = {
@@ -172,7 +168,7 @@ function observing(observed: JobObservation, logs?: string) {
       Effect.fail(new KubernetesCallFailed("observing creates nothing")),
     createExperimentAndQueue: () => Effect.void,
     createControllerAccess: () => Effect.void,
-    createRouterService: () => Effect.void,
+    createControllerService: () => Effect.void,
     startController: () => Effect.void,
     readControllerJob: () => Effect.succeed(observed),
     readControllerLogs: (namespace, tailLines, limitBytes) =>
@@ -211,5 +207,3 @@ it("reads a bounded log tail once the Job is terminal", async () => {
 
   expect(reads).toEqual([`${INPUT.namespace}:200:8192`]);
 });
-
-/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after the activity observation contract. */

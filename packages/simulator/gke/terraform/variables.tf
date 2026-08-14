@@ -19,10 +19,10 @@ variable "zone" {
     Zone holding the cluster and both node pools.
 
     The cluster is zonal because nothing here is replicated: the development
-    Temporal deployment and each run's router are single pods, so a regional
-    control plane cannot keep a run alive through a zone loss. One zone also
-    keeps every agent beside the router it talks to, so cross-zone latency
-    stays out of the measurement. Must lie inside region.
+    The development Temporal deployment and each run controller are single
+    pods, so a regional control plane cannot keep a run alive through a zone
+    loss. One zone also keeps every agent beside its controller, so cross-zone
+    latency stays out of the measurement. Must lie inside region.
   EOT
   type        = string
   default     = "us-central1-a"

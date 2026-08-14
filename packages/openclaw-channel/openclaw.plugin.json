@@ -25,9 +25,6 @@
                 "id": {
                   "type": "string"
                 },
-                "agentName": {
-                  "type": "string"
-                },
                 "enabled": {
                   "type": "boolean"
                 }

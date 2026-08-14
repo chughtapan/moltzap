@@ -1,15 +1,18 @@
-/**
- * A definition-bound keyed roster preserves its literal definition id, exact
- * handle names, gateways, and attachment errors without erasure.
- */
+/** @file Type canaries for definition-bound roster identity, gateways, and failures. */
 
 import { Effect, Schema } from "effect";
+import type { AgentHandle } from "../network/participant.js";
 import { defineRuntime } from "./agent.js";
 import {
   type AgentRosterAcquisitionError,
   makeAgentRosterBuilder,
   type StartedAgents,
 } from "./roster.js";
+
+/**
+ * A definition-bound keyed roster preserves its literal definition id, exact
+ * agent identity, gateways, and acquisition errors without erasure.
+ */
 
 interface AlphaGateway {
   readonly runtime: "alpha";
@@ -66,8 +69,8 @@ type DefinitionIdIsExact = Expect<
   Equal<typeof roster.definitionId, "acme.society/v1">
 >;
 type AgentKeysAreExact = Expect<Equal<keyof Agents, "alice" | "bob">>;
-type AliceNameIsExact = Expect<
-  Equal<Agents["alice"]["agent"]["name"], "alice">
+type AliceHasRosterIdentity = Expect<
+  Equal<Agents["alice"]["agent"], AgentHandle<"alice">>
 >;
 type AliceGatewayIsExact = Expect<
   Equal<Agents["alice"]["gateway"], AlphaGateway>
@@ -93,7 +96,7 @@ type ServiceSuccessIsExact = Expect<
 export type RosterCanaries = [
   DefinitionIdIsExact,
   AgentKeysAreExact,
-  AliceNameIsExact,
+  AliceHasRosterIdentity,
   AliceGatewayIsExact,
   BobGatewayIsExact,
   AcquisitionErrorsAreCombined,

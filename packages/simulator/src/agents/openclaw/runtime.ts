@@ -1,27 +1,6 @@
 /** @file Container-backed OpenClaw runtime. */
 
-import type { AgentName } from "@moltzap/protocol/identity";
-import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
-import { httpBaseUrl } from "@moltzap/protocol/network";
-import {
-  acquisitionFailureFor,
-  defineContainerRuntime,
-  image,
-  routableBridgeEndpoint,
-  stoppedBeforeAttach,
-  type Application,
-  type ApplicationEndpoint,
-  type ContainerAgentRuntime,
-  type ContainerRuntime,
-  type File,
-} from "../container.js";
-import {
-  AgentRuntimeDefinitionError,
-  deepFreeze,
-  type AgentRuntimeInput,
-  type RuntimeAcquisitionError,
-  type RuntimeTermination,
-} from "../agent.js";
+import type { AgentName } from "@moltzap/identity";
 import {
   Duration,
   Effect,
@@ -30,22 +9,40 @@ import {
   Schema,
   type Scope,
 } from "effect";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import {
+  AgentRuntimeDefinitionError,
+  type AgentRuntimeInput,
+  deepFreeze,
+  type RuntimeAcquisitionError,
+  type RuntimeTermination,
+} from "../agent.js";
+import {
+  acquisitionFailureFor,
+  type Application,
+  type ApplicationEndpoint,
+  type ContainerAgentRuntime,
+  type ContainerRuntime,
+  defineContainerRuntime,
+  type File,
+  image,
+  routableBridgeEndpoint,
+  stoppedBeforeAttach,
+} from "../container.js";
 import {
   bootstrapFile,
+  type CheckedWorkspaceFile,
   configurationDigest,
   digestText,
-  McpServerConfiguration,
   mcpConfiguration,
-  serializeMoltZapProfileConfig,
-  SLOT_MCP_CONTAINER_PORT,
+  type McpServer,
+  McpServerConfiguration,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
-  WorkspaceFileConfiguration,
   workspaceConfiguration,
-  workspaceFilePath,
-  type CheckedWorkspaceFile,
-  type McpServer,
   type WorkspaceFile,
+  WorkspaceFileConfiguration,
+  workspaceFilePath,
 } from "../workspace.js";
 import {
   buildOpenClawConfig,
@@ -72,8 +69,6 @@ const OPENCLAW_GATEWAY_PORT = 18_789;
 const OPENCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
 const APPLICATION_STATE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/state`;
 const APPLICATION_CONFIG_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw.json`;
-const OPENCLAW_PROFILE_HOME = `${OPENCLAW_BOOTSTRAP_DIR}/moltzap`;
-const OPENCLAW_PROFILE_PATH = `${OPENCLAW_PROFILE_HOME}/config.json`;
 const OPENCLAW_WORKSPACE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/workspace`;
 const OPENCLAW_CHANNEL_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw-channel`;
 const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
@@ -121,50 +116,7 @@ export interface OpenClawRuntimeOptions {
   readonly sandbox?: OpenClawSandboxConfig;
 }
 
-interface OpenClawRuntimeSettings {
-  readonly startupTimeout: Duration.Duration;
-  readonly workspaceFiles: readonly CheckedWorkspaceFile[];
-  /** Declared workspace files outside OpenClaw's context-injection set. */
-  readonly invisibleWorkspaceFiles: readonly string[];
-  readonly modelId?: string;
-  readonly mcpServers?: readonly McpServer[];
-  readonly tools?: OpenClawToolsConfig;
-  readonly sandbox?: OpenClawSandboxConfig;
-}
-
-function snapshotNativeConfiguration<Value extends object>(
-  value?: Value,
-): Value | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  return deepFreeze(structuredClone(value));
-}
-
-function snapshotOptions(
-  options: OpenClawRuntimeOptions,
-): OpenClawRuntimeSettings {
-  const workspaceFiles = snapshotWorkspaceFiles(options.workspaceFiles);
-  const tools = snapshotNativeConfiguration(options.tools);
-  const invisible = invisibleWorkspaceFiles(workspaceFiles);
-  assertWorkspaceFilesReachable(invisible, tools?.deny?.includes("*") ?? false);
-  return Object.freeze({
-    startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
-    workspaceFiles,
-    invisibleWorkspaceFiles: invisible,
-    modelId: options.modelId,
-    mcpServers: snapshotMcpServers(options.mcpServers),
-    tools,
-    sandbox: snapshotNativeConfiguration(options.sandbox),
-  });
-}
-
-/**
- * Workspace filenames OpenClaw injects into model context. Any other name is
- * written to disk but never reaches the model. Pinned to the packaged
- * OpenClaw version; the drift canary asserts this list against the installed
- * package so a version bump that changes the set breaks loudly.
- */
+/** Workspace filenames OpenClaw injects into the model's context. */
 export const OPENCLAW_CONTEXT_FILENAMES: readonly string[] = Object.freeze([
   "AGENTS.md",
   "SOUL.md",
@@ -176,16 +128,81 @@ export const OPENCLAW_CONTEXT_FILENAMES: readonly string[] = Object.freeze([
   "MEMORY.md",
 ]);
 
+/**
+ * Construct an OpenClaw application container with its native gateway bridge.
+ * @param options Options that control the operation.
+ * @returns The open claw runtime result.
+ */
+export function openClawRuntime(
+  options: OpenClawRuntimeOptions = {},
+): ContainerAgentRuntime<
+  OpenClawGateway,
+  RuntimeAcquisitionError,
+  typeof OpenClawRuntimeConfiguration
+> {
+  const settings = snapshotOptions(options);
+  const capability = openClawCapability(settings, acquireOpenClawGateway);
+  return defineContainerRuntime({
+    name: OPENCLAW_RUNTIME_NAME,
+    configuration: {
+      schema: OpenClawRuntimeConfiguration,
+      value: runtimeConfiguration(settings),
+    },
+    image: capability.image,
+    resources: capability.resources,
+    render: capability.render,
+  });
+}
+
 const OPENCLAW_CONTEXT_FILENAME_SET: ReadonlySet<string> = new Set(
   OPENCLAW_CONTEXT_FILENAMES,
 );
 
-/**
- * Names of declared workspace files the model can never see through context
- * injection.
- * @param files Checked workspace files the definition declares.
- * @returns Relative paths outside OpenClaw's context-injection set.
- */
+interface OpenClawRuntimeSettings {
+  readonly startupTimeout: Duration.Duration;
+  readonly workspaceFiles: readonly CheckedWorkspaceFile[];
+  readonly invisibleWorkspaceFiles: readonly string[];
+  readonly modelId?: string;
+  readonly mcpServers?: readonly McpServer[];
+  readonly tools?: OpenClawToolsConfig;
+  readonly sandbox?: OpenClawSandboxConfig;
+}
+
+function snapshotOptions(
+  options: OpenClawRuntimeOptions,
+): OpenClawRuntimeSettings {
+  const workspaceFiles = snapshotWorkspaceFiles(options.workspaceFiles);
+  const invisibleFiles = invisibleWorkspaceFiles(workspaceFiles);
+  const tools = snapshotNativeConfiguration(options.tools);
+  assertWorkspaceFilesReachable(
+    invisibleFiles,
+    tools?.deny?.includes("*") ?? false,
+  );
+  return Object.freeze({
+    startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
+    workspaceFiles,
+    invisibleWorkspaceFiles: invisibleFiles,
+    modelId: options.modelId,
+    mcpServers: snapshotMcpServers(options.mcpServers),
+    tools,
+    sandbox: snapshotNativeConfiguration(options.sandbox),
+  });
+}
+
+function assertWorkspaceFilesReachable(
+  invisibleFiles: readonly string[],
+  denyListContainsWildcard: boolean,
+): void {
+  if (invisibleFiles.length > 0 && denyListContainsWildcard) {
+    throw AgentRuntimeDefinitionError.make({
+      detail:
+        `workspace files can never reach the model: ${invisibleFiles.join(", ")} ` +
+        `are outside OpenClaw's context-injection set (${OPENCLAW_CONTEXT_FILENAMES.join(", ")}) ` +
+        "and every tool is denied",
+    });
+  }
+}
+
 function invisibleWorkspaceFiles(
   files: readonly CheckedWorkspaceFile[],
 ): readonly string[] {
@@ -196,39 +213,13 @@ function invisibleWorkspaceFiles(
   );
 }
 
-/**
- * Refuse a definition whose workspace files are provably invisible: outside
- * OpenClaw's context-injection set while the deny list is the wildcard, so no
- * tool could ever read them either. Other deny shapes may also block every
- * read, but only the wildcard is knowable without interpreting native policy;
- * those shapes intentionally degrade to the acquisition-time warning.
- * @param invisible Declared workspace paths outside the context-injection set.
- * @param denyListIsWildcard Whether the native deny list is exactly the wildcard.
- */
-function assertWorkspaceFilesReachable(
-  invisible: readonly string[],
-  denyListIsWildcard: boolean,
-): void {
-  if (invisible.length > 0 && denyListIsWildcard) {
-    throw AgentRuntimeDefinitionError.make({
-      detail:
-        `workspace files can never reach the model: ${invisible.join(", ")} ` +
-        `are outside OpenClaw's context-injection set (${OPENCLAW_CONTEXT_FILENAMES.join(", ")}) ` +
-        "and every tool is denied",
-    });
-  }
-}
-
-function nativePolicyConfiguration(
-  policy?: object,
-): OpenClawNativePolicyConfiguration | undefined {
-  if (policy === undefined) {
+function snapshotNativeConfiguration<Value extends object>(
+  value?: Value,
+): Value | undefined {
+  if (value === undefined) {
     return undefined;
   }
-  return OpenClawNativePolicyConfiguration.make({
-    definitionDigest: digestText(Inspectable.stringifyCircular(policy)),
-    redacted: ["configuration"],
-  });
+  return deepFreeze(structuredClone(value));
 }
 
 function runtimeConfiguration(
@@ -248,6 +239,18 @@ function runtimeConfiguration(
   });
 }
 
+function nativePolicyConfiguration(
+  policy?: object,
+): OpenClawNativePolicyConfiguration | undefined {
+  if (policy === undefined) {
+    return undefined;
+  }
+  return OpenClawNativePolicyConfiguration.make({
+    definitionDigest: digestText(Inspectable.stringifyCircular(policy)),
+    redacted: ["configuration"],
+  });
+}
+
 type OpenClawGatewayAcquirer = (
   session: OpenClawGatewaySession,
   within: Duration.Duration,
@@ -258,6 +261,51 @@ interface OpenClawGatewayPairing {
   readonly pairedDevices: string;
 }
 
+function makeOpenClawApplication(
+  settings: OpenClawRuntimeSettings,
+  acquireGateway: OpenClawGatewayAcquirer,
+  input: AgentRuntimeInput,
+): Application<OpenClawGateway, RuntimeAcquisitionError> {
+  const gatewayToken = Redacted.make(
+    randomBytes(OPENCLAW_GATEWAY_TOKEN_BYTES).toString("hex"),
+  );
+  const pairing = createOpenClawGatewayPairing();
+  const bridge = {
+    startupTimeout: settings.startupTimeout,
+    agentName: input.agentName,
+    gatewayToken,
+    deviceIdentity: pairing.deviceIdentity,
+    acquireGateway,
+    invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
+  };
+  return Object.freeze({
+    entrypoint: Object.freeze([
+      "node",
+      "/app/openclaw.mjs",
+      "gateway",
+      "run",
+      "--allow-unconfigured",
+      "--port",
+      String(OPENCLAW_GATEWAY_PORT),
+    ] as const),
+    environment: Object.freeze({
+      HOME: APPLICATION_STATE_DIR,
+      OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
+      OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
+      OPENCLAW_DISABLE_BONJOUR: "1",
+    }),
+    ...(settings.modelId === undefined
+      ? {}
+      : { credentials: Object.freeze(["OPENAI_API_KEY"] as const) }),
+    port: OPENCLAW_GATEWAY_PORT,
+    files: bootstrapFiles(settings, input, gatewayToken, pairing),
+    attach: (
+      endpoint: ApplicationEndpoint,
+      stopped: Effect.Effect<RuntimeTermination>,
+    ) => attachOpenClaw(bridge, endpoint, stopped),
+  });
+}
+
 function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const publicKeyDer = publicKey.export({ type: "spki", format: "der" });
@@ -266,8 +314,10 @@ function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
   );
   const deviceIdentity = Object.freeze({
     deviceId: createHash("sha256").update(publicKeyRaw).digest("hex"),
-    privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }),
-    publicKeyPem: publicKey.export({ type: "spki", format: "pem" }),
+    privateKeyPem: privateKey
+      .export({ type: "pkcs8", format: "pem" })
+      .toString(),
+    publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
   });
   const now = Date.now();
   const operatorWrite = "operator.write";
@@ -301,9 +351,9 @@ function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
   });
 }
 
-function bootstrapFiles<Name extends string>(
+function bootstrapFiles(
   settings: OpenClawRuntimeSettings,
-  input: AgentRuntimeInput<Name>,
+  input: AgentRuntimeInput,
   gatewayToken: Redacted.Redacted,
   pairing: OpenClawGatewayPairing,
 ): readonly File[] {
@@ -322,18 +372,11 @@ function bootstrapFiles<Name extends string>(
     },
     OPENCLAW_WORKSPACE_DIR,
   );
-  const profile = serializeMoltZapProfileConfig({
-    agentName: input.agentName,
-    agentId: input.connection.agent.id,
-    apiKey: input.connection.key,
-    mcpPort: SLOT_MCP_CONTAINER_PORT,
-  });
   return Object.freeze([
     bootstrapFile(
       APPLICATION_CONFIG_PATH,
       JSON.stringify(nativeConfig, null, 2),
     ),
-    bootstrapFile(OPENCLAW_PROFILE_PATH, profile),
     bootstrapFile(
       `${APPLICATION_STATE_DIR}/devices/paired.json`,
       pairing.pairedDevices,
@@ -415,57 +458,10 @@ function attachOpenClaw(
   });
 }
 
-function makeOpenClawApplication<Name extends string>(
+function renderOpenClaw(
   settings: OpenClawRuntimeSettings,
   acquireGateway: OpenClawGatewayAcquirer,
-  input: AgentRuntimeInput<Name>,
-): Application<OpenClawGateway, RuntimeAcquisitionError> {
-  const gatewayToken = Redacted.make(
-    randomBytes(OPENCLAW_GATEWAY_TOKEN_BYTES).toString("hex"),
-  );
-  const pairing = createOpenClawGatewayPairing();
-  const bridge = {
-    startupTimeout: settings.startupTimeout,
-    agentName: input.agentName,
-    gatewayToken,
-    deviceIdentity: pairing.deviceIdentity,
-    acquireGateway,
-    invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
-  };
-  return Object.freeze({
-    entrypoint: Object.freeze([
-      "node",
-      "/app/openclaw.mjs",
-      "gateway",
-      "run",
-      "--allow-unconfigured",
-      "--port",
-      String(OPENCLAW_GATEWAY_PORT),
-    ] as const),
-    environment: Object.freeze({
-      HOME: APPLICATION_STATE_DIR,
-      OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
-      OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
-      MOLTZAP_CONFIG_HOME: OPENCLAW_PROFILE_HOME,
-      MOLTZAP_SERVER_URL: httpBaseUrl(input.connection.routerUrl),
-      OPENCLAW_DISABLE_BONJOUR: "1",
-    }),
-    ...(settings.modelId === undefined
-      ? {}
-      : { credentials: Object.freeze(["OPENAI_API_KEY"] as const) }),
-    port: OPENCLAW_GATEWAY_PORT,
-    files: bootstrapFiles(settings, input, gatewayToken, pairing),
-    attach: (
-      endpoint: ApplicationEndpoint,
-      stopped: Effect.Effect<RuntimeTermination>,
-    ) => attachOpenClaw(bridge, endpoint, stopped),
-  });
-}
-
-function renderOpenClaw<Name extends string>(
-  settings: OpenClawRuntimeSettings,
-  acquireGateway: OpenClawGatewayAcquirer,
-  input: AgentRuntimeInput<Name>,
+  input: AgentRuntimeInput,
 ): Effect.Effect<
   Application<OpenClawGateway, RuntimeAcquisitionError>,
   RuntimeAcquisitionError
@@ -488,33 +484,7 @@ function openClawCapability(
   return Object.freeze({
     image: STOCK_OPENCLAW_IMAGE,
     resources: APPLICATION_RESOURCES,
-    render: <Name extends string>(input: AgentRuntimeInput<Name>) =>
+    render: (input: AgentRuntimeInput) =>
       renderOpenClaw(settings, acquireGateway, input),
-  });
-}
-
-/**
- * Construct an OpenClaw application container with its native gateway bridge.
- * @param options Options that control the operation.
- * @returns The open claw runtime result.
- */
-export function openClawRuntime(
-  options: OpenClawRuntimeOptions = {},
-): ContainerAgentRuntime<
-  OpenClawGateway,
-  RuntimeAcquisitionError,
-  typeof OpenClawRuntimeConfiguration
-> {
-  const settings = snapshotOptions(options);
-  const capability = openClawCapability(settings, acquireOpenClawGateway);
-  return defineContainerRuntime({
-    name: OPENCLAW_RUNTIME_NAME,
-    configuration: {
-      schema: OpenClawRuntimeConfiguration,
-      value: runtimeConfiguration(settings),
-    },
-    image: capability.image,
-    resources: capability.resources,
-    render: capability.render,
   });
 }

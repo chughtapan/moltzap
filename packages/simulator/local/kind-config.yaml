@@ -8,7 +8,7 @@ nodes:
         containerPath: /var/lib/moltzap-artifacts
     extraPortMappings:
       - containerPort: 30733
-        hostPort: 7233
+        hostPort: __MOLTZAP_TEMPORAL_HOST_PORT__
         listenAddress: 127.0.0.1
         protocol: TCP
   - role: worker

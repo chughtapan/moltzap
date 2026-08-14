@@ -1,8 +1,8 @@
 /** @file Scoped principal access to one NanoClaw CLI socket. */
 
-import * as Ndjson from "@effect/platform/Ndjson";
 import type * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import * as Ndjson from "@effect/platform/Ndjson";
 import {
   Deferred,
   Duration,
@@ -67,6 +67,48 @@ export interface NanoClawGatewaySession {
   readonly failure: Effect.Effect<never, NanoClawGatewayError>;
 }
 
+/**
+ * Connect a persistent typed client to NanoClaw's owner-local CLI channel.
+ * Connection attempts are scoped independently so failed attempts cannot
+ * retain sockets while NanoClaw is still starting.
+ * @param socketPath Owner-local CLI socket path.
+ * @param within Maximum time allowed for the first successful connection.
+ * @internal
+ * @returns The connected gateway and its failure observation.
+ */
+export function acquireNanoClawGateway(
+  socketPath: string,
+  within: Duration.Duration,
+): Effect.Effect<NanoClawGatewaySession, NanoClawGatewayError, Scope.Scope> {
+  return acquireGateway(
+    { _tag: "Unix", path: socketPath },
+    "CLI socket",
+    within,
+  );
+}
+
+/**
+ * Connect the controller to NanoClaw's runtime-owned TCP realization of the
+ * native CLI channel. The bytes and schemas are identical to the Unix-socket
+ * gateway; only the application-container transport differs.
+ * @param host Application-container service hostname.
+ * @param port Fixed NanoClaw bridge port.
+ * @param within Maximum time allowed for the first successful connection.
+ * @internal
+ * @returns The connected gateway and its failure observation.
+ */
+export function acquireDistributedNanoClawGateway(
+  host: string,
+  port: number,
+  within: Duration.Duration,
+): Effect.Effect<NanoClawGatewaySession, NanoClawGatewayError, Scope.Scope> {
+  return acquireGateway(
+    { _tag: "Tcp", host, port },
+    `application bridge at ${host}:${String(port)}`,
+    within,
+  );
+}
+
 interface GatewayState {
   readonly opened: Deferred.Deferred<undefined>;
   readonly failure: Deferred.Deferred<never, NanoClawGatewayError>;
@@ -102,6 +144,24 @@ function failGateway(
   );
 }
 
+function decodeOutput(state: GatewayState): Effect.Effect<void> {
+  return enforceLineByteLimit(Mailbox.toStream(state.rawInput)).pipe(
+    Stream.tapError((error) => failGateway(state, error)),
+    Stream.pipeThroughChannel(
+      Ndjson.unpackSchema(NanoClawGatewayOutput)({
+        ignoreEmptyLines: true,
+      }),
+    ),
+    Stream.runForEach((frame) => state.output.offer(frame)),
+    Effect.mapError((cause) =>
+      cause instanceof NanoClawGatewayError
+        ? cause
+        : gatewayError("receive", cause),
+    ),
+    Effect.catchAll((error) => failGateway(state, error)),
+  );
+}
+
 function enforceLineByteLimit(
   input: Stream.Stream<Uint8Array, NanoClawGatewayError>,
 ): Stream.Stream<Uint8Array, NanoClawGatewayError> {
@@ -121,24 +181,6 @@ function enforceLineByteLimit(
       }
       return Effect.succeed([nextLineBytes, chunk] as const);
     }),
-  );
-}
-
-function decodeOutput(state: GatewayState): Effect.Effect<void> {
-  return enforceLineByteLimit(Mailbox.toStream(state.rawInput)).pipe(
-    Stream.tapError((error) => failGateway(state, error)),
-    Stream.pipeThroughChannel(
-      Ndjson.unpackSchema(NanoClawGatewayOutput)({
-        ignoreEmptyLines: true,
-      }),
-    ),
-    Stream.runForEach((frame) => state.output.offer(frame)),
-    Effect.mapError((cause) =>
-      cause instanceof NanoClawGatewayError
-        ? cause
-        : gatewayError("receive", cause),
-    ),
-    Effect.catchAll((error) => failGateway(state, error)),
   );
 }
 
@@ -285,46 +327,4 @@ function acquireGateway(
       }),
     );
   }).pipe(Effect.withSpan("NanoClawGateway.acquire"));
-}
-
-/**
- * Connect a persistent typed client to NanoClaw's owner-local CLI channel.
- * Connection attempts are scoped independently so failed attempts cannot
- * retain sockets while NanoClaw is still starting.
- * @param socketPath Owner-local CLI socket path.
- * @param within Maximum time allowed for the first successful connection.
- * @internal
- * @returns The connected gateway and its failure observation.
- */
-export function acquireNanoClawGateway(
-  socketPath: string,
-  within: Duration.Duration,
-): Effect.Effect<NanoClawGatewaySession, NanoClawGatewayError, Scope.Scope> {
-  return acquireGateway(
-    { _tag: "Unix", path: socketPath },
-    "CLI socket",
-    within,
-  );
-}
-
-/**
- * Connect the controller to NanoClaw's runtime-owned TCP realization of the
- * native CLI channel. The bytes and schemas are identical to the Unix-socket
- * gateway; only the application-container transport differs.
- * @param host Application-container service hostname.
- * @param port Fixed NanoClaw bridge port.
- * @param within Maximum time allowed for the first successful connection.
- * @internal
- * @returns The connected gateway and its failure observation.
- */
-export function acquireDistributedNanoClawGateway(
-  host: string,
-  port: number,
-  within: Duration.Duration,
-): Effect.Effect<NanoClawGatewaySession, NanoClawGatewayError, Scope.Scope> {
-  return acquireGateway(
-    { _tag: "Tcp", host, port },
-    `application bridge at ${host}:${String(port)}`,
-    within,
-  );
 }

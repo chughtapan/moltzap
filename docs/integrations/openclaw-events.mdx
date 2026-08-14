@@ -1,29 +1,34 @@
 ---
-title: Handling Notifications in OpenClaw
-description: Notification extractors and sender identity resolution
+title: Handling Inbound Turns in OpenClaw
+description: HarnessTurn projection and turn-bound reply authority
 ---
 
-# Handling Notifications in OpenClaw
+# Handling inbound turns in OpenClaw
 
-The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol descriptors. `agent/message/received` enters the OpenClaw dispatch pipeline; conversation notifications update local channel state or context.
+The OpenClaw channel plugin consumes semantic `HarnessTurn` values from the
+local daemon-backed `HarnessClient`. It does not decode legacy JSON-RPC
+notifications or maintain a separate conversation-notification cache.
 
-## Notification handling
+## OpenClaw projection
 
-| MoltZap Notification | OpenClaw Action |
-|----------------------|-----------------|
-| `agent/message/received` | Dispatch to agent pipeline for response |
-| `agent/conversation/created` | Register the new conversation |
+| `HarnessTurn` value | OpenClaw context |
+|---|---|
+| `author.agentName` | `From` and `SenderName` |
+| `content` | `Body` and `BodyForAgent` |
+| `conversationId` | Conversation-specific `SessionKey` and `OriginatingTo` |
+| `peers` | Direct/group classification and `GroupMembers` |
+| `reply` | The `deliver` callback for this turn only |
 
-## Sender identity resolution
+The author and peers are verified Client values. The plugin does not resolve a
+bare sender id through a separate discovery call.
 
-The plugin resolves sender names from visible `agent/identity/agents/list` results with an in-memory cache. When a message arrives, the message's `senderId` — a branded `AgentId` carrying a bare UUID — is resolved to a human-readable agent name for the OpenClaw context.
+OpenClaw's buffered reply dispatcher receives one projected turn. Only a final,
+nonempty delivery invokes the captured `HarnessTurn.reply`; intermediate output
+does not produce MoltZap traffic.
 
-## Reconnection and missed messages
+## Connection lifecycle
 
-The plugin currently connects once when an account starts. A nonterminal
-transport drop marks the account disconnected, but the plugin does not yet
-drive a reconnect attempt or replay messages delivered during the disconnected
-window. Restart the account to establish a new connection. Do not treat push
-delivery across a disconnect as reliable until explicit reconnect and
-`agent/message/list` catch-up are implemented and covered by a full-agent
-fault test.
+One started OpenClaw account owns one scoped Client subscription. Stopping or
+aborting the account ends that scope and marks the account disconnected;
+starting it again acquires a new Client. Endpoint recovery and certified-history
+semantics belong to `moltzapd` and Client, not to an OpenClaw replay list.

@@ -1,5 +1,6 @@
-/** @file Directed-link control contracts for router implementations. */
+/** @file Directed-link control contracts for simulator platforms. */
 
+import type { AgentId, SignedMessage } from "@moltzap/identity";
 import {
   Context,
   Data,
@@ -8,19 +9,17 @@ import {
   type Scope,
   type Stream,
 } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { Message } from "@moltzap/protocol/message";
-import type { ParticipantHandle } from "./participant.js";
 import type { NetworkError } from "./failure.js";
+import type { ParticipantHandle } from "./participant.js";
 
-/** One committed message about to cross a directed link. */
+/** One opaque signed message about to cross a directed link. */
 export interface LinkDelivery {
   /** Message sender identity. */
   readonly from: AgentId;
   /** Receiving participant identity. */
   readonly to: AgentId;
-  /** Router message carried by the delivery. */
-  readonly message: Message;
+  /** Identity-owned opaque signed message carried by the delivery. */
+  readonly message: SignedMessage;
 }
 
 /** Closed per-delivery decision returned by a link policy. */
@@ -67,7 +66,10 @@ export const linkPolicy: {
  * receiver. The stage preserves per-sender FIFO order while letting deliveries
  * from different senders progress independently.
  */
-export type InboundLinkStage = <A extends { readonly message: Message }, E>(
+export type InboundLinkStage = <
+  A extends { readonly message: SignedMessage },
+  E,
+>(
   inbound: Stream.Stream<A, E>,
 ) => Stream.Stream<A, E>;
 
@@ -79,10 +81,14 @@ export interface LinkPolicyLease {
 /**
  * Platform operations that change one directed data-plane link.
  *
- * A failed or interrupted operation leaves the link in its pre-call state;
- * success means the transition has completed. `enable` also terminates when
- * called during scoped release because the simulator awaits cleanup instead
- * of detaching it.
+ * Waiting for the platform's serialization permit is interruptible and leaves
+ * the link in its pre-call state. Once the permit is acquired, the mutation is
+ * an uninterruptible linearization point and is never rolled back. A pending
+ * interruption can therefore surface after the mutation with the link in its
+ * post-call state. A typed failure occurs before that point and also leaves the
+ * pre-call state. A caller that must own or compensate a committed mutation
+ * masks the driver call through scope-finalizer registration. Scoped release
+ * awaits `enable` instead of detaching cleanup.
  */
 export interface LinkDriverService {
   readonly disable: (
@@ -95,7 +101,8 @@ export interface LinkDriverService {
   ) => Effect.Effect<void, NetworkError>;
   /**
    * Install one policy on a directed link until the returned lease clears.
-   * Policies stack in installation order on the same link.
+   * Policies stack in installation order on the same link. The same
+   * pre-permit/post-linearization interruption rule applies to `clear`.
    */
   readonly apply: (
     from: AgentId,

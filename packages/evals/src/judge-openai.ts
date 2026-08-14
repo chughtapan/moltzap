@@ -124,7 +124,7 @@ function mapOpenAiError(error: AiError.AiError): JudgeError {
  * @param bundle Trusted rubric and criteria plus normalized evidence.
  * @returns A system policy message and an explicitly untrusted evidence message.
  */
-export function judgePrompt(
+function judgePrompt(
   bundle: JudgeBundle,
 ): Effect.Effect<
   ReadonlyArray<

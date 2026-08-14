@@ -14,16 +14,12 @@
   ],
   "facadeFiles": [
     {
-      "file": "network.ts",
-      "reason": "Published network contract for participants, conversations, endpoints, links, and router implementations"
+      "file": "network/conversation.ts",
+      "reason": "Domain-internal conversation boundary shared by endpoint composition and the published Network barrel"
     },
     {
-      "file": "ledger.ts",
-      "reason": "Published ledger contract for records, storage, live runs, and offline inspection"
-    },
-    {
-      "file": "agents.ts",
-      "reason": "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations"
+      "file": "network/router.ts",
+      "reason": "Domain-internal Router fixture boundary shared by cluster composition and the published Network barrel"
     },
     {
       "file": "events/catalog.ts",
@@ -38,8 +34,8 @@
       "reason": "Definition-bound Effect services for readable ledgers and customer-owned event emission"
     },
     {
-      "file": "ledger/schema.ts",
-      "reason": "Durable record, manifest, completion, digest, and ledger-reference model"
+      "file": "run/link-fabric.ts",
+      "reason": "Run-private post-Router delivery-interception port shared by endpoint attachment, fault control, and the transport proxy"
     },
     {
       "file": "ledger/storage.ts",
@@ -50,20 +46,8 @@
       "reason": "Live-ledger boundary for ordered append, failure latching, completion, and typed event streams"
     },
     {
-      "file": "ledger/read.ts",
-      "reason": "Completed-ledger validation and offline opening boundary"
-    },
-    {
-      "file": "run/link-fabric.ts",
-      "reason": "Link-fabric boundary coupling the platform link driver, receiver registration, and the policy interpreter"
-    },
-    {
       "file": "run/outcomes.ts",
-      "reason": "Causal outcome conversion shared by runtime, router, and program lifecycle modules"
-    },
-    {
-      "file": "run/router.ts",
-      "reason": "Router lifecycle boundary coupling scoped acquisition and shutdown with durable causal outcomes"
+      "reason": "Causal outcome conversion shared by runtime and program lifecycle modules"
     },
     {
       "file": "run/execute.ts",
@@ -98,30 +82,6 @@
       "reason": "Public authoring surface composing catalogs, roster, cluster layer, and the customer Effect into one runnable spec"
     },
     {
-      "file": "network/endpoint.ts",
-      "reason": "Controlled endpoint and network service boundary over router transports and conversation receive cursors"
-    },
-    {
-      "file": "network/link.ts",
-      "reason": "Link driver port and experiment-facing scoped link controller services"
-    },
-    {
-      "file": "network/participant.ts",
-      "reason": "Nominal participant and agent handles shared by network, runtime, and kernel capabilities"
-    },
-    {
-      "file": "network/conversation.ts",
-      "reason": "Conversation addressing and endpoint-bound socket contract"
-    },
-    {
-      "file": "network/router.ts",
-      "reason": "Router port, framed message model, connection contract, and typed network failures"
-    },
-    {
-      "file": "network/server/process.ts",
-      "reason": "Scoped MoltZap server ownership for image, storage, process, observation, and identity resources"
-    },
-    {
       "file": "agents/agent.ts",
       "reason": "Autonomous participant lifecycle contract implemented by every runtime family"
     },
@@ -130,8 +90,8 @@
       "reason": "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements"
     },
     {
-      "file": "network/server/packages.ts",
-      "reason": "Runtime package discovery and install-policy boundary shared by shipped runtime families"
+      "file": "agents/container.ts",
+      "reason": "Private container-runtime selection port used only by the Kubernetes society composition root"
     }
   ],
   "layers": [
@@ -150,17 +110,39 @@
       "reason": "The run kernel orchestrates capability contracts without becoming a dependency of them"
     },
     {
-      "name": "capabilities",
+      "name": "cluster",
       "folders": [
-        "events",
-        "ledger",
-        "network",
-        "agents",
-        "cluster",
-        "cluster/kubernetes",
-        "cluster/profiles"
+        "cluster"
       ],
-      "reason": "Peer event, ledger, network, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it"
+      "reason": "Cluster implementations consume agent, ledger, and network contracts while keeping platform mechanisms below the run kernel"
+    },
+    {
+      "name": "agents",
+      "folders": [
+        "agents"
+      ],
+      "reason": "Agent runtimes consume ledger configuration values and Network participant handles without owning either domain"
+    },
+    {
+      "name": "ledger",
+      "folders": [
+        "ledger"
+      ],
+      "reason": "Ledger persistence consumes the closed event catalog while remaining independent of agents, network, and platforms"
+    },
+    {
+      "name": "network",
+      "folders": [
+        "network"
+      ],
+      "reason": "Network contracts depend only on lower package owners and remain independent of Simulator orchestration and evidence"
+    },
+    {
+      "name": "events",
+      "folders": [
+        "events"
+      ],
+      "reason": "The closed event vocabulary is the deepest Simulator-owned contract used by ledger and orchestration"
     }
   ],
   "publicTypePackages": [
@@ -173,16 +155,16 @@
       "reason": "Effect platform abstractions used at boundaries"
     },
     {
-      "package": "@effect/rpc",
-      "reason": "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client"
-    },
-    {
       "package": "openclaw",
       "reason": "OpenClaw runtime options intentionally accept the runtime's native tools and sandbox policies"
     },
     {
-      "package": "@moltzap/protocol",
-      "reason": "Intra-monorepo protocol; foundational shared contract"
+      "package": "@moltzap/identity",
+      "reason": "Simulator participant, Router-fixture, and fault contracts deliberately expose Identity-owned AgentId, AgentName, and SignedMessage values"
+    },
+    {
+      "package": "@moltzap/client",
+      "reason": "Simulator controlled-endpoint contracts deliberately expose Client-owned ConversationId, HarnessTurn, and StartInput values"
     }
   ],
   "allowedTestPublicSubpaths": []

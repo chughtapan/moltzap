@@ -2,12 +2,6 @@
   "files": [],
   "references": [
     {
-      "path": "packages/protocol"
-    },
-    {
-      "path": "packages/server"
-    },
-    {
       "path": "packages/client"
     },
     {
@@ -20,22 +14,13 @@
       "path": "packages/simulator"
     },
     {
-      "path": "v2/identity"
+      "path": "packages/evals"
     },
     {
-      "path": "v2/router"
+      "path": "packages/identity"
     },
     {
-      "path": "v2/transcript"
-    },
-    {
-      "path": "v2/endpoint"
-    },
-    {
-      "path": "v2/simulator"
-    },
-    {
-      "path": "v2/testbed"
+      "path": "packages/router"
     }
   ]
 }

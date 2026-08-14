@@ -1,50 +1,73 @@
 /** @file Private Kubernetes realization of one complete simulator society. */
-// safer-arch-ignore no-cross-domain-sibling-import: Bringing a roster up is inherently cross-domain: it renders agents, reserves cluster capacity, and hands each one its router connection.
 
-import { posix } from "node:path";
+import type { AgentId, AgentName } from "@moltzap/identity";
+import { HttpClient } from "@effect/platform";
+import { Registry } from "@moltzap/identity/registry";
 import {
+  Context,
   Deferred,
   Duration,
   Effect,
+  Exit,
   Layer,
   Schedule,
-  type Scope,
+  Scope,
 } from "effect";
-import type {
-  AgentRoster,
-  AgentRosterAcquisitionError,
-  RuntimeGatewayOf,
-} from "../agents/roster.js";
+import { posix } from "node:path";
+import type { AgentRuntimeLike } from "../agents/agent.js";
+import type { KubernetesPodPlacement } from "./profile.js";
+import { containerRuntimeFor } from "../agents/container.js";
 import {
-  RuntimeExited,
-  RuntimeFailed,
-  RuntimeSignaled,
-  type AgentRuntimeLike,
-  type RunningAgent,
-  type RuntimeTermination,
-} from "../agents/agent.js";
-import {
-  containerRuntimeFor,
+  type AgentRoster,
+  type AgentRosterAcquisitionError,
   type Application,
   type ContainerRuntime,
   type CredentialName,
   type File,
   type Image,
   type Resources,
-} from "../agents/container.js";
+  type RunningAgent,
+  RuntimeExited,
+  RuntimeFailed,
+  type RuntimeGatewayOf,
+  RuntimeSignaled,
+  type RuntimeTermination,
+  type StartedAgent,
+} from "../agents/index.js";
 import {
+  makeAgentHandle,
+  makeRouterStopReport,
+  networkError,
+  type NetworkError,
+  type Router,
+  RouterProvider,
+  type RouterProviderService,
+  type RouterStopped,
+} from "../network/index.js";
+import {
+  type AdvertisedRouterFaultProxyPlatform,
   Cluster,
-  type Slot,
-  type ClusterService,
-  type Society,
   ClusterError,
+  type ClusterService,
+  type Slot,
+  type Society,
 } from "./cluster.js";
+import {
+  type ControlledEndpointRuntime,
+  makeControlledEndpointRuntime,
+} from "./controlled-endpoint.js";
 import {
   currentConditionIsTrue,
   type KubernetesSocietyApi,
   type PodObservation,
   type SandboxObservation,
 } from "./kubernetes/calls.js";
+import {
+  endpointStateClaimManifest,
+  REGISTRY_STATE_CLAIM_NAME,
+  SOCIETY_NETWORK_SECRET_NAME,
+  societyNetworkManifests,
+} from "./kubernetes/network-objects.js";
 import {
   aggregateWorkloadManifest,
   bootstrapSecretManifest,
@@ -54,7 +77,23 @@ import {
   type SandboxApplication,
   sandboxManifest,
 } from "./kubernetes/objects.js";
-import type { KubernetesPodPlacement } from "./profile.js";
+import {
+  ADMISSION_CREDENTIAL_SECRET_KEY,
+  AGENT_PRIVATE_KEY_SECRET_KEY,
+  type AgentDaemonAuthority,
+  generateAgentDaemonAuthority,
+  generateSocietyNetworkAuthority,
+  REGISTRY_PORT,
+  REGISTRY_SERVICE_NAME,
+  ROUTER_PORT,
+  ROUTER_SERVICE_NAME,
+  type SocietyNetworkAuthority,
+  societyNetworkConfiguration,
+} from "./society-network.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: Bringing a roster up is inherently cross-domain: it renders agents and reserves cluster capacity.
+// safer-arch-ignore no-fat-orchestrator: The private Kubernetes society composition boundary owns the complete roster-to-capacity acquisition and supervision transaction.
+/* eslint-disable max-lines -- This private composition hub keeps one Kubernetes society lifecycle auditable in one place. */
 
 const WORKLOAD_NAME = "society";
 const APPLICATION_CONTAINER_NAME = "application";
@@ -95,9 +134,34 @@ interface KubernetesSessionState<
 > extends KubernetesSession {
   /** Roster entries whose Sandbox reached readiness and attached. */
   readonly acquired: Set<string>;
+  readonly network: ActiveSocietyNetwork;
   readonly resourceNames: Readonly<
     Record<Extract<keyof Definitions, string>, string>
   >;
+}
+
+/** Registry lookup injected behind the private Kubernetes composition seam. */
+export type SocietyAgentIdResolver = (
+  authority: SocietyNetworkAuthority,
+  agentName: AgentName,
+) => Effect.Effect<AgentId, ClusterError>;
+
+/** One ready network held by the Router fixture's child scope. */
+interface ActiveSocietyNetwork {
+  readonly authority: SocietyNetworkAuthority;
+  readonly controlledEndpoints: ControlledEndpointRuntime;
+  readonly resolveAgentId: (
+    agentName: AgentName,
+  ) => Effect.Effect<AgentId, ClusterError>;
+  readonly router: Router;
+  readonly stopped: Deferred.Deferred<RouterStopped, NetworkError>;
+  readonly scope: Scope.CloseableScope;
+}
+
+/** Cluster and Router services sharing one run-scoped network owner. */
+export interface KubernetesPlatform {
+  readonly cluster: ClusterService;
+  readonly routerProvider: RouterProviderService;
 }
 
 /** Inputs already owned by the run controller and hidden from customer code. */
@@ -113,14 +177,74 @@ export interface KubernetesClusterOptions {
   >;
   readonly rosterPlacement?: KubernetesPodPlacement;
   readonly startupTimeout: Duration.Duration;
+  /** Controller-private listener and mandatory in-cluster Service identity. */
+  readonly routerFaultProxy: AdvertisedRouterFaultProxyPlatform;
   /** How often admission and readiness are observed while the run starts. */
   readonly readinessInterval?: Duration.Duration;
   /** How often a running agent and the reservation are observed to still be there. */
   readonly livenessInterval?: Duration.Duration;
 }
 
-function clusterError(detail: string): ClusterError {
-  return new ClusterError({ detail });
+/**
+ * Build the private Kubernetes services around one shared network owner.
+ * @param options Run-scoped Kubernetes API, identities, images, and deadlines.
+ * @param resolveAgentId Resolves the immutable card issued by the run Registry.
+ * @returns Cluster and Router services consumed by the simulator kernel.
+ */
+export function makeKubernetesPlatform(
+  options: KubernetesClusterOptions,
+  resolveAgentId: SocietyAgentIdResolver,
+): KubernetesPlatform {
+  const network = makeNetworkLifecycle(options, resolveAgentId);
+  return Object.freeze({
+    cluster: makeKubernetesClusterService(options, network.current),
+    routerProvider: makeKubernetesRouterProvider(network),
+  });
+}
+
+/**
+ * Install one run-scoped Kubernetes network and society behind the kernel.
+ * @param options Run-scoped Kubernetes API, identities, images, and deadlines.
+ * @returns Layer that supplies the shared Router fixture and private cluster.
+ */
+export function kubernetesClusterLayer(
+  options: KubernetesClusterOptions,
+): Layer.Layer<Cluster | RouterProvider, never, HttpClient.HttpClient> {
+  return Layer.effectContext(
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const resolveAgentId: SocietyAgentIdResolver = (authority, agentName) => {
+        const registryLayer = Registry.layer({
+          origin: new URL(authority.registryOrigin),
+          registrySignerPublicKey: authority.registrySignerPublicKey,
+          requestTimeout: options.startupTimeout,
+        }).pipe(
+          Layer.provide(Layer.succeed(HttpClient.HttpClient, httpClient)),
+        );
+        return Registry.lookup({ agentName }).pipe(
+          Effect.provide(registryLayer),
+          Effect.mapError(() =>
+            clusterError(
+              "Registry lookup failed while resolving a ready agent identity",
+            ),
+          ),
+          Effect.flatMap((result) =>
+            result.kind === "found"
+              ? Effect.succeed(result.agentCard.agentId)
+              : Effect.fail(
+                  clusterError(
+                    "Registry did not contain the agent after registrar readiness",
+                  ),
+                ),
+          ),
+        );
+      };
+      const platform = makeKubernetesPlatform(options, resolveAgentId);
+      return Context.make(Cluster, platform.cluster).pipe(
+        Context.add(RouterProvider, platform.routerProvider),
+      );
+    }).pipe(Effect.withSpan("kubernetesClusterLayer")),
+  );
 }
 
 function resourceRequests(
@@ -135,22 +259,6 @@ function resourceRequests(
 
 function agentResourceName(index: number, name: string): string {
   return `agent-${String(index + 1)}-${name.replaceAll("_", "-")}`;
-}
-
-function positiveConditionDetail(
-  observation: SandboxObservation,
-  type: string,
-): string | undefined {
-  const generation = observation.metadata.generation;
-  const condition = observation.status?.conditions?.find(
-    (entry) =>
-      entry.type === type &&
-      entry.status === "True" &&
-      (generation === undefined || entry.observedGeneration === generation),
-  );
-  return condition === undefined
-    ? undefined
-    : [condition.reason, condition.message].filter(Boolean).join(": ");
 }
 
 function workloadAdmission(
@@ -191,14 +299,6 @@ function workloadAdmission(
         ),
     }),
   );
-}
-
-function applicationTerminated(
-  pod: PodObservation,
-): TerminatedApplication | undefined {
-  return pod.status?.containerStatuses?.find(
-    (entry) => entry.name === APPLICATION_CONTAINER_NAME,
-  )?.state.terminated;
 }
 
 function liveApplicationPod(
@@ -317,6 +417,25 @@ function waitForReadySandbox(
   );
 }
 
+function finishedEvidence(
+  api: KubernetesSocietyApi,
+  sandboxName: string,
+  sandbox: SandboxObservation,
+): Effect.Effect<RuntimeTermination, ClusterError> {
+  const selector = sandbox.status?.selector;
+  if (selector === undefined) {
+    return Effect.succeed(terminalEvidence(sandboxName));
+  }
+  return api.listPods(selector).pipe(
+    Effect.map((pods) =>
+      terminalEvidence(
+        sandboxName,
+        pods.find((pod) => applicationTerminated(pod) !== undefined),
+      ),
+    ),
+  );
+}
+
 function terminalEvidence(
   sandboxName: string,
   pod?: PodObservation,
@@ -337,38 +456,12 @@ function terminalEvidence(
     : RuntimeExited.make({ code: terminated.exitCode });
 }
 
-function finishedEvidence(
-  api: KubernetesSocietyApi,
-  sandboxName: string,
-  sandbox: SandboxObservation,
-): Effect.Effect<RuntimeTermination, ClusterError> {
-  const selector = sandbox.status?.selector;
-  if (selector === undefined) {
-    return Effect.succeed(terminalEvidence(sandboxName));
-  }
-  return api.listPods(selector).pipe(
-    Effect.map((pods) =>
-      terminalEvidence(
-        sandboxName,
-        pods.find((pod) => applicationTerminated(pod) !== undefined),
-      ),
-    ),
-  );
-}
-
-function terminationSoFar(
-  api: KubernetesSocietyApi,
-  sandboxName: string,
-): Effect.Effect<RuntimeTermination | undefined, ClusterError> {
-  return api
-    .readSandbox(sandboxName)
-    .pipe(
-      Effect.flatMap((sandbox) =>
-        currentConditionIsTrue(sandbox, "Finished")
-          ? finishedEvidence(api, sandboxName, sandbox)
-          : Effect.succeed(undefined),
-      ),
-    );
+function applicationTerminated(
+  pod: PodObservation,
+): TerminatedApplication | undefined {
+  return pod.status?.containerStatuses?.find(
+    (entry) => entry.name === APPLICATION_CONTAINER_NAME,
+  )?.state.terminated;
 }
 
 function sandboxLost(sandboxName: string, cause: ClusterError): ClusterError {
@@ -422,9 +515,126 @@ function observeTermination(
   );
 }
 
+function terminationSoFar(
+  api: KubernetesSocietyApi,
+  sandboxName: string,
+): Effect.Effect<RuntimeTermination | undefined, ClusterError> {
+  return api
+    .readSandbox(sandboxName)
+    .pipe(
+      Effect.flatMap((sandbox) =>
+        currentConditionIsTrue(sandbox, "Finished")
+          ? finishedEvidence(api, sandboxName, sandbox)
+          : Effect.succeed(undefined),
+      ),
+    );
+}
+
 interface ResolvedCredential {
   readonly secretKey: string;
   readonly value: string;
+}
+
+function holdBootstrapSecret(
+  data: Readonly<Record<string, string>>,
+  resourceName: string,
+  options: KubernetesClusterOptions,
+): Effect.Effect<void, ClusterError, Scope.Scope> {
+  const secretName = bootstrapSecretName(resourceName);
+  return holdResource(
+    options.api.createSecret(
+      bootstrapSecretManifest({
+        namespace: options.namespace,
+        name: secretName,
+        labels: agentLabels(resourceName),
+        owner: options.owner,
+        data,
+      }),
+    ),
+    options.api.deleteSecret(secretName),
+  );
+}
+
+function holdEndpointState(
+  resourceName: string,
+  options: KubernetesClusterOptions,
+): Effect.Effect<void, ClusterError, Scope.Scope> {
+  const name = endpointStateClaimName(resourceName);
+  return holdResource(
+    options.api.createPersistentVolumeClaim(
+      endpointStateClaimManifest({
+        namespace: options.namespace,
+        name,
+        labels: agentLabels(resourceName),
+        owner: options.owner,
+      }),
+    ),
+    options.api.deletePersistentVolumeClaim(name),
+  );
+}
+
+// eslint-disable-next-line max-params -- This private composition point binds the rendered application, cluster identity, network authority, and daemon authority atomically.
+function holdSandbox<Gateway, AcquisitionError>(
+  application: Application<Gateway, AcquisitionError>,
+  container: ContainerRuntime<Gateway, AcquisitionError>,
+  resourceName: string,
+  agentName: string,
+  options: KubernetesClusterOptions,
+  network: SocietyNetworkAuthority,
+  daemon: AgentDaemonAuthority,
+): Effect.Effect<void, ClusterError, Scope.Scope> {
+  const configuration = societyNetworkConfiguration(network);
+  return holdResource(
+    options.api.createSandbox(
+      sandboxManifest({
+        namespace: options.namespace,
+        name: resourceName,
+        labels: agentLabels(resourceName),
+        owner: options.owner,
+        bootstrapSecretName: bootstrapSecretName(resourceName),
+        supportImage: options.supportImage,
+        network: {
+          ...configuration,
+          routerOrigin:
+            options.routerFaultProxy.listener.advertisedOrigin.origin,
+        },
+        daemon,
+        endpointStateClaimName: endpointStateClaimName(resourceName),
+        agentName,
+        application: sandboxApplication(application, container),
+        credentialSecretKeys: credentialSecretKeys(
+          resolveCredentials(application, options.runtimeCredentials),
+        ),
+        placement: options.rosterPlacement,
+      }),
+    ),
+    options.api.deleteSandbox(resourceName),
+  );
+}
+
+function reserveCompleteRoster(
+  slots: ReservedCapacity,
+  options: KubernetesClusterOptions,
+): Effect.Effect<void, ClusterError, Scope.Scope> {
+  const labels = {
+    "app.kubernetes.io/managed-by": "moltzap-simulator",
+    "moltzap.dev/run": options.owner.name,
+  };
+  return holdResource(
+    options.api.createWorkload(
+      aggregateWorkloadManifest({
+        namespace: options.namespace,
+        name: WORKLOAD_NAME,
+        queueName: options.queueName,
+        labels,
+        owner: options.owner,
+        supportImage: options.supportImage,
+        slots,
+        placement: options.rosterPlacement,
+      }),
+    ),
+    options.api.deleteWorkload(WORKLOAD_NAME),
+  );
 }
 
 /**
@@ -466,6 +676,11 @@ interface BootstrapEntry {
   readonly path: string;
   readonly mode: number;
   readonly content: string;
+}
+
+interface PreparedAgentBootstrap {
+  readonly data: Readonly<Record<string, string>>;
+  readonly daemon: AgentDaemonAuthority;
 }
 
 function bootstrapEntries(
@@ -516,18 +731,25 @@ function bootstrapEntries(
 function bootstrapData<Gateway, AcquisitionError>(
   application: Application<Gateway, AcquisitionError>,
   credentials: KubernetesClusterOptions["runtimeCredentials"],
-): Effect.Effect<Readonly<Record<string, string>>, ClusterError> {
-  return bootstrapEntries(application.files).pipe(
-    Effect.map((files) => {
-      const credentialData = Object.fromEntries(
-        Object.values(resolveCredentials(application, credentials)).flatMap(
-          (resolved) =>
-            resolved === undefined
-              ? []
-              : [[resolved.secretKey, resolved.value] as const],
-        ),
-      );
-      return Object.freeze({
+  network: SocietyNetworkAuthority,
+): Effect.Effect<PreparedAgentBootstrap, ClusterError> {
+  return Effect.gen(function* () {
+    const files = yield* bootstrapEntries(application.files);
+    const daemon = yield* Effect.try({
+      try: generateAgentDaemonAuthority,
+      catch: () => clusterError("could not generate endpoint authority"),
+    });
+    const credentialData = Object.fromEntries(
+      Object.values(resolveCredentials(application, credentials)).flatMap(
+        (resolved) =>
+          resolved === undefined
+            ? []
+            : [[resolved.secretKey, resolved.value] as const],
+      ),
+    );
+    return Object.freeze({
+      daemon,
+      data: Object.freeze({
         "manifest.json": JSON.stringify({
           apiVersion: "moltzap.bootstrap/v1",
           files: files.map(({ source, path, mode }) => ({
@@ -540,9 +762,11 @@ function bootstrapData<Gateway, AcquisitionError>(
           files.map(({ source, content }) => [source, content]),
         ),
         ...credentialData,
-      });
-    }),
-  );
+        [AGENT_PRIVATE_KEY_SECRET_KEY]: daemon.privateKeyPem,
+        [ADMISSION_CREDENTIAL_SECRET_KEY]: network.admissionCredential,
+      }),
+    });
+  });
 }
 
 function holdResource(
@@ -553,6 +777,24 @@ function holdResource(
   // every release registered here.
   // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- the caller provides the run scope required by the return type
   return Effect.acquireRelease(create, () => remove.pipe(Effect.orDie));
+}
+
+function makeKubernetesSession<
+  Id extends string,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+>(
+  roster: AgentRoster<Id, Definitions>,
+  state: KubernetesSessionState<Definitions>,
+): Society<Definitions> {
+  return Object.freeze({
+    routerFaultProxy: state.options.routerFaultProxy,
+    acquireAgent: <Name extends Extract<keyof Definitions, string>>(
+      input: Slot<Definitions, Name>,
+    ) => acquireKubernetesAgent(input, state),
+    acquireEndpoint: state.network.controlledEndpoints.acquire,
+    cohortReady: cohortReadiness(roster, state),
+    failure: sessionFailure(state),
+  });
 }
 
 /**
@@ -600,28 +842,8 @@ function bootstrapSecretName(resourceName: string): string {
   return `${resourceName}-bootstrap`;
 }
 
-function holdBootstrapSecret<Gateway, AcquisitionError>(
-  application: Application<Gateway, AcquisitionError>,
-  resourceName: string,
-  options: KubernetesClusterOptions,
-): Effect.Effect<void, ClusterError, Scope.Scope> {
-  const secretName = bootstrapSecretName(resourceName);
-  return bootstrapData(application, options.runtimeCredentials).pipe(
-    Effect.flatMap((data) =>
-      holdResource(
-        options.api.createSecret(
-          bootstrapSecretManifest({
-            namespace: options.namespace,
-            name: secretName,
-            labels: agentLabels(resourceName),
-            owner: options.owner,
-            data,
-          }),
-        ),
-        options.api.deleteSecret(secretName),
-      ),
-    ),
-  );
+function endpointStateClaimName(resourceName: string): string {
+  return `${resourceName}-endpoint-state`;
 }
 
 function sandboxApplication<Gateway, AcquisitionError>(
@@ -638,41 +860,32 @@ function sandboxApplication<Gateway, AcquisitionError>(
   };
 }
 
-function holdSandbox<Gateway, AcquisitionError>(
-  application: Application<Gateway, AcquisitionError>,
-  container: ContainerRuntime<Gateway, AcquisitionError>,
-  resourceName: string,
-  options: KubernetesClusterOptions,
-): Effect.Effect<void, ClusterError, Scope.Scope> {
-  return holdResource(
-    options.api.createSandbox(
-      sandboxManifest({
-        namespace: options.namespace,
-        name: resourceName,
-        labels: agentLabels(resourceName),
-        owner: options.owner,
-        bootstrapSecretName: bootstrapSecretName(resourceName),
-        supportImage: options.supportImage,
-        application: sandboxApplication(application, container),
-        credentialSecretKeys: credentialSecretKeys(
-          resolveCredentials(application, options.runtimeCredentials),
-        ),
-        placement: options.rosterPlacement,
-      }),
-    ),
-    options.api.deleteSandbox(resourceName),
-  );
-}
-
+// eslint-disable-next-line max-params -- This private composition point installs the bootstrap, durable endpoint state, and Sandbox under one scope.
 function installRenderedApplication<Gateway, AcquisitionError>(
   application: Application<Gateway, AcquisitionError>,
   container: ContainerRuntime<Gateway, AcquisitionError>,
   resourceName: string,
+  agentName: string,
   options: KubernetesClusterOptions,
+  network: SocietyNetworkAuthority,
 ): Effect.Effect<void, ClusterError, Scope.Scope> {
   return Effect.gen(function* () {
-    yield* holdBootstrapSecret(application, resourceName, options);
-    yield* holdSandbox(application, container, resourceName, options);
+    const bootstrap = yield* bootstrapData(
+      application,
+      options.runtimeCredentials,
+      network,
+    );
+    yield* holdBootstrapSecret(bootstrap.data, resourceName, options);
+    yield* holdEndpointState(resourceName, options);
+    yield* holdSandbox(
+      application,
+      container,
+      resourceName,
+      agentName,
+      options,
+      network,
+      bootstrap.daemon,
+    );
   });
 }
 
@@ -680,7 +893,7 @@ type KubernetesAgentAcquisition<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
   Name extends Extract<keyof Definitions, string>,
 > = Effect.Effect<
-  RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
+  StartedAgent<Name, RuntimeGatewayOf<Definitions[Name]>>,
   AgentRosterAcquisitionError<Definitions> | ClusterError,
   Scope.Scope
 >;
@@ -735,20 +948,26 @@ function acquireKubernetesAgent<
       );
     }
     const resourceName = state.resourceNames[input.name];
-    const application = yield* container.render(input);
+    const application = yield* container.render({ agentName: input.agentName });
     yield* installRenderedApplication(
       application,
       container,
       resourceName,
+      input.agentName,
       state.options,
+      state.network.authority,
     );
     const running = yield* attachReadyApplication(
       application,
       resourceName,
       state,
     );
+    const agentId = yield* state.network.resolveAgentId(input.agentName);
     state.acquired.add(input.name);
-    return running;
+    return Object.freeze({
+      ...running,
+      agent: makeAgentHandle(input.name, agentId),
+    });
   });
 }
 
@@ -805,22 +1024,6 @@ function cohortReadiness<
         liveForDispatch(state.options.api, state.resourceNames[entry.name]),
       { concurrency: 8, discard: true },
     );
-  });
-}
-
-function makeKubernetesSession<
-  Id extends string,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(
-  roster: AgentRoster<Id, Definitions>,
-  state: KubernetesSessionState<Definitions>,
-): Society<Definitions> {
-  return Object.freeze({
-    acquireAgent: <Name extends Extract<keyof Definitions, string>>(
-      input: Slot<Definitions, Name>,
-    ) => acquireKubernetesAgent(input, state),
-    cohortReady: cohortReadiness(roster, state),
-    failure: sessionFailure(state),
   });
 }
 
@@ -891,28 +1094,84 @@ function capacityForRoster<
   });
 }
 
-function reserveCompleteRoster(
-  slots: ReservedCapacity,
+function waitForSocietyNetwork(
   options: KubernetesClusterOptions,
-): Effect.Effect<void, ClusterError, Scope.Scope> {
-  const labels = {
-    "app.kubernetes.io/managed-by": "moltzap-simulator",
-    "moltzap.dev/run": options.owner.name,
-  };
-  return holdResource(
-    options.api.createWorkload(
-      aggregateWorkloadManifest({
-        namespace: options.namespace,
-        name: WORKLOAD_NAME,
-        queueName: options.queueName,
-        labels,
-        owner: options.owner,
-        slots,
-        placement: options.rosterPlacement,
-      }),
+): Effect.Effect<void, ClusterError> {
+  const registryHost = `${REGISTRY_SERVICE_NAME}.${options.namespace}.svc.cluster.local`;
+  const routerHost = `${ROUTER_SERVICE_NAME}.${options.namespace}.svc.cluster.local`;
+  const observe: Effect.Effect<void, ClusterError> = Effect.suspend(() =>
+    Effect.all(
+      [
+        options.api.serviceAccepts(registryHost, REGISTRY_PORT),
+        options.api.serviceAccepts(routerHost, ROUTER_PORT),
+      ],
+      { concurrency: 2 },
+    ).pipe(
+      Effect.flatMap(([registryReady, routerReady]) =>
+        registryReady && routerReady
+          ? Effect.void
+          : Effect.sleep(DEFAULT_READINESS_INTERVAL).pipe(
+              Effect.zipRight(observe),
+            ),
+      ),
     ),
-    options.api.deleteWorkload(WORKLOAD_NAME),
   );
+  return observe.pipe(
+    Effect.timeoutFail({
+      duration: options.startupTimeout,
+      onTimeout: () =>
+        clusterError(
+          `run Registry and Router were not ready within ${Duration.format(options.startupTimeout)}`,
+        ),
+    }),
+  );
+}
+
+function holdSocietyNetwork(
+  options: KubernetesClusterOptions,
+): Effect.Effect<SocietyNetworkAuthority, ClusterError, Scope.Scope> {
+  return Effect.gen(function* () {
+    const authority = yield* Effect.try({
+      try: () => generateSocietyNetworkAuthority(options.namespace),
+      catch: () => clusterError("could not generate run network authority"),
+    });
+    const manifests = societyNetworkManifests({
+      namespace: options.namespace,
+      labels: {
+        "app.kubernetes.io/managed-by": "moltzap-simulator",
+        "moltzap.dev/run": options.owner.name,
+      },
+      owner: options.owner,
+      supportImage: options.supportImage,
+      authority,
+    });
+    yield* holdResource(
+      options.api.createSecret(manifests.secret),
+      options.api.deleteSecret(SOCIETY_NETWORK_SECRET_NAME),
+    );
+    yield* holdResource(
+      options.api.createPersistentVolumeClaim(manifests.registryState),
+      options.api.deletePersistentVolumeClaim(REGISTRY_STATE_CLAIM_NAME),
+    );
+    yield* holdResource(
+      options.api.createService(manifests.registryService),
+      options.api.deleteService(REGISTRY_SERVICE_NAME),
+    );
+    yield* holdResource(
+      options.api.createService(manifests.routerService),
+      options.api.deleteService(ROUTER_SERVICE_NAME),
+    );
+    yield* holdResource(
+      options.api.createDeployment(manifests.registryDeployment),
+      options.api.deleteDeployment(REGISTRY_SERVICE_NAME),
+    );
+    yield* holdResource(
+      options.api.createDeployment(manifests.routerDeployment),
+      options.api.deleteDeployment(ROUTER_SERVICE_NAME),
+    );
+    yield* waitForSocietyNetwork(options);
+    return authority;
+  });
 }
 
 function prepareKubernetesSociety<
@@ -921,6 +1180,7 @@ function prepareKubernetesSociety<
 >(
   roster: AgentRoster<Id, Definitions>,
   options: KubernetesClusterOptions,
+  network: ActiveSocietyNetwork,
 ): Effect.Effect<Society<Definitions>, ClusterError, Scope.Scope> {
   return Effect.gen(function* () {
     const resourceNames = namesForRoster(roster);
@@ -934,6 +1194,7 @@ function prepareKubernetesSociety<
     );
     return makeKubernetesSession(roster, {
       options,
+      network,
       resourceNames,
       readinessInterval,
       livenessInterval: options.livenessInterval ?? DEFAULT_LIVENESS_INTERVAL,
@@ -943,13 +1204,62 @@ function prepareKubernetesSociety<
   });
 }
 
-/**
- * Build the private cluster service used by the in-cluster controller.
- * @param options Run-scoped Kubernetes API, identities, images, and deadlines.
- * @returns Cluster service consumed by the simulator kernel.
- */
-export function makeKubernetesCluster(
+function inactiveNetwork(): ClusterError {
+  return clusterError(
+    "run Router must be acquired before preparing the society cluster",
+  );
+}
+
+function closeActiveNetwork(
+  network: ActiveSocietyNetwork,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const closed = yield* Scope.close(network.scope, Exit.void).pipe(
+      Effect.exit,
+    );
+    if (Exit.isFailure(closed)) {
+      yield* Deferred.fail(
+        network.stopped,
+        networkError(
+          "stop-router",
+          "run network resources could not be released",
+        ),
+      );
+      return;
+    }
+    yield* Deferred.succeed(network.stopped, makeRouterStopReport());
+  }).pipe(Effect.asVoid);
+}
+
+interface NetworkLifecycle {
+  readonly acquire: Effect.Effect<ActiveSocietyNetwork, NetworkError>;
+  readonly current: Effect.Effect<ActiveSocietyNetwork, ClusterError>;
+  readonly release: (network: ActiveSocietyNetwork) => Effect.Effect<void>;
+}
+
+interface NetworkLifecycleState {
+  active?: ActiveSocietyNetwork;
+  readonly transition: Effect.Semaphore;
+}
+
+function makeNetworkLifecycle(
   options: KubernetesClusterOptions,
+  resolveAgentId: SocietyAgentIdResolver,
+): NetworkLifecycle {
+  const state: NetworkLifecycleState = {
+    transition: Effect.unsafeMakeSemaphore(1),
+  };
+  return Object.freeze({
+    acquire: acquireSocietyNetwork(state, options, resolveAgentId),
+    current: currentSocietyNetwork(state),
+    release: (network: ActiveSocietyNetwork) =>
+      releaseSocietyNetwork(state, network),
+  });
+}
+
+function makeKubernetesClusterService(
+  options: KubernetesClusterOptions,
+  currentNetwork: Effect.Effect<ActiveSocietyNetwork, ClusterError>,
 ): ClusterService {
   return Object.freeze({
     prepare: <
@@ -957,17 +1267,118 @@ export function makeKubernetesCluster(
       Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
     >(
       roster: AgentRoster<Id, Definitions>,
-    ) => prepareKubernetesSociety(roster, options),
+    ) =>
+      currentNetwork.pipe(
+        Effect.flatMap((network) =>
+          prepareKubernetesSociety(roster, options, network),
+        ),
+      ),
   });
 }
 
-/**
- * Install one run-scoped Kubernetes society behind the kernel boundary.
- * @param options Run-scoped Kubernetes API, identities, images, and deadlines.
- * @returns Layer that supplies only the private cluster service.
- */
-export function kubernetesClusterLayer(
-  options: KubernetesClusterOptions,
-): Layer.Layer<Cluster> {
-  return Layer.succeed(Cluster, makeKubernetesCluster(options));
+function makeKubernetesRouterProvider(
+  network: NetworkLifecycle,
+): RouterProviderService {
+  return Object.freeze({
+    // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- RouterProvider.acquire retains Scope in its public contract, so the run owns release.
+    acquire: Effect.acquireRelease(network.acquire, network.release).pipe(
+      Effect.map((active) => active.router),
+    ),
+  });
 }
+
+function acquireSocietyNetwork(
+  state: NetworkLifecycleState,
+  options: KubernetesClusterOptions,
+  resolveAgentId: SocietyAgentIdResolver,
+): Effect.Effect<ActiveSocietyNetwork, NetworkError> {
+  return state.transition.withPermits(1)(
+    Effect.gen(function* () {
+      if (state.active !== undefined) {
+        return yield* Effect.fail(
+          networkError(
+            "acquire-router",
+            "run Router has already been acquired",
+          ),
+        );
+      }
+      const scope = yield* Scope.make();
+      const authority = yield* holdSocietyNetwork(options).pipe(
+        Scope.extend(scope),
+        Effect.mapError((cause) => networkError("acquire-router", cause)),
+        Effect.onError(() => Scope.close(scope, Exit.void)),
+      );
+      const stopped = yield* Deferred.make<RouterStopped, NetworkError>();
+      const controlledEndpoints = makeControlledEndpointRuntime({
+        authority,
+        resolveAgentId: (agentName) =>
+          resolveAgentId(authority, agentName).pipe(
+            Effect.mapError((cause) => networkError("attach-endpoint", cause)),
+          ),
+      });
+      const network: ActiveSocietyNetwork = Object.freeze({
+        authority,
+        controlledEndpoints,
+        resolveAgentId: (agentName: AgentName) =>
+          resolveAgentId(authority, agentName),
+        router: Object.freeze({
+          address: new URL(authority.routerOrigin),
+          stopped: Deferred.await(stopped),
+        }),
+        stopped,
+        scope,
+      });
+      // eslint-disable-next-line require-atomic-updates -- The transition semaphore serializes the checked state mutation across Effect suspension.
+      state.active = network;
+      return network;
+    }).pipe(Effect.withSpan("makeKubernetesPlatform.acquireNetwork")),
+  );
+}
+
+function releaseSocietyNetwork(
+  state: NetworkLifecycleState,
+  network: ActiveSocietyNetwork,
+): Effect.Effect<void> {
+  return state.transition.withPermits(1)(
+    Effect.gen(function* () {
+      if (state.active === network) {
+        delete state.active;
+      }
+      yield* closeActiveNetwork(network);
+    }).pipe(Effect.withSpan("makeKubernetesPlatform.releaseNetwork")),
+  );
+}
+
+function currentSocietyNetwork(
+  state: NetworkLifecycleState,
+): Effect.Effect<ActiveSocietyNetwork, ClusterError> {
+  return state.transition.withPermits(1)(
+    Effect.suspend(() =>
+      state.active === undefined
+        ? Effect.fail(inactiveNetwork())
+        : Effect.succeed(state.active),
+    ),
+  );
+}
+
+function positiveConditionDetail(
+  observation: SandboxObservation,
+  type: string,
+): string | undefined {
+  const generation = observation.metadata.generation;
+  const condition = observation.status?.conditions?.find(
+    (entry) =>
+      entry.type === type &&
+      entry.status === "True" &&
+      (generation === undefined || entry.observedGeneration === generation),
+  );
+  return condition === undefined
+    ? undefined
+    : [condition.reason, condition.message].filter(Boolean).join(": ");
+}
+
+function clusterError(detail: string): ClusterError {
+  return new ClusterError({ detail });
+}
+
+/* eslint-enable max-lines -- Restore the workspace file-size limit outside this composition hub. */

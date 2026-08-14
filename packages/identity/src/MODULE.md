@@ -1,0 +1,815 @@
+# identity/src
+
+_`packages/identity/src`_
+
+## Purpose
+
+Public Identity contracts: immutable agent cards, identifiers,
+signing, and request authentication. Identity sits at the root of the
+product dependency graph and imports no other workspace package.
+
+## Public surface
+
+### [`AgentCard (type)`](./agent-card.ts#L145)
+
+_Interface_
+
+```ts
+export interface AgentCard {
+  readonly agentId: AgentIdValue;
+  readonly principalId: PrincipalIdValue;
+  readonly agentName: AgentNameValue;
+  readonly publicKey: Ed25519PublicKeyValue;
+  readonly issuedAt: string;
+}
+```
+
+Immutable public identity fields carried by an AgentCard.
+
+### [`AgentCard (value)`](./agent-card.ts#L440)
+
+_Variable_
+
+```ts
+export const AgentCard = Object.assign(agentCardSchema, {
+  verify: verifyAgentCard,
+}) as Schema.Schema<AgentCard, unknown> &
+  Readonly<{
+    readonly verify: typeof verifyAgentCard;
+  }>
+```
+
+Verifies immutable Registry attestation without exposing JOSE mechanics.
+
+### [`AgentCardDigest (type)`](./agent-card.ts#L62)
+
+_TypeAlias_
+
+```ts
+export type AgentCardDigest = typeof AgentCardDigest.Type;
+```
+
+Validated nominal value decoded by AgentCardDigest.
+
+### [`AgentCardDigest (value)`](./agent-card.ts#L55)
+
+_Variable_
+
+```ts
+export const AgentCardDigest = canonicalIdentifier(
+  "AgentCardDigest",
+  "acd_",
+  DIGEST_BYTE_LENGTH,
+)
+```
+
+Digest binding a message to one complete immutable AgentCard.
+
+### [`AgentCardVerificationError`](./agent-card.ts#L284)
+
+_Class_
+
+```ts
+export class AgentCardVerificationError extends Data.TaggedError(
+  "AgentCardVerificationError",
+) {}
+```
+
+A parsed AgentCard does not verify against the pinned Registry signer.
+
+### [`AgentId (type)`](./identifiers.ts#L73)
+
+_TypeAlias_
+
+```ts
+export type AgentId = typeof AgentId.Type;
+```
+
+Validated nominal value decoded by AgentId.
+
+### [`AgentId (value)`](./identifiers.ts#L67)
+
+_Variable_
+
+```ts
+export const AgentId = canonicalIdentifier(
+  "AgentId",
+  "agt_",
+  IDENTIFIER_BYTE_LENGTH,
+)
+```
+
+Canonical network identity minted by the Registry.
+
+### [`AgentName (type)`](./identifiers.ts#L96)
+
+_TypeAlias_
+
+```ts
+export type AgentName = typeof AgentName.Type;
+```
+
+Validated nominal value decoded by AgentName.
+
+### [`AgentName (value)`](./identifiers.ts#L85)
+
+_Variable_
+
+```ts
+export const AgentName = Schema.String.pipe(
+  Schema.minLength(3),
+  Schema.maxLength(32),
+  Schema.pattern(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+  Schema.brand("AgentName"),
+  Schema.annotations({
+    identifier: "AgentName",
+    description: "Registry-wide immutable agent handle",
+  }),
+)
+```
+
+Immutable Registry-wide human-facing agent handle.
+
+### [`AgentSigningAuthority (type)`](./agent-key.ts#L274)
+
+_Interface_
+
+```ts
+export interface AgentSigningAuthority {
+  readonly [agentSigningAuthorityBrand]: "AgentSigningAuthority";
+}
+```
+
+Opaque authority over one imported Ed25519 private key.
+
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L361)
+
+_Variable_
+
+```ts
+export const AgentSigningAuthority = Object.freeze({
+  fromPkcs8,
+  publicKey,
+})
+```
+
+Loads and identifies one Ed25519 signing authority without exposing its
+private key or a generic signing operation.
+
+### [`AgentSigningError`](./http-signature.ts#L31)
+
+_Class_
+
+```ts
+export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
+```
+
+An agent-owned HTTP request could not be signed.
+
+### [`AuthenticatedHttp`](./authenticated-http.ts#L57)
+
+_Class_
+
+```ts
+export class AuthenticatedHttp extends Context.Tag(
+  "@moltzap/identity/AuthenticatedHttp",
+)<AuthenticatedHttp, AuthenticatedHttpService>() {
+  static readonly signAgentRequest = signAgentRequest;
+
+  static readonly verifyAgentRequest: (input: {
+    readonly httpRequest: HttpServerRequest.HttpServerRequest;
+    readonly bodyBytes: Uint8Array;
+  }) => Effect.Effect<
+    VerifiedAgentRequest,
+    AuthenticationError,
+    AuthenticatedHttp
+  > = Effect.serviceFunctionEffect(
+    AuthenticatedHttp,
+    (service) => service.verifyAgentRequest,
+  );
+
+  static readonly layer = (input: {
+    readonly liveNonceCapacity: number;
+    readonly agentCardCacheCapacity: number;
+    readonly registryLookupConcurrencyLimit: number;
+  }): Layer.Layer<AuthenticatedHttp, never, Registry> =>
+    Layer.effect(AuthenticatedHttp, makeService({ ...input }));
+}
+```
+
+Registered-agent request signing and verification.
+
+### [`AuthenticationFailedError`](./http-errors.ts#L12)
+
+_Class_
+
+```ts
+export class AuthenticationFailedError extends Schema.TaggedError<AuthenticationFailedError>()(
+  "AuthenticationFailedError",
+  {},
+) {}
+```
+
+The request does not prove the required identity or admission authority.
+
+### [`Ed25519PublicKey (type)`](./agent-key.ts#L240)
+
+_TypeAlias_
+
+```ts
+export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
+```
+
+Validated immutable Ed25519 public JWK.
+
+### [`Ed25519PublicKey (value)`](./agent-key.ts#L209)
+
+_Variable_
+
+```ts
+export const Ed25519PublicKey = Schema.transform(
+  publicKeyRepresentation,
+  publicKeyValueSchema,
+  {
+    strict: true,
+    decode: (value) =>
+      Object.freeze({
+        crv: value.crv,
+        kty: value.kty,
+        x: value.x,
+      }),
+    encode: (value) => ({
+      crv: value.crv,
+      kty: value.kty,
+      x: value.x,
+    }),
+  },
+).pipe(
+  Schema.brand("Ed25519PublicKey"),
+  Schema.annotations({
+    identifier: "Ed25519PublicKey",
+    description: "Exact immutable Ed25519 public JWK",
+    parseOptions: {
+      exact: true,
+      onExcessProperty: "error",
+    },
+  }),
+)
+```
+
+Exact immutable Ed25519 public JWK.
+
+### [`InternalServerError`](./http-errors.ts#L60)
+
+_Class_
+
+```ts
+export class InternalServerError extends Schema.TaggedError<InternalServerError>()(
+  "InternalServerError",
+  {},
+) {}
+```
+
+An unexpected implementation failure prevented a closed result.
+
+### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L279)
+
+_Class_
+
+```ts
+export class InvalidAgentPrivateKeyError extends Data.TaggedError(
+  "InvalidAgentPrivateKeyError",
+) {}
+```
+
+The supplied private-key material cannot act as an Ed25519 signer.
+
+### [`MalformedRequestError`](./http-errors.ts#L6)
+
+_Class_
+
+```ts
+export class MalformedRequestError extends Schema.TaggedError<MalformedRequestError>()(
+  "MalformedRequestError",
+  {},
+) {}
+```
+
+The request representation is not valid for the selected operation.
+
+### [`MessageId (type)`](./signed-message.ts#L40)
+
+_TypeAlias_
+
+```ts
+export type MessageId = typeof MessageId.Type;
+```
+
+Validated nominal value decoded by MessageId.
+
+### [`MessageId (value)`](./signed-message.ts#L37)
+
+_Variable_
+
+```ts
+export const MessageId = canonicalIdentifier("MessageId", "msg_", 16)
+```
+
+Sender-scoped identity of one attributed message.
+
+### [`MethodNotAllowedError`](./http-errors.ts#L24)
+
+_Class_
+
+```ts
+export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedError>()(
+  "MethodNotAllowedError",
+  {},
+) {}
+```
+
+The selected route does not accept the request method.
+
+### [`MOLTZAP_VERSION`](./version.ts#L4)
+
+_Variable_
+
+```ts
+export const MOLTZAP_VERSION = "2026.729.1"
+```
+
+Sole compatibility value for MoltZap-owned network boundaries.
+
+### [`OverloadedError`](./http-errors.ts#L48)
+
+_Class_
+
+```ts
+export class OverloadedError extends Schema.TaggedError<OverloadedError>()(
+  "OverloadedError",
+  {},
+) {}
+```
+
+A finite immediate resource permit is unavailable.
+
+### [`PayloadTooLargeError`](./http-errors.ts#L36)
+
+_Class_
+
+```ts
+export class PayloadTooLargeError extends Schema.TaggedError<PayloadTooLargeError>()(
+  "PayloadTooLargeError",
+  {},
+) {}
+```
+
+The received body exceeds the selected route's derived representation cap.
+
+### [`PrincipalId (type)`](./identifiers.ts#L82)
+
+_TypeAlias_
+
+```ts
+export type PrincipalId = typeof PrincipalId.Type;
+```
+
+Validated nominal value decoded by PrincipalId.
+
+### [`PrincipalId (value)`](./identifiers.ts#L76)
+
+_Variable_
+
+```ts
+export const PrincipalId = canonicalIdentifier(
+  "PrincipalId",
+  "prn_",
+  IDENTIFIER_BYTE_LENGTH,
+)
+```
+
+Opaque identity of the principal represented by an agent.
+
+### [`RouteNotFoundError`](./http-errors.ts#L18)
+
+_Class_
+
+```ts
+export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()(
+  "RouteNotFoundError",
+  {},
+) {}
+```
+
+No exact HTTP route owns the request target.
+
+### [`SignedMessage (type)`](./signed-message.ts#L154)
+
+_Interface_
+
+```ts
+export interface SignedMessage {
+  readonly senderAgentId: AgentIdValue;
+  readonly agentCardDigest: AgentCardDigestValue;
+  readonly recipientAgentIds: readonly AgentIdValue[];
+  readonly messageId: MessageId;
+  readonly body: Uint8Array;
+}
+```
+
+Immutable attributed-message fields exposed to Router consumers.
+
+### [`SignedMessage (value)`](./signed-message.ts#L469)
+
+_Variable_
+
+```ts
+export const SignedMessage = Object.assign(signedMessageSchema, {
+  sign,
+  verify,
+  encodedByteLength,
+  maximumEncodedByteLength: MAXIMUM_ENCODED_BYTES,
+}) as Schema.Schema<SignedMessage, unknown> &
+  Readonly<{
+    readonly sign: typeof sign;
+    readonly verify: typeof verify;
+    readonly encodedByteLength: typeof encodedByteLength;
+    readonly maximumEncodedByteLength: number;
+  }>
+```
+
+Opaque attributed message operations and exact representation Schema.
+
+### [`SignedMessageSigningError`](./signed-message.ts#L298)
+
+_Class_
+
+```ts
+export class SignedMessageSigningError extends Data.TaggedError(
+  "SignedMessageSigningError",
+) {}
+```
+
+A message cannot be signed under the supplied immutable identity.
+
+### [`SignedMessageVerificationError`](./signed-message.ts#L303)
+
+_Class_
+
+```ts
+export class SignedMessageVerificationError extends Data.TaggedError(
+  "SignedMessageVerificationError",
+) {}
+```
+
+A SignedMessage does not bind to the supplied verified AgentCard.
+
+### [`UnavailableError`](./http-errors.ts#L54)
+
+_Class_
+
+```ts
+export class UnavailableError extends Schema.TaggedError<UnavailableError>()(
+  "UnavailableError",
+  {},
+) {}
+```
+
+A required service or durable operation cannot currently complete.
+
+### [`UnsupportedMediaTypeError`](./http-errors.ts#L42)
+
+_Class_
+
+```ts
+export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMediaTypeError>()(
+  "UnsupportedMediaTypeError",
+  {},
+) {}
+```
+
+The selected route cannot consume the request content framing.
+
+### [`VerifiedAgentCard`](./agent-card.ts#L269)
+
+_TypeAlias_
+
+```ts
+export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
+```
+
+AgentCard verified against a deployment-pinned Registry signer.
+
+### [`VerifiedAgentRequest`](./authenticated-http.ts#L35)
+
+_TypeAlias_
+
+```ts
+export type VerifiedAgentRequest = Readonly<{
+  readonly callerAgentId: AgentIdValue;
+  readonly agentCard: VerifiedAgentCard;
+  readonly request: unknown;
+}> &
+  Brand.Brand<"VerifiedAgentRequest">;
+```
+
+Request body and caller identity established by AuthenticatedHttp.
+
+### [`VerifiedSignedMessage`](./signed-message.ts#L292)
+
+_TypeAlias_
+
+```ts
+export type VerifiedSignedMessage = SignedMessage &
+  Brand.Brand<"VerifiedSignedMessage">;
+```
+
+SignedMessage whose sender attribution and signature are verified.
+
+### [`VersionMismatchError`](./http-errors.ts#L30)
+
+_Class_
+
+```ts
+export class VersionMismatchError extends Schema.TaggedError<VersionMismatchError>()(
+  "VersionMismatchError",
+  {},
+) {}
+```
+
+The request carries a different MoltZap compatibility value.
+
+## Package subpaths
+
+### `@moltzap/identity/registry`
+
+#### [`Registry`](./registry.ts#L24)
+
+_Class_
+
+```ts
+export class Registry extends Context.Tag("@moltzap/identity/Registry")<
+  Registry,
+  RegistryClientService
+>() {
+  static readonly register = Effect.serviceFunctionEffect(
+    Registry,
+    (service) => service.register,
+  );
+
+  static readonly lookup = Effect.serviceFunctionEffect(
+    Registry,
+    (service) => service.lookup,
+  );
+
+  static readonly list = Effect.serviceFunctionEffect(
+    Registry,
+    (service) => service.list,
+  );
+
+  static readonly layer = (input: {
+    readonly origin: URL;
+    readonly registrySignerPublicKey: Ed25519PublicKey;
+    readonly requestTimeout: Duration.Duration;
+  }): Layer.Layer<Registry, never, HttpClient.HttpClient> =>
+    Layer.effect(Registry, makeRegistryService(input));
+}
+```
+
+Bootstrap registration and immutable identity resolution.
+
+#### [`RegistryConnectionError`](./registry/contract.ts#L27)
+
+_Class_
+
+```ts
+export class RegistryConnectionError extends Data.TaggedError(
+  "RegistryConnectionError",
+) {}
+```
+
+The Registry connection could not be established or used.
+
+#### [`RegistryInvalidResponseError`](./registry/contract.ts#L37)
+
+_Class_
+
+```ts
+export class RegistryInvalidResponseError extends Data.TaggedError(
+  "RegistryInvalidResponseError",
+) {}
+```
+
+A Registry response did not match the selected operation contract.
+
+#### [`RegistryRequestTimeoutError`](./registry/contract.ts#L32)
+
+_Class_
+
+```ts
+export class RegistryRequestTimeoutError extends Data.TaggedError(
+  "RegistryRequestTimeoutError",
+) {}
+```
+
+The configured complete Registry call deadline expired.
+
+#### [`OperationId (type)`](./registry/contract.ts#L24)
+
+_TypeAlias_
+
+```ts
+export type OperationId = typeof OperationId.Type;
+```
+
+Validated nominal value decoded by OperationId.
+
+#### [`RegistryListRequest (type)`](./registry/contract.ts#L84)
+
+_TypeAlias_
+
+```ts
+export type RegistryListRequest = typeof RegistryListRequest.Type;
+```
+
+Validated Registry list continuation request.
+
+#### [`RegistryListResult`](./registry/contract.ts#L99)
+
+_TypeAlias_
+
+```ts
+export type RegistryListResult = Readonly<{
+  kind: "page";
+  agentCards: readonly VerifiedAgentCard[];
+  hasMore: boolean;
+}>;
+```
+
+One deterministic page of complete immutable AgentCards.
+
+#### [`RegistryLookupRequest (type)`](./registry/contract.ts#L75)
+
+_TypeAlias_
+
+```ts
+export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
+```
+
+Validated Registry lookup selector.
+
+#### [`RegistryLookupResult`](./registry/contract.ts#L94)
+
+_TypeAlias_
+
+```ts
+export type RegistryLookupResult =
+  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>
+  | Readonly<{ kind: "not_found" }>;
+```
+
+Closed domain outcome from one public identity lookup.
+
+#### [`RegistryRegisterRequest (type)`](./registry/contract.ts#L59)
+
+_TypeAlias_
+
+```ts
+export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
+```
+
+Validated Registry bootstrap registration request.
+
+#### [`RegistryRegisterResult`](./registry/contract.ts#L87)
+
+_TypeAlias_
+
+```ts
+export type RegistryRegisterResult =
+  | Readonly<{ kind: "registered"; agentCard: VerifiedAgentCard }>
+  | Readonly<{ kind: "name_taken" }>
+  | Readonly<{ kind: "key_already_registered" }>
+  | Readonly<{ kind: "idempotency_conflict" }>;
+```
+
+Closed domain outcome from one bootstrap registration attempt.
+
+#### [`OperationId (value)`](./registry/contract.ts#L21)
+
+_Variable_
+
+```ts
+export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
+```
+
+Idempotency identity for a registration operation.
+
+#### [`RegistryListRequest (value)`](./registry/contract.ts#L79)
+
+_Variable_
+
+```ts
+export const RegistryListRequest = exactStruct({
+  afterAgentId: Schema.optional(AgentId),
+}).annotations({ identifier: "RegistryListRequest" })
+```
+
+Closed Registry list continuation request.
+
+#### [`RegistryLookupRequest (value)`](./registry/contract.ts#L63)
+
+_Variable_
+
+```ts
+export const RegistryLookupRequest = Schema.Union(
+  exactStruct({ agentId: AgentId }),
+  exactStruct({ agentName: AgentName }),
+).annotations({
+  identifier: "RegistryLookupRequest",
+  parseOptions: {
+    exact: true,
+    onExcessProperty: "error",
+  },
+})
+```
+
+Closed Registry lookup selector.
+
+#### [`RegistryRegisterRequest (value)`](./registry/contract.ts#L51)
+
+_Variable_
+
+```ts
+export const RegistryRegisterRequest = exactStruct({
+  operationId: OperationId,
+  principalId: PrincipalId,
+  agentName: AgentName,
+  publicKey: Ed25519PublicKey,
+}).annotations({ identifier: "RegistryRegisterRequest" })
+```
+
+Closed Registry bootstrap registration request.
+
+### `@moltzap/identity/registry/server`
+
+#### [`StartupError`](./registry/server.ts#L142)
+
+_Class_
+
+```ts
+export class StartupError extends Data.TaggedError(
+  "RegistryServerStartupError",
+)<{
+  readonly phase: "configuration" | "storage" | "listener";
+}> {}
+```
+
+Closed Registry startup failure.
+
+#### [`layer`](./registry/server.ts#L182)
+
+_Variable_
+
+```ts
+export const layer: Layer.Layer<never, StartupError> = Layer.scopedDiscard(
+  runRegistryServer.pipe(Effect.provide(NodeContext.layer)),
+)
+```
+
+Complete production Registry process composition.
+
+```mermaid
+flowchart TD
+  Binary["moltzap-registry"] --> Server["runRegistryServer"]
+  Server --> Configuration["loadRegistryConfiguration"]
+  Server --> Storage["RegistryStorage"]
+  Server --> Http["makeRegistryHttpApp"]
+  Http --> Admission["verifyBootstrapRegistration"]
+  Http --> Rpc["RegistryRpcClient"]
+  Admission --> Storage
+  Rpc --> Storage
+  Http --> Response["HttpServerResponse"]
+```
+
+## Files
+
+- `agent-card.ts`
+- `agent-key.ts`
+- `authenticated-http.ts`
+- `canonical-json.ts`
+- `http-errors.ts`
+- `http-signature.ts`
+- `identifiers.ts`
+- `index.ts`
+- `registry.ts`
+- `registry/admission.ts`
+- `registry/client.ts`
+- `registry/contract.ts`
+- `registry/http.ts`
+- `registry/migrations/0001_registry.ts`
+- `registry/README.md`
+- `registry/rpc.ts`
+- `registry/server.ts`
+- `registry/storage.ts`
+- `signed-message.ts`
+- `version.ts`

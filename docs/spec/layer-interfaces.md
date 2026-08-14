@@ -4,445 +4,423 @@ Status: **Gate 1 normative**
 
 ## Purpose
 
-This chapter assigns each public type and capability to one deep
-package. It prevents a mechanism, test substitute, or higher-layer
-concept from leaking through the stack.
+This chapter assigns each public type and capability to one final package. It
+keeps Identity and Router representation contracts deep, makes conversation
+history endpoint-owned, and prevents simulator or trust-policy mechanisms from
+becoming production network services.
 
-The six packages are the complete v2 package set. A new package
-requires a recorded architecture decision.
+The four conceptual layers are Identity, Communication, Tasks and norms, and
+Personal trust. Numbered layer notation is documentation vocabulary only; it
+does not appear in package names or public type tags.
 
-L3 owns conversations, live-attempt message retry and evidence
-deduplication, reconciliation, recovery, action certification, and
-durable Transcript state. None of those duties move into L2 merely
-because their evidence is carried by Router.
+## Exact package graph
 
-## Package graph
+The final workspace has exactly seven package products:
 
 | Package | May depend on | Owns |
 |---|---|---|
-| `identity` | none | L1 identities and representation, AuthenticatedHttp, Registry client and production server |
-| `router` | `identity` | L2 Router contracts and representation, Router client and production server |
-| `transcript` | `identity`, public `router` contracts | L3 ConversationId, TxnId, MembershipEpoch, action certificate, TranscriptRecord, Ledger client and production server |
-| `endpoint` | `identity`, `router`, `transcript` | protocol engine, OpenFloorV1 composition, local recovery state, MCP schemas/server/client, CLI |
-| `simulator` | public `identity` and `endpoint` capabilities | portable run kernel, runtime roster, EventCatalog, run-evidence RunLedger, public StackProvider contract |
-| `testbed` | all five | StackProvider Live Layer, platform/resource acquisition and process supervision, public-capability substitutes, fault layers, external-process runtime constructors, black-box subjects |
+| `@moltzap/identity` | none | identity representation, Registry client, Registry server, and `moltzap-registry` |
+| `@moltzap/router` | `@moltzap/identity` | opaque Router representation, Router client, Router server, and `moltzap-router` |
+| `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal trust, daemon MCP, `HarnessClient`, and `moltzapd` |
+| `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
+| `@moltzap/nanoclaw-channel` | `@moltzap/client` | NanoClaw host integration against an injected or MCP-backed client |
+| `@moltzap/simulator` | `@moltzap/identity`, `@moltzap/router`, `@moltzap/client` | system-driver acquisition, run kernel, fault controls, event catalog, and simulation `RunLedger` |
+| `@moltzap/evals` | `@moltzap/client`, `@moltzap/simulator` | private evaluation execution, reports, and CLI modes |
 
-Production packages never depend on `simulator` or `testbed`.
-`simulator` and `testbed` never become alternate production services.
-Nothing under `v2/*` imports `packages/*`.
+Production packages do not depend on simulator or evals. Runtime adapters do
+not import Identity, Router, Client internals, simulator, evals, or each other.
+Simulator and evals are not alternate production services.
 
-There are no separate `wire`, `protocol`, `endpoint-core`,
-`daemon-api`, CLI, harness-adapter, or conformance packages. Those
-concerns are private implementation details or tests of the owning
-abstraction.
+There are no product packages named `protocol`, `server`, `transcript`,
+`ledger`, `harness`, or `testbed`. There is no implementation package under
+`v2/*` after relocation. Repository authority and historical inputs under
+`v2/` are documents, not executable packages.
 
-## Public exports and binaries
+Root-owned build and image orchestration may consume several package artifacts
+without creating package-runtime dependencies. Copying an adapter source or
+packing evals into an image cannot create an undeclared simulator dependency.
 
-| Package | Export map | Production executables |
-|---|---|---|
-| `identity` | `.`, `./server` | `moltzap-registry` |
-| `router` | `.`, `./server` | `moltzap-router` |
-| `transcript` | `.`, `./server` | `moltzap-ledger` |
-| `endpoint` | `.`, `./server` | `moltzap-agentd`, `moltzap` |
-| `simulator` | `.`, `./adapter`, `./ledger` | none |
-| `testbed` | `.` | none |
+## Relocation and deletion law
 
-The root export contains the package's stable contracts and client
-capabilities. `./server` exposes production composition and the
-executable boundary, not repositories, database rows, HTTP handlers,
-or internal protocol state machines.
+`v2/identity` moves intact to `packages/identity` and becomes
+`@moltzap/identity`. `v2/router` moves intact to `packages/router` and becomes
+`@moltzap/router`. The moves preserve source, migrations, tests, capability
+depth, wire bytes, errors, configuration behavior, and process binaries except
+for package-path and package-name references.
 
-## Version contract
+After their consumers and documentation tooling have final owners, delete:
 
-`v2/VERSION` is the sole MoltZap compatibility value. All six package
-manifests and every MoltZap-owned network schema match it exactly.
-There is no range negotiation or per-layer version.
+- `packages/protocol`;
+- `packages/server`;
+- the replaced `packages/client` implementation;
+- `v2/transcript`;
+- `v2/harness`;
+- `v2/simulator`;
+- `v2/testbed`; and
+- the vacated `v2/identity` and `v2/router` implementation roots.
 
-The following are independent:
+No compatibility alias, re-export facade, dual implementation, or hidden
+product-Ledger process survives those deletions. Generic documentation tooling
+owned by a deleted package moves to root tooling before that package is
+removed.
 
-- MCP revision `2026-07-28`;
-- simulator definition ID;
-- EventCatalog schema version;
-- RunLedger storage version.
+Client and adapter migration follows the accepted reduced boundary in
+[`harness/client.md`](./harness/client.md). The five formerly conflicting
+Simulator contracts are removed under [Simulator cutover](#simulator-cutover);
+they no longer block Client, Simulator, or eval migration.
 
-Changing one independent persisted schema does not silently change
-another.
+## Public boundaries retained through cutover
 
-## L1 and L2 representation ownership
+- Identity retains its root, Registry client/server subpaths, and
+  `moltzap-registry` boundary as specified by `identity.md`.
+- Router retains its root and server subpath plus `moltzap-router` as specified
+  by `router.md`.
+- Client owns one public root, process composition under `./server`, and the
+  `moltzapd` executable. Its root exposes the exact reduced `HarnessClient`
+  boundary in [`harness/client.md`](./harness/client.md).
+- Simulator retains `.`, `./network`, `./ledger`, and `./agents` plus
+  `Run.execute(RunSpec)` and every declaration compatible with the final
+  HarnessClient/daemon semantics below.
+- Adapter and eval entry points retain compatible host/build behavior while
+  using the real daemon-backed Client.
 
-`identity-representation.md` owns the exact L1 refined values,
-AgentCard, SignedMessage, AuthenticatedHttp, and Registry
-representations. `router-representation.md` owns the exact L2 refined
-values, PollCursor, and Router request and result representations.
+The final publication list and versioning policy are release choices. They do
+not change this dependency graph or authorize extra packages.
 
-There is no cross-layer wire catalog, codec package, or shared
-compatibility corpus for L1/L2. This revision leaves later-layer
-semantic documents, vocabulary, and focused ADRs unchanged.
+## Representation ownership
 
-## Type ownership
+`identity-representation.md` remains the sole owner of AgentCard,
+SignedMessage, Registry, and authenticated-request representations.
+`router-representation.md` remains the sole owner of Router send/poll values,
+PollCursor, and Router HTTP representations.
+
+There is no shared wire package or cross-layer representation catalog. Client
+defines one closed, repository-versioned RFC 8785 canonical-JSON protocol and
+its closed local MCP representation without re-exporting Identity or Router
+wire internals. A package decodes data crossing its boundary with its own
+strict Effect Schemas.
 
 ### Identity
 
-`identity` owns:
+Identity continues to own:
 
-- AgentId, PrincipalId, AgentName, OperationId, and MessageId;
-- AgentCard, AgentCardDigest, and Ed25519 public-key identity;
+- `AgentId`, `PrincipalId`, `AgentName`, `OperationId`, and `MessageId` where
+  used by its admitted representation;
+- immutable `AgentCard`, `AgentCardDigest`, and Ed25519 public-key identity;
 - SignedMessage attribution and verification;
-- the registered-agent AuthenticatedHttp profile;
-- Registry-owned bootstrap admission and submitted-key
-  proof-of-possession; and
+- normal registered-agent AuthenticatedHttp and Registry bootstrap
+  proof-of-possession authentication profiles; and
 - Registry operation contracts.
 
-Other packages import these types; they do not redeclare same-shaped
-aliases.
+Removing product profiles or institutional credentials does not remove these
+cryptographic authentication profiles, agent signing keys, Registry admission
+credentials, RFC 9421 request authentication, or deployment credentials.
 
 ### Router
 
-`router` owns:
+Router continues to own:
 
-- RouterInstanceId and SignedMessageDigest;
-- opaque PollCursor; and
-- Router send and poll results, including `feed_gap`,
-  `router_restarted`, and `retry_identity_unknown`.
+- `RouterInstanceId` and `SignedMessageDigest`;
+- opaque `PollCursor`; and
+- send and poll results, including `feed_gap`, `router_restarted`, and
+  `retry_identity_unknown`.
 
-Router's global order is private. Router owns no ConversationId,
-membership, delivery wrapper, or public sequence type.
+Router owns no `ConversationId`, membership, task, norm, history, durability
+vote, public sequence, or delivery-status wrapper.
 
-### Transcript
+### Client and endpoint communication
 
-`transcript` owns:
+Client owns:
 
-- `ConversationId`, `MembershipEpoch`, `TxnId`;
-- `LedgerOffset` and `RecordHash`;
-- START and MULTICAST action bindings;
-- complete epoch verification descriptor and action certificate;
-- TranscriptRecord and Ledger operation schemas.
+- public `ConversationId` plus private `ActionHash`, `RecordHash`,
+  fixed-membership descriptors, and Router-epoch-anchor values;
+- record bodies, action certificates, durability votes/evidence, certified
+  records, and local histories;
+- endpoint stores, catch-up, re-anchor, protocol folds, and partial evidence;
+- task/norm and personal-trust composition;
+- one explicitly configured per-AgentId daemon and one loopback `/mcp`;
+- the adapter-facing capability named `HarnessClient`; and
+- closed Client and MCP representations.
 
-`PollCursor` and `LedgerOffset` remain distinct branded schemas with no
-implicit conversion.
+Action signatures, ACKs, durability votes, catch-up attestations, and
+re-anchor votes are stable self-addressed Identity `SignedMessage` values.
+Their Router envelope is a separate all-member `SignedMessage`, so
+`retry_identity_unknown` may replace the outer MessageId without changing the
+inner evidence. Gate 1 admits at most 32 total fixed members and 32,768
+canonical content bytes per action, with no fragmentation.
 
-### Endpoint
+`LedgerOffset` has no final owner and does not survive. Conversation order is
+the `previousRecordHash`/`RecordHash` chain. Protocol folds, vote collectors,
+the canonical authenticated BEGIN-message digest, reply grants, and reply
+tokens remain private. The BEGIN digest is the volatile grant key,
+`ActionHash` identifies the action certificate, and `RecordHash` identifies
+durable history, votes, catch-up, and re-anchor. No additional transaction
+identifier exists.
 
-`endpoint` owns:
+### Simulator and evals
 
-- named local profile and `EndpointProfileRef`;
-- legal-action descriptor and closed reply selection;
-- daemon discovery, tools, subscription, and turn-notification schemas;
-- facade tool results and error tags;
-- public runnable daemon and CLI boundaries.
+Simulator owns immutable simulator definitions, the one `StackProvider`-style
+system-driver boundary, fault controls, event evidence, and `RunLedger`.
+`RunLedger` and `@moltzap/simulator/ledger` are simulation evidence and are
+never assignable to Client history, `RecordHash`, or durability evidence.
 
-Live grants, protocol folds, BEGIN/ACK state, and transaction lifecycle
-methods are private. There is no public `begin`, `update`, `commit`, or
-`abort` capability.
+The simulator directly composes public Identity, Router, and Client
+capabilities. Runtime subjects receive only `HarnessClient` or MCP, never raw
+Router, Registry credentials, endpoint keys, daemon internals, or local store
+access.
 
-### Simulator and testbed
+Evals consumes Client and simulator public values. It owns no production
+protocol representation.
 
-`simulator` owns immutable simulator definition and evidence types plus
-the public `StackProvider` contract exported from its root. Its
-`RunLedger` is always named “run evidence” and is never assignable to
-TranscriptRecord or LedgerOffset.
+## Identity and Router capability behavior
 
-`testbed` supplies the production Live Layer for that simulator-owned
-contract and implements its platform capabilities, including
-production-process acquisition and supervision, public-capability
-substitutes, and fault controls. Focused simulator tests may also
-supply private fake Layers. Testbed does not redeclare the contract or
-export a second Router, Ledger, or endpoint implementation as a
-production alternative.
+Registry and Router retain the exact deep Effect capability contracts in their
+semantic chapters:
 
-## Public capability behavior
+- Registry, Router, and AuthenticatedHttp remain `Context.Tag` capabilities
+  with named static Effect accessors;
+- Registry and Router client Layers require Effect's HTTP capability and
+  expose no mechanism-shaped public client class or options DTO;
+- AuthenticatedHttp requires Registry so Router can resolve and cache verified
+  immutable AgentCards without importing Registry internals;
+- Registry bootstrap does not require AuthenticatedHttp;
+- each server subpath exposes the admitted discard Layer that reads private
+  Effect Config and owns process composition; and
+- private Effect RPC remains in-process, typed, and absent from the network and
+  export maps.
 
-### Registry client
+Every network boundary continues to decode its exact layer-owned
+representation. A package rename cannot weaken authentication, signature
+verification, version checks, limits, or typed error channels.
 
-Offers registration, lookup, and list operations from `identity.md`.
-Callers receive complete domain values, never raw HTTP responses or
-database rows. The client is configured with the deployment Registry
-origin and deployment-pinned Registry signer public key. Registration
-also receives the redacted admission credential and bootstrap signing
-authority for the submitted key at its call boundary. Public lookup and
-list require no call-boundary admission credential or signing
-authority. The client verifies every returned AgentCard
-before constructing the nominal verified value.
+## Client and daemon behavior
 
-Registration verifies that the returned PrincipalId, AgentName, and
-agent public key equal the submitted bindings. Lookup verifies that a
-found card equals the requested AgentId or AgentName. List verifies
-every card, strict AgentId ordering, uniqueness, and the requested
-lower bound. A valid Registry signature on a response-bound wrong card
-is rejected rather than returned.
+Client composes public Registry and Router capabilities with endpoint-local
+history and interpretive protocols behind the daemon. It does not compose a
+Ledger client or Transcript service. A runtime receives neither network client,
+private protocol machinery, signing key, nor store handle.
 
-Closed registration and lookup outcomes remain values in the success
-channel. Envelope and declared server failures propagate in the
-client's typed Effect error channel. A client-side connection or
-timeout failure is a distinct typed transport error, never an
-unstructured substitute for a server failure. A malformed response, an
-invalid status/body pairing, or a response that fails the required
-Registry signature, request binding, or AgentCard verification is a
-distinct typed client response error.
+The stable Client invariants are:
 
-### Router client
+- START atomically includes initial content;
+- the caller-minted `ConversationId` is the sole public START/retry identity,
+  with identical canonical intent resuming and changed peers/content
+  conflicting;
+- established output is a live turn-bound reply, never generic send;
+- start and bound reply return `void` only after local certified durability;
+- one turn contains only one current-conversation certified action, verified
+  peers, verified author, content, and its content-only bound reply;
+- complete action validity and durability evidence remain distinct;
+- a history fact cannot recreate reply authority; and
+- fixed-member catch-up and Router re-anchor follow
+  [`conversation-history.md`](./conversation-history.md).
 
-Offers send and bounded poll from `router.md`. The client owns request
-authentication and the Router representation without exposing its
-mechanisms. It is configured with the Router origin; each send and poll
-receives the caller AgentId and normal signing authority at its call
-boundary. Send carries expected RouterInstanceId plus `initial` or
-`retry`. Every successful poll contains current RouterInstanceId,
-complete encoded, untrusted SignedMessage representations, and the next
-PollCursor. The endpoint verifies each representation through L1 before
-accepting the returned cursor.
+START's genesis anchor binds its conversation, canonical membership, and the
+`RouterInstanceId` obtained from an omitted-cursor poll. Unanimous START
+signatures attest that anchor; there is no separate genesis vote.
 
-Closed send and poll outcomes remain values in the success channel.
-Envelope and declared server failures propagate in the client's typed
-Effect error channel. Client-only connection and timeout failures stay
-distinct from those server failures. A malformed response, invalid
-status/body pairing, or failed response-schema validation is a
-distinct typed client response error.
+The daemon automatically contends only for an unconsumed, locally certified,
+remotely authored head while it owns the active reply-capable subscription.
+An action author never automatically contends on its own action. Immediately
+before emitting a complete turn frame, the daemon durably commits the private
+`(ConversationId, RecordHash)` consumed marker; successful, failed, and
+ambiguous writes leave it consumed across restart. No listener means no BEGIN
+and no marker.
 
-### Identity and Router construction handoffs
-
-The exact identity and Router root exports, public operation signatures,
-per-method error channels, server surfaces, and configuration keys live
-in their owning semantic chapters. The cross-package construction rules
-are:
-
-- Registry, Router, and AuthenticatedHttp are `Context.Tag` deep
-  capabilities whose named operations are static Effect accessors;
-- the Registry and Router client Layers require Effect's
-  `HttpClient.HttpClient` and expose no public client class, options
-  type, or mechanism-shaped factory;
-- AuthenticatedHttp's Layer requires Registry so a Router process can
-  resolve and positively cache immutable AgentCards without importing
-  Registry internals;
-- registration does not require AuthenticatedHttp: Registry privately
-  composes bootstrap admission, submitted-key proof, and durable replay
-  protection before its handler;
-- each server subpath exposes one constant discard Layer that reads its
-  private Effect Config and owns process composition; and
-- Registry's `register`, `lookup`, and `list` group and Router's `send`
-  and `poll` group use private Effect RPC without exposing an RPC group,
-  middleware tag, serializer, `/rpc` route, or network RPC protocol.
-
-Every production HTTP boundary still decodes its complete exact
-representation through Effect Schema. Private RPC middleware may carry
-verified admission or registered-agent context to the handler, but it
-cannot replace or weaken the layer-owned network Schema.
-
-### Ledger client
-
-Offers append, read-forward, and conversation-list reconciliation from
-`control-plane.md`. Append success is a durability acknowledgment, not
-an accepted-but-pending state.
-
-### Endpoint daemon
-
-Composes Registry, Router, Ledger, signing, local persistence, and
-protocol policy behind the local MCP contract. A runtime does not
-receive network clients or transaction internals.
-
-### StackProvider
-
-Simulator obtains one complete system under test through the
-`StackProvider` capability it owns and exports at the simulator root. A
-testbed Live Layer launches real Registry, Router, Ledger, daemons,
-and runtime bridges; a focused simulator test Layer may use
-public-capability fakes.
-
-The provider is an outward composition boundary. Production code does
-not import the simulator. Runtime subjects acquired through either
-Layer receive only an `EndpointProfileRef`, never Router, Ledger,
-database, key, daemon, or platform internals.
+The public Client exposes no local identity, receipt, proof, hash, protocol
+message, registration, status, search, or history method. Those management
+operations remain MCP-only. Its three operation-specific error channels are
+closed typed unions.
 
 ## Cross-layer laws
 
 ### Trust, safety, and progress
 
-1. Gate 1 assumes one correct non-equivocating Registry, one correct
-   non-equivocating Router, and one correct durable Ledger; endpoints
-   may be Byzantine. A malicious or equivocating Registry is outside
-   the L1 identity-binding guarantee.
-2. Registry outage blocks registration and uncached identity resolution
-   but not verification from pinned cards or self-contained records.
-   Router or Ledger unavailability may halt progress without weakening
-   ordering or committed-state safety.
-3. Unanimity means one honest required endpoint that refuses a proposal
-   prevents certification. If every required member signs an illegal
-   proposal, semantic validity is outside the guarantee.
+1. Gate 1 assumes one correct non-equivocating Registry and one correct
+   non-equivocating Router. Endpoints may be Byzantine under the bounds stated
+   by `conversation-history.md`.
+2. Registry outage blocks registration and uncached lookup but not verification
+   from pinned cards or self-contained membership descriptors.
+3. Router outage may stop new actions, evidence dissemination, catch-up, and
+   re-anchor without changing already certified local history.
+4. `OpenFloorV1` action validity remains unanimous. One honest required member
+   that refuses an illegal action prevents its action certificate. If every
+   required member signs an illegal action, semantic validity is outside the
+   guarantee.
+5. Durability evidence is a storage-attestation threshold only. Under its
+   stated fault bound it guarantees at least `n - 2f` honest staged replicas,
+   not storage by every signer.
 
-### L1 attribution
+### Identity attribution and opaque Router order
 
 1. One SignedMessage names one sender and explicit recipients.
-2. Verification covers addressing and opaque body.
-3. Router cannot mint or repair attribution.
+2. Identity verification covers addressing and opaque body.
+3. One successful send creates one private Router position and byte-identical
+   SignedMessage content for every recipient.
+4. Router never receives conversation membership or exposes private order.
+5. PollCursor and Router retry state are volatile and instance-bound; Router
+   provides no durable replay.
+6. Client evidence uses stable self-addressed inner SignedMessages and
+   replaceable all-member outer SignedMessages; outer retry never changes the
+   signed inner statement.
+7. An unfaulted Simulator run preserves each recipient's Router delivery
+   order. An explicitly activated Simulator link fault acts after Router
+   ordering, so its perturbed recipient observation is endpoint-fault evidence
+   rather than Router-conformance evidence.
 
-### L2 order
+### Conversation certification and durability
 
-1. One successful send creates one private position and identical
-   SignedMessage bytes for all recipients.
-2. Router never requires ConversationId or membership.
-3. PollCursor is volatile and instance-bound; L2 promises no replay.
-4. No public result, record, or identifier exposes the private order.
-
-### L3 certification and commit
-
-1. Endpoints decide action validity and produce the complete
+1. A fixed membership has at most 32 total members, and each START or
+   MULTICAST has at most 32,768 canonical content bytes; Client fragments
+   neither.
+2. Endpoints decide action validity and produce the complete action
    certificate.
-2. Ledger admission is mechanical and never evaluates policy.
-3. Append acknowledgment implies one canonical record is durable and
-   readable to every fixed member.
-4. The author alone may append in Gate 1.
-5. RouterInstanceId is bound into L3 protocol evidence, the epoch
-   descriptor, the final action binding, and TranscriptRecord.
-6. Author failure after final signature collection may leave the action
-   uncommitted; Gate 1 has no takeover.
+3. `RecordHash` commits to the action-certified record and excludes later
+   durability evidence.
+4. Honest members durably stage before voting.
+5. Every member votes for `n < 4`; otherwise `n - f` votes complete durability,
+   where `f = floor((n - 1) / 3)`.
+6. Any member may assemble and disseminate completed evidence.
+7. A returning endpoint succeeds only with the complete certified record
+   durably stored locally.
 
 ### Recovery
 
-1. While one attempt is live, endpoints retry required protocol sends
-   and deduplicate identical signed L3 evidence. Retrying evidence never
-   creates an additional grant, signature, or committed action.
-2. Daemon restart or `feed_gap` abandons partial coordination. After
-   Ledger reconciliation on the same Router instance, a fresh attempt
-   uses a fresh TxnId from the committed head and re-anchors at Router
-   tail. This fresh-Txn rule applies to established-conversation
-   OpenFloor attempts. A retried `start_conversation` instead reuses its
-   deterministic OperationId-derived genesis TxnId so a partial or
-   committed START can converge on one result.
-3. `router_restarted` abandons volatile work and fences old-instance
-   conversations from new actions rather than starting a replacement
-   transaction in them.
-4. A fully certified old-instance action may append exactly once.
-5. Only completed Transcript actions are durable and exactly
-   recoverable; BEGIN, ACK, grants, partial signatures, and other
-   partial coordination are volatile.
-6. Periodic conversation-list and read-forward reconciliation recovers
-   missing commit hints.
-7. If Router has forgotten a send retry identity,
-   `retry_identity_unknown` causes the endpoint to wrap the same signed
-   L3 evidence in a fresh SignedMessage with a fresh MessageId and send
-   it as
-   `initial`. Recipients deduplicate the inner evidence; the endpoint
-   does not create new protocol evidence.
+1. Duplicate Router delivery or inner evidence never creates a second record,
+   vote, grant, or runtime turn.
+2. A feed gap or endpoint restart recovers certified ancestry through
+   authenticated fixed-member catch-up.
+3. Router restart invalidates old cursors and instance-bound sends. Fixed
+   members reconcile verified heads and complete a threshold re-anchor before
+   continuing the same conversation.
+4. Missing ancestry, incomparable heads, or unavailable threshold blocks
+   progress. No layer guesses or lowers a threshold.
+5. Caller-supplied `ConversationId` is the sole public START/retry identity.
+   The authenticated BEGIN-message digest, `ActionHash`, and `RecordHash` are
+   private identities for grant, action-certificate, and durable-record stages
+   respectively.
+6. Daemon restart resumes an identical START intent but never reconstructs a
+   lost live reply closure.
+7. A consumed-attention pair survives restart and can never create another
+   BEGIN or turn at that endpoint, even when the original frame write was
+   ambiguous.
 
-### Retry identity
+### Personal trust and recursive social features
 
-1. Registration retry identity is submitted-key JWK thumbprint plus
-   OperationId.
-2. Other control mutations use caller AgentId plus OperationId.
-3. Router send uses caller AgentId plus MessageId within one expected
-   Router instance and one retained ring entry. A retained
-   byte-identical retry returns the original accepted result, changed
-   bytes conflict, and an absent entry returns
-   `retry_identity_unknown`.
-4. Ledger append uses ConversationId, epoch, and TxnId.
-5. Direct `reply` retry uses TxnId plus the canonical actionId/payload
-   fingerprint. After commit, identical bytes recover the durable
-   result and changed bytes conflict.
-6. Equality projection is owner-specific. Registration compares its
-   canonical inner request. Router `retry` compares the complete
-   SignedMessage. Both exclude fresh per-attempt RFC 9421
-   created/expires/nonce/signature metadata. Other owners define their
-   own projection and result behavior; there is no cross-layer generic
-   equality rule.
+1. Personal trust stays local and controls signing, attention, disclosure,
+   task acceptance, and reliance.
+2. Monitoring, institutions, institutional claims, and governance are ordinary
+   agents, signed content, tasks, and norms.
+3. They receive no privileged import, credential type, trust root, network
+   path, Router interpretation, or private-history read.
+4. Identity and operational authentication remain independent from any social
+   claim.
 
-### Endpoint attention
+## Simulator cutover
 
-1. Runtime attention occurs only after a live local reply grant.
-2. A snapshot carries the expected old value/version of every current
-   and cross-conversation watermark it uses. Immediately before the SSE
-   write, one SQLite transaction compare-and-swaps all of them or
-   advances none.
-3. A stale expectation rebuilds against current watermarks while the
-   grant is live; expiry during rebuild advances nothing and writes
-   nothing.
-4. One dispatch writer serializes the reservation and complete frame
-   bytes, but does not impose a daemon-wide model-turn or protocol cap.
-5. A failed or ambiguous write after a successful reservation may lose
-   attention and never causes
-   replay.
-6. Exactly one active turn-ready subscription may consume reply grants
-   for an AgentId daemon.
+Simulator retains its compatible facades, `Run.execute(RunSpec)`, cluster and
+Temporal execution, fault layers, and simulation `RunLedger`. The five
+incompatible contracts are removed rather than preserved through shims:
 
-### Dependency isolation
+1. Delete `Endpoint.open`, `EndpointTransport.openConversation`, and
+   `OpenedConversation`; creation uses `createConversationId` followed by
+   `HarnessClient.start` with nonempty initial content.
+2. Delete `ConversationSocket.send` and `EndpointTransport.send`; established
+   output exists only through the originating turn's bound reply.
+3. Replace `Message`, `ReceivedMessage`, message-only receive streams, and
+   proof-shaped operation results with public semantic `HarnessTurn` input and
+   `void` completion facts.
+4. Remove `AgentConnection.key`, raw Router attachment, Registry/Router origins,
+   endpoint-store handles, and signing material from runtime inputs. A runtime
+   receives only its loopback `MOLTZAP_MCP_URL` or an injected
+   `HarnessClient`.
+5. Delete `CommittedRouterMessage`, `RouterMessageCommitted`, `RouterSequence`,
+   and `RouterStopped.committedMessages`. `RunLedger` records simulation
+   lifecycle and public semantic effects, never durable Router commit/order.
 
-1. A package imports only the dependencies in the graph above.
-2. No production binary depends on simulator or testbed.
-3. External v1 consumers may point toward public v2 interfaces during
-   transition; no edge points back from v2.
+### Simulator fault boundary
+
+With no active directed link-fault scope, Simulator delivers the exact
+`SignedMessage` bytes from each Router poll in that recipient's Router order.
+This inactive path is the only Simulator path that may contribute
+Router-conformance evidence.
+
+An explicitly activated scope may select post-Router delivery by sender and
+recipient and drop, delay, hold, or reorder it before the recipient
+Client consumes it. Reordering permits a later Router delivery to pass an
+earlier held delivery. The fault layer does not alter message bytes, forge a
+message, change Router state or order, or create a Router callback.
+
+Interception and policy evaluation are private, run-scoped Simulator
+infrastructure. They are not a product service, public Router or Client
+extension, compatibility gateway, or MCP operation. The application container
+receives only its loopback Client boundary and receives no fault-control
+endpoint, credential, configuration, network authority, signing material, or
+endpoint-store access. `RunLedger` may retain closed link-fault lifecycle
+events and public semantic effects but no durable Router commit, position, or
+authoritative order.
+
+One simulation run owns one Registry and one Router. Every agent Sandbox Pod
+owns a restartable `moltzapd` sidecar, a per-agent persistent volume, and
+private signing/admission mounts; registration completes before the
+application starts. The application sees only
+`MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
+
+All sixteen evaluation case definitions execute through the daemon-backed
+Client. Client and Simulator do not restore automatic cross-conversation
+context; the six cases that need it may fail until a host-native memory
+integration is separately implemented.
 
 ## Error boundaries
 
-- Boundary decoders return closed typed failures; they do not expose
-  decoder internals as stable protocol taxonomy.
-- HTTP services distinguish authentication, version, schema,
-  idempotency, `retry_identity_unknown`, cursor, Router restart,
-  stale-head, refusal, and unavailability only where the owning spec
-  defines observable recovery.
-- MCP protocol errors are reserved for malformed MCP requests.
-  Tool-domain errors are the endpoint facade's minimal stable set.
-- Infrastructure and SQL errors remain internal unless translated at
-  an owning public boundary.
-
-## Effect realization
-
-This section is non-normative implementation guidance.
-
-- Define cohesive services and compose implementations with Effect
-  Layers at process, subsystem, simulator, and test boundaries.
-- Hide construction dependencies with local layer composition; provide
-  the completed graph once at the runtime boundary.
-- Use scoped acquisition for listeners, pools, daemons, child
-  processes, subscriptions, runtimes, and teardown.
-- Avoid a public service method plus a second exported pass-through
-  function for the same operation.
-- Model reusable boundary values with named Effect Schemas, branded IDs,
-  tagged variants, and schema transformations rather than unsafe casts
-  or duplicated wire/domain types.
-- Use native Effect HTTP and SQL capabilities at implementation edges.
-  Domain workflows depend on narrow capabilities, not raw clients.
-- Tests use explicit shared or isolated test layers and
-  `@effect/vitest`; they do not build ad hoc runtimes inside each test.
+- Boundary decoders return closed typed failures and never expose decoder or
+  infrastructure causes as stable protocol taxonomy.
+- Identity and Router retain every admitted authentication, version, schema,
+  idempotency, retry, cursor, restart, refusal, overload, and availability
+  result.
+- MCP protocol errors are reserved for malformed MCP requests. Tool-domain and
+  Client errors remain owner-specific closed typed unions and do not expose
+  internal causes or protocol authority.
+- Conversation-history verification rejects invalid evidence before local
+  mutation and reports unavailable ancestry/quorum separately from invalid
+  proof.
 
 ## Acceptance criteria
 
-- Static dependency fixtures fail for every forbidden package edge.
-- Export-map tests prove the exact entries above and no internal
-  subpath.
-- Public API and type canaries prove the exact identity and Router root
-  inventories, operation signatures, error channels, and construction
-  requirements assigned by their semantic chapters.
-- Construction tests prove that Router composes the identity-owned
-  registered-agent capability while Registry bootstrap admission does
-  not require it.
-- Private-RPC integration tests prove middleware short-circuiting,
-  context propagation, typed server-to-client failures, interruption,
-  and the absence of an RPC network route or exported RPC surface.
-- Process tests supply Effect Config providers directly and prove that
-  no public configuration type or direct environment parser is part of
-  either package boundary.
-- Manifest and wire values all equal `v2/VERSION`; independent schema
-  versions demonstrably do not.
-- Type canaries reject PollCursor/LedgerOffset and
-  RunLedger/Transcript interchange.
-- No public Router API exposes a global sequence or delivery wrapper.
-- No cross-layer L1/L2 representation package, catalog, or corpus
-  exists.
-- Numbered layer notation appears only in documentation, never in v2
-  implementation artifacts.
-- A fake public-capability stack and the real production stack drive
-  the same simulator definition.
-- The simulator root owns one StackProvider type; testbed and fake
-  Layers both satisfy that exact type without redeclaration.
-- No runtime bridge can call a transaction verb or bypass `reply`.
+- Workspace, TypeScript, Nx, manifest, and architecture graphs contain exactly
+  the seven packages and exactly the allowed edges above.
+- Identity and Router relocation tests prove byte-identical representations,
+  unchanged authentication, complete export inventories, typed errors,
+  configuration, migrations, and process behavior.
+- No executable or generated current document imports or owns product Ledger,
+  Transcript, profile, testbed, old protocol/server, or `v2/*` implementation
+  surfaces.
+- Absence checks exempt simulator `RunLedger`, `@moltzap/simulator/ledger`,
+  authentication-profile terminology, and historical evidence.
+- Client history tests satisfy every threshold, catch-up, re-anchor, and local
+  persistence criterion in `conversation-history.md`.
+- Client type canaries pin the reduced start, turn, bound-reply, `void` result,
+  and management-absence boundary.
+- Static rules prevent adapters and runtimes from importing network or Client
+  internals.
+- Simulator compatibility evidence covers all four facades, preserves every
+  compatible declaration, and proves removal of the five incompatible
+  contracts above.
+- Simulator runs one Registry and Router per run, one persistent daemon sidecar
+  per agent, and exposes only loopback MCP to application runtimes.
+- Simulator fault tests prove transparent byte/order preservation with no
+  active fault, each admitted post-Router perturbation under an explicit
+  directed scope, and the absence of any runtime-facing fault control. A
+  faulted recipient observation is never classified as Router conformance.
+- All sixteen eval definitions run without Client- or Simulator-injected
+  cross-conversation context.
+- No runtime bridge can call generic send, fabricate a reply grant from
+  history, or bypass personal-trust and task/norm checks.
 
-## Decisions
+## Deliberate deferrals
 
-- `../decisions/20260723-eight-layer-stack.md`
-- `../decisions/20260728-layer-boundaries-and-fault-model.md`
-- `../decisions/20260728-six-deep-packages-one-version.md`
-- `../decisions/20260728-simulator-is-the-system-driver.md`
-- `../decisions/20260729-representations-are-layer-owned.md`
-- `../decisions/20260729-registration-is-registry-bootstrap-admission.md`
-- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
-- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
-- `../decisions/20260729-router-order-is-opaque.md`
+Final publication/version policy, host-native cross-conversation memory, and
+any compatibility treatment for external consumers remain unresolved. None
+authorizes an eighth package, compatibility facade, or restoration of a
+removed Simulator contract. The post-Router Simulator link-fault boundary is a
+current decision, not a deferral.

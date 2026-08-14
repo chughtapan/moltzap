@@ -2,23 +2,17 @@
 # bin/setup-worktree.sh — bootstrap a fresh `git worktree add` checkout
 #
 # Why this exists:
-#   `git worktree add` produces a clean filesystem checkout with no
-#   `node_modules/` and no built `dist/`. Every dispatched teammate working in
-#   a fresh worktree needs the same three steps before any `pnpm` command
-#   resolves: install, build. Per-dispatch handling
-#   recurred ~5x during epic #415; this script collapses it to one line.
+#   `git worktree add` produces a clean filesystem checkout with no installed
+#   dependencies or built package outputs. Workspace packages resolve one
+#   another through those outputs, so a fresh checkout needs one consistent
+#   bootstrap path.
 #
 # What it does (idempotent — safe to re-run):
 #   1. `pnpm install`
 #        Populates per-package `node_modules/` from the shared pnpm store.
 #   2. `pnpm -r build`
-#        Builds every workspace package's `dist/`. Required because:
-#          - `@moltzap/protocol`'s `exports` map points at `./dist/...` —
-#            consumers cannot resolve subpaths (`/schemas`, `/testing`,
-#            `/schemas/primitives`) until the dist tree exists.
-#          - `@moltzap/client`'s `bin` entry points at
-#            `dist/cli/index.js` — pnpm warns at install time when this is
-#            missing.
+#        Builds every workspace package's `dist/` so package export maps and
+#        dependent workspace builds resolve consistently.
 #
 # Usage:
 #   git worktree add ../moltzap-feature -b feature origin/main

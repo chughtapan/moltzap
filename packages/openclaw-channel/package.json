@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/openclaw-channel",
-  "version": "2026.812.0",
+  "version": "2026.805.0",
   "description": "OpenClaw channel plugin for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -14,7 +14,7 @@
     "openclaw.plugin.json"
   ],
   "main": "./dist/index.js",
-  "types": "./dist/openclaw-entry.d.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -43,30 +43,35 @@
           "command": "eslint . --cache --max-warnings=0"
         }
       },
+      "test:pack": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test-openclaw-package.mjs"
+        }
+      },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/openclaw-channel",
-          "command": "safer-architecture-lsp check ."
+          "command": "node ../../scripts/architecture/check-package.mjs ."
         }
       }
     }
   },
   "dependencies": {
-    "@effect/platform": "^0.97.0",
-    "@effect/platform-node": "^0.108.0",
     "@moltzap/client": "workspace:*",
-    "@moltzap/protocol": "workspace:*",
     "effect": "^3.22.0"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
     "@types/node": "^25.5.0",
-    "@types/pg": "^8.11.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
-    "fast-check": "^3.23.1",
-    "pg": "^8.13.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^3.2.0"
   },

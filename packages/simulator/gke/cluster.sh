@@ -98,7 +98,7 @@ read_json_field() {
 publish_controller_image() {
   local repository built tag
   repository="$(terraform_output controller_repository)/controller"
-  built="$(node "$simulator_root/scripts/build-controller-image.mjs" \
+  built="$(node "$workspace_root/scripts/simulator/build-controller-image.mjs" \
     --repository "$repository" | tail -1)"
   tag="$(printf '%s' "$built" | read_json_field image)"
   docker push "$tag" >/dev/null
@@ -201,7 +201,7 @@ case "$command" in
     # disagree about which cluster is being measured. MOLTZAP_NANOCLAW_IMAGE is
     # deliberately absent: it is the runtime under evaluation rather than this
     # cluster's infrastructure, so the caller's own value passes straight
-    # through. `scripts/build-nanoclaw-image.mjs` prints one.
+    # through.
     export MOLTZAP_KUBE_CONTEXT="$(kubectl config current-context)"
     export MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform_output artifact_bucket_name)"
     export MOLTZAP_TEMPORAL_ADDRESS="localhost:${forward_port}"

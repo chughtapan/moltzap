@@ -1,76 +1,147 @@
 #!/usr/bin/env node
-/** @file One-container entry point for an autonomous evaluation peer. */
+/** @file Container entry point for one public-Client evaluation peer. */
 
-import { FileSystem } from "@effect/platform";
-import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { MoltZapAgentClient } from "@moltzap/protocol/socket";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This container-private one-route readiness bridge needs a raw bound port, while the controller consumes it through Effect HttpClient.
-import { createServer, type Server } from "node:http";
-import { Effect, Schema } from "effect";
+import { NodeRuntime } from "@effect/platform-node";
 import {
+  acquireHarnessClient,
+  AgentName,
+  type HarnessClient,
+} from "@moltzap/client";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This private two-route readiness bridge owns a raw bound port while the controller uses the Effect HTTP client.
+import { createServer, type Server } from "node:http";
+import { Config, Deferred, Effect, Schema, type Scope } from "effect";
+import {
+  EVALUATION_PEER_AGENT_NAME_ENVIRONMENT,
   EVALUATION_PEER_BRIDGE_PORT,
-  EVALUATION_PEER_READY_MARKER,
-  EvaluationPeerBootstrap,
   EvaluationPeerBridgeCompleted,
   EvaluationPeerBridgeFailed,
   EvaluationPeerBridgeResult,
+  EvaluationPeerFailed,
+  EvaluationPeerPlan,
+  EVALUATION_PEER_PLAN_ENVIRONMENT,
+  EVALUATION_PEER_READY_MARKER,
   runEvaluationPeerApplication,
 } from "./peer.js";
 
-const decodeBootstrap = Schema.decodeUnknown(
-  Schema.parseJson(EvaluationPeerBootstrap),
-);
-const encodeBridgeResult = Schema.encode(
-  Schema.parseJson(EvaluationPeerBridgeResult),
-);
-
-/** The peer entrypoint could not establish its run-scoped process boundary. */
+/** The peer process could not establish its configuration or bridge. */
 class EvaluationPeerApplicationStartupFailed extends Schema.TaggedError<EvaluationPeerApplicationStartupFailed>()(
   "EvaluationPeerApplicationStartupFailed",
   { detail: Schema.NonEmptyString },
 ) {}
 
+interface ApplicationConfiguration {
+  readonly agentName: typeof AgentName.Type;
+  readonly endpoint: URL;
+  readonly plan: EvaluationPeerPlan;
+}
+
 interface BridgeState {
+  readonly begin: () => boolean;
+  readonly publish: (value: string) => void;
   readonly read: () => string | undefined;
-  readonly publish: (result: string) => Effect.Effect<void>;
+  readonly triggered: Deferred.Deferred<void>;
 }
 
-function bridgeState(): BridgeState {
-  let current: string | undefined;
-  return Object.freeze({
-    read: () => current,
-    publish: (result: string) =>
-      Effect.sync(() => {
-        current = result;
-      }),
-  });
-}
-
-function serveResult(state: BridgeState): Server {
-  return createServer((request, response) => {
-    if (request.method !== "GET" || request.url !== "/result") {
-      response.writeHead(404).end();
-      return;
-    }
-    const result = state.read();
-    if (result === undefined) {
-      response.writeHead(204).end();
-      return;
-    }
-    response
-      .writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
-        "content-length": Buffer.byteLength(result),
-      })
-      .end(result);
-  });
-}
-
-function startupFailure(cause: unknown) {
-  const detail = String(cause).trim();
+function startupFailure(
+  cause: unknown,
+): EvaluationPeerApplicationStartupFailed {
+  const rendered = cause instanceof Error ? cause.message : String(cause);
   return EvaluationPeerApplicationStartupFailed.make({
-    detail: detail.length > 0 ? detail : "peer application startup failed",
+    detail:
+      rendered.trim().length > 0
+        ? rendered.trim()
+        : "evaluation peer application startup failed",
+  });
+}
+
+function peerFailure(
+  operation: EvaluationPeerFailed["operation"],
+  cause: unknown,
+): EvaluationPeerFailed {
+  const rendered = cause instanceof Error ? cause.message : String(cause);
+  return EvaluationPeerFailed.make({
+    operation,
+    detail:
+      rendered.trim().length > 0
+        ? rendered.trim()
+        : "evaluation peer operation failed",
+  });
+}
+
+function readConfiguration(): Effect.Effect<
+  ApplicationConfiguration,
+  EvaluationPeerApplicationStartupFailed
+> {
+  return Effect.gen(function* () {
+    const raw = yield* Config.all({
+      agentName: Config.string(EVALUATION_PEER_AGENT_NAME_ENVIRONMENT),
+      endpoint: Config.string("MOLTZAP_MCP_URL"),
+      plan: Config.string(EVALUATION_PEER_PLAN_ENVIRONMENT),
+    }).pipe(Effect.mapError(startupFailure));
+    const [agentName, plan, endpoint] = yield* Effect.all([
+      Schema.decodeUnknown(AgentName)(raw.agentName),
+      Schema.decodeUnknown(Schema.parseJson(EvaluationPeerPlan))(raw.plan, {
+        onExcessProperty: "error",
+      }),
+      Effect.try({
+        try: () => new URL(raw.endpoint),
+        catch: startupFailure,
+      }),
+    ] as const).pipe(Effect.mapError(startupFailure));
+    return Object.freeze({ agentName, endpoint, plan });
+  });
+}
+
+function makeBridgeState(): Effect.Effect<BridgeState> {
+  return Deferred.make<void>().pipe(
+    Effect.map((triggered) => {
+      let started = false;
+      let result: string | undefined;
+      return Object.freeze({
+        begin: () => {
+          if (started) {
+            return false;
+          }
+          started = true;
+          Effect.runFork(Deferred.succeed(triggered, undefined));
+          return true;
+        },
+        publish: (value: string) => {
+          result = value;
+        },
+        read: () => result,
+        triggered,
+      });
+    }),
+  );
+}
+
+function writeJson(response: import("node:http").ServerResponse, body: string) {
+  response
+    .writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "content-length": Buffer.byteLength(body),
+    })
+    .end(body);
+}
+
+function serveBridge(state: BridgeState): Server {
+  return createServer((request, response) => {
+    if (request.method === "POST" && request.url === "/run") {
+      state.begin();
+      response.writeHead(202).end();
+      return;
+    }
+    if (request.method === "GET" && request.url === "/result") {
+      const result = state.read();
+      if (result === undefined) {
+        response.writeHead(204).end();
+      } else {
+        writeJson(response, result);
+      }
+      return;
+    }
+    response.writeHead(404).end();
   });
 }
 
@@ -79,7 +150,7 @@ function listen(
 ): Effect.Effect<Server, EvaluationPeerApplicationStartupFailed> {
   return Effect.async<Server, EvaluationPeerApplicationStartupFailed>(
     (resume) => {
-      const server = serveResult(state);
+      const server = serveBridge(state);
       const failed = (cause: Error) => {
         resume(Effect.fail(startupFailure(cause)));
       };
@@ -96,38 +167,13 @@ function listen(
 }
 
 function close(server: Server): Effect.Effect<void> {
-  return Effect.async<undefined>((resume) => {
-    server.close(() => {
-      resume(Effect.succeed(undefined));
-    });
-  }).pipe(Effect.asVoid);
+  return Effect.async<void>((resume) => {
+    server.close(() => resume(Effect.void));
+  });
 }
 
 function bridgeServer(state: BridgeState) {
   return Effect.acquireRelease(listen(state), close);
-}
-
-function bootstrapPath(
-  args: readonly string[],
-): Effect.Effect<string, EvaluationPeerApplicationStartupFailed> {
-  const [path] = args;
-  return args.length === 1 && path !== undefined && path.startsWith("/")
-    ? Effect.succeed(path)
-    : Effect.fail(
-        EvaluationPeerApplicationStartupFailed.make({
-          detail:
-            "evaluation peer expects one absolute bootstrap configuration path",
-        }),
-      );
-}
-
-function readBootstrap(path: string) {
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) => fileSystem.readFileString(path)),
-    Effect.flatMap((source) =>
-      decodeBootstrap(source, { onExcessProperty: "error" }),
-    ),
-  );
 }
 
 function announceReady(): Effect.Effect<void> {
@@ -136,40 +182,48 @@ function announceReady(): Effect.Effect<void> {
   });
 }
 
+function encodeResult(
+  result: EvaluationPeerBridgeCompleted | EvaluationPeerBridgeFailed,
+): Effect.Effect<string, EvaluationPeerApplicationStartupFailed> {
+  return Effect.try({
+    try: () =>
+      Schema.encodeSync(Schema.parseJson(EvaluationPeerBridgeResult))(result),
+    catch: startupFailure,
+  });
+}
+
+function acquireClient(
+  endpoint: URL,
+): Effect.Effect<HarnessClient, EvaluationPeerFailed, Scope.Scope> {
+  return acquireHarnessClient(endpoint).pipe(
+    Effect.mapError((cause) => peerFailure("connect", cause)),
+  );
+}
+
 function publishApplicationResult(
   state: BridgeState,
   result: EvaluationPeerBridgeCompleted | EvaluationPeerBridgeFailed,
 ) {
-  return encodeBridgeResult(result).pipe(
-    Effect.flatMap((encoded) => state.publish(encoded)),
+  return encodeResult(result).pipe(
+    Effect.tap((encoded) => Effect.sync(() => state.publish(encoded))),
+    Effect.asVoid,
   );
 }
 
-function runApplication(args: readonly string[]) {
+function runApplication() {
   return Effect.gen(function* () {
-    const path = yield* bootstrapPath(args);
-    const configuration = yield* readBootstrap(path);
-    const state = bridgeState();
+    const configuration = yield* readConfiguration();
+    const state = yield* makeBridgeState();
     yield* bridgeServer(state);
-    const client = new MoltZapAgentClient({
-      serverUrl: configuration.serverUrl,
-      agentKey: configuration.agentKey,
-    });
-    const messages = yield* client.subscribeScoped(
-      messageReceivedNotificationDefinition,
-    );
-    yield* Effect.addFinalizer(() => client.close());
-    yield* client.connect();
+    if (configuration.plan._tag === "moltzap.eval-peer-idle/v1") {
+      yield* announceReady();
+      return yield* Effect.never;
+    }
+    const client = yield* acquireClient(configuration.endpoint);
     yield* announceReady();
+    yield* state.triggered;
     yield* runEvaluationPeerApplication(
-      {
-        agent: Object.freeze({
-          name: configuration.agentName,
-          id: configuration.agentId,
-        }),
-        messages,
-        client,
-      },
+      { agentName: configuration.agentName, client },
       configuration.plan,
     ).pipe(
       Effect.matchEffect({
@@ -186,8 +240,7 @@ function runApplication(args: readonly string[]) {
       }),
     );
     return yield* Effect.never;
-  }).pipe(Effect.scoped, Effect.provide(NodeContext.layer));
+  }).pipe(Effect.scoped);
 }
 
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The executable boundary captures argv once before entering Effect.
-runApplication(process.argv.slice(2)).pipe(NodeRuntime.runMain);
+runApplication().pipe(NodeRuntime.runMain);

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "src/index.ts",
+    "src/network/index.ts",
+    "src/ledger/index.ts",
+    "src/agents/index.ts"
+  ]
+}
