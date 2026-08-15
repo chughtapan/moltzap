@@ -57,16 +57,6 @@ Builds the JSON Schema embedded into the OpenClaw manifest.
 
 **Returns:** The generated OpenClaw channel configuration schema.
 
-### [`MoltZapAccount`](./openclaw-entry.ts#L46)
-
-_TypeAlias_
-
-```ts
-export type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
-```
-
-One OpenClaw account bound to the process-local MCP endpoint.
-
 ### [`moltzapChannelPlugin`](./openclaw-entry.ts#L224)
 
 _Variable_
@@ -104,22 +94,6 @@ export interface MoltzapChannelPluginDeps {
 ```
 
 Test injection point for a structural HarnessClient.
-
-### [`OpenClawConfig`](./openclaw-entry.ts#L53)
-
-_Interface_
-
-```ts
-export interface OpenClawConfig {
-  readonly channels?: {
-    readonly moltzap?: {
-      readonly accounts?: readonly MoltZapAccount[];
-    };
-  };
-}
-```
-
-OpenClaw configuration read by the channel plugin.
 
 ### [`OpenClawReplyDispatcher`](./openclaw-entry.ts#L62)
 
