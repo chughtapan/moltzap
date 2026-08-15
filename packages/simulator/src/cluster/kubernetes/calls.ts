@@ -27,6 +27,7 @@ import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import { ClusterError, clusterError } from "../cluster.js";
 import {
   CONTROLLER_NAME,
+  type KubernetesManifest,
   type OwnedRunControlManifests,
   RUN_WORKER_NAME,
   runNamespaceManifest,
@@ -364,7 +365,7 @@ export type SandboxObservation = typeof sandboxObservation.Type;
 export type PodObservation = typeof podObservation.Type;
 
 /** Private manifest shape submitted through the custom-object API. */
-export type KubernetesManifest = Readonly<Record<string, unknown>>;
+export type { KubernetesManifest };
 
 /** Exact cluster calls needed to bring up and observe one society. */
 export interface KubernetesSocietyApi {

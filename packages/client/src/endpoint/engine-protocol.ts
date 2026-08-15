@@ -5,26 +5,12 @@ import {
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
-import {
-  ActionBinding,
-  type ActionCertifiedRecord,
-  type CertifiedRecord,
-  ClientRepresentationError,
-  decodeCanonical,
-  encodeCanonical,
-  EvidenceStatement,
-  type EvidenceStatement as EvidenceStatementValue,
-  GenesisAnchor,
-  makeActionBinding,
-  memberCard,
-  Membership,
-  type StartProposal,
-  verifyActionCertifiedRecord,
-  verifyCertifiedRecord,
-  verifyOuterMessage,
-  verifyStableEvidence,
-  verifyStartProposal,
-} from "./representation.js";
+import type {
+  EngineActionFold,
+  EngineConversation,
+  EngineRuntime,
+} from "./engine-types.js";
+import type { EndpointStoreError } from "./store.js";
 import {
   adoptActionCertifiedRecord,
   completeActionRecord,
@@ -41,19 +27,48 @@ import {
   queueOuterEvidence,
   signLocalAction,
 } from "./engine-start.js";
-import type { EngineActionFold, EngineRuntime } from "./engine-types.js";
-import type { DecodedOuterBody } from "./representation.js";
+import {
+  ActionBinding,
+  type ActionCertifiedRecord,
+  type CertifiedRecord,
+  ClientRepresentationError,
+  decodeCanonical,
+  type DecodedOuterBody,
+  encodeCanonical,
+  EvidenceStatement,
+  type EvidenceStatement as EvidenceStatementValue,
+  GenesisAnchor,
+  makeActionBinding,
+  memberCard,
+  Membership,
+  type StartProposal,
+  type VerifiedMembership,
+  verifyActionCertifiedRecord,
+  verifyCertifiedRecord,
+  verifyOuterMessage,
+  verifyStableEvidence,
+  verifyStartProposal,
+} from "./representation.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
 } from "./router-worker.js";
-import { EndpointStoreError } from "./store.js";
 
-const accepted = "accepted" as const;
-const ignored = "ignored" as const;
+const accepted: RouterIngressDisposition = "accepted";
+const ignored: RouterIngressDisposition = "ignored";
 const blocked = (): RouterWorkerPersistenceError =>
   new RouterWorkerPersistenceError();
+
+type DirectPacket = Extract<
+  DecodedOuterBody,
+  { readonly kind: "direct" }
+>["packet"];
+
+interface VerifiedIngressEvidence {
+  readonly message: SignedMessageValue;
+  readonly statement: EvidenceStatementValue;
+}
 
 const durableStoreFailure = (error: EndpointStoreError): boolean =>
   error.reason === "closed" ||
@@ -92,6 +107,100 @@ const foldForAction = (
     ? runtime.conversations.get(action.conversationId)
     : runtime.multicastFolds.get(action.beginDigest);
 
+const persistStartFoundation = (
+  runtime: EngineRuntime,
+  proposal: StartProposal,
+  membership: VerifiedMembership,
+  canonicalIntent: Uint8Array,
+) =>
+  Effect.gen(function* () {
+    yield* runtime.input.store.bindStartIntent({
+      conversationId: proposal.action.conversationId,
+      canonicalIntent,
+    });
+    yield* runtime.input.store.putConversationFoundation({
+      conversationId: proposal.action.conversationId,
+      membershipHash: membership.hash,
+      canonicalMembership: yield* encodeCanonical(
+        Membership,
+        membership.membership,
+      ),
+      anchorHash: proposal.action.anchorHash,
+      canonicalAnchor: yield* encodeCanonical(
+        GenesisAnchor,
+        proposal.genesisAnchor,
+      ),
+    });
+  });
+
+const newStartConversation = (
+  proposal: StartProposal,
+  membership: VerifiedMembership,
+  canonicalIntent: Uint8Array,
+): EngineConversation => ({
+  foldKind: "start",
+  conversationId: proposal.action.conversationId,
+  canonicalIntent,
+  membership,
+  genesisAnchor: proposal.genesisAnchor,
+  currentAnchor: proposal.genesisAnchor,
+  action: proposal.action,
+  actionSignatures: new Map(),
+  durabilityVotes: new Map(),
+  actionSignatureQueued: false,
+  durabilityVoteQueued: false,
+  certifiedBroadcastQueued: false,
+});
+
+const installStartConversation = (
+  runtime: EngineRuntime,
+  proposal: StartProposal,
+  membership: VerifiedMembership,
+  canonicalIntent: Uint8Array,
+): Effect.Effect<EngineConversation | undefined, ClientRepresentationError> => {
+  const retained = runtime.conversations.get(proposal.action.conversationId);
+  if (retained === undefined) {
+    const created = newStartConversation(proposal, membership, canonicalIntent);
+    runtime.conversations.set(proposal.action.conversationId, created);
+    return Effect.succeed(created);
+  }
+  return Effect.gen(function* () {
+    const retainedBinding = yield* makeActionBinding(retained.action);
+    const proposalBinding = yield* makeActionBinding(proposal.action);
+    return (yield* sameCanonical(
+      ActionBinding,
+      retainedBinding,
+      proposalBinding,
+    ))
+      ? retained
+      : undefined;
+  });
+};
+
+const enqueueStartSignature = (
+  runtime: EngineRuntime,
+  conversation: EngineConversation,
+): Effect.Effect<void, RouterWorkerPersistenceError> =>
+  Effect.gen(function* () {
+    const signature = yield* signLocalAction(runtime, conversation).pipe(
+      Effect.mapError(blocked),
+    );
+    yield* queueOuterEvidence(runtime, conversation, signature).pipe(
+      Effect.mapError(blocked),
+    );
+    yield* Effect.sync(() => {
+      conversation.actionSignatureQueued = true;
+    });
+  });
+
+const queueStartSignature = (
+  runtime: EngineRuntime,
+  conversation: EngineConversation,
+): Effect.Effect<void, RouterWorkerPersistenceError> =>
+  conversation.actionSignatureQueued
+    ? Effect.void
+    : enqueueStartSignature(runtime, conversation);
+
 const acceptStartProposal = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -114,60 +223,22 @@ const acceptStartProposal = (
       membership,
       proposal.action.content,
     );
-    yield* runtime.input.store.bindStartIntent({
-      conversationId: proposal.action.conversationId,
+    yield* persistStartFoundation(
+      runtime,
+      proposal,
+      membership,
       canonicalIntent,
-    });
-    yield* runtime.input.store.putConversationFoundation({
-      conversationId: proposal.action.conversationId,
-      membershipHash: membership.hash,
-      canonicalMembership: yield* encodeCanonical(
-        Membership,
-        membership.membership,
-      ),
-      anchorHash: proposal.action.anchorHash,
-      canonicalAnchor: yield* encodeCanonical(
-        GenesisAnchor,
-        proposal.genesisAnchor,
-      ),
-    });
-    let conversation = runtime.conversations.get(
-      proposal.action.conversationId,
+    );
+    const conversation = yield* installStartConversation(
+      runtime,
+      proposal,
+      membership,
+      canonicalIntent,
     );
     if (conversation === undefined) {
-      conversation = {
-        foldKind: "start",
-        conversationId: proposal.action.conversationId,
-        canonicalIntent,
-        membership,
-        genesisAnchor: proposal.genesisAnchor,
-        currentAnchor: proposal.genesisAnchor,
-        action: proposal.action,
-        actionSignatures: new Map(),
-        durabilityVotes: new Map(),
-        actionSignatureQueued: false,
-        durabilityVoteQueued: false,
-        certifiedBroadcastQueued: false,
-      };
-      runtime.conversations.set(proposal.action.conversationId, conversation);
-    } else if (
-      !(yield* sameCanonical(
-        ActionBinding,
-        yield* makeActionBinding(conversation.action),
-        yield* makeActionBinding(proposal.action),
-      ))
-    ) {
       return ignored;
     }
-    if (!conversation.actionSignatureQueued) {
-      const signature = yield* signLocalAction(runtime, conversation).pipe(
-        Effect.mapError(blocked),
-      );
-      yield* queueOuterEvidence(runtime, conversation, signature).pipe(
-        Effect.mapError(blocked),
-      );
-      conversation.actionSignatureQueued = true;
-    }
+    yield* queueStartSignature(runtime, conversation);
     yield* resumeActionFold(runtime, conversation);
     return accepted;
   }).pipe(
@@ -214,6 +285,17 @@ const acceptActionCertifiedRecord = (
   );
 };
 
+const retainCertifiedAction = (
+  runtime: EngineRuntime,
+  conversation: EngineActionFold,
+  certified: CertifiedRecord,
+): Effect.Effect<void> =>
+  Effect.sync(() => {
+    conversation.actionCertifiedRecord = certified.actionCertifiedRecord;
+    conversation.recordHash = certified.recordHash;
+    runtime.recordFolds.set(certified.recordHash, conversation);
+  });
+
 const acceptCertifiedRecord = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -249,9 +331,7 @@ const acceptCertifiedRecord = (
       certified.actionCertifiedRecord,
       certified.recordHash,
     );
-    conversation.actionCertifiedRecord = certified.actionCertifiedRecord;
-    conversation.recordHash = certified.recordHash;
-    runtime.recordFolds.set(certified.recordHash, conversation);
+    yield* retainCertifiedAction(runtime, conversation, certified);
     yield* retainCertifiedVotes(runtime, conversation, certified);
     yield* completeActionRecord(runtime, conversation, certified);
     return accepted;
@@ -343,6 +423,58 @@ const acceptDurabilityVote = (
     return accepted;
   }).pipe(Effect.catchTag("EndpointStoreError", closeStoreError));
 
+const verifyIngressEvidence = (
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  conversation: EngineActionFold,
+  message: SignedMessageValue,
+): Effect.Effect<VerifiedIngressEvidence, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    yield* verifyOuterMessage({
+      message: ingress.message,
+      membership: conversation.membership,
+    });
+    const representation = yield* Schema.encode(SignedMessage)(message).pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new ClientRepresentationError()),
+      ),
+    );
+    return yield* verifyStableEvidence({
+      representation,
+      membership: conversation.membership,
+    });
+  });
+
+const dispatchEvidence = (
+  runtime: EngineRuntime,
+  conversation: EngineActionFold,
+  verified: VerifiedIngressEvidence,
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> => {
+  switch (verified.statement.kind) {
+    case "action_signature":
+      return acceptActionSignature(
+        runtime,
+        conversation,
+        verified.message,
+        verified.statement,
+      );
+    case "durability_vote":
+      return acceptDurabilityVote(
+        runtime,
+        conversation,
+        verified.message,
+        verified.statement,
+      );
+    case "ack":
+    case "catch_up_attestation":
+    case "reanchor_vote":
+      return Effect.succeed(ignored);
+    default: {
+      const exhaustive: never = verified.statement;
+      return Effect.succeed(exhaustive);
+    }
+  }
+};
+
 const acceptEvidence = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -354,43 +486,10 @@ const acceptEvidence = (
       if (conversation === undefined) {
         return Effect.succeed(ignored);
       }
-      return Effect.gen(function* () {
-        yield* verifyOuterMessage({
-          message: ingress.message,
-          membership: conversation.membership,
-        });
-        const representation = yield* Schema.encode(SignedMessage)(
-          message,
-        ).pipe(Effect.mapError(() => new ClientRepresentationError()));
-        const verified = yield* verifyStableEvidence({
-          representation,
-          membership: conversation.membership,
-        });
-        switch (verified.statement.kind) {
-          case "action_signature":
-            return yield* acceptActionSignature(
-              runtime,
-              conversation,
-              verified.message,
-              verified.statement,
-            );
-          case "durability_vote":
-            return yield* acceptDurabilityVote(
-              runtime,
-              conversation,
-              verified.message,
-              verified.statement,
-            );
-          case "ack":
-          case "catch_up_attestation":
-          case "reanchor_vote":
-            return ignored;
-          default: {
-            const exhaustive: never = verified.statement;
-            return exhaustive;
-          }
-        }
-      }).pipe(
+      return verifyIngressEvidence(ingress, conversation, message).pipe(
+        Effect.flatMap((verified) =>
+          dispatchEvidence(runtime, conversation, verified),
+        ),
         Effect.catchTag("ClientRepresentationError", () =>
           Effect.succeed(ignored),
         ),
@@ -413,7 +512,49 @@ const routeEvidence = (
     Effect.catchTag("ClientRepresentationError", () => Effect.succeed(ignored)),
   );
 
-/** Apply one already outer-authenticated Router payload in order. */
+type IngressEffect = Effect.Effect<
+  RouterIngressDisposition,
+  RouterWorkerPersistenceError
+>;
+
+const routeCertifiedPacket = (
+  runtime: EngineRuntime,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  packet: DirectPacket,
+): IngressEffect | undefined => {
+  if (packet.kind === "start_proposal") {
+    return acceptStartProposal(runtime, ingress, packet);
+  }
+  if (packet.kind === "action_certified_record") {
+    return acceptActionCertifiedRecord(runtime, ingress, packet);
+  }
+  if (packet.kind === "certified_record") {
+    return acceptCertifiedRecord(runtime, ingress, packet);
+  }
+  return undefined;
+};
+
+const routeDirectPacket = (
+  runtime: EngineRuntime,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  packet: DirectPacket,
+): IngressEffect => {
+  const certified = routeCertifiedPacket(runtime, ingress, packet);
+  if (certified !== undefined) {
+    return certified;
+  }
+  if (packet.kind === "begin" || packet.kind === "multicast_proposal") {
+    return runtime.openFloor?.acceptIngress(ingress) ?? Effect.succeed(ignored);
+  }
+  return Effect.succeed(ignored);
+};
+
+/**
+ * Apply one already outer-authenticated Router payload in order.
+ * @param runtime Endpoint state and durable dependencies.
+ * @param ingress Outer-authenticated Router payload and ordering anchor.
+ * @returns The worker disposition after applying or ignoring the payload.
+ */
 export const acceptEngineIngress = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -421,41 +562,5 @@ export const acceptEngineIngress = (
   runtime.gate.withPermits(1)(
     ingress.payload.kind === "evidence"
       ? routeEvidence(runtime, ingress, ingress.payload.message)
-      : (() => {
-          switch (ingress.payload.packet.kind) {
-            case "start_proposal":
-              return acceptStartProposal(
-                runtime,
-                ingress,
-                ingress.payload.packet,
-              );
-            case "action_certified_record":
-              return acceptActionCertifiedRecord(
-                runtime,
-                ingress,
-                ingress.payload.packet,
-              );
-            case "certified_record":
-              return acceptCertifiedRecord(
-                runtime,
-                ingress,
-                ingress.payload.packet,
-              );
-            case "begin":
-            case "multicast_proposal":
-              return (
-                runtime.openFloor?.acceptIngress(ingress) ??
-                Effect.succeed(ignored)
-              );
-            case "catch_up_request":
-            case "catch_up_page":
-            case "catch_up_incomplete":
-            case "completed_reanchor":
-              return Effect.succeed(ignored);
-            default: {
-              const exhaustive: never = ingress.payload.packet;
-              return Effect.succeed(exhaustive);
-            }
-          }
-        })(),
+      : routeDirectPacket(runtime, ingress, ingress.payload.packet),
   );

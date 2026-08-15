@@ -13,7 +13,12 @@
         "scripts/docs/__tests__/*.test.ts"
       ],
       "project": ["*.mjs", "*.ts", "scripts/docs/**/*.ts"],
-      "ignoreDependencies": ["@mermaid-js/mermaid-cli", "puppeteer"]
+      "ignoreDependencies": [
+        "@effect/tsgo",
+        "@mermaid-js/mermaid-cli",
+        "oxlint",
+        "puppeteer"
+      ]
     },
     "packages/client": {
       "entry": [
@@ -41,6 +46,7 @@
       "entry": [
         "src/cli.ts",
         "src/execution.ts",
+        "src/peer-application.ts",
         "src/**/*.test.ts",
         "src/**/*.types-check.ts"
       ],
@@ -57,7 +63,11 @@
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"]
+      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"],
+      "ignoreDependencies": [
+        "@openclaw/gateway-protocol",
+        "@types/ws"
+      ]
     },
     "packages/identity": {
       "entry": [
@@ -79,5 +89,30 @@
       ],
       "project": ["src/**/*.ts", "*.mjs"]
     }
+  },
+  "ignoreIssues": {
+    "packages/client/src/endpoint/engine-reanchor.ts": ["exports"],
+    "packages/client/src/endpoint/engine-start.ts": ["exports", "types"],
+    "packages/client/src/endpoint/engine-types.ts": ["types"],
+    "packages/client/src/endpoint/engine.ts": ["exports", "types"],
+    "packages/client/src/endpoint/openfloor-types.ts": ["types"],
+    "packages/client/src/endpoint/openfloor.ts": ["types"],
+    "packages/client/src/endpoint/representation-canonical.ts": ["exports"],
+    "packages/client/src/endpoint/representation-codec.ts": ["exports"],
+    "packages/client/src/endpoint/representation-schemas.ts": ["exports"],
+    "packages/client/src/endpoint/representation-verification.ts": [
+      "exports"
+    ],
+    "packages/client/src/endpoint/representation.ts": ["exports", "types"],
+    "packages/client/src/endpoint/router-worker-types.ts": ["types"],
+    "packages/client/src/endpoint/router-worker.ts": ["exports", "types"],
+    "packages/client/src/endpoint/store.ts": ["types"],
+    "packages/client/src/endpoint/store/database/index.ts": [
+      "exports",
+      "types"
+    ],
+    "packages/client/src/endpoint/store/database/schema.ts": ["types"],
+    "packages/client/src/endpoint/store/rows/index.ts": ["exports"],
+    "packages/client/src/management-runtime.ts": ["exports"]
   }
 }

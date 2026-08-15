@@ -15,7 +15,8 @@ const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);
 const ROUTER_POLL_TIMEOUT = Duration.seconds(35);
 
-/** Production endpoint-daemon process surface. */
+// Production endpoint-daemon process surface.
+// eslint-disable-next-line @typescript-eslint/no-namespace -- The published server subpath intentionally merges its runtime values with the closed startup-error type.
 export namespace MoltZapDaemon {
   /** Closed daemon startup phase without configuration or platform detail. */
   export class StartupError extends Data.TaggedError(
@@ -50,6 +51,7 @@ export namespace MoltZapDaemon {
     );
     return yield* runDaemonRuntime({ store, bootstrap }).pipe(
       Effect.provide(networkContext),
+      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
       Effect.mapError((error) => new StartupError({ phase: error.phase })),
     );
   }).pipe(Effect.withSpan("MoltZapDaemon.layer"));

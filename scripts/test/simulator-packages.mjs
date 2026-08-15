@@ -25,10 +25,7 @@ const packageRoot = join(workspaceRoot, "packages", "simulator");
 const apiCensusPath = join(packageRoot, "api-census.json");
 const packedConsumerPath = join(
   workspaceRoot,
-  "scripts",
-  "test",
-  "fixtures",
-  "simulator-packed-consumer.ts",
+  "scripts/test/fixtures/simulator-packed-consumer.ts",
 );
 const workspacePackageRoots = Object.freeze({
   "@moltzap/client": join(workspaceRoot, "packages", "client"),

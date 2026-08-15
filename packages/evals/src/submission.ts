@@ -111,30 +111,6 @@ export interface SubmitEvaluationCellInput {
   readonly caseTimeoutMillis: number;
 }
 
-function literal(value: string): string {
-  return Schema.encodeSync(Schema.parseJson(Schema.String))(value);
-}
-
-function conditionExpression(input: SubmitEvaluationCellInput): string {
-  const shared = [
-    `startupTimeout: Duration.millis(${String(input.runtimeStartupTimeoutMillis)})`,
-    `modelId: ${literal(input.condition.modelId)}`,
-  ];
-  const execution = [
-    `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
-    `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
-  ];
-  // Total over the conditions that exist, so the generated module never has to
-  // carry a throw for a condition the caller could not have named.
-  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
-    "openclaw/v2": `openClawEvaluationCondition({ runtime: { ${shared.join(", ")} }, execution: { ${execution.join(", ")} } })`,
-    "nanoclaw/v2": `nanoclawEvaluationCondition({ runtime: { ${shared.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`,
-  };
-  // Indexing needs the plain spelling; the brand is not part of the key set.
-  const condition: EvaluationConditionName = input.condition.id;
-  return byCondition[condition];
-}
-
 /**
  * Render the only module source admitted by the evaluation submitter.
  * @param input Exact case, condition, image, and timeout bindings.
@@ -161,13 +137,6 @@ export function evaluationControllerModule(
     "});",
     "",
   ].join("\n");
-}
-
-function commandFailure(cause: unknown): EvaluationSubmissionFailed {
-  return EvaluationSubmissionFailed.make({
-    stage: "command",
-    detail: String(cause).trim() || "simulator submitter failed",
-  });
 }
 
 /**
@@ -248,4 +217,35 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
       return yield* decodeSubmissionOutput(output);
     }),
   ).pipe(Effect.withSpan("submitEvaluationCell"));
+}
+
+function conditionExpression(input: SubmitEvaluationCellInput): string {
+  const shared = [
+    `startupTimeout: Duration.millis(${String(input.runtimeStartupTimeoutMillis)})`,
+    `modelId: ${literal(input.condition.modelId)}`,
+  ];
+  const execution = [
+    `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
+    `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
+  ];
+  // Total over the conditions that exist, so the generated module never has to
+  // carry a throw for a condition the caller could not have named.
+  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
+    "openclaw/v2": `openClawEvaluationCondition({ runtime: { ${shared.join(", ")} }, execution: { ${execution.join(", ")} } })`,
+    "nanoclaw/v2": `nanoclawEvaluationCondition({ runtime: { ${shared.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`,
+  };
+  // Indexing needs the plain spelling; the brand is not part of the key set.
+  const condition: EvaluationConditionName = input.condition.id;
+  return byCondition[condition];
+}
+
+function literal(value: string): string {
+  return Schema.encodeSync(Schema.parseJson(Schema.String))(value);
+}
+
+function commandFailure(cause: unknown): EvaluationSubmissionFailed {
+  return EvaluationSubmissionFailed.make({
+    stage: "command",
+    detail: String(cause).trim() || "simulator submitter failed",
+  });
 }

@@ -1,6 +1,8 @@
 /** @file Scripted in-memory Router delivery for private multi-endpoint engine tests. */
 
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   AgentCard,
   AgentId,
@@ -10,21 +12,25 @@ import {
   Ed25519PublicKey,
   MOLTZAP_VERSION,
   PrincipalId,
-  type SignedMessage,
+  SignedMessage,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { PollCursor, RouterInstanceId } from "@moltzap/router";
 import canonicalize from "canonicalize";
-import { Deferred, Effect, Encoding, Redacted, Schema } from "effect";
+import {
+  Deferred,
+  Effect,
+  Encoding,
+  Redacted,
+  Schema,
+  type Scope,
+} from "effect";
 import {
   createHash,
   generateKeyPairSync,
   type KeyObject,
   sign as signBytes,
 } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { RouterWorkerIngress } from "../endpoint/router-worker.js";
 import { ConversationId, type StartInput } from "../contract.js";
 import {
@@ -44,6 +50,7 @@ interface ScriptedIdentity {
   readonly authority: AgentSigningAuthorityValue;
 }
 
+/** Deterministic endpoints and Router controls shared by multi-member tests. */
 export interface ScriptedEngineHarness {
   readonly conversationId: typeof ConversationId.Type;
   readonly identities: readonly ScriptedIdentity[];
@@ -80,8 +87,13 @@ const pollCursor = Schema.decodeUnknownSync(PollCursor)(
   `plc_eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIiwidHlwIjoiYXBwbGljYXRpb24vdm5kLm1vbHR6YXAucG9sbC1jdXJzb3IrandlIn0..${Encoding.encodeBase64Url(new Uint8Array(12).fill(21))}.${Encoding.encodeBase64Url(new Uint8Array(120).fill(22))}.${Encoding.encodeBase64Url(new Uint8Array(16).fill(23))}`,
 );
 
-const allIndexes = (length: number): readonly number[] =>
-  Array.from({ length }, (_, index) => index);
+const allIndexes = (length: number): readonly number[] => {
+  const indexes: number[] = [];
+  for (let index = 0; index < length; index += 1) {
+    indexes.push(index);
+  }
+  return indexes;
+};
 
 const at = <Value>(values: readonly Value[], index: number): Value => {
   const value = values[index];
@@ -150,7 +162,8 @@ const issueCard = (input: {
 
 /**
  * Decode the inner protocol kind without inspecting engine state.
- * @param message
+ * @param message Signed Router message emitted by the scripted endpoint.
+ * @returns An effect that yields the decoded protocol kind.
  */
 export const scriptedMessageKind = (
   message: SignedMessage,
@@ -166,13 +179,213 @@ export const scriptedMessageKind = (
     Effect.orDie,
   );
 
-/**
- * Acquire deterministic identities, stores, and engines behind one scripted Router.
- * @param memberCount
- */
-export const makeScriptedEngineHarness = (
+type IdentityLookupRequest = Readonly<
+  { agentName: typeof AgentName.Type } | { agentId: typeof AgentId.Type }
+>;
+
+interface EngineInputFixture {
+  readonly identities: readonly ScriptedIdentity[];
+  readonly stores: readonly EndpointStore[];
+  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
+  readonly outbound: SignedMessage[];
+  readonly outboundReady: Deferred.Deferred<undefined>;
+}
+
+const makeIdentities = (
   memberCount: number,
-): Effect.Effect<ScriptedEngineHarness, never, import("effect").Scope.Scope> =>
+  registryPrivateKey: KeyObject,
+  registrySignerPublicKey: typeof Ed25519PublicKey.Type,
+) =>
+  Effect.forEach(
+    allIndexes(memberCount),
+    (index) =>
+      Effect.gen(function* () {
+        const authority = yield* makeAuthority();
+        const card = yield* issueCard({
+          byte: index + 1,
+          authority,
+          registryPrivateKey,
+          registrySignerPublicKey,
+        });
+        return { card, authority } satisfies ScriptedIdentity;
+      }),
+    { concurrency: 1 },
+  );
+
+const makeStores = (memberCount: number) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    return yield* Effect.forEach(
+      allIndexes(memberCount),
+      (index) =>
+        fileSystem
+          .makeTempDirectoryScoped({
+            prefix: `moltzap-engine-${memberCount}-${index}-`,
+          })
+          .pipe(Effect.flatMap(openEndpointStore)),
+      { concurrency: 1 },
+    );
+  });
+
+const lookupIdentity = (
+  identities: readonly ScriptedIdentity[],
+  request: IdentityLookupRequest,
+): RegistryLookupResult => {
+  const found = identities.find(({ card }) =>
+    "agentName" in request
+      ? card.agentName === request.agentName
+      : card.agentId === request.agentId,
+  );
+  return found === undefined
+    ? { kind: "not_found" }
+    : { kind: "found", agentCard: found.card };
+};
+
+const makeEngineInputs = (
+  fixture: EngineInputFixture,
+): readonly EndpointEngineInput[] =>
+  fixture.identities.map(
+    (identity, index): EndpointEngineInput => ({
+      localAgentCard: identity.card,
+      signingAuthority: identity.authority,
+      registrySignerPublicKey: fixture.registrySignerPublicKey,
+      registry: {
+        lookup: (request) =>
+          Effect.succeed(lookupIdentity(fixture.identities, request)),
+      },
+      store: at(fixture.stores, index),
+      routerWorker: {
+        currentAnchor: Effect.succeed({ routerInstanceId, pollCursor }),
+        send: (message) =>
+          Effect.sync(() => {
+            fixture.outbound.push(message);
+          }).pipe(
+            Effect.zipRight(Deferred.succeed(fixture.outboundReady, undefined)),
+            Effect.asVoid,
+          ),
+      },
+    }),
+  );
+
+const makeDrain =
+  (
+    engines: readonly EndpointEngine[],
+    indexes: readonly number[],
+  ): ScriptedEngineHarness["drain"] =>
+  (endpointIndexes = indexes) =>
+    Effect.forEach(
+      endpointIndexes,
+      (index) => at(engines, index).drainOutbound,
+      { concurrency: 1, discard: true },
+    ).pipe(Effect.orDie);
+
+const decodeIngress = (
+  identities: readonly ScriptedIdentity[],
+  message: SignedMessage,
+) =>
+  Effect.gen(function* () {
+    const sender = identities.find(
+      ({ card }) => card.agentId === message.senderAgentId,
+    );
+    if (sender === undefined) {
+      return yield* Effect.die("unknown scripted sender");
+    }
+    const payload = yield* decodeOuterBody(message.body).pipe(Effect.orDie);
+    const verifiedMessage = yield* SignedMessage.verify({
+      signedMessage: message,
+      agentCard: sender.card,
+    }).pipe(Effect.orDie);
+    const ingress: RouterWorkerIngress<typeof payload> = {
+      message: verifiedMessage,
+      senderCard: sender.card,
+      payload,
+    };
+    return ingress;
+  });
+
+const deliverMessage = (
+  identities: readonly ScriptedIdentity[],
+  engines: readonly EndpointEngine[],
+  endpointIndexes: readonly number[],
+  message: SignedMessage,
+): Effect.Effect<void> =>
+  decodeIngress(identities, message).pipe(
+    Effect.flatMap((ingress) =>
+      Effect.forEach(
+        endpointIndexes,
+        (index) =>
+          at(engines, index).acceptRouterIngress(ingress).pipe(Effect.orDie),
+        { concurrency: 1, discard: true },
+      ),
+    ),
+  );
+
+const makeDeliver =
+  (
+    identities: readonly ScriptedIdentity[],
+    engines: readonly EndpointEngine[],
+    indexes: readonly number[],
+  ): ScriptedEngineHarness["deliver"] =>
+  (messages, options = {}) =>
+    Effect.forEach(
+      allIndexes(options.copies ?? 1),
+      () =>
+        Effect.forEach(
+          messages,
+          (message) =>
+            deliverMessage(
+              identities,
+              engines,
+              options.endpointIndexes ?? indexes,
+              message,
+            ),
+          { concurrency: 1, discard: true },
+        ),
+      { concurrency: 1, discard: true },
+    );
+
+const makePump =
+  (
+    takeOutbound: () => SignedMessage[],
+    deliver: ScriptedEngineHarness["deliver"],
+    drain: ScriptedEngineHarness["drain"],
+    indexes: readonly number[],
+  ): ScriptedEngineHarness["pump"] =>
+  (options = {}) =>
+    Effect.gen(function* () {
+      for (let round = 0; round < 32; round += 1) {
+        const batch = takeOutbound();
+        if (batch.length === 0) {
+          return;
+        }
+        yield* deliver(batch, options);
+        yield* drain(options.endpointIndexes ?? indexes);
+      }
+      return yield* Effect.die("scripted Router did not become idle");
+    });
+
+const makeStartInput =
+  (
+    identities: readonly ScriptedIdentity[],
+    conversationId: typeof ConversationId.Type,
+  ): ScriptedEngineHarness["startInput"] =>
+  (authorIndex, text) => {
+    const author = at(identities, authorIndex);
+    const peers = identities
+      .filter((identity) => identity !== author)
+      .map(({ card }) => card.agentName);
+    const first = peers[0];
+    if (first === undefined) {
+      throw new Error("scripted START requires a peer");
+    }
+    return {
+      conversationId,
+      peers: [first, ...peers.slice(1)],
+      content: [{ type: "text", text }],
+    };
+  };
+
+const makeHarness = (memberCount: number) =>
   Effect.gen(function* () {
     if (memberCount < 2 || memberCount > 32) {
       return yield* Effect.die(
@@ -183,148 +396,31 @@ export const makeScriptedEngineHarness = (
     const registrySignerPublicKey = yield* Schema.decodeUnknown(
       Ed25519PublicKey,
     )(registryKeys.publicKey.export({ format: "jwk" }));
-    const identities = yield* Effect.forEach(
-      allIndexes(memberCount),
-      (index) =>
-        Effect.gen(function* () {
-          const authority = yield* makeAuthority();
-          const card = yield* issueCard({
-            byte: index + 1,
-            authority,
-            registryPrivateKey: registryKeys.privateKey,
-            registrySignerPublicKey,
-          });
-          return { card, authority } satisfies ScriptedIdentity;
-        }),
-      { concurrency: 1 },
+    const identities = yield* makeIdentities(
+      memberCount,
+      registryKeys.privateKey,
+      registrySignerPublicKey,
     );
-    const stores = yield* Effect.forEach(
-      allIndexes(memberCount),
-      (index) =>
-        openEndpointStore(
-          mkdtempSync(
-            join(tmpdir(), `moltzap-engine-${memberCount}-${index}-`),
-          ),
-        ),
-      { concurrency: 1 },
-    );
+    const stores = yield* makeStores(memberCount);
     const outbound: SignedMessage[] = [];
-    const outboundReady = yield* Deferred.make<void>();
-    const inputs = identities.map(
-      (identity, index): EndpointEngineInput => ({
-        localAgentCard: identity.card,
-        signingAuthority: identity.authority,
-        registrySignerPublicKey,
-        registry: {
-          lookup: (
-            request: Readonly<
-              | { agentName: typeof AgentName.Type }
-              | { agentId: typeof AgentId.Type }
-            >,
-          ): Effect.Effect<RegistryLookupResult> => {
-            const found = identities.find(({ card }) =>
-              "agentName" in request
-                ? card.agentName === request.agentName
-                : card.agentId === request.agentId,
-            );
-            return Effect.succeed(
-              found === undefined
-                ? { kind: "not_found" as const }
-                : { kind: "found" as const, agentCard: found.card },
-            );
-          },
-        },
-        store: at(stores, index),
-        routerWorker: {
-          currentAnchor: Effect.succeed({ routerInstanceId, pollCursor }),
-          send: (message) =>
-            Effect.sync(() => {
-              outbound.push(message);
-            }).pipe(
-              Effect.zipRight(Deferred.succeed(outboundReady, undefined)),
-              Effect.asVoid,
-            ),
-        },
-      }),
-    );
+    const outboundReady = yield* Deferred.make<undefined>();
+    const inputs = makeEngineInputs({
+      identities,
+      stores,
+      registrySignerPublicKey,
+      outbound,
+      outboundReady,
+    });
     const engines = yield* Effect.forEach(inputs, makeEndpointEngine, {
       concurrency: 1,
     });
     const indexes = allIndexes(memberCount);
-    const drain = (endpointIndexes = indexes): Effect.Effect<void> =>
-      Effect.forEach(
-        endpointIndexes,
-        (index) => at(engines, index).drainOutbound,
-        { concurrency: 1, discard: true },
-      ).pipe(Effect.orDie);
-    const deliver: ScriptedEngineHarness["deliver"] = (
-      messages,
-      options = {},
-    ) =>
-      Effect.forEach(
-        Array.from({ length: options.copies ?? 1 }),
-        () =>
-          Effect.forEach(
-            messages,
-            (message) =>
-              Effect.gen(function* () {
-                const sender = identities.find(
-                  ({ card }) => card.agentId === message.senderAgentId,
-                );
-                if (sender === undefined) {
-                  return yield* Effect.die("unknown scripted sender");
-                }
-                const payload = yield* decodeOuterBody(message.body).pipe(
-                  Effect.orDie,
-                );
-                const ingress = {
-                  message,
-                  senderCard: sender.card,
-                  payload,
-                } as RouterWorkerIngress<typeof payload>;
-                yield* Effect.forEach(
-                  options.endpointIndexes ?? indexes,
-                  (index) =>
-                    at(engines, index)
-                      .acceptRouterIngress(ingress)
-                      .pipe(Effect.orDie),
-                  { concurrency: 1, discard: true },
-                );
-              }),
-            { concurrency: 1, discard: true },
-          ),
-        { concurrency: 1, discard: true },
-      );
+    const drain = makeDrain(engines, indexes);
+    const deliver = makeDeliver(identities, engines, indexes);
     const takeOutbound = (): SignedMessage[] => outbound.splice(0);
-    const pump: ScriptedEngineHarness["pump"] = (options = {}) =>
-      Effect.gen(function* () {
-        for (let round = 0; round < 32; round += 1) {
-          const batch = takeOutbound();
-          if (batch.length === 0) {
-            return;
-          }
-          yield* deliver(batch, options);
-          yield* drain(options.endpointIndexes ?? indexes);
-        }
-        return yield* Effect.die("scripted Router did not become idle");
-      });
     const conversationId = Schema.decodeUnknownSync(ConversationId)(
       `00000000-0000-4000-8000-${String(memberCount).padStart(12, "0")}`,
     );
-    const startInput = (authorIndex: number, text: string): StartInput => {
-      const peers = identities
-        .filter((_, index) => index !== authorIndex)
-        .map(({ card }) => card.agentName);
-      const first = peers[0];
-      if (first === undefined) {
-        throw new Error("scripted START requires a peer");
-      }
-      return {
-        conversationId,
-        peers: [first, ...peers.slice(1)],
-        content: [{ type: "text", text }],
-      };
-    };
     return {
       conversationId,
       identities,
@@ -332,10 +428,24 @@ export const makeScriptedEngineHarness = (
       stores,
       inputs,
       waitForOutbound: Deferred.await(outboundReady),
-      startInput,
+      startInput: makeStartInput(identities, conversationId),
       takeOutbound,
       drain,
       deliver,
-      pump,
-    };
-  }).pipe(Effect.orDie);
+      pump: makePump(takeOutbound, deliver, drain, indexes),
+    } satisfies ScriptedEngineHarness;
+  });
+
+/**
+ * Acquire deterministic identities, stores, and engines behind one scripted Router.
+ * @param memberCount Number of endpoints in the scripted membership.
+ * @returns A scoped effect that acquires the complete scripted harness.
+ */
+export const makeScriptedEngineHarness = (
+  memberCount: number,
+): Effect.Effect<ScriptedEngineHarness, never, Scope.Scope> =>
+  makeHarness(memberCount).pipe(
+    Effect.provide(NodeFileSystem.layer),
+    Effect.orDie,
+    Effect.withSpan("makeScriptedEngineHarness"),
+  );

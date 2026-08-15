@@ -109,8 +109,9 @@ export interface TranscriptIssue {
 
 /**
  * Build the refusal that keeps unusable evidence out of every report.
- * @param caseId
- * @param detail
+ * @param caseId Case whose evidence cannot be graded.
+ * @param detail Stable explanation of the evidence defect.
+ * @returns The typed refusal retained by the evaluation attempt.
  */
 export function refusal(
   caseId: EvaluationCaseId,
@@ -119,21 +120,11 @@ export function refusal(
   return GradingRefused.make({ caseId, detail });
 }
 
-function duplicate<Value>(values: readonly Value[]): Value | undefined {
-  const seen = new Set<Value>();
-  for (const value of values) {
-    if (seen.has(value)) {
-      return value;
-    }
-    seen.add(value);
-  }
-  return undefined;
-}
-
 /**
  * Normalize untrusted observed text into bounded transcript parts.
- * @param value
- * @param fallback
+ * @param value Observed text to retain when it is nonempty.
+ * @param fallback Text used when the observation is empty.
+ * @returns Nonempty bounded text parts suitable for a transcript item.
  */
 export function textParts(value: string, fallback: string): TranscriptParts {
   const normalized = value.trim().length > 0 ? value : fallback;
@@ -159,31 +150,209 @@ export function textParts(value: string, fallback: string): TranscriptParts {
     : [first, ...remaining];
 }
 
-function openClawOutputText(observation: OpenClawPrincipalFinalOutput): string {
-  const fragments = (observation.output.result?.payloads ?? []).flatMap(
-    (payload) => {
-      if (payload.isReasoning === true) {
-        return [];
-      }
-      const values: string[] = [];
-      if (payload.text !== undefined) {
-        values.push(payload.text);
-      }
-      if (payload.mediaUrl !== undefined) {
-        values.push(`[media: ${payload.mediaUrl}]`);
-      }
-      for (const mediaUrl of payload.mediaUrls ?? []) {
-        values.push(`[media: ${mediaUrl}]`);
-      }
-      return values;
-    },
+/**
+ * Report the first structural defect in a transcript.
+ * @param transcript Normalized transcript to inspect.
+ * @returns The first structural issue, or `undefined` when the transcript is valid.
+ */
+export function transcriptIssue(
+  transcript: EvaluationTranscript,
+): TranscriptIssue | undefined {
+  const repeatedItem = duplicate(
+    transcript.items.map((item) => item.evidenceId),
   );
-  if (fragments.length > 0) {
-    return fragments.join("\n");
+  if (repeatedItem !== undefined) {
+    return {
+      detail: `transcript repeats evidence ${repeatedItem}`,
+      evidenceId: repeatedItem,
+    };
   }
-  return observation.output instanceof OpenClawGatewayTimedOut
-    ? "[OpenClaw timed out without principal output]"
-    : "[OpenClaw completed without principal output]";
+  const repeatedSelection = duplicate(transcript.selectedEvidenceIds);
+  if (repeatedSelection !== undefined) {
+    return {
+      detail: `transcript repeats selected evidence ${repeatedSelection}`,
+      evidenceId: repeatedSelection,
+    };
+  }
+  for (const selectedId of transcript.selectedEvidenceIds) {
+    const issue = selectedTranscriptIssue(transcript, selectedId);
+    if (issue !== undefined) {
+      return issue;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Report why one criterion's citations fail to bind to transcript evidence.
+ * @param transcript Transcript that owns the available and selected evidence.
+ * @param criterion Criterion whose citations are inspected.
+ * @param citations Evidence identifiers returned for the criterion.
+ * @returns The first citation issue, or `undefined` when citations are valid.
+ */
+export function citationIssue(
+  transcript: EvaluationTranscript,
+  criterion: CriterionId,
+  citations: readonly EvaluationEvidenceId[],
+): TranscriptIssue | undefined {
+  if (citations.length === 0) {
+    return { detail: `criterion ${criterion} has no evidence citation` };
+  }
+  const repeated = duplicate(citations);
+  if (repeated !== undefined) {
+    return {
+      detail: `criterion ${criterion} repeats evidence citation ${repeated}`,
+      evidenceId: repeated,
+    };
+  }
+  const available = new Set(transcript.items.map((item) => item.evidenceId));
+  for (const citation of citations) {
+    if (!available.has(citation)) {
+      return {
+        detail: `criterion ${criterion} cites evidence outside the transcript`,
+        evidenceId: citation,
+      };
+    }
+  }
+  const selected = new Set(transcript.selectedEvidenceIds);
+  return citations.some((citation) => selected.has(citation))
+    ? undefined
+    : { detail: `criterion ${criterion} does not cite selected target output` };
+}
+
+function selectedEvidenceIssue(
+  evidence: EvaluationEvidence,
+  target: EvaluationTarget,
+): TranscriptIssue | undefined {
+  if (evidence.selectedEventIds.length === 0) {
+    return { detail: "the case selected no evidence for grading" };
+  }
+  const repeated = duplicate(evidence.selectedEventIds);
+  if (repeated !== undefined) {
+    return {
+      detail: `evidence ${repeated} was selected more than once`,
+      evidenceId: repeated,
+    };
+  }
+  for (const selectedId of evidence.selectedEventIds) {
+    const issue = selectedEvidenceItemIssue(evidence, target, selectedId);
+    if (issue !== undefined) {
+      return issue;
+    }
+  }
+  return undefined;
+}
+
+function duplicate<Value>(values: readonly Value[]): Value | undefined {
+  const seen = new Set<Value>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      return value;
+    }
+    seen.add(value);
+  }
+  return undefined;
+}
+
+function selectedEvidenceItemIssue(
+  evidence: EvaluationEvidence,
+  target: EvaluationTarget,
+  selectedId: EvaluationEvidenceId,
+): TranscriptIssue | undefined {
+  const gatewaySelection = evidence.gateway.find(
+    (item) => item.eventId === selectedId,
+  );
+  if (gatewaySelection !== undefined) {
+    return selectedGatewayIssue(selectedId, gatewaySelection, target);
+  }
+  const socialSelection = evidence.social.find(
+    (item) => item.eventId === selectedId,
+  );
+  return selectedSocialIssue(selectedId, target, socialSelection);
+}
+
+function selectedGatewayIssue(
+  selectedId: EvaluationEvidenceId,
+  selection: GatewayEvidence,
+  target: EvaluationTarget,
+): TranscriptIssue | undefined {
+  const isTargetOutput =
+    selection.observation instanceof OpenClawPrincipalFinalOutput &&
+    selection.observation.agentName === target.name;
+  return isTargetOutput
+    ? undefined
+    : {
+        detail: `selected evidence ${selectedId} is not correlated terminal output from the target`,
+        evidenceId: selectedId,
+      };
+}
+
+function selectedSocialIssue(
+  selectedId: EvaluationEvidenceId,
+  target: EvaluationTarget,
+  selection?: SocialEvidence,
+): TranscriptIssue | undefined {
+  if (selection?.observation instanceof SocialActionNotObserved) {
+    return undefined;
+  }
+  const isTargetInput =
+    selection?.observation instanceof SocialActionObserved &&
+    selection.observation.direction === "input" &&
+    selection.observation.authorName === target.name;
+  return isTargetInput
+    ? undefined
+    : {
+        detail: `selected evidence ${selectedId} is neither target output nor a bounded peer timeout`,
+        evidenceId: selectedId,
+      };
+}
+
+function selectedTranscriptIssue(
+  transcript: EvaluationTranscript,
+  selectedId: EvaluationEvidenceId,
+): TranscriptIssue | undefined {
+  const selected = transcript.items.find(
+    (item) => item.evidenceId === selectedId,
+  );
+  return selected !== undefined &&
+    isSelectedTranscriptItem(selected, transcript)
+    ? undefined
+    : {
+        detail: `selected evidence ${selectedId} is not target output`,
+        evidenceId: selectedId,
+      };
+}
+
+function isSelectedTranscriptItem(
+  selected:
+    | GatewayTranscriptItem
+    | SocialTranscriptItem
+    | PeerTimeoutTranscriptItem,
+  transcript: EvaluationTranscript,
+): boolean {
+  if (selected instanceof GatewayTranscriptItem) {
+    return (
+      selected.direction === "output" &&
+      selected.actorName === transcript.target.name
+    );
+  }
+  if (selected instanceof SocialTranscriptItem) {
+    return (
+      selected.direction === "input" &&
+      selected.actorName === transcript.target.name
+    );
+  }
+  return selected instanceof PeerTimeoutTranscriptItem;
+}
+
+function gatewayItem(item: GatewayEvidence): GatewayTranscriptItem {
+  return GatewayTranscriptItem.make({
+    evidenceId: item.eventId,
+    source: "gateway",
+    direction: isGatewayOutput(item.observation) ? "output" : "input",
+    actorName: item.observation.agentName,
+    parts: gatewayParts(item.observation),
+  });
 }
 
 function gatewayParts(
@@ -211,6 +380,33 @@ function gatewayParts(
     observation.output.text,
     "[NanoClaw returned an empty principal output frame]",
   );
+}
+
+function openClawOutputText(observation: OpenClawPrincipalFinalOutput): string {
+  const fragments = (observation.output.result?.payloads ?? []).flatMap(
+    (payload) => {
+      if (payload.isReasoning === true) {
+        return [];
+      }
+      const values: string[] = [];
+      if (payload.text !== undefined) {
+        values.push(payload.text);
+      }
+      if (payload.mediaUrl !== undefined) {
+        values.push(`[media: ${payload.mediaUrl}]`);
+      }
+      for (const mediaUrl of payload.mediaUrls ?? []) {
+        values.push(`[media: ${mediaUrl}]`);
+      }
+      return values;
+    },
+  );
+  if (fragments.length > 0) {
+    return fragments.join("\n");
+  }
+  return observation.output instanceof OpenClawGatewayTimedOut
+    ? "[OpenClaw timed out without principal output]"
+    : "[OpenClaw completed without principal output]";
 }
 
 function isGatewayOutput(
@@ -250,16 +446,6 @@ function targetFromGateway(
   return Effect.succeed(EvaluationTarget.make({ name }));
 }
 
-function gatewayItem(item: GatewayEvidence): GatewayTranscriptItem {
-  return GatewayTranscriptItem.make({
-    evidenceId: item.eventId,
-    source: "gateway",
-    direction: isGatewayOutput(item.observation) ? "output" : "input",
-    actorName: item.observation.agentName,
-    parts: gatewayParts(item.observation),
-  });
-}
-
 function socialItem(
   item: SocialEvidence,
   target: EvaluationTarget,
@@ -287,59 +473,6 @@ function socialItem(
       "[No social action observed]",
     ),
   });
-}
-
-function selectedEvidenceIssue(
-  evidence: EvaluationEvidence,
-  target: EvaluationTarget,
-): TranscriptIssue | undefined {
-  if (evidence.selectedEventIds.length === 0) {
-    return { detail: "the case selected no evidence for grading" };
-  }
-  const repeated = duplicate(evidence.selectedEventIds);
-  if (repeated !== undefined) {
-    return {
-      detail: `evidence ${repeated} was selected more than once`,
-      evidenceId: repeated,
-    };
-  }
-  for (const selectedId of evidence.selectedEventIds) {
-    const gatewaySelection = evidence.gateway.find(
-      (item) => item.eventId === selectedId,
-    );
-    if (gatewaySelection !== undefined) {
-      if (
-        !(
-          gatewaySelection.observation instanceof OpenClawPrincipalFinalOutput
-        ) ||
-        gatewaySelection.observation.agentName !== target.name
-      ) {
-        return {
-          detail: `selected evidence ${selectedId} is not correlated terminal output from the target`,
-          evidenceId: selectedId,
-        };
-      }
-      continue;
-    }
-    const socialSelection = evidence.social.find(
-      (item) => item.eventId === selectedId,
-    );
-    if (socialSelection?.observation instanceof SocialActionNotObserved) {
-      continue;
-    }
-    if (
-      socialSelection === undefined ||
-      !(socialSelection.observation instanceof SocialActionObserved) ||
-      socialSelection.observation.direction !== "input" ||
-      socialSelection.observation.authorName !== target.name
-    ) {
-      return {
-        detail: `selected evidence ${selectedId} is neither target output nor a bounded peer timeout`,
-        evidenceId: selectedId,
-      };
-    }
-  }
-  return undefined;
 }
 
 function transcriptFromEvidence(
@@ -403,54 +536,6 @@ export const transcriptFromLedger = Effect.fn("evals.transcriptFromLedger")(
   },
 );
 
-/**
- * Report the first structural defect in a transcript.
- * @param transcript
- */
-export function transcriptIssue(
-  transcript: EvaluationTranscript,
-): TranscriptIssue | undefined {
-  const repeatedItem = duplicate(
-    transcript.items.map((item) => item.evidenceId),
-  );
-  if (repeatedItem !== undefined) {
-    return {
-      detail: `transcript repeats evidence ${repeatedItem}`,
-      evidenceId: repeatedItem,
-    };
-  }
-  const repeatedSelection = duplicate(transcript.selectedEvidenceIds);
-  if (repeatedSelection !== undefined) {
-    return {
-      detail: `transcript repeats selected evidence ${repeatedSelection}`,
-      evidenceId: repeatedSelection,
-    };
-  }
-  for (const selectedId of transcript.selectedEvidenceIds) {
-    const selected = transcript.items.find(
-      (item) => item.evidenceId === selectedId,
-    );
-    if (
-      selected === undefined ||
-      (selected instanceof GatewayTranscriptItem &&
-        (selected.direction !== "output" ||
-          selected.actorName !== transcript.target.name)) ||
-      (selected instanceof SocialTranscriptItem &&
-        (selected.direction !== "input" ||
-          selected.actorName !== transcript.target.name)) ||
-      (!(selected instanceof GatewayTranscriptItem) &&
-        !(selected instanceof SocialTranscriptItem) &&
-        !(selected instanceof PeerTimeoutTranscriptItem))
-    ) {
-      return {
-        detail: `selected evidence ${selectedId} is not target output`,
-        evidenceId: selectedId,
-      };
-    }
-  }
-  return undefined;
-}
-
 /** Refuse a structurally defective transcript before anything scores it. */
 export const validateEvaluationTranscript = Effect.fn(
   "evals.validateEvaluationTranscript",
@@ -461,39 +546,3 @@ export const validateEvaluationTranscript = Effect.fn(
   }
   return transcript;
 });
-
-/**
- * Report why one criterion's citations fail to bind to transcript evidence.
- * @param transcript
- * @param criterion
- * @param citations
- */
-export function citationIssue(
-  transcript: EvaluationTranscript,
-  criterion: CriterionId,
-  citations: readonly EvaluationEvidenceId[],
-): TranscriptIssue | undefined {
-  if (citations.length === 0) {
-    return { detail: `criterion ${criterion} has no evidence citation` };
-  }
-  const repeated = duplicate(citations);
-  if (repeated !== undefined) {
-    return {
-      detail: `criterion ${criterion} repeats evidence citation ${repeated}`,
-      evidenceId: repeated,
-    };
-  }
-  const available = new Set(transcript.items.map((item) => item.evidenceId));
-  for (const citation of citations) {
-    if (!available.has(citation)) {
-      return {
-        detail: `criterion ${criterion} cites evidence outside the transcript`,
-        evidenceId: citation,
-      };
-    }
-  }
-  const selected = new Set(transcript.selectedEvidenceIds);
-  return citations.some((citation) => selected.has(citation))
-    ? undefined
-    : { detail: `criterion ${criterion} does not cite selected target output` };
-}

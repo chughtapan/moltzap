@@ -15,8 +15,8 @@ import {
   type RouterPollResult,
 } from "@moltzap/router";
 import { Effect, Ref, Schema, type Scope } from "effect";
-import { finishRouterRecovery } from "./router-worker-recovery.js";
 import { type DecodedOuterBody, decodeOuterBody } from "./representation.js";
+import { finishRouterRecovery } from "./router-worker-recovery.js";
 import {
   pollRouterTail,
   routerWorkerRetrySchedule,
@@ -43,18 +43,20 @@ import {
   type RouterWorkerVerifiedIngress,
 } from "./router-worker-types.js";
 
+/** Router-worker errors and retry constants used by endpoint composition. */
 export {
-  routerWorkerRetryAttempts,
-  routerWorkerRetryDelay,
   RouterWorkerAuthenticationError,
   RouterWorkerDiscontinuityError,
   RouterWorkerPayloadInvalidError,
   RouterWorkerPersistenceError,
   RouterWorkerProtocolError,
   RouterWorkerRecoveryError,
+  routerWorkerRetryAttempts,
+  routerWorkerRetryDelay,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
 } from "./router-worker-types.js";
+/** Router-worker protocol and capability types used by endpoint composition. */
 export type {
   RouterDiscontinuityReason,
   RouterIngressDisposition,
@@ -88,7 +90,9 @@ const seedPinnedCards = <Payload>(
     for (const card of input.pinnedSenderCards) {
       const representation = yield* Schema.encode(AgentCard)(card).pipe(
         Effect.map(JSON.stringify),
-        Effect.mapError(() => new RouterWorkerProtocolError()),
+        Effect.catchTag("ParseError", () =>
+          Effect.fail(new RouterWorkerProtocolError()),
+        ),
       );
       const retained = representations.get(card.agentId);
       if (retained !== undefined && retained !== representation) {
@@ -102,7 +106,9 @@ const seedPinnedCards = <Payload>(
       input.callerAgentCard,
     ).pipe(
       Effect.map(JSON.stringify),
-      Effect.mapError(() => new RouterWorkerProtocolError()),
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new RouterWorkerProtocolError()),
+      ),
     );
     if (local === undefined || local !== canonicalLocal) {
       return yield* Effect.fail(new RouterWorkerProtocolError());

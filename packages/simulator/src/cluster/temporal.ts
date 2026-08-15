@@ -37,27 +37,17 @@ import {
   type KubernetesExecutionProfile,
   LOCAL_KUBERNETES_EXECUTION_PROFILE,
 } from "./profile.js";
-import { makeKubernetesRunLifecycleOperations } from "./watch.js";
+import {
+  type ControllerObservation,
+  makeKubernetesRunLifecycleOperations,
+  type RunLifecycleOperations,
+} from "./watch.js";
 
 const WORKFLOW_TYPE = "runSocietyWorkflow";
 const DEFAULT_TEMPORAL_NAMESPACE = "default";
 
-/**
- * Coarse controller state observed by the host-side activity.
- *
- * `completed` is every controller that produced a decodable result, whether or
- * not the run inside it succeeded — the activity returns both the same way.
- */
-export type ControllerObservation =
-  | { readonly _tag: "running" }
-  | {
-      readonly _tag: "completed";
-      readonly result: RunControllerResult;
-    }
-  | {
-      readonly _tag: "failed";
-      readonly detail: string;
-    };
+/** Temporal-facing lifecycle contracts owned by cluster observation. */
+export type { ControllerObservation, RunLifecycleOperations };
 
 /** Process environment read by the in-cluster worker Deployment. */
 export type RunWorkerEnvironment = Readonly<Record<string, string | undefined>>;
@@ -87,23 +77,6 @@ export interface RunTemporalSocietyOptions {
 
 /** Liveness signal proving the worker still owns the controller attempt. */
 export type ControllerHeartbeat = () => void;
-
-/** Injectable host operations kept outside deterministic workflow code. */
-export interface RunLifecycleOperations {
-  readonly prepareRun: (
-    input: RunSocietyWorkflowInput,
-  ) => Effect.Effect<void, KubernetesCallFailed>;
-  readonly observeController: (
-    input: RunSocietyWorkflowInput,
-  ) => Effect.Effect<ControllerObservation, KubernetesCallFailed>;
-  readonly deleteRunNamespace: (
-    namespace: string,
-  ) => Effect.Effect<void, KubernetesCallFailed>;
-  readonly runNamespaceExists: (
-    namespace: string,
-  ) => Effect.Effect<boolean, KubernetesCallFailed>;
-  readonly waitBeforeObservation: () => Effect.Effect<void>;
-}
 
 /** Host operations plus the liveness signal one worker attempt owns. */
 export interface LifecycleOperationsService extends RunLifecycleOperations {

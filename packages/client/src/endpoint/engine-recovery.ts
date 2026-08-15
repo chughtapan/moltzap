@@ -3,6 +3,13 @@
 import { SignedMessage } from "@moltzap/identity";
 import { Deferred, Effect, Schema } from "effect";
 import type { ConversationId } from "../contract.js";
+import type {
+  EndpointEngineInput,
+  EngineActionFold,
+  EngineConversation,
+  EngineMulticastFold,
+} from "./engine-types.js";
+import type { EndpointRecovery, StoredAnchor } from "./store.js";
 import { sameCanonical } from "./engine-durability.js";
 import {
   ActionBinding,
@@ -23,18 +30,18 @@ import {
   verifyCompletedReanchor,
   verifyStableEvidence,
 } from "./representation.js";
-import type {
-  EndpointEngineInput,
-  EngineActionFold,
-  EngineConversation,
-  EngineMulticastFold,
-} from "./engine-types.js";
-import { EngineReplyError } from "./engine-types.js";
-import type { EndpointRecovery, StoredAnchor } from "./store.js";
 
 interface DecodedStagedRecord {
   readonly record: ActionCertifiedRecordValue;
   readonly recordHash: RecordHash;
+}
+
+interface RecoveredStartInputs {
+  readonly action: EngineConversation["action"];
+  readonly canonicalIntent: Uint8Array;
+  readonly genesis: StoredAnchor;
+  readonly membership: EngineConversation["membership"];
+  readonly position: EndpointRecovery["positions"][number];
 }
 
 /** All durable fold indexes reconstructed as one coherent snapshot. */
@@ -46,6 +53,20 @@ export interface RecoveredEngineState {
 
 const failure = (): ClientRepresentationError =>
   new ClientRepresentationError();
+
+const makeReplyCompletion = (): Effect.Effect<
+  EngineMulticastFold["completion"]
+> => Deferred.make();
+
+const requireRecovered = <Value>(
+  value?: Value,
+): Effect.Effect<Value, ClientRepresentationError> => {
+  if (value === undefined) {
+    return Effect.fail(failure());
+  }
+  const recovered: Value = value;
+  return Effect.succeed(recovered);
+};
 
 const startIntent = (
   recovery: EndpointRecovery,
@@ -116,24 +137,25 @@ const decodeStaged = (
       record,
       registrySignerPublicKey: input.registrySignerPublicKey,
     });
-    if (
-      record.action.conversationId !== staged.conversationId ||
-      record.action.membershipHash !== staged.membershipHash ||
-      record.action.anchorHash !== staged.anchorHash ||
-      verified.recordHash !== staged.recordHash ||
-      (record.action.previousRecordHash ?? undefined) !==
-        staged.previousRecordHash
-    ) {
+    const matchesStoredRecord = [
+      record.action.conversationId === staged.conversationId,
+      record.action.membershipHash === staged.membershipHash,
+      record.action.anchorHash === staged.anchorHash,
+      verified.recordHash === staged.recordHash,
+      (record.action.previousRecordHash ?? undefined) ===
+        staged.previousRecordHash,
+    ].every(Boolean);
+    if (!matchesStoredRecord) {
       return yield* Effect.fail(failure());
     }
     return { record, recordHash: verified.recordHash };
   });
 
-const makeConversation = (
+const recoverStartInputs = (
   input: EndpointEngineInput,
   recovery: EndpointRecovery,
   decoded: DecodedStagedRecord,
-): Effect.Effect<EngineConversation, ClientRepresentationError> =>
+): Effect.Effect<RecoveredStartInputs, ClientRepresentationError> =>
   Effect.gen(function* () {
     const action = decoded.record.action;
     if (action.kind !== "start_action") {
@@ -143,44 +165,59 @@ const makeConversation = (
       record: decoded.record,
       registrySignerPublicKey: input.registrySignerPublicKey,
     });
-    const intent = startIntent(recovery, action.conversationId);
-    const genesis = recovery.anchors.find(
-      (anchor) =>
-        anchor.conversationId === action.conversationId &&
-        anchor.previousAnchorHash === undefined,
+    const canonicalIntent = (yield* requireRecovered(
+      startIntent(recovery, action.conversationId),
+    )).canonicalIntent;
+    const genesis = yield* requireRecovered(
+      recovery.anchors.find(
+        (anchor) =>
+          anchor.conversationId === action.conversationId &&
+          anchor.previousAnchorHash === undefined,
+      ),
     );
-    const position = recovery.positions.find(
-      (candidate) => candidate.conversationId === action.conversationId,
+    const position = yield* requireRecovered(
+      recovery.positions.find(
+        (candidate) => candidate.conversationId === action.conversationId,
+      ),
     );
     if (
-      intent === undefined ||
-      genesis === undefined ||
-      position === undefined ||
       genesis.anchorHash !== action.anchorHash ||
       position.membershipHash !== verified.membership.hash
     ) {
       return yield* Effect.fail(failure());
     }
+    return {
+      action,
+      canonicalIntent,
+      genesis,
+      membership: verified.membership,
+      position,
+    };
+  });
+
+const makeConversation = (
+  input: EndpointEngineInput,
+  recovery: EndpointRecovery,
+  decoded: DecodedStagedRecord,
+): Effect.Effect<EngineConversation, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    const { action, canonicalIntent, genesis, membership, position } =
+      yield* recoverStartInputs(input, recovery, decoded);
     const genesisAnchor = yield* decodeAnchor(genesis, {
       conversationId: action.conversationId,
-      membership: verified.membership,
+      membership,
     });
     if (genesisAnchor.kind !== "genesis_anchor") {
       return yield* Effect.fail(failure());
     }
-    const current = storedAnchor(
-      recovery,
-      action.conversationId,
-      position.currentAnchorHash,
+    const current = yield* requireRecovered(
+      storedAnchor(recovery, action.conversationId, position.currentAnchorHash),
     );
-    if (current === undefined) {
-      return yield* Effect.fail(failure());
-    }
     const conversation: EngineConversation = {
       foldKind: "start",
       conversationId: action.conversationId,
-      canonicalIntent: intent.canonicalIntent,
-      membership: verified.membership,
+      canonicalIntent,
+      membership,
       genesisAnchor,
       currentAnchor: genesisAnchor,
       action,
@@ -231,18 +268,24 @@ const makeMulticastFold = (
       certifiedBroadcastQueued: false,
       actionCertifiedRecord: decoded.record,
       recordHash: decoded.recordHash,
-      completion: yield* Deferred.make<void, EngineReplyError>(),
+      completion: yield* makeReplyCompletion(),
     };
   });
 
 const evidenceMatchesFold = (
   fold: EngineActionFold,
   item: EndpointRecovery["evidence"][number],
-): boolean =>
-  item.conversationId === fold.conversationId &&
-  ((item.kind === "action" &&
-    item.subjectId === (fold.action.beginDigest ?? fold.action.anchorHash)) ||
-    (item.kind === "durability" && item.subjectId === fold.recordHash));
+): boolean => {
+  if (item.conversationId !== fold.conversationId) {
+    return false;
+  }
+  if (item.kind === "action") {
+    return (
+      item.subjectId === (fold.action.beginDigest ?? fold.action.anchorHash)
+    );
+  }
+  return item.kind === "durability" && item.subjectId === fold.recordHash;
+};
 
 const retainEvidence = (
   fold: EngineActionFold,
@@ -377,17 +420,15 @@ const projectDurableHeads = (
     { concurrency: 1, discard: true },
   );
 
-/** Recover every staged action fold and the exact durable current head. */
-export const recoverEngineState = (
+const recoverConversations = (
   input: EndpointEngineInput,
   recovery: EndpointRecovery,
-): Effect.Effect<RecoveredEngineState, ClientRepresentationError> =>
+  decoded: readonly DecodedStagedRecord[],
+): Effect.Effect<
+  Map<ConversationId, EngineConversation>,
+  ClientRepresentationError
+> =>
   Effect.gen(function* () {
-    const decoded = yield* Effect.forEach(
-      recovery.stagedRecords,
-      (staged) => decodeStaged(input, staged),
-      { concurrency: 1 },
-    );
     const conversations = new Map<ConversationId, EngineConversation>();
     for (const staged of decoded) {
       if (staged.record.action.kind !== "start_action") {
@@ -399,35 +440,77 @@ export const recoverEngineState = (
       }
       conversations.set(conversation.conversationId, conversation);
     }
+    return conversations;
+  });
+
+const retainRecoveredFold = (
+  recovery: EndpointRecovery,
+  state: RecoveredEngineState,
+  staged: DecodedStagedRecord,
+  fold: EngineActionFold,
+): Effect.Effect<void, ClientRepresentationError> => {
+  const conflicts =
+    state.recordFolds.has(staged.recordHash) ||
+    (fold.foldKind === "multicast" &&
+      state.multicastFolds.has(fold.beginDigest));
+  if (conflicts) {
+    return Effect.fail(failure());
+  }
+  state.recordFolds.set(staged.recordHash, fold);
+  if (fold.foldKind === "multicast") {
+    state.multicastFolds.set(fold.beginDigest, fold);
+  }
+  return hydrateEvidence(recovery, fold);
+};
+
+const recoverActionFolds = (
+  recovery: EndpointRecovery,
+  state: RecoveredEngineState,
+  decoded: readonly DecodedStagedRecord[],
+): Effect.Effect<void, ClientRepresentationError> =>
+  Effect.forEach(
+    decoded,
+    (staged) => {
+      const action = staged.record.action;
+      const conversation = state.conversations.get(action.conversationId);
+      if (conversation === undefined) {
+        return Effect.fail(failure());
+      }
+      return Effect.gen(function* () {
+        const fold: EngineActionFold =
+          action.kind === "start_action"
+            ? conversation
+            : yield* makeMulticastFold(recovery, conversation, staged);
+        yield* retainRecoveredFold(recovery, state, staged, fold);
+      });
+    },
+    { concurrency: 1, discard: true },
+  );
+
+/**
+ * Recover every staged action fold and the exact durable current head.
+ * @param input Endpoint cryptographic and durable dependencies.
+ * @param recovery Coherent durable snapshot to reconstruct.
+ * @returns Every reconstructed conversation, action fold, and record index.
+ */
+export const recoverEngineState = (
+  input: EndpointEngineInput,
+  recovery: EndpointRecovery,
+): Effect.Effect<RecoveredEngineState, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    const decoded = yield* Effect.forEach(
+      recovery.stagedRecords,
+      (staged) => decodeStaged(input, staged),
+      { concurrency: 1 },
+    );
+    const conversations = yield* recoverConversations(input, recovery, decoded);
     const state: RecoveredEngineState = {
       conversations,
       multicastFolds: new Map(),
       recordFolds: new Map(),
     };
-    for (const staged of decoded) {
-      const action = staged.record.action;
-      const conversation = conversations.get(action.conversationId);
-      if (conversation === undefined) {
-        return yield* Effect.fail(failure());
-      }
-      const fold: EngineActionFold =
-        action.kind === "start_action"
-          ? conversation
-          : yield* makeMulticastFold(recovery, conversation, staged);
-      if (
-        state.recordFolds.has(staged.recordHash) ||
-        (fold.foldKind === "multicast" &&
-          state.multicastFolds.has(fold.beginDigest))
-      ) {
-        return yield* Effect.fail(failure());
-      }
-      state.recordFolds.set(staged.recordHash, fold);
-      if (fold.foldKind === "multicast") {
-        state.multicastFolds.set(fold.beginDigest, fold);
-      }
-      yield* hydrateEvidence(recovery, fold);
-    }
+    yield* recoverActionFolds(recovery, state, decoded);
     yield* hydrateCertifiedRecords(input, recovery, state);
     yield* projectDurableHeads(recovery, state);
     return state;
-  });
+  }).pipe(Effect.withSpan("recoverEngineState"));

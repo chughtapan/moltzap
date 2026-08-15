@@ -6,10 +6,6 @@ import type {
   RunControllerResult,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
-import type {
-  ControllerObservation,
-  RunLifecycleOperations,
-} from "./temporal.js";
 import {
   type KubernetesExecutionProfile,
   LOCAL_KUBERNETES_EXECUTION_PROFILE,
@@ -36,6 +32,40 @@ const FETCHED_LOG_BYTES = RETAINED_DIAGNOSTIC_CHARACTERS * 2;
 const CONTROLLER_LOG_TAIL_LINES = 200;
 const SENSITIVE_LOG_LINE =
   /(authorization|bearer|token|secret|password|api[-_ ]?key|agent[-_ ]?key)/iu;
+
+/**
+ * Coarse controller state observed by the host-side activity.
+ *
+ * `completed` is every controller that produced a decodable result, whether or
+ * not the run inside it succeeded — the activity returns both the same way.
+ */
+export type ControllerObservation =
+  | { readonly _tag: "running" }
+  | {
+      readonly _tag: "completed";
+      readonly result: RunControllerResult;
+    }
+  | {
+      readonly _tag: "failed";
+      readonly detail: string;
+    };
+
+/** Injectable host operations kept outside deterministic workflow code. */
+export interface RunLifecycleOperations {
+  readonly prepareRun: (
+    input: RunSocietyWorkflowInput,
+  ) => Effect.Effect<void, KubernetesCallFailed>;
+  readonly observeController: (
+    input: RunSocietyWorkflowInput,
+  ) => Effect.Effect<ControllerObservation, KubernetesCallFailed>;
+  readonly deleteRunNamespace: (
+    namespace: string,
+  ) => Effect.Effect<void, KubernetesCallFailed>;
+  readonly runNamespaceExists: (
+    namespace: string,
+  ) => Effect.Effect<boolean, KubernetesCallFailed>;
+  readonly waitBeforeObservation: () => Effect.Effect<void>;
+}
 
 /**
  * Remove credentials and terminal controls before retaining controller output.

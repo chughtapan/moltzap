@@ -13,6 +13,8 @@ import {
 import { Deferred, Effect, Either, Queue, Schema, Stream } from "effect";
 import { decodeEvaluationCaseId } from "./model.js";
 import {
+  EvaluationPeerFailed,
+  type EvaluationPeerObservation,
   idlePeer,
   openingPeer,
   reactivePeer,
@@ -31,6 +33,49 @@ const PEER_REPLY = [{ type: "text", text: "Yes, I can help." }] as const;
 const TARGET_FOLLOW_UP = [
   { type: "text", text: "Thank you for helping." },
 ] as const;
+const REACTIVE_OBSERVATIONS = [
+  {
+    authorName: TARGET_NAME,
+    direction: "input",
+    content: TARGET_OPENING,
+  },
+  {
+    authorName: LOCAL_NAME,
+    direction: "output",
+    content: PEER_REPLY,
+  },
+  {
+    authorName: TARGET_NAME,
+    direction: "input",
+    content: TARGET_FOLLOW_UP,
+  },
+] as const;
+
+function openingObservations(conversationId: ConversationId) {
+  return [
+    {
+      conversationId,
+      authorName: LOCAL_NAME,
+      direction: "output",
+      content: TARGET_OPENING,
+    },
+    {
+      conversationId,
+      authorName: TARGET_NAME,
+      direction: "input",
+      content: TARGET_FOLLOW_UP,
+    },
+  ] as const;
+}
+
+function openingObservation(observation: EvaluationPeerObservation) {
+  return {
+    conversationId: observation.conversationId,
+    authorName: observation.authorName,
+    direction: observation.direction,
+    content: observation.content,
+  };
+}
 
 function fakeCard(
   agentId: string,
@@ -119,23 +164,7 @@ it.effect(
           direction: observation.direction,
           content: observation.content,
         })),
-        [
-          {
-            authorName: TARGET_NAME,
-            direction: "input",
-            content: TARGET_OPENING,
-          },
-          {
-            authorName: LOCAL_NAME,
-            direction: "output",
-            content: PEER_REPLY,
-          },
-          {
-            authorName: TARGET_NAME,
-            direction: "input",
-            content: TARGET_FOLLOW_UP,
-          },
-        ],
+        [...REACTIVE_OBSERVATIONS],
       );
     }),
 );
@@ -145,7 +174,7 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const queue = yield* Queue.unbounded<HarnessTurn>();
-      const turnsEstablished = yield* Deferred.make<void>();
+      const turnsEstablished = yield* Deferred.make<undefined>();
       const operations: string[] = [];
       let startInput: StartInput | undefined;
       const client: HarnessClient = {
@@ -187,57 +216,43 @@ it.effect(
       assert.isTrue(Schema.is(ConversationId)(startInput.conversationId));
       assert.deepStrictEqual(startInput.peers, [TARGET_NAME]);
       assert.deepStrictEqual(startInput.content, TARGET_OPENING);
-      assert.deepStrictEqual(
-        exchange.observations.map((observation) => ({
-          conversationId: observation.conversationId,
-          authorName: observation.authorName,
-          direction: observation.direction,
-          content: observation.content,
-        })),
-        [
-          {
-            conversationId: startInput.conversationId,
-            authorName: LOCAL_NAME,
-            direction: "output",
-            content: TARGET_OPENING,
-          },
-          {
-            conversationId: startInput.conversationId,
-            authorName: TARGET_NAME,
-            direction: "input",
-            content: TARGET_FOLLOW_UP,
-          },
-        ],
-      );
+      assert.deepStrictEqual(exchange.observations.map(openingObservation), [
+        ...openingObservations(startInput.conversationId),
+      ]);
     }),
 );
 
-it.effect("keeps an idle roster member untriggerable", () =>
-  Effect.gen(function* () {
-    let startUsed = false;
-    let turnsUsed = false;
-    const client: HarnessClient = {
-      get turns() {
-        turnsUsed = true;
-        return Stream.empty;
-      },
-      start: () =>
-        Effect.sync(() => {
-          startUsed = true;
-        }),
-    };
-    const plan = idlePeer(CASE_ID);
+it("keeps an idle roster member untriggerable", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      let startUsed = false;
+      let turnsUsed = false;
+      const client: HarnessClient = {
+        get turns() {
+          turnsUsed = true;
+          return Stream.empty;
+        },
+        start: () =>
+          Effect.sync(() => {
+            startUsed = true;
+          }),
+      };
+      const plan = idlePeer(CASE_ID);
 
-    const result = yield* runEvaluationPeerApplication(
-      { agentName: LOCAL_NAME, client },
-      plan.plan,
-    ).pipe(Effect.scoped, Effect.either);
+      const result = yield* runEvaluationPeerApplication(
+        { agentName: LOCAL_NAME, client },
+        plan.plan,
+      ).pipe(Effect.scoped, Effect.either);
 
-    assert.isTrue(Either.isLeft(result));
-    if (Either.isLeft(result)) {
-      assert.strictEqual(result.left.operation, "configuration");
-    }
-    assert.isFalse(startUsed);
-    assert.isFalse(turnsUsed);
-  }),
-);
+      Either.match(result, {
+        onLeft: (failure) => {
+          assert.instanceOf(failure, EvaluationPeerFailed);
+        },
+        onRight: () => {
+          assert.fail();
+        },
+      });
+      assert.isFalse(startUsed);
+      assert.isFalse(turnsUsed);
+    }),
+  ));

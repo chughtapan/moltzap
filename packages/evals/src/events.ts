@@ -191,9 +191,33 @@ interface EvidenceRecord {
   readonly event: unknown;
 }
 
-function projectionError(detail: string): EvaluationEvidenceProjectionError {
-  return EvaluationEvidenceProjectionError.make({ detail });
+interface EvidenceSelectionState {
+  readonly selectable: ReadonlySet<EvaluationEvidenceId>;
+  readonly positions: ReadonlyMap<EvaluationEvidenceId, number>;
+  readonly selected: Set<EvaluationEvidenceId>;
+  readonly ordered: EvaluationEvidenceId[];
 }
+
+/** Project exact native-gateway testimony in ledger order. */
+export const projectEvaluationEvidence = Effect.fn(
+  "evals.projectEvaluationEvidence",
+)(function* <Failure>(ledger: EvaluationEvidenceLedger<Failure>) {
+  const collected = yield* ledger.records.pipe(
+    Stream.mapEffect(decodeEvidenceRecord),
+    Stream.runCollect,
+  );
+  const records = Chunk.toReadonlyArray(collected);
+  const caseId = yield* evidenceCaseId(records);
+  const gateway = gatewayEvidence(records);
+  const social = socialEvidence(records);
+  const selected = yield* selectedEvidenceIds(records, gateway, social);
+  return EvaluationEvidence.make({
+    caseId,
+    gateway,
+    social,
+    selectedEventIds: selected,
+  });
+});
 
 function decodeEvidenceRecord(
   record: EvaluationEvidenceLedgerRecord,
@@ -209,35 +233,6 @@ function decodeEvidenceRecord(
       logicalSequence: record.logicalSequence,
       event: record.event,
     })),
-  );
-}
-
-function isGatewayObservation(event: unknown): event is GatewayObservation {
-  return (
-    event instanceof OpenClawPrincipalInstructionAttempted ||
-    event instanceof OpenClawPrincipalFinalOutput ||
-    event instanceof NanoClawPrincipalInputSent ||
-    event instanceof NanoClawPrincipalOutputReceived
-  );
-}
-
-function isSocialObservation(event: unknown): event is SocialObservation {
-  return (
-    event instanceof SocialActionObserved ||
-    event instanceof SocialActionNotObserved
-  );
-}
-
-function isCustomerEvent(
-  event: unknown,
-): event is
-  | GatewayObservation
-  | SocialObservation
-  | EvaluationEvidenceSelected {
-  return (
-    isGatewayObservation(event) ||
-    isSocialObservation(event) ||
-    event instanceof EvaluationEvidenceSelected
   );
 }
 
@@ -306,65 +301,88 @@ function selectedEvidenceIds(
   readonly EvaluationEvidenceId[],
   EvaluationEvidenceProjectionError
 > {
-  const selectable = new Set([
-    ...gateway.map((evidence) => evidence.eventId),
-    ...social.map((evidence) => evidence.eventId),
-  ]);
-  const positions = new Map(
-    records.map((record, position) => [record.eventId, position]),
-  );
-  const selected = new Set<EvaluationEvidenceId>();
-  const ordered: EvaluationEvidenceId[] = [];
+  const state: EvidenceSelectionState = {
+    selectable: new Set([
+      ...gateway.map((evidence) => evidence.eventId),
+      ...social.map((evidence) => evidence.eventId),
+    ]),
+    positions: new Map(
+      records.map((record, position) => [record.eventId, position]),
+    ),
+    selected: new Set<EvaluationEvidenceId>(),
+    ordered: [],
+  };
   return Effect.gen(function* () {
     for (const [position, record] of records.entries()) {
-      if (!(record.event instanceof EvaluationEvidenceSelected)) {
-        continue;
-      }
-      const target = record.event.selectedEventId;
-      const targetPosition = positions.get(target);
-      if (!selectable.has(target) || targetPosition === undefined) {
-        return yield* Effect.fail(
-          projectionError(
-            `selection ${record.eventId} references absent evidence ${target}`,
-          ),
-        );
-      }
-      if (targetPosition >= position) {
-        return yield* Effect.fail(
-          projectionError(
-            `selection ${record.eventId} references evidence ${target} before it was observed`,
-          ),
-        );
-      }
-      if (selected.has(target)) {
-        return yield* Effect.fail(
-          projectionError(`evidence ${target} was selected more than once`),
-        );
-      }
-      selected.add(target);
-      ordered.push(target);
+      yield* selectEvidenceRecord(position, record, state);
     }
-    return ordered;
+    return state.ordered;
   });
 }
 
-/** Project exact native-gateway testimony in ledger order. */
-export const projectEvaluationEvidence = Effect.fn(
-  "evals.projectEvaluationEvidence",
-)(function* <Failure>(ledger: EvaluationEvidenceLedger<Failure>) {
-  const collected = yield* ledger.records.pipe(
-    Stream.mapEffect(decodeEvidenceRecord),
-    Stream.runCollect,
+function selectEvidenceRecord(
+  position: number,
+  record: EvidenceRecord,
+  state: EvidenceSelectionState,
+): Effect.Effect<void, EvaluationEvidenceProjectionError> {
+  if (!(record.event instanceof EvaluationEvidenceSelected)) {
+    return Effect.void;
+  }
+  const target = record.event.selectedEventId;
+  const targetPosition = state.positions.get(target);
+  if (!state.selectable.has(target) || targetPosition === undefined) {
+    return Effect.fail(
+      projectionError(
+        `selection ${record.eventId} references absent evidence ${target}`,
+      ),
+    );
+  }
+  if (targetPosition >= position) {
+    return Effect.fail(
+      projectionError(
+        `selection ${record.eventId} references evidence ${target} before it was observed`,
+      ),
+    );
+  }
+  if (state.selected.has(target)) {
+    return Effect.fail(
+      projectionError(`evidence ${target} was selected more than once`),
+    );
+  }
+  state.selected.add(target);
+  state.ordered.push(target);
+  return Effect.void;
+}
+
+function isCustomerEvent(
+  event: unknown,
+): event is
+  | GatewayObservation
+  | SocialObservation
+  | EvaluationEvidenceSelected {
+  return (
+    isGatewayObservation(event) ||
+    isSocialObservation(event) ||
+    event instanceof EvaluationEvidenceSelected
   );
-  const records = Chunk.toReadonlyArray(collected);
-  const caseId = yield* evidenceCaseId(records);
-  const gateway = gatewayEvidence(records);
-  const social = socialEvidence(records);
-  const selected = yield* selectedEvidenceIds(records, gateway, social);
-  return EvaluationEvidence.make({
-    caseId,
-    gateway,
-    social,
-    selectedEventIds: selected,
-  });
-});
+}
+
+function isGatewayObservation(event: unknown): event is GatewayObservation {
+  return (
+    event instanceof OpenClawPrincipalInstructionAttempted ||
+    event instanceof OpenClawPrincipalFinalOutput ||
+    event instanceof NanoClawPrincipalInputSent ||
+    event instanceof NanoClawPrincipalOutputReceived
+  );
+}
+
+function isSocialObservation(event: unknown): event is SocialObservation {
+  return (
+    event instanceof SocialActionObserved ||
+    event instanceof SocialActionNotObserved
+  );
+}
+
+function projectionError(detail: string): EvaluationEvidenceProjectionError {
+  return EvaluationEvidenceProjectionError.make({ detail });
+}

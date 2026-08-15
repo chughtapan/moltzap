@@ -7,19 +7,19 @@ import {
   AgentName,
   type HarnessClient,
 } from "@moltzap/client";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This private two-route readiness bridge owns a raw bound port while the controller uses the Effect HTTP client.
-import { createServer, type Server } from "node:http";
 import { Config, Deferred, Effect, Schema, type Scope } from "effect";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This private two-route readiness bridge owns a raw bound port while the controller uses the Effect HTTP client.
+import { createServer, type Server, type ServerResponse } from "node:http";
 import {
   EVALUATION_PEER_AGENT_NAME_ENVIRONMENT,
   EVALUATION_PEER_BRIDGE_PORT,
+  EVALUATION_PEER_PLAN_ENVIRONMENT,
+  EVALUATION_PEER_READY_MARKER,
   EvaluationPeerBridgeCompleted,
   EvaluationPeerBridgeFailed,
   EvaluationPeerBridgeResult,
   EvaluationPeerFailed,
   EvaluationPeerPlan,
-  EVALUATION_PEER_PLAN_ENVIRONMENT,
-  EVALUATION_PEER_READY_MARKER,
   runEvaluationPeerApplication,
 } from "./peer.js";
 
@@ -39,7 +39,7 @@ interface BridgeState {
   readonly begin: () => boolean;
   readonly publish: (value: string) => void;
   readonly read: () => string | undefined;
-  readonly triggered: Deferred.Deferred<void>;
+  readonly triggered: Deferred.Deferred<undefined>;
 }
 
 function startupFailure(
@@ -93,7 +93,7 @@ function readConfiguration(): Effect.Effect<
 }
 
 function makeBridgeState(): Effect.Effect<BridgeState> {
-  return Deferred.make<void>().pipe(
+  return Deferred.make<undefined>().pipe(
     Effect.map((triggered) => {
       let started = false;
       let result: string | undefined;
@@ -116,7 +116,7 @@ function makeBridgeState(): Effect.Effect<BridgeState> {
   );
 }
 
-function writeJson(response: import("node:http").ServerResponse, body: string) {
+function writeJson(response: ServerResponse, body: string) {
   response
     .writeHead(200, {
       "content-type": "application/json; charset=utf-8",
@@ -145,6 +145,10 @@ function serveBridge(state: BridgeState): Server {
   });
 }
 
+function bridgeServer(state: BridgeState) {
+  return Effect.acquireRelease(listen(state), close);
+}
+
 function listen(
   state: BridgeState,
 ): Effect.Effect<Server, EvaluationPeerApplicationStartupFailed> {
@@ -167,19 +171,31 @@ function listen(
 }
 
 function close(server: Server): Effect.Effect<void> {
-  return Effect.async<void>((resume) => {
-    server.close(() => resume(Effect.void));
+  return Effect.async<undefined>((resume) => {
+    server.close(() => {
+      resume(Effect.succeed(undefined));
+    });
   });
-}
-
-function bridgeServer(state: BridgeState) {
-  return Effect.acquireRelease(listen(state), close);
 }
 
 function announceReady(): Effect.Effect<void> {
   return Effect.sync(() => {
     process.stdout.write(`${EVALUATION_PEER_READY_MARKER}\n`);
   });
+}
+
+function publishApplicationResult(
+  state: BridgeState,
+  result: EvaluationPeerBridgeCompleted | EvaluationPeerBridgeFailed,
+) {
+  return encodeResult(result).pipe(
+    Effect.tap((encoded) =>
+      Effect.sync(() => {
+        state.publish(encoded);
+      }),
+    ),
+    Effect.asVoid,
+  );
 }
 
 function encodeResult(
@@ -197,16 +213,6 @@ function acquireClient(
 ): Effect.Effect<HarnessClient, EvaluationPeerFailed, Scope.Scope> {
   return acquireHarnessClient(endpoint).pipe(
     Effect.mapError((cause) => peerFailure("connect", cause)),
-  );
-}
-
-function publishApplicationResult(
-  state: BridgeState,
-  result: EvaluationPeerBridgeCompleted | EvaluationPeerBridgeFailed,
-) {
-  return encodeResult(result).pipe(
-    Effect.tap((encoded) => Effect.sync(() => state.publish(encoded))),
-    Effect.asVoid,
   );
 }
 

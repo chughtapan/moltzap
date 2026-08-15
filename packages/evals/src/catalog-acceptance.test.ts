@@ -4,8 +4,8 @@ import { assert, it } from "@effect/vitest";
 import { image } from "@moltzap/simulator/agents";
 import { Duration, Effect, Option, Schema } from "effect";
 import {
-  evaluationCases,
   type EvaluationCaseProgramContext,
+  evaluationCases,
   OBSERVER_1_AGENT_NAME,
   OBSERVER_2_AGENT_NAME,
   PEER_AGENT_NAME,
@@ -123,6 +123,17 @@ function operationNames(operations: readonly string[]): readonly string[] {
   );
 }
 
+function peerTopology(
+  definition: (typeof evaluationCases)[number],
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(definition.peers).map(([name, peer]) => [
+      name,
+      peer.plan._tag,
+    ]),
+  );
+}
+
 function submission(
   definition: (typeof evaluationCases)[number],
   condition: "openclaw/v2" | "nanoclaw/v2",
@@ -155,12 +166,7 @@ it.effect(
           const selected = yield* definition.program(
             programContext(operations),
           );
-          const topology = Object.fromEntries(
-            Object.entries(definition.peers).map(([name, peer]) => [
-              name,
-              peer.plan._tag,
-            ]),
-          );
+          const topology = peerTopology(definition);
 
           assert.deepStrictEqual(topology, EXPECTED_TOPOLOGY[definition.id]);
           assert.isAbove(definition.criteria.length, 0);
@@ -214,7 +220,7 @@ it("materializes every case peer under both concrete runtime conditions", () => 
           for (const peer of Object.values(definition.peers)) {
             assert.strictEqual(
               peer.runtime(APPLICATION_IMAGE).name,
-              "evaluation-peer",
+              PEER_AGENT_NAME,
             );
           }
           materialized.push(

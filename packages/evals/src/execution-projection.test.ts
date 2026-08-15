@@ -1,21 +1,23 @@
-import { createHash } from "node:crypto";
+/** @file Controller receipts are projected only through canonical ledger evidence. */
+
 import { assert, it } from "@effect/vitest";
 import {
   CompletedLedgerReceipt,
+  coreEvents,
   EventCatalog,
   ProgramFailed,
   ProgramSucceeded,
-  coreEvents,
 } from "@moltzap/simulator";
 import {
+  type CompletedLedgerArtifacts,
   LedgerCompletion,
-  LedgerManifest,
   ledgerDigest,
+  LedgerManifest,
   ledgerRef,
   makeLedgerRecordSchema,
-  type CompletedLedgerArtifacts,
 } from "@moltzap/simulator/ledger";
 import { DateTime, Effect, Schema } from "effect";
+import { createHash } from "node:crypto";
 import { evaluationCases } from "./cases.js";
 import { evaluationEvents } from "./events.js";
 import {
@@ -33,20 +35,6 @@ const REF = Schema.decodeSync(ledgerRef)(
   "00000000-0000-4000-8000-000000000918",
 );
 const decodeDigest = Schema.decodeSync(ledgerDigest);
-
-function digest(source: string) {
-  return decodeDigest(
-    createHash("sha256").update(source, "utf8").digest("hex"),
-  );
-}
-
-function json(value: unknown): string {
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) {
-    throw new TypeError("ledger fixture is not JSON encodable");
-  }
-  return encoded;
-}
 
 function completedArtifacts(event: ProgramSucceeded | ProgramFailed): {
   readonly artifacts: CompletedLedgerArtifacts;
@@ -93,6 +81,20 @@ function completedArtifacts(event: ProgramSucceeded | ProgramFailed): {
     },
     receipt: CompletedLedgerReceipt.make({ ledger: REF, completion }),
   };
+}
+
+function json(value: unknown): string {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) {
+    throw new TypeError("ledger fixture is not JSON encodable");
+  }
+  return encoded;
+}
+
+function digest(source: string) {
+  return decodeDigest(
+    createHash("sha256").update(source, "utf8").digest("hex"),
+  );
 }
 
 test("projects a successful customer program from canonical ledger evidence", () => {

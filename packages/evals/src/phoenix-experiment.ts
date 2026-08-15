@@ -11,19 +11,19 @@ import {
   PAGE_SIZE,
   type PhoenixExperiment,
   type PhoenixExperimentsPage,
-  type PhoenixRequestFailed,
   phoenixRequest,
+  type PhoenixRequestFailed,
   requestFailure,
 } from "./phoenix-client.js";
 import {
+  conflict,
   type DatasetFailure,
+  encodingError,
   FIRST_REPETITION,
   PHOENIX_PUBLICATION_FORMAT_VERSION,
   type PhoenixPublicationConflict,
   type PhoenixPublicationEncodingError,
   type PublicationContext,
-  conflict,
-  encodingError,
   sameJson,
 } from "./phoenix-publication.js";
 import {
@@ -34,46 +34,61 @@ import {
   JudgePolicySnapshot,
 } from "./sweep.js";
 
-function fetchExperimentsPage(
-  client: PhoenixClient,
-  datasetId: string,
-  cursor: string | null,
-): Effect.Effect<PhoenixExperimentsPage, PhoenixRequestFailed> {
-  const operation = "list evaluation experiments";
-  return phoenixRequest(operation, () =>
-    client.GET("/v1/datasets/{dataset_id}/experiments", {
-      params: {
-        path: { dataset_id: datasetId },
-        query: { cursor, limit: PAGE_SIZE },
-      },
-    }),
-  ).pipe(
-    Effect.flatMap((response) => {
-      const page: PhoenixExperimentsPage | undefined = response.data;
-      return page === undefined
-        ? Effect.fail(
-            requestFailure(operation, "Phoenix returned no experiment page"),
-          )
-        : Effect.succeed(page);
-    }),
-  );
-}
-
-function collectExperimentPage(
-  client: PhoenixClient,
-  datasetId: string,
-  page: PhoenixExperimentsPage,
-  collected: readonly PhoenixExperiment[],
-): Effect.Effect<readonly PhoenixExperiment[], PhoenixRequestFailed> {
-  const next = [...collected, ...page.data];
-  if (page.next_cursor === null) {
-    return Effect.succeed(next);
-  }
-  return fetchExperimentsPage(client, datasetId, page.next_cursor).pipe(
-    Effect.flatMap((nextPage) =>
-      collectExperimentPage(client, datasetId, nextPage, next),
-    ),
-  );
+/**
+ * Reach the one experiment for a condition, creating it only when absent.
+ * @param context Remote dataset and validated local report being published.
+ * @param condition Runtime condition the experiment projects.
+ * @returns The experiment whose identity and metadata match the local report.
+ */
+export function ensureExperiment(
+  context: PublicationContext,
+  condition: EvaluationConditionPlan,
+): Effect.Effect<PhoenixExperiment, DatasetFailure> {
+  return Effect.gen(function* () {
+    const identity = experimentName(context.digest, condition);
+    const experiments = yield* listExperiments(
+      context.client,
+      context.dataset.id,
+    );
+    const matches = experiments.filter(
+      (experiment) => experiment.name === identity,
+    );
+    if (matches.length > 0) {
+      return yield* reconcileExperiments(matches, context, condition);
+    }
+    const metadata = yield* experimentMetadata(
+      context.report,
+      context.digest,
+      condition,
+    );
+    const created = yield* phoenixRequest("create evaluation experiment", () =>
+      createExperiment({
+        client: context.client,
+        datasetId: context.dataset.id,
+        datasetVersionId: context.dataset.versionId,
+        experimentName: identity,
+        experimentDescription: `MoltZap evaluation report ${context.report.reportId}, condition ${condition.id}.`,
+        experimentMetadata: metadata,
+        repetitions: FIRST_REPETITION,
+      }),
+    );
+    const remote = yield* fetchExperiment(context.client, created.id);
+    const refreshed = yield* listExperiments(
+      context.client,
+      context.dataset.id,
+    );
+    const candidates = new Map(
+      refreshed
+        .filter((experiment) => experiment.name === identity)
+        .map((experiment) => [experiment.id, experiment] as const),
+    );
+    candidates.set(remote.id, remote);
+    return yield* reconcileExperiments(
+      Array.from(candidates.values()),
+      context,
+      condition,
+    );
+  }).pipe(Effect.withSpan("evals.ensureExperiment"));
 }
 
 /**
@@ -92,27 +107,6 @@ export function listExperiments(
     ),
   );
 }
-
-function experimentName(
-  digest: EvaluationReportDigest,
-  condition: EvaluationConditionPlan,
-): string {
-  return `moltzap/${digest}/${condition.id}`;
-}
-
-function selectCanonicalExperiment<Experiment extends { readonly id: string }>(
-  experiments: readonly Experiment[],
-): Experiment | undefined {
-  return [...experiments].sort((left, right) =>
-    left.id.localeCompare(right.id),
-  )[0];
-}
-
-/** Dataset version fields retained by an existing Phoenix experiment. */
-export type PhoenixExperimentDatasetReference = Pick<
-  PhoenixExperiment,
-  "name" | "dataset_version_id"
->;
 
 /**
  * Find the dataset version already pinned by a report's experiments.
@@ -170,6 +164,62 @@ export function phoenixExperimentProvenance(
     ),
   );
 }
+
+function collectExperimentPage(
+  client: PhoenixClient,
+  datasetId: string,
+  page: PhoenixExperimentsPage,
+  collected: readonly PhoenixExperiment[],
+): Effect.Effect<readonly PhoenixExperiment[], PhoenixRequestFailed> {
+  const next = [...collected, ...page.data];
+  if (page.next_cursor === null) {
+    return Effect.succeed(next);
+  }
+  return fetchExperimentsPage(client, datasetId, page.next_cursor).pipe(
+    Effect.flatMap((nextPage) =>
+      collectExperimentPage(client, datasetId, nextPage, next),
+    ),
+  );
+}
+
+function fetchExperimentsPage(
+  client: PhoenixClient,
+  datasetId: string,
+  cursor: string | null,
+): Effect.Effect<PhoenixExperimentsPage, PhoenixRequestFailed> {
+  const operation = "list evaluation experiments";
+  return phoenixRequest(operation, () =>
+    client.GET("/v1/datasets/{dataset_id}/experiments", {
+      params: {
+        path: { dataset_id: datasetId },
+        query: { cursor, limit: PAGE_SIZE },
+      },
+    }),
+  ).pipe(
+    Effect.flatMap((response) => {
+      const page: PhoenixExperimentsPage | undefined = response.data;
+      return page === undefined
+        ? Effect.fail(
+            requestFailure(operation, "Phoenix returned no experiment page"),
+          )
+        : Effect.succeed(page);
+    }),
+  );
+}
+
+function selectCanonicalExperiment<Experiment extends { readonly id: string }>(
+  experiments: readonly Experiment[],
+): Experiment | undefined {
+  return [...experiments].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  )[0];
+}
+
+/** Dataset version fields retained by an existing Phoenix experiment. */
+export type PhoenixExperimentDatasetReference = Pick<
+  PhoenixExperiment,
+  "name" | "dataset_version_id"
+>;
 
 function experimentMetadata(
   report: CompletedEvaluationReport,
@@ -235,6 +285,13 @@ function validateExperiment(
   });
 }
 
+function experimentName(
+  digest: EvaluationReportDigest,
+  condition: EvaluationConditionPlan,
+): string {
+  return `moltzap/${digest}/${condition.id}`;
+}
+
 function fetchExperiment(
   client: PhoenixClient,
   experimentId: string,
@@ -282,61 +339,4 @@ function reconcileExperiments(
       ),
     );
   });
-}
-
-/**
- * Reach the one experiment for a condition, creating it only when absent.
- * @param context Remote dataset and validated local report being published.
- * @param condition Runtime condition the experiment projects.
- * @returns The experiment whose identity and metadata match the local report.
- */
-export function ensureExperiment(
-  context: PublicationContext,
-  condition: EvaluationConditionPlan,
-): Effect.Effect<PhoenixExperiment, DatasetFailure> {
-  return Effect.gen(function* () {
-    const identity = experimentName(context.digest, condition);
-    const experiments = yield* listExperiments(
-      context.client,
-      context.dataset.id,
-    );
-    const matches = experiments.filter(
-      (experiment) => experiment.name === identity,
-    );
-    if (matches.length > 0) {
-      return yield* reconcileExperiments(matches, context, condition);
-    }
-    const metadata = yield* experimentMetadata(
-      context.report,
-      context.digest,
-      condition,
-    );
-    const created = yield* phoenixRequest("create evaluation experiment", () =>
-      createExperiment({
-        client: context.client,
-        datasetId: context.dataset.id,
-        datasetVersionId: context.dataset.versionId,
-        experimentName: identity,
-        experimentDescription: `MoltZap evaluation report ${context.report.reportId}, condition ${condition.id}.`,
-        experimentMetadata: metadata,
-        repetitions: FIRST_REPETITION,
-      }),
-    );
-    const remote = yield* fetchExperiment(context.client, created.id);
-    const refreshed = yield* listExperiments(
-      context.client,
-      context.dataset.id,
-    );
-    const candidates = new Map(
-      refreshed
-        .filter((experiment) => experiment.name === identity)
-        .map((experiment) => [experiment.id, experiment] as const),
-    );
-    candidates.set(remote.id, remote);
-    return yield* reconcileExperiments(
-      Array.from(candidates.values()),
-      context,
-      condition,
-    );
-  }).pipe(Effect.withSpan("evals.ensureExperiment"));
 }
