@@ -26,38 +26,38 @@ import {
   Schema,
 } from "effect";
 import { describe, expect, it } from "vitest";
-import { ConversationId } from "../contract.js";
-import {
-  EngineOutboundError,
-  type EndpointEngine,
-  type EngineTurnSink,
-} from "../endpoint/engine.js";
-import {
-  Membership,
-  encodeCanonical,
-  hashMembership,
-} from "../endpoint/representation.js";
-import {
-  RouterWorkerTransportError,
-  type RouterWorker,
-  type RouterWorkerInput,
-} from "../endpoint/router-worker.js";
 import type {
   EndpointRecovery,
   EndpointStore,
   IdentityBinding,
 } from "../endpoint/store.js";
 import type { HarnessMcpSubscriptionHandler } from "../harness-mcp-subscription.js";
+import type { DaemonBootstrap } from "./configuration.js";
+import { ConversationId } from "../contract.js";
+import {
+  type EndpointEngine,
+  EngineOutboundError,
+  type EngineTurnSink,
+} from "../endpoint/engine.js";
+import {
+  encodeCanonical,
+  hashMembership,
+  Membership,
+} from "../endpoint/representation.js";
+import {
+  type RouterWorker,
+  type RouterWorkerInput,
+  RouterWorkerTransportError,
+} from "../endpoint/router-worker.js";
 import { makeHarnessMcpHttpHandler } from "../harness-mcp-wire.js";
 import {
   HARNESS_EVENTS_EXTENSION,
   HARNESS_TURN_READY_FILTER,
   HARNESS_TURN_READY_NOTIFICATION,
-  makeReplyGrant,
   type HarnessTurnEvent,
+  makeReplyGrant,
 } from "../harness-runtime.js";
 import { managementRegisterRequestSchema } from "../management-runtime.js";
-import type { DaemonBootstrap } from "./configuration.js";
 import { type DaemonRuntimeDependencies, runDaemonRuntime } from "./runtime.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused lifecycle tests drive the Promise-native MCP stream boundary. */
@@ -100,6 +100,8 @@ const CONVERSATION_ID = Schema.decodeUnknownSync(ConversationId)(
 );
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const SUBSCRIPTIONS_LISTEN_METHOD = "subscriptions/listen";
+const NOT_REGISTERED_REASON = "not-registered";
+const REGISTERED_KIND = "registered";
 
 interface Fixture {
   readonly bootstrap: DaemonBootstrap;
@@ -247,13 +249,13 @@ const makeServices = (fixture: Fixture) => {
 
 interface RuntimeHarness {
   readonly dependencies: DaemonRuntimeDependencies;
-  readonly engineEntered: Deferred.Deferred<void>;
-  readonly engineRelease: Deferred.Deferred<void>;
-  readonly listenerReady: Deferred.Deferred<void>;
-  readonly listenerDetached: Deferred.Deferred<void>;
-  readonly failure: Deferred.Deferred<void>;
+  readonly engineEntered: Deferred.Deferred<undefined>;
+  readonly engineRelease: Deferred.Deferred<undefined>;
+  readonly listenerReady: Deferred.Deferred<undefined>;
+  readonly listenerDetached: Deferred.Deferred<undefined>;
+  readonly failure: Deferred.Deferred<undefined>;
   readonly sinkReady: Deferred.Deferred<EngineTurnSink>;
-  readonly startCalled: Deferred.Deferred<void>;
+  readonly startCalled: Deferred.Deferred<undefined>;
   readonly events: string[];
   readonly pinned: RouterWorkerInput[];
   readonly getHandler: () =>
@@ -264,109 +266,183 @@ interface RuntimeHarness {
     | undefined;
 }
 
+interface HarnessSignals {
+  readonly engineEntered: Deferred.Deferred<undefined>;
+  readonly engineRelease: Deferred.Deferred<undefined>;
+  readonly listenerReady: Deferred.Deferred<undefined>;
+  readonly listenerDetached: Deferred.Deferred<undefined>;
+  readonly failure: Deferred.Deferred<undefined>;
+  readonly sinkReady: Deferred.Deferred<EngineTurnSink>;
+  readonly startCalled: Deferred.Deferred<undefined>;
+}
+
+type HarnessOperations = Parameters<
+  typeof makeHarnessMcpHttpHandler
+>[0]["operations"];
+
+interface HarnessObservations {
+  readonly events: string[];
+  readonly pinned: RouterWorkerInput[];
+  handler?: HarnessMcpSubscriptionHandler<HarnessTurnEvent>;
+  operations?: HarnessOperations;
+}
+
+const makeHarnessSignals: Effect.Effect<HarnessSignals> = Effect.gen(
+  function* () {
+    return {
+      engineEntered: yield* Deferred.make<undefined>(),
+      engineRelease: yield* Deferred.make<undefined>(),
+      listenerReady: yield* Deferred.make<undefined>(),
+      listenerDetached: yield* Deferred.make<undefined>(),
+      failure: yield* Deferred.make<undefined>(),
+      sinkReady: yield* Deferred.make<EngineTurnSink>(),
+      startCalled: yield* Deferred.make<undefined>(),
+    };
+  },
+);
+
+const makeHarnessWorker = (
+  background: "worker" | "outbound",
+  signals: HarnessSignals,
+): RouterWorker => {
+  const failWhenReleased = Deferred.await(signals.failure).pipe(
+    Effect.zipRight(Effect.fail(new RouterWorkerTransportError())),
+  );
+  return {
+    currentAnchor: Effect.dieMessage("outside daemon runtime test"),
+    pollOnce: Effect.dieMessage("outside daemon runtime test"),
+    run: background === "worker" ? failWhenReleased : Effect.never,
+    send: () => Effect.dieMessage("outside daemon runtime test"),
+  };
+};
+
+const makeHarnessEngine = (
+  background: "worker" | "outbound",
+  signals: HarnessSignals,
+): EndpointEngine => {
+  const failWhenReleased = Deferred.await(signals.failure).pipe(
+    Effect.zipRight(
+      Effect.fail(new EngineOutboundError({ reason: "durability" })),
+    ),
+  );
+  return {
+    start: () =>
+      Deferred.succeed(signals.startCalled, undefined).pipe(Effect.asVoid),
+    reply: () => Effect.void,
+    acceptRouterIngress: () => Effect.succeed("ignored"),
+    acceptRecoveryIngress: () => Effect.succeed("ignored"),
+    recoverCertifiedHistory: () => Effect.void,
+    drainOutbound: Effect.void,
+    runOutbound: background === "outbound" ? failWhenReleased : Effect.never,
+    abandonVolatileFolds: () => Effect.void,
+    acquireTurnSink: (sink) =>
+      Effect.acquireRelease(
+        Deferred.succeed(signals.sinkReady, sink).pipe(
+          Effect.as({
+            detach: Deferred.succeed(signals.listenerDetached, undefined).pipe(
+              Effect.asVoid,
+            ),
+          }),
+        ),
+        (listener) => listener.detach,
+      ),
+    deliverTurn: () => Effect.void,
+  };
+};
+
+const acquireHarnessEngine = (input: {
+  readonly observations: HarnessObservations;
+  readonly signals: HarnessSignals;
+  readonly engine: EndpointEngine;
+  readonly blockEngine: boolean;
+}) =>
+  Effect.gen(function* () {
+    input.observations.events.push("engine");
+    yield* Deferred.succeed(input.signals.engineEntered, undefined);
+    if (input.blockEngine) {
+      yield* Deferred.await(input.signals.engineRelease);
+    }
+    return input.engine;
+  });
+
+const closeHarnessHandler = (
+  handler: HarnessMcpSubscriptionHandler<HarnessTurnEvent>,
+) =>
+  Effect.tryPromise({
+    try: () => handler.close(),
+    catch: () => undefined,
+  }).pipe(Effect.ignore);
+
+const acquireHarnessListener = (input: {
+  readonly observations: HarnessObservations;
+  readonly signals: HarnessSignals;
+  readonly listener: {
+    readonly handler: HarnessMcpSubscriptionHandler<HarnessTurnEvent>;
+  };
+}) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      input.observations.events.push("listener");
+      input.observations.handler = input.listener.handler;
+    }).pipe(
+      Effect.zipRight(Deferred.succeed(input.signals.listenerReady, undefined)),
+    ),
+    () => closeHarnessHandler(input.listener.handler),
+  ).pipe(Effect.asVoid);
+
+const makeHarnessDependencies = (input: {
+  readonly observations: HarnessObservations;
+  readonly signals: HarnessSignals;
+  readonly worker: RouterWorker;
+  readonly engine: EndpointEngine;
+  readonly blockEngine: boolean;
+}): DaemonRuntimeDependencies => ({
+  makeWorker: (workerInput) =>
+    Effect.sync(() => {
+      input.observations.events.push("worker");
+      input.observations.pinned.push(workerInput);
+      return input.worker;
+    }),
+  makeEngine: () => acquireHarnessEngine(input),
+  makeHandler: (options) =>
+    Effect.sync(() => {
+      input.observations.events.push("handler");
+      input.observations.operations = options.operations;
+    }).pipe(Effect.zipRight(makeHarnessMcpHttpHandler(options))),
+  acquireListener: (listener) =>
+    acquireHarnessListener({
+      observations: input.observations,
+      signals: input.signals,
+      listener,
+    }),
+});
+
 const makeHarness = (
   background: "worker" | "outbound",
   blockEngine = false,
 ): Effect.Effect<RuntimeHarness> =>
   Effect.gen(function* () {
-    const engineEntered = yield* Deferred.make<void>();
-    const engineRelease = yield* Deferred.make<void>();
-    const listenerReady = yield* Deferred.make<void>();
-    const listenerDetached = yield* Deferred.make<void>();
-    const failure = yield* Deferred.make<void>();
-    const sinkReady = yield* Deferred.make<EngineTurnSink>();
-    const startCalled = yield* Deferred.make<void>();
-    const events: string[] = [];
-    const pinned: RouterWorkerInput[] = [];
-    let handler: HarnessMcpSubscriptionHandler<HarnessTurnEvent> | undefined;
-    let operations:
-      | Parameters<typeof makeHarnessMcpHttpHandler>[0]["operations"]
-      | undefined;
-
-    const failWorkerWhenReleased = Deferred.await(failure).pipe(
-      Effect.zipRight(Effect.fail(new RouterWorkerTransportError())),
-    );
-    const failOutboundWhenReleased = Deferred.await(failure).pipe(
-      Effect.zipRight(
-        Effect.fail(new EngineOutboundError({ reason: "durability" })),
-      ),
-    );
-    const worker: RouterWorker = {
-      currentAnchor: Effect.dieMessage("outside daemon runtime test"),
-      pollOnce: Effect.dieMessage("outside daemon runtime test"),
-      run: background === "worker" ? failWorkerWhenReleased : Effect.never,
-      send: () => Effect.dieMessage("outside daemon runtime test"),
+    const signals = yield* makeHarnessSignals;
+    const observations: HarnessObservations = {
+      events: [],
+      pinned: [],
     };
-    const engine: EndpointEngine = {
-      start: () => Deferred.succeed(startCalled, undefined).pipe(Effect.asVoid),
-      reply: () => Effect.void,
-      acceptRouterIngress: () => Effect.succeed("ignored"),
-      acceptRecoveryIngress: () => Effect.succeed("ignored"),
-      recoverCertifiedHistory: () => Effect.void,
-      drainOutbound: Effect.void,
-      runOutbound:
-        background === "outbound" ? failOutboundWhenReleased : Effect.never,
-      abandonVolatileFolds: () => Effect.void,
-      acquireTurnSink: (sink) =>
-        Effect.acquireRelease(
-          Deferred.succeed(sinkReady, sink).pipe(
-            Effect.as({
-              detach: Deferred.succeed(listenerDetached, undefined).pipe(
-                Effect.asVoid,
-              ),
-            }),
-          ),
-          (listener) => listener.detach,
-        ),
-      deliverTurn: () => Effect.void,
-    };
-    const dependencies: DaemonRuntimeDependencies = {
-      makeWorker: (input) =>
-        Effect.sync(() => {
-          events.push("worker");
-          pinned.push(input);
-          return worker;
-        }),
-      makeEngine: () =>
-        Effect.gen(function* () {
-          events.push("engine");
-          yield* Deferred.succeed(engineEntered, undefined);
-          if (blockEngine) {
-            yield* Deferred.await(engineRelease);
-          }
-          return engine;
-        }),
-      makeHandler: (options) =>
-        Effect.sync(() => {
-          events.push("handler");
-          operations = options.operations;
-        }).pipe(Effect.zipRight(makeHarnessMcpHttpHandler(options))),
-      acquireListener: (input) =>
-        Effect.acquireRelease(
-          Effect.sync(() => {
-            events.push("listener");
-            handler = input.handler;
-          }).pipe(Effect.zipRight(Deferred.succeed(listenerReady, undefined))),
-          () =>
-            Effect.tryPromise({
-              try: () => input.handler.close(),
-              catch: () => undefined,
-            }).pipe(Effect.ignore),
-        ).pipe(Effect.asVoid),
-    };
+    const worker = makeHarnessWorker(background, signals);
+    const engine = makeHarnessEngine(background, signals);
+    const dependencies = makeHarnessDependencies({
+      observations,
+      signals,
+      worker,
+      engine,
+      blockEngine,
+    });
     return {
       dependencies,
-      engineEntered,
-      engineRelease,
-      listenerReady,
-      listenerDetached,
-      failure,
-      sinkReady,
-      startCalled,
-      events,
-      pinned,
-      getHandler: () => handler,
-      getOperations: () => operations,
+      ...signals,
+      events: observations.events,
+      pinned: observations.pinned,
+      getHandler: () => observations.handler,
+      getOperations: () => observations.operations,
     };
   });
 
@@ -410,6 +486,11 @@ const makeListenRequest = (): Request =>
     }),
   });
 
+const isReadonlyRecord = (
+  value: unknown,
+): value is Readonly<Record<string, unknown>> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
 const readFrame = async (
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): Promise<Readonly<Record<string, unknown>>> => {
@@ -418,7 +499,13 @@ const readFrame = async (
     throw new Error("expected complete SSE frame");
   }
   const frame = new TextDecoder().decode(result.value);
-  return JSON.parse(frame.slice("data: ".length, -"\n\n".length));
+  const parsed: unknown = JSON.parse(
+    frame.slice("data: ".length, -"\n\n".length),
+  );
+  if (!isReadonlyRecord(parsed)) {
+    throw new Error("expected SSE frame object");
+  }
+  return parsed;
 };
 
 const awaitStage = <A, E>(
@@ -472,7 +559,7 @@ const assertRegistrationBarrier = async () => {
     ),
     "inactive START",
   );
-  expect(inactive.reason).toBe("not-registered");
+  expect(inactive.reason).toBe(NOT_REGISTERED_REASON);
 
   const request = Schema.decodeUnknownSync(managementRegisterRequestSchema)({
     operationId: "opn_AAAAAAAAAAAAAAAAAAAAAA",
@@ -487,7 +574,7 @@ const assertRegistrationBarrier = async () => {
   await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
   expect(
     (await awaitStage(Fiber.join(registration), "registration")).kind,
-  ).toBe("registered");
+  ).toBe(REGISTERED_KIND);
   await awaitStage(
     operations.start({
       conversationId: CONVERSATION_ID,
@@ -550,6 +637,7 @@ const assertSubscriptionLifecycle = async () => {
   await Effect.runPromise(Fiber.await(fiber));
 };
 
+// @agent-code-guard/regression-only: these examples pin the finite daemon activation, supervision, registration, and live-subscription lifecycle boundaries.
 describe("daemon runtime composition", () => {
   it("recovers pinned cards and supervises the Router worker", () =>
     assertActiveStartup("worker"));

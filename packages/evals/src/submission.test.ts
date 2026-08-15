@@ -1,3 +1,5 @@
+/** @file Submission controller source generation and output decoding tests. */
+
 import type { SimulatorDefinitionId } from "@moltzap/simulator";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";

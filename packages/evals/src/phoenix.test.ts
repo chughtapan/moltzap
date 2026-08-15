@@ -1,3 +1,5 @@
+/** @file Phoenix publication and reconciliation coverage over an in-memory transport. */
+
 import {
   createClient,
   type PhoenixClient,
@@ -210,6 +212,21 @@ interface FakePhoenix {
   readonly driftFirstRun: Effect.Effect<void>;
 }
 
+function concurrentExperiment(
+  options: FakePhoenixOptions,
+  dataset: FakeDataset,
+  body: typeof experimentCreateBody.Type,
+): readonly FakeExperiment[] {
+  if (options.concurrentExperiment === undefined) {
+    return [];
+  }
+  const metadata =
+    options.concurrentExperiment.conflictingMetadata === true
+      ? { ...body.metadata, reportDigest: "remote-drift" }
+      : body.metadata;
+  return [experimentFrom("experiment-a", dataset, body, metadata)];
+}
+
 function phoenixResponse(body: unknown, status = 200): Response {
   return Response.json(body, {
     status,
@@ -406,21 +423,6 @@ function listFakeExperiments(state: FakeStateRef): Effect.Effect<Response> {
       phoenixResponse({ data: current.experiments, next_cursor: null }),
     ),
   );
-}
-
-function concurrentExperiment(
-  options: FakePhoenixOptions,
-  dataset: FakeDataset,
-  body: typeof experimentCreateBody.Type,
-): readonly FakeExperiment[] {
-  if (options.concurrentExperiment === undefined) {
-    return [];
-  }
-  const metadata =
-    options.concurrentExperiment.conflictingMetadata === true
-      ? { ...body.metadata, reportDigest: "remote-drift" }
-      : body.metadata;
-  return [experimentFrom("experiment-a", dataset, body, metadata)];
 }
 
 const createFakeExperiment = Effect.fn("test.createFakeExperiment")(function* (
@@ -640,20 +642,20 @@ function makeFakePhoenix(
   });
 }
 
-function fakeExperimentIds(state: FakePhoenixState): readonly string[] {
-  return state.experiments.map((experiment) => experiment.id);
-}
-
-function fakeRunExperimentIds(state: FakePhoenixState): readonly string[] {
-  return state.runs.map((run) => run.experiment_id);
-}
-
 function canonicalFakeExperimentId(
   state: FakePhoenixState,
 ): string | undefined {
   return [...fakeExperimentIds(state)].sort((left, right) =>
     left.localeCompare(right),
   )[0];
+}
+
+function fakeExperimentIds(state: FakePhoenixState): readonly string[] {
+  return state.experiments.map((experiment) => experiment.id);
+}
+
+function fakeRunExperimentIds(state: FakePhoenixState): readonly string[] {
+  return state.runs.map((run) => run.experiment_id);
 }
 
 function experimentReference(

@@ -1,7 +1,8 @@
 /** @file Shared schema-backed identities and report vocabulary for evaluations. */
-// safer-arch-ignore shared-kernel-cohesion: identity and vocabulary schemas are a foundation every evaluation module binds to, so disjoint consumer sets are expected rather than a sign of an accidental grab-bag.
 
 import { Schema } from "effect";
+
+// safer-arch-ignore shared-kernel-cohesion: identity and vocabulary schemas are a foundation every evaluation module binds to, so disjoint consumer sets are expected rather than a sign of an accidental grab-bag.
 
 /** Schema for the stable identity of one bundled behavioral evaluation. */
 export const evaluationCaseId = Schema.String.pipe(

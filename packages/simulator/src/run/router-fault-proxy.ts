@@ -651,7 +651,4 @@ export function makeRouterFaultProxy(
   );
 }
 
-/** Acquire the scoped endpoint-facing proxy for one policy fabric. */
-export const acquireRouterFaultProxy = makeRouterFaultProxy;
-
 /* eslint-enable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-invalid-void-type, agent-code-guard/acquire-release-requires-scope, agent-code-guard/either-discriminant, agent-code-guard/no-raw-throw-new-error, agent-code-guard/prefer-stepdown-function-order, agent-code-guard/promise-type, agent-code-guard/tag-discriminant -- restore project limits after the raw transport adapter. */

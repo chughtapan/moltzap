@@ -9,21 +9,82 @@ import {
 import { DateTime, Effect, Schema } from "effect";
 import {
   PAGE_SIZE,
+  phoenixRequest,
   type PhoenixRequestFailed,
   type PhoenixRun,
-  phoenixRequest,
   requestFailure,
 } from "./phoenix-client.js";
 import {
+  conflict,
   type DatasetFailure,
+  encodingError,
   FIRST_REPETITION,
   type PhoenixPublicationConflict,
   type PhoenixPublicationEncodingError,
-  conflict,
-  encodingError,
   sameJson,
 } from "./phoenix-publication.js";
 import { type TerminalAttempt, terminalAttempt } from "./sweep.js";
+
+/**
+ * Reach the one run for a terminal attempt, creating it only when absent.
+ * @param context Experiment and the runs it already holds.
+ * @param attempt Validated terminal matrix attempt.
+ * @param datasetExampleId Stable dataset example the attempt scores against.
+ * @returns The run ID, after proving remote state matches the local attempt.
+ */
+export function ensureRun(
+  context: RunContext,
+  attempt: TerminalAttempt,
+  datasetExampleId: string,
+): Effect.Effect<string, DatasetFailure> {
+  return Effect.gen(function* () {
+    const expected = yield* expectedRun(attempt, datasetExampleId);
+    const existing = yield* uniqueRunByExample(
+      context.runs,
+      datasetExampleId,
+      attempt.attemptId,
+    );
+    if (existing !== undefined) {
+      const validated = yield* validateRun(
+        existing,
+        expected,
+        attempt.attemptId,
+      );
+      return validated.id;
+    }
+    return yield* createOrRecoverRun(context, expected, attempt.attemptId);
+  }).pipe(Effect.withSpan("evals.ensureRun"));
+}
+
+/**
+ * Read every run already recorded on one experiment.
+ * @param client Configured Phoenix SDK client.
+ * @param experimentId Experiment whose runs are read.
+ * @returns The remote runs, used to make publication idempotent.
+ */
+export function fetchRuns(
+  client: PhoenixClient,
+  experimentId: string,
+): Effect.Effect<readonly PhoenixRun[], PhoenixRequestFailed> {
+  return phoenixRequest("get evaluation experiment runs", () =>
+    getExperimentRuns({ client, experimentId, pageSize: PAGE_SIZE }),
+  ).pipe(Effect.map(({ runs }) => runs));
+}
+
+function expectedRun(
+  attempt: TerminalAttempt,
+  datasetExampleId: string,
+): Effect.Effect<ExpectedRun, PhoenixPublicationEncodingError> {
+  return encodeAttempt(attempt).pipe(
+    Effect.map((output) => ({
+      datasetExampleId,
+      output,
+      error: runError(attempt),
+      startTime: DateTime.formatIso(attempt.startedAt),
+      endTime: DateTime.formatIso(attempt.completedAt),
+    })),
+  );
+}
 
 function encodeAttempt(
   attempt: TerminalAttempt,
@@ -63,21 +124,6 @@ interface ExpectedRun {
   readonly endTime: string;
 }
 
-function expectedRun(
-  attempt: TerminalAttempt,
-  datasetExampleId: string,
-): Effect.Effect<ExpectedRun, PhoenixPublicationEncodingError> {
-  return encodeAttempt(attempt).pipe(
-    Effect.map((output) => ({
-      datasetExampleId,
-      output,
-      error: runError(attempt),
-      startTime: DateTime.formatIso(attempt.startedAt),
-      endTime: DateTime.formatIso(attempt.completedAt),
-    })),
-  );
-}
-
 function validateRun(
   remote: PhoenixRun,
   expected: ExpectedRun,
@@ -102,6 +148,20 @@ function validateRun(
     }
     return remote;
   });
+}
+
+function createOrRecoverRun(
+  context: RunContext,
+  expected: ExpectedRun,
+  attemptId: string,
+): Effect.Effect<string, DatasetFailure> {
+  return createRun(context.client, context.experimentId, expected).pipe(
+    Effect.catchTag("PhoenixRequestFailed", (error) =>
+      error.status === 409
+        ? recoverConcurrentRun(context, expected, attemptId, error)
+        : Effect.fail(error),
+    ),
+  );
 }
 
 function createRun(
@@ -135,21 +195,6 @@ function createRun(
         : Effect.succeed(run.id);
     }),
   );
-}
-
-/**
- * Read every run already recorded on one experiment.
- * @param client Configured Phoenix SDK client.
- * @param experimentId Experiment whose runs are read.
- * @returns The remote runs, used to make publication idempotent.
- */
-export function fetchRuns(
-  client: PhoenixClient,
-  experimentId: string,
-): Effect.Effect<readonly PhoenixRun[], PhoenixRequestFailed> {
-  return phoenixRequest("get evaluation experiment runs", () =>
-    getExperimentRuns({ client, experimentId, pageSize: PAGE_SIZE }),
-  ).pipe(Effect.map(({ runs }) => runs));
 }
 
 function uniqueRunByExample(
@@ -194,49 +239,4 @@ function recoverConcurrentRun(
     const validated = yield* validateRun(raced, expected, attemptId);
     return validated.id;
   });
-}
-
-function createOrRecoverRun(
-  context: RunContext,
-  expected: ExpectedRun,
-  attemptId: string,
-): Effect.Effect<string, DatasetFailure> {
-  return createRun(context.client, context.experimentId, expected).pipe(
-    Effect.catchTag("PhoenixRequestFailed", (error) =>
-      error.status === 409
-        ? recoverConcurrentRun(context, expected, attemptId, error)
-        : Effect.fail(error),
-    ),
-  );
-}
-
-/**
- * Reach the one run for a terminal attempt, creating it only when absent.
- * @param context Experiment and the runs it already holds.
- * @param attempt Validated terminal matrix attempt.
- * @param datasetExampleId Stable dataset example the attempt scores against.
- * @returns The run ID, after proving remote state matches the local attempt.
- */
-export function ensureRun(
-  context: RunContext,
-  attempt: TerminalAttempt,
-  datasetExampleId: string,
-): Effect.Effect<string, DatasetFailure> {
-  return Effect.gen(function* () {
-    const expected = yield* expectedRun(attempt, datasetExampleId);
-    const existing = yield* uniqueRunByExample(
-      context.runs,
-      datasetExampleId,
-      attempt.attemptId,
-    );
-    if (existing !== undefined) {
-      const validated = yield* validateRun(
-        existing,
-        expected,
-        attempt.attemptId,
-      );
-      return validated.id;
-    }
-    return yield* createOrRecoverRun(context, expected, attempt.attemptId);
-  }).pipe(Effect.withSpan("evals.ensureRun"));
 }

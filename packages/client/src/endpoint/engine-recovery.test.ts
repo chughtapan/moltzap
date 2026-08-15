@@ -1,5 +1,7 @@
 /** @file Fixed-member catch-up ordering and Router-reanchor threshold tests. */
 
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   AgentCard,
   AgentId,
@@ -27,20 +29,17 @@ import {
 import {
   createHash,
   generateKeyPairSync,
-  sign as signBytes,
   type KeyObject,
+  sign as signBytes,
 } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { EngineRuntime } from "./engine-types.js";
 import { ConversationId } from "../contract.js";
 import { engineRecoveryState } from "./engine-catch-up.js";
 import {
   acceptEngineRecoveryIngress,
   recoverCertifiedHistory,
 } from "./engine-reanchor.js";
-import type { EngineRuntime } from "./engine-types.js";
 import {
   type ActionCertificate,
   type ActionCertifiedRecord,
@@ -68,7 +67,7 @@ import {
 } from "./representation.js";
 import { openEndpointStore } from "./store.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Exact cryptographic traces keep their protocol ordering assertions local. */
+/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Exact cryptographic traces keep their protocol ordering assertions local. */
 
 interface IdentityFixture {
   readonly card: VerifiedAgentCard;
@@ -242,6 +241,7 @@ const buildCertifiedGenesis = (
   });
 
 const makeFixture = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
   const registryKeys = generateKeyPairSync("ed25519");
   const registrySignerPublicKey = yield* Schema.decodeUnknown(Ed25519PublicKey)(
     registryKeys.publicKey.export({ format: "jwk" }),
@@ -301,7 +301,7 @@ const makeFixture = Effect.gen(function* () {
     verifiedMembership.hash,
   );
   const store = yield* openEndpointStore(
-    mkdtempSync(join(tmpdir(), "moltzap-recovery-")),
+    yield* fileSystem.makeTempDirectoryScoped({ prefix: "moltzap-recovery-" }),
   );
   yield* store.bindStartIntent({
     conversationId,
@@ -334,7 +334,7 @@ const makeFixture = Effect.gen(function* () {
     recordFolds: new Map(),
     completions: new Map(),
     outbound: [],
-    outboundSignal: yield* Queue.unbounded<void>(),
+    outboundSignal: yield* Queue.unbounded<undefined>(),
     gate: yield* Effect.makeSemaphore(1),
     outboundGate: yield* Effect.makeSemaphore(1),
     listenerGate: yield* Effect.makeSemaphore(1),
@@ -347,7 +347,7 @@ const makeFixture = Effect.gen(function* () {
     membership: verifiedMembership,
     certified: record.certified,
   };
-});
+}).pipe(Effect.provide(NodeFileSystem.layer));
 
 const decodeRequest = (message: typeof SignedMessage.Type) =>
   decodeOuterBody(message.body).pipe(
@@ -484,6 +484,20 @@ const reanchorVoteIngress = (
     };
   });
 
+const assertCompletedRecovery = (runtime: EngineRuntime) =>
+  Effect.gen(function* () {
+    yield* Effect.yieldNow();
+    const activeRecovery = engineRecoveryState(runtime);
+    if (activeRecovery === undefined) {
+      return;
+    }
+    expect(activeRecovery.pendingOutbound).toBe(0);
+    expect(activeRecovery.completedConversations.has(conversationId)).toBe(
+      true,
+    );
+    expect((yield* Deferred.poll(activeRecovery.completion))._tag).toBe("Some");
+  });
+
 const acceptsDescendantAfterStaleIncomplete = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -609,17 +623,7 @@ const completesOnlyAfterDistinctThresholdVotes = () =>
             anchorHash: proposal.anchorHash,
           },
         });
-        yield* Effect.yieldNow();
-        const activeRecovery = engineRecoveryState(fixture.runtime);
-        if (activeRecovery !== undefined) {
-          expect(activeRecovery.pendingOutbound).toBe(0);
-          expect(
-            activeRecovery.completedConversations.has(conversationId),
-          ).toBe(true);
-          expect((yield* Deferred.poll(activeRecovery.completion))._tag).toBe(
-            "Some",
-          );
-        }
+        yield* assertCompletedRecovery(fixture.runtime);
         yield* Fiber.join(recovering).pipe(Effect.timeout("1050 millis"));
         const recovered = yield* fixture.store.recover();
         expect(recovered.positions[0]?.currentAnchorHash).toBe(
@@ -646,4 +650,4 @@ describe("endpoint recovery", () => {
   );
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */
+/* eslint-enable agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */

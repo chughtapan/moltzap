@@ -1,7 +1,6 @@
 /** @file Concrete mixed-agent conditions and code-defined case execution. */
 
 import { AgentName } from "@moltzap/client";
-
 import {
   type ClusterServices,
   CompletedLedgerReceipt,
@@ -42,6 +41,12 @@ import {
   Schema,
   Stream,
 } from "effect";
+import type {
+  EvaluationPeerDefinition,
+  EvaluationPeerGateway,
+  EvaluationPeerObservation,
+  PeerExchange,
+} from "./peer.js";
 import {
   type EvaluationCaseDefinition,
   type EvaluationCaseMetadata,
@@ -68,12 +73,6 @@ import {
   type PrincipalDriver,
   type PrincipalDriverFactory,
 } from "./principal.js";
-import type {
-  EvaluationPeerDefinition,
-  EvaluationPeerGateway,
-  EvaluationPeerObservation,
-  PeerExchange,
-} from "./peer.js";
 
 const decodeAgentName = Schema.decodeSync(AgentName);
 
@@ -84,26 +83,6 @@ type EvaluationInfrastructure = Layer.Layer<
 >;
 
 const evaluationCatalog = EventCatalog.merge(coreEvents, evaluationEvents);
-
-/**
- * Reopen one case-specific RunSpec ledger against the exact evaluation catalog.
- * @param definition Bundled case whose definition id owns the ledger.
- * @param ref Physical ledger identity returned by the controller.
- * @param artifacts Immutable manifest, records, and completion artifact text.
- * @returns The fully validated completed evaluation ledger.
- */
-export function openEvaluationLedger(
-  definition: EvaluationCaseMetadata,
-  ref: LedgerRef,
-  artifacts: CompletedLedgerArtifacts,
-) {
-  return openLedgerArtifacts(
-    evaluationCatalog,
-    ref,
-    artifacts,
-    definition.definitionId,
-  );
-}
 
 /** Customer-owned deadlines for observable behavior and complete case work. */
 interface EvaluationExecutionPolicy {
@@ -242,82 +221,259 @@ export interface EvaluationCaseInstrumentation<Gateway, DriverFailure> {
   readonly emit: EmitEvaluationEvent;
 }
 
-function detail(cause: unknown): string {
-  if (cause instanceof Error && cause.message.trim().length > 0) {
-    return cause.message.trim();
-  }
-  const rendered = String(cause).trim();
-  return rendered.length > 0
-    ? rendered
-    : "operation failed without a diagnostic";
+/**
+ * Reopen a controller-completed ledger and recover its customer-program result.
+ * @param definition Bundled case that owns the ledger definition and catalog.
+ * @param receipt Bounded controller result projected outside the run process.
+ * @param artifacts Immutable artifacts retrieved for the receipt's ledger.
+ * @returns The evaluation result recovered from canonical simulator evidence.
+ */
+export function projectEvaluationControllerResult(
+  definition: EvaluationCaseMetadata,
+  receipt: CompletedLedgerReceipt,
+  artifacts: CompletedLedgerArtifacts,
+): Effect.Effect<
+  EvaluationExecutionResult,
+  LedgerOpenError | EvaluationControllerResultInvalid
+> {
+  return openEvaluationLedger(definition, receipt.ledger, artifacts).pipe(
+    Effect.flatMap((ledger) => projectCompletedLedger(ledger, receipt)),
+  );
 }
 
-function programFailure(
-  operation: EvaluationProgramFailed["operation"],
-  cause: unknown,
-): EvaluationProgramFailed {
-  return EvaluationProgramFailed.make({ operation, detail: detail(cause) });
+/**
+ * Reopen one case-specific RunSpec ledger against the exact evaluation catalog.
+ * @param definition Bundled case whose definition id owns the ledger.
+ * @param ref Physical ledger identity returned by the controller.
+ * @param artifacts Immutable manifest, records, and completion artifact text.
+ * @returns The fully validated completed evaluation ledger.
+ */
+export function openEvaluationLedger(
+  definition: EvaluationCaseMetadata,
+  ref: LedgerRef,
+  artifacts: CompletedLedgerArtifacts,
+) {
+  return openLedgerArtifacts(
+    evaluationCatalog,
+    ref,
+    artifacts,
+    definition.definitionId,
+  );
 }
 
-function emitSelection(
-  emit: EmitEvaluationEvent,
-  caseId: EvaluationCaseId,
-  selectedEventId: EvaluationEvidenceId,
+/**
+ * Execute one acquired case through its concrete principal adapter.
+ * @param instrumentation Acquired target, principal driver, and event writer.
+ * @returns The completed case program.
+ * @internal
+ */
+export function runEvaluationCase<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
 ): Effect.Effect<void, EvaluationProgramFailed> {
-  return emit(
-    EvaluationEvidenceSelected.make({ caseId, selectedEventId }),
-  ).pipe(
-    Effect.asVoid,
-    Effect.mapError((cause) => programFailure("evidence", cause)),
-  );
+  return runCaseProgram(instrumentation).pipe(Effect.withSpan("evals.case"));
 }
 
-function evidenceId(
-  record: Effect.Effect.Success<ReturnType<EmitEvaluationEvent>>,
-): EvaluationEvidenceId {
-  return decodeEvaluationEvidenceId(record.eventId);
-}
-
-function emitSocialObservation(
-  emit: EmitEvaluationEvent,
-  observation: EvaluationPeerObservation | SocialActionNotObserved,
-): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
-  return emit(observation).pipe(
-    Effect.map(evidenceId),
-    Effect.mapError((cause) => programFailure("evidence", cause)),
-  );
-}
-
-function emitUnselectedExchange(
-  emit: EmitEvaluationEvent,
-  exchange: PeerExchange,
-): Effect.Effect<void, EvaluationProgramFailed> {
-  return Effect.forEach(
-    exchange.observations,
-    (observation) => emitSocialObservation(emit, observation),
-    { concurrency: 1, discard: true },
-  );
-}
-
-function emitSelectedExchange(
-  emit: EmitEvaluationEvent,
-  exchange: PeerExchange,
-): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
-  return Effect.gen(function* () {
-    yield* Effect.forEach(
-      Arr.dropRight(exchange.observations, 1),
-      (observation) => emitSocialObservation(emit, observation),
-      { concurrency: 1, discard: true },
-    );
-    return yield* emitSocialObservation(
-      emit,
-      Arr.lastNonEmpty(exchange.observations),
-    );
+/**
+ * Construct exactly one case-by-condition controller RunSpec.
+ * @param input Exact case, condition, attempt, and infrastructure.
+ * @returns One immutable controller-owned RunSpec.
+ */
+export function evaluationCellRunSpec(
+  input: EvaluationCellRunSpecInput,
+): EvaluationCellRunSpec {
+  return input.definition.withDefinition({
+    execute: (definition) =>
+      input.condition.withDefinition({
+        execute: (condition): EvaluationCellRunSpec => {
+          const spec = evaluationRunSpec({
+            runtime: condition.runtime,
+            principal: condition.principal,
+            policy: condition.execution,
+            definition,
+            execution: { attemptId: input.attemptId },
+            peerApplicationImage: input.peerApplicationImage,
+            infrastructure: input.cluster,
+          });
+          // eslint-disable-next-line agent-code-guard/as-unknown-as, agent-code-guard/require-assertion-rationale -- The rank-2 binders erase only condition and peer parameters; RunSpec.define still owns the exact frozen object and infrastructure error channel.
+          return spec as unknown as EvaluationCellRunSpec; // #ignore-sloppy-code[as-unknown-as]: The two rank-2 binders erase only their type parameters while returning the same immutable RunSpec object.
+        },
+      }),
   });
 }
 
-function peerTimeout(policy: EvaluationExecutionPolicy): Duration.Duration {
-  return policy.peerObservationTimeout;
+/**
+ * Build the OpenClaw condition around its exact native gateway.
+ * @param options Native runtime configuration and customer deadlines.
+ * @returns A condition whose executor retains the OpenClaw gateway type.
+ */
+export function openClawEvaluationCondition(
+  options: OpenClawEvaluationConditionOptions,
+) {
+  const id = decodeEvaluationConditionId("openclaw/v2");
+  const runtime = openClawRuntime({
+    ...options.runtime,
+    tools: BUNDLED_OPENCLAW_TOOLS,
+  });
+  return evaluationCondition({
+    id,
+    runtime,
+    principal: openClawPrincipalDriver,
+    execution: options.execution,
+  });
+}
+
+/**
+ * Build the NanoClaw condition around its exact native gateway.
+ * @param options Native runtime configuration and customer deadlines.
+ * @returns A condition whose executor retains the NanoClaw gateway type.
+ */
+export function nanoclawEvaluationCondition(
+  options: NanoClawEvaluationConditionOptions,
+) {
+  const id = decodeEvaluationConditionId("nanoclaw/v2");
+  const runtime = nanoclawRuntime(options.runtime);
+  return evaluationCondition({
+    id,
+    runtime,
+    principal: nanoclawPrincipalDriver,
+    execution: options.execution,
+  });
+}
+
+function runCaseProgram<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+) {
+  const program = Effect.gen(function* () {
+    const selectedEventId = yield* instrumentation.definition.program(
+      caseContext(instrumentation),
+    );
+    yield* emitSelection(
+      instrumentation.emit,
+      instrumentation.definition.id,
+      selectedEventId,
+    );
+  }).pipe(
+    Effect.raceFirst(observePrincipal(instrumentation)),
+    Effect.raceFirst(runtimeStopped(instrumentation.target)),
+  );
+  return program.pipe(
+    Effect.timeoutFail({
+      duration: instrumentation.policy.caseTimeout,
+      onTimeout: () =>
+        programFailure(
+          "timeout",
+          `case ${instrumentation.definition.id} exceeded ${Duration.format(instrumentation.policy.caseTimeout)}`,
+        ),
+    }),
+  );
+}
+
+function caseContext<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+): EvaluationCaseProgramContext<EvaluationProgramFailed> {
+  return {
+    instruct: (message) => principalInstruction(instrumentation, message),
+    selectPrincipalOutput,
+    observePeer: (agent) => observePeer(instrumentation, agent),
+    selectSocialOutput: (agent) => selectSocialOutput(instrumentation, agent),
+  };
+}
+
+function principalInstruction<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+  message: string,
+): Effect.Effect<Option.Option<EvaluationEvidenceId>, EvaluationProgramFailed> {
+  return instrumentation.driver
+    .drive(
+      instrumentation.target,
+      {
+        caseId: instrumentation.definition.id,
+        message,
+      },
+      instrumentation.emit,
+    )
+    .pipe(Effect.mapError((cause) => programFailure("principal", cause)));
+}
+
+function observePrincipal<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+): Effect.Effect<never, EvaluationProgramFailed> {
+  return instrumentation.driver
+    .observe(
+      instrumentation.target,
+      instrumentation.definition.id,
+      instrumentation.emit,
+    )
+    .pipe(Effect.mapError((cause) => programFailure("principal", cause)));
+}
+
+function runtimeStopped(
+  target: StartedAgent<string, unknown>,
+): Effect.Effect<never, EvaluationProgramFailed> {
+  return target.termination.pipe(
+    Effect.flatMap((termination) =>
+      Effect.fail(
+        programFailure(
+          "runtime",
+          `target runtime terminated during the case: ${termination._tag}`,
+        ),
+      ),
+    ),
+  );
+}
+
+function observePeer<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+  peerName: string,
+): Effect.Effect<void, EvaluationProgramFailed> {
+  return peerExchange(instrumentation, peerName).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          emitPeerTimeout(instrumentation, peerName).pipe(
+            Effect.flatMap((selectedEventId) =>
+              emitSelection(
+                instrumentation.emit,
+                instrumentation.definition.id,
+                selectedEventId,
+              ),
+            ),
+          ),
+        onSome: (exchange) =>
+          emitUnselectedExchange(instrumentation.emit, exchange),
+      }),
+    ),
+  );
+}
+
+function selectSocialOutput<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+  peerName: string,
+): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
+  return peerExchange(instrumentation, peerName).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => emitPeerTimeout(instrumentation, peerName),
+        onSome: (exchange) =>
+          emitSelectedExchange(instrumentation.emit, exchange),
+      }),
+    ),
+  );
+}
+
+function selectPrincipalOutput(
+  output: Option.Option<EvaluationEvidenceId>,
+): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
+  return Option.match(output, {
+    onNone: () =>
+      Effect.fail(
+        programFailure(
+          "principal",
+          "the native principal gateway does not correlate a terminal output with this instruction",
+        ),
+      ),
+    onSome: Effect.succeed,
+  });
 }
 
 function peerExchange<Gateway, DriverFailure>(
@@ -349,152 +505,82 @@ function emitPeerTimeout<Gateway, DriverFailure>(
   );
 }
 
-function observePeer<Gateway, DriverFailure>(
-  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
-  peerName: string,
+function emitUnselectedExchange(
+  emit: EmitEvaluationEvent,
+  exchange: PeerExchange,
 ): Effect.Effect<void, EvaluationProgramFailed> {
-  return peerExchange(instrumentation, peerName).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          emitPeerTimeout(instrumentation, peerName).pipe(
-            Effect.flatMap((evidenceId) =>
-              emitSelection(
-                instrumentation.emit,
-                instrumentation.definition.id,
-                evidenceId,
-              ),
-            ),
-          ),
-        onSome: (exchange) =>
-          emitUnselectedExchange(instrumentation.emit, exchange),
-      }),
-    ),
+  return Effect.forEach(
+    exchange.observations,
+    (observation) => emitSocialObservation(emit, observation),
+    { concurrency: 1, discard: true },
   );
 }
 
-function selectSocialOutput<Gateway, DriverFailure>(
-  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
-  peerName: string,
+function emitSelectedExchange(
+  emit: EmitEvaluationEvent,
+  exchange: PeerExchange,
 ): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
-  return peerExchange(instrumentation, peerName).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () => emitPeerTimeout(instrumentation, peerName),
-        onSome: (exchange) =>
-          emitSelectedExchange(instrumentation.emit, exchange),
-      }),
-    ),
-  );
-}
-
-function runtimeStopped(
-  target: StartedAgent<string, unknown>,
-): Effect.Effect<never, EvaluationProgramFailed> {
-  return target.termination.pipe(
-    Effect.flatMap((termination) =>
-      Effect.fail(
-        programFailure(
-          "runtime",
-          `target runtime terminated during the case: ${termination._tag}`,
-        ),
-      ),
-    ),
-  );
-}
-
-function principalInstruction<Gateway, DriverFailure>(
-  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
-  message: string,
-): Effect.Effect<Option.Option<EvaluationEvidenceId>, EvaluationProgramFailed> {
-  return instrumentation.driver
-    .drive(
-      instrumentation.target,
-      {
-        caseId: instrumentation.definition.id,
-        message,
-      },
-      instrumentation.emit,
-    )
-    .pipe(Effect.mapError((cause) => programFailure("principal", cause)));
-}
-
-function observePrincipal<Gateway, DriverFailure>(
-  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
-): Effect.Effect<never, EvaluationProgramFailed> {
-  return instrumentation.driver
-    .observe(
-      instrumentation.target,
-      instrumentation.definition.id,
-      instrumentation.emit,
-    )
-    .pipe(Effect.mapError((cause) => programFailure("principal", cause)));
-}
-
-function selectPrincipalOutput(
-  output: Option.Option<EvaluationEvidenceId>,
-): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
-  return Option.match(output, {
-    onNone: () =>
-      Effect.fail(
-        programFailure(
-          "principal",
-          "the native principal gateway does not correlate a terminal output with this instruction",
-        ),
-      ),
-    onSome: Effect.succeed,
+  return Effect.gen(function* () {
+    yield* Effect.forEach(
+      Arr.dropRight(exchange.observations, 1),
+      (observation) => emitSocialObservation(emit, observation),
+      { concurrency: 1, discard: true },
+    );
+    return yield* emitSocialObservation(
+      emit,
+      Arr.lastNonEmpty(exchange.observations),
+    );
   });
 }
 
-function caseContext<Gateway, DriverFailure>(
-  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
-): EvaluationCaseProgramContext<EvaluationProgramFailed> {
-  return {
-    instruct: (message) => principalInstruction(instrumentation, message),
-    selectPrincipalOutput,
-    observePeer: (agent) => observePeer(instrumentation, agent),
-    selectSocialOutput: (agent) => selectSocialOutput(instrumentation, agent),
-  };
-}
-
-function runCaseProgram<Gateway, DriverFailure>(
-  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
-) {
-  const program = Effect.gen(function* () {
-    const selectedEventId = yield* instrumentation.definition.program(
-      caseContext(instrumentation),
-    );
-    yield* emitSelection(
-      instrumentation.emit,
-      instrumentation.definition.id,
-      selectedEventId,
-    );
-  }).pipe(
-    Effect.raceFirst(observePrincipal(instrumentation)),
-    Effect.raceFirst(runtimeStopped(instrumentation.target)),
-  );
-  return program.pipe(
-    Effect.timeoutFail({
-      duration: instrumentation.policy.caseTimeout,
-      onTimeout: () =>
-        programFailure(
-          "timeout",
-          `case ${instrumentation.definition.id} exceeded ${Duration.format(instrumentation.policy.caseTimeout)}`,
-        ),
-    }),
-  );
-}
-
-/**
- * Execute one acquired case through its concrete principal adapter.
- * @param instrumentation Acquired target, principal driver, and event writer.
- * @returns The completed case program.
- * @internal
- */
-export function runEvaluationCase<Gateway, DriverFailure>(
-  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+function emitSelection(
+  emit: EmitEvaluationEvent,
+  caseId: EvaluationCaseId,
+  selectedEventId: EvaluationEvidenceId,
 ): Effect.Effect<void, EvaluationProgramFailed> {
-  return runCaseProgram(instrumentation).pipe(Effect.withSpan("evals.case"));
+  return emit(
+    EvaluationEvidenceSelected.make({ caseId, selectedEventId }),
+  ).pipe(
+    Effect.asVoid,
+    Effect.mapError((cause) => programFailure("evidence", cause)),
+  );
+}
+
+function emitSocialObservation(
+  emit: EmitEvaluationEvent,
+  observation: EvaluationPeerObservation | SocialActionNotObserved,
+): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
+  return emit(observation).pipe(
+    Effect.map(evidenceId),
+    Effect.mapError((cause) => programFailure("evidence", cause)),
+  );
+}
+
+function evidenceId(
+  record: Effect.Effect.Success<ReturnType<EmitEvaluationEvent>>,
+): EvaluationEvidenceId {
+  return decodeEvaluationEvidenceId(record.eventId);
+}
+
+function peerTimeout(policy: EvaluationExecutionPolicy): Duration.Duration {
+  return policy.peerObservationTimeout;
+}
+
+function programFailure(
+  operation: EvaluationProgramFailed["operation"],
+  cause: unknown,
+): EvaluationProgramFailed {
+  return EvaluationProgramFailed.make({ operation, detail: detail(cause) });
+}
+
+function detail(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim().length > 0) {
+    return cause.message.trim();
+  }
+  const rendered = String(cause).trim();
+  return rendered.length > 0
+    ? rendered
+    : "operation failed without a diagnostic";
 }
 
 interface ExecuteConditionInput<
@@ -519,16 +605,55 @@ type MaterializedPeerRuntimes<
   [Name in keyof PeerDefinitions]: ReturnType<PeerDefinitions[Name]["runtime"]>;
 }>;
 
-function materializePeerRuntimes<
+/**
+ * Construct one case-and-condition RunSpec using an injected infrastructure Layer.
+ * @param input Exact target runtime, policy, and infrastructure.
+ * @returns The immutable RunSpec for one evaluation matrix cell.
+ */
+function evaluationRunSpec<
+  Gateway,
+  DriverFailure,
   PeerDefinitions extends EvaluationCasePeerDefinitions,
+  RuntimeFailure,
+  ConfigurationSchema extends Schema.Schema.AnyNoContext,
 >(
-  definitions: PeerDefinitions,
-  peerApplicationImage: Image,
-): MaterializedPeerRuntimes<PeerDefinitions> {
-  // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- Record.map preserves every exact immutable roster key while materializing each peer definition.
-  return Rec.map(definitions, (definition: EvaluationPeerDefinition) =>
-    definition.runtime(peerApplicationImage),
-  ) as MaterializedPeerRuntimes<PeerDefinitions>;
+  input: ExecuteConditionInput<
+    Gateway,
+    DriverFailure,
+    PeerDefinitions,
+    RuntimeFailure,
+    ConfigurationSchema
+  >,
+) {
+  const {
+    definition,
+    infrastructure,
+    peerApplicationImage,
+    principal,
+    execution,
+    policy,
+    runtime,
+  } = input;
+  return RunSpec.define({
+    id: definition.definitionId,
+    events: [evaluationEvents],
+    agents: makeConditionRuntimes(runtime, definition, peerApplicationImage),
+    cluster: infrastructure,
+    execute: ({ agents, events }) => {
+      const { [TARGET_AGENT_NAME]: target, ...peers } = agents;
+      return Effect.gen(function* () {
+        const driver = yield* principal.make(execution.attemptId);
+        yield* runEvaluationCase({
+          definition,
+          policy,
+          target,
+          peers,
+          driver,
+          emit: events.emit,
+        });
+      });
+    },
+  });
 }
 
 function makeConditionRuntimes<
@@ -545,6 +670,18 @@ function makeConditionRuntimes<
     ...materializePeerRuntimes(definition.peers, peerApplicationImage),
     [TARGET_AGENT_NAME]: runtime,
   });
+}
+
+function materializePeerRuntimes<
+  PeerDefinitions extends EvaluationCasePeerDefinitions,
+>(
+  definitions: PeerDefinitions,
+  peerApplicationImage: Image,
+): MaterializedPeerRuntimes<PeerDefinitions> {
+  // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- Record.map preserves every exact immutable roster key while materializing each peer definition.
+  return Rec.map(definitions, (definition: EvaluationPeerDefinition) =>
+    definition.runtime(peerApplicationImage),
+  ) as MaterializedPeerRuntimes<PeerDefinitions>;
 }
 
 type EvaluationCompletedLedger = CompletedRunLedger<typeof evaluationCatalog>;
@@ -621,77 +758,6 @@ function projectCompletedLedger(
   });
 }
 
-/**
- * Reopen a controller-completed ledger and recover its customer-program result.
- * @param definition Bundled case that owns the ledger definition and catalog.
- * @param receipt Bounded controller result projected outside the run process.
- * @param artifacts Immutable artifacts retrieved for the receipt's ledger.
- * @returns The evaluation result recovered from canonical simulator evidence.
- */
-export function projectEvaluationControllerResult(
-  definition: EvaluationCaseMetadata,
-  receipt: CompletedLedgerReceipt,
-  artifacts: CompletedLedgerArtifacts,
-): Effect.Effect<
-  EvaluationExecutionResult,
-  LedgerOpenError | EvaluationControllerResultInvalid
-> {
-  return openEvaluationLedger(definition, receipt.ledger, artifacts).pipe(
-    Effect.flatMap((ledger) => projectCompletedLedger(ledger, receipt)),
-  );
-}
-
-/**
- * Construct one case-and-condition RunSpec using an injected infrastructure Layer.
- * @param input Exact target runtime, policy, and infrastructure.
- * @returns The immutable RunSpec for one evaluation matrix cell.
- */
-function evaluationRunSpec<
-  Gateway,
-  DriverFailure,
-  PeerDefinitions extends EvaluationCasePeerDefinitions,
-  RuntimeFailure,
-  ConfigurationSchema extends Schema.Schema.AnyNoContext,
->(
-  input: ExecuteConditionInput<
-    Gateway,
-    DriverFailure,
-    PeerDefinitions,
-    RuntimeFailure,
-    ConfigurationSchema
-  >,
-) {
-  const {
-    definition,
-    infrastructure,
-    peerApplicationImage,
-    principal,
-    execution,
-    policy,
-    runtime,
-  } = input;
-  return RunSpec.define({
-    id: definition.definitionId,
-    events: [evaluationEvents],
-    agents: makeConditionRuntimes(runtime, definition, peerApplicationImage),
-    cluster: infrastructure,
-    execute: ({ agents, events }) => {
-      const { [TARGET_AGENT_NAME]: target, ...peers } = agents;
-      return Effect.gen(function* () {
-        const driver = yield* principal.make(execution.attemptId);
-        yield* runEvaluationCase({
-          definition,
-          policy,
-          target,
-          peers,
-          driver,
-          emit: events.emit,
-        });
-      });
-    },
-  });
-}
-
 type EvaluationCellRunSpec =
   RunSpec extends RunSpec<
     infer Id,
@@ -700,17 +766,19 @@ type EvaluationCellRunSpec =
     infer Success,
     infer Failure,
     infer Requirements,
-    infer _ClusterLayer
+    infer ClusterLayer
   >
-    ? RunSpec<
-        Id,
-        CustomerCatalogs,
-        Definitions,
-        Success,
-        Failure,
-        Requirements,
-        EvaluationInfrastructure
-      >
+    ? ClusterLayer extends Layer.Layer<never, unknown, unknown>
+      ? RunSpec<
+          Id,
+          CustomerCatalogs,
+          Definitions,
+          Success,
+          Failure,
+          Requirements,
+          EvaluationInfrastructure
+        >
+      : never
     : never;
 
 /** Inputs that bind one report cell to a controller-owned infrastructure Layer. */
@@ -720,34 +788,6 @@ interface EvaluationCellRunSpecInput {
   readonly attemptId: string;
   readonly peerApplicationImage: Image;
   readonly cluster: EvaluationInfrastructure;
-}
-
-/**
- * Construct exactly one case-by-condition controller RunSpec.
- * @param input Exact case, condition, attempt, and infrastructure.
- * @returns One immutable controller-owned RunSpec.
- */
-export function evaluationCellRunSpec(
-  input: EvaluationCellRunSpecInput,
-): EvaluationCellRunSpec {
-  return input.definition.withDefinition({
-    execute: (definition) =>
-      input.condition.withDefinition({
-        execute: (condition): EvaluationCellRunSpec => {
-          const spec = evaluationRunSpec({
-            runtime: condition.runtime,
-            principal: condition.principal,
-            policy: condition.execution,
-            definition,
-            execution: { attemptId: input.attemptId },
-            peerApplicationImage: input.peerApplicationImage,
-            infrastructure: input.cluster,
-          });
-          // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The two rank-2 binders erase only condition and peer type parameters; the RunSpec object and its exact infrastructure error channel are unchanged.
-          return spec as unknown as EvaluationCellRunSpec; // #ignore-sloppy-code[as-unknown-as]: The rank-2 case and condition binders erase only their type parameters while returning the same immutable RunSpec object.
-        },
-      }),
-  });
 }
 
 /**
@@ -775,44 +815,5 @@ function evaluationCondition<
     withDefinition: <Result>(
       consumer: EvaluationConditionDefinitionConsumer<Result>,
     ) => consumer.execute(definition),
-  });
-}
-
-/**
- * Build the OpenClaw condition around its exact native gateway.
- * @param options Native runtime configuration and customer deadlines.
- * @returns A condition whose executor retains the OpenClaw gateway type.
- */
-export function openClawEvaluationCondition(
-  options: OpenClawEvaluationConditionOptions,
-) {
-  const id = decodeEvaluationConditionId("openclaw/v2");
-  const runtime = openClawRuntime({
-    ...options.runtime,
-    tools: BUNDLED_OPENCLAW_TOOLS,
-  });
-  return evaluationCondition({
-    id,
-    runtime,
-    principal: openClawPrincipalDriver,
-    execution: options.execution,
-  });
-}
-
-/**
- * Build the NanoClaw condition around its exact native gateway.
- * @param options Native runtime configuration and customer deadlines.
- * @returns A condition whose executor retains the NanoClaw gateway type.
- */
-export function nanoclawEvaluationCondition(
-  options: NanoClawEvaluationConditionOptions,
-) {
-  const id = decodeEvaluationConditionId("nanoclaw/v2");
-  const runtime = nanoclawRuntime(options.runtime);
-  return evaluationCondition({
-    id,
-    runtime,
-    principal: nanoclawPrincipalDriver,
-    execution: options.execution,
   });
 }

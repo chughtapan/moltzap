@@ -169,6 +169,59 @@ export interface AttemptContext {
   readonly startedAt: DateTime.Utc;
 }
 
+/** Environment key naming one digest-pinned image an evaluation run needs. */
+export type EvaluationImageKey =
+  | "MOLTZAP_CONTROLLER_IMAGE"
+  | "MOLTZAP_NANOCLAW_IMAGE";
+
+/**
+ * Record an infrastructure failure, with whatever account the run left.
+ * @param context Cell identity and the instant execution began.
+ * @param summary Terminal summary the controller printed for this cell.
+ * @param diagnostic The controller's own account, when it produced one.
+ * @returns The terminal attempt this cell commits.
+ */
+export function infrastructureFailed(
+  context: AttemptContext,
+  summary: InfrastructureSummary,
+  diagnostic?: string,
+) {
+  return DateTime.now.pipe(
+    Effect.map((completedAt) => {
+      const detail = diagnostic ?? infrastructureFailureDetail(summary);
+      const fields = terminalFields(context, completedAt);
+      return summary._tag === "LedgerAllocationFailed"
+        ? LedgerAllocationFailedAttempt.make({
+            ...fields,
+            failure: LedgerStorageError.make({ operation: "allocate", detail }),
+          })
+        : RunFailedAttempt.make({
+            ...fields,
+            receipt: summary.receipt,
+            detail,
+          });
+    }),
+  );
+}
+
+/**
+ * Describe an evaluation image the environment omitted.
+ * @param key Environment key the run could not read.
+ * @returns The operator-facing requirement.
+ */
+export function missingImageDetail(key: EvaluationImageKey): string {
+  return `${key} is required for evaluation execution`;
+}
+
+/**
+ * Describe a rejected evaluation image reference.
+ * @param key Environment key whose value was not digest-pinned.
+ * @returns The operator-facing requirement.
+ */
+export function invalidImageDetail(key: EvaluationImageKey): string {
+  return `${key} must be a lowercase SHA-256 digest-pinned image`;
+}
+
 function describeUnknown(cause: unknown): string {
   if (cause instanceof Error && cause.message.trim().length > 0) {
     return cause.message.trim();
@@ -270,6 +323,26 @@ function evaluationConditions(
   ];
 }
 
+function reportPlan(
+  sourceRevision: string,
+  conditions: NonEmptyReadonlyArray<EvaluationCondition>,
+  environment: EvaluationExecutionEnvironment,
+): EvaluationReportPlan {
+  const [firstCase, ...remainingCases] = evaluationCases;
+  const [firstCondition, ...remainingConditions] = conditions;
+  return EvaluationReportPlan.make({
+    sourceRevision,
+    cases: [casePlan(firstCase), ...remainingCases.map(casePlan)],
+    conditions: [
+      conditionPlan(firstCondition),
+      ...remainingConditions.map(conditionPlan),
+    ],
+    judgePolicy: judgePolicySnapshot(),
+    infrastructure: planInfrastructure(environment),
+    samplesPerCell: 1,
+  });
+}
+
 function judgePolicySnapshot(): JudgePolicySnapshot {
   return JudgePolicySnapshot.make({
     id: JUDGE_POLICY,
@@ -329,26 +402,6 @@ function planInfrastructure(
         kubeContext: environment.kubeContext,
         artifactBucket: environment.gkeArtifactBucket,
       });
-}
-
-function reportPlan(
-  sourceRevision: string,
-  conditions: NonEmptyReadonlyArray<EvaluationCondition>,
-  environment: EvaluationExecutionEnvironment,
-): EvaluationReportPlan {
-  const [firstCase, ...remainingCases] = evaluationCases;
-  const [firstCondition, ...remainingConditions] = conditions;
-  return EvaluationReportPlan.make({
-    sourceRevision,
-    cases: [casePlan(firstCase), ...remainingCases.map(casePlan)],
-    conditions: [
-      conditionPlan(firstCondition),
-      ...remainingConditions.map(conditionPlan),
-    ],
-    judgePolicy: judgePolicySnapshot(),
-    infrastructure: planInfrastructure(environment),
-    samplesPerCell: 1,
-  });
 }
 
 function bindCase(
@@ -500,42 +553,24 @@ const INFRASTRUCTURE_FAILED_DETAIL: Readonly<
   ClusterLost: "the simulator controller reported an infrastructure failure",
 };
 
-/**
- * Record an infrastructure failure, with whatever account the run left.
- * @param context Cell identity and the instant execution began.
- * @param summary Terminal summary the controller printed for this cell.
- * @param diagnostic The controller's own account, when it produced one.
- * @returns The terminal attempt this cell commits.
- */
-export function infrastructureFailed(
-  context: AttemptContext,
-  summary: InfrastructureSummary,
-  diagnostic?: string,
-) {
-  return DateTime.now.pipe(
-    Effect.map((completedAt) => {
-      const detail = diagnostic ?? INFRASTRUCTURE_FAILED_DETAIL[summary._tag];
-      const fields = terminalFields(context, completedAt);
-      return summary._tag === "LedgerAllocationFailed"
-        ? LedgerAllocationFailedAttempt.make({
-            ...fields,
-            failure: LedgerStorageError.make({ operation: "allocate", detail }),
-          })
-        : RunFailedAttempt.make({
-            ...fields,
-            receipt: summary.receipt,
-            detail,
-          });
-    }),
-  );
+function infrastructureFailureDetail(summary: InfrastructureSummary): string {
+  return INFRASTRUCTURE_FAILED_DETAIL[summary._tag];
 }
 
-function artifactStorage(
+function completeSubmission(
   environment: EvaluationExecutionEnvironment,
-): EvaluationArtifactStorage {
-  return environment.profile === "local"
-    ? { profile: environment.profile, root: environment.localArtifacts }
-    : { profile: environment.profile, bucket: environment.gkeArtifactBucket };
+  context: AttemptContext,
+  submission: EvaluationSubmissionResult,
+) {
+  const summary = submission.result.summary;
+  return summary._tag === "ProgramFinished"
+    ? readCompletedArtifacts(
+        environment,
+        context,
+        submission.namespace,
+        summary.receipt,
+      )
+    : infrastructureFailed(context, summary, submissionDiagnostic(submission));
 }
 
 function readCompletedArtifacts(
@@ -581,33 +616,12 @@ function readCompletedArtifacts(
   );
 }
 
-function completeSubmission(
+function artifactStorage(
   environment: EvaluationExecutionEnvironment,
-  context: AttemptContext,
-  submission: EvaluationSubmissionResult,
-) {
-  const summary = submission.result.summary;
-  return summary._tag === "ProgramFinished"
-    ? readCompletedArtifacts(
-        environment,
-        context,
-        submission.namespace,
-        summary.receipt,
-      )
-    : infrastructureFailed(context, summary, submissionDiagnostic(submission));
-}
-
-function conditionModelId(
-  models: CommonExecutionEnvironment["models"],
-  condition: EvaluationConditionId,
-): string {
-  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
-    "openclaw/v2": models.openclaw,
-    "nanoclaw/v2": models.nanoclaw,
-  };
-  // Indexing needs the plain spelling; the brand is not part of the key set.
-  const name: EvaluationConditionName = condition;
-  return byCondition[name];
+): EvaluationArtifactStorage {
+  return environment.profile === "local"
+    ? { profile: environment.profile, root: environment.localArtifacts }
+    : { profile: environment.profile, bucket: environment.gkeArtifactBucket };
 }
 
 function submissionInput(
@@ -630,6 +644,19 @@ function submissionInput(
     peerObservationTimeoutMillis: Duration.toMillis(PEER_OBSERVATION_TIMEOUT),
     caseTimeoutMillis: Duration.toMillis(CASE_TIMEOUT),
   } as const;
+}
+
+function conditionModelId(
+  models: CommonExecutionEnvironment["models"],
+  condition: EvaluationConditionId,
+): string {
+  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
+    "openclaw/v2": models.openclaw,
+    "nanoclaw/v2": models.nanoclaw,
+  };
+  // Indexing needs the plain spelling; the brand is not part of the key set.
+  const name: EvaluationConditionName = condition;
+  return byCondition[name];
 }
 
 function executeCell(
@@ -712,37 +739,20 @@ const runtimeOptions = {
   profile: profileOption,
 } as const;
 
-function requiredEnvironment(key: string) {
+function executionImages() {
+  return Effect.all({
+    controllerImage: requiredImage("MOLTZAP_CONTROLLER_IMAGE"),
+    nanoclawApplicationImage: requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
+  });
+}
+
+function requiredImage(key: EvaluationImageKey) {
   return Config.string(key).pipe(
     Effect.mapError(() =>
-      EvaluationSourceStateError.make({
-        detail: `${key} is required for evaluation execution`,
-      }),
+      EvaluationSourceStateError.make({ detail: missingImageDetail(key) }),
     ),
+    Effect.flatMap((value: string) => distributedApplicationImage(key, value)),
   );
-}
-
-/** Environment key naming one digest-pinned image an evaluation run needs. */
-export type EvaluationImageKey =
-  | "MOLTZAP_CONTROLLER_IMAGE"
-  | "MOLTZAP_NANOCLAW_IMAGE";
-
-/**
- * Describe an evaluation image the environment omitted.
- * @param key Environment key the run could not read.
- * @returns The operator-facing requirement.
- */
-export function missingImageDetail(key: EvaluationImageKey): string {
-  return `${key} is required for evaluation execution`;
-}
-
-/**
- * Describe a rejected evaluation image reference.
- * @param key Environment key whose value was not digest-pinned.
- * @returns The operator-facing requirement.
- */
-export function invalidImageDetail(key: EvaluationImageKey): string {
-  return `${key} must be a lowercase SHA-256 digest-pinned image`;
 }
 
 function distributedApplicationImage(
@@ -756,20 +766,20 @@ function distributedApplicationImage(
   );
 }
 
-function requiredImage(key: EvaluationImageKey) {
-  return Config.string(key).pipe(
-    Effect.mapError(() =>
-      EvaluationSourceStateError.make({ detail: missingImageDetail(key) }),
-    ),
-    Effect.flatMap((value: string) => distributedApplicationImage(key, value)),
+function localArtifactDirectory(path: Path.Path) {
+  return requiredArtifactTarget(
+    "MOLTZAP_LOCAL_ARTIFACTS",
+    "an absolute path",
+    (value) => localArtifactRoot(path, value),
   );
 }
 
-function executionImages() {
-  return Effect.all({
-    controllerImage: requiredImage("MOLTZAP_CONTROLLER_IMAGE"),
-    nanoclawApplicationImage: requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
-  });
+function gkeArtifactBucket() {
+  return requiredArtifactTarget(
+    "MOLTZAP_GKE_ARTIFACT_BUCKET",
+    "a valid Cloud Storage bucket name",
+    evaluationArtifactBucket,
+  );
 }
 
 function requiredArtifactTarget<Target>(
@@ -792,19 +802,13 @@ function requiredArtifactTarget<Target>(
   );
 }
 
-function localArtifactDirectory(path: Path.Path) {
-  return requiredArtifactTarget(
-    "MOLTZAP_LOCAL_ARTIFACTS",
-    "an absolute path",
-    (value) => localArtifactRoot(path, value),
-  );
-}
-
-function gkeArtifactBucket() {
-  return requiredArtifactTarget(
-    "MOLTZAP_GKE_ARTIFACT_BUCKET",
-    "a valid Cloud Storage bucket name",
-    evaluationArtifactBucket,
+function requiredEnvironment(key: string) {
+  return Config.string(key).pipe(
+    Effect.mapError(() =>
+      EvaluationSourceStateError.make({
+        detail: `${key} is required for evaluation execution`,
+      }),
+    ),
   );
 }
 

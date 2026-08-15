@@ -1,5 +1,6 @@
 /** @file Autonomous evaluation peers built only on the public HarnessClient. */
 
+import type { NonEmptyReadonlyArray } from "effect/Array";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
 import {
@@ -22,7 +23,6 @@ import {
   stoppedBeforeAttach,
 } from "@moltzap/simulator/agents";
 import { Duration, Effect, Mailbox, Schema, type Scope } from "effect";
-import type { NonEmptyReadonlyArray } from "effect/Array";
 import { SocialActionObserved } from "./events.js";
 import { evaluationCaseId, type EvaluationCaseId } from "./model.js";
 
@@ -166,6 +166,78 @@ type EvaluationPeerRuntime = AgentRuntime<
   RuntimeAcquisitionError,
   typeof EvaluationPeerRuntimeConfiguration
 >;
+
+/**
+ * Run one triggered peer policy using only its scoped public Client.
+ * @param context Public Client and endpoint identity for the peer.
+ * @param plan Case-owned policy to execute.
+ * @returns The completed peer exchange or its typed failure.
+ */
+export function runEvaluationPeerApplication(
+  context: EvaluationPeerApplicationContext,
+  plan: EvaluationPeerPlan,
+): Effect.Effect<PeerExchange, EvaluationPeerFailed, Scope.Scope> {
+  if (plan instanceof ReactivePeerPlan) {
+    return reactiveExchange(context, plan);
+  }
+  if (plan instanceof OpeningPeerPlan) {
+    return openingExchange(context, plan);
+  }
+  return Effect.fail(
+    failure("configuration", "an idle roster member has no exchange"),
+  );
+}
+
+/**
+ * Build a peer that replies after the target authors an action.
+ * @param caseId Evaluation case that owns the peer.
+ * @param targetName Roster name of the peer's target.
+ * @param messages Non-empty reply sequence sent by the peer.
+ * @returns The image-independent peer definition.
+ */
+export function reactivePeer(
+  caseId: EvaluationCaseId,
+  targetName: string,
+  messages: NonEmptyReadonlyArray<string>,
+): EvaluationPeerDefinition {
+  return peerDefinition(
+    new ReactivePeerPlan({
+      caseId,
+      targetName: decodeAgentName(targetName),
+      messages: Object.freeze([...messages]),
+    }),
+  );
+}
+
+/**
+ * Build a peer that starts the conversation before the principal prompt.
+ * @param caseId Evaluation case that owns the peer.
+ * @param targetName Roster name of the peer's target.
+ * @param text Initial message sent by the peer.
+ * @returns The image-independent peer definition.
+ */
+export function openingPeer(
+  caseId: EvaluationCaseId,
+  targetName: string,
+  text: string,
+): EvaluationPeerDefinition {
+  return peerDefinition(
+    new OpeningPeerPlan({
+      caseId,
+      targetName: decodeAgentName(targetName),
+      text,
+    }),
+  );
+}
+
+/**
+ * Build a roster-only member that never opens a Client subscription.
+ * @param caseId Evaluation case that owns the peer.
+ * @returns The image-independent idle peer definition.
+ */
+export function idlePeer(caseId: EvaluationCaseId): EvaluationPeerDefinition {
+  return peerDefinition(new IdlePeerPlan({ caseId }));
+}
 
 function failure(
   operation: EvaluationPeerFailed["operation"],
@@ -313,22 +385,6 @@ function openingExchange(
   });
 }
 
-/** Run one triggered peer policy using only its scoped public Client. */
-export function runEvaluationPeerApplication(
-  context: EvaluationPeerApplicationContext,
-  plan: EvaluationPeerPlan,
-): Effect.Effect<PeerExchange, EvaluationPeerFailed, Scope.Scope> {
-  if (plan instanceof ReactivePeerPlan) {
-    return reactiveExchange(context, plan);
-  }
-  if (plan instanceof OpeningPeerPlan) {
-    return openingExchange(context, plan);
-  }
-  return Effect.fail(
-    failure("configuration", "an idle roster member has no exchange"),
-  );
-}
-
 function acquisitionFailure(
   agent: string,
   operation: string,
@@ -344,6 +400,18 @@ function acquisitionFailure(
 function bridgeUrl(endpoint: ApplicationEndpoint, path: string): URL {
   const routed = routableBridgeEndpoint(endpoint);
   return new URL(path, `http://${routed.host}:${String(routed.port)}/`);
+}
+
+function triggerBridge(
+  url: URL,
+): Effect.Effect<void, EvaluationPeerFailed, HttpClient.HttpClient> {
+  return executeBridgeRequest(HttpClientRequest.post(url)).pipe(
+    Effect.flatMap(({ status }) =>
+      status === 200 || status === 202
+        ? Effect.void
+        : Effect.fail(failure("bridge", `peer bridge returned HTTP ${status}`)),
+    ),
+  );
 }
 
 function executeBridgeRequest(
@@ -363,18 +431,6 @@ function executeBridgeRequest(
             Effect.mapError((cause) => failure("bridge", cause)),
             Effect.map((body) => ({ status: response.status, body })),
           ),
-    ),
-  );
-}
-
-function triggerBridge(
-  url: URL,
-): Effect.Effect<void, EvaluationPeerFailed, HttpClient.HttpClient> {
-  return executeBridgeRequest(HttpClientRequest.post(url)).pipe(
-    Effect.flatMap(({ status }) =>
-      status === 200 || status === 202
-        ? Effect.void
-        : Effect.fail(failure("bridge", `peer bridge returned HTTP ${status}`)),
     ),
   );
 }
@@ -505,39 +561,4 @@ function peerDefinition(plan: EvaluationPeerPlan): EvaluationPeerDefinition {
     plan: Object.freeze(plan),
     runtime: (applicationImage: Image) => peerRuntime(plan, applicationImage),
   });
-}
-
-/** Build a peer that replies after the target authors an action. */
-export function reactivePeer(
-  caseId: EvaluationCaseId,
-  targetName: string,
-  messages: NonEmptyReadonlyArray<string>,
-): EvaluationPeerDefinition {
-  return peerDefinition(
-    new ReactivePeerPlan({
-      caseId,
-      targetName: decodeAgentName(targetName),
-      messages: Object.freeze([...messages]),
-    }),
-  );
-}
-
-/** Build a peer that starts the conversation before the principal prompt. */
-export function openingPeer(
-  caseId: EvaluationCaseId,
-  targetName: string,
-  text: string,
-): EvaluationPeerDefinition {
-  return peerDefinition(
-    new OpeningPeerPlan({
-      caseId,
-      targetName: decodeAgentName(targetName),
-      text,
-    }),
-  );
-}
-
-/** Build a roster-only member that never opens a Client subscription. */
-export function idlePeer(caseId: EvaluationCaseId): EvaluationPeerDefinition {
-  return peerDefinition(new IdlePeerPlan({ caseId }));
 }

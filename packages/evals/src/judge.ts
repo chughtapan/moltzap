@@ -10,8 +10,8 @@ import {
   positiveInteger,
 } from "./model.js";
 import {
-  EvaluationTranscript,
   citationIssue,
+  EvaluationTranscript,
   transcriptIssue,
 } from "./transcript.js";
 
@@ -119,30 +119,6 @@ export class SemanticJudge extends Context.Tag("@moltzap/evals/SemanticJudge")<
   SemanticJudgeService
 >() {}
 
-function judgeCoverageIssue(
-  bundle: JudgeBundle,
-  result: JudgeResult,
-): JudgeInvalidOutput | undefined {
-  if (result.caseId !== bundle.caseId) {
-    return JudgeInvalidOutput.make({
-      detail: `judge returned case ${result.caseId} for ${bundle.caseId}`,
-    });
-  }
-  const expected = bundle.criteria.map((criterion) => criterion.id);
-  const actual = result.criteria.map((criterion) => criterion.criterionId);
-  if (
-    new Set(actual).size !== actual.length ||
-    expected.length !== actual.length ||
-    expected.some((criterion) => !actual.includes(criterion))
-  ) {
-    return JudgeInvalidOutput.make({
-      detail:
-        "judge output does not contain every requested criterion exactly once",
-    });
-  }
-  return undefined;
-}
-
 /**
  * Enforce exact criterion coverage and evidence-ID-bound citations.
  * @param bundle Trusted policy and normalized untrusted evidence.
@@ -183,4 +159,28 @@ export function validateJudgeResult(
     }
   }
   return Effect.succeed(result);
+}
+
+function judgeCoverageIssue(
+  bundle: JudgeBundle,
+  result: JudgeResult,
+): JudgeInvalidOutput | undefined {
+  if (result.caseId !== bundle.caseId) {
+    return JudgeInvalidOutput.make({
+      detail: `judge returned case ${result.caseId} for ${bundle.caseId}`,
+    });
+  }
+  const expected = bundle.criteria.map((criterion) => criterion.id);
+  const actual = result.criteria.map((criterion) => criterion.criterionId);
+  if (
+    new Set(actual).size !== actual.length ||
+    expected.length !== actual.length ||
+    expected.some((criterion) => !actual.includes(criterion))
+  ) {
+    return JudgeInvalidOutput.make({
+      detail:
+        "judge output does not contain every requested criterion exactly once",
+    });
+  }
+  return undefined;
 }

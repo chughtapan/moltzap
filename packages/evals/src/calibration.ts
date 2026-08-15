@@ -120,10 +120,6 @@ const bindCalibrationCase = Effect.fn("evals.bindCalibrationCase")(function* (
   });
 });
 
-function evidenceId(index: number, suffix: string): EvaluationEvidenceId {
-  return decodeEvaluationEvidenceId(`calibration:${String(index)}:${suffix}`);
-}
-
 function calibrationTranscript(
   context: string,
   response: string,
@@ -152,6 +148,10 @@ function calibrationTranscript(
     ],
     selectedEvidenceIds: [outputId],
   });
+}
+
+function evidenceId(index: number, suffix: string): EvaluationEvidenceId {
+  return decodeEvaluationEvidenceId(`calibration:${String(index)}:${suffix}`);
 }
 
 const calibrationFixture = Effect.fn("evals.calibrationFixture")(function* (

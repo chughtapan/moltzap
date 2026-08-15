@@ -1,7 +1,7 @@
 /** @file Private typed contract for endpoint persistence operations. */
 
 import type { Effect } from "effect";
-import type { EndpointStoreError } from "./database/index.js";
+import type { EndpointStoreError } from "./database/values.js";
 
 /** Whether an idempotent mutation inserted state or observed the same state. */
 export type StoreMutation = "inserted" | "existing";

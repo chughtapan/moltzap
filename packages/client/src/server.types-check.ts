@@ -5,7 +5,7 @@
  */
 
 import type { Layer } from "effect";
-import { MoltZapDaemon } from "./server.js";
+import type { MoltZapDaemon } from "./server.js";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;

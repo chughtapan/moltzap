@@ -119,17 +119,12 @@ const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   "agent-code-guard/no-vacuous-jsdoc": "error",
   "agent-code-guard/prefer-stepdown-function-order": "error",
   "agent-code-guard/require-stable-file-shell": "error",
-  // The architecture linter owns complete folder-cycle detection. Keep this
-  // file-level check bounded so a public adapter does not re-walk the entire
-  // package and external dependency graph for every source file.
-  "import-x/no-cycle": [
-    "error",
-    {
-      allowUnsafeDynamicCyclicDependency: false,
-      ignoreExternal: true,
-      maxDepth: 3,
-    },
-  ],
+  // The architecture analyzer owns deterministic file, folder, domain, and
+  // workspace-package cycle detection in one cached whole-project pass.
+  "import-x/no-cycle": "off",
+  // The TypeScript-aware rule reports the same deprecated-symbol uses without
+  // repeating Sonar's expensive type walk for every file.
+  "sonarjs/deprecation": "off",
   "@typescript-eslint/naming-convention": [
     "error",
     {
@@ -224,10 +219,10 @@ const DEFAULT_CUSTOM_JSDOC_TAGS = ["failure"];
 
 export function packageEslintConfig(options = {}) {
   const strictRules = makeStrictRules(options);
-  const languageOptions = makeTsLanguageOptions(options.tsconfigRootDir, [
-    "./tsconfig.json",
-    "./tsconfig.test.json",
-  ]);
+  const languageOptions = makeTsLanguageOptions(
+    options.tsconfigRootDir,
+    options.projects ?? ["./tsconfig.json", "./tsconfig.test.json"],
+  );
   const customTags = [
     ...DEFAULT_CUSTOM_JSDOC_TAGS,
     ...(options.customJsDocTags ?? []),

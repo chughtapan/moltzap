@@ -1,3 +1,5 @@
+/** @file Evaluation sweep lifecycle, validation, and resumption tests. */
+
 import { assert, it as effectIt } from "@effect/vitest";
 import { AgentName as agentName } from "@moltzap/client";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";

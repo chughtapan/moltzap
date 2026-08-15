@@ -53,7 +53,9 @@ jobs:
       - name: Verify Phoenix infrastructure module
         run: pnpm nx run @moltzap/evals:phoenix-terraform-check
       - run: pnpm typecheck
-      - run: pnpm lint
+      - name: Lint
+        run: pnpm lint
+        timeout-minutes: 30
       # The graph check pins every project, edge, root, and package-specific
       # target. Exact runs then execute the common floor; run-many and affected
       # intentionally skip projects that do not define a target.
