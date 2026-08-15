@@ -21,7 +21,6 @@ import type {
 } from "@kubernetes/client-node";
 import type { CredentialName, Image, Resources } from "../../agents/index.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
-import type { KubernetesManifest } from "./calls.js";
 import { ClusterError } from "../cluster.js";
 import {
   encodeKubernetesExecutionProfile,
@@ -56,6 +55,9 @@ export interface KubernetesRunOwner {
   readonly name: string;
   readonly uid: string;
 }
+
+/** Private manifest shape built here and submitted through Kubernetes APIs. */
+export type KubernetesManifest = Readonly<Record<string, unknown>>;
 
 /** Capacity facts projected from one private container runtime. */
 export interface RuntimeCapacitySlot {

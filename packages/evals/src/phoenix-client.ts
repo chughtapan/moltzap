@@ -1,8 +1,8 @@
 /** @file The single Phoenix SDK boundary: typed request failures and Promise adaptation. */
 
-import { HttpError, type Types } from "@arizeai/phoenix-client";
 import type { getDataset } from "@arizeai/phoenix-client/datasets";
 import type { getExperimentRuns } from "@arizeai/phoenix-client/experiments";
+import { HttpError, type Types } from "@arizeai/phoenix-client";
 import { Effect, Schema } from "effect";
 
 /** Page size requested from every paginated Phoenix listing. */
@@ -31,19 +31,23 @@ export class PhoenixRequestFailed extends Schema.TaggedError<PhoenixRequestFaile
   },
 ) {}
 
+/* eslint-disable agent-code-guard/promise-type -- the Phoenix SDK exposes Promise APIs, which enter Effect only through this adapter. */
 /**
- * Recover readable text from anything the SDK or transport threw.
- * @param cause Arbitrary thrown value.
- * @returns The error message when one exists, otherwise a stringified form;
- * never the empty string.
+ * The only Promise-to-Effect adaptation used by the publisher.
+ * @param operation Human-readable name used when the call rejects.
+ * @param evaluate Thunk invoking one Phoenix SDK call.
+ * @returns The SDK result, or a typed request failure.
  */
-export function describeUnknown(cause: unknown): string {
-  if (cause instanceof Error && cause.message.length > 0) {
-    return cause.message;
-  }
-  const detail = String(cause);
-  return detail.length > 0 ? detail : "unknown Phoenix failure";
+export function phoenixRequest<A>(
+  operation: string,
+  evaluate: () => Promise<A>,
+): Effect.Effect<A, PhoenixRequestFailed> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => requestFailure(operation, cause),
+  });
 }
+/* eslint-enable agent-code-guard/promise-type -- the Phoenix SDK boundary ends here. */
 
 /**
  * Describe a rejected Phoenix call as a typed failure.
@@ -63,20 +67,16 @@ export function requestFailure(
   });
 }
 
-/* eslint-disable agent-code-guard/promise-type -- the Phoenix SDK exposes Promise APIs, which enter Effect only through this adapter. */
 /**
- * The only Promise-to-Effect adaptation used by the publisher.
- * @param operation Human-readable name used when the call rejects.
- * @param evaluate Thunk invoking one Phoenix SDK call.
- * @returns The SDK result, or a typed request failure.
+ * Recover readable text from anything the SDK or transport threw.
+ * @param cause Arbitrary thrown value.
+ * @returns The error message when one exists, otherwise a stringified form;
+ * never the empty string.
  */
-export function phoenixRequest<A>(
-  operation: string,
-  evaluate: () => Promise<A>,
-): Effect.Effect<A, PhoenixRequestFailed> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => requestFailure(operation, cause),
-  });
+export function describeUnknown(cause: unknown): string {
+  if (cause instanceof Error && cause.message.length > 0) {
+    return cause.message;
+  }
+  const detail = String(cause);
+  return detail.length > 0 ? detail : "unknown Phoenix failure";
 }
-/* eslint-enable agent-code-guard/promise-type -- the Phoenix SDK boundary ends here. */

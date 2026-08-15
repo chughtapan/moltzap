@@ -43,14 +43,14 @@ const moltZapAccountSchema = Schema.Struct({
 });
 
 /** One OpenClaw account bound to the process-local MCP endpoint. */
-export type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
+type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
 
 const moltZapChannelConfigSchema = Schema.Struct({
   accounts: Schema.optional(Schema.Array(moltZapAccountSchema)),
 });
 
 /** OpenClaw configuration read by the channel plugin. */
-export interface OpenClawConfig {
+interface OpenClawConfig {
   readonly channels?: {
     readonly moltzap?: {
       readonly accounts?: readonly MoltZapAccount[];

@@ -222,12 +222,19 @@
     "lint:eslint": {
       "cache": true,
       "inputs": [
-        "workspaceFiles"
+        "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.shared.mjs",
+        "{workspaceRoot}/tsconfig.eslint.json",
+        "{workspaceRoot}/tsconfig.base.json",
+        "{workspaceRoot}/package.json",
+        "{workspaceRoot}/pnpm-lock.yaml",
+        "{workspaceRoot}/*.ts",
+        "{workspaceRoot}/examples/**/*.ts"
       ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "eslint . --cache --max-warnings=0"
+        "command": "eslint eslint.config.mjs eslint.shared.mjs '*.ts' 'examples/**/*.ts' --no-error-on-unmatched-pattern --cache --max-warnings=0"
       }
     },
     "lint:oxlint": {

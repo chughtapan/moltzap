@@ -355,6 +355,32 @@ const completesReanchorWithoutAttention = () => {
   );
 };
 
+const assertRecoveredReanchor = (
+  store: EndpointStore,
+  completed: CompletedReanchor,
+  conversationId: string,
+) =>
+  Effect.gen(function* () {
+    const recovery = yield* store.recover();
+    expect(recovery.positions[0]?.currentAnchorHash).toBe(completed.anchorHash);
+    expect(recovery.stagedReanchors).toEqual([
+      expect.objectContaining({
+        anchorHash: completed.anchorHash,
+        canonicalCompletedReanchor: completed.canonicalCompletedReanchor,
+      }),
+    ]);
+    expect(
+      recovery.evidence.filter(({ kind }) => kind === "reanchor"),
+    ).toHaveLength(1);
+    expect(yield* store.completeReanchor(completed)).toBe("existing");
+    expect(
+      yield* store.hasConsumedAttention({
+        conversationId,
+        recordHash: record(conversationId, 0).recordHash,
+      }),
+    ).toBe(false);
+  });
+
 const recoversCompletedReanchorAfterRestart = () => {
   const directory = stateDirectory();
   const conversationId = "conversation:reanchor-restart";
@@ -382,29 +408,7 @@ const recoversCompletedReanchorAfterRestart = () => {
     write.pipe(
       Effect.zipRight(
         withStore(directory, (store) =>
-          Effect.gen(function* () {
-            const recovery = yield* store.recover();
-            expect(recovery.positions[0]?.currentAnchorHash).toBe(
-              completed.anchorHash,
-            );
-            expect(recovery.stagedReanchors).toEqual([
-              expect.objectContaining({
-                anchorHash: completed.anchorHash,
-                canonicalCompletedReanchor:
-                  completed.canonicalCompletedReanchor,
-              }),
-            ]);
-            expect(
-              recovery.evidence.filter(({ kind }) => kind === "reanchor"),
-            ).toHaveLength(1);
-            expect(yield* store.completeReanchor(completed)).toBe("existing");
-            expect(
-              yield* store.hasConsumedAttention({
-                conversationId,
-                recordHash: record(conversationId, 0).recordHash,
-              }),
-            ).toBe(false);
-          }),
+          assertRecoveredReanchor(store, completed, conversationId),
         ),
       ),
     ),

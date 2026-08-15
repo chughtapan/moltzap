@@ -7,6 +7,7 @@ import {
   OpenClawGatewayResponse,
 } from "@moltzap/simulator/agents";
 import { Effect, Schema, Stream } from "effect";
+import { evaluationCase } from "./cases.js";
 import {
   EvaluationEvidenceSelected,
   OpenClawPrincipalFinalOutput,
@@ -15,7 +16,6 @@ import {
   SocialActionObserved,
 } from "./events.js";
 import { decodeEvaluationCaseId, decodeEvaluationEvidenceId } from "./model.js";
-import { evaluationCase } from "./cases.js";
 import { SocialTranscriptItem, transcriptFromLedger } from "./transcript.js";
 
 const caseId = decodeEvaluationCaseId("EVAL-005");
@@ -61,50 +61,51 @@ function record(eventId: string, logicalSequence: number, event: unknown) {
   return { eventId, logicalSequence, event };
 }
 
-it.effect("projects and selects a public semantic target action", () =>
-  Effect.gen(function* () {
-    const records = [
-      record(gatewayInputId, 0, gatewayInput),
-      record(gatewayOutputId, 1, gatewayOutput),
-      record(socialId, 2, social),
-      record(
-        "evidence:selection",
-        3,
-        EvaluationEvidenceSelected.make({
-          caseId,
-          selectedEventId: socialId,
-        }),
-      ),
-    ];
-    const evidence = yield* projectEvaluationEvidence({
-      records: Stream.fromIterable(records),
-    });
+it("projects and selects a public semantic target action", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const records = [
+        record(gatewayInputId, 0, gatewayInput),
+        record(gatewayOutputId, 1, gatewayOutput),
+        record(socialId, 2, social),
+        record(
+          "evidence:selection",
+          3,
+          EvaluationEvidenceSelected.make({
+            caseId,
+            selectedEventId: socialId,
+          }),
+        ),
+      ];
+      const evidence = yield* projectEvaluationEvidence({
+        records: Stream.fromIterable(records),
+      });
 
-    assert.deepStrictEqual(
-      evidence.gateway.map(({ eventId }) => eventId),
-      [gatewayInputId, gatewayOutputId],
-    );
-    assert.deepStrictEqual(
-      evidence.social.map(({ eventId }) => eventId),
-      [socialId],
-    );
-    assert.deepStrictEqual(evidence.selectedEventIds, [socialId]);
+      assert.deepStrictEqual(
+        evidence.gateway.map(({ eventId }) => eventId),
+        [gatewayInputId, gatewayOutputId],
+      );
+      assert.deepStrictEqual(
+        evidence.social.map(({ eventId }) => eventId),
+        [socialId],
+      );
+      assert.deepStrictEqual(evidence.selectedEventIds, [socialId]);
 
-    const definition = evaluationCase(caseId);
-    assert.isDefined(definition);
-    if (definition !== undefined) {
-      const transcript = yield* transcriptFromLedger(
-        { records: Stream.fromIterable(records) },
-        definition,
-      );
-      const selected = transcript.items.find(
-        ({ evidenceId }) => evidenceId === socialId,
-      );
-      assert.instanceOf(selected, SocialTranscriptItem);
-      if (selected instanceof SocialTranscriptItem) {
-        assert.strictEqual(selected.actorName, target);
-        assert.strictEqual(selected.endpointName, peer);
+      const definition = evaluationCase(caseId);
+      assert.isDefined(definition);
+      if (definition !== undefined) {
+        const transcript = yield* transcriptFromLedger(
+          { records: Stream.fromIterable(records) },
+          definition,
+        );
+        const selected = transcript.items.find(
+          ({ evidenceId }) => evidenceId === socialId,
+        );
+        assert.instanceOf(selected, SocialTranscriptItem);
+        if (selected instanceof SocialTranscriptItem) {
+          assert.strictEqual(selected.actorName, target);
+          assert.strictEqual(selected.endpointName, peer);
+        }
       }
-    }
-  }),
-);
+    }),
+  ));

@@ -12,35 +12,10 @@ import {
   Encoding,
   Fiber,
   Schema,
-  Scope,
+  type Scope,
 } from "effect";
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import type { Content, ConversationId } from "../contract.js";
-import {
-  ReplyGrant,
-  type ReplyGrant as ReplyGrantValue,
-} from "../harness-runtime.js";
-import {
-  type Begin,
-  type BeginDigest,
-  ClientRepresentationError,
-  decodeCanonical,
-  encodeCanonical,
-  EvidenceStatement,
-  fingerprintReply,
-  hashBeginMessage,
-  makeActionBinding,
-  memberCard,
-  MulticastAction,
-  signEvidenceMessage,
-  verifyOuterMessage,
-  verifyStableEvidence,
-} from "./representation.js";
-import {
-  EngineAttentionError,
-  EngineReplyError,
-  type EngineProspectiveTurn,
-} from "./engine-types.js";
 import type {
   OpenFloorCertifiedHead,
   OpenFloorInput,
@@ -52,7 +27,35 @@ import type {
   RouterWorkerIngress,
   RouterWorkerPersistenceError,
 } from "./router-worker.js";
+import type { EndpointStoreError } from "./store.js";
+import {
+  ReplyGrant,
+  type ReplyGrant as ReplyGrantValue,
+} from "../harness-runtime.js";
+import {
+  EngineAttentionError,
+  type EngineProspectiveTurn,
+  EngineReplyError,
+} from "./engine-types.js";
+import {
+  type Begin,
+  type BeginDigest,
+  ClientRepresentationError,
+  decodeCanonical,
+  type DecodedOuterBody,
+  encodeCanonical,
+  EvidenceStatement,
+  fingerprintReply,
+  hashBeginMessage,
+  makeActionBinding,
+  memberCard,
+  MulticastAction,
+  signEvidenceMessage,
+  verifyOuterMessage,
+  verifyStableEvidence,
+} from "./representation.js";
 
+/** Public OpenFloor contracts retained at the endpoint composition boundary. */
 export type {
   OpenFloorActions,
   OpenFloorCertifiedHead,
@@ -64,9 +67,7 @@ export type {
 /** Protocol-fixed lifetime of one locally observed contention round. */
 export const openFloorGrantTtlMillis = 90_000;
 
-type OpenFloorIngress = RouterWorkerIngress<
-  import("./representation.js").DecodedOuterBody
->;
+type OpenFloorIngress = RouterWorkerIngress<DecodedOuterBody>;
 
 interface OpenFloorWinner {
   readonly digest: BeginDigest;
@@ -100,7 +101,7 @@ interface OpenFloorRuntime {
   readonly pendingHeads: Set<OpenFloorCertifiedHead["recordHash"]>;
   readonly rounds: Map<ConversationId, OpenFloorRound>;
   readonly authorities: Map<ReplyGrantValue, OpenFloorAuthority>;
-  readonly expiryFibers: Map<ConversationId, Fiber.RuntimeFiber<void, never>>;
+  readonly expiryFibers: Map<ConversationId, Fiber.RuntimeFiber<void>>;
   readonly gate: Effect.Semaphore;
   listenerActive: boolean;
 }
@@ -132,8 +133,14 @@ interface MulticastDecision {
   readonly candidate?: OpenFloorMulticastCandidate;
 }
 
-const accepted = "accepted" as const;
-const ignored = "ignored" as const;
+interface ReplyAdmission {
+  readonly authority: OpenFloorAuthority;
+  readonly round: OpenFloorRound;
+  readonly head: OpenFloorCertifiedHead;
+}
+
+const accepted = "accepted";
+const ignored = "ignored";
 
 const representationFailure = (): ClientRepresentationError =>
   new ClientRepresentationError();
@@ -149,14 +156,14 @@ const headAction = (head: OpenFloorCertifiedHead) =>
 
 const isHeadCoherent = (head: OpenFloorCertifiedHead): boolean => {
   const action = headAction(head);
-  return (
-    head.record.recordHash === head.recordHash &&
+  return [
+    head.record.recordHash === head.recordHash,
     head.record.actionCertifiedRecord.membership.conversationId ===
-      head.conversationId &&
-    action.conversationId === head.conversationId &&
-    action.membershipHash === head.membership.hash &&
-    action.anchorHash === head.currentAnchorHash
-  );
+      head.conversationId,
+    action.conversationId === head.conversationId,
+    action.membershipHash === head.membership.hash,
+    action.anchorHash === head.currentAnchorHash,
+  ].every(Boolean);
 };
 
 const isLocalAuthor = (
@@ -212,13 +219,14 @@ const beginIfStillEligible = (
   runtime.gate.withPermits(1)(
     Effect.sync(() => {
       const retained = runtime.heads.get(head.conversationId);
-      if (
-        !runtime.listenerActive ||
-        retained?.recordHash !== head.recordHash ||
-        isLocalAuthor(runtime, head) ||
-        runtime.rounds.has(head.conversationId) ||
-        runtime.pendingHeads.has(head.recordHash)
-      ) {
+      const ineligible = [
+        !runtime.listenerActive,
+        retained?.recordHash !== head.recordHash,
+        isLocalAuthor(runtime, head),
+        runtime.rounds.has(head.conversationId),
+        runtime.pendingHeads.has(head.recordHash),
+      ].some(Boolean);
+      if (ineligible) {
         return undefined;
       }
       runtime.pendingHeads.add(head.recordHash);
@@ -229,10 +237,7 @@ const beginIfStillEligible = (
 const initiateHead = (
   runtime: OpenFloorRuntime,
   head: OpenFloorCertifiedHead,
-): Effect.Effect<
-  void,
-  ClientRepresentationError | import("./store.js").EndpointStoreError
-> =>
+): Effect.Effect<void, ClientRepresentationError | EndpointStoreError> =>
   Effect.gen(function* () {
     const consumed = yield* runtime.input.store.hasConsumedAttention({
       conversationId: head.conversationId,
@@ -251,7 +256,7 @@ const initiateHead = (
   });
 
 const interruptFibers = (
-  fibers: readonly Fiber.RuntimeFiber<void, never>[],
+  fibers: ReadonlyArray<Fiber.RuntimeFiber<void>>,
 ): Effect.Effect<void> => Fiber.interruptAll(fibers);
 
 const installExpiry = (
@@ -291,12 +296,12 @@ const installExpiry = (
     }
   });
 
-const expireRound = (
+function expireRound(
   runtime: OpenFloorRuntime,
   conversationId: ConversationId,
   beginDigest: BeginDigest,
-): Effect.Effect<void> =>
-  Effect.gen(function* () {
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     const decision = yield* runtime.gate.withPermits(1)(
       Effect.sync(() => {
@@ -332,6 +337,7 @@ const expireRound = (
       yield* initiateHead(runtime, decision.retryHead);
     }
   }).pipe(Effect.catchAll(() => Effect.void));
+}
 
 const makeLocalAcknowledgment = (
   runtime: OpenFloorRuntime,
@@ -355,52 +361,47 @@ const beginMatchesHead = (
   head: OpenFloorCertifiedHead,
   begin: Begin,
 ): boolean =>
-  begin.conversationId === head.conversationId &&
-  begin.membershipHash === head.membership.hash &&
-  begin.anchorHash === head.currentAnchorHash &&
-  begin.previousRecordHash === head.recordHash &&
-  begin.actionId === "MULTICAST" &&
-  begin.contenderAgentId !== headAction(head).authorAgentId &&
-  memberCard(head.membership, begin.contenderAgentId) !== undefined;
+  [
+    begin.conversationId === head.conversationId,
+    begin.membershipHash === head.membership.hash,
+    begin.anchorHash === head.currentAnchorHash,
+    begin.previousRecordHash === head.recordHash,
+    begin.actionId === "MULTICAST",
+    begin.contenderAgentId !== headAction(head).authorAgentId,
+    memberCard(head.membership, begin.contenderAgentId) !== undefined,
+  ].every(Boolean);
 
-const acceptBeginLocked = (
+const acceptRetainedBegin = (
   runtime: OpenFloorRuntime,
-  ingress: OpenFloorIngress,
-  begin: Begin,
+  head: OpenFloorCertifiedHead,
+  retained: OpenFloorRound,
+  digest: BeginDigest,
 ): Effect.Effect<BeginDecision, ClientRepresentationError> =>
   Effect.gen(function* () {
-    const head = runtime.heads.get(begin.conversationId);
-    if (
-      head === undefined ||
-      !beginMatchesHead(head, begin) ||
-      ingress.message.senderAgentId !== begin.contenderAgentId
-    ) {
+    if (retained.winner.digest !== digest) {
       return { disposition: ignored };
     }
-    yield* verifyOuterMessage({
-      message: ingress.message,
-      membership: head.membership,
-    });
-    const now = yield* Clock.currentTimeMillis;
-    const digest = yield* hashBeginMessage(ingress.message);
-    const retained = runtime.rounds.get(begin.conversationId);
-    if (retained !== undefined && now < retained.winner.expiresAt) {
-      if (retained.winner.digest !== digest) {
-        return { disposition: ignored };
-      }
-      if (retained.winner.localAcknowledgmentQueued) {
-        return { disposition: accepted };
-      }
-      const evidence = yield* makeLocalAcknowledgment(runtime, retained);
+    if (retained.winner.localAcknowledgmentQueued) {
+      return { disposition: accepted };
+    }
+    const evidence = yield* makeLocalAcknowledgment(runtime, retained);
+    yield* Effect.sync(() => {
       retained.winner.localAcknowledgmentQueued = true;
-      return {
-        disposition: accepted,
-        acknowledgment: { membership: head.membership, evidence },
-      };
-    }
-    if (retained !== undefined) {
-      clearConversation(runtime, begin.conversationId);
-    }
+    });
+    return {
+      disposition: accepted,
+      acknowledgment: { membership: head.membership, evidence },
+    };
+  });
+
+const openRound = (
+  runtime: OpenFloorRuntime,
+  head: OpenFloorCertifiedHead,
+  begin: Begin,
+  timing: Readonly<{ digest: BeginDigest; now: number }>,
+): Effect.Effect<BeginDecision, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    const { digest, now } = timing;
     const round: OpenFloorRound = {
       head,
       winner: {
@@ -427,6 +428,36 @@ const acceptBeginLocked = (
         delayMillis: openFloorGrantTtlMillis,
       },
     };
+  });
+
+const acceptBeginLocked = (
+  runtime: OpenFloorRuntime,
+  ingress: OpenFloorIngress,
+  begin: Begin,
+): Effect.Effect<BeginDecision, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    const head = runtime.heads.get(begin.conversationId);
+    if (
+      head === undefined ||
+      !beginMatchesHead(head, begin) ||
+      ingress.message.senderAgentId !== begin.contenderAgentId
+    ) {
+      return { disposition: ignored };
+    }
+    yield* verifyOuterMessage({
+      message: ingress.message,
+      membership: head.membership,
+    });
+    const now = yield* Clock.currentTimeMillis;
+    const digest = yield* hashBeginMessage(ingress.message);
+    const retained = runtime.rounds.get(begin.conversationId);
+    if (retained !== undefined && now < retained.winner.expiresAt) {
+      return yield* acceptRetainedBegin(runtime, head, retained, digest);
+    }
+    if (retained !== undefined) {
+      clearConversation(runtime, begin.conversationId);
+    }
+    return yield* openRound(runtime, head, begin, { digest, now });
   });
 
 const makeGrant = (
@@ -485,6 +516,64 @@ const turnForRound = (
     };
   });
 
+const acknowledgmentMatchesRound = (input: {
+  readonly ingress: OpenFloorIngress;
+  readonly head: OpenFloorCertifiedHead;
+  readonly round: OpenFloorRound;
+  readonly now: number;
+  readonly statement: typeof EvidenceStatement.Type;
+}): boolean => {
+  const { ingress, head, round, now, statement } = input;
+  if (statement.kind !== "ack") {
+    return false;
+  }
+  return [
+    ingress.message.senderAgentId === statement.signerAgentId,
+    now < round.winner.expiresAt,
+    statement.conversationId === head.conversationId,
+    statement.membershipHash === head.membership.hash,
+    statement.previousRecordHash === head.recordHash,
+    statement.beginDigest === round.winner.digest,
+  ].every(Boolean);
+};
+
+const completeAcknowledgment = (
+  runtime: OpenFloorRuntime,
+  head: OpenFloorCertifiedHead,
+  round: OpenFloorRound,
+): Effect.Effect<AcknowledgmentDecision, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    const ready = [
+      round.winner.acknowledgments.size === head.membership.members.length,
+      round.winner.begin.contenderAgentId ===
+        runtime.input.localAgentCard.agentId,
+      !round.deliveryPending,
+      !round.deliveryComplete,
+    ].every(Boolean);
+    if (!ready) {
+      return { disposition: accepted };
+    }
+    const grant = round.grant ?? (yield* makeUniqueGrant(runtime));
+    if (round.grant === undefined) {
+      round.grant = grant;
+      runtime.authorities.set(grant, {
+        conversationId: head.conversationId,
+        recordHash: head.recordHash,
+        beginDigest: round.winner.digest,
+        expiresAt: round.winner.expiresAt,
+      });
+    }
+    round.deliveryPending = true;
+    return {
+      disposition: accepted,
+      delivery: {
+        conversationId: head.conversationId,
+        beginDigest: round.winner.digest,
+        turn: yield* turnForRound(runtime, round, grant),
+      },
+    };
+  });
+
 const acceptAcknowledgmentLocked = (
   runtime: OpenFloorRuntime,
   ingress: OpenFloorIngress,
@@ -513,13 +602,13 @@ const acceptAcknowledgmentLocked = (
     });
     const now = yield* Clock.currentTimeMillis;
     if (
-      verified.statement.kind !== "ack" ||
-      ingress.message.senderAgentId !== verified.statement.signerAgentId ||
-      now >= round.winner.expiresAt ||
-      verified.statement.conversationId !== head.conversationId ||
-      verified.statement.membershipHash !== head.membership.hash ||
-      verified.statement.previousRecordHash !== head.recordHash ||
-      verified.statement.beginDigest !== round.winner.digest
+      !acknowledgmentMatchesRound({
+        ingress,
+        head,
+        round,
+        now,
+        statement: verified.statement,
+      })
     ) {
       return { disposition: ignored };
     }
@@ -527,34 +616,7 @@ const acceptAcknowledgmentLocked = (
       verified.statement.signerAgentId,
       verified.message,
     );
-    if (
-      round.winner.acknowledgments.size !== head.membership.members.length ||
-      round.winner.begin.contenderAgentId !==
-        runtime.input.localAgentCard.agentId ||
-      round.deliveryPending ||
-      round.deliveryComplete
-    ) {
-      return { disposition: accepted };
-    }
-    const grant = round.grant ?? (yield* makeUniqueGrant(runtime));
-    if (round.grant === undefined) {
-      round.grant = grant;
-      runtime.authorities.set(grant, {
-        conversationId: head.conversationId,
-        recordHash: head.recordHash,
-        beginDigest: round.winner.digest,
-        expiresAt: round.winner.expiresAt,
-      });
-    }
-    round.deliveryPending = true;
-    return {
-      disposition: accepted,
-      delivery: {
-        conversationId: head.conversationId,
-        beginDigest: round.winner.digest,
-        turn: yield* turnForRound(runtime, round, grant),
-      },
-    };
+    return yield* completeAcknowledgment(runtime, head, round);
   });
 
 const finishDelivery = (
@@ -593,16 +655,17 @@ const actionMatchesRound = (
   action: typeof MulticastAction.Type,
 ): Effect.Effect<boolean, ClientRepresentationError> =>
   fingerprintReply(action.content).pipe(
-    Effect.map(
-      (fingerprint) =>
-        action.conversationId === round.head.conversationId &&
-        action.membershipHash === round.head.membership.hash &&
-        action.anchorHash === round.head.currentAnchorHash &&
-        action.previousRecordHash === round.head.recordHash &&
-        action.beginDigest === round.winner.digest &&
-        action.actionId === "MULTICAST" &&
-        action.authorAgentId === round.winner.begin.contenderAgentId &&
+    Effect.map((fingerprint) =>
+      [
+        action.conversationId === round.head.conversationId,
+        action.membershipHash === round.head.membership.hash,
+        action.anchorHash === round.head.currentAnchorHash,
+        action.previousRecordHash === round.head.recordHash,
+        action.beginDigest === round.winner.digest,
+        action.actionId === "MULTICAST",
+        action.authorAgentId === round.winner.begin.contenderAgentId,
         action.replyFingerprint === fingerprint,
+      ].every(Boolean),
     ),
   );
 
@@ -624,6 +687,44 @@ const signAction = (
     });
   });
 
+const multicastMatchesIngress = (
+  ingress: OpenFloorIngress,
+  round: OpenFloorRound,
+  action: typeof MulticastAction.Type,
+  now: number,
+): Effect.Effect<boolean, ClientRepresentationError> =>
+  actionMatchesRound(round, action).pipe(
+    Effect.map((matchesRound) =>
+      [
+        now < round.winner.expiresAt,
+        ingress.message.senderAgentId === action.authorAgentId,
+        round.winner.acknowledgments.size ===
+          round.head.membership.members.length,
+        matchesRound,
+      ].every(Boolean),
+    ),
+  );
+
+const conflictsWithAcceptedAction = (
+  round: OpenFloorRound,
+  action: typeof MulticastAction.Type,
+): Effect.Effect<boolean, ClientRepresentationError> =>
+  round.acceptedAction === undefined
+    ? Effect.succeed(false)
+    : sameAction(round.acceptedAction, action).pipe(
+        Effect.map((same) => !same),
+      );
+
+const shouldDeliverCandidate = (
+  runtime: OpenFloorRuntime,
+  round: OpenFloorRound,
+  action: typeof MulticastAction.Type,
+): boolean =>
+  [
+    action.authorAgentId !== runtime.input.localAgentCard.agentId,
+    !round.candidateDelivered,
+  ].every(Boolean);
+
 const acceptMulticastLocked = (
   runtime: OpenFloorRuntime,
   ingress: OpenFloorIngress,
@@ -640,25 +741,14 @@ const acceptMulticastLocked = (
       membership: head.membership,
     });
     const now = yield* Clock.currentTimeMillis;
-    if (
-      now >= round.winner.expiresAt ||
-      ingress.message.senderAgentId !== action.authorAgentId ||
-      round.winner.acknowledgments.size !== head.membership.members.length ||
-      !(yield* actionMatchesRound(round, action))
-    ) {
+    if (!(yield* multicastMatchesIngress(ingress, round, action, now))) {
       return { disposition: ignored };
     }
-    if (
-      round.acceptedAction !== undefined &&
-      !(yield* sameAction(round.acceptedAction, action))
-    ) {
+    if (yield* conflictsWithAcceptedAction(round, action)) {
       return { disposition: ignored };
     }
     round.acceptedAction = action;
-    if (
-      action.authorAgentId === runtime.input.localAgentCard.agentId ||
-      round.candidateDelivered
-    ) {
+    if (!shouldDeliverCandidate(runtime, round, action)) {
       return { disposition: accepted };
     }
     round.candidateDelivered = true;
@@ -691,67 +781,81 @@ const runBeginDecision = (
     return decision.disposition;
   });
 
+const runAcknowledgmentDecision = (
+  runtime: OpenFloorRuntime,
+  decision: AcknowledgmentDecision,
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> => {
+  if (decision.delivery === undefined) {
+    return Effect.succeed(decision.disposition);
+  }
+  const delivery = decision.delivery;
+  return runtime.input.actions.deliverTurn(delivery.turn).pipe(
+    Effect.tap(() => finishDelivery(runtime, delivery, true)),
+    Effect.tapError(() => finishDelivery(runtime, delivery, false)),
+    Effect.as(decision.disposition),
+  );
+};
+
+const acceptEvidenceIngress = (
+  runtime: OpenFloorRuntime,
+  ingress: OpenFloorIngress,
+  message: SignedMessageValue,
+): Effect.Effect<
+  RouterIngressDisposition,
+  ClientRepresentationError | RouterWorkerPersistenceError
+> =>
+  runtime.gate
+    .withPermits(1)(acceptAcknowledgmentLocked(runtime, ingress, message))
+    .pipe(
+      Effect.flatMap((decision) =>
+        runAcknowledgmentDecision(runtime, decision),
+      ),
+    );
+
+const runMulticastDecision = (
+  runtime: OpenFloorRuntime,
+  decision: MulticastDecision,
+): Effect.Effect<RouterIngressDisposition, ClientRepresentationError> =>
+  decision.candidate === undefined
+    ? Effect.succeed(decision.disposition)
+    : runtime.input.actions
+        .onMulticastCandidate(decision.candidate)
+        .pipe(Effect.as(decision.disposition));
+
+const acceptDirectIngress = (
+  runtime: OpenFloorRuntime,
+  ingress: OpenFloorIngress,
+  packet: Extract<DecodedOuterBody, { readonly kind: "direct" }>["packet"],
+): Effect.Effect<
+  RouterIngressDisposition,
+  ClientRepresentationError | RouterWorkerPersistenceError
+> => {
+  if (packet.kind === "begin") {
+    return runtime.gate
+      .withPermits(1)(acceptBeginLocked(runtime, ingress, packet))
+      .pipe(Effect.flatMap((decision) => runBeginDecision(runtime, decision)));
+  }
+  if (packet.kind === "multicast_proposal") {
+    return runtime.gate
+      .withPermits(1)(acceptMulticastLocked(runtime, ingress, packet.action))
+      .pipe(
+        Effect.flatMap((decision) => runMulticastDecision(runtime, decision)),
+      );
+  }
+  return Effect.succeed(ignored);
+};
+
 const acceptIngress = (
   runtime: OpenFloorRuntime,
   ingress: OpenFloorIngress,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> =>
   (ingress.payload.kind === "evidence"
-    ? runtime.gate
-        .withPermits(1)(
-          acceptAcknowledgmentLocked(runtime, ingress, ingress.payload.message),
-        )
-        .pipe(
-          Effect.flatMap((decision) =>
-            decision.delivery === undefined
-              ? Effect.succeed(decision.disposition)
-              : (() => {
-                  const delivery = decision.delivery;
-                  return runtime.input.actions.deliverTurn(delivery.turn).pipe(
-                    Effect.tap(() => finishDelivery(runtime, delivery, true)),
-                    Effect.tapError(() =>
-                      finishDelivery(runtime, delivery, false),
-                    ),
-                    Effect.as(decision.disposition),
-                  );
-                })(),
-          ),
-        )
-    : (() => {
-        switch (ingress.payload.packet.kind) {
-          case "begin":
-            return runtime.gate
-              .withPermits(1)(
-                acceptBeginLocked(runtime, ingress, ingress.payload.packet),
-              )
-              .pipe(
-                Effect.flatMap((decision) =>
-                  runBeginDecision(runtime, decision),
-                ),
-              );
-          case "multicast_proposal":
-            return runtime.gate
-              .withPermits(1)(
-                acceptMulticastLocked(
-                  runtime,
-                  ingress,
-                  ingress.payload.packet.action,
-                ),
-              )
-              .pipe(
-                Effect.flatMap((decision) =>
-                  decision.candidate === undefined
-                    ? Effect.succeed(decision.disposition)
-                    : runtime.input.actions
-                        .onMulticastCandidate(decision.candidate)
-                        .pipe(Effect.as(decision.disposition)),
-                ),
-              );
-          default:
-            return Effect.succeed(ignored);
-        }
-      })()
+    ? acceptEvidenceIngress(runtime, ingress, ingress.payload.message)
+    : acceptDirectIngress(runtime, ingress, ingress.payload.packet)
   ).pipe(
-    Effect.catchTag("ClientRepresentationError", () => Effect.succeed(ignored)),
+    Effect.catchTag("ClientRepresentationError", () =>
+      Effect.succeed<RouterIngressDisposition>(ignored),
+    ),
   );
 
 const registerHead = (
@@ -784,7 +888,11 @@ const registerHead = (
       yield* Fiber.interrupt(interrupted);
     }
     yield* initiateHead(runtime, head).pipe(
-      Effect.mapError(() => new EngineAttentionError()),
+      Effect.catchTags({
+        ClientRepresentationError: () =>
+          Effect.fail(new EngineAttentionError()),
+        EndpointStoreError: () => Effect.fail(new EngineAttentionError()),
+      }),
     );
   });
 
@@ -802,7 +910,11 @@ const attachListener = (
       heads,
       (head) =>
         initiateHead(runtime, head).pipe(
-          Effect.mapError(() => new EngineAttentionError()),
+          Effect.catchTags({
+            ClientRepresentationError: () =>
+              Effect.fail(new EngineAttentionError()),
+            EndpointStoreError: () => Effect.fail(new EngineAttentionError()),
+          }),
         ),
       { concurrency: 1, discard: true },
     );
@@ -827,6 +939,56 @@ const abandon = (
     yield* interruptFibers(fibers);
   });
 
+const resolveReplyAdmission = (
+  runtime: OpenFloorRuntime,
+  grant: ReplyGrantValue,
+): Effect.Effect<ReplyAdmission, EngineReplyError> =>
+  Effect.gen(function* () {
+    const authority = runtime.authorities.get(grant);
+    const now = yield* Clock.currentTimeMillis;
+    if (authority === undefined || now >= authority.expiresAt) {
+      return yield* Effect.fail(authorityUnavailable());
+    }
+    const round = runtime.rounds.get(authority.conversationId);
+    const head = runtime.heads.get(authority.conversationId);
+    if (round === undefined || head === undefined) {
+      return yield* Effect.fail(authorityUnavailable());
+    }
+    const valid = [
+      head.recordHash === authority.recordHash,
+      round.winner.digest === authority.beginDigest,
+      round.winner.acknowledgments.size === head.membership.members.length,
+    ].every(Boolean);
+    if (!valid) {
+      return yield* Effect.fail(authorityUnavailable());
+    }
+    return { authority, round, head };
+  });
+
+const makeReplyAction = (
+  runtime: OpenFloorRuntime,
+  admission: ReplyAdmission,
+  content: Content,
+): Effect.Effect<typeof MulticastAction.Type, EngineReplyError> =>
+  fingerprintReply(content).pipe(
+    Effect.catchTag("ClientRepresentationError", () =>
+      Effect.fail(new EngineReplyError({ reason: "representation" })),
+    ),
+    Effect.map((replyFingerprint) => ({
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "multicast_action" as const,
+      conversationId: admission.head.conversationId,
+      membershipHash: admission.head.membership.hash,
+      anchorHash: admission.head.currentAnchorHash,
+      previousRecordHash: admission.head.recordHash,
+      beginDigest: admission.authority.beginDigest,
+      actionId: "MULTICAST" as const,
+      authorAgentId: runtime.input.localAgentCard.agentId,
+      content,
+      replyFingerprint,
+    })),
+  );
+
 const admitReply = (
   runtime: OpenFloorRuntime,
   grant: ReplyGrantValue,
@@ -834,61 +996,31 @@ const admitReply = (
 ): Effect.Effect<OpenFloorMulticastCandidate, EngineReplyError> =>
   runtime.gate.withPermits(1)(
     Effect.gen(function* () {
-      const authority = runtime.authorities.get(grant);
-      const now = yield* Clock.currentTimeMillis;
-      const round =
-        authority === undefined
-          ? undefined
-          : runtime.rounds.get(authority.conversationId);
-      const head =
-        authority === undefined
-          ? undefined
-          : runtime.heads.get(authority.conversationId);
-      if (
-        authority === undefined ||
-        now >= authority.expiresAt ||
-        round === undefined ||
-        head === undefined ||
-        head.recordHash !== authority.recordHash ||
-        round.winner.digest !== authority.beginDigest ||
-        round.winner.acknowledgments.size !== head.membership.members.length
-      ) {
-        return yield* Effect.fail(authorityUnavailable());
-      }
+      const admission = yield* resolveReplyAdmission(runtime, grant);
+      const { authority, round, head } = admission;
       runtime.authorities.delete(grant);
-      const action: typeof MulticastAction.Type = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "multicast_action",
-        conversationId: head.conversationId,
-        membershipHash: head.membership.hash,
-        anchorHash: head.currentAnchorHash,
-        previousRecordHash: head.recordHash,
-        beginDigest: authority.beginDigest,
-        actionId: "MULTICAST",
-        authorAgentId: runtime.input.localAgentCard.agentId,
-        content,
-        replyFingerprint: yield* fingerprintReply(content).pipe(
-          Effect.mapError(
-            () => new EngineReplyError({ reason: "representation" }),
-          ),
-        ),
-      };
+      const action = yield* makeReplyAction(runtime, admission, content);
       round.acceptedAction = action;
+      const localActionSignature = yield* signAction(runtime, action).pipe(
+        Effect.catchTag("ClientRepresentationError", () =>
+          Effect.fail(new EngineReplyError({ reason: "representation" })),
+        ),
+      );
       return {
         conversationId: head.conversationId,
         beginDigest: authority.beginDigest,
         membership: head.membership,
         action,
-        localActionSignature: yield* signAction(runtime, action).pipe(
-          Effect.mapError(
-            () => new EngineReplyError({ reason: "representation" }),
-          ),
-        ),
+        localActionSignature,
       };
     }),
   );
 
-/** Build one endpoint-local OpenFloorV1 fold over engine-owned side effects. */
+/**
+ * Build one endpoint-local OpenFloorV1 fold over engine-owned side effects.
+ * @param input Endpoint identity, storage, and protocol side effects.
+ * @returns A scoped volatile OpenFloor capability for the endpoint engine.
+ */
 export const makeOpenFloor = (
   input: OpenFloorInput,
 ): Effect.Effect<OpenFloorPort, never, Scope.Scope> =>
@@ -915,4 +1047,4 @@ export const makeOpenFloor = (
         admitReply(runtime, grant, content),
       abandon: abandon(runtime, false),
     });
-  });
+  }).pipe(Effect.withSpan("makeOpenFloor"));

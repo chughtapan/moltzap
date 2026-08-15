@@ -30,8 +30,8 @@ import {
 } from "@moltzap/router";
 import canonicalize from "canonicalize";
 import {
-  Deferred,
   type Context,
+  Deferred,
   Effect,
   Encoding,
   Fiber,
@@ -51,8 +51,8 @@ import {
   type RouterDiscontinuityReason,
   type RouterTailAnchor,
   RouterWorkerAuthenticationError,
-  RouterWorkerDiscontinuityError,
   type RouterWorkerCallbacks,
+  RouterWorkerDiscontinuityError,
   type RouterWorkerInput,
   RouterWorkerPayloadInvalidError,
   RouterWorkerPersistenceError,

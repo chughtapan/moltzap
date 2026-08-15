@@ -15,7 +15,7 @@ import { OperationId } from "@moltzap/identity/registry";
 import { Data, Duration, Effect, Redacted, Schema, type Scope } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This black-box fixture owns exact temporary process files at the Node process boundary.
+// This black-box fixture owns exact temporary process files at the Node process boundary.
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -33,8 +33,6 @@ import {
   type ManagementSearchConversationsResult,
   type ManagementStatusResult,
 } from "../src/management-runtime.js";
-
-/* eslint-disable agent-code-guard/promise-type -- Official MCP clients and Node process resources are Promise-native at this black-box edge. */
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "client-process-admission";
@@ -213,7 +211,7 @@ const managedProcess = (
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
 ) =>
-  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- Every process is tied to the integration behavior's enclosing scope.
+  // Every process is tied to the integration behavior's enclosing scope.
   Effect.acquireRelease(
     Effect.sync(() => startProcess(executable, arguments_, environment)),
     stopProcess,
@@ -589,5 +587,3 @@ export const acquireDaemonManagementClient = (
         callExpectingProtocolError(client, name, arguments_),
     };
   });
-
-/* eslint-enable agent-code-guard/promise-type -- Restore the package default outside the process boundary. */

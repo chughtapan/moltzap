@@ -1,23 +1,25 @@
 /** @file The restored case catalog stays complete and Client-semantic. */
 
 import { assert, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   evaluationCase,
-  evaluationCases,
   type EvaluationCaseProgramContext,
+  evaluationCases,
   PEER_AGENT_NAME,
   PROBE_AGENT_NAME,
   SOURCE_AGENT_NAME,
 } from "./cases.js";
 import {
   CriterionDecided,
+  criterionVerdict,
   decodeEvaluationCaseId,
   decodeEvaluationEvidenceId,
 } from "./model.js";
 
 const SOCIAL_EVIDENCE = decodeEvaluationEvidenceId("case:social");
 const PRINCIPAL_EVIDENCE = decodeEvaluationEvidenceId("case:principal");
+const FAILED_VERDICT = Schema.decodeSync(criterionVerdict)("failed");
 
 function context(operations: string[]): EvaluationCaseProgramContext<never> {
   return {
@@ -43,6 +45,7 @@ function context(operations: string[]): EvaluationCaseProgramContext<never> {
   };
 }
 
+// @agent-code-guard/regression-only: these examples pin the finite bundled catalog, its exact orchestration traces, and deterministic timeout handling.
 it("owns the exact ordered sixteen-case catalog", () => {
   assert.deepStrictEqual(
     evaluationCases.map(({ id }) => id),
@@ -131,7 +134,7 @@ it("turns any selected prerequisite timeout into a deterministic failure", () =>
   });
   assert.instanceOf(decision, CriterionDecided);
   if (decision instanceof CriterionDecided) {
-    assert.strictEqual(decision.verdict, "failed");
+    assert.strictEqual(decision.verdict, FAILED_VERDICT);
     assert.deepStrictEqual(decision.citations, [SOCIAL_EVIDENCE]);
   }
 });

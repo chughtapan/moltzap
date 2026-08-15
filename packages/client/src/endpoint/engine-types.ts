@@ -9,6 +9,7 @@ import type {
 } from "@moltzap/identity";
 import type { Registry } from "@moltzap/identity/registry";
 import {
+  type Context,
   Data,
   type Deferred,
   type Effect,
@@ -19,12 +20,12 @@ import {
 import type { Content, ConversationId, StartInput } from "../contract.js";
 import type { ReplyGrant } from "../harness-runtime.js";
 import type {
-  DecodedOuterBody,
   Action,
   ActionCertifiedRecord,
   BeginDigest,
   CertifiedRecord,
   CompletedReanchor,
+  DecodedOuterBody,
   GenesisAnchor,
   MulticastAction,
   RecordHash,
@@ -37,6 +38,8 @@ import type {
   RouterTailAnchor,
   RouterWorkerIngress,
   RouterWorkerPersistenceError,
+  RouterWorkerRecovery,
+  RouterWorkerRecoveryError,
   RouterWorkerSendError,
   RouterWorkerUnavailableError,
 } from "./router-worker.js";
@@ -112,6 +115,41 @@ export interface EngineProspectiveTurn extends EngineTurnFrame {
   readonly recordHash: string;
 }
 
+/** One newly durable head supplied only by ordinary live protocol delivery. */
+export interface OpenFloorCertifiedHead {
+  readonly conversationId: ConversationId;
+  readonly membership: VerifiedMembership;
+  readonly currentAnchorHash: MulticastAction["anchorHash"];
+  readonly recordHash: MulticastAction["previousRecordHash"];
+  readonly record: CertifiedRecord;
+}
+
+/** Task-validated MULTICAST ready for the engine's certification fold. */
+export interface OpenFloorMulticastCandidate {
+  readonly conversationId: ConversationId;
+  readonly beginDigest: BeginDigest;
+  readonly membership: VerifiedMembership;
+  readonly action: MulticastAction;
+  readonly localActionSignature: SignedMessage;
+}
+
+/** Volatile task capability consumed by one endpoint engine. */
+export interface OpenFloorPort {
+  readonly listenerAttached: Effect.Effect<void, EngineAttentionError>;
+  readonly listenerDetached: Effect.Effect<void>;
+  readonly certifiedHead: (
+    head: OpenFloorCertifiedHead,
+  ) => Effect.Effect<void, EngineAttentionError>;
+  readonly acceptIngress: (
+    ingress: RouterWorkerIngress<DecodedOuterBody>,
+  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
+  readonly admitReply: (
+    grant: ReplyGrant,
+    content: Content,
+  ) => Effect.Effect<OpenFloorMulticastCandidate, EngineReplyError>;
+  readonly abandon: Effect.Effect<void>;
+}
+
 /** Complete-frame writer owned by the daemon subscription. */
 export interface EngineTurnSink {
   readonly write: (
@@ -126,7 +164,7 @@ export interface EngineTurnListener {
 
 /** Minimal Registry capability used to resolve immutable peer cards. */
 export type EngineRegistryPort = Pick<
-  import("effect").Context.Tag.Service<typeof Registry>,
+  Context.Tag.Service<typeof Registry>,
   "lookup"
 >;
 
@@ -165,12 +203,8 @@ export interface EndpointEngine {
     ingress: RouterWorkerIngress<DecodedOuterBody>,
   ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
   readonly recoverCertifiedHistory: (
-    recovery: import("./router-worker.js").RouterWorkerRecovery,
-  ) => Effect.Effect<
-    void,
-    | import("./router-worker.js").RouterWorkerRecoveryError
-    | RouterWorkerSendError
-  >;
+    recovery: RouterWorkerRecovery,
+  ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
   readonly drainOutbound: Effect.Effect<void, EngineOutboundError>;
   readonly runOutbound: Effect.Effect<never, EngineOutboundError>;
   readonly abandonVolatileFolds: (
@@ -249,11 +283,11 @@ export interface EngineRuntime {
     Deferred.Deferred<void, EngineStartError>
   >;
   readonly outbound: SignedMessage[];
-  readonly outboundSignal: Queue.Queue<void>;
+  readonly outboundSignal: Queue.Queue<undefined>;
   readonly gate: Effect.Semaphore;
   readonly outboundGate: Effect.Semaphore;
   readonly listenerGate: Effect.Semaphore;
   readonly revision: SubscriptionRef.SubscriptionRef<number>;
-  openFloor?: import("./openfloor.js").OpenFloorPort;
+  openFloor?: OpenFloorPort;
   activeSink?: EngineTurnSink;
 }

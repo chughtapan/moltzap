@@ -23,7 +23,10 @@ const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = dirname(dirname(scriptRoot));
 const simulatorRoot = join(workspaceRoot, "packages", "simulator");
 const dockerfile = join(scriptRoot, "controller-image", "Dockerfile");
-const registrar = join(scriptRoot, "controller-image", "register-daemon.mjs");
+const registrar = join(
+  workspaceRoot,
+  "scripts/simulator/controller-image/register-daemon.mjs",
+);
 const qualificationProgram = join(
   workspaceRoot,
   "scripts",

@@ -11,7 +11,7 @@ import {
   type StandardSchemaV1,
 } from "@modelcontextprotocol/server";
 import { Ed25519PublicKey } from "@moltzap/identity";
-import { Effect, Either, Schema } from "effect";
+import { Cause, Effect, Exit, Option, Schema } from "effect";
 import type { Content } from "./contract.js";
 import {
   type HarnessMcpSubscriptionHandler,
@@ -203,8 +203,7 @@ const decodeToolInput = async <Value>(
   schema: StandardSchemaV1<unknown, Value>,
   value: unknown,
   toolName: string,
-  // #ignore-sloppy-code-next-line[promise-type]: MCP request callbacks await Standard Schema validation through the SDK's native Promise contract.
-): Promise<Value> => {
+) => {
   const decoded = await schema["~standard"].validate(value);
   if (!("value" in decoded)) {
     throw new ProtocolError(
@@ -219,33 +218,32 @@ const decodeToolInput = async <Value>(
 const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
   options: RunOperationOptions<Value>,
 ) => {
-  let outcome: Either.Either<Value, ClosedOperationError>;
-  try {
-    outcome = await Effect.runPromise(Effect.either(options.operation), {
-      signal: options.signal,
+  const outcome = await Effect.runPromiseExit(options.operation, {
+    signal: options.signal,
+  });
+  if (Exit.isFailure(outcome)) {
+    const expectedFailure = Option.match(Cause.dieOption(outcome.cause), {
+      onNone: () => Cause.failureOption(outcome.cause),
+      onSome: () => Option.none(),
     });
-    // #ignore-sloppy-code-next-line[bare-catch]: The MCP boundary maps interruption and defects to a closed ProtocolError without exposing their causes over JSON-RPC.
-  } catch {
-    throw new ProtocolError(
-      ProtocolErrorCode.InternalError,
-      `${options.label} failed`,
-      { reason: options.fallbackReason },
-    );
-  }
-  if (Either.isLeft(outcome)) {
+    const reason = Option.match(expectedFailure, {
+      onNone: () => options.fallbackReason,
+      onSome: (failure) =>
+        operationReason(
+          failure,
+          options.allowedReasons,
+          options.fallbackReason,
+        ),
+    });
     throw new ProtocolError(
       ProtocolErrorCode.InternalError,
       `${options.label} failed`,
       {
-        reason: operationReason(
-          outcome.left,
-          options.allowedReasons,
-          options.fallbackReason,
-        ),
+        reason,
       },
     );
   }
-  return toolResult(outcome.right);
+  return toolResult(outcome.value);
 };
 
 const runVoidOperation = (
@@ -266,8 +264,7 @@ const validateToolOutput = async <
   schema: StandardSchemaV1<unknown, Value>,
   result: Result,
   toolName: string,
-  // #ignore-sloppy-code-next-line[promise-type]: MCP request callbacks await Standard Schema output validation through the SDK's native Promise contract.
-): Promise<Result> => {
+) => {
   const decoded = await schema["~standard"].validate(result.structuredContent);
   if (!("value" in decoded)) {
     throw new ProtocolError(
@@ -285,7 +282,7 @@ const runValidatedOperation = async <
   schema: StandardSchemaV1<unknown, Value>,
   toolName: string,
   options: RunOperationOptions<Value>,
-) => validateToolOutput(schema, await runOperation(options), toolName);
+) => await validateToolOutput(schema, await runOperation(options), toolName);
 
 // #ignore-sloppy-code-next-line[async-keyword]: The MCP SDK callback must await the Promise-native void operation bridge before validating its result.
 const runValidatedVoidOperation = async (
@@ -293,7 +290,12 @@ const runValidatedVoidOperation = async (
   input: Omit<RunOperationOptions<HarnessEmptyResult>, "operation"> & {
     readonly operation: Effect.Effect<void, ClosedOperationError>;
   },
-) => validateToolOutput(emptyOutput, await runVoidOperation(input), toolName);
+) =>
+  await validateToolOutput(
+    emptyOutput,
+    await runVoidOperation(input),
+    toolName,
+  );
 
 const registerStatusTool = (
   server: McpServer,
@@ -452,6 +454,219 @@ const registerActiveTools = (
   registerModelTools(server, operations);
 };
 
+interface ToolCallInput {
+  readonly name: string;
+  readonly toolArguments: unknown;
+  readonly metadata: unknown;
+  readonly signal: AbortSignal;
+}
+
+const toolNotFound = (name: string): never => {
+  throw new ProtocolError(
+    ProtocolErrorCode.InvalidParams,
+    `Tool ${name} not found`,
+  );
+};
+
+const activateCatalog = (state: ActiveCatalogState): void => {
+  state.active = true;
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native Effect bridge.
+const handleStatusToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const decoded = await decodeToolInput(
+    emptyInput,
+    input.toolArguments,
+    input.name,
+  );
+  if (Object.keys(decoded).length !== 0) {
+    throw new ProtocolError(
+      ProtocolErrorCode.InvalidParams,
+      "Status accepts no arguments",
+    );
+  }
+  return await runValidatedOperation(statusOutput, input.name, {
+    operation: operations.readStatus(),
+    label: "Status",
+    allowedReasons: STATUS_REASONS,
+    fallbackReason: "persistence",
+    signal: input.signal,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: Catalog activation follows the completed Promise-native registration bridge.
+const handleRegistrationToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+  state: ActiveCatalogState,
+) => {
+  const decoded = await decodeToolInput(
+    registerInput,
+    input.toolArguments,
+    input.name,
+  );
+  const result = await runValidatedOperation(registerOutput, input.name, {
+    operation: operations.register(decoded),
+    label: "Registration",
+    allowedReasons: REGISTER_REASONS,
+    fallbackReason: "upstream",
+    signal: input.signal,
+  });
+  if (result.structuredContent.kind === "registered") {
+    activateCatalog(state);
+  }
+  return result;
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
+const handleSearchAgentsToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const decoded = await decodeToolInput(
+    searchAgentsInput,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(searchAgentsOutput, input.name, {
+    operation: operations.searchAgents(decoded),
+    label: "Agent search",
+    allowedReasons: SEARCH_AGENTS_REASONS,
+    fallbackReason: "upstream",
+    signal: input.signal,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
+const handleSearchConversationsToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const decoded = await decodeToolInput(
+    searchConversationsInput,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(searchConversationsOutput, input.name, {
+    operation: operations.searchConversations(decoded),
+    label: "Conversation search",
+    allowedReasons: SEARCH_CONVERSATIONS_REASONS,
+    fallbackReason: "persistence",
+    signal: input.signal,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
+const handleReadConversationToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const decoded = await decodeToolInput(
+    readConversationInput,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedOperation(readConversationOutput, input.name, {
+    operation: operations.readConversation(decoded),
+    label: "Conversation read",
+    allowedReasons: READ_CONVERSATION_REASONS,
+    fallbackReason: "representation",
+    signal: input.signal,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
+const handleStartToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const decoded = await decodeToolInput(
+    startInput,
+    input.toolArguments,
+    input.name,
+  );
+  return await runValidatedVoidOperation(input.name, {
+    operation: operations.start(decoded),
+    label: "Conversation start",
+    allowedReasons: START_REASONS,
+    fallbackReason: "representation",
+    signal: input.signal,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation, reply authority decoding, and the Promise-native operation bridge.
+const handleReplyToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  const decoded = await decodeToolInput(
+    replyInput,
+    input.toolArguments,
+    input.name,
+  );
+  const grant = await Effect.runPromise(decodeReplyGrant(input.metadata), {
+    signal: input.signal,
+  });
+  return await runValidatedVoidOperation(input.name, {
+    operation: operations.reply(grant, decoded.content),
+    label: "Reply",
+    allowedReasons: REPLY_REASONS,
+    fallbackReason: "authority-unavailable",
+    signal: input.signal,
+  });
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: Active tool dispatch returns the selected Promise-native MCP operation result.
+const handleActiveToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  switch (input.name) {
+    case SEARCH_AGENTS_TOOL:
+      return await handleSearchAgentsToolCall(input, operations);
+    case SEARCH_CONVERSATIONS_TOOL:
+      return await handleSearchConversationsToolCall(input, operations);
+    case READ_CONVERSATION_TOOL:
+      return await handleReadConversationToolCall(input, operations);
+    case HARNESS_START_TOOL:
+      return await handleStartToolCall(input, operations);
+    case HARNESS_REPLY_TOOL:
+      return await handleReplyToolCall(input, operations);
+    default:
+      return toolNotFound(input.name);
+  }
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: Inactive dispatch admits only the Promise-native registration operation.
+const handleInactiveToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+  state: ActiveCatalogState,
+) => {
+  if (input.name !== REGISTER_TOOL) {
+    return toolNotFound(input.name);
+  }
+  return await handleRegistrationToolCall(input, operations, state);
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP dispatcher awaits the selected state-dependent Promise callback.
+const handleToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+  state: ActiveCatalogState,
+) => {
+  if (input.name === STATUS_TOOL) {
+    return await handleStatusToolCall(input, operations);
+  }
+  if (!state.active) {
+    return await handleInactiveToolCall(input, operations, state);
+  }
+  return await handleActiveToolCall(input, operations);
+};
+
 /**
  * Keep schema and operation failures on the JSON-RPC error channel.
  *
@@ -459,117 +674,27 @@ const registerActiveTools = (
  * callback error into an `isError` result. This boundary instead uses the
  * official low-level `tools/call` handler so malformed input and accepted
  * domain failures retain their distinct protocol codes and closed data.
+ * @param server Official MCP server that owns the low-level request handler.
+ * @param operations Closed daemon operations exposed through the tool catalog.
+ * @param state Shared registration state controlling active tool visibility.
  */
 const installToolCallHandler = (
   server: McpServer,
   operations: HarnessMcpOperations,
   state: ActiveCatalogState,
 ): void => {
-  // #ignore-sloppy-code-next-line[async-keyword]: setRequestHandler requires a Promise callback to sequence SDK input decoding, operations, and output validation.
-  server.server.setRequestHandler("tools/call", async (request, context) => {
-    const name = request.params.name;
-    const arguments_ = request.params.arguments ?? {};
-
-    if (name === STATUS_TOOL) {
-      const input = await decodeToolInput(emptyInput, arguments_, name);
-      if (Object.keys(input).length !== 0) {
-        throw new ProtocolError(
-          ProtocolErrorCode.InvalidParams,
-          "Status accepts no arguments",
-        );
-      }
-      return runValidatedOperation(statusOutput, name, {
-        operation: operations.readStatus(),
-        label: "Status",
-        allowedReasons: STATUS_REASONS,
-        fallbackReason: "persistence",
+  server.server.setRequestHandler("tools/call", (request, context) =>
+    handleToolCall(
+      {
+        name: request.params.name,
+        toolArguments: request.params.arguments ?? {},
+        metadata: context.mcpReq._meta,
         signal: context.mcpReq.signal,
-      });
-    }
-
-    if (!state.active) {
-      if (name !== REGISTER_TOOL) {
-        throw new ProtocolError(
-          ProtocolErrorCode.InvalidParams,
-          `Tool ${name} not found`,
-        );
-      }
-      const input = await decodeToolInput(registerInput, arguments_, name);
-      const result = await runValidatedOperation(registerOutput, name, {
-        operation: operations.register(input),
-        label: "Registration",
-        allowedReasons: REGISTER_REASONS,
-        fallbackReason: "upstream",
-        signal: context.mcpReq.signal,
-      });
-      if (result.structuredContent.kind === "registered") {
-        state.active = true;
-      }
-      return result;
-    }
-
-    switch (name) {
-      case SEARCH_AGENTS_TOOL:
-        return runValidatedOperation(searchAgentsOutput, name, {
-          operation: operations.searchAgents(
-            await decodeToolInput(searchAgentsInput, arguments_, name),
-          ),
-          label: "Agent search",
-          allowedReasons: SEARCH_AGENTS_REASONS,
-          fallbackReason: "upstream",
-          signal: context.mcpReq.signal,
-        });
-      case SEARCH_CONVERSATIONS_TOOL:
-        return runValidatedOperation(searchConversationsOutput, name, {
-          operation: operations.searchConversations(
-            await decodeToolInput(searchConversationsInput, arguments_, name),
-          ),
-          label: "Conversation search",
-          allowedReasons: SEARCH_CONVERSATIONS_REASONS,
-          fallbackReason: "persistence",
-          signal: context.mcpReq.signal,
-        });
-      case READ_CONVERSATION_TOOL:
-        return runValidatedOperation(readConversationOutput, name, {
-          operation: operations.readConversation(
-            await decodeToolInput(readConversationInput, arguments_, name),
-          ),
-          label: "Conversation read",
-          allowedReasons: READ_CONVERSATION_REASONS,
-          fallbackReason: "representation",
-          signal: context.mcpReq.signal,
-        });
-      case HARNESS_START_TOOL:
-        return runValidatedVoidOperation(name, {
-          operation: operations.start(
-            await decodeToolInput(startInput, arguments_, name),
-          ),
-          label: "Conversation start",
-          allowedReasons: START_REASONS,
-          fallbackReason: "representation",
-          signal: context.mcpReq.signal,
-        });
-      case HARNESS_REPLY_TOOL: {
-        const input = await decodeToolInput(replyInput, arguments_, name);
-        const grant = await Effect.runPromise(
-          decodeReplyGrant(context.mcpReq._meta),
-          { signal: context.mcpReq.signal },
-        );
-        return runValidatedVoidOperation(name, {
-          operation: operations.reply(grant, input.content),
-          label: "Reply",
-          allowedReasons: REPLY_REASONS,
-          fallbackReason: "authority-unavailable",
-          signal: context.mcpReq.signal,
-        });
-      }
-      default:
-        throw new ProtocolError(
-          ProtocolErrorCode.InvalidParams,
-          `Tool ${name} not found`,
-        );
-    }
-  });
+      },
+      operations,
+      state,
+    ),
+  );
 };
 
 const makeServer = (

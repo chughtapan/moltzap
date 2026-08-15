@@ -18,11 +18,11 @@ import { Effect, Encoding, Redacted, Schema } from "effect";
 import {
   createHash,
   generateKeyPairSync,
-  sign as signBytes,
   type KeyObject,
+  sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ConversationId, type Content } from "../contract.js";
+import { type Content, ConversationId } from "../contract.js";
 import {
   type ActionCertificate,
   type ActionCertifiedRecord,
@@ -55,13 +55,13 @@ import {
   signOuterPacket,
   type StartAction,
   type StartProposal,
+  type VerifiedMembership,
   verifyActionCertifiedRecord,
   verifyCertifiedRecord,
   verifyMembership,
-  type VerifiedMembership,
 } from "./representation.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- These acceptance traces keep exact cryptographic fixtures and their boundary assertions together. */
+/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function -- These acceptance traces keep exact cryptographic fixtures and their boundary assertions together. */
 
 const maximumIdentityBodyBytes = 262_144;
 const maximumIdentityRecipients = 128;
@@ -179,6 +179,14 @@ const at = <Value>(values: readonly Value[], index: number): Value => {
   return value;
 };
 
+const identityBytes = (memberCount: number): readonly number[] => {
+  const bytes: number[] = [];
+  for (let byte = 1; byte <= memberCount; byte += 1) {
+    bytes.push(byte);
+  }
+  return bytes;
+};
+
 const makeProtocolFixture = (memberCount: number) =>
   Effect.gen(function* () {
     const registryKeys = generateKeyPairSync("ed25519");
@@ -186,7 +194,7 @@ const makeProtocolFixture = (memberCount: number) =>
       Ed25519PublicKey,
     )(registryKeys.publicKey.export({ format: "jwk" }));
     const identities = yield* Effect.forEach(
-      Array.from({ length: memberCount }, (_, index) => index + 1),
+      identityBytes(memberCount),
       (byte) =>
         Effect.gen(function* () {
           const authority = yield* makeAuthority();
@@ -523,6 +531,204 @@ const startActionOf = (record: ActionCertifiedRecord): StartAction => {
   return record.action;
 };
 
+const buildCompletedReanchor = (
+  fixture: ProtocolFixture,
+  certified: CertifiedFixture,
+) =>
+  Effect.gen(function* () {
+    const reanchorBody: ReanchorBody = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "reanchor_body",
+      conversationId,
+      membershipHash: fixture.membership.hash,
+      previousAnchorHash: certified.actionCertifiedRecord.anchorHash,
+      selectedRecordHash: certified.certifiedRecord.recordHash,
+      routerInstanceId: secondRouterInstanceId,
+    };
+    const reanchorHash = yield* hashAnchor(reanchorBody);
+    const reanchorMessages = yield* Effect.forEach(
+      fixture.identities,
+      ({ card, authority }) =>
+        signEvidenceMessage({
+          statement: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "reanchor_vote",
+            signerAgentId: card.agentId,
+            anchorHash: reanchorHash,
+            reanchor: reanchorBody,
+          },
+          agentCard: card,
+          signingAuthority: authority,
+        }),
+      { concurrency: 1 },
+    );
+    const reanchorRepresentations = yield* Effect.forEach(
+      reanchorMessages,
+      (message) => Schema.encode(SignedMessage)(message),
+      { concurrency: 1 },
+    );
+    const completedReanchor: CompletedReanchor = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "completed_reanchor",
+      anchorHash: reanchorHash,
+      reanchor: reanchorBody,
+      votes: asNonEmpty(reanchorRepresentations),
+    };
+    return { completedReanchor, reanchorMessages };
+  });
+
+const buildMulticastCertifiedFixture = (
+  fixture: ProtocolFixture,
+  content: Content,
+  certified: CertifiedFixture,
+  completedReanchor: CompletedReanchor,
+) =>
+  Effect.gen(function* () {
+    const firstIdentity = at(fixture.identities, 0);
+    const multicastAction: MulticastAction = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "multicast_action",
+      conversationId,
+      membershipHash: fixture.membership.hash,
+      anchorHash: completedReanchor.anchorHash,
+      previousRecordHash: certified.certifiedRecord.recordHash,
+      beginDigest,
+      actionId: "MULTICAST",
+      authorAgentId: firstIdentity.card.agentId,
+      content,
+      replyFingerprint: yield* fingerprintReply(content),
+    };
+    const multicastActionMessages = yield* signActionEvidence(
+      fixture,
+      multicastAction,
+    );
+    const multicastActionRepresentations = yield* Effect.forEach(
+      multicastActionMessages,
+      (message) => Schema.encode(SignedMessage)(message),
+      { concurrency: 1 },
+    );
+    const multicastActionCertificate: ActionCertificate = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_certificate",
+      action: yield* makeActionBinding(multicastAction),
+      signatures: asNonEmpty(multicastActionRepresentations),
+    };
+    const multicastActionCertifiedRecord: ActionCertifiedRecord = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_certified_record",
+      membership: fixture.membership.membership,
+      anchorHash: completedReanchor.anchorHash,
+      action: multicastAction,
+      actionHash: yield* hashActionCertificate(multicastActionCertificate),
+      actionCertificate: multicastActionCertificate,
+    };
+    const multicastRecordHash = yield* hashActionCertifiedRecord(
+      multicastActionCertifiedRecord,
+    );
+    const multicastDurabilityMessages = yield* Effect.forEach(
+      fixture.identities,
+      ({ card, authority }) =>
+        signEvidenceMessage({
+          statement: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "durability_vote",
+            signerAgentId: card.agentId,
+            conversationId,
+            membershipHash: fixture.membership.hash,
+            recordHash: multicastRecordHash,
+          },
+          agentCard: card,
+          signingAuthority: authority,
+        }),
+      { concurrency: 1 },
+    );
+    const multicastDurabilityRepresentations = yield* Effect.forEach(
+      multicastDurabilityMessages,
+      (message) => Schema.encode(SignedMessage)(message),
+      { concurrency: 1 },
+    );
+    const multicastCertifiedRecord: CertifiedRecord = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "certified_record",
+      recordHash: multicastRecordHash,
+      actionCertifiedRecord: multicastActionCertifiedRecord,
+      routerAnchor: completedReanchor,
+      durabilityVotes: asNonEmpty(multicastDurabilityRepresentations),
+    };
+    return {
+      multicastAction,
+      multicastActionMessages,
+      multicastActionCertifiedRecord,
+      multicastCertifiedRecord,
+    };
+  });
+
+const buildCatchUpFixture = (
+  fixture: ProtocolFixture,
+  multicastCertifiedRecord: CertifiedRecord,
+  completedReanchor: CompletedReanchor,
+) =>
+  Effect.gen(function* () {
+    const firstIdentity = at(fixture.identities, 0);
+    const request: CatchUpRequest = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "catch_up_request",
+      conversationId,
+      membershipHash: fixture.membership.hash,
+      requesterAgentId: firstIdentity.card.agentId,
+      knownRecordHash: multicastCertifiedRecord.recordHash,
+      knownAnchorHash: completedReanchor.anchorHash,
+    };
+    const catchUpAttestation = yield* signEvidenceMessage({
+      statement: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "catch_up_attestation",
+        signerAgentId: firstIdentity.card.agentId,
+        request,
+        itemKind: "certified_record",
+        itemHash: multicastCertifiedRecord.recordHash,
+        hasMore: false,
+      },
+      agentCard: firstIdentity.card,
+      signingAuthority: firstIdentity.authority,
+    });
+    const encodedCatchUpAttestation =
+      yield* Schema.encode(SignedMessage)(catchUpAttestation);
+    const incompleteAttestation = yield* signEvidenceMessage({
+      statement: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "catch_up_attestation",
+        signerAgentId: firstIdentity.card.agentId,
+        request,
+        itemKind: "incomplete",
+        itemHash: null,
+        hasMore: false,
+      },
+      agentCard: firstIdentity.card,
+      signingAuthority: firstIdentity.authority,
+    });
+    const catchUpPage: CatchUpPage = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "catch_up_page",
+      request,
+      item: multicastCertifiedRecord,
+      hasMore: false,
+      attestation: encodedCatchUpAttestation,
+    };
+    const catchUpIncomplete: CatchUpIncomplete = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "catch_up_incomplete",
+      request,
+      attestation: yield* Schema.encode(SignedMessage)(incompleteAttestation),
+    };
+    return {
+      request,
+      catchUpAttestation,
+      catchUpPage,
+      catchUpIncomplete,
+    };
+  });
+
 const provesEveryMaximumArtifactFitsIdentity = () =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -530,165 +736,25 @@ const provesEveryMaximumArtifactFitsIdentity = () =>
       const content = yield* makeMaximumContent();
       const certified = yield* buildCertifiedFixture(fixture, content);
       const firstIdentity = at(fixture.identities, 0);
-      const reanchorBody: ReanchorBody = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "reanchor_body",
-        conversationId,
-        membershipHash: fixture.membership.hash,
-        previousAnchorHash: certified.actionCertifiedRecord.anchorHash,
-        selectedRecordHash: certified.certifiedRecord.recordHash,
-        routerInstanceId: secondRouterInstanceId,
-      };
-      const reanchorHash = yield* hashAnchor(reanchorBody);
-      const reanchorMessages = yield* Effect.forEach(
-        fixture.identities,
-        ({ card, authority }) =>
-          signEvidenceMessage({
-            statement: {
-              moltzapVersion: MOLTZAP_VERSION,
-              kind: "reanchor_vote",
-              signerAgentId: card.agentId,
-              anchorHash: reanchorHash,
-              reanchor: reanchorBody,
-            },
-            agentCard: card,
-            signingAuthority: authority,
-          }),
-        { concurrency: 1 },
-      );
-      const reanchorRepresentations = yield* Effect.forEach(
-        reanchorMessages,
-        (message) => Schema.encode(SignedMessage)(message),
-        { concurrency: 1 },
-      );
-      const completedReanchor: CompletedReanchor = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "completed_reanchor",
-        anchorHash: reanchorHash,
-        reanchor: reanchorBody,
-        votes: asNonEmpty(reanchorRepresentations),
-      };
-      const multicastAction: MulticastAction = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "multicast_action",
-        conversationId,
-        membershipHash: fixture.membership.hash,
-        anchorHash: completedReanchor.anchorHash,
-        previousRecordHash: certified.certifiedRecord.recordHash,
-        beginDigest,
-        actionId: "MULTICAST",
-        authorAgentId: firstIdentity.card.agentId,
-        content,
-        replyFingerprint: yield* fingerprintReply(content),
-      };
-      const multicastActionMessages = yield* signActionEvidence(
-        fixture,
+      const { completedReanchor, reanchorMessages } =
+        yield* buildCompletedReanchor(fixture, certified);
+      const {
         multicastAction,
-      );
-      const multicastActionRepresentations = yield* Effect.forEach(
         multicastActionMessages,
-        (message) => Schema.encode(SignedMessage)(message),
-        { concurrency: 1 },
-      );
-      const multicastActionCertificate: ActionCertificate = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "action_certificate",
-        action: yield* makeActionBinding(multicastAction),
-        signatures: asNonEmpty(multicastActionRepresentations),
-      };
-      const multicastActionCertifiedRecord: ActionCertifiedRecord = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "action_certified_record",
-        membership: fixture.membership.membership,
-        anchorHash: completedReanchor.anchorHash,
-        action: multicastAction,
-        actionHash: yield* hashActionCertificate(multicastActionCertificate),
-        actionCertificate: multicastActionCertificate,
-      };
-      const multicastRecordHash = yield* hashActionCertifiedRecord(
         multicastActionCertifiedRecord,
+        multicastCertifiedRecord,
+      } = yield* buildMulticastCertifiedFixture(
+        fixture,
+        content,
+        certified,
+        completedReanchor,
       );
-      const multicastDurabilityMessages = yield* Effect.forEach(
-        fixture.identities,
-        ({ card, authority }) =>
-          signEvidenceMessage({
-            statement: {
-              moltzapVersion: MOLTZAP_VERSION,
-              kind: "durability_vote",
-              signerAgentId: card.agentId,
-              conversationId,
-              membershipHash: fixture.membership.hash,
-              recordHash: multicastRecordHash,
-            },
-            agentCard: card,
-            signingAuthority: authority,
-          }),
-        { concurrency: 1 },
-      );
-      const multicastDurabilityRepresentations = yield* Effect.forEach(
-        multicastDurabilityMessages,
-        (message) => Schema.encode(SignedMessage)(message),
-        { concurrency: 1 },
-      );
-      const multicastCertifiedRecord: CertifiedRecord = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "certified_record",
-        recordHash: multicastRecordHash,
-        actionCertifiedRecord: multicastActionCertifiedRecord,
-        routerAnchor: completedReanchor,
-        durabilityVotes: asNonEmpty(multicastDurabilityRepresentations),
-      };
-      const request: CatchUpRequest = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_request",
-        conversationId,
-        membershipHash: fixture.membership.hash,
-        requesterAgentId: firstIdentity.card.agentId,
-        knownRecordHash: multicastCertifiedRecord.recordHash,
-        knownAnchorHash: completedReanchor.anchorHash,
-      };
-      const catchUpAttestation = yield* signEvidenceMessage({
-        statement: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "catch_up_attestation",
-          signerAgentId: firstIdentity.card.agentId,
-          request,
-          itemKind: "certified_record",
-          itemHash: multicastCertifiedRecord.recordHash,
-          hasMore: false,
-        },
-        agentCard: firstIdentity.card,
-        signingAuthority: firstIdentity.authority,
-      });
-      const encodedCatchUpAttestation =
-        yield* Schema.encode(SignedMessage)(catchUpAttestation);
-      const incompleteAttestation = yield* signEvidenceMessage({
-        statement: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "catch_up_attestation",
-          signerAgentId: firstIdentity.card.agentId,
-          request,
-          itemKind: "incomplete",
-          itemHash: null,
-          hasMore: false,
-        },
-        agentCard: firstIdentity.card,
-        signingAuthority: firstIdentity.authority,
-      });
-      const catchUpPage: CatchUpPage = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_page",
-        request,
-        item: multicastCertifiedRecord,
-        hasMore: false,
-        attestation: encodedCatchUpAttestation,
-      };
-      const catchUpIncomplete: CatchUpIncomplete = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_incomplete",
-        request,
-        attestation: yield* Schema.encode(SignedMessage)(incompleteAttestation),
-      };
+      const { request, catchUpAttestation, catchUpPage, catchUpIncomplete } =
+        yield* buildCatchUpFixture(
+          fixture,
+          multicastCertifiedRecord,
+          completedReanchor,
+        );
       const multicastProposal: MulticastProposal = {
         moltzapVersion: MOLTZAP_VERSION,
         kind: "multicast_proposal",
@@ -806,4 +872,4 @@ describe("Client protocol acceptance bounds", () => {
   );
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */
+/* eslint-enable max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */

@@ -58,45 +58,6 @@ const openAiJudgeRetrySchedule = Schedule.exponential("1 second").pipe(
   Schedule.whileInput(isRetryableAiError),
 );
 
-function responseHeader(
-  headers: Readonly<Record<string, string>>,
-  name: string,
-): string | undefined {
-  return Object.entries(headers).find(
-    ([key]) => key.toLowerCase() === name.toLowerCase(),
-  )?.[1];
-}
-
-function retryAfterMillis(
-  error: AiError.HttpResponseError,
-): number | undefined {
-  const value = responseHeader(error.response.headers, "retry-after");
-  if (value === undefined) {
-    return undefined;
-  }
-  const seconds = Number(value);
-  return Number.isFinite(seconds) && seconds >= 0
-    ? Math.round(seconds * 1_000)
-    : undefined;
-}
-
-function mapHttpResponseError(error: AiError.HttpResponseError): JudgeError {
-  if (error.response.status === 429) {
-    return JudgeRateLimited.make({
-      detail: "OpenAI rate-limited the semantic judge request",
-      retryAfterMillis: retryAfterMillis(error),
-    });
-  }
-  if (error.reason === "Decode" || error.reason === "EmptyBody") {
-    return JudgeInvalidOutput.make({
-      detail: "OpenAI returned a malformed or empty response",
-    });
-  }
-  return JudgeUnavailable.make({
-    detail: `OpenAI semantic judging failed with HTTP ${String(error.response.status)}`,
-  });
-}
-
 function mapOpenAiError(error: AiError.AiError): JudgeError {
   switch (error._tag) {
     case "MalformedOutput":
@@ -117,6 +78,45 @@ function mapOpenAiError(error: AiError.AiError): JudgeError {
         detail: "OpenAI semantic judging failed unexpectedly",
       });
   }
+}
+
+function mapHttpResponseError(error: AiError.HttpResponseError): JudgeError {
+  if (error.response.status === 429) {
+    return JudgeRateLimited.make({
+      detail: "OpenAI rate-limited the semantic judge request",
+      retryAfterMillis: retryAfterMillis(error),
+    });
+  }
+  if (error.reason === "Decode" || error.reason === "EmptyBody") {
+    return JudgeInvalidOutput.make({
+      detail: "OpenAI returned a malformed or empty response",
+    });
+  }
+  return JudgeUnavailable.make({
+    detail: `OpenAI semantic judging failed with HTTP ${String(error.response.status)}`,
+  });
+}
+
+function retryAfterMillis(
+  error: AiError.HttpResponseError,
+): number | undefined {
+  const value = responseHeader(error.response.headers, "retry-after");
+  if (value === undefined) {
+    return undefined;
+  }
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0
+    ? Math.round(seconds * 1_000)
+    : undefined;
+}
+
+function responseHeader(
+  headers: Readonly<Record<string, string>>,
+  name: string,
+): string | undefined {
+  return Object.entries(headers).find(
+    ([key]) => key.toLowerCase() === name.toLowerCase(),
+  )?.[1];
 }
 
 /**

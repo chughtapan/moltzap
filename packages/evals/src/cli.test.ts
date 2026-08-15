@@ -1,3 +1,5 @@
+/** @file CLI diagnostics preserve exact operator-facing failure distinctions. */
+
 import { assert, effect, it } from "@effect/vitest";
 import { IncompleteLedgerReceipt } from "@moltzap/simulator";
 import { ledgerRef } from "@moltzap/simulator/ledger";

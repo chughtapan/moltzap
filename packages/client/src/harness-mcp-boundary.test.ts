@@ -15,16 +15,16 @@ import {
 import { Ed25519PublicKey } from "@moltzap/identity";
 import { Duration, Effect, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
+import { acquireHarnessClient } from "./client-runtime.js";
+import { ListenError } from "./contract.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-http.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
 } from "./harness-mcp-wire.js";
 import { HARNESS_EVENTS_EXTENSION } from "./harness-runtime.js";
-import { acquireHarnessClient } from "./client-runtime.js";
-import { ListenError } from "./contract.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- These interoperability tests exercise the Promise-native MCP boundary. */
+/* eslint-disable agent-code-guard/async-keyword -- These interoperability tests exercise the Promise-native MCP boundary. */
 
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const OK_STATUS = 200;
@@ -37,6 +37,10 @@ const PUBLIC_KEY_REPRESENTATION = {
   kty: "OKP",
   x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
 } as const;
+const PRIVATE_STATUS_DEFECT = "private status defect";
+const REGISTRY_SIGNER_PUBLIC_KEY = Schema.decodeUnknownSync(Ed25519PublicKey)(
+  PUBLIC_KEY_REPRESENTATION,
+);
 
 const discoverResponseSchema = Schema.Struct({
   jsonrpc: Schema.Literal("2.0"),
@@ -63,6 +67,45 @@ const operations: HarnessMcpOperations = {
   reply: () => unusedOperation,
 };
 
+const acquireBoundaryServer = (selectedOperations: HarnessMcpOperations) =>
+  Effect.gen(function* () {
+    const handler = yield* makeHarnessMcpHttpHandler({
+      implementation: IMPLEMENTATION,
+      operations: selectedOperations,
+      registrySignerPublicKey: REGISTRY_SIGNER_PUBLIC_KEY,
+    });
+    const server = yield* acquireHarnessMcpHttpServer({ port: 0, handler });
+    const address = server.address();
+    const port =
+      typeof address === "object" && address !== null ? address.port : 0;
+    return { port, server } as const;
+  });
+
+const acquireProtocolClient = (port: number, name: string) =>
+  Effect.acquireRelease(
+    Effect.gen(function* () {
+      const client = new Client(
+        { name, version: "1.0.0" },
+        {
+          capabilities: {},
+          versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } },
+        },
+      );
+      yield* Effect.tryPromise({
+        try: (signal) =>
+          client.connect(
+            new StreamableHTTPClientTransport(
+              new URL(`http://127.0.0.1:${port}/mcp`),
+            ),
+            { signal },
+          ),
+        catch: (cause) => cause,
+      });
+      return client;
+    }),
+    (client) => Effect.tryPromise(() => client.close()).pipe(Effect.ignore),
+  );
+
 const discoverRequest = (port: number): Request =>
   new Request(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
@@ -85,20 +128,9 @@ const discoverRequest = (port: number): Request =>
   });
 
 const servesEncodedSigner = async () => {
-  const registrySignerPublicKey = Schema.decodeUnknownSync(Ed25519PublicKey)(
-    PUBLIC_KEY_REPRESENTATION,
-  );
   const decoded = await Effect.runPromise(
     Effect.gen(function* () {
-      const handler = yield* makeHarnessMcpHttpHandler({
-        implementation: IMPLEMENTATION,
-        operations,
-        registrySignerPublicKey,
-      });
-      const server = yield* acquireHarnessMcpHttpServer({ port: 0, handler });
-      const address = server.address();
-      const port =
-        typeof address === "object" && address !== null ? address.port : 0;
+      const { port } = yield* acquireBoundaryServer(operations);
       const response = yield* Effect.tryPromise(() =>
         // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The loopback test drives the same Web Request boundary accepted by the official MCP handler.
         fetch(discoverRequest(port)),
@@ -117,11 +149,11 @@ const servesEncodedSigner = async () => {
 
 const capturesProtocolError = (
   client: Client,
-  arguments_: Readonly<Record<string, unknown>>,
+  toolArguments: Readonly<Record<string, unknown>>,
 ) =>
   Effect.tryPromise({
     try: (signal) =>
-      client.callTool({ name: "status", arguments: arguments_ }, { signal }),
+      client.callTool({ name: "status", arguments: toolArguments }, { signal }),
     catch: (cause) => cause,
   }).pipe(
     Effect.match({
@@ -141,39 +173,12 @@ const distinguishesProtocolAndDomainFailures = async () => {
         : Effect.fail({ reason: "persistence" as const });
     },
   };
-  const registrySignerPublicKey = Schema.decodeUnknownSync(Ed25519PublicKey)(
-    PUBLIC_KEY_REPRESENTATION,
-  );
   const [malformedCause, domainCause] = await Effect.runPromise(
     Effect.gen(function* () {
-      const handler = yield* makeHarnessMcpHttpHandler({
-        implementation: IMPLEMENTATION,
-        operations: failingOperations,
-        registrySignerPublicKey,
-      });
-      const server = yield* acquireHarnessMcpHttpServer({ port: 0, handler });
-      const address = server.address();
-      const port =
-        typeof address === "object" && address !== null ? address.port : 0;
-      const client = new Client(
-        { name: "harness-boundary-client", version: "1.0.0" },
-        {
-          capabilities: {},
-          versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } },
-        },
-      );
-      yield* Effect.acquireRelease(
-        Effect.tryPromise({
-          try: (signal) =>
-            client.connect(
-              new StreamableHTTPClientTransport(
-                new URL(`http://127.0.0.1:${port}/mcp`),
-              ),
-              { signal },
-            ),
-          catch: (cause) => cause,
-        }),
-        () => Effect.promise(() => client.close()).pipe(Effect.ignore),
+      const { port } = yield* acquireBoundaryServer(failingOperations);
+      const client = yield* acquireProtocolClient(
+        port,
+        "harness-boundary-client",
       );
       return yield* Effect.all(
         [
@@ -212,42 +217,15 @@ const sanitizesUnexpectedOperationDefects = async () => {
       statusReads += 1;
       return statusReads === 1
         ? Effect.succeed({ kind: "unregistered" as const })
-        : Effect.dieMessage("private status defect");
+        : Effect.dieMessage(PRIVATE_STATUS_DEFECT);
     },
   };
-  const registrySignerPublicKey = Schema.decodeUnknownSync(Ed25519PublicKey)(
-    PUBLIC_KEY_REPRESENTATION,
-  );
   const cause = await Effect.runPromise(
     Effect.gen(function* () {
-      const handler = yield* makeHarnessMcpHttpHandler({
-        implementation: IMPLEMENTATION,
-        operations: defectiveOperations,
-        registrySignerPublicKey,
-      });
-      const server = yield* acquireHarnessMcpHttpServer({ port: 0, handler });
-      const address = server.address();
-      const port =
-        typeof address === "object" && address !== null ? address.port : 0;
-      const client = new Client(
-        { name: "harness-defect-client", version: "1.0.0" },
-        {
-          capabilities: {},
-          versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } },
-        },
-      );
-      yield* Effect.acquireRelease(
-        Effect.tryPromise({
-          try: (signal) =>
-            client.connect(
-              new StreamableHTTPClientTransport(
-                new URL(`http://127.0.0.1:${port}/mcp`),
-              ),
-              { signal },
-            ),
-          catch: (failure) => failure,
-        }),
-        () => Effect.promise(() => client.close()).pipe(Effect.ignore),
+      const { port } = yield* acquireBoundaryServer(defectiveOperations);
+      const client = yield* acquireProtocolClient(
+        port,
+        "harness-defect-client",
       );
       return yield* capturesProtocolError(client, {});
     }).pipe(Effect.scoped),
@@ -261,28 +239,19 @@ const sanitizesUnexpectedOperationDefects = async () => {
     code: ProtocolErrorCode.InternalError,
     data: { reason: "persistence" },
   });
-  expect(String(cause)).not.toContain("private status defect");
+  expect(String(cause)).not.toContain(PRIVATE_STATUS_DEFECT);
 };
 
 const reportsUnexpectedSubscriptionLoss = async () => {
-  const registrySignerPublicKey = Schema.decodeUnknownSync(Ed25519PublicKey)(
-    PUBLIC_KEY_REPRESENTATION,
-  );
   const result = await Effect.runPromise(
     Effect.gen(function* () {
-      const handler = yield* makeHarnessMcpHttpHandler({
-        implementation: IMPLEMENTATION,
-        operations,
-        registrySignerPublicKey,
-      });
-      const server = yield* acquireHarnessMcpHttpServer({ port: 0, handler });
-      const address = server.address();
-      const port =
-        typeof address === "object" && address !== null ? address.port : 0;
+      const { port, server } = yield* acquireBoundaryServer(operations);
       const client = yield* acquireHarnessClient(
         new URL(`http://127.0.0.1:${port}/mcp`),
       );
-      yield* Effect.sync(() => server.closeAllConnections());
+      yield* Effect.sync(() => {
+        server.closeAllConnections();
+      });
       return yield* client.turns.pipe(
         Stream.runHead,
         Effect.match({
@@ -318,4 +287,4 @@ describe("Harness MCP HTTP boundary", () => {
   );
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the MCP boundary. */
+/* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults after the MCP boundary. */

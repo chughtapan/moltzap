@@ -23,7 +23,8 @@ import { makeRouterPoll } from "./router/poll.js";
 import { makeRouterRpcClient } from "./router/rpc.js";
 import { makeRouterSend } from "./router/send.js";
 
-/** Production Router process surface. */
+// Production Router process surface.
+// eslint-disable-next-line @typescript-eslint/no-namespace -- The namespace keeps the process layer and its closed startup error under one RouterServer capability.
 export namespace RouterServer {
   /** Closed Router startup phase. */
   export class StartupError extends Data.TaggedError(

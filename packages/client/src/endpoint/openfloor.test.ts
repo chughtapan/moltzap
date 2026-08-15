@@ -25,15 +25,24 @@ import {
 import {
   createHash,
   generateKeyPairSync,
-  sign as signBytes,
   type KeyObject,
+  sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ConversationId, type Content } from "../contract.js";
+import { type Content, ConversationId } from "../contract.js";
+import { type EngineProspectiveTurn, EngineReplyError } from "./engine.js";
 import {
+  makeOpenFloor,
+  type OpenFloorCertifiedHead,
+  openFloorGrantTtlMillis,
+  type OpenFloorInput,
+  type OpenFloorMulticastCandidate,
+  type OpenFloorPort,
+} from "./openfloor.js";
+import {
+  type AckStatement,
   type ActionCertificate,
   type ActionCertifiedRecord,
-  type AckStatement,
   type Begin,
   type CertifiedRecord,
   fingerprintReply,
@@ -51,16 +60,8 @@ import {
   verifyMembership,
   verifyStableEvidence,
 } from "./representation.js";
-import {
-  makeOpenFloor,
-  openFloorGrantTtlMillis,
-  type OpenFloorCertifiedHead,
-  type OpenFloorInput,
-  type OpenFloorMulticastCandidate,
-} from "./openfloor.js";
-import { EngineReplyError, type EngineProspectiveTurn } from "./engine.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Each cryptographic trace keeps exact protocol order beside its assertions. */
+/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Each cryptographic trace keeps exact protocol order beside its assertions. */
 
 interface IdentityFixture {
   readonly card: VerifiedAgentCard;
@@ -75,6 +76,22 @@ interface OpenFloorFixture {
   ];
   readonly head: OpenFloorCertifiedHead;
 }
+
+interface CapturedOpenFloorEffects {
+  readonly begins: Begin[];
+  readonly evidence: SignedMessage[];
+  readonly turns: EngineProspectiveTurn[];
+  readonly candidates: OpenFloorMulticastCandidate[];
+}
+
+type IdentityIndex = 0 | 1 | 2;
+
+const makeCapturedEffects = (): CapturedOpenFloorEffects => ({
+  begins: [],
+  evidence: [],
+  turns: [],
+  candidates: [],
+});
 
 const identifier = (prefix: string, byte: number): string =>
   `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
@@ -298,13 +315,8 @@ const makeFixture = Effect.gen(function* () {
 
 const makePort = (
   fixture: OpenFloorFixture,
-  localIndex: 0 | 1 | 2,
-  captured: {
-    readonly begins: Begin[];
-    readonly evidence: SignedMessage[];
-    readonly turns: EngineProspectiveTurn[];
-    readonly candidates: OpenFloorMulticastCandidate[];
-  },
+  localIndex: IdentityIndex,
+  captured: CapturedOpenFloorEffects,
 ) => {
   const local = fixture.identities[localIndex];
   const input: OpenFloorInput = {
@@ -312,13 +324,13 @@ const makePort = (
     signingAuthority: local.authority,
     store: { hasConsumedAttention: () => Effect.succeed(false) },
     actions: {
-      queueBegin: (_membership, begin) =>
+      queueBegin: (...parameters) =>
         Effect.sync(() => {
-          captured.begins.push(begin);
+          captured.begins.push(parameters[1]);
         }),
-      queueEvidence: (_membership, evidence) =>
+      queueEvidence: (...parameters) =>
         Effect.sync(() => {
-          captured.evidence.push(evidence);
+          captured.evidence.push(parameters[1]);
         }),
       onMulticastCandidate: (candidate) =>
         Effect.sync(() => {
@@ -336,7 +348,7 @@ const makePort = (
 
 const directIngress = (
   fixture: OpenFloorFixture,
-  senderIndex: 0 | 1 | 2,
+  senderIndex: IdentityIndex,
   packet: Begin,
 ) =>
   Effect.gen(function* () {
@@ -356,7 +368,7 @@ const directIngress = (
 
 const acknowledgmentIngress = (
   fixture: OpenFloorFixture,
-  senderIndex: 0 | 1 | 2,
+  senderIndex: IdentityIndex,
   statement: AckStatement,
 ) =>
   Effect.gen(function* () {
@@ -379,83 +391,93 @@ const acknowledgmentIngress = (
     };
   });
 
+const acknowledgeWinningBegin = (
+  fixture: OpenFloorFixture,
+  captured: CapturedOpenFloorEffects,
+  port: OpenFloorPort,
+) =>
+  Effect.gen(function* () {
+    const localBegin = captured.begins[0];
+    if (localBegin === undefined) {
+      return yield* Effect.die("missing local BEGIN");
+    }
+    const localIngress = yield* directIngress(fixture, 1, localBegin);
+    expect(yield* port.acceptIngress(localIngress)).toBe("accepted");
+    expect(captured.evidence).toHaveLength(1);
+    const laterBegin: Begin = {
+      ...localBegin,
+      contenderAgentId: fixture.identities[2].card.agentId,
+    };
+    expect(
+      yield* port.acceptIngress(yield* directIngress(fixture, 2, laterBegin)),
+    ).toBe("ignored");
+    const localEvidence = captured.evidence[0];
+    if (localEvidence === undefined) {
+      return yield* Effect.die("missing local ACK");
+    }
+    const decoded = yield* verifyStableEvidence({
+      representation: yield* Schema.encode(SignedMessage)(localEvidence),
+      membership: fixture.head.membership,
+    });
+    if (decoded.statement.kind !== "ack") {
+      return yield* Effect.die("unexpected evidence kind");
+    }
+    for (const senderIndex of [0, 1, 2] as const) {
+      const statement: AckStatement = {
+        ...decoded.statement,
+        signerAgentId: fixture.identities[senderIndex].card.agentId,
+      };
+      yield* port.acceptIngress(
+        yield* acknowledgmentIngress(fixture, senderIndex, statement),
+      );
+    }
+    return decoded.statement;
+  });
+
+const assertOneUseGrant = (
+  fixture: OpenFloorFixture,
+  captured: CapturedOpenFloorEffects,
+  port: OpenFloorPort,
+  acknowledgment: AckStatement,
+) =>
+  Effect.gen(function* () {
+    expect(captured.turns).toHaveLength(1);
+    const turn = captured.turns[0];
+    if (turn === undefined) {
+      return yield* Effect.die("missing granted turn");
+    }
+    const reply: Content = [{ type: "text", text: "bound reply" }];
+    const candidate = yield* port.admitReply(turn.replyGrant, reply);
+    expect(candidate.beginDigest).toBe(acknowledgment.beginDigest);
+    expect(candidate.action.previousRecordHash).toBe(fixture.head.recordHash);
+    expect(candidate.action.anchorHash).toBe(fixture.head.currentAnchorHash);
+    expect(candidate.action.replyFingerprint).toBe(
+      yield* fingerprintReply(reply),
+    );
+    const duplicate = yield* Effect.flip(
+      port.admitReply(turn.replyGrant, reply),
+    );
+    expect(duplicate).toBeInstanceOf(EngineReplyError);
+    expect(duplicate.reason).toBe("authority-unavailable");
+  });
+
 const pinsRouterOrderAndOneUseGrant = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
-        const captured = {
-          begins: [] as Begin[],
-          evidence: [] as SignedMessage[],
-          turns: [] as EngineProspectiveTurn[],
-          candidates: [] as OpenFloorMulticastCandidate[],
-        };
+        const captured = makeCapturedEffects();
         const port = yield* makePort(fixture, 1, captured);
         yield* port.certifiedHead(fixture.head);
         expect(captured.begins).toHaveLength(0);
         yield* port.listenerAttached;
         expect(captured.begins).toHaveLength(1);
-        const localBegin = captured.begins[0];
-        if (localBegin === undefined) {
-          return yield* Effect.die("missing local BEGIN");
-        }
-        const localIngress = yield* directIngress(fixture, 1, localBegin);
-        expect(yield* port.acceptIngress(localIngress)).toBe("accepted");
-        expect(captured.evidence).toHaveLength(1);
-
-        const laterBegin: Begin = {
-          ...localBegin,
-          contenderAgentId: fixture.identities[2].card.agentId,
-        };
-        expect(
-          yield* port.acceptIngress(
-            yield* directIngress(fixture, 2, laterBegin),
-          ),
-        ).toBe("ignored");
-
-        const localEvidence = captured.evidence[0];
-        if (localEvidence === undefined) {
-          return yield* Effect.die("missing local ACK");
-        }
-        const decoded = yield* verifyStableEvidence({
-          representation: yield* Schema.encode(SignedMessage)(localEvidence),
-          membership: fixture.head.membership,
-        });
-        if (decoded.statement.kind !== "ack") {
-          return yield* Effect.die("unexpected evidence kind");
-        }
-        const ackBase = decoded.statement;
-        for (const senderIndex of [0, 1, 2] as const) {
-          const statement: AckStatement = {
-            ...ackBase,
-            signerAgentId: fixture.identities[senderIndex].card.agentId,
-          };
-          yield* port.acceptIngress(
-            yield* acknowledgmentIngress(fixture, senderIndex, statement),
-          );
-        }
-        expect(captured.turns).toHaveLength(1);
-        const turn = captured.turns[0];
-        if (turn === undefined) {
-          return yield* Effect.die("missing granted turn");
-        }
-        const reply: Content = [{ type: "text", text: "bound reply" }];
-        const candidate = yield* port.admitReply(turn.replyGrant, reply);
-        expect(candidate.beginDigest).toBe(ackBase.beginDigest);
-        expect(candidate.action.previousRecordHash).toBe(
-          fixture.head.recordHash,
+        const acknowledgment = yield* acknowledgeWinningBegin(
+          fixture,
+          captured,
+          port,
         );
-        expect(candidate.action.anchorHash).toBe(
-          fixture.head.currentAnchorHash,
-        );
-        expect(candidate.action.replyFingerprint).toBe(
-          yield* fingerprintReply(reply),
-        );
-        const duplicate = yield* Effect.flip(
-          port.admitReply(turn.replyGrant, reply),
-        );
-        expect(duplicate).toBeInstanceOf(EngineReplyError);
-        expect(duplicate.reason).toBe("authority-unavailable");
+        yield* assertOneUseGrant(fixture, captured, port, acknowledgment);
       }),
     ),
   );
@@ -465,12 +487,7 @@ const expiresWithoutRecordAndRecontends = () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
-        const captured = {
-          begins: [] as Begin[],
-          evidence: [] as SignedMessage[],
-          turns: [] as EngineProspectiveTurn[],
-          candidates: [] as OpenFloorMulticastCandidate[],
-        };
+        const captured = makeCapturedEffects();
         const port = yield* makePort(fixture, 1, captured);
         yield* port.certifiedHead(fixture.head);
         yield* port.listenerAttached;
@@ -496,12 +513,7 @@ const suppressesSelfAuthoredHeads = () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
-        const captured = {
-          begins: [] as Begin[],
-          evidence: [] as SignedMessage[],
-          turns: [] as EngineProspectiveTurn[],
-          candidates: [] as OpenFloorMulticastCandidate[],
-        };
+        const captured = makeCapturedEffects();
         const port = yield* makePort(fixture, 0, captured);
         yield* port.certifiedHead(fixture.head);
         yield* port.listenerAttached;
@@ -526,4 +538,4 @@ describe("OpenFloorV1", () => {
   );
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */
+/* eslint-enable agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */
