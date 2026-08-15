@@ -299,13 +299,11 @@ Equality receipt for one complete retained SignedMessage.
 
 ### `@moltzap/router/server`
 
-#### [`RouterServer`](./server.ts#L27)
+#### [`RouterServer`](./server.ts#L28)
 
 _Namespace_
 
-Production Router process surface.
-
-#### [`RouterServer.StartupError`](./server.ts#L29)
+#### [`RouterServer.StartupError`](./server.ts#L30)
 
 _Class_
 
@@ -319,7 +317,7 @@ _Class_
 
 Closed Router startup phase.
 
-#### [`RouterServer.layer`](./server.ts#L66)
+#### [`RouterServer.layer`](./server.ts#L67)
 
 _Variable_
 
