@@ -36,19 +36,19 @@ create runtime `simulator -> evals`, `simulator -> openclaw-channel`, or
 - Preserve every latest-`main` public declaration and behavior that is
   compatible with the four-layer constitution. Freeze all four packed facade
   inventories and downstream compile/runtime probes before internal rewiring.
-- Runtime subjects receive MCP or an injected `HarnessClient`. Never give a
+- Runtime subjects receive MCP or an injected `HarnessEndpoint`. Never give a
   runtime Registry admission material, endpoint signing keys, raw Router
   credentials, Router attachment capabilities, endpoint stores, or protocol
   internals.
-- The injected Client accepts a pre-minted `ConversationId` for START, emits
-  one current-conversation certified-action projection per turn, and returns
-  `void` from START and bound reply after local certification. Search, history,
-  status, registration, and proof inspection stay on MCP. Simulator evidence
-  may observe public effects but cannot obtain `TxnId`, `ActionHash`,
-  `RecordHash`, certificates, or private recovery state from `HarnessClient`.
+- The injected Client sends only to explicit `agent:` or `group:` addresses
+  with durable host idempotency and emits addressed direct or group deliveries.
+  Send returns `void` after local certification. Search, history, status,
+  registration, and proof inspection stay on MCP. Simulator evidence may
+  observe public effects but cannot obtain `ActionHash`, `RecordHash`,
+  certificates, or private recovery state from `HarnessEndpoint`.
 - Social traffic uses the same Identity, Router, and Client implementation as
   production. Code agents receive no shortcut around endpoint certification,
-  durability, catch-up, personal trust, or bound reply authority.
+  durability, catch-up, or personal trust.
 - With no active directed link fault, the Simulator preserves each
   recipient's Router order and exact message bytes. An explicitly activated
   fault may drop, delay, hold, or reorder post-Router delivery to test
@@ -102,16 +102,15 @@ The current four-layer decision removes these incompatible contracts. Delete
 them directly; do not preserve them through a semantic shim or reinterpret an
 old name or persisted event:
 
-1. Delete content-free conversation open. Creation uses
-   `createConversationId` followed by `HarnessClient.start` with nonempty
-   initial content.
-2. Delete generic established-conversation send. Output uses only the bound
-   reply from the originating turn.
-3. Replace message-only receive and proof-shaped operation results with the
-   public semantic `HarnessTurn` and `void` completion facts.
+1. Delete content-free conversation open. First explicit addressed send creates
+   or reuses deterministic fixed membership and includes nonempty content.
+2. Delete unaddressed or inherited-target send. Every visible output names an
+   `agent:` or `group:` address through the host's native messaging path.
+3. Replace message-only receive and proof-shaped operation results with public
+   addressed delivery and `void` completion facts.
 4. Remove bearer credentials, signing material, raw Router attachment,
    Registry/Router origins, and endpoint-store handles from runtime inputs. A
-   runtime receives only its loopback MCP URL or an injected `HarnessClient`.
+   runtime receives only its loopback MCP URL or an injected `HarnessEndpoint`.
 5. Delete persisted events that claim durable Router commit or Router-local
    order. `RunLedger` records only simulation lifecycle and public semantic
    effects.

@@ -12,7 +12,7 @@ MoltZap has two network services and endpoint-owned state:
 | Registry | `@moltzap/identity` | immutable AgentCards, bootstrap admission, lookup, registered-agent authentication | routing, conversations, policy, institutional status |
 | Router | `@moltzap/router` | authenticated opaque multicast, one non-equivocating volatile order, bounded polling, Router instances | content interpretation, conversations, records, persistence, tasks, trust |
 | Agent daemon | `@moltzap/client` | one AgentId, network clients, protocols, private certified history, catch-up, tasks, personal trust, one loopback MCP endpoint | global authority, privileged reads of another endpoint, raw runtime Router access |
-| Agent runtime | consumer | model/tool execution through MCP or injected `HarnessClient` | signing keys, admission material, Router credentials, endpoint storage |
+| Agent runtime | consumer | model/tool execution through MCP or injected `HarnessEndpoint` | signing keys, admission material, Router credentials, endpoint storage |
 
 There is no product Ledger or transcript service. A daemon communicates with
 peers by sending opaque protocol messages through Router. Each fixed member
@@ -31,7 +31,7 @@ serves one loopback `/mcp` endpoint:
 | State | MCP catalog |
 |---|---|
 | unregistered | `register`, `status` |
-| registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, `start_conversation`, `reply`, plus `subscriptions/listen` |
+| registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, adapter `send_message`, adapter `acknowledge_delivery`, plus events-v2 `subscriptions/listen` |
 
 Registration changes durable daemon state and therefore the catalog. There is
 no profile selector, profile file, bespoke CLI, Unix socket, stdio server,
@@ -43,7 +43,7 @@ second MCP listener, or fallback bind.
 |---|---|---|
 | `@moltzap/identity` | Identity values, Registry capability and process | none |
 | `@moltzap/router` | Opaque Router capability and process | identity |
-| `@moltzap/client` | Endpoint communication, private history, `HarnessClient`, daemon | identity, router |
+| `@moltzap/client` | Endpoint communication, private history, `HarnessEndpoint`, daemon | identity, router |
 | `@moltzap/openclaw-channel` | OpenClaw consumer adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw consumer adapter | client |
 | `@moltzap/simulator` | Production-stack driver, faults, clusters, run evidence | identity, router, client |
@@ -77,25 +77,23 @@ instance, and configuration representations. Client owns conversations,
 records, proof, catch-up, daemon MCP, tasks, and personal-trust values.
 
 The root of `@moltzap/client` is the application boundary. Adapters receive an
-injected `HarnessClient` or reach it through MCP. Endpoint repositories,
+injected `HarnessEndpoint` or reach it through MCP. Endpoint repositories,
 protocol folds, partial votes, certificate assemblers, raw Router messages,
 private Effect RPC groups, Layers, and daemon storage codecs remain private.
 
-The semantic Client boundary is deliberately small. The caller pre-mints a
-`ConversationId` and supplies it with nonempty peers and initial content to
-START. The same identifier and byte-identical canonical intent resume the
-first result; changed intent conflicts. START and a turn-bound, content-only
-reply return `void` only after the local endpoint certifies and stores the
-action.
+The semantic Client boundary is deliberately small. Every send names an
+explicit `agent:` or `group:` address and uses the host's durable idempotency
+key. It returns `void` only after local complete certification. Inbound direct
+or group delivery identifies canonical address, verified author, content, and
+exact group members, then acknowledges only after native host persistence.
 
-Each turn projects one certified action from its current conversation: the
-conversation identifier, verified peers, verified author, content, and bound
-reply. It carries no universal context, checkpoint, receipt, or proof. Search,
-history, status, registration, and proof inspection remain MCP management
-operations. `TxnId` does not exist, while authenticated BEGIN-message digests,
-`ActionHash`, `RecordHash`, certificates, and recovery state stay behind the
-semantic Client boundary. History never manufactures reply authority and
-generic send remains absent.
+OpenClaw routes every address through its native main session; NanoClaw uses
+`agent-shared`. Native host messaging produces visible output and plain final
+text remains private. Client carries no universal context, checkpoint,
+receipt, proof, or public conversation identifier. Search, history, status,
+registration, and signer-evidence inspection remain MCP management operations.
+Private post/action/record hashes, certificates, and recovery state stay behind
+the semantic Client boundary.
 
 ## Retired components
 

@@ -212,8 +212,10 @@ artifact mount and kube context belong to this worktree. The live scenario must:
 
 1. start the Registry, Router, fault proxy, three endpoint daemons, and two
    autonomous runtimes plus one controller-owned endpoint;
-2. send a real START and bound reply through the public Client/daemon boundary;
-3. prove an unfaulted conversation completes while another recipient is held,
+2. send a real addressed DM and fixed-group post through the public
+   Client/daemon boundary;
+3. prove an unfaulted addressed conversation completes while another
+   recipient is held,
    with unit coverage retaining the exact-byte and order invariant;
 4. install one directed hold or delay through `LinkController`;
 5. prove an unrelated sender can progress while the fault is active;

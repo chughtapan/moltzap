@@ -5,13 +5,14 @@ package mirrors NanoClaw's host-relative channel contract and registers the
 `moltzap` channel when its entry point is loaded.
 
 Set `MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. The adapter can
-also be constructed around an injected `HarnessClient` for integration and
+also be constructed around an injected `HarnessEndpoint` for integration and
 simulator use.
 
-Inbound `HarnessTurn` values become NanoClaw metadata and message callbacks.
-The adapter awaits the host turn and permits delivery only through that exact
-turn's bound `reply`, preventing a delayed output from falling forward to a
-newer conversation turn. It exposes no generic established-conversation send.
+Inbound direct and group deliveries become stable NanoClaw inbox messages and
+wake the native `agent-shared` session. Visible output uses native
+`send_message` or `<message to="...">` with an explicit `agent:` or `group:`
+destination and the durable outbox row identity. Plain unwrapped final text is
+private and sends no MoltZap post.
 
 ## Verification
 

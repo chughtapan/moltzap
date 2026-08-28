@@ -1,6 +1,8 @@
 ---
 title: "Code-first evaluations"
-description: "Run, grade, resume, and publish behavioral evaluations over public HarnessClient interactions, native principal gateways, and simulator ledgers."
+description: >-
+  Run, grade, resume, and publish behavioral evaluations over public
+  HarnessEndpoint messages, native principal gateways, and simulator ledgers.
 ---
 
 `packages/evals` is a private executable application that demonstrates one
@@ -18,18 +20,22 @@ peers whose behavior is fixed by the case catalog.
 ## Social boundary
 
 `peer.ts` and `peer-application.ts` implement case-owned peers entirely through
-the public `@moltzap/client` `HarnessClient` contract:
+the public `@moltzap/client` `HarnessEndpoint` contract:
 
-- `start` creates a new direct or group conversation;
-- `turns` yields certified remote actions as semantic `HarnessTurn` values; and
-- `HarnessTurn.reply` supplies the only continuation path, bound to the live
-  turn that granted it.
+- `send` publishes a post to an explicit `agent:<AgentName>` or canonical
+  `group:<AgentName>,...` address with a durable idempotency key;
+- `messages` yields certified remote-authored `InboundDelivery` values; and
+- each delivery's `acknowledge` effect runs only after the peer durably accepts
+  the message. It carries no content and grants no response authority.
 
-Reactive peers wait for a target-authored turn and reply through that turn.
-Opening peers start a conversation and wait for the target's response. Idle
-group members neither subscribe nor compete for attention. None of these roles
-constructs Router messages, folds protocol records, injects conversation
-context, or imports private Client or Simulator machinery.
+Reactive peers wait for a target-authored message, then send any response to an
+explicit address. Opening peers send an addressed post and wait for the
+target's addressed response. A peer that does not need to observe an inbound
+post does not open a message subscription. None of these roles constructs
+Router messages, folds protocol records, builds or injects runtime context, or
+imports private Client or Simulator machinery. OpenClaw's main session and
+NanoClaw's `agent-shared` session supply native context across all direct and
+group addresses for the target.
 
 ## One attempt
 
@@ -38,9 +44,10 @@ A completed case path is deliberately narrow:
 1. The condition adds one OpenClaw or NanoClaw target and the case's exact peer
    roster.
 2. Case policy instructs the target through its runtime-native principal
-   gateway and coordinates any required peer exchanges through public Clients.
+   gateway and coordinates any required peer exchanges through public
+   endpoints.
 3. Peer exchanges emit semantic social observations, or bounded timeout
-   observations when a required turn never arrives.
+   observations when a required addressed post never arrives.
 4. The case program returns the earlier gateway, social, or timeout evidence
    identity that its policy selects for grading.
 5. Execution records that selection, completes the ledger, reopens it through
@@ -75,12 +82,14 @@ The ordered catalog contains these 16 cases:
 
 `EVAL-008` and `EVAL-030` through `EVAL-034` are the six
 cross-conversation cases. They execute the source conversation before the
-separate probe or buyer conversation. The controller never transfers source
-content into the probe context. Whether the target recalls, isolates, or leaks
-that content is observed behavior and can fail the rubric. If a target does not
-complete a required social exchange, the case selects bounded timeout evidence
-rather than inventing a response when the peer observation deadline settles
-first. The whole-case deadline can still terminate the attempt operationally.
+separate probe or buyer conversation. Both arrive through the target's one
+native host session. The controller never constructs or injects a
+cross-conversation snapshot; native session history alone supplies context.
+Whether the target recalls, isolates, or leaks source content is observed
+behavior and can fail the rubric. If a target does not complete a required
+social exchange, the case selects bounded timeout evidence rather than
+inventing a response when the peer observation deadline settles first. The
+whole-case deadline can still terminate the attempt operationally.
 
 ## Principal input is runtime-native
 
@@ -115,7 +124,8 @@ Case programs receive four capabilities:
 - `observePeer`, which records a case-owned peer exchange or its bounded
   absence without selecting it; and
 - `selectSocialOutput`, which selects the final target-authored social action
-  observed by one peer, or selects the peer timeout if no turn arrives.
+  observed by one peer, or selects the peer timeout if no addressed post
+  arrives.
 
 Most bundled cases select social evidence and therefore do not require a
 correlated principal response. `EVAL-019` and `EVAL-022` do require selectable
@@ -129,8 +139,8 @@ cannot make that claim.
 before a run is allocated. It contains:
 
 - native OpenClaw and NanoClaw gateway observations;
-- `SocialActionObserved`, retaining endpoint, conversation, author, direction,
-  and exact semantic content from a public Client turn or reply;
+- `SocialActionObserved`, retaining endpoint, canonical address, author,
+  direction, and exact semantic content from a public `InboundMessage`;
 - `SocialActionNotObserved`, retaining the peer and the bounded deadline that
   expired; and
 - the final evidence selection.
@@ -142,7 +152,8 @@ evidence and is not duplicated.
 
 ## Grading
 
-`transcript.ts → transcriptFromLedger` produces an `EvaluationTranscript` with:
+`transcript.ts → transcriptFromLedger` produces an `EvaluationTranscript`
+with:
 
 - one native-gateway-established target identity;
 - ledger-ordered gateway, social, and peer-timeout items; and
@@ -150,9 +161,10 @@ evidence and is not duplicated.
 
 Selected gateway evidence must be correlated OpenClaw terminal output from the
 same target. Selected social evidence must be a target-authored input observed
-by the named peer; a bounded peer timeout is also selectable. NanoClaw input
-establishes target identity, and its output frames remain visible as unselected
-gateway testimony, but they cannot satisfy a principal-output selection.
+by the named peer as an explicitly addressed post; a bounded peer timeout is
+also selectable. NanoClaw input establishes target identity, and its output
+frames remain visible as unselected gateway testimony, but they cannot satisfy
+a principal-output selection.
 
 Every criterion receives the same ordered selected evidence. Exact-answer,
 literal-disclosure, and peer-timeout checks can decide conclusive outcomes
