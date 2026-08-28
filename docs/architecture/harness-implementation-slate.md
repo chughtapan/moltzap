@@ -2,6 +2,11 @@
 
 Status: **historical implementation handoff; non-normative and superseded**
 
+Addressed `HarnessEndpoint`, GENESIS/POST, events-v2, and native shared sessions
+supersede this slate's START/OpenFloor/turn/bound-reply details. Use
+`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md` and current
+normative specifications.
+
 This slate preserves the pre-cutover Harness implementation archaeology. Its
 Ledger, profile, split-path, and retained-recovery directions are not current.
 Normative authority lives in the current ADRs and `docs/spec/`; current work is

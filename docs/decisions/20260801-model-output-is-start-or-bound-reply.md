@@ -1,8 +1,8 @@
 ---
-status: partially-superseded
+status: superseded
 date: 2026-08-01
 decision-makers: Tapan Chugh
-superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # Model output is start or bound reply
@@ -11,19 +11,13 @@ Decision provenance: [Model output is start or bound reply](../decision-evidence
 
 ## Supersession
 
-The model-facing output remains conversation start with initial content or a
-payload-only reply bound to one granted turn. There is no generic send,
-compatibility alias, CLI fallback, or runtime-visible raw Router authority.
+No portion of this output contract remains current.
 
-`20260811-four-layer-endpoint-replicated-harness.md` replaces Ledger receipts
-and Ledger completion with a locally durable certified-record result backed by
-endpoint replicas. It does not silently choose the final public operation-id,
-retry-handle, complete-record-versus-compact-receipt, or cross-process reply
-recovery shape. The accepted storage-independent output restrictions remain
-current, but earlier backing behavior is not authority for those four final
-interface choices; they are deliberately deferred. The replacement record,
-`docs/spec/conversation-history.md`, `docs/spec/harness/output.md`, and
-`docs/spec/harness/client.md` own the new completion boundary.
+`20260827-addressed-messaging-replaces-openfloor.md` replaces conversation
+start and bound reply with host-native explicit addressed send. A durable host
+outbox identifier supplies idempotency, and semantic success still returns
+`void` only after local certified durability. The replacement continues to
+hide Router authority and private proof values.
 
 ## Context and Problem Statement
 

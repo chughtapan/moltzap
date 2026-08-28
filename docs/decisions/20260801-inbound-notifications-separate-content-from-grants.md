@@ -1,8 +1,8 @@
 ---
-status: partially-superseded
+status: superseded
 date: 2026-08-01
 decision-makers: Tapan Chugh
-superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # Inbound notifications separate content from reply grants
@@ -11,22 +11,12 @@ Decision provenance: [Inbound content and reply authority are separate](../decis
 
 ## Supersession
 
-Committed content/history and live reply authority remain independent facts. A
-content observation may contribute context without invoking a model, one live
-authority belongs to its ConversationId, and `HarnessClient` alone projects a
-grant-bearing runtime turn and bound reply.
+No portion of the grant-bearing notification contract remains current.
 
-`20260811-four-layer-endpoint-replicated-harness.md` replaces Ledger-backed
-committed notifications, receipt recovery, and dual-backing mechanics with
-endpoint-local certified history and durability evidence. It does not silently
-select a new content-only notification method, attention policy, cursor,
-current-only versus cross-conversation turn projection, grant recovery after
-disconnect, or cross-process reply handle. The accepted grant-event family
-remains current only where explicitly retained by the ingress specification;
-the other exact interface choices are deliberately deferred. The replacement
-record, `docs/spec/conversation-history.md`, `docs/spec/harness/ingress.md`, and
-`docs/spec/harness/client.md` own the current history source and authority
-boundary.
+`20260827-addressed-messaging-replaces-openfloor.md` removes reply grants and
+turn construction. The daemon offers each committed remote-authored post as a
+durable addressed delivery. Its acknowledgment records only native host inbox
+acceptance and cannot authorize content or a response.
 
 ## Context and Problem Statement
 

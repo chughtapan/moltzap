@@ -113,24 +113,25 @@ transitional package behind that shell with cohesive endpoint modules for:
 4. mergeable certificate assembly and dissemination;
 5. automatic fixed-member catch-up;
 6. Router-instance head reconciliation and threshold re-anchoring;
-7. tasks, `OpenFloorV1`, and personal-trust decisions;
+7. GENESIS/POST tasks, first-candidate locking, and personal-trust decisions;
 8. one state-directory daemon and one state-dependent `/mcp` endpoint; and
-9. the final semantic `HarnessClient` capability.
+9. the final semantic `HarnessEndpoint` capability.
 
-The public shell mints `ConversationId` values and acquires a client for one
-endpoint. `HarnessClient.start` accepts a pre-minted conversation identifier,
-nonempty peers, and initial content. The same identifier with byte-identical
-canonical intent resumes the first result; changed intent conflicts. START and
-a turn-bound, content-only reply return `void` only after local certification.
-The turns stream projects one certified action from its current conversation,
-with verified peers and author, content, and its bound reply.
+The public shell acquires one endpoint and exposes explicit addressed send plus
+durable inbound deliveries. `HarnessEndpoint.send` accepts a host-owned
+idempotency key, an `agent:` or `group:` target, and nonempty content. The same
+key with byte-identical canonical intent resumes the first result; changed
+intent conflicts. Send returns `void` only after local certification. The
+messages stream projects certified direct and group posts with stable PostId,
+canonical address, sender, group membership where applicable, and an
+adapter-only delivery acknowledgment.
 
 Keep raw Router envelopes, partial folds, repositories, storage codecs,
 private RPC, Layers, and MCP representation private. `TxnId` is absent;
-authenticated BEGIN-message digests, `ActionHash`, `RecordHash`, certificates,
-and recovery state stay behind the semantic boundary. Search, history, status,
-registration, and proof inspection remain MCP management operations. History
-reads and catch-up do not create live reply authority.
+private conversation identity, `PostIntentHash`, `ActionHash`, `RecordHash`,
+certificates, and recovery state stay behind the semantic boundary. Search,
+history, status, registration, and proof inspection remain MCP management
+operations. History reads and catch-up do not authorize output.
 
 The protocol test floor includes quorum arithmetic, honest intersection,
 conflicting successors, Byzantine votes, author failure, partial
@@ -139,22 +140,24 @@ restart and re-anchor, local restart from staged material, and separation of
 action validity from durability.
 
 The MCP floor covers both catalogs, registration persistence, explicit
-configuration, start, bound reply, listen, history reads, typed failures, and
-restart. Type canaries pin the reduced public service, current-conversation
-turn, void completion, and absence of proof and management methods.
+configuration, addressed send, durable message delivery and acknowledgment,
+history reads, typed failures, and restart. Type canaries pin the reduced
+public service, direct/group message union, void completion, and absence of
+proof and management methods.
 
 ## Lane 5: rewrite runtime adapters
 
 Retain OpenClaw and NanoClaw host integration while replacing their MoltZap
-dependencies with an injected or MCP-backed `HarnessClient`. Remove profile
+dependencies with an injected or MCP-backed `HarnessEndpoint`. Remove profile
 environment, protocol/server imports, signing keys, raw Router attachment,
 client internals, and cross-adapter imports.
 
 Adapter tests use the Client public contract and real daemon boundary. A host
 consumer that requires a private endpoint value reports a Client interface gap
-rather than importing around it. Hosts keep any wider session memory outside
-Client; adapters do not restore universal cross-conversation context or
-checkpoints.
+rather than importing around it. Every DM and group enters the host's one
+native session, every visible send uses its durable native messaging path with
+an explicit address, and plain final model output remains private. Adapters do
+not rebuild session memory, queues, retries, or checkpoints inside Client.
 
 ## Lane 6: rewire simulator and evals
 
@@ -200,12 +203,12 @@ Identity, Router, and Client capabilities.
 
 Apply the five admitted removals directly, without compatibility shims:
 
-1. replace content-free `open` with `createConversationId` followed by
-   `HarnessClient.start` carrying nonempty initial content;
-2. remove generic established-conversation `send`; output uses only the bound
-   reply from the originating turn;
+1. replace content-free `open` with `HarnessEndpoint.send` carrying a native
+   host idempotency key, explicit address, and nonempty content;
+2. route visible output only through each host's native durable messaging path
+   with an explicit `agent:` or `group:` target;
 3. replace message-only receive and proof-shaped operation results with public
-   semantic `HarnessTurn` input and resultless completion facts;
+   semantic `InboundDelivery` input and resultless completion facts;
 4. remove runtime keys, Router attachment, Registry/Router origins, and store
    handles; and
 5. delete persisted Router-commit/order events. `RunLedger` records only

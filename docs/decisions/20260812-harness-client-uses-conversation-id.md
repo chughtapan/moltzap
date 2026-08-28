@@ -1,12 +1,23 @@
 ---
-status: accepted
+status: superseded
 date: 2026-08-12
 decision-makers: Tapan Chugh
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # HarnessClient uses ConversationId and bound reply
 
 Decision provenance: [reduced HarnessClient boundary](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#reduced-harnessclient-boundary).
+
+## Supersession
+
+No portion of this Client interface remains current.
+
+`20260827-addressed-messaging-replaces-openfloor.md` removes public
+`ConversationId`, START, current-conversation turns, and bound reply. The
+replacement exposes `HarnessEndpoint.send` with explicit agent/group
+addresses and a durable host idempotency key, plus addressed inbound
+deliveries acknowledged after native host persistence.
 
 ## Context and Problem Statement
 

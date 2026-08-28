@@ -1,12 +1,27 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-13
 decision-makers: Tapan Chugh
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # Client protocol and attention are endpoint-owned
 
 Decision provenance: [Client protocol, attention, and daemon implementation](../decision-evidence/20260813-client-protocol-and-attention-trajectory.md#stable-inner-evidence-and-deferred-cross-conversation-memory), [attention correction](../decision-evidence/20260813-client-protocol-and-attention-trajectory.md#attention-selection-and-immediate-correction), and [complete implementation instruction](../decision-evidence/20260813-client-protocol-and-attention-trajectory.md#complete-implementation-plan-and-instruction).
+
+## Supersession
+
+Client ownership of closed representation, endpoint SQLite persistence,
+registration recovery, management isolation, verified catch-up, Router
+re-anchor, and daemon configuration remains current.
+
+`20260827-addressed-messaging-replaces-openfloor.md` replaces all v1 hash
+domains and START/BEGIN/ACK/MULTICAST values, OpenFloor attention and consumed
+turns, events-v1, reply grants, `HarnessClient`, and the five Simulator cuts
+that depended on start or bound reply. The current contract is GENESIS/POST,
+events-v2 durable addressed delivery, `HarnessEndpoint`, one native host
+session, and a fresh-state format cut. The replacement ADR and current
+specifications own every replaced field and failure.
 
 ## Context and Problem Statement
 

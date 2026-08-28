@@ -277,8 +277,8 @@ exactly one AgentId. It contains:
 - MessageId; and
 - at most 262,144 opaque body bytes.
 
-ConversationId, membership, BEGIN/ACK state, action certificates, history
-hashes, and protocol meaning exist only inside the opaque body. L2 can route
+Private ConversationId, membership, GENESIS/POST state, action certificates,
+history hashes, and protocol meaning exist only inside the opaque body. L2 can route
 and deduplicate without learning them. The signature covers addressing and
 body together.
 L1 and L2 never interpret or transform the opaque contents, and Router

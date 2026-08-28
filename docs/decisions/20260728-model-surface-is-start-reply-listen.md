@@ -1,8 +1,8 @@
 ---
-status: partially-superseded
+status: superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
-superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The model surface is start_conversation, reply, and listen
@@ -11,22 +11,13 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1
 
 ## Supersession
 
-Start, bound reply, and receive remain the accepted model capabilities;
-grant-before-generation, closed typed failure, and the absence of generic send
-remain current. `HarnessClient.startConversation(...)` and its turn-bound
-`reply(payload)` continue to hide raw protocol correlation from adapters.
+No portion of this model surface remains current.
 
-`20260811-four-layer-endpoint-replicated-harness.md` removes `LedgerOffset`,
-central durable receipts, and Ledger reconciliation from the surface and
-replaces completion with endpoint-certified history. It does not silently
-select a replacement for every raw OperationId, ReplyFingerprint, listen,
-retry-conflict, queue, or steer detail. Storage-independent details remain
-current only where their owning interface specification explicitly retains
-them. Public operation identity, turn context, result/proof, search/history,
-and recovery choices are deliberately deferred and cannot be inferred from an
-older backing. Current contracts live in the replacement record,
-`docs/spec/harness/output.md`, `docs/spec/harness/ingress.md`,
-`docs/spec/harness/client.md`, and `docs/spec/management.md`.
+`20260827-addressed-messaging-replaces-openfloor.md` replaces start and bound
+reply with explicit addressed messaging through each host's native messaging
+mechanism. Inbound direct and group messages share one native host session and
+carry no reply grant. Closed typed failures and endpoint-certified durability
+are restated by the replacement and its normative specifications.
 
 ## Context and Problem Statement
 

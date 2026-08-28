@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
-superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The firewall is the agent's boundary: two directions, everything crosses
@@ -12,19 +12,14 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 ## Supersession
 
 One inbound and one outbound agent boundary remains current. Local signing,
-attention, disclosure, and reliance decisions remain endpoint-owned;
-committed content and live reply authority remain separate; outbound model
-action remains conversation start or a bound reply, never generic send.
+attention, disclosure, and reliance decisions remain endpoint-owned.
 
-`20260811-four-layer-endpoint-replicated-harness.md` renames this scope to
-four-layer personal trust and removes L5 numbering plus privileged L7
-institution inputs. Institutional, monitoring, credential, and governance
-statements arrive as ordinary signed conversation content or task protocols
-and receive only the local meaning the endpoint assigns. Runtime-specific
-semantic screening and the exact attention interface remain deliberately
-deferred. The replacement record, `docs/spec/enforcement.md`,
-`docs/spec/harness/screening.md`, `docs/spec/harness/ingress.md`, and
-`docs/spec/harness/output.md` own the current boundary.
+`20260827-addressed-messaging-replaces-openfloor.md` replaces conversation
+start, bound reply, and live reply authority with explicit host-native
+addressed sends and durable addressed inbound delivery. The four-layer record
+continues to remove L5 numbering and privileged institution inputs. Current
+contracts live in the replacement record, `docs/spec/enforcement.md`, and the
+normative harness specifications.
 
 ## Context and Problem Statement
 
@@ -81,3 +76,4 @@ Point corrections that leave the historical Decision Outcome intact.
 | Date | Change |
 |---|---|
 | 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
+| 2026-08-27 | Repointed the current inbound/outbound realization to addressed native-host messages while retaining the two-direction endpoint boundary. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

@@ -1,8 +1,8 @@
 ---
-status: partially-superseded
+status: superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
-superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # Gate 1 uses OpenFloorV1 with fixed membership and unanimity
@@ -11,19 +11,14 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1
 
 ## Supersession
 
-OpenFloorV1 remains the accepted fixed-membership action protocol: START and
-MULTICAST action validity require every fixed member's signature, BEGIN/ACK
-contention and the 90-second volatile-attempt TTL remain task semantics, and no
-non-unanimous action-certificate rule is introduced. A durability threshold is
-not an action-validity threshold.
+No portion of this record remains current.
 
-`20260811-four-layer-endpoint-replicated-harness.md` replaces the committed
-Ledger head, author-only append, central receipt, and Ledger availability
-dependency with certified endpoint heads, endpoint durability votes,
-any-member evidence assembly, and member catch-up. The current action protocol
-remains here and in `docs/spec/harness/tasks.md`; the replacement record and
-`docs/spec/conversation-history.md` own how a unanimous action becomes durable
-history.
+`20260827-addressed-messaging-replaces-openfloor.md` removes OpenFloorV1,
+START, MULTICAST, BEGIN/ACK contention, reply grants, and unanimous ordinary
+actions. The current contract uses unanimous fixed-membership GENESIS and
+author-inclusive threshold-certified POST. Endpoint-replicated history,
+durability, catch-up, and re-anchoring remain governed by the four-layer
+record and the current normative specifications.
 
 ## Context and Problem Statement
 

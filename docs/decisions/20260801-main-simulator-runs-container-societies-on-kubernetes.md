@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-08-01
 decision-makers: Tapan Chugh
-superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The main simulator runs container societies on Kubernetes
@@ -17,18 +17,13 @@ semantics, and non-conflicting public facades remain the final simulator
 preservation baseline. The simulation RunLedger is not the removed product
 Ledger and remains owned by `@moltzap/simulator`.
 
-`20260811-four-layer-endpoint-replicated-harness.md` replaces this record's
-main/v1-only scope and compatibility-facade handoff by making the preserved
-simulator and `@moltzap/evals` two of the seven final cutover packages. It does
-not silently reconcile `Endpoint.open`, generic/raw send, old Message receive
-shapes, `AgentConnection` or raw Router authority, or persisted
-Router-commit/order evidence with endpoint-certified history. Those five
-compatibility conflicts remain deliberately deferred to an explicit simulator
-interface decision. Resolution requires a narrow break/version or a sound
-explicit exemption, never an inert/lazy shim or reinterpretation under an
-existing persisted tag. The replacement record and
-`docs/spec/layer-interfaces.md` own the cutover scope and migration gate; this
-record continues to own its retained execution contract.
+`20260827-addressed-messaging-replaces-openfloor.md` retains the four-layer
+record's seven-package cutover and resolves the runtime social interface as
+explicit addressed send and addressed inbound delivery through Client. It
+continues to remove content-free open, raw Router authority, and persisted
+Router-commit/order evidence without an inert or lazy compatibility shim. The
+replacement record and `docs/spec/layer-interfaces.md` own the cutover scope;
+this record continues to own its retained execution contract.
 
 ## Scope and authority
 
@@ -316,3 +311,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-06 | Corrected the illustrative snippet from `export default` to the named `runSpec` export the controller admits. |
 | 2026-08-06 | Scoped the `autoscaling` non-goal to a run's cohort. A profile's node pool may autoscale; it was selected because it is the simpler thing to operate. |
 | 2026-08-11 | Recorded that the transitional host entry point and in-process Effect runtime are gone. Both were described in the present tense after the cutover that removed them, leaving a reader unable to tell whether either still existed. The Decision Outcome and its removal condition are unchanged. |
+| 2026-08-27 | Recorded the addressed Client and native-session adapter replacement in the visible supersession. The Kubernetes society-execution Decision Outcome is untouched. |

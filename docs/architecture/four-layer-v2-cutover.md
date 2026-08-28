@@ -2,6 +2,11 @@
 
 Status: **APPROVED EXECUTION PLAN — NON-NORMATIVE**
 
+The Client, protocol, adapter, and Simulator-interface steps are superseded by
+`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md` and current
+`docs/spec/` chapters. Do not implement START, OpenFloorV1, bound reply,
+`HarnessClient`, or per-conversation host context from this historical plan.
+
 Date: 2026-08-11
 
 Branch: `cutover/four-layer-v2`

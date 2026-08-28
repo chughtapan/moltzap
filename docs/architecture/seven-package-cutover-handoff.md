@@ -6,6 +6,12 @@ This handoff maps the current repository into the approved seven-package
 cutover. Current ADRs and specifications authorize code movement. Release
 policy remains a separate decision; this handoff does not create authority.
 
+The package graph remains useful, but its Client, OpenFloor, and adapter
+interface details are historical. Addressed `HarnessEndpoint`, GENESIS/POST,
+events-v2, and native shared sessions replace them through
+`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md` and current
+`docs/spec/` chapters.
+
 ## Target product graph
 
 The smallest dependency graph consistent with current ownership is:

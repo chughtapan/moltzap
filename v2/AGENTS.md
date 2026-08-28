@@ -76,24 +76,21 @@ not a product conversation store.
   profile selector, profile file, bespoke CLI, Unix socket, stdio server,
   second MCP process, address override, or bind fallback.
 - **Consumer-only adapters.** OpenClaw and NanoClaw use the public
-  `HarnessClient` capability or its MCP transport. They do not import Identity,
+  `HarnessEndpoint` capability or its MCP transport. They do not import Identity,
   Router, Client internals, or one another.
-- **Reduced Client boundary.** Applications mint a `ConversationId` before
-  START and use it as the only public start/retry identity. An identical start
-  intent resumes; changed peers or content conflict. `HarnessClient.start` and
-  a turn-bound, content-only `reply` return only after local certification and
-  expose no result value. Each turn projects one certified action from its
-  current conversation. Search, history, status, registration, and proof
-  inspection stay on MCP. `TxnId` does not exist; BEGIN-message digests,
-  `ActionHash`, `RecordHash`, certificates, and recovery state stay behind the
-  Client boundary.
-- **Closed Client protocol.** Client uses its admitted canonical evidence,
+- **Addressed Client boundary.** Applications send through explicit
+  `agent:<AgentName>` or canonical fixed-member `group:<members>` addresses.
+  `HarnessEndpoint.send` uses the host's durable idempotency key and returns
+  only after local certification. `HarnessEndpoint.messages` yields addressed
+  direct or group deliveries whose transport acknowledgment follows durable
+  host insertion. Search, history, status, and registration stay on MCP.
+- **Closed Client protocol.** Client privately owns deterministic conversation
+  identity, GENESIS/POST evidence, author-inclusive post thresholds,
   32-member and 32,768-byte content limits, nested `SignedMessage` transport,
-  genesis Router anchor, subscription-gated non-author contention, and
-  durable consumed-head marker. These remain private behind Client and MCP.
+  Router anchors, durability, catch-up, and pending delivery state.
 - **One simulator.** Preserve every compatible latest-`main` simulator facade
   and behavior while replacing production-stack dependencies. Remove
-  content-free open, generic send, message-only receive, runtime Router
+  content-free open, unaddressed send, message-only receive, runtime Router
   authority, and persisted Router-order claims; do not preserve them through
   inert fields, lazy compatibility behavior, or hidden raw Router access. With
   no active link fault, delivery preserves Router message bytes and recipient

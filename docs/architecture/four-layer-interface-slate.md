@@ -1,10 +1,13 @@
 # Four-layer public interface slate
 
-Status: **ACCEPTED INTERFACE ORIENTATION — NON-NORMATIVE**
+Status: **HISTORICAL INTERFACE ORIENTATION — SUPERSEDED**
 
-This slate explains the accepted reduced public interface. It does not replace
-the current ADR or normative specification, which remain the implementation
-authority.
+The Client, OpenFloor, and adapter surface below is historical. Addressed
+`HarnessEndpoint`, GENESIS/POST, events-v2, and native shared sessions replace
+it through
+`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md` and the
+current `docs/spec/` chapters. Retained four-layer package ownership remains
+orientation only.
 
 ## Design target
 

@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
-superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # Gate 1 starts with a repository-native architecture freeze
@@ -23,9 +23,8 @@ The four-layer replacement is linked to the
 The repository-native authority chain, explicit ADR lineage, stable
 `G1-DEC-NNN` identifiers, contradiction-free gate, and isolated blind-review
 requirement remain current. Identity and Router representation outcomes remain
-current only to the extent retained by
-`20260811-four-layer-endpoint-replicated-harness.md` and their own visible
-Supersession sections.
+current only to the extent retained by the four-layer and addressed-messaging
+replacement records and their own visible Supersession sections.
 
 The replacement record supersedes the eight-layer constitution, independent
 Ledger and Transcript, profile-slot daemon, six-package `v2/*` graph,
@@ -37,13 +36,14 @@ an immutable snapshot of the 2026-07-28 freeze and are not current where the
 replacement table says `replaced`, `retained with qualification`, or
 `deferred`. Unlisted rows remain governed by their later current ADR lineage.
 
-The current contract lives in `v2/VISION.md`, the replacement ADR's trace
-table, and the normative `docs/spec/` chapters it names. Publication remains
-deferred. The exact Client surface is current in
-`20260812-harness-client-uses-conversation-id.md`; the closed Client protocol,
-daemon contract, and five Simulator cuts are current in
-`20260813-client-protocol-and-attention.md`. None is inherited from this
-historical inventory.
+The current contract lives in `v2/VISION.md`,
+`20260827-addressed-messaging-replaces-openfloor.md`, its trace table, and the
+normative `docs/spec/` chapters it names. The four-layer record retains
+endpoint history, durability, catch-up, re-anchor, and package topology. The
+2026-08-13 record retains only the daemon, persistence, recovery, and
+management scope named by its current Supersession section. Publication
+remains deferred. No current Client contract is inherited from this historical
+inventory.
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
@@ -436,3 +436,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-05 | Normative owners repointed for four trace rows. G1-DEC-006 and G1-DEC-010 → `decisions` skill — Blind review gate; G1-DEC-009 → `decisions` skill — `references/provenance.md`; G1-DEC-101 → `v2/VISION.md` — The constitution. The sections moved out of `AGENTS.md` under `20260805-agent-instructions-progressive-disclosure.md`; the frozen decisions themselves are unchanged. |
 | 2026-08-11 | Recorded the four-layer replacement, its current trace-table ownership, and the historical status of affected inventory rows. The original freeze outcome and row text remain preserved; the visible Supersession section owns current applicability. |
 | 2026-08-13 | Repointed the Supersession summary from resolved Client and Simulator deferrals to their current 2026-08-12 and 2026-08-13 records. Publication remains deferred, and the historical freeze outcome is unchanged. |
+| 2026-08-27 | Repointed affected current trace dispositions to the addressed-messaging replacement. The original freeze outcome and historical row text remain untouched. |

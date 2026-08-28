@@ -2,6 +2,11 @@
 
 Status: **SUPERSESSION INVENTORY — NON-NORMATIVE**
 
+The Client-interface, OpenFloorV1, action-threshold, attention, and Simulator
+rows are superseded by
+`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md`. Current
+authority lives in that record and `docs/spec/`.
+
 This handoff identifies the authority that the approved four-layer cutover
 must replace, retain, or re-own. It is not an ADR, does not change any current
 status, and is not permission to implement against the proposed design.

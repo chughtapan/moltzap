@@ -1,8 +1,8 @@
 ---
-status: partially-superseded
+status: superseded
 date: 2026-07-26
 decision-makers: Tapan Chugh
-superseded-by: 20260801-inbound-notifications-separate-content-from-grants.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The engine dispatches to the harness after the grant
@@ -11,21 +11,13 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-Grant-before-generation, autonomous protocol mechanics, and Harness-side
-validation remain accepted. The historical public Harness/Channel port and
-plugin terminology, together with the later indivisible turn-ready vehicle,
-are replaced.
+No portion of the grant-before-generation contract remains current.
 
-`20260801-inbound-notifications-separate-content-from-grants.md` makes content
-and provider-specific reply authority independent, preserves generation only
-for a live grant, and excludes overlapping authority in one conversation.
-`20260801-harness-client-owns-runtime-context.md` assigns dispatch context and
-the bound reply closure to the adapter-facing client.
-`20260801-model-output-is-start-or-bound-reply.md` fixes the portable output
-operations as conversation start or payload-only bound reply without assigning
-new START atomicity to another backing. Current contracts live in
-`docs/spec/harness/ingress.md`, `docs/spec/harness/client.md`, and
-`docs/spec/harness/output.md`.
+`20260827-addressed-messaging-replaces-openfloor.md` removes reply grants and
+turn dispatch. Endpoints still validate and sign protocol actions
+autonomously, while every model-visible outbound post is an explicit
+host-native addressed send. Current screening and output contracts live in
+the replacement ADR and normative harness specifications.
 
 ## Context and Problem Statement
 
