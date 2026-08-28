@@ -123,20 +123,21 @@ release cutover are separately admitted.
    make an invalid action valid, and action evidence alone does not establish
    the replicated-storage guarantee.
 
-6. **Records are hash-linked and self-verifying.** A record body contains one
-   canonical action and the preceding `RecordHash`. The action-certified
-   record also carries the fixed-membership verification descriptor, current
-   Router-epoch anchor, and complete action-validity certificate. `RecordHash`
-   commits to that canonical value. It does not commit to the later mergeable
-   durability signer map. A reader can verify the resulting certified record
-   without a live Registry once the required cards and evidence are embedded.
+6. **Records are hash-linked and self-verifying.** `RecordHash` commits to one
+   canonical record core: the fixed-membership descriptor, current Router
+   anchor hash, action core, and `ActionHash`. Action signatures, re-anchor
+   votes, and durability votes remain separately retained evidence and are not
+   part of `RecordHash`. A complete certified record carries the core and the
+   required evidence, so a reader can verify it without a live Registry once
+   the required cards are embedded.
 
 7. **Honest members stage before voting.** An honest member verifies the
-   action, membership, ancestry, Router anchor, and action certificate; durably
-   stages the exact action-certified record; then signs a durability vote over
-   its `RecordHash`. It does not sign conflicting successors of the same
-   certified head. Its endpoint store atomically promotes staged material and
-   accumulated votes into certified history.
+   action, membership, ancestry, Router anchor, and action certificate;
+   durably stages the canonical record core and sufficient action evidence;
+   then signs a durability vote over its `RecordHash`. It does not sign
+   conflicting successors of the same certified head. Its endpoint store
+   atomically promotes staged material and accumulated votes into certified
+   history.
 
 8. **The durability threshold is fixed.** Let `n` be fixed conversation
    membership. For `n < 4`, every member signs. For `n >= 4`, let
@@ -153,11 +154,12 @@ release cutover are separately admitted.
    append gap.
 
 10. **Members catch up automatically.** Fixed members exchange missing
-    certified records and partial evidence as ordinary communication. Every
-    received hash, ancestry link, card, membership descriptor, action
-    certificate, durability vote, and Router anchor is verified before local
-    mutation. Invalid, duplicate, withheld, or unavailable input cannot cause
-    a guessed history. Non-member audit and disclosure remain explicit tasks.
+    complete certified records and retained evidence as ordinary
+    communication. Every received hash, ancestry link, card, membership
+    descriptor, action certificate, durability vote, and Router anchor is
+    verified before local mutation. Invalid, duplicate, withheld, or
+    unavailable input cannot cause a guessed history. Non-member audit and
+    disclosure remain explicit tasks.
 
 11. **Router restart re-anchors; it does not erase history.** Members compare
     verified ancestry, select the latest certified head, and sign a new anchor
