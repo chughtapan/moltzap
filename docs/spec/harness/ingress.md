@@ -9,10 +9,16 @@ batch.
 
 ## MCP extension
 
-The daemon advertises `xyz.moltzap/events-v2`. The sole active subscriber uses
-`subscriptions/listen` with `{"xyz.moltzap/messageReady":true}`. The daemon
-projects a certified record into the already-canonical `InboundMessage` and
-emits `notifications/xyz.moltzap/message_ready` with exactly:
+The daemon's MCP `InitializeResult.capabilities.experimental` contains the
+property `"xyz.moltzap/events-v2": {}`. The value is exactly an empty JSON
+object. Other MCP capabilities may coexist. A Client requires that exact
+property and value; a missing property, a prior extension, or a nonempty or
+nonobject value fails acquisition as `ConnectError("incompatible-daemon")`.
+
+The sole active subscriber uses `subscriptions/listen` with
+`{"xyz.moltzap/messageReady":true}`. The daemon projects a certified record
+into the already-canonical `InboundMessage` and emits
+`notifications/xyz.moltzap/message_ready` with exactly:
 
 ```ts
 interface MessageReadyEvent {
@@ -20,6 +26,14 @@ interface MessageReadyEvent {
   readonly message: InboundMessage
 }
 ```
+
+`DeliveryToken` is one JSON string matching
+`^dlv_[A-Za-z0-9_-]{43}$`. Its suffix is the canonical unpadded base64url
+encoding of exactly 32 cryptographically random bytes. The daemon mints and
+collision-checks a token once when it creates the durable pending-delivery
+row. That row retains the same token across replay and restart, and no token
+can identify two delivery rows. The token is opaque outside the local daemon
+and has no post authority.
 
 The daemon emits `notifications/subscriptions/acknowledged` before the first
 message-ready notification and echoes the accepted filter. Both notifications
@@ -45,9 +59,9 @@ catch-up creates missing pending deliveries.
 
 ## Durable acceptance
 
-The adapter-only MCP tool `acknowledge_delivery` accepts exactly one opaque
-`deliveryToken` and returns an empty structured result. The adapter calls it
-after native host durable insertion, before model execution is required.
+The adapter-only MCP tool `acknowledge_delivery` accepts exactly
+`{"deliveryToken": DeliveryToken}` and returns exactly `{}`. The adapter calls
+it after native host durable insertion, before model execution is required.
 
 Crash after native insert but before acknowledgment replays the same message.
 The host treats identical stable identity and payload as success without a

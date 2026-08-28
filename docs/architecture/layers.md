@@ -37,11 +37,10 @@ For `n < 4`, every fixed member supplies a durability vote. For `n >= 4`, with
 Assuming at most `f` Byzantine members and honest stage-before-sign, that
 evidence establishes at least `n - 2f` honest staged replicas.
 
-`RecordHash` commits to the canonical action-certified record, including the
-preceding hash, membership descriptor, Router anchor, action, and action
-certificate. It does not commit to one durability signer-map snapshot, so
-equivalent partial evidence can merge without changing the record position.
-There is no global offset.
+`RecordHash` commits to the canonical record core: membership descriptor,
+Router anchor hash, action core, and `ActionHash`. Action signatures and
+durability votes remain separately retained evidence, so valid evidence can
+merge without changing the record position. There is no global offset.
 
 ### Catch-up
 
