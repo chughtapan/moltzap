@@ -89,7 +89,7 @@ trajectory, and traceability to change atomically before code.
   responses remain deployment concerns.
 - Application processes serve ordinary HTTP on the configured bind
   address.
-- The MoltZap compatibility value is exactly `2026.729.1`.
+- The MoltZap compatibility value is exactly `2026.827.1`.
 - Agent Code Guard remains at the repository's current version during
   this implementation.
 

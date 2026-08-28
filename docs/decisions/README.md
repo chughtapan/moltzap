@@ -14,12 +14,14 @@ For Gate 1, begin with `AGENTS.md`, `v2/VISION.md`, and the focused
 current ADR outcomes—accepted records and the explicitly retained
 portions of partially-superseded records. Addressed Client work begins with
 [the current messaging decision](20260827-addressed-messaging-replaces-openfloor.md).
-Then use
-[the architecture freeze](20260728-gate-1-architecture-freeze.md).
-Its traceability inventory plus the current messaging decision's replacement
-rows form the repository-native index of frozen decisions, normative owners,
-acceptance categories, and explicit deferrals. Follow each row to its
-layer-owned normative specification.
+The stable traceability table in
+[the four-layer Harness decision](20260811-four-layer-endpoint-replicated-harness.md#gate-1-traceability-disposition)
+is the current repository-native decision manifest. It records each frozen
+decision's current disposition, normative owner, acceptance category, and
+explicit deferrals. Follow each row to its layer-owned normative
+specification. The
+[architecture freeze](20260728-gate-1-architecture-freeze.md) remains the
+historical baseline; only its explicitly retained outcome remains current.
 
 This index is reviewed Markdown rather than generated output. Each
 record's frontmatter remains authoritative for its status.

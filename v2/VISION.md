@@ -3,8 +3,11 @@
 Status: APPROVED FOR FOUR-LAYER CUTOVER
 
 Current cutover decisions:
+the current manifest and explicitly retained four-layer outcome in
 [`20260811-four-layer-endpoint-replicated-harness.md`](../docs/decisions/20260811-four-layer-endpoint-replicated-harness.md),
-[`20260812-harness-client-uses-conversation-id.md`](../docs/decisions/20260812-harness-client-uses-conversation-id.md),
+[`20260827-addressed-messaging-replaces-openfloor.md`](../docs/decisions/20260827-addressed-messaging-replaces-openfloor.md),
+the explicitly retained Client ownership, persistence, recovery, management,
+catch-up, re-anchor, and daemon-configuration scope in
 [`20260813-client-protocol-and-attention.md`](../docs/decisions/20260813-client-protocol-and-attention.md),
 and
 [`20260813-simulator-link-faults-perturb-delivery.md`](../docs/decisions/20260813-simulator-link-faults-perturb-delivery.md).
@@ -12,6 +15,7 @@ and
 Decision provenance:
 [`20260811-four-layer-v2-cutover-trajectory.md`](../docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md),
 [`20260813-client-protocol-and-attention-trajectory.md`](../docs/decision-evidence/20260813-client-protocol-and-attention-trajectory.md),
+[`20260827-addressed-messaging-trajectory.md`](../docs/decision-evidence/20260827-addressed-messaging-trajectory.md),
 and
 [`20260813-simulator-link-fault-ordering-trajectory.md`](../docs/decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md).
 

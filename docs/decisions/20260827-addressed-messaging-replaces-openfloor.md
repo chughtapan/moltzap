@@ -4,6 +4,8 @@ date: 2026-08-27
 decision-makers: Tapan Chugh
 ---
 
+{/* @bake-constants: V2_PROTOCOL_VERSION */}
+
 # Addressed messaging replaces OpenFloorV1
 
 Decision provenance: [addressed messaging, native sessions, and cutover
@@ -151,18 +153,23 @@ with changed payload fails closed. The author receives no self-notification.
 
 The cut is deliberately incompatible:
 
-- the source-owned `V2_PROTOCOL_VERSION` advances once for this hard cut;
+- the source-owned `V2_PROTOCOL_VERSION` advances to `2026.827.1` for this
+  hard cut;
 - Client hash domains become `moltzap/client/v2/*`;
 - the MCP extension becomes `xyz.moltzap/events-v2` with addressed message
   readiness and delivery acknowledgment;
 - the SQLite schema version becomes 2; and
 - old or mixed peers and stores fail with closed typed incompatibility errors.
 
-A truly empty version-0 store initializes directly at version 2. Version 2
-reopens. Nonempty version 0, version 1, and every other version are rejected
-without decoding, transformation, or erasure. There is no migration, dual
-stack, feature flag, compatibility alias, or rollback automation.
-Qualification begins from fresh endpoint and host state.
+A version-0 store initializes directly at version 2 only when
+`sqlite_schema` contains no user-created table, index, view, or trigger;
+SQLite-internal objects do not make the store nonempty. The daemon performs
+this compatibility check before enabling WAL, creating schema objects, or
+changing file permissions. Version 2 reopens. Nonempty version 0, version 1,
+and every other version are rejected without decoding, transformation, or
+erasure. There is no migration, dual stack, feature flag, compatibility
+alias, or rollback automation. Qualification begins from fresh endpoint and
+host state.
 
 ### Traceability disposition
 
@@ -200,4 +207,5 @@ part of this decision's implementation change.
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Selected the exact source-owned hard-cut protocol value and defined the observable empty-store preflight. |
 | 2026-08-27 | Replaced the duplicated partial trace overlay with the single updated stable manifest after review found repurposed row IDs and omitted replacements. The addressed-messaging Decision Outcome is unchanged. |

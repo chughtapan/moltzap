@@ -32,9 +32,11 @@ standalone testbed, privileged monitoring/institution/governance layers, and
 the trust, recovery, MCP, package, and simulator qualifiers that depended on
 them. It owns the current disposition, normative owner, and acceptance family
 for every affected `G1-DEC-NNN` identifier. Rows in the inventory below remain
-an immutable snapshot of the 2026-07-28 freeze and are not current where the
+a historical snapshot of the 2026-07-28 freeze and are not current where the
 replacement table says `replaced`, `retained with qualification`, or
-`deferred`. Unlisted rows remain governed by their later current ADR lineage.
+`deferred`. The one generated `V2_PROTOCOL_VERSION` literal is a current
+source projection rather than retained historical prose. Unlisted rows remain
+governed by their later current ADR lineage.
 
 The current contract lives in `v2/VISION.md`,
 `20260827-addressed-messaging-replaces-openfloor.md`, its trace table, and the
@@ -334,7 +336,7 @@ pin each decision:
 | G1-DEC-705 | Wire, protocol, endpoint, endpoint-core, daemon-api, CLI, harness-adapter, conformance, and any cross-layer representation module are not packages. | `docs/spec/layer-interfaces.md` — Package graph | `ARCH` |
 | G1-DEC-706 | No production package depends on simulator or testbed, and no `v2/*` package imports `packages/*`; V2 packages follow only the frozen V2 DAG. | `docs/spec/layer-interfaces.md` — Package graph; Dependency isolation | `ARCH` |
 | G1-DEC-707 | Deep packages expose domain capabilities and guarantees while hiding representation and infrastructure mechanisms, use cohesive services and root-composed Layers, and avoid shallow per-method ports or generic accessor packages. | `docs/architecture/components.md` — Deep-module design rules | `ARCH` |
-| G1-DEC-708 | `v2/VERSION`, all six package manifests, and MoltZap compatibility are exactly `2026.729.1` for this contract revision. | `docs/spec/layer-interfaces.md` — Version contract | `ARCH`, `WIRE` |
+| G1-DEC-708 | `v2/VERSION`, all six package manifests, and MoltZap compatibility are exactly `2026.827.1` for this contract revision. | `docs/spec/layer-interfaces.md` — Version contract | `ARCH`, `WIRE` |
 | G1-DEC-709 | MCP revision and simulator definition, event, and RunLedger persisted-schema versions remain independent of `v2/VERSION`. | `docs/spec/layer-interfaces.md` — Version contract | `ARCH` |
 | G1-DEC-710 | Registry and Ledger use native Effect SQL with PostgreSQL; fast tests use the same PostgreSQL client through PGlite socket. | `docs/spec/control-plane.md` — Persistence realization | `ARCH`, `L3` |
 | G1-DEC-711 | Real PostgreSQL Testcontainers are mandatory for concurrency, isolation, and atomicity properties. | `docs/spec/control-plane.md` — Persistence realization | `L3` |
@@ -436,4 +438,5 @@ the outcome is a supersession, not a row here.
 | 2026-08-05 | Normative owners repointed for four trace rows. G1-DEC-006 and G1-DEC-010 → `decisions` skill — Blind review gate; G1-DEC-009 → `decisions` skill — `references/provenance.md`; G1-DEC-101 → `v2/VISION.md` — The constitution. The sections moved out of `AGENTS.md` under `20260805-agent-instructions-progressive-disclosure.md`; the frozen decisions themselves are unchanged. |
 | 2026-08-11 | Recorded the four-layer replacement, its current trace-table ownership, and the historical status of affected inventory rows. The original freeze outcome and row text remain preserved; the visible Supersession section owns current applicability. |
 | 2026-08-13 | Repointed the Supersession summary from resolved Client and Simulator deferrals to their current 2026-08-12 and 2026-08-13 records. Publication remains deferred, and the historical freeze outcome is unchanged. |
-| 2026-08-27 | Repointed affected current trace dispositions to the addressed-messaging replacement. The original freeze outcome and historical row text remain untouched. |
+| 2026-08-27 | Repointed affected current trace dispositions to the addressed-messaging replacement. Historical row meanings remain unchanged; the generated protocol-version literal now projects the current source-owned hard-cut value. |
+| 2026-08-27 | Clarified that the generated protocol-version literal projects the current source value after the hard cut. The historical decision meanings and retained repository-native authority outcome are unchanged. |

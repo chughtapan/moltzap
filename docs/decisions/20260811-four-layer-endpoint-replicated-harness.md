@@ -5,6 +5,8 @@ decision-makers: Tapan Chugh
 superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
+{/* @bake-constants: V2_PROTOCOL_VERSION */}
+
 # Four-layer Harness uses endpoint-replicated history
 
 Decision provenance: [four-layer reduction and recursive trust](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#four-layers-and-recursive-trust-features), [direct planning selections](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#planning-ui-questions-and-selections), [v1 retirement and the adopted cutover goal](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#v1-retirement-and-the-adopted-cutover-goal), and [readability ratchet and testbed removal](../decision-evidence/20260811-four-layer-v2-cutover-trajectory.md#readability-ratchet-and-testbed-removal).
@@ -265,7 +267,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-112 | Re-owned — layer labels remain documentation notation across the final packages. | `v2/AGENTS.md` — Implementation rules | `ARCH` |
 | G1-DEC-209 | Re-owned — Registry admission remains out of band; one `/mcp` daemon replaces profile and split-path presentation. | `docs/spec/identity.md` — Registration; `docs/spec/harness/daemon.md` — Process and configuration and MCP catalog | `ID`, `MCP` |
 | G1-DEC-221 | Replaced — public START `ConversationId` and genesis `TxnId` derivations are absent; Client privately derives conversation identity from ordered members and `PostId` from author plus host idempotency key. | `docs/spec/conversation-history.md` — Closed values and hashes | `PROTO`, `WIRE` |
-| G1-DEC-223 | Retained/re-owned — Registry, Router, and Client wire values enforce the exact source-owned `V2_PROTOCOL_VERSION`, which advances once for this hard cut; events-v2 remains an independent MCP extension identifier. | `docs/spec/identity-representation.md` — HTTP request framing and ownership; `docs/spec/router-representation.md` — Authenticated request envelope; `docs/spec/conversation-history.md` — Closed values and hashes and Persistence and compatibility; `docs/spec/harness/ingress.md` — MCP extension | `WIRE` |
+| G1-DEC-223 | Retained/re-owned — Registry, Router, and Client wire values enforce the exact source-owned `V2_PROTOCOL_VERSION` `2026.827.1`; events-v2 remains an independent MCP extension identifier. | `docs/spec/identity-representation.md` — HTTP request framing and ownership; `docs/spec/router-representation.md` — Authenticated request envelope; `docs/spec/conversation-history.md` — Closed values and hashes and Persistence and compatibility; `docs/spec/harness/ingress.md` — MCP extension | `WIRE` |
 | G1-DEC-309 | Replaced — feed gaps recover through endpoint history catch-up and quorum re-anchor. | `docs/spec/router.md` — Feed gap and restart recovery; `docs/spec/conversation-history.md` — Catch-up and Router restart | `L2`, `L3` |
 | G1-DEC-310 | Retained — Router restart and cursor failures remain closed and non-disclosing. | `docs/spec/router.md` — Send and Poll / Cursor rejection | `L2`, `PROTO` |
 | G1-DEC-311 | Replaced — stable quorum re-anchor evidence binds a conversation to a Router instance. | `docs/spec/conversation-history.md` — Catch-up and Router restart | `L2`, `L3` |
@@ -432,3 +434,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-13 | Clarified the Simulator trace rows after `20260813-simulator-link-faults-perturb-delivery.md` selected private post-Router delivery perturbation for explicit fault scopes. Router's production contract and this record's four-layer Decision Outcome are unchanged. |
 | 2026-08-27 | Repointed the affected Client, protocol, attention, and adapter rows to addressed GENESIS/POST and native shared sessions. The four-layer endpoint-replicated, no-product-Ledger Decision Outcome is unchanged. |
 | 2026-08-27 | Corrected the stable manifest rows to preserve their original questions while recording every addressed-messaging replacement and exact current spec heading. The retained four-layer, endpoint-replicated, no-product-Ledger Decision Outcome is unchanged. |
+| 2026-08-27 | Recorded the source-owned hard-cut wire value in `G1-DEC-223`. The compatibility ownership and four-layer Decision Outcome are unchanged. |

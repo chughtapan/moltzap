@@ -638,7 +638,7 @@ The identity binary becomes `moltzap-registry`. The Router binary
 remains `moltzap-router`.
 
 `v2/VERSION`, all six package manifests, and `MOLTZAP_VERSION` advance
-together to `2026.729.1` in one slice. MCP and simulator
+together to `2026.827.1` in one slice. MCP and simulator
 persisted-schema versions remain independent.
 
 ## Shared implementation principles
@@ -907,7 +907,7 @@ The exact signed payload is:
 ```json
 {
   "kind": "agentCard",
-  "moltzapVersion": "2026.729.1",
+  "moltzapVersion": "2026.827.1",
   "agentId": "agt_<16-byte-base64url>",
   "principalId": "prn_<16-byte-base64url>",
   "agentName": "example-agent",
@@ -951,7 +951,7 @@ The exact signed payload is:
 ```json
 {
   "kind": "signedMessage",
-  "moltzapVersion": "2026.729.1",
+  "moltzapVersion": "2026.827.1",
   "senderAgentId": "agt_<16-byte-base64url>",
   "agentCardDigest": "acd_<sha256-base64url>",
   "recipientAgentIds": ["agt_<16-byte-base64url>"],
@@ -1668,7 +1668,7 @@ code exists in this slice.
 - Rename the package, Nx project, imports, dependency edges, and binary
   references.
 - Rename `moltzap-directory` to `moltzap-registry`.
-- Bump all v2 release identities to `2026.729.1`.
+- Bump all v2 release identities to `2026.827.1`.
 - Keep exactly six packages and preserve the frozen DAG.
 - Record every approved runtime and test dependency under the package
   that owns its use. Add its exact pin to that manifest and update the
@@ -1815,7 +1815,7 @@ Required evidence:
   package-local architecture findings become meaningful as real module
   topology arrives in Batch 2 rather than through synthetic fixtures or
   predeclared allowances in Batch 1;
-- exact six-package graph, `2026.729.1` release identity, export maps,
+- exact six-package graph, `2026.827.1` release identity, export maps,
   recorded dependency allocation, no newly preloaded mechanism
   dependency, and zero v1 imports; the unchanged repository-contract
   checker verifies these cross-package invariants but is not evidence

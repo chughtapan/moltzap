@@ -1,5 +1,7 @@
 # Addressed conversation history
 
+{/* @bake-constants: V2_PROTOCOL_VERSION */}
+
 Status: **cutover normative**
 
 This chapter defines Client-owned fixed-member conversation identity,
@@ -46,93 +48,297 @@ one private conversation identity and one group address at every member.
 There is no group name, directory, invitation, duplicate instance, add,
 remove, rename, or leave operation.
 
-## Closed values and hashes
+## Closed schema vocabulary
 
-Client values are closed Effect Schemas encoded as RFC 8785 canonical JSON.
-Every wire value carries the source-owned `V2_PROTOCOL_VERSION` and a closed
-`kind`.
-Hashes use SHA-256 over the UTF-8 label
-`moltzap/client/v2/<artifact>\0` followed by the canonical bytes. Hash text is
-unpadded canonical base64url with these prefixes:
+Every Client protocol value is decoded by a closed Effect Schema with
+`exact: true` and `onExcessProperty: "error"`. Every object below has exactly
+the listed required fields. Each carries the literal
+`moltzapVersion: "2026.827.1"` and its listed `kind`. Unions discriminate only
+on `kind`; unknown fields and kinds fail before semantic state changes.
 
-| Artifact | Prefix |
-|---|---|
-| membership | `mbr_` |
-| conversation | `cnv_` |
-| anchor body | `anc_` |
-| post | `pst_` |
-| post intent | `pit_` |
-| action | `ach_` |
-| record | `rch_` |
+`AgentId`, `AgentCard`, `MessageId`, `RouterInstanceId`, and `SignedMessage`
+use their exact owner-defined encodings. `EncodedAgentCard` and
+`EncodedSignedMessage` below mean the complete General-JWS JSON value produced
+by `Schema.encodedSchema(AgentCard)` and
+`Schema.encodedSchema(SignedMessage)`, not an in-memory view.
 
-The private conversation hash input is the ordered decoded AgentId list. It
-does not contain an address string or local perspective.
-
-An `IdempotencyKey` is 1 through 128 ASCII characters from
-`[A-Za-z0-9._:-]`. `PostId` hashes the author's decoded AgentId and that key.
-The pair `(authorAgentId, PostId)` identifies one immutable post intent.
-
-`PostIntentHash` binds:
-
-- private conversation identity and canonical membership;
-- author AgentId and `PostId`; and
-- canonical nonempty `Content`.
-
-It excludes predecessor, Router anchor, and all signer evidence. Reusing a
-`PostId` with a different bound value is `idempotency-conflict`.
-
-`ActionHash` binds the post intent to one action kind, predecessor, and current
-Router anchor. It excludes action signatures. `RecordHash` binds the canonical
-record core, including `ActionHash`; it excludes action signatures and
-durability votes. Different valid evidence subsets therefore identify the
-same action and record.
-
-## GENESIS and POST
-
-The private action union has exactly two arms:
+These nominal strings are canonical unpadded base64url encodings of exactly
+32 bytes after their four-character prefix:
 
 ```ts
+type ConversationId = `cnv_${string}`
+type MembershipHash = `mbr_${string}`
+type PostId = `pst_${string}`
+type PostIntentHash = `pit_${string}`
+type AnchorHash = `anc_${string}`
+type ActionHash = `ach_${string}`
+type RecordHash = `rch_${string}`
+```
+
+An `IdempotencyKey` is 1 through 128 ASCII characters matching
+`[A-Za-z0-9._:-]+`. `Content` is a nonempty array of the following closed
+union and its RFC 8785 encoding is at most 32,768 bytes:
+
+```ts
+type ContentPart =
+  | { readonly type: "text"; readonly text: WellFormedUnicodeString }
+  | { readonly type: "data"; readonly value: JsonValue }
+```
+
+`JsonValue` is null, boolean, a finite JSON number, a well-formed Unicode
+string, an array of `JsonValue`, or a JSON object whose string keys and values
+are well formed. The protocol decoder rejects duplicate object names, lone
+surrogates, non-JSON numbers, noncanonical bytes, and excess protocol fields.
+
+### Membership and identifiers
+
+The exact membership and identifier preimages are:
+
+```ts
+interface ConversationIdentityInput {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "conversation_identity"
+  readonly memberAgentIds: readonly [AgentId, AgentId, ...AgentId[]]
+}
+
+interface MembershipDescriptor {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "membership_descriptor"
+  readonly conversationId: ConversationId
+  readonly members: readonly [
+    EncodedAgentCard,
+    EncodedAgentCard,
+    ...EncodedAgentCard[],
+  ]
+}
+
+interface PostIdInput {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "post_id_input"
+  readonly authorAgentId: AgentId
+  readonly idempotencyKey: IdempotencyKey
+}
+```
+
+Both arrays contain 2 through 32 entries sorted by unsigned lexicographic
+comparison of the decoded 16-byte AgentIds. They contain no duplicate AgentId
+or AgentName. Every card has a valid Registry signature, and each descriptor's
+`conversationId` re-derives from its cards. A peer validates a `PostId`'s
+format and immutable author-scoped reuse. Only its author, which retains the
+private `idempotencyKey`, can re-derive it.
+
+### Post intents, anchors, and action cores
+
+```ts
+interface PostIntent {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "post_intent"
+  readonly conversationId: ConversationId
+  readonly membershipHash: MembershipHash
+  readonly authorAgentId: AgentId
+  readonly postId: PostId
+  readonly content: Content
+}
+
+interface GenesisAnchorBody {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "genesis_anchor_body"
+  readonly conversationId: ConversationId
+  readonly membershipHash: MembershipHash
+  readonly routerInstanceId: RouterInstanceId
+}
+
+interface ReanchorBody {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "reanchor_body"
+  readonly conversationId: ConversationId
+  readonly membershipHash: MembershipHash
+  readonly previousAnchorHash: AnchorHash
+  readonly selectedRecordHash: RecordHash
+  readonly routerInstanceId: RouterInstanceId
+}
+
+type AnchorBody = GenesisAnchorBody | ReanchorBody
+
 interface GenesisActionCore {
+  readonly moltzapVersion: "2026.827.1"
   readonly kind: "GENESIS"
   readonly conversationId: ConversationId
   readonly membership: MembershipDescriptor
-  readonly anchor: AnchorBody
+  readonly anchor: GenesisAnchorBody
   readonly previousRecordHash: null
   readonly postIntent: PostIntent
+  readonly postIntentHash: PostIntentHash
 }
 
 interface PostActionCore {
+  readonly moltzapVersion: "2026.827.1"
   readonly kind: "POST"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
   readonly anchorHash: AnchorHash
   readonly previousRecordHash: RecordHash
   readonly postIntent: PostIntent
+  readonly postIntentHash: PostIntentHash
+}
+
+type ActionCore = GenesisActionCore | PostActionCore
+
+interface RecordCore {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "record_core"
+  readonly membership: MembershipDescriptor
+  readonly anchorHash: AnchorHash
+  readonly action: ActionCore
+  readonly actionHash: ActionHash
 }
 ```
 
-`GENESIS` is the first addressed post. Its anchor binds the deterministic
-conversation identity, membership hash, and RouterInstanceId learned from an
-omitted-cursor poll. Every member signs its exact `ActionHash`; the complete
-unanimous action certificate establishes membership and genesis.
+`GENESIS` is the first nonempty post. Its anchor uses the
+`RouterInstanceId` from an omitted-cursor poll. `POST` extends exactly one
+certified predecessor under the current completed anchor.
 
-An ordinary `POST` extends exactly one certified predecessor. Define:
+### Canonical encoding and preimages
+
+`JCS(S, v)` means the RFC 8785 UTF-8 encoding of `v` after exact decoding by
+schema `S`. A boundary decoder parses once and requires the received bytes to
+equal `JCS(S, v)`. Hashes use:
+
+```text
+H(artifact, S, v) =
+  SHA-256(
+    UTF8("moltzap/client/v2/" + artifact + "\0") || JCS(S, v)
+  )
+```
+
+The exact derivations are:
+
+| Value | Artifact | Schema preimage | Text |
+|---|---|---|---|
+| `ConversationId` | `conversation` | `ConversationIdentityInput` | `cnv_` + digest |
+| `MembershipHash` | `membership` | `MembershipDescriptor` | `mbr_` + digest |
+| `PostId` | `post` | `PostIdInput` | `pst_` + digest |
+| `PostIntentHash` | `post-intent` | `PostIntent` | `pit_` + digest |
+| `AnchorHash` | `anchor` | `AnchorBody` | `anc_` + digest |
+| `ActionHash` | `action` | `ActionCore` | `ach_` + digest |
+| `RecordHash` | `record` | `RecordCore` | `rch_` + digest |
+
+Digest text is the unique unpadded base64url encoding. `PostIntentHash`
+excludes predecessor, anchor, and all evidence. `ActionHash` excludes action
+signatures. `RecordHash` includes `ActionHash` but excludes action signatures,
+re-anchor votes, and durability votes. Reusing `(authorAgentId, PostId)` with
+different canonical target membership or content is
+`idempotency-conflict`.
+
+## Certificates and certified records
+
+The protocol signs statements through Identity `SignedMessage`; it does not
+sign a bare hash. The exact statement and certificate schemas are:
+
+```ts
+interface ActionSignatureStatement {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "action_signature"
+  readonly signerAgentId: AgentId
+  readonly actionHash: ActionHash
+}
+
+interface DurabilityVoteStatement {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "durability_vote"
+  readonly signerAgentId: AgentId
+  readonly conversationId: ConversationId
+  readonly membershipHash: MembershipHash
+  readonly recordHash: RecordHash
+}
+
+interface ReanchorVoteStatement {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "reanchor_vote"
+  readonly signerAgentId: AgentId
+  readonly anchorHash: AnchorHash
+  readonly reanchor: ReanchorBody
+}
+
+type EvidenceMessages = readonly [
+  EncodedSignedMessage,
+  ...EncodedSignedMessage[],
+]
+
+interface ActionCertificate {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "action_certificate"
+  readonly actionHash: ActionHash
+  readonly signatures: EvidenceMessages
+}
+
+interface DurabilityCertificate {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "durability_certificate"
+  readonly recordHash: RecordHash
+  readonly votes: EvidenceMessages
+}
+
+interface ReanchorCertificate {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "reanchor_certificate"
+  readonly anchorHash: AnchorHash
+  readonly votes: EvidenceMessages
+}
+
+interface CompletedReanchor {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "completed_reanchor"
+  readonly anchorHash: AnchorHash
+  readonly reanchor: ReanchorBody
+  readonly certificate: ReanchorCertificate
+}
+
+type RouterAnchor = GenesisAnchorBody | CompletedReanchor
+
+interface ActionCertifiedRecord {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "action_certified_record"
+  readonly recordHash: RecordHash
+  readonly recordCore: RecordCore
+  readonly routerAnchor: RouterAnchor
+  readonly actionCertificate: ActionCertificate
+}
+
+interface CertifiedRecord {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "certified_record"
+  readonly actionCertifiedRecord: ActionCertifiedRecord
+  readonly durabilityCertificate: DurabilityCertificate
+}
+```
+
+`EvidenceMessages` is an array of 1 through `n` complete
+`EncodedSignedMessage` values ordered by decoded
+`statement.signerAgentId`. Each inner message has sender, sole recipient, and
+statement `signerAgentId` equal to the same fixed member. Its body is exactly
+`JCS(EvidenceStatement, statement)`. Identity's General-JWS protected header,
+payload, and Ed25519 preimage remain exactly as specified by
+`identity-representation.md`.
+
+The wire array is the canonical form of a mergeable signer map. Storage keys
+it by signer AgentId and retains the complete encoded inner message, including
+the signer AgentId and exact 64-byte Ed25519 signature. A certificate may grow
+from its threshold through all `n` members without changing `ActionHash` or
+`RecordHash`.
+
+Define:
 
 ```text
 q(n) = n                       when n < 4
 q(n) = n - floor((n - 1) / 3) when n >= 4
 ```
 
-Its action certificate contains `q(n)` unique valid fixed-member signatures
-over one `ActionHash`, including the author. N2 requires 2, N3 requires 3, N4
-requires 3, and N10 requires 7. A duplicate signer is one signer; a nonmember,
-invalid signature, missing author, wrong membership, wrong anchor, or wrong
-predecessor fails closed.
-
-Action evidence is a mergeable map ordered by decoded AgentId. Every entry
-retains the signer AgentId and exact signature bytes. A record stores one
-canonical core and verified action evidence separately. Catch-up may merge
-additional valid evidence without changing `ActionHash` or `RecordHash`.
+GENESIS action certification has exactly `n` valid member signatures. POST
+has at least `q(n)` and at most `n`, including its author. Durability and
+re-anchor certificates have at least `q(n)` and at most `n` valid member
+votes. N2=2, N3=3, N4=3, and N10=7. Numeric equality never makes the three
+statement kinds interchangeable.
 
 ## Proposal ordering and idempotency
 
@@ -183,12 +389,70 @@ invalidating an already certified record.
 
 ## Catch-up and Router restart
 
-Every fixed member automatically requests and verifies missing certified
-ancestry and partial evidence from authorized members. Catch-up is gap-free
-from null genesis or a known `RecordHash`. It verifies every embedded card,
-membership descriptor, action core, signature, anchor, durability vote, and
-hash before local mutation. Invalid, conflicting, or unavailable input blocks
-progress rather than causing a guessed history.
+Catch-up uses these exact closed values:
+
+```ts
+interface CatchUpRequest {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "catch_up_request"
+  readonly conversationId: ConversationId
+  readonly membershipHash: MembershipHash
+  readonly requesterAgentId: AgentId
+  readonly knownRecordHash: RecordHash | null
+  readonly knownAnchorHash: AnchorHash | null
+}
+
+type CatchUpItem = CertifiedRecord | CompletedReanchor
+
+interface CatchUpAttestationStatement {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "catch_up_attestation"
+  readonly signerAgentId: AgentId
+  readonly request: CatchUpRequest
+  readonly itemKind:
+    | "certified_record"
+    | "completed_reanchor"
+    | "incomplete"
+  readonly itemHash: RecordHash | AnchorHash | null
+  readonly hasMore: boolean
+}
+
+interface CatchUpPage {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "catch_up_page"
+  readonly request: CatchUpRequest
+  readonly item: CatchUpItem
+  readonly hasMore: boolean
+  readonly attestation: EncodedSignedMessage
+}
+
+interface CatchUpIncomplete {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "catch_up_incomplete"
+  readonly request: CatchUpRequest
+  readonly attestation: EncodedSignedMessage
+}
+```
+
+The two known hashes are both null or both non-null. A null request starts at
+GENESIS. One page contains exactly one next item. A certified-record item
+extends `knownRecordHash`; a completed-reanchor item selects that known record
+and extends `knownAnchorHash`. The requester advances both hashes after a
+record, advances only the anchor hash after a re-anchor, and continues until a
+terminal `CatchUpIncomplete` at the advanced position. `hasMore` is a signed
+progress hint only; it is never a safety or completeness input.
+
+The attestation is a stable inner evidence message whose statement binds the
+byte-identical request, item kind, item hash, and `hasMore`. For
+`CatchUpIncomplete`, those last three values are respectively `incomplete`,
+null, and false. Its signer and the response's outer sender are the same fixed
+member. An incomplete response says only that this responder cannot supply a
+verified next item.
+
+Catch-up pages carry complete `CertifiedRecord` or `CompletedReanchor` values,
+including their retained certificates. There is no partial-evidence cursor or
+separate partial-evidence replay path. All received material is verified
+before mutation.
 
 A new RouterInstanceId does not rewrite history. Members compare verified
 ancestry, select the unique latest certified head, and use the existing
@@ -196,6 +460,112 @@ re-anchor statement and `q(n)` threshold. An honest member stages and signs at
 most one candidate for one conversation, preceding anchor, and Router
 instance. New actions bind the durable new anchor. Catch-up and re-anchor do
 not create runtime messages by themselves.
+
+## Direct packets and Router envelopes
+
+The exact direct packet union is:
+
+```ts
+interface ActionProposal {
+  readonly moltzapVersion: "2026.827.1"
+  readonly kind: "action_proposal"
+  readonly action: ActionCore
+  readonly authorSignature: EncodedSignedMessage
+}
+
+type EvidenceStatement =
+  | ActionSignatureStatement
+  | DurabilityVoteStatement
+  | ReanchorVoteStatement
+  | CatchUpAttestationStatement
+
+type DirectPacket =
+  | ActionProposal
+  | ActionCertifiedRecord
+  | CertifiedRecord
+  | CompletedReanchor
+  | CatchUpRequest
+  | CatchUpPage
+  | CatchUpIncomplete
+```
+
+An outer Identity `SignedMessage` body is exactly one of:
+
+1. `JCS(DirectPacket, packet)`; or
+2. `JCS(EncodedSignedMessage, stableInnerEvidence)`.
+
+The two closed representations are disjoint. Client first decodes
+`DirectPacket`; if that exact decode fails, it decodes one encoded
+`SignedMessage`; if both fail, it rejects the body. An action proposal's
+`authorSignature` is the stable inner action-signature evidence for the
+proposal's `ActionHash`. Its signer and the proposal's outer sender both equal
+the post author. Any fixed member may assemble and send the other direct
+packets. Every outer message's recipients are the complete fixed-member
+AgentIds sorted by decoded bytes, including its sender. The Router sees only
+that outer Identity value.
+
+For an evidence statement `s`, its stable inner `MessageId` is:
+
+```text
+msg_ + base64url(first-16-bytes(SHA-256(
+  UTF8("moltzap/client/v2/evidence-message-id\0") ||
+  decodedAgentIdBytes(s.signerAgentId) ||
+  JCS(EvidenceStatement, s)
+)))
+```
+
+The inner sender, sole recipient, and statement signer are the same AgentId.
+The complete encoded inner SignedMessage remains byte-identical across every
+relay and Router retry.
+
+An outer send follows the Router representation contract exactly:
+
+1. Client creates a fresh random 16-byte outer `MessageId`, signs the exact
+   body for all members, and durably stores the complete SignedMessage.
+2. The first attempt uses `mode: "initial"` and the polled
+   `expectedRouterInstanceId`.
+3. An unknown transport outcome retries the same stored bytes and MessageId
+   with `mode: "retry"`. An `accepted` result is valid only when its digest
+   matches those exact bytes.
+4. `retry_identity_unknown` replaces only the outer MessageId and outer
+   signature, durably stores that replacement, and sends the byte-identical
+   body with `mode: "initial"`.
+5. `router_restarted` stops sending, obtains the new omitted-cursor anchor,
+   and completes catch-up and re-anchor before reevaluating queued packets.
+   It never rewrites a stable inner evidence message.
+
+Duplicate outer delivery is harmless because direct values use their hashes
+and requests, while evidence uses its deterministic inner MessageId. A Router
+idempotency conflict, mismatched digest, invalid message, mixed version, or
+semantic body collision fails closed.
+
+## Cross-field validation
+
+Before signing, voting, staging, or merging, an endpoint verifies all of the
+following applicable bindings:
+
+- every card signature, distinct AgentId and AgentName, canonical member
+  order, `ConversationId`, and `MembershipHash` recompute;
+- author and signer are fixed members, each post intent matches its enclosing
+  conversation and membership, and `PostIntentHash` recomputes;
+- GENESIS embeds the record membership and genesis anchor, uses a null
+  predecessor, and is the first record; POST uses the record membership hash,
+  current `anchorHash`, and exact certified head;
+- `ActionHash`, `AnchorHash`, and `RecordHash` recompute from their exact cores;
+- `RouterAnchor` is either the byte-identical genesis anchor or a completed
+  re-anchor whose body hashes to the record core's `anchorHash`;
+- every evidence message has the deterministic inner MessageId, verified JWS,
+  matching self recipient and signer, the required statement kind, canonical
+  signer order, no duplicate signer, and the certificate's target hash;
+- GENESIS has all members, POST meets `q(n)` and includes its author, and
+  durability and re-anchor certificates independently meet `q(n)`;
+- the predecessor-scoped proposal lock is absent or already names this
+  `ActionHash`; and
+- catch-up position, item hash, response sender, attestation, and `hasMore`
+  match the rules above.
+
+A failure rejects the complete containing value before any proposal lock,
+history, vote, pending delivery, or acknowledgment mutation.
 
 ## Durable host delivery
 
@@ -227,15 +597,18 @@ is a typed collision. Model execution success is not part of acknowledgment.
 
 ## Persistence and compatibility
 
-The endpoint SQLite store uses WAL and `user_version=2`. A truly empty
-version-0 database initializes directly to version 2. Exactly version 2
-reopens. A nonempty version-0 database, version 1, and every other version fail
-with `EndpointStoreError("incompatible")`. Client does not decode, transform,
-erase, or migrate old state.
+Before enabling WAL, creating schema objects, or changing file permissions,
+Client reads the SQLite preflight state. A database is empty version 0 exactly
+when `PRAGMA user_version` is `0` and `sqlite_schema` contains no user-created
+table, index, view, or trigger. SQLite-internal objects are ignored. Only that
+state initializes the endpoint store, enables WAL, and sets `user_version=2`.
+Exactly version 2 reopens. A nonempty version 0, version 1, and every other
+version fail with `EndpointStoreError("incompatible")` without mutation.
+Client does not decode, transform, erase, or migrate old state.
 
-Client wire peers must carry the once-advanced `V2_PROTOCOL_VERSION`. Mixed
-versions fail with the existing typed version mismatch before semantic state
-changes.
+The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
+`2026.827.1`. Client wire peers must carry that exact literal. Mixed versions
+fail with the existing typed version mismatch before semantic state changes.
 The external MCP protocol revision is unchanged; its Client extension is
 events-v2.
 

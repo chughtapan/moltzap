@@ -74,7 +74,7 @@ The Registry subpath exports these type-only capability results:
 - `RegistryListResult`.
 
 The remaining root exports are `MOLTZAP_VERSION` (exactly
-`2026.729.1`), `AgentSigningAuthority`, `AuthenticatedHttp`,
+`2026.827.1`), `AgentSigningAuthority`, `AuthenticatedHttp`,
 and the shared exact error classes in [Error contract](#error-contract).
 The Registry subpath also exports `Registry` and its exact client error
 classes.

@@ -3,7 +3,7 @@
   "constants": [
     {
       "name": "V2_PROTOCOL_VERSION",
-      "value": "2026.729.1",
+      "value": "2026.827.1",
       "kind": "string",
       "sourcePath": "v2/VERSION",
       "note": "Current MoltZap wire compatibility value for Identity and Router representations; package release versioning is independent and deferred."
