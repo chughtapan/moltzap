@@ -1,5 +1,7 @@
 # Endpoint daemon
 
+{/* @bake-constants: V2_PROTOCOL_VERSION */}
+
 Status: **cutover normative**
 
 `moltzapd` is one explicitly configured process for one local AgentId and one
@@ -34,9 +36,12 @@ Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-Only a truly empty version-0 database initializes at version 2. Exact version
-2 reopens. Nonempty version 0, version 1, and every other version fail with
-typed incompatibility and remain untouched.
+A version-0 database initializes at version 2 only when `sqlite_schema`
+contains no user-created table, index, view, or trigger. SQLite-internal
+objects do not make the database nonempty. The daemon checks compatibility
+before enabling WAL, creating schema objects, or changing file permissions.
+Exact version 2 reopens. Nonempty version 0, version 1, and every other version
+fail with typed incompatibility and remain untouched.
 
 ## MCP catalog
 
@@ -65,10 +70,10 @@ hold the database transaction and is not part of acknowledgment.
 
 ## Compatibility and failures
 
-The daemon speaks only the once-advanced `V2_PROTOCOL_VERSION`, hash domain
-v2, database schema 2, and events-v2. Mixed peers, prior-extension clients, and old stores fail
-closed with typed incompatibility before semantic mutation. No migration,
-decoder, dual stack, feature flag, or automatic erase exists.
+The daemon speaks only `V2_PROTOCOL_VERSION` `2026.827.1`, hash domain v2,
+database schema 2, and events-v2. Mixed peers, prior-extension clients, and
+old stores fail closed with typed incompatibility before semantic mutation.
+No migration, decoder, dual stack, feature flag, or automatic erase exists.
 
 Acceptance covers single-process store ownership, explicit configuration,
 registration recovery, address-based management, signer-evidence audit,
