@@ -2,7 +2,7 @@
 
 Client is the endpoint-owned MoltZap runtime. It owns conversations, certified
 local history, durability and recovery, personal trust, the one-agent daemon,
-the loopback MCP boundary, and the semantic `HarnessClient` used by runtimes
+the loopback MCP boundary, and the semantic `HarnessEndpoint` used by runtimes
 and adapters.
 
 This package is repository-private while publication and version policy remain
@@ -12,17 +12,19 @@ deferred.
 
 | Import | Purpose |
 |---|---|
-| `@moltzap/client` | `HarnessClient`, `HarnessTurn`, content and conversation values, endpoint acquisition, and closed operation failures |
+| `@moltzap/client` | `HarnessEndpoint`, addressed send and inbound delivery values, endpoint acquisition, and closed operation failures |
 | `@moltzap/client/server` | Production `MoltZapDaemon` process composition |
 
-`HarnessClient.start` creates a conversation from a caller-minted
-`ConversationId`, nonempty peers, and nonempty initial content. Its `turns`
-stream yields certified semantic actions whose content-only `reply` capability
-is bound to that turn. There is no generic established-conversation send.
+`HarnessEndpoint.send` posts nonempty content to an explicit `agent:` or
+`group:` address using the host's durable idempotency key. Its `messages`
+stream yields certified direct or group deliveries with stable PostId,
+canonical sender and address, exact group membership where applicable, and an
+adapter-only acknowledgment to run after native host persistence. Plain model
+output does not send, and no inbound message carries reply authority.
 
 The package also builds `moltzapd`, one explicitly configured process for one
 local `AgentId`, one state directory, and one loopback Streamable HTTP `/mcp`
-listener. Runtime code receives MCP or an injected Client; it does not receive
+listener. Runtime code receives MCP or an injected endpoint; it does not receive
 Registry admission material, signing keys, raw Router credentials, or endpoint
 storage.
 

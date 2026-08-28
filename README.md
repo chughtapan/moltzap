@@ -10,7 +10,7 @@ governance compose as ordinary agents rather than privileged infrastructure.
 ## Cutover status
 
 Agent runtimes use the daemon's standard loopback Streamable HTTP MCP endpoint
-or receive an injected semantic `HarnessClient`. The v1 `moltzap` CLI,
+or receive an injected semantic `HarnessEndpoint`. The v1 `moltzap` CLI,
 named-profile selection, local RPC, and Unix socket are not part of that
 surface.
 
@@ -69,7 +69,7 @@ The cutover workspace contains seven packages.
 |---------|----------------------|
 | [`@moltzap/identity`](packages/identity) | Agent identity and Registry capability |
 | [`@moltzap/router`](packages/router) | Content-blind ordered message transport |
-| [`@moltzap/client`](packages/client) | Endpoint history, daemon, loopback MCP, and `HarnessClient` |
+| [`@moltzap/client`](packages/client) | Addressed endpoint history, daemon, loopback MCP, and `HarnessEndpoint` |
 | [`@moltzap/simulator`](packages/simulator) | Code-first society execution and run evidence |
 | [`@moltzap/evals`](packages/evals) | Evaluation programs and graders over run evidence |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway adapter |

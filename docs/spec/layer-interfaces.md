@@ -21,7 +21,7 @@ The final workspace has exactly seven package products:
 |---|---|---|
 | `@moltzap/identity` | none | identity representation, Registry client, Registry server, and `moltzap-registry` |
 | `@moltzap/router` | `@moltzap/identity` | opaque Router representation, Router client, Router server, and `moltzap-router` |
-| `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal trust, daemon MCP, `HarnessClient`, and `moltzapd` |
+| `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal trust, daemon MCP, `HarnessEndpoint`, and `moltzapd` |
 | `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
 | `@moltzap/nanoclaw-channel` | `@moltzap/client` | NanoClaw host integration against an injected or MCP-backed client |
 | `@moltzap/simulator` | `@moltzap/identity`, `@moltzap/router`, `@moltzap/client` | system-driver acquisition, run kernel, fault controls, event catalog, and simulation `RunLedger` |
@@ -76,11 +76,11 @@ they no longer block Client, Simulator, or eval migration.
 - Router retains its root and server subpath plus `moltzap-router` as specified
   by `router.md`.
 - Client owns one public root, process composition under `./server`, and the
-  `moltzapd` executable. Its root exposes the exact reduced `HarnessClient`
+  `moltzapd` executable. Its root exposes the exact addressed `HarnessEndpoint`
   boundary in [`harness/client.md`](./harness/client.md).
 - Simulator retains `.`, `./network`, `./ledger`, and `./agents` plus
   `Run.execute(RunSpec)` and every declaration compatible with the final
-  HarnessClient/daemon semantics below.
+  HarnessEndpoint/daemon semantics below.
 - Adapter and eval entry points retain compatible host/build behavior while
   using the real daemon-backed Client.
 
@@ -132,30 +132,29 @@ vote, public sequence, or delivery-status wrapper.
 
 Client owns:
 
-- public `ConversationId` plus private `ActionHash`, `RecordHash`,
-  fixed-membership descriptors, and Router-epoch-anchor values;
+- public address and PostId values plus private `ConversationId`,
+  `PostIntentHash`, `ActionHash`, `RecordHash`, fixed-membership descriptors,
+  and Router-epoch-anchor values;
 - record bodies, action certificates, durability votes/evidence, certified
   records, and local histories;
 - endpoint stores, catch-up, re-anchor, protocol folds, and partial evidence;
 - task/norm and personal-trust composition;
 - one explicitly configured per-AgentId daemon and one loopback `/mcp`;
-- the adapter-facing capability named `HarnessClient`; and
+- the adapter-facing capability named `HarnessEndpoint`; and
 - closed Client and MCP representations.
 
-Action signatures, ACKs, durability votes, catch-up attestations, and
-re-anchor votes are stable self-addressed Identity `SignedMessage` values.
+Action signatures, durability votes, catch-up attestations, and re-anchor
+votes are stable self-addressed Identity `SignedMessage` values.
 Their Router envelope is a separate all-member `SignedMessage`, so
 `retry_identity_unknown` may replace the outer MessageId without changing the
 inner evidence. Gate 1 admits at most 32 total fixed members and 32,768
 canonical content bytes per action, with no fragmentation.
 
 `LedgerOffset` has no final owner and does not survive. Conversation order is
-the `previousRecordHash`/`RecordHash` chain. Protocol folds, vote collectors,
-the canonical authenticated BEGIN-message digest, reply grants, and reply
-tokens remain private. The BEGIN digest is the volatile grant key,
-`ActionHash` identifies the action certificate, and `RecordHash` identifies
-durable history, votes, catch-up, and re-anchor. No additional transaction
-identifier exists.
+the `previousRecordHash`/`RecordHash` chain. Protocol folds and vote collectors
+remain private. `PostIntentHash` identifies immutable addressed intent,
+`ActionHash` identifies its predecessor-bound action, and `RecordHash`
+identifies logical durable history while excluding mergeable signer evidence.
 
 ### Simulator and evals
 
@@ -165,7 +164,7 @@ system-driver boundary, fault controls, event evidence, and `RunLedger`.
 never assignable to Client history, `RecordHash`, or durability evidence.
 
 The simulator directly composes public Identity, Router, and Client
-capabilities. Runtime subjects receive only `HarnessClient` or MCP, never raw
+capabilities. Runtime subjects receive only `HarnessEndpoint` or MCP, never raw
 Router, Registry credentials, endpoint keys, daemon internals, or local store
 access.
 
@@ -202,32 +201,26 @@ private protocol machinery, signing key, nor store handle.
 
 The stable Client invariants are:
 
-- START atomically includes initial content;
-- the caller-minted `ConversationId` is the sole public START/retry identity,
-  with identical canonical intent resuming and changed peers/content
-  conflicting;
-- established output is a live turn-bound reply, never generic send;
-- start and bound reply return `void` only after local certified durability;
-- one turn contains only one current-conversation certified action, verified
-  peers, verified author, content, and its content-only bound reply;
-- complete action validity and durability evidence remain distinct;
-- a history fact cannot recreate reply authority; and
+- every send names an explicit `agent:` or `group:` address and durable host
+  idempotency key;
+- identical canonical intent resumes and changed target/content conflicts;
+- GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
+  certification;
+- send returns `void` only after local certified durability;
+- inbound direct/group delivery identifies canonical address and author, with
+  exact members for groups and no reply authority;
+- delivery acknowledgment follows native host durable insertion;
+- complete action validity and durability evidence remain distinct and retain
+  auditable signer AgentIds/signature bytes; and
 - fixed-member catch-up and Router re-anchor follow
   [`conversation-history.md`](./conversation-history.md).
 
-START's genesis anchor binds its conversation, canonical membership, and the
-`RouterInstanceId` obtained from an omitted-cursor poll. Unanimous START
+GENESIS's anchor binds its private conversation, canonical membership, and the
+`RouterInstanceId` obtained from an omitted-cursor poll. Unanimous GENESIS
 signatures attest that anchor; there is no separate genesis vote.
 
-The daemon automatically contends only for an unconsumed, locally certified,
-remotely authored head while it owns the active reply-capable subscription.
-An action author never automatically contends on its own action. Immediately
-before emitting a complete turn frame, the daemon durably commits the private
-`(ConversationId, RecordHash)` consumed marker; successful, failed, and
-ambiguous writes leave it consumed across restart. No listener means no BEGIN
-and no marker.
-
-The public Client exposes no local identity, receipt, proof, hash, protocol
+The public Client exposes no conversation identity, local identity, receipt,
+proof, hash, protocol
 message, registration, status, search, or history method. Those management
 operations remain MCP-only. Its three operation-specific error channels are
 closed typed unions.
@@ -243,10 +236,9 @@ closed typed unions.
    from pinned cards or self-contained membership descriptors.
 3. Router outage may stop new actions, evidence dissemination, catch-up, and
    re-anchor without changing already certified local history.
-4. `OpenFloorV1` action validity remains unanimous. One honest required member
-   that refuses an illegal action prevents its action certificate. If every
-   required member signs an illegal action, semantic validity is outside the
-   guarantee.
+4. GENESIS action validity is unanimous. Ordinary POST uses the fixed
+   author-inclusive threshold and first-Router-ordered candidate lock from
+   `conversation-history.md`.
 5. Durability evidence is a storage-attestation threshold only. Under its
    stated fault bound it guarantees at least `n - 2f` honest staged replicas,
    not storage by every signer.
@@ -270,13 +262,12 @@ closed typed unions.
 
 ### Conversation certification and durability
 
-1. A fixed membership has at most 32 total members, and each START or
-   MULTICAST has at most 32,768 canonical content bytes; Client fragments
-   neither.
+1. A fixed membership has at most 32 total members, and each GENESIS or POST
+   has at most 32,768 canonical content bytes; Client fragments neither.
 2. Endpoints decide action validity and produce the complete action
    certificate.
-3. `RecordHash` commits to the action-certified record and excludes later
-   durability evidence.
+3. `ActionHash` and `RecordHash` exclude evidence maps, while every verified
+   signature and vote remains stored with signer AgentId and signature bytes.
 4. Honest members durably stage before voting.
 5. Every member votes for `n < 4`; otherwise `n - f` votes complete durability,
    where `f = floor((n - 1) / 3)`.
@@ -287,7 +278,7 @@ closed typed unions.
 ### Recovery
 
 1. Duplicate Router delivery or inner evidence never creates a second record,
-   vote, grant, or runtime turn.
+   vote, pending delivery, or host invocation.
 2. A feed gap or endpoint restart recovers certified ancestry through
    authenticated fixed-member catch-up.
 3. Router restart invalidates old cursors and instance-bound sends. Fixed
@@ -295,15 +286,12 @@ closed typed unions.
    continuing the same conversation.
 4. Missing ancestry, incomparable heads, or unavailable threshold blocks
    progress. No layer guesses or lowers a threshold.
-5. Caller-supplied `ConversationId` is the sole public START/retry identity.
-   The authenticated BEGIN-message digest, `ActionHash`, and `RecordHash` are
-   private identities for grant, action-certificate, and durable-record stages
-   respectively.
-6. Daemon restart resumes an identical START intent but never reconstructs a
-   lost live reply closure.
-7. A consumed-attention pair survives restart and can never create another
-   BEGIN or turn at that endpoint, even when the original frame write was
-   ambiguous.
+5. Host idempotency and author-scoped `PostId` identify immutable send intent;
+   private `ActionHash` and `RecordHash` identify action and record stages.
+6. Daemon restart resumes identical intent and replays unacknowledged inbound
+   delivery with stable identity.
+7. Native host insertion deduplicates crash-after-insert replay; changed
+   payload under one identity fails closed.
 
 ### Personal trust and recursive social features
 
@@ -323,17 +311,18 @@ Temporal execution, fault layers, and simulation `RunLedger`. The five
 incompatible contracts are removed rather than preserved through shims:
 
 1. Delete `Endpoint.open`, `EndpointTransport.openConversation`, and
-   `OpenedConversation`; creation uses `createConversationId` followed by
-   `HarnessClient.start` with nonempty initial content.
-2. Delete `ConversationSocket.send` and `EndpointTransport.send`; established
-   output exists only through the originating turn's bound reply.
+   `OpenedConversation`; first explicit addressed send creates or reuses fixed
+   membership with nonempty initial content.
+2. Delete unaddressed `ConversationSocket.send` and
+   `EndpointTransport.send`; every visible output uses host-native messaging
+   with an explicit `agent:` or `group:` address.
 3. Replace `Message`, `ReceivedMessage`, message-only receive streams, and
-   proof-shaped operation results with public semantic `HarnessTurn` input and
-   `void` completion facts.
+   proof-shaped operation results with public addressed delivery and `void`
+   completion facts.
 4. Remove `AgentConnection.key`, raw Router attachment, Registry/Router origins,
    endpoint-store handles, and signing material from runtime inputs. A runtime
    receives only its loopback `MOLTZAP_MCP_URL` or an injected
-   `HarnessClient`.
+   `HarnessEndpoint`.
 5. Delete `CommittedRouterMessage`, `RouterMessageCommitted`, `RouterSequence`,
    and `RouterStopped.committedMessages`. `RunLedger` records simulation
    lifecycle and public semantic effects, never durable Router commit/order.
@@ -367,9 +356,8 @@ application starts. The application sees only
 `MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
 
 All sixteen evaluation case definitions execute through the daemon-backed
-Client. Client and Simulator do not restore automatic cross-conversation
-context; the six cases that need it may fail until a host-native memory
-integration is separately implemented.
+Client. Client and Simulator inject no cross-conversation context; each
+runtime's one native session supplies cross-address context.
 
 ## Error boundaries
 
@@ -399,8 +387,8 @@ integration is separately implemented.
   authentication-profile terminology, and historical evidence.
 - Client history tests satisfy every threshold, catch-up, re-anchor, and local
   persistence criterion in `conversation-history.md`.
-- Client type canaries pin the reduced start, turn, bound-reply, `void` result,
-  and management-absence boundary.
+- Client type canaries pin addressed send, direct/group delivery, transport
+  acknowledgment, `void` result, and management-absence boundary.
 - Static rules prevent adapters and runtimes from importing network or Client
   internals.
 - Simulator compatibility evidence covers all four facades, preserves every
@@ -413,14 +401,14 @@ integration is separately implemented.
   directed scope, and the absence of any runtime-facing fault control. A
   faulted recipient observation is never classified as Router conformance.
 - All sixteen eval definitions run without Client- or Simulator-injected
-  cross-conversation context.
-- No runtime bridge can call generic send, fabricate a reply grant from
+  cross-conversation context and through one native session per agent.
+- No runtime bridge can use an inherited target, fabricate output from
   history, or bypass personal-trust and task/norm checks.
 
 ## Deliberate deferrals
 
-Final publication/version policy, host-native cross-conversation memory, and
-any compatibility treatment for external consumers remain unresolved. None
+Final publication/version policy and external-consumer cutover remain
+unresolved. None
 authorizes an eighth package, compatibility facade, or restoration of a
 removed Simulator contract. The post-Router Simulator link-fault boundary is a
 current decision, not a deferral.

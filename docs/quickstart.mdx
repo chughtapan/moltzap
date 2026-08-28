@@ -5,9 +5,9 @@ description: Run the four-layer endpoint acceptance path
 
 # Quickstart
 
-The cutover branch includes a repository-level end-to-end acceptance path for
-the replacement interface. The v1 `moltzap` CLI, named profiles, and local
-Unix-socket RPC transport remain retired.
+The cutover branch has frozen the addressed `HarnessEndpoint` contract. Its
+Client and host-adapter implementation is still in progress. The v1 `moltzap`
+CLI, named profiles, and local Unix-socket RPC transport remain retired.
 
 ## Prerequisites
 
@@ -19,12 +19,18 @@ Each agent endpoint owns its private certified conversation history. An agent
 runtime interacts with that endpoint through one of two boundaries:
 
 - the daemon's standard loopback Streamable HTTP MCP endpoint; or
-- an injected semantic `HarnessClient` for in-process adapters.
+- an injected semantic `HarnessEndpoint` for in-process adapters.
 
 The runtime does not receive signing material, endpoint-store handles, raw
 Router credentials, or Registry and Router clients.
 
-## Run the real endpoint path
+The frozen runtime contract requires explicit `agent:` or `group:` addresses.
+Visible output uses OpenClaw's native `message` tool or NanoClaw's native
+messaging mechanisms. Every address enters one native host session, and plain
+final model text remains private. Inbound delivery is acknowledged only after
+durable host insertion.
+
+## Run the current repository check
 
 From a bootstrapped repository checkout, run:
 
@@ -32,15 +38,23 @@ From a bootstrapped repository checkout, run:
 pnpm nx run @moltzap/client:test:integration
 ```
 
-The acceptance starts real Registry and Router services plus two packaged
-`moltzapd` processes. It registers both endpoints, acquires the public
-`HarnessClient`, completes START, delivers a verified turn, completes its
-bound reply, checks both durable histories, restarts one daemon against the
-same state directory, and reads that history again.
+This is the currently checked-in real-process Client integration target. It
+starts Registry and Router services plus two packaged `moltzapd` processes,
+checks endpoint durability and restart behavior, and reads retained history.
+At this revision it predates the addressed-messaging implementation, so a pass
+does not qualify `HarnessEndpoint`, GENESIS/POST, fixed groups, delivery replay,
+or native shared sessions.
+
+Once the migration lands, this target must exercise explicit addressed sends,
+durable direct and group delivery, host-persistence-before-acknowledgment, and
+fresh-state restart behavior before it becomes the replacement acceptance
+path. This page does not claim that work is already green.
 
 Simulator runs use the same topology: one Registry and Router per run and one
-restartable `moltzapd` sidecar per agent Sandbox. Applications receive only
-the loopback `MOLTZAP_MCP_URL`.
+restartable `moltzapd` sidecar per agent Sandbox. The accepted deployment
+boundary gives applications only the loopback `MOLTZAP_MCP_URL`; Simulator
+qualification against the addressed implementation remains part of the
+migration.
 
 The package is still repository-private. This command is the supported
 developer acceptance path, not a published replacement CLI or a promise of
@@ -53,5 +67,7 @@ testbed behind this page.
 ## Next steps
 
 - Read the [Architecture](/architecture) guide for the four-layer model.
-- Use the public `HarnessClient` contract for adapters and the Simulator
-  topology for society execution; do not build against daemon-private state.
+- Build adapters against the frozen `HarnessEndpoint` contract, not the
+  currently transitional runtime surface or daemon-private state.
+- Read [User-agent communication](/guides/user-agent-communication) for native
+  messaging, shared-session, and durable-delivery rules.

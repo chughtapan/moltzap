@@ -57,6 +57,9 @@ attribution, privacy, and correction rules.
 
 ## Source handoffs
 
+- `agentcoordbench-messaging-calendar-handoff-20260827.md` — non-normative
+  downstream instructions for a later distinct addressed-messaging/shared-
+  calendar condition. Its artifact pins remain unset until qualification.
 - `simulator-handoff-20260728.md` — the blocking provenance manifest for
   the v2 simulator port. It remains `pending` and its landed SHA remains
   unset until the source rewrite is fully tracked, rebased, reviewed,

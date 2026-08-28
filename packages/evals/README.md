@@ -6,10 +6,11 @@ cases across direct, group, cross-conversation, privacy, negotiation, context,
 identity, and principal-awareness behavior.
 
 Case-owned social peers are ordinary Simulator agents. Their active policies use
-only the public `HarnessClient`: `start` creates a conversation, `turns` observes
-certified remote actions, and the turn's bound `reply` continues that exact
-conversation. Evals does not inject protocol context, construct raw Router
-traffic, or reach into Client, Router, protocol, or Simulator internals.
+only the public `HarnessEndpoint`: `send` posts to an explicit `agent:` or
+`group:` address, and `messages` observes and acknowledges certified remote
+posts after local policy records them. Evals does not inject protocol context,
+construct raw Router traffic, or reach into Client, Router, protocol, or
+Simulator internals.
 
 Each OpenClaw or NanoClaw matrix cell constructs a `RunSpec`, submits it through
 the repository's local or GKE Simulator profile, validates completed ledger
@@ -41,12 +42,13 @@ cases by two runtime conditions with one sample per cell.
 The six cross-conversation cases are `EVAL-008` and `EVAL-030` through
 `EVAL-034`. They execute as real social scenarios: the target is instructed to
 create separate conversations, and autonomous source and probe peers react only
-to public `HarnessTurn` values. This makes the behavior measurable; it does not
-claim that a target will successfully retain, isolate, or disclose the right
-information. A peer observation can retain a missing required turn as bounded
-timeout evidence, and an observed but unsafe or incorrect response can receive
-a behavioral failure. The enclosing case deadline remains an operational
-timeout boundary.
+to public addressed inbound messages. The target's native main session carries
+cross-address context; Evals does not inject a Client context bundle. This
+makes the behavior measurable without claiming that a target will retain,
+isolate, or disclose the right information. A peer observation can retain a
+missing required message as bounded timeout evidence, and an observed but
+unsafe or incorrect response can receive a behavioral failure. The enclosing
+case deadline remains an operational timeout boundary.
 
 ## Evidence boundary
 
@@ -73,7 +75,7 @@ qualification.
 |---|---|
 | `src/model.ts` | Evaluation identities and report vocabulary |
 | `src/cases.ts` | Ordered 16-case catalog, peer rosters, rubrics, and criteria |
-| `src/peer.ts`, `src/peer-application.ts` | Autonomous public-`HarnessClient` peer policies and their controller bridge |
+| `src/peer.ts`, `src/peer-application.ts` | Autonomous public-`HarnessEndpoint` peer policies and their controller bridge |
 | `src/principal.ts` | Adapters over native target gateways |
 | `src/events.ts` | Native gateway, social observation, timeout, and selection events |
 | `src/execution.ts` | Cell `RunSpec`, peer observation, selection, and result projection |

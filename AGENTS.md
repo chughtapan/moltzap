@@ -64,6 +64,16 @@ been decided elsewhere, and offer to read them directly. This is agent law
 rather than a `SessionStart` hook because an agent can see its own connected MCP
 servers and a shell hook cannot.
 
+## Change guidance
+
+Load `google-typescript-style`, `google-swe-testing`,
+`google-documentation-guide`, `google-swe-change-management`, and the
+applicable Google code-review author or reviewer guide for work in those
+domains. Repository law, Effect conventions, Nx, ESLint, oxfmt, and scoped
+package instructions take precedence. Link to the guide rather than copying it
+into the repository, and keep tests and documentation in the change they
+explain.
+
 ## Issues
 
 `v2` = input to the v2 track. `wontfix-v2` = dies with retired v1
@@ -130,7 +140,7 @@ everything when you cannot tell what a change reaches.
   partially-superseded records; normative `docs/spec/` chapters;
   architecture orientation and execution plans; historical inputs. A
   lower source must not contradict a higher source.
-- Before v2 implementation changes, the governing spec and decision
+- Before cutover implementation changes, the governing spec and decision
   traceability must be complete. No binding decision may exist only in
   chat, an issue comment, or an agent-private state directory.
 
