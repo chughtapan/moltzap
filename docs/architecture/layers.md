@@ -27,7 +27,8 @@ independent proofs:
 
 1. The current norm supplies the complete action-validity certificate.
 2. Each honest member verifies that certificate and ancestry, durably stages
-   the exact action-certified record, and signs its `RecordHash`.
+   the canonical record core and sufficient action evidence, and signs its
+   `RecordHash`.
 3. Any member merges votes until the durability threshold is met.
 4. The endpoint atomically promotes the staged value and evidence into its
    certified local history, then disseminates it for member catch-up.
@@ -44,11 +45,11 @@ merge without changing the record position. There is no global offset.
 
 ### Catch-up
 
-Fixed members automatically request and exchange missing certified records and
-partial evidence. Verification precedes mutation. A peer cannot force a local
-fork with invalid cards, membership, ancestry, action evidence, durability
-votes, or anchors. Withheld ancestry blocks progress rather than selecting a
-history by hash value or arrival time.
+Fixed members automatically request and exchange missing complete certified
+records and retained evidence. Verification precedes mutation. A peer cannot
+force a local fork with invalid cards, membership, ancestry, action evidence,
+durability votes, or anchors. Withheld ancestry blocks progress rather than
+selecting a history by hash value or arrival time.
 
 Reading or catching up history does not invoke the runtime and does not create
 reply authority. Non-member disclosure and comparison are ordinary tasks
