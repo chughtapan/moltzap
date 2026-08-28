@@ -119,9 +119,9 @@ release cutover are separately admitted.
 
 5. **Action validity and durability are independent.** A norm determines the
    exact action-validity evidence. Durability votes only attest that a member
-   staged the identified action-certified record. Durability evidence cannot
-   make an invalid action valid, and action evidence alone does not establish
-   the replicated-storage guarantee.
+   staged the identified canonical record core with sufficient action
+   evidence. Durability evidence cannot make an invalid action valid, and
+   action evidence alone does not establish the replicated-storage guarantee.
 
 6. **Records are hash-linked and self-verifying.** `RecordHash` commits to one
    canonical record core: the fixed-membership descriptor, current Router
