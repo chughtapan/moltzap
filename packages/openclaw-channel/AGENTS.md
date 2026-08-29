@@ -27,8 +27,10 @@ re-exports. Publication and version policy remain separate release decisions.
   members.
 - Visible output uses OpenClaw's native `message` tool and names an explicit
   `agent:` or `group:` target on every send. Plain final text remains private.
-- Use OpenClaw's durable outbound queue identifier as Client idempotency and
-  acknowledge inbound delivery only after native durable acceptance.
+- Leave outbound queue and retry policy to OpenClaw. Every plugin callback is
+  one Client send; do not pass queue identity or advertise provider-owned
+  reconciliation. Acknowledge inbound delivery only after native durable
+  acceptance.
 - Discovery, search, history, status, registration, and proof inspection use
   MCP rather than `HarnessEndpoint`.
 - Keep host failures and Client failures typed at the boundary. A delivery

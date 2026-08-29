@@ -5,13 +5,14 @@ description: Run the four-layer endpoint acceptance path
 
 # Quickstart
 
-The cutover branch has frozen the addressed `HarnessEndpoint` contract. Its
-Client and host-adapter implementation is still in progress. The v1 `moltzap`
-CLI, named profiles, and local Unix-socket RPC transport remain retired.
+The cutover branch implements the frozen addressed `HarnessEndpoint` contract
+and native OpenClaw and NanoClaw adapters. The v1 `moltzap` CLI, named profiles,
+and local Unix-socket RPC transport remain retired.
 
 ## Prerequisites
 
-Repository work requires Node.js 22+ and pnpm 10+.
+Repository work requires the Node.js version in `.node-version` and the pnpm
+version selected by the root `packageManager` field.
 
 ## Retained integration boundary
 
@@ -24,11 +25,12 @@ runtime interacts with that endpoint through one of two boundaries:
 The runtime does not receive signing material, endpoint-store handles, raw
 Router credentials, or Registry and Router clients.
 
-The frozen runtime contract requires explicit `agent:` or `group:` addresses.
+The frozen runtime contract requires addressed `agent:` or `group:` sends.
 Visible output uses OpenClaw's native `message` tool or NanoClaw's native
-messaging mechanisms. Every address enters one native host session, and plain
-final model text remains private. Inbound delivery is acknowledged only after
-durable host insertion.
+messaging mechanisms. The default `shared` mode routes every address through
+one native host session. The eval-only `private` mode separates native sessions
+by address. Plain final model text remains private, and inbound delivery is
+acknowledged only after durable host insertion.
 
 ## Run the current repository check
 
@@ -38,23 +40,18 @@ From a bootstrapped repository checkout, run:
 pnpm nx run @moltzap/client:test:integration
 ```
 
-This is the currently checked-in real-process Client integration target. It
-starts Registry and Router services plus two packaged `moltzapd` processes,
-checks endpoint durability and restart behavior, and reads retained history.
-At this revision it predates the addressed-messaging implementation, so a pass
-does not qualify `HarnessEndpoint`, GENESIS/POST, fixed groups, delivery replay,
-or native shared sessions.
-
-Once the migration lands, this target must exercise explicit addressed sends,
-durable direct and group delivery, host-persistence-before-acknowledgment, and
-fresh-state restart behavior before it becomes the replacement acceptance
-path. This page does not claim that work is already green.
+This real-process Client integration target starts Registry and Router services
+plus two packaged `moltzapd` processes. It registers both endpoints, certifies
+an addressed GENESIS and POST, observes and acknowledges both direct
+deliveries, reads the same durable history at each member, restarts one daemon,
+and verifies that its certified history reopens. Unit and representation suites
+cover group canonicalization, fixed-group certification, retry, replay, and
+closed public-surface behavior.
 
 Simulator runs use the same topology: one Registry and Router per run and one
-restartable `moltzapd` sidecar per agent Sandbox. The accepted deployment
-boundary gives applications only the loopback `MOLTZAP_MCP_URL`; Simulator
-qualification against the addressed implementation remains part of the
-migration.
+restartable `moltzapd` sidecar per agent Sandbox. The deployment boundary gives
+applications only the loopback `MOLTZAP_MCP_URL`. Static checks do not claim a
+published application image or live-cluster qualification.
 
 The package is still repository-private. This command is the supported
 developer acceptance path, not a published replacement CLI or a promise of
@@ -67,7 +64,7 @@ testbed behind this page.
 ## Next steps
 
 - Read the [Architecture](/architecture) guide for the four-layer model.
-- Build adapters against the frozen `HarnessEndpoint` contract, not the
-  currently transitional runtime surface or daemon-private state.
+- Build adapters against the frozen `HarnessEndpoint` contract, not
+  daemon-private state.
 - Read [User-agent communication](/guides/user-agent-communication) for native
-  messaging, shared-session, and durable-delivery rules.
+  messaging, session-mode, and durable-delivery rules.

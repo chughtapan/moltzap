@@ -1,4 +1,4 @@
-import type { HarnessTurn, StartInput } from "@moltzap/client";
+import type { InboundDelivery, SendInput } from "@moltzap/client";
 import type { AgentId, AgentName, SignedMessage } from "@moltzap/identity";
 import type { Effect, Scope, Stream } from "effect";
 import * as simulator from "@moltzap/simulator";
@@ -59,33 +59,33 @@ interface PositiveNetworkMembers {
   readonly router: Router;
   readonly runtimeInput: AgentRuntimeInput;
   readonly socket: ConversationSocket;
-  readonly startInput: StartInput;
+  readonly sendInput: SendInput;
   readonly started: StartedAgent<"alice", unknown>;
 }
 
 export function verifyPositiveNetworkMembers(input: PositiveNetworkMembers) {
-  const endpointMessages: Stream.Stream<HarnessTurn, NetworkError> =
+  const endpointMessages: Stream.Stream<InboundDelivery, NetworkError> =
     input.endpoint.messages();
-  const endpointStart: Effect.Effect<void, NetworkError> = input.endpoint.start(
-    input.startInput,
+  const endpointSend: Effect.Effect<void, NetworkError> = input.endpoint.send(
+    input.sendInput,
   );
   const socket: Effect.Effect<ConversationSocket, NetworkError> =
     input.endpoint.socket(input.address);
   const constructedAddress: ConversationAddress =
     new network.ConversationAddress(
-      input.address.conversationId,
+      input.address.destination,
       input.address.participants,
     );
   const rootConstructedAddress: ConversationAddress =
     new simulator.ConversationAddress(
-      input.address.conversationId,
+      input.address.destination,
       input.address.participants,
     );
-  const received: Stream.Stream<HarnessTurn, NetworkError> =
+  const received: Stream.Stream<InboundDelivery, NetworkError> =
     input.endpointTransport.received;
-  const transportStart: Effect.Effect<void, NetworkError> =
-    input.endpointTransport.start(input.startInput);
-  const nextTurn: Effect.Effect<HarnessTurn, NetworkError> =
+  const transportSend: Effect.Effect<void, NetworkError> =
+    input.endpointTransport.send(input.sendInput);
+  const nextDelivery: Effect.Effect<InboundDelivery, NetworkError> =
     input.socket.receive();
   const agent: AgentHandle<"alice"> = input.connection.agent;
   const startedAgent: AgentHandle<"alice"> = input.started.agent;
@@ -122,9 +122,9 @@ export function verifyPositiveNetworkMembers(input: PositiveNetworkMembers) {
     disable,
     enable,
     endpointMessages,
-    endpointStart,
+    endpointSend,
     from,
-    nextTurn,
+    nextDelivery,
     received,
     rootConstructedAddress,
     routerAddress,
@@ -133,7 +133,7 @@ export function verifyPositiveNetworkMembers(input: PositiveNetworkMembers) {
     startedAgent,
     stopped,
     to,
-    transportStart,
+    transportSend,
   };
 }
 

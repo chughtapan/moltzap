@@ -118,13 +118,13 @@ transitional package behind that shell with cohesive endpoint modules for:
 9. the final semantic `HarnessEndpoint` capability.
 
 The public shell acquires one endpoint and exposes explicit addressed send plus
-durable inbound deliveries. `HarnessEndpoint.send` accepts a host-owned
-idempotency key, an `agent:` or `group:` target, and nonempty content. The same
-key with byte-identical canonical intent resumes the first result; changed
-intent conflicts. Send returns `void` only after local certification. The
-messages stream projects certified direct and group posts with stable PostId,
-canonical address, sender, group membership where applicable, and an
-adapter-only delivery acknowledgment.
+durable inbound deliveries. `HarnessEndpoint.send` accepts an `agent:` or
+`group:` target and nonempty content. Every invocation creates one post with a
+fresh Client-minted `PostId`; the host owns whether to invoke it again. Send
+returns `void` only after local certification. The messages stream projects
+certified direct and group posts with stable PostId, canonical address, sender,
+group membership where applicable, and an adapter-only delivery
+acknowledgment.
 
 Keep raw Router envelopes, partial folds, repositories, storage codecs,
 private RPC, Layers, and MCP representation private. `TxnId` is absent;
@@ -203,8 +203,8 @@ Identity, Router, and Client capabilities.
 
 Apply the five admitted removals directly, without compatibility shims:
 
-1. replace content-free `open` with `HarnessEndpoint.send` carrying a native
-   host idempotency key, explicit address, and nonempty content;
+1. replace content-free `open` with `HarnessEndpoint.send` carrying an explicit
+   address and nonempty content, with one new post per invocation;
 2. route visible output only through each host's native durable messaging path
    with an explicit `agent:` or `group:` target;
 3. replace message-only receive and proof-shaped operation results with public

@@ -1,6 +1,5 @@
-/** @file Scoped MCP implementation of the public semantic HarnessClient. */
+/** @file Scoped MCP implementation of the public semantic HarnessEndpoint. */
 
-import type { Ed25519PublicKey } from "@moltzap/identity";
 import {
   Client,
   fromJsonSchema,
@@ -10,69 +9,116 @@ import {
   StreamableHTTPClientTransport,
   type SubscriptionFilter,
 } from "@modelcontextprotocol/client";
-import { Data, Effect, Queue, type Scope, Stream, Take } from "effect";
+import { Data, Effect, Queue, Ref, type Scope, Stream, Take } from "effect";
+import type { DeliveryToken } from "./endpoint/store.js";
 import packageJson from "../package.json" with { type: "json" };
 import {
   ConnectError,
-  type Content,
-  type HarnessClient,
-  type HarnessTurn,
+  DeliveryAcknowledgeError,
+  type HarnessEndpoint,
+  type InboundDelivery,
   ListenError,
-  ReplyError,
-  StartError,
-  type StartInput,
+  SendError,
+  type SendInput,
 } from "./contract.js";
 import {
-  decodeHarnessExtension,
-  decodeHarnessTurnEvent,
+  decodeHarnessEventsExtensionDeclaration,
+  decodeHarnessMessageReadyEvent,
+  HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_EVENTS_EXTENSION,
-  HARNESS_REPLY_TOOL,
-  HARNESS_START_TOOL,
-  HARNESS_TURN_READY_FILTER,
-  HARNESS_TURN_READY_NOTIFICATION,
-  harnessReplyRequestMeta,
-  type ReplyGrant,
-  verifyHarnessTurnEvent,
-} from "./harness-runtime.js";
+  HARNESS_MESSAGE_READY_FILTER,
+  HARNESS_MESSAGE_READY_NOTIFICATION,
+  HARNESS_SEND_TOOL,
+} from "./harness-mcp-contract.js";
 
 /* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP client lifecycle is Promise-native and is converted to Effect at this private edge. */
 
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const CLIENT_IMPLEMENTATION = {
-  name: "moltzap-harness-client",
+  name: "moltzap-harness-endpoint",
   version: packageJson.version,
 } as const;
-
 class CloseError extends Data.TaggedError("CloseError") {}
 
-const TURN_READY_FILTER: SubscriptionFilter & {
-  readonly [HARNESS_TURN_READY_FILTER]: true;
-} = { [HARNESS_TURN_READY_FILTER]: true };
+const MESSAGE_READY_FILTER: SubscriptionFilter & {
+  readonly [HARNESS_MESSAGE_READY_FILTER]: true;
+} = {
+  [HARNESS_MESSAGE_READY_FILTER]: true,
+};
 
 const unknownNotificationParams = fromJsonSchema({} satisfies JsonSchemaType);
 
-const closeQuietly = (close: () => Promise<void>): Effect.Effect<void> =>
-  Effect.tryPromise({ try: close, catch: () => new CloseError() }).pipe(
+const sendReasons: ReadonlyArray<SendError["reason"]> = [
+  "invalid-address",
+  "unknown-agent",
+  "membership-invalid",
+  "content-invalid",
+  "not-registered",
+  "version-mismatch",
+  "certification-unavailable",
+  "persistence-failed",
+  "network-unavailable",
+];
+const acknowledgeReasons: ReadonlyArray<DeliveryAcknowledgeError["reason"]> = [
+  "unknown-delivery",
+  "delivery-conflict",
+  "persistence-failed",
+  "transport-failed",
+];
+const listenReasons: ReadonlyArray<ListenError["reason"]> = [
+  "already-listening",
+  "incompatible-daemon",
+  "decode-failed",
+  "transport-failed",
+];
+
+/**
+ * Acquire one real MCP-backed endpoint and its scoped connection.
+ * @param endpoint Loopback MCP URL for the configured endpoint daemon.
+ * @returns An endpoint whose resources remain live for the caller's scope.
+ */
+export function acquireHarnessEndpoint(
+  endpoint: URL,
+): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope> {
+  return acquireEndpoint(endpoint).pipe(
+    Effect.withSpan("acquireHarnessEndpoint"),
+  );
+}
+
+function closeClient(client: Client): Effect.Effect<void> {
+  return closeQuietly(() => client.close());
+}
+
+function closeSubscription(subscription: McpSubscription): Effect.Effect<void> {
+  return closeQuietly(() => subscription.close());
+}
+
+function closeQuietly(close: () => Promise<void>): Effect.Effect<void> {
+  return Effect.tryPromise({ try: close, catch: () => new CloseError() }).pipe(
     Effect.ignore,
   );
-
-const turnPayload = (params: unknown): unknown => {
-  if (typeof params !== "object" || params === null || Array.isArray(params)) {
-    return params;
-  }
-  const payload: Record<string, unknown> = { ...params };
-  Reflect.deleteProperty(payload, "_meta");
-  return payload;
-};
+}
 
 interface ReasonPayload {
   readonly reason: unknown;
 }
 
-const hasReasonPayload = (value: unknown): value is ReasonPayload =>
-  typeof value === "object" && value !== null && "reason" in value;
+function sendReason(cause: unknown): SendError["reason"] {
+  const reason = operationReason(cause);
+  return isReason(reason, sendReasons) ? reason : "network-unavailable";
+}
 
-const operationReason = (cause: unknown): unknown => {
+function acknowledgeReason(cause: unknown): DeliveryAcknowledgeError["reason"] {
+  const reason = operationReason(cause);
+  return isReason(reason, acknowledgeReasons) ? reason : "transport-failed";
+}
+
+function listenReason(cause: unknown): ListenError["reason"] {
+  const reason = operationReason(cause);
+  return isReason(reason, listenReasons) ? reason : "transport-failed";
+}
+
+function operationReason(cause: unknown): unknown {
   if (hasReasonPayload(cause)) {
     return cause.reason;
   }
@@ -80,109 +126,137 @@ const operationReason = (cause: unknown): unknown => {
     ? cause.data
     : undefined;
   return hasReasonPayload(protocolData) ? protocolData.reason : undefined;
-};
+}
 
-const startReason = (cause: unknown): StartError["reason"] => {
-  const reason = operationReason(cause);
-  switch (reason) {
-    case "intent-conflict":
-    case "not-registered":
-    case "membership":
-    case "persistence":
-    case "durability":
-    case "reanchor":
-    case "representation":
-      return reason;
-    default:
-      return "representation";
-  }
-};
+function hasReasonPayload(value: unknown): value is ReasonPayload {
+  return typeof value === "object" && value !== null && "reason" in value;
+}
 
-const replyReason = (cause: unknown): ReplyError["reason"] => {
-  const reason = operationReason(cause);
-  switch (reason) {
-    case "authority-unavailable":
-    case "persistence":
-    case "durability":
-    case "reanchor":
-    case "representation":
-      return reason;
-    default:
-      return "authority-unavailable";
-  }
-};
+function isReason<Reason>(
+  value: unknown,
+  allowed: readonly Reason[],
+): value is Reason {
+  return allowed.some((candidate) => candidate === value);
+}
 
-const callStart = (
+function callSend(
   client: Client,
-  input: StartInput,
-): Effect.Effect<void, StartError> =>
-  Effect.tryPromise({
+  input: SendInput,
+): Effect.Effect<void, SendError> {
+  return Effect.tryPromise({
     try: (signal) =>
       client.callTool(
-        { name: HARNESS_START_TOOL, arguments: { ...input } },
+        { name: HARNESS_SEND_TOOL, arguments: { ...input } },
         { signal },
       ),
-    catch: (cause) => new StartError({ reason: startReason(cause) }),
+    catch: (cause) => new SendError({ reason: sendReason(cause) }),
   }).pipe(
     Effect.flatMap((result) =>
       result.isError === true
-        ? Effect.fail(new StartError({ reason: "representation" }))
+        ? Effect.fail(new SendError({ reason: "network-unavailable" }))
         : Effect.void,
     ),
   );
+}
 
-const callReply = (
+function callAcknowledgeDelivery(
   client: Client,
-  replyGrant: ReplyGrant,
-  content: Content,
-): Effect.Effect<void, ReplyError> =>
-  Effect.tryPromise({
+  deliveryToken: DeliveryToken,
+): Effect.Effect<void, DeliveryAcknowledgeError> {
+  return Effect.tryPromise({
     try: (signal) =>
       client.callTool(
         {
-          name: HARNESS_REPLY_TOOL,
-          arguments: { content },
-          _meta: harnessReplyRequestMeta(replyGrant),
+          name: HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
+          arguments: { deliveryToken },
         },
         { signal },
       ),
-    catch: (cause) => new ReplyError({ reason: replyReason(cause) }),
+    catch: (cause) =>
+      new DeliveryAcknowledgeError({ reason: acknowledgeReason(cause) }),
   }).pipe(
     Effect.flatMap((result) =>
       result.isError === true
-        ? Effect.fail(new ReplyError({ reason: "representation" }))
+        ? Effect.fail(
+            new DeliveryAcknowledgeError({ reason: "transport-failed" }),
+          )
         : Effect.void,
     ),
   );
+}
 
-const connect = (
+function hasExactEventsExtension(client: Client): boolean {
+  const experimental = client.getServerCapabilities()?.experimental;
+  const extension = experimental?.[HARNESS_EVENTS_EXTENSION];
+  return Effect.runSync(
+    decodeHarnessEventsExtensionDeclaration(extension).pipe(
+      Effect.match({
+        onFailure: () => false,
+        onSuccess: () => true,
+      }),
+    ),
+  );
+}
+
+function acquireConnection(
   client: Client,
   endpoint: URL,
-): Effect.Effect<Client, ConnectError> =>
-  Effect.tryPromise({
+): Effect.Effect<Client, ConnectError, Scope.Scope> {
+  return Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const connected = yield* restore(connect(client, endpoint));
+      yield* Effect.addFinalizer(() => closeClient(client));
+      return connected;
+    }),
+  );
+}
+
+function connect(
+  client: Client,
+  endpoint: URL,
+): Effect.Effect<Client, ConnectError> {
+  return Effect.tryPromise({
     try: (signal) =>
       client.connect(new StreamableHTTPClientTransport(endpoint), { signal }),
-    catch: () => new ConnectError(),
+    catch: () => new ConnectError({ reason: "transport-failed" }),
   }).pipe(
-    Effect.onError(() => closeQuietly(() => client.close())),
-    Effect.as(client),
+    Effect.flatMap(() =>
+      hasExactEventsExtension(client)
+        ? Effect.succeed(client)
+        : Effect.fail(new ConnectError({ reason: "incompatible-daemon" })),
+    ),
+    Effect.onError(() => closeClient(client)),
   );
+}
 
-const listen = (client: Client): Effect.Effect<McpSubscription, ConnectError> =>
-  Effect.tryPromise({
-    try: (signal) => client.listen(TURN_READY_FILTER, { signal }),
-    catch: () => new ConnectError(),
+function acquireSubscription(
+  client: Client,
+): Effect.Effect<McpSubscription, ListenError, Scope.Scope> {
+  return Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const subscription = yield* restore(listen(client));
+      yield* Effect.addFinalizer(() => closeSubscription(subscription));
+      return subscription;
+    }),
+  );
+}
+
+function listen(client: Client): Effect.Effect<McpSubscription, ListenError> {
+  return Effect.tryPromise({
+    try: (signal) => client.listen(MESSAGE_READY_FILTER, { signal }),
+    catch: (cause) => new ListenError({ reason: listenReason(cause) }),
   });
+}
 
-type TurnQueue = Queue.Queue<Take.Take<HarnessTurn, ListenError>>;
+type DeliveryQueue = Queue.Queue<Take.Take<InboundDelivery, ListenError>>;
 
-const observeSubscription = (
+function observeSubscription(
   subscription: McpSubscription,
-  queue: TurnQueue,
-): Effect.Effect<void> =>
-  Effect.tryPromise({
+  queue: DeliveryQueue,
+): Effect.Effect<void> {
+  return Effect.tryPromise({
     try: () => subscription.closed,
-    catch: () => new ListenError({ reason: "connection" }),
+    catch: () => new ListenError({ reason: "transport-failed" }),
   }).pipe(
     Effect.matchEffect({
       onFailure: (error) => Queue.offer(queue, Take.fail(error)),
@@ -191,122 +265,124 @@ const observeSubscription = (
           queue,
           closure === "local"
             ? Take.end
-            : Take.fail(new ListenError({ reason: "connection" })),
+            : Take.fail(new ListenError({ reason: "transport-failed" })),
         ),
     }),
     Effect.asVoid,
   );
+}
 
-const readTurn = (
+function enqueueDelivery(
   client: Client,
-  registrySignerPublicKey: Ed25519PublicKey,
+  queue: DeliveryQueue,
   params: unknown,
-): Effect.Effect<HarnessTurn, ListenError> =>
-  decodeHarnessTurnEvent(turnPayload(params)).pipe(
-    Effect.flatMap((event) =>
-      verifyHarnessTurnEvent(event, registrySignerPublicKey),
-    ),
-    // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public stream intentionally closes all invalid wire and identity representations as ListenError.
-    Effect.mapError(() => new ListenError({ reason: "representation" })),
-    Effect.map((event) => ({
-      conversationId: event.conversationId,
-      peers: event.peers,
-      author: event.author,
-      content: event.content,
-      reply: (content) => callReply(client, event.replyGrant, content),
-    })),
-  );
-
-const enqueueTurn = (
-  client: Client,
-  registrySignerPublicKey: Ed25519PublicKey,
-  queue: TurnQueue,
-  params: unknown,
-): Effect.Effect<void> =>
-  readTurn(client, registrySignerPublicKey, params).pipe(
+): Effect.Effect<void> {
+  return readDelivery(client, params).pipe(
     Effect.matchEffect({
       onFailure: (error) => Queue.offer(queue, Take.fail(error)),
-      onSuccess: (turn) => Queue.offer(queue, Take.of(turn)),
+      onSuccess: (delivery) => Queue.offer(queue, Take.of(delivery)),
     }),
     Effect.asVoid,
   );
+}
 
-const registerTurnHandler = (
+function readDelivery(
   client: Client,
-  registrySignerPublicKey: Ed25519PublicKey,
-  queue: TurnQueue,
-): void => {
+  params: unknown,
+): Effect.Effect<InboundDelivery, ListenError> {
+  return decodeHarnessMessageReadyEvent(notificationPayload(params)).pipe(
+    Effect.catchTag("ParseError", () =>
+      Effect.fail(new ListenError({ reason: "decode-failed" })),
+    ),
+    Effect.map((event) => ({
+      message: event.message,
+      acknowledge: callAcknowledgeDelivery(client, event.deliveryToken),
+    })),
+  );
+}
+
+function notificationPayload(params: unknown): unknown {
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    return params;
+  }
+  const payload: Record<string, unknown> = { ...params };
+  Reflect.deleteProperty(payload, "_meta");
+  return payload;
+}
+
+function registerMessageHandler(client: Client, queue: DeliveryQueue): void {
   client.setNotificationHandler(
-    HARNESS_TURN_READY_NOTIFICATION,
+    HARNESS_MESSAGE_READY_NOTIFICATION,
     { params: unknownNotificationParams },
-    (params) =>
-      Effect.runPromise(
-        enqueueTurn(client, registrySignerPublicKey, queue, params),
-      ),
+    (params) => Effect.runPromise(enqueueDelivery(client, queue, params)),
   );
-};
+}
 
-const readRegistrySignerPublicKey = (
+function acquireListenerSlot(
+  active: Ref.Ref<boolean>,
+): Effect.Effect<void, ListenError, Scope.Scope> {
+  return Effect.uninterruptible(
+    Effect.gen(function* () {
+      const acquired = yield* Ref.modify(active, (isActive) =>
+        isActive
+          ? ([false, true] satisfies [boolean, boolean])
+          : ([true, true] satisfies [boolean, boolean]),
+      ).pipe(
+        Effect.filterOrFail(
+          (slotAcquired) => slotAcquired,
+          () => new ListenError({ reason: "already-listening" }),
+        ),
+      );
+      yield* Effect.addFinalizer(() => Ref.set(active, false));
+      return acquired;
+    }).pipe(Effect.asVoid),
+  );
+}
+
+function messages(
   client: Client,
-): Effect.Effect<Ed25519PublicKey, ConnectError> =>
-  decodeHarnessExtension(client.getServerCapabilities()?.extensions).pipe(
-    // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public acquisition boundary intentionally exposes one closed compatibility failure.
-    Effect.mapError(() => new ConnectError()),
-    Effect.map((extension) => extension.registrySignerPublicKey),
+  listenerActive: Ref.Ref<boolean>,
+): Stream.Stream<InboundDelivery, ListenError> {
+  return Stream.unwrapScoped(
+    Effect.gen(function* () {
+      yield* acquireListenerSlot(listenerActive);
+      const queue =
+        yield* Queue.unbounded<Take.Take<InboundDelivery, ListenError>>();
+      yield* Effect.addFinalizer(() => Queue.shutdown(queue));
+      registerMessageHandler(client, queue);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          client.removeNotificationHandler(HARNESS_MESSAGE_READY_NOTIFICATION);
+        }),
+      );
+      const subscription = yield* acquireSubscription(client);
+      yield* Effect.forkScoped(observeSubscription(subscription, queue));
+      return Stream.fromQueue(queue).pipe(Stream.flattenTake);
+    }),
   );
+}
 
-const acquireConnection = (
-  client: Client,
-  endpoint: URL,
-): Effect.Effect<Client, ConnectError, Scope.Scope> =>
-  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The returned Scope requirement binds this connection to the public scoped acquisition.
-  Effect.acquireRelease(connect(client, endpoint), () =>
-    closeQuietly(() => client.close()),
-  );
-
-const acquireSubscription = (
-  client: Client,
-): Effect.Effect<McpSubscription, ConnectError, Scope.Scope> =>
-  // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The returned Scope requirement binds this subscription to the public scoped acquisition.
-  Effect.acquireRelease(listen(client), (active) =>
-    closeQuietly(() => active.close()),
-  );
-
-const makeMcpClient = (): Client =>
-  new Client(CLIENT_IMPLEMENTATION, {
-    capabilities: { extensions: { [HARNESS_EVENTS_EXTENSION]: {} } },
+function makeMcpClient(): Client {
+  return new Client(CLIENT_IMPLEMENTATION, {
+    capabilities: {
+      experimental: { [HARNESS_EVENTS_EXTENSION]: {} },
+    },
     versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } },
   });
+}
 
-const acquireClient = (
+function acquireEndpoint(
   endpoint: URL,
-): Effect.Effect<HarnessClient, ConnectError, Scope.Scope> =>
-  Effect.gen(function* () {
-    const queue = yield* Queue.unbounded<Take.Take<HarnessTurn, ListenError>>();
-    yield* Effect.addFinalizer(() => Queue.shutdown(queue));
-
+): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope> {
+  return Effect.gen(function* () {
     const client = makeMcpClient();
     yield* acquireConnection(client, endpoint);
-    const registrySignerPublicKey = yield* readRegistrySignerPublicKey(client);
-    registerTurnHandler(client, registrySignerPublicKey, queue);
-
-    const subscription = yield* acquireSubscription(client);
-    yield* Effect.forkScoped(observeSubscription(subscription, queue));
-
+    const listenerActive = yield* Ref.make(false);
     return {
-      start: (input) => callStart(client, input),
-      turns: Stream.fromQueue(queue).pipe(Stream.flattenTake),
-    } satisfies HarnessClient;
+      send: (input) => callSend(client, input),
+      messages: messages(client, listenerActive),
+    } satisfies HarnessEndpoint;
   });
-
-/**
- * Acquire one real MCP-backed client and its sole inbound subscription.
- * @param endpoint Loopback MCP URL for the configured endpoint daemon.
- * @returns A client whose resources remain live for the caller's scope.
- */
-export const acquireHarnessClient = (
-  endpoint: URL,
-): Effect.Effect<HarnessClient, ConnectError, Scope.Scope> =>
-  acquireClient(endpoint).pipe(Effect.withSpan("acquireHarnessClient"));
+}
 
 /* eslint-enable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore strict defaults after the Promise-native MCP edge. */

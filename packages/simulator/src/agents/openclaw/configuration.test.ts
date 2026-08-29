@@ -11,18 +11,25 @@ const CALENDAR_URL = "https://calendar.test/mcp/opaque-token";
 function mcpSection(
   mcpServers: Parameters<typeof buildOpenClawConfig>[0]["mcpServers"],
 ) {
-  const config = buildOpenClawConfig(
+  return openClawConfig(mcpServers).mcp?.servers;
+}
+
+function openClawConfig(
+  mcpServers: Parameters<typeof buildOpenClawConfig>[0]["mcpServers"],
+  messagingMode: "shared" | "private" = "shared",
+) {
+  return buildOpenClawConfig(
     {
       agentName: Schema.decodeUnknownSync(AgentName)("alice"),
       gatewayToken: Redacted.make("token"),
+      messagingMode,
       mcpServers,
     },
     "/var/run/moltzap/bootstrap/workspace",
   );
-  return config.mcp?.servers;
 }
 
-describe("buildOpenClawConfig MCP servers", () => {
+describe("buildOpenClawConfig", () => {
   it("renders a command definition as a stdio transport", () => {
     assert.deepStrictEqual(
       mcpSection([
@@ -55,5 +62,21 @@ describe("buildOpenClawConfig MCP servers", () => {
 
   it("omits the MCP section without servers", () => {
     assert.isUndefined(mcpSection(undefined));
+  });
+
+  it("enables bundled discovery without a configuration load path", () => {
+    assert.deepStrictEqual(openClawConfig(undefined).plugins, {
+      entries: { "openclaw-channel": { enabled: true } },
+    });
+  });
+
+  it("uses the native main session in shared mode", () => {
+    assert.notProperty(openClawConfig(undefined, "shared"), "session");
+  });
+
+  it("isolates direct peers through the native private session scope", () => {
+    assert.deepStrictEqual(openClawConfig(undefined, "private").session, {
+      dmScope: "per-account-channel-peer",
+    });
   });
 });

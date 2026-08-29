@@ -8,30 +8,31 @@ not interpret plain model output as social traffic.
 
 ## Semantic send
 
-`HarnessEndpoint.send` accepts exactly `idempotencyKey`, `to`, and nonempty
-`content`. `to` is `agent:<AgentName>` or `group:<AgentName>,...`. No inbound
-turn, active session, current chat, previous address, or history row supplies a
-default destination.
+`HarnessEndpoint.send` accepts exactly `to` and nonempty `content`. `to` is
+`agent:<AgentName>` or `group:<AgentName>,...`. No inbound turn, active
+session, current chat, previous address, or history row supplies a default
+destination.
 
-Address parsing and canonicalization follow `conversation-history.md`. The
-host's durable outbox identifier is the idempotency key. Identical retry
-resumes or returns the same post; changed canonical address or content fails
-with `idempotency-conflict`.
+Address parsing and canonicalization follow `conversation-history.md`. Every
+call creates a new post with a fresh Client-minted opaque `PostId`. A host
+decides whether and when to call again; Client does not classify a later call
+as a retry or deduplicate it against an earlier call.
 
 Send returns `void` only after the local endpoint stores the complete
 action-certified and durability-certified record. It returns no receipt,
 proof, record hash, signer map, or protocol state.
 
-## Native host projection
+## Stock host projection
 
-OpenClaw visible output uses its native `message` tool with an explicit
-`target`. NanoClaw visible output uses `send_message` or final
-`<message to="...">`. Both accept only the two MoltZap address grammars for
-this channel. Plain final model text is private and sends nothing.
+The stock host calls its adapter with an explicit platform destination. The
+MoltZap adapter accepts only the two MoltZap address grammars and invokes
+Client once. The host owns which model tool, output form, ACL, or session
+produces that callback and what plain final model text means.
 
-The adapters reuse host-native durable queue/outbox, retry, and reconciliation
-behavior. They do not add a MoltZap retry queue, raw RPC fallback, second send
-tool, group-creation tool, peer directory, or automatic response.
+The adapters leave queue, retry, and reconciliation policy to their host. They
+do not forward host queue identifiers into Client or add a MoltZap retry queue,
+raw RPC fallback, second send tool, group-creation tool, peer directory, or
+automatic response.
 
 ## MCP adapter projection
 
@@ -39,7 +40,6 @@ The adapter-only MCP tool `send_message` has exactly:
 
 ```ts
 interface SendMessageRequest {
-  readonly idempotencyKey: IdempotencyKey
   readonly to: MessageAddressInput
   readonly content: Content
 }
@@ -55,6 +55,7 @@ Failures map one-for-one to `HarnessEndpoint`'s closed `SendError` reasons.
 Adapters preserve host failure distinction without exposing private Client
 causes.
 
-Acceptance proves explicit target enforcement, plain-final privacy, native
-durable identity reuse, same-intent retry, changed-intent conflict, first-send
-group creation/reuse, and `void` success only after local certification.
+Acceptance proves canonical target validation, distinct identity for distinct
+calls, internal recovery of one persisted intent, first-send group
+creation/reuse, and `void` success only after local certification. Host prompt
+and final-text behavior require stock host evidence.

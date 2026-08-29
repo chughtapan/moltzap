@@ -215,11 +215,11 @@ _Class_
 export class ConversationAddress {
   readonly [conversationAddressTypeId] = conversationAddressTypeId;
 
-  readonly conversationId: ConversationId;
+  readonly destination: MessageAddressInput;
   readonly participants: ConversationParticipants;
 
   constructor(
-    conversationId: ConversationId,
+    destination: MessageAddressInput,
     participants: ConversationParticipants,
   ) {
     if (participants.length === 0) {
@@ -235,7 +235,7 @@ export class ConversationAddress {
         "conversation participants must be unique by AgentId",
       );
     }
-    this.conversationId = conversationId;
+    this.destination = destination;
     this.participants = Object.freeze([first, ...rest]);
     Object.freeze(this);
   }
@@ -266,8 +266,8 @@ _Class_
 export class ConversationSocket {
   readonly [conversationSocketTypeId] = conversationSocketTypeId;
 
-  /** Ordered semantic turns for this endpoint and conversation. */
-  readonly messages: Stream.Stream<HarnessTurn, NetworkError>;
+  /** Ordered addressed deliveries for this endpoint and conversation. */
+  readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
 
   readonly endpoint: ParticipantHandle;
   readonly address: ConversationAddress;
@@ -275,7 +275,7 @@ export class ConversationSocket {
   private constructor(
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<HarnessTurn, NetworkError>,
+    messages: Stream.Stream<InboundDelivery, NetworkError>,
   ) {
     this.endpoint = endpoint;
     this.address = address;
@@ -285,17 +285,17 @@ export class ConversationSocket {
   static [conversationSocketConstruction](
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<HarnessTurn, NetworkError>,
+    messages: Stream.Stream<InboundDelivery, NetworkError>,
   ): ConversationSocket {
     return new ConversationSocket(endpoint, address, messages);
   }
 
   /**
-   * Receive the next ordered turn. Selection policy belongs in the consuming
-   * Effect, so the socket never skips an earlier turn.
-   * @returns The next turn, or a typed receive failure when the stream ends.
+   * Receive the next ordered delivery. Selection policy belongs in the
+   * consuming Effect, so the socket never skips an earlier delivery.
+   * @returns The next delivery, or a typed receive failure when the stream ends.
    */
-  receive(): Effect.Effect<HarnessTurn, NetworkError> {
+  receive(): Effect.Effect<InboundDelivery, NetworkError> {
     return this.messages.pipe(
       Stream.runHead,
       Effect.flatMap(
@@ -304,7 +304,7 @@ export class ConversationSocket {
             Effect.fail(
               networkError(
                 "receive",
-                `conversation ${this.address.conversationId} ended before another turn arrived`,
+                `destination ${this.address.destination} ended before another delivery arrived`,
               ),
             ),
           onSome: Effect.succeed,
@@ -359,7 +359,7 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
 
 The closed encoded union persisted for a catalog.
 
-### [`Endpoint`](./network/endpoint.ts#L30)
+### [`Endpoint`](./network/endpoint.ts#L34)
 
 _Class_
 
@@ -389,19 +389,19 @@ export class Endpoint<Name extends string = string> {
   }
 
   /**
-   * Start one conversation through this endpoint's semantic daemon client.
-   * @param input Caller-minted conversation identity, peers, and initial content.
-   * @returns Completion after the daemon accepts the semantic START.
+   * Send one explicit addressed post through the endpoint daemon.
+   * @param input Durable host identity, destination, and nonempty content.
+   * @returns Completion after the daemon certifies the addressed post.
    */
-  start(input: StartInput): Effect.Effect<void, NetworkError> {
-    return this.transport.start(input);
+  send(input: SendInput): Effect.Effect<void, NetworkError> {
+    return this.transport.send(input);
   }
 
   /**
-   * Observe semantic turns delivered after this stream is subscribed.
-   * @returns A live fan-out stream of turns for this endpoint.
+   * Observe addressed deliveries emitted after this stream is subscribed.
+   * @returns A live fan-out stream of deliveries for this endpoint.
    */
-  messages(): Stream.Stream<HarnessTurn, NetworkError> {
+  messages(): Stream.Stream<InboundDelivery, NetworkError> {
     return this.inbox.messages;
   }
 
@@ -418,7 +418,7 @@ export class Endpoint<Name extends string = string> {
     );
     return isParticipant
       ? this.inbox
-          .conversation(address.conversationId)
+          .conversation(address.destination)
           .pipe(
             Effect.map((messages) =>
               makeConversationSocket(this.participant, address, messages),
@@ -857,7 +857,7 @@ export type LinkVerdict = Data.TaggedEnum<{
 
 Closed per-delivery decision returned by a link policy.
 
-### [`Network`](./network/endpoint.ts#L122)
+### [`Network`](./network/endpoint.ts#L126)
 
 _Class_
 
@@ -890,7 +890,7 @@ export class NetworkError extends Schema.TaggedError<NetworkError>()(
 
 An operational failure at a simulator network boundary.
 
-### [`NetworkService`](./network/endpoint.ts#L115)
+### [`NetworkService`](./network/endpoint.ts#L119)
 
 _Interface_
 

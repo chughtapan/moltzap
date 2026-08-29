@@ -1,6 +1,6 @@
 /** @file Concrete mixed-agent conditions and code-defined case execution. */
 
-import { AgentName } from "@moltzap/client";
+import { AgentAddress } from "@moltzap/client";
 import {
   type ClusterServices,
   CompletedLedgerReceipt,
@@ -74,7 +74,7 @@ import {
   type PrincipalDriverFactory,
 } from "./principal.js";
 
-const decodeAgentName = Schema.decodeSync(AgentName);
+const decodeAgentAddress = Schema.decodeSync(AgentAddress);
 
 /** Controller-owned services required by every evaluation cell RunSpec. */
 type EvaluationInfrastructure = Layer.Layer<
@@ -499,7 +499,7 @@ function emitPeerTimeout<Gateway, DriverFailure>(
     instrumentation.emit,
     SocialActionNotObserved.make({
       caseId: instrumentation.definition.id,
-      endpointName: decodeAgentName(peerName),
+      endpointAddress: decodeAgentAddress(`agent:${peerName}`),
       timeoutMillis: Duration.toMillis(peerTimeout(instrumentation.policy)),
     }),
   );

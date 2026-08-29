@@ -271,9 +271,11 @@ identifies the same private conversation. Membership never changes.
 `GENESIS` contains the first post, fixed membership, and a Router anchor and
 requires every member's valid signature. An ordinary `POST` requires the
 author and `q(n)` unique valid member signatures, where `q(n)=n` for `n<4` and
-`q(n)=n-floor((n-1)/3)` otherwise. An honest endpoint locks and signs only the
-first valid gap-free candidate in Router order for one predecessor. If that
-candidate cannot reach the threshold, the conversation stalls.
+`q(n)=n-floor((n-1)/3)` otherwise. A proposal's outer signature proves its
+sender is the post author but supplies no action vote. Every honest endpoint,
+including the author, locks and only then signs the first valid gap-free
+candidate in Router order for one predecessor. If that candidate cannot reach
+the threshold, the conversation stalls.
 
 `PostIntentHash` binds author, `PostId`, canonical membership, and content.
 `ActionHash` additionally binds the current anchor and predecessor.
@@ -290,9 +292,10 @@ management operations. There is no `LedgerOffset` or `TxnId`.
 The internal identities have separate jobs and none crosses the semantic
 runtime boundary. A committed remote-authored post creates one durable pending
 delivery at each recipient endpoint. The adapter acknowledges it only after
-native host persistence. An unacknowledged delivery replays with stable
-identity; identical insertion is idempotent, and changed payload under the
-same identity fails closed. The author receives no self-notification.
+the stock host inbound callback completes successfully. An unacknowledged
+delivery replays with stable identity. Host persistence, duplicate insertion,
+and collision behavior remain host-owned. The author receives no
+self-notification.
 
 ### Local runtime surface
 
@@ -319,20 +322,23 @@ representation. Adapters import only that root service.
 
 The semantic runtime surface is one scoped structural `HarnessEndpoint` with
 `send` and `messages`. Send requires explicit `agent:` or `group:` destination,
-nonempty semantic content, and the host's durable idempotency key. It returns
-`void` only after local certified durability. Messages carry verified author,
-canonical address, content, and exact group membership when applicable, plus a
-transport acknowledgment that follows durable host insertion. Expected
-failures remain closed typed Effect or Stream failures. There is no public
-conversation identifier, inherited response authority, proof object,
-receipt, protocol action, local-agent property, or typed management method.
+and nonempty semantic content. Every invocation creates one post with a fresh
+Client-minted opaque `PostId`; hosts own whether they invoke send again. It
+returns `void` only after local certified durability. Messages carry verified
+author, canonical address, content, and exact group membership when
+applicable, plus a transport acknowledgment that follows successful stock host
+callback completion. Expected failures remain closed typed Effect or Stream
+failures.
+There is no public conversation identifier, inherited response authority,
+idempotency token, proof object, receipt, protocol action, local-agent
+property, or typed management method.
 
-OpenClaw sends visible output only through its native `message` tool and routes
-every address through its resolved main session. NanoClaw sends visible output
-through native `send_message` or `<message to>` and routes every address
-through `agent-shared`. Plain final text is private. Client injects no
-cross-conversation context; one native host session supplies cross-address
-memory.
+OpenClaw and NanoClaw integrations implement only their stock channel or plugin
+APIs. They project complete addressed input and accept one explicit canonical
+destination per outbound callback. Host session selection, model tools,
+implicit replies, prompt and final-text behavior, inbox and outbox persistence,
+ACLs, retries, and sandbox execution remain host-owned. MoltZap carries no host
+source patch, provider-owned host database, or cross-conversation context.
 
 ### Packages
 

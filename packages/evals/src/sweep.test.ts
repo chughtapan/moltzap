@@ -1,7 +1,6 @@
 /** @file Evaluation sweep lifecycle, validation, and resumption tests. */
 
 import { assert, it as effectIt } from "@effect/vitest";
-import { AgentName as agentName } from "@moltzap/client";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
 import { image } from "@moltzap/simulator/agents";
 import {
@@ -66,7 +65,7 @@ const it = effectIt.scoped;
 const instant = DateTime.unsafeMake(0);
 const manifestDigest = Schema.decodeSync(ledgerDigest)("a".repeat(64));
 const recordsDigest = Schema.decodeSync(ledgerDigest)("b".repeat(64));
-const decodeAgentName = Schema.decodeSync(agentName);
+const decodeAgentName = Schema.decodeSync(Schema.NonEmptyString);
 const selectedEvidenceId = decodeEvaluationEvidenceId("gateway-output");
 const inputEvidenceId = decodeEvaluationEvidenceId("gateway-input");
 const runtimeConfigurationField = "runtimeConfigurations";

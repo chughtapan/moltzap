@@ -29,7 +29,7 @@ const networkBoundary = vi.hoisted(() => ({
   createConnection: vi.fn(),
   createServer: vi.fn(),
 }));
-const clientBoundary = vi.hoisted(() => ({ acquire: vi.fn() }));
+const endpointBoundary = vi.hoisted(() => ({ acquire: vi.fn() }));
 
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof ChildProcessModule>()),
@@ -44,7 +44,7 @@ vi.mock("node:net", async (importOriginal) => ({
 
 vi.mock("@moltzap/client", async (importOriginal) => ({
   ...(await importOriginal<typeof MoltzapClientModule>()),
-  acquireHarnessClient: clientBoundary.acquire,
+  acquireHarnessEndpoint: endpointBoundary.acquire,
 }));
 
 const DAEMON_ENTRYPOINT =
@@ -125,9 +125,9 @@ class FakeSocket extends EventEmitter {
   }
 }
 
-const harnessClient: MoltzapClientModule.HarnessClient = Object.freeze({
-  start: () => Effect.void,
-  turns: Stream.never,
+const harnessEndpoint: MoltzapClientModule.HarnessEndpoint = Object.freeze({
+  send: () => Effect.void,
+  messages: Stream.never,
 });
 
 let daemonProcesses: FakeChildProcess[];
@@ -145,7 +145,7 @@ beforeEach(() => {
   processBoundary.spawn.mockReset();
   networkBoundary.createConnection.mockReset();
   networkBoundary.createServer.mockReset();
-  clientBoundary.acquire.mockReset();
+  endpointBoundary.acquire.mockReset();
 
   processBoundary.spawn.mockImplementation(
     (
@@ -180,8 +180,8 @@ beforeEach(() => {
     });
     return socket;
   });
-  clientBoundary.acquire.mockImplementation(() =>
-    Effect.succeed(harnessClient),
+  endpointBoundary.acquire.mockImplementation(() =>
+    Effect.succeed(harnessEndpoint),
   );
 });
 
@@ -194,7 +194,8 @@ function acquireEndpoint() {
 }
 
 function acquiredClientUrl(callIndex: number): URL {
-  const candidate: unknown = clientBoundary.acquire.mock.calls[callIndex]?.[0];
+  const candidate: unknown =
+    endpointBoundary.acquire.mock.calls[callIndex]?.[0];
   assert.instanceOf(candidate, URL);
   return candidate;
 }
@@ -239,16 +240,18 @@ it.scopedLive(
   "retries a failed verified listener handoff before registration",
   () =>
     Effect.gen(function* () {
-      clientBoundary.acquire
-        .mockImplementationOnce(() => Effect.fail(new ConnectError()))
-        .mockImplementation(() => Effect.succeed(harnessClient));
+      endpointBoundary.acquire
+        .mockImplementationOnce(() =>
+          Effect.fail(new ConnectError({ reason: "transport-failed" })),
+        )
+        .mockImplementation(() => Effect.succeed(harnessEndpoint));
 
       yield* acquireEndpoint();
 
       assert.lengthOf(daemonProcesses, 2);
       assert.lengthOf(registrarProcesses, 1);
       assert.strictEqual(daemonProcesses[0]?.signalCode, "SIGTERM");
-      assert.strictEqual(clientBoundary.acquire.mock.calls.length, 3);
+      assert.strictEqual(endpointBoundary.acquire.mock.calls.length, 3);
       assert.strictEqual(
         acquiredClientUrl(0).href,
         "http://127.0.0.1:45100/mcp",
@@ -311,7 +314,7 @@ it.scopedLive("never retries after registration begins", () =>
     assert.strictEqual(failure.operation, "attach-endpoint");
     assert.lengthOf(daemonProcesses, 1);
     assert.lengthOf(registrarProcesses, 1);
-    assert.strictEqual(clientBoundary.acquire.mock.calls.length, 1);
+    assert.strictEqual(endpointBoundary.acquire.mock.calls.length, 1);
   }),
 );
 

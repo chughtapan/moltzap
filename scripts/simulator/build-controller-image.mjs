@@ -67,6 +67,10 @@ export const controllerExternalDependencies = {
   "@electric-sql/pglite-socket": "0.1.4",
   "@modelcontextprotocol/client": "2.0.0-beta.5",
 };
+/** Host installed only in the application overlay for the optional adapter peer. */
+export const controllerOverlayExternalDependencies = {
+  openclaw: "2026.7.1-2",
+};
 
 function report(message) {
   process.stderr.write(`[moltzap controller image] ${message}\n`);
@@ -131,6 +135,16 @@ function packageManifest(
   };
 }
 
+/** Build the install manifest copied into the OpenClaw application overlay. */
+export function controllerOverlayPackageManifest(archives) {
+  return packageManifest(
+    "moltzap-openclaw-overlay",
+    ["@moltzap/openclaw-channel"],
+    archives,
+    controllerOverlayExternalDependencies,
+  );
+}
+
 async function stage() {
   const root = await mkdtemp(join(tmpdir(), "moltzap-controller-image-"));
   const tarballs = join(root, "tarballs");
@@ -162,11 +176,7 @@ async function stage() {
     writeFile(
       join(root, "overlay-package.json"),
       `${JSON.stringify(
-        packageManifest(
-          "moltzap-openclaw-overlay",
-          ["@moltzap/openclaw-channel"],
-          archives,
-        ),
+        controllerOverlayPackageManifest(archives),
         null,
         2,
       )}\n`,

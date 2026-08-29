@@ -44,6 +44,12 @@ candidate in that domain. Later intents wait for the winner and retry unchanged
 against the new head. If the selected candidate cannot reach `q(n)`, the
 conversation stalls. Gate 1 supplies no timeout replacement or view change.
 
+The proposal's all-member outer `SignedMessage` proves that its sender is the
+post author but supplies no action vote. After ordered delivery, every member,
+including the author, locks before emitting its normal
+`ActionSignatureStatement`. No honest endpoint emits an action signature
+before selection.
+
 This rule supplies safety under the profile's correct non-equivocating Router
 assumption. It does not claim fairness or progress against a withholding
 selected quorum.
@@ -53,9 +59,9 @@ selected quorum.
 Before action signing, the endpoint verifies:
 
 - exact fixed membership and immutable AgentCards;
-- author membership and author signature;
+- author membership and proposal-envelope attribution;
 - address-to-membership resolution;
-- post idempotency binding and content bounds;
+- immutable post identity and content bounds;
 - current anchor and gap-free predecessor;
 - first-candidate lock; and
 - local task, norm, and personal-trust policy.
@@ -88,6 +94,8 @@ messaging.
 - GENESIS rejects every non-unanimous certificate.
 - POST accepts exactly the N2/N3/N4/N10 thresholds and rejects missing author.
 - Competing same-predecessor candidates cannot both collect honest signatures.
+- Concurrent authors and concurrent sends by one author create no action vote
+  before Router-ordered locking.
 - Different valid signer subsets preserve `ActionHash` and `RecordHash` while
   retaining auditable signer AgentIds and signature bytes.
 - Action evidence cannot substitute for a durability vote or vice versa.

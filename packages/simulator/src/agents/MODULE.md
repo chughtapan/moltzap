@@ -556,7 +556,7 @@ Timed-out terminal projection returned by OpenClaw's native `agent` RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L136)
+### [`openClawRuntime`](./openclaw/runtime.ts#L141)
 
 _Function_
 
@@ -574,7 +574,7 @@ Construct an OpenClaw application container with its native gateway bridge.
 
 **Returns:** The open claw runtime result.
 
-### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L110)
+### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L111)
 
 _Interface_
 
@@ -584,6 +584,10 @@ export interface OpenClawRuntimeOptions {
   readonly workspaceFiles?: readonly WorkspaceFile[];
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
+
+  /** Selects host-native session isolation for evaluations. Defaults to shared. */
+  readonly messagingMode?: "shared" | "private";
+
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
 }

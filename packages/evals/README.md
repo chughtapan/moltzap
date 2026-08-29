@@ -41,11 +41,12 @@ cases by two runtime conditions with one sample per cell.
 
 The six cross-conversation cases are `EVAL-008` and `EVAL-030` through
 `EVAL-034`. They execute as real social scenarios: the target is instructed to
-create separate conversations, and autonomous source and probe peers react only
-to public addressed inbound messages. The target's native main session carries
-cross-address context; Evals does not inject a Client context bundle. This
-makes the behavior measurable without claiming that a target will retain,
-isolate, or disclose the right information. A peer observation can retain a
+create separate conversations, and autonomous source and probe peers react
+only to public addressed inbound messages. The default `shared` messaging mode
+configures OpenClaw's stock session layout; NanoClaw session behavior belongs
+to its supplied application image. Evals injects no Client context bundle.
+This makes the behavior measurable without claiming that a target will
+retain, isolate, or disclose the right information. A peer observation can retain a
 missing required message as bounded timeout evidence, and an observed but
 unsafe or incorrect response can receive a behavioral failure. The enclosing
 case deadline remains an operational timeout boundary.
@@ -97,8 +98,11 @@ mise x node@24.18.0 -- pnpm nx run @moltzap/evals:lint
 Live runs require digest-pinned `MOLTZAP_CONTROLLER_IMAGE` and
 `MOLTZAP_NANOCLAW_IMAGE` values, the selected Simulator profile's artifact
 location and Temporal address, model credentials, and a clean committed
-worktree. Run `eval`, `resume`, `calibrate`, or `publish` through the package's
-Nx targets.
+worktree. `eval` and `resume` accept `--messaging-mode shared|private` and
+default to `shared`; the mode is retained in the immutable report plan and is
+passed only to runtimes whose stock configuration exposes it. NanoClaw session
+behavior belongs to the supplied application image. Run `eval`, `resume`,
+`calibrate`, or `publish` through the package's Nx targets.
 
 SQLite is the mutable report authority. Resume executes only cells missing from
 an exactly matching plan. Completed Simulator artifacts remain the evidence

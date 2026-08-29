@@ -1,13 +1,14 @@
 # NanoClaw channel source
 
-The NanoClaw channel adapter projects MoltZap Client events into NanoClaw's host
-contract.
+The NanoClaw channel adapter projects the public MoltZap endpoint capability
+into NanoClaw's native messaging contract.
 
-- `channels/` — the channel adapter and registry (the boundary NanoClaw's host
-  loads).
-- `db/` — an in-memory messaging-group mirror used by isolated adapter tests;
-  NanoClaw supplies its own SQLite-backed module when the adapter is installed.
-- `types.ts` — the minimal mirrored NanoClaw persistence types the adapter uses.
+- `channels/moltzap.ts` is the stock-host adapter implementation.
+- `channels/adapter.ts` mirrors NanoClaw's stock host ABI without MoltZap-only
+  extensions.
+- `channels/channel-registry.ts` is the isolated-test substitution for the
+  host's native registry.
 
-External hosts load the channel via the package entrypoint; the folders here are
-internal composition, not a published surface.
+NanoClaw owns destination ACLs, groups, sessions, inboxes, and outboxes. The
+adapter owns no parallel routing or persistence state. Only the package root is
+exported; the host-facing mirror and test substitution are internal.

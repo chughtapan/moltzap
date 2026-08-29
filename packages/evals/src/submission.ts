@@ -105,6 +105,7 @@ export interface SubmitEvaluationCellInput {
   readonly definitionId: SimulatorDefinitionId;
   readonly attemptId: string;
   readonly condition: SubmissionCondition;
+  readonly messagingMode: "shared" | "private";
   readonly nanoclawApplicationImage: Image;
   readonly runtimeStartupTimeoutMillis: number;
   readonly peerObservationTimeoutMillis: number;
@@ -220,7 +221,7 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
 }
 
 function conditionExpression(input: SubmitEvaluationCellInput): string {
-  const shared = [
+  const runtime = [
     `startupTimeout: Duration.millis(${String(input.runtimeStartupTimeoutMillis)})`,
     `modelId: ${literal(input.condition.modelId)}`,
   ];
@@ -231,8 +232,8 @@ function conditionExpression(input: SubmitEvaluationCellInput): string {
   // Total over the conditions that exist, so the generated module never has to
   // carry a throw for a condition the caller could not have named.
   const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
-    "openclaw/v2": `openClawEvaluationCondition({ runtime: { ${shared.join(", ")} }, execution: { ${execution.join(", ")} } })`,
-    "nanoclaw/v2": `nanoclawEvaluationCondition({ runtime: { ${shared.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`,
+    "openclaw/v2": `openClawEvaluationCondition({ runtime: { ${runtime.join(", ")}, messagingMode: ${literal(input.messagingMode)} }, execution: { ${execution.join(", ")} } })`,
+    "nanoclaw/v2": `nanoclawEvaluationCondition({ runtime: { ${runtime.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`,
   };
   // Indexing needs the plain spelling; the brand is not part of the key set.
   const condition: EvaluationConditionName = input.condition.id;

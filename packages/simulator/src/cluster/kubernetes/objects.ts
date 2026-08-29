@@ -493,7 +493,10 @@ function applicationContainer(input: SandboxManifestInput) {
     ],
     resources: { requests: resourceRequests(input.application.resources) },
     volumeMounts: [
-      { name: "bootstrap-output", mountPath: BOOTSTRAP_OUTPUT_PATH },
+      {
+        name: "bootstrap-output",
+        mountPath: BOOTSTRAP_OUTPUT_PATH,
+      },
     ],
   };
 }

@@ -5,9 +5,12 @@ import type { EndpointStore } from "./types.js";
 import {
   applyCatchUpReanchor,
   bindIdentity,
-  bindStartIntent,
+  bindPostIntent,
   completeReanchor,
+  lockGenesisProposal,
+  lockProposal,
   putConversationFoundation,
+  restartEmptyConversation,
   stageReanchor,
 } from "./anchors.js";
 import {
@@ -17,6 +20,8 @@ import {
   runStoreOperation,
   type StoreState,
 } from "./database/index.js";
+import { acknowledgeDelivery, readPendingDeliveries } from "./deliveries.js";
+import { enqueueDisseminationOutbound } from "./dissemination.js";
 import {
   readStoredConversation,
   recoverStoredState,
@@ -24,12 +29,19 @@ import {
   searchStoredConversations,
 } from "./management.js";
 import {
+  beginOutbound,
+  completeOutbound,
+  discardOutbound,
+  enqueueOutbound,
+  replaceOutbound,
+} from "./outbound.js";
+import {
   applyCatchUpRecord,
-  consumeAttention,
-  hasConsumedAttention,
   mergeEvidence,
   promoteRecord,
+  promoteRecordForDissemination,
   stageRecord,
+  stageRecordForDissemination,
 } from "./records.js";
 
 /** Closed endpoint-store failures without SQLite implementation details. */
@@ -52,32 +64,85 @@ export const openEndpointStore = (
   );
 
 function makeEndpointStore(state: StoreState): EndpointStore {
-  const run = <Value>(operation: () => Value) =>
-    runStoreOperation(state, operation);
+  const run = makeStoreRunner(state);
   const store: EndpointStore = {
+    ...makeHistoryOperations(state, run),
+    ...makeTransportOperations(state, run),
+    ...makeManagementOperations(state, run),
+  };
+  return Object.freeze(store);
+}
+
+type StoreRunner = <Value>(
+  operation: () => Value,
+) => Effect.Effect<Value, EndpointStoreError>;
+
+function makeStoreRunner(state: StoreState): StoreRunner {
+  return <Value>(operation: () => Value) => runStoreOperation(state, operation);
+}
+
+function makeHistoryOperations(state: StoreState, run: StoreRunner) {
+  return {
     readIdentity: () => run(() => bindIdentity.read(state.database)),
     bindIdentity: (binding) =>
       run(() => bindIdentity.write(state.database, binding)),
-    bindStartIntent: (intent) =>
-      run(() => bindStartIntent(state.database, intent)),
+    bindPostIntent: (binding) =>
+      run(() => bindPostIntent(state.database, binding)),
     putConversationFoundation: (foundation) =>
       run(() => putConversationFoundation(state.database, foundation)),
+    lockProposal: (proposal) =>
+      run(() => lockProposal(state.database, proposal)),
+    lockGenesisProposal: (foundation, proposal) =>
+      run(() => lockGenesisProposal(state.database, foundation, proposal)),
     stageRecord: (record) => run(() => stageRecord(state.database, record)),
+    stageRecordForDissemination: (record) =>
+      run(() => stageRecordForDissemination(state.database, record)),
     mergeEvidence: (evidence) =>
       run(() => mergeEvidence(state.database, evidence)),
-    promoteRecord: (record) => run(() => promoteRecord(state.database, record)),
-    applyCatchUpRecord: (record) =>
-      run(() => applyCatchUpRecord(state.database, record)),
+    promoteRecord: (record, delivery) =>
+      run(() => promoteRecord(state.database, record, delivery)),
+    promoteRecordForDissemination: (record, delivery) =>
+      run(() =>
+        promoteRecordForDissemination(state.database, record, delivery),
+      ),
+    applyCatchUpRecord: (record, delivery) =>
+      run(() => applyCatchUpRecord(state.database, record, delivery)),
     stageReanchor: (reanchor) =>
       run(() => stageReanchor(state.database, reanchor)),
     completeReanchor: (reanchor) =>
       run(() => completeReanchor(state.database, reanchor)),
     applyCatchUpReanchor: (reanchor) =>
       run(() => applyCatchUpReanchor(state.database, reanchor)),
-    consumeAttention: (input) =>
-      run(() => consumeAttention(state.database, input)),
-    hasConsumedAttention: (input) =>
-      run(() => hasConsumedAttention(state.database, input)),
+  } satisfies Partial<EndpointStore>;
+}
+
+function makeTransportOperations(state: StoreState, run: StoreRunner) {
+  return {
+    readPendingDeliveries: () =>
+      run(() => readPendingDeliveries(state.database)),
+    acknowledgeDelivery: (deliveryToken) =>
+      run(() => acknowledgeDelivery(state.database, deliveryToken)),
+    enqueueOutbound: (message) =>
+      run(() => enqueueOutbound(state.database, message)),
+    enqueueDisseminationOutbound: (obligation, message) =>
+      run(() =>
+        enqueueDisseminationOutbound(state.database, obligation, message),
+      ),
+    beginOutbound: (outboundId) =>
+      run(() => beginOutbound(state.database, outboundId)),
+    replaceOutbound: (current, replacement) =>
+      run(() => replaceOutbound(state.database, current, replacement)),
+    completeOutbound: (outbound) =>
+      run(() => completeOutbound(state.database, outbound)),
+    discardOutbound: (outbounds) =>
+      run(() => discardOutbound(state.database, outbounds)),
+    restartEmptyConversation: (restart) =>
+      run(() => restartEmptyConversation(state.database, restart)),
+  } satisfies Partial<EndpointStore>;
+}
+
+function makeManagementOperations(state: StoreState, run: StoreRunner) {
+  return {
     searchConversations: (input = {}) =>
       run(() => searchStoredConversations(state.database, input)),
     readConversation: (request) =>
@@ -87,6 +152,5 @@ function makeEndpointStore(state: StoreState): EndpointStore {
         releaseStoredContinuation(state, continuation);
       }),
     recover: () => run(() => recoverStoredState(state.database)),
-  };
-  return Object.freeze(store);
+  } satisfies Partial<EndpointStore>;
 }

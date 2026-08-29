@@ -40,12 +40,13 @@ create runtime `simulator -> evals`, `simulator -> openclaw-channel`, or
   runtime Registry admission material, endpoint signing keys, raw Router
   credentials, Router attachment capabilities, endpoint stores, or protocol
   internals.
-- The injected Client sends only to explicit `agent:` or `group:` addresses
-  with durable host idempotency and emits addressed direct or group deliveries.
-  Send returns `void` after local certification. Search, history, status,
-  registration, and proof inspection stay on MCP. Simulator evidence may
-  observe public effects but cannot obtain `ActionHash`, `RecordHash`,
-  certificates, or private recovery state from `HarnessEndpoint`.
+- The injected Client sends only to explicit `agent:` or `group:` addresses.
+  Each call creates one post, and the runtime host owns whether to call again.
+  Client emits addressed direct or group deliveries and returns `void` after
+  local certification. Search, history, status, registration, and proof
+  inspection stay on MCP. Simulator evidence may observe public effects but
+  cannot obtain `ActionHash`, `RecordHash`, certificates, or private recovery
+  state from `HarnessEndpoint`.
 - Social traffic uses the same Identity, Router, and Client implementation as
   production. Code agents receive no shortcut around endpoint certification,
   durability, catch-up, or personal trust.

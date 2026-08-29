@@ -1,6 +1,6 @@
 /** @file Participant-independent conversation addressing. */
 
-import type { ConversationId, HarnessTurn } from "@moltzap/client";
+import type { InboundDelivery, MessageAddressInput } from "@moltzap/client";
 import { Effect, Option, Stream } from "effect";
 import type { ParticipantHandle } from "./participant.js";
 import { type NetworkError, networkError } from "./failure.js";
@@ -28,11 +28,11 @@ export type ConversationParticipants = readonly [
 export class ConversationAddress {
   readonly [conversationAddressTypeId] = conversationAddressTypeId;
 
-  readonly conversationId: ConversationId;
+  readonly destination: MessageAddressInput;
   readonly participants: ConversationParticipants;
 
   constructor(
-    conversationId: ConversationId,
+    destination: MessageAddressInput,
     participants: ConversationParticipants,
   ) {
     if (participants.length === 0) {
@@ -48,23 +48,23 @@ export class ConversationAddress {
         "conversation participants must be unique by AgentId",
       );
     }
-    this.conversationId = conversationId;
+    this.destination = destination;
     this.participants = Object.freeze([first, ...rest]);
     Object.freeze(this);
   }
 }
 
 /**
- * Construct an address from one caller-minted conversation identity.
- * @param conversationId Identity minted before any network operation.
+ * Construct an address from one explicit Client destination.
+ * @param destination Address resolved by the controlled endpoint.
  * @param participants Nonempty, unique participant set for the conversation.
  * @returns The immutable participant-independent address.
  */
 export function makeConversationAddress(
-  conversationId: ConversationId,
+  destination: MessageAddressInput,
   participants: ConversationParticipants,
 ): ConversationAddress {
-  return new ConversationAddress(conversationId, participants);
+  return new ConversationAddress(destination, participants);
 }
 
 /** A conversation address bound to exactly one controlled endpoint. */
@@ -72,8 +72,8 @@ export function makeConversationAddress(
 export class ConversationSocket {
   readonly [conversationSocketTypeId] = conversationSocketTypeId;
 
-  /** Ordered semantic turns for this endpoint and conversation. */
-  readonly messages: Stream.Stream<HarnessTurn, NetworkError>;
+  /** Ordered addressed deliveries for this endpoint and conversation. */
+  readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
 
   readonly endpoint: ParticipantHandle;
   readonly address: ConversationAddress;
@@ -81,7 +81,7 @@ export class ConversationSocket {
   private constructor(
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<HarnessTurn, NetworkError>,
+    messages: Stream.Stream<InboundDelivery, NetworkError>,
   ) {
     this.endpoint = endpoint;
     this.address = address;
@@ -91,17 +91,17 @@ export class ConversationSocket {
   static [conversationSocketConstruction](
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<HarnessTurn, NetworkError>,
+    messages: Stream.Stream<InboundDelivery, NetworkError>,
   ): ConversationSocket {
     return new ConversationSocket(endpoint, address, messages);
   }
 
   /**
-   * Receive the next ordered turn. Selection policy belongs in the consuming
-   * Effect, so the socket never skips an earlier turn.
-   * @returns The next turn, or a typed receive failure when the stream ends.
+   * Receive the next ordered delivery. Selection policy belongs in the
+   * consuming Effect, so the socket never skips an earlier delivery.
+   * @returns The next delivery, or a typed receive failure when the stream ends.
    */
-  receive(): Effect.Effect<HarnessTurn, NetworkError> {
+  receive(): Effect.Effect<InboundDelivery, NetworkError> {
     return this.messages.pipe(
       Stream.runHead,
       Effect.flatMap(
@@ -110,7 +110,7 @@ export class ConversationSocket {
             Effect.fail(
               networkError(
                 "receive",
-                `conversation ${this.address.conversationId} ended before another turn arrived`,
+                `destination ${this.address.destination} ended before another delivery arrived`,
               ),
             ),
           onSome: Effect.succeed,
@@ -124,13 +124,13 @@ export class ConversationSocket {
  * Bind an endpoint receiver to an existing address.
  * @param endpoint Controlled endpoint that receives the conversation.
  * @param address Participant-independent conversation address.
- * @param messages Ordered turn stream for this endpoint and conversation.
+ * @param messages Ordered delivery stream for this endpoint and conversation.
  * @returns The address bound to the selected endpoint.
  */
 export function makeConversationSocket(
   endpoint: ParticipantHandle,
   address: ConversationAddress,
-  messages: Stream.Stream<HarnessTurn, NetworkError>,
+  messages: Stream.Stream<InboundDelivery, NetworkError>,
 ): ConversationSocket {
   return Object.freeze(
     ConversationSocket[conversationSocketConstruction](

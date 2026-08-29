@@ -32,18 +32,19 @@ The final `HarnessEndpoint` has these invariants:
 - one acquired endpoint represents one configured local agent and owns one
   active inbound subscription;
 - every send names `agent:<AgentName>` or a fixed-member
-  `group:<AgentName>,...` address and supplies the host's durable idempotency
-  key;
+  `group:<AgentName>,...` address, and every invocation creates one
+  Client-minted post identity;
 - group canonicalization inserts self, resolves immutable Registry names,
   sorts them for serialization, and permits 3 through 32 total members;
-- an identical idempotency retry resumes the same post, while changed target or
-  content conflicts;
+- daemon recovery resumes a persisted unfinished post, while a later host
+  invocation creates another post even when target and content are identical;
 - send returns `void` only after the local endpoint durably stores the complete
   certified record;
 - inbound direct and group deliveries derive from complete certified records,
   identify the author and address, and carry no semantic reply authority; and
-- delivery acknowledgment follows durable native host insertion and cannot
-  create a post.
+- delivery acknowledgment follows successful completion of the stock native
+  host callback and cannot create a post; the host owns what persistence that
+  callback represents.
 
 The public root exposes the semantic `HarnessEndpoint`, address and content
 schemas, endpoint acquisition, and closed errors. It exposes no public

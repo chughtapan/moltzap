@@ -1,14 +1,18 @@
 /** @file Exact private MCP schemas for daemon management and history reads. */
 
-import { AgentCard, AgentName, PrincipalId } from "@moltzap/identity";
+import { AgentCard, AgentId, AgentName, PrincipalId } from "@moltzap/identity";
 import {
   OperationId,
   RegistryListRequest,
   RegistryLookupRequest,
 } from "@moltzap/identity/registry";
-import { JSONSchema, Schema } from "effect";
-import { ConversationId } from "./contract.js";
-import { CertifiedRecord, RecordHash } from "./endpoint/representation.js";
+import { Either, Encoding, Schema } from "effect";
+import { AgentAddress, GroupAddress } from "./contract.js";
+import {
+  RecordCore,
+  RecordHash,
+  RouterAnchor,
+} from "./endpoint/representation.js";
 
 const exactOptions = {
   exact: true,
@@ -19,6 +23,101 @@ const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
   Schema.Struct(fields).annotations({ parseOptions: exactOptions });
 
 const encodedAgentCard = Schema.encodedSchema(AgentCard);
+const utf8Encoder = new TextEncoder();
+
+const messageAddress = Schema.Union(AgentAddress, GroupAddress).annotations({
+  identifier: "MessageAddress",
+});
+
+function addressesAreOrdered(addresses: readonly string[]): boolean {
+  for (let index = 1; index < addresses.length; index += 1) {
+    const previous = addresses[index - 1];
+    const current = addresses[index];
+    if (
+      previous === undefined ||
+      current === undefined ||
+      compareBytes(utf8Encoder.encode(previous), utf8Encoder.encode(current)) >=
+        0
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function canonicalBase64UrlBytes(value: string, byteLength: number): boolean {
+  return Either.match(Encoding.decodeBase64Url(value), {
+    onLeft: () => false,
+    onRight: (bytes) =>
+      bytes.byteLength === byteLength &&
+      Encoding.encodeBase64Url(bytes) === value,
+  });
+}
+
+function agentIdsAreOrdered(agentIds: readonly string[]): boolean {
+  for (let index = 1; index < agentIds.length; index += 1) {
+    const previous = agentIds[index - 1];
+    const current = agentIds[index];
+    if (previous === undefined || current === undefined) {
+      return false;
+    }
+    const previousBytes = Either.getOrUndefined(
+      Encoding.decodeBase64Url(previous.slice(4)),
+    );
+    const currentBytes = Either.getOrUndefined(
+      Encoding.decodeBase64Url(current.slice(4)),
+    );
+    if (
+      previousBytes === undefined ||
+      currentBytes === undefined ||
+      compareBytes(previousBytes, currentBytes) >= 0
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  const sharedLength = Math.min(left.byteLength, right.byteLength);
+  for (let index = 0; index < sharedLength; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return left.byteLength - right.byteLength;
+}
+
+const historyContinuation = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z0-9_-]{43}$/u),
+  Schema.filter((value) => canonicalBase64UrlBytes(value, 32)),
+);
+
+const ed25519Signature = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z0-9_-]{86}$/u),
+  Schema.filter((value) => canonicalBase64UrlBytes(value, 64)),
+);
+
+const signerEvidence = exactStruct({
+  signerAgentId: AgentId,
+  signature: ed25519Signature,
+});
+
+const orderedSignerEvidence = Schema.NonEmptyArray(signerEvidence).pipe(
+  Schema.maxItems(32),
+  Schema.filter((evidence) =>
+    agentIdsAreOrdered(evidence.map((item) => item.signerAgentId)),
+  ),
+);
+
+const historyRecord = exactStruct({
+  recordHash: RecordHash,
+  recordCore: RecordCore,
+  routerAnchor: RouterAnchor,
+  actionSignatures: orderedSignerEvidence,
+  durabilityVotes: orderedSignerEvidence,
+});
 
 /** Closed local registration input; configured secrets are never tool fields. */
 export const managementRegisterRequestSchema = exactStruct({
@@ -37,9 +136,6 @@ export const managementRegisterResultSchema = Schema.Union(
   exactStruct({ kind: Schema.Literal("key_already_registered") }),
   exactStruct({ kind: Schema.Literal("idempotency_conflict") }),
 ).annotations({ parseOptions: exactOptions });
-
-/** Empty exact request used by status. */
-export const managementEmptyRequestSchema = exactStruct({});
 
 /** Closed daemon lifecycle visible to the loopback operator. */
 export const managementStatusResultSchema = Schema.Union(
@@ -72,34 +168,36 @@ export const managementSearchAgentsResultSchema = Schema.Union(
 
 /** Canonically ordered local-conversation page selector. */
 export const managementSearchConversationsRequestSchema = exactStruct({
-  afterConversationId: Schema.optional(ConversationId),
+  afterAddress: Schema.optional(messageAddress),
 });
 
-/** Identifier-only local-conversation page. */
+/** Canonically ordered local-conversation address page. */
 export const managementSearchConversationsResultSchema = exactStruct({
   kind: Schema.Literal("page"),
-  conversationIds: Schema.Array(ConversationId),
+  addresses: Schema.Array(messageAddress).pipe(Schema.maxItems(50)),
   hasMore: Schema.Boolean,
-});
-
-const canonicalContinuation = Schema.String.pipe(
-  Schema.pattern(/^[A-Za-z0-9_-]{43}$/u),
+}).pipe(
+  Schema.filter(
+    (page) =>
+      addressesAreOrdered(page.addresses) &&
+      (!page.hasMore || page.addresses.length > 0),
+  ),
 );
 
 /** Frozen certified-history page selector or process-local continuation. */
 export const managementReadConversationRequestSchema = Schema.Union(
   exactStruct({
-    conversationId: ConversationId,
+    address: messageAddress,
     afterRecordHash: Schema.optional(RecordHash),
   }),
-  exactStruct({ continuation: canonicalContinuation }),
+  exactStruct({ continuation: historyContinuation }),
 ).annotations({ parseOptions: exactOptions });
 
 /** Complete proof-bearing local certified-history page. */
 export const managementReadConversationResultSchema = exactStruct({
   kind: Schema.Literal("page"),
-  records: Schema.Array(CertifiedRecord),
-  continuation: Schema.NullOr(canonicalContinuation),
+  records: Schema.Array(historyRecord).pipe(Schema.maxItems(50)),
+  continuation: Schema.NullOr(historyContinuation),
 });
 
 /** Decoded local registration request. */
@@ -128,28 +226,3 @@ export type ManagementReadConversationRequest =
 /** Encoded proof-bearing local certified-history result. */
 export type ManagementReadConversationResult =
   typeof managementReadConversationResultSchema.Type;
-
-const makeJsonSchema = <A, I>(schema: Schema.Schema<A, I>) =>
-  JSONSchema.make(schema, { target: "jsonSchema2020-12" });
-
-/** JSON Schemas advertised by the official MCP catalog. */
-export const managementJsonSchemas = Object.freeze({
-  emptyRequest: makeJsonSchema(managementEmptyRequestSchema),
-  readConversationRequest: makeJsonSchema(
-    managementReadConversationRequestSchema,
-  ),
-  readConversationResult: makeJsonSchema(
-    managementReadConversationResultSchema,
-  ),
-  registerRequest: makeJsonSchema(managementRegisterRequestSchema),
-  registerResult: makeJsonSchema(managementRegisterResultSchema),
-  searchAgentsRequest: makeJsonSchema(managementSearchAgentsRequestSchema),
-  searchAgentsResult: makeJsonSchema(managementSearchAgentsResultSchema),
-  searchConversationsRequest: makeJsonSchema(
-    managementSearchConversationsRequestSchema,
-  ),
-  searchConversationsResult: makeJsonSchema(
-    managementSearchConversationsResultSchema,
-  ),
-  statusResult: makeJsonSchema(managementStatusResultSchema),
-});

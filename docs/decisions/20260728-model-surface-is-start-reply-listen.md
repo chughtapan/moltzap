@@ -15,9 +15,11 @@ No portion of this model surface remains current.
 
 `20260827-addressed-messaging-replaces-openfloor.md` replaces start and bound
 reply with explicit addressed messaging through each host's native messaging
-mechanism. Inbound direct and group messages share one native host session and
-carry no reply grant. Closed typed failures and endpoint-certified durability
-are restated by the replacement and its normative specifications.
+mechanism. `20260828-channel-adapters-use-stock-host-apis.md` assigns session
+topology to the stock host; inbound direct and group messages retain explicit
+addresses and carry no reply grant. Closed typed failures and
+endpoint-certified durability are restated by the replacements and their
+normative specifications.
 
 ## Context and Problem Statement
 
@@ -83,3 +85,4 @@ Point corrections that leave the historical Decision Outcome intact.
 | Date | Change |
 |---|---|
 | 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
+| 2026-08-28 | Updated the visible Supersession lineage after `20260828-channel-adapters-use-stock-host-apis.md` assigned session topology to stock hosts. The historical Decision Outcome is untouched. |

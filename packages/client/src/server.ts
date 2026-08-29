@@ -8,7 +8,7 @@ import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
 } from "./daemon/configuration.js";
-import { runDaemonRuntime } from "./daemon/runtime.js";
+import { runDaemonRuntime } from "./daemon/runtime/index.js";
 import { openEndpointStore } from "./endpoint/store.js";
 
 const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);

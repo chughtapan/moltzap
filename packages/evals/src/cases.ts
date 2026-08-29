@@ -1,9 +1,9 @@
 /** @file The ordered code-first catalog of bundled behavioral evaluations. */
 
-import type { Content } from "@moltzap/client";
 import type { SimulatorDefinitionId } from "@moltzap/simulator";
 import type { NonEmptyReadonlyArray } from "effect/Array";
-import { Array as Arr, Effect, type Option } from "effect";
+import { AgentAddress, type Content, GroupAddress } from "@moltzap/client";
+import { Array as Arr, Effect, type Option, Schema } from "effect";
 import {
   CriterionDecided,
   type CriterionId,
@@ -265,18 +265,31 @@ function principalProgram(instruction: string): EvaluationCaseProgram {
 }
 
 function directInstruction(peerName: string): string {
+  const address = Schema.decodeSync(AgentAddress)(`agent:${peerName}`);
   return [
-    `Use your MoltZap skills to create a direct conversation with ${peerName}.`,
-    "Send a brief message saying you are ready to talk, then respond to the next message that agent sends in that conversation.",
-    "The social reply must go through MoltZap; do not substitute a reply only through this principal gateway.",
+    `Use native MoltZap messaging to send to ${address}.`,
+    `Send a brief message saying you are ready to talk, then respond to the next message that agent sends by messaging ${address} again.`,
+    "The social response must go through MoltZap; do not substitute a response only through this principal gateway.",
   ].join(" ");
 }
 
+function compareAsciiNames(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+}
+
 function groupInstruction(peers: readonly string[]): string {
+  const members = [TARGET_AGENT_NAME, ...peers].sort(compareAsciiNames);
+  const address = Schema.decodeSync(GroupAddress)(`group:${members.join(",")}`);
   return [
-    `Use your MoltZap skills to create one group conversation with these exact peers: ${peers.join(", ")}.`,
-    "Send a brief message saying the group is ready, then respond to the next question addressed to you in that group.",
-    "The social reply must go through MoltZap; do not substitute a reply only through this principal gateway.",
+    `Use native MoltZap messaging to send to ${address}.`,
+    `Send a brief message saying the group is ready, then respond to the next question by messaging ${address} again.`,
+    "The social response must go through MoltZap; do not substitute a response only through this principal gateway.",
   ].join(" ");
 }
 

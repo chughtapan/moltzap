@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-/** @file Container entry point for one public-Client evaluation peer. */
+/** @file Container entry point for one public-endpoint evaluation peer. */
 
 import { NodeRuntime } from "@effect/platform-node";
 import {
-  acquireHarnessClient,
-  AgentName,
-  type HarnessClient,
+  acquireHarnessEndpoint,
+  AgentAddress,
+  type HarnessEndpoint,
 } from "@moltzap/client";
 import { Config, Deferred, Effect, Schema, type Scope } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This private two-route readiness bridge owns a raw bound port while the controller uses the Effect HTTP client.
@@ -30,7 +30,7 @@ class EvaluationPeerApplicationStartupFailed extends Schema.TaggedError<Evaluati
 ) {}
 
 interface ApplicationConfiguration {
-  readonly agentName: typeof AgentName.Type;
+  readonly endpointAddress: typeof AgentAddress.Type;
   readonly endpoint: URL;
   readonly plan: EvaluationPeerPlan;
 }
@@ -78,8 +78,8 @@ function readConfiguration(): Effect.Effect<
       endpoint: Config.string("MOLTZAP_MCP_URL"),
       plan: Config.string(EVALUATION_PEER_PLAN_ENVIRONMENT),
     }).pipe(Effect.mapError(startupFailure));
-    const [agentName, plan, endpoint] = yield* Effect.all([
-      Schema.decodeUnknown(AgentName)(raw.agentName),
+    const [endpointAddress, plan, endpoint] = yield* Effect.all([
+      Schema.decodeUnknown(AgentAddress)(`agent:${raw.agentName}`),
       Schema.decodeUnknown(Schema.parseJson(EvaluationPeerPlan))(raw.plan, {
         onExcessProperty: "error",
       }),
@@ -88,7 +88,7 @@ function readConfiguration(): Effect.Effect<
         catch: startupFailure,
       }),
     ] as const).pipe(Effect.mapError(startupFailure));
-    return Object.freeze({ agentName, endpoint, plan });
+    return Object.freeze({ endpointAddress, endpoint, plan });
   });
 }
 
@@ -208,10 +208,10 @@ function encodeResult(
   });
 }
 
-function acquireClient(
+function acquireEndpoint(
   endpoint: URL,
-): Effect.Effect<HarnessClient, EvaluationPeerFailed, Scope.Scope> {
-  return acquireHarnessClient(endpoint).pipe(
+): Effect.Effect<HarnessEndpoint, EvaluationPeerFailed, Scope.Scope> {
+  return acquireHarnessEndpoint(endpoint).pipe(
     Effect.mapError((cause) => peerFailure("connect", cause)),
   );
 }
@@ -225,11 +225,11 @@ function runApplication() {
       yield* announceReady();
       return yield* Effect.never;
     }
-    const client = yield* acquireClient(configuration.endpoint);
+    const endpoint = yield* acquireEndpoint(configuration.endpoint);
     yield* announceReady();
     yield* state.triggered;
     yield* runEvaluationPeerApplication(
-      { agentName: configuration.agentName, client },
+      { endpointAddress: configuration.endpointAddress, endpoint },
       configuration.plan,
     ).pipe(
       Effect.matchEffect({

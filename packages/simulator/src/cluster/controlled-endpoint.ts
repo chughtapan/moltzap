@@ -1,14 +1,13 @@
 /** @file Controller-local realization of one experiment-controlled endpoint. */
 
-import type { AgentId, PrincipalId } from "@moltzap/identity";
 import type { OperationId } from "@moltzap/identity/registry";
 import {
-  acquireHarnessClient,
-  AgentName,
-  type HarnessClient,
-  type HarnessTurn,
-  type StartInput,
+  acquireHarnessEndpoint,
+  type HarnessEndpoint,
+  type InboundDelivery,
+  type SendInput,
 } from "@moltzap/client";
+import { type AgentId, AgentName, type PrincipalId } from "@moltzap/identity";
 import {
   Clock,
   Deferred,
@@ -226,11 +225,11 @@ function captureProcessOutput(
   child.stderr?.on("data", append);
 }
 
-function receivedTurns(
-  client: HarnessClient,
+function receivedMessages(
+  endpoint: HarnessEndpoint,
   daemon: RunningProcess,
-): Stream.Stream<HarnessTurn, NetworkError> {
-  return client.turns.pipe(
+): Stream.Stream<InboundDelivery, NetworkError> {
+  return endpoint.messages.pipe(
     Stream.mapError((cause) => networkError("receive", cause.reason)),
     Stream.merge(
       Stream.fromEffect(processTerminationFailure(daemon, "receive")),
@@ -521,20 +520,20 @@ function registrarEnvironment(input: {
   });
 }
 
-function startConversation(
-  client: HarnessClient,
-  input: StartInput,
+function sendMessage(
+  endpoint: HarnessEndpoint,
+  input: SendInput,
 ): Effect.Effect<void, NetworkError> {
-  return client
-    .start(input)
-    .pipe(Effect.mapError((cause) => networkError("start", cause.reason)));
+  return endpoint
+    .send(input)
+    .pipe(Effect.mapError((cause) => networkError("send", cause.reason)));
 }
 
 function verifyDaemonEndpoint(
   endpoint: URL,
 ): Effect.Effect<void, NetworkError> {
   return Effect.scoped(
-    acquireHarnessClient(endpoint).pipe(
+    acquireHarnessEndpoint(endpoint).pipe(
       Effect.mapError(() =>
         boundaryFailure(
           "controlled daemon listener did not expose the Harness MCP capability",
@@ -682,7 +681,7 @@ function acquireControlledEndpoint<const Name extends string>(
         processTerminationFailure(daemon.daemon, "attach-endpoint"),
       ),
     );
-    const client = yield* acquireHarnessClient(daemon.endpoint).pipe(
+    const endpoint = yield* acquireHarnessEndpoint(daemon.endpoint).pipe(
       Effect.mapError(() =>
         boundaryFailure("controlled daemon MCP connection failed"),
       ),
@@ -698,9 +697,8 @@ function acquireControlledEndpoint<const Name extends string>(
     return Object.freeze({
       participant,
       transport: Object.freeze({
-        received: receivedTurns(client, daemon.daemon),
-        start: (startInput: StartInput) =>
-          startConversation(client, startInput),
+        received: receivedMessages(endpoint, daemon.daemon),
+        send: (sendInput: SendInput) => sendMessage(endpoint, sendInput),
       }),
     });
   }).pipe(Effect.withSpan("Simulator.acquireControlledEndpoint"));

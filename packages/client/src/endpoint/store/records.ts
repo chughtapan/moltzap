@@ -1,8 +1,10 @@
-/** @file Atomic record, evidence, head, and consumed-attention transitions. */
+/** @file Atomic record-core, evidence, certification, and delivery transitions. */
 
 import type { DatabaseSync } from "node:sqlite";
 import type {
   CertifiedRecord,
+  DisseminationObligation,
+  InboundDeliveryInput,
   ProtocolEvidence,
   StagedRecord,
   StoreMutation,
@@ -11,6 +13,7 @@ import {
   copyBytes,
   readBytes,
   readOptionalText,
+  readText,
   requireBytes,
   requireEqual,
   requireSameBytes,
@@ -18,9 +21,13 @@ import {
   StoreSignal,
   transaction,
 } from "./database/index.js";
+import { retainDeliveryInTransaction } from "./deliveries.js";
+import { retainDisseminationInTransaction } from "./dissemination.js";
 import {
+  findProposalLock,
   findStagedReanchor,
   findStagedRecord,
+  readStoredIdentity,
   readStoredPosition,
   requireSameRecord,
 } from "./rows/index.js";
@@ -28,10 +35,10 @@ import {
 const GENESIS_PREDECESSOR = "";
 
 /**
- * Durably stages an exact verified action-certified record.
+ * Durably stages an exact verified record core.
  *
  * @param database Exclusively owned endpoint database.
- * @param record Verified action-certified record and private bindings.
+ * @param record Verified record core and private bindings.
  * @returns Whether the same staged record was inserted or already durable.
  */
 export function stageRecord(
@@ -42,6 +49,30 @@ export function stageRecord(
   return transaction(database, () =>
     stageRecordInTransaction(database, record),
   );
+}
+
+/**
+ * Atomically stages an action-certified record and its send obligation.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param record Verified record core whose complete action evidence is durable.
+ * @returns Whether either exact durable component was inserted.
+ */
+export function stageRecordForDissemination(
+  database: DatabaseSync,
+  record: StagedRecord,
+): StoreMutation {
+  validateStagedRecord(record);
+  return transaction(database, () => {
+    const staged = stageRecordInTransaction(database, record);
+    const obligation = retainDisseminationInTransaction(
+      database,
+      disseminationObligation("action-certified-record", record),
+    );
+    return staged === "inserted" || obligation === "inserted"
+      ? "inserted"
+      : "existing";
+  });
 }
 
 /**
@@ -62,94 +93,72 @@ export function mergeEvidence(
 }
 
 /**
- * Atomically promotes a staged complete record and advances its local head.
+ * Atomically promotes a complete record, advances its head, and retains its
+ * local post completion or remote host delivery.
  *
  * @param database Exclusively owned endpoint database.
  * @param record Verified complete certified record.
- * @returns Whether promotion advanced the head or was idempotent.
+ * @param delivery Canonical remote host message, absent for the local author.
+ * @returns Whether any durable state was inserted.
  */
 export function promoteRecord(
   database: DatabaseSync,
   record: CertifiedRecord,
+  delivery?: InboundDeliveryInput,
 ): StoreMutation {
   validateCertifiedRecord(record);
   return transaction(database, () =>
-    promoteRecordInTransaction(database, record),
+    promoteRecordInTransaction(database, record, delivery),
   );
 }
 
 /**
- * Atomically stages and promotes exactly one verified catch-up record item.
+ * Atomically promotes a certified record and retains its send obligation.
  *
  * @param database Exclusively owned endpoint database.
- * @param record One verified complete catch-up record.
- * @returns Whether any durable state was added.
+ * @param record Verified complete certified record.
+ * @param delivery Canonical remote host message, absent for the local author.
+ * @returns Whether either exact durable component was inserted.
  */
-export function applyCatchUpRecord(
+export function promoteRecordForDissemination(
   database: DatabaseSync,
   record: CertifiedRecord,
+  delivery?: InboundDeliveryInput,
 ): StoreMutation {
   validateCertifiedRecord(record);
   return transaction(database, () => {
-    const staged = stageRecordInTransaction(database, record);
-    const promoted = promoteRecordInTransaction(database, record);
-    return staged === "inserted" || promoted === "inserted"
+    const promoted = promoteRecordInTransaction(database, record, delivery);
+    const obligation = retainDisseminationInTransaction(
+      database,
+      disseminationObligation("certified-record", record),
+    );
+    return promoted === "inserted" || obligation === "inserted"
       ? "inserted"
       : "existing";
   });
 }
 
 /**
- * Durably consumes one complete certified record's runtime-attention slot.
+ * Atomically applies one verified catch-up record and its remote delivery.
  *
  * @param database Exclusively owned endpoint database.
- * @param input Complete certified record identity.
- * @returns Whether the consumed pair was inserted or already durable.
+ * @param record One verified complete catch-up record.
+ * @param delivery Canonical remote host message, absent for the local author.
+ * @returns Whether any durable state was inserted.
  */
-export function consumeAttention(
+export function applyCatchUpRecord(
   database: DatabaseSync,
-  input: Readonly<{ conversationId: string; recordHash: string }>,
+  record: CertifiedRecord,
+  delivery?: InboundDeliveryInput,
 ): StoreMutation {
-  requireText(input.conversationId);
-  requireText(input.recordHash);
+  validateCertifiedRecord(record);
   return transaction(database, () => {
-    if (!hasCertifiedRecord(database, input.conversationId, input.recordHash)) {
-      throw new StoreSignal("not-found");
-    }
-    if (hasConsumedAttention(database, input)) {
-      return "existing";
-    }
-    database
-      .prepare(
-        `INSERT INTO consumed_attention
-          (conversation_id, record_hash) VALUES (?, ?)`,
-      )
-      .run(input.conversationId, input.recordHash);
-    return "inserted";
+    const staged = stageRecordInTransaction(database, record);
+    const promoted = promoteRecordInTransaction(database, record, delivery);
+    return staged === "inserted" || promoted === "inserted"
+      ? "inserted"
+      : "existing";
   });
-}
-
-/**
- * Reads whether one certified position's attention was already consumed.
- *
- * @param database Exclusively owned endpoint database.
- * @param input Conversation and complete record identity.
- * @returns True only when the durable consumed pair exists.
- */
-export function hasConsumedAttention(
-  database: DatabaseSync,
-  input: Readonly<{ conversationId: string; recordHash: string }>,
-): boolean {
-  requireText(input.conversationId);
-  requireText(input.recordHash);
-  return (
-    database
-      .prepare(
-        `SELECT 1 AS retained FROM consumed_attention
-         WHERE conversation_id = ? AND record_hash = ?`,
-      )
-      .get(input.conversationId, input.recordHash) !== undefined
-  );
 }
 
 function stageRecordInTransaction(
@@ -166,9 +175,89 @@ function stageRecordInTransaction(
     return "existing";
   }
   requireRecordPosition(database, record);
-  requireUnclaimedPredecessor(database, record);
-  insertStagedRecord(database, record);
+  database
+    .prepare(
+      `INSERT INTO staged_records
+        (conversation_id, record_hash, previous_record_hash,
+         membership_hash, anchor_hash, action_hash, author_agent_id, post_id,
+         canonical_record_core)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      record.conversationId,
+      record.recordHash,
+      record.previousRecordHash ?? null,
+      record.membershipHash,
+      record.anchorHash,
+      record.actionHash,
+      record.authorAgentId,
+      record.postId,
+      copyBytes(record.canonicalRecordCore),
+    );
   return "inserted";
+}
+
+function promoteRecordInTransaction(
+  database: DatabaseSync,
+  record: CertifiedRecord,
+  delivery?: InboundDeliveryInput,
+): StoreMutation {
+  if (delivery === undefined) {
+    return promoteResolvedRecordInTransaction(database, record, () =>
+      retainDeliveryInTransaction(database, record),
+    );
+  }
+  return promoteResolvedRecordInTransaction(database, record, () =>
+    retainDeliveryInTransaction(database, record, delivery),
+  );
+}
+
+function promoteResolvedRecordInTransaction(
+  database: DatabaseSync,
+  record: CertifiedRecord,
+  retainDelivery: () => StoreMutation,
+): StoreMutation {
+  const staged = findStagedRecord(
+    database,
+    record.conversationId,
+    record.recordHash,
+  );
+  if (staged === undefined) {
+    throw new StoreSignal("not-found");
+  }
+  requireSameRecord(staged, record);
+  const evidenceMutation = mergeCertifiedEvidence(database, record);
+  if (hasCertifiedRecord(database, record.conversationId, record.recordHash)) {
+    const deliveryMutation = retainDelivery();
+    return evidenceMutation === "inserted" || deliveryMutation === "inserted"
+      ? "inserted"
+      : "existing";
+  }
+  const position = readStoredPosition(database, record.conversationId);
+  requireEqual(position.currentAnchorHash, record.anchorHash);
+  requireEqual(position.headRecordHash, record.previousRecordHash);
+  insertCertifiedRecord(database, record, position.headOrdinal + 1);
+  completeLocalPostIntent(database, record);
+  retainDelivery();
+  return "inserted";
+}
+
+function mergeCertifiedEvidence(
+  database: DatabaseSync,
+  record: CertifiedRecord,
+): StoreMutation {
+  let mutation: StoreMutation = "existing";
+  for (const evidence of record.actionEvidence) {
+    if (mergeEvidenceInTransaction(database, evidence) === "inserted") {
+      mutation = "inserted";
+    }
+  }
+  for (const evidence of record.durabilityEvidence) {
+    if (mergeEvidenceInTransaction(database, evidence) === "inserted") {
+      mutation = "inserted";
+    }
+  }
+  return mutation;
 }
 
 function mergeEvidenceInTransaction(
@@ -198,32 +287,6 @@ function mergeEvidenceInTransaction(
   return "inserted";
 }
 
-function promoteRecordInTransaction(
-  database: DatabaseSync,
-  record: CertifiedRecord,
-): StoreMutation {
-  const staged = findStagedRecord(
-    database,
-    record.conversationId,
-    record.recordHash,
-  );
-  if (staged === undefined) {
-    throw new StoreSignal("not-found");
-  }
-  requireSameRecord(staged, record);
-  if (hasCertifiedRecord(database, record.conversationId, record.recordHash)) {
-    return "existing";
-  }
-  const position = readStoredPosition(database, record.conversationId);
-  requireEqual(position.currentAnchorHash, record.anchorHash);
-  requireEqual(position.headRecordHash, record.previousRecordHash);
-  insertCertifiedRecord(database, record, position.headOrdinal + 1);
-  if (record.previousRecordHash === undefined) {
-    completeStartIntent(database, record.conversationId, record.recordHash);
-  }
-  return "inserted";
-}
-
 function requireRecordPosition(
   database: DatabaseSync,
   record: StagedRecord,
@@ -232,44 +295,14 @@ function requireRecordPosition(
   requireEqual(position.membershipHash, record.membershipHash);
   requireEqual(position.currentAnchorHash, record.anchorHash);
   requireEqual(position.headRecordHash, record.previousRecordHash);
-}
-
-function requireUnclaimedPredecessor(
-  database: DatabaseSync,
-  record: StagedRecord,
-): void {
-  const predecessorKey = record.previousRecordHash ?? GENESIS_PREDECESSOR;
-  const conflicting = database
-    .prepare(
-      `SELECT record_hash FROM staged_records
-       WHERE conversation_id = ? AND predecessor_key = ?`,
-    )
-    .get(record.conversationId, predecessorKey);
-  if (conflicting !== undefined) {
-    throw new StoreSignal("conflict");
+  const proposalLock = findProposalLock(
+    database,
+    record.conversationId,
+    record.previousRecordHash ?? GENESIS_PREDECESSOR,
+  );
+  if (proposalLock !== undefined) {
+    requireEqual(proposalLock.actionHash, record.actionHash);
   }
-}
-
-function insertStagedRecord(
-  database: DatabaseSync,
-  record: StagedRecord,
-): void {
-  database
-    .prepare(
-      `INSERT INTO staged_records
-        (conversation_id, record_hash, predecessor_key, previous_record_hash,
-         membership_hash, anchor_hash, canonical_record)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      record.conversationId,
-      record.recordHash,
-      record.previousRecordHash ?? GENESIS_PREDECESSOR,
-      record.previousRecordHash ?? null,
-      record.membershipHash,
-      record.anchorHash,
-      copyBytes(record.canonicalRecord),
-    );
 }
 
 function findEvidence(
@@ -296,6 +329,12 @@ function requireEvidenceSubject(
   evidence: ProtocolEvidence,
 ): void {
   requireMembership(database, evidence.conversationId);
+  requireLocalEvidenceLock(database, evidence);
+  if (evidence.kind === "action") {
+    if (!hasActionSubject(database, evidence)) {
+      throw new StoreSignal("not-found");
+    }
+  }
   if (
     evidence.kind === "durability" &&
     findStagedRecord(database, evidence.conversationId, evidence.subjectId) ===
@@ -315,6 +354,94 @@ function requireEvidenceSubject(
   }
 }
 
+function requireLocalEvidenceLock(
+  database: DatabaseSync,
+  evidence: ProtocolEvidence,
+): void {
+  const identity = readStoredIdentity(database);
+  if (identity === undefined || evidence.evidenceKey !== identity.agentId) {
+    return;
+  }
+  if (evidence.kind === "action") {
+    requireLocalActionEvidenceLock(database, evidence);
+    return;
+  }
+  if (evidence.kind === "durability") {
+    requireLocalDurabilityEvidenceLock(database, evidence);
+  }
+}
+
+function requireLocalActionEvidenceLock(
+  database: DatabaseSync,
+  evidence: ProtocolEvidence,
+): void {
+  if (!hasProposalAction(database, evidence)) {
+    throw new StoreSignal("not-found");
+  }
+}
+
+function requireLocalDurabilityEvidenceLock(
+  database: DatabaseSync,
+  evidence: ProtocolEvidence,
+): void {
+  const record = findStagedRecord(
+    database,
+    evidence.conversationId,
+    evidence.subjectId,
+  );
+  if (record === undefined) {
+    throw new StoreSignal("not-found");
+  }
+  const proposalLock = findProposalLock(
+    database,
+    record.conversationId,
+    record.previousRecordHash ?? GENESIS_PREDECESSOR,
+  );
+  if (
+    proposalLock === undefined ||
+    proposalLock.actionHash !== record.actionHash
+  ) {
+    throw new StoreSignal("not-found");
+  }
+}
+
+function hasProposalAction(
+  database: DatabaseSync,
+  evidence: ProtocolEvidence,
+): boolean {
+  return (
+    database
+      .prepare(
+        `SELECT 1 AS retained FROM proposal_locks
+         WHERE conversation_id = ? AND action_hash = ? LIMIT 1`,
+      )
+      .get(evidence.conversationId, evidence.subjectId) !== undefined
+  );
+}
+
+function hasActionSubject(
+  database: DatabaseSync,
+  evidence: ProtocolEvidence,
+): boolean {
+  return (
+    database
+      .prepare(
+        `SELECT 1 AS retained FROM proposal_locks
+         WHERE conversation_id = ? AND action_hash = ?
+         UNION ALL
+         SELECT 1 AS retained FROM staged_records
+         WHERE conversation_id = ? AND action_hash = ?
+         LIMIT 1`,
+      )
+      .get(
+        evidence.conversationId,
+        evidence.subjectId,
+        evidence.conversationId,
+        evidence.subjectId,
+      ) !== undefined
+  );
+}
+
 function insertCertifiedRecord(
   database: DatabaseSync,
   record: CertifiedRecord,
@@ -322,16 +449,10 @@ function insertCertifiedRecord(
 ): void {
   database
     .prepare(
-      `INSERT INTO certified_records
-        (conversation_id, record_hash, ordinal, canonical_certified_record)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO certified_records (conversation_id, record_hash, ordinal)
+       VALUES (?, ?, ?)`,
     )
-    .run(
-      record.conversationId,
-      record.recordHash,
-      ordinal,
-      copyBytes(record.canonicalCertifiedRecord),
-    );
+    .run(record.conversationId, record.recordHash, ordinal);
   database
     .prepare(
       `UPDATE conversation_state
@@ -340,30 +461,38 @@ function insertCertifiedRecord(
     .run(record.recordHash, ordinal, record.conversationId);
 }
 
-function completeStartIntent(
+function completeLocalPostIntent(
   database: DatabaseSync,
-  conversationId: string,
-  recordHash: string,
+  record: CertifiedRecord,
 ): void {
+  const identity = readStoredIdentity(database);
+  if (identity === undefined) {
+    throw new StoreSignal("not-found");
+  }
+  if (record.authorAgentId !== identity.agentId) {
+    return;
+  }
   const row = database
     .prepare(
-      `SELECT completed_record_hash FROM start_intents
-       WHERE conversation_id = ?`,
+      `SELECT conversation_id, membership_hash, completed_record_hash
+       FROM post_intents WHERE author_agent_id = ? AND post_id = ?`,
     )
-    .get(conversationId);
+    .get(record.authorAgentId, record.postId);
   if (row === undefined) {
     throw new StoreSignal("not-found");
   }
+  requireEqual(readText(row, "conversation_id"), record.conversationId);
+  requireEqual(readText(row, "membership_hash"), record.membershipHash);
   const completed = readOptionalText(row, "completed_record_hash");
-  if (completed !== undefined && completed !== recordHash) {
+  if (completed !== undefined && completed !== record.recordHash) {
     throw new StoreSignal("conflict");
   }
   database
     .prepare(
-      `UPDATE start_intents SET completed_record_hash = ?
-       WHERE conversation_id = ?`,
+      `UPDATE post_intents SET completed_record_hash = ?
+       WHERE author_agent_id = ? AND post_id = ?`,
     )
-    .run(recordHash, conversationId);
+    .run(record.recordHash, record.authorAgentId, record.postId);
 }
 
 function requireMembership(
@@ -398,7 +527,42 @@ function hasCertifiedRecord(
 
 function validateCertifiedRecord(record: CertifiedRecord): void {
   validateStagedRecord(record);
-  requireBytes(record.canonicalCertifiedRecord);
+  validateCertificateEvidence(record.actionEvidence, {
+    conversationId: record.conversationId,
+    kind: "action",
+    subjectId: record.actionHash,
+  });
+  validateCertificateEvidence(record.durabilityEvidence, {
+    conversationId: record.conversationId,
+    kind: "durability",
+    subjectId: record.recordHash,
+  });
+}
+
+function validateCertificateEvidence(
+  evidenceItems: readonly ProtocolEvidence[],
+  expected: Readonly<{
+    conversationId: string;
+    kind: ProtocolEvidence["kind"];
+    subjectId: string;
+  }>,
+): void {
+  if (evidenceItems.length === 0) {
+    throw new StoreSignal("invalid-input");
+  }
+  const keys = new Set<string>();
+  for (const evidence of evidenceItems) {
+    validateEvidence(evidence);
+    if (
+      evidence.conversationId !== expected.conversationId ||
+      evidence.kind !== expected.kind ||
+      evidence.subjectId !== expected.subjectId ||
+      keys.has(evidence.evidenceKey)
+    ) {
+      throw new StoreSignal("invalid-input");
+    }
+    keys.add(evidence.evidenceKey);
+  }
 }
 
 function validateStagedRecord(record: StagedRecord): void {
@@ -409,7 +573,10 @@ function validateStagedRecord(record: StagedRecord): void {
   }
   requireText(record.membershipHash);
   requireText(record.anchorHash);
-  requireBytes(record.canonicalRecord);
+  requireText(record.actionHash);
+  requireText(record.authorAgentId);
+  requireText(record.postId);
+  requireBytes(record.canonicalRecordCore);
 }
 
 function validateEvidence(evidence: ProtocolEvidence): void {
@@ -417,4 +584,15 @@ function validateEvidence(evidence: ProtocolEvidence): void {
   requireText(evidence.subjectId);
   requireText(evidence.evidenceKey);
   requireBytes(evidence.canonicalEvidence);
+}
+
+function disseminationObligation(
+  kind: DisseminationObligation["kind"],
+  record: StagedRecord,
+): DisseminationObligation {
+  return Object.freeze({
+    conversationId: record.conversationId,
+    recordHash: record.recordHash,
+    kind,
+  });
 }

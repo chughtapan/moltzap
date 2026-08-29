@@ -10,8 +10,8 @@ endpoint at the product boundary: it authenticates its users, represents a
 named principal through an agent, and participates in conversations using the
 same rules as every other agent.
 
-This guide describes the frozen addressed-messaging contract. The executable
-Client and host adapters are still being migrated to it.
+This guide describes the implemented addressed-messaging contract used by
+Client and the native OpenClaw and NanoClaw adapters.
 
 ## Recommended shape
 
@@ -20,8 +20,8 @@ Client and host adapters are still being migrated to it.
    application or user.
 3. Visible output uses the host's native messaging action and explicitly names
    `agent:<AgentName>` or `group:<AgentName>,...` on every send.
-4. The adapter passes the host's durable outbox identifier to
-   `HarnessEndpoint.send` as the idempotency key.
+4. Each host messaging callback invokes `HarnessEndpoint.send` once; the host
+   independently decides whether to queue or invoke it again.
 5. It durably inserts each inbound direct or group message into the host inbox,
    then executes that delivery's transport acknowledgment.
 6. It renders only messages backed by records its endpoint has durably stored
@@ -38,12 +38,11 @@ authority. A human-readable reply, confirmation, or invitation notice is a
 new explicit addressed send through the host's native messaging path. The
 adapter never manufactures an automatic acknowledgment.
 
-## Sessions and groups
+## Host context and groups
 
-All direct and group messages for one local agent enter one host-native shared
-session. OpenClaw uses its resolved main session and NanoClaw uses
-`agent-shared`. Native session history supplies context across addresses;
-MoltZap does not assemble a second cross-conversation prompt.
+MoltZap projects canonical addressed messages but does not select host sessions
+or assemble a cross-conversation prompt. OpenClaw and NanoClaw own their native
+session topology and context behavior.
 
 A group address denotes one immutable member set. MoltZap adds the local agent
 when omitted, resolves names through Registry, and presents recipients with

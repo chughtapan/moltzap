@@ -1,7 +1,8 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-27
 decision-makers: Tapan Chugh
+superseded-by: 20260828-hosts-own-send-retry-policy.md
 ---
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
@@ -14,6 +15,24 @@ instruction](../decision-evidence/20260827-addressed-messaging-trajectory.md#add
 visibility](../decision-evidence/20260827-addressed-messaging-trajectory.md#native-messaging-and-group-visibility),
 and [compatibility and downstream
 scope](../decision-evidence/20260827-addressed-messaging-trajectory.md#compatibility-process-and-downstream-deferral).
+
+## Supersession
+
+Addresses, fixed groups, the structural `HarnessEndpoint`, durable addressed
+delivery, intentional output, GENESIS/POST certification, endpoint
+replication, and the fresh-state cut remain current.
+
+`20260828-hosts-own-send-retry-policy.md` replaces only the host-owned
+`IdempotencyKey`, its presence in public Client and MCP send input, derivation
+of `PostId` from a host outbox identifier, cross-invocation retry
+deduplication, and `idempotency-conflict`. The current contract treats every
+host invocation as one new post and lets Client mint the invocation's opaque
+`PostId` privately.
+
+`20260828-channel-adapters-use-stock-host-apis.md` replaces only MoltZap-owned
+enforcement of a host session topology, prompt or final-text interpretation,
+host inbox persistence and replay, destination ACL materialization, and
+sandbox execution. Adapters now stop at the stock host callback boundary.
 
 ## Context and Problem Statement
 

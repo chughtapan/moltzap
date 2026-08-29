@@ -1,7 +1,7 @@
-/** @file Endpoint address binding, semantic START delegation, and exhausted-inbox regressions. */
+/** @file Endpoint address binding, addressed send delegation, and exhausted-inbox regressions. */
 
 import { assert, it } from "@effect/vitest";
-import { AgentName, ConversationId, type StartInput } from "@moltzap/client";
+import { Content, MessageAddressInput, type SendInput } from "@moltzap/client";
 import { AgentId } from "@moltzap/identity";
 import { Effect, Schema, Stream } from "effect";
 import { makeConversationAddress } from "./conversation.js";
@@ -16,14 +16,11 @@ const observerId = Schema.decodeUnknownSync(AgentId)(
   "agt_AAAAAAAAAAAAAAAAAAAAAA",
 );
 const otherId = Schema.decodeUnknownSync(AgentId)("agt_AAAAAAAAAAAAAAAAAAAAAg");
-const conversationId = Schema.decodeUnknownSync(ConversationId)(
-  "00000000-0000-4000-8000-000000000102",
-);
-const otherName = Schema.decodeUnknownSync(AgentName)("other");
-const startInput: StartInput = {
-  conversationId,
-  peers: [otherName],
-  content: [{ type: "text", text: "hello" }],
+const destination =
+  Schema.decodeUnknownSync(MessageAddressInput)("agent:other");
+const sendInput: SendInput = {
+  to: destination,
+  content: Schema.decodeUnknownSync(Content)([{ type: "text", text: "hello" }]),
 };
 
 const inbox: EndpointInbox = {
@@ -39,11 +36,11 @@ it("binds an addressed receive-only conversation socket", () =>
       const endpoint = makeEndpoint(
         {
           participant,
-          transport: { received: Stream.empty, start: () => Effect.void },
+          transport: { received: Stream.empty, send: () => Effect.void },
         },
         inbox,
       );
-      const address = makeConversationAddress(conversationId, [participant]);
+      const address = makeConversationAddress(destination, [participant]);
       const socket = yield* endpoint.socket(address);
       const failure = yield* socket.receive().pipe(Effect.flip);
 
@@ -61,11 +58,11 @@ it.effect("rejects an address that excludes the endpoint", () =>
     const endpoint = makeEndpoint(
       {
         participant,
-        transport: { received: Stream.empty, start: () => Effect.void },
+        transport: { received: Stream.empty, send: () => Effect.void },
       },
       inbox,
     );
-    const address = makeConversationAddress(conversationId, [other]);
+    const address = makeConversationAddress(destination, [other]);
     const failure = yield* endpoint.socket(address).pipe(Effect.flip);
 
     assert.instanceOf(failure, NetworkError);
@@ -73,16 +70,16 @@ it.effect("rejects an address that excludes the endpoint", () =>
   }),
 );
 
-it.effect("delegates semantic START without exposing its daemon client", () =>
+it.effect("delegates addressed send without exposing its daemon client", () =>
   Effect.gen(function* () {
     const participant = makeParticipantHandle("observer", observerId);
-    let observed: StartInput | undefined;
+    let observed: SendInput | undefined;
     const endpoint = makeEndpoint(
       {
         participant,
         transport: {
           received: Stream.empty,
-          start: (input) =>
+          send: (input) =>
             Effect.sync(() => {
               observed = input;
             }),
@@ -91,8 +88,8 @@ it.effect("delegates semantic START without exposing its daemon client", () =>
       inbox,
     );
 
-    yield* endpoint.start(startInput);
+    yield* endpoint.send(sendInput);
 
-    assert.strictEqual(observed, startInput);
+    assert.strictEqual(observed, sendInput);
   }),
 );

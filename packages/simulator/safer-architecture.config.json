@@ -164,7 +164,7 @@
     },
     {
       "package": "@moltzap/client",
-      "reason": "Simulator controlled-endpoint contracts deliberately expose Client-owned ConversationId, HarnessTurn, and StartInput values"
+      "reason": "Simulator controlled-endpoint contracts deliberately expose Client-owned SendInput and InboundDelivery values"
     }
   ],
   "allowedTestPublicSubpaths": []
